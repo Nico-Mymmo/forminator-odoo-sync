@@ -1,12 +1,12 @@
 /**
- * Wrangler configuration for forminator-odoo-sync
+ * For more details on how to configure Wrangler, refer to:
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "forminator-odoo-sync",
+	"name": "cloudflare-worker-odoo-template",
 	"main": "src/index.js",
-	"compatibility_date": "2025-12-11",
+	"compatibility_date": "2025-07-30",
 	"observability": {
 		"enabled": true
 	}

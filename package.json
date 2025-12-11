@@ -1,27 +1,16 @@
 {
-  "name": "forminator-odoo-sync",
-  "version": "1.0.0",
-  "description": "Cloudflare Worker to sync WordPress Forminator form submissions to Odoo",
-  "main": "src/index.js",
-  "type": "module",
-  "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "tail": "wrangler tail",
-    "test": "vitest"
-  },
-  "keywords": [
-    "cloudflare",
-    "worker",
-    "forminator",
-    "odoo",
-    "webhook"
-  ],
-  "author": "",
-  "license": "MIT",
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241127.0",
-    "vitest": "^2.1.8",
-    "wrangler": "^3.94.0"
-  }
+	"name": "cloudflare-worker-odoo-template",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.8.19",
+		"vitest": "~3.2.0",
+		"wrangler": "^4.26.1"
+	}
 }

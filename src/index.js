@@ -1,70 +1,71 @@
-import { validateAuth, parseJsonBody, successResponse, errorResponse } from "./lib/utils.js";
-import { handleContactForm } from "./actions/contactForm.js";
-import { handleNewsletterForm } from "./actions/newsletterForm.js";
+import { testConnection } from "./actions/test_connection.js";
 
-/**
- * Form type to handler mapping
- */
-const FORM_HANDLERS = {
-  contact: handleContactForm,
-  newsletter: handleNewsletterForm,
-  // Add more form handlers here as needed
+const ACTIONS = {
+  test_connection: testConnection,
 };
+
+// Validate authentication using either header or query parameter
+async function validateAuth(request, env) {
+  // First check Authorization header (preferred method)
+  const authHeader = request.headers.get("Authorization");
+  if (authHeader) {
+    const [scheme, token] = authHeader.split(" ");
+    if (scheme === "Bearer" && token === env.AUTH_TOKEN) {
+      return true;
+    }
+  }
+
+  // If no valid header, check query parameter
+  const url = new URL(request.url);
+  const tokenParam = url.searchParams.get("token");
+  if (tokenParam && tokenParam === env.AUTH_TOKEN) {
+    return true;
+  }
+
+  return false;
+}
 
 export default {
   async fetch(request, env, ctx) {
-    // CORS headers
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization"
-    };
+    const url = new URL(request.url);
 
-    // Handle CORS preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
+    // Validate authentication for all routes
+    const isAuthorized = await validateAuth(request, env);
+    if (!isAuthorized) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Unauthorized"
+      }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" }
+      });
     }
 
-    try {
-      // Validate authentication
-      if (!validateAuth(request, env)) {
-        return errorResponse("Unauthorized", 401);
-      }
+    if (request.method !== "POST") {
+      return new Response("Use POST", { status: 405 });
+    }
 
-      const url = new URL(request.url);
+    let data;
+    try { data = await request.json(); } catch { return new Response("Invalid JSON", { status: 400 }); }
 
-      // Health check endpoint
-      if (url.pathname === "/health" || url.pathname === "/") {
-        return successResponse({
-          status: "healthy",
-          service: "forminator-odoo-sync",
-          timestamp: new Date().toISOString()
+    // Get action from URL parameter, fallback to body
+    const action = url.searchParams.get("action") || data.action;
+
+    // Route to explicit actions
+    if (ACTIONS[action]) {
+      try {
+        return await ACTIONS[action]({ request, env, ctx, data });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: true, message: String(err?.message || err) }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
         });
       }
-
-      // Webhook endpoint
-      if (request.method === "POST" && url.pathname === "/webhook") {
-        const data = await parseJsonBody(request);
-
-        // Determine form type
-        const formType = data.form_type || url.searchParams.get("form_type") || "contact";
-
-        // Get handler for form type
-        const handler = FORM_HANDLERS[formType];
-        if (!handler) {
-          return errorResponse(`Unknown form type: ${formType}`, 400);
-        }
-
-        // Process form submission
-        const result = await handler({ env, data, request, ctx });
-
-        return successResponse(result);
-      }
-
-      return errorResponse("Not found", 404);
-
-    } catch (error) {
-      return errorResponse(error.message, 500);
     }
+
+    return new Response(JSON.stringify({ error: "Unknown action" }), { 
+      status: 400,
+      headers: { "Content-Type": "application/json" }
+    });
   }
 };
