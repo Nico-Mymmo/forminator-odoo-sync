@@ -1,7 +1,9 @@
 import { testConnection } from "./actions/test_connection.js";
+import { receiveForminator } from "./actions/receive_forminator.js";
 
 const ACTIONS = {
   test_connection: testConnection,
+  receive_forminator: receiveForminator,
 };
 
 // Validate authentication using either header or query parameter

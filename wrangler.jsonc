@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "cloudflare-worker-odoo-template",
+	"name": "forminator-sync",
 	"main": "src/index.js",
 	"compatibility_date": "2025-07-30",
 	"observability": {
