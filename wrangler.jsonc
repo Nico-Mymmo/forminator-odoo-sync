@@ -1,0 +1,22 @@
+/**
+ * Wrangler configuration for forminator-odoo-sync
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "forminator-odoo-sync",
+	"main": "src/index.js",
+	"compatibility_date": "2025-12-11",
+	"observability": {
+		"enabled": true
+	}
+	
+	/**
+	 * Environment Variables
+	 * Use wrangler secret put <KEY> to set secrets:
+	 * - DB_NAME: Odoo database name (e.g., "mymmo-main-11883993")
+	 * - UID: Odoo user ID (numeric)
+	 * - API_KEY: Odoo API key
+	 * - AUTH_TOKEN: Bearer token for webhook authentication
+	 */
+}

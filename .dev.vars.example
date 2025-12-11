@@ -1,0 +1,10 @@
+# Local development environment variables
+# Copy this file to .dev.vars and fill in your values
+
+# Odoo Configuration
+DB_NAME=mymmo-main-11883993
+UID=2
+API_KEY=your_odoo_api_key_here
+
+# Authentication
+AUTH_TOKEN=your_webhook_auth_token_here
