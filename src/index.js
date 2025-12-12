@@ -8,7 +8,20 @@ const ACTIONS = {
 
 // Validate authentication using either header or query parameter
 async function validateAuth(request, env) {
-  // First check Authorization header (preferred method)
+  const userAgent = request.headers.get("User-Agent") || "";
+  const url = new URL(request.url);
+  const tokenParam = url.searchParams.get("token");
+  
+  // Public Forminator token: only works from openvme.be User-Agent
+  if (tokenParam === "openvmeform") {
+    if (!userAgent.includes("openvme.be")) {
+      console.error(`🚫 openvmeform token used but User-Agent doesn't contain openvme.be: ${userAgent}`);
+      return false;
+    }
+    return true;
+  }
+  
+  // Check Authorization header for general access
   const authHeader = request.headers.get("Authorization");
   if (authHeader) {
     const [scheme, token] = authHeader.split(" ");
@@ -17,9 +30,7 @@ async function validateAuth(request, env) {
     }
   }
 
-  // If no valid header, check query parameter
-  const url = new URL(request.url);
-  const tokenParam = url.searchParams.get("token");
+  // Check query parameter for AUTH_TOKEN (legacy support)
   if (tokenParam && tokenParam === env.AUTH_TOKEN) {
     return true;
   }

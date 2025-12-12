@@ -1,50 +1,353 @@
-# Cloudflare Worker Template - Odoo Integration
+# Forminator Odoo Sync - Cloudflare Worker
 
-**Basissetup voor Cloudflare Workers met Odoo integratie**
+**Cloudflare Worker voor synchronisatie van WordPress Forminator formulieren naar Odoo**
 
-Dit is een standaard template project voor het bouwen van Cloudflare Workers die integreren met Odoo. De structuur en setup is identiek aan `odoo-proxy` en vormt de basis voor alle Odoo-gerelateerde worker projecten.
+Deze worker ontvangt webhook calls van WordPress Forminator formulieren en synchroniseert de data automatisch naar Odoo. Elk formulier kan individueel geconfigureerd worden met custom field mappings en templates.
+
+## 🎯 Functionaliteit
+
+- ✅ **Webhook ontvanger** voor Forminator formulieren
+- ✅ **Automatische field normalisatie** (`email-1`, `phone-3` → `email`, `phone`)
+- ✅ **Configureerbare mappings** per formulier (JSON configuratie)
+- ✅ **Template systeem** voor complexe veld combinaties
+- ✅ **User-Agent verificatie** (alleen openvme.be Forminator webhooks)
+- ✅ **Automatische reCAPTCHA filtering**
+- ✅ **Contact check/create** in Odoo (res.partner)
 
 ## 📋 Projectstructuur
 
-Dit project volgt de **standaard Cloudflare Worker structuur** zoals gebruikt in alle OpenVME worker projecten:
-
 ```
-project/
-├── package.json              # Dependencies & scripts (identiek aan odoo-proxy)
+forminator-odoo-sync/
+├── package.json              # Dependencies & scripts
 ├── wrangler.jsonc            # Cloudflare Worker configuratie
-├── vitest.config.js          # Test configuratie
-├── .gitignore                # Git ignore (standaard template)
-├── .dev.vars.example         # Template voor lokale environment variables
 ├── .dev.vars                 # Lokale environment variables (NIET COMMITTEN)
 └── src/
-    ├── index.js              # Main router met action mapping
-    ├── actions/              # Action handlers (business logic)
-    │   └── test_connection.js
-    └── lib/                  # Gedeelde utilities
+    ├── index.js              # Main router met authentication
+    ├── actions/              # Endpoint handlers
+    │   ├── test_connection.js
+    │   └── receive_forminator.js
+    ├── config/               # Configuratie bestanden
+    │   ├── mappings.json     # ⚙️ FORMULIER MAPPINGS (JSON - gemakkelijk te bewerken)
+    │   └── form_mappings.js  # Mapping logic (niet aanpassen)
+    └── lib/                  # Utilities
         ├── odoo.js           # Odoo API wrapper
-        └── utils.js          # Helper functies
+        ├── utils.js          # Helper functies
+        ├── log_request.js    # Request logging
+        ├── forminator_mapper.js  # Field normalisatie
+        └── check_create_contact.js  # Contact check/create logic
 ```
 
-## 🎯 Gebruik als Template
+## ⚙️ Formulier Workflows Configureren
 
-### Dit project gebruiken voor nieuwe Odoo Workers:
+**Bestand: `src/config/mappings.json`** 🎯
 
-1. **Kopieer de volledige folder structuur**
-2. **Pas `wrangler.jsonc` aan**: Wijzig `name` naar je nieuwe project naam
-3. **Pas `package.json` aan**: Wijzig `name` naar je nieuwe project naam  
-4. **Verwijder bestaande actions** in `src/actions/` (behalve `test_connection.js`)
-5. **Maak nieuwe actions** voor je specifieke use case
-6. **Update `src/index.js`**: Registreer je nieuwe actions in het `ACTIONS` object
+Hier configureer je welke Forminator formulieren gesynchroniseerd moeten worden naar Odoo. Elk formulier heeft een **workflow** met één of meerdere stappen die sequentieel uitgevoerd worden.
 
-### Bestaande projecten uniformiseren:
+### Workflow Structuur:
 
-Gebruik dit project als referentie om andere workers naar dezelfde structuur te migreren:
-- Kopieer `package.json` dependencies en scripts
-- Kopieer `wrangler.jsonc` structuur (pas `name` aan)
-- Kopieer `vitest.config.js`
-- Kopieer `.gitignore`
-- Zorg dat `src/lib/odoo.js` en `src/lib/utils.js` identiek zijn
-- Herstructureer `src/index.js` naar hetzelfde routing patroon
+```json
+{
+  "11987": {
+    "field_mapping": {
+      "text_1": "first_name",
+      "text_2": "last_name",
+      "email_1": "email",
+      "phone_1": "phone",
+      "textarea_1": "message"
+    },
+    "workflow": [
+      {
+        "step": "contact",
+        "model": "res.partner",
+        "search": {
+          "domain": [["email", "=", "${email}"]],
+          "fields": ["id", "name", "email"]
+        },
+        "create": {
+          "email": "${email}",
+          "name": "${first_name} ${last_name}",
+          "phone": "${phone}"
+        },
+        "update": {
+          "enabled": true,
+          "fields": {
+            "phone": "${phone}"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+### Workflow Combinaties:
+
+De workflow bepaalt zelf wat er gebeurt op basis van wat je configureert:
+
+**1. Alleen zoeken** (check only):
+```json
+{
+  "step": "find_contact",
+  "model": "res.partner",
+  "search": {
+    "domain": [["email", "=", "${email}"]],
+    "fields": ["id", "name"]
+  }
+}
+```
+→ Zoekt contact, slaat ID op, skip als niet gevonden
+
+**2. Zoeken en creëren** (check + create):
+```json
+{
+  "step": "contact",
+  "model": "res.partner",
+  "search": {
+    "domain": [["email", "=", "${email}"]],
+    "fields": ["id", "name"]
+  },
+  "create": {
+    "email": "${email}",
+    "name": "${first_name} ${last_name}"
+  }
+}
+```
+→ Zoekt eerst, creëert alleen als niet gevonden
+
+**3. Zoeken, creëren en updaten** (check + create + update):
+```json
+{
+  "step": "contact",
+  "model": "res.partner",
+  "search": {
+    "domain": [["email", "=", "${email}"]],
+    "fields": ["id", "name"]
+  },
+  "create": {
+    "email": "${email}",
+    "name": "${first_name} ${last_name}"
+  },
+  "update": {
+    "enabled": true,
+    "fields": {
+      "phone": "${phone}"
+    }
+  }
+}
+```
+→ Zoekt eerst, creëert als niet gevonden, update als wel gevonden
+
+**4. Alleen updaten bestaande** (check + update):
+```json
+{
+  "step": "update_lead",
+  "model": "crm.lead",
+  "search": {
+    "domain": [["partner_id", "=", "$contact.id"]],
+    "fields": ["id", "name"]
+  },
+  "update": {
+    "enabled": true,
+    "fields": {
+      "description": "${message}"
+    }
+  }
+}
+```
+→ Zoekt eerst, update alleen als gevonden, skip als niet gevonden
+
+### Custom Field Mapping (Optioneel):
+
+Met `field_mapping` kan je Forminator veldnamen hernoemen naar logische namen voor je workflow:
+
+```json
+{
+  "11987": {
+    "field_mapping": {
+      "text_1": "first_name",
+      "text_2": "last_name",
+      "email_1": "email",
+      "textarea_5": "detailed_message"
+    },
+    "workflow": [...]
+  }
+}
+```
+
+**Hoe het werkt:**
+1. Eerst worden standaard suffixen verwijderd: `email-1` → `email`
+2. Dan wordt custom mapping toegepast: `text_1` → `first_name`
+3. In de workflow gebruik je de custom naam: `"name": "${first_name} ${last_name}"`
+
+**Log output:**
+```
+🔄 Mapped: email-1 → email
+🔀 Custom mapping: text_1 → first_name
+🔀 Custom mapping: text_2 → last_name
+```
+
+### Multi-step Workflow Voorbeeld:
+
+```json
+{
+  "12345": {
+    "workflow": [
+      {
+        "step": "contact",
+        "model": "res.partner",
+        "action": "check_create",
+        "search": {
+          "domain": [["email", "=", "${email}"]],
+          "fields": ["id", "name", "email"]
+        },
+        "create": {
+          "email": "${email}",
+          "name": "${first_name} ${last_name}",
+          "phone": "${phone}"
+        },
+        "update": {
+          "enabled": false
+        }
+      },
+      {
+        "step": "lead",
+        "model": "crm.lead",
+        "action": "check_create",
+        "search": {
+          "domain": [["partner_id", "=", "$contact.id"], ["type", "=", "opportunity"]],
+          "fields": ["id", "name", "partner_id"]
+        },
+        "create": {
+          "name": "Lead: ${first_name} ${last_name} - ${entry_time}",
+          "partner_id": "$contact.id",
+          "email_from": "${email}",
+          "phone": "${phone}",
+          "description": "${message}"
+        },
+        "update": {
+          "enabled": true,
+          "fields": {
+            "description": "${message}"
+          }
+        }
+      },
+      {
+        "step": "mailing_contact",
+        "model": "mailing.contact",
+        "action": "check_create",
+        "search": {
+          "domain": [["email", "=", "${email}"]],
+          "fields": ["id", "email"]
+        },
+        "create": {
+          "email": "${email}",
+          "name": "${first_name} ${last_name}"
+        },
+        "update": {
+          "enabled": false
+        }
+      }
+    ]
+  }
+}
+```
+
+### Workflow Configuratie Opties:
+
+#### Per Stap:
+- **`step`**: Unieke naam voor deze stap (gebruikt voor referenties in volgende stappen)
+- **`model`**: Odoo model naam (bijv. `res.partner`, `crm.lead`, `mailing.contact`)
+- **`search`** (optioneel): Zoek configuratie met `domain` en `fields`
+- **`create`** (optioneel): Velden om aan te maken als niet gevonden
+- **`update`** (optioneel): Update configuratie met `enabled` en `fields`
+
+De stap bepaalt zelf wat er gebeurt op basis van wat je configureert!
+
+#### Search Configuratie (optioneel):
+- **`domain`**: Odoo search domain (array van conditions)
+- **`fields`**: Welke velden op te halen (altijd inclusief `"id"`)
+- Als search ontbreekt, wordt altijd een nieuwe record gecreëerd
+
+#### Create Configuratie (optioneel):
+- Object met velden om aan te maken als record niet bestaat (na search)
+- Gebruikt template syntax (zie hieronder)
+- Als create ontbreekt maar record niet gevonden, wordt stap geskipt
+
+#### Update Configuratie (optioneel):
+- **`enabled`**: `true` of `false` - Of bestaande records geüpdatet moeten worden
+- **`fields`**: Object met velden om te updaten (alleen als `enabled: true`)
+- Als update ontbreekt of `enabled: false`, wordt bestaand record niet gewijzigd
+
+### Template Syntax:
+
+#### 1. Formulier Velden - `${fieldname}`
+Vervangt de waarde uit het ingestuurde formulier:
+```json
+"email": "${email}",
+"name": "${first_name} ${last_name}",
+"comment": "Ontvangen op ${entry_time}"
+```
+
+#### 2. Vorige Stap Resultaten - `$stepname.field`
+Vervangt met resultaat van een eerdere workflow stap:
+```json
+"partner_id": "$contact.id",
+"lead_id": "$lead.id",
+"related_name": "$contact.name"
+```
+
+#### 3. Combinaties
+Je kan beide combineren:
+```json
+"description": "Lead voor $contact.name (${email}) - ${message}"
+```
+
+### Genormaliseerde Veldnamen:
+
+De worker normaliseert automatisch Forminator veldnamen:
+- `email-1`, `email_3` → `email`
+- `phone-2`, `telephone-5` → `phone`
+- `name-1`, `first_name-2`, `last_name-3` → `name`, `first_name`, `last_name`
+- `company-1`, `company_name-2` → `company_name`
+- `address-1`, `city-2`, `postal_code-3` → `address`, `city`, `postal_code`
+
+**Je kan ook originele Forminator veldnamen gebruiken** (bv. `address_1_street_address`, `slider_1`)
+
+### Form ID Vinden:
+
+Het `ovme_forminator_id` veld wordt automatisch door Forminator meegestuurd. Check de logs:
+```
+📋 Normalized data: { "ovme_forminator_id": "11987", ... }
+### Workflow Uitvoering:
+
+1. **Sequentieel**: Stappen worden uitgevoerd in de volgorde zoals geconfigureerd
+3. **Action afhankelijk**:
+   - **`check_create`**: Als niet bestaat → create, als bestaat → update (indien enabled)
+   - **`check_update`**: Als bestaat → update (indien enabled), als niet bestaat → skip
+   - **`check_only`**: Zoek alleen, geen create/update, result beschikbaar voor volgende stappen
+   - **`check_update`**: Als bestaat → update (indien enabled), als niet bestaat → skip (geen create)
+### Log Output:
+
+```
+🚀 Starting workflow with 3 steps
+🔧 Step: contact (res.partner) - Search:✓ Create:✓ Update:✗
+✅ Found existing res.partner: ID 12345
+✅ Step "contact" completed: EXISTING - ID: 12345
+🔧 Step: lead (crm.lead) - Search:✓ Create:✓ Update:✓
+❌ No existing crm.lead found
+➕ Creating new crm.lead
+✅ Created crm.lead: ID 67890
+✅ Step "lead" completed: NEW - ID: 67890
+🔧 Step: update_notes (some.model) - Search:✓ Create:✗ Update:✓
+❌ No existing some.model found
+⏭️ Step skipped - no record found and no create configured
+🎉 Workflow completed successfully
+```Step: lead (crm.lead) - Action: check_create
+➕ Creating new crm.lead
+✅ Created crm.lead: ID 67890
+✅ Step "lead" completed: NEW - ID: 67890
+🎉 Workflow completed successfully
+```
 
 ## 🚀 Setup & Deployment
 
@@ -54,147 +357,287 @@ Gebruik dit project als referentie om andere workers naar dezelfde structuur te 
 npm install
 ```
 
-### 2. Lokale Development Environment
+### Request Flow
 
-Kopieer `.dev.vars.example` naar `.dev.vars`:
+```
+1. Forminator stuurt webhook POST
+   ↓
+2. Authenticatie check (token + User-Agent)
+   ↓
+3. Parse JSON body
+   ↓
+4. Log incoming request (met redacted headers)
+   ↓
+5. Normaliseer Forminator veldnamen (email-1 → email)
+   ↓
+6. Check ovme_forminator_id in mappings.json
+   ↓
+7. Als geen mapping → Skip Odoo sync (alleen log)
+   ↓
+8. Als wel mapping → Start workflow
+### 3. Configureer Formulier Workflows
 
-```bash
-cp .dev.vars.example .dev.vars
+**Open `src/config/mappings.json` en configureer je workflow:**
+
+```json
+{
+  "11987": {
+    "workflow": [
+      {
+        "step": "contact",
+        "model": "res.partner",
+        "action": "check_create",
+        "search": {
+          "domain": [["email", "=", "${email}"]],
+          "fields": ["id", "name", "email"]
+        },
+        "create": {
+          "email": "${email}",
+          "name": "${email}",
+          "phone": "${phone}",
+          "comment": "VME Check - ${entry_time}"
+        },
+        "update": {
+          "enabled": false
+        }
+      }
+    ]
+  }
+}
 ```
 
-Vul `.dev.vars` in met je Odoo credentials:
+**Na elke wijziging: deploy opnieuw** (`wrangler deploy`)
 
-```env
-DB_NAME=mymmo-main-11883993
-UID=2
-API_KEY=your-odoo-api-key-here
-AUTH_TOKEN=your-webhook-auth-token-here
+Forminator velden worden automatisch genormaliseerd:
+- `email-1`, `email_3` → `email`
+- `phone-2` → `phone`  
+- `first_name-1`, `last_name-2` → `first_name`, `last_name`
+- Speciale velden blijven origineel: `address_1_street_address`, `slider_1`, etc.
+- `g-recaptcha-response` wordt automatisch gefilterd
+
+### Template Processing
+
+Templates gebruiken twee syntaxen:
+
+**Formulier data** - `${fieldname}`:
+```json
+"comment": "Lead van ${first_name} ${last_name} op ${entry_time}"
 ```
 
-### 3. Test Lokaal
-
+**Vorige stappen** - `$stepname.field`:
+```json
+"partner_id": "$contact.id",
+"description": "Contact $contact.name heeft interesse in ${product}"
 ```bash
 npm run dev
 ```
 
 De worker draait nu op `http://127.0.0.1:8787`
 
-### 4. Test Connection
-
-Test of de Odoo verbinding werkt (lokaal of production):
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8787?action=test_connection" `
-    -Method Post `
-    -Headers @{"Authorization"="Bearer your-auth-token"; "Content-Type"="application/json"} `
-    -Body '{}'
-```
-
-**Postman:**
-```
-POST http://127.0.0.1:8787?action=test_connection
-Authorization: Bearer your-auth-token
-Content-Type: application/json
-
-Body (raw JSON): {}
-```
-
-Als dit succesvol is, zie je 3 partners uit Odoo en een environment check.
-
 ### 5. Deploy naar Cloudflare
 
-**Eerst:** Cloudflare authenticatie (eenmalig)
-
-**Optie A - API Token (Aanbevolen):**
-```powershell
-$env:CLOUDFLARE_API_TOKEN="your-cloudflare-api-token"
-wrangler deploy
-```
-
-**Optie B - OAuth Login:**
 ```bash
-wrangler login
 wrangler deploy
 ```
 
 ### 6. Secrets Configureren (Production)
 
 Na eerste deploy, zet de secrets op Cloudflare:
-## 📚 Hoe werkt het?
 
-### Routing Systeem
-
-Alle requests gaan via `src/index.js` die acties routeert op basis van de `action` parameter:
-
-```javascript
-// In src/index.js
-const ACTIONS = {
-  test_connection: testConnection,
-  contact_form: handleContactForm,
-  newsletter_form: handleNewsletterForm,
-};
+```powershell
+echo "mymmo-main-11883993" | wrangler secret put DB_NAME
+echo "2" | wrangler secret put UID
+echo "your-api-key" | wrangler secret put API_KEY
+echo "your-auth-token" | wrangler secret put AUTH_TOKEN
 ```
+
+### 7. Configureer Forminator Webhook
+
+In WordPress Forminator:
+1. Open je formulier settings
+2. Ga naar "Integrations" → "Webhook"
+3. Vul in:
+   - **URL**: `https://forminator-sync.openvme-odoo.workers.dev/?action=receive_forminator&token=openvmeform`
+   - **Method**: POST
+   - **Format**: JSON
+
+### Live Logs Bekijken
+
+```bash
+wrangler tail
+```
+
+### Log Output
+
+De worker logt uitgebreid elke workflow stap:
+```
+📨 Incoming request from: forminator
+🔄 Mapped: email_1 → email
+🗑️ Filtered out: g_recaptcha_response
+📋 Normalized data: { "email": "...", ... }
+🔧 Form 11987 has 3 workflow steps
+🚀 Starting workflow with 3 steps
+🔧 Step: contact (res.partner) - Action: check_create
+✅ Found existing res.partner: ID 12345
+✅ Step "contact" completed: EXISTING - ID: 12345
+🔧 Step: lead (crm.lead) - Action: check_create
+➕ Creating new crm.lead
+✅ Created crm.lead: ID 67890
+✅ Step "lead" completed: NEW - ID: 67890
+🔧 Step: mailing_contact (mailing.contact) - Action: check_create
+📝 Updated mailing.contact ID 99999
+✅ Step "mailing_contact" completed: UPDATED - ID: 99999
+🎉 Workflow completed successfully
+```lleen toegang als User-Agent `openvme.be` bevat
+- Geblokkeerd voor alle andere sources
+- Gebruik deze in Forminator webhooks
+
+### 2. Admin Token (Algemeen)
+
+**Authorization header**: `Bearer <AUTH_TOKEN>`
+- Algemene toegang zonder User-Agent check
+- Gebruik dit voor testing en andere integraties
+
+## 📊 Monitoring & Debugging
+
+### Live Logs Bekijken
+
+```bash
+wrangler tail
+```
+
+### Log Output
+
+De worker logt uitgebreid:
+```
+📨 Incoming request from: forminator
+🔄 Mapped: email_1 → email
+🗑️ Filtered out: g_recaptcha_response
+📋 Normalized data: { "email": "...", ... }
+🔧 Form 11987 mapped to model: res.partner
+🔗 Template: comment = "VME Check - ${entry_time}" → "VME Check - 2025-12-12 09:24:26"
+✅ Contact: NEW - ID: 12345 - John Doe
+```
+
+## 📚 Hoe werkt het?
 
 ### Request Flow
 
 ```
-POST https://worker.dev?action=test_connection
-  ↓
-1. Valideer Authorization header (Bearer token)
-  ↓
-2. Parse JSON body
-  ↓
-3. Zoek action handler in ACTIONS object
-  ↓
-4. Voer action uit → Odoo API call
-  ↓
-5. Return Response object met JSON
+1. Forminator stuurt webhook POST
+   ↓
+### Nieuwe Formulier Toevoegen
+
+1. **Vind Form ID**: Check wrangler tail logs na een test submission
+   ```
+   📋 Normalized data: { "ovme_forminator_id": "11987", ... }
+   ```
+
+2. **Bekijk beschikbare velden**: Zie welke genormaliseerde velden beschikbaar zijn in de logs
+
+3. **Ontwerp je workflow**: Bepaal welke stappen nodig zijn
+   - Welke Odoo models moet je aanmaken/updaten?
+   - In welke volgorde?
+   - Welke dependencies tussen stappen?
+
+4. **Voeg workflow toe** in `src/config/mappings.json`:
+   ```json
+   {
+     "11987": { ... },
+     "12345": {
+       "workflow": [
+         {
+           "step": "contact",
+           "model": "res.partner",
+           "action": "check_create",
+           "search": {
+             "domain": [["email", "=", "${email}"]],
+             "fields": ["id", "name"]
+           },
+           "create": {
+             "email": "${email}",
+             "name": "${first_name} ${last_name}"
+           },
+           "update": { "enabled": false }
+         }
+       ]
+     }
+   }
+   ```
+
+5. **Deploy**: `wrangler deploy`
+
+6. **Test**: Submit formulier en check logs met `wrangler tail`
+
+Forminator velden worden automatisch genormaliseerd:
+- `email-1`, `email_3` → `email`
+- `phone-2` → `phone`  
+- `first_name-1`, `last_name-2` → `first_name`, `last_name`
+- Speciale velden blijven origineel: `address_1_street_address`, `slider_1`, etc.
+- `g-recaptcha-response` wordt automatisch gefilterd
+
+### Template Processing
+
+Templates gebruiken `${fieldname}` syntax:
+```javascript
+"comment": "Lead van ${first_name} ${last_name} op ${entry_time}"
+```
+Wordt:
+```
+"comment": "Lead van John Doe op 2025-12-12 09:24:26"
 ```
 
-### Nieuwe Action Toevoegen
+### Nieuwe Formulier Toevoegen
 
-**1. Maak een nieuwe action file:** `src/actions/myAction.js`
+1. **Vind Form ID**: Check wrangler tail logs na een test submission
+2. **Bekijk velden**: Zie welke genormaliseerde velden beschikbaar zijn
+3. **Voeg mapping toe** in `src/config/mappings.json`:
+   ```json
+   {
+     "11987": { ... },
+     "12345": {
+       "model": "crm.lead",
+       "fields": {
+         "name": "Nieuwe lead: ${name}",
+         "email_from": "${email}",
+         "phone": "${phone}"
+       }
+     }
+   }
+   ```
+4. **Deploy**: `wrangler deploy`
+5. **Test**: Submit formulier en check logs
+4. **Deploy**: `wrangler deploy`
+5. **Test**: Submit formulier en check logs
 
-```javascript
-import { searchRead, create } from "../lib/odoo.js";
+### Test Connection
 
-export async function myAction({ env, data, request, ctx }) {
-  // Je business logic hier
-  const result = await searchRead(env, {
-    model: "res.partner",
-    domain: [["email", "=", data.email]],
-    fields: ["id", "name"],
-    limit: 1
-  });
+Test of de Odoo verbinding werkt:
 
-  return new Response(JSON.stringify({
-    success: true,
-    data: result
-  }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" }
-  });
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Uri "https://forminator-sync.openvme-odoo.workers.dev?action=test_connection&token=your-auth-token" `
+    -Method Post `
+    -Headers @{"Content-Type"="application/json"} `
+    -Body '{}'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Odoo connection successful",
+  "partners": [...],
+  "environment": {
+    "DB_NAME": "mymmo-main-11883993",
+    "UID": "2"
+  }
 }
 ```
 
-**2. Registreer in `src/index.js`:**
+## 🔧 Odoo API Wrapper
 
-```javascript
-import { myAction } from "./actions/myAction.js";
-
-const ACTIONS = {
-  // ...bestaande actions
-  my_action: myAction,
-};
-```
-
-**3. Test:**
-
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8787?action=my_action" `
-    -Method Post `
-    -Headers @{"Authorization"="Bearer your-token"; "Content-Type"="application/json"} `
+De `src/lib/odoo.js` bevat helper functies voor Odoo API calls:
     -Body '{"email":"test@example.com"}'
 ```
 

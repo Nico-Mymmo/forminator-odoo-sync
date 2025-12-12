@@ -1,0 +1,133 @@
+{
+    "_comment": "Forminator form mappings to Odoo - Edit this file to add/update form configurations",
+    "_documentation": "See README.md for full documentation on workflow syntax and field mapping",
+    "11987": {
+        "field_mapping": {
+            "name_1_first_name": "first_name",
+            "name_1_last_name": "last_name",
+            "email_1": "email",
+            "phone_1": "phone",
+            "text_1": "street",
+            "text_2": "number",
+            "number_1": "zip",
+            "slider_1": "number_of_units",
+            "text_3": "city",
+            "radio_1": "ownership_type",
+            "form_title": "form_title",
+            "entry_time": "entry_time"
+        },
+        "workflow": [
+            {
+                "step": "contact",
+                "model": "res.partner",
+                "search": {
+                    "domain": [
+                        [
+                            "email",
+                            "=",
+                            "${email}"
+                        ]
+                    ],
+                    "fields": [
+                        "id",
+                        "name",
+                        "email"
+                    ]
+                }
+            }
+        ]
+    },
+    "_example_complex": {
+        "field_mapping": {
+            "name-1": "full_name",
+            "email-3": "email_address",
+            "text_1": "company",
+            "textarea_5": "notes"
+        },
+        "workflow": [
+            {
+                "step": "contact",
+                "model": "res.partner",
+                "search": {
+                    "domain": [
+                        [
+                            "email",
+                            "=",
+                            "${email_address}"
+                        ]
+                    ],
+                    "fields": [
+                        "id",
+                        "name",
+                        "email"
+                    ]
+                },
+                "create": {
+                    "email": "${email_address}",
+                    "name": "${full_name}",
+                    "phone": "${phone}"
+                }
+            },
+            {
+                "step": "lead",
+                "model": "crm.lead",
+                "search": {
+                    "domain": [
+                        [
+                            "partner_id",
+                            "=",
+                            "$contact.id"
+                        ],
+                        [
+                            "type",
+                            "=",
+                            "opportunity"
+                        ]
+                    ],
+                    "fields": [
+                        "id",
+                        "name",
+                        "partner_id"
+                    ]
+                },
+                "create": {
+                    "name": "Lead voor ${full_name} - ${entry_time}",
+                    "partner_id": "$contact.id",
+                    "email_from": "${email_address}",
+                    "phone": "${phone}",
+                    "description": "${notes}"
+                },
+                "update": {
+                    "enabled": true,
+                    "fields": {
+                        "description": "${notes}"
+                    }
+                }
+            },
+            {
+                "step": "update_existing_record",
+                "model": "some.model",
+                "search": {
+                    "domain": [
+                        [
+                            "partner_id",
+                            "=",
+                            "$contact.id"
+                        ]
+                    ],
+                    "fields": [
+                        "id",
+                        "name"
+                    ]
+                },
+                "update": {
+                    "enabled": true,
+                    "fields": {
+                        "last_updated": "${entry_time}",
+                        "notes": "${notes}"
+                    }
+                }
+            }
+        ]
+    }
+}
