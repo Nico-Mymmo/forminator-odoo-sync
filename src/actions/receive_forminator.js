@@ -1,5 +1,4 @@
 import { logIncomingRequest } from "../lib/log_request.js";
-import { normalizeForminatorFields } from "../lib/forminator_mapper.js";
 import { getFormMapping } from "../config/form_mappings.js";
 import { executeWorkflow } from "../lib/workflow.js";
 
@@ -13,11 +12,11 @@ export async function receiveForminator({ request, env, data }) {
   // Log incoming request
   logIncomingRequest(request, data, 'forminator');
   
-  // Normalize Forminator field names (email-1 → email, phone-3 → phone, etc.)
-  const normalizedData = normalizeForminatorFields(data);
+  // Start with raw data - no automatic normalization
+  const formData = { ...data };
   
   // Check if this form should be synced to Odoo
-  const formId = normalizedData.ovme_forminator_id || data.ovme_forminator_id;
+  const formId = formData.ovme_forminator_id;
   if (!formId) {
     console.log(`⚠️ [${timestamp}] No ovme_forminator_id found, skipping Odoo sync`);
     return new Response(JSON.stringify({
@@ -47,21 +46,48 @@ export async function receiveForminator({ request, env, data }) {
     // First, collect all mappings to avoid modifying object during iteration
     const mappingsToApply = [];
     for (const [forminatorField, customName] of Object.entries(mapping.field_mapping)) {
-      if (normalizedData[forminatorField] !== undefined) {
-        mappingsToApply.push({ forminatorField, customName, value: normalizedData[forminatorField] });
+      if (formData[forminatorField] !== undefined) {
+        mappingsToApply.push({ forminatorField, customName, value: formData[forminatorField] });
       }
     }
     
     // Then apply all mappings
     for (const { forminatorField, customName, value } of mappingsToApply) {
-      normalizedData[customName] = value;
-      console.log(`🔀 [${timestamp}] Custom mapping: ${forminatorField} → ${customName}`);
+      formData[customName] = value;
+      console.log(`🔀 [${timestamp}] Field mapping: ${forminatorField} → ${customName}`);
       // Remove original field to avoid duplicates
-      delete normalizedData[forminatorField];
+      delete formData[forminatorField];
     }
   }
   
-  console.log(`📋 [${timestamp}] Normalized data: ${JSON.stringify(normalizedData, null, 2)}`);
+  // Apply value mappings for selection fields
+  if (mapping.value_mapping) {
+    for (const [fieldName, valueMap] of Object.entries(mapping.value_mapping)) {
+      if (formData[fieldName] !== undefined) {
+        const originalValue = formData[fieldName];
+        let mappedValue = valueMap[originalValue];
+        
+        if (mappedValue !== undefined) {
+          // Direct mapping found
+          formData[fieldName] = mappedValue;
+          console.log(`🎯 [${timestamp}] Value mapping: ${fieldName}: "${originalValue}" → "${mappedValue}"`);
+        } else if (valueMap._default !== undefined) {
+          // Use default value if no mapping found
+          formData[fieldName] = valueMap._default;
+          console.log(`🎯 [${timestamp}] Value mapping (default): ${fieldName}: "${originalValue}" → "${valueMap._default}"`);
+        } else if (valueMap._skip === true) {
+          // Skip field entirely (remove from data)
+          delete formData[fieldName];
+          console.log(`⏭️ [${timestamp}] Value mapping (skip): ${fieldName}: "${originalValue}" removed`);
+        } else {
+          // No mapping, no default, no skip = keep original
+          console.log(`⚠️ [${timestamp}] No value mapping found for ${fieldName}: "${originalValue}" (keeping original)`);
+        }
+      }
+    }
+  }
+  
+  console.log(`📋 [${timestamp}] Mapped data: ${JSON.stringify(formData, null, 2)}`);
   
   if (!mapping.workflow) {
     console.log(`⚠️ [${timestamp}] Form ${formId} has no workflow configured`);
@@ -77,7 +103,7 @@ export async function receiveForminator({ request, env, data }) {
   console.log(`🔧 [${timestamp}] Form ${formId} has ${mapping.workflow.length} workflow steps`);
   
   // Execute workflow
-  const workflowResults = await executeWorkflow(env, mapping.workflow, normalizedData);
+  const workflowResults = await executeWorkflow(env, mapping.workflow, formData);
   
   return new Response(JSON.stringify({
     success: true,

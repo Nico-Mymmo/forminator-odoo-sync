@@ -16,6 +16,16 @@
             "form_title": "form_title",
             "entry_time": "entry_time"
         },
+        "value_mapping": {
+            "ownership_type": {
+                "no-syndic": "",
+                "co-owner-syndic-neighbour": "",
+                "co-owner-syndic-me": "",
+                "professional-syndic": "",
+                "_default": "",
+                "_comment": "Use _default for unmapped values, or _skip: true to remove field"
+            }
+        },
         "workflow": [
             {
                 "step": "contact",
@@ -33,6 +43,37 @@
                         "name",
                         "email"
                     ]
+                },
+                "create": {
+                    "email": "${email}",
+                    "name": "${first_name} ${last_name}",
+                    "mobile": "${phone}",
+                    "street": "${street} ${number}",
+                    "zip": "${zip}",
+                    "city": "${city}",
+                    "country_id": 20,
+                    "x_studio_contact_type": "9",
+                    "x_studio_company_type": 1,
+                    "lang": "nl_BE",
+                    "x_studio_selection_field_3l2_1hnli05jb": "Opportunity"
+                }
+            },
+            {
+                "step": "company",
+                "model": "res.partner",
+                "search": {
+                    "domain": [
+                        [
+                            "id",
+                            "=",
+                            "$contact.parent_id"
+                        ]
+                    ],
+                    "fields": [
+                        "id",
+                        "name",
+                        "is_company"
+                    ]
                 }
             }
         ]
@@ -42,7 +83,23 @@
             "name-1": "full_name",
             "email-3": "email_address",
             "text_1": "company",
-            "textarea_5": "notes"
+            "textarea_5": "notes",
+            "radio-5": "priority"
+        },
+        "value_mapping": {
+            "priority": {
+                "low": "1",
+                "medium": "2",
+                "high": "3",
+                "_default": "2",
+                "_comment": "Unknown priority defaults to medium (2)"
+            },
+            "status": {
+                "active": "active",
+                "inactive": "inactive",
+                "_skip": true,
+                "_comment": "Remove status field if value not recognized"
+            }
         },
         "workflow": [
             {
@@ -59,13 +116,57 @@
                     "fields": [
                         "id",
                         "name",
-                        "email"
+                        "email",
+                        "parent_id"
                     ]
                 },
                 "create": {
                     "email": "${email_address}",
                     "name": "${full_name}",
                     "phone": "${phone}"
+                }
+            },
+            {
+                "_comment": "Check if contact has a company, if not create one",
+                "step": "company",
+                "model": "res.partner",
+                "search": {
+                    "domain": [
+                        [
+                            "id",
+                            "=",
+                            "$contact.parent_id"
+                        ]
+                    ],
+                    "fields": [
+                        "id",
+                        "name",
+                        "is_company"
+                    ]
+                },
+                "create": {
+                    "name": "${company}",
+                    "is_company": true
+                }
+            },
+            {
+                "_comment": "Link contact to company if needed",
+                "step": "link_contact",
+                "model": "res.partner",
+                "search": {
+                    "domain": [
+                        [
+                            "id",
+                            "=",
+                            "$contact.id"
+                        ]
+                    ],
+                    "fields": [
+                        "id"
+                    ]
+                },
+                "update": {
+                    "parent_id": "$company.id"
                 }
             },
             {

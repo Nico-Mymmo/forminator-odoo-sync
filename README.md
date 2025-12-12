@@ -175,16 +175,82 @@ Met `field_mapping` kan je Forminator veldnamen hernoemen naar logische namen vo
 ```
 
 **Hoe het werkt:**
-1. Eerst worden standaard suffixen verwijderd: `email-1` → `email`
-2. Dan wordt custom mapping toegepast: `text_1` → `first_name`
-3. In de workflow gebruik je de custom naam: `"name": "${first_name} ${last_name}"`
+1. Forminator stuurt data met technische veldnamen: `text_1`, `email_1`, `radio_1`
+2. Field mapping hernoemt naar logische namen: `first_name`, `email`, `priority`
+3. In de workflow gebruik je de logische naam: `"name": "${first_name} ${last_name}"`
 
 **Log output:**
 ```
-🔄 Mapped: email-1 → email
-🔀 Custom mapping: text_1 → first_name
-🔀 Custom mapping: text_2 → last_name
+🔀 Field mapping: text_1 → first_name
+🔀 Field mapping: text_2 → last_name
+🔀 Field mapping: email_1 → email
 ```
+
+### Value Mapping voor Selection Fields:
+
+Met `value_mapping` kan je formulier waarden vertalen naar Odoo selection field waarden:
+
+```json
+{
+  "11987": {
+    "field_mapping": {
+      "radio_1": "priority",
+      "select_1": "ownership_type"
+    },
+    "value_mapping": {
+      "priority": {
+        "low": "1",
+        "medium": "2",
+        "high": "3",
+        "_default": "2",
+        "_comment": "Unknown values default to medium priority"
+      },
+      "ownership_type": {
+        "co-owner-syndic-neighbour": "co_owner_syndic_neighbour",
+        "professional-syndic": "professional_syndic",
+        "tenant": "tenant",
+        "other": "other"
+      },
+      "status": {
+        "active": "active",
+        "inactive": "inactive",
+        "_skip": true,
+        "_comment": "Remove field if value not recognized"
+      }
+    },
+    "workflow": [...]
+  }
+}
+```
+
+**Hoe het werkt:**
+1. Forminator stuurt: `"radio_1": "low"`
+2. Field mapping hernoemt: `"priority": "low"`
+3. Value mapping vertaalt: `"priority": "1"` (Odoo selection waarde)
+4. Workflow ontvangt: `${priority}` = `"1"`
+
+**Mapping gedrag (left = Forminator, right = Odoo):**
+- **Direct match**: `"low": "1"` → waarde wordt gemapped naar `"1"`
+- **`_default`**: `"_default": "2"` → onbekende waarden krijgen `"2"`
+- **`_skip`**: `"_skip": true` → onbekende waarden = veld wordt verwijderd
+- **Geen match/default/skip**: originele waarde blijft behouden
+
+**Log output voorbeelden:**
+```
+🔀 Field mapping: radio_1 → priority
+🎯 Value mapping: priority: "low" → "1"
+🎯 Value mapping (default): priority: "unknown-value" → "2"
+⏭️ Value mapping (skip): status: "pending" removed
+⚠️ No value mapping found for priority: "critical" (keeping original)
+```
+
+**Wanneer gebruiken?**
+- Voor Odoo selection fields (dropdown velden met vaste opties)
+- Wanneer Forminator opties niet exact matchen met Odoo's interne waarden
+- Voor vertaling van user-friendly labels naar technische codes
+- Bij radio buttons, select dropdowns, checkboxes met voorgedefinieerde waarden
+- Use `_default` voor een fallback waarde bij onbekende input
+- Use `_skip: true` om velden te verwijderen bij onbekende waarden
 
 ### Multi-step Workflow Voorbeeld:
 
@@ -300,6 +366,77 @@ Vervangt met resultaat van een eerdere workflow stap:
 Je kan beide combineren:
 ```json
 "description": "Lead voor $contact.name (${email}) - ${message}"
+```
+
+#### 4. Null References en Many2One Fields (M2O)
+De workflow detecteert automatisch wanneer een step reference naar een **null/false** waarde wijst en handelt dit slim af:
+
+**Voorbeeld: Check of contact al een bedrijf heeft (parent_id)**
+```json
+{
+  "workflow": [
+    {
+      "step": "contact",
+      "model": "res.partner",
+      "search": {
+        "domain": [["email", "=", "${email}"]],
+        "fields": ["id", "name", "parent_id"]
+      },
+      "create": {
+        "email": "${email}",
+        "name": "${first_name} ${last_name}"
+      }
+    },
+    {
+      "step": "company",
+      "model": "res.partner",
+      "search": {
+        "domain": [["id", "=", "$contact.parent_id"]],
+        "fields": ["id", "name", "is_company"]
+      },
+      "create": {
+        "name": "${company_name}",
+        "is_company": true
+      }
+    },
+    {
+      "step": "link_contact",
+      "model": "res.partner",
+      "search": {
+        "domain": [["id", "=", "$contact.id"]],
+        "fields": ["id"]
+      },
+      "update": {
+        "parent_id": "$company.id"
+      }
+    }
+  ]
+}
+```
+
+**Hoe het werkt:**
+- Als `$contact.parent_id` **null/false** is (geen bedrijf): 
+  - Search wordt geskipt (log: `⏭️ Search skipped: domain contains null/unresolved references`)
+  - Nieuw bedrijf wordt aangemaakt
+  - Contact wordt gelinkt aan nieuw bedrijf
+- Als `$contact.parent_id` **een waarde** heeft (bedrijf bestaat al):
+  - Bestaand bedrijf wordt gevonden
+  - Link stap update parent_id met bestaande waarde (geen wijziging)
+
+**Log output:**
+```
+✅ Found existing res.partner: ID 123 (parent_id: null)
+⏭️ Search skipped: domain contains null/unresolved references
+➕ Creating new res.partner (company)
+✅ Created res.partner: ID 456
+📝 Updated res.partner ID 123 (parent_id: 456)
+```
+
+Of:
+```
+✅ Found existing res.partner: ID 123 (parent_id: 789)
+✅ Found existing res.partner: ID 789 (company)
+📝 Updated res.partner ID 123 (parent_id: 789)
 ```
 
 ### Genormaliseerde Veldnamen:
