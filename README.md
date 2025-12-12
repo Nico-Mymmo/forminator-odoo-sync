@@ -369,6 +369,25 @@ Je kan beide combineren:
 ```
 
 #### 4. Null References en Many2One Fields (M2O)
+
+**Automatische Many2One ID Extractie:**
+Many2One velden in Odoo worden geretourneerd als arrays: `[id, "Display Name"]`
+De workflow extraheert automatisch de ID voor gebruik in templates:
+
+```json
+// Odoo retourneert: parent_id: [59646, "ACP Alexandre le Grand"]
+// Template $contact.parent_id wordt automatisch: 59646
+{
+  "step": "company",
+  "model": "res.partner",
+  "search": {
+    "domain": [["id", "=", "$contact.parent_id"]],  // Gebruikt automatisch 59646
+    "fields": ["id", "name", "is_company"]
+  }
+}
+```
+
+**Null Reference Detection:**
 De workflow detecteert automatisch wanneer een step reference naar een **null/false** waarde wijst en handelt dit slim af:
 
 **Voorbeeld: Check of contact al een bedrijf heeft (parent_id)**
@@ -379,7 +398,10 @@ De workflow detecteert automatisch wanneer een step reference naar een **null/fa
       "step": "contact",
       "model": "res.partner",
       "search": {
-        "domain": [["email", "=", "${email}"]],
+        "domain": [
+          ["email", "=", "${email}"],
+          ["is_company", "=", false]  // ⚠️ Booleans blijven behouden (niet "false" als string)
+        ],
         "fields": ["id", "name", "parent_id"]
       },
       "create": {
@@ -415,28 +437,38 @@ De workflow detecteert automatisch wanneer een step reference naar een **null/fa
 ```
 
 **Hoe het werkt:**
-- Als `$contact.parent_id` **null/false** is (geen bedrijf): 
+- Als `$contact.parent_id` **false** is (Odoo's representatie van geen relatie): 
   - Search wordt geskipt (log: `⏭️ Search skipped: domain contains null/unresolved references`)
   - Nieuw bedrijf wordt aangemaakt
   - Contact wordt gelinkt aan nieuw bedrijf
-- Als `$contact.parent_id` **een waarde** heeft (bedrijf bestaat al):
+- Als `$contact.parent_id` **[59646, "Name"]** is (Many2One array):
+  - ID wordt automatisch geëxtraheerd: `59646`
   - Bestaand bedrijf wordt gevonden
   - Link stap update parent_id met bestaande waarde (geen wijziging)
 
+**Important: Boolean en Number Types in Domains:**
+Booleans en numbers in search domains blijven behouden als native types (niet geconverteerd naar strings):
+```json
+["is_company", "=", false]      // ✅ Correct: false als boolean
+["is_company", "=", "false"]    // ❌ Fout: "false" als string matcht niet
+["priority", "=", 3]            // ✅ Correct: 3 als number
+["priority", "=", "3"]          // ❌ Fout: "3" als string matcht niet
+```
+
 **Log output:**
 ```
-✅ Found existing res.partner: ID 123 (parent_id: null)
+📦 Retrieved data: {"id":59537,"name":"Tomas Raes","parent_id":[59646,"ACP Alexandre le Grand"]}
+🔵 res.partner.search | args: [[["id","=",59646]]]  // ID automatisch geëxtraheerd
+✅ Found existing res.partner: ID 59646
+```
+
+Of bij null reference:
+```
+📦 Retrieved data: {"id":123,"name":"John Doe","parent_id":false}
 ⏭️ Search skipped: domain contains null/unresolved references
 ➕ Creating new res.partner (company)
 ✅ Created res.partner: ID 456
 📝 Updated res.partner ID 123 (parent_id: 456)
-```
-
-Of:
-```
-✅ Found existing res.partner: ID 123 (parent_id: 789)
-✅ Found existing res.partner: ID 789 (company)
-📝 Updated res.partner ID 123 (parent_id: 789)
 ```
 
 ### Genormaliseerde Veldnamen:

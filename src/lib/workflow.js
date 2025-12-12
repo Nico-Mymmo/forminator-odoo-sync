@@ -18,7 +18,7 @@ async function processStep(env, step, formData, stepResults) {
   const hasCreate = step.create && Object.keys(step.create).length > 0;
   const hasUpdate = step.update && Object.keys(step.update).length > 0;
   
-  console.log(`🔧 [${timestamp}] Step: ${step.step} (${step.model}) - Search:${hasSearch?'✓':'✗'} Create:${hasCreate?'✓':'✗'} Update:${hasUpdate?'✓':'✗'}`);
+  console.log(`🔧 [${timestamp}] Step: ${step.step} (${step.model}) - Search: ${hasSearch?'✓':'✗'} Create: ${hasCreate?'✓':'✗'} Update: ${hasUpdate?'✓':'✗'}`);
   
   let recordId = null;
   let isNew = false;
@@ -61,12 +61,15 @@ async function processStep(env, step, formData, stepResults) {
         }
         
         // Read full record
+        const fieldsToRead = step.search.fields || ['id'];
+        console.log(`📖 [${timestamp}] Reading fields: ${fieldsToRead.join(', ')}`);
         record = await read(env, {
           model: step.model,
           ids: [recordId],
-          fields: step.search.fields || ['id']
+          fields: fieldsToRead
         });
         record = record[0] || {};
+        console.log(`📦 [${timestamp}] Retrieved data: ${JSON.stringify(record)}`);
         
       } else {
         console.log(`ℹ️ [${timestamp}] No existing ${step.model} found`);
@@ -85,12 +88,15 @@ async function processStep(env, step, formData, stepResults) {
           console.log(`✅ [${timestamp}] Created ${step.model}: ID ${recordId}`);
           
           // Read full record
+          const fieldsToRead = step.search.fields || ['id'];
+          console.log(`📖 [${timestamp}] Reading fields: ${fieldsToRead.join(', ')}`);
           record = await read(env, {
             model: step.model,
             ids: [recordId],
-            fields: step.search.fields || ['id']
+            fields: fieldsToRead
           });
           record = record[0] || {};
+          console.log(`📦 [${timestamp}] Retrieved data: ${JSON.stringify(record)}`);
           
         } else {
           // No create configured, skip
@@ -160,6 +166,10 @@ function processTemplate(template, formData, stepResults) {
           hasNullReference = true;
           return '';
         }
+        // If value is Many2One (array like [id, "name"]), return just the ID
+        if (Array.isArray(value) && value.length >= 1) {
+          return value[0];
+        }
         return value;
       }
       return '';
@@ -186,8 +196,16 @@ function processTemplateDomain(domain, formData, stepResults) {
   const processed = domain.map(condition => {
     if (Array.isArray(condition)) {
       return condition.map(part => {
-        const result = processTemplate(String(part), formData, stepResults);
-        return result === null ? false : result; // Convert null to false for domain
+        // Keep booleans and numbers as-is
+        if (typeof part === 'boolean' || typeof part === 'number') {
+          return part;
+        }
+        // Process strings
+        if (typeof part === 'string') {
+          const result = processTemplate(part, formData, stepResults);
+          return result === null ? false : result; // Convert null to false for domain
+        }
+        return part;
       });
     }
     return condition;
@@ -231,6 +249,62 @@ function processTemplateObject(obj, formData, stepResults) {
 }
 
 /**
+ * Analyze workflow to find all field references from previous steps
+ * and automatically add them to search.fields
+ * 
+ * @param {Array} workflow - Workflow configuration
+ * @returns {Array} - Workflow with enriched fields
+ */
+function enrichWorkflowFields(workflow) {
+  const enrichedWorkflow = JSON.parse(JSON.stringify(workflow)); // Deep clone
+  
+  // For each step, analyze what fields are needed from previous steps
+  for (let i = 0; i < enrichedWorkflow.length; i++) {
+    const step = enrichedWorkflow[i];
+    const requiredFields = new Set(['id']); // Always include id
+    
+    // Add fields already configured
+    const originalFields = [];
+    if (step.search && step.search.fields) {
+      step.search.fields.forEach(field => {
+        requiredFields.add(field);
+        originalFields.push(field);
+      });
+    }
+    
+    // Check all future steps for references to this step
+    for (let j = i + 1; j < enrichedWorkflow.length; j++) {
+      const futureStep = enrichedWorkflow[j];
+      const stepName = step.step;
+      
+      // Find all references like $stepname.fieldname in the future step
+      const jsonStr = JSON.stringify(futureStep);
+      const regex = new RegExp(`\\$${stepName}\\.(\\w+)`, 'g');
+      let match;
+      
+      while ((match = regex.exec(jsonStr)) !== null) {
+        const fieldName = match[1];
+        requiredFields.add(fieldName);
+      }
+    }
+    
+    // Update the step's fields
+    if (step.search) {
+      const finalFields = Array.from(requiredFields);
+      step.search.fields = finalFields;
+      
+      // Log auto-added fields
+      const autoAdded = finalFields.filter(f => !originalFields.includes(f) && f !== 'id');
+      if (autoAdded.length > 0) {
+        console.log(`🔍 Auto-detected fields for step "${step.step}": ${autoAdded.join(', ')}`);
+      }
+    }
+  }
+  
+  return enrichedWorkflow;
+}
+
+/**
  * Execute a workflow for a form submission
  * Processes steps sequentially, passing results to next steps
  * 
@@ -241,11 +315,15 @@ function processTemplateObject(obj, formData, stepResults) {
  */
 export async function executeWorkflow(env, workflow, formData) {
   const timestamp = new Date().toISOString().substring(11, 19);
-  console.log(`🚀 [${timestamp}] Starting workflow with ${workflow.length} steps`);
+  
+  // Enrich workflow with auto-detected required fields
+  const enrichedWorkflow = enrichWorkflowFields(workflow);
+  
+  console.log(`🚀 [${timestamp}] Starting workflow with ${enrichedWorkflow.length} step${enrichedWorkflow.length === 1 ? '' : 's'}`);
   
   const stepResults = {};
   
-  for (const step of workflow) {
+  for (const step of enrichedWorkflow) {
     try {
       const result = await processStep(env, step, formData, stepResults);
       stepResults[step.step] = result;

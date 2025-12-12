@@ -36,12 +36,19 @@
                             "email",
                             "=",
                             "${email}"
+                        ],
+                        [
+                            "is_company",
+                            "=",
+                            false
                         ]
                     ],
                     "fields": [
                         "id",
                         "name",
-                        "email"
+                        "email",
+                        "parent_id",
+                        "is_company"
                     ]
                 },
                 "create": {
