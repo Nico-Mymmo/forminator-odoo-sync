@@ -13,26 +13,20 @@ export async function getMappings({ env }) {
     
     if (!mappingsJson) {
       // Return empty mappings if none exist
-      return new Response(JSON.stringify({
-        success: true,
-        data: {}
-      }), {
+      return new Response(JSON.stringify({}), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       });
     }
     
-    return new Response(JSON.stringify({
-      success: true,
-      data: mappingsJson
-    }), {
+    // Return mappings directly without wrapper
+    return new Response(JSON.stringify(mappingsJson), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
     console.error('Error fetching mappings:', error);
     return new Response(JSON.stringify({
-      success: false,
       error: error.message
     }), {
       status: 500,
