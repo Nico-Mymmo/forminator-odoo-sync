@@ -3,6 +3,7 @@ import { receiveForminator } from "./actions/receive_forminator.js";
 import { getMappings, getMapping, saveMapping, deleteMapping, importMappings } from "./actions/mappings_api.js";
 import { requireAdminAuth } from "./lib/admin_auth.js";
 import { adminHTML } from "./lib/admin_interface.js";
+import { getForminatorForm, extractFieldsFromForm, generateFieldMapping } from "./lib/wordpress.js";
 
 const ACTIONS = {
   test_connection: testConnection,
@@ -64,6 +65,40 @@ export default {
       if (pathname === '/api/mappings/import' && request.method === 'POST') {
         const data = await request.json();
         return requireAdminAuth(importMappings)({ request, env, ctx, data });
+      }
+      
+      // GET /api/wordpress/form/:formId - Fetch form from WordPress
+      const wpFormMatch = pathname.match(/^\/api\/wordpress\/form\/([^\/]+)$/);
+      if (wpFormMatch && request.method === 'GET') {
+        const formId = wpFormMatch[1];
+        return requireAdminAuth(async ({ env }) => {
+          try {
+            const formData = await getForminatorForm(formId, env);
+            const fields = extractFieldsFromForm(formData);
+            const suggestedMapping = generateFieldMapping(fields);
+            
+            return new Response(JSON.stringify({
+              success: true,
+              form: {
+                id: formData.id || formId,
+                name: formData.settings?.formName || formData.name || `Form ${formId}`,
+                fields: fields
+              },
+              suggested_mapping: suggestedMapping
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: error.message
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        })({ request, env, ctx });
       }
       
       // Extract formId from path: /api/mappings/:formId

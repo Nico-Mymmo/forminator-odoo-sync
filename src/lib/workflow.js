@@ -17,7 +17,9 @@ async function processStep(env, step, formData, stepResults) {
   // Determine behavior based on what's configured (declarative approach)
   const hasSearch = step.search && step.search.domain;
   const hasCreate = step.create && Object.keys(step.create).length > 0;
-  const hasUpdate = step.update && Object.keys(step.update).length > 0;
+  // Check for update.fields (new format) or update directly (old format)
+  const updateFields = step.update?.fields || step.update;
+  const hasUpdate = updateFields && Object.keys(updateFields).length > 0;
   
   console.log(`🔧 [${timestamp}] Step: ${step.step} (${step.model}) - Search: ${hasSearch?'✓':'✗'} Create: ${hasCreate?'✓':'✗'} Update: ${hasUpdate?'✓':'✗'}`);
   
@@ -48,7 +50,9 @@ async function processStep(env, step, formData, stepResults) {
         
         // Update if configured
         if (hasUpdate) {
-          const updateData = processTemplateObject(step.update, formData, stepResults);
+          // Extract fields from step.update.fields or use step.update directly (for backward compatibility)
+          const updateFields = step.update.fields || step.update;
+          const updateData = processTemplateObject(updateFields, formData, stepResults);
           
           if (Object.keys(updateData).length > 0) {
             await write(env, {
@@ -175,13 +179,16 @@ function processTemplate(template, formData, stepResults) {
         if (Array.isArray(value) && value.length >= 1) {
           return value[0];
         }
-        return value;
+        // Trim string values to avoid trailing/leading whitespace issues
+        return typeof value === 'string' ? value.trim() : value;
       }
       return '';
     })
     // Then process form field references: ${field.email} or ${email}
     .replace(/\$\{(?:field\.)?(\w+)\}/g, (match, fieldName) => {
-      return formData[fieldName] !== undefined ? formData[fieldName] : '';
+      const value = formData[fieldName];
+      // Trim string values to avoid trailing/leading whitespace issues
+      return value !== undefined ? (typeof value === 'string' ? value.trim() : value) : '';
     });
   
   // If we found null references, return null to signal skip
@@ -312,16 +319,37 @@ function enrichWorkflowFields(workflow) {
 /**
  * Inject HTML cards into workflow steps
  * Replaces __html_card__ placeholders with generated HTML
+ * Uses step.html_card config if available, falls back to global config
  * 
  * @param {Array} workflow - Workflow configuration
  * @param {Object} formData - Form data
- * @param {Object} htmlCardConfig - HTML card configuration
+ * @param {Object} globalHtmlCardConfig - Global HTML card configuration (deprecated, use step.html_card)
  * @returns {Array} - Workflow with HTML cards injected
  */
-function injectHtmlCards(workflow, formData, htmlCardConfig) {
+function injectHtmlCards(workflow, formData, globalHtmlCardConfig = null) {
   const workflowCopy = JSON.parse(JSON.stringify(workflow)); // Deep clone
   
   for (const step of workflowCopy) {
+    // Parse html_card config if it's a JSON string
+    let stepHtmlCardConfig = null;
+    if (step.html_card) {
+      try {
+        stepHtmlCardConfig = typeof step.html_card === 'string' 
+          ? JSON.parse(step.html_card) 
+          : step.html_card;
+      } catch (e) {
+        console.error(`Failed to parse html_card config for step ${step.step}:`, e);
+      }
+    }
+    
+    // Use step config, fall back to global config
+    const htmlCardConfig = stepHtmlCardConfig || globalHtmlCardConfig;
+    
+    // Only process if we have a config
+    if (!htmlCardConfig) {
+      continue;
+    }
+    
     // Check create fields
     if (step.create) {
       for (const [key, value] of Object.entries(step.create)) {
@@ -332,10 +360,10 @@ function injectHtmlCards(workflow, formData, htmlCardConfig) {
     }
     
     // Check update fields
-    if (step.update) {
-      for (const [key, value] of Object.entries(step.update)) {
+    if (step.update && step.update.fields) {
+      for (const [key, value] of Object.entries(step.update.fields)) {
         if (typeof value === 'string' && value.includes('__html_card__')) {
-          step.update[key] = value.replace('__html_card__', generateHtmlCard(formData, htmlCardConfig));
+          step.update.fields[key] = value.replace('__html_card__', generateHtmlCard(formData, htmlCardConfig));
         }
       }
     }

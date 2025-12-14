@@ -8,12 +8,14 @@ Deze worker ontvangt webhook calls van WordPress Forminator formulieren en synch
 
 - ✅ **Webhook ontvanger** voor Forminator formulieren
 - ✅ **Automatische field normalisatie** (`email-1`, `phone-3` → `email`, `phone`)
-- ✅ **Configureerbare mappings** per formulier (JSON configuratie)
-- ✅ **Template systeem** voor complexe veld combinaties
+- ✅ **Visual Admin Interface** met drag & drop field editor
+- ✅ **Configureerbare workflows** met search/create/update logic
+- ✅ **Template systeem** met field placeholders (`${field.email}`, `$step.id`)
+- ✅ **HTML Card Generator** voor visueel geformatteerde Odoo beschrijvingen
+- ✅ **Custom labels** voor velden in HTML cards
 - ✅ **User-Agent verificatie** (alleen openvme.be Forminator webhooks)
 - ✅ **Automatische reCAPTCHA filtering**
-- ✅ **Contact check/create** in Odoo (res.partner)
-- ✅ **Visual chip editor** voor field placeholders met drag & drop
+- ✅ **Automatic whitespace trimming** voor alle field values
 
 ## 📋 Projectstructuur
 
@@ -26,17 +28,37 @@ forminator-odoo-sync/
     ├── index.js              # Main router met authentication
     ├── actions/              # Endpoint handlers
     │   ├── test_connection.js
-    │   └── receive_forminator.js
-    ├── config/               # Configuratie bestanden
-    │   ├── mappings.json     # ⚙️ FORMULIER MAPPINGS (JSON - gemakkelijk te bewerken)
-    │   └── form_mappings.js  # Mapping logic (niet aanpassen)
+    │   ├── receive_forminator.js
+    │   └── mappings_api.js   # API voor admin interface
     └── lib/                  # Utilities
-        ├── odoo.js           # Odoo API wrapper
-        ├── utils.js          # Helper functies
-        ├── log_request.js    # Request logging
-        ├── forminator_mapper.js  # Field normalisatie
-        └── check_create_contact.js  # Contact check/create logic
+        ├── admin_interface.js    # Visual admin interface (HTML + JS)
+        ├── admin_auth.js         # Admin authentication
+        ├── workflow.js           # Workflow execution engine
+        ├── html_card_generator.js  # HTML card renderer
+        ├── odoo.js               # Odoo API wrapper
+        ├── utils.js              # Helper functies
+        ├── log_request.js        # Request logging
+        └── forminator_mapper.js  # Field normalisatie
 ```
+
+## 🎨 Admin Interface
+
+Bezoek `https://forminator-sync.openvme-odoo.workers.dev/admin` voor de visual admin interface.
+
+**Features:**
+- 📝 **Field & Value Mapping** met inline configuratie
+- 🔄 **Workflow Steps** met drag & drop field editor
+- 🎨 **HTML Card Editor** met visual preview
+- 💾 **Live save** naar KV storage
+- 📦 **JSON export/import**
+
+### Chip Input System
+
+De admin interface gebruikt een chip-based input systeem voor field placeholders:
+- Sleep velden van het palet naar input velden
+- Chips tonen field references visueel (bijv. `email`, `contact.id`)
+- Ondersteunt zowel form fields (`${field.email}`) als step references (`$contact.id`)
+- Automatische whitespace trimming voorkomt errors
 
 ## ⚙️ Formulier Workflows Configureren
 

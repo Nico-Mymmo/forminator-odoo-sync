@@ -4,7 +4,7 @@ export const adminHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forminator Mapping Admin</title>
+    <title>Forminator Mapping Admin v1.1</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; height: 100vh; overflow: hidden; }
@@ -79,8 +79,32 @@ export const adminHTML = `<!DOCTYPE html>
         .draggable-field.dragging { opacity: 0.5; transform: scale(1.05); }
         
         /* Drop Zones */
-        .drop-zone { position: relative; }
-        .drop-zone-active { border: 2px dashed #667eea !important; background: #f0f4ff !important; }
+        .drop-zone { position: relative; transition: all 0.2s; }
+        .drop-zone-active { 
+            border: 2px solid #667eea !important; 
+            background: #f0f4ff !important;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+        }
+        
+        /* Empty container drop zones */
+        .empty-drop-zone {
+            min-height: 100px;
+            border: 2px dashed #ccc;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            padding: 1rem;
+            text-align: center;
+        }
+        .empty-drop-zone.drop-zone-active {
+            border-color: #667eea;
+            background: #f0f4ff;
+            color: #667eea;
+        }
         
         /* Section */
         .section { background: white; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -112,25 +136,122 @@ export const adminHTML = `<!DOCTYPE html>
         .value-mapping-row button { background: #e74c3c; color: white; border: none; padding: 0.25rem 0.4rem; border-radius: 3px; cursor: pointer; font-size: 0.85rem; line-height: 1; }
         
         /* Workflow Steps */
-        .workflow-step { background: #f8f9fa; border: 2px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
+        .workflow-step { background: #f8f9fa; border: 2px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; position: relative; }
+        .workflow-step.collapsed { padding: 1rem; }
         .workflow-step.collapsed .step-content { display: none; }
-        .workflow-step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; cursor: pointer; }
-        .workflow-step-header h4 { color: #2c3e50; font-size: 1.1rem; }
-        .workflow-step-header .step-actions { display: flex; gap: 0.5rem; }
+        .workflow-step.collapsed .step-result-section { display: none; }
+        .workflow-step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; cursor: pointer; user-select: none; }
+        .workflow-step.collapsed .workflow-step-header { margin-bottom: 0; }
+        .workflow-step-header h4 { color: #2c3e50; font-size: 1.1rem; flex: 1; }
+        .workflow-step-header .step-result-badge { 
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: #9333ea;
+            color: white;
+            padding: 0.4rem 0.8rem;
+            border-radius: 16px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-right: 1rem;
+        }
+        .workflow-step-header .step-actions { display: flex; gap: 0.5rem; align-items: center; }
         .workflow-step-header button { padding: 0.3rem 0.6rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+        .workflow-step-header .btn-collapse { background: #667eea; color: white; transition: transform 0.2s; }
+        .workflow-step.collapsed .btn-collapse { transform: rotate(-90deg); }
         
         .step-basics { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
         .step-basics label { display: block; margin-bottom: 0.3rem; color: #555; font-weight: 500; }
         .step-basics input { width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; }
         
+        /* Step Result Section */
+        .step-result-section {
+            background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+            border: 2px dashed #9333ea;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1.5rem;
+        }
+        .step-result-section h5 {
+            color: #9333ea;
+            margin-bottom: 0.75rem;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .step-result-section h5::before {
+            content: '🎯';
+        }
+        .step-result-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .step-result-chip-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: #9333ea;
+            color: white;
+            padding: 0.4rem 0.75rem;
+            border-radius: 14px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: default;
+        }
+        .step-result-chip-item code {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        
         /* Step Subsections */
-        .step-subsection { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
-        .step-subsection h5 { color: #667eea; margin-bottom: 0.75rem; font-size: 1rem; }
+        .step-subsection { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 0; margin-bottom: 1rem; overflow: hidden; }
+        .step-subsection h5 { 
+            color: #667eea; 
+            margin: 0; 
+            padding: 0.75rem 1rem;
+            font-size: 1rem; 
+            cursor: pointer;
+            user-select: none;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+        .step-subsection h5:hover {
+            background: #e9ecef;
+        }
+        .step-subsection .subsection-toggle {
+            transition: transform 0.3s;
+            font-size: 0.8em;
+        }
+        .step-subsection.collapsed .subsection-toggle {
+            transform: rotate(-90deg);
+        }
+        .step-subsection .subsection-content {
+            padding: 1rem;
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out, opacity 0.3s;
+            opacity: 1;
+        }
+        .step-subsection.collapsed .subsection-content {
+            max-height: 0;
+            opacity: 0;
+            padding: 0 1rem;
+        }
         
         /* Domain & Value Rows */
-        .domain-row { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+        .domain-row { display: grid; grid-template-columns: 1fr 100px auto 1fr auto; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
         .domain-row input, .domain-row select { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; }
+        .domain-row select.field-type { font-size: 0.85rem; color: #667eea; font-weight: 500; }
         .domain-row button { background: #e74c3c; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; }
+        .domain-row input[type="checkbox"] { width: auto; height: 1.2rem; cursor: pointer; }
+        .domain-row .checkbox-wrapper { display: flex; align-items: center; gap: 0.5rem; }
         
         .value-row { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
         .value-row input, .value-row textarea { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; }
@@ -197,6 +318,74 @@ export const adminHTML = `<!DOCTYPE html>
         .field-chip .chip-remove:hover {
             opacity: 1;
         }
+        
+        /* Step Result Chips - Purple/Violet color */
+        .step-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: #9333ea;
+            color: white;
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 500;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            margin: 0 1px;
+            vertical-align: middle;
+        }
+        .step-chip:hover {
+            background: #7c3aed;
+        }
+        .step-chip:focus {
+            outline: 2px solid #9333ea;
+            outline-offset: 2px;
+        }
+        .step-chip .chip-remove {
+            margin-left: 0.15rem;
+            cursor: pointer;
+            font-weight: bold;
+            opacity: 0.7;
+        }
+        .step-chip .chip-remove:hover {
+            opacity: 1;
+        }
+        
+        /* Step result chips in palette */
+        .draggable-step-field {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.65rem;
+            background: #9333ea;
+            color: white;
+            border-radius: 14px;
+            cursor: grab;
+            font-size: 0.85rem;
+            text-align: center;
+            user-select: none;
+            transition: all 0.2s;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(147, 51, 234, 0.2);
+        }
+        .draggable-step-field::before {
+            content: '⋮⋮';
+            opacity: 0.6;
+            font-size: 0.9em;
+            letter-spacing: -2px;
+        }
+        .draggable-step-field:hover {
+            transform: translateY(-2px);
+            background: #7c3aed;
+            box-shadow: 0 4px 8px rgba(147, 51, 234, 0.3);
+        }
+        .draggable-step-field:active {
+            cursor: grabbing;
+            transform: scale(0.95);
+        }
+        
         .chip-text {
             display: inline;
         }
@@ -226,6 +415,182 @@ export const adminHTML = `<!DOCTYPE html>
         .alert.success { border-left: 4px solid #27ae60; }
         .alert.error { border-left: 4px solid #e74c3c; }
         .hidden { display: none !important; }
+        
+        /* HTML Card Editor Modal */
+        .html-card-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        .html-card-modal.active {
+            display: flex;
+        }
+        .html-card-modal-content {
+            background: white;
+            width: 90%;
+            max-width: 1200px;
+            height: 90%;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .html-card-modal-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+        }
+        .html-card-modal-header h3 {
+            margin: 0;
+            color: #333;
+        }
+        .html-card-modal-body {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        .html-card-editor-sidebar {
+            width: 250px;
+            border-right: 1px solid #ddd;
+            padding: 1rem;
+            overflow-y: auto;
+            background: #fafafa;
+        }
+        .html-card-editor-canvas {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            background: #fff;
+        }
+        .html-card-element-group {
+            margin-bottom: 1.5rem;
+        }
+        .html-card-element-group h4 {
+            font-size: 0.85rem;
+            color: #667eea;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        .html-card-draggable {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 0.6rem;
+            margin-bottom: 0.5rem;
+            border-radius: 4px;
+            cursor: grab;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+        }
+        .html-card-draggable:hover {
+            background: #f0f0f0;
+            border-color: #667eea;
+        }
+        .html-card-draggable:active {
+            cursor: grabbing;
+        }
+        .html-card-canvas-area {
+            border: 2px dashed #ddd;
+            min-height: 400px;
+            padding: 1rem;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        .html-card-canvas-area.dragover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        .html-card-element {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            padding-left: 2.5rem;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            position: relative;
+        }
+        .html-card-element:hover {
+            border-color: #667eea;
+        }
+        .html-card-element-drag-handle {
+            position: absolute;
+            left: 0.5rem;
+            top: 0.5rem;
+            bottom: 0.5rem;
+            width: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: move;
+            color: #999;
+            font-size: 1.2rem;
+            user-select: none;
+        }
+        .html-card-element-drag-handle:hover {
+            color: #667eea;
+        }
+        .html-card-element-drag-handle::before {
+            content: '⋮⋮';
+            letter-spacing: -3px;
+        }
+        .html-card-element input,
+        .html-card-element textarea,
+        .html-card-element select {
+            cursor: text;
+        }
+        .html-card-element-controls {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            display: flex;
+            gap: 0.25rem;
+        }
+        .html-card-element-controls button {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .html-card-container {
+            background: #fafbff !important;
+            border: 2px solid #667eea !important;
+        }
+        .html-card-container.dragover {
+            background: #f0f4ff !important;
+            border-color: #9333ea !important;
+        }
+        .html-card-container-children {
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: white;
+            border-radius: 4px;
+            min-height: 60px;
+        }
+        .html-card-modal-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #ddd;
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            background: #f8f9fa;
+        }
     </style>
 </head>
 <body>
@@ -245,6 +610,7 @@ export const adminHTML = `<!DOCTYPE html>
         <div class="main-content">
             <div class="sidebar">
                 <h2>Forms</h2>
+                <button class="add-field-btn" onclick="createNewForm()" style="width: calc(100% - 2rem); margin: 0.5rem 1rem 1rem 1rem;">+ New Form</button>
                 <ul id="formList" class="form-list"></ul>
             </div>
             <div class="editor">
@@ -258,6 +624,48 @@ export const adminHTML = `<!DOCTYPE html>
         </div>
     </div>
     
+    <!-- HTML Card Editor Modal -->
+    <div id="htmlCardModal" class="html-card-modal">
+        <div class="html-card-modal-content">
+            <div class="html-card-modal-header">
+                <h3>🎨 HTML Card Editor</h3>
+                <button onclick="closeHtmlCardEditor()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">×</button>
+            </div>
+            <div class="html-card-modal-body">
+                <div class="html-card-editor-sidebar">
+                    <div class="html-card-element-group">
+                        <h4>📝 Form Fields</h4>
+                        <div id="htmlCardFields"></div>
+                    </div>
+                    <div class="html-card-element-group">
+                        <h4>📦 Layout Elements</h4>
+                        <div class="html-card-draggable" draggable="true" data-type="heading">
+                            <span>📄</span> Heading
+                        </div>
+                        <div class="html-card-draggable" draggable="true" data-type="text">
+                            <span>📝</span> Text Block
+                        </div>
+                        <div class="html-card-draggable" draggable="true" data-type="divider">
+                            <span>➖</span> Divider
+                        </div>
+                        <div class="html-card-draggable" draggable="true" data-type="container">
+                            <span>📦</span> Container
+                        </div>
+                    </div>
+                </div>
+                <div class="html-card-editor-canvas">
+                    <div id="htmlCardCanvas" class="html-card-canvas-area">
+                        <p style="color: #999; text-align: center; margin-top: 2rem;">Drag elements here to build your HTML card</p>
+                    </div>
+                </div>
+            </div>
+            <div class="html-card-modal-footer">
+                <button class="btn-secondary" onclick="closeHtmlCardEditor()">Cancel</button>
+                <button class="btn-primary" onclick="saveHtmlCard()">Save HTML Card</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
         let token = localStorage.getItem('adminToken');
         let currentFormId = null;
@@ -267,6 +675,8 @@ export const adminHTML = `<!DOCTYPE html>
         let workflowSteps = [];
         let draggedFieldName = null;
         let expandedValueMappings = {};
+        let currentHtmlCardStepIdx = null;
+        let htmlCardElements = [];
         
         if (token) { showAdmin(); }
         
@@ -343,6 +753,39 @@ export const adminHTML = `<!DOCTYPE html>
             });
             
             workflowSteps = JSON.parse(JSON.stringify(data.workflow || []));
+            
+            // Restore field type metadata from _ui_metadata and clean domain values
+            workflowSteps.forEach(step => {
+                if (step._ui_metadata?.domain_types && step.search?.domain) {
+                    step.search.domain = step.search.domain.map((condition, idx) => {
+                        const fieldType = step._ui_metadata.domain_types[idx] || 'text';
+                        // Trim whitespace from domain values (fixes legacy data with trailing spaces)
+                        const value = typeof condition[2] === 'string' ? condition[2].trim() : condition[2];
+                        return [condition[0], condition[1], value, fieldType];
+                    });
+                }
+                
+                // Clean update field values
+                if (step.update?.fields) {
+                    Object.keys(step.update.fields).forEach(key => {
+                        const value = step.update.fields[key];
+                        if (typeof value === 'string') {
+                            step.update.fields[key] = value.trim();
+                        }
+                    });
+                }
+                
+                // Clean create field values
+                if (step.create) {
+                    Object.keys(step.create).forEach(key => {
+                        const value = step.create[key];
+                        if (typeof value === 'string') {
+                            step.create[key] = value.trim();
+                        }
+                    });
+                }
+            });
+            
             expandedValueMappings = {};
             
             document.getElementById('editorTitle').textContent = \`Edit Form \${formId}\`;
@@ -566,9 +1009,15 @@ export const adminHTML = `<!DOCTYPE html>
         }
         
         // Field Palette for Drag & Drop
-        function updateFieldPalette() {
+        function updateFieldPalette(currentStepIdx = null) {
             const palette = document.getElementById('fieldPaletteContent');
             palette.innerHTML = '';
+            
+            // Form fields section
+            const formFieldsHeader = document.createElement('h4');
+            formFieldsHeader.style.cssText = 'margin: 0 0 0.75rem 0; color: #667eea; font-size: 0.9rem; border-bottom: 1px solid #ddd; padding-bottom: 0.5rem;';
+            formFieldsHeader.textContent = 'Form Fields';
+            palette.appendChild(formFieldsHeader);
             
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const chip = document.createElement('div');
@@ -578,32 +1027,67 @@ export const adminHTML = `<!DOCTYPE html>
                 chip.draggable = true;
                 chip.dataset.field = odooField;
                 chip.dataset.formfield = formField;
+                chip.dataset.chipType = 'field';
                 chip.addEventListener('dragstart', handleDragStart);
                 chip.addEventListener('dragend', handleDragEnd);
                 palette.appendChild(chip);
             });
+            
+            // Step results section (only show steps before current step)
+            const availableSteps = currentStepIdx !== null 
+                ? workflowSteps.slice(0, currentStepIdx)
+                : workflowSteps;
+            
+            if (availableSteps.some(s => s.step)) {
+                const stepResultsHeader = document.createElement('h4');
+                stepResultsHeader.style.cssText = 'margin: 1.5rem 0 0.75rem 0; color: #9333ea; font-size: 0.9rem; border-bottom: 1px solid #ddd; padding-bottom: 0.5rem;';
+                stepResultsHeader.textContent = 'Step Results';
+                palette.appendChild(stepResultsHeader);
+                
+                availableSteps.forEach((step, idx) => {
+                    if (!step.step) return;
+                    
+                    const fields = step.search?.fields || ['id'];
+                    fields.forEach(field => {
+                        const chip = document.createElement('div');
+                        chip.className = 'draggable-step-field';
+                        chip.textContent = \`$\${step.step}.\${field}\`;
+                        chip.title = \`Step \${idx + 1}: \${step.model}\`;
+                        chip.draggable = true;
+                        chip.dataset.field = \`\${step.step}.\${field}\`;
+                        chip.dataset.stepRef = 'true';
+                        chip.dataset.chipType = 'step';
+                        chip.addEventListener('dragstart', handleDragStart);
+                        chip.addEventListener('dragend', handleDragEnd);
+                        palette.appendChild(chip);
+                    });
+                });
+            }
         }
         
         function handleDragStart(e) {
+            if (!e.target.dataset || !e.target.dataset.field) {
+                console.warn('Drag started on element without data-field:', e.target);
+                return;
+            }
             draggedFieldName = e.target.dataset.field;
             e.target.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'copy';
         }
         
         function handleDragEnd(e) {
-            e.target.classList.remove('dragging');
+            if (e.target && e.target.classList) {
+                e.target.classList.remove('dragging');
+            }
         }
         
         function initializeDragAndDrop() {
-            document.querySelectorAll('.value-row input[type="text"], .value-row textarea').forEach(element => {
-                convertToChipInput(element);
-            });
+            document.querySelectorAll('.value-row input[type="text"], .value-row textarea').forEach(convertToChipInput);
         }
         
         function convertToChipInput(originalInput) {
             // Skip if already converted
             if (originalInput.hasAttribute('data-chip-converted')) {
-                console.log('Input already converted, skipping');
                 return;
             }
             originalInput.setAttribute('data-chip-converted', 'true');
@@ -612,11 +1096,6 @@ export const adminHTML = `<!DOCTYPE html>
             const originalValue = originalInput.value || '';
             const placeholder = originalInput.placeholder || '';
             const isTextarea = originalInput.tagName === 'TEXTAREA';
-            
-            console.log('=== Converting input to chip input ===');
-            console.log('Input type:', originalInput.tagName);
-            console.log('Original value:', originalValue);
-            console.log('Placeholder:', placeholder);
             
             // Create chip input container
             const chipInput = document.createElement('div');
@@ -634,7 +1113,6 @@ export const adminHTML = `<!DOCTYPE html>
             const changeHandler = originalInput.getAttribute('onchange');
             if (changeHandler) {
                 hiddenInput.setAttribute('onchange', changeHandler);
-                console.log('Copied onchange handler');
             }
             
             // Replace original input
@@ -642,14 +1120,9 @@ export const adminHTML = `<!DOCTYPE html>
             originalInput.parentNode.insertBefore(hiddenInput, originalInput);
             originalInput.remove();
             
-            console.log('Replaced input with chip input');
-            
             // Parse initial value and render chips
             if (originalValue) {
-                console.log('Will render chips for value:', originalValue);
                 renderChipContent(chipInput, originalValue);
-            } else {
-                console.log('No initial value to render');
             }
             
             // Event listeners
@@ -727,65 +1200,80 @@ export const adminHTML = `<!DOCTYPE html>
         }
         
         function renderChipContent(chipInput, value) {
-            console.log('renderChipContent called with value:', value);
             chipInput.innerHTML = '';
             
             if (!value) {
-                console.log('No value to render');
                 return;
             }
             
             // Parse value and create chips and text nodes
-            // Match both dollar-brace-field.xxx-brace and dollar-brace-xxx-brace formats
-            const pattern = new RegExp('\\\\\\$\\\\\\{(?:field\\\\.)?([a-zA-Z0-9_]+)\\\\\\}', 'g');
-            console.log('Testing pattern against value, pattern:', pattern);
-            console.log('Pattern test result:', pattern.test(value));
-            pattern.lastIndex = 0; // Reset after test
+            // Match both field.xxx and xxx for form fields, and stepname.field for step references
+            const fieldPattern = new RegExp('\\\\\\$\\\\\\{(?:field\\\\.)?([a-zA-Z0-9_]+)\\\\\\}', 'g');
+            const stepPattern = new RegExp('\\\\\\$([a-zA-Z0-9_]+)\\\\.([a-zA-Z0-9_]+)', 'g');
+            
+            // Combine both patterns to find all placeholders in order
+            const allMatches = [];
+            
+            // Find all field matches
+            let match;
+            while ((match = fieldPattern.exec(value)) !== null) {
+                allMatches.push({
+                    type: 'field',
+                    index: match.index,
+                    length: match[0].length,
+                    fieldName: match[1],
+                    fullMatch: match[0]
+                });
+            }
+            
+            // Find all step reference matches
+            stepPattern.lastIndex = 0;
+            while ((match = stepPattern.exec(value)) !== null) {
+                allMatches.push({
+                    type: 'step',
+                    index: match.index,
+                    length: match[0].length,
+                    fieldName: match[1] + '.' + match[2],
+                    fullMatch: match[0]
+                });
+            }
+            
+            // Sort by position
+            allMatches.sort((a, b) => a.index - b.index);
             
             let lastIndex = 0;
-            let match;
-            let chipCount = 0;
-            
-            while ((match = pattern.exec(value)) !== null) {
-                console.log('Found field placeholder:', match[0], 'field name:', match[1]);
-                
+            allMatches.forEach(matchInfo => {
                 // Add text before chip
-                if (match.index > lastIndex) {
-                    const textBefore = value.substring(lastIndex, match.index);
+                if (matchInfo.index > lastIndex) {
+                    const textBefore = value.substring(lastIndex, matchInfo.index);
                     if (textBefore) {
-                        const textNode = document.createTextNode(textBefore);
-                        chipInput.appendChild(textNode);
-                        console.log('Added text before chip:', textBefore);
+                        chipInput.appendChild(document.createTextNode(textBefore));
                     }
                 }
                 
                 // Add chip
-                const chip = createFieldChip(match[1]);
+                const chip = createFieldChip(matchInfo.fieldName, matchInfo.type);
                 chipInput.appendChild(chip);
-                chipCount++;
-                console.log('Added chip for field:', match[1]);
                 
-                lastIndex = pattern.lastIndex;
-            }
+                lastIndex = matchInfo.index + matchInfo.length;
+            });
             
             // Add remaining text
             if (lastIndex < value.length) {
                 const textAfter = value.substring(lastIndex);
                 if (textAfter) {
-                    const textNode = document.createTextNode(textAfter);
-                    chipInput.appendChild(textNode);
-                    console.log('Added text after chips:', textAfter);
+                    chipInput.appendChild(document.createTextNode(textAfter));
                 }
             }
-            
-            console.log('renderChipContent complete. Added', chipCount, 'chips');
         }
         
-        function createFieldChip(fieldName, isDraggableWithin = true) {
+        function createFieldChip(fieldName, chipType = 'field', isDraggableWithin = true) {
             const chip = document.createElement('span');
-            chip.className = 'field-chip';
+            const isStepChip = chipType === 'step' || fieldName.includes('.');
+            chip.className = isStepChip ? 'step-chip' : 'field-chip';
             chip.contentEditable = 'false';
             chip.setAttribute('data-field', fieldName);
+            chip.setAttribute('data-chip-type', isStepChip ? 'step' : 'field');
             chip.setAttribute('spellcheck', 'false');
             
             if (isDraggableWithin) {
@@ -847,24 +1335,50 @@ export const adminHTML = `<!DOCTYPE html>
             
             textNodes.forEach(textNode => {
                 const text = textNode.textContent;
-                // Match both dollar-brace-field.xxx-brace and dollar-brace-xxx-brace formats
-                const pattern = new RegExp('\\\\\\$\\\\\\{(?:field\\\\.)?([a-zA-Z0-9_]+)\\\\\\}', 'g');
                 
-                if (pattern.test(text)) {
+                // Match both field patterns and step references
+                const fieldPattern = new RegExp('\\\\\\$\\\\\\{(?:field\\\\.)?([a-zA-Z0-9_]+)\\\\\\}', 'g');
+                const stepPattern = new RegExp('\\\\\\$([a-zA-Z0-9_]+)\\\\.([a-zA-Z0-9_]+)', 'g');
+                
+                // Find all matches
+                const allMatches = [];
+                let match;
+                
+                while ((match = fieldPattern.exec(text)) !== null) {
+                    allMatches.push({
+                        type: 'field',
+                        index: match.index,
+                        length: match[0].length,
+                        fieldName: match[1]
+                    });
+                }
+                
+                stepPattern.lastIndex = 0;
+                while ((match = stepPattern.exec(text)) !== null) {
+                    allMatches.push({
+                        type: 'step',
+                        index: match.index,
+                        length: match[0].length,
+                        fieldName: match[1] + '.' + match[2]
+                    });
+                }
+                
+                if (allMatches.length > 0) {
+                    // Sort by position
+                    allMatches.sort((a, b) => a.index - b.index);
+                    
                     const fragment = document.createDocumentFragment();
                     let lastIndex = 0;
-                    let match;
-                    pattern.lastIndex = 0;
                     
-                    while ((match = pattern.exec(text)) !== null) {
-                        if (match.index > lastIndex) {
+                    allMatches.forEach(matchInfo => {
+                        if (matchInfo.index > lastIndex) {
                             fragment.appendChild(
-                                document.createTextNode(text.substring(lastIndex, match.index))
+                                document.createTextNode(text.substring(lastIndex, matchInfo.index))
                             );
                         }
-                        fragment.appendChild(createFieldChip(match[1]));
-                        lastIndex = pattern.lastIndex;
-                    }
+                        fragment.appendChild(createFieldChip(matchInfo.fieldName, matchInfo.type));
+                        lastIndex = matchInfo.index + matchInfo.length;
+                    });
                     
                     if (lastIndex < text.length) {
                         fragment.appendChild(
@@ -884,13 +1398,22 @@ export const adminHTML = `<!DOCTYPE html>
             chipInput.childNodes.forEach(node => {
                 if (node.nodeType === Node.TEXT_NODE) {
                     value += node.textContent;
-                } else if (node.classList && node.classList.contains('field-chip')) {
+                } else if (node.classList && (node.classList.contains('field-chip') || node.classList.contains('step-chip'))) {
                     const fieldName = node.getAttribute('data-field');
-                    value += '$' + '{field.' + fieldName + '}';
+                    const chipType = node.getAttribute('data-chip-type');
+                    
+                    if (chipType === 'step' || fieldName.includes('.')) {
+                        // Step reference
+                        value += '$' + fieldName;
+                    } else {
+                        // Form field
+                        value += '$' + '{' + 'field.' + fieldName + '}';
+                    }
                 }
             });
             
-            hiddenInput.value = value;
+            // Trim leading and trailing whitespace
+            hiddenInput.value = value.trim();
         }
         
         function handleChipDrop(e, chipInput, hiddenInput) {
@@ -899,7 +1422,7 @@ export const adminHTML = `<!DOCTYPE html>
             chipInput.classList.remove('drop-zone-active');
             
             // Check if we're moving an existing chip within this input
-            const movingChip = Array.from(chipInput.querySelectorAll('.field-chip')).find(c => c._isMoving);
+            const movingChip = Array.from(chipInput.querySelectorAll('.field-chip, .step-chip')).find(c => c._isMoving);
             
             let chip;
             if (movingChip) {
@@ -907,8 +1430,9 @@ export const adminHTML = `<!DOCTYPE html>
                 chip = movingChip;
                 chip.remove(); // Remove from current position
             } else if (draggedFieldName) {
-                // Adding new chip from palette
-                chip = createFieldChip(draggedFieldName);
+                // Adding new chip from palette - determine type by checking if it's a step reference
+                const chipType = draggedFieldName.includes('.') ? 'step' : 'field';
+                chip = createFieldChip(draggedFieldName, chipType);
             } else {
                 return;
             }
@@ -963,14 +1487,61 @@ export const adminHTML = `<!DOCTYPE html>
             element.addEventListener('drop', handleDrop);
         }
         
+        function makeEmptyDropZone(element, type, stepIdx) {
+            element.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                element.classList.add('drop-zone-active');
+            });
+            
+            element.addEventListener('dragleave', (e) => {
+                if (e.target === element) {
+                    element.classList.remove('drop-zone-active');
+                }
+            });
+            
+            element.addEventListener('drop', (e) => {
+                e.preventDefault();
+                element.classList.remove('drop-zone-active');
+                
+                if (!draggedFieldName) {
+                    return;
+                }
+                
+                if (type === 'domain') {
+                    if (!workflowSteps[stepIdx].search.domain) workflowSteps[stepIdx].search.domain = [];
+                    workflowSteps[stepIdx].search.domain.push([draggedFieldName, '=', '', 'text']);
+                    renderDomain(stepIdx, workflowSteps[stepIdx].search.domain);
+                } else if (type === 'fields') {
+                    if (!workflowSteps[stepIdx].search.fields) workflowSteps[stepIdx].search.fields = [];
+                    workflowSteps[stepIdx].search.fields.push(draggedFieldName);
+                    renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
+                } else if (type === 'create') {
+                    if (!workflowSteps[stepIdx].create) workflowSteps[stepIdx].create = {};
+                    workflowSteps[stepIdx].create[draggedFieldName] = '$' + '{field.' + draggedFieldName + '}';
+                    renderCreateValues(stepIdx, workflowSteps[stepIdx].create);
+                } else if (type === 'update') {
+                    if (!workflowSteps[stepIdx].update.fields) workflowSteps[stepIdx].update.fields = {};
+                    workflowSteps[stepIdx].update.fields[draggedFieldName] = '$' + '{field.' + draggedFieldName + '}';
+                    console.log('Added field to update:', draggedFieldName, 'Step:', stepIdx, 'Update object:', workflowSteps[stepIdx].update);
+                    renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
+                }
+            });
+        }
+        
         function handleDragOver(e) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
-            e.target.classList.add('drop-zone-active');
+            if (!e.target.classList.contains('drop-zone-active')) {
+                e.target.classList.add('drop-zone-active');
+            }
         }
         
         function handleDragLeave(e) {
-            e.target.classList.remove('drop-zone-active');
+            // Only remove if we're actually leaving the element
+            if (e.target === e.currentTarget) {
+                e.target.classList.remove('drop-zone-active');
+            }
         }
         
         function handleDrop(e) {
@@ -989,18 +1560,22 @@ export const adminHTML = `<!DOCTYPE html>
             }
         }
         
-        // Workflow Steps (unchanged from previous version)
+        // Workflow Steps
         function renderWorkflowSteps() {
             const container = document.getElementById('workflowSteps');
             container.innerHTML = '';
             
             workflowSteps.forEach((step, idx) => {
                 const stepEl = document.createElement('div');
-                stepEl.className = 'workflow-step';
+                stepEl.className = 'workflow-step collapsed';
                 stepEl.dataset.index = idx;
+                
+                const resultBadge = step.step ? \`<div class="step-result-badge">📦 $\${step.step}</div>\` : '';
+                
                 stepEl.innerHTML = \`
                     <div class="workflow-step-header" onclick="toggleStep(\${idx})">
                         <h4>Step: \${step.step || '(unnamed)'} - Model: \${step.model || '(no model)'}</h4>
+                        \${resultBadge}
                         <div class="step-actions" onclick="event.stopPropagation()">
                             <button class="btn-collapse" onclick="toggleStep(\${idx})">▼</button>
                             <button class="btn-delete-step" onclick="deleteStep(\${idx})">×</button>
@@ -1018,34 +1593,58 @@ export const adminHTML = `<!DOCTYPE html>
                             </div>
                         </div>
                         
-                        <div class="step-subsection">
-                            <h5>🔍 Search</h5>
-                            <div class="domain-editor">
-                                <label style="display:block; margin-bottom:0.5rem; font-weight:500">Domain Conditions:</label>
-                                <div id="domain-\${idx}"></div>
-                                <button class="add-row-btn" onclick="addDomainRow(\${idx})">+ Add Condition</button>
-                            </div>
-                            <div class="fields-editor" style="margin-top: 1rem">
-                                <label style="display:block; margin-bottom:0.5rem; font-weight:500">Fields to Retrieve:</label>
-                                <div class="fields-list" id="fields-\${idx}"></div>
-                                <div class="add-field-input">
-                                    <input type="text" id="new-field-\${idx}" placeholder="field_name">
-                                    <button class="add-row-btn" onclick="addSearchField(\${idx})">+ Add</button>
+                        <div class="step-subsection \${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? '' : 'collapsed'}">
+                            <h5 onclick="toggleSubsection(this)">🔍 Search <span class="subsection-toggle">▼</span></h5>
+                            <div class="subsection-content">
+                                <div class="domain-editor">
+                                    <label style="display:block; margin-bottom:0.5rem; font-weight:500">Domain Conditions:</label>
+                                    <div id="domain-\${idx}"></div>
+                                    <button class="add-row-btn" onclick="addDomainRow(\${idx})">+ Add Condition</button>
+                                </div>
+                                <div class="fields-editor" style="margin-top: 1rem">
+                                    <label style="display:block; margin-bottom:0.5rem; font-weight:500">Fields to Retrieve:</label>
+                                    <div class="fields-list" id="fields-\${idx}"></div>
+                                    <div class="add-field-input">
+                                        <input type="text" id="new-field-\${idx}" placeholder="field_name">
+                                        <button class="add-row-btn" onclick="addSearchField(\${idx})">+ Add</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                         
-                        <div class="step-subsection">
-                            <h5>➕ Create</h5>
-                            <div id="create-\${idx}"></div>
-                            <button class="add-row-btn" onclick="addCreateValue(\${idx})">+ Add Value</button>
+                        <div class="step-subsection \${(step.create && Object.keys(step.create).length > 0) ? '' : 'collapsed'}">
+                            <h5 onclick="toggleSubsection(this)">➕ Create <span class="subsection-toggle">▼</span></h5>
+                            <div class="subsection-content">
+                                <div id="create-\${idx}"></div>
+                                <button class="add-row-btn" onclick="addCreateValue(\${idx})">+ Add Value</button>
+                            </div>
                         </div>
                         
-                        <div class="step-subsection">
-                            <h5>✏️ Update</h5>
-                            <div id="update-\${idx}"></div>
-                            <button class="add-row-btn" onclick="addUpdateValue(\${idx})">+ Add Value</button>
+                        <div class="step-subsection \${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? '' : 'collapsed'}">
+                            <h5 onclick="toggleSubsection(this)">✏️ Update <span class="subsection-toggle">▼</span></h5>
+                            <div class="subsection-content">
+                                <div id="update-\${idx}"></div>
+                                <button class="add-row-btn" onclick="addUpdateValue(\${idx})">+ Add Value</button>
+                            </div>
                         </div>
+                        
+                        <div class="step-subsection \${step.html_card ? '' : 'collapsed'}">
+                            <h5 onclick="toggleSubsection(this)">🎨 HTML Card <span class="subsection-toggle">▼</span></h5>
+                            <div class="subsection-content">
+                                <p style="color: #666; margin-bottom: 1rem; font-size: 0.9rem;">
+                                    Build a custom HTML card/form with drag & drop field placeholders
+                                </p>
+                                <button class="btn-primary" onclick="openHtmlCardEditor(\${idx})" style="margin-bottom: 1rem;">
+                                    \${step.html_card ? '✏️ Edit HTML Card' : '➕ Create HTML Card'}
+                                </button>
+                                \${step.html_card ? '<div style="padding: 0.75rem; background: #f8f9fa; border-radius: 4px;"><strong>HTML Card configured</strong> - ' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="step-result-section">
+                        <h5>Step Result (available in later steps)</h5>
+                        <div class="step-result-chips" id="result-chips-\${idx}"></div>
                     </div>
                 \`;
                 container.appendChild(stepEl);
@@ -1054,6 +1653,7 @@ export const adminHTML = `<!DOCTYPE html>
                 renderSearchFields(idx, step.search?.fields || []);
                 renderCreateValues(idx, step.create || {});
                 renderUpdateValues(idx, step.update || {});
+                renderStepResultChips(idx, step);
             });
             
             // Re-initialize drag and drop for newly rendered elements
@@ -1063,6 +1663,11 @@ export const adminHTML = `<!DOCTYPE html>
         function toggleStep(idx) {
             const step = document.querySelector(\`.workflow-step[data-index="\${idx}"]\`);
             step.classList.toggle('collapsed');
+        }
+        
+        function toggleSubsection(header) {
+            const subsection = header.parentElement;
+            subsection.classList.toggle('collapsed');
         }
         
         function deleteStep(idx) {
@@ -1076,6 +1681,46 @@ export const adminHTML = `<!DOCTYPE html>
             workflowSteps[idx][field] = value;
             const header = document.querySelector(\`.workflow-step[data-index="\${idx}"] h4\`);
             header.textContent = \`Step: \${workflowSteps[idx].step || '(unnamed)'} - Model: \${workflowSteps[idx].model || '(no model)'}\`;
+            
+            // Update the result badge if step name changed
+            if (field === 'step') {
+                const stepEl = document.querySelector(\`.workflow-step[data-index="\${idx}"]\`);
+                const existingBadge = stepEl.querySelector('.step-result-badge');
+                if (existingBadge) {
+                    existingBadge.textContent = value ? \`📦 $\${value}\` : '';
+                } else if (value) {
+                    const badge = document.createElement('div');
+                    badge.className = 'step-result-badge';
+                    badge.textContent = \`📦 $\${value}\`;
+                    const actions = stepEl.querySelector('.step-actions');
+                    actions.parentNode.insertBefore(badge, actions);
+                }
+                renderStepResultChips(idx, workflowSteps[idx]);
+                updateFieldPalette();
+            }
+        }
+        
+        function renderStepResultChips(idx, step) {
+            const container = document.getElementById(\`result-chips-\${idx}\`);
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            if (!step.step) {
+                container.innerHTML = '<em style="color: #999;">Name the step first to enable result references</em>';
+                return;
+            }
+            
+            const fields = step.search?.fields || ['id'];
+            fields.forEach(field => {
+                const chipItem = document.createElement('div');
+                chipItem.className = 'step-result-chip-item';
+                chipItem.innerHTML = \`
+                    <span>$\${step.step}.\${field}</span>
+                    <code>$\${step.step}.\${field}</code>
+                \`;
+                container.appendChild(chipItem);
+            });
         }
         
         function addWorkflowStep() {
@@ -1091,18 +1736,39 @@ export const adminHTML = `<!DOCTYPE html>
         
         // Domain Editor
         function renderDomain(stepIdx, domain) {
+            console.log('renderDomain called for step', stepIdx, 'domain:', domain);
             const container = document.getElementById(\`domain-\${stepIdx}\`);
             container.innerHTML = '';
+            
+            if (domain.length === 0) {
+                const emptyZone = document.createElement('div');
+                emptyZone.className = 'empty-drop-zone';
+                emptyZone.textContent = '🎯 Sleep velden hierheen of klik op "+ Add Condition" hieronder';
+                makeEmptyDropZone(emptyZone, 'domain', stepIdx);
+                container.appendChild(emptyZone);
+                return;
+            }
             
             domain.forEach((condition, condIdx) => {
                 const row = document.createElement('div');
                 row.className = 'domain-row';
+                
+                // Support both old format [field, op, val] and new format [field, op, val, type]
                 const field = condition[0] || '';
                 const op = condition[1] || '=';
-                const val = condition[2] || '';
+                const val = condition[2] !== undefined ? condition[2] : '';
+                const fieldType = condition[3] || 'text';
                 
                 row.innerHTML = \`
-                    <input type="text" value="\${field}" placeholder="field" onchange="updateDomain(\${stepIdx}, \${condIdx}, 0, this.value)">
+                    <input type="text" value="\${field}" placeholder="field" 
+                        onchange="updateDomain(\${stepIdx}, \${condIdx}, 0, this.value)">
+                    <select class="field-type" onchange="updateDomainType(\${stepIdx}, \${condIdx}, this.value)">
+                        <option value="text" \${fieldType === 'text' ? 'selected' : ''}>Text</option>
+                        <option value="integer" \${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
+                        <option value="float" \${fieldType === 'float' ? 'selected' : ''}>Float</option>
+                        <option value="boolean" \${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
+                        <option value="datetime" \${fieldType === 'datetime' ? 'selected' : ''}>DateTime</option>
+                    </select>
                     <select onchange="updateDomain(\${stepIdx}, \${condIdx}, 1, this.value)">
                         <option value="=" \${op === '=' ? 'selected' : ''}>equals (=)</option>
                         <option value="!=" \${op === '!=' ? 'selected' : ''}>not equals (!=)</option>
@@ -1115,22 +1781,128 @@ export const adminHTML = `<!DOCTYPE html>
                         <option value="in" \${op === 'in' ? 'selected' : ''}>in</option>
                         <option value="not in" \${op === 'not in' ? 'selected' : ''}>not in</option>
                     </select>
-                    <input type="text" value="\${val}" placeholder="value" onchange="updateDomain(\${stepIdx}, \${condIdx}, 2, this.value)">
+                    <div id="value-\${stepIdx}-\${condIdx}"></div>
                     <button onclick="deleteDomain(\${stepIdx}, \${condIdx})">×</button>
                 \`;
                 container.appendChild(row);
+                
+                // Render the value input based on field type
+                renderDomainValue(stepIdx, condIdx, val, fieldType);
             });
+        }
+        
+        function renderDomainValue(stepIdx, condIdx, value, fieldType) {
+            const container = document.getElementById(\`value-\${stepIdx}-\${condIdx}\`);
+            if (!container) return;
             
-            // Convert inputs to chip inputs after a small delay to ensure values are set
-            setTimeout(() => {
-                container.querySelectorAll('input[type="text"]').forEach(convertToChipInput);
-            }, 0);
+            container.innerHTML = '';
+            
+            if (fieldType === 'boolean') {
+                // Boolean: true/false select
+                const select = document.createElement('select');
+                select.onchange = function() {
+                    const boolVal = this.value === 'true';
+                    updateDomain(stepIdx, condIdx, 2, boolVal);
+                };
+                
+                const trueOpt = document.createElement('option');
+                trueOpt.value = 'true';
+                trueOpt.textContent = 'True';
+                trueOpt.selected = value === true;
+                
+                const falseOpt = document.createElement('option');
+                falseOpt.value = 'false';
+                falseOpt.textContent = 'False';
+                falseOpt.selected = value === false;
+                
+                select.appendChild(trueOpt);
+                select.appendChild(falseOpt);
+                container.appendChild(select);
+                
+            } else if (fieldType === 'integer') {
+                // Integer input
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.step = '1';
+                input.value = value;
+                input.placeholder = 'integer value';
+                input.onchange = function() {
+                    updateDomain(stepIdx, condIdx, 2, parseInt(this.value) || 0);
+                };
+                container.appendChild(input);
+                
+            } else if (fieldType === 'float') {
+                // Float input
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.step = 'any';
+                input.value = value;
+                input.placeholder = 'decimal value';
+                input.onchange = function() {
+                    updateDomain(stepIdx, condIdx, 2, parseFloat(this.value) || 0);
+                };
+                container.appendChild(input);
+                
+            } else if (fieldType === 'datetime') {
+                // DateTime input
+                const input = document.createElement('input');
+                input.type = 'datetime-local';
+                input.value = value;
+                input.placeholder = 'YYYY-MM-DD HH:MM';
+                input.onchange = function() {
+                    updateDomain(stepIdx, condIdx, 2, this.value);
+                };
+                container.appendChild(input);
+                
+            } else {
+                // Text input with chip support
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = value;
+                input.placeholder = 'value';
+                input.setAttribute('onchange', 'updateDomain(' + stepIdx + ', ' + condIdx + ', 2, this.value)');
+                container.appendChild(input);
+                
+                // Convert to chip input after a small delay
+                setTimeout(() => {
+                    convertToChipInput(input);
+                }, 0);
+            }
+        }
+        
+        function updateDomainType(stepIdx, condIdx, newType) {
+            // Update the field type
+            if (workflowSteps[stepIdx].search.domain[condIdx].length === 3) {
+                // Convert from old format [field, op, val] to new format [field, op, val, type]
+                workflowSteps[stepIdx].search.domain[condIdx].push(newType);
+            } else {
+                workflowSteps[stepIdx].search.domain[condIdx][3] = newType;
+            }
+            
+            // Get current value and convert it based on new type
+            let currentVal = workflowSteps[stepIdx].search.domain[condIdx][2];
+            
+            if (newType === 'boolean') {
+                currentVal = currentVal === 'true' || currentVal === true || currentVal === 1;
+            } else if (newType === 'integer') {
+                currentVal = parseInt(currentVal) || 0;
+            } else if (newType === 'float') {
+                currentVal = parseFloat(currentVal) || 0;
+            } else {
+                currentVal = String(currentVal || '');
+            }
+            
+            workflowSteps[stepIdx].search.domain[condIdx][2] = currentVal;
+            
+            // Re-render the value input
+            renderDomainValue(stepIdx, condIdx, currentVal, newType);
         }
         
         function addDomainRow(stepIdx) {
             if (!workflowSteps[stepIdx].search) workflowSteps[stepIdx].search = {};
             if (!workflowSteps[stepIdx].search.domain) workflowSteps[stepIdx].search.domain = [];
-            workflowSteps[stepIdx].search.domain.push(['', '=', '']);
+            // New format: [field, operator, value, type]
+            workflowSteps[stepIdx].search.domain.push(['', '=', '', 'text']);
             renderDomain(stepIdx, workflowSteps[stepIdx].search.domain);
         }
         
@@ -1147,6 +1919,15 @@ export const adminHTML = `<!DOCTYPE html>
         function renderSearchFields(stepIdx, fields) {
             const container = document.getElementById(\`fields-\${stepIdx}\`);
             container.innerHTML = '';
+            
+            if (fields.length === 0) {
+                const emptyZone = document.createElement('div');
+                emptyZone.className = 'empty-drop-zone';
+                emptyZone.textContent = '📌 Sleep velden hierheen of voeg ze hieronder toe';
+                makeEmptyDropZone(emptyZone, 'fields', stepIdx);
+                container.appendChild(emptyZone);
+                return;
+            }
             
             fields.forEach((field, fieldIdx) => {
                 const tag = document.createElement('div');
@@ -1166,11 +1947,15 @@ export const adminHTML = `<!DOCTYPE html>
             workflowSteps[stepIdx].search.fields.push(value);
             input.value = '';
             renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
+            renderStepResultChips(stepIdx, workflowSteps[stepIdx]);
+            updateFieldPalette();
         }
         
         function deleteSearchField(stepIdx, fieldIdx) {
             workflowSteps[stepIdx].search.fields.splice(fieldIdx, 1);
             renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
+            renderStepResultChips(stepIdx, workflowSteps[stepIdx]);
+            updateFieldPalette();
         }
         
         // Create Values
@@ -1178,6 +1963,15 @@ export const adminHTML = `<!DOCTYPE html>
             console.log('=== renderCreateValues ===', 'stepIdx:', stepIdx, 'values:', values);
             const container = document.getElementById(\`create-\${stepIdx}\`);
             container.innerHTML = '';
+            
+            if (Object.keys(values).length === 0) {
+                const emptyZone = document.createElement('div');
+                emptyZone.className = 'empty-drop-zone';
+                emptyZone.textContent = '➕ Sleep velden hierheen of klik op "+ Add Value" hieronder';
+                makeEmptyDropZone(emptyZone, 'create', stepIdx);
+                container.appendChild(emptyZone);
+                return;
+            }
             
             Object.entries(values).forEach(([key, value]) => {
                 const row = document.createElement('div');
@@ -1237,10 +2031,35 @@ export const adminHTML = `<!DOCTYPE html>
         
         // Update Values
         function renderUpdateValues(stepIdx, updateObj) {
+            console.log('renderUpdateValues called for step', stepIdx, 'updateObj:', updateObj);
+            console.log('updateObj type:', typeof updateObj, 'is array?', Array.isArray(updateObj));
+            console.log('updateObj.fields:', updateObj?.fields);
             const container = document.getElementById(\`update-\${stepIdx}\`);
+            if (!container) {
+                console.error('Update container not found for step', stepIdx);
+                return;
+            }
             container.innerHTML = '';
             
+            // Get search fields as options
+            const searchFields = workflowSteps[stepIdx].search?.fields || [];
+            const searchFieldOptions = searchFields.length > 0 
+                ? searchFields.map(f => \`<option value="\${f}">\${f}</option>\`).join('')
+                : '';
+            
             const values = updateObj.fields || updateObj;
+            console.log('Update values to render:', values);
+            console.log('Object.keys(values):', Object.keys(values));
+            
+            if (Object.keys(values).length === 0 || (Object.keys(values).length === 1 && values.enabled !== undefined)) {
+                console.log('Rendering empty drop zone for update');
+                const emptyZone = document.createElement('div');
+                emptyZone.className = 'empty-drop-zone';
+                emptyZone.textContent = '✏️ Sleep velden hierheen of klik op "+ Add Value" hieronder';
+                makeEmptyDropZone(emptyZone, 'update', stepIdx);
+                container.appendChild(emptyZone);
+                return;
+            }
             
             Object.entries(values).forEach(([key, value]) => {
                 if (key === 'enabled') return;
@@ -1251,8 +2070,11 @@ export const adminHTML = `<!DOCTYPE html>
                 const useTextarea = displayValue.length > 40;
                 
                 row.innerHTML = \`
-                    <input type="text" value="\${key}" placeholder="field" data-old-key="\${key}" 
-                        onchange="updateUpdateValue(\${stepIdx}, this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
+                    <select onchange="updateUpdateValueKey(\${stepIdx}, '\${key}', this.value)" style="flex: 1;">
+                        <option value="">-- Select field --</option>
+                        \${searchFieldOptions}
+                        <option value="\${key}" \${!searchFields.includes(key) && key ? 'selected' : ''}>\${key || '(custom)'}</option>
+                    </select>
                     <span>=</span>
                     \${useTextarea 
                         ? \`<textarea onchange="updateUpdateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
@@ -1261,26 +2083,45 @@ export const adminHTML = `<!DOCTYPE html>
                     <button onclick="deleteUpdateValue(\${stepIdx}, '\${key}')">×</button>
                 \`;
                 container.appendChild(row);
+                
+                // Set correct selection
+                const select = row.querySelector('select');
+                if (searchFields.includes(key)) {
+                    select.value = key;
+                }
             });
             
-            // Convert inputs to chip inputs after a small delay to ensure values are set
+            // Convert value inputs to chip inputs after a small delay to ensure values are set
             setTimeout(() => {
                 container.querySelectorAll('input[type="text"], textarea').forEach(convertToChipInput);
             }, 0);
         }
         
+        function updateUpdateValueKey(stepIdx, oldKey, newKey) {
+            if (!workflowSteps[stepIdx].update.fields) workflowSteps[stepIdx].update.fields = {};
+            
+            const value = workflowSteps[stepIdx].update.fields[oldKey];
+            delete workflowSteps[stepIdx].update.fields[oldKey];
+            workflowSteps[stepIdx].update.fields[newKey] = value || '';
+            
+            renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
+        }
+        
         function addUpdateValue(stepIdx) {
+            if (!workflowSteps[stepIdx].update) workflowSteps[stepIdx].update = {};
+            if (!workflowSteps[stepIdx].update.fields) workflowSteps[stepIdx].update.fields = {};
+            
+            // Add empty row
+            workflowSteps[stepIdx].update.fields[''] = '';
+            renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
         }
         
         function addCreateValue(stepIdx) {
-            if (!workflowSteps[stepIdx].update) workflowSteps[stepIdx].update = {};
-            const key = prompt('Field name:');
-            if (!key) return;
-            const value = prompt('Field value:');
+            if (!workflowSteps[stepIdx].create) workflowSteps[stepIdx].create = {};
             
-            if (!workflowSteps[stepIdx].update.fields) workflowSteps[stepIdx].update.fields = {};
-            workflowSteps[stepIdx].update.fields[key] = value || '';
-            renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
+            // Add empty row
+            workflowSteps[stepIdx].create[''] = '';
+            renderCreateValues(stepIdx, workflowSteps[stepIdx].create);
         }
         
         function updateUpdateValue(stepIdx, oldKey, newKey, value) {
@@ -1330,12 +2171,40 @@ export const adminHTML = `<!DOCTYPE html>
                 }
             });
             
+            // Clean workflow steps: extract field type metadata to _ui_metadata and clean domain arrays
+            const cleanedWorkflow = workflowSteps.map(step => {
+                const cleanedStep = { ...step };
+                
+                // Extract domain field types to metadata
+                if (cleanedStep.search && cleanedStep.search.domain) {
+                    const domainTypes = cleanedStep.search.domain.map(condition => {
+                        return condition[3] || 'text'; // Default to 'text' if no type specified
+                    });
+                    
+                    // Store field types in _ui_metadata
+                    if (!cleanedStep._ui_metadata) {
+                        cleanedStep._ui_metadata = {};
+                    }
+                    cleanedStep._ui_metadata.domain_types = domainTypes;
+                    
+                    // Clean domain array to only include [field, operator, value]
+                    cleanedStep.search.domain = cleanedStep.search.domain.map(condition => {
+                        return condition.slice(0, 3);
+                    });
+                }
+                
+                return cleanedStep;
+            });
+            
             const data = {
                 ...mappings[currentFormId],
                 field_mapping: fieldMapping,
                 value_mapping: cleanedValueMapping,
-                workflow: workflowSteps
+                workflow: cleanedWorkflow
             };
+            
+            console.log('Saving form data:', JSON.stringify(data, null, 2));
+            console.log('Original workflowSteps:', JSON.stringify(workflowSteps, null, 2));
             
             try {
                 await apiCall(\`/api/mappings/\${currentFormId}\`, {
@@ -1343,6 +2212,7 @@ export const adminHTML = `<!DOCTYPE html>
                     body: JSON.stringify(data)
                 });
                 mappings[currentFormId] = data;
+                console.log('Form saved successfully, mappings updated:', mappings[currentFormId]);
                 showAlert('Form saved successfully', 'success');
             } catch (err) {
                 showAlert('Failed to save: ' + err.message, 'error');
@@ -1371,6 +2241,568 @@ export const adminHTML = `<!DOCTYPE html>
             } catch (err) {
                 showAlert('Failed to delete: ' + err.message, 'error');
             }
+        }
+        
+        function createNewForm() {
+            const formId = prompt('Enter Form ID:');
+            if (!formId) return;
+            
+            if (mappings[formId]) {
+                showAlert('Form ID already exists!', 'error');
+                return;
+            }
+            
+            // Create new empty form
+            currentFormId = formId;
+            fieldMapping = {};
+            valueMapping = {};
+            workflowSteps = [];
+            expandedValueMappings = {};
+            
+            mappings[formId] = {
+                field_mapping: {},
+                value_mapping: {},
+                workflow: []
+            };
+            
+            // Add to list
+            const list = document.getElementById('formList');
+            const li = document.createElement('li');
+            li.textContent = \`Form \${formId}\`;
+            li.onclick = () => loadForm(formId);
+            list.appendChild(li);
+            
+            // Load in editor
+            loadForm(formId);
+            showAlert(\`Created new form: \${formId}\`, 'success');
+        }
+        
+        // HTML Card Editor Functions
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function openHtmlCardEditor(stepIdx) {
+            currentHtmlCardStepIdx = stepIdx;
+            const modal = document.getElementById('htmlCardModal');
+            modal.classList.add('active');
+            
+            // Load existing HTML card if present
+            if (workflowSteps[stepIdx].html_card) {
+                parseHtmlCardToElements(workflowSteps[stepIdx].html_card);
+            } else {
+                htmlCardElements = [];
+            }
+            
+            // Populate available fields
+            populateHtmlCardFields();
+            
+            // Render canvas
+            renderHtmlCardCanvas();
+            
+            // Initialize drag and drop
+            initializeHtmlCardDragDrop();
+        }
+        
+        function closeHtmlCardEditor() {
+            document.getElementById('htmlCardModal').classList.remove('active');
+            currentHtmlCardStepIdx = null;
+            htmlCardElements = [];
+        }
+        
+        function populateHtmlCardFields() {
+            const container = document.getElementById('htmlCardFields');
+            container.innerHTML = '';
+            
+            // Add form fields with their Odoo field names (renamed)
+            Object.entries(fieldMapping).forEach(([formField, odooField]) => {
+                const div = document.createElement('div');
+                div.className = 'html-card-draggable';
+                div.draggable = true;
+                div.dataset.type = 'field';
+                div.dataset.field = formField;
+                div.dataset.odooField = odooField;
+                div.innerHTML = \`<span>📝</span> \${odooField || formField}\`;
+                container.appendChild(div);
+            });
+            
+            // Add step results
+            workflowSteps.forEach((step, idx) => {
+                if (idx < currentHtmlCardStepIdx && step.step) {
+                    const fields = step.search?.fields || ['id'];
+                    fields.forEach(field => {
+                        const div = document.createElement('div');
+                        div.className = 'html-card-draggable';
+                        div.draggable = true;
+                        div.dataset.type = 'step-field';
+                        div.dataset.field = \`\${step.step}.\${field}\`;
+                        div.innerHTML = \`<span>📦</span> \${step.step}.\${field}\`;
+                        container.appendChild(div);
+                    });
+                }
+            });
+        }
+        
+        function initializeHtmlCardDragDrop() {
+            const canvas = document.getElementById('htmlCardCanvas');
+            const draggables = document.querySelectorAll('.html-card-draggable');
+            
+            draggables.forEach(draggable => {
+                draggable.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('type', draggable.dataset.type);
+                    if (draggable.dataset.field) {
+                        e.dataTransfer.setData('field', draggable.dataset.field);
+                    }
+                    if (draggable.dataset.odooField) {
+                        e.dataTransfer.setData('odooField', draggable.dataset.odooField);
+                    }
+                    draggable.classList.add('dragging');
+                });
+                
+                draggable.addEventListener('dragend', (e) => {
+                    draggable.classList.remove('dragging');
+                });
+            });
+            
+            canvas.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                canvas.classList.add('dragover');
+            });
+            
+            canvas.addEventListener('dragleave', () => {
+                canvas.classList.remove('dragover');
+            });
+            
+            canvas.addEventListener('drop', (e) => {
+                e.preventDefault();
+                canvas.classList.remove('dragover');
+                
+                // Check if dropping into a container (not the canvas itself)
+                const containerElement = e.target.closest('[data-container-id]');
+                if (containerElement && containerElement !== canvas) {
+                    return; // Let container handle it
+                }
+                
+                const existingPath = e.dataTransfer.getData('existingPath');
+                if (existingPath) {
+                    // Moving existing element to root
+                    const path = JSON.parse(existingPath);
+                    moveHtmlCardElement(path, null);
+                } else {
+                    // Adding new element to root
+                    const type = e.dataTransfer.getData('type');
+                    const field = e.dataTransfer.getData('field');
+                    const odooField = e.dataTransfer.getData('odooField');
+                    addHtmlCardElement(type, field, odooField, null);
+                }
+            });
+        }
+        
+        function addHtmlCardElement(type, field = null, odooField = null, containerId = null) {
+            const element = {
+                id: Date.now() + Math.random(),
+                type: type,
+                field: field,
+                odooField: odooField
+            };
+            
+            // Add default values based on type
+            if (type === 'heading') {
+                element.text = 'Heading Text';
+                element.level = 'h2';
+            } else if (type === 'text') {
+                element.text = 'Text content here...';
+            } else if (type === 'divider') {
+                // No extra properties
+            } else if (type === 'container') {
+                element.title = 'Container Title';
+                element.layout = 'vertical'; // or 'horizontal', 'grid'
+                element.children = [];
+            } else if (type === 'field' || type === 'step-field') {
+                element.label = odooField || field;
+                console.log('Created field element:', element);
+            }
+            
+            // Add to container or root
+            if (containerId) {
+                const container = findElementById(containerId);
+                if (container && container.children) {
+                    container.children.push(element);
+                }
+            } else {
+                htmlCardElements.push(element);
+            }
+            
+            renderHtmlCardCanvas();
+        }
+        
+        function findElementById(id) {
+            for (const el of htmlCardElements) {
+                if (el.id === id) return el;
+                if (el.children) {
+                    const found = findInChildren(el.children, id);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+        
+        function findInChildren(children, id) {
+            for (const child of children) {
+                if (child.id === id) return child;
+                if (child.children) {
+                    const found = findInChildren(child.children, id);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+        
+        function moveHtmlCardElement(fromPath, toContainerId) {
+            // Get the element
+            let source = htmlCardElements;
+            for (let i = 0; i < fromPath.length - 1; i++) {
+                source = source[fromPath[i]];
+            }
+            const element = source[fromPath[fromPath.length - 1]];
+            
+            // Remove from old location
+            source.splice(fromPath[fromPath.length - 1], 1);
+            
+            // Add to new location
+            if (toContainerId) {
+                const container = findElementById(toContainerId);
+                if (container && container.children) {
+                    container.children.push(element);
+                }
+            } else {
+                htmlCardElements.push(element);
+            }
+            
+            renderHtmlCardCanvas();
+        }
+        
+        function renderHtmlCardCanvas() {
+            const canvas = document.getElementById('htmlCardCanvas');
+            
+            if (htmlCardElements.length === 0) {
+                canvas.innerHTML = '<p style="color: #999; text-align: center; margin-top: 2rem;">Drag elements here to build your HTML card</p>';
+                return;
+            }
+            
+            canvas.innerHTML = '';
+            renderElements(htmlCardElements, canvas, []);
+        }
+        
+        function renderElements(elements, container, path) {
+            elements.forEach((element, idx) => {
+                const currentPath = [...path, idx];
+                const div = document.createElement('div');
+                div.className = 'html-card-element';
+                
+                if (element.type === 'container') {
+                    div.classList.add('html-card-container');
+                }
+                
+                // Serialize path as JSON string for safe passing to functions
+                const pathJson = JSON.stringify(currentPath);
+                const pathStr = pathJson.replace(/"/g, '&quot;');
+                
+                // Create drag handle
+                const dragHandle = document.createElement('div');
+                dragHandle.className = 'html-card-element-drag-handle';
+                dragHandle.draggable = true;
+                
+                dragHandle.addEventListener('dragstart', (e) => {
+                    e.stopPropagation();
+                    e.dataTransfer.setData('existingPath', JSON.stringify(currentPath));
+                    div.style.opacity = '0.5';
+                });
+                dragHandle.addEventListener('dragend', (e) => {
+                    div.style.opacity = '1';
+                });
+                
+                div.appendChild(dragHandle);
+                
+                // Create controls
+                const controls = document.createElement('div');
+                controls.className = 'html-card-element-controls';
+                controls.innerHTML = '<button data-path=\\'' + pathJson + '\\' onclick="removeHtmlCardElementByPathJson(this.getAttribute(\\'data-path\\'))" title="Remove">×</button>';
+                div.appendChild(controls);
+                
+                // Create content
+                const content = document.createElement('div');
+                content.innerHTML = renderHtmlCardElementPreview(element, currentPath);
+                div.appendChild(content);
+                
+                // Render children if it's a container
+                if (element.type === 'container') {
+                    // Initialize children array if it doesn't exist
+                    if (!element.children) {
+                        element.children = [];
+                    }
+                    
+                    const childrenContainer = document.createElement('div');
+                    childrenContainer.className = 'html-card-container-children';
+                    childrenContainer.setAttribute('data-container-id', element.id);
+                    childrenContainer.style.cssText = element.layout === 'horizontal' 
+                        ? 'display: flex; gap: 0.5rem; flex-wrap: wrap;' 
+                        : element.layout === 'grid'
+                        ? 'display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;'
+                        : 'display: flex; flex-direction: column; gap: 0.5rem;';
+                    
+                    // Show empty state if no children
+                    if (element.children.length === 0) {
+                        const emptyState = document.createElement('div');
+                        emptyState.style.cssText = 'padding: 1rem; background: #f0f4ff; border: 2px dashed #667eea; border-radius: 4px; text-align: center; min-height: 80px; display: flex; align-items: center; justify-content: center;';
+                        emptyState.innerHTML = '<small style="color: #667eea; font-weight: 500;">📦 Sleep elementen hierheen</small>';
+                        childrenContainer.appendChild(emptyState);
+                    }
+                    
+                    // Add drop zone handlers
+                    childrenContainer.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        childrenContainer.classList.add('dragover');
+                    });
+                    childrenContainer.addEventListener('dragleave', (e) => {
+                        e.stopPropagation();
+                        childrenContainer.classList.remove('dragover');
+                    });
+                    childrenContainer.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        childrenContainer.classList.remove('dragover');
+                        
+                        const existingPath = e.dataTransfer.getData('existingPath');
+                        if (existingPath) {
+                            // Moving existing element
+                            const path = JSON.parse(existingPath);
+                            moveHtmlCardElement(path, element.id);
+                        } else {
+                            // Adding new element
+                            const type = e.dataTransfer.getData('type');
+                            const field = e.dataTransfer.getData('field');
+                            const odooField = e.dataTransfer.getData('odooField');
+                            addHtmlCardElement(type, field, odooField, element.id);
+                        }
+                    });
+                    
+                    div.appendChild(childrenContainer);
+                    if (element.children.length > 0) {
+                        renderElements(element.children, childrenContainer, currentPath.concat(['children']));
+                    }
+                }
+                
+                container.appendChild(div);
+            });
+        }
+        
+        function renderHtmlCardElementPreview(element, path) {
+            const pathStr = path.join(',');
+            
+            if (element.type === 'heading') {
+                const pathJson = JSON.stringify(path);
+                return \`
+                    <input type="text" value="\${element.text}" data-path='\${pathJson}' 
+                        oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, true)" 
+                        onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, false)" 
+                        style="width: 100%; font-size: 1.2rem; font-weight: bold; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px;">
+                    <select data-path='\${pathJson}' onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'level', this.value, false)" style="margin-top: 0.5rem; padding: 0.3rem;">
+                        <option value="h1" \${element.level === 'h1' ? 'selected' : ''}>H1</option>
+                        <option value="h2" \${element.level === 'h2' ? 'selected' : ''}>H2</option>
+                        <option value="h3" \${element.level === 'h3' ? 'selected' : ''}>H3</option>
+                    </select>
+                \`;
+            } else if (element.type === 'text') {
+                const pathJson = JSON.stringify(path);
+                return \`
+                    <textarea data-path='\${pathJson}' 
+                        oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, true)" 
+                        onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, false)" 
+                        style="width: 100%; min-height: 60px; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px; font-family: inherit;">\${element.text}</textarea>
+                \`;
+            } else if (element.type === 'divider') {
+                return '<hr style="border: none; border-top: 2px solid #ddd; margin: 0.5rem 0;">';
+            } else if (element.type === 'container') {
+                const pathJson = JSON.stringify(path);
+                return \`
+                    <div style="margin-bottom: 0.5rem;">
+                        <input type="text" value="\${element.title}" data-path='\${pathJson}' 
+                            oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'title', this.value, true)" 
+                            onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'title', this.value, false)" 
+                            style="width: 100%; font-weight: 600; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px;">
+                    </div>
+                    <select data-path='\${pathJson}' onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'layout', this.value, false)" style="padding: 0.3rem; width: 100%;">
+                        <option value="vertical" \${element.layout === 'vertical' ? 'selected' : ''}>Vertical</option>
+                        <option value="horizontal" \${element.layout === 'horizontal' ? 'selected' : ''}>Horizontal</option>
+                        <option value="grid" \${element.layout === 'grid' ? 'selected' : ''}>Grid (2 columns)</option>
+                    </select>
+                \`;
+            } else if (element.type === 'field' || element.type === 'step-field') {
+                const labelValue = escapeHtml(element.label || element.odooField || element.field);
+                const pathJson = JSON.stringify(path);
+                return \`
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="text" value="\${labelValue}" 
+                            data-path='\${pathJson}'
+                            oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'label', this.value, true)" 
+                            onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'label', this.value, false)" 
+                            placeholder="Label" style="flex: 1; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px;">
+                        <span class="\${element.type === 'step-field' ? 'step-chip' : 'field-chip'}" style="flex-shrink: 0;">
+                            \${element.odooField || element.field}
+                        </span>
+                    </div>
+                \`;
+            }
+            return '';
+        }
+        
+        function updateHtmlCardElementByPathJson(pathJson, property, value, skipRender) {
+            const path = JSON.parse(pathJson);
+            updateHtmlCardElementByPath(path, property, value, skipRender);
+        }
+        
+        function updateHtmlCardElementByPath(path, property, value, skipRender) {
+            console.log('updateHtmlCardElementByPath called:', { path, property, value, skipRender });
+            
+            let current = htmlCardElements;
+            
+            // Navigate through the path to find the target element
+            for (let i = 0; i < path.length - 1; i++) {
+                const key = path[i];
+                
+                if (key === 'children') {
+                    // Next key should be the index in children array
+                    if (current.children) {
+                        current = current.children;
+                    }
+                } else if (typeof key === 'number') {
+                    // Numeric index
+                    current = current[key];
+                } else {
+                    // Property name
+                    current = current[key];
+                }
+            }
+            
+            // Update the property on the final element
+            const lastKey = path[path.length - 1];
+            
+            if (current && current[lastKey]) {
+                current[lastKey][property] = value;
+                console.log('Updated element:', current[lastKey]);
+                
+                // Only re-render if not skipped (e.g., on blur/change, not on input)
+                if (!skipRender) {
+                    renderHtmlCardCanvas();
+                }
+            } else {
+                console.error('Could not find element at path:', path, 'current:', current);
+            }
+        }
+        
+        function removeHtmlCardElementByPathJson(pathJson) {
+            const path = JSON.parse(pathJson);
+            removeHtmlCardElementByPath(path);
+        }
+        
+        function removeHtmlCardElementByPath(path) {
+            let current = htmlCardElements;
+            
+            // Navigate through the path to find the parent array
+            for (let i = 0; i < path.length - 1; i++) {
+                const key = path[i];
+                if (key === 'children') {
+                    // Next key should be the index in children array
+                    if (current.children) {
+                        current = current.children;
+                    }
+                } else if (typeof key === 'number') {
+                    // Numeric index
+                    current = current[key];
+                } else {
+                    // Property name
+                    current = current[key];
+                }
+            }
+            
+            // Remove the element at the last index
+            const lastKey = path[path.length - 1];
+            if (Array.isArray(current) && typeof lastKey === 'number') {
+                current.splice(lastKey, 1);
+            } else {
+                console.error('Could not remove element at path:', path);
+            }
+            
+            renderHtmlCardCanvas();
+        }
+        
+        function saveHtmlCard() {
+            // Save as JSON instead of HTML for easy re-editing
+            const cardData = {
+                version: 1,
+                elements: htmlCardElements
+            };
+            
+            console.log('Saving HTML Card data:', cardData);
+            
+            // Save to workflow step
+            workflowSteps[currentHtmlCardStepIdx].html_card = JSON.stringify(cardData);
+            
+            console.log('Saved to workflow step:', workflowSteps[currentHtmlCardStepIdx].html_card);
+            
+            // Re-render workflow to show the updated HTML card
+            renderWorkflowSteps();
+            
+            closeHtmlCardEditor();
+            showAlert('HTML Card saved!', 'success');
+        }
+        
+        function parseHtmlCardToElements(cardDataStr) {
+            console.log('parseHtmlCardToElements called with:', cardDataStr);
+            try {
+                const cardData = JSON.parse(cardDataStr);
+                console.log('Parsed cardData:', cardData);
+                if (cardData.version === 1 && cardData.elements) {
+                    htmlCardElements = cardData.elements;
+                    console.log('Loaded elements:', htmlCardElements);
+                } else {
+                    // Legacy or invalid format
+                    console.log('Legacy or invalid format, resetting elements');
+                    htmlCardElements = [];
+                }
+            } catch (e) {
+                // Invalid JSON, start fresh
+                htmlCardElements = [];
+            }
+        }
+        
+        function generateHtmlFromElements(elements) {
+            let html = '';
+            elements.forEach(element => {
+                if (element.type === 'heading') {
+                    html += \`<\${element.level}>\${element.text}</\${element.level}>\`;
+                } else if (element.type === 'text') {
+                    html += \`<p>\${element.text}</p>\`;
+                } else if (element.type === 'divider') {
+                    html += '<hr>';
+                } else if (element.type === 'container') {
+                    const layoutClass = element.layout === 'horizontal' ? 'flex-row' : element.layout === 'grid' ? 'grid-2col' : 'flex-col';
+                    html += \`<div class="container \${layoutClass}"><h4>\${element.title}</h4>\`;
+                    if (element.children && element.children.length > 0) {
+                        html += \`<div class="container-content">\${generateHtmlFromElements(element.children)}</div>\`;
+                    }
+                    html += '</div>';
+                } else if (element.type === 'field') {
+                    html += \`<div class="field"><label>\${element.label}:</label> <span>\\\${field.\${element.field}}</span></div>\`;
+                } else if (element.type === 'step-field') {
+                    html += \`<div class="field"><label>\${element.label}:</label> <span>\\\$\${element.field}</span></div>\`;
+                }
+            });
+            return html;
         }
         
         function showAlert(message, type) {
