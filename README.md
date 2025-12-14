@@ -13,6 +13,7 @@ Deze worker ontvangt webhook calls van WordPress Forminator formulieren en synch
 - ✅ **User-Agent verificatie** (alleen openvme.be Forminator webhooks)
 - ✅ **Automatische reCAPTCHA filtering**
 - ✅ **Contact check/create** in Odoo (res.partner)
+- ✅ **Visual chip editor** voor field placeholders met drag & drop
 
 ## 📋 Projectstructuur
 
@@ -346,13 +347,22 @@ De stap bepaalt zelf wat er gebeurt op basis van wat je configureert!
 
 ### Template Syntax:
 
-#### 1. Formulier Velden - `${fieldname}`
-Vervangt de waarde uit het ingestuurde formulier:
+#### 1. Formulier Velden - `${fieldname}` of `${field.fieldname}`
+Vervangt de waarde uit het ingestuurde formulier. Beide formaten worden ondersteund:
 ```json
 "email": "${email}",
-"name": "${first_name} ${last_name}",
+"name": "${field.first_name} ${field.last_name}",
 "comment": "Ontvangen op ${entry_time}"
 ```
+
+**Visual Chip Editor:**
+In de admin interface worden field placeholders weergegeven als visuele chips:
+- Drag & drop chips vanuit het veldenpalet naar inputvelden
+- Chips zijn visueel onderscheidbaar van gewone tekst (blauwe badges)
+- Sleep chips binnen inputvelden om de volgorde te wijzigen
+- Type gewoon tekst tussen en rond chips
+- Backspace/Delete om chips te verwijderen
+- Type `${veldnaam}` en het wordt automatisch omgezet naar een chip
 
 #### 2. Vorige Stap Resultaten - `$stepname.field`
 Vervangt met resultaat van een eerdere workflow stap:
