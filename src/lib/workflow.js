@@ -160,6 +160,10 @@ function processTemplate(template, formData, stepResults) {
   const result = template
     // First process step references: $contact.id
     .replace(/\$(\w+)\.(\w+)/g, (match, stepName, fieldName) => {
+      // Skip if this is ${field.xxx} syntax (form field reference, not step reference)
+      if (stepName === 'field') {
+        return match; // Leave it for next replacement
+      }
       if (stepResults[stepName] && stepResults[stepName].record) {
         const value = stepResults[stepName].record[fieldName] || stepResults[stepName][fieldName];
         // If value is explicitly null, false, undefined, or 0 (but not empty string)
@@ -175,8 +179,8 @@ function processTemplate(template, formData, stepResults) {
       }
       return '';
     })
-    // Then process form data: ${email}
-    .replace(/\$\{(\w+)\}/g, (match, fieldName) => {
+    // Then process form field references: ${field.email} or ${email}
+    .replace(/\$\{(?:field\.)?(\w+)\}/g, (match, fieldName) => {
       return formData[fieldName] !== undefined ? formData[fieldName] : '';
     });
   

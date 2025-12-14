@@ -1,4 +1,4 @@
-// Visual workflow editor with block-based interface
+// Enhanced admin interface with integrated value mapping and tabs
 export const adminHTML = `<!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -34,44 +34,82 @@ export const adminHTML = `<!DOCTYPE html>
         
         /* Editor */
         .editor { flex: 1; overflow-y: auto; padding: 2rem; padding-right: 220px; }
-        .editor h2 { margin-bottom: 1.5rem; color: #333; }
-        .section { background: white; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .section h3 { margin-bottom: 1rem; color: #555; font-size: 1.1rem; }
+        .editor h2 { margin-bottom: 1rem; color: #333; }
+        
+        /* Tabs */
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 2px solid #ddd; }
+        .tab { padding: 0.75rem 1.5rem; background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-size: 1rem; color: #666; transition: all 0.2s; }
+        .tab:hover { color: #667eea; }
+        .tab.active { color: #667eea; border-bottom-color: #667eea; font-weight: 600; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
         
         /* Field Palette */
         .field-palette { position: fixed; right: 0; top: 60px; width: 200px; height: calc(100vh - 60px); background: white; border-left: 2px solid #667eea; overflow-y: auto; padding: 1rem; box-shadow: -2px 0 8px rgba(0,0,0,0.1); z-index: 100; }
         .field-palette h3 { margin-bottom: 1rem; color: #667eea; font-size: 1rem; }
         .field-palette-content { display: flex; flex-direction: column; gap: 0.5rem; }
-        .draggable-field { padding: 0.5rem 0.75rem; background: #667eea; color: white; border-radius: 4px; cursor: grab; font-size: 0.9rem; text-align: center; user-select: none; transition: transform 0.2s; }
-        .draggable-field:hover { transform: translateX(-5px); background: #5568d3; }
-        .draggable-field:active { cursor: grabbing; }
-        .draggable-field.dragging { opacity: 0.5; }
+        .draggable-field { 
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.65rem; 
+            background: #667eea; 
+            color: white; 
+            border-radius: 14px; 
+            cursor: grab; 
+            font-size: 0.85rem; 
+            text-align: center; 
+            user-select: none; 
+            transition: all 0.2s;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .draggable-field::before {
+            content: '⋮⋮';
+            opacity: 0.6;
+            font-size: 0.9em;
+            letter-spacing: -2px;
+        }
+        .draggable-field:hover { 
+            transform: translateY(-2px); 
+            background: #5568d3;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .draggable-field:active { cursor: grabbing; transform: scale(0.95); }
+        .draggable-field.dragging { opacity: 0.5; transform: scale(1.05); }
         
         /* Drop Zones */
         .drop-zone { position: relative; }
         .drop-zone-active { border: 2px dashed #667eea !important; background: #f0f4ff !important; }
-        .drop-zone::after { content: '💡 Drop field here'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #667eea; font-size: 0.8rem; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
-        .drop-zone-active::after { opacity: 1; }
         
-        /* Field Mapping */
+        /* Section */
+        .section { background: white; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .section h3 { margin-bottom: 1rem; color: #555; font-size: 1.1rem; }
+        
+        /* Field Mapping with Inline Value Mapping */
         .field-mapping { display: grid; gap: 0.5rem; }
-        .field-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; align-items: center; }
+        .field-row-container { background: white; padding: 0.75rem; border-radius: 4px; border: 1px solid #ddd; }
+        .field-row { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 0.5rem; align-items: center; }
         .field-row input { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; }
-        .field-row button { background: #e74c3c; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; }
+        .field-row .btn-value-mapping { background: #667eea; color: white; border: none; padding: 0.4rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+        .field-row .btn-delete { background: #e74c3c; color: white; border: none; padding: 0.4rem 0.6rem; border-radius: 4px; cursor: pointer; }
         
-        /* Value Mapping */
-        .value-mapping-container { margin-top: 1rem; }
-        .value-mapping-field { background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
-        .value-mapping-field.collapsed .value-mapping-rows { display: none; }
-        .value-mapping-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; cursor: pointer; }
-        .value-mapping-header h4 { color: #2c3e50; font-size: 1rem; margin: 0; }
-        .value-mapping-header .header-actions { display: flex; gap: 0.5rem; }
-        .value-mapping-header button { padding: 0.25rem 0.5rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
-        .value-mapping-rows { display: grid; gap: 0.5rem; }
-        .value-mapping-row { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 0.5rem; align-items: center; }
-        .value-mapping-row input { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9rem; }
-        .value-mapping-row .arrow { color: #888; font-weight: bold; }
-        .value-mapping-row button { background: #e74c3c; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; }
+        /* Inline Value Mapping */
+        .value-mapping-inline { display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #eee; }
+        .value-mapping-inline.expanded { display: block; }
+        .value-mapping-inline h5 { color: #667eea; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .value-mapping-controls { margin-bottom: 0.75rem; }
+        .value-mapping-controls label { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; cursor: pointer; font-size: 0.9rem; }
+        .value-mapping-controls input[type="checkbox"] { width: auto; }
+        .default-value-container { margin-top: 0.5rem; margin-left: 1.5rem; }
+        .default-value-container label { display: block; margin-bottom: 0.25rem; color: #666; font-size: 0.85rem; }
+        .default-value-container input { width: 100%; padding: 0.4rem; border: 1px solid #ddd; border-radius: 3px; font-size: 0.9rem; }
+        
+        .value-mappings-list { display: grid; gap: 0.35rem; margin-bottom: 0.5rem; }
+        .value-mapping-row { display: grid; grid-template-columns: 1fr 30px 1fr 30px; gap: 0.4rem; align-items: center; }
+        .value-mapping-row input { padding: 0.35rem 0.5rem; border: 1px solid #ddd; border-radius: 3px; font-size: 0.85rem; }
+        .value-mapping-row .arrow { color: #999; font-size: 0.85rem; text-align: center; }
+        .value-mapping-row button { background: #e74c3c; color: white; border: none; padding: 0.25rem 0.4rem; border-radius: 3px; cursor: pointer; font-size: 0.85rem; line-height: 1; }
         
         /* Workflow Steps */
         .workflow-step { background: #f8f9fa; border: 2px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
@@ -98,6 +136,70 @@ export const adminHTML = `<!DOCTYPE html>
         .value-row input, .value-row textarea { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; }
         .value-row textarea { resize: vertical; min-height: 60px; }
         .value-row button { background: #e74c3c; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; }
+        
+        /* Chip-enabled inputs */
+        .chip-input {
+            min-height: 38px;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            cursor: text;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: 1.5;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+        .chip-input:empty:before {
+            content: attr(data-placeholder);
+            color: #999;
+            pointer-events: none;
+        }
+        .chip-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+        }
+        .chip-input.drop-zone-active {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+        .field-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: #667eea;
+            color: white;
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 500;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            margin: 0 1px;
+            vertical-align: middle;
+        }
+        .field-chip:hover {
+            background: #5568d3;
+        }
+        .field-chip:focus {
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
+        }
+        .field-chip .chip-remove {
+            margin-left: 0.15rem;
+            cursor: pointer;
+            font-weight: bold;
+            opacity: 0.7;
+        }
+        .field-chip .chip-remove:hover {
+            opacity: 1;
+        }
+        .chip-text {
+            display: inline;
+        }
         
         /* Fields List */
         .fields-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
@@ -149,13 +251,10 @@ export const adminHTML = `<!DOCTYPE html>
                 <h2 id="editorTitle">Select a form</h2>
                 <div id="editorContent"></div>
             </div>
-        </div>
-    </div>
-    
-    <div class="field-palette">
-        <h3>📋 Field Palette</h3>
-        <div id="fieldPaletteContent" class="field-palette-content">
-            <p style="color: #888; font-size: 0.85rem;">Load a form to see available fields</p>
+            <div class="field-palette">
+                <h3>📋 Available Fields</h3>
+                <div id="fieldPaletteContent" class="field-palette-content"></div>
+            </div>
         </div>
     </div>
     
@@ -163,9 +262,11 @@ export const adminHTML = `<!DOCTYPE html>
         let token = localStorage.getItem('adminToken');
         let currentFormId = null;
         let mappings = {};
-        let workflowSteps = [];
+        let fieldMapping = {};
         let valueMapping = {};
+        let workflowSteps = [];
         let draggedFieldName = null;
+        let expandedValueMappings = {};
         
         if (token) { showAdmin(); }
         
@@ -223,28 +324,50 @@ export const adminHTML = `<!DOCTYPE html>
             currentFormId = formId;
             document.querySelectorAll('.form-list li').forEach(li => li.classList.remove('active'));
             event.target.classList.add('active');
+            
             const data = mappings[formId];
-            workflowSteps = JSON.parse(JSON.stringify(data.workflow || [])); // Deep clone
-            valueMapping = JSON.parse(JSON.stringify(data.value_mapping || {})); // Deep clone
+            fieldMapping = JSON.parse(JSON.stringify(data.field_mapping || {}));
+            
+            // Normalize value_mapping: convert Odoo field names to Forminator field names
+            const rawValueMapping = JSON.parse(JSON.stringify(data.value_mapping || {}));
+            valueMapping = {};
+            Object.entries(rawValueMapping).forEach(([key, mappings]) => {
+                // Find the forminator field that maps to this odoo field
+                const formField = Object.keys(fieldMapping).find(f => fieldMapping[f] === key);
+                if (formField) {
+                    valueMapping[formField] = mappings;
+                } else {
+                    // Keep original key if no mapping found
+                    valueMapping[key] = mappings;
+                }
+            });
+            
+            workflowSteps = JSON.parse(JSON.stringify(data.workflow || []));
+            expandedValueMappings = {};
             
             document.getElementById('editorTitle').textContent = \`Edit Form \${formId}\`;
             document.getElementById('editorContent').innerHTML = \`
-                <div class="section">
-                    <h3>Field Mapping</h3>
-                    <div id="fieldMapping" class="field-mapping"></div>
-                    <button class="add-field-btn" onclick="addFieldRow()">+ Add Field</button>
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('mapping')">Field & Value Mapping</button>
+                    <button class="tab" onclick="switchTab('workflow')">Workflow Steps</button>
                 </div>
-                <div class="section">
-                    <h3>Value Mapping</h3>
-                    <p style="color: #666; margin-bottom: 1rem; font-size: 0.95rem;">Transform field values from Forminator to Odoo (e.g., "no-syndic" → "none")</p>
-                    <div id="valueMapping" class="value-mapping-container"></div>
-                    <button class="btn-success add-field-btn" onclick="addValueMappingField()">+ Add Value Mapping Field</button>
+                
+                <div id="tab-mapping" class="tab-content active">
+                    <div class="section">
+                        <h3>Field Mapping & Value Mapping</h3>
+                        <div id="fieldMapping" class="field-mapping"></div>
+                        <button class="add-field-btn" onclick="addFieldRow()">+ Add Field</button>
+                    </div>
                 </div>
-                <div class="section">
-                    <h3>Workflow Steps</h3>
-                    <div id="workflowSteps"></div>
-                    <button class="btn-success add-field-btn" onclick="addWorkflowStep()">+ Add Workflow Step</button>
+                
+                <div id="tab-workflow" class="tab-content">
+                    <div class="section">
+                        <h3>Workflow Steps</h3>
+                        <div id="workflowSteps"></div>
+                        <button class="btn-success add-field-btn" onclick="addWorkflowStep()">+ Add Workflow Step</button>
+                    </div>
                 </div>
+                
                 <div class="actions">
                     <button class="btn-primary" onclick="saveForm()">Save Changes</button>
                     <button class="btn-secondary" onclick="exportForm()">Export JSON</button>
@@ -252,185 +375,585 @@ export const adminHTML = `<!DOCTYPE html>
                 </div>
             \`;
             
-            renderFieldMapping(data.field_mapping || {});
-            renderValueMapping();
+            renderFieldMapping();
             renderWorkflowSteps();
-            updateFieldPalette(data.field_mapping || {});
+            updateFieldPalette();
             initializeDragAndDrop();
         }
         
-        // Field Mapping
-        function renderFieldMapping(fields) {
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(\`tab-\${tabName}\`).classList.add('active');
+        }
+        
+        // Field Mapping with Inline Value Mapping
+        function renderFieldMapping() {
             const container = document.getElementById('fieldMapping');
             container.innerHTML = '';
-            Object.entries(fields).forEach(([key, value]) => {
+            
+            Object.entries(fieldMapping).forEach(([formField, odooField]) => {
+                const containerDiv = document.createElement('div');
+                containerDiv.className = 'field-row-container';
+                containerDiv.dataset.field = formField;
+                
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'field-row';
+                rowDiv.innerHTML = \`
+                    <input type="text" value="\${formField}" data-type="key" onchange="updateFieldKey('\${formField}', this.value)">
+                    <input type="text" value="\${odooField}" data-type="value" onchange="updateFieldValue('\${formField}', this.value)">
+                    <button class="btn-value-mapping" onclick="toggleValueMapping('\${formField}')">⚙️ Values</button>
+                    <button class="btn-delete" onclick="deleteField('\${formField}')">×</button>
+                \`;
+                
+                containerDiv.appendChild(rowDiv);
+                
+                // Add inline value mapping section
+                const valueMappingDiv = document.createElement('div');
+                valueMappingDiv.className = 'value-mapping-inline';
+                valueMappingDiv.id = \`value-mapping-\${formField}\`;
+                if (expandedValueMappings[formField]) {
+                    valueMappingDiv.classList.add('expanded');
+                }
+                valueMappingDiv.innerHTML = \`
+                    <h5>Value Mapping for "\${formField}"</h5>
+                    <div class="value-mapping-controls">
+                        <label>
+                            <input type="checkbox" onchange="toggleSkip('\${formField}', this.checked)" 
+                                \${valueMapping[formField]?._skip ? 'checked' : ''}>
+                            Skip unmapped values
+                        </label>
+                        <div class="default-value-container" id="default-\${formField}" style="display:\${valueMapping[formField]?._skip ? 'none' : 'block'}">
+                            <label>Default value for unmapped values:</label>
+                            <input type="text" value="\${valueMapping[formField]?._default || ''}" 
+                                onchange="updateDefaultValue('\${formField}', this.value)">
+                        </div>
+                    </div>
+                    <div class="value-mappings-list" id="mappings-\${formField}"></div>
+                    <button class="add-row-btn" onclick="addValueMappingRow('\${formField}')">+ Add Value Mapping</button>
+                \`;
+                
+                containerDiv.appendChild(valueMappingDiv);
+                container.appendChild(containerDiv);
+                
+                // Auto-expand if value mappings exist
+                const hasValueMappings = valueMapping[formField] && Object.keys(valueMapping[formField]).some(k => !k.startsWith('_'));
+                if (hasValueMappings && !expandedValueMappings.hasOwnProperty(formField)) {
+                    expandedValueMappings[formField] = true;
+                    valueMappingDiv.classList.add('expanded');
+                }
+                
+                // Always render value mapping rows (even if empty)
+                renderValueMappingRows(formField);
+            });
+        }
+        
+        function renderValueMappingRows(formField) {
+            const container = document.getElementById(\`mappings-\${formField}\`);
+            if (!container) return;
+            
+            container.innerHTML = '';
+            const mappings = valueMapping[formField] || {};
+            
+            Object.entries(mappings).forEach(([key, value]) => {
+                if (key.startsWith('_')) return; // Skip _skip, _default, _comment
+                
                 const row = document.createElement('div');
-                row.className = 'field-row';
+                row.className = 'value-mapping-row';
                 row.innerHTML = \`
-                    <input type="text" value="\${key}" data-type="key">
-                    <input type="text" value="\${value}" data-type="value">
-                    <button onclick="this.parentElement.remove()">×</button>
+                    <input type="text" value="\${key}" data-old-key="\${key}" 
+                        onchange="updateValueMappingKey('\${formField}', this.dataset.oldKey, this.value)">
+                    <span class="arrow">→</span>
+                    <input type="text" value="\${value}" 
+                        onchange="updateValueMappingValue('\${formField}', '\${key}', this.value)">
+                    <button onclick="deleteValueMappingRow('\${formField}', '\${key}')">×</button>
                 \`;
                 container.appendChild(row);
             });
+        }
+        
+        function toggleValueMapping(formField) {
+            expandedValueMappings[formField] = !expandedValueMappings[formField];
+            const element = document.getElementById(\`value-mapping-\${formField}\`);
+            if (expandedValueMappings[formField]) {
+                element.classList.add('expanded');
+            } else {
+                element.classList.remove('expanded');
+            }
+        }
+        
+        function toggleSkip(formField, checked) {
+            if (!valueMapping[formField]) valueMapping[formField] = {};
+            
+            if (checked) {
+                valueMapping[formField]._skip = true;
+                delete valueMapping[formField]._default;
+                document.getElementById(\`default-\${formField}\`).style.display = 'none';
+            } else {
+                delete valueMapping[formField]._skip;
+                document.getElementById(\`default-\${formField}\`).style.display = 'block';
+            }
+        }
+        
+        function updateDefaultValue(formField, value) {
+            if (!valueMapping[formField]) valueMapping[formField] = {};
+            if (value.trim()) {
+                valueMapping[formField]._default = value;
+            } else {
+                delete valueMapping[formField]._default;
+            }
+        }
+        
+        function addValueMappingRow(formField) {
+            const key = prompt('Enter original value:');
+            if (!key) return;
+            const value = prompt('Enter mapped value:');
+            
+            if (!valueMapping[formField]) valueMapping[formField] = {};
+            valueMapping[formField][key] = value || '';
+            renderValueMappingRows(formField);
+        }
+        
+        function updateValueMappingKey(formField, oldKey, newKey) {
+            if (oldKey === newKey) return;
+            const value = valueMapping[formField][oldKey];
+            delete valueMapping[formField][oldKey];
+            valueMapping[formField][newKey] = value;
+            event.target.dataset.oldKey = newKey;
+        }
+        
+        function updateValueMappingValue(formField, key, value) {
+            valueMapping[formField][key] = value;
+        }
+        
+        function deleteValueMappingRow(formField, key) {
+            delete valueMapping[formField][key];
+            renderValueMappingRows(formField);
+        }
+        
+        function updateFieldKey(oldKey, newKey) {
+            if (oldKey === newKey) return;
+            fieldMapping[newKey] = fieldMapping[oldKey];
+            delete fieldMapping[oldKey];
+            if (valueMapping[oldKey]) {
+                valueMapping[newKey] = valueMapping[oldKey];
+                delete valueMapping[oldKey];
+            }
+            renderFieldMapping();
+            updateFieldPalette();
+        }
+        
+        function updateFieldValue(key, value) {
+            fieldMapping[key] = value;
+        }
+        
+        function deleteField(key) {
+            delete fieldMapping[key];
+            delete valueMapping[key];
+            renderFieldMapping();
+            updateFieldPalette();
         }
         
         function addFieldRow() {
-            const container = document.getElementById('fieldMapping');
-            const row = document.createElement('div');
-            row.className = 'field-row';
-            row.innerHTML = \`
-                <input type="text" placeholder="forminator_field" data-type="key">
-                <input type="text" placeholder="odoo_field" data-type="value">
-                <button onclick="this.parentElement.remove(); updateFieldPaletteFromMapping()">×</button>
-            \`;
-            container.appendChild(row);
-            // Update palette when field mapping changes
-            row.querySelector('[data-type="key"]').addEventListener('change', updateFieldPaletteFromMapping);
-        }
-        
-        function updateFieldPaletteFromMapping() {
-            const fieldMapping = {};
-            document.querySelectorAll('#fieldMapping .field-row').forEach(row => {
-                const key = row.querySelector('[data-type="key"]').value;
-                const value = row.querySelector('[data-type="value"]').value;
-                if (key && value) fieldMapping[key] = value;
-            });
-            updateFieldPalette(fieldMapping);
-        }
-        
-        // Value Mapping Functions
-        function renderValueMapping() {
-            const container = document.getElementById('valueMapping');
-            container.innerHTML = '';
-            
-            Object.entries(valueMapping).forEach(([fieldName, mappings]) => {
-                const fieldEl = document.createElement('div');
-                fieldEl.className = 'value-mapping-field';
-                fieldEl.dataset.fieldName = fieldName;
-                
-                fieldEl.innerHTML = \`
-                    <div class="value-mapping-header" onclick="toggleValueMappingField('\${fieldName}')">
-                        <h4>🔄 \${fieldName}</h4>
-                        <div class="header-actions" onclick="event.stopPropagation()">
-                            <button class="btn-collapse" onclick="toggleValueMappingField('\${fieldName}')">▼</button>
-                            <button class="btn-delete-step" onclick="deleteValueMappingField('\${fieldName}')">×</button>
-                        </div>
-                    </div>
-                    <div class="value-mapping-rows" id="vm-\${fieldName}"></div>
-                    <button class="add-row-btn" style="margin-top: 0.5rem" onclick="addValueMappingRow('\${fieldName}')">+ Add Mapping</button>
-                \`;
-                
-                container.appendChild(fieldEl);
-                renderValueMappingRows(fieldName, mappings);
-            });
-        }
-        
-        function renderValueMappingRows(fieldName, mappings) {
-            const container = document.getElementById(\`vm-\${fieldName}\`);
-            if (!container) return;
-            container.innerHTML = '';
-            
-            Object.entries(mappings).forEach(([key, value]) => {
-                const row = document.createElement('div');
-                row.className = 'value-mapping-row';
-                
-                const isSpecialKey = key === '_default' || key === '_skip';
-                const keyPlaceholder = isSpecialKey ? key : 'source_value';
-                
-                row.innerHTML = \`
-                    <input type="text" value="\${key}" placeholder="\${keyPlaceholder}" data-old-key="\${key}" onchange="updateValueMappingRow('\${fieldName}', this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
-                    <span class="arrow">→</span>
-                    <input type="text" value="\${value}" placeholder="target_value" onchange="updateValueMappingRow('\${fieldName}', '\${key}', '\${key}', this.value)">
-                    <button onclick="deleteValueMappingRow('\${fieldName}', '\${key}')">×</button>
-                \`;
-                
-                container.appendChild(row);
-            });
-        }
-        
-        function addValueMappingField() {
-            const fieldName = prompt('Enter field name for value mapping:');
-            if (!fieldName || !fieldName.trim()) return;
-            
-            const trimmedName = fieldName.trim();
-            if (valueMapping[trimmedName]) {
-                alert('This field already has value mappings');
-                return;
-            }
-            
-            valueMapping[trimmedName] = {};
-            renderValueMapping();
-        }
-        
-        function addValueMappingRow(fieldName) {
-            if (!valueMapping[fieldName]) valueMapping[fieldName] = {};
-            
-            const key = prompt('Source value (or _default, _skip):');
+            const key = prompt('Forminator field name:');
             if (!key) return;
+            const value = prompt('Odoo field name:');
+            fieldMapping[key] = value || '';
+            renderFieldMapping();
+            updateFieldPalette();
+        }
+        
+        // Field Palette for Drag & Drop
+        function updateFieldPalette() {
+            const palette = document.getElementById('fieldPaletteContent');
+            palette.innerHTML = '';
             
-            const value = prompt('Target value:');
-            valueMapping[fieldName][key] = value || '';
-            renderValueMappingRows(fieldName, valueMapping[fieldName]);
-        }
-        
-        function updateValueMappingRow(fieldName, oldKey, newKey, value) {
-            if (!valueMapping[fieldName]) return;
-            
-            if (oldKey !== newKey) {
-                delete valueMapping[fieldName][oldKey];
-            }
-            valueMapping[fieldName][newKey] = value;
-        }
-        
-        function deleteValueMappingRow(fieldName, key) {
-            if (!valueMapping[fieldName]) return;
-            delete valueMapping[fieldName][key];
-            renderValueMappingRows(fieldName, valueMapping[fieldName]);
-        }
-        
-        function deleteValueMappingField(fieldName) {
-            if (confirm(\`Delete all value mappings for "\${fieldName}"?\`)) {
-                delete valueMapping[fieldName];
-                renderValueMapping();
-            }
-        }
-        
-        function toggleValueMappingField(fieldName) {
-            const field = document.querySelector(\`.value-mapping-field[data-field-name="\${fieldName}"]\`);
-            if (field) field.classList.toggle('collapsed');
-        }
-        
-        // Field Palette Functions
-        function updateFieldPalette(fieldMapping) {
-            const container = document.getElementById('fieldPaletteContent');
-            container.innerHTML = '';
-            
-            const fields = Object.values(fieldMapping);
-            if (fields.length === 0) {
-                container.innerHTML = '<p style="color: #888; font-size: 0.85rem;">No fields mapped yet</p>';
-                return;
-            }
-            
-            fields.forEach(field => {
+            Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const chip = document.createElement('div');
                 chip.className = 'draggable-field';
-                chip.textContent = field;
+                chip.textContent = odooField; // Show Odoo field name
+                chip.title = \`Forminator: \${formField}\`; // Tooltip with forminator name
                 chip.draggable = true;
-                chip.dataset.fieldName = field;
-                
+                chip.dataset.field = odooField;
+                chip.dataset.formfield = formField;
                 chip.addEventListener('dragstart', handleDragStart);
                 chip.addEventListener('dragend', handleDragEnd);
-                
-                container.appendChild(chip);
+                palette.appendChild(chip);
             });
+        }
+        
+        function handleDragStart(e) {
+            draggedFieldName = e.target.dataset.field;
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'copy';
+        }
+        
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
         }
         
         function initializeDragAndDrop() {
-            // This will be called after rendering workflow steps
-            document.querySelectorAll('.value-row input, .value-row textarea').forEach(input => {
-                makeDropZone(input);
+            document.querySelectorAll('.value-row input[type="text"], .value-row textarea').forEach(element => {
+                convertToChipInput(element);
             });
+        }
+        
+        function convertToChipInput(originalInput) {
+            // Skip if already converted
+            if (originalInput.hasAttribute('data-chip-converted')) {
+                console.log('Input already converted, skipping');
+                return;
+            }
+            originalInput.setAttribute('data-chip-converted', 'true');
+            
+            // Store original value
+            const originalValue = originalInput.value || '';
+            const placeholder = originalInput.placeholder || '';
+            const isTextarea = originalInput.tagName === 'TEXTAREA';
+            
+            console.log('=== Converting input to chip input ===');
+            console.log('Input type:', originalInput.tagName);
+            console.log('Original value:', originalValue);
+            console.log('Placeholder:', placeholder);
+            
+            // Create chip input container
+            const chipInput = document.createElement('div');
+            chipInput.className = 'chip-input drop-zone';
+            chipInput.setAttribute('contenteditable', 'true');
+            chipInput.setAttribute('data-placeholder', placeholder);
+            
+            // Create hidden input to store actual value
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = originalInput.name || '';
+            hiddenInput.value = originalValue;
+            
+            // Copy event handlers
+            const changeHandler = originalInput.getAttribute('onchange');
+            if (changeHandler) {
+                hiddenInput.setAttribute('onchange', changeHandler);
+                console.log('Copied onchange handler');
+            }
+            
+            // Replace original input
+            originalInput.parentNode.insertBefore(chipInput, originalInput);
+            originalInput.parentNode.insertBefore(hiddenInput, originalInput);
+            originalInput.remove();
+            
+            console.log('Replaced input with chip input');
+            
+            // Parse initial value and render chips
+            if (originalValue) {
+                console.log('Will render chips for value:', originalValue);
+                renderChipContent(chipInput, originalValue);
+            } else {
+                console.log('No initial value to render');
+            }
+            
+            // Event listeners
+            chipInput.addEventListener('input', function(e) {
+                // Small delay to let browser finish the input
+                setTimeout(function() {
+                    normalizeChipContent(chipInput);
+                    updateHiddenValue(chipInput, hiddenInput);
+                }, 0);
+            });
+            
+            chipInput.addEventListener('blur', function() {
+                normalizeChipContent(chipInput);
+                updateHiddenValue(chipInput, hiddenInput);
+                if (changeHandler) {
+                    hiddenInput.dispatchEvent(new Event('change'));
+                }
+            });
+            
+            chipInput.addEventListener('keydown', function(e) {
+                // Handle backspace on chips
+                if (e.key === 'Backspace') {
+                    const sel = window.getSelection();
+                    if (sel.rangeCount > 0) {
+                        const range = sel.getRangeAt(0);
+                        // Check if cursor is right after a chip
+                        if (range.collapsed && range.startOffset === 0 && range.startContainer.previousSibling) {
+                            const prev = range.startContainer.previousSibling;
+                            if (prev.classList && prev.classList.contains('field-chip')) {
+                                e.preventDefault();
+                                prev.remove();
+                                updateHiddenValue(chipInput, hiddenInput);
+                            }
+                        }
+                    }
+                }
+                // Handle delete on chips
+                if (e.key === 'Delete') {
+                    const sel = window.getSelection();
+                    if (sel.rangeCount > 0) {
+                        const range = sel.getRangeAt(0);
+                        // Check if cursor is right before a chip
+                        if (range.collapsed && range.startContainer.nextSibling) {
+                            const next = range.startContainer.nextSibling;
+                            if (next.classList && next.classList.contains('field-chip')) {
+                                e.preventDefault();
+                                next.remove();
+                                updateHiddenValue(chipInput, hiddenInput);
+                            }
+                        }
+                    }
+                }
+            });
+            
+            chipInput.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                chipInput.classList.add('drop-zone-active');
+            });
+            chipInput.addEventListener('dragleave', function(e) {
+                // Only remove if we're actually leaving the chip input
+                if (!chipInput.contains(e.relatedTarget)) {
+                    chipInput.classList.remove('drop-zone-active');
+                }
+            });
+            chipInput.addEventListener('drop', function(e) {
+                handleChipDrop(e, chipInput, hiddenInput);
+            });
+            chipInput.addEventListener('dragenter', function(e) {
+                e.preventDefault();
+            });
+            
+            // Store reference for later access
+            chipInput._hiddenInput = hiddenInput;
+        }
+        
+        function renderChipContent(chipInput, value) {
+            console.log('renderChipContent called with value:', value);
+            chipInput.innerHTML = '';
+            
+            if (!value) {
+                console.log('No value to render');
+                return;
+            }
+            
+            // Parse value and create chips and text nodes
+            // Match both dollar-brace-field.xxx-brace and dollar-brace-xxx-brace formats
+            const pattern = new RegExp('\\\\\\$\\\\\\{(?:field\\\\.)?([a-zA-Z0-9_]+)\\\\\\}', 'g');
+            console.log('Testing pattern against value, pattern:', pattern);
+            console.log('Pattern test result:', pattern.test(value));
+            pattern.lastIndex = 0; // Reset after test
+            
+            let lastIndex = 0;
+            let match;
+            let chipCount = 0;
+            
+            while ((match = pattern.exec(value)) !== null) {
+                console.log('Found field placeholder:', match[0], 'field name:', match[1]);
+                
+                // Add text before chip
+                if (match.index > lastIndex) {
+                    const textBefore = value.substring(lastIndex, match.index);
+                    if (textBefore) {
+                        const textNode = document.createTextNode(textBefore);
+                        chipInput.appendChild(textNode);
+                        console.log('Added text before chip:', textBefore);
+                    }
+                }
+                
+                // Add chip
+                const chip = createFieldChip(match[1]);
+                chipInput.appendChild(chip);
+                chipCount++;
+                console.log('Added chip for field:', match[1]);
+                
+                lastIndex = pattern.lastIndex;
+            }
+            
+            // Add remaining text
+            if (lastIndex < value.length) {
+                const textAfter = value.substring(lastIndex);
+                if (textAfter) {
+                    const textNode = document.createTextNode(textAfter);
+                    chipInput.appendChild(textNode);
+                    console.log('Added text after chips:', textAfter);
+                }
+            }
+            
+            console.log('renderChipContent complete. Added', chipCount, 'chips');
+        }
+        
+        function createFieldChip(fieldName, isDraggableWithin = true) {
+            const chip = document.createElement('span');
+            chip.className = 'field-chip';
+            chip.contentEditable = 'false';
+            chip.setAttribute('data-field', fieldName);
+            chip.setAttribute('spellcheck', 'false');
+            
+            if (isDraggableWithin) {
+                chip.draggable = true;
+                chip.addEventListener('dragstart', function(e) {
+                    e.stopPropagation();
+                    chip.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', fieldName);
+                    // Store reference to the chip being moved
+                    chip._isMoving = true;
+                });
+                chip.addEventListener('dragend', function(e) {
+                    chip.classList.remove('dragging');
+                    chip._isMoving = false;
+                });
+                chip.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            }
+            
+            const label = document.createElement('span');
+            label.textContent = fieldName;
+            chip.appendChild(label);
+            
+            const remove = document.createElement('span');
+            remove.className = 'chip-remove';
+            remove.textContent = '×';
+            remove.onclick = function(e) {
+                e.stopPropagation();
+                chip.remove();
+                const chipInput = chip.closest('.chip-input');
+                if (chipInput) {
+                    updateHiddenValue(chipInput, chipInput._hiddenInput);
+                    if (chipInput._hiddenInput) {
+                        chipInput._hiddenInput.dispatchEvent(new Event('change'));
+                    }
+                }
+            };
+            chip.appendChild(remove);
+            
+            return chip;
+        }
+        
+        function normalizeChipContent(chipInput) {
+            // Clean up any text nodes that might have placeholder syntax
+            const walker = document.createTreeWalker(
+                chipInput,
+                NodeFilter.SHOW_TEXT,
+                null
+            );
+            
+            const textNodes = [];
+            let node;
+            while (node = walker.nextNode()) {
+                textNodes.push(node);
+            }
+            
+            textNodes.forEach(textNode => {
+                const text = textNode.textContent;
+                // Match both dollar-brace-field.xxx-brace and dollar-brace-xxx-brace formats
+                const pattern = new RegExp('\\\\\\$\\\\\\{(?:field\\\\.)?([a-zA-Z0-9_]+)\\\\\\}', 'g');
+                
+                if (pattern.test(text)) {
+                    const fragment = document.createDocumentFragment();
+                    let lastIndex = 0;
+                    let match;
+                    pattern.lastIndex = 0;
+                    
+                    while ((match = pattern.exec(text)) !== null) {
+                        if (match.index > lastIndex) {
+                            fragment.appendChild(
+                                document.createTextNode(text.substring(lastIndex, match.index))
+                            );
+                        }
+                        fragment.appendChild(createFieldChip(match[1]));
+                        lastIndex = pattern.lastIndex;
+                    }
+                    
+                    if (lastIndex < text.length) {
+                        fragment.appendChild(
+                            document.createTextNode(text.substring(lastIndex))
+                        );
+                    }
+                    
+                    textNode.parentNode.replaceChild(fragment, textNode);
+                }
+            });
+        }
+        
+        function updateHiddenValue(chipInput, hiddenInput) {
+            if (!hiddenInput) return;
+            
+            let value = '';
+            chipInput.childNodes.forEach(node => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    value += node.textContent;
+                } else if (node.classList && node.classList.contains('field-chip')) {
+                    const fieldName = node.getAttribute('data-field');
+                    value += '$' + '{field.' + fieldName + '}';
+                }
+            });
+            
+            hiddenInput.value = value;
+        }
+        
+        function handleChipDrop(e, chipInput, hiddenInput) {
+            e.preventDefault();
+            e.stopPropagation();
+            chipInput.classList.remove('drop-zone-active');
+            
+            // Check if we're moving an existing chip within this input
+            const movingChip = Array.from(chipInput.querySelectorAll('.field-chip')).find(c => c._isMoving);
+            
+            let chip;
+            if (movingChip) {
+                // Moving existing chip
+                chip = movingChip;
+                chip.remove(); // Remove from current position
+            } else if (draggedFieldName) {
+                // Adding new chip from palette
+                chip = createFieldChip(draggedFieldName);
+            } else {
+                return;
+            }
+            
+            // Find the drop position based on mouse coordinates
+            let insertBeforeElement = null;
+            const rect = chipInput.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Find the element at the drop position
+            Array.from(chipInput.childNodes).forEach(node => {
+                if (node === chip) return; // Skip the chip being moved
+                
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const nodeRect = node.getBoundingClientRect();
+                    const nodeX = nodeRect.left - rect.left;
+                    const nodeY = nodeRect.top - rect.top;
+                    const nodeWidth = nodeRect.width;
+                    const nodeHeight = nodeRect.height;
+                    
+                    // Check if drop is before this element
+                    if (y < nodeY + nodeHeight && y >= nodeY) {
+                        if (x < nodeX + nodeWidth / 2) {
+                            insertBeforeElement = node;
+                        }
+                    }
+                }
+            });
+            
+            // Insert the chip
+            if (insertBeforeElement) {
+                chipInput.insertBefore(chip, insertBeforeElement);
+            } else {
+                chipInput.appendChild(chip);
+            }
+            
+            // Add a space after if needed
+            if (!chip.nextSibling || (chip.nextSibling.nodeType === Node.ELEMENT_NODE)) {
+                chipInput.insertBefore(document.createTextNode(' '), chip.nextSibling);
+            }
+            
+            updateHiddenValue(chipInput, hiddenInput);
+            hiddenInput.dispatchEvent(new Event('change'));
+            chipInput.focus();
         }
         
         function makeDropZone(element) {
@@ -440,54 +963,33 @@ export const adminHTML = `<!DOCTYPE html>
             element.addEventListener('drop', handleDrop);
         }
         
-        function handleDragStart(e) {
-            draggedFieldName = this.dataset.fieldName;
-            this.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'copy';
-            e.dataTransfer.setData('text/plain', draggedFieldName);
-        }
-        
-        function handleDragEnd(e) {
-            this.classList.remove('dragging');
-            draggedFieldName = null;
-        }
-        
         function handleDragOver(e) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
-            this.classList.add('drop-zone-active');
+            e.target.classList.add('drop-zone-active');
         }
         
         function handleDragLeave(e) {
-            this.classList.remove('drop-zone-active');
+            e.target.classList.remove('drop-zone-active');
         }
         
         function handleDrop(e) {
             e.preventDefault();
-            this.classList.remove('drop-zone-active');
+            e.target.classList.remove('drop-zone-active');
             
-            if (!draggedFieldName) return;
-            
-            const fieldPlaceholder = \`\\\${field.\${draggedFieldName}}\`;
-            const input = e.target;
-            
-            // Insert at cursor position or append
-            if (input.selectionStart !== undefined) {
-                const start = input.selectionStart;
-                const end = input.selectionEnd;
-                const text = input.value;
-                input.value = text.substring(0, start) + fieldPlaceholder + text.substring(end);
-                input.selectionStart = input.selectionEnd = start + fieldPlaceholder.length;
-            } else {
-                input.value += fieldPlaceholder;
+            // This is for non-chip inputs only (chip inputs use handleChipDrop)
+            if (draggedFieldName && e.target.tagName === 'INPUT') {
+                const placeholder = '$' + '{field.' + draggedFieldName + '}';
+                const input = e.target;
+                const cursorPos = input.selectionStart || input.value.length;
+                const newValue = input.value.substring(0, cursorPos) + placeholder + input.value.substring(cursorPos);
+                input.value = newValue;
+                input.dispatchEvent(new Event('input'));
+                input.dispatchEvent(new Event('change'));
             }
-            
-            // Trigger change event to update data
-            input.dispatchEvent(new Event('change'));
-            input.focus();
         }
         
-        // Workflow Steps
+        // Workflow Steps (unchanged from previous version)
         function renderWorkflowSteps() {
             const container = document.getElementById('workflowSteps');
             container.innerHTML = '';
@@ -554,7 +1056,7 @@ export const adminHTML = `<!DOCTYPE html>
                 renderUpdateValues(idx, step.update || {});
             });
             
-            // Initialize drag and drop for all inputs
+            // Re-initialize drag and drop for newly rendered elements
             initializeDragAndDrop();
         }
         
@@ -618,6 +1120,11 @@ export const adminHTML = `<!DOCTYPE html>
                 \`;
                 container.appendChild(row);
             });
+            
+            // Convert inputs to chip inputs after a small delay to ensure values are set
+            setTimeout(() => {
+                container.querySelectorAll('input[type="text"]').forEach(convertToChipInput);
+            }, 0);
         }
         
         function addDomainRow(stepIdx) {
@@ -668,6 +1175,7 @@ export const adminHTML = `<!DOCTYPE html>
         
         // Create Values
         function renderCreateValues(stepIdx, values) {
+            console.log('=== renderCreateValues ===', 'stepIdx:', stepIdx, 'values:', values);
             const container = document.getElementById(\`create-\${stepIdx}\`);
             container.innerHTML = '';
             
@@ -675,23 +1183,29 @@ export const adminHTML = `<!DOCTYPE html>
                 const row = document.createElement('div');
                 row.className = 'value-row';
                 const displayValue = typeof value === 'object' ? JSON.stringify(value) : value;
-                const isMultiline = String(displayValue).length > 40 || String(displayValue).includes('\\n');
+                const useTextarea = displayValue.length > 40;
+                
+                console.log('Creating value row:', key, '=', displayValue);
                 
                 row.innerHTML = \`
-                    <input type="text" value="\${key}" placeholder="field" data-old-key="\${key}" onchange="updateCreateValue(\${stepIdx}, this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
+                    <input type="text" value="\${key}" placeholder="field" data-old-key="\${key}" 
+                        onchange="updateCreateValue(\${stepIdx}, this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
                     <span>=</span>
-                    \${isMultiline 
-                        ? \`<textarea placeholder="value" onchange="updateCreateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
+                    \${useTextarea 
+                        ? \`<textarea onchange="updateCreateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
                         : \`<input type="text" value="\${displayValue}" placeholder="value" onchange="updateCreateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\`
                     }
                     <button onclick="deleteCreateValue(\${stepIdx}, '\${key}')">×</button>
                 \`;
                 container.appendChild(row);
-                
-                // Make value input a drop zone
-                const valueInput = row.querySelector('input[type="text"]:last-of-type, textarea');
-                if (valueInput) makeDropZone(valueInput);
             });
+            
+            // Convert inputs to chip inputs after a small delay to ensure values are set
+            setTimeout(() => {
+                const inputs = container.querySelectorAll('input[type="text"], textarea');
+                console.log('Converting', inputs.length, 'inputs to chip inputs');
+                inputs.forEach(convertToChipInput);
+            }, 0);
         }
         
         function addCreateValue(stepIdx) {
@@ -726,41 +1240,44 @@ export const adminHTML = `<!DOCTYPE html>
             const container = document.getElementById(\`update-\${stepIdx}\`);
             container.innerHTML = '';
             
-            // Handle both { fields: {...} } and direct {...} formats
             const values = updateObj.fields || updateObj;
             
             Object.entries(values).forEach(([key, value]) => {
-                if (key === 'enabled') return; // Skip enabled flag
+                if (key === 'enabled') return;
                 
                 const row = document.createElement('div');
                 row.className = 'value-row';
                 const displayValue = typeof value === 'object' ? JSON.stringify(value) : value;
-                const isMultiline = String(displayValue).length > 40 || String(displayValue).includes('\\n');
+                const useTextarea = displayValue.length > 40;
                 
                 row.innerHTML = \`
-                    <input type="text" value="\${key}" placeholder="field" data-old-key="\${key}" onchange="updateUpdateValue(\${stepIdx}, this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
+                    <input type="text" value="\${key}" placeholder="field" data-old-key="\${key}" 
+                        onchange="updateUpdateValue(\${stepIdx}, this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
                     <span>=</span>
-                    \${isMultiline 
-                        ? \`<textarea placeholder="value" onchange="updateUpdateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
+                    \${useTextarea 
+                        ? \`<textarea onchange="updateUpdateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
                         : \`<input type="text" value="\${displayValue}" placeholder="value" onchange="updateUpdateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\`
                     }
                     <button onclick="deleteUpdateValue(\${stepIdx}, '\${key}')">×</button>
                 \`;
                 container.appendChild(row);
-                
-                // Make value input a drop zone
-                const valueInput = row.querySelector('input[type="text"]:last-of-type, textarea');
-                if (valueInput) makeDropZone(valueInput);
             });
+            
+            // Convert inputs to chip inputs after a small delay to ensure values are set
+            setTimeout(() => {
+                container.querySelectorAll('input[type="text"], textarea').forEach(convertToChipInput);
+            }, 0);
         }
         
         function addUpdateValue(stepIdx) {
+        }
+        
+        function addCreateValue(stepIdx) {
             if (!workflowSteps[stepIdx].update) workflowSteps[stepIdx].update = {};
             const key = prompt('Field name:');
             if (!key) return;
             const value = prompt('Field value:');
             
-            // Always use fields structure for updates
             if (!workflowSteps[stepIdx].update.fields) workflowSteps[stepIdx].update.fields = {};
             workflowSteps[stepIdx].update.fields[key] = value || '';
             renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
@@ -790,17 +1307,33 @@ export const adminHTML = `<!DOCTYPE html>
         
         // Save & Export
         async function saveForm() {
-            const fieldMapping = {};
-            document.querySelectorAll('#fieldMapping .field-row').forEach(row => {
-                const key = row.querySelector('[data-type="key"]').value;
-                const value = row.querySelector('[data-type="value"]').value;
-                if (key && value) fieldMapping[key] = value;
+            // Convert value_mapping back to Odoo field names and clean up empty mappings
+            const cleanedValueMapping = {};
+            Object.entries(valueMapping).forEach(([formField, mappings]) => {
+                const cleaned = {};
+                let hasContent = false;
+                
+                Object.entries(mappings).forEach(([key, value]) => {
+                    if (key.startsWith('_')) {
+                        cleaned[key] = value;
+                        hasContent = true;
+                    } else if (key && value !== undefined) {
+                        cleaned[key] = value;
+                        hasContent = true;
+                    }
+                });
+                
+                if (hasContent) {
+                    // Convert forminator field name to odoo field name for storage
+                    const odooField = fieldMapping[formField] || formField;
+                    cleanedValueMapping[odooField] = cleaned;
+                }
             });
             
             const data = {
                 ...mappings[currentFormId],
                 field_mapping: fieldMapping,
-                value_mapping: valueMapping,
+                value_mapping: cleanedValueMapping,
                 workflow: workflowSteps
             };
             
