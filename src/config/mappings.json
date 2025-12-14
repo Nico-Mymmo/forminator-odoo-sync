@@ -18,13 +18,44 @@
         },
         "value_mapping": {
             "ownership_type": {
-                "no-syndic": "",
-                "co-owner-syndic-neighbour": "",
-                "co-owner-syndic-me": "",
-                "professional-syndic": "",
-                "_default": "",
+                "no-syndic": "none",
+                "co-owner-syndic-neighbour": "self",
+                "co-owner-syndic-me": "self",
+                "professional-syndic": "pro",
+                "skip": true,
                 "_comment": "Use _default for unmapped values, or _skip: true to remove field"
             }
+        },
+        "html_card": {
+            "title": "VME-CHECK Formulier",
+            "sections": [
+                {
+                    "title": "Contactgegevens",
+                    "fields": [
+                        {"key": "first_name", "label": "Voornaam"},
+                        {"key": "last_name", "label": "Achternaam"},
+                        {"key": "email", "label": "Email"},
+                        {"key": "phone", "label": "Telefoon"}
+                    ]
+                },
+                {
+                    "title": "Adresgegevens",
+                    "fields": [
+                        {"key": "street", "label": "Straat"},
+                        {"key": "number", "label": "Nummer"},
+                        {"key": "zip", "label": "Postcode"},
+                        {"key": "city", "label": "Stad"}
+                    ]
+                },
+                {
+                    "title": "VME Details",
+                    "fields": [
+                        {"key": "number_of_units", "label": "Aantal units"},
+                        {"key": "ownership_type", "label": "Type syndicus"},
+                        {"key": "entry_time", "label": "Ingevuld op"}
+                    ]
+                }
+            ]
         },
         "workflow": [
             {
@@ -60,27 +91,17 @@
                     "city": "${city}",
                     "country_id": 20,
                     "x_studio_contact_type": "9",
-                    "x_studio_company_type": 1,
                     "lang": "nl_BE",
                     "x_studio_selection_field_3l2_1hnli05jb": "Opportunity"
                 }
             },
             {
-                "step": "company",
-                "model": "res.partner",
-                "search": {
-                    "domain": [
-                        [
-                            "id",
-                            "=",
-                            "$contact.parent_id"
-                        ]
-                    ],
-                    "fields": [
-                        "id",
-                        "name",
-                        "is_company"
-                    ]
+                "step": "lead",
+                "model": "crm.lead",
+                "create": {
+                    "name": "VME-CHECK voor ${street} ${number}",
+                    "partner_id": "$contact.id",
+                    "description": "__html_card__"
                 }
             }
         ]

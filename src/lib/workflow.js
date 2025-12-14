@@ -1,4 +1,5 @@
 import { search, read, create, write } from "../lib/odoo.js";
+import { generateHtmlCard } from "../lib/html_card_generator.js";
 
 /**
  * Process a workflow step
@@ -305,25 +306,64 @@ function enrichWorkflowFields(workflow) {
 }
 
 /**
+ * Inject HTML cards into workflow steps
+ * Replaces __html_card__ placeholders with generated HTML
+ * 
+ * @param {Array} workflow - Workflow configuration
+ * @param {Object} formData - Form data
+ * @param {Object} htmlCardConfig - HTML card configuration
+ * @returns {Array} - Workflow with HTML cards injected
+ */
+function injectHtmlCards(workflow, formData, htmlCardConfig) {
+  const workflowCopy = JSON.parse(JSON.stringify(workflow)); // Deep clone
+  
+  for (const step of workflowCopy) {
+    // Check create fields
+    if (step.create) {
+      for (const [key, value] of Object.entries(step.create)) {
+        if (typeof value === 'string' && value.includes('__html_card__')) {
+          step.create[key] = value.replace('__html_card__', generateHtmlCard(formData, htmlCardConfig));
+        }
+      }
+    }
+    
+    // Check update fields
+    if (step.update) {
+      for (const [key, value] of Object.entries(step.update)) {
+        if (typeof value === 'string' && value.includes('__html_card__')) {
+          step.update[key] = value.replace('__html_card__', generateHtmlCard(formData, htmlCardConfig));
+        }
+      }
+    }
+  }
+  
+  return workflowCopy;
+}
+
+/**
  * Execute a workflow for a form submission
  * Processes steps sequentially, passing results to next steps
  * 
  * @param {Object} env - Cloudflare environment
  * @param {Object} workflow - Workflow configuration
  * @param {Object} formData - Normalized form data
+ * @param {Object} htmlCardConfig - HTML card configuration (optional)
  * @returns {Object} - Results from all steps
  */
-export async function executeWorkflow(env, workflow, formData) {
+export async function executeWorkflow(env, workflow, formData, htmlCardConfig = null) {
   const timestamp = new Date().toISOString().substring(11, 19);
   
   // Enrich workflow with auto-detected required fields
   const enrichedWorkflow = enrichWorkflowFields(workflow);
   
-  console.log(`🚀 [${timestamp}] Starting workflow with ${enrichedWorkflow.length} step${enrichedWorkflow.length === 1 ? '' : 's'}`);
+  // Process workflow steps to inject HTML cards
+  const processedWorkflow = injectHtmlCards(enrichedWorkflow, formData, htmlCardConfig);
+  
+  console.log(`🚀 [${timestamp}] Starting workflow with ${processedWorkflow.length} step${processedWorkflow.length === 1 ? '' : 's'}`);
   
   const stepResults = {};
   
-  for (const step of enrichedWorkflow) {
+  for (const step of processedWorkflow) {
     try {
       const result = await processStep(env, step, formData, stepResults);
       stepResults[step.step] = result;

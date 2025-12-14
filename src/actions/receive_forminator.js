@@ -102,8 +102,8 @@ export async function receiveForminator({ request, env, data }) {
   
   console.log(`🔧 [${timestamp}] Form ${formId} has ${mapping.workflow.length} workflow step${mapping.workflow.length === 1 ? '' : 's'}`);
   
-  // Execute workflow
-  const workflowResults = await executeWorkflow(env, mapping.workflow, formData);
+  // Execute workflow with optional HTML card config
+  const workflowResults = await executeWorkflow(env, mapping.workflow, formData, mapping.html_card || null);
   
   return new Response(JSON.stringify({
     success: true,
