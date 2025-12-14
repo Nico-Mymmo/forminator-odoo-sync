@@ -9,8 +9,13 @@
 	"compatibility_date": "2025-07-30",
 	"observability": {
 		"enabled": true
-	}
-	
+	},
+	"kv_namespaces": [
+		{
+			"binding": "MAPPINGS_KV",
+			"id": "04e4118b842b48a58f5777e008931026"
+		}
+	]
 	/**
 	 * Environment Variables
 	 * Use wrangler secret put <KEY> to set secrets:

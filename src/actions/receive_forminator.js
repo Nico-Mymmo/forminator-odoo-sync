@@ -28,7 +28,7 @@ export async function receiveForminator({ request, env, data }) {
     });
   }
   
-  const mapping = getFormMapping(formId);
+  const mapping = await getFormMapping(formId, env);
   
   if (!mapping) {
     console.log(`ℹ️ [${timestamp}] Form ${formId} not configured for Odoo sync, skipping`);

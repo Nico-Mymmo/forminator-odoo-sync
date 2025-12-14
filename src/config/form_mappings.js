@@ -3,35 +3,61 @@ import mappingsJson from './mappings.json';
 /**
  * Forminator form field mappings to Odoo
  * 
- * Configuration is loaded from mappings.json for easy maintenance.
+ * Configuration is loaded from KV storage (MAPPINGS_KV) with fallback to mappings.json.
  * 
- * Structure in mappings.json:
+ * Structure:
  * {
  *   "form_id": {
- *     "model": "res.partner",
- *     "fields": {
- *       "odoo_field": "template with ${forminator_fields}"
- *     }
+ *     "field_mapping": { ... },
+ *     "value_mapping": { ... },
+ *     "html_card": { ... },
+ *     "workflow": [ ... ]
  *   }
  * }
  * 
- * Template syntax: ${fieldname} will be replaced with the normalized field value
- * 
  * If a form_id is not in the mappings, no Odoo sync will happen.
  */
-export const FORM_MAPPINGS = mappingsJson;
+
+// Cache for KV mappings (prevents multiple KV reads per request)
+let kvMappingsCache = null;
+let kvCacheTimestamp = 0;
+const KV_CACHE_TTL = 60000; // 1 minute cache
 
 /**
  * Get mapping configuration for a form
+ * Tries KV storage first, falls back to mappings.json
  * 
  * @param {string} formId - The ovme_forminator_id from the form submission
+ * @param {Object} env - Environment with MAPPINGS_KV binding (optional)
  * @returns {Object|null} - Mapping config or null if form should not be synced
  */
-export function getFormMapping(formId) {
+export async function getFormMapping(formId, env = null) {
   // Skip internal JSON fields that start with underscore
   if (formId && formId.startsWith('_')) return null;
   
-  return FORM_MAPPINGS[formId] || null;
+  // Try KV storage if env is provided
+  if (env && env.MAPPINGS_KV) {
+    try {
+      // Check cache first
+      const now = Date.now();
+      if (kvMappingsCache && (now - kvCacheTimestamp) < KV_CACHE_TTL) {
+        return kvMappingsCache[formId] || null;
+      }
+      
+      // Fetch from KV
+      const kvMappings = await env.MAPPINGS_KV.get('mappings', 'json');
+      if (kvMappings) {
+        kvMappingsCache = kvMappings;
+        kvCacheTimestamp = now;
+        return kvMappings[formId] || null;
+      }
+    } catch (error) {
+      console.error('Error reading from KV, falling back to JSON:', error);
+    }
+  }
+  
+  // Fallback to static JSON file
+  return mappingsJson[formId] || null;
 }
 
 /**

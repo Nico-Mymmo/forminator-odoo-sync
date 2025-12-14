@@ -1,5 +1,8 @@
 import { testConnection } from "./actions/test_connection.js";
 import { receiveForminator } from "./actions/receive_forminator.js";
+import { getMappings, getMapping, saveMapping, deleteMapping, importMappings } from "./actions/mappings_api.js";
+import { requireAdminAuth } from "./lib/admin_auth.js";
+import { adminHTML } from "./lib/admin_interface.js";
 
 const ACTIONS = {
   test_connection: testConnection,
@@ -41,8 +44,57 @@ async function validateAuth(request, env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const pathname = url.pathname;
 
-    // Validate authentication for all routes
+    // Serve admin interface HTML (no auth required for viewing)
+    if (pathname === '/admin' || pathname === '/admin/') {
+      return new Response(adminHTML, {
+        headers: { 'Content-Type': 'text/html' }
+      });
+    }
+
+    // API routes for admin interface (require admin auth)
+    if (pathname.startsWith('/api/mappings')) {
+      // GET /api/mappings - Get all mappings
+      if (pathname === '/api/mappings' && request.method === 'GET') {
+        return requireAdminAuth(getMappings)({ request, env, ctx });
+      }
+      
+      // POST /api/mappings/import - Import entire mappings JSON
+      if (pathname === '/api/mappings/import' && request.method === 'POST') {
+        const data = await request.json();
+        return requireAdminAuth(importMappings)({ request, env, ctx, data });
+      }
+      
+      // Extract formId from path: /api/mappings/:formId
+      const formIdMatch = pathname.match(/^\/api\/mappings\/([^\/]+)$/);
+      if (formIdMatch) {
+        const formId = formIdMatch[1];
+        
+        // GET /api/mappings/:formId - Get specific form mapping
+        if (request.method === 'GET') {
+          return requireAdminAuth(getMapping)({ request, env, ctx, formId });
+        }
+        
+        // POST /api/mappings/:formId - Save/update form mapping
+        if (request.method === 'POST') {
+          const data = await request.json();
+          return requireAdminAuth(saveMapping)({ request, env, ctx, formId, data });
+        }
+        
+        // DELETE /api/mappings/:formId - Delete form mapping
+        if (request.method === 'DELETE') {
+          return requireAdminAuth(deleteMapping)({ request, env, ctx, formId });
+        }
+      }
+      
+      return new Response(JSON.stringify({ error: 'Invalid API endpoint' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Legacy action-based routes (require public auth)
     const isAuthorized = await validateAuth(request, env);
     if (!isAuthorized) {
       return new Response(JSON.stringify({
