@@ -58,10 +58,11 @@
                     a.textContent = formName;
                     a.title = `ID: ${formId}`;
                     a.onclick = () => loadForm(formId);
-                    a.classList.add('text-sm');
+                    a.className = 'text-sm block px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-base-200';
                     if (formId === currentFormId) {
-                        a.classList.add('active');
+                        a.className += ' bg-primary text-primary-content font-medium';
                     }
+                    li.className = 'p-0';
                     li.appendChild(a);
                     list.appendChild(li);
                 });
@@ -390,7 +391,7 @@
             
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const chip = document.createElement('div');
-                chip.className = 'badge badge-primary badge-sm cursor-grab';
+                chip.className = 'badge badge-primary badge-sm cursor-grab select-none transition-all hover:-translate-y-0.5 hover:opacity-90 active:cursor-grabbing active:scale-95';
                 chip.textContent = odooField;
                 chip.title = `Forminator: ${formField}`;
                 chip.draggable = true;
@@ -419,7 +420,7 @@
                     const fields = step.search?.fields || ['id'];
                     fields.forEach(field => {
                         const chip = document.createElement('div');
-                        chip.className = 'badge badge-secondary badge-sm cursor-grab';
+                        chip.className = 'badge badge-secondary badge-sm cursor-grab select-none transition-all hover:-translate-y-0.5 hover:opacity-90 active:cursor-grabbing active:scale-95';
                         chip.textContent = `${step.step} ${field}`;
                         chip.title = `Step ${idx + 1}: ${step.model}`;
                         chip.draggable = true;
@@ -440,13 +441,13 @@
                 return;
             }
             draggedFieldName = e.target.dataset.field;
-            e.target.classList.add('dragging');
+            e.target.classList.add('opacity-50');
             e.dataTransfer.effectAllowed = 'copy';
         }
         
         function handleDragEnd(e) {
             if (e.target && e.target.classList) {
-                e.target.classList.remove('dragging');
+                e.target.classList.remove('opacity-50');
             }
         }
         
@@ -468,7 +469,7 @@
             
             // Create chip input container
             const chipInput = document.createElement('div');
-            chipInput.className = 'chip-input drop-zone';
+            chipInput.className = 'input input-bordered min-h-[2.5rem] flex flex-wrap items-center gap-1 p-2 transition-all';
             chipInput.setAttribute('contenteditable', 'true');
             chipInput.setAttribute('data-placeholder', placeholder);
             
@@ -549,12 +550,12 @@
             chipInput.addEventListener('dragover', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                chipInput.classList.add('drop-zone-active');
+                chipInput.classList.add('!border-primary', 'bg-primary/10');
             });
             chipInput.addEventListener('dragleave', function(e) {
                 // Only remove if we're actually leaving the chip input
                 if (!chipInput.contains(e.relatedTarget)) {
-                    chipInput.classList.remove('drop-zone-active');
+                    chipInput.classList.remove('!border-primary', 'bg-primary/10');
                 }
             });
             chipInput.addEventListener('drop', function(e) {
@@ -788,7 +789,7 @@
         function handleChipDrop(e, chipInput, hiddenInput) {
             e.preventDefault();
             e.stopPropagation();
-            chipInput.classList.remove('drop-zone-active');
+            chipInput.classList.remove('!border-primary', 'bg-primary/10');
             
             // Check if we're moving an existing chip within this input
             const movingChip = Array.from(chipInput.querySelectorAll('.field-chip, .step-chip')).find(c => c._isMoving);
@@ -850,7 +851,6 @@
         }
         
         function makeDropZone(element) {
-            element.classList.add('drop-zone');
             element.addEventListener('dragover', handleDragOver);
             element.addEventListener('dragleave', handleDragLeave);
             element.addEventListener('drop', handleDrop);
@@ -860,18 +860,18 @@
             element.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
-                element.classList.add('drop-zone-active');
+                element.classList.add('!border-primary', 'bg-primary/10', 'text-primary');
             });
             
             element.addEventListener('dragleave', (e) => {
                 if (e.target === element) {
-                    element.classList.remove('drop-zone-active');
+                    element.classList.remove('!border-primary', 'bg-primary/10', 'text-primary');
                 }
             });
             
             element.addEventListener('drop', (e) => {
                 e.preventDefault();
-                element.classList.remove('drop-zone-active');
+                element.classList.remove('!border-primary', 'bg-primary/10', 'text-primary');
                 
                 if (!draggedFieldName) {
                     return;
@@ -901,21 +901,21 @@
         function handleDragOver(e) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
-            if (!e.target.classList.contains('drop-zone-active')) {
-                e.target.classList.add('drop-zone-active');
+            if (!e.target.classList.contains('border-primary')) {
+                e.target.classList.add('!border-primary', 'bg-primary/10');
             }
         }
         
         function handleDragLeave(e) {
             // Only remove if we're actually leaving the element
             if (e.target === e.currentTarget) {
-                e.target.classList.remove('drop-zone-active');
+                e.target.classList.remove('!border-primary', 'bg-primary/10');
             }
         }
         
         function handleDrop(e) {
             e.preventDefault();
-            e.target.classList.remove('drop-zone-active');
+            e.target.classList.remove('!border-primary', 'bg-primary/10');
             
             // This is for non-chip inputs only (chip inputs use handleChipDrop)
             if (draggedFieldName && e.target.tagName === 'INPUT') {
@@ -1111,7 +1111,7 @@
             
             if (domain.length === 0) {
                 const emptyZone = document.createElement('div');
-                emptyZone.className = 'empty-drop-zone';
+                emptyZone.className = 'min-h-[100px] border-2 border-dashed border-base-content/20 rounded-lg flex items-center justify-center text-base-content/50 text-sm transition-all p-4 text-center';
                 emptyZone.textContent = '🎯 Sleep velden hierheen of klik op "+ Add Condition" hieronder';
                 makeEmptyDropZone(emptyZone, 'domain', stepIdx);
                 container.appendChild(emptyZone);
@@ -1291,7 +1291,7 @@
             
             if (fields.length === 0) {
                 const emptyZone = document.createElement('div');
-                emptyZone.className = 'empty-drop-zone';
+                emptyZone.className = 'min-h-[100px] border-2 border-dashed border-base-content/20 rounded-lg flex items-center justify-center text-base-content/50 text-sm transition-all p-4 text-center';
                 emptyZone.textContent = '📌 Sleep velden hierheen of voeg ze hieronder toe';
                 makeEmptyDropZone(emptyZone, 'fields', stepIdx);
                 container.appendChild(emptyZone);
@@ -1335,7 +1335,7 @@
             
             if (Object.keys(values).length === 0) {
                 const emptyZone = document.createElement('div');
-                emptyZone.className = 'empty-drop-zone';
+                emptyZone.className = 'min-h-[100px] border-2 border-dashed border-base-content/20 rounded-lg flex items-center justify-center text-base-content/50 text-sm transition-all p-4 text-center';
                 emptyZone.textContent = '➕ Sleep velden hierheen of klik op "+ Add Value" hieronder';
                 makeEmptyDropZone(emptyZone, 'create', stepIdx);
                 container.appendChild(emptyZone);
@@ -1444,7 +1444,7 @@
             if (Object.keys(values).length === 0 || (Object.keys(values).length === 1 && values.enabled !== undefined)) {
                 console.log('Rendering empty drop zone for update');
                 const emptyZone = document.createElement('div');
-                emptyZone.className = 'empty-drop-zone';
+                emptyZone.className = 'min-h-[100px] border-2 border-dashed border-base-content/20 rounded-lg flex items-center justify-center text-base-content/50 text-sm transition-all p-4 text-center';
                 emptyZone.textContent = '✏️ Sleep velden hierheen of klik op "+ Add Value" hieronder';
                 makeEmptyDropZone(emptyZone, 'update', stepIdx);
                 container.appendChild(emptyZone);
