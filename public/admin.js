@@ -1,4 +1,5 @@
-﻿        let token = localStorage.getItem('adminToken');
+
+        let token = localStorage.getItem('adminToken');
         let currentFormId = null;
         let mappings = {};
         let fieldMapping = {};
@@ -62,7 +63,7 @@
                     list.appendChild(li);
                 });
             } catch (err) {
-                showAlert('Failed to load forms: '  err.message, 'error');
+                showAlert('Failed to load forms: ' + err.message, 'error');
             }
         }
         
@@ -158,7 +159,7 @@
                     <div class="section">
                         <h3>Field Mapping & Value Mapping</h3>
                         <div id="fieldMapping" class="field-mapping"></div>
-                        <button class="add-field-btn" onclick="addFieldRow()"> Add Field</button>
+                        <button class="add-field-btn" onclick="addFieldRow()">+ Add Field</button>
                     </div>
                 </div>
                 
@@ -166,7 +167,7 @@
                     <div class="section">
                         <h3>Workflow Steps</h3>
                         <div id="workflowSteps"></div>
-                        <button class="btn-success add-field-btn" onclick="addWorkflowStep()"> Add Workflow Step</button>
+                        <button class="btn-success add-field-btn" onclick="addWorkflowStep()">+ Add Workflow Step</button>
                     </div>
                 </div>
                 
@@ -206,8 +207,8 @@
                 rowDiv.innerHTML = `
                     <input type="text" value="${formField}" data-type="key" onchange="updateFieldKey('${formField}', this.value)">
                     <input type="text" value="${odooField}" data-type="value" onchange="updateFieldValue('${formField}', this.value)">
-                    <button class="btn-value-mapping" onclick="toggleValueMapping('${formField}')">��ִ�� Values</button>
-                    <button class="btn-delete" onclick="deleteField('${formField}')">�</button>
+                    <button class="btn-value-mapping" onclick="toggleValueMapping('${formField}')">⚙️ Values</button>
+                    <button class="btn-delete" onclick="deleteField('${formField}')">×</button>
                 `;
                 
                 containerDiv.appendChild(rowDiv);
@@ -234,7 +235,7 @@
                         </div>
                     </div>
                     <div class="value-mappings-list" id="mappings-${formField}"></div>
-                    <button class="add-row-btn" onclick="addValueMappingRow('${formField}')"> Add Value Mapping</button>
+                    <button class="add-row-btn" onclick="addValueMappingRow('${formField}')">+ Add Value Mapping</button>
                 `;
                 
                 containerDiv.appendChild(valueMappingDiv);
@@ -267,10 +268,10 @@
                 row.innerHTML = `
                     <input type="text" value="${key}" data-old-key="${key}" 
                         onchange="updateValueMappingKey('${formField}', this.dataset.oldKey, this.value)">
-                    <span class="arrow">���</span>
+                    <span class="arrow">→</span>
                     <input type="text" value="${value}" 
                         onchange="updateValueMappingValue('${formField}', '${key}', this.value)">
-                    <button onclick="deleteValueMappingRow('${formField}', '${key}')">�</button>
+                    <button onclick="deleteValueMappingRow('${formField}', '${key}')">×</button>
                 `;
                 container.appendChild(row);
             });
@@ -411,7 +412,7 @@
                         const chip = document.createElement('div');
                         chip.className = 'draggable-step-field';
                         chip.textContent = `$${step.step}.${field}`;
-                        chip.title = `Step ${idx  1}: ${step.model}`;
+                        chip.title = `Step ${idx + 1}: ${step.model}`;
                         chip.draggable = true;
                         chip.dataset.field = `${step.step}.${field}`;
                         chip.dataset.stepRef = 'true';
@@ -567,8 +568,8 @@
             
             // Parse value and create chips and text nodes
             // Match both field.xxx and xxx for form fields, and stepname.field for step references
-            const fieldPattern = new RegExp('\\\$\\\{(?:field\\.)?([a-zA-Z0-9_])\\\}', 'g');
-            const stepPattern = new RegExp('\\\$([a-zA-Z0-9_])\\.([a-zA-Z0-9_])', 'g');
+            const fieldPattern = new RegExp('\\$\\\{(?:field\.)?([a-zA-Z0-9_]+)\\\}', 'g');
+            const stepPattern = new RegExp('\\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)', 'g');
             
             // Combine both patterns to find all placeholders in order
             const allMatches = [];
@@ -592,7 +593,7 @@
                     type: 'step',
                     index: match.index,
                     length: match[0].length,
-                    fieldName: match[1]  '.'  match[2],
+                    fieldName: match[1] + '.' + match[2],
                     fullMatch: match[0]
                 });
             }
@@ -614,7 +615,7 @@
                 const chip = createFieldChip(matchInfo.fieldName, matchInfo.type);
                 chipInput.appendChild(chip);
                 
-                lastIndex = matchInfo.index  matchInfo.length;
+                lastIndex = matchInfo.index + matchInfo.length;
             });
             
             // Add remaining text
@@ -661,7 +662,7 @@
             
             const remove = document.createElement('span');
             remove.className = 'chip-remove';
-            remove.textContent = '�';
+            remove.textContent = '×';
             remove.onclick = function(e) {
                 e.stopPropagation();
                 chip.remove();
@@ -696,8 +697,8 @@
                 const text = textNode.textContent;
                 
                 // Match both field patterns and step references
-                const fieldPattern = new RegExp('\\\$\\\{(?:field\\.)?([a-zA-Z0-9_])\\\}', 'g');
-                const stepPattern = new RegExp('\\\$([a-zA-Z0-9_])\\.([a-zA-Z0-9_])', 'g');
+                const fieldPattern = new RegExp('\\$\\\{(?:field\.)?([a-zA-Z0-9_]+)\\\}', 'g');
+                const stepPattern = new RegExp('\\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)', 'g');
                 
                 // Find all matches
                 const allMatches = [];
@@ -718,7 +719,7 @@
                         type: 'step',
                         index: match.index,
                         length: match[0].length,
-                        fieldName: match[1]  '.'  match[2]
+                        fieldName: match[1] + '.' + match[2]
                     });
                 }
                 
@@ -736,7 +737,7 @@
                             );
                         }
                         fragment.appendChild(createFieldChip(matchInfo.fieldName, matchInfo.type));
-                        lastIndex = matchInfo.index  matchInfo.length;
+                        lastIndex = matchInfo.index + matchInfo.length;
                     });
                     
                     if (lastIndex < text.length) {
@@ -756,17 +757,17 @@
             let value = '';
             chipInput.childNodes.forEach(node => {
                 if (node.nodeType === Node.TEXT_NODE) {
-                    value = node.textContent;
+                    value += node.textContent;
                 } else if (node.classList && (node.classList.contains('field-chip') || node.classList.contains('step-chip'))) {
                     const fieldName = node.getAttribute('data-field');
                     const chipType = node.getAttribute('data-chip-type');
                     
                     if (chipType === 'step' || fieldName.includes('.')) {
                         // Step reference
-                        value = '$'  fieldName;
+                        value += '$' + fieldName;
                     } else {
                         // Form field
-                        value = '$'  '{'  'field.'  fieldName  '}';
+                        value += '$' + '{' + 'field.' + fieldName + '}';
                     }
                 }
             });
@@ -814,8 +815,8 @@
                     const nodeHeight = nodeRect.height;
                     
                     // Check if drop is before this element
-                    if (y < nodeY  nodeHeight && y >= nodeY) {
-                        if (x < nodeX  nodeWidth / 2) {
+                    if (y < nodeY + nodeHeight && y >= nodeY) {
+                        if (x < nodeX + nodeWidth / 2) {
                             insertBeforeElement = node;
                         }
                     }
@@ -877,11 +878,11 @@
                     renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
                 } else if (type === 'create') {
                     if (!workflowSteps[stepIdx].create) workflowSteps[stepIdx].create = {};
-                    workflowSteps[stepIdx].create[draggedFieldName] = '$'  '{field.'  draggedFieldName  '}';
+                    workflowSteps[stepIdx].create[draggedFieldName] = '$' + '{field.' + draggedFieldName + '}';
                     renderCreateValues(stepIdx, workflowSteps[stepIdx].create);
                 } else if (type === 'update') {
                     if (!workflowSteps[stepIdx].update.fields) workflowSteps[stepIdx].update.fields = {};
-                    workflowSteps[stepIdx].update.fields[draggedFieldName] = '$'  '{field.'  draggedFieldName  '}';
+                    workflowSteps[stepIdx].update.fields[draggedFieldName] = '$' + '{field.' + draggedFieldName + '}';
                     console.log('Added field to update:', draggedFieldName, 'Step:', stepIdx, 'Update object:', workflowSteps[stepIdx].update);
                     renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
                 }
@@ -909,10 +910,10 @@
             
             // This is for non-chip inputs only (chip inputs use handleChipDrop)
             if (draggedFieldName && e.target.tagName === 'INPUT') {
-                const placeholder = '$'  '{field.'  draggedFieldName  '}';
+                const placeholder = '$' + '{field.' + draggedFieldName + '}';
                 const input = e.target;
                 const cursorPos = input.selectionStart || input.value.length;
-                const newValue = input.value.substring(0, cursorPos)  placeholder  input.value.substring(cursorPos);
+                const newValue = input.value.substring(0, cursorPos) + placeholder + input.value.substring(cursorPos);
                 input.value = newValue;
                 input.dispatchEvent(new Event('input'));
                 input.dispatchEvent(new Event('change'));
@@ -929,15 +930,15 @@
                 stepEl.className = 'workflow-step collapsed';
                 stepEl.dataset.index = idx;
                 
-                const resultBadge = step.step ? `<div class="step-result-badge">���� $${step.step}</div>` : '';
+                const resultBadge = step.step ? `<div class="step-result-badge">📦 $${step.step}</div>` : '';
                 
                 stepEl.innerHTML = `
                     <div class="workflow-step-header" onclick="toggleStep(${idx})">
                         <h4>Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h4>
                         ${resultBadge}
                         <div class="step-actions" onclick="event.stopPropagation()">
-                            <button class="btn-collapse" onclick="toggleStep(${idx})">��</button>
-                            <button class="btn-delete-step" onclick="deleteStep(${idx})">�</button>
+                            <button class="btn-collapse" onclick="toggleStep(${idx})">▼</button>
+                            <button class="btn-delete-step" onclick="deleteStep(${idx})">×</button>
                         </div>
                     </div>
                     <div class="step-content">
@@ -953,50 +954,50 @@
                         </div>
                         
                         <div class="step-subsection ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">���� Search <span class="subsection-toggle">��</span></h5>
+                            <h5 onclick="toggleSubsection(this)">🔍 Search <span class="subsection-toggle">▼</span></h5>
                             <div class="subsection-content">
                                 <div class="domain-editor">
                                     <label style="display:block; margin-bottom:0.5rem; font-weight:500">Domain Conditions:</label>
                                     <div id="domain-${idx}"></div>
-                                    <button class="add-row-btn" onclick="addDomainRow(${idx})"> Add Condition</button>
+                                    <button class="add-row-btn" onclick="addDomainRow(${idx})">+ Add Condition</button>
                                 </div>
                                 <div class="fields-editor" style="margin-top: 1rem">
                                     <label style="display:block; margin-bottom:0.5rem; font-weight:500">Fields to Retrieve:</label>
                                     <div class="fields-list" id="fields-${idx}"></div>
                                     <div class="add-field-input">
                                         <input type="text" id="new-field-${idx}" placeholder="field_name">
-                                        <button class="add-row-btn" onclick="addSearchField(${idx})"> Add</button>
+                                        <button class="add-row-btn" onclick="addSearchField(${idx})">+ Add</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         
                         <div class="step-subsection ${(step.create && Object.keys(step.create).length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">��� Create <span class="subsection-toggle">��</span></h5>
+                            <h5 onclick="toggleSubsection(this)">➕ Create <span class="subsection-toggle">▼</span></h5>
                             <div class="subsection-content">
                                 <div id="create-${idx}"></div>
-                                <button class="add-row-btn" onclick="addCreateValue(${idx})"> Add Value</button>
+                                <button class="add-row-btn" onclick="addCreateValue(${idx})">+ Add Value</button>
                             </div>
                         </div>
                         
                         <div class="step-subsection ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">ԣŴ�� Update <span class="subsection-toggle">��</span></h5>
+                            <h5 onclick="toggleSubsection(this)">✏️ Update <span class="subsection-toggle">▼</span></h5>
                             <div class="subsection-content">
                                 <div id="update-${idx}"></div>
-                                <button class="add-row-btn" onclick="addUpdateValue(${idx})"> Add Value</button>
+                                <button class="add-row-btn" onclick="addUpdateValue(${idx})">+ Add Value</button>
                             </div>
                         </div>
                         
                         <div class="step-subsection ${step.html_card ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">��Ŀ HTML Card <span class="subsection-toggle">��</span></h5>
+                            <h5 onclick="toggleSubsection(this)">🎨 HTML Card <span class="subsection-toggle">▼</span></h5>
                             <div class="subsection-content">
                                 <p style="color: #666; margin-bottom: 1rem; font-size: 0.9rem;">
                                     Build a custom HTML card/form with drag & drop field placeholders
                                 </p>
                                 <button class="btn-primary" onclick="openHtmlCardEditor(${idx})" style="margin-bottom: 1rem;">
-                                    ${step.html_card ? 'ԣŴ�� Edit HTML Card' : '��� Create HTML Card'}
+                                    ${step.html_card ? '✏️ Edit HTML Card' : '➕ Create HTML Card'}
                                 </button>
-                                ${step.html_card ? '<div style="padding: 0.75rem; background: #f8f9fa; border-radius: 4px;"><strong>HTML Card configured</strong> - '  (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length' elements':'1 element';}catch(e){return 'legacy format';}}())  '</div>' : ''}
+                                ${step.html_card ? '<div style="padding: 0.75rem; background: #f8f9fa; border-radius: 4px;"><strong>HTML Card configured</strong> - ' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div>' : ''}
                             </div>
                         </div>
                     </div>
@@ -1046,11 +1047,11 @@
                 const stepEl = document.querySelector(`.workflow-step[data-index="${idx}"]`);
                 const existingBadge = stepEl.querySelector('.step-result-badge');
                 if (existingBadge) {
-                    existingBadge.textContent = value ? `���� $${value}` : '';
+                    existingBadge.textContent = value ? `📦 $${value}` : '';
                 } else if (value) {
                     const badge = document.createElement('div');
                     badge.className = 'step-result-badge';
-                    badge.textContent = `���� $${value}`;
+                    badge.textContent = `📦 $${value}`;
                     const actions = stepEl.querySelector('.step-actions');
                     actions.parentNode.insertBefore(badge, actions);
                 }
@@ -1102,7 +1103,7 @@
             if (domain.length === 0) {
                 const emptyZone = document.createElement('div');
                 emptyZone.className = 'empty-drop-zone';
-                emptyZone.textContent = '��Ļ Sleep velden hierheen of klik op " Add Condition" hieronder';
+                emptyZone.textContent = '🎯 Sleep velden hierheen of klik op "+ Add Condition" hieronder';
                 makeEmptyDropZone(emptyZone, 'domain', stepIdx);
                 container.appendChild(emptyZone);
                 return;
@@ -1141,7 +1142,7 @@
                         <option value="not in" ${op === 'not in' ? 'selected' : ''}>not in</option>
                     </select>
                     <div id="value-${stepIdx}-${condIdx}"></div>
-                    <button onclick="deleteDomain(${stepIdx}, ${condIdx})">�</button>
+                    <button onclick="deleteDomain(${stepIdx}, ${condIdx})">×</button>
                 `;
                 container.appendChild(row);
                 
@@ -1219,7 +1220,7 @@
                 input.type = 'text';
                 input.value = value;
                 input.placeholder = 'value';
-                input.setAttribute('onchange', 'updateDomain('  stepIdx  ', '  condIdx  ', 2, this.value)');
+                input.setAttribute('onchange', 'updateDomain(' + stepIdx + ', ' + condIdx + ', 2, this.value)');
                 container.appendChild(input);
                 
                 // Convert to chip input after a small delay
@@ -1282,7 +1283,7 @@
             if (fields.length === 0) {
                 const emptyZone = document.createElement('div');
                 emptyZone.className = 'empty-drop-zone';
-                emptyZone.textContent = '���� Sleep velden hierheen of voeg ze hieronder toe';
+                emptyZone.textContent = '📌 Sleep velden hierheen of voeg ze hieronder toe';
                 makeEmptyDropZone(emptyZone, 'fields', stepIdx);
                 container.appendChild(emptyZone);
                 return;
@@ -1291,7 +1292,7 @@
             fields.forEach((field, fieldIdx) => {
                 const tag = document.createElement('div');
                 tag.className = 'field-tag';
-                tag.innerHTML = `${field} <button onclick="deleteSearchField(${stepIdx}, ${fieldIdx})">�</button>`;
+                tag.innerHTML = `${field} <button onclick="deleteSearchField(${stepIdx}, ${fieldIdx})">×</button>`;
                 container.appendChild(tag);
             });
         }
@@ -1326,7 +1327,7 @@
             if (Object.keys(values).length === 0) {
                 const emptyZone = document.createElement('div');
                 emptyZone.className = 'empty-drop-zone';
-                emptyZone.textContent = '��� Sleep velden hierheen of klik op " Add Value" hieronder';
+                emptyZone.textContent = '➕ Sleep velden hierheen of klik op "+ Add Value" hieronder';
                 makeEmptyDropZone(emptyZone, 'create', stepIdx);
                 container.appendChild(emptyZone);
                 return;
@@ -1359,7 +1360,7 @@
                         <option value="float" ${fieldType === 'float' ? 'selected' : ''}>Float</option>
                         <option value="boolean" ${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
                     </select>
-                    <button onclick="deleteCreateValue(${stepIdx}, '${key}')">�</button>
+                    <button onclick="deleteCreateValue(${stepIdx}, '${key}')">×</button>
                 `;
                 container.appendChild(row);
             });
@@ -1435,7 +1436,7 @@
                 console.log('Rendering empty drop zone for update');
                 const emptyZone = document.createElement('div');
                 emptyZone.className = 'empty-drop-zone';
-                emptyZone.textContent = 'ԣŴ�� Sleep velden hierheen of klik op " Add Value" hieronder';
+                emptyZone.textContent = '✏️ Sleep velden hierheen of klik op "+ Add Value" hieronder';
                 makeEmptyDropZone(emptyZone, 'update', stepIdx);
                 container.appendChild(emptyZone);
                 return;
@@ -1471,7 +1472,7 @@
                         <option value="float" ${fieldType === 'float' ? 'selected' : ''}>Float</option>
                         <option value="boolean" ${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
                     </select>
-                    <button onclick="deleteUpdateValue(${stepIdx}, '${key}')">�</button>
+                    <button onclick="deleteUpdateValue(${stepIdx}, '${key}')">×</button>
                 `;
                 container.appendChild(row);
                 
@@ -1621,7 +1622,7 @@
                 console.log('Form saved successfully, mappings updated:', mappings[currentFormId]);
                 showAlert('Form saved successfully', 'success');
             } catch (err) {
-                showAlert('Failed to save: '  err.message, 'error');
+                showAlert('Failed to save: ' + err.message, 'error');
             }
         }
         
@@ -1645,7 +1646,7 @@
                 loadForms();
                 document.getElementById('editorContent').innerHTML = '';
             } catch (err) {
-                showAlert('Failed to delete: '  err.message, 'error');
+                showAlert('Failed to delete: ' + err.message, 'error');
             }
         }
         
@@ -1744,7 +1745,7 @@
                 div.dataset.type = 'field';
                 div.dataset.field = formField;
                 div.dataset.odooField = odooField;
-                div.innerHTML = `<span>����</span> ${odooField || formField}`;
+                div.innerHTML = `<span>📝</span> ${odooField || formField}`;
                 container.appendChild(div);
             });
             
@@ -1758,7 +1759,7 @@
                         div.draggable = true;
                         div.dataset.type = 'step-field';
                         div.dataset.field = `${step.step}.${field}`;
-                        div.innerHTML = `<span>����</span> ${step.step}.${field}`;
+                        div.innerHTML = `<span>📦</span> ${step.step}.${field}`;
                         container.appendChild(div);
                     });
                 }
@@ -1822,7 +1823,7 @@
         
         function addHtmlCardElement(type, field = null, odooField = null, containerId = null) {
             const element = {
-                id: Date.now()  Math.random(),
+                id: Date.now() + Math.random(),
                 type: type,
                 field: field,
                 odooField: odooField
@@ -1883,7 +1884,7 @@
         function moveHtmlCardElement(fromPath, toContainerId) {
             // Get the element
             let source = htmlCardElements;
-            for (let i = 0; i < fromPath.length - 1; i) {
+            for (let i = 0; i < fromPath.length - 1; i++) {
                 source = source[fromPath[i]];
             }
             const element = source[fromPath[fromPath.length - 1]];
@@ -1949,7 +1950,7 @@
                 // Create controls
                 const controls = document.createElement('div');
                 controls.className = 'html-card-element-controls';
-                controls.innerHTML = '<button data-path="'  pathJson  '" onclick="removeHtmlCardElementByPathJson(this.getAttribute(\'data-path\'))" title="Remove">×</button>';
+                controls.innerHTML = '<button data-path="' + pathJson + '" onclick="removeHtmlCardElementByPathJson(this.getAttribute(\'data-path\'))" title="Remove">×</button>';
                 div.appendChild(controls);
                 
                 // Create content
@@ -1977,7 +1978,7 @@
                     if (element.children.length === 0) {
                         const emptyState = document.createElement('div');
                         emptyState.style.cssText = 'padding: 1rem; background: #f0f4ff; border: 2px dashed #667eea; border-radius: 4px; text-align: center; min-height: 80px; display: flex; align-items: center; justify-content: center;';
-                        emptyState.innerHTML = '<small style="color: #667eea; font-weight: 500;">���� Sleep elementen hierheen</small>';
+                        emptyState.innerHTML = '<small style="color: #667eea; font-weight: 500;">📦 Sleep elementen hierheen</small>';
                         childrenContainer.appendChild(emptyState);
                     }
                     
@@ -2091,7 +2092,7 @@
             let current = htmlCardElements;
             
             // Navigate through the path to find the target element
-            for (let i = 0; i < path.length - 1; i) {
+            for (let i = 0; i < path.length - 1; i++) {
                 const key = path[i];
                 
                 if (key === 'children') {
@@ -2133,7 +2134,7 @@
             let current = htmlCardElements;
             
             // Navigate through the path to find the parent array
-            for (let i = 0; i < path.length - 1; i) {
+            for (let i = 0; i < path.length - 1; i++) {
                 const key = path[i];
                 if (key === 'children') {
                     // Next key should be the index in children array
@@ -2204,22 +2205,22 @@
             let html = '';
             elements.forEach(element => {
                 if (element.type === 'heading') {
-                    html = `<${element.level}>${element.text}</${element.level}>`;
+                    html += `<${element.level}>${element.text}</${element.level}>`;
                 } else if (element.type === 'text') {
-                    html = `<p>${element.text}</p>`;
+                    html += `<p>${element.text}</p>`;
                 } else if (element.type === 'divider') {
-                    html = '<hr>';
+                    html += '<hr>';
                 } else if (element.type === 'container') {
                     const layoutClass = element.layout === 'horizontal' ? 'flex-row' : element.layout === 'grid' ? 'grid-2col' : 'flex-col';
-                    html = `<div class="container ${layoutClass}"><h4>${element.title}</h4>`;
+                    html += `<div class="container ${layoutClass}"><h4>${element.title}</h4>`;
                     if (element.children && element.children.length > 0) {
-                        html = `<div class="container-content">${generateHtmlFromElements(element.children)}</div>`;
+                        html += `<div class="container-content">${generateHtmlFromElements(element.children)}</div>`;
                     }
-                    html = '</div>';
+                    html += '</div>';
                 } else if (element.type === 'field') {
-                    html = `<div class="field"><label>${element.label}:</label> <span>\${field.${element.field}}</span></div>`;
+                    html += `<div class="field"><label>${element.label}:</label> <span>\${field.${element.field}}</span></div>`;
                 } else if (element.type === 'step-field') {
-                    html = `<div class="field"><label>${element.label}:</label> <span>\$${element.field}</span></div>`;
+                    html += `<div class="field"><label>${element.label}:</label> <span>\$${element.field}</span></div>`;
                 }
             });
             return html;
@@ -2232,3 +2233,4 @@
             document.body.appendChild(alert);
             setTimeout(() => alert.remove(), 3000);
         }
+    
