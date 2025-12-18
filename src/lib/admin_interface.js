@@ -10,11 +10,30 @@ export const adminHTML = `<!DOCTYPE html>
     <link rel="stylesheet" href="/admin.css">
     <style>
         /* Override admin.css for main layout only */
-        body { background: inherit !important; }
+        body { background: inherit !important; font-family: inherit !important; }
         .admin-interface { display: flex !important; }
         .header { all: unset; display: flex !important; }
         .sidebar { all: unset; width: 16rem; background: white; }
         .form-list { all: unset; list-style: none; }
+        .form-list li { padding: 0.5rem 0.75rem !important; border-radius: 0.375rem; font-size: 0.875rem; cursor: pointer; }
+        .form-list li:hover { background: #f3f4f6 !important; }
+        .form-list li.active { background: #6366f1 !important; color: white !important; font-weight: 500; }
+        .tabs { border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1.5rem !important; }
+        .tab { padding: 0.75rem 1.5rem !important; border-bottom: 2px solid transparent !important; font-size: 0.875rem !important; font-weight: 500 !important; }
+        .tab.active { border-bottom-color: #6366f1 !important; color: #6366f1 !important; }
+        .section { background: white; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; }
+        .section h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+        input[type="text"], input[type="password"], input[type="number"], textarea, select { 
+            font-size: 0.875rem !important; 
+            padding: 0.5rem !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 0.375rem !important;
+        }
+        input[type="text"]:focus, textarea:focus, select:focus {
+            outline: 2px solid #6366f1 !important;
+            outline-offset: 2px;
+            border-color: #6366f1 !important;
+        }
     </style>
 </head>
 <body class="bg-base-200">
@@ -29,9 +48,9 @@ export const adminHTML = `<!DOCTYPE html>
     </div>
     
     <div id="adminInterface" class="admin-interface flex flex-col h-screen" style="display: none;">
-        <div class="header navbar bg-base-100 shadow-md">
+        <div class="header navbar bg-base-100 shadow-sm px-6 min-h-14">
             <div class="flex-1">
-                <h1 class="text-xl font-bold">Forminator Mapping Admin</h1>
+                <h1 class="text-lg font-semibold">Forminator Mapping Admin</h1>
             </div>
             <div class="flex-none">
                 <button onclick="logout()" class="btn btn-error btn-sm">Logout</button>
@@ -40,17 +59,17 @@ export const adminHTML = `<!DOCTYPE html>
         <div class="main-content flex flex-1 overflow-hidden">
             <div class="sidebar w-64 bg-base-100 border-r border-base-300 overflow-y-auto">
                 <div class="p-4">
-                    <h2 class="text-lg font-semibold mb-4">Forms</h2>
-                    <button class="add-field-btn btn btn-primary btn-sm w-full mb-4" onclick="createNewForm()">+ New Form</button>
-                    <ul id="formList" class="form-list menu bg-base-100 w-full p-0"></ul>
+                    <h2 class="text-sm font-medium text-base-content/70 mb-3 uppercase tracking-wide">Forms</h2>
+                    <button class="add-field-btn btn btn-primary btn-sm w-full mb-3" onclick="createNewForm()">+ New Form</button>
+                    <ul id="formList" class="form-list menu menu-sm bg-base-100 w-full p-0 gap-1"></ul>
                 </div>
             </div>
-            <div class="editor flex-1 overflow-y-auto p-6 pr-56">
-                <h2 id="editorTitle" class="text-2xl font-bold mb-6">Select a form</h2>
+            <div class="editor flex-1 overflow-y-auto p-8 pr-56">
+                <h2 id="editorTitle" class="text-xl font-semibold mb-6 text-base-content">Select a form</h2>
                 <div id="editorContent"></div>
             </div>
-            <div class="field-palette fixed right-0 top-16 w-52 h-[calc(100vh-4rem)] bg-base-100 border-l-2 border-primary overflow-y-auto p-4 shadow-lg">
-                <h3 class="text-sm font-semibold text-primary mb-4">📋 Available Fields</h3>
+            <div class="field-palette fixed right-0 top-14 w-52 h-[calc(100vh-3.5rem)] bg-base-100 border-l border-base-300 overflow-y-auto p-4">
+                <h3 class="text-xs font-semibold text-primary mb-3 uppercase tracking-wide">📋 Available Fields</h3>
                 <div id="fieldPaletteContent" class="field-palette-content flex flex-col gap-2"></div>
             </div>
         </div>
