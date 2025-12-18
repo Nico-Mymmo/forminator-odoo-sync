@@ -53,13 +53,16 @@
                 list.innerHTML = '';
                 Object.keys(mappings).filter(k => !k.startsWith('_')).forEach(formId => {
                     const li = document.createElement('li');
+                    const a = document.createElement('a');
                     const formName = mappings[formId]?.name || formId;
-                    li.textContent = formName;
-                    li.title = `ID: ${formId}`;
-                    li.onclick = () => loadForm(formId);
+                    a.textContent = formName;
+                    a.title = `ID: ${formId}`;
+                    a.onclick = () => loadForm(formId);
+                    a.classList.add('text-sm');
                     if (formId === currentFormId) {
-                        li.classList.add('active');
+                        a.classList.add('active');
                     }
+                    li.appendChild(a);
                     list.appendChild(li);
                 });
             } catch (err) {
@@ -76,7 +79,7 @@
         
         function loadForm(formId) {
             currentFormId = formId;
-            document.querySelectorAll('.form-list li').forEach(li => li.classList.remove('active'));
+            document.querySelectorAll('#formList a').forEach(a => a.classList.remove('active'));
             event.target.classList.add('active');
             
             const data = mappings[formId];

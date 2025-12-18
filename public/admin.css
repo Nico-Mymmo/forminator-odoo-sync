@@ -1,5 +1,28 @@
 /* Minimal admin.css - Most styling now handled by DaisyUI */
 
+/* Menu items styling */
+#formList li {
+    padding: 0;
+}
+
+#formList a {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#formList a:hover {
+    background: hsl(var(--b2));
+}
+
+#formList a.active {
+    background: hsl(var(--p));
+    color: hsl(var(--pc));
+    font-weight: 500;
+}
+
 /* Tab content visibility */
 .tab-content {
     display: none;
