@@ -253,10 +253,11 @@ export const adminHTML = `<!DOCTYPE html>
         .domain-row input[type="checkbox"] { width: auto; height: 1.2rem; cursor: pointer; }
         .domain-row .checkbox-wrapper { display: flex; align-items: center; gap: 0.5rem; }
         
-        .value-row { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
-        .value-row input, .value-row textarea { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; }
+        .value-row { display: grid; grid-template-columns: 1fr auto 1fr 100px auto; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+        .value-row input, .value-row textarea, .value-row select { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; }
         .value-row textarea { resize: vertical; min-height: 60px; }
-        .value-row button { background: #e74c3c; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; }
+        .value-row button { background: #e74c3c; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 1.2rem; line-height: 1; min-width: 36px; }
+        .value-row .field-type-selector { font-size: 0.85rem; padding: 0.4rem 0.3rem; background: #f8f9fa; color: #495057; border: 1px solid #ced4da; }
         
         /* Chip-enabled inputs */
         .chip-input {
@@ -721,13 +722,25 @@ export const adminHTML = `<!DOCTYPE html>
                 list.innerHTML = '';
                 Object.keys(mappings).filter(k => !k.startsWith('_')).forEach(formId => {
                     const li = document.createElement('li');
-                    li.textContent = \`Form \${formId}\`;
+                    const formName = mappings[formId]?.name || formId;
+                    li.textContent = formName;
+                    li.title = \`ID: \${formId}\`;
                     li.onclick = () => loadForm(formId);
+                    if (formId === currentFormId) {
+                        li.classList.add('active');
+                    }
                     list.appendChild(li);
                 });
             } catch (err) {
                 showAlert('Failed to load forms: ' + err.message, 'error');
             }
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
         
         function loadForm(formId) {
@@ -788,8 +801,24 @@ export const adminHTML = `<!DOCTYPE html>
             
             expandedValueMappings = {};
             
-            document.getElementById('editorTitle').textContent = \`Edit Form \${formId}\`;
+            const formName = data.name || formId;
+            const escapedFormName = escapeHtml(data.name || '');
+            const escapedFormId = escapeHtml(formId);
+            document.getElementById('editorTitle').textContent = \`Edit: \${formName}\`;
             document.getElementById('editorContent').innerHTML = \`
+                <div class="section" style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Form Name</label>
+                            <input type="text" id="formName" value="\${escapedFormName}" placeholder="Enter a display name" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" onchange="updateFormName()">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Forminator Form ID</label>
+                            <input type="text" id="formId" value="\${escapedFormId}" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; color: #666;" title="Form ID cannot be changed">
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="tabs">
                     <button class="tab active" onclick="switchTab('mapping')">Field & Value Mapping</button>
                     <button class="tab" onclick="switchTab('workflow')">Workflow Steps</button>
@@ -1973,13 +2002,17 @@ export const adminHTML = `<!DOCTYPE html>
                 return;
             }
             
+            // Get field types from metadata
+            const fieldTypes = workflowSteps[stepIdx]._ui_metadata?.create_types || {};
+            
             Object.entries(values).forEach(([key, value]) => {
                 const row = document.createElement('div');
                 row.className = 'value-row';
                 const displayValue = typeof value === 'object' ? JSON.stringify(value) : value;
                 const useTextarea = displayValue.length > 40;
+                const fieldType = fieldTypes[key] || 'auto';
                 
-                console.log('Creating value row:', key, '=', displayValue);
+                console.log('Creating value row:', key, '=', displayValue, 'type:', fieldType);
                 
                 row.innerHTML = \`
                     <input type="text" value="\${key}" placeholder="field" data-old-key="\${key}" 
@@ -1989,6 +2022,13 @@ export const adminHTML = `<!DOCTYPE html>
                         ? \`<textarea onchange="updateCreateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
                         : \`<input type="text" value="\${displayValue}" placeholder="value" onchange="updateCreateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\`
                     }
+                    <select class="field-type-selector" onchange="updateCreateFieldType(\${stepIdx}, '\${key}', this.value)" title="Data type">
+                        <option value="auto" \${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
+                        <option value="string" \${fieldType === 'string' ? 'selected' : ''}>String</option>
+                        <option value="integer" \${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
+                        <option value="float" \${fieldType === 'float' ? 'selected' : ''}>Float</option>
+                        <option value="boolean" \${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
+                    </select>
                     <button onclick="deleteCreateValue(\${stepIdx}, '\${key}')">×</button>
                 \`;
                 container.appendChild(row);
@@ -2024,8 +2064,18 @@ export const adminHTML = `<!DOCTYPE html>
             workflowSteps[stepIdx].create[newKey] = parsedValue;
         }
         
+        function updateCreateFieldType(stepIdx, key, type) {
+            if (!workflowSteps[stepIdx]._ui_metadata) workflowSteps[stepIdx]._ui_metadata = {};
+            if (!workflowSteps[stepIdx]._ui_metadata.create_types) workflowSteps[stepIdx]._ui_metadata.create_types = {};
+            workflowSteps[stepIdx]._ui_metadata.create_types[key] = type;
+        }
+        
         function deleteCreateValue(stepIdx, key) {
             delete workflowSteps[stepIdx].create[key];
+            // Also delete type metadata
+            if (workflowSteps[stepIdx]._ui_metadata?.create_types) {
+                delete workflowSteps[stepIdx]._ui_metadata.create_types[key];
+            }
             renderCreateValues(stepIdx, workflowSteps[stepIdx].create);
         }
         
@@ -2061,6 +2111,9 @@ export const adminHTML = `<!DOCTYPE html>
                 return;
             }
             
+            // Get field types from metadata
+            const fieldTypes = workflowSteps[stepIdx]._ui_metadata?.update_types || {};
+            
             Object.entries(values).forEach(([key, value]) => {
                 if (key === 'enabled') return;
                 
@@ -2068,6 +2121,7 @@ export const adminHTML = `<!DOCTYPE html>
                 row.className = 'value-row';
                 const displayValue = typeof value === 'object' ? JSON.stringify(value) : value;
                 const useTextarea = displayValue.length > 40;
+                const fieldType = fieldTypes[key] || 'auto';
                 
                 row.innerHTML = \`
                     <select onchange="updateUpdateValueKey(\${stepIdx}, '\${key}', this.value)" style="flex: 1;">
@@ -2080,6 +2134,13 @@ export const adminHTML = `<!DOCTYPE html>
                         ? \`<textarea onchange="updateUpdateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
                         : \`<input type="text" value="\${displayValue}" placeholder="value" onchange="updateUpdateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\`
                     }
+                    <select class="field-type-selector" onchange="updateUpdateFieldType(\${stepIdx}, '\${key}', this.value)" title="Data type">
+                        <option value="auto" \${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
+                        <option value="string" \${fieldType === 'string' ? 'selected' : ''}>String</option>
+                        <option value="integer" \${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
+                        <option value="float" \${fieldType === 'float' ? 'selected' : ''}>Float</option>
+                        <option value="boolean" \${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
+                    </select>
                     <button onclick="deleteUpdateValue(\${stepIdx}, '\${key}')">×</button>
                 \`;
                 container.appendChild(row);
@@ -2141,8 +2202,18 @@ export const adminHTML = `<!DOCTYPE html>
             workflowSteps[stepIdx].update.fields[newKey] = parsedValue;
         }
         
+        function updateUpdateFieldType(stepIdx, key, type) {
+            if (!workflowSteps[stepIdx]._ui_metadata) workflowSteps[stepIdx]._ui_metadata = {};
+            if (!workflowSteps[stepIdx]._ui_metadata.update_types) workflowSteps[stepIdx]._ui_metadata.update_types = {};
+            workflowSteps[stepIdx]._ui_metadata.update_types[key] = type;
+        }
+        
         function deleteUpdateValue(stepIdx, key) {
             delete workflowSteps[stepIdx].update.fields[key];
+            // Also delete type metadata
+            if (workflowSteps[stepIdx]._ui_metadata?.update_types) {
+                delete workflowSteps[stepIdx]._ui_metadata.update_types[key];
+            }
             renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
         }
         
@@ -2196,8 +2267,13 @@ export const adminHTML = `<!DOCTYPE html>
                 return cleanedStep;
             });
             
+            // Get current form name from input
+            const formNameInput = document.getElementById('formName');
+            const currentFormName = formNameInput ? formNameInput.value.trim() : (mappings[currentFormId]?.name || '');
+            
             const data = {
                 ...mappings[currentFormId],
+                name: currentFormName,
                 field_mapping: fieldMapping,
                 value_mapping: cleanedValueMapping,
                 workflow: cleanedWorkflow
@@ -2243,14 +2319,36 @@ export const adminHTML = `<!DOCTYPE html>
             }
         }
         
+        function updateFormName() {
+            const newName = document.getElementById('formName').value.trim();
+            if (!currentFormId) return;
+            
+            if (!mappings[currentFormId]) {
+                mappings[currentFormId] = { field_mapping: {}, value_mapping: {}, workflow: [] };
+            }
+            
+            mappings[currentFormId].name = newName;
+            document.getElementById('editorTitle').textContent = \`Edit: \${newName || currentFormId}\`;
+            
+            // Update list item text directly without reloading from server
+            const list = document.getElementById('formList');
+            const activeItem = list.querySelector('.active');
+            if (activeItem) {
+                activeItem.textContent = newName || currentFormId;
+                activeItem.title = \`ID: \${currentFormId}\`;
+            }
+        }
+        
         function createNewForm() {
-            const formId = prompt('Enter Form ID:');
+            const formId = prompt('Enter Forminator Form ID:');
             if (!formId) return;
             
             if (mappings[formId]) {
                 showAlert('Form ID already exists!', 'error');
                 return;
             }
+            
+            const formName = prompt('Enter Form Name (display name):', formId);
             
             // Create new empty form
             currentFormId = formId;
@@ -2260,29 +2358,21 @@ export const adminHTML = `<!DOCTYPE html>
             expandedValueMappings = {};
             
             mappings[formId] = {
+                name: formName || formId,
                 field_mapping: {},
                 value_mapping: {},
                 workflow: []
             };
             
-            // Add to list
-            const list = document.getElementById('formList');
-            const li = document.createElement('li');
-            li.textContent = \`Form \${formId}\`;
-            li.onclick = () => loadForm(formId);
-            list.appendChild(li);
+            // Reload forms list to show new form with name
+            loadForms();
             
             // Load in editor
             loadForm(formId);
-            showAlert(\`Created new form: \${formId}\`, 'success');
+            showAlert(\`Created new form: \${formName || formId}\`, 'success');
         }
         
         // HTML Card Editor Functions
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
         
         function openHtmlCardEditor(stepIdx) {
             currentHtmlCardStepIdx = stepIdx;

@@ -52,7 +52,8 @@ async function processStep(env, step, formData, stepResults) {
         if (hasUpdate) {
           // Extract fields from step.update.fields or use step.update directly (for backward compatibility)
           const updateFields = step.update.fields || step.update;
-          const updateData = processTemplateObject(updateFields, formData, stepResults);
+          const updateTypes = step._ui_metadata?.update_types || {};
+          const updateData = processTemplateObject(updateFields, formData, stepResults, updateTypes);
           
           if (Object.keys(updateData).length > 0) {
             await write(env, {
@@ -83,7 +84,8 @@ async function processStep(env, step, formData, stepResults) {
         if (hasCreate) {
           console.log(`➕ [${timestamp}] Creating new ${step.model}`);
           
-          const createData = processTemplateObject(step.create, formData, stepResults);
+          const createTypes = step._ui_metadata?.create_types || {};
+          const createData = processTemplateObject(step.create, formData, stepResults, createTypes);
           
           recordId = await create(env, {
             model: step.model,
@@ -120,7 +122,8 @@ async function processStep(env, step, formData, stepResults) {
     // No search, just create
     console.log(`➕ [${timestamp}] Creating new ${step.model} (no search)`);
     
-    const createData = processTemplateObject(step.create, formData, stepResults);
+    const createTypes = step._ui_metadata?.create_types || {};
+    const createData = processTemplateObject(step.create, formData, stepResults, createTypes);
     
     recordId = await create(env, {
       model: step.model,
@@ -156,6 +159,51 @@ async function processStep(env, step, formData, stepResults) {
  * @param {Object} stepResults - Results from previous steps
  * @returns {string|null} - Processed string or null if unresolved references
  */
+/**
+ * Convert value to specified type
+ * @param {*} value - Value to convert
+ * @param {string} type - Target type ('auto', 'string', 'integer', 'float', 'boolean')
+ * @returns {*} - Converted value
+ */
+function convertFieldType(value, type) {
+  if (type === 'auto') {
+    // Auto mode: keep original type or try to parse
+    if (typeof value === 'string') {
+      // Try to parse JSON-like values
+      try {
+        if (value === 'true') return true;
+        if (value === 'false') return false;
+        if (value.startsWith('{') || value.startsWith('[')) {
+          return JSON.parse(value);
+        }
+        // Check if it's a number
+        if (!isNaN(value) && value.trim() !== '') {
+          const num = Number(value);
+          return Number.isInteger(num) ? parseInt(value) : parseFloat(value);
+        }
+      } catch (e) {}
+    }
+    return value;
+  }
+  
+  switch (type) {
+    case 'string':
+      return String(value);
+    case 'integer':
+      return parseInt(value) || 0;
+    case 'float':
+      return parseFloat(value) || 0.0;
+    case 'boolean':
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'string') {
+        return value.toLowerCase() === 'true' || value === '1';
+      }
+      return Boolean(value);
+    default:
+      return value;
+  }
+}
+
 function processTemplate(template, formData, stepResults) {
   if (typeof template !== 'string') return template;
   
@@ -233,23 +281,29 @@ function processTemplateDomain(domain, formData, stepResults) {
 
 /**
  * Process template object (recursively process all string values)
+ * Apply type conversions based on fieldTypes metadata
  * 
  * @param {Object} obj - Object with template strings
  * @param {Object} formData - Form data
  * @param {Object} stepResults - Step results
+ * @param {Object} fieldTypes - Optional field type metadata from _ui_metadata
  * @returns {Object} - Processed object with only non-empty values
  */
-function processTemplateObject(obj, formData, stepResults) {
+function processTemplateObject(obj, formData, stepResults, fieldTypes = {}) {
   const result = {};
   
   for (const [key, value] of Object.entries(obj)) {
+    const fieldType = fieldTypes[key] || 'auto';
+    
     if (typeof value === 'string') {
       const processed = processTemplate(value, formData, stepResults);
       if (processed) {
-        result[key] = processed;
+        // Apply type conversion based on metadata
+        result[key] = convertFieldType(processed, fieldType);
       }
     } else if (typeof value === 'number' || typeof value === 'boolean') {
-      result[key] = value;
+      // Apply type conversion
+      result[key] = convertFieldType(value, fieldType);
     } else if (Array.isArray(value)) {
       result[key] = value;
     } else if (value && typeof value === 'object') {
