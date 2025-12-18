@@ -24,9 +24,9 @@ export const adminHTML = `<!DOCTYPE html>
     </div>
     
     <!-- Admin Interface -->
-    <div id="adminInterface" class="flex flex-col h-screen" style="display: none;">
+    <div id="adminInterface" class="h-screen flex flex-col" style="display: none;">
         <!-- Navbar -->
-        <div class="navbar bg-base-100 shadow-sm min-h-0 h-12 px-4">
+        <div class="navbar bg-base-100 shadow-sm h-12 min-h-12 flex-shrink-0 px-4">
             <div class="flex-1">
                 <span class="text-base font-semibold">Forminator Admin</span>
             </div>
@@ -36,9 +36,9 @@ export const adminHTML = `<!DOCTYPE html>
         </div>
         
         <!-- Main Content -->
-        <div class="flex flex-1 overflow-hidden relative">
+        <div class="flex-1 flex flex-row overflow-hidden relative">
             <!-- Sidebar -->
-            <aside class="w-52 bg-base-100 border-r border-base-300 overflow-y-auto flex-shrink-0">
+            <aside class="w-52 flex-shrink-0 bg-base-100 border-r border-base-300 overflow-y-auto">
                 <div class="p-3">
                     <h2 class="text-xs font-bold text-base-content/60 mb-2 uppercase">Forms</h2>
                     <button class="btn btn-primary btn-xs w-full mb-3" onclick="createNewForm()">+ New Form</button>
@@ -53,10 +53,10 @@ export const adminHTML = `<!DOCTYPE html>
             </main>
             
             <!-- Field Palette (Fixed) -->
-            <aside class="fixed right-0 w-44 h-[calc(100vh-3rem)] bg-base-100 border-l border-base-300 overflow-y-auto p-3" style="top: 3rem;">
+            <aside class="fixed right-0 w-44 bg-base-100 border-l border-base-300 overflow-y-auto p-3" style="top: 3rem; height: calc(100vh - 3rem);">
                 <h3 class="text-xs font-bold text-primary mb-2 uppercase">📋 Fields</h3>
                 <div id="fieldPaletteContent" class="flex flex-col gap-2"></div>
-            </aside>
+            </div>
         </div>
     </div>
     
