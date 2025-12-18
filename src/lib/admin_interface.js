@@ -24,21 +24,17 @@ export const adminHTML = `<!DOCTYPE html>
     </div>
     
     <!-- Admin Interface -->
-    <div id="adminInterface" class="h-screen flex flex-col" style="display: none;">
+    <div id="adminInterface" style="display: none; height: 100vh; display: flex; flex-direction: column;">
         <!-- Navbar -->
-        <div class="navbar bg-base-100 shadow-sm h-12 min-h-12 flex-shrink-0 px-4">
-            <div class="flex-1">
-                <span class="text-base font-semibold">Forminator Admin</span>
-            </div>
-            <div class="flex-none">
-                <button onclick="logout()" class="btn btn-error btn-xs">Logout</button>
-            </div>
-        </div>
+        <header class="flex items-center justify-between bg-base-100 shadow-sm px-4" style="height: 48px; flex-shrink: 0;">
+            <span class="text-base font-semibold">Forminator Admin</span>
+            <button onclick="logout()" class="btn btn-error btn-xs">Logout</button>
+        </header>
         
-        <!-- Main Content -->
-        <div class="flex-1 flex flex-row overflow-hidden relative">
-            <!-- Sidebar -->
-            <aside class="w-52 flex-shrink-0 bg-base-100 border-r border-base-300 overflow-y-auto">
+        <!-- Main Content Wrapper -->
+        <div style="flex: 1; display: flex; flex-direction: row; overflow: hidden; position: relative;">
+            <!-- Left Sidebar -->
+            <aside class="bg-base-100 border-r border-base-300 overflow-y-auto" style="width: 208px; flex-shrink: 0;">
                 <div class="p-3">
                     <h2 class="text-xs font-bold text-base-content/60 mb-2 uppercase">Forms</h2>
                     <button class="btn btn-primary btn-xs w-full mb-3" onclick="createNewForm()">+ New Form</button>
@@ -46,14 +42,14 @@ export const adminHTML = `<!DOCTYPE html>
                 </div>
             </aside>
             
-            <!-- Editor Content -->
-            <main class="flex-1 overflow-y-auto p-6 pr-48">
+            <!-- Main Editor -->
+            <main class="overflow-y-auto p-6" style="flex: 1; padding-right: 192px;">
                 <h2 id="editorTitle" class="text-xl font-bold mb-4">Select a form</h2>
                 <div id="editorContent"></div>
             </main>
             
-            <!-- Field Palette (Fixed) -->
-            <aside class="fixed right-0 w-44 bg-base-100 border-l border-base-300 overflow-y-auto p-3" style="top: 3rem; height: calc(100vh - 3rem);">
+            <!-- Right Field Palette (Fixed) -->
+            <aside class="bg-base-100 border-l border-base-300 overflow-y-auto p-3" style="position: fixed; right: 0; top: 48px; width: 176px; height: calc(100vh - 48px);">
                 <h3 class="text-xs font-bold text-primary mb-2 uppercase">📋 Fields</h3>
                 <div id="fieldPaletteContent" class="flex flex-col gap-2"></div>
             </aside>
