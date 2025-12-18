@@ -36,9 +36,9 @@ export const adminHTML = `<!DOCTYPE html>
         </div>
         
         <!-- Main Content -->
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 overflow-hidden relative">
             <!-- Sidebar -->
-            <aside class="w-52 bg-base-100 border-r border-base-300 overflow-y-auto">
+            <aside class="w-52 bg-base-100 border-r border-base-300 overflow-y-auto flex-shrink-0">
                 <div class="p-3">
                     <h2 class="text-xs font-bold text-base-content/60 mb-2 uppercase">Forms</h2>
                     <button class="btn btn-primary btn-xs w-full mb-3" onclick="createNewForm()">+ New Form</button>
@@ -47,13 +47,13 @@ export const adminHTML = `<!DOCTYPE html>
             </aside>
             
             <!-- Editor Content -->
-            <main class="flex-1 overflow-y-auto p-6">
+            <main class="flex-1 overflow-y-auto p-6 pr-48">
                 <h2 id="editorTitle" class="text-xl font-bold mb-4">Select a form</h2>
                 <div id="editorContent"></div>
             </main>
             
-            <!-- Field Palette -->
-            <aside class="w-44 bg-base-100 border-l border-base-300 overflow-y-auto p-3">
+            <!-- Field Palette (Fixed) -->
+            <aside class="fixed right-0 w-44 h-[calc(100vh-3rem)] bg-base-100 border-l border-base-300 overflow-y-auto p-3" style="top: 3rem;">
                 <h3 class="text-xs font-bold text-primary mb-2 uppercase">📋 Fields</h3>
                 <div id="fieldPaletteContent" class="flex flex-col gap-2"></div>
             </aside>
