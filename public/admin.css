@@ -32,39 +32,23 @@
     display: block;
 }
 
-/* Draggable fields in palette */
-.draggable-field {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.5rem 0.75rem;
-    background: hsl(var(--p));
-    color: hsl(var(--pc));
-    border-radius: 1rem;
-    cursor: grab;
-    font-size: 0.85rem;
+/* Draggable badges in palette */
+.badge.cursor-grab {
     user-select: none;
     transition: all 0.2s;
-    font-weight: 500;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.draggable-field::before {
-    content: '';
-    opacity: 0.6;
+.badge.cursor-grab:hover {
+    transform: translateY(-1px);
+    opacity: 0.9;
 }
 
-.draggable-field:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-}
-
-.draggable-field:active {
+.badge.cursor-grab:active {
     cursor: grabbing;
     transform: scale(0.95);
 }
 
-.draggable-field.dragging {
+.badge.cursor-grab.dragging {
     opacity: 0.5;
 }
 

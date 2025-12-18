@@ -383,16 +383,16 @@
             palette.innerHTML = '';
             
             // Form fields section
-            const formFieldsHeader = document.createElement('h4');
-            formFieldsHeader.style.cssText = 'margin: 0 0 0.75rem 0; color: #667eea; font-size: 0.9rem; border-bottom: 1px solid #ddd; padding-bottom: 0.5rem;';
+            const formFieldsHeader = document.createElement('div');
+            formFieldsHeader.className = 'divider divider-start text-xs my-2';
             formFieldsHeader.textContent = 'Form Fields';
             palette.appendChild(formFieldsHeader);
             
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const chip = document.createElement('div');
-                chip.className = 'draggable-field';
-                chip.textContent = odooField; // Show Odoo field name
-                chip.title = `Forminator: ${formField}`; // Tooltip with forminator name
+                chip.className = 'badge badge-primary badge-sm cursor-grab';
+                chip.textContent = odooField;
+                chip.title = `Forminator: ${formField}`;
                 chip.draggable = true;
                 chip.dataset.field = odooField;
                 chip.dataset.formfield = formField;
@@ -408,8 +408,8 @@
                 : workflowSteps;
             
             if (availableSteps.some(s => s.step)) {
-                const stepResultsHeader = document.createElement('h4');
-                stepResultsHeader.style.cssText = 'margin: 1.5rem 0 0.75rem 0; color: #9333ea; font-size: 0.9rem; border-bottom: 1px solid #ddd; padding-bottom: 0.5rem;';
+                const stepResultsHeader = document.createElement('div');
+                stepResultsHeader.className = 'divider divider-start text-xs my-2 mt-3';
                 stepResultsHeader.textContent = 'Step Results';
                 palette.appendChild(stepResultsHeader);
                 
@@ -419,7 +419,7 @@
                     const fields = step.search?.fields || ['id'];
                     fields.forEach(field => {
                         const chip = document.createElement('div');
-                        chip.className = 'draggable-step-field';
+                        chip.className = 'badge badge-secondary badge-sm cursor-grab';
                         chip.textContent = `$${step.step}.${field}`;
                         chip.title = `Step ${idx + 1}: ${step.model}`;
                         chip.draggable = true;
