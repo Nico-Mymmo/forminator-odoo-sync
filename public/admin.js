@@ -467,7 +467,7 @@
             
             // Create chip input container
             const chipInput = document.createElement('div');
-            chipInput.className = 'input input-sm input-bordered h-auto min-h-[2rem] flex flex-wrap items-center gap-1 py-1 px-2';
+            chipInput.className = 'border border-base-300 rounded-lg bg-base-100 min-h-[2rem] flex flex-wrap items-center gap-1 py-1 px-2 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary';
             chipInput.setAttribute('contenteditable', 'true');
             chipInput.setAttribute('data-placeholder', placeholder);
             
@@ -940,17 +940,18 @@
                 const resultBadge = step.step ? `<div class="badge badge-accent">$${step.step}</div>` : '';
                 
                 stepEl.innerHTML = `
-                    <div class="card bg-base-100 shadow mb-4">
-                        <div class="card-body p-4">
-                            <div class="flex items-center justify-between mb-3">
-                                <h3 class="card-title text-base">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
-                                <div class="flex gap-2">
+                    <div class="collapse collapse-arrow bg-base-100 shadow mb-4">
+                        <input type="checkbox" id="step-toggle-${idx}" checked /> 
+                        <div class="collapse-title p-4 min-h-0">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-base font-semibold">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
+                                <div class="flex gap-2" onclick="event.stopPropagation()">
                                     ${resultBadge}
-                                    <button class="btn btn-sm btn-ghost btn-square" onclick="toggleStep(${idx})">▼</button>
                                     <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx})">×</button>
                                 </div>
                             </div>
-                            <div class="step-content">
+                        </div>
+                        <div class="collapse-content p-4 pt-0">
                                 <div class="grid grid-cols-2 gap-3 mb-4">
                                     <div class="form-control">
                                         <label class="label py-1"><span class="label-text">Step Name:</span></label>
@@ -1021,7 +1022,6 @@
                                 ${step.html_card ? '<div class="alert alert-success py-2"><strong>HTML Card configured</strong> - ' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div>' : ''}
                             </div>
                         </div>
-                            </div>
                         </div>
                     </div>
                 `;
@@ -1038,16 +1038,6 @@
             initializeDragAndDrop();
         }
         
-        function toggleStep(idx) {
-            const step = document.querySelector(`.workflow-step[data-index="${idx}"]`);
-            step.classList.toggle('collapsed');
-        }
-        
-        function toggleSubsection(header) {
-            const subsection = header.parentElement;
-            subsection.classList.toggle('collapsed');
-        }
-        
         function deleteStep(idx) {
             if (confirm('Delete this workflow step?')) {
                 workflowSteps.splice(idx, 1);
@@ -1057,22 +1047,13 @@
         
         function updateStepBasic(idx, field, value) {
             workflowSteps[idx][field] = value;
-            const header = document.querySelector(`.workflow-step[data-index="${idx}"] h4`);
-            header.textContent = `Step: ${workflowSteps[idx].step || '(unnamed)'} - Model: ${workflowSteps[idx].model || '(no model)'}`;
+            const header = document.querySelector(`.workflow-step[data-index="${idx}"] h3`);
+            if (header) {
+                header.textContent = `Step: ${workflowSteps[idx].step || '(unnamed)'} - Model: ${workflowSteps[idx].model || '(no model)'}`;
+            }
             
             // Update the result badge if step name changed
             if (field === 'step') {
-                const stepEl = document.querySelector(`.workflow-step[data-index="${idx}"]`);
-                const existingBadge = stepEl.querySelector('.step-result-badge');
-                if (existingBadge) {
-                    existingBadge.textContent = value ? `📦 $${value}` : '';
-                } else if (value) {
-                    const badge = document.createElement('div');
-                    badge.className = 'step-result-badge';
-                    badge.textContent = `📦 $${value}`;
-                    const actions = stepEl.querySelector('.step-actions');
-                    actions.parentNode.insertBefore(badge, actions);
-                }
                 renderStepResultChips(idx, workflowSteps[idx]);
                 updateFieldPalette();
             }
