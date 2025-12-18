@@ -26,35 +26,35 @@ export const adminHTML = `<!DOCTYPE html>
     <!-- Admin Interface -->
     <div id="adminInterface" class="flex flex-col h-screen" style="display: none;">
         <!-- Navbar -->
-        <div class="navbar bg-base-100 shadow-sm">
+        <div class="navbar bg-base-100 shadow-sm min-h-0 h-12 px-4">
             <div class="flex-1">
-                <span class="text-xl font-bold">Forminator Mapping Admin</span>
+                <span class="text-base font-semibold">Forminator Admin</span>
             </div>
             <div class="flex-none">
-                <button onclick="logout()" class="btn btn-error btn-sm">Logout</button>
+                <button onclick="logout()" class="btn btn-error btn-xs">Logout</button>
             </div>
         </div>
         
         <!-- Main Content -->
         <div class="flex flex-1 overflow-hidden">
             <!-- Sidebar -->
-            <aside class="w-64 bg-base-100 border-r border-base-300 overflow-y-auto">
-                <div class="p-4">
+            <aside class="w-52 bg-base-100 border-r border-base-300 overflow-y-auto">
+                <div class="p-3">
                     <h2 class="text-xs font-bold text-base-content/60 mb-2 uppercase">Forms</h2>
-                    <button class="btn btn-primary btn-sm w-full mb-3" onclick="createNewForm()">+ New Form</button>
+                    <button class="btn btn-primary btn-xs w-full mb-3" onclick="createNewForm()">+ New Form</button>
                     <ul id="formList" class="menu bg-base-100 w-full p-0"></ul>
                 </div>
             </aside>
             
             <!-- Editor Content -->
             <main class="flex-1 overflow-y-auto p-6">
-                <h2 id="editorTitle" class="text-2xl font-bold mb-4">Select a form</h2>
+                <h2 id="editorTitle" class="text-xl font-bold mb-4">Select a form</h2>
                 <div id="editorContent"></div>
             </main>
             
             <!-- Field Palette -->
-            <aside class="w-64 bg-base-100 border-l border-base-300 overflow-y-auto p-4">
-                <h3 class="text-xs font-bold text-primary mb-3 uppercase">📋 Available Fields</h3>
+            <aside class="w-44 bg-base-100 border-l border-base-300 overflow-y-auto p-3">
+                <h3 class="text-xs font-bold text-primary mb-2 uppercase">📋 Fields</h3>
                 <div id="fieldPaletteContent" class="flex flex-col gap-2"></div>
             </aside>
         </div>
