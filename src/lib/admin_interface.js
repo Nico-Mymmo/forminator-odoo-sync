@@ -56,7 +56,7 @@ export const adminHTML = `<!DOCTYPE html>
             <aside class="fixed right-0 w-44 bg-base-100 border-l border-base-300 overflow-y-auto p-3" style="top: 3rem; height: calc(100vh - 3rem);">
                 <h3 class="text-xs font-bold text-primary mb-2 uppercase">📋 Fields</h3>
                 <div id="fieldPaletteContent" class="flex flex-col gap-2"></div>
-            </div>
+            </aside>
         </div>
     </div>
     
