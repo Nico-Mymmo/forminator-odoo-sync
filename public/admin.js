@@ -33,7 +33,7 @@
                 ...options,
                 headers: {
                     ...options.headers,
-                    'Authorization': \`Bearer \${token}\`,
+                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 }
             });
@@ -54,7 +54,7 @@
                     const li = document.createElement('li');
                     const formName = mappings[formId]?.name || formId;
                     li.textContent = formName;
-                    li.title = \`ID: \${formId}\`;
+                    li.title = `ID: ${formId}`;
                     li.onclick = () => loadForm(formId);
                     if (formId === currentFormId) {
                         li.classList.add('active');
@@ -134,17 +134,17 @@
             const formName = data.name || formId;
             const escapedFormName = escapeHtml(data.name || '');
             const escapedFormId = escapeHtml(formId);
-            document.getElementById('editorTitle').textContent = \`Edit: \${formName}\`;
-            document.getElementById('editorContent').innerHTML = \`
+            document.getElementById('editorTitle').textContent = `Edit: ${formName}`;
+            document.getElementById('editorContent').innerHTML = `
                 <div class="section" style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
                     <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px;">
                         <div>
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">Form Name</label>
-                            <input type="text" id="formName" value="\${escapedFormName}" placeholder="Enter a display name" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" onchange="updateFormName()">
+                            <input type="text" id="formName" value="${escapedFormName}" placeholder="Enter a display name" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" onchange="updateFormName()">
                         </div>
                         <div>
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">Forminator Form ID</label>
-                            <input type="text" id="formId" value="\${escapedFormId}" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; color: #666;" title="Form ID cannot be changed">
+                            <input type="text" id="formId" value="${escapedFormId}" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; color: #666;" title="Form ID cannot be changed">
                         </div>
                     </div>
                 </div>
@@ -175,7 +175,7 @@
                     <button class="btn-secondary" onclick="exportForm()">Export JSON</button>
                     <button class="btn-danger" onclick="deleteForm()">Delete Form</button>
                 </div>
-            \`;
+            `;
             
             renderFieldMapping();
             renderWorkflowSteps();
@@ -188,7 +188,7 @@
             document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
             
             event.target.classList.add('active');
-            document.getElementById(\`tab-\${tabName}\`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
         }
         
         // Field Mapping with Inline Value Mapping
@@ -203,39 +203,39 @@
                 
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'field-row';
-                rowDiv.innerHTML = \`
-                    <input type="text" value="\${formField}" data-type="key" onchange="updateFieldKey('\${formField}', this.value)">
-                    <input type="text" value="\${odooField}" data-type="value" onchange="updateFieldValue('\${formField}', this.value)">
-                    <button class="btn-value-mapping" onclick="toggleValueMapping('\${formField}')">⚙️ Values</button>
-                    <button class="btn-delete" onclick="deleteField('\${formField}')">×</button>
-                \`;
+                rowDiv.innerHTML = `
+                    <input type="text" value="${formField}" data-type="key" onchange="updateFieldKey('${formField}', this.value)">
+                    <input type="text" value="${odooField}" data-type="value" onchange="updateFieldValue('${formField}', this.value)">
+                    <button class="btn-value-mapping" onclick="toggleValueMapping('${formField}')">��ִ�� Values</button>
+                    <button class="btn-delete" onclick="deleteField('${formField}')">+�</button>
+                `;
                 
                 containerDiv.appendChild(rowDiv);
                 
                 // Add inline value mapping section
                 const valueMappingDiv = document.createElement('div');
                 valueMappingDiv.className = 'value-mapping-inline';
-                valueMappingDiv.id = \`value-mapping-\${formField}\`;
+                valueMappingDiv.id = `value-mapping-${formField}`;
                 if (expandedValueMappings[formField]) {
                     valueMappingDiv.classList.add('expanded');
                 }
-                valueMappingDiv.innerHTML = \`
-                    <h5>Value Mapping for "\${formField}"</h5>
+                valueMappingDiv.innerHTML = `
+                    <h5>Value Mapping for "${formField}"</h5>
                     <div class="value-mapping-controls">
                         <label>
-                            <input type="checkbox" onchange="toggleSkip('\${formField}', this.checked)" 
-                                \${valueMapping[formField]?._skip ? 'checked' : ''}>
+                            <input type="checkbox" onchange="toggleSkip('${formField}', this.checked)" 
+                                ${valueMapping[formField]?._skip ? 'checked' : ''}>
                             Skip unmapped values
                         </label>
-                        <div class="default-value-container" id="default-\${formField}" style="display:\${valueMapping[formField]?._skip ? 'none' : 'block'}">
+                        <div class="default-value-container" id="default-${formField}" style="display:${valueMapping[formField]?._skip ? 'none' : 'block'}">
                             <label>Default value for unmapped values:</label>
-                            <input type="text" value="\${valueMapping[formField]?._default || ''}" 
-                                onchange="updateDefaultValue('\${formField}', this.value)">
+                            <input type="text" value="${valueMapping[formField]?._default || ''}" 
+                                onchange="updateDefaultValue('${formField}', this.value)">
                         </div>
                     </div>
-                    <div class="value-mappings-list" id="mappings-\${formField}"></div>
-                    <button class="add-row-btn" onclick="addValueMappingRow('\${formField}')">+ Add Value Mapping</button>
-                \`;
+                    <div class="value-mappings-list" id="mappings-${formField}"></div>
+                    <button class="add-row-btn" onclick="addValueMappingRow('${formField}')">+ Add Value Mapping</button>
+                `;
                 
                 containerDiv.appendChild(valueMappingDiv);
                 container.appendChild(containerDiv);
@@ -253,7 +253,7 @@
         }
         
         function renderValueMappingRows(formField) {
-            const container = document.getElementById(\`mappings-\${formField}\`);
+            const container = document.getElementById(`mappings-${formField}`);
             if (!container) return;
             
             container.innerHTML = '';
@@ -264,21 +264,21 @@
                 
                 const row = document.createElement('div');
                 row.className = 'value-mapping-row';
-                row.innerHTML = \`
-                    <input type="text" value="\${key}" data-old-key="\${key}" 
-                        onchange="updateValueMappingKey('\${formField}', this.dataset.oldKey, this.value)">
-                    <span class="arrow">→</span>
-                    <input type="text" value="\${value}" 
-                        onchange="updateValueMappingValue('\${formField}', '\${key}', this.value)">
-                    <button onclick="deleteValueMappingRow('\${formField}', '\${key}')">×</button>
-                \`;
+                row.innerHTML = `
+                    <input type="text" value="${key}" data-old-key="${key}" 
+                        onchange="updateValueMappingKey('${formField}', this.dataset.oldKey, this.value)">
+                    <span class="arrow">���</span>
+                    <input type="text" value="${value}" 
+                        onchange="updateValueMappingValue('${formField}', '${key}', this.value)">
+                    <button onclick="deleteValueMappingRow('${formField}', '${key}')">+�</button>
+                `;
                 container.appendChild(row);
             });
         }
         
         function toggleValueMapping(formField) {
             expandedValueMappings[formField] = !expandedValueMappings[formField];
-            const element = document.getElementById(\`value-mapping-\${formField}\`);
+            const element = document.getElementById(`value-mapping-${formField}`);
             if (expandedValueMappings[formField]) {
                 element.classList.add('expanded');
             } else {
@@ -292,10 +292,10 @@
             if (checked) {
                 valueMapping[formField]._skip = true;
                 delete valueMapping[formField]._default;
-                document.getElementById(\`default-\${formField}\`).style.display = 'none';
+                document.getElementById(`default-${formField}`).style.display = 'none';
             } else {
                 delete valueMapping[formField]._skip;
-                document.getElementById(\`default-\${formField}\`).style.display = 'block';
+                document.getElementById(`default-${formField}`).style.display = 'block';
             }
         }
         
@@ -382,7 +382,7 @@
                 const chip = document.createElement('div');
                 chip.className = 'draggable-field';
                 chip.textContent = odooField; // Show Odoo field name
-                chip.title = \`Forminator: \${formField}\`; // Tooltip with forminator name
+                chip.title = `Forminator: ${formField}`; // Tooltip with forminator name
                 chip.draggable = true;
                 chip.dataset.field = odooField;
                 chip.dataset.formfield = formField;
@@ -410,10 +410,10 @@
                     fields.forEach(field => {
                         const chip = document.createElement('div');
                         chip.className = 'draggable-step-field';
-                        chip.textContent = \`$\${step.step}.\${field}\`;
-                        chip.title = \`Step \${idx + 1}: \${step.model}\`;
+                        chip.textContent = `$${step.step}.${field}`;
+                        chip.title = `Step ${idx + 1}: ${step.model}`;
                         chip.draggable = true;
-                        chip.dataset.field = \`\${step.step}.\${field}\`;
+                        chip.dataset.field = `${step.step}.${field}`;
                         chip.dataset.stepRef = 'true';
                         chip.dataset.chipType = 'step';
                         chip.addEventListener('dragstart', handleDragStart);
@@ -567,8 +567,8 @@
             
             // Parse value and create chips and text nodes
             // Match both field.xxx and xxx for form fields, and stepname.field for step references
-            const fieldPattern = new RegExp('\\\\\\$\\\\\\{(?:field\\\\.)?([a-zA-Z0-9_]+)\\\\\\}', 'g');
-            const stepPattern = new RegExp('\\\\\\$([a-zA-Z0-9_]+)\\\\.([a-zA-Z0-9_]+)', 'g');
+            const fieldPattern = new RegExp('\\\$\\\{(?:field\\.)?([a-zA-Z0-9_]+)\\\}', 'g');
+            const stepPattern = new RegExp('\\\$([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)', 'g');
             
             // Combine both patterns to find all placeholders in order
             const allMatches = [];
@@ -661,7 +661,7 @@
             
             const remove = document.createElement('span');
             remove.className = 'chip-remove';
-            remove.textContent = '×';
+            remove.textContent = '+�';
             remove.onclick = function(e) {
                 e.stopPropagation();
                 chip.remove();
@@ -696,8 +696,8 @@
                 const text = textNode.textContent;
                 
                 // Match both field patterns and step references
-                const fieldPattern = new RegExp('\\\\\\$\\\\\\{(?:field\\\\.)?([a-zA-Z0-9_]+)\\\\\\}', 'g');
-                const stepPattern = new RegExp('\\\\\\$([a-zA-Z0-9_]+)\\\\.([a-zA-Z0-9_]+)', 'g');
+                const fieldPattern = new RegExp('\\\$\\\{(?:field\\.)?([a-zA-Z0-9_]+)\\\}', 'g');
+                const stepPattern = new RegExp('\\\$([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)', 'g');
                 
                 // Find all matches
                 const allMatches = [];
@@ -929,83 +929,83 @@
                 stepEl.className = 'workflow-step collapsed';
                 stepEl.dataset.index = idx;
                 
-                const resultBadge = step.step ? \`<div class="step-result-badge">📦 $\${step.step}</div>\` : '';
+                const resultBadge = step.step ? `<div class="step-result-badge">���� $${step.step}</div>` : '';
                 
-                stepEl.innerHTML = \`
-                    <div class="workflow-step-header" onclick="toggleStep(\${idx})">
-                        <h4>Step: \${step.step || '(unnamed)'} - Model: \${step.model || '(no model)'}</h4>
-                        \${resultBadge}
+                stepEl.innerHTML = `
+                    <div class="workflow-step-header" onclick="toggleStep(${idx})">
+                        <h4>Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h4>
+                        ${resultBadge}
                         <div class="step-actions" onclick="event.stopPropagation()">
-                            <button class="btn-collapse" onclick="toggleStep(\${idx})">▼</button>
-                            <button class="btn-delete-step" onclick="deleteStep(\${idx})">×</button>
+                            <button class="btn-collapse" onclick="toggleStep(${idx})">��+</button>
+                            <button class="btn-delete-step" onclick="deleteStep(${idx})">+�</button>
                         </div>
                     </div>
                     <div class="step-content">
                         <div class="step-basics">
                             <div>
                                 <label>Step Name:</label>
-                                <input type="text" value="\${step.step || ''}" onchange="updateStepBasic(\${idx}, 'step', this.value)">
+                                <input type="text" value="${step.step || ''}" onchange="updateStepBasic(${idx}, 'step', this.value)">
                             </div>
                             <div>
                                 <label>Odoo Model:</label>
-                                <input type="text" value="\${step.model || ''}" onchange="updateStepBasic(\${idx}, 'model', this.value)">
+                                <input type="text" value="${step.model || ''}" onchange="updateStepBasic(${idx}, 'model', this.value)">
                             </div>
                         </div>
                         
-                        <div class="step-subsection \${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">🔍 Search <span class="subsection-toggle">▼</span></h5>
+                        <div class="step-subsection ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? '' : 'collapsed'}">
+                            <h5 onclick="toggleSubsection(this)">���� Search <span class="subsection-toggle">��+</span></h5>
                             <div class="subsection-content">
                                 <div class="domain-editor">
                                     <label style="display:block; margin-bottom:0.5rem; font-weight:500">Domain Conditions:</label>
-                                    <div id="domain-\${idx}"></div>
-                                    <button class="add-row-btn" onclick="addDomainRow(\${idx})">+ Add Condition</button>
+                                    <div id="domain-${idx}"></div>
+                                    <button class="add-row-btn" onclick="addDomainRow(${idx})">+ Add Condition</button>
                                 </div>
                                 <div class="fields-editor" style="margin-top: 1rem">
                                     <label style="display:block; margin-bottom:0.5rem; font-weight:500">Fields to Retrieve:</label>
-                                    <div class="fields-list" id="fields-\${idx}"></div>
+                                    <div class="fields-list" id="fields-${idx}"></div>
                                     <div class="add-field-input">
-                                        <input type="text" id="new-field-\${idx}" placeholder="field_name">
-                                        <button class="add-row-btn" onclick="addSearchField(\${idx})">+ Add</button>
+                                        <input type="text" id="new-field-${idx}" placeholder="field_name">
+                                        <button class="add-row-btn" onclick="addSearchField(${idx})">+ Add</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         
-                        <div class="step-subsection \${(step.create && Object.keys(step.create).length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">➕ Create <span class="subsection-toggle">▼</span></h5>
+                        <div class="step-subsection ${(step.create && Object.keys(step.create).length > 0) ? '' : 'collapsed'}">
+                            <h5 onclick="toggleSubsection(this)">��� Create <span class="subsection-toggle">��+</span></h5>
                             <div class="subsection-content">
-                                <div id="create-\${idx}"></div>
-                                <button class="add-row-btn" onclick="addCreateValue(\${idx})">+ Add Value</button>
+                                <div id="create-${idx}"></div>
+                                <button class="add-row-btn" onclick="addCreateValue(${idx})">+ Add Value</button>
                             </div>
                         </div>
                         
-                        <div class="step-subsection \${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">✏️ Update <span class="subsection-toggle">▼</span></h5>
+                        <div class="step-subsection ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? '' : 'collapsed'}">
+                            <h5 onclick="toggleSubsection(this)">ԣŴ�� Update <span class="subsection-toggle">��+</span></h5>
                             <div class="subsection-content">
-                                <div id="update-\${idx}"></div>
-                                <button class="add-row-btn" onclick="addUpdateValue(\${idx})">+ Add Value</button>
+                                <div id="update-${idx}"></div>
+                                <button class="add-row-btn" onclick="addUpdateValue(${idx})">+ Add Value</button>
                             </div>
                         </div>
                         
-                        <div class="step-subsection \${step.html_card ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">🎨 HTML Card <span class="subsection-toggle">▼</span></h5>
+                        <div class="step-subsection ${step.html_card ? '' : 'collapsed'}">
+                            <h5 onclick="toggleSubsection(this)">��Ŀ HTML Card <span class="subsection-toggle">��+</span></h5>
                             <div class="subsection-content">
                                 <p style="color: #666; margin-bottom: 1rem; font-size: 0.9rem;">
                                     Build a custom HTML card/form with drag & drop field placeholders
                                 </p>
-                                <button class="btn-primary" onclick="openHtmlCardEditor(\${idx})" style="margin-bottom: 1rem;">
-                                    \${step.html_card ? '✏️ Edit HTML Card' : '➕ Create HTML Card'}
+                                <button class="btn-primary" onclick="openHtmlCardEditor(${idx})" style="margin-bottom: 1rem;">
+                                    ${step.html_card ? 'ԣŴ�� Edit HTML Card' : '��� Create HTML Card'}
                                 </button>
-                                \${step.html_card ? '<div style="padding: 0.75rem; background: #f8f9fa; border-radius: 4px;"><strong>HTML Card configured</strong> - ' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div>' : ''}
+                                ${step.html_card ? '<div style="padding: 0.75rem; background: #f8f9fa; border-radius: 4px;"><strong>HTML Card configured</strong> - ' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div>' : ''}
                             </div>
                         </div>
                     </div>
                     
                     <div class="step-result-section">
                         <h5>Step Result (available in later steps)</h5>
-                        <div class="step-result-chips" id="result-chips-\${idx}"></div>
+                        <div class="step-result-chips" id="result-chips-${idx}"></div>
                     </div>
-                \`;
+                `;
                 container.appendChild(stepEl);
                 
                 renderDomain(idx, step.search?.domain || []);
@@ -1020,7 +1020,7 @@
         }
         
         function toggleStep(idx) {
-            const step = document.querySelector(\`.workflow-step[data-index="\${idx}"]\`);
+            const step = document.querySelector(`.workflow-step[data-index="${idx}"]`);
             step.classList.toggle('collapsed');
         }
         
@@ -1038,19 +1038,19 @@
         
         function updateStepBasic(idx, field, value) {
             workflowSteps[idx][field] = value;
-            const header = document.querySelector(\`.workflow-step[data-index="\${idx}"] h4\`);
-            header.textContent = \`Step: \${workflowSteps[idx].step || '(unnamed)'} - Model: \${workflowSteps[idx].model || '(no model)'}\`;
+            const header = document.querySelector(`.workflow-step[data-index="${idx}"] h4`);
+            header.textContent = `Step: ${workflowSteps[idx].step || '(unnamed)'} - Model: ${workflowSteps[idx].model || '(no model)'}`;
             
             // Update the result badge if step name changed
             if (field === 'step') {
-                const stepEl = document.querySelector(\`.workflow-step[data-index="\${idx}"]\`);
+                const stepEl = document.querySelector(`.workflow-step[data-index="${idx}"]`);
                 const existingBadge = stepEl.querySelector('.step-result-badge');
                 if (existingBadge) {
-                    existingBadge.textContent = value ? \`📦 $\${value}\` : '';
+                    existingBadge.textContent = value ? `���� $${value}` : '';
                 } else if (value) {
                     const badge = document.createElement('div');
                     badge.className = 'step-result-badge';
-                    badge.textContent = \`📦 $\${value}\`;
+                    badge.textContent = `���� $${value}`;
                     const actions = stepEl.querySelector('.step-actions');
                     actions.parentNode.insertBefore(badge, actions);
                 }
@@ -1060,7 +1060,7 @@
         }
         
         function renderStepResultChips(idx, step) {
-            const container = document.getElementById(\`result-chips-\${idx}\`);
+            const container = document.getElementById(`result-chips-${idx}`);
             if (!container) return;
             
             container.innerHTML = '';
@@ -1074,10 +1074,10 @@
             fields.forEach(field => {
                 const chipItem = document.createElement('div');
                 chipItem.className = 'step-result-chip-item';
-                chipItem.innerHTML = \`
-                    <span>$\${step.step}.\${field}</span>
-                    <code>$\${step.step}.\${field}</code>
-                \`;
+                chipItem.innerHTML = `
+                    <span>$${step.step}.${field}</span>
+                    <code>$${step.step}.${field}</code>
+                `;
                 container.appendChild(chipItem);
             });
         }
@@ -1096,13 +1096,13 @@
         // Domain Editor
         function renderDomain(stepIdx, domain) {
             console.log('renderDomain called for step', stepIdx, 'domain:', domain);
-            const container = document.getElementById(\`domain-\${stepIdx}\`);
+            const container = document.getElementById(`domain-${stepIdx}`);
             container.innerHTML = '';
             
             if (domain.length === 0) {
                 const emptyZone = document.createElement('div');
                 emptyZone.className = 'empty-drop-zone';
-                emptyZone.textContent = '🎯 Sleep velden hierheen of klik op "+ Add Condition" hieronder';
+                emptyZone.textContent = '��Ļ Sleep velden hierheen of klik op "+ Add Condition" hieronder';
                 makeEmptyDropZone(emptyZone, 'domain', stepIdx);
                 container.appendChild(emptyZone);
                 return;
@@ -1118,31 +1118,31 @@
                 const val = condition[2] !== undefined ? condition[2] : '';
                 const fieldType = condition[3] || 'text';
                 
-                row.innerHTML = \`
-                    <input type="text" value="\${field}" placeholder="field" 
-                        onchange="updateDomain(\${stepIdx}, \${condIdx}, 0, this.value)">
-                    <select class="field-type" onchange="updateDomainType(\${stepIdx}, \${condIdx}, this.value)">
-                        <option value="text" \${fieldType === 'text' ? 'selected' : ''}>Text</option>
-                        <option value="integer" \${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
-                        <option value="float" \${fieldType === 'float' ? 'selected' : ''}>Float</option>
-                        <option value="boolean" \${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
-                        <option value="datetime" \${fieldType === 'datetime' ? 'selected' : ''}>DateTime</option>
+                row.innerHTML = `
+                    <input type="text" value="${field}" placeholder="field" 
+                        onchange="updateDomain(${stepIdx}, ${condIdx}, 0, this.value)">
+                    <select class="field-type" onchange="updateDomainType(${stepIdx}, ${condIdx}, this.value)">
+                        <option value="text" ${fieldType === 'text' ? 'selected' : ''}>Text</option>
+                        <option value="integer" ${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
+                        <option value="float" ${fieldType === 'float' ? 'selected' : ''}>Float</option>
+                        <option value="boolean" ${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
+                        <option value="datetime" ${fieldType === 'datetime' ? 'selected' : ''}>DateTime</option>
                     </select>
-                    <select onchange="updateDomain(\${stepIdx}, \${condIdx}, 1, this.value)">
-                        <option value="=" \${op === '=' ? 'selected' : ''}>equals (=)</option>
-                        <option value="!=" \${op === '!=' ? 'selected' : ''}>not equals (!=)</option>
-                        <option value=">" \${op === '>' ? 'selected' : ''}>greater (&gt;)</option>
-                        <option value="<" \${op === '<' ? 'selected' : ''}>less (&lt;)</option>
-                        <option value=">=" \${op === '>=' ? 'selected' : ''}>greater or equal (&gt;=)</option>
-                        <option value="<=" \${op === '<=' ? 'selected' : ''}>less or equal (&lt;=)</option>
-                        <option value="like" \${op === 'like' ? 'selected' : ''}>like</option>
-                        <option value="ilike" \${op === 'ilike' ? 'selected' : ''}>ilike</option>
-                        <option value="in" \${op === 'in' ? 'selected' : ''}>in</option>
-                        <option value="not in" \${op === 'not in' ? 'selected' : ''}>not in</option>
+                    <select onchange="updateDomain(${stepIdx}, ${condIdx}, 1, this.value)">
+                        <option value="=" ${op === '=' ? 'selected' : ''}>equals (=)</option>
+                        <option value="!=" ${op === '!=' ? 'selected' : ''}>not equals (!=)</option>
+                        <option value=">" ${op === '>' ? 'selected' : ''}>greater (&gt;)</option>
+                        <option value="<" ${op === '<' ? 'selected' : ''}>less (&lt;)</option>
+                        <option value=">=" ${op === '>=' ? 'selected' : ''}>greater or equal (&gt;=)</option>
+                        <option value="<=" ${op === '<=' ? 'selected' : ''}>less or equal (&lt;=)</option>
+                        <option value="like" ${op === 'like' ? 'selected' : ''}>like</option>
+                        <option value="ilike" ${op === 'ilike' ? 'selected' : ''}>ilike</option>
+                        <option value="in" ${op === 'in' ? 'selected' : ''}>in</option>
+                        <option value="not in" ${op === 'not in' ? 'selected' : ''}>not in</option>
                     </select>
-                    <div id="value-\${stepIdx}-\${condIdx}"></div>
-                    <button onclick="deleteDomain(\${stepIdx}, \${condIdx})">×</button>
-                \`;
+                    <div id="value-${stepIdx}-${condIdx}"></div>
+                    <button onclick="deleteDomain(${stepIdx}, ${condIdx})">+�</button>
+                `;
                 container.appendChild(row);
                 
                 // Render the value input based on field type
@@ -1151,7 +1151,7 @@
         }
         
         function renderDomainValue(stepIdx, condIdx, value, fieldType) {
-            const container = document.getElementById(\`value-\${stepIdx}-\${condIdx}\`);
+            const container = document.getElementById(`value-${stepIdx}-${condIdx}`);
             if (!container) return;
             
             container.innerHTML = '';
@@ -1276,13 +1276,13 @@
         
         // Search Fields
         function renderSearchFields(stepIdx, fields) {
-            const container = document.getElementById(\`fields-\${stepIdx}\`);
+            const container = document.getElementById(`fields-${stepIdx}`);
             container.innerHTML = '';
             
             if (fields.length === 0) {
                 const emptyZone = document.createElement('div');
                 emptyZone.className = 'empty-drop-zone';
-                emptyZone.textContent = '📌 Sleep velden hierheen of voeg ze hieronder toe';
+                emptyZone.textContent = '���� Sleep velden hierheen of voeg ze hieronder toe';
                 makeEmptyDropZone(emptyZone, 'fields', stepIdx);
                 container.appendChild(emptyZone);
                 return;
@@ -1291,13 +1291,13 @@
             fields.forEach((field, fieldIdx) => {
                 const tag = document.createElement('div');
                 tag.className = 'field-tag';
-                tag.innerHTML = \`\${field} <button onclick="deleteSearchField(\${stepIdx}, \${fieldIdx})">×</button>\`;
+                tag.innerHTML = `${field} <button onclick="deleteSearchField(${stepIdx}, ${fieldIdx})">+�</button>`;
                 container.appendChild(tag);
             });
         }
         
         function addSearchField(stepIdx) {
-            const input = document.getElementById(\`new-field-\${stepIdx}\`);
+            const input = document.getElementById(`new-field-${stepIdx}`);
             const value = input.value.trim();
             if (!value) return;
             
@@ -1320,13 +1320,13 @@
         // Create Values
         function renderCreateValues(stepIdx, values) {
             console.log('=== renderCreateValues ===', 'stepIdx:', stepIdx, 'values:', values);
-            const container = document.getElementById(\`create-\${stepIdx}\`);
+            const container = document.getElementById(`create-${stepIdx}`);
             container.innerHTML = '';
             
             if (Object.keys(values).length === 0) {
                 const emptyZone = document.createElement('div');
                 emptyZone.className = 'empty-drop-zone';
-                emptyZone.textContent = '➕ Sleep velden hierheen of klik op "+ Add Value" hieronder';
+                emptyZone.textContent = '��� Sleep velden hierheen of klik op "+ Add Value" hieronder';
                 makeEmptyDropZone(emptyZone, 'create', stepIdx);
                 container.appendChild(emptyZone);
                 return;
@@ -1344,23 +1344,23 @@
                 
                 console.log('Creating value row:', key, '=', displayValue, 'type:', fieldType);
                 
-                row.innerHTML = \`
-                    <input type="text" value="\${key}" placeholder="field" data-old-key="\${key}" 
-                        onchange="updateCreateValue(\${stepIdx}, this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
+                row.innerHTML = `
+                    <input type="text" value="${key}" placeholder="field" data-old-key="${key}" 
+                        onchange="updateCreateValue(${stepIdx}, this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
                     <span>=</span>
-                    \${useTextarea 
-                        ? \`<textarea onchange="updateCreateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
-                        : \`<input type="text" value="\${displayValue}" placeholder="value" onchange="updateCreateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\`
+                    ${useTextarea 
+                        ? `<textarea onchange="updateCreateValue(${stepIdx}, '${key}', '${key}', this.value)">${displayValue}</textarea>`
+                        : `<input type="text" value="${displayValue}" placeholder="value" onchange="updateCreateValue(${stepIdx}, '${key}', '${key}', this.value)">`
                     }
-                    <select class="field-type-selector" onchange="updateCreateFieldType(\${stepIdx}, '\${key}', this.value)" title="Data type">
-                        <option value="auto" \${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
-                        <option value="string" \${fieldType === 'string' ? 'selected' : ''}>String</option>
-                        <option value="integer" \${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
-                        <option value="float" \${fieldType === 'float' ? 'selected' : ''}>Float</option>
-                        <option value="boolean" \${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
+                    <select class="field-type-selector" onchange="updateCreateFieldType(${stepIdx}, '${key}', this.value)" title="Data type">
+                        <option value="auto" ${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
+                        <option value="string" ${fieldType === 'string' ? 'selected' : ''}>String</option>
+                        <option value="integer" ${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
+                        <option value="float" ${fieldType === 'float' ? 'selected' : ''}>Float</option>
+                        <option value="boolean" ${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
                     </select>
-                    <button onclick="deleteCreateValue(\${stepIdx}, '\${key}')">×</button>
-                \`;
+                    <button onclick="deleteCreateValue(${stepIdx}, '${key}')">+�</button>
+                `;
                 container.appendChild(row);
             });
             
@@ -1414,7 +1414,7 @@
             console.log('renderUpdateValues called for step', stepIdx, 'updateObj:', updateObj);
             console.log('updateObj type:', typeof updateObj, 'is array?', Array.isArray(updateObj));
             console.log('updateObj.fields:', updateObj?.fields);
-            const container = document.getElementById(\`update-\${stepIdx}\`);
+            const container = document.getElementById(`update-${stepIdx}`);
             if (!container) {
                 console.error('Update container not found for step', stepIdx);
                 return;
@@ -1424,7 +1424,7 @@
             // Get search fields as options
             const searchFields = workflowSteps[stepIdx].search?.fields || [];
             const searchFieldOptions = searchFields.length > 0 
-                ? searchFields.map(f => \`<option value="\${f}">\${f}</option>\`).join('')
+                ? searchFields.map(f => `<option value="${f}">${f}</option>`).join('')
                 : '';
             
             const values = updateObj.fields || updateObj;
@@ -1435,7 +1435,7 @@
                 console.log('Rendering empty drop zone for update');
                 const emptyZone = document.createElement('div');
                 emptyZone.className = 'empty-drop-zone';
-                emptyZone.textContent = '✏️ Sleep velden hierheen of klik op "+ Add Value" hieronder';
+                emptyZone.textContent = 'ԣŴ�� Sleep velden hierheen of klik op "+ Add Value" hieronder';
                 makeEmptyDropZone(emptyZone, 'update', stepIdx);
                 container.appendChild(emptyZone);
                 return;
@@ -1453,26 +1453,26 @@
                 const useTextarea = displayValue.length > 40;
                 const fieldType = fieldTypes[key] || 'auto';
                 
-                row.innerHTML = \`
-                    <select onchange="updateUpdateValueKey(\${stepIdx}, '\${key}', this.value)" style="flex: 1;">
+                row.innerHTML = `
+                    <select onchange="updateUpdateValueKey(${stepIdx}, '${key}', this.value)" style="flex: 1;">
                         <option value="">-- Select field --</option>
-                        \${searchFieldOptions}
-                        <option value="\${key}" \${!searchFields.includes(key) && key ? 'selected' : ''}>\${key || '(custom)'}</option>
+                        ${searchFieldOptions}
+                        <option value="${key}" ${!searchFields.includes(key) && key ? 'selected' : ''}>${key || '(custom)'}</option>
                     </select>
                     <span>=</span>
-                    \${useTextarea 
-                        ? \`<textarea onchange="updateUpdateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\${displayValue}</textarea>\`
-                        : \`<input type="text" value="\${displayValue}" placeholder="value" onchange="updateUpdateValue(\${stepIdx}, '\${key}', '\${key}', this.value)">\`
+                    ${useTextarea 
+                        ? `<textarea onchange="updateUpdateValue(${stepIdx}, '${key}', '${key}', this.value)">${displayValue}</textarea>`
+                        : `<input type="text" value="${displayValue}" placeholder="value" onchange="updateUpdateValue(${stepIdx}, '${key}', '${key}', this.value)">`
                     }
-                    <select class="field-type-selector" onchange="updateUpdateFieldType(\${stepIdx}, '\${key}', this.value)" title="Data type">
-                        <option value="auto" \${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
-                        <option value="string" \${fieldType === 'string' ? 'selected' : ''}>String</option>
-                        <option value="integer" \${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
-                        <option value="float" \${fieldType === 'float' ? 'selected' : ''}>Float</option>
-                        <option value="boolean" \${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
+                    <select class="field-type-selector" onchange="updateUpdateFieldType(${stepIdx}, '${key}', this.value)" title="Data type">
+                        <option value="auto" ${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
+                        <option value="string" ${fieldType === 'string' ? 'selected' : ''}>String</option>
+                        <option value="integer" ${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
+                        <option value="float" ${fieldType === 'float' ? 'selected' : ''}>Float</option>
+                        <option value="boolean" ${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
                     </select>
-                    <button onclick="deleteUpdateValue(\${stepIdx}, '\${key}')">×</button>
-                \`;
+                    <button onclick="deleteUpdateValue(${stepIdx}, '${key}')">+�</button>
+                `;
                 container.appendChild(row);
                 
                 // Set correct selection
@@ -1613,7 +1613,7 @@
             console.log('Original workflowSteps:', JSON.stringify(workflowSteps, null, 2));
             
             try {
-                await apiCall(\`/api/mappings/\${currentFormId}\`, {
+                await apiCall(`/api/mappings/${currentFormId}`, {
                     method: 'POST',
                     body: JSON.stringify(data)
                 });
@@ -1631,15 +1631,15 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = \`form_\${currentFormId}.json\`;
+            a.download = `form_${currentFormId}.json`;
             a.click();
         }
         
         async function deleteForm() {
-            if (!confirm(\`Delete form \${currentFormId}?\`)) return;
+            if (!confirm(`Delete form ${currentFormId}?`)) return;
             
             try {
-                await apiCall(\`/api/mappings/\${currentFormId}\`, { method: 'DELETE' });
+                await apiCall(`/api/mappings/${currentFormId}`, { method: 'DELETE' });
                 delete mappings[currentFormId];
                 showAlert('Form deleted', 'success');
                 loadForms();
@@ -1658,14 +1658,14 @@
             }
             
             mappings[currentFormId].name = newName;
-            document.getElementById('editorTitle').textContent = \`Edit: \${newName || currentFormId}\`;
+            document.getElementById('editorTitle').textContent = `Edit: ${newName || currentFormId}`;
             
             // Update list item text directly without reloading from server
             const list = document.getElementById('formList');
             const activeItem = list.querySelector('.active');
             if (activeItem) {
                 activeItem.textContent = newName || currentFormId;
-                activeItem.title = \`ID: \${currentFormId}\`;
+                activeItem.title = `ID: ${currentFormId}`;
             }
         }
         
@@ -1699,7 +1699,7 @@
             
             // Load in editor
             loadForm(formId);
-            showAlert(\`Created new form: \${formName || formId}\`, 'success');
+            showAlert(`Created new form: ${formName || formId}`, 'success');
         }
         
         // HTML Card Editor Functions
@@ -1744,7 +1744,7 @@
                 div.dataset.type = 'field';
                 div.dataset.field = formField;
                 div.dataset.odooField = odooField;
-                div.innerHTML = \`<span>📝</span> \${odooField || formField}\`;
+                div.innerHTML = `<span>����</span> ${odooField || formField}`;
                 container.appendChild(div);
             });
             
@@ -1757,8 +1757,8 @@
                         div.className = 'html-card-draggable';
                         div.draggable = true;
                         div.dataset.type = 'step-field';
-                        div.dataset.field = \`\${step.step}.\${field}\`;
-                        div.innerHTML = \`<span>📦</span> \${step.step}.\${field}\`;
+                        div.dataset.field = `${step.step}.${field}`;
+                        div.innerHTML = `<span>����</span> ${step.step}.${field}`;
                         container.appendChild(div);
                     });
                 }
@@ -1949,7 +1949,7 @@
                 // Create controls
                 const controls = document.createElement('div');
                 controls.className = 'html-card-element-controls';
-                controls.innerHTML = '<button data-path=\\'' + pathJson + '\\' onclick="removeHtmlCardElementByPathJson(this.getAttribute(\\'data-path\\'))" title="Remove">×</button>';
+                controls.innerHTML = '<button data-path="' + pathJson + '" onclick="removeHtmlCardElementByPathJson(this.getAttribute(\'data-path\'))" title="Remove">×</button>';
                 div.appendChild(controls);
                 
                 // Create content
@@ -1977,7 +1977,7 @@
                     if (element.children.length === 0) {
                         const emptyState = document.createElement('div');
                         emptyState.style.cssText = 'padding: 1rem; background: #f0f4ff; border: 2px dashed #667eea; border-radius: 4px; text-align: center; min-height: 80px; display: flex; align-items: center; justify-content: center;';
-                        emptyState.innerHTML = '<small style="color: #667eea; font-weight: 500;">📦 Sleep elementen hierheen</small>';
+                        emptyState.innerHTML = '<small style="color: #667eea; font-weight: 500;">���� Sleep elementen hierheen</small>';
                         childrenContainer.appendChild(emptyState);
                     }
                     
@@ -2025,57 +2025,57 @@
             
             if (element.type === 'heading') {
                 const pathJson = JSON.stringify(path);
-                return \`
-                    <input type="text" value="\${element.text}" data-path='\${pathJson}' 
+                return `
+                    <input type="text" value="${element.text}" data-path='${pathJson}' 
                         oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, true)" 
                         onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, false)" 
                         style="width: 100%; font-size: 1.2rem; font-weight: bold; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px;">
-                    <select data-path='\${pathJson}' onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'level', this.value, false)" style="margin-top: 0.5rem; padding: 0.3rem;">
-                        <option value="h1" \${element.level === 'h1' ? 'selected' : ''}>H1</option>
-                        <option value="h2" \${element.level === 'h2' ? 'selected' : ''}>H2</option>
-                        <option value="h3" \${element.level === 'h3' ? 'selected' : ''}>H3</option>
+                    <select data-path='${pathJson}' onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'level', this.value, false)" style="margin-top: 0.5rem; padding: 0.3rem;">
+                        <option value="h1" ${element.level === 'h1' ? 'selected' : ''}>H1</option>
+                        <option value="h2" ${element.level === 'h2' ? 'selected' : ''}>H2</option>
+                        <option value="h3" ${element.level === 'h3' ? 'selected' : ''}>H3</option>
                     </select>
-                \`;
+                `;
             } else if (element.type === 'text') {
                 const pathJson = JSON.stringify(path);
-                return \`
-                    <textarea data-path='\${pathJson}' 
+                return `
+                    <textarea data-path='${pathJson}' 
                         oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, true)" 
                         onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, false)" 
-                        style="width: 100%; min-height: 60px; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px; font-family: inherit;">\${element.text}</textarea>
-                \`;
+                        style="width: 100%; min-height: 60px; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px; font-family: inherit;">${element.text}</textarea>
+                `;
             } else if (element.type === 'divider') {
                 return '<hr style="border: none; border-top: 2px solid #ddd; margin: 0.5rem 0;">';
             } else if (element.type === 'container') {
                 const pathJson = JSON.stringify(path);
-                return \`
+                return `
                     <div style="margin-bottom: 0.5rem;">
-                        <input type="text" value="\${element.title}" data-path='\${pathJson}' 
+                        <input type="text" value="${element.title}" data-path='${pathJson}' 
                             oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'title', this.value, true)" 
                             onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'title', this.value, false)" 
                             style="width: 100%; font-weight: 600; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px;">
                     </div>
-                    <select data-path='\${pathJson}' onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'layout', this.value, false)" style="padding: 0.3rem; width: 100%;">
-                        <option value="vertical" \${element.layout === 'vertical' ? 'selected' : ''}>Vertical</option>
-                        <option value="horizontal" \${element.layout === 'horizontal' ? 'selected' : ''}>Horizontal</option>
-                        <option value="grid" \${element.layout === 'grid' ? 'selected' : ''}>Grid (2 columns)</option>
+                    <select data-path='${pathJson}' onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'layout', this.value, false)" style="padding: 0.3rem; width: 100%;">
+                        <option value="vertical" ${element.layout === 'vertical' ? 'selected' : ''}>Vertical</option>
+                        <option value="horizontal" ${element.layout === 'horizontal' ? 'selected' : ''}>Horizontal</option>
+                        <option value="grid" ${element.layout === 'grid' ? 'selected' : ''}>Grid (2 columns)</option>
                     </select>
-                \`;
+                `;
             } else if (element.type === 'field' || element.type === 'step-field') {
                 const labelValue = escapeHtml(element.label || element.odooField || element.field);
                 const pathJson = JSON.stringify(path);
-                return \`
+                return `
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <input type="text" value="\${labelValue}" 
-                            data-path='\${pathJson}'
+                        <input type="text" value="${labelValue}" 
+                            data-path='${pathJson}'
                             oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'label', this.value, true)" 
                             onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'label', this.value, false)" 
                             placeholder="Label" style="flex: 1; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px;">
-                        <span class="\${element.type === 'step-field' ? 'step-chip' : 'field-chip'}" style="flex-shrink: 0;">
-                            \${element.odooField || element.field}
+                        <span class="${element.type === 'step-field' ? 'step-chip' : 'field-chip'}" style="flex-shrink: 0;">
+                            ${element.odooField || element.field}
                         </span>
                     </div>
-                \`;
+                `;
             }
             return '';
         }
@@ -2204,22 +2204,22 @@
             let html = '';
             elements.forEach(element => {
                 if (element.type === 'heading') {
-                    html += \`<\${element.level}>\${element.text}</\${element.level}>\`;
+                    html += `<${element.level}>${element.text}</${element.level}>`;
                 } else if (element.type === 'text') {
-                    html += \`<p>\${element.text}</p>\`;
+                    html += `<p>${element.text}</p>`;
                 } else if (element.type === 'divider') {
                     html += '<hr>';
                 } else if (element.type === 'container') {
                     const layoutClass = element.layout === 'horizontal' ? 'flex-row' : element.layout === 'grid' ? 'grid-2col' : 'flex-col';
-                    html += \`<div class="container \${layoutClass}"><h4>\${element.title}</h4>\`;
+                    html += `<div class="container ${layoutClass}"><h4>${element.title}</h4>`;
                     if (element.children && element.children.length > 0) {
-                        html += \`<div class="container-content">\${generateHtmlFromElements(element.children)}</div>\`;
+                        html += `<div class="container-content">${generateHtmlFromElements(element.children)}</div>`;
                     }
                     html += '</div>';
                 } else if (element.type === 'field') {
-                    html += \`<div class="field"><label>\${element.label}:</label> <span>\\\${field.\${element.field}}</span></div>\`;
+                    html += `<div class="field"><label>${element.label}:</label> <span>\${field.${element.field}}</span></div>`;
                 } else if (element.type === 'step-field') {
-                    html += \`<div class="field"><label>\${element.label}:</label> <span>\\\$\${element.field}</span></div>\`;
+                    html += `<div class="field"><label>${element.label}:</label> <span>\$${element.field}</span></div>`;
                 }
             });
             return html;
@@ -2227,7 +2227,7 @@
         
         function showAlert(message, type) {
             const alert = document.createElement('div');
-            alert.className = \`alert \${type}\`;
+            alert.className = `alert ${type}`;
             alert.textContent = message;
             document.body.appendChild(alert);
             setTimeout(() => alert.remove(), 3000);
