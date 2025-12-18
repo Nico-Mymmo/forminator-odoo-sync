@@ -1,120 +1,100 @@
 // Enhanced admin interface with integrated value mapping and tabs
 export const adminHTML = `<!DOCTYPE html>
-<html lang="nl" data-theme="light">
+<html lang="nl" data-theme="cupcake">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forminator Mapping Admin v1.1</title>
+    <title>Forminator Mapping Admin</title>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <link rel="stylesheet" href="/tailwind.min.css">
     <link rel="stylesheet" href="/admin.css">
-    <style>
-        /* Override admin.css for main layout only */
-        body { background: inherit !important; font-family: inherit !important; }
-        .admin-interface { display: flex !important; }
-        .header { all: unset; display: flex !important; }
-        .sidebar { all: unset; width: 16rem; background: white; }
-        .form-list { all: unset; list-style: none; }
-        .form-list li { padding: 0.5rem 0.75rem !important; border-radius: 0.375rem; font-size: 0.875rem; cursor: pointer; }
-        .form-list li:hover { background: #f3f4f6 !important; }
-        .form-list li.active { background: #6366f1 !important; color: white !important; font-weight: 500; }
-        .section { background: white; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; }
-        .section h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
-        input[type="text"], input[type="password"], input[type="number"], textarea, select { 
-            font-size: 0.875rem !important; 
-            padding: 0.5rem !important;
-            border: 1px solid #d1d5db !important;
-            border-radius: 0.375rem !important;
-        }
-        input[type="text"]:focus, textarea:focus, select:focus {
-            outline: 2px solid #6366f1 !important;
-            outline-offset: 2px;
-            border-color: #6366f1 !important;
-        }
-        button { font-size: 0.875rem !important; padding: 0.5rem 1rem !important; }
-        .actions button { padding: 0.625rem 1.25rem !important; }
-    </style>
 </head>
 <body class="bg-base-200">
-    <div id="loginScreen" class="login-screen flex items-center justify-center min-h-screen" style="display: flex;">
-        <div class="login-box card w-96 bg-base-100 shadow-xl">
+    <!-- Login Screen -->
+    <div id="loginScreen" class="flex items-center justify-center min-h-screen" style="display: flex;">
+        <div class="card w-96 bg-base-100 shadow-xl">
             <div class="card-body">
-                <h1 class="card-title text-2xl justify-center mb-4">🔐 Admin Login</h1>
-                <input type="password" id="tokenInput" placeholder="Enter admin token" class="input input-bordered w-full">
-                <button onclick="login()" class="btn btn-primary w-full mt-4">Login</button>
+                <h2 class="card-title text-2xl justify-center">🔐 Admin Login</h2>
+                <div class="form-control">
+                    <input type="password" id="tokenInput" placeholder="Enter admin token" class="input input-bordered">
+                </div>
+                <button onclick="login()" class="btn btn-primary">Login</button>
             </div>
         </div>
     </div>
     
-    <div id="adminInterface" class="admin-interface flex flex-col h-screen" style="display: none;">
-        <div class="header navbar bg-base-100 shadow-sm px-6 min-h-14">
+    <!-- Admin Interface -->
+    <div id="adminInterface" class="flex flex-col h-screen" style="display: none;">
+        <!-- Navbar -->
+        <div class="navbar bg-base-100 shadow-sm">
             <div class="flex-1">
-                <h1 class="text-lg font-semibold">Forminator Mapping Admin</h1>
+                <span class="text-xl font-bold">Forminator Mapping Admin</span>
             </div>
             <div class="flex-none">
                 <button onclick="logout()" class="btn btn-error btn-sm">Logout</button>
             </div>
         </div>
-        <div class="main-content flex flex-1 overflow-hidden">
-            <div class="sidebar w-64 bg-base-100 border-r border-base-300 overflow-y-auto">
+        
+        <!-- Main Content -->
+        <div class="flex flex-1 overflow-hidden">
+            <!-- Sidebar -->
+            <aside class="w-64 bg-base-100 border-r border-base-300 overflow-y-auto">
                 <div class="p-4">
-                    <h2 class="text-sm font-medium text-base-content/70 mb-3 uppercase tracking-wide">Forms</h2>
-                    <button class="add-field-btn btn btn-primary btn-sm w-full mb-3" onclick="createNewForm()">+ New Form</button>
-                    <ul id="formList" class="form-list menu menu-sm bg-base-100 w-full p-0 gap-1"></ul>
+                    <h2 class="text-xs font-bold text-base-content/60 mb-2 uppercase">Forms</h2>
+                    <button class="btn btn-primary btn-sm w-full mb-3" onclick="createNewForm()">+ New Form</button>
+                    <ul id="formList" class="menu bg-base-100 w-full p-0"></ul>
                 </div>
-            </div>
-            <div class="editor flex-1 overflow-y-auto p-8 pr-56">
-                <h2 id="editorTitle" class="text-xl font-semibold mb-6 text-base-content">Select a form</h2>
+            </aside>
+            
+            <!-- Editor Content -->
+            <main class="flex-1 overflow-y-auto p-6">
+                <h2 id="editorTitle" class="text-2xl font-bold mb-4">Select a form</h2>
                 <div id="editorContent"></div>
-            </div>
-            <div class="field-palette fixed right-0 top-14 w-52 h-[calc(100vh-3.5rem)] bg-base-100 border-l border-base-300 overflow-y-auto p-4">
-                <h3 class="text-xs font-semibold text-primary mb-3 uppercase tracking-wide">📋 Available Fields</h3>
-                <div id="fieldPaletteContent" class="field-palette-content flex flex-col gap-2"></div>
-            </div>
+            </main>
+            
+            <!-- Field Palette -->
+            <aside class="w-64 bg-base-100 border-l border-base-300 overflow-y-auto p-4">
+                <h3 class="text-xs font-bold text-primary mb-3 uppercase">📋 Available Fields</h3>
+                <div id="fieldPaletteContent" class="flex flex-col gap-2"></div>
+            </aside>
         </div>
     </div>
     
     <!-- HTML Card Editor Modal -->
-    <div id="htmlCardModal" class="html-card-modal">
-        <div class="html-card-modal-content">
-            <div class="html-card-modal-header">
-                <h3>🎨 HTML Card Editor</h3>
-                <button onclick="closeHtmlCardEditor()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">×</button>
-            </div>
-            <div class="html-card-modal-body">
-                <div class="html-card-editor-sidebar">
-                    <div class="html-card-element-group">
-                        <h4>📝 Form Fields</h4>
-                        <div id="htmlCardFields"></div>
+    <dialog id="htmlCardModal" class="modal">
+        <div class="modal-box w-11/12 max-w-5xl">
+            <h3 class="font-bold text-lg mb-4">🎨 HTML Card Editor</h3>
+            <div class="flex gap-4 h-96">
+                <div class="w-1/3 border-r border-base-300 pr-4 overflow-y-auto">
+                    <div class="mb-4">
+                        <h4 class="font-semibold mb-2">📝 Form Fields</h4>
+                        <div id="htmlCardFields" class="flex flex-col gap-1"></div>
                     </div>
-                    <div class="html-card-element-group">
-                        <h4>📦 Layout Elements</h4>
-                        <div class="html-card-draggable" draggable="true" data-type="heading">
-                            <span>📄</span> Heading
-                        </div>
-                        <div class="html-card-draggable" draggable="true" data-type="text">
-                            <span>📝</span> Text Block
-                        </div>
-                        <div class="html-card-draggable" draggable="true" data-type="divider">
-                            <span>➖</span> Divider
-                        </div>
-                        <div class="html-card-draggable" draggable="true" data-type="container">
-                            <span>📦</span> Container
+                    <div>
+                        <h4 class="font-semibold mb-2">📦 Layout Elements</h4>
+                        <div class="flex flex-col gap-1">
+                            <div class="badge badge-lg cursor-grab" draggable="true" data-type="heading">📄 Heading</div>
+                            <div class="badge badge-lg cursor-grab" draggable="true" data-type="text">📝 Text Block</div>
+                            <div class="badge badge-lg cursor-grab" draggable="true" data-type="divider">➖ Divider</div>
+                            <div class="badge badge-lg cursor-grab" draggable="true" data-type="container">📦 Container</div>
                         </div>
                     </div>
                 </div>
-                <div class="html-card-editor-canvas">
-                    <div id="htmlCardCanvas" class="html-card-canvas-area">
-                        <p style="color: #999; text-align: center; margin-top: 2rem;">Drag elements here to build your HTML card</p>
+                <div class="flex-1">
+                    <div id="htmlCardCanvas" class="h-full border-2 border-dashed border-base-300 rounded p-4 overflow-y-auto">
+                        <p class="text-base-content/50 text-center mt-8">Drag elements here to build your HTML card</p>
                     </div>
                 </div>
             </div>
-            <div class="html-card-modal-footer">
-                <button class="btn-secondary" onclick="closeHtmlCardEditor()">Cancel</button>
-                <button class="btn-primary" onclick="saveHtmlCard()">Save HTML Card</button>
+            <div class="modal-action">
+                <button class="btn" onclick="closeHtmlCardEditor()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveHtmlCard()">Save HTML Card</button>
             </div>
         </div>
-    </div>
+        <form method="dialog" class="modal-backdrop">
+            <button onclick="closeHtmlCardEditor()">close</button>
+        </form>
+    </dialog>
     
     <script src="/admin.js"></script>
 </body>

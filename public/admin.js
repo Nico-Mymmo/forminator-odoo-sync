@@ -137,44 +137,55 @@
             const escapedFormId = escapeHtml(formId);
             document.getElementById('editorTitle').textContent = `Edit: ${formName}`;
             document.getElementById('editorContent').innerHTML = `
-                <div class="section" style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
-                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px;">
-                        <div>
-                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Form Name</label>
-                            <input type="text" id="formName" value="${escapedFormName}" placeholder="Enter a display name" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" onchange="updateFormName()">
-                        </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Forminator Form ID</label>
-                            <input type="text" id="formId" value="${escapedFormId}" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; color: #666;" title="Form ID cannot be changed">
+                <!-- Form Details Card -->
+                <div class="card bg-base-100 shadow-sm mb-4">
+                    <div class="card-body">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="form-control">
+                                <label class="label"><span class="label-text font-semibold">Form Name</span></label>
+                                <input type="text" id="formName" value="${escapedFormName}" placeholder="Enter a display name" class="input input-bordered" onchange="updateFormName()">
+                            </div>
+                            <div class="form-control">
+                                <label class="label"><span class="label-text font-semibold">Forminator Form ID</span></label>
+                                <input type="text" id="formId" value="${escapedFormId}" readonly class="input input-bordered input-disabled" title="Form ID cannot be changed">
+                            </div>
                         </div>
                     </div>
                 </div>
                 
-                <div role="tablist" class="tabs tabs-bordered mb-6">
+                <!-- Tabs -->
+                <div role="tablist" class="tabs tabs-lifted mb-4">
                     <button role="tab" class="tab tab-active" onclick="switchTab('mapping')">Field & Value Mapping</button>
                     <button role="tab" class="tab" onclick="switchTab('workflow')">Workflow Steps</button>
                 </div>
                 
+                <!-- Tab Content: Mapping -->
                 <div id="tab-mapping" class="tab-content active">
-                    <div class="section">
-                        <h3>Field Mapping & Value Mapping</h3>
-                        <div id="fieldMapping" class="field-mapping"></div>
-                        <button class="add-field-btn" onclick="addFieldRow()">+ Add Field</button>
+                    <div class="card bg-base-100 shadow-sm">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg mb-3">Field Mapping & Value Mapping</h3>
+                            <div id="fieldMapping" class="space-y-2"></div>
+                            <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
+                        </div>
                     </div>
                 </div>
                 
+                <!-- Tab Content: Workflow -->
                 <div id="tab-workflow" class="tab-content">
-                    <div class="section">
-                        <h3>Workflow Steps</h3>
-                        <div id="workflowSteps"></div>
-                        <button class="btn-success add-field-btn" onclick="addWorkflowStep()">+ Add Workflow Step</button>
+                    <div class="card bg-base-100 shadow-sm">
+                        <div class="card-body">
+                            <h3 class="card-title text-lg mb-3">Workflow Steps</h3>
+                            <div id="workflowSteps"></div>
+                            <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
+                        </div>
                     </div>
                 </div>
                 
-                <div class="actions">
-                    <button class="btn-primary" onclick="saveForm()">Save Changes</button>
-                    <button class="btn-secondary" onclick="exportForm()">Export JSON</button>
-                    <button class="btn-danger" onclick="deleteForm()">Delete Form</button>
+                <!-- Actions -->
+                <div class="flex gap-2 mt-4">
+                    <button class="btn btn-primary" onclick="saveForm()">Save Changes</button>
+                    <button class="btn btn-outline" onclick="exportForm()">Export JSON</button>
+                    <button class="btn btn-error btn-outline" onclick="deleteForm()">Delete Form</button>
                 </div>
             `;
             
@@ -199,43 +210,42 @@
             
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const containerDiv = document.createElement('div');
-                containerDiv.className = 'field-row-container';
+                containerDiv.className = 'collapse collapse-arrow bg-base-200 mb-2';
                 containerDiv.dataset.field = formField;
                 
                 const rowDiv = document.createElement('div');
-                rowDiv.className = 'field-row';
+                rowDiv.className = 'flex gap-2 items-center p-3';
                 rowDiv.innerHTML = `
-                    <input type="text" value="${formField}" data-type="key" onchange="updateFieldKey('${formField}', this.value)">
-                    <input type="text" value="${odooField}" data-type="value" onchange="updateFieldValue('${formField}', this.value)">
-                    <button class="btn-value-mapping" onclick="toggleValueMapping('${formField}')">⚙️ Values</button>
-                    <button class="btn-delete" onclick="deleteField('${formField}')">×</button>
+                    <input type="text" value="${formField}" data-type="key" class="input input-bordered input-sm flex-1" onchange="updateFieldKey('${formField}', this.value)">
+                    <span class="text-base-content/50">→</span>
+                    <input type="text" value="${odooField}" data-type="value" class="input input-bordered input-sm flex-1" onchange="updateFieldValue('${formField}', this.value)">
+                    <button class="btn btn-sm btn-primary" onclick="toggleValueMapping('${formField}')">⚙️</button>
+                    <button class="btn btn-sm btn-error btn-circle" onclick="deleteField('${formField}')">×</button>
                 `;
                 
                 containerDiv.appendChild(rowDiv);
                 
                 // Add inline value mapping section
                 const valueMappingDiv = document.createElement('div');
-                valueMappingDiv.className = 'value-mapping-inline';
+                valueMappingDiv.className = 'collapse-content bg-base-100 p-3';
                 valueMappingDiv.id = `value-mapping-${formField}`;
-                if (expandedValueMappings[formField]) {
-                    valueMappingDiv.classList.add('expanded');
-                }
+                valueMappingDiv.style.display = expandedValueMappings[formField] ? 'block' : 'none';
                 valueMappingDiv.innerHTML = `
-                    <h5>Value Mapping for "${formField}"</h5>
-                    <div class="value-mapping-controls">
-                        <label>
-                            <input type="checkbox" onchange="toggleSkip('${formField}', this.checked)" 
+                    <div class="divider text-sm">Value Mapping for "${formField}"</div>
+                    <div class="form-control mb-3">
+                        <label class="label cursor-pointer justify-start gap-2">
+                            <input type="checkbox" class="checkbox checkbox-sm" onchange="toggleSkip('${formField}', this.checked)" 
                                 ${valueMapping[formField]?._skip ? 'checked' : ''}>
-                            Skip unmapped values
+                            <span class="label-text">Skip unmapped values</span>
                         </label>
-                        <div class="default-value-container" id="default-${formField}" style="display:${valueMapping[formField]?._skip ? 'none' : 'block'}">
-                            <label>Default value for unmapped values:</label>
-                            <input type="text" value="${valueMapping[formField]?._default || ''}" 
+                        <div class="ml-6 mt-2" id="default-${formField}" style="display:${valueMapping[formField]?._skip ? 'none' : 'block'}">
+                            <label class="label"><span class="label-text text-xs">Default value for unmapped:</span></label>
+                            <input type="text" value="${valueMapping[formField]?._default || ''}" class="input input-bordered input-sm w-full" 
                                 onchange="updateDefaultValue('${formField}', this.value)">
                         </div>
                     </div>
-                    <div class="value-mappings-list" id="mappings-${formField}"></div>
-                    <button class="add-row-btn" onclick="addValueMappingRow('${formField}')">+ Add Value Mapping</button>
+                    <div id="mappings-${formField}" class="space-y-1"></div>
+                    <button class="btn btn-sm btn-outline mt-2" onclick="addValueMappingRow('${formField}')">+ Add Value Mapping</button>
                 `;
                 
                 containerDiv.appendChild(valueMappingDiv);
@@ -264,14 +274,14 @@
                 if (key.startsWith('_')) return; // Skip _skip, _default, _comment
                 
                 const row = document.createElement('div');
-                row.className = 'value-mapping-row';
+                row.className = 'flex gap-2 items-center';
                 row.innerHTML = `
-                    <input type="text" value="${key}" data-old-key="${key}" 
+                    <input type="text" value="${key}" data-old-key="${key}" class="input input-bordered input-sm flex-1"
                         onchange="updateValueMappingKey('${formField}', this.dataset.oldKey, this.value)">
-                    <span class="arrow">→</span>
-                    <input type="text" value="${value}" 
+                    <span class="text-base-content/50">→</span>
+                    <input type="text" value="${value}" class="input input-bordered input-sm flex-1"
                         onchange="updateValueMappingValue('${formField}', '${key}', this.value)">
-                    <button onclick="deleteValueMappingRow('${formField}', '${key}')">×</button>
+                    <button class="btn btn-sm btn-error btn-circle" onclick="deleteValueMappingRow('${formField}', '${key}')">×</button>
                 `;
                 container.appendChild(row);
             });
@@ -280,11 +290,7 @@
         function toggleValueMapping(formField) {
             expandedValueMappings[formField] = !expandedValueMappings[formField];
             const element = document.getElementById(`value-mapping-${formField}`);
-            if (expandedValueMappings[formField]) {
-                element.classList.add('expanded');
-            } else {
-                element.classList.remove('expanded');
-            }
+            element.style.display = expandedValueMappings[formField] ? 'block' : 'none';
         }
         
         function toggleSkip(formField, checked) {
