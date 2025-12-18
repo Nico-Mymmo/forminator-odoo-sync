@@ -467,7 +467,7 @@
             
             // Create chip input container
             const chipInput = document.createElement('div');
-            chipInput.className = 'input input-bordered min-h-[2.5rem] flex flex-wrap items-center gap-1 p-2 transition-all';
+            chipInput.className = 'input input-sm input-bordered h-auto min-h-[2rem] flex flex-wrap items-center gap-1 py-1 px-2';
             chipInput.setAttribute('contenteditable', 'true');
             chipInput.setAttribute('data-placeholder', placeholder);
             
@@ -638,7 +638,7 @@
         function createFieldChip(fieldName, chipType = 'field', isDraggableWithin = true) {
             const chip = document.createElement('span');
             const isStepChip = chipType === 'step' || fieldName.includes('.');
-            chip.className = isStepChip ? 'step-chip' : 'field-chip';
+            chip.className = isStepChip ? 'badge badge-secondary badge-sm' : 'badge badge-primary badge-sm';
             chip.contentEditable = 'false';
             chip.setAttribute('data-field', fieldName);
             chip.setAttribute('data-chip-type', isStepChip ? 'step' : 'field');
@@ -668,8 +668,8 @@
             label.textContent = fieldName;
             chip.appendChild(label);
             
-            const remove = document.createElement('span');
-            remove.className = 'chip-remove';
+            const remove = document.createElement('button');
+            remove.className = 'btn btn-xs btn-ghost btn-circle p-0 ml-1';
             remove.textContent = '×';
             remove.onclick = function(e) {
                 e.stopPropagation();
@@ -1119,11 +1119,6 @@
             container.innerHTML = '';
             
             if (domain.length === 0) {
-                const emptyZone = document.createElement('div');
-                emptyZone.className = 'min-h-[100px] border-2 border-dashed border-base-content/20 rounded-lg flex items-center justify-center text-base-content/50 text-sm transition-all p-4 text-center';
-                emptyZone.textContent = '🎯 Sleep velden hierheen of klik op "+ Add Condition" hieronder';
-                makeEmptyDropZone(emptyZone, 'domain', stepIdx);
-                container.appendChild(emptyZone);
                 return;
             }
             
@@ -1304,11 +1299,6 @@
             container.innerHTML = '';
             
             if (fields.length === 0) {
-                const emptyZone = document.createElement('div');
-                emptyZone.className = 'min-h-[100px] border-2 border-dashed border-base-content/20 rounded-lg flex items-center justify-center text-base-content/50 text-sm transition-all p-4 text-center';
-                emptyZone.textContent = '📌 Sleep velden hierheen of voeg ze hieronder toe';
-                makeEmptyDropZone(emptyZone, 'fields', stepIdx);
-                container.appendChild(emptyZone);
                 return;
             }
             
@@ -1348,11 +1338,6 @@
             container.innerHTML = '';
             
             if (Object.keys(values).length === 0) {
-                const emptyZone = document.createElement('div');
-                emptyZone.className = 'min-h-[100px] border-2 border-dashed border-base-content/20 rounded-lg flex items-center justify-center text-base-content/50 text-sm transition-all p-4 text-center';
-                emptyZone.textContent = '➕ Sleep velden hierheen of klik op "+ Add Value" hieronder';
-                makeEmptyDropZone(emptyZone, 'create', stepIdx);
-                container.appendChild(emptyZone);
                 return;
             }
             
@@ -1456,12 +1441,7 @@
             console.log('Object.keys(values):', Object.keys(values));
             
             if (Object.keys(values).length === 0 || (Object.keys(values).length === 1 && values.enabled !== undefined)) {
-                console.log('Rendering empty drop zone for update');
-                const emptyZone = document.createElement('div');
-                emptyZone.className = 'min-h-[100px] border-2 border-dashed border-base-content/20 rounded-lg flex items-center justify-center text-base-content/50 text-sm transition-all p-4 text-center';
-                emptyZone.textContent = '✏️ Sleep velden hierheen of klik op "+ Add Value" hieronder';
-                makeEmptyDropZone(emptyZone, 'update', stepIdx);
-                container.appendChild(emptyZone);
+                console.log('No values to render for update');
                 return;
             }
             
