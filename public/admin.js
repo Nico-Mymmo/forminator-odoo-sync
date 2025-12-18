@@ -937,81 +937,92 @@
                 stepEl.className = 'workflow-step collapsed';
                 stepEl.dataset.index = idx;
                 
-                const resultBadge = step.step ? `<div class="step-result-badge">📦 $${step.step}</div>` : '';
+                const resultBadge = step.step ? `<div class="badge badge-accent">$${step.step}</div>` : '';
                 
                 stepEl.innerHTML = `
-                    <div class="workflow-step-header" onclick="toggleStep(${idx})">
-                        <h4>Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h4>
-                        ${resultBadge}
-                        <div class="step-actions" onclick="event.stopPropagation()">
-                            <button class="btn-collapse" onclick="toggleStep(${idx})">▼</button>
-                            <button class="btn-delete-step" onclick="deleteStep(${idx})">×</button>
-                        </div>
-                    </div>
-                    <div class="step-content">
-                        <div class="step-basics">
-                            <div>
-                                <label>Step Name:</label>
-                                <input type="text" value="${step.step || ''}" onchange="updateStepBasic(${idx}, 'step', this.value)">
-                            </div>
-                            <div>
-                                <label>Odoo Model:</label>
-                                <input type="text" value="${step.model || ''}" onchange="updateStepBasic(${idx}, 'model', this.value)">
-                            </div>
-                        </div>
-                        
-                        <div class="step-subsection ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">🔍 Search <span class="subsection-toggle">▼</span></h5>
-                            <div class="subsection-content">
-                                <div class="domain-editor">
-                                    <label style="display:block; margin-bottom:0.5rem; font-weight:500">Domain Conditions:</label>
-                                    <div id="domain-${idx}"></div>
-                                    <button class="add-row-btn" onclick="addDomainRow(${idx})">+ Add Condition</button>
+                    <div class="card bg-base-100 shadow mb-4">
+                        <div class="card-body p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="card-title text-base">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
+                                <div class="flex gap-2">
+                                    ${resultBadge}
+                                    <button class="btn btn-sm btn-ghost btn-square" onclick="toggleStep(${idx})">▼</button>
+                                    <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx})">×</button>
                                 </div>
-                                <div class="fields-editor" style="margin-top: 1rem">
-                                    <label style="display:block; margin-bottom:0.5rem; font-weight:500">Fields to Retrieve:</label>
-                                    <div class="fields-list" id="fields-${idx}"></div>
-                                    <div class="add-field-input">
-                                        <input type="text" id="new-field-${idx}" placeholder="field_name">
-                                        <button class="add-row-btn" onclick="addSearchField(${idx})">+ Add</button>
+                            </div>
+                            <div class="step-content">
+                                <div class="grid grid-cols-2 gap-3 mb-4">
+                                    <div class="form-control">
+                                        <label class="label py-1"><span class="label-text">Step Name:</span></label>
+                                        <input type="text" class="input input-sm input-bordered" value="${step.step || ''}" onchange="updateStepBasic(${idx}, 'step', this.value)">
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label py-1"><span class="label-text">Odoo Model:</span></label>
+                                        <input type="text" class="input input-sm input-bordered" value="${step.model || ''}" onchange="updateStepBasic(${idx}, 'model', this.value)">
+                                    </div>
+                                </div>
+                        
+                        <div class="collapse collapse-arrow bg-base-200 mb-2 ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? 'collapse-open' : ''}">
+                            <input type="checkbox" ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? 'checked' : ''} /> 
+                            <div class="collapse-title text-sm font-medium">
+                                🔍 Search
+                            </div>
+                            <div class="collapse-content">
+                                <div class="form-control mb-3">
+                                    <label class="label py-1"><span class="label-text font-medium">Domain Conditions:</span></label>
+                                    <div id="domain-${idx}" class="space-y-2"></div>
+                                    <button class="btn btn-sm btn-outline mt-2" onclick="addDomainRow(${idx})">+ Add Condition</button>
+                                </div>
+                                <div class="form-control">
+                                    <label class="label py-1"><span class="label-text font-medium">Fields to Retrieve:</span></label>
+                                    <div id="fields-${idx}" class="flex flex-wrap gap-1 mb-2"></div>
+                                    <div class="join join-horizontal w-full">
+                                        <input type="text" id="new-field-${idx}" placeholder="field_name" class="input input-sm input-bordered join-item flex-1">
+                                        <button class="btn btn-sm btn-outline join-item" onclick="addSearchField(${idx})">+ Add</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         
-                        <div class="step-subsection ${(step.create && Object.keys(step.create).length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">➕ Create <span class="subsection-toggle">▼</span></h5>
-                            <div class="subsection-content">
-                                <div id="create-${idx}"></div>
-                                <button class="add-row-btn" onclick="addCreateValue(${idx})">+ Add Value</button>
+                        <div class="collapse collapse-arrow bg-base-200 mb-2 ${(step.create && Object.keys(step.create).length > 0) ? 'collapse-open' : ''}">
+                            <input type="checkbox" ${(step.create && Object.keys(step.create).length > 0) ? 'checked' : ''} /> 
+                            <div class="collapse-title text-sm font-medium">
+                                ➕ Create
+                            </div>
+                            <div class="collapse-content">
+                                <div id="create-${idx}" class="space-y-2"></div>
+                                <button class="btn btn-sm btn-outline mt-2" onclick="addCreateValue(${idx})">+ Add Value</button>
                             </div>
                         </div>
                         
-                        <div class="step-subsection ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">✏️ Update <span class="subsection-toggle">▼</span></h5>
-                            <div class="subsection-content">
-                                <div id="update-${idx}"></div>
-                                <button class="add-row-btn" onclick="addUpdateValue(${idx})">+ Add Value</button>
+                        <div class="collapse collapse-arrow bg-base-200 mb-2 ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'collapse-open' : ''}">
+                            <input type="checkbox" ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'checked' : ''} /> 
+                            <div class="collapse-title text-sm font-medium">
+                                ✏️ Update
+                            </div>
+                            <div class="collapse-content">
+                                <div id="update-${idx}" class="space-y-2"></div>
+                                <button class="btn btn-sm btn-outline mt-2" onclick="addUpdateValue(${idx})">+ Add Value</button>
                             </div>
                         </div>
                         
-                        <div class="step-subsection ${step.html_card ? '' : 'collapsed'}">
-                            <h5 onclick="toggleSubsection(this)">🎨 HTML Card <span class="subsection-toggle">▼</span></h5>
-                            <div class="subsection-content">
-                                <p style="color: #666; margin-bottom: 1rem; font-size: 0.9rem;">
+                        <div class="collapse collapse-arrow bg-base-200 mb-2 ${step.html_card ? 'collapse-open' : ''}">
+                            <input type="checkbox" ${step.html_card ? 'checked' : ''} /> 
+                            <div class="collapse-title text-sm font-medium">
+                                🎨 HTML Card
+                            </div>
+                            <div class="collapse-content">
+                                <p class="text-sm text-base-content/70 mb-3">
                                     Build a custom HTML card/form with drag & drop field placeholders
                                 </p>
-                                <button class="btn-primary" onclick="openHtmlCardEditor(${idx})" style="margin-bottom: 1rem;">
+                                <button class="btn btn-sm btn-primary mb-3" onclick="openHtmlCardEditor(${idx})">
                                     ${step.html_card ? '✏️ Edit HTML Card' : '➕ Create HTML Card'}
                                 </button>
-                                ${step.html_card ? '<div style="padding: 0.75rem; background: #f8f9fa; border-radius: 4px;"><strong>HTML Card configured</strong> - ' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div>' : ''}
+                                ${step.html_card ? '<div class="alert alert-success py-2"><strong>HTML Card configured</strong> - ' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div>' : ''}
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="step-result-section">
-                        <h5>Step Result (available in later steps)</h5>
-                        <div class="step-result-chips" id="result-chips-${idx}"></div>
+                            </div>
+                        </div>
                     </div>
                 `;
                 container.appendChild(stepEl);
@@ -1118,7 +1129,7 @@
             
             domain.forEach((condition, condIdx) => {
                 const row = document.createElement('div');
-                row.className = 'domain-row';
+                row.className = 'flex gap-2 items-center';
                 
                 // Support both old format [field, op, val] and new format [field, op, val, type]
                 const field = condition[0] || '';
@@ -1127,16 +1138,16 @@
                 const fieldType = condition[3] || 'text';
                 
                 row.innerHTML = `
-                    <input type="text" value="${field}" placeholder="field" 
+                    <input type="text" class="input input-sm input-bordered flex-1" value="${field}" placeholder="field" 
                         onchange="updateDomain(${stepIdx}, ${condIdx}, 0, this.value)">
-                    <select class="field-type" onchange="updateDomainType(${stepIdx}, ${condIdx}, this.value)">
+                    <select class="select select-sm select-bordered" onchange="updateDomainType(${stepIdx}, ${condIdx}, this.value)">
                         <option value="text" ${fieldType === 'text' ? 'selected' : ''}>Text</option>
                         <option value="integer" ${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
                         <option value="float" ${fieldType === 'float' ? 'selected' : ''}>Float</option>
                         <option value="boolean" ${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
                         <option value="datetime" ${fieldType === 'datetime' ? 'selected' : ''}>DateTime</option>
                     </select>
-                    <select onchange="updateDomain(${stepIdx}, ${condIdx}, 1, this.value)">
+                    <select class="select select-sm select-bordered" onchange="updateDomain(${stepIdx}, ${condIdx}, 1, this.value)">
                         <option value="=" ${op === '=' ? 'selected' : ''}>equals (=)</option>
                         <option value="!=" ${op === '!=' ? 'selected' : ''}>not equals (!=)</option>
                         <option value=">" ${op === '>' ? 'selected' : ''}>greater (&gt;)</option>
@@ -1148,8 +1159,8 @@
                         <option value="in" ${op === 'in' ? 'selected' : ''}>in</option>
                         <option value="not in" ${op === 'not in' ? 'selected' : ''}>not in</option>
                     </select>
-                    <div id="value-${stepIdx}-${condIdx}"></div>
-                    <button onclick="deleteDomain(${stepIdx}, ${condIdx})">×</button>
+                    <div id="value-${stepIdx}-${condIdx}" class="flex-1"></div>
+                    <button class="btn btn-sm btn-ghost btn-square" onclick="deleteDomain(${stepIdx}, ${condIdx})">×</button>
                 `;
                 container.appendChild(row);
                 
@@ -1167,6 +1178,7 @@
             if (fieldType === 'boolean') {
                 // Boolean: true/false select
                 const select = document.createElement('select');
+                select.className = 'select select-sm select-bordered w-full';
                 select.onchange = function() {
                     const boolVal = this.value === 'true';
                     updateDomain(stepIdx, condIdx, 2, boolVal);
@@ -1189,6 +1201,7 @@
             } else if (fieldType === 'integer') {
                 // Integer input
                 const input = document.createElement('input');
+                input.className = 'input input-sm input-bordered w-full';
                 input.type = 'number';
                 input.step = '1';
                 input.value = value;
@@ -1201,6 +1214,7 @@
             } else if (fieldType === 'float') {
                 // Float input
                 const input = document.createElement('input');
+                input.className = 'input input-sm input-bordered w-full';
                 input.type = 'number';
                 input.step = 'any';
                 input.value = value;
@@ -1213,6 +1227,7 @@
             } else if (fieldType === 'datetime') {
                 // DateTime input
                 const input = document.createElement('input');
+                input.className = 'input input-sm input-bordered w-full';
                 input.type = 'datetime-local';
                 input.value = value;
                 input.placeholder = 'YYYY-MM-DD HH:MM';
@@ -1224,6 +1239,7 @@
             } else {
                 // Text input with chip support
                 const input = document.createElement('input');
+                input.className = 'input input-sm input-bordered w-full';
                 input.type = 'text';
                 input.value = value;
                 input.placeholder = 'value';
@@ -1298,8 +1314,8 @@
             
             fields.forEach((field, fieldIdx) => {
                 const tag = document.createElement('div');
-                tag.className = 'field-tag';
-                tag.innerHTML = `${field} <button onclick="deleteSearchField(${stepIdx}, ${fieldIdx})">×</button>`;
+                tag.className = 'badge badge-neutral gap-1';
+                tag.innerHTML = `${field} <button class="btn btn-xs btn-ghost btn-circle p-0" onclick="deleteSearchField(${stepIdx}, ${fieldIdx})">×</button>`;
                 container.appendChild(tag);
             });
         }
