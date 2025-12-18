@@ -420,7 +420,7 @@
                     fields.forEach(field => {
                         const chip = document.createElement('div');
                         chip.className = 'badge badge-secondary badge-sm cursor-grab';
-                        chip.textContent = `$${step.step}.${field}`;
+                        chip.textContent = `${step.step} ${field}`;
                         chip.title = `Step ${idx + 1}: ${step.model}`;
                         chip.draggable = true;
                         chip.dataset.field = `${step.step}.${field}`;
