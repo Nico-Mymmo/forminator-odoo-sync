@@ -7,7 +7,6 @@ export const adminHTML = `<!DOCTYPE html>
     <title>Forminator Mapping Admin v1.1</title>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="/admin.css">
 </head>
 <body class="bg-base-200">
     <div id="loginScreen" class="login-screen flex items-center justify-center min-h-screen" style="display: flex;">
