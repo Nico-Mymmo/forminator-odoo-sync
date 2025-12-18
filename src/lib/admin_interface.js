@@ -10,7 +10,7 @@ export const adminHTML = `<!DOCTYPE html>
     <link rel="stylesheet" href="/admin.css">
 </head>
 <body class="bg-base-200">
-    <div id="loginScreen" class="login-screen flex items-center justify-center min-h-screen">
+    <div id="loginScreen" class="login-screen flex items-center justify-center min-h-screen" style="display: flex;">
         <div class="login-box card w-96 bg-base-100 shadow-xl">
             <div class="card-body">
                 <h1 class="card-title text-2xl justify-center mb-4">🔐 Admin Login</h1>
@@ -20,7 +20,7 @@ export const adminHTML = `<!DOCTYPE html>
         </div>
     </div>
     
-    <div id="adminInterface" class="admin-interface hidden flex flex-col h-screen">
+    <div id="adminInterface" class="admin-interface flex flex-col h-screen" style="display: none;">
         <div class="header navbar bg-base-100 shadow-md">
             <div class="flex-1">
                 <h1 class="text-xl font-bold">Forminator Mapping Admin</h1>
