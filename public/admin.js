@@ -390,7 +390,7 @@
             
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const chip = document.createElement('div');
-                chip.className = 'badge badge-primary badge-sm cursor-grab';
+                chip.className = 'badge badge-primary badge-sm cursor-grab mb-2';
                 chip.textContent = odooField;
                 chip.title = `Forminator: ${formField}`;
                 chip.draggable = true;
@@ -419,7 +419,7 @@
                     const fields = step.search?.fields || ['id'];
                     fields.forEach(field => {
                         const chip = document.createElement('div');
-                        chip.className = 'badge badge-secondary badge-sm cursor-grab';
+                        chip.className = 'badge badge-secondary badge-sm cursor-grab mb-2';
                         chip.textContent = `${step.step} ${field}`;
                         chip.title = `Step ${idx + 1}: ${step.model}`;
                         chip.draggable = true;
