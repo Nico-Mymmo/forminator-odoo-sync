@@ -150,9 +150,9 @@
                     </div>
                 </div>
                 
-                <div class="tabs">
-                    <button class="tab active" onclick="switchTab('mapping')">Field & Value Mapping</button>
-                    <button class="tab" onclick="switchTab('workflow')">Workflow Steps</button>
+                <div role="tablist" class="tabs tabs-bordered mb-6">
+                    <button role="tab" class="tab tab-active" onclick="switchTab('mapping')">Field & Value Mapping</button>
+                    <button role="tab" class="tab" onclick="switchTab('workflow')">Workflow Steps</button>
                 </div>
                 
                 <div id="tab-mapping" class="tab-content active">
@@ -185,10 +185,10 @@
         }
         
         function switchTab(tabName) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active'));
             document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
             
-            event.target.classList.add('active');
+            event.target.classList.add('tab-active');
             document.getElementById(`tab-${tabName}`).classList.add('active');
         }
         

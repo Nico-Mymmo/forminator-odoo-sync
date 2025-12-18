@@ -47,6 +47,11 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
+    // Serve favicon (no auth required)
+    if (pathname === '/favicon.ico') {
+      return new Response(null, { status: 204 });
+    }
+
     // Serve admin interface HTML (no auth required for viewing)
     if (pathname === '/admin' || pathname === '/admin/') {
       return new Response(adminHTML, {
