@@ -58,11 +58,9 @@
                     a.textContent = formName;
                     a.title = `ID: ${formId}`;
                     a.onclick = () => loadForm(formId);
-                    a.className = 'text-sm block px-3 py-2 rounded-lg cursor-pointer transition-all hover:bg-base-200';
                     if (formId === currentFormId) {
-                        a.className += ' bg-primary text-primary-content font-medium';
+                        a.className = 'active';
                     }
-                    li.className = 'p-0';
                     li.appendChild(a);
                     list.appendChild(li);
                 });
@@ -391,7 +389,7 @@
             
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const chip = document.createElement('div');
-                chip.className = 'badge badge-primary badge-sm cursor-grab select-none transition-all hover:-translate-y-0.5 hover:opacity-90 active:cursor-grabbing active:scale-95';
+                chip.className = 'badge badge-primary badge-sm';
                 chip.textContent = odooField;
                 chip.title = `Forminator: ${formField}`;
                 chip.draggable = true;
@@ -420,7 +418,7 @@
                     const fields = step.search?.fields || ['id'];
                     fields.forEach(field => {
                         const chip = document.createElement('div');
-                        chip.className = 'badge badge-secondary badge-sm cursor-grab select-none transition-all hover:-translate-y-0.5 hover:opacity-90 active:cursor-grabbing active:scale-95';
+                        chip.className = 'badge badge-secondary badge-sm';
                         chip.textContent = `${step.step} ${field}`;
                         chip.title = `Step ${idx + 1}: ${step.model}`;
                         chip.draggable = true;
