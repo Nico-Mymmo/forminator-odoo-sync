@@ -18,9 +18,10 @@ export const adminHTML = `<!DOCTYPE html>
         .form-list li { padding: 0.5rem 0.75rem !important; border-radius: 0.375rem; font-size: 0.875rem; cursor: pointer; }
         .form-list li:hover { background: #f3f4f6 !important; }
         .form-list li.active { background: #6366f1 !important; color: white !important; font-weight: 500; }
-        .tabs { border-bottom: 1px solid #e5e7eb !important; margin-bottom: 1.5rem !important; }
-        .tab { padding: 0.75rem 1.5rem !important; border-bottom: 2px solid transparent !important; font-size: 0.875rem !important; font-weight: 500 !important; }
-        .tab.active { border-bottom-color: #6366f1 !important; color: #6366f1 !important; }
+        .tabs { display: flex !important; gap: 0 !important; border-bottom: 2px solid #e5e7eb !important; margin-bottom: 1.5rem !important; }
+        .tab { padding: 0.75rem 1.5rem !important; background: none !important; border: none !important; border-bottom: 3px solid transparent !important; font-size: 0.875rem !important; font-weight: 500 !important; color: #6b7280 !important; cursor: pointer !important; transition: all 0.2s !important; }
+        .tab:hover { color: #6366f1 !important; }
+        .tab.active { border-bottom-color: #6366f1 !important; color: #6366f1 !important; margin-bottom: -2px !important; }
         .section { background: white; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 0.5rem; border: 1px solid #e5e7eb; }
         .section h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
         input[type="text"], input[type="password"], input[type="number"], textarea, select { 
@@ -34,6 +35,8 @@ export const adminHTML = `<!DOCTYPE html>
             outline-offset: 2px;
             border-color: #6366f1 !important;
         }
+        button { font-size: 0.875rem !important; padding: 0.5rem 1rem !important; }
+        .actions button { padding: 0.625rem 1.25rem !important; }
     </style>
 </head>
 <body class="bg-base-200">
