@@ -156,16 +156,16 @@
                 </div>
                 
                 <!-- DaisyUI Radio Tabs Lifted with Icons -->
-                <div role="tablist" class="tabs tabs-lifted">
-                    <input type="radio" name="main_tabs" role="tab" class="tab [--tab-border:1px]" aria-label="📋 Field & Value Mapping" checked="checked" />
-                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+                <div role="tablist" class="tabs tabs-lifted w-full">
+                    <input type="radio" name="main_tabs" role="tab" class="tab [--tab-border:1px] whitespace-nowrap" aria-label="📋 Mapping" checked="checked" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 w-full">
                         <h3 class="text-lg font-bold mb-3">Field Mapping & Value Mapping</h3>
                         <div id="fieldMapping" class="space-y-2"></div>
                         <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
                     </div>
                     
-                    <input type="radio" name="main_tabs" role="tab" class="tab [--tab-border:1px]" aria-label="⚙️ Workflow Steps" />
-                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+                    <input type="radio" name="main_tabs" role="tab" class="tab [--tab-border:1px] whitespace-nowrap" aria-label="⚙️ Workflow" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 w-full">
                         <h3 class="text-lg font-bold mb-3">Workflow Steps</h3>
                         <div id="workflowSteps"></div>
                         <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
