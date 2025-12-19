@@ -171,7 +171,6 @@
                         <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
                     </div>
                 </div>
-                </div>
                 
                 <!-- Actions -->
                 <div class="flex gap-2 mt-4">
