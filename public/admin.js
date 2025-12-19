@@ -156,14 +156,14 @@
                 </div>
                 
                 <!-- Tabs -->
-                <div role="tablist" class="tabs tabs-lifted mb-4">
+                <div role="tablist" class="tabs tabs-lifted">
                     <button role="tab" class="tab tab-active" onclick="switchTab('mapping')">Field & Value Mapping</button>
                     <button role="tab" class="tab" onclick="switchTab('workflow')">Workflow Steps</button>
                 </div>
                 
                 <!-- Tab Content: Mapping -->
                 <div id="tab-mapping" class="tab-content active">
-                    <div class="bg-base-100 shadow-sm rounded-b-lg rounded-tr-lg p-6">
+                    <div class="bg-base-100 shadow-sm rounded-b-lg rounded-tr-lg p-6" style="margin-top: -2px;">
                         <h3 class="text-lg font-bold mb-3">Field Mapping & Value Mapping</h3>
                         <div id="fieldMapping" class="space-y-2"></div>
                         <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
@@ -172,7 +172,7 @@
                 
                 <!-- Tab Content: Workflow -->
                 <div id="tab-workflow" class="tab-content">
-                    <div class="bg-base-100 shadow-sm rounded-b-lg rounded-tr-lg p-6">
+                    <div class="bg-base-100 shadow-sm rounded-b-lg rounded-tl-lg p-6" style="margin-top: -2px;">
                         <h3 class="text-lg font-bold mb-3">Workflow Steps</h3>
                             <div id="workflowSteps"></div>
                             <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
@@ -226,8 +226,14 @@
                 
                 // Add inline value mapping section
                 const valueMappingDiv = document.createElement('div');
-                valueMappingDiv.className = 'bg-base-100 p-3 mt-2';
+                valueMappingDiv.className = 'bg-base-200 p-4';
                 valueMappingDiv.id = `value-mapping-${formField}`;
+                
+                // Auto-expand if value mappings exist
+                const hasValueMappings = valueMapping[formField] && Object.keys(valueMapping[formField]).some(k => !k.startsWith('_'));
+                if (hasValueMappings) {
+                    expandedValueMappings[formField] = true;
+                }
                 valueMappingDiv.style.display = expandedValueMappings[formField] ? 'block' : 'none';
                 valueMappingDiv.innerHTML = `
                     <div class="divider text-sm">Value Mapping for "${formField}"</div>
@@ -249,13 +255,6 @@
                 
                 containerDiv.appendChild(valueMappingDiv);
                 container.appendChild(containerDiv);
-                
-                // Auto-expand if value mappings exist
-                const hasValueMappings = valueMapping[formField] && Object.keys(valueMapping[formField]).some(k => !k.startsWith('_'));
-                if (hasValueMappings && !expandedValueMappings.hasOwnProperty(formField)) {
-                    expandedValueMappings[formField] = true;
-                    valueMappingDiv.classList.add('expanded');
-                }
                 
                 // Always render value mapping rows (even if empty)
                 renderValueMappingRows(formField);
@@ -380,10 +379,14 @@
             palette.innerHTML = '';
             
             // Form fields section
+            const formFieldsSection = document.createElement('div');
             const formFieldsHeader = document.createElement('div');
-            formFieldsHeader.className = 'divider divider-start text-xs my-2';
+            formFieldsHeader.className = 'text-xs font-semibold mb-2 text-base-content/60 uppercase';
             formFieldsHeader.textContent = 'Form Fields';
-            palette.appendChild(formFieldsHeader);
+            formFieldsSection.appendChild(formFieldsHeader);
+            
+            const formFieldsContainer = document.createElement('div');
+            formFieldsContainer.className = 'flex flex-wrap gap-2';
             
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const chip = document.createElement('div');
@@ -396,8 +399,11 @@
                 chip.dataset.chipType = 'field';
                 chip.addEventListener('dragstart', handleDragStart);
                 chip.addEventListener('dragend', handleDragEnd);
-                palette.appendChild(chip);
+                formFieldsContainer.appendChild(chip);
             });
+            
+            formFieldsSection.appendChild(formFieldsContainer);
+            palette.appendChild(formFieldsSection);
             
             // Step results section (only show steps before current step)
             const availableSteps = currentStepIdx !== null 
@@ -405,10 +411,16 @@
                 : workflowSteps;
             
             if (availableSteps.some(s => s.step)) {
+                const stepResultsSection = document.createElement('div');
+                stepResultsSection.className = 'mt-4';
+                
                 const stepResultsHeader = document.createElement('div');
-                stepResultsHeader.className = 'divider divider-start text-xs my-2 mt-3';
+                stepResultsHeader.className = 'text-xs font-semibold mb-2 text-base-content/60 uppercase';
                 stepResultsHeader.textContent = 'Step Results';
-                palette.appendChild(stepResultsHeader);
+                stepResultsSection.appendChild(stepResultsHeader);
+                
+                const stepResultsContainer = document.createElement('div');
+                stepResultsContainer.className = 'flex flex-wrap gap-2';
                 
                 availableSteps.forEach((step, idx) => {
                     if (!step.step) return;
@@ -425,9 +437,12 @@
                         chip.dataset.chipType = 'step';
                         chip.addEventListener('dragstart', handleDragStart);
                         chip.addEventListener('dragend', handleDragEnd);
-                        palette.appendChild(chip);
+                        stepResultsContainer.appendChild(chip);
                     });
                 });
+                
+                stepResultsSection.appendChild(stepResultsContainer);
+                palette.appendChild(stepResultsSection);
             }
         }
         
@@ -465,7 +480,7 @@
             
             // Create chip input container
             const chipInput = document.createElement('div');
-            chipInput.className = 'border-2 border-dashed border-base-300 rounded-lg bg-base-100 flex flex-wrap items-center gap-1 py-1 px-2 focus-within:border-primary focus-within:border-solid empty:min-h-[2rem]';
+            chipInput.className = 'input input-sm input-bordered flex flex-wrap items-center gap-1 h-auto min-h-[2rem] focus-within:input-accent';
             chipInput.setAttribute('contenteditable', 'true');
             chipInput.setAttribute('data-placeholder', placeholder || 'Drag field badges here or type text');
             
@@ -940,14 +955,13 @@
                 stepEl.innerHTML = `
                     <div class="collapse collapse-arrow bg-base-100 shadow mb-4">
                         <input type="checkbox" id="step-toggle-${idx}" checked /> 
-                        <div class="collapse-title p-4 min-h-0">
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-base font-semibold">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
-                                <div class="flex gap-2" onclick="event.stopPropagation()">
-                                    ${resultBadge}
-                                    <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx})">×</button>
-                                </div>
-                            </div>
+                        <div class="collapse-title p-4 pr-16 min-h-0">
+                            <h3 class="text-base font-semibold">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
+                        </div>
+                        <div class="absolute top-4 right-4 flex gap-2 z-10">
+                            ${resultBadge}
+                            <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx}); event.stopPropagation();">×</button>
+                        </div>
                         </div>
                         <div class="collapse-content p-4 pt-0">
                                 <div class="grid grid-cols-2 gap-3 mb-4">
