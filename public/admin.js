@@ -163,20 +163,17 @@
                 
                 <!-- Tab Content: Mapping -->
                 <div id="tab-mapping" class="tab-content active">
-                    <div class="card bg-base-100 shadow-sm">
-                        <div class="card-body">
-                            <h3 class="card-title text-lg mb-3">Field Mapping & Value Mapping</h3>
-                            <div id="fieldMapping" class="space-y-2"></div>
-                            <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
-                        </div>
+                    <div class="bg-base-100 shadow-sm rounded-b-lg rounded-tr-lg p-6">
+                        <h3 class="text-lg font-bold mb-3">Field Mapping & Value Mapping</h3>
+                        <div id="fieldMapping" class="space-y-2"></div>
+                        <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
                     </div>
                 </div>
                 
                 <!-- Tab Content: Workflow -->
                 <div id="tab-workflow" class="tab-content">
-                    <div class="card bg-base-100 shadow-sm">
-                        <div class="card-body">
-                            <h3 class="card-title text-lg mb-3">Workflow Steps</h3>
+                    <div class="bg-base-100 shadow-sm rounded-b-lg rounded-tr-lg p-6">
+                        <h3 class="text-lg font-bold mb-3">Workflow Steps</h3>
                             <div id="workflowSteps"></div>
                             <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
                         </div>
@@ -229,7 +226,7 @@
                 
                 // Add inline value mapping section
                 const valueMappingDiv = document.createElement('div');
-                valueMappingDiv.className = 'collapse-content bg-base-100 p-3';
+                valueMappingDiv.className = 'bg-base-100 p-3 mt-2';
                 valueMappingDiv.id = `value-mapping-${formField}`;
                 valueMappingDiv.style.display = expandedValueMappings[formField] ? 'block' : 'none';
                 valueMappingDiv.innerHTML = `
@@ -358,6 +355,7 @@
         
         function updateFieldValue(key, value) {
             fieldMapping[key] = value;
+            updateFieldPalette();
         }
         
         function deleteField(key) {
@@ -467,9 +465,9 @@
             
             // Create chip input container
             const chipInput = document.createElement('div');
-            chipInput.className = 'border border-base-300 rounded-lg bg-base-100 min-h-[2rem] flex flex-wrap items-center gap-1 py-1 px-2 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary';
+            chipInput.className = 'border-2 border-dashed border-base-300 rounded-lg bg-base-100 flex flex-wrap items-center gap-1 py-1 px-2 focus-within:border-primary focus-within:border-solid empty:min-h-[2rem]';
             chipInput.setAttribute('contenteditable', 'true');
-            chipInput.setAttribute('data-placeholder', placeholder);
+            chipInput.setAttribute('data-placeholder', placeholder || 'Drag field badges here or type text');
             
             // Create hidden input to store actual value
             const hiddenInput = document.createElement('input');
@@ -1047,13 +1045,19 @@
         
         function updateStepBasic(idx, field, value) {
             workflowSteps[idx][field] = value;
-            const header = document.querySelector(`.workflow-step[data-index="${idx}"] h3`);
+            const stepEl = document.querySelector(`.workflow-step[data-index="${idx}"]`);
+            const header = stepEl?.querySelector('h3');
             if (header) {
                 header.textContent = `Step: ${workflowSteps[idx].step || '(unnamed)'} - Model: ${workflowSteps[idx].model || '(no model)'}`;
             }
             
             // Update the result badge if step name changed
             if (field === 'step') {
+                const badge = stepEl?.querySelector('.badge-accent');
+                if (badge) {
+                    badge.textContent = value ? `$${value}` : '';
+                    badge.style.display = value ? '' : 'none';
+                }
                 renderStepResultChips(idx, workflowSteps[idx]);
                 updateFieldPalette();
             }
