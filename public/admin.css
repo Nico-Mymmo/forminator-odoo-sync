@@ -17,6 +17,7 @@
 /* Chip input placeholder when empty */
 [contenteditable][data-placeholder]:empty:before {
     content: attr(data-placeholder);
-    color: hsl(var(--bc) / 0.4);
+    color: hsl(var(--bc) / 0.3);
     pointer-events: none;
+    font-style: italic;
 }
