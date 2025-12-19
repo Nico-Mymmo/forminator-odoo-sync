@@ -469,9 +469,11 @@
             
             // Add placeholder element (DaisyUI style)
             const placeholderText = document.createElement('span');
-            placeholderText.className = 'absolute pointer-events-none opacity-50';
+            placeholderText.className = 'absolute pointer-events-none opacity-50 select-none';
             placeholderText.textContent = placeholder || 'Typ een waarde of sleep een veld hiernaartoe';
-            placeholderText.style.display = 'none';
+            placeholderText.contentEditable = 'false';
+            placeholderText.style.userSelect = 'none';
+            placeholderText.style.display = originalValue ? 'none' : 'block';
             chipInput.appendChild(placeholderText);
             
             // Create hidden input to store actual value
@@ -645,6 +647,17 @@
                 if (textAfter) {
                     chipInput.appendChild(document.createTextNode(textAfter));
                 }
+            }
+            
+            // Update placeholder visibility after rendering content
+            const placeholder = chipInput.querySelector('span.absolute.pointer-events-none');
+            if (placeholder) {
+                const hasVisibleContent = Array.from(chipInput.childNodes).some(node => {
+                    if (node === placeholder) return false;
+                    if (node.nodeType === Node.TEXT_NODE) return node.textContent.trim().length > 0;
+                    return node.classList && (node.classList.contains('field-chip') || node.classList.contains('step-chip'));
+                });
+                placeholder.style.display = hasVisibleContent ? 'none' : 'block';
             }
         }
         
