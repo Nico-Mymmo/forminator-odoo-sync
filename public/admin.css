@@ -14,10 +14,9 @@
     transition: none !important;
 }
 
-/* Chip input placeholder when empty */
+/* Chip input placeholder when empty - matches DaisyUI input placeholder */
 [contenteditable][data-placeholder]:empty:before {
     content: attr(data-placeholder);
-    color: hsl(var(--bc) / 0.3);
+    color: hsl(var(--bc) / 0.2);
     pointer-events: none;
-    font-style: italic;
 }
