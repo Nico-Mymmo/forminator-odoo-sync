@@ -157,13 +157,13 @@
                 
                 <!-- Tabs -->
                 <div role="tablist" class="tabs tabs-lifted">
-                    <button role="tab" class="tab tab-active" onclick="switchTab('mapping')">Field & Value Mapping</button>
-                    <button role="tab" class="tab" onclick="switchTab('workflow')">Workflow Steps</button>
+                    <button role="tab" class="tab tab-active [--tab-border:1px] py-3" onclick="switchTab('mapping')">Field & Value Mapping</button>
+                    <button role="tab" class="tab [--tab-border:1px] py-3" onclick="switchTab('workflow')">Workflow Steps</button>
                 </div>
                 
                 <!-- Tab Content: Mapping -->
                 <div id="tab-mapping" class="tab-content active">
-                    <div class="bg-base-100 shadow-sm rounded-b-lg rounded-tr-lg p-6" style="margin-top: -2px;">
+                    <div class="bg-base-100 border border-base-300 shadow-sm rounded-b-lg rounded-tr-lg p-6" style="margin-top: -1px;">
                         <h3 class="text-lg font-bold mb-3">Field Mapping & Value Mapping</h3>
                         <div id="fieldMapping" class="space-y-2"></div>
                         <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
@@ -172,7 +172,7 @@
                 
                 <!-- Tab Content: Workflow -->
                 <div id="tab-workflow" class="tab-content">
-                    <div class="bg-base-100 shadow-sm rounded-b-lg rounded-tl-lg p-6" style="margin-top: -2px;">
+                    <div class="bg-base-100 border border-base-300 shadow-sm rounded-b-lg rounded-tl-lg p-6" style="margin-top: -1px;">
                         <h3 class="text-lg font-bold mb-3">Workflow Steps</h3>
                             <div id="workflowSteps"></div>
                             <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
@@ -957,10 +957,10 @@
                         <input type="checkbox" id="step-toggle-${idx}" checked /> 
                         <div class="collapse-title p-4 pr-16 min-h-0">
                             <h3 class="text-base font-semibold">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
-                            <div class="absolute top-4 right-4 flex gap-2 z-10">
-                                ${resultBadge}
-                                <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx}); event.stopPropagation();">×</button>
-                            </div>
+                        </div>
+                        <div class="absolute top-4 right-4 flex gap-2 z-10">
+                            ${resultBadge}
+                            <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx}); event.stopPropagation();">×</button>
                         </div>
                         <div class="collapse-content p-4 pt-0">
                                 <div class="grid grid-cols-2 gap-3 mb-4">
