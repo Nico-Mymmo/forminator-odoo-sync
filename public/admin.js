@@ -788,9 +788,15 @@
         function updateHiddenValue(chipInput, hiddenInput) {
             if (!hiddenInput) return;
             
+            // Get placeholder first to exclude it from checks
+            const placeholder = chipInput.querySelector('span.absolute.pointer-events-none');
+            
             let value = '';
             let hasContent = false;
             chipInput.childNodes.forEach(node => {
+                // Skip placeholder element
+                if (node === placeholder) return;
+                
                 if (node.nodeType === Node.TEXT_NODE) {
                     const text = node.textContent.trim();
                     if (text) hasContent = true;
@@ -814,7 +820,6 @@
             hiddenInput.value = value.trim();
             
             // Toggle placeholder visibility
-            const placeholder = chipInput.querySelector('span.absolute.pointer-events-none');
             if (placeholder) {
                 placeholder.style.display = hasContent ? 'none' : 'block';
             }
