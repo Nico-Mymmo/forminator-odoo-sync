@@ -155,29 +155,22 @@
                     </div>
                 </div>
                 
-                <!-- Tabs -->
+                <!-- DaisyUI Radio Tabs Lifted with Icons -->
                 <div role="tablist" class="tabs tabs-lifted">
-                    <button role="tab" class="tab tab-active [--tab-border:1px] py-3" onclick="switchTab('mapping')">Field & Value Mapping</button>
-                    <button role="tab" class="tab [--tab-border:1px] py-3" onclick="switchTab('workflow')">Workflow Steps</button>
-                </div>
-                
-                <!-- Tab Content: Mapping -->
-                <div id="tab-mapping" class="tab-content active">
-                    <div class="bg-base-100 border-l border-r border-b border-base-300 shadow-sm rounded-b-lg rounded-tr-lg p-6">
+                    <input type="radio" name="main_tabs" role="tab" class="tab [--tab-border:1px]" aria-label="📋 Field & Value Mapping" checked="checked" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
                         <h3 class="text-lg font-bold mb-3">Field Mapping & Value Mapping</h3>
                         <div id="fieldMapping" class="space-y-2"></div>
                         <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
                     </div>
-                </div>
-                
-                <!-- Tab Content: Workflow -->
-                <div id="tab-workflow" class="tab-content">
-                    <div class="bg-base-100 border-l border-r border-b border-base-300 shadow-sm rounded-b-lg rounded-tl-lg p-6">
+                    
+                    <input type="radio" name="main_tabs" role="tab" class="tab [--tab-border:1px]" aria-label="⚙️ Workflow Steps" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
                         <h3 class="text-lg font-bold mb-3">Workflow Steps</h3>
-                            <div id="workflowSteps"></div>
-                            <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
-                        </div>
+                        <div id="workflowSteps"></div>
+                        <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
                     </div>
+                </div>
                 </div>
                 
                 <!-- Actions -->
@@ -192,14 +185,6 @@
             renderWorkflowSteps();
             updateFieldPalette();
             initializeDragAndDrop();
-        }
-        
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active'));
-            document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-            
-            event.target.classList.add('tab-active');
-            document.getElementById(`tab-${tabName}`).classList.add('active');
         }
         
         // Field Mapping with Inline Value Mapping
