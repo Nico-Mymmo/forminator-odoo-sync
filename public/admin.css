@@ -3,10 +3,25 @@
 /* Tab content visibility - functional only */
 .tab-content {
     display: none;
+    width: 100%;
 }
 
 .tab-content.active {
     display: block;
+}
+
+/* Remove DaisyUI button animations that distract during tab switches */
+.btn {
+    transition: none !important;
+}
+
+/* Disable collapse animations for smoother experience */
+.collapse {
+    transition: none !important;
+}
+
+.collapse-content {
+    transition: none !important;
 }
 
 /* Chip input placeholder when empty */

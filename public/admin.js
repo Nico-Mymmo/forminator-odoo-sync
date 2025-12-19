@@ -163,7 +163,7 @@
                 
                 <!-- Tab Content: Mapping -->
                 <div id="tab-mapping" class="tab-content active">
-                    <div class="bg-base-100 border border-base-300 shadow-sm rounded-b-lg rounded-tr-lg p-6" style="margin-top: -1px;">
+                    <div class="bg-base-100 border-l border-r border-b border-base-300 shadow-sm rounded-b-lg rounded-tr-lg p-6">
                         <h3 class="text-lg font-bold mb-3">Field Mapping & Value Mapping</h3>
                         <div id="fieldMapping" class="space-y-2"></div>
                         <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
@@ -172,7 +172,7 @@
                 
                 <!-- Tab Content: Workflow -->
                 <div id="tab-workflow" class="tab-content">
-                    <div class="bg-base-100 border border-base-300 shadow-sm rounded-b-lg rounded-tl-lg p-6" style="margin-top: -1px;">
+                    <div class="bg-base-100 border-l border-r border-b border-base-300 shadow-sm rounded-b-lg rounded-tl-lg p-6">
                         <h3 class="text-lg font-bold mb-3">Workflow Steps</h3>
                             <div id="workflowSteps"></div>
                             <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
@@ -974,7 +974,7 @@
                                     </div>
                                 </div>
                         
-                        <div class="collapse collapse-arrow bg-base-200 mb-2 ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? 'collapse-open' : ''}">
+                        <div class="collapse collapse-arrow bg-base-200 mb-2">
                             <input type="checkbox" ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? 'checked' : ''} /> 
                             <div class="collapse-title text-sm font-medium">
                                 🔍 Search
@@ -996,7 +996,7 @@
                             </div>
                         </div>
                         
-                        <div class="collapse collapse-arrow bg-base-200 mb-2 ${(step.create && Object.keys(step.create).length > 0) ? 'collapse-open' : ''}">
+                        <div class="collapse collapse-arrow bg-base-200 mb-2">
                             <input type="checkbox" ${(step.create && Object.keys(step.create).length > 0) ? 'checked' : ''} /> 
                             <div class="collapse-title text-sm font-medium">
                                 ➕ Create
@@ -1007,7 +1007,7 @@
                             </div>
                         </div>
                         
-                        <div class="collapse collapse-arrow bg-base-200 mb-2 ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'collapse-open' : ''}">
+                        <div class="collapse collapse-arrow bg-base-200 mb-2">
                             <input type="checkbox" ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'checked' : ''} /> 
                             <div class="collapse-title text-sm font-medium">
                                 ✏️ Update
@@ -1018,7 +1018,7 @@
                             </div>
                         </div>
                         
-                        <div class="collapse collapse-arrow bg-base-200 mb-2 ${step.html_card ? 'collapse-open' : ''}">
+                        <div class="collapse collapse-arrow bg-base-200 mb-2">
                             <input type="checkbox" ${step.html_card ? 'checked' : ''} /> 
                             <div class="collapse-title text-sm font-medium">
                                 🎨 HTML Card
