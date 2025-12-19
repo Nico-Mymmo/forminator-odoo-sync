@@ -16,7 +16,7 @@ export const adminHTML = `<!DOCTYPE html>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/admin.css">
 </head>
-<body class="bg-base-200">
+<body class="bg-base-200" style="overflow-y: scroll;">
     ${loginScreen}
     
     <div id="adminInterface" style="display: none; height: 100vh; display: flex; flex-direction: column;">

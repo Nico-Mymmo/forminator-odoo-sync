@@ -978,12 +978,14 @@
                 stepEl.innerHTML = `
                     <div class="collapse collapse-arrow bg-base-100 shadow mb-4">
                         <input type="checkbox" id="step-toggle-${idx}" checked /> 
-                        <div class="collapse-title p-4 pr-16 min-h-0">
-                            <h3 class="text-base font-semibold">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
-                        </div>
-                        <div class="absolute top-4 right-4 flex gap-2 z-10">
-                            ${resultBadge}
-                            <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx}); event.stopPropagation();">×</button>
+                        <div class="collapse-title p-4 min-h-0">
+                            <div class="flex items-center justify-between pr-8">
+                                <h3 class="text-base font-semibold">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
+                                <div class="flex gap-2 shrink-0">
+                                    ${resultBadge}
+                                    <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx}); event.stopPropagation();">×</button>
+                                </div>
+                            </div>
                         </div>
                         <div class="collapse-content p-4 pt-0">
                                 <div class="grid grid-cols-2 gap-3 mb-4">
