@@ -884,7 +884,10 @@
                 chipInput.insertBefore(document.createTextNode(' '), chip.nextSibling);
             }
             
+            // Force update placeholder visibility
             updateHiddenValue(chipInput, hiddenInput);
+            
+            // Trigger change event
             hiddenInput.dispatchEvent(new Event('change'));
             chipInput.focus();
         }
