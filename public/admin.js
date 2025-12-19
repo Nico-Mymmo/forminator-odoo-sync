@@ -464,9 +464,15 @@
             
             // Create chip input container
             const chipInput = document.createElement('div');
-            chipInput.className = 'input input-sm input-bordered flex flex-wrap items-center gap-1 h-auto min-h-[2rem] focus-within:input-accent';
+            chipInput.className = 'input input-sm input-bordered flex flex-wrap items-center gap-1 h-auto min-h-[2rem] focus-within:input-accent relative';
             chipInput.setAttribute('contenteditable', 'true');
-            chipInput.setAttribute('data-placeholder', placeholder || 'Typ een waarde of sleep een veld hiernaartoe');
+            
+            // Add placeholder element (DaisyUI style)
+            const placeholderText = document.createElement('span');
+            placeholderText.className = 'absolute pointer-events-none opacity-50';
+            placeholderText.textContent = placeholder || 'Typ een waarde of sleep een veld hiernaartoe';
+            placeholderText.style.display = 'none';
+            chipInput.appendChild(placeholderText);
             
             // Create hidden input to store actual value
             const hiddenInput = document.createElement('input');
@@ -565,11 +571,21 @@
         }
         
         function renderChipContent(chipInput, value) {
+            // Save placeholder if exists
+            const existingPlaceholder = chipInput.querySelector('span.absolute.pointer-events-none');
             chipInput.innerHTML = '';
             
+            // Re-add placeholder
+            if (existingPlaceholder) {
+                chipInput.appendChild(existingPlaceholder);
+            }
+            
             if (!value) {
+                if (existingPlaceholder) existingPlaceholder.style.display = 'block';
                 return;
             }
+            
+            if (existingPlaceholder) existingPlaceholder.style.display = 'none';
             
             // Parse value and create chips and text nodes
             // Match both field.xxx and xxx for form fields, and stepname.field for step references
@@ -760,10 +776,14 @@
             if (!hiddenInput) return;
             
             let value = '';
+            let hasContent = false;
             chipInput.childNodes.forEach(node => {
                 if (node.nodeType === Node.TEXT_NODE) {
+                    const text = node.textContent.trim();
+                    if (text) hasContent = true;
                     value += node.textContent;
                 } else if (node.classList && (node.classList.contains('field-chip') || node.classList.contains('step-chip'))) {
+                    hasContent = true;
                     const fieldName = node.getAttribute('data-field');
                     const chipType = node.getAttribute('data-chip-type');
                     
@@ -779,6 +799,12 @@
             
             // Trim leading and trailing whitespace
             hiddenInput.value = value.trim();
+            
+            // Toggle placeholder visibility
+            const placeholder = chipInput.querySelector('span.absolute.pointer-events-none');
+            if (placeholder) {
+                placeholder.style.display = hasContent ? 'none' : 'block';
+            }
         }
         
         function handleChipDrop(e, chipInput, hiddenInput) {
