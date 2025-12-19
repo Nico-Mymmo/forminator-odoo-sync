@@ -19,10 +19,10 @@ export const adminHTML = `<!DOCTYPE html>
 <body class="bg-base-200" style="overflow-y: scroll;">
     ${loginScreen}
     
-    <div id="adminInterface" style="display: none;">
+    <div id="adminInterface" style="display: none; min-height: 100vh; display: flex; flex-direction: column;">
         ${navbar}
         
-        <div style="display: flex; flex-direction: row; position: relative; min-height: calc(100vh - 48px);">
+        <div style="flex: 1; display: flex; flex-direction: row; position: relative;">
             ${sidebar}
             ${editor}
             ${fieldPalette}
