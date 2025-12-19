@@ -19,14 +19,11 @@ export const adminHTML = `<!DOCTYPE html>
 <body class="bg-base-200" style="overflow-y: scroll;">
     ${loginScreen}
     
-    <div id="adminInterface" style="display: none; min-height: 100vh;">
+    <div id="adminInterface" style="display: none; padding-top: 48px;">
         ${navbar}
-        
-        <div style="display: flex; flex-direction: row; position: relative; padding-top: 48px;">
-            ${sidebar}
-            ${editor}
-            ${fieldPalette}
-        </div>
+        ${sidebar}
+        ${editor}
+        ${fieldPalette}
     </div>
     
     ${htmlCardModal}
