@@ -137,7 +137,7 @@
             const formName = data.name || formId;
             const escapedFormName = escapeHtml(data.name || '');
             const escapedFormId = escapeHtml(formId);
-            const webhookUrl = `https://forminator-sync.openvme-odoo.workers.dev/forminator`;
+            const webhookUrl = `https://forminator-sync.openvme-odoo.workers.dev/?action=receive_forminator&token=openvmeform`;
             const escapedWebhookUrl = escapeHtml(webhookUrl);
             document.getElementById('editorTitle').textContent = `Edit: ${formName}`;
             document.getElementById('editorContent').innerHTML = `
