@@ -363,12 +363,23 @@
         }
         
         function addFieldRow() {
-            const key = prompt('Forminator field name:');
-            if (!key) return;
-            const value = prompt('Odoo field name:');
-            fieldMapping[key] = value || '';
+            // Add empty row directly - user can fill it in
+            const tempKey = `field_${Date.now()}`;
+            fieldMapping[tempKey] = '';
             renderFieldMapping();
             updateFieldPalette();
+            
+            // Focus on the first input of the new row
+            setTimeout(() => {
+                const container = document.getElementById('fieldMapping');
+                const lastRow = container.lastElementChild;
+                if (lastRow) {
+                    const firstInput = lastRow.querySelector('input[data-type="key"]');
+                    if (firstInput) {
+                        firstInput.select();
+                    }
+                }
+            }, 0);
         }
         
         // Field Palette for Drag & Drop
