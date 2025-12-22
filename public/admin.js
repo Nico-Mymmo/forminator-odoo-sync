@@ -137,12 +137,14 @@
             const formName = data.name || formId;
             const escapedFormName = escapeHtml(data.name || '');
             const escapedFormId = escapeHtml(formId);
+            const webhookUrl = `https://forminator-sync.openvme-odoo.workers.dev/forminator`;
+            const escapedWebhookUrl = escapeHtml(webhookUrl);
             document.getElementById('editorTitle').textContent = `Edit: ${formName}`;
             document.getElementById('editorContent').innerHTML = `
                 <!-- Form Details Card -->
                 <div class="card bg-base-100 shadow-sm mb-4">
                     <div class="card-body">
-                        <div class="grid grid-cols-2 gap-4">
+                        <div class="grid grid-cols-2 gap-4 mb-4">
                             <div class="form-control">
                                 <label class="label"><span class="label-text font-semibold">Form Name</span></label>
                                 <input type="text" id="formName" value="${escapedFormName}" placeholder="Enter a display name" class="input input-bordered" onchange="updateFormName()">
@@ -152,20 +154,32 @@
                                 <input type="text" id="formId" value="${escapedFormId}" readonly class="input input-bordered input-disabled" title="Form ID cannot be changed">
                             </div>
                         </div>
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text font-semibold">Webhook URL</span>
+                                <span class="label-text-alt">Gebruik deze URL in Forminator webhook instellingen</span>
+                            </label>
+                            <div class="join w-full">
+                                <input type="text" value="${escapedWebhookUrl}" readonly class="input input-bordered join-item flex-1 font-mono text-sm">
+                                <button class="btn btn-primary join-item" onclick="copyWebhookUrl('${escapedWebhookUrl}')">
+                                    📋 Kopieer
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
-                <!-- DaisyUI Radio Tabs Lifted with Icons -->
-                <div role="tablist" class="tabs tabs-lifted w-full [--tab-border:1px]">
-                    <input type="radio" name="main_tabs" role="tab" class="tab w-40" aria-label="📋 Mapping" checked="checked" />
-                    <div role="tabpanel" class="tab-content bg-base-100 border border-base-300 rounded-box p-6 w-full">
+                <!-- DaisyUI Radio Tabs Lifted with Tab Content -->
+                <div role="tablist" class="tabs tabs-lifted">
+                    <input type="radio" name="main_tabs" role="tab" class="tab whitespace-nowrap" aria-label="📋 Mapping" checked="checked" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 w-full">
                         <h3 class="text-lg font-bold mb-3">Field Mapping & Value Mapping</h3>
                         <div id="fieldMapping" class="space-y-2"></div>
                         <button class="btn btn-primary btn-sm mt-3" onclick="addFieldRow()">+ Add Field</button>
                     </div>
                     
-                    <input type="radio" name="main_tabs" role="tab" class="tab w-40" aria-label="⚙️ Workflow" />
-                    <div role="tabpanel" class="tab-content bg-base-100 border border-base-300 rounded-box p-6 w-full">
+                    <input type="radio" name="main_tabs" role="tab" class="tab whitespace-nowrap" aria-label="⚙️ Workflow" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 w-full">
                         <h3 class="text-lg font-bold mb-3">Workflow Steps</h3>
                         <div id="workflowSteps"></div>
                         <button class="btn btn-success btn-sm mt-3" onclick="addWorkflowStep()">+ Add Workflow Step</button>
@@ -460,21 +474,30 @@
             // Store original value
             const originalValue = originalInput.value || '';
             const placeholder = originalInput.placeholder || '';
-            const isTextarea = originalInput.tagName === 'TEXTAREA';
             
-            // Create chip input container
+            // Create wrapper with relative positioning and inherit width
+            const wrapper = document.createElement('div');
+            wrapper.className = 'relative';
+            // Copy width styling from original input
+            if (originalInput.style.width) {
+                wrapper.style.width = originalInput.style.width;
+            }
+            if (originalInput.className.includes('flex-1')) {
+                wrapper.classList.add('flex-1');
+            }
+            
+            // Create contenteditable div styled as DaisyUI input
             const chipInput = document.createElement('div');
-            chipInput.className = 'input input-sm input-bordered flex flex-wrap items-center gap-1 h-auto min-h-[2rem] focus-within:input-accent relative';
-            chipInput.setAttribute('contenteditable', 'true');
+            chipInput.className = 'input input-sm input-bordered flex flex-wrap items-center gap-1 h-auto min-h-[2rem] focus-within:input-accent leading-tight w-full';
+            chipInput.contentEditable = 'true';
             
-            // Add placeholder element (DaisyUI style)
-            const placeholderText = document.createElement('span');
-            placeholderText.className = 'absolute pointer-events-none opacity-50 select-none';
-            placeholderText.textContent = placeholder || 'Typ een waarde of sleep een veld hiernaartoe';
-            placeholderText.contentEditable = 'false';
-            placeholderText.style.userSelect = 'none';
-            placeholderText.style.display = originalValue ? 'none' : 'block';
-            chipInput.appendChild(placeholderText);
+            // Create placeholder span
+            const placeholderSpan = document.createElement('span');
+            placeholderSpan.className = 'absolute top-2 left-3 pointer-events-none opacity-50 text-sm leading-tight';
+            placeholderSpan.textContent = placeholder || 'Typ een waarde of sleep een veld hiernaartoe';
+            
+            wrapper.appendChild(chipInput);
+            wrapper.appendChild(placeholderSpan);
             
             // Create hidden input to store actual value
             const hiddenInput = document.createElement('input');
@@ -489,105 +512,257 @@
             }
             
             // Replace original input
-            originalInput.parentNode.insertBefore(chipInput, originalInput);
+            originalInput.parentNode.insertBefore(wrapper, originalInput);
             originalInput.parentNode.insertBefore(hiddenInput, originalInput);
             originalInput.remove();
             
-            // Parse initial value and render chips
+            // Store references
+            chipInput._hiddenInput = hiddenInput;
+            chipInput._placeholder = placeholderSpan;
+            
+            // Parse and render initial value
             if (originalValue) {
-                renderChipContent(chipInput, originalValue);
+                renderMixedContent(originalValue);
+            }
+            
+            // Update placeholder visibility
+            updatePlaceholder();
+            
+            function updatePlaceholder() {
+                const isEmpty = chipInput.textContent.trim() === '' && chipInput.querySelectorAll('[data-field]').length === 0;
+                if (placeholderSpan) {
+                    placeholderSpan.style.display = isEmpty ? 'block' : 'none';
+                }
+            }
+            
+            function renderMixedContent(value) {
+                chipInput.innerHTML = '';
+                
+                // Find all placeholders (both types)
+                const fieldPattern = /\$\{(?:field\.)?([a-zA-Z0-9_]+)\}/g;
+                const stepPattern = /\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/g;
+                
+                const matches = [];
+                let match;
+                
+                while ((match = fieldPattern.exec(value)) !== null) {
+                    matches.push({
+                        type: 'field',
+                        value: match[1],
+                        start: match.index,
+                        end: match.index + match[0].length
+                    });
+                }
+                
+                fieldPattern.lastIndex = 0;
+                while ((match = stepPattern.exec(value)) !== null) {
+                    matches.push({
+                        type: 'step',
+                        value: match[1] + '.' + match[2],
+                        start: match.index,
+                        end: match.index + match[0].length
+                    });
+                }
+                
+                // Sort by position
+                matches.sort((a, b) => a.start - b.start);
+                
+                // Build content with text and chips
+                let lastIndex = 0;
+                matches.forEach(m => {
+                    // Add text before chip
+                    if (m.start > lastIndex) {
+                        chipInput.appendChild(document.createTextNode(value.substring(lastIndex, m.start)));
+                    }
+                    // Add chip
+                    chipInput.appendChild(createBadge(m.value, m.type));
+                    lastIndex = m.end;
+                });
+                
+                // Add remaining text
+                if (lastIndex < value.length) {
+                    chipInput.appendChild(document.createTextNode(value.substring(lastIndex)));
+                }
+            }
+            
+            function createBadge(fieldName, chipType) {
+                const isStep = chipType === 'step';
+                const badge = document.createElement('span');
+                badge.className = isStep ? 'badge badge-secondary badge-sm gap-1 cursor-move' : 'badge badge-primary badge-sm gap-1 cursor-move';
+                badge.contentEditable = 'false';
+                badge.draggable = true;
+                badge.setAttribute('data-field', fieldName);
+                badge.setAttribute('data-chip-type', chipType);
+                badge.textContent = fieldName;
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'btn btn-ghost btn-xs btn-circle p-0';
+                removeBtn.textContent = '×';
+                removeBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    badge.remove();
+                    updatePlaceholder();
+                    serializeValue();
+                };
+                
+                badge.appendChild(removeBtn);
+                
+                // Drag event for moving chips
+                badge.addEventListener('dragstart', (e) => {
+                    e.stopPropagation();
+                    badge.classList.add('opacity-50');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', fieldName);
+                    badge._isMoving = true;
+                });
+                
+                badge.addEventListener('dragend', (e) => {
+                    badge.classList.remove('opacity-50');
+                    badge._isMoving = false;
+                });
+                
+                return badge;
+            }
+            
+            function serializeValue() {
+                let value = '';
+                
+                const walk = (node) => {
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        value += node.textContent;
+                    } else if (node.nodeType === Node.ELEMENT_NODE) {
+                        if (node.hasAttribute('data-field')) {
+                            const fieldName = node.getAttribute('data-field');
+                            const chipType = node.getAttribute('data-chip-type');
+                            if (chipType === 'step') {
+                                value += '$' + fieldName;
+                            } else {
+                                value += '${field.' + fieldName + '}';
+                            }
+                        } else {
+                            // Walk children for other elements
+                            Array.from(node.childNodes).forEach(walk);
+                        }
+                    }
+                };
+                
+                Array.from(chipInput.childNodes).forEach(walk);
+                
+                hiddenInput.value = value;
+                updatePlaceholder();
             }
             
             // Event listeners
-            chipInput.addEventListener('input', function(e) {
-                // Small delay to let browser finish the input
-                setTimeout(function() {
-                    normalizeChipContent(chipInput);
-                    updateHiddenValue(chipInput, hiddenInput);
-                }, 0);
+            chipInput.addEventListener('input', () => {
+                serializeValue();
             });
             
-            chipInput.addEventListener('blur', function() {
-                normalizeChipContent(chipInput);
-                updateHiddenValue(chipInput, hiddenInput);
+            chipInput.addEventListener('blur', () => {
+                serializeValue();
                 if (changeHandler) {
                     hiddenInput.dispatchEvent(new Event('change'));
                 }
             });
             
-            chipInput.addEventListener('keydown', function(e) {
-                // Handle backspace on chips
-                if (e.key === 'Backspace') {
-                    const sel = window.getSelection();
-                    if (sel.rangeCount > 0) {
-                        const range = sel.getRangeAt(0);
-                        // Check if cursor is right after a chip
-                        if (range.collapsed && range.startOffset === 0 && range.startContainer.previousSibling) {
-                            const prev = range.startContainer.previousSibling;
-                            if (prev.classList && prev.classList.contains('field-chip')) {
-                                e.preventDefault();
-                                prev.remove();
-                                updateHiddenValue(chipInput, hiddenInput);
-                            }
-                        }
-                    }
-                }
-                // Handle delete on chips
-                if (e.key === 'Delete') {
-                    const sel = window.getSelection();
-                    if (sel.rangeCount > 0) {
-                        const range = sel.getRangeAt(0);
-                        // Check if cursor is right before a chip
-                        if (range.collapsed && range.startContainer.nextSibling) {
-                            const next = range.startContainer.nextSibling;
-                            if (next.classList && next.classList.contains('field-chip')) {
-                                e.preventDefault();
-                                next.remove();
-                                updateHiddenValue(chipInput, hiddenInput);
-                            }
-                        }
-                    }
-                }
-            });
-            
+            // Drag and drop support
             chipInput.addEventListener('dragover', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                chipInput.classList.add('!border-primary', 'bg-primary/10');
+                chipInput.classList.add('input-accent');
             });
+            
             chipInput.addEventListener('dragleave', function(e) {
-                // Only remove if we're actually leaving the chip input
                 if (!chipInput.contains(e.relatedTarget)) {
-                    chipInput.classList.remove('!border-primary', 'bg-primary/10');
+                    chipInput.classList.remove('input-accent');
                 }
             });
+            
             chipInput.addEventListener('drop', function(e) {
-                handleChipDrop(e, chipInput, hiddenInput);
+                e.preventDefault();
+                e.stopPropagation();
+                chipInput.classList.remove('input-accent');
+                
+                // Check if we're moving an existing chip
+                const movingChip = Array.from(chipInput.querySelectorAll('[data-field]')).find(c => c._isMoving);
+                
+                let badge;
+                if (movingChip) {
+                    // Moving existing chip
+                    badge = movingChip;
+                } else if (draggedFieldName) {
+                    // Adding new chip from palette
+                    const chipType = draggedFieldName.includes('.') ? 'step' : 'field';
+                    badge = createBadge(draggedFieldName, chipType);
+                }
+                
+                if (badge) {
+                    // Get cursor position
+                    let range;
+                    if (document.caretPositionFromPoint) {
+                        const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
+                        if (pos) {
+                            range = document.createRange();
+                            range.setStart(pos.offsetNode, pos.offset);
+                        }
+                    } else if (document.caretRangeFromPoint) {
+                        range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                    }
+                    
+                    if (range && chipInput.contains(range.startContainer)) {
+                        // Remove chip from old position if moving
+                        if (movingChip && badge.parentNode) {
+                            badge.remove();
+                        }
+                        
+                        // Insert at cursor position
+                        if (range.startContainer.nodeType === Node.TEXT_NODE) {
+                            const textNode = range.startContainer;
+                            const offset = range.startOffset;
+                            
+                            if (offset > 0 && offset < textNode.length) {
+                                const afterText = textNode.splitText(offset);
+                                textNode.parentNode.insertBefore(badge, afterText);
+                                textNode.parentNode.insertBefore(document.createTextNode(' '), afterText);
+                            } else if (offset === 0) {
+                                textNode.parentNode.insertBefore(badge, textNode);
+                                textNode.parentNode.insertBefore(document.createTextNode(' '), textNode);
+                            } else {
+                                textNode.parentNode.insertBefore(badge, textNode.nextSibling);
+                                textNode.parentNode.insertBefore(document.createTextNode(' '), textNode.nextSibling);
+                            }
+                        } else {
+                            range.insertNode(badge);
+                            badge.parentNode.insertBefore(document.createTextNode(' '), badge.nextSibling);
+                        }
+                    } else if (!movingChip) {
+                        // Fallback: append at end
+                        chipInput.appendChild(badge);
+                        chipInput.appendChild(document.createTextNode(' '));
+                    }
+                    
+                    serializeValue();
+                    chipInput.focus();
+                }
             });
+            
             chipInput.addEventListener('dragenter', function(e) {
                 e.preventDefault();
             });
-            
-            // Store reference for later access
-            chipInput._hiddenInput = hiddenInput;
         }
         
-        function renderChipContent(chipInput, value) {
-            // Save placeholder if exists
-            const existingPlaceholder = chipInput.querySelector('span.absolute.pointer-events-none');
+        function renderChipContent(chipInput, value, placeholder = null) {
+            // Get placeholder from parameter or stored reference
+            const placeholderElement = placeholder || chipInput._placeholder;
             chipInput.innerHTML = '';
             
-            // Re-add placeholder
-            if (existingPlaceholder) {
-                chipInput.appendChild(existingPlaceholder);
-            }
-            
             if (!value) {
-                if (existingPlaceholder) existingPlaceholder.style.display = 'block';
+                if (placeholderElement) placeholderElement.style.display = 'block';
                 return;
             }
             
-            if (existingPlaceholder) existingPlaceholder.style.display = 'none';
+            if (placeholderElement) placeholderElement.style.display = 'none';
             
             // Parse value and create chips and text nodes
             // Match both field.xxx and xxx for form fields, and stepname.field for step references
@@ -650,14 +825,12 @@
             }
             
             // Update placeholder visibility after rendering content
-            const placeholder = chipInput.querySelector('span.absolute.pointer-events-none');
-            if (placeholder) {
+            if (placeholderElement) {
                 const hasVisibleContent = Array.from(chipInput.childNodes).some(node => {
-                    if (node === placeholder) return false;
                     if (node.nodeType === Node.TEXT_NODE) return node.textContent.trim().length > 0;
-                    return node.classList && (node.classList.contains('field-chip') || node.classList.contains('step-chip'));
+                    return node.nodeType === Node.ELEMENT_NODE && node.hasAttribute && node.hasAttribute('data-field');
                 });
-                placeholder.style.display = hasVisibleContent ? 'none' : 'block';
+                placeholderElement.style.display = hasVisibleContent ? 'none' : 'block';
             }
         }
         
@@ -788,20 +961,18 @@
         function updateHiddenValue(chipInput, hiddenInput) {
             if (!hiddenInput) return;
             
-            // Get placeholder first to exclude it from checks
-            const placeholder = chipInput.querySelector('span.absolute.pointer-events-none');
+            // Get placeholder from stored reference
+            const placeholder = chipInput._placeholder;
             
             let value = '';
             let hasContent = false;
             chipInput.childNodes.forEach(node => {
-                // Skip placeholder element
-                if (node === placeholder) return;
-                
                 if (node.nodeType === Node.TEXT_NODE) {
                     const text = node.textContent.trim();
                     if (text) hasContent = true;
                     value += node.textContent;
-                } else if (node.classList && (node.classList.contains('field-chip') || node.classList.contains('step-chip'))) {
+                } else if (node.nodeType === Node.ELEMENT_NODE && node.hasAttribute && node.hasAttribute('data-field')) {
+                    // Check if it's a chip by looking for data-field attribute (more reliable than class names)
                     hasContent = true;
                     const fieldName = node.getAttribute('data-field');
                     const chipType = node.getAttribute('data-chip-type');
@@ -830,8 +1001,11 @@
             e.stopPropagation();
             chipInput.classList.remove('!border-primary', 'bg-primary/10');
             
+            // Get placeholder from stored reference
+            const placeholder = chipInput._placeholder;
+            
             // Check if we're moving an existing chip within this input
-            const movingChip = Array.from(chipInput.querySelectorAll('.field-chip, .step-chip')).find(c => c._isMoving);
+            const movingChip = Array.from(chipInput.querySelectorAll('[data-field]')).find(c => c._isMoving);
             
             let chip;
             if (movingChip) {
@@ -846,42 +1020,62 @@
                 return;
             }
             
-            // Find the drop position based on mouse coordinates
-            let insertBeforeElement = null;
-            const rect = chipInput.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            // Find the drop position using caret position from mouse coordinates
+            let dropRange;
+            if (document.caretPositionFromPoint) {
+                const position = document.caretPositionFromPoint(e.clientX, e.clientY);
+                if (position) {
+                    dropRange = document.createRange();
+                    dropRange.setStart(position.offsetNode, position.offset);
+                }
+            } else if (document.caretRangeFromPoint) {
+                dropRange = document.caretRangeFromPoint(e.clientX, e.clientY);
+            }
             
-            // Find the element at the drop position
-            Array.from(chipInput.childNodes).forEach(node => {
-                if (node === chip) return; // Skip the chip being moved
-                
-                if (node.nodeType === Node.ELEMENT_NODE) {
-                    const nodeRect = node.getBoundingClientRect();
-                    const nodeX = nodeRect.left - rect.left;
-                    const nodeY = nodeRect.top - rect.top;
-                    const nodeWidth = nodeRect.width;
-                    const nodeHeight = nodeRect.height;
+            // Insert the chip at the cursor position
+            if (dropRange && dropRange.startContainer) {
+                // If we're in a text node, split it at the cursor position
+                if (dropRange.startContainer.nodeType === Node.TEXT_NODE) {
+                    const textNode = dropRange.startContainer;
+                    const offset = dropRange.startOffset;
                     
-                    // Check if drop is before this element
-                    if (y < nodeY + nodeHeight && y >= nodeY) {
-                        if (x < nodeX + nodeWidth / 2) {
-                            insertBeforeElement = node;
+                    // Split the text node if we're in the middle
+                    if (offset > 0 && offset < textNode.length) {
+                        const afterText = textNode.splitText(offset);
+                        textNode.parentNode.insertBefore(chip, afterText);
+                    } else if (offset === 0) {
+                        textNode.parentNode.insertBefore(chip, textNode);
+                    } else {
+                        textNode.parentNode.insertBefore(chip, textNode.nextSibling);
+                    }
+                } else {
+                    // Insert at the specified container and offset
+                    const container = dropRange.startContainer === chipInput ? chipInput : dropRange.startContainer.parentNode;
+                    if (container === chipInput || chipInput.contains(container)) {
+                        if (dropRange.startOffset < container.childNodes.length) {
+                            container.insertBefore(chip, container.childNodes[dropRange.startOffset]);
+                        } else {
+                            container.appendChild(chip);
                         }
+                    } else {
+                        chipInput.appendChild(chip);
                     }
                 }
-            });
-            
-            // Insert the chip
-            if (insertBeforeElement) {
-                chipInput.insertBefore(chip, insertBeforeElement);
             } else {
+                // Fallback: append at the end
                 chipInput.appendChild(chip);
             }
             
-            // Add a space after if needed
-            if (!chip.nextSibling || (chip.nextSibling.nodeType === Node.ELEMENT_NODE)) {
-                chipInput.insertBefore(document.createTextNode(' '), chip.nextSibling);
+            // Ensure there's a text node after the chip for cursor placement
+            let textNodeAfter = chip.nextSibling;
+            if (!textNodeAfter || textNodeAfter.nodeType !== Node.TEXT_NODE) {
+                textNodeAfter = document.createTextNode(' ');
+                chipInput.insertBefore(textNodeAfter, chip.nextSibling);
+            }
+            
+            // Hide placeholder immediately when chip is added
+            if (placeholder) {
+                placeholder.style.display = 'none';
             }
             
             // Force update placeholder visibility
@@ -889,7 +1083,25 @@
             
             // Trigger change event
             hiddenInput.dispatchEvent(new Event('change'));
-            chipInput.focus();
+            
+            // Set cursor after the chip with a small delay to let DOM update
+            setTimeout(() => {
+                chipInput.focus();
+                const selection = window.getSelection();
+                const cursorRange = document.createRange();
+                try {
+                    // Ensure text node still exists and set cursor at the start of it
+                    const targetNode = textNodeAfter.nodeType === Node.TEXT_NODE ? textNodeAfter : chipInput;
+                    const offset = targetNode === chipInput ? 0 : 0;
+                    cursorRange.setStart(targetNode, offset);
+                    cursorRange.collapse(true);
+                    selection.removeAllRanges();
+                    selection.addRange(cursorRange);
+                } catch (e) {
+                    // Fallback: just focus the input
+                    console.warn('Could not set cursor position:', e);
+                }
+            }, 10);
         }
         
         function makeDropZone(element) {
@@ -1377,7 +1589,7 @@
             
             Object.entries(values).forEach(([key, value]) => {
                 const row = document.createElement('div');
-                row.className = 'value-row';
+                row.className = 'flex items-center gap-2 w-full';
                 const displayValue = typeof value === 'object' ? JSON.stringify(value) : value;
                 const useTextarea = displayValue.length > 40;
                 const fieldType = fieldTypes[key] || 'auto';
@@ -1386,39 +1598,107 @@
                 
                 row.innerHTML = `
                     <input type="text" value="${key}" placeholder="field" data-old-key="${key}" 
-                        onchange="updateCreateValue(${stepIdx}, this.dataset.oldKey, this.value, this.nextElementSibling.nextElementSibling.value)">
-                    <span>=</span>
+                        class="input input-sm input-bordered flex-1"
+                        onchange="updateCreateValueFromRow(${stepIdx}, this)">
+                    <span class="text-base-content/50 flex-shrink-0">=</span>
                     ${useTextarea 
-                        ? `<textarea onchange="updateCreateValue(${stepIdx}, '${key}', '${key}', this.value)">${displayValue}</textarea>`
-                        : `<input type="text" value="${displayValue}" placeholder="value" onchange="updateCreateValue(${stepIdx}, '${key}', '${key}', this.value)">`
+                        ? `<textarea id="create-value-${stepIdx}-${key.replace(/\W/g, '_')}" class="textarea textarea-sm textarea-bordered chip-enabled min-h-[2rem] flex-1" onchange="updateCreateValueFromInput(${stepIdx}, '${key}', this)">${displayValue}</textarea>`
+                        : `<input id="create-value-${stepIdx}-${key.replace(/\W/g, '_')}" type="text" value="${displayValue}" placeholder="value" class="input input-sm input-bordered chip-enabled flex-1" onchange="updateCreateValueFromInput(${stepIdx}, '${key}', this)">`
                     }
-                    <select class="field-type-selector" onchange="updateCreateFieldType(${stepIdx}, '${key}', this.value)" title="Data type">
+                    <select class="select select-sm select-bordered flex-shrink-0" onchange="updateCreateFieldType(${stepIdx}, '${key}', this.value)" title="Data type">
                         <option value="auto" ${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
                         <option value="string" ${fieldType === 'string' ? 'selected' : ''}>String</option>
                         <option value="integer" ${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
                         <option value="float" ${fieldType === 'float' ? 'selected' : ''}>Float</option>
                         <option value="boolean" ${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
                     </select>
-                    <button onclick="deleteCreateValue(${stepIdx}, '${key}')">×</button>
+                    <button class="btn btn-sm btn-ghost btn-square flex-shrink-0" onclick="deleteCreateValue(${stepIdx}, '${key}')">×</button>
                 `;
                 container.appendChild(row);
             });
             
-            // Convert inputs to chip inputs after a small delay to ensure values are set
+            // Convert ONLY value inputs (not field name inputs) to chip inputs
             setTimeout(() => {
-                const inputs = container.querySelectorAll('input[type="text"], textarea');
-                console.log('Converting', inputs.length, 'inputs to chip inputs');
+                const inputs = container.querySelectorAll('.chip-enabled');
+                console.log('Converting', inputs.length, 'value inputs to chip inputs');
                 inputs.forEach(convertToChipInput);
             }, 0);
         }
         
         function addCreateValue(stepIdx) {
             if (!workflowSteps[stepIdx].create) workflowSteps[stepIdx].create = {};
-            const key = prompt('Field name:');
-            if (!key) return;
-            const value = prompt('Field value:');
-            workflowSteps[stepIdx].create[key] = value || '';
-            renderCreateValues(stepIdx, workflowSteps[stepIdx].create);
+            
+            // Add empty row
+            const key = '';
+            const value = '';
+            workflowSteps[stepIdx].create[key] = value;
+            
+            // Add only the new row instead of re-rendering everything
+            const container = document.getElementById(`create-${stepIdx}`);
+            const fieldTypes = workflowSteps[stepIdx]._ui_metadata?.create_types || {};
+            const displayValue = '';
+            const useTextarea = false;
+            const fieldType = 'auto';
+            
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-2 w-full';
+            row.innerHTML = `
+                <input type="text" value="" placeholder="field" data-old-key="" 
+                    class="input input-sm input-bordered flex-1"
+                    onchange="updateCreateValueFromRow(${stepIdx}, this)">
+                <span class="text-base-content/50 flex-shrink-0">=</span>
+                <input id="create-value-${stepIdx}-new" type="text" value="" placeholder="value" class="input input-sm input-bordered chip-enabled flex-1" onchange="updateCreateValueFromInput(${stepIdx}, '', this)">
+                <select class="select select-sm select-bordered flex-shrink-0" onchange="updateCreateFieldType(${stepIdx}, '', this.value)" title="Data type">
+                    <option value="auto" selected>Auto</option>
+                    <option value="string">String</option>
+                    <option value="integer">Integer</option>
+                    <option value="float">Float</option>
+                    <option value="boolean">Boolean</option>
+                </select>
+                <button class="btn btn-sm btn-ghost btn-square flex-shrink-0" onclick="deleteCreateValue(${stepIdx}, '')">×</button>
+            `;
+            container.appendChild(row);
+            
+            // Convert only the new input to chip input
+            setTimeout(() => {
+                const newInput = row.querySelector('.chip-enabled');
+                if (newInput) convertToChipInput(newInput);
+            }, 0);
+        }
+        
+        function updateCreateValueFromRow(stepIdx, fieldInput) {
+            const oldKey = fieldInput.dataset.oldKey;
+            const newKey = fieldInput.value;
+            // Find the value input/wrapper in the same row
+            const row = fieldInput.parentElement;
+            const valueWrapper = row.querySelector('.relative');
+            let value;
+            if (valueWrapper) {
+                // Chip input - get value from hidden input
+                const hiddenInput = valueWrapper.nextElementSibling;
+                value = hiddenInput ? hiddenInput.value : '';
+            } else {
+                // Normal input - get value directly
+                const valueInput = row.querySelector('.chip-enabled');
+                value = valueInput ? valueInput.value : '';
+            }
+            updateCreateValue(stepIdx, oldKey, newKey, value);
+            fieldInput.dataset.oldKey = newKey;
+        }
+        
+        function updateCreateValueFromInput(stepIdx, key, inputElement) {
+            // Check if this has been converted to chip input
+            const wrapper = inputElement.parentElement?.classList.contains('relative') ? inputElement.parentElement : null;
+            let value;
+            if (wrapper) {
+                // Chip input - value is in hidden sibling
+                const hiddenInput = wrapper.nextElementSibling;
+                value = hiddenInput ? hiddenInput.value : inputElement.value;
+            } else {
+                // Normal input
+                value = inputElement.value;
+            }
+            updateCreateValue(stepIdx, key, key, value);
         }
         
         function updateCreateValue(stepIdx, oldKey, newKey, value) {
@@ -1483,30 +1763,30 @@
                 if (key === 'enabled') return;
                 
                 const row = document.createElement('div');
-                row.className = 'value-row';
+                row.className = 'flex items-center gap-2 w-full';
                 const displayValue = typeof value === 'object' ? JSON.stringify(value) : value;
                 const useTextarea = displayValue.length > 40;
                 const fieldType = fieldTypes[key] || 'auto';
                 
                 row.innerHTML = `
-                    <select onchange="updateUpdateValueKey(${stepIdx}, '${key}', this.value)" style="flex: 1;">
+                    <select class="select select-sm select-bordered flex-1" onchange="updateUpdateValueKey(${stepIdx}, '${key}', this.value)">
                         <option value="">-- Select field --</option>
                         ${searchFieldOptions}
                         <option value="${key}" ${!searchFields.includes(key) && key ? 'selected' : ''}>${key || '(custom)'}</option>
                     </select>
-                    <span>=</span>
+                    <span class="text-base-content/50 flex-shrink-0">=</span>
                     ${useTextarea 
-                        ? `<textarea onchange="updateUpdateValue(${stepIdx}, '${key}', '${key}', this.value)">${displayValue}</textarea>`
-                        : `<input type="text" value="${displayValue}" placeholder="value" onchange="updateUpdateValue(${stepIdx}, '${key}', '${key}', this.value)">`
+                        ? `<textarea id="update-value-${stepIdx}-${key.replace(/\W/g, '_')}" class="textarea textarea-sm textarea-bordered chip-enabled min-h-[2rem] flex-1" onchange="updateUpdateValueFromInput(${stepIdx}, '${key}', this)">${displayValue}</textarea>`
+                        : `<input id="update-value-${stepIdx}-${key.replace(/\W/g, '_')}" type="text" value="${displayValue}" placeholder="value" class="input input-sm input-bordered chip-enabled flex-1" onchange="updateUpdateValueFromInput(${stepIdx}, '${key}', this)">`
                     }
-                    <select class="field-type-selector" onchange="updateUpdateFieldType(${stepIdx}, '${key}', this.value)" title="Data type">
+                    <select class="select select-sm select-bordered flex-shrink-0" onchange="updateUpdateFieldType(${stepIdx}, '${key}', this.value)" title="Data type">
                         <option value="auto" ${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
                         <option value="string" ${fieldType === 'string' ? 'selected' : ''}>String</option>
                         <option value="integer" ${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
                         <option value="float" ${fieldType === 'float' ? 'selected' : ''}>Float</option>
                         <option value="boolean" ${fieldType === 'boolean' ? 'selected' : ''}>Boolean</option>
                     </select>
-                    <button onclick="deleteUpdateValue(${stepIdx}, '${key}')">×</button>
+                    <button class="btn btn-sm btn-ghost btn-square flex-shrink-0" onclick="deleteUpdateValue(${stepIdx}, '${key}')">×</button>
                 `;
                 container.appendChild(row);
                 
@@ -1517,10 +1797,25 @@
                 }
             });
             
-            // Convert value inputs to chip inputs after a small delay to ensure values are set
+            // Convert ONLY value inputs (not field selects) to chip inputs
             setTimeout(() => {
-                container.querySelectorAll('input[type="text"], textarea').forEach(convertToChipInput);
+                container.querySelectorAll('.chip-enabled').forEach(convertToChipInput);
             }, 0);
+        }
+        
+        function updateUpdateValueFromInput(stepIdx, key, inputElement) {
+            // Check if this has been converted to chip input
+            const wrapper = inputElement.parentElement?.classList.contains('relative') ? inputElement.parentElement : null;
+            let value;
+            if (wrapper) {
+                // Chip input - value is in hidden sibling
+                const hiddenInput = wrapper.nextElementSibling;
+                value = hiddenInput ? hiddenInput.value : inputElement.value;
+            } else {
+                // Normal input
+                value = inputElement.value;
+            }
+            updateUpdateValue(stepIdx, key, key, value);
         }
         
         function updateUpdateValueKey(stepIdx, oldKey, newKey) {
@@ -1538,17 +1833,48 @@
             if (!workflowSteps[stepIdx].update.fields) workflowSteps[stepIdx].update.fields = {};
             
             // Add empty row
-            workflowSteps[stepIdx].update.fields[''] = '';
-            renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
-        }
-        
-        function addCreateValue(stepIdx) {
-            if (!workflowSteps[stepIdx].create) workflowSteps[stepIdx].create = {};
+            const key = '';
+            const value = '';
+            workflowSteps[stepIdx].update.fields[key] = value;
             
-            // Add empty row
-            workflowSteps[stepIdx].create[''] = '';
-            renderCreateValues(stepIdx, workflowSteps[stepIdx].create);
+            // Add only the new row
+            const container = document.getElementById(`update-${stepIdx}`);
+            const searchFields = workflowSteps[stepIdx].search?.fields || [];
+            const searchFieldOptions = searchFields.length > 0 
+                ? searchFields.map(f => `<option value="${f}">${f}</option>`).join('')
+                : '';
+            const fieldTypes = workflowSteps[stepIdx]._ui_metadata?.update_types || {};
+            const displayValue = typeof value === 'object' ? JSON.stringify(value) : value;
+            const useTextarea = displayValue.length > 40;
+            const fieldType = fieldTypes[key] || 'auto';
+            
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-2 w-full';
+            row.innerHTML = `
+                <select class="select select-sm select-bordered flex-1" onchange="updateUpdateValueKey(${stepIdx}, '${key}', this.value)">
+                    <option value="">-- Select field --</option>
+                    ${searchFieldOptions}
+                </select>
+                <span class="text-base-content/50 flex-shrink-0">=</span>
+                <input id="update-value-${stepIdx}-new" type="text" value="${displayValue}" placeholder="value" class="input input-sm input-bordered chip-enabled flex-1" onchange="updateUpdateValueFromInput(${stepIdx}, '', this)">
+                <select class="select select-sm select-bordered flex-shrink-0" onchange="updateUpdateFieldType(${stepIdx}, '', this.value)" title="Data type">
+                    <option value="auto" selected>Auto</option>
+                    <option value="string">String</option>
+                    <option value="integer">Integer</option>
+                    <option value="float">Float</option>
+                    <option value="boolean">Boolean</option>
+                </select>
+                <button class="btn btn-sm btn-ghost btn-square flex-shrink-0" onclick="deleteUpdateValue(${stepIdx}, '')">×</button>
+            `;
+            container.appendChild(row);
+            
+            // Convert only the new input to chip input
+            setTimeout(() => {
+                const newInput = row.querySelector('.chip-enabled');
+                if (newInput) convertToChipInput(newInput);
+            }, 0);
         }
+
         
         function updateUpdateValue(stepIdx, oldKey, newKey, value) {
             if (!workflowSteps[stepIdx].update.fields) workflowSteps[stepIdx].update.fields = {};
@@ -2065,7 +2391,7 @@
                         oninput="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, true)" 
                         onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'text', this.value, false)" 
                         style="width: 100%; font-size: 1.2rem; font-weight: bold; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px;">
-                    <select data-path='${pathJson}' onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'level', this.value, false)" style="margin-top: 0.5rem; padding: 0.3rem;">
+                    <select data-path='${pathJson}' class="select select-sm select-bordered w-full mt-2" onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'level', this.value, false)">
                         <option value="h1" ${element.level === 'h1' ? 'selected' : ''}>H1</option>
                         <option value="h2" ${element.level === 'h2' ? 'selected' : ''}>H2</option>
                         <option value="h3" ${element.level === 'h3' ? 'selected' : ''}>H3</option>
@@ -2090,7 +2416,7 @@
                             onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'title', this.value, false)" 
                             style="width: 100%; font-weight: 600; border: 1px solid #ddd; padding: 0.5rem; border-radius: 4px;">
                     </div>
-                    <select data-path='${pathJson}' onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'layout', this.value, false)" style="padding: 0.3rem; width: 100%;">
+                    <select data-path='${pathJson}' class="select select-sm select-bordered w-full" onchange="updateHtmlCardElementByPathJson(this.getAttribute('data-path'), 'layout', this.value, false)">
                         <option value="vertical" ${element.layout === 'vertical' ? 'selected' : ''}>Vertical</option>
                         <option value="horizontal" ${element.layout === 'horizontal' ? 'selected' : ''}>Horizontal</option>
                         <option value="grid" ${element.layout === 'grid' ? 'selected' : ''}>Grid (2 columns)</option>
@@ -2266,5 +2592,13 @@
             alert.textContent = message;
             document.body.appendChild(alert);
             setTimeout(() => alert.remove(), 3000);
+        }
+        
+        function copyWebhookUrl(url) {
+            navigator.clipboard.writeText(url).then(() => {
+                showAlert('Webhook URL gekopieerd naar klembord!', 'alert-success');
+            }).catch(err => {
+                showAlert('Kopiëren mislukt: ' + err.message, 'alert-error');
+            });
         }
     
