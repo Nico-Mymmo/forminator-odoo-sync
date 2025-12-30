@@ -1,6 +1,7 @@
 import { logIncomingRequest } from "../lib/log_request.js";
 import { getFormMapping } from "../config/form_mappings.js";
 import { executeWorkflow } from "../lib/workflow.js";
+import { logRequest } from "./history_api.js";
 
 /**
  * Receive Forminator form submission
@@ -19,6 +20,14 @@ export async function receiveForminator({ request, env, data }) {
   const formId = formData.ovme_forminator_id;
   if (!formId) {
     console.log(`⚠️ [${timestamp}] No ovme_forminator_id found, skipping Odoo sync`);
+    
+    // Log to history
+    await logRequest(env, 'unknown', {
+      status: 'skipped',
+      requestData: data,
+      error: 'No ovme_forminator_id found'
+    });
+    
     return new Response(JSON.stringify({
       success: true,
       message: "Form received (no sync configured)"
@@ -32,6 +41,14 @@ export async function receiveForminator({ request, env, data }) {
   
   if (!mapping) {
     console.log(`ℹ️ [${timestamp}] Form ${formId} not configured for Odoo sync, skipping`);
+    
+    // Log to history
+    await logRequest(env, formId, {
+      status: 'skipped',
+      requestData: data,
+      error: 'Form not configured for Odoo sync'
+    });
+    
     return new Response(JSON.stringify({
       success: true,
       message: `Form ${formId} received (no sync configured)`
@@ -91,6 +108,14 @@ export async function receiveForminator({ request, env, data }) {
   
   if (!mapping.workflow) {
     console.log(`⚠️ [${timestamp}] Form ${formId} has no workflow configured`);
+    
+    // Log to history
+    await logRequest(env, formId, {
+      status: 'skipped',
+      requestData: data,
+      error: 'No workflow configured'
+    });
+    
     return new Response(JSON.stringify({
       success: true,
       message: `Form ${formId} received (no workflow configured)`
@@ -103,26 +128,77 @@ export async function receiveForminator({ request, env, data }) {
   console.log(`🔧 [${timestamp}] Form ${formId} has ${mapping.workflow.length} workflow step${mapping.workflow.length === 1 ? '' : 's'}`);
   
   // Execute workflow with optional HTML card config
-  const workflowResults = await executeWorkflow(env, mapping.workflow, formData, mapping.html_card || null);
-  
-  return new Response(JSON.stringify({
-    success: true,
-    message: "Form processed successfully",
-    workflow: workflowResults,
-    timestamp
-  }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" }
-  });
-  
-  // Return success response
-  return new Response(JSON.stringify({
-    success: true,
-    message: "Form submission received and logged",
-    timestamp: timestamp,
-    data_received: Object.keys(data)
-  }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" }
-  });
+  try {
+    const workflowResults = await executeWorkflow(env, mapping.workflow, formData, mapping.html_card || null);
+    
+    // Log successful execution to history
+    await logRequest(env, formId, {
+      status: 'success',
+      requestData: data,
+      workflowResults: workflowResults
+    });
+    
+    return new Response(JSON.stringify({
+      success: true,
+      message: "Form processed successfully",
+      workflow: workflowResults,
+      timestamp
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  } catch (error) {
+    console.error(`❌ [${timestamp}] Workflow execution failed:`, error);
+    
+    // Build detailed error log
+    const errorLog = {
+      status: 'error',
+      requestData: data,
+      error: error.message || String(error),
+      errorType: error.name || 'Error',
+      timestamp: timestamp
+    };
+    
+    // Add workflow-specific error details if available
+    if (error.workflowDetails) {
+      errorLog.workflowDetails = error.workflowDetails;
+    }
+    
+    // Add Odoo RPC error details if available
+    if (error.data) {
+      errorLog.odooError = {
+        code: error.code,
+        name: error.data.name,
+        message: error.data.message,
+        debug: error.data.debug,
+        arguments: error.data.arguments
+      };
+      
+      // Extract invalid field name for easier debugging
+      if (error.data.name === 'builtins.ValueError' && error.data.message) {
+        const fieldMatch = error.data.message.match(/Invalid field ['"]([^'"]+)['"]/);
+        if (fieldMatch) {
+          errorLog.invalidField = fieldMatch[1];
+          errorLog.hint = `Field '${fieldMatch[1]}' does not exist on model '${error.workflowDetails?.model || 'unknown'}'`;
+        }
+      }
+    }
+    
+    // Add stack trace if available
+    if (error.stack) {
+      errorLog.stackTrace = error.stack;
+    }
+    
+    // Log error to history
+    await logRequest(env, formId, errorLog);
+    
+    return new Response(JSON.stringify({
+      success: false,
+      error: error.message || String(error),
+      timestamp
+    }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
 }

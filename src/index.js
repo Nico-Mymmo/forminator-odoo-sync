@@ -1,6 +1,7 @@
 import { testConnection } from "./actions/test_connection.js";
 import { receiveForminator } from "./actions/receive_forminator.js";
 import { getMappings, getMapping, saveMapping, deleteMapping, importMappings } from "./actions/mappings_api.js";
+import { handleHistoryGet, handleHistoryGetAll } from "./actions/history_api.js";
 import { requireAdminAuth } from "./lib/admin_auth.js";
 import { adminHTML } from "./lib/admin_interface.js";
 import { getForminatorForm, extractFieldsFromForm, generateFieldMapping } from "./lib/wordpress.js";
@@ -47,6 +48,31 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
+    // Handle CORS preflight requests
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Max-Age': '86400',
+        }
+      });
+    }
+
+    // Helper to add CORS headers to any response
+    const addCorsHeaders = (response) => {
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set('Access-Control-Allow-Origin', '*');
+      newHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      newHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders
+      });
+    };
+
     // Serve favicon (no auth required)
     if (pathname === '/favicon.ico') {
       return new Response(null, { status: 204 });
@@ -63,12 +89,13 @@ export default {
     if (pathname.startsWith('/api/mappings')) {
       // GET /api/mappings - Get all mappings
       if (pathname === '/api/mappings' && request.method === 'GET') {
-        return requireAdminAuth(getMappings)({ request, env, ctx });
+        const response = await requireAdminAuth(getMappings)({ request, env, ctx });
+        return addCorsHeaders(response);
       }
       
       // POST /api/mappings/sync-prod - Sync production data to preview (dev only)
       if (pathname === '/api/mappings/sync-prod' && request.method === 'POST') {
-        return requireAdminAuth(async ({ env }) => {
+        const response = await requireAdminAuth(async ({ env }) => {
           try {
             // In dev mode, we need to fetch from the remote production namespace
             // Use the Cloudflare API to fetch directly
@@ -111,19 +138,21 @@ export default {
             }), { status: 500, headers: { 'Content-Type': 'application/json' } });
           }
         })({ request, env, ctx });
+        return addCorsHeaders(response);
       }
       
       // POST /api/mappings/import - Import entire mappings JSON
       if (pathname === '/api/mappings/import' && request.method === 'POST') {
         const data = await request.json();
-        return requireAdminAuth(importMappings)({ request, env, ctx, data });
+        const response = await requireAdminAuth(importMappings)({ request, env, ctx, data });
+        return addCorsHeaders(response);
       }
       
       // GET /api/wordpress/form/:formId - Fetch form from WordPress
       const wpFormMatch = pathname.match(/^\/api\/wordpress\/form\/([^\/]+)$/);
       if (wpFormMatch && request.method === 'GET') {
         const formId = wpFormMatch[1];
-        return requireAdminAuth(async ({ env }) => {
+        const response = await requireAdminAuth(async ({ env }) => {
           try {
             const formData = await getForminatorForm(formId, env);
             const fields = extractFieldsFromForm(formData);
@@ -151,6 +180,7 @@ export default {
             });
           }
         })({ request, env, ctx });
+        return addCorsHeaders(response);
       }
       
       // Extract formId from path: /api/mappings/:formId
@@ -160,22 +190,47 @@ export default {
         
         // GET /api/mappings/:formId - Get specific form mapping
         if (request.method === 'GET') {
-          return requireAdminAuth(getMapping)({ request, env, ctx, formId });
+          const response = await requireAdminAuth(getMapping)({ request, env, ctx, formId });
+          return addCorsHeaders(response);
         }
         
         // POST /api/mappings/:formId - Save/update form mapping
         if (request.method === 'POST') {
           const data = await request.json();
-          return requireAdminAuth(saveMapping)({ request, env, ctx, formId, data });
+          const response = await requireAdminAuth(saveMapping)({ request, env, ctx, formId, data });
+          return addCorsHeaders(response);
         }
         
         // DELETE /api/mappings/:formId - Delete form mapping
         if (request.method === 'DELETE') {
-          return requireAdminAuth(deleteMapping)({ request, env, ctx, formId });
+          const response = await requireAdminAuth(deleteMapping)({ request, env, ctx, formId });
+          return addCorsHeaders(response);
         }
       }
       
       return new Response(JSON.stringify({ error: 'Invalid API endpoint' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    // API route for history
+    if (pathname.startsWith('/api/history')) {
+      // GET /api/history - Get ALL history across all forms
+      if (pathname === '/api/history' && request.method === 'GET') {
+        const response = await requireAdminAuth(handleHistoryGetAll)({ request, env, ctx });
+        return addCorsHeaders(response);
+      }
+      
+      // GET /api/history/:formId - Get history for specific form
+      const formIdMatch = pathname.match(/^\/api\/history\/([^\/]+)$/);
+      if (formIdMatch && request.method === 'GET') {
+        const formId = formIdMatch[1];
+        const response = await requireAdminAuth(handleHistoryGet)({ request, env, ctx, formId });
+        return addCorsHeaders(response);
+      }
+      
+      return new Response(JSON.stringify({ error: 'Invalid history API endpoint' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       });

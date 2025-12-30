@@ -461,6 +461,36 @@ export async function executeWorkflow(env, workflow, formData, htmlCardConfig = 
       }
     } catch (error) {
       console.error(`❌ [${timestamp}] Step "${step.step}" failed: ${error.message}`);
+      
+      // Extract detailed Odoo error information if available
+      let errorDetails = {
+        step: step.step,
+        model: step.model,
+        message: error.message,
+        stack: error.stack
+      };
+      
+      // Check if this is an Odoo RPC error with detailed data
+      if (error.data) {
+        errorDetails.odooError = {
+          name: error.data.name,
+          message: error.data.message,
+          debug: error.data.debug,
+          arguments: error.data.arguments,
+          context: error.data.context
+        };
+        
+        // Try to extract field name from ValueError
+        if (error.data.name === 'builtins.ValueError' && error.data.message) {
+          const fieldMatch = error.data.message.match(/Invalid field ['"]([^'"]+)['"]/);
+          if (fieldMatch) {
+            errorDetails.invalidField = fieldMatch[1];
+          }
+        }
+      }
+      
+      // Attach error details to the error object for logging
+      error.workflowDetails = errorDetails;
       throw error;
     }
   }

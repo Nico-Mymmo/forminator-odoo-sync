@@ -1,6 +1,7 @@
 export const navbar = `
 <header class="flex items-center justify-between bg-base-100 shadow-sm px-4" style="position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 50;">
     <span class="text-base font-semibold">Forminator Admin</span>
+    <div id="saveIndicator" class="flex items-center gap-1 text-sm"></div>
     <div class="flex gap-2">
         <button onclick="syncProdData()" class="btn btn-info btn-xs" title="Sync production data to dev">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

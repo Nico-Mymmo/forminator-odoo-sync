@@ -13,3 +13,23 @@
 .collapse-content {
     transition: none !important;
 }
+
+/* Pill-based design hierarchy: Step container (Level 1 - outermost) */
+.workflow-step > .collapse {
+    border-radius: 4.75rem !important; /* 76px = 52px (section) + 24px (padding) */
+}
+
+/* Pill-style for all buttons and inputs (Level 4 - innermost) */
+.btn, .input, .select, .textarea, .badge, .join > * {
+    border-radius: 1.5rem !important; /* 24px pills */
+}
+
+/* Specific pill radius for input groups */
+.join {
+    border-radius: 1.5rem !important;
+}
+
+/* Override DaisyUI collapse arrow button */
+.collapse > input[type="checkbox"] {
+    border-radius: 1.5rem !important;
+}

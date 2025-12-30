@@ -12,15 +12,88 @@
         
         // Auto-save debounce timer
         let autoSaveTimeout = null;
+        let uiStateTimeout = null;
+        
+        // State persistence helpers
+        function saveUIState(immediate = false) {
+            // Debounce UI state saves unless immediate is true
+            if (!immediate) {
+                if (uiStateTimeout) clearTimeout(uiStateTimeout);
+                uiStateTimeout = setTimeout(() => saveUIState(true), 100);
+                return;
+            }
+            
+            const state = JSON.parse(localStorage.getItem('adminUIState') || '{}');
+            
+            // Update current view
+            state.currentFormId = currentFormId;
+            state.lastView = currentFormId ? 'form' : (document.getElementById('editorTitle')?.textContent.includes('History') ? 'history' : null);
+            
+            // Save collapse state per form
+            if (!state.formStates) state.formStates = {};
+            if (currentFormId) {
+                // Find all collapse checkboxes that are NOT checked (i.e., collapsed)
+                const allCheckboxes = Array.from(document.querySelectorAll('.collapse input[type="checkbox"]'));
+                const collapsedSections = allCheckboxes
+                    .filter(checkbox => !checkbox.checked && checkbox.id) // Only unchecked ones with ID
+                    .map(checkbox => checkbox.id);
+                
+                // Find active tab
+                const activeTab = document.querySelector('input[name="main_tabs"]:checked');
+                const activeTabIndex = activeTab ? Array.from(document.querySelectorAll('input[name="main_tabs"]')).indexOf(activeTab) : 0;
+                
+                state.formStates[currentFormId] = {
+                    collapsedSections,
+                    activeTabIndex
+                };
+            }
+            
+            localStorage.setItem('adminUIState', JSON.stringify(state));
+        }
+        
+        function restoreUIState() {
+            try {
+                const stateJson = localStorage.getItem('adminUIState');
+                if (!stateJson) return null;
+                return JSON.parse(stateJson);
+            } catch (e) {
+                console.error('Failed to restore UI state:', e);
+                return null;
+            }
+        }
         
         // Debounced auto-save function
         function debouncedAutoSave() {
             if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
+            
+            // Show saving indicator
+            updateSaveStatus('saving');
+            
             autoSaveTimeout = setTimeout(() => {
                 if (currentFormId) {
                     saveForm(true); // true = silent save (no success message)
                 }
-            }, 1000); // 1 second debounce
+            }, 1000); // 1000ms debounce for smooth performance
+        }
+        
+        function updateSaveStatus(status) {
+            const indicator = document.getElementById('saveIndicator');
+            if (!indicator) return;
+            
+            if (status === 'saving') {
+                indicator.innerHTML = '<span class="loading loading-spinner loading-xs"></span> <span class="text-xs">Saving...</span>';
+                indicator.className = 'flex items-center gap-1 text-warning';
+            } else if (status === 'saved') {
+                indicator.innerHTML = '✓ <span class="text-xs">Saved</span>';
+                indicator.className = 'flex items-center gap-1 text-success';
+                // Hide after 2 seconds
+                setTimeout(() => {
+                    indicator.innerHTML = '';
+                }, 2000);
+            } else if (status === 'error') {
+                indicator.innerHTML = '⚠ <span class="text-xs">Error</span>';
+                indicator.className = 'flex items-center gap-1 text-error';
+            }
         }
         
         // Odoo Model Templates
@@ -142,7 +215,12 @@
         }
         
         async function apiCall(path, options = {}) {
-            const res = await fetch(path, {
+            // In dev (localhost), use production URL instead of relative path
+            const isDev = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
+            const baseUrl = isDev ? 'https://forminator-sync.openvme-odoo.workers.dev' : '';
+            const fullUrl = baseUrl + path;
+            
+            const res = await fetch(fullUrl, {
                 ...options,
                 headers: {
                     ...options.headers,
@@ -176,6 +254,54 @@
                     li.appendChild(a);
                     list.appendChild(li);
                 });
+                
+                // Restore previous UI state after forms are loaded
+                const savedState = restoreUIState();
+                if (savedState) {
+                    if (savedState.lastView === 'history') {
+                        showHistory();
+                    } else if (savedState.currentFormId && mappings[savedState.currentFormId]) {
+                        // Trigger click on the saved form (collapse state will be restored in loadForm)
+                        const formLink = Array.from(list.querySelectorAll('a')).find(a => 
+                            a.title === `ID: ${savedState.currentFormId}`
+                        );
+                        if (formLink) {
+                            formLink.click();
+                        }
+                    }
+                }
+                
+                // Add event listener to save state when collapsibles are toggled
+                document.addEventListener('change', (e) => {
+                    if (e.target.type === 'checkbox' && e.target.closest('.collapse')) {
+                        saveUIState();
+                    }
+                    
+                    // Save state when tab is changed
+                    if (e.target.type === 'radio' && e.target.name === 'main_tabs') {
+                        saveUIState();
+                    }
+                });
+                
+                // Auto-save on Enter key for all inputs
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+                        // Don't trigger on buttons or specific exceptions
+                        if (e.target.type !== 'button' && e.target.type !== 'submit' && !e.target.classList.contains('no-auto-save')) {
+                            e.preventDefault(); // Prevent form submission
+                            debouncedAutoSave();
+                        }
+                    }
+                });
+                
+                // Auto-save on blur (when leaving field)
+                document.addEventListener('blur', (e) => {
+                    if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') && 
+                        !e.target.classList.contains('no-auto-save') && 
+                        currentFormId) {
+                        debouncedAutoSave();
+                    }
+                }, true); // Use capture phase to catch all blur events
             } catch (err) {
                 showAlert('Failed to load forms: ' + err.message, 'error');
             }
@@ -188,7 +314,59 @@
             return div.innerHTML;
         }
         
+        // Show global history view
+        function showHistory() {
+            console.log('🔍 [DEBUG] showHistory() called');
+            
+            // Save state BEFORE switching (immediate)
+            saveUIState(true);
+            
+            currentFormId = null;
+            document.querySelectorAll('#formList a').forEach(a => a.classList.remove('active'));
+            
+            document.getElementById('editorTitle').textContent = '📜 Request History';
+            const editorContent = document.getElementById('editorContent');
+            editorContent.innerHTML = `
+                <div class="flex items-center justify-between mb-4">
+                    <button class="btn btn-sm btn-ghost" onclick="loadHistory()">
+                        🔄 Refresh
+                    </button>
+                </div>
+                
+                <div class="alert alert-info mb-4">
+                    <span class="text-sm">Alle inkomende formulieraanvragen worden hier getoond, inclusief formulieren die niet verder afgehandeld werden.</span>
+                </div>
+                
+                <!-- Filters -->
+                <div class="flex gap-2 mb-4">
+                    <select id="historyStatusFilter" class="select select-sm select-bordered" onchange="filterHistory()">
+                        <option value="">Alle statussen</option>
+                        <option value="success">✅ Success</option>
+                        <option value="error">❌ Error</option>
+                        <option value="skipped">⏭️ Skipped</option>
+                    </select>
+                    
+                    <select id="historyFormFilter" class="select select-sm select-bordered" onchange="filterHistory()">
+                        <option value="">Alle formulieren</option>
+                    </select>
+                    
+                    <input type="date" id="historyDateFilter" class="input input-sm input-bordered" onchange="filterHistory()">
+                </div>
+                
+                <!-- History list -->
+                <div id="historyList" class="space-y-2">
+                    <div class="text-center py-8 text-base-content/60">Loading history...</div>
+                </div>
+            `;
+            
+            console.log('🔍 [DEBUG] About to call loadHistory()');
+            loadHistory();
+        }
+        
         function loadForm(formId) {
+            // Save state of current form BEFORE switching (immediate, no debounce)
+            saveUIState(true);
+            
             currentFormId = formId;
             document.querySelectorAll('#formList a').forEach(a => a.classList.remove('active'));
             event.target.classList.add('active');
@@ -317,7 +495,7 @@
                 
                 <!-- DaisyUI Radio Tabs Lifted with Tab Content -->
                 <div role="tablist" class="tabs tabs-lifted">
-                    <input type="radio" name="main_tabs" role="tab" class="tab whitespace-nowrap" aria-label="📋 Mapping" checked="checked" />
+                    <input type="radio" name="main_tabs" role="tab" class="tab whitespace-nowrap" aria-label="📋 Mapping" />
                     <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 w-full">
                         <h3 class="text-lg font-bold mb-3">Field Mapping & Value Mapping</h3>
                         <div id="fieldMapping" class="space-y-2"></div>
@@ -344,6 +522,33 @@
             renderWorkflowSteps();
             updateFieldPalette();
             initializeDragAndDrop();
+            
+            // Restore tab state immediately (before collapse restore)
+            const savedState = restoreUIState();
+            const tabIndex = savedState?.formStates?.[formId]?.activeTabIndex ?? 0;
+            const tabs = document.querySelectorAll('input[name="main_tabs"]');
+            if (tabs[tabIndex]) {
+                tabs[tabIndex].checked = true;
+            }
+            
+            // Restore collapse state for this specific form
+            setTimeout(() => {
+                // First, open ALL collapses by default
+                const allCollapseCheckboxes = document.querySelectorAll('.collapse input[type="checkbox"]');
+                allCollapseCheckboxes.forEach(checkbox => {
+                    checkbox.checked = true; // Default: all open
+                });
+                
+                // Then close the ones that were collapsed in saved state
+                if (savedState?.formStates?.[formId]?.collapsedSections) {
+                    savedState.formStates[formId].collapsedSections.forEach(sectionId => {
+                        const checkbox = document.getElementById(sectionId);
+                        if (checkbox && checkbox.type === 'checkbox') {
+                            checkbox.checked = false; // Collapse it
+                        }
+                    });
+                }
+            }, 50);
         }
         
         // Field Mapping with Inline Value Mapping
@@ -1341,6 +1546,50 @@
         }
         
         // Workflow Steps
+        // Load missing search fields to CREATE and UPDATE (only adds fields that don't exist)
+        function loadFieldsFromSearch(stepIdx) {
+            const step = workflowSteps[stepIdx];
+            const searchFields = step.search?.fields || [];
+            
+            if (searchFields.length === 0) {
+                showAlert('No search fields to load', 'warning');
+                return;
+            }
+            
+            // Initialize CREATE if doesn't exist
+            if (!step.create) step.create = {};
+            
+            // Initialize UPDATE if doesn't exist
+            if (!step.update) step.update = {};
+            if (!step.update.fields) step.update.fields = {};
+            
+            let addedToCreate = 0;
+            let addedToUpdate = 0;
+            
+            // Add only missing search fields to CREATE with empty values
+            searchFields.forEach(field => {
+                if (!step.create.hasOwnProperty(field)) {
+                    step.create[field] = '';
+                    addedToCreate++;
+                }
+                if (!step.update.fields.hasOwnProperty(field)) {
+                    step.update.fields[field] = '';
+                    addedToUpdate++;
+                }
+            });
+            
+            // Re-render sections
+            renderCreateValues(stepIdx, step.create);
+            renderUpdateValues(stepIdx, step.update);
+            
+            // Show feedback
+            const message = `Added ${addedToCreate} field(s) to CREATE and ${addedToUpdate} field(s) to UPDATE`;
+            showAlert(addedToCreate > 0 || addedToUpdate > 0 ? message : 'All fields already present', 'info');
+            
+            // Save changes
+            debouncedAutoSave();
+        }
+        
         function renderWorkflowSteps() {
             const container = document.getElementById('workflowSteps');
             container.innerHTML = '';
@@ -1353,85 +1602,152 @@
                 const resultBadge = step.step ? `<div class="badge badge-accent">$${step.step}</div>` : '';
                 
                 stepEl.innerHTML = `
-                    <div class="collapse collapse-arrow bg-base-100 shadow mb-4">
-                        <input type="checkbox" id="step-toggle-${idx}" checked /> 
-                        <div class="collapse-title p-4 min-h-0">
+                    <div class="collapse collapse-arrow bg-base-100 shadow-lg rounded-[3rem] mb-6">
+                        <input type="checkbox" id="step-toggle-${idx}" /> 
+                        <div class="collapse-title px-6 py-4 min-h-0">
                             <div class="flex items-center justify-between pr-8">
-                                <h3 class="text-base font-semibold">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</h3>
+                                <h3 class="text-lg font-semibold flex items-center gap-2">
+                                    <i data-lucide="layers" class="w-5 h-5"></i>
+                                    <span>Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</span>
+                                </h3>
                                 <div class="flex gap-2 shrink-0">
                                     ${resultBadge}
                                     <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx}); event.stopPropagation();">×</button>
                                 </div>
                             </div>
                         </div>
-                        <div class="collapse-content p-4 pt-0">
-                                <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div class="collapse-content px-6 pb-6 pt-0">
+                                <div class="grid grid-cols-2 gap-4 mb-4">
                                     <div class="form-control">
-                                        <label class="label py-1"><span class="label-text">Step Name:</span></label>
-                                        <input type="text" class="input input-sm input-bordered" value="${step.step || ''}" onchange="updateStepBasic(${idx}, 'step', this.value)">
+                                        <label class="label py-1"><span class="label-text font-medium">Step Name:</span></label>
+                                        <input type="text" class="input input-bordered" value="${step.step || ''}" onchange="updateStepBasic(${idx}, 'step', this.value)">
                                     </div>
                                     <div class="form-control">
-                                        <label class="label py-1"><span class="label-text">Odoo Model:</span></label>
-                                        <select class="select select-sm select-bordered" onchange="updateStepModel(${idx}, this.value)">
+                                        <label class="label py-1"><span class="label-text font-medium">Odoo Model:</span></label>
+                                        <select class="select select-bordered" onchange="updateStepModel(${idx}, this.value)">
                                             <option value="">Selecteer model...</option>
                                             ${Object.entries(ODOO_MODELS).map(([key, config]) => `
                                                 <option value="${key}" ${step.model === key ? 'selected' : ''}>${config.name}</option>
                                             `).join('')}
                                         </select>
-                                        ${step.model && !ODOO_MODELS[step.model] ? `<input type="text" class="input input-sm input-bordered mt-1" value="${step.model}" onchange="updateStepBasic(${idx}, 'model', this.value)" placeholder="Custom model naam">` : ''}
+                                        ${step.model && !ODOO_MODELS[step.model] ? `<input type="text" class="input input-bordered mt-2" value="${step.model}" onchange="updateStepBasic(${idx}, 'model', this.value)" placeholder="Custom model naam">` : ''}
                                     </div>
                                 </div>
                                 ${step.model && ODOO_MODELS[step.model] && ODOO_MODELS[step.model].description ? `
-                                <div class="alert alert-info py-2 text-xs mb-3">
-                                    ℹ️ ${ODOO_MODELS[step.model].description}
+                                <div class="alert alert-info text-sm mb-4">
+                                    <i data-lucide="info" class="w-4 h-4"></i>
+                                    <span>${ODOO_MODELS[step.model].description}</span>
                                 </div>
                                 ` : ''}
                         
-                        <div class="collapse collapse-arrow bg-base-200 mb-2">
-                            <input type="checkbox" ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? 'checked' : ''} /> 
-                            <div class="collapse-title text-sm font-medium">
-                                🔍 Search
+                        <div class="collapse collapse-arrow bg-base-200 rounded-[3.25rem] mb-4 ${(step.search?.domain?.length > 0 || (step.search?.fields?.length > 0 && (step._templateConfig?.values && Object.keys(step._templateConfig.values).length > 0))) ? 'ring-2 ring-success' : ''}">
+                            <input type="checkbox" id="step-${idx}-search" /> 
+                            <div class="collapse-title px-4 py-3 min-h-0">
+                                <div class="flex items-center gap-2 text-base font-medium">
+                                    <i data-lucide="search" class="w-5 h-5"></i>
+                                    <span>Search</span>
+                                    ${(step.search?.domain?.length > 0 || (step.search?.fields?.length > 0 && (step._templateConfig?.values && Object.keys(step._templateConfig.values).length > 0))) ? '<span class="badge badge-success ml-auto">Configured</span>' : ''}
+                                </div>
                             </div>
-                            <div class="collapse-content">
+                            <div class="collapse-content px-4 pb-4">
                                 ${renderSearchTemplate(idx, step)}
                             </div>
                         </div>
                         
-                        <div class="collapse collapse-arrow bg-base-200 mb-2">
-                            <input type="checkbox" ${(step.create && Object.keys(step.create).length > 0) ? 'checked' : ''} /> 
-                            <div class="collapse-title text-sm font-medium">
-                                ➕ Create
+                        <div class="collapse collapse-arrow bg-base-200 rounded-[3.25rem] mb-4 ${(step.create && Object.keys(step.create).some(k => step.create[k])) ? 'ring-2 ring-success' : ''}">
+                            <input type="checkbox" id="step-${idx}-create" /> 
+                            <div class="collapse-title px-4 py-3 min-h-0">
+                                <div class="flex items-center gap-2 text-base font-medium">
+                                    <i data-lucide="plus-circle" class="w-5 h-5"></i>
+                                    <span>Create</span>
+                                    ${(step.create && Object.keys(step.create).some(k => step.create[k])) ? '<span class="badge badge-success ml-auto">Configured</span>' : ''}
+                                </div>
                             </div>
-                            <div class="collapse-content">
-                                <div id="create-${idx}" class="space-y-2"></div>
-                                <button class="btn btn-sm btn-outline mt-2" onclick="addCreateValue(${idx})">+ Add Value</button>
+                            <div class="collapse-content px-4 pb-4">
+                                <div class="flex gap-2 mb-3">
+                                    <button class="btn btn-outline flex-1" onclick="addCreateValue(${idx})">
+                                        <i data-lucide="plus" class="w-4 h-4"></i>
+                                        Add Value
+                                    </button>
+                                    <button class="btn btn-info" onclick="loadFieldsFromSearch(${idx})" title="Load missing fields from Search section">
+                                        <i data-lucide="download" class="w-4 h-4"></i>
+                                        Load from Search
+                                    </button>
+                                </div>
+                                <div id="create-${idx}" class="space-y-2 mb-3"></div>
+                                
+                                <div class="collapse collapse-arrow rounded-[2.25rem] ${(step.create && Object.keys(step.create).length > 0) ? 'bg-success' : 'bg-warning'} ${(step.create && Object.keys(step.create).length > 0) ? 'text-success-content' : 'text-warning-content'}">
+                                    <input type="checkbox" checked /> 
+                                    <div class="collapse-title px-3 py-2 min-h-0">
+                                        <div class="flex items-center gap-2 text-sm font-medium">
+                                            <i data-lucide="file-json" class="w-4 h-4"></i>
+                                            <span>Create payload preview (${Object.keys(step.create || {}).length} fields)</span>
+                                        </div>
+                                    </div>
+                                    <div class="collapse-content px-3 pb-3">
+                                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded">${JSON.stringify(step.create || {}, null, 2)}</pre>
+                                        ${(step.create && Object.keys(step.create).length > 0) ? '<div class="text-sm mt-2 flex items-center gap-1"><i data-lucide="check-circle" class="w-4 h-4"></i> Klaar om op te slaan</div>' : '<div class="text-sm mt-2 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Voeg velden toe hierboven</div>'}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         
-                        <div class="collapse collapse-arrow bg-base-200 mb-2">
-                            <input type="checkbox" ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'checked' : ''} /> 
-                            <div class="collapse-title text-sm font-medium">
-                                ✏️ Update
+                        <div class="collapse collapse-arrow bg-base-200 rounded-[3.25rem] mb-4 ${(step.update?.fields && Object.keys(step.update.fields).some(k => step.update.fields[k])) ? 'ring-2 ring-success' : ''}">
+                            <input type="checkbox" id="step-${idx}-update" /> 
+                            <div class="collapse-title px-4 py-3 min-h-0">
+                                <div class="flex items-center gap-2 text-base font-medium">
+                                    <i data-lucide="edit" class="w-5 h-5"></i>
+                                    <span>Update</span>
+                                    ${(step.update?.fields && Object.keys(step.update.fields).some(k => step.update.fields[k])) ? '<span class="badge badge-success ml-auto">Configured</span>' : ''}
+                                </div>
                             </div>
-                            <div class="collapse-content">
-                                <div id="update-${idx}" class="space-y-2"></div>
-                                <button class="btn btn-sm btn-outline mt-2" onclick="addUpdateValue(${idx})">+ Add Value</button>
+                            <div class="collapse-content px-4 pb-4">
+                                <div class="flex gap-2 mb-3">
+                                    <button class="btn btn-outline flex-1" onclick="addUpdateValue(${idx})">
+                                        <i data-lucide="plus" class="w-4 h-4"></i>
+                                        Add Field
+                                    </button>
+                                    <button class="btn btn-info" onclick="loadFieldsFromSearch(${idx})" title="Load missing fields from Search section">
+                                        <i data-lucide="download" class="w-4 h-4"></i>
+                                        Load from Search
+                                    </button>
+                                </div>
+                                <div id="update-${idx}" class="space-y-2 mb-3"></div>
+                                
+                                <div class="collapse collapse-arrow rounded-[2.25rem] ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'bg-success' : 'bg-warning'} ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'text-success-content' : 'text-warning-content'}">
+                                    <input type="checkbox" checked /> 
+                                    <div class="collapse-title px-3 py-2 min-h-0">
+                                        <div class="flex items-center gap-2 text-sm font-medium">
+                                            <i data-lucide="file-json" class="w-4 h-4"></i>
+                                            <span>Update payload preview (${Object.keys(step.update?.fields || {}).length} fields)</span>
+                                        </div>
+                                    </div>
+                                    <div class="collapse-content px-3 pb-3">
+                                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded">${JSON.stringify(step.update || {}, null, 2)}</pre>
+                                        ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? '<div class="text-sm mt-2 flex items-center gap-1"><i data-lucide="check-circle" class="w-4 h-4"></i> Klaar om op te slaan</div>' : '<div class="text-sm mt-2 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Voeg velden toe hierboven</div>'}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         
-                        <div class="collapse collapse-arrow bg-base-200 mb-2">
-                            <input type="checkbox" ${step.html_card ? 'checked' : ''} /> 
-                            <div class="collapse-title text-sm font-medium">
-                                🎨 HTML Card
+                        <div class="collapse collapse-arrow bg-base-200 rounded-[3.25rem] mb-0 ${step.html_card ? 'ring-2 ring-success' : ''}">
+                            <input type="checkbox" id="step-${idx}-htmlcard" /> 
+                            <div class="collapse-title px-4 py-3 min-h-0">
+                                <div class="flex items-center gap-2 text-base font-medium">
+                                    <i data-lucide="layout" class="w-5 h-5"></i>
+                                    <span>HTML Card</span>
+                                    ${step.html_card ? '<span class="badge badge-success ml-auto">Configured</span>' : ''}
+                                </div>
                             </div>
-                            <div class="collapse-content">
+                            <div class="collapse-content px-4 pb-4">
                                 <p class="text-sm text-base-content/70 mb-3">
                                     Build a custom HTML card/form with drag & drop field placeholders
                                 </p>
-                                <button class="btn btn-sm btn-primary mb-3" onclick="openHtmlCardEditor(${idx})">
-                                    ${step.html_card ? '✏️ Edit HTML Card' : '➕ Create HTML Card'}
+                                <button class="btn btn-primary" onclick="openHtmlCardEditor(${idx})">
+                                    <i data-lucide="${step.html_card ? 'edit' : 'plus'}" class="w-4 h-4"></i>
+                                    ${step.html_card ? 'Edit HTML Card' : 'Create HTML Card'}
                                 </button>
-                                ${step.html_card ? '<div class="alert alert-success py-2"><strong>HTML Card configured</strong> - ' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div>' : ''}
+                                ${step.html_card ? '<div class="alert alert-success mt-3"><i data-lucide="check-circle" class="w-4 h-4"></i><div><strong>HTML Card configured</strong><br/>' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div></div>' : ''}
                             </div>
                         </div>
                         </div>
@@ -1449,6 +1765,11 @@
                     renderUpdateValues(idx, step.update || {});
                     renderStepResultChips(idx, step);
                 });
+                
+                // Initialize Lucide icons
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
             }, 0);
             
             // Re-initialize drag and drop for newly rendered elements
@@ -1483,6 +1804,15 @@
         }
         
         function updateStepModel(idx, modelValue) {
+            // Store current accordion states before re-rendering
+            const accordionStates = {};
+            const mainCheckbox = document.getElementById(`step-toggle-${idx}`);
+            accordionStates.main = mainCheckbox ? mainCheckbox.checked : false;
+            accordionStates.search = document.getElementById(`step-${idx}-search`)?.checked || false;
+            accordionStates.create = document.getElementById(`step-${idx}-create`)?.checked || false;
+            accordionStates.update = document.getElementById(`step-${idx}-update`)?.checked || false;
+            accordionStates.htmlCard = document.getElementById(`step-${idx}-htmlcard`)?.checked || false;
+            
             workflowSteps[idx].model = modelValue;
             
             // If model has templates, initialize with template
@@ -1506,6 +1836,24 @@
             }
             
             renderWorkflowSteps();
+            
+            // Restore accordion states after re-rendering
+            setTimeout(() => {
+                const mainCheckboxAfter = document.getElementById(`step-toggle-${idx}`);
+                if (mainCheckboxAfter && accordionStates.main) mainCheckboxAfter.checked = true;
+                
+                const searchCheckbox = document.getElementById(`step-${idx}-search`);
+                if (searchCheckbox && accordionStates.search) searchCheckbox.checked = true;
+                
+                const createCheckbox = document.getElementById(`step-${idx}-create`);
+                if (createCheckbox && accordionStates.create) createCheckbox.checked = true;
+                
+                const updateCheckbox = document.getElementById(`step-${idx}-update`);
+                if (updateCheckbox && accordionStates.update) updateCheckbox.checked = true;
+                
+                const htmlCardCheckbox = document.getElementById(`step-${idx}-htmlcard`);
+                if (htmlCardCheckbox && accordionStates.htmlCard) htmlCardCheckbox.checked = true;
+            }, 100);
         }
         
         function renderStepResultChips(idx, step) {
@@ -1569,14 +1917,19 @@
             // Template mode - show all templates side by side
             const templateConfig = step._templateConfig || {};
             
-            let html = `<div class="space-y-3">`;
+            let html = `<div class="flex flex-col h-full gap-3">`;
             
-            // Info text
+            // Info text - above the columns
             html += `
-                <div class="text-xs text-base-content/70 mb-2">
+                <div class="text-xs text-base-content/70">
                     Sleep velden naar de drop zones hieronder. Alleen ingevulde velden worden gebruikt voor zoeken.
                 </div>
             `;
+            
+            html += `<div class="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-3 flex-1">`;
+            
+            // LEFT COLUMN - Templates, type filter, custom conditions, preview
+            html += `<div class="space-y-3">`;
             
             // Render all templates in a grid
             html += `<div class="grid grid-cols-3 gap-3">`;
@@ -1585,11 +1938,20 @@
                 const allFields = Object.entries(template.fields);
                 const hasValues = allFields.some(([fieldKey]) => templateConfig.values?.[`${templateKey}_${fieldKey}`]);
                 
+                // Determine icon based on template key
+                let icon = 'search';
+                if (templateKey === 'email') icon = 'mail';
+                else if (templateKey === 'id') icon = 'hash';
+                else if (templateKey === 'name') icon = 'user';
+                
                 html += `
-                    <div class="card bg-base-200 shadow-sm ${hasValues ? 'ring-2 ring-primary' : ''}">
-                        <div class="card-body p-3">
-                            <h4 class="card-title text-sm">${template.name}</h4>
-                            <div class="space-y-2">
+                    <div class="card bg-base-100 shadow-sm rounded-[2.25rem] ${hasValues ? 'ring-2 ring-primary' : ''}">
+                        <div class="card-body p-4">
+                            <h4 class="card-title text-base flex items-center gap-2">
+                                <i data-lucide="${icon}" class="w-4 h-4"></i>
+                                <span>${template.name}</span>
+                            </h4>
+                            <div class="space-y-2.5">
                 `;
                 
                 allFields.forEach(([fieldKey, fieldConfig]) => {
@@ -1599,11 +1961,11 @@
                     
                     html += `
                         <div class="form-control">
-                            <label class="label py-0 pb-1">
-                                <span class="label-text text-xs">${label}</span>
+                            <label class="label py-0.5">
+                                <span class="label-text text-sm">${label}</span>
                             </label>
                             ${dropOnly ? `
-                                <div class="badge badge-outline badge-lg drop-zone w-full cursor-pointer h-8 justify-start px-2 text-xs border-dashed" 
+                                <div class="badge badge-outline badge-lg drop-zone w-full cursor-pointer h-10 justify-start px-3 text-sm border-dashed rounded-lg" 
                                      ondragover="handleDragOver(event)"
                                      ondragleave="handleDragLeave(event)"
                                      ondrop="handleTemplateFieldDrop(event, ${idx}, '${templateKey}_${fieldKey}')"
@@ -1614,7 +1976,7 @@
                             ` : `
                                 <input 
                                     type="text" 
-                                    class="input input-xs input-bordered" 
+                                    class="input input-sm input-bordered rounded-lg" 
                                     value="${currentValue}"
                                     placeholder="$contact.id"
                                     onchange="updateTemplateValue(${idx}, '${templateKey}_${fieldKey}', this.value)"
@@ -1638,8 +2000,11 @@
             if (hasTypeFilter) {
                 const currentType = templateConfig.typeFilter || 'contact';
                 html += `
-                    <div class="bg-base-300 rounded-lg p-3 mb-2">
-                        <div class="text-xs font-medium mb-2">🏢 Type filter</div>
+                    <div class="bg-base-100 rounded-[2.25rem] p-4 shadow-sm">
+                        <div class="text-sm font-medium mb-3 flex items-center gap-2">
+                            <i data-lucide="filter" class="w-4 h-4"></i>
+                            <span>Type filter</span>
+                        </div>
                         <div class="btn-group w-full">
                             <input type="radio" name="type-${idx}" value="both" class="btn btn-sm flex-1" aria-label="Beide" ${currentType === 'both' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
                             <input type="radio" name="type-${idx}" value="contact" class="btn btn-sm flex-1" aria-label="Contacten" ${currentType === 'contact' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
@@ -1651,12 +2016,15 @@
             
             // Custom conditions section
             html += `
-                <div class="collapse collapse-arrow bg-base-300">
+                <div class="collapse collapse-arrow bg-base-100 rounded-[2.25rem] shadow-sm">
                     <input type="checkbox" /> 
-                    <div class="collapse-title text-xs font-medium py-2 min-h-0">
-                        ➕ Aangepaste condities (optioneel)
+                    <div class="collapse-title px-4 py-2.5 min-h-0">
+                        <div class="flex items-center gap-2 text-sm font-medium">
+                            <i data-lucide="settings" class="w-4 h-4"></i>
+                            <span>Aangepaste condities (optioneel)</span>
+                        </div>
                     </div>
-                    <div class="collapse-content">
+                    <div class="collapse-content px-4 pb-4">
                         <div class="form-control mb-2">
                             <label class="label py-1"><span class="label-text text-xs">Extra domain condities:</span></label>
                             <div id="domain-${idx}" class="space-y-2"></div>
@@ -1673,40 +2041,46 @@
             const isSuccess = hasAnyValues || hasCustomConditions;
             
             html += `
-                <div class="collapse collapse-arrow ${isSuccess ? 'bg-success' : 'bg-warning'} ${isSuccess ? 'text-success-content' : 'text-warning-content'}">
+                <div class="collapse collapse-arrow rounded-[2.25rem] shadow-sm ${isSuccess ? 'bg-success' : 'bg-warning'} ${isSuccess ? 'text-success-content' : 'text-warning-content'}">
                     <input type="checkbox" checked /> 
-                    <div class="collapse-title text-xs font-medium py-2 min-h-0">
-                        📋 Generated domain (${previewDomain.length} conditions)
+                    <div class="collapse-title px-4 py-2.5 min-h-0">
+                        <div class="flex items-center gap-2 text-sm font-medium">
+                            <i data-lucide="code" class="w-4 h-4"></i>
+                            <span>Generated domain (${previewDomain.length} conditions)</span>
+                        </div>
                     </div>
-                    <div id="domain-preview-${idx}" class="collapse-content">
-                        <pre class="text-[10px] overflow-x-auto whitespace-pre-wrap break-all">${JSON.stringify(previewDomain, null, 2)}</pre>
+                    <div id="domain-preview-${idx}" class="collapse-content px-4 pb-4">
+                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded">${JSON.stringify(previewDomain, null, 2)}</pre>
                         ${isSuccess ? '<div class="text-xs mt-1">✓ Klaar om op te slaan</div>' : '<div class="text-xs mt-1">⚠ Sleep velden naar de drop zones hierboven</div>'}
                     </div>
                 </div>
             `;
             
-            // Fields to retrieve
+            html += `</div>`; // Close left column
+            
+            // RIGHT COLUMN - Fields to retrieve
+            html += `<div class="flex flex-col">`;
+            
             html += `
-                <div class="collapse collapse-arrow bg-base-300">
-                    <input type="checkbox" ${(step.search?.fields && step.search.fields.length > 0) ? 'checked' : ''} /> 
-                    <div class="collapse-title text-xs font-medium py-2 min-h-0">
-                        🔍 Op te halen velden (${step.search?.fields?.length || 0})
+                <div class="bg-base-100 rounded-[2.25rem] p-4 flex flex-col h-full shadow-sm">
+                    <div class="text-sm font-medium mb-2 flex items-center gap-2">
+                        <i data-lucide="database" class="w-4 h-4"></i>
+                        <span>Op te halen velden</span>
                     </div>
-                    <div class="collapse-content">
-                        <div class="text-xs text-base-content/70 mb-2">Velden die worden opgehaald na zoeken in Odoo</div>
-                        <div id="fields-${idx}" class="flex flex-wrap gap-1.5 min-h-[2rem] mb-3"></div>
-                        <div class="join w-full">
-                            <input id="new-field-${idx}" type="text" placeholder="Voeg veld toe..." class="input input-sm input-bordered join-item flex-1" onkeydown="if(event.key === 'Enter') addSearchField(${idx})">
-                            <button class="btn btn-sm btn-primary join-item" onclick="addSearchField(${idx})">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                                Toevoegen
-                            </button>
-                        </div>
+                    <div class="text-sm text-base-content/70 mb-3">Velden die worden opgehaald na zoeken in Odoo (${step.search?.fields?.length || 0})</div>
+                    <div class="join w-full mb-3">
+                        <input id="new-field-${idx}" type="text" placeholder="Voeg veld toe..." class="input input-sm input-bordered join-item flex-1 rounded-l-lg" onkeydown="if(event.key === 'Enter') addSearchField(${idx})">
+                        <button class="btn btn-sm btn-primary join-item rounded-r-lg" onclick="addSearchField(${idx})">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                        </button>
                     </div>
+                    <div id="fields-${idx}" class="flex flex-wrap gap-1.5 min-h-[2rem] p-2 bg-base-200 rounded-btn content-start flex-1 overflow-y-auto"></div>
                 </div>
             `;
             
-            html += `</div>`;
+            html += `</div>`; // Close right column
+            html += `</div>`; // Close grid
+            html += `</div>`; // Close flex container
             return html;
         }
         
@@ -2035,7 +2409,11 @@
                     // Update the collapse title with condition count
                     const collapseTitle = collapseElement.querySelector('.collapse-title');
                     if (collapseTitle) {
-                        collapseTitle.innerHTML = `📋 Generated domain (${previewDomain.length} conditions)`;
+                        collapseTitle.innerHTML = `
+                            <i data-lucide="code" class="w-3.5 h-3.5"></i>
+                            <span>Generated domain (${previewDomain.length} conditions)</span>
+                        `;
+                        lucide.createIcons();
                     }
                 }
             }
@@ -2081,31 +2459,111 @@
             if (!workflowSteps[stepIdx].search.fields) workflowSteps[stepIdx].search.fields = [];
             workflowSteps[stepIdx].search.fields.push(value);
             input.value = '';
+            
+            // Sync to CREATE: add field with empty value if not exists
+            if (workflowSteps[stepIdx].create && !workflowSteps[stepIdx].create.hasOwnProperty(value)) {
+                workflowSteps[stepIdx].create[value] = '';
+            }
+            
+            // Sync to UPDATE: add field with empty value if not exists
+            if (workflowSteps[stepIdx].update && workflowSteps[stepIdx].update.fields && !workflowSteps[stepIdx].update.fields.hasOwnProperty(value)) {
+                workflowSteps[stepIdx].update.fields[value] = '';
+            }
+            
             renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
             renderStepResultChips(stepIdx, workflowSteps[stepIdx]);
+            renderCreateValues(stepIdx, workflowSteps[stepIdx].create || {});
+            renderUpdateValues(stepIdx, workflowSteps[stepIdx].update || {});
             updateFieldPalette();
+            debouncedAutoSave();
         }
         
         function deleteSearchField(stepIdx, fieldIdx) {
+            const fieldName = workflowSteps[stepIdx].search.fields[fieldIdx];
             workflowSteps[stepIdx].search.fields.splice(fieldIdx, 1);
+            
+            // Sync to CREATE: remove field
+            if (workflowSteps[stepIdx].create && workflowSteps[stepIdx].create.hasOwnProperty(fieldName)) {
+                delete workflowSteps[stepIdx].create[fieldName];
+                if (workflowSteps[stepIdx]._ui_metadata?.create_types) {
+                    delete workflowSteps[stepIdx]._ui_metadata.create_types[fieldName];
+                }
+            }
+            
+            // Sync to UPDATE: remove field
+            if (workflowSteps[stepIdx].update?.fields?.hasOwnProperty(fieldName)) {
+                delete workflowSteps[stepIdx].update.fields[fieldName];
+                if (workflowSteps[stepIdx]._ui_metadata?.update_types) {
+                    delete workflowSteps[stepIdx]._ui_metadata.update_types[fieldName];
+                }
+            }
+            
             renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
             renderStepResultChips(stepIdx, workflowSteps[stepIdx]);
+            renderCreateValues(stepIdx, workflowSteps[stepIdx].create || {});
+            renderUpdateValues(stepIdx, workflowSteps[stepIdx].update || {});
             updateFieldPalette();
+            debouncedAutoSave();
         }
         
         // Create Values
+        // Generate appropriate input HTML based on field type
+        function generateValueInput(stepIdx, key, value, fieldType, section = 'create') {
+            const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+            const safeKey = key.replace(/\W/g, '_');
+            const inputId = `${section}-value-${stepIdx}-${safeKey}`;
+            const onchangeHandler = section === 'create' ? 
+                `updateCreateValueFromInput(${stepIdx}, '${key}', this)` : 
+                `updateUpdateValueFromInput(${stepIdx}, '${key}', this)`;
+            
+            switch(fieldType) {
+                case 'boolean':
+                    const boolValue = value === true || value === 'true' || value === 1;
+                    return `
+                        <div class="flex items-center gap-2 flex-1">
+                            <input type="checkbox" id="${inputId}" 
+                                class="toggle toggle-sm toggle-success" 
+                                ${boolValue ? 'checked' : ''}
+                                onchange="this.nextElementSibling.value = this.checked; ${onchangeHandler}">
+                            <input type="hidden" value="${boolValue}" onchange="${onchangeHandler}">
+                            <span class="text-xs text-base-content/60">${boolValue ? 'true' : 'false'}</span>
+                        </div>
+                    `;
+                
+                case 'integer':
+                    return `<input id="${inputId}" type="number" step="1" value="${displayValue}" placeholder="0" class="input input-sm input-bordered flex-1" onchange="${onchangeHandler}">`;
+                
+                case 'float':
+                    return `<input id="${inputId}" type="number" step="0.01" value="${displayValue}" placeholder="0.0" class="input input-sm input-bordered flex-1" onchange="${onchangeHandler}">`;
+                
+                case 'string':
+                    return displayValue.length > 40 ?
+                        `<textarea id="${inputId}" class="textarea textarea-sm textarea-bordered min-h-[2rem] flex-1" onchange="${onchangeHandler}">${displayValue}</textarea>` :
+                        `<input id="${inputId}" type="text" value="${displayValue}" placeholder="value" class="input input-sm input-bordered flex-1" onchange="${onchangeHandler}">`;
+                
+                case 'auto':
+                default:
+                    // Auto mode: use chip-enabled for dynamic field references
+                    return displayValue.length > 40 ?
+                        `<textarea id="${inputId}" class="textarea textarea-sm textarea-bordered chip-enabled min-h-[2rem] flex-1" onchange="${onchangeHandler}">${displayValue}</textarea>` :
+                        `<input id="${inputId}" type="text" value="${displayValue}" placeholder="value" class="input input-sm input-bordered chip-enabled flex-1" onchange="${onchangeHandler}">`;
+            }
+        }
+        
         function renderCreateValues(stepIdx, values) {
-            console.log('=== renderCreateValues ===', 'stepIdx:', stepIdx, 'values:', values);
+            console.log('🔵 [RENDER CREATE] stepIdx:', stepIdx, 'values:', JSON.stringify(values, null, 2));
             const container = document.getElementById(`create-${stepIdx}`);
             container.innerHTML = '';
             
             if (Object.keys(values).length === 0) {
+                console.log('🔵 [RENDER CREATE] No values to render');
                 return;
             }
             
             // Get field types from metadata
             const fieldTypes = workflowSteps[stepIdx]._ui_metadata?.create_types || {};
             
+            console.log('🔵 [RENDER CREATE] Rendering', Object.keys(values).length, 'key/value pairs');
             Object.entries(values).forEach(([key, value]) => {
                 const row = document.createElement('div');
                 row.className = 'flex items-center gap-2 w-full';
@@ -2120,11 +2578,8 @@
                         class="input input-sm input-bordered flex-1"
                         onchange="updateCreateValueFromRow(${stepIdx}, this)">
                     <span class="text-base-content/50 flex-shrink-0">=</span>
-                    ${useTextarea 
-                        ? `<textarea id="create-value-${stepIdx}-${key.replace(/\W/g, '_')}" class="textarea textarea-sm textarea-bordered chip-enabled min-h-[2rem] flex-1" onchange="updateCreateValueFromInput(${stepIdx}, '${key}', this)">${displayValue}</textarea>`
-                        : `<input id="create-value-${stepIdx}-${key.replace(/\W/g, '_')}" type="text" value="${displayValue}" placeholder="value" class="input input-sm input-bordered chip-enabled flex-1" onchange="updateCreateValueFromInput(${stepIdx}, '${key}', this)">`
-                    }
-                    <select class="select select-sm select-bordered flex-shrink-0" onchange="updateCreateFieldType(${stepIdx}, '${key}', this.value)" title="Data type">
+                    ${generateValueInput(stepIdx, key, value, fieldType, 'create')}
+                    <select class="select select-sm select-bordered flex-shrink-0" onchange="updateCreateFieldType(${stepIdx}, '${key}', this.value); renderCreateValues(${stepIdx}, workflowSteps[${stepIdx}].create);" title="Data type">
                         <option value="auto" ${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
                         <option value="string" ${fieldType === 'string' ? 'selected' : ''}>String</option>
                         <option value="integer" ${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
@@ -2136,15 +2591,18 @@
                 container.appendChild(row);
             });
             
-            // Convert ONLY value inputs (not field name inputs) to chip inputs
+            // Convert ONLY value inputs with auto type (chip-enabled class) to chip inputs
             setTimeout(() => {
                 const inputs = container.querySelectorAll('.chip-enabled');
-                console.log('Converting', inputs.length, 'value inputs to chip inputs');
+                console.log('Converting', inputs.length, 'auto-type value inputs to chip inputs');
                 inputs.forEach(convertToChipInput);
             }, 0);
         }
         
         function addCreateValue(stepIdx) {
+            console.log('🟢 [ADD CREATE] stepIdx:', stepIdx);
+            console.log('🟢 [ADD CREATE] BEFORE:', JSON.stringify(workflowSteps[stepIdx].create || {}, null, 2));
+            
             if (!workflowSteps[stepIdx].create) workflowSteps[stepIdx].create = {};
             
             // Add empty row
@@ -2178,59 +2636,111 @@
             `;
             container.appendChild(row);
             
+            console.log('🟢 [ADD CREATE] AFTER:', JSON.stringify(workflowSteps[stepIdx].create, null, 2));
+            
             // Convert only the new input to chip input
             setTimeout(() => {
                 const newInput = row.querySelector('.chip-enabled');
                 if (newInput) convertToChipInput(newInput);
             }, 0);
+            
+            // Immediately save after adding new row
+            debouncedAutoSave();
         }
         
         function updateCreateValueFromRow(stepIdx, fieldInput) {
             const oldKey = fieldInput.dataset.oldKey;
             const newKey = fieldInput.value;
-            // Find the value input/wrapper in the same row
+            
+            console.log('🟠 [UPDATE KEY] oldKey:', oldKey, '→ newKey:', newKey);
+            
+            // Find the value input in the same row
             const row = fieldInput.parentElement;
-            const valueWrapper = row.querySelector('.relative');
-            let value;
-            if (valueWrapper) {
-                // Chip input - get value from hidden input
-                const hiddenInput = valueWrapper.nextElementSibling;
-                value = hiddenInput ? hiddenInput.value : '';
+            
+            // Look for hidden input (if chip-enabled) or direct input
+            let value = '';
+            const hiddenInput = row.querySelector('input[type="hidden"]');
+            if (hiddenInput) {
+                // Chip input - value is in hidden input
+                value = hiddenInput.value;
+                // Update the onchange attribute to use the new key
+                hiddenInput.setAttribute('onchange', `updateCreateValueFromInput(${stepIdx}, '${newKey}', this)`);
             } else {
-                // Normal input - get value directly
+                // Normal input or textarea
                 const valueInput = row.querySelector('.chip-enabled');
                 value = valueInput ? valueInput.value : '';
+                // Update the onchange attribute to use the new key
+                if (valueInput) {
+                    valueInput.setAttribute('onchange', `updateCreateValueFromInput(${stepIdx}, '${newKey}', this)`);
+                }
             }
+            
             updateCreateValue(stepIdx, oldKey, newKey, value);
             fieldInput.dataset.oldKey = newKey;
         }
         
         function updateCreateValueFromInput(stepIdx, key, inputElement) {
-            // Check if this has been converted to chip input
-            const wrapper = inputElement.parentElement?.classList.contains('relative') ? inputElement.parentElement : null;
+            // Check if this input has been converted to chip input
+            // In that case, the actual value is in a hidden input sibling
+            const row = inputElement.closest('.flex');
+            const hiddenInput = row?.querySelector('input[type="hidden"]');
+            
             let value;
-            if (wrapper) {
-                // Chip input - value is in hidden sibling
-                const hiddenInput = wrapper.nextElementSibling;
-                value = hiddenInput ? hiddenInput.value : inputElement.value;
+            if (hiddenInput) {
+                // Chip input - value is in hidden input
+                value = hiddenInput.value;
             } else {
-                // Normal input
+                // Normal input or textarea
                 value = inputElement.value;
             }
             updateCreateValue(stepIdx, key, key, value);
         }
         
         function updateCreateValue(stepIdx, oldKey, newKey, value) {
+            console.log('🟡 [UPDATE CREATE] stepIdx:', stepIdx, 'oldKey:', oldKey, 'newKey:', newKey, 'value:', value);
+            console.log('🟡 [UPDATE CREATE] BEFORE:', JSON.stringify(workflowSteps[stepIdx].create, null, 2));
+            
             if (oldKey !== newKey) {
                 delete workflowSteps[stepIdx].create[oldKey];
-            }
-            let parsedValue = value;
-            try {
-                if (value.startsWith('{') || value.startsWith('[') || value === 'true' || value === 'false' || (!isNaN(value) && value !== '')) {
-                    parsedValue = JSON.parse(value);
+                console.log('🟡 [UPDATE CREATE] Deleted old key:', oldKey);
+                
+                // Sync to SEARCH: rename field
+                if (workflowSteps[stepIdx].search?.fields) {
+                    const searchIdx = workflowSteps[stepIdx].search.fields.indexOf(oldKey);
+                    if (searchIdx !== -1) {
+                        workflowSteps[stepIdx].search.fields[searchIdx] = newKey;
+                    } else if (newKey && !workflowSteps[stepIdx].search.fields.includes(newKey)) {
+                        // Add to search if not exists
+                        workflowSteps[stepIdx].search.fields.push(newKey);
+                    }
                 }
-            } catch (e) {}
+            }
+            
+            // Parse value based on field type
+            const fieldType = workflowSteps[stepIdx]._ui_metadata?.create_types?.[newKey] || 'auto';
+            let parsedValue = value;
+            
+            if (fieldType === 'boolean') {
+                // Convert to boolean
+                parsedValue = value === 'true' || value === true || value === '1' || value === 1;
+            } else if (fieldType === 'integer') {
+                parsedValue = parseInt(value, 10) || 0;
+            } else if (fieldType === 'float') {
+                parsedValue = parseFloat(value) || 0.0;
+            } else if (fieldType === 'string') {
+                parsedValue = String(value);
+            } else {
+                // Auto mode: try to detect type
+                try {
+                    if (value.startsWith('{') || value.startsWith('[') || value === 'true' || value === 'false' || (!isNaN(value) && value !== '')) {
+                        parsedValue = JSON.parse(value);
+                    }
+                } catch (e) {}
+            }
+            
             workflowSteps[stepIdx].create[newKey] = parsedValue;
+            
+            console.log('🟡 [UPDATE CREATE] AFTER:', JSON.stringify(workflowSteps[stepIdx].create, null, 2));
         }
         
         function updateCreateFieldType(stepIdx, key, type) {
@@ -2245,7 +2755,22 @@
             if (workflowSteps[stepIdx]._ui_metadata?.create_types) {
                 delete workflowSteps[stepIdx]._ui_metadata.create_types[key];
             }
+            
+            // Sync to SEARCH: remove field only if it's also not in UPDATE
+            if (key && workflowSteps[stepIdx].search?.fields) {
+                const inUpdate = workflowSteps[stepIdx].update?.fields?.hasOwnProperty(key);
+                if (!inUpdate) {
+                    const searchIdx = workflowSteps[stepIdx].search.fields.indexOf(key);
+                    if (searchIdx !== -1) {
+                        workflowSteps[stepIdx].search.fields.splice(searchIdx, 1);
+                        renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
+                        renderStepResultChips(stepIdx, workflowSteps[stepIdx]);
+                    }
+                }
+            }
+            
             renderCreateValues(stepIdx, workflowSteps[stepIdx].create);
+            debouncedAutoSave(); // Trigger auto-save after deletion
         }
         
         // Update Values
@@ -2294,11 +2819,8 @@
                         <option value="${key}" ${!searchFields.includes(key) && key ? 'selected' : ''}>${key || '(custom)'}</option>
                     </select>
                     <span class="text-base-content/50 flex-shrink-0">=</span>
-                    ${useTextarea 
-                        ? `<textarea id="update-value-${stepIdx}-${key.replace(/\W/g, '_')}" class="textarea textarea-sm textarea-bordered chip-enabled min-h-[2rem] flex-1" onchange="updateUpdateValueFromInput(${stepIdx}, '${key}', this)">${displayValue}</textarea>`
-                        : `<input id="update-value-${stepIdx}-${key.replace(/\W/g, '_')}" type="text" value="${displayValue}" placeholder="value" class="input input-sm input-bordered chip-enabled flex-1" onchange="updateUpdateValueFromInput(${stepIdx}, '${key}', this)">`
-                    }
-                    <select class="select select-sm select-bordered flex-shrink-0" onchange="updateUpdateFieldType(${stepIdx}, '${key}', this.value)" title="Data type">
+                    ${generateValueInput(stepIdx, key, value, fieldType, 'update')}
+                    <select class="select select-sm select-bordered flex-shrink-0" onchange="updateUpdateFieldType(${stepIdx}, '${key}', this.value); renderUpdateValues(${stepIdx}, workflowSteps[${stepIdx}].update);" title="Data type">
                         <option value="auto" ${fieldType === 'auto' ? 'selected' : ''}>Auto</option>
                         <option value="string" ${fieldType === 'string' ? 'selected' : ''}>String</option>
                         <option value="integer" ${fieldType === 'integer' ? 'selected' : ''}>Integer</option>
@@ -2316,7 +2838,7 @@
                 }
             });
             
-            // Convert ONLY value inputs (not field selects) to chip inputs
+            // Convert ONLY value inputs with auto type (chip-enabled class) to chip inputs
             setTimeout(() => {
                 container.querySelectorAll('.chip-enabled').forEach(convertToChipInput);
             }, 0);
@@ -2343,6 +2865,18 @@
             const value = workflowSteps[stepIdx].update.fields[oldKey];
             delete workflowSteps[stepIdx].update.fields[oldKey];
             workflowSteps[stepIdx].update.fields[newKey] = value || '';
+            
+            // Sync to SEARCH: rename or add field
+            if (oldKey !== newKey && workflowSteps[stepIdx].search?.fields) {
+                const searchIdx = workflowSteps[stepIdx].search.fields.indexOf(oldKey);
+                if (searchIdx !== -1) {
+                    workflowSteps[stepIdx].search.fields[searchIdx] = newKey;
+                } else if (newKey && !workflowSteps[stepIdx].search.fields.includes(newKey)) {
+                    workflowSteps[stepIdx].search.fields.push(newKey);
+                }
+                renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
+                renderStepResultChips(stepIdx, workflowSteps[stepIdx]);
+            }
             
             renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
         }
@@ -2392,6 +2926,9 @@
                 const newInput = row.querySelector('.chip-enabled');
                 if (newInput) convertToChipInput(newInput);
             }, 0);
+            
+            // Immediately save after adding new row
+            debouncedAutoSave();
         }
 
         
@@ -2400,14 +2937,41 @@
             
             if (oldKey !== newKey) {
                 delete workflowSteps[stepIdx].update.fields[oldKey];
+                
+                // Sync to SEARCH: rename or add field
+                if (workflowSteps[stepIdx].search?.fields) {
+                    const searchIdx = workflowSteps[stepIdx].search.fields.indexOf(oldKey);
+                    if (searchIdx !== -1) {
+                        workflowSteps[stepIdx].search.fields[searchIdx] = newKey;
+                    } else if (newKey && !workflowSteps[stepIdx].search.fields.includes(newKey)) {
+                        workflowSteps[stepIdx].search.fields.push(newKey);
+                    }
+                    renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
+                    renderStepResultChips(stepIdx, workflowSteps[stepIdx]);
+                }
             }
             
+            // Parse value based on field type
+            const fieldType = workflowSteps[stepIdx]._ui_metadata?.update_types?.[newKey] || 'auto';
             let parsedValue = value;
-            try {
-                if (value.startsWith('{') || value.startsWith('[') || value === 'true' || value === 'false' || (!isNaN(value) && value !== '')) {
-                    parsedValue = JSON.parse(value);
-                }
-            } catch (e) {}
+            
+            if (fieldType === 'boolean') {
+                // Convert to boolean
+                parsedValue = value === 'true' || value === true || value === '1' || value === 1;
+            } else if (fieldType === 'integer') {
+                parsedValue = parseInt(value, 10) || 0;
+            } else if (fieldType === 'float') {
+                parsedValue = parseFloat(value) || 0.0;
+            } else if (fieldType === 'string') {
+                parsedValue = String(value);
+            } else {
+                // Auto mode: try to detect type
+                try {
+                    if (value.startsWith('{') || value.startsWith('[') || value === 'true' || value === 'false' || (!isNaN(value) && value !== '')) {
+                        parsedValue = JSON.parse(value);
+                    }
+                } catch (e) {}
+            }
             
             workflowSteps[stepIdx].update.fields[newKey] = parsedValue;
         }
@@ -2424,7 +2988,22 @@
             if (workflowSteps[stepIdx]._ui_metadata?.update_types) {
                 delete workflowSteps[stepIdx]._ui_metadata.update_types[key];
             }
+            
+            // Sync to SEARCH: remove field only if it's also not in CREATE
+            if (key && workflowSteps[stepIdx].search?.fields) {
+                const inCreate = workflowSteps[stepIdx].create?.hasOwnProperty(key);
+                if (!inCreate) {
+                    const searchIdx = workflowSteps[stepIdx].search.fields.indexOf(key);
+                    if (searchIdx !== -1) {
+                        workflowSteps[stepIdx].search.fields.splice(searchIdx, 1);
+                        renderSearchFields(stepIdx, workflowSteps[stepIdx].search.fields);
+                        renderStepResultChips(stepIdx, workflowSteps[stepIdx]);
+                    }
+                }
+            }
+            
             renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
+            debouncedAutoSave(); // Trigger auto-save after deletion
         }
         
         // Save & Export
@@ -2518,10 +3097,12 @@
                     console.log('Form saved successfully, mappings updated:', mappings[currentFormId]);
                     showAlert('Form saved successfully', 'success');
                 }
+                updateSaveStatus('saved');
             } catch (err) {
                 if (!silent) {
                     showAlert('Failed to save: ' + err.message, 'error');
                 }
+                updateSaveStatus('error');
             }
         }
         
@@ -3139,5 +3720,297 @@
             }).catch(err => {
                 showAlert('Kopiëren mislukt: ' + err.message, 'alert-error');
             });
+        }
+        
+        // History Functions
+        let allHistory = [];
+        
+        async function loadHistory() {
+            console.log('🔍 [DEBUG] loadHistory() started');
+            console.log('🔍 [DEBUG] Current URL:', window.location.href);
+            try {
+                console.log('🔍 [DEBUG] Making API call to /api/history');
+                // Call global history API (no formId needed)
+                const res = await apiCall(`/api/history`);
+                console.log('🔍 [DEBUG] API response status:', res.status);
+                const data = await res.json();
+                console.log('🔍 [DEBUG] API response data:', data);
+                
+                // Check if we got an error response
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Ensure we have an array
+                if (!Array.isArray(data)) {
+                    console.error('Unexpected API response:', data);
+                    throw new Error('API returned invalid data (not an array)');
+                }
+                
+                allHistory = data;
+                
+                // Populate form filter dropdown with unique form IDs
+                const formFilter = document.getElementById('historyFormFilter');
+                const uniqueForms = [...new Set(allHistory.map(e => e.formId))].filter(Boolean);
+                formFilter.innerHTML = '<option value="">Alle formulieren</option>' + 
+                    uniqueForms.map(formId => `<option value="${formId}">Form ${formId}</option>`).join('');
+                
+                filterHistory();
+            } catch (err) {
+                console.error('History load error:', err);
+                showAlert('Failed to load history: ' + err.message, 'alert-error');
+                document.getElementById('historyList').innerHTML = 
+                    '<div class="alert alert-error">Failed to load history: ' + escapeHtml(err.message) + '</div>';
+                allHistory = []; // Reset to empty array on error
+            }
+        }
+        
+        function filterHistory() {
+            const statusFilter = document.getElementById('historyStatusFilter')?.value || '';
+            const formFilter = document.getElementById('historyFormFilter')?.value || '';
+            const dateFilter = document.getElementById('historyDateFilter')?.value || '';
+            
+            let filtered = allHistory;
+            
+            // Filter by status
+            if (statusFilter) {
+                filtered = filtered.filter(entry => entry.status === statusFilter);
+            }
+            
+            // Filter by form ID
+            if (formFilter) {
+                filtered = filtered.filter(entry => entry.formId === formFilter);
+            }
+            
+            // Filter by date
+            if (dateFilter) {
+                const filterDate = new Date(dateFilter).toDateString();
+                filtered = filtered.filter(entry => {
+                    const entryDate = new Date(entry.timestamp).toDateString();
+                    return entryDate === filterDate;
+                });
+            }
+            
+            renderHistory(filtered);
+        }
+        
+        function renderHistory(history) {
+            const container = document.getElementById('historyList');
+            
+            if (!history || history.length === 0) {
+                container.innerHTML = '<div class="alert alert-info">No history entries found</div>';
+                return;
+            }
+            
+            // Build table
+            container.innerHTML = `
+                <div class="overflow-x-auto">
+                    <table class="table table-zebra table-sm">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Tijd</th>
+                                <th>Formulier</th>
+                                <th>Fout</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${history.map((entry, idx) => {
+                                const timestamp = new Date(entry.timestamp);
+                                const statusBadge = getStatusBadge(entry.status);
+                                const statusColor = getStatusColor(entry.status);
+                                const formName = mappings[entry.formId]?.form_name || `Form ${entry.formId}`;
+                                
+                                return `
+                                    <tr>
+                                        <td><span class="badge ${statusColor} badge-sm">${statusBadge}</span></td>
+                                        <td class="font-mono text-xs">${timestamp.toLocaleString('nl-NL', {dateStyle: 'short', timeStyle: 'medium'})}</td>
+                                        <td>
+                                            <div class="font-semibold">${escapeHtml(formName)}</div>
+                                            <div class="text-xs text-base-content/60">ID: ${entry.formId || 'Unknown'}</div>
+                                        </td>
+                                        <td class="max-w-xs">
+                                            ${entry.error ? `<span class="text-error text-xs">${escapeHtml(entry.error.substring(0, 50))}${entry.error.length > 50 ? '...' : ''}</span>` : '-'}
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-xs btn-ghost" onclick="showHistoryDetail(${idx})">👁️ Bekijk</button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Detail Modal -->
+                <dialog id="historyDetailModal" class="modal">
+                    <div class="modal-box max-w-4xl">
+                        <h3 class="font-bold text-lg mb-4">Request Details</h3>
+                        <div id="historyDetailContent"></div>
+                        <div class="modal-action">
+                            <form method="dialog">
+                                <button class="btn">Sluiten</button>
+                            </form>
+                        </div>
+                    </div>
+                    <form method="dialog" class="modal-backdrop">
+                        <button>close</button>
+                    </form>
+                </dialog>
+            `;
+        }
+        
+        function showHistoryDetail(idx) {
+            const statusFilter = document.getElementById('historyStatusFilter')?.value || '';
+            const formFilter = document.getElementById('historyFormFilter')?.value || '';
+            const dateFilter = document.getElementById('historyDateFilter')?.value || '';
+            
+            let filtered = allHistory;
+            if (statusFilter) filtered = filtered.filter(entry => entry.status === statusFilter);
+            if (formFilter) filtered = filtered.filter(entry => entry.formId === formFilter);
+            if (dateFilter) {
+                const filterDate = new Date(dateFilter).toDateString();
+                filtered = filtered.filter(entry => new Date(entry.timestamp).toDateString() === filterDate);
+            }
+            
+            const entry = filtered[idx];
+            if (!entry) return;
+            
+            const timestamp = new Date(entry.timestamp);
+            const statusBadge = getStatusBadge(entry.status);
+            const statusColor = getStatusColor(entry.status);
+            const formName = mappings[entry.formId]?.form_name || `Form ${entry.formId}`;
+            
+            document.getElementById('historyDetailContent').innerHTML = `
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <h4 class="font-semibold text-sm mb-1">Status</h4>
+                            <span class="badge ${statusColor}">${statusBadge}</span>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-sm mb-1">Tijdstip</h4>
+                            <div class="text-sm">${timestamp.toLocaleString('nl-NL')}</div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-sm mb-1">Formulier</h4>
+                            <div class="text-sm">${escapeHtml(formName)}</div>
+                            <div class="text-xs text-base-content/60">ID: ${entry.formId || 'Unknown'}</div>
+                        </div>
+                    </div>
+                    
+                    ${entry.error ? `
+                    <div>
+                        <h4 class="font-semibold text-sm mb-2 text-error flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Error Details
+                        </h4>
+                        <div class="alert alert-error text-sm mb-2">
+                            <div>
+                                <div class="font-semibold">${escapeHtml(entry.error)}</div>
+                                ${entry.errorType ? `<div class="text-xs opacity-80 mt-1">Type: ${escapeHtml(entry.errorType)}</div>` : ''}
+                            </div>
+                        </div>
+                        
+                        ${entry.invalidField ? `
+                        <div class="alert alert-warning text-sm mb-2">
+                            <div>
+                                <div class="font-semibold">❌ Invalid Field: <code class="bg-base-300 px-2 py-1 rounded">${escapeHtml(entry.invalidField)}</code></div>
+                                ${entry.hint ? `<div class="text-xs mt-1">${escapeHtml(entry.hint)}</div>` : ''}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${entry.workflowDetails ? `
+                        <div class="collapse collapse-arrow bg-base-200 mb-2">
+                            <input type="checkbox" />
+                            <div class="collapse-title text-sm font-medium">
+                                🔧 Workflow Context
+                            </div>
+                            <div class="collapse-content text-xs">
+                                <div class="grid grid-cols-2 gap-2 mb-2">
+                                    <div><strong>Step:</strong> ${escapeHtml(entry.workflowDetails.step || 'N/A')}</div>
+                                    <div><strong>Model:</strong> ${escapeHtml(entry.workflowDetails.model || 'N/A')}</div>
+                                </div>
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${entry.odooError ? `
+                        <div class="collapse collapse-arrow bg-base-200 mb-2">
+                            <input type="checkbox" />
+                            <div class="collapse-title text-sm font-medium">
+                                🔴 Odoo RPC Error
+                            </div>
+                            <div class="collapse-content text-xs space-y-2">
+                                <div><strong>Name:</strong> <code class="bg-base-300 px-2 py-1 rounded">${escapeHtml(entry.odooError.name || 'N/A')}</code></div>
+                                <div><strong>Message:</strong> ${escapeHtml(entry.odooError.message || 'N/A')}</div>
+                                ${entry.odooError.debug ? `
+                                <div>
+                                    <strong>Debug Trace:</strong>
+                                    <pre class="bg-base-300 p-2 rounded overflow-x-auto max-h-48 mt-1 text-xs">${escapeHtml(entry.odooError.debug)}</pre>
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${entry.stackTrace ? `
+                        <div class="collapse collapse-arrow bg-base-200">
+                            <input type="checkbox" />
+                            <div class="collapse-title text-sm font-medium">
+                                📋 Stack Trace
+                            </div>
+                            <div class="collapse-content">
+                                <pre class="bg-base-300 p-2 rounded text-xs overflow-x-auto max-h-48">${escapeHtml(entry.stackTrace)}</pre>
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                    ` : ''}
+                    
+                    <div>
+                        <h4 class="font-semibold text-sm mb-1">Request Data</h4>
+                        <pre class="bg-base-300 p-3 rounded text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.requestData, null, 2)}</pre>
+                    </div>
+                    
+                    ${entry.workflowResults ? `
+                    <div>
+                        <h4 class="font-semibold text-sm mb-1">Workflow Results</h4>
+                        <pre class="bg-base-300 p-3 rounded text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.workflowResults, null, 2)}</pre>
+                    </div>
+                    ` : ''}
+                    
+                    ${entry.odooResponse ? `
+                    <div>
+                        <h4 class="font-semibold text-sm mb-1">Odoo Response</h4>
+                        <pre class="bg-base-300 p-3 rounded text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.odooResponse, null, 2)}</pre>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            document.getElementById('historyDetailModal').showModal();
+        }
+        
+        function getStatusBadge(status) {
+            switch(status) {
+                case 'success': return '✓ Success';
+                case 'error': return '✗ Error';
+                case 'skipped': return '⊘ Skipped';
+                default: return status;
+            }
+        }
+        
+        function getStatusColor(status) {
+            switch(status) {
+                case 'success': return 'badge-success';
+                case 'error': return 'badge-error';
+                case 'skipped': return 'badge-warning';
+                default: return 'badge-neutral';
+            }
         }
     
