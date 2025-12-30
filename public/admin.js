@@ -5,6 +5,7 @@
         let fieldMapping = {};
         let valueMapping = {};
         let workflowSteps = [];
+        let preservedCollapseStates = null;
         let draggedFieldName = null;
         let expandedValueMappings = {};
         let currentHtmlCardStepIdx = null;
@@ -175,6 +176,32 @@
         };
         
         if (token) { showAdmin(); }
+        
+        function switchStepTab(stepIdx, panelIdx) {
+            // Get all tabs and panels for this step
+            const tabs = document.querySelectorAll(`[onclick*="switchStepTab(${stepIdx}"]`);
+            const panels = document.querySelectorAll(`[data-step="${stepIdx}"]`);
+            
+            // Remove active from all tabs, add to clicked one
+            tabs.forEach((tab, idx) => {
+                if (idx === panelIdx) {
+                    tab.classList.add('tab-active');
+                } else {
+                    tab.classList.remove('tab-active');
+                }
+            });
+            
+            // Hide all panels, show selected one
+            panels.forEach((panel, idx) => {
+                if (idx === panelIdx) {
+                    panel.classList.remove('hidden');
+                    panel.classList.add('active');
+                } else {
+                    panel.classList.add('hidden');
+                    panel.classList.remove('active');
+                }
+            });
+        }
         
         function login() {
             token = document.getElementById('tokenInput').value;
@@ -466,9 +493,9 @@
             document.getElementById('editorTitle').textContent = `Edit: ${formName}`;
             document.getElementById('editorContent').innerHTML = `
                 <!-- Form Details Card -->
-                <div class="card bg-base-100 shadow-sm mb-4">
+                <div class="card bg-base-100 shadow-xl rounded-box mb-4">
                     <div class="card-body">
-                        <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div class="grid grid-cols-2 gap-4">
                             <div class="form-control">
                                 <label class="label"><span class="label-text font-semibold">Form Name</span></label>
                                 <input type="text" id="formName" value="${escapedFormName}" placeholder="Enter a display name" class="input input-bordered" onchange="updateFormName()">
@@ -532,23 +559,21 @@
             }
             
             // Restore collapse state for this specific form
-            setTimeout(() => {
-                // First, open ALL collapses by default
-                const allCollapseCheckboxes = document.querySelectorAll('.collapse input[type="checkbox"]');
-                allCollapseCheckboxes.forEach(checkbox => {
-                    checkbox.checked = true; // Default: all open
+            // First, open ALL collapses by default
+            const allCollapseCheckboxes = document.querySelectorAll('.collapse input[type="checkbox"]');
+            allCollapseCheckboxes.forEach(checkbox => {
+                checkbox.checked = true; // Default: all open
+            });
+            
+            // Then close the ones that were collapsed in saved state
+            if (savedState?.formStates?.[formId]?.collapsedSections) {
+                savedState.formStates[formId].collapsedSections.forEach(sectionId => {
+                    const checkbox = document.getElementById(sectionId);
+                    if (checkbox && checkbox.type === 'checkbox') {
+                        checkbox.checked = false; // Collapse it
+                    }
                 });
-                
-                // Then close the ones that were collapsed in saved state
-                if (savedState?.formStates?.[formId]?.collapsedSections) {
-                    savedState.formStates[formId].collapsedSections.forEach(sectionId => {
-                        const checkbox = document.getElementById(sectionId);
-                        if (checkbox && checkbox.type === 'checkbox') {
-                            checkbox.checked = false; // Collapse it
-                        }
-                    });
-                }
-            }, 50);
+            }
         }
         
         // Field Mapping with Inline Value Mapping
@@ -558,17 +583,17 @@
             
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
                 const containerDiv = document.createElement('div');
-                containerDiv.className = 'collapse collapse-arrow bg-base-200 mb-2';
+                containerDiv.className = 'collapse collapse-arrow bg-base-200 rounded-box mb-2';
                 containerDiv.dataset.field = formField;
                 
                 const rowDiv = document.createElement('div');
-                rowDiv.className = 'flex gap-2 items-center p-3';
+                rowDiv.className = 'flex gap-2 items-center p-4';
                 rowDiv.innerHTML = `
                     <input type="text" value="${formField}" data-type="key" class="input input-bordered input-sm flex-1" onchange="updateFieldKey('${formField}', this.value)">
                     <span class="text-base-content/50">→</span>
                     <input type="text" value="${odooField}" data-type="value" class="input input-bordered input-sm flex-1" onchange="updateFieldValue('${formField}', this.value)">
                     <button class="btn btn-sm btn-primary" onclick="toggleValueMapping('${formField}')">⚙️</button>
-                    <button class="btn btn-sm btn-error btn-circle" onclick="deleteField('${formField}')">×</button>
+                    <button class="btn btn-sm btn-error btn-square" onclick="deleteField('${formField}')">×</button>
                 `;
                 
                 containerDiv.appendChild(rowDiv);
@@ -598,7 +623,7 @@
                                 onchange="updateDefaultValue('${formField}', this.value)">
                         </div>
                     </div>
-                    <div id="mappings-${formField}" class="space-y-1"></div>
+                    <div id="mappings-${formField}" class="space-y-2"></div>
                     <button class="btn btn-sm btn-outline mt-2" onclick="addValueMappingRow('${formField}')">+ Add Value Mapping</button>
                 `;
                 
@@ -1600,24 +1625,25 @@
                 stepEl.dataset.index = idx;
                 
                 const resultBadge = step.step ? `<div class="badge badge-accent">$${step.step}</div>` : '';
+                const isNewStep = step.step === 'new_step';
+                const shouldBeChecked = preservedCollapseStates !== null ? (preservedCollapseStates[idx] ?? !isNewStep) : !isNewStep;
                 
                 stepEl.innerHTML = `
-                    <div class="collapse collapse-arrow bg-base-100 shadow-lg rounded-[3rem] mb-6">
-                        <input type="checkbox" id="step-toggle-${idx}" /> 
-                        <div class="collapse-title px-6 py-4 min-h-0">
-                            <div class="flex items-center justify-between pr-8">
-                                <h3 class="text-lg font-semibold flex items-center gap-2">
-                                    <i data-lucide="layers" class="w-5 h-5"></i>
-                                    <span>Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</span>
-                                </h3>
-                                <div class="flex gap-2 shrink-0">
-                                    ${resultBadge}
-                                    <button class="btn btn-sm btn-ghost btn-square" onclick="deleteStep(${idx}); event.stopPropagation();">×</button>
-                                </div>
+                    <div class="collapse collapse-arrow bg-base-100 shadow-xl rounded-box mb-4">
+                        <input type="checkbox" id="step-toggle-${idx}" ${shouldBeChecked ? 'checked' : ''} /> 
+                        <div class="collapse-title relative">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="layers" class="w-5 h-5"></i>
+                                <span class="text-lg font-semibold">Step: ${step.step || '(unnamed)'} - Model: ${step.model || '(no model)'}</span>
+                                ${resultBadge}
                             </div>
+                            <button class="btn btn-sm btn-error btn-outline absolute top-4 right-14 z-10" onclick="deleteStep(${idx}); event.stopPropagation();">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
                         </div>
-                        <div class="collapse-content px-6 pb-6 pt-0">
-                                <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div class="collapse-content">
+                            <div class="space-y-4">
+                                <div class="grid grid-cols-2 gap-4">
                                     <div class="form-control">
                                         <label class="label py-1"><span class="label-text font-medium">Step Name:</span></label>
                                         <input type="text" class="input input-bordered" value="${step.step || ''}" onchange="updateStepBasic(${idx}, 'step', this.value)">
@@ -1633,37 +1659,24 @@
                                         ${step.model && !ODOO_MODELS[step.model] ? `<input type="text" class="input input-bordered mt-2" value="${step.model}" onchange="updateStepBasic(${idx}, 'model', this.value)" placeholder="Custom model naam">` : ''}
                                     </div>
                                 </div>
-                                ${step.model && ODOO_MODELS[step.model] && ODOO_MODELS[step.model].description ? `
-                                <div class="alert alert-info text-sm mb-4">
-                                    <i data-lucide="info" class="w-4 h-4"></i>
-                                    <span>${ODOO_MODELS[step.model].description}</span>
-                                </div>
-                                ` : ''}
                         
-                        <div class="collapse collapse-arrow bg-base-200 rounded-[3.25rem] mb-4 ${(step.search?.domain?.length > 0 || (step.search?.fields?.length > 0 && (step._templateConfig?.values && Object.keys(step._templateConfig.values).length > 0))) ? 'ring-2 ring-success' : ''}">
-                            <input type="checkbox" id="step-${idx}-search" /> 
-                            <div class="collapse-title px-4 py-3 min-h-0">
-                                <div class="flex items-center gap-2 text-base font-medium">
-                                    <i data-lucide="search" class="w-5 h-5"></i>
-                                    <span>Search</span>
-                                    ${(step.search?.domain?.length > 0 || (step.search?.fields?.length > 0 && (step._templateConfig?.values && Object.keys(step._templateConfig.values).length > 0))) ? '<span class="badge badge-success ml-auto">Configured</span>' : ''}
-                                </div>
-                            </div>
-                            <div class="collapse-content px-4 pb-4">
-                                ${renderSearchTemplate(idx, step)}
-                            </div>
+                        <!-- Step Tabs -->
+                        <div role="tablist" class="tabs tabs-boxed bg-base-200 mb-4">
+                            <a role="tab" class="tab tab-active" onclick="switchStepTab(${idx}, 0)">🔍 Search</a>
+                            <a role="tab" class="tab" onclick="switchStepTab(${idx}, 1)">➕ Create</a>
+                            <a role="tab" class="tab" onclick="switchStepTab(${idx}, 2)">✏️ Update</a>
+                            <a role="tab" class="tab" onclick="switchStepTab(${idx}, 3)">🎨 HTML Card</a>
                         </div>
                         
-                        <div class="collapse collapse-arrow bg-base-200 rounded-[3.25rem] mb-4 ${(step.create && Object.keys(step.create).some(k => step.create[k])) ? 'ring-2 ring-success' : ''}">
-                            <input type="checkbox" id="step-${idx}-create" /> 
-                            <div class="collapse-title px-4 py-3 min-h-0">
-                                <div class="flex items-center gap-2 text-base font-medium">
-                                    <i data-lucide="plus-circle" class="w-5 h-5"></i>
-                                    <span>Create</span>
-                                    ${(step.create && Object.keys(step.create).some(k => step.create[k])) ? '<span class="badge badge-success ml-auto">Configured</span>' : ''}
-                                </div>
+                        <!-- Tab Panels -->
+                        <div class="step-tab-panels">
+                            <!-- Search Panel -->
+                            <div class="step-tab-panel active" data-step="${idx}" data-panel="0">
+                                ${renderSearchTemplate(idx, step)}
                             </div>
-                            <div class="collapse-content px-4 pb-4">
+                            
+                            <!-- Create Panel -->
+                            <div class="step-tab-panel hidden" data-step="${idx}" data-panel="1">
                                 <div class="flex gap-2 mb-3">
                                     <button class="btn btn-outline flex-1" onclick="addCreateValue(${idx})">
                                         <i data-lucide="plus" class="w-4 h-4"></i>
@@ -1676,32 +1689,23 @@
                                 </div>
                                 <div id="create-${idx}" class="space-y-2 mb-3"></div>
                                 
-                                <div class="collapse collapse-arrow rounded-[2.25rem] ${(step.create && Object.keys(step.create).length > 0) ? 'bg-success' : 'bg-warning'} ${(step.create && Object.keys(step.create).length > 0) ? 'text-success-content' : 'text-warning-content'}">
+                                <div class="collapse collapse-arrow rounded-box ${(step.create && Object.keys(step.create).length > 0) ? 'bg-success' : 'bg-warning'} ${(step.create && Object.keys(step.create).length > 0) ? 'text-success-content' : 'text-warning-content'}">
                                     <input type="checkbox" checked /> 
-                                    <div class="collapse-title px-3 py-2 min-h-0">
-                                        <div class="flex items-center gap-2 text-sm font-medium">
+                                    <div class="collapse-title">
+                                        <div class="flex items-center gap-2 text-sm">
                                             <i data-lucide="file-json" class="w-4 h-4"></i>
                                             <span>Create payload preview (${Object.keys(step.create || {}).length} fields)</span>
                                         </div>
                                     </div>
-                                    <div class="collapse-content px-3 pb-3">
-                                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded">${JSON.stringify(step.create || {}, null, 2)}</pre>
+                                    <div class="collapse-content">
+                                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded-box">${JSON.stringify(step.create || {}, null, 2)}</pre>
                                         ${(step.create && Object.keys(step.create).length > 0) ? '<div class="text-sm mt-2 flex items-center gap-1"><i data-lucide="check-circle" class="w-4 h-4"></i> Klaar om op te slaan</div>' : '<div class="text-sm mt-2 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Voeg velden toe hierboven</div>'}
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <div class="collapse collapse-arrow bg-base-200 rounded-[3.25rem] mb-4 ${(step.update?.fields && Object.keys(step.update.fields).some(k => step.update.fields[k])) ? 'ring-2 ring-success' : ''}">
-                            <input type="checkbox" id="step-${idx}-update" /> 
-                            <div class="collapse-title px-4 py-3 min-h-0">
-                                <div class="flex items-center gap-2 text-base font-medium">
-                                    <i data-lucide="edit" class="w-5 h-5"></i>
-                                    <span>Update</span>
-                                    ${(step.update?.fields && Object.keys(step.update.fields).some(k => step.update.fields[k])) ? '<span class="badge badge-success ml-auto">Configured</span>' : ''}
-                                </div>
-                            </div>
-                            <div class="collapse-content px-4 pb-4">
+                            
+                            <!-- Update Panel -->
+                            <div class="step-tab-panel hidden" data-step="${idx}" data-panel="2">
                                 <div class="flex gap-2 mb-3">
                                     <button class="btn btn-outline flex-1" onclick="addUpdateValue(${idx})">
                                         <i data-lucide="plus" class="w-4 h-4"></i>
@@ -1714,32 +1718,23 @@
                                 </div>
                                 <div id="update-${idx}" class="space-y-2 mb-3"></div>
                                 
-                                <div class="collapse collapse-arrow rounded-[2.25rem] ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'bg-success' : 'bg-warning'} ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'text-success-content' : 'text-warning-content'}">
+                                <div class="collapse collapse-arrow rounded-box ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'bg-success' : 'bg-warning'} ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'text-success-content' : 'text-warning-content'}">
                                     <input type="checkbox" checked /> 
-                                    <div class="collapse-title px-3 py-2 min-h-0">
-                                        <div class="flex items-center gap-2 text-sm font-medium">
+                                    <div class="collapse-title">
+                                        <div class="flex items-center gap-2 text-sm">
                                             <i data-lucide="file-json" class="w-4 h-4"></i>
                                             <span>Update payload preview (${Object.keys(step.update?.fields || {}).length} fields)</span>
                                         </div>
                                     </div>
-                                    <div class="collapse-content px-3 pb-3">
-                                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded">${JSON.stringify(step.update || {}, null, 2)}</pre>
+                                    <div class="collapse-content">
+                                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded-box">${JSON.stringify(step.update || {}, null, 2)}</pre>
                                         ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? '<div class="text-sm mt-2 flex items-center gap-1"><i data-lucide="check-circle" class="w-4 h-4"></i> Klaar om op te slaan</div>' : '<div class="text-sm mt-2 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Voeg velden toe hierboven</div>'}
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <div class="collapse collapse-arrow bg-base-200 rounded-[3.25rem] mb-0 ${step.html_card ? 'ring-2 ring-success' : ''}">
-                            <input type="checkbox" id="step-${idx}-htmlcard" /> 
-                            <div class="collapse-title px-4 py-3 min-h-0">
-                                <div class="flex items-center gap-2 text-base font-medium">
-                                    <i data-lucide="layout" class="w-5 h-5"></i>
-                                    <span>HTML Card</span>
-                                    ${step.html_card ? '<span class="badge badge-success ml-auto">Configured</span>' : ''}
-                                </div>
-                            </div>
-                            <div class="collapse-content px-4 pb-4">
+                            
+                            <!-- HTML Card Panel -->
+                            <div class="step-tab-panel hidden" data-step="${idx}" data-panel="3">
                                 <p class="text-sm text-base-content/70 mb-3">
                                     Build a custom HTML card/form with drag & drop field placeholders
                                 </p>
@@ -1750,8 +1745,8 @@
                                 ${step.html_card ? '<div class="alert alert-success mt-3"><i data-lucide="check-circle" class="w-4 h-4"></i><div><strong>HTML Card configured</strong><br/>' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div></div>' : ''}
                             </div>
                         </div>
-                        </div>
                     </div>
+                </div>
                 `;
                 container.appendChild(stepEl);
             });
@@ -1774,11 +1769,29 @@
             
             // Re-initialize drag and drop for newly rendered elements
             initializeDragAndDrop();
+            preservedCollapseStates = null; // Clear after rendering
         }
         
         function deleteStep(idx) {
             if (confirm('Delete this workflow step?')) {
+                // Save current collapse states before deleting
+                const collapseStates = [];
+                workflowSteps.forEach((step, i) => {
+                    const checkbox = document.getElementById(`step-toggle-${i}`);
+                    if (checkbox) {
+                        collapseStates.push(checkbox.checked);
+                    }
+                });
+                
                 workflowSteps.splice(idx, 1);
+                
+                // Set preserved states (shifted by one after deletion)
+                preservedCollapseStates = [];
+                workflowSteps.forEach((step, i) => {
+                    const originalIdx = i < idx ? i : i + 1;
+                    preservedCollapseStates.push(collapseStates[originalIdx] ?? true);
+                });
+                
                 renderWorkflowSteps();
             }
         }
@@ -1880,6 +1893,15 @@
         }
         
         function addWorkflowStep() {
+            // Save current collapse states before adding
+            preservedCollapseStates = [];
+            workflowSteps.forEach((step, i) => {
+                const checkbox = document.getElementById(`step-toggle-${i}`);
+                if (checkbox) {
+                    preservedCollapseStates.push(checkbox.checked);
+                }
+            });
+            
             workflowSteps.push({
                 step: 'new_step',
                 model: '',
@@ -1887,6 +1909,10 @@
                 create: {},
                 update: {}
             });
+            
+            // New step should be collapsed
+            preservedCollapseStates.push(false);
+            
             renderWorkflowSteps();
         }
         
@@ -1917,7 +1943,7 @@
             // Template mode - show all templates side by side
             const templateConfig = step._templateConfig || {};
             
-            let html = `<div class="flex flex-col h-full gap-3">`;
+            let html = `<div class="space-y-4">`;
             
             // Info text - above the columns
             html += `
@@ -1926,7 +1952,7 @@
                 </div>
             `;
             
-            html += `<div class="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-3 flex-1">`;
+            html += `<div class="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">`;
             
             // LEFT COLUMN - Templates, type filter, custom conditions, preview
             html += `<div class="space-y-3">`;
@@ -1945,13 +1971,13 @@
                 else if (templateKey === 'name') icon = 'user';
                 
                 html += `
-                    <div class="card bg-base-100 shadow-sm rounded-[2.25rem] ${hasValues ? 'ring-2 ring-primary' : ''}">
-                        <div class="card-body p-4">
+                    <div class="card bg-base-100 shadow-xl rounded-box ${hasValues ? 'ring-2 ring-primary' : ''}">
+                        <div class="card-body">
                             <h4 class="card-title text-base flex items-center gap-2">
                                 <i data-lucide="${icon}" class="w-4 h-4"></i>
                                 <span>${template.name}</span>
                             </h4>
-                            <div class="space-y-2.5">
+                            <div class="space-y-2">
                 `;
                 
                 allFields.forEach(([fieldKey, fieldConfig]) => {
@@ -1965,7 +1991,7 @@
                                 <span class="label-text text-sm">${label}</span>
                             </label>
                             ${dropOnly ? `
-                                <div class="badge badge-outline badge-lg drop-zone w-full cursor-pointer h-10 justify-start px-3 text-sm border-dashed rounded-lg" 
+                                <div class="badge badge-outline badge-lg drop-zone w-full cursor-pointer h-10 justify-start px-3 text-sm border-dashed rounded-badge" 
                                      ondragover="handleDragOver(event)"
                                      ondragleave="handleDragLeave(event)"
                                      ondrop="handleTemplateFieldDrop(event, ${idx}, '${templateKey}_${fieldKey}')"
@@ -2000,15 +2026,17 @@
             if (hasTypeFilter) {
                 const currentType = templateConfig.typeFilter || 'contact';
                 html += `
-                    <div class="bg-base-100 rounded-[2.25rem] p-4 shadow-sm">
-                        <div class="text-sm font-medium mb-3 flex items-center gap-2">
-                            <i data-lucide="filter" class="w-4 h-4"></i>
-                            <span>Type filter</span>
-                        </div>
-                        <div class="btn-group w-full">
-                            <input type="radio" name="type-${idx}" value="both" class="btn btn-sm flex-1" aria-label="Beide" ${currentType === 'both' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
-                            <input type="radio" name="type-${idx}" value="contact" class="btn btn-sm flex-1" aria-label="Contacten" ${currentType === 'contact' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
-                            <input type="radio" name="type-${idx}" value="company" class="btn btn-sm flex-1" aria-label="Bedrijven" ${currentType === 'company' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
+                    <div class="card bg-base-100 shadow-xl rounded-box">
+                        <div class="card-body">
+                            <div class="card-title text-sm flex items-center gap-2">
+                                <i data-lucide="filter" class="w-4 h-4"></i>
+                                <span>Type filter</span>
+                            </div>
+                            <div class="btn-group w-full">
+                                <input type="radio" name="type-${idx}" value="both" class="btn btn-sm flex-1" aria-label="Beide" ${currentType === 'both' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
+                                <input type="radio" name="type-${idx}" value="contact" class="btn btn-sm flex-1" aria-label="Contacten" ${currentType === 'contact' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
+                                <input type="radio" name="type-${idx}" value="company" class="btn btn-sm flex-1" aria-label="Bedrijven" ${currentType === 'company' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
+                            </div>
                         </div>
                     </div>
                 `;
@@ -2016,19 +2044,19 @@
             
             // Custom conditions section
             html += `
-                <div class="collapse collapse-arrow bg-base-100 rounded-[2.25rem] shadow-sm">
-                    <input type="checkbox" /> 
-                    <div class="collapse-title px-4 py-2.5 min-h-0">
-                        <div class="flex items-center gap-2 text-sm font-medium">
+                <div class="collapse collapse-arrow bg-base-100 shadow-xl rounded-box">
+                    <input type="checkbox" id="custom-conditions-${idx}" checked />
+                    <div class="collapse-title">
+                        <div class="flex items-center gap-2 font-medium">
                             <i data-lucide="settings" class="w-4 h-4"></i>
                             <span>Aangepaste condities (optioneel)</span>
                         </div>
                     </div>
-                    <div class="collapse-content px-4 pb-4">
-                        <div class="form-control mb-2">
-                            <label class="label py-1"><span class="label-text text-xs">Extra domain condities:</span></label>
+                    <div class="collapse-content">
+                        <div class="form-control">
+                            <label class="label"><span class="label-text">Extra domain condities:</span></label>
                             <div id="domain-${idx}" class="space-y-2"></div>
-                            <button class="btn btn-xs btn-outline mt-2" onclick="addDomainRow(${idx})">+ Add Condition</button>
+                            <button class="btn btn-outline mt-2" onclick="addDomainRow(${idx})">+ Add Condition</button>
                         </div>
                     </div>
                 </div>
@@ -2041,16 +2069,16 @@
             const isSuccess = hasAnyValues || hasCustomConditions;
             
             html += `
-                <div class="collapse collapse-arrow rounded-[2.25rem] shadow-sm ${isSuccess ? 'bg-success' : 'bg-warning'} ${isSuccess ? 'text-success-content' : 'text-warning-content'}">
-                    <input type="checkbox" checked /> 
-                    <div class="collapse-title px-4 py-2.5 min-h-0">
-                        <div class="flex items-center gap-2 text-sm font-medium">
+                <div class="collapse collapse-arrow shadow-xl rounded-box ${isSuccess ? 'bg-success' : 'bg-warning'} ${isSuccess ? 'text-success-content' : 'text-warning-content'}">
+                    <input type="checkbox" id="generated-domain-${idx}" checked />
+                    <div class="collapse-title">
+                        <div class="flex items-center gap-2 font-medium">
                             <i data-lucide="code" class="w-4 h-4"></i>
                             <span>Generated domain (${previewDomain.length} conditions)</span>
                         </div>
                     </div>
-                    <div id="domain-preview-${idx}" class="collapse-content px-4 pb-4">
-                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded">${JSON.stringify(previewDomain, null, 2)}</pre>
+                    <div class="collapse-content">
+                        <pre class="text-xs overflow-x-auto whitespace-pre-wrap break-all bg-base-100/20 p-2 rounded-box">${JSON.stringify(previewDomain, null, 2)}</pre>
                         ${isSuccess ? '<div class="text-xs mt-1">✓ Klaar om op te slaan</div>' : '<div class="text-xs mt-1">⚠ Sleep velden naar de drop zones hierboven</div>'}
                     </div>
                 </div>
@@ -2062,25 +2090,27 @@
             html += `<div class="flex flex-col">`;
             
             html += `
-                <div class="bg-base-100 rounded-[2.25rem] p-4 flex flex-col h-full shadow-sm">
-                    <div class="text-sm font-medium mb-2 flex items-center gap-2">
-                        <i data-lucide="database" class="w-4 h-4"></i>
-                        <span>Op te halen velden</span>
+                <div class="card bg-base-100 shadow-xl rounded-box h-full">
+                    <div class="card-body">
+                        <div class="card-title text-sm flex items-center gap-2">
+                            <i data-lucide="database" class="w-4 h-4"></i>
+                            <span>Op te halen velden</span>
+                        </div>
+                        <div class="text-sm text-base-content/70">Velden die worden opgehaald na zoeken in Odoo (${step.search?.fields?.length || 0})</div>
+                        <div class="join w-full">
+                            <input id="new-field-${idx}" type="text" placeholder="Voeg veld toe..." class="input input-sm input-bordered join-item flex-1" onkeydown="if(event.key === 'Enter') addSearchField(${idx})">
+                            <button class="btn btn-sm btn-primary join-item" onclick="addSearchField(${idx})">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                            </button>
+                        </div>
+                        <div id="fields-${idx}" class="flex flex-wrap gap-1.5 min-h-[2rem] p-2 bg-base-200 rounded-box content-start flex-1 overflow-y-auto"></div>
                     </div>
-                    <div class="text-sm text-base-content/70 mb-3">Velden die worden opgehaald na zoeken in Odoo (${step.search?.fields?.length || 0})</div>
-                    <div class="join w-full mb-3">
-                        <input id="new-field-${idx}" type="text" placeholder="Voeg veld toe..." class="input input-sm input-bordered join-item flex-1 rounded-l-lg" onkeydown="if(event.key === 'Enter') addSearchField(${idx})">
-                        <button class="btn btn-sm btn-primary join-item rounded-r-lg" onclick="addSearchField(${idx})">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                        </button>
-                    </div>
-                    <div id="fields-${idx}" class="flex flex-wrap gap-1.5 min-h-[2rem] p-2 bg-base-200 rounded-btn content-start flex-1 overflow-y-auto"></div>
                 </div>
             `;
             
             html += `</div>`; // Close right column
             html += `</div>`; // Close grid
-            html += `</div>`; // Close flex container
+            html += `</div>`; // Close wrapper
             return html;
         }
         
@@ -3916,22 +3946,22 @@
                         </div>
                         
                         ${entry.invalidField ? `
-                        <div class="alert alert-warning text-sm mb-2">
+                        <div class="alert alert-warning mb-2">
                             <div>
-                                <div class="font-semibold">❌ Invalid Field: <code class="bg-base-300 px-2 py-1 rounded">${escapeHtml(entry.invalidField)}</code></div>
+                                <div class="font-semibold">❌ Invalid Field: <code class="bg-base-300 px-2 py-1 rounded-badge">${escapeHtml(entry.invalidField)}</code></div>
                                 ${entry.hint ? `<div class="text-xs mt-1">${escapeHtml(entry.hint)}</div>` : ''}
                             </div>
                         </div>
                         ` : ''}
                         
                         ${entry.workflowDetails ? `
-                        <div class="collapse collapse-arrow bg-base-200 mb-2">
+                        <div class="collapse collapse-arrow bg-base-200 rounded-box mb-2">
                             <input type="checkbox" />
-                            <div class="collapse-title text-sm font-medium">
-                                🔧 Workflow Context
+                            <div class="collapse-title">
+                                <span class="font-medium">🔧 Workflow Context</span>
                             </div>
-                            <div class="collapse-content text-xs">
-                                <div class="grid grid-cols-2 gap-2 mb-2">
+                            <div class="collapse-content">
+                                <div class="grid grid-cols-2 gap-2">
                                     <div><strong>Step:</strong> ${escapeHtml(entry.workflowDetails.step || 'N/A')}</div>
                                     <div><strong>Model:</strong> ${escapeHtml(entry.workflowDetails.model || 'N/A')}</div>
                                 </div>
@@ -3940,18 +3970,18 @@
                         ` : ''}
                         
                         ${entry.odooError ? `
-                        <div class="collapse collapse-arrow bg-base-200 mb-2">
+                        <div class="collapse collapse-arrow bg-base-200 rounded-box mb-2">
                             <input type="checkbox" />
-                            <div class="collapse-title text-sm font-medium">
-                                🔴 Odoo RPC Error
+                            <div class="collapse-title">
+                                <span class="font-medium">🔴 Odoo RPC Error</span>
                             </div>
-                            <div class="collapse-content text-xs space-y-2">
-                                <div><strong>Name:</strong> <code class="bg-base-300 px-2 py-1 rounded">${escapeHtml(entry.odooError.name || 'N/A')}</code></div>
+                            <div class="collapse-content space-y-2">
+                                <div><strong>Name:</strong> <code class="bg-base-300 px-2 py-1 rounded-badge">${escapeHtml(entry.odooError.name || 'N/A')}</code></div>
                                 <div><strong>Message:</strong> ${escapeHtml(entry.odooError.message || 'N/A')}</div>
                                 ${entry.odooError.debug ? `
                                 <div>
                                     <strong>Debug Trace:</strong>
-                                    <pre class="bg-base-300 p-2 rounded overflow-x-auto max-h-48 mt-1 text-xs">${escapeHtml(entry.odooError.debug)}</pre>
+                                    <pre class="bg-base-300 p-2 rounded-box overflow-x-auto max-h-48 mt-1 text-xs">${escapeHtml(entry.odooError.debug)}</pre>
                                 </div>
                                 ` : ''}
                             </div>
@@ -3959,13 +3989,13 @@
                         ` : ''}
                         
                         ${entry.stackTrace ? `
-                        <div class="collapse collapse-arrow bg-base-200">
+                        <div class="collapse collapse-arrow bg-base-200 rounded-box">
                             <input type="checkbox" />
-                            <div class="collapse-title text-sm font-medium">
-                                📋 Stack Trace
+                            <div class="collapse-title">
+                                <span class="font-medium">📋 Stack Trace</span>
                             </div>
                             <div class="collapse-content">
-                                <pre class="bg-base-300 p-2 rounded text-xs overflow-x-auto max-h-48">${escapeHtml(entry.stackTrace)}</pre>
+                                <pre class="bg-base-300 p-2 rounded-box text-xs overflow-x-auto max-h-48">${escapeHtml(entry.stackTrace)}</pre>
                             </div>
                         </div>
                         ` : ''}
@@ -3974,20 +4004,20 @@
                     
                     <div>
                         <h4 class="font-semibold text-sm mb-1">Request Data</h4>
-                        <pre class="bg-base-300 p-3 rounded text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.requestData, null, 2)}</pre>
+                        <pre class="bg-base-300 p-3 rounded-box text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.requestData, null, 2)}</pre>
                     </div>
                     
                     ${entry.workflowResults ? `
                     <div>
                         <h4 class="font-semibold text-sm mb-1">Workflow Results</h4>
-                        <pre class="bg-base-300 p-3 rounded text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.workflowResults, null, 2)}</pre>
+                        <pre class="bg-base-300 p-3 rounded-box text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.workflowResults, null, 2)}</pre>
                     </div>
                     ` : ''}
                     
                     ${entry.odooResponse ? `
                     <div>
                         <h4 class="font-semibold text-sm mb-1">Odoo Response</h4>
-                        <pre class="bg-base-300 p-3 rounded text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.odooResponse, null, 2)}</pre>
+                        <pre class="bg-base-300 p-3 rounded-box text-xs overflow-x-auto max-h-64">${JSON.stringify(entry.odooResponse, null, 2)}</pre>
                     </div>
                     ` : ''}
                 </div>
