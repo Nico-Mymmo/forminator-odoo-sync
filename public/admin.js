@@ -10,6 +10,97 @@
         let currentHtmlCardStepIdx = null;
         let htmlCardElements = [];
         
+        // Auto-save debounce timer
+        let autoSaveTimeout = null;
+        
+        // Debounced auto-save function
+        function debouncedAutoSave() {
+            if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
+            autoSaveTimeout = setTimeout(() => {
+                if (currentFormId) {
+                    saveForm(true); // true = silent save (no success message)
+                }
+            }, 1000); // 1 second debounce
+        }
+        
+        // Odoo Model Templates
+        const ODOO_MODELS = {
+            'res.partner': {
+                name: '👤 Contact / Bedrijf',
+                description: 'Contactpersoon of bedrijf',
+                searchTemplates: {
+                    'email': {
+                        name: 'Opzoeken op email',
+                        fields: { email: { label: 'Email veld', dropOnly: true } },
+                        typeFilter: true,
+                        buildDomain: (values, typeFilter) => {
+                            const domain = [['email', '=', '${field.' + values.email + '}']];
+                            if (typeFilter === 'contact') domain.push(['is_company', '=', false]);
+                            if (typeFilter === 'company') domain.push(['is_company', '=', true]);
+                            return domain;
+                        },
+                        defaultFields: ['id', 'name', 'email', 'parent_id', 'is_company']
+                    },
+                    'id': {
+                        name: 'Opzoeken op ID',
+                        fields: { contactId: { label: 'Contact ID', dropOnly: true } },
+                        typeFilter: false,
+                        buildDomain: (values) => {
+                            return [['id', '=', '${' + values.contactId + '}']];
+                        },
+                        defaultFields: ['id', 'name', 'email', 'is_company']
+                    },
+                    'name': {
+                        name: 'Opzoeken op naam',
+                        fields: { name: { label: 'Naam veld', dropOnly: true } },
+                        typeFilter: true,
+                        buildDomain: (values, typeFilter) => {
+                            const domain = [['name', '=', '${field.' + values.name + '}']];
+                            if (typeFilter === 'contact') domain.push(['is_company', '=', false]);
+                            if (typeFilter === 'company') domain.push(['is_company', '=', true]);
+                            return domain;
+                        },
+                        defaultFields: ['id', 'name', 'email', 'parent_id', 'is_company']
+                    }
+                }
+            },
+            'crm.lead': {
+                name: '🎯 Lead / Opportunity',
+                description: 'Verkoopkans of lead',
+                searchTemplates: {
+                    'partner': {
+                        name: 'Opzoeken op contact',
+                        fields: { partnerId: { label: 'Contact ID', dropOnly: true } },
+                        typeFilter: false,
+                        buildDomain: (values) => {
+                            return [['partner_id', '=', '${' + values.partnerId + '}']];
+                        },
+                        defaultFields: ['id', 'name', 'partner_id', 'type']
+                    }
+                }
+            },
+            'x_web_visitor': {
+                name: '🌐 Web Visitor',
+                description: 'Website bezoeker tracking',
+                searchTemplates: {
+                    'uuid': {
+                        name: 'Opzoeken op UUID',
+                        fields: { uuid: { label: 'UUID veld', dropOnly: true } },
+                        typeFilter: false,
+                        buildDomain: (values) => {
+                            return [['x_studio_uuid', '=', '${field.' + values.uuid + '}']];
+                        },
+                        defaultFields: ['id', 'x_studio_uuid', 'x_studio_email']
+                    }
+                }
+            },
+            'custom': {
+                name: '⚙️ Aangepast model',
+                description: 'Vrij in te vullen model (zoals nu)',
+                searchTemplates: {}
+            }
+        };
+        
         if (token) { showAdmin(); }
         
         function login() {
@@ -21,6 +112,27 @@
         function logout() {
             localStorage.removeItem('adminToken');
             location.reload();
+        }
+        
+        async function syncProdData() {
+            if (!confirm('Sync production data to dev? This will overwrite local changes.')) {
+                return;
+            }
+            
+            try {
+                showAlert('Syncing production data...', 'info');
+                const res = await apiCall('/api/mappings/sync-prod', { method: 'POST' });
+                const result = await res.json();
+                
+                if (result.success) {
+                    showAlert(result.message, 'success');
+                    await loadForms(); // Reload forms
+                } else {
+                    showAlert('Sync failed: ' + result.error, 'error');
+                }
+            } catch (err) {
+                showAlert('Sync failed: ' + err.message, 'error');
+            }
         }
         
         function showAdmin() {
@@ -100,15 +212,49 @@
             
             workflowSteps = JSON.parse(JSON.stringify(data.workflow || []));
             
-            // Restore field type metadata from _ui_metadata and clean domain values
+            // Restore custom domain conditions and field types from metadata
             workflowSteps.forEach(step => {
-                if (step._ui_metadata?.domain_types && step.search?.domain) {
-                    step.search.domain = step.search.domain.map((condition, idx) => {
-                        const fieldType = step._ui_metadata.domain_types[idx] || 'text';
-                        // Trim whitespace from domain values (fixes legacy data with trailing spaces)
-                        const value = typeof condition[2] === 'string' ? condition[2].trim() : condition[2];
-                        return [condition[0], condition[1], value, fieldType];
-                    });
+                // Restore custom domain with field types
+                if (step.search?._customDomain) {
+                    // _customDomain exists in saved data (new format)
+                    if (step._ui_metadata?.custom_domain_types) {
+                        step.search._customDomain = step.search._customDomain.map((condition, idx) => {
+                            const fieldType = step._ui_metadata.custom_domain_types[idx] || 'text';
+                            const value = typeof condition[2] === 'string' ? condition[2].trim() : condition[2];
+                            return [condition[0], condition[1], value, fieldType];
+                        });
+                    } else {
+                        // Add default type if missing
+                        step.search._customDomain = step.search._customDomain.map(condition => {
+                            if (condition.length === 3) {
+                                return [...condition, 'text'];
+                            }
+                            return condition;
+                        });
+                    }
+                } else if (step.model && ODOO_MODELS[step.model]?.searchTemplates && step.search?.domain) {
+                    // OLD FORMAT: Migration from old data where domain contained everything
+                    // Treat existing domain as custom domain (template values are in _templateConfig)
+                    step.search._customDomain = [...step.search.domain];
+                    
+                    if (step._ui_metadata?.domain_types) {
+                        step.search._customDomain = step.search._customDomain.map((condition, idx) => {
+                            const fieldType = step._ui_metadata.domain_types[idx] || 'text';
+                            const value = typeof condition[2] === 'string' ? condition[2].trim() : condition[2];
+                            return [condition[0], condition[1], value, fieldType];
+                        });
+                    } else {
+                        step.search._customDomain = step.search._customDomain.map(condition => {
+                            if (condition.length === 3) {
+                                return [...condition, 'text'];
+                            }
+                            return condition;
+                        });
+                    }
+                } else {
+                    // No custom domain
+                    if (!step.search) step.search = {};
+                    step.search._customDomain = [];
                 }
                 
                 // Clean update field values
@@ -1143,9 +1289,9 @@
                 }
                 
                 if (type === 'domain') {
-                    if (!workflowSteps[stepIdx].search.domain) workflowSteps[stepIdx].search.domain = [];
-                    workflowSteps[stepIdx].search.domain.push([draggedFieldName, '=', '', 'text']);
-                    renderDomain(stepIdx, workflowSteps[stepIdx].search.domain);
+                    if (!workflowSteps[stepIdx].search._customDomain) workflowSteps[stepIdx].search._customDomain = [];
+                    workflowSteps[stepIdx].search._customDomain.push([draggedFieldName, '=', '', 'text']);
+                    renderDomain(stepIdx, workflowSteps[stepIdx].search._customDomain);
                 } else if (type === 'fields') {
                     if (!workflowSteps[stepIdx].search.fields) workflowSteps[stepIdx].search.fields = [];
                     workflowSteps[stepIdx].search.fields.push(draggedFieldName);
@@ -1226,9 +1372,20 @@
                                     </div>
                                     <div class="form-control">
                                         <label class="label py-1"><span class="label-text">Odoo Model:</span></label>
-                                        <input type="text" class="input input-sm input-bordered" value="${step.model || ''}" onchange="updateStepBasic(${idx}, 'model', this.value)">
+                                        <select class="select select-sm select-bordered" onchange="updateStepModel(${idx}, this.value)">
+                                            <option value="">Selecteer model...</option>
+                                            ${Object.entries(ODOO_MODELS).map(([key, config]) => `
+                                                <option value="${key}" ${step.model === key ? 'selected' : ''}>${config.name}</option>
+                                            `).join('')}
+                                        </select>
+                                        ${step.model && !ODOO_MODELS[step.model] ? `<input type="text" class="input input-sm input-bordered mt-1" value="${step.model}" onchange="updateStepBasic(${idx}, 'model', this.value)" placeholder="Custom model naam">` : ''}
                                     </div>
                                 </div>
+                                ${step.model && ODOO_MODELS[step.model] && ODOO_MODELS[step.model].description ? `
+                                <div class="alert alert-info py-2 text-xs mb-3">
+                                    ℹ️ ${ODOO_MODELS[step.model].description}
+                                </div>
+                                ` : ''}
                         
                         <div class="collapse collapse-arrow bg-base-200 mb-2">
                             <input type="checkbox" ${(step.search?.domain?.length > 0 || step.search?.fields?.length > 0) ? 'checked' : ''} /> 
@@ -1236,19 +1393,7 @@
                                 🔍 Search
                             </div>
                             <div class="collapse-content">
-                                <div class="form-control mb-3">
-                                    <label class="label py-1"><span class="label-text font-medium">Domain Conditions:</span></label>
-                                    <div id="domain-${idx}" class="space-y-2"></div>
-                                    <button class="btn btn-sm btn-outline mt-2" onclick="addDomainRow(${idx})">+ Add Condition</button>
-                                </div>
-                                <div class="form-control">
-                                    <label class="label py-1"><span class="label-text font-medium">Fields to Retrieve:</span></label>
-                                    <div id="fields-${idx}" class="flex flex-wrap gap-1 mb-2"></div>
-                                    <div class="join join-horizontal w-full">
-                                        <input type="text" id="new-field-${idx}" placeholder="field_name" class="input input-sm input-bordered join-item flex-1">
-                                        <button class="btn btn-sm btn-outline join-item" onclick="addSearchField(${idx})">+ Add</button>
-                                    </div>
-                                </div>
+                                ${renderSearchTemplate(idx, step)}
                             </div>
                         </div>
                         
@@ -1293,13 +1438,18 @@
                     </div>
                 `;
                 container.appendChild(stepEl);
-                
-                renderDomain(idx, step.search?.domain || []);
-                renderSearchFields(idx, step.search?.fields || []);
-                renderCreateValues(idx, step.create || {});
-                renderUpdateValues(idx, step.update || {});
-                renderStepResultChips(idx, step);
             });
+            
+            // Render sub-components after DOM is updated
+            setTimeout(() => {
+                workflowSteps.forEach((step, idx) => {
+                    renderDomain(idx, step.search?._customDomain || []);
+                    renderSearchFields(idx, step.search?.fields || []);
+                    renderCreateValues(idx, step.create || {});
+                    renderUpdateValues(idx, step.update || {});
+                    renderStepResultChips(idx, step);
+                });
+            }, 0);
             
             // Re-initialize drag and drop for newly rendered elements
             initializeDragAndDrop();
@@ -1330,6 +1480,32 @@
                 renderStepResultChips(idx, workflowSteps[idx]);
                 updateFieldPalette();
             }
+        }
+        
+        function updateStepModel(idx, modelValue) {
+            workflowSteps[idx].model = modelValue;
+            
+            // If model has templates, initialize with template
+            if (modelValue && ODOO_MODELS[modelValue] && ODOO_MODELS[modelValue].searchTemplates) {
+                const templates = ODOO_MODELS[modelValue].searchTemplates;
+                const firstTemplate = Object.values(templates)[0];
+                
+                if (firstTemplate) {
+                    // Initialize search with template defaults
+                    workflowSteps[idx].search = workflowSteps[idx].search || {};
+                    // Only set default fields if no fields exist yet
+                    if (!workflowSteps[idx].search.fields || workflowSteps[idx].search.fields.length === 0) {
+                        workflowSteps[idx].search.fields = [...(firstTemplate.defaultFields || [])];
+                    }
+                    workflowSteps[idx]._templateConfig = {
+                        template: Object.keys(templates)[0],
+                        values: {},
+                        typeFilter: firstTemplate.typeFilter ? 'contact' : null
+                    };
+                }
+            }
+            
+            renderWorkflowSteps();
         }
         
         function renderStepResultChips(idx, step) {
@@ -1366,13 +1542,281 @@
             renderWorkflowSteps();
         }
         
+        // Render search template or fallback to manual mode
+        function renderSearchTemplate(idx, step) {
+            const model = step.model;
+            const modelConfig = ODOO_MODELS[model];
+            
+            // Fallback to manual mode if no model or custom model
+            if (!model || !modelConfig || !modelConfig.searchTemplates || Object.keys(modelConfig.searchTemplates).length === 0) {
+                return `
+                    <div class="form-control mb-3">
+                        <label class="label py-1"><span class="label-text font-medium">Domain Conditions:</span></label>
+                        <div id="domain-${idx}" class="space-y-2"></div>
+                        <button class="btn btn-sm btn-outline mt-2" onclick="addDomainRow(${idx})">+ Add Condition</button>
+                    </div>
+                    <div class="form-control">
+                        <label class="label py-1"><span class="label-text font-medium">Fields to Retrieve:</span></label>
+                        <div id="fields-${idx}" class="flex flex-wrap gap-1 mb-2"></div>
+                        <div class="join join-horizontal w-full">
+                            <input type="text" id="new-field-${idx}" placeholder="field_name" class="input input-sm input-bordered join-item flex-1">
+                            <button class="btn btn-sm btn-outline join-item" onclick="addSearchField(${idx})">+ Add</button>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Template mode - show all templates side by side
+            const templateConfig = step._templateConfig || {};
+            
+            let html = `<div class="space-y-3">`;
+            
+            // Info text
+            html += `
+                <div class="text-xs text-base-content/70 mb-2">
+                    Sleep velden naar de drop zones hieronder. Alleen ingevulde velden worden gebruikt voor zoeken.
+                </div>
+            `;
+            
+            // Render all templates in a grid
+            html += `<div class="grid grid-cols-3 gap-3">`;
+            
+            Object.entries(modelConfig.searchTemplates).forEach(([templateKey, template]) => {
+                const allFields = Object.entries(template.fields);
+                const hasValues = allFields.some(([fieldKey]) => templateConfig.values?.[`${templateKey}_${fieldKey}`]);
+                
+                html += `
+                    <div class="card bg-base-200 shadow-sm ${hasValues ? 'ring-2 ring-primary' : ''}">
+                        <div class="card-body p-3">
+                            <h4 class="card-title text-sm">${template.name}</h4>
+                            <div class="space-y-2">
+                `;
+                
+                allFields.forEach(([fieldKey, fieldConfig]) => {
+                    const label = typeof fieldConfig === 'string' ? fieldConfig : fieldConfig.label;
+                    const dropOnly = typeof fieldConfig === 'object' ? fieldConfig.dropOnly : false;
+                    const currentValue = templateConfig.values?.[`${templateKey}_${fieldKey}`] || '';
+                    
+                    html += `
+                        <div class="form-control">
+                            <label class="label py-0 pb-1">
+                                <span class="label-text text-xs">${label}</span>
+                            </label>
+                            ${dropOnly ? `
+                                <div class="badge badge-outline badge-lg drop-zone w-full cursor-pointer h-8 justify-start px-2 text-xs border-dashed" 
+                                     ondragover="handleDragOver(event)"
+                                     ondragleave="handleDragLeave(event)"
+                                     ondrop="handleTemplateFieldDrop(event, ${idx}, '${templateKey}_${fieldKey}')"
+                                     onclick="clearTemplateField(${idx}, '${templateKey}_${fieldKey}')"
+                                     title="Sleep een veld hierheen of klik om te wissen">
+                                    ${currentValue ? `<span class="font-mono">${currentValue}</span>` : '<span class="text-base-content/40">Sleep veld hier 👆</span>'}
+                                </div>
+                            ` : `
+                                <input 
+                                    type="text" 
+                                    class="input input-xs input-bordered" 
+                                    value="${currentValue}"
+                                    placeholder="$contact.id"
+                                    onchange="updateTemplateValue(${idx}, '${templateKey}_${fieldKey}', this.value)"
+                                >
+                            `}
+                        </div>
+                    `;
+                });
+                
+                html += `
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `</div>`; // Close grid
+            
+            // Type filter (contact/bedrijf) for res.partner
+            const hasTypeFilter = Object.values(modelConfig.searchTemplates).some(t => t.typeFilter);
+            if (hasTypeFilter) {
+                const currentType = templateConfig.typeFilter || 'contact';
+                html += `
+                    <div class="bg-base-300 rounded-lg p-3 mb-2">
+                        <div class="text-xs font-medium mb-2">🏢 Type filter</div>
+                        <div class="btn-group w-full">
+                            <input type="radio" name="type-${idx}" value="both" class="btn btn-sm flex-1" aria-label="Beide" ${currentType === 'both' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
+                            <input type="radio" name="type-${idx}" value="contact" class="btn btn-sm flex-1" aria-label="Contacten" ${currentType === 'contact' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
+                            <input type="radio" name="type-${idx}" value="company" class="btn btn-sm flex-1" aria-label="Bedrijven" ${currentType === 'company' ? 'checked' : ''} onchange="updateTemplateTypeFilter(${idx}, this.value)">
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Custom conditions section
+            html += `
+                <div class="collapse collapse-arrow bg-base-300">
+                    <input type="checkbox" /> 
+                    <div class="collapse-title text-xs font-medium py-2 min-h-0">
+                        ➕ Aangepaste condities (optioneel)
+                    </div>
+                    <div class="collapse-content">
+                        <div class="form-control mb-2">
+                            <label class="label py-1"><span class="label-text text-xs">Extra domain condities:</span></label>
+                            <div id="domain-${idx}" class="space-y-2"></div>
+                            <button class="btn btn-xs btn-outline mt-2" onclick="addDomainRow(${idx})">+ Add Condition</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Show generated domain preview
+            const previewDomain = generateDomainFromTemplate(idx, step);
+            const hasAnyValues = templateConfig.values && Object.values(templateConfig.values).some(v => v);
+            const hasCustomConditions = step.search?._customDomain && step.search._customDomain.length > 0;
+            const isSuccess = hasAnyValues || hasCustomConditions;
+            
+            html += `
+                <div class="collapse collapse-arrow ${isSuccess ? 'bg-success' : 'bg-warning'} ${isSuccess ? 'text-success-content' : 'text-warning-content'}">
+                    <input type="checkbox" checked /> 
+                    <div class="collapse-title text-xs font-medium py-2 min-h-0">
+                        📋 Generated domain (${previewDomain.length} conditions)
+                    </div>
+                    <div id="domain-preview-${idx}" class="collapse-content">
+                        <pre class="text-[10px] overflow-x-auto whitespace-pre-wrap break-all">${JSON.stringify(previewDomain, null, 2)}</pre>
+                        ${isSuccess ? '<div class="text-xs mt-1">✓ Klaar om op te slaan</div>' : '<div class="text-xs mt-1">⚠ Sleep velden naar de drop zones hierboven</div>'}
+                    </div>
+                </div>
+            `;
+            
+            // Fields to retrieve
+            html += `
+                <div class="collapse collapse-arrow bg-base-300">
+                    <input type="checkbox" ${(step.search?.fields && step.search.fields.length > 0) ? 'checked' : ''} /> 
+                    <div class="collapse-title text-xs font-medium py-2 min-h-0">
+                        🔍 Op te halen velden (${step.search?.fields?.length || 0})
+                    </div>
+                    <div class="collapse-content">
+                        <div class="text-xs text-base-content/70 mb-2">Velden die worden opgehaald na zoeken in Odoo</div>
+                        <div id="fields-${idx}" class="flex flex-wrap gap-1.5 min-h-[2rem] mb-3"></div>
+                        <div class="join w-full">
+                            <input id="new-field-${idx}" type="text" placeholder="Voeg veld toe..." class="input input-sm input-bordered join-item flex-1" onkeydown="if(event.key === 'Enter') addSearchField(${idx})">
+                            <button class="btn btn-sm btn-primary join-item" onclick="addSearchField(${idx})">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                                Toevoegen
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            html += `</div>`;
+            return html;
+        }
+        
+        function generateDomainFromTemplate(idx, step) {
+            const model = step.model;
+            const modelConfig = ODOO_MODELS[model];
+            if (!modelConfig || !modelConfig.searchTemplates) return step.search?._customDomain || [];
+            
+            const templateConfig = step._templateConfig || {};
+            let combinedDomain = [];
+            
+            // Combine all templates that have values
+            Object.entries(modelConfig.searchTemplates).forEach(([templateKey, template]) => {
+                if (!template.buildDomain) return;
+                
+                // Extract values for this specific template
+                const templateValues = {};
+                Object.entries(templateConfig.values || {}).forEach(([key, value]) => {
+                    if (key.startsWith(templateKey + '_') && value) {
+                        const fieldKey = key.substring(templateKey.length + 1);
+                        templateValues[fieldKey] = value;
+                    }
+                });
+                
+                // Only add domain if this template has values
+                if (Object.keys(templateValues).length > 0) {
+                    const domain = template.buildDomain(templateValues, templateConfig.typeFilter);
+                    combinedDomain = combinedDomain.concat(domain);
+                }
+            });
+            
+            // Add custom domain conditions from separate storage (NOT step.search.domain)
+            if (step.search?._customDomain && Array.isArray(step.search._customDomain)) {
+                combinedDomain = combinedDomain.concat(step.search._customDomain);
+            }
+            
+            return combinedDomain;
+        }
+        
+        function updateSearchTemplate(idx, templateKey) {
+            const modelConfig = ODOO_MODELS[workflowSteps[idx].model];
+            const template = modelConfig.searchTemplates[templateKey];
+            
+            workflowSteps[idx]._templateConfig = {
+                template: templateKey,
+                values: {},
+                typeFilter: template.typeFilter ? 'contact' : null
+            };
+            workflowSteps[idx].search.fields = template.defaultFields || [];
+            
+            renderWorkflowSteps();
+        }
+        
+        function updateTemplateValue(idx, fieldKey, value) {
+            if (!workflowSteps[idx]._templateConfig) {
+                workflowSteps[idx]._templateConfig = { values: {} };
+            }
+            workflowSteps[idx]._templateConfig.values = workflowSteps[idx]._templateConfig.values || {};
+            workflowSteps[idx]._templateConfig.values[fieldKey] = value;
+            
+            // Re-render to update preview (generateDomainFromTemplate will be called during render)
+            renderWorkflowSteps();
+            
+            // Auto-save
+            debouncedAutoSave();
+        }
+        
+        function handleTemplateFieldDrop(e, idx, fieldKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.target.classList.remove('!border-primary', 'bg-primary/10');
+            
+            if (draggedFieldName) {
+                updateTemplateValue(idx, fieldKey, draggedFieldName);
+            }
+        }
+        
+        function clearTemplateField(idx, fieldKey) {
+            if (workflowSteps[idx]._templateConfig?.values?.[fieldKey]) {
+                updateTemplateValue(idx, fieldKey, '');
+            }
+        }
+        
+        function updateTemplateTypeFilter(idx, type) {
+            if (!workflowSteps[idx]._templateConfig) {
+                workflowSteps[idx]._templateConfig = {};
+            }
+            workflowSteps[idx]._templateConfig.typeFilter = type;
+            
+            // Re-render to update preview
+            renderWorkflowSteps();
+            
+            // Auto-save
+            debouncedAutoSave();
+        }
+        
         // Domain Editor
         function renderDomain(stepIdx, domain) {
             console.log('renderDomain called for step', stepIdx, 'domain:', domain);
             const container = document.getElementById(`domain-${stepIdx}`);
             container.innerHTML = '';
             
-            if (domain.length === 0) {
+            // Ensure we're using _customDomain for custom conditions
+            if (!workflowSteps[stepIdx].search._customDomain) {
+                workflowSteps[stepIdx].search._customDomain = [];
+            }
+            
+            const customDomain = workflowSteps[stepIdx].search._customDomain;
+            
+            if (customDomain.length === 0) {
                 return;
             }
             
@@ -1503,16 +1947,19 @@
         }
         
         function updateDomainType(stepIdx, condIdx, newType) {
+            if (!workflowSteps[stepIdx].search._customDomain) {
+                workflowSteps[stepIdx].search._customDomain = [];
+            }
             // Update the field type
-            if (workflowSteps[stepIdx].search.domain[condIdx].length === 3) {
+            if (workflowSteps[stepIdx].search._customDomain[condIdx].length === 3) {
                 // Convert from old format [field, op, val] to new format [field, op, val, type]
-                workflowSteps[stepIdx].search.domain[condIdx].push(newType);
+                workflowSteps[stepIdx].search._customDomain[condIdx].push(newType);
             } else {
-                workflowSteps[stepIdx].search.domain[condIdx][3] = newType;
+                workflowSteps[stepIdx].search._customDomain[condIdx][3] = newType;
             }
             
             // Get current value and convert it based on new type
-            let currentVal = workflowSteps[stepIdx].search.domain[condIdx][2];
+            let currentVal = workflowSteps[stepIdx].search._customDomain[condIdx][2];
             
             if (newType === 'boolean') {
                 currentVal = currentVal === 'true' || currentVal === true || currentVal === 1;
@@ -1524,42 +1971,103 @@
                 currentVal = String(currentVal || '');
             }
             
-            workflowSteps[stepIdx].search.domain[condIdx][2] = currentVal;
+            workflowSteps[stepIdx].search._customDomain[condIdx][2] = currentVal;
             
             // Re-render the value input
             renderDomainValue(stepIdx, condIdx, currentVal, newType);
+            updateDomainPreview(stepIdx);
         }
         
         function addDomainRow(stepIdx) {
             if (!workflowSteps[stepIdx].search) workflowSteps[stepIdx].search = {};
-            if (!workflowSteps[stepIdx].search.domain) workflowSteps[stepIdx].search.domain = [];
+            if (!workflowSteps[stepIdx].search._customDomain) workflowSteps[stepIdx].search._customDomain = [];
             // New format: [field, operator, value, type]
-            workflowSteps[stepIdx].search.domain.push(['', '=', '', 'text']);
-            renderDomain(stepIdx, workflowSteps[stepIdx].search.domain);
+            workflowSteps[stepIdx].search._customDomain.push(['', '=', '', 'text']);
+            renderDomain(stepIdx, workflowSteps[stepIdx].search._customDomain);
+            updateDomainPreview(stepIdx);
         }
         
         function updateDomain(stepIdx, condIdx, part, value) {
-            workflowSteps[stepIdx].search.domain[condIdx][part] = value;
+            if (!workflowSteps[stepIdx].search._customDomain) {
+                workflowSteps[stepIdx].search._customDomain = [];
+            }
+            workflowSteps[stepIdx].search._customDomain[condIdx][part] = value;
+            updateDomainPreview(stepIdx);
         }
         
         function deleteDomain(stepIdx, condIdx) {
-            workflowSteps[stepIdx].search.domain.splice(condIdx, 1);
-            renderDomain(stepIdx, workflowSteps[stepIdx].search.domain);
+            if (!workflowSteps[stepIdx].search._customDomain) {
+                workflowSteps[stepIdx].search._customDomain = [];
+            }
+            workflowSteps[stepIdx].search._customDomain.splice(condIdx, 1);
+            renderDomain(stepIdx, workflowSteps[stepIdx].search._customDomain);
+            updateDomainPreview(stepIdx);
+        }
+        
+        function updateDomainPreview(stepIdx) {
+            const step = workflowSteps[stepIdx];
+            const previewDomain = generateDomainFromTemplate(stepIdx, step);
+            const templateConfig = step._templateConfig || {};
+            const hasAnyValues = templateConfig.values && Object.values(templateConfig.values).some(v => v);
+            const hasCustomConditions = step.search?._customDomain && step.search._customDomain.length > 0;
+            const isSuccess = hasAnyValues || hasCustomConditions;
+            
+            // Update the preview container content
+            const previewContainer = document.getElementById(`domain-preview-${stepIdx}`);
+            if (previewContainer) {
+                previewContainer.innerHTML = `
+                    <pre class="text-[10px] overflow-x-auto whitespace-pre-wrap break-all">${JSON.stringify(previewDomain, null, 2)}</pre>
+                    ${isSuccess ? '<div class="text-xs mt-1">✓ Klaar om op te slaan</div>' : '<div class="text-xs mt-1">⚠ Sleep velden naar de drop zones hierboven</div>'}
+                `;
+                
+                // Update the collapse background color and text color
+                const collapseElement = previewContainer.closest('.collapse');
+                if (collapseElement) {
+                    // Remove old color classes
+                    collapseElement.classList.remove('bg-success', 'bg-warning', 'text-success-content', 'text-warning-content');
+                    // Add new color classes
+                    if (isSuccess) {
+                        collapseElement.classList.add('bg-success', 'text-success-content');
+                    } else {
+                        collapseElement.classList.add('bg-warning', 'text-warning-content');
+                    }
+                    
+                    // Update the collapse title with condition count
+                    const collapseTitle = collapseElement.querySelector('.collapse-title');
+                    if (collapseTitle) {
+                        collapseTitle.innerHTML = `📋 Generated domain (${previewDomain.length} conditions)`;
+                    }
+                }
+            }
+            
+            // Auto-save after preview update
+            debouncedAutoSave();
         }
         
         // Search Fields
         function renderSearchFields(stepIdx, fields) {
             const container = document.getElementById(`fields-${stepIdx}`);
+            if (!container) return; // Container doesn't exist yet
+            
             container.innerHTML = '';
             
             if (fields.length === 0) {
+                const emptyMsg = document.createElement('div');
+                emptyMsg.className = 'text-xs text-base-content/50 italic';
+                emptyMsg.textContent = 'Geen velden geselecteerd';
+                container.appendChild(emptyMsg);
                 return;
             }
             
             fields.forEach((field, fieldIdx) => {
                 const tag = document.createElement('div');
-                tag.className = 'badge badge-neutral gap-1';
-                tag.innerHTML = `${field} <button class="btn btn-xs btn-ghost btn-circle p-0" onclick="deleteSearchField(${stepIdx}, ${fieldIdx})">×</button>`;
+                tag.className = 'badge badge-lg badge-neutral gap-2 pr-1';
+                tag.innerHTML = `
+                    <span>${field}</span>
+                    <button class="btn btn-xs btn-ghost btn-circle" onclick="deleteSearchField(${stepIdx}, ${fieldIdx})">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                `;
                 container.appendChild(tag);
             });
         }
@@ -1920,7 +2428,7 @@
         }
         
         // Save & Export
-        async function saveForm() {
+        async function saveForm(silent = false) {
             // Convert value_mapping back to Odoo field names and clean up empty mappings
             const cleanedValueMapping = {};
             Object.entries(valueMapping).forEach(([formField, mappings]) => {
@@ -1944,26 +2452,42 @@
                 }
             });
             
-            // Clean workflow steps: extract field type metadata to _ui_metadata and clean domain arrays
-            const cleanedWorkflow = workflowSteps.map(step => {
+            // Clean workflow steps: preserve custom domain conditions and template config
+            const cleanedWorkflow = workflowSteps.map((step, idx) => {
                 const cleanedStep = { ...step };
                 
-                // Extract domain field types to metadata
-                if (cleanedStep.search && cleanedStep.search.domain) {
-                    const domainTypes = cleanedStep.search.domain.map(condition => {
-                        return condition[3] || 'text'; // Default to 'text' if no type specified
+                // Generate final domain from templates + custom conditions FOR EXECUTION
+                const finalDomain = generateDomainFromTemplate(idx, step);
+                
+                // Store custom domain conditions separately (for UI editing on reload)
+                if (cleanedStep.search?._customDomain) {
+                    // Extract custom domain types to metadata
+                    const customDomainTypes = cleanedStep.search._customDomain.map(condition => {
+                        return condition[3] || 'text';
                     });
                     
-                    // Store field types in _ui_metadata
                     if (!cleanedStep._ui_metadata) {
                         cleanedStep._ui_metadata = {};
                     }
-                    cleanedStep._ui_metadata.domain_types = domainTypes;
+                    cleanedStep._ui_metadata.custom_domain_types = customDomainTypes;
                     
-                    // Clean domain array to only include [field, operator, value]
-                    cleanedStep.search.domain = cleanedStep.search.domain.map(condition => {
+                    // Save custom domain (without type info) 
+                    cleanedStep.search._customDomain = cleanedStep.search._customDomain.map(condition => {
                         return condition.slice(0, 3);
                     });
+                }
+                
+                // Store the final combined domain (for Odoo execution)
+                if (finalDomain && finalDomain.length > 0) {
+                    if (!cleanedStep.search) cleanedStep.search = {};
+                    cleanedStep.search.domain = finalDomain.map(condition => {
+                        return condition.slice(0, 3);
+                    });
+                } else {
+                    // Clear domain if no conditions
+                    if (cleanedStep.search) {
+                        cleanedStep.search.domain = [];
+                    }
                 }
                 
                 return cleanedStep;
@@ -1990,10 +2514,14 @@
                     body: JSON.stringify(data)
                 });
                 mappings[currentFormId] = data;
-                console.log('Form saved successfully, mappings updated:', mappings[currentFormId]);
-                showAlert('Form saved successfully', 'success');
+                if (!silent) {
+                    console.log('Form saved successfully, mappings updated:', mappings[currentFormId]);
+                    showAlert('Form saved successfully', 'success');
+                }
             } catch (err) {
-                showAlert('Failed to save: ' + err.message, 'error');
+                if (!silent) {
+                    showAlert('Failed to save: ' + err.message, 'error');
+                }
             }
         }
         

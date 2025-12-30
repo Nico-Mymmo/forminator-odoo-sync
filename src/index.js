@@ -66,6 +66,53 @@ export default {
         return requireAdminAuth(getMappings)({ request, env, ctx });
       }
       
+      // POST /api/mappings/sync-prod - Sync production data to preview (dev only)
+      if (pathname === '/api/mappings/sync-prod' && request.method === 'POST') {
+        return requireAdminAuth(async ({ env }) => {
+          try {
+            // In dev mode, we need to fetch from the remote production namespace
+            // Use the Cloudflare API to fetch directly
+            const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+            const apiToken = env.CLOUDFLARE_API_TOKEN;
+            const prodNamespaceId = '04e4118b842b48a58f5777e008931026';
+            
+            if (!accountId || !apiToken) {
+              return new Response(JSON.stringify({
+                success: false,
+                error: 'CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set in .dev.vars for sync to work'
+              }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+            
+            // Fetch from production KV via Cloudflare API
+            const kvUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${prodNamespaceId}/values/mappings`;
+            const kvResponse = await fetch(kvUrl, {
+              headers: {
+                'Authorization': `Bearer ${apiToken}`
+              }
+            });
+            
+            if (!kvResponse.ok) {
+              throw new Error(`Failed to fetch production data: ${kvResponse.statusText}`);
+            }
+            
+            const mappingsJson = await kvResponse.json();
+            
+            // Write to current (preview) namespace
+            await env.MAPPINGS_KV.put('mappings', JSON.stringify(mappingsJson, null, 2));
+            
+            return new Response(JSON.stringify({
+              success: true,
+              message: `Synced ${Object.keys(mappingsJson).filter(k => !k.startsWith('_')).length} forms from production`
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          } catch (error) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: error.message
+            }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+          }
+        })({ request, env, ctx });
+      }
+      
       // POST /api/mappings/import - Import entire mappings JSON
       if (pathname === '/api/mappings/import' && request.method === 'POST') {
         const data = await request.json();

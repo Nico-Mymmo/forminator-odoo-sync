@@ -3,20 +3,19 @@
  * Requires ADMIN_TOKEN authentication
  */
 
+import mappingsJsonFallback from '../config/mappings.json';
+
 /**
  * Get all mappings
  * GET /api/mappings
  */
 export async function getMappings({ env }) {
   try {
-    const mappingsJson = await env.MAPPINGS_KV.get('mappings', 'json');
+    let mappingsJson = await env.MAPPINGS_KV.get('mappings', 'json');
     
     if (!mappingsJson) {
-      // Return empty mappings if none exist
-      return new Response(JSON.stringify({}), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      // Fallback to mappings.json if KV is empty
+      mappingsJson = mappingsJsonFallback;
     }
     
     // Return mappings directly without wrapper

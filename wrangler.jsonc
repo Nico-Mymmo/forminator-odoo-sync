@@ -13,6 +13,11 @@
 	"kv_namespaces": [
 		{
 			"binding": "MAPPINGS_KV",
+			"id": "04e4118b842b48a58f5777e008931026",
+			"preview_id": "7b6a8e2f047f4f509bb594928fb80bd5"
+		},
+		{
+			"binding": "MAPPINGS_KV_PROD",
 			"id": "04e4118b842b48a58f5777e008931026"
 		}
 	],
