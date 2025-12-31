@@ -706,12 +706,9 @@
         }
         
         function addValueMappingRow(formField) {
-            const key = prompt('Enter original value:');
-            if (!key) return;
-            const value = prompt('Enter mapped value:');
-            
             if (!valueMapping[formField]) valueMapping[formField] = {};
-            valueMapping[formField][key] = value || '';
+            // Add empty row for inline editing (like domain conditions)
+            valueMapping[formField][''] = '';
             renderValueMappingRows(formField);
         }
         
@@ -721,15 +718,18 @@
             delete valueMapping[formField][oldKey];
             valueMapping[formField][newKey] = value;
             event.target.dataset.oldKey = newKey;
+            debouncedAutoSave();
         }
         
         function updateValueMappingValue(formField, key, value) {
             valueMapping[formField][key] = value;
+            debouncedAutoSave();
         }
         
         function deleteValueMappingRow(formField, key) {
             delete valueMapping[formField][key];
             renderValueMappingRows(formField);
+            debouncedAutoSave();
         }
         
         function updateFieldKey(oldKey, newKey) {
