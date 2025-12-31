@@ -7,7 +7,7 @@ import { fieldPalette } from './components/field_palette.js';
 import { htmlCardModal } from './components/modal.js';
 
 export const adminHTML = `<!DOCTYPE html>
-<html lang="nl" data-theme="cupcake">
+<html lang="nl" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

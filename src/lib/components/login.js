@@ -1,6 +1,6 @@
 export const loginScreen = `
 <div id="loginScreen" class="flex items-center justify-center min-h-screen" style="display: flex;">
-    <div class="card w-96 bg-base-100 shadow-xl">
+    <div class="card w-96 bg-base-100 shadow-lg">
         <div class="card-body">
             <h2 class="card-title text-2xl justify-center">🔐 Admin Login</h2>
             <div class="form-control">

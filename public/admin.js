@@ -1,6 +1,24 @@
 
         let token = localStorage.getItem('adminToken');
         let currentFormId = null;
+        
+        // Theme management
+        function changeTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('selectedTheme', theme);
+        }
+        
+        function initTheme() {
+            const savedTheme = localStorage.getItem('selectedTheme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            const selector = document.getElementById('themeSelector');
+            if (selector) {
+                selector.value = savedTheme;
+            }
+        }
+        
+        // Initialize theme on page load
+        initTheme();
         let mappings = {};
         let fieldMapping = {};
         let valueMapping = {};
@@ -493,7 +511,7 @@
             document.getElementById('editorTitle').textContent = `Edit: ${formName}`;
             document.getElementById('editorContent').innerHTML = `
                 <!-- Form Details Card -->
-                <div class="card bg-base-100 shadow-xl rounded-box mb-4">
+                <div class="card bg-base-100 shadow rounded-box mb-4">
                     <div class="card-body">
                         <div class="grid grid-cols-2 gap-4">
                             <div class="form-control">
@@ -1629,7 +1647,7 @@
                 const shouldBeChecked = preservedCollapseStates !== null ? (preservedCollapseStates[idx] ?? !isNewStep) : !isNewStep;
                 
                 stepEl.innerHTML = `
-                    <div class="collapse collapse-arrow bg-base-100 shadow-xl rounded-box mb-4">
+                    <div class="collapse collapse-arrow bg-base-100 shadow-md rounded-box mb-4">
                         <input type="checkbox" id="step-toggle-${idx}" ${shouldBeChecked ? 'checked' : ''} /> 
                         <div class="collapse-title relative">
                             <div class="flex items-center gap-2">
@@ -1971,9 +1989,9 @@
                 else if (templateKey === 'name') icon = 'user';
                 
                 html += `
-                    <div class="card bg-base-100 shadow-xl rounded-box ${hasValues ? 'ring-2 ring-primary' : ''}">
-                        <div class="card-body">
-                            <h4 class="card-title text-base flex items-center gap-2">
+                    <div class="card bg-base-100 shadow rounded-box ${hasValues ? 'ring-2 ring-primary' : ''}">
+                        <div class="card-body p-4">
+                            <h4 class="card-title text-sm font-medium flex items-center gap-2">
                                 <i data-lucide="${icon}" class="w-4 h-4"></i>
                                 <span>${template.name}</span>
                             </h4>
@@ -2026,9 +2044,9 @@
             if (hasTypeFilter) {
                 const currentType = templateConfig.typeFilter || 'contact';
                 html += `
-                    <div class="card bg-base-100 shadow-xl rounded-box">
-                        <div class="card-body">
-                            <div class="card-title text-sm flex items-center gap-2">
+                    <div class="card bg-base-100 shadow rounded-box">
+                        <div class="card-body p-4">
+                            <div class="card-title text-sm font-medium flex items-center gap-2">
                                 <i data-lucide="filter" class="w-4 h-4"></i>
                                 <span>Type filter</span>
                             </div>
@@ -2044,10 +2062,10 @@
             
             // Custom conditions section
             html += `
-                <div class="collapse collapse-arrow bg-base-100 shadow-xl rounded-box">
+                <div class="collapse collapse-arrow bg-base-100 shadow rounded-box">
                     <input type="checkbox" id="custom-conditions-${idx}" checked />
                     <div class="collapse-title">
-                        <div class="flex items-center gap-2 font-medium">
+                        <div class="flex items-center gap-2 text-sm font-medium">
                             <i data-lucide="settings" class="w-4 h-4"></i>
                             <span>Aangepaste condities (optioneel)</span>
                         </div>
@@ -2069,10 +2087,10 @@
             const isSuccess = hasAnyValues || hasCustomConditions;
             
             html += `
-                <div class="collapse collapse-arrow shadow-xl rounded-box ${isSuccess ? 'bg-success' : 'bg-warning'} ${isSuccess ? 'text-success-content' : 'text-warning-content'}">
+                <div class="collapse collapse-arrow shadow rounded-box ${isSuccess ? 'bg-success' : 'bg-warning'} ${isSuccess ? 'text-success-content' : 'text-warning-content'}">
                     <input type="checkbox" id="generated-domain-${idx}" checked />
                     <div class="collapse-title">
-                        <div class="flex items-center gap-2 font-medium">
+                        <div class="flex items-center gap-2 text-sm font-medium">
                             <i data-lucide="code" class="w-4 h-4"></i>
                             <span>Generated domain (${previewDomain.length} conditions)</span>
                         </div>
@@ -2090,9 +2108,9 @@
             html += `<div class="flex flex-col">`;
             
             html += `
-                <div class="card bg-base-100 shadow-xl rounded-box h-full">
-                    <div class="card-body">
-                        <div class="card-title text-sm flex items-center gap-2">
+                <div class="card bg-base-100 shadow rounded-box h-full">
+                    <div class="card-body p-4">
+                        <div class="card-title text-sm font-medium flex items-center gap-2">
                             <i data-lucide="database" class="w-4 h-4"></i>
                             <span>Op te halen velden</span>
                         </div>

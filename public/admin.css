@@ -1,2 +1,18 @@
 /* Pure DaisyUI - no custom overrides */
 /* All styling handled by DaisyUI components and Tailwind utilities */
+
+/* Fix collapse animation: prevent content from sliding up during expand */
+.collapse-content {
+    transition-property: grid-template-rows, padding !important;
+    transition-timing-function: ease-in-out !important;
+    transition-duration: 0.2s !important;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+}
+
+.collapse:not(.collapse-open):not(.collapse-close) > input[type="checkbox"]:not(:checked) ~ .collapse-content,
+.collapse:not(.collapse-open):not(.collapse-close) > input[type="radio"]:not(:checked) ~ .collapse-content,
+.collapse.collapse-close > .collapse-content {
+    padding-top: 0;
+    padding-bottom: 0;
+}
