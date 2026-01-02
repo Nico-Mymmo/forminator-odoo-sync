@@ -1,0 +1,213 @@
+/* ===== Tagify Integration with DaisyUI ===== */
+/* Override Tagify defaults to match DaisyUI design system */
+
+:root {
+  /* Base colors from DaisyUI */
+  --tagify-dd-color-primary: hsl(var(--p));
+  --tagify-dd-bg-color: hsl(var(--b1));
+  --tag-bg: hsl(var(--p));
+  --tag-hover: hsl(var(--pf));
+  --tag-text-color: hsl(var(--pc));
+  --tag-remove-btn-bg: transparent;
+  --tag-remove-btn-color: hsl(var(--pc) / 0.7);
+  --tag-remove-btn-hover: hsl(var(--pc));
+  --tag-border-radius: var(--rounded-badge);
+  --tag-pad: 0.25rem 0.5rem;
+  --tags-border-color: hsl(var(--b3));
+  --tags-hover-border-color: hsl(var(--p));
+  --tags-focus-border-color: hsl(var(--p));
+  --tag-inset-shadow-size: 0;
+}
+
+/* Make Tagify input match DaisyUI input styling */
+.tagify {
+  border: 1px solid hsl(var(--b3));
+  border-radius: var(--rounded-btn);
+  padding: 0.25rem;
+  min-height: 2rem;
+  background: hsl(var(--b1));
+  transition: all 0.2s ease;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tagify:hover {
+  border-color: hsl(var(--p));
+}
+
+.tagify.tagify--focus {
+  border-color: hsl(var(--p));
+  outline: 2px solid hsl(var(--p) / 0.2);
+  outline-offset: 2px;
+}
+
+/* Tag (chip) styling to match DaisyUI badges */
+.tagify__tag {
+  display: inline-flex;
+  align-items: center;
+  height: 1.5rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  border-radius: var(--rounded-badge);
+  background: hsl(var(--p));
+  color: hsl(var(--pc));
+  gap: 0.25rem;
+  cursor: move;
+  margin: 0;
+  transition: all 0.2s ease;
+}
+
+.tagify__tag.badge-primary {
+  background: hsl(var(--p));
+  color: hsl(var(--pc));
+}
+
+.tagify__tag.badge-secondary {
+  background: hsl(var(--s));
+  color: hsl(var(--sc));
+}
+
+.tagify__tag:hover {
+  filter: brightness(1.1);
+}
+
+/* Tag text */
+.tagify__tag-text {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Remove button styling */
+.tagify__tag__removeBtn {
+  width: 1rem;
+  height: 1rem;
+  min-height: 0;
+  padding: 0;
+  margin-left: 0.25rem;
+  font-size: 1rem;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.tagify__tag__removeBtn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.tagify__tag__removeBtn::after {
+  content: "×";
+}
+
+/* Dragging state */
+.tagify__tag.tagify--dragging {
+  opacity: 0.5;
+}
+
+.tagify__tag.tagify__tag--dragsort-ghost {
+  opacity: 0.3;
+}
+
+/* Input within tags */
+.tagify__input {
+  min-width: 6rem;
+  padding: 0.25rem;
+  margin: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  flex: 1;
+}
+
+.tagify__input::before {
+  color: hsl(var(--bc) / 0.4);
+}
+
+/* Dropdown styling to match DaisyUI */
+.tagify__dropdown {
+  background: hsl(var(--b1));
+  border: 1px solid hsl(var(--b3));
+  border-radius: var(--rounded-box);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  max-height: 300px;
+  overflow: auto;
+  z-index: 1000;
+}
+
+.tagify__dropdown__wrapper {
+  background: hsl(var(--b1));
+}
+
+.tagify__dropdown__item {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.tagify__dropdown__item:hover {
+  background: hsl(var(--b2));
+}
+
+.tagify__dropdown__item--active {
+  background: hsl(var(--p));
+  color: hsl(var(--pc));
+}
+
+/* Mix mode (text + tags) */
+.tagify--mix {
+  display: block;
+}
+
+.tagify--mix .tagify__input {
+  display: inline-block;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+/* Small variant */
+.tagify.tagify--sm .tagify__tag {
+  height: 1.25rem;
+  font-size: 0.625rem;
+  padding: 0.125rem 0.375rem;
+}
+
+/* Read-only mode */
+.tagify--readonly {
+  background: hsl(var(--b2));
+  cursor: default;
+  border-color: hsl(var(--b3));
+}
+
+.tagify--readonly .tagify__tag__removeBtn {
+  display: none;
+}
+
+.tagify--readonly .tagify__tag {
+  cursor: default;
+}
+
+.tagify--readonly:hover {
+  border-color: hsl(var(--b3));
+}
+
+/* Invalid state */
+.tagify--invalid {
+  border-color: hsl(var(--er));
+}
+
+/* Loading state */
+.tagify--loading .tagify__input::before {
+  content: "Loading...";
+}

@@ -1707,6 +1707,19 @@
                                 </div>
                                 <div id="create-${idx}" class="space-y-2 mb-3"></div>
                                 
+                                <!-- Chatter Message -->
+                                <div class="bg-base-300 rounded-lg p-3 mt-4">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <i data-lucide="message-circle" class="w-4 h-4"></i>
+                                        <span class="font-semibold text-sm">Chatter Message</span>
+                                    </div>
+                                    <input type="text" 
+                                        value="${step._chatter?.create || ''}" 
+                                        placeholder="Optional message to post in chatter" 
+                                        class="input input-sm input-bordered w-full chip-enabled" 
+                                        onchange="updateChatterMessage(${idx}, 'create', this.value)">
+                                </div>
+                                
                                 <div class="collapse collapse-arrow rounded-box ${(step.create && Object.keys(step.create).length > 0) ? 'bg-success' : 'bg-warning'} ${(step.create && Object.keys(step.create).length > 0) ? 'text-success-content' : 'text-warning-content'}">
                                     <input type="checkbox" checked /> 
                                     <div class="collapse-title">
@@ -1735,6 +1748,19 @@
                                     </button>
                                 </div>
                                 <div id="update-${idx}" class="space-y-2 mb-3"></div>
+                                
+                                <!-- Chatter Message -->
+                                <div class="bg-base-300 rounded-lg p-3 mt-4">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <i data-lucide="message-circle" class="w-4 h-4"></i>
+                                        <span class="font-semibold text-sm">Chatter Message</span>
+                                    </div>
+                                    <input type="text" 
+                                        value="${step._chatter?.update || ''}" 
+                                        placeholder="Optional message to post in chatter" 
+                                        class="input input-sm input-bordered w-full chip-enabled" 
+                                        onchange="updateChatterMessage(${idx}, 'update', this.value)">
+                                </div>
                                 
                                 <div class="collapse collapse-arrow rounded-box ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'bg-success' : 'bg-warning'} ${(step.update?.fields && Object.keys(step.update.fields).length > 0) ? 'text-success-content' : 'text-warning-content'}">
                                     <input type="checkbox" checked /> 
@@ -3052,6 +3078,13 @@
             
             renderUpdateValues(stepIdx, workflowSteps[stepIdx].update);
             debouncedAutoSave(); // Trigger auto-save after deletion
+        }
+        
+        // Chatter Message
+        function updateChatterMessage(stepIdx, type, message) {
+            if (!workflowSteps[stepIdx]._chatter) workflowSteps[stepIdx]._chatter = {};
+            workflowSteps[stepIdx]._chatter[type] = message;
+            debouncedAutoSave();
         }
         
         // Save & Export

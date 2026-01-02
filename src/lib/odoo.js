@@ -129,3 +129,19 @@ export async function write(env, { model, ids, values, staging = false, odooUrl,
     odooDb
   });
 }
+
+export async function messagePost(env, { model, id, body, staging = false, odooUrl, odooDb }) {
+  return executeKw(env, {
+    model,
+    method: "message_post",
+    args: [id],
+    kwargs: {
+      body,
+      message_type: 'comment',
+      subtype_xmlid: 'mail.mt_note'
+    },
+    staging,
+    odooUrl,
+    odooDb
+  });
+}

@@ -1,4 +1,4 @@
-import { search, read, create, write } from "../lib/odoo.js";
+import { search, read, create, write, messagePost } from "../lib/odoo.js";
 import { generateHtmlCard } from "../lib/html_card_generator.js";
 
 /**
@@ -64,6 +64,19 @@ async function processStep(env, step, formData, stepResults) {
             isUpdated = true;
             console.log(`📝 [${timestamp}] Updated ${step.model} ID ${recordId}`);
           }
+          
+          // Post chatter message if configured for update
+          if (step._chatter?.update && recordId) {
+            const chatterMessage = processTemplate(step._chatter.update, formData, stepResults);
+            if (chatterMessage) {
+              await messagePost(env, {
+                model: step.model,
+                id: [recordId],
+                body: chatterMessage
+              });
+              console.log(`💬 [${timestamp}] Posted chatter message on updated ${step.model} ID ${recordId}`);
+            }
+          }
         }
         
         // Read full record
@@ -93,6 +106,19 @@ async function processStep(env, step, formData, stepResults) {
           });
           isNew = true;
           console.log(`✅ [${timestamp}] Created ${step.model}: ID ${recordId}`);
+          
+          // Post chatter message if configured for create
+          if (step._chatter?.create && recordId) {
+            const chatterMessage = processTemplate(step._chatter.create, formData, stepResults);
+            if (chatterMessage) {
+              await messagePost(env, {
+                model: step.model,
+                id: [recordId],
+                body: chatterMessage
+              });
+              console.log(`💬 [${timestamp}] Posted chatter message on created ${step.model} ID ${recordId}`);
+            }
+          }
           
           // Read full record
           const fieldsToRead = step.search.fields || ['id'];
@@ -131,6 +157,19 @@ async function processStep(env, step, formData, stepResults) {
     });
     isNew = true;
     console.log(`✅ [${timestamp}] Created ${step.model}: ID ${recordId}`);
+    
+    // Post chatter message if configured for create
+    if (step._chatter?.create && recordId) {
+      const chatterMessage = processTemplate(step._chatter.create, formData, stepResults);
+      if (chatterMessage) {
+        await messagePost(env, {
+          model: step.model,
+          id: [recordId],
+          body: chatterMessage
+        });
+        console.log(`💬 [${timestamp}] Posted chatter message on created ${step.model} ID ${recordId}`);
+      }
+    }
     
     record = await read(env, {
       model: step.model,
