@@ -1,6 +1,6 @@
 import { testConnection } from "./actions/test_connection.js";
 import { receiveForminator } from "./actions/receive_forminator.js";
-import { getMappings, getMapping, saveMapping, deleteMapping, importMappings } from "./actions/mappings_api.js";
+import { getMappings, getMapping, saveMapping, deleteMapping, importMappings, getMappingHistory, restoreMappingFromHistory } from "./actions/mappings_api.js";
 import { handleHistoryGet, handleHistoryGetAll } from "./actions/history_api.js";
 import { requireAdminAuth } from "./lib/admin_auth.js";
 import { adminHTML } from "./lib/admin_interface.js";
@@ -79,7 +79,9 @@ export default {
     }
 
     // Serve admin interface HTML (no auth required for viewing)
-    if (pathname === '/admin' || pathname === '/admin/') {
+    // BUT: don't serve HTML if there's an action parameter (that's for API)
+    const hasAction = url.searchParams.has('action');
+    if ((pathname === '/' || pathname === '/admin' || pathname === '/admin/') && !hasAction) {
       return new Response(adminHTML, {
         headers: { 'Content-Type': 'text/html' }
       });
@@ -93,52 +95,15 @@ export default {
         return addCorsHeaders(response);
       }
       
-      // POST /api/mappings/sync-prod - Sync production data to preview (dev only)
+      // POST /api/mappings/sync-prod - DEPRECATED (KV sync not needed with Supabase)
       if (pathname === '/api/mappings/sync-prod' && request.method === 'POST') {
-        const response = await requireAdminAuth(async ({ env }) => {
-          try {
-            // In dev mode, we need to fetch from the remote production namespace
-            // Use the Cloudflare API to fetch directly
-            const accountId = env.CLOUDFLARE_ACCOUNT_ID;
-            const apiToken = env.CLOUDFLARE_API_TOKEN;
-            const prodNamespaceId = '04e4118b842b48a58f5777e008931026';
-            
-            if (!accountId || !apiToken) {
-              return new Response(JSON.stringify({
-                success: false,
-                error: 'CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set in .dev.vars for sync to work'
-              }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-            }
-            
-            // Fetch from production KV via Cloudflare API
-            const kvUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${prodNamespaceId}/values/mappings`;
-            const kvResponse = await fetch(kvUrl, {
-              headers: {
-                'Authorization': `Bearer ${apiToken}`
-              }
-            });
-            
-            if (!kvResponse.ok) {
-              throw new Error(`Failed to fetch production data: ${kvResponse.statusText}`);
-            }
-            
-            const mappingsJson = await kvResponse.json();
-            
-            // Write to current (preview) namespace
-            await env.MAPPINGS_KV.put('mappings', JSON.stringify(mappingsJson, null, 2));
-            
-            return new Response(JSON.stringify({
-              success: true,
-              message: `Synced ${Object.keys(mappingsJson).filter(k => !k.startsWith('_')).length} forms from production`
-            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-          } catch (error) {
-            return new Response(JSON.stringify({
-              success: false,
-              error: error.message
-            }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-          }
-        })({ request, env, ctx });
-        return addCorsHeaders(response);
+        return addCorsHeaders(new Response(JSON.stringify({
+          success: false,
+          message: 'KV sync deprecated - Supabase is now the single source of truth'
+        }), { 
+          status: 410, 
+          headers: { 'Content-Type': 'application/json' } 
+        }));
       }
       
       // POST /api/mappings/import - Import entire mappings JSON
@@ -184,25 +149,39 @@ export default {
       }
       
       // Extract formId from path: /api/mappings/:formId
-      const formIdMatch = pathname.match(/^\/api\/mappings\/([^\/]+)$/);
+      const formIdMatch = pathname.match(/^\/api\/mappings\/([^\/]+)(?:\/(.+))?$/);
       if (formIdMatch) {
         const formId = formIdMatch[1];
+        const subpath = formIdMatch[2];
+        
+        // GET /api/mappings/:formId/history - Get form mapping history
+        if (subpath === 'history' && request.method === 'GET') {
+          const response = await requireAdminAuth(getMappingHistory)({ request, env, ctx, formId });
+          return addCorsHeaders(response);
+        }
+        
+        // POST /api/mappings/:formId/restore - Restore from history
+        if (subpath === 'restore' && request.method === 'POST') {
+          const data = await request.json();
+          const response = await requireAdminAuth(restoreMappingFromHistory)({ request, env, ctx, formId, data });
+          return addCorsHeaders(response);
+        }
         
         // GET /api/mappings/:formId - Get specific form mapping
-        if (request.method === 'GET') {
+        if (!subpath && request.method === 'GET') {
           const response = await requireAdminAuth(getMapping)({ request, env, ctx, formId });
           return addCorsHeaders(response);
         }
         
         // POST /api/mappings/:formId - Save/update form mapping
-        if (request.method === 'POST') {
+        if (!subpath && request.method === 'POST') {
           const data = await request.json();
           const response = await requireAdminAuth(saveMapping)({ request, env, ctx, formId, data });
           return addCorsHeaders(response);
         }
         
         // DELETE /api/mappings/:formId - Delete form mapping
-        if (request.method === 'DELETE') {
+        if (!subpath && request.method === 'DELETE') {
           const response = await requireAdminAuth(deleteMapping)({ request, env, ctx, formId });
           return addCorsHeaders(response);
         }
@@ -253,7 +232,35 @@ export default {
     }
 
     let data;
-    try { data = await request.json(); } catch { return new Response("Invalid JSON", { status: 400 }); }
+    const contentType = request.headers.get("Content-Type") || "";
+    
+    try {
+      if (contentType.includes("application/json")) {
+        data = await request.json();
+      } else if (contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data")) {
+        // Parse form data
+        const formData = await request.formData();
+        data = {};
+        for (const [key, value] of formData.entries()) {
+          data[key] = value;
+        }
+      } else {
+        // Try JSON first, then form data
+        const clonedRequest = request.clone();
+        try {
+          data = await request.json();
+        } catch {
+          const formData = await clonedRequest.formData();
+          data = {};
+          for (const [key, value] of formData.entries()) {
+            data[key] = value;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to parse request body:", err);
+      return new Response("Invalid request body", { status: 400 });
+    }
 
     // Get action from URL parameter, fallback to body
     const action = url.searchParams.get("action") || data.action;

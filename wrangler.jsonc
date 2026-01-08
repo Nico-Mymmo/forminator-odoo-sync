@@ -13,27 +13,11 @@
 	"kv_namespaces": [
 		{
 			"binding": "MAPPINGS_KV",
-			"id": "04e4118b842b48a58f5777e008931026",
-			"preview_id": "7b6a8e2f047f4f509bb594928fb80bd5"
-		},
-		{
-			"binding": "MAPPINGS_KV_PROD",
-			"id": "04e4118b842b48a58f5777e008931026",
-			"preview_id": "04e4118b842b48a58f5777e008931026"
+			"id": "04e4118b842b48a58f5777e008931026"
 		}
 	],
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS"
 	}
-	/**
-	 * Environment Variables
-	 * Use wrangler secret put <KEY> to set secrets:
-	 * - DB_NAME: Odoo database name (e.g., "mymmo-main-11883993")
-	 * - UID: Odoo user ID (numeric)
-	 * - API_KEY: Odoo API key
-	 * - AUTH_TOKEN: Bearer token for webhook authentication
-	 * - WP_USERNAME: WordPress username for API (Marketing)
-	 * - WP_PASSWORD: WordPress application password
-	 */
 }

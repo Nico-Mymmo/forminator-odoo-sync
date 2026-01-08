@@ -11,7 +11,7 @@ import { generateHtmlCard } from "../lib/html_card_generator.js";
  * @param {Object} stepResults - Results from previous steps
  * @returns {Object} - Step result with id, record, isNew, isUpdated
  */
-async function processStep(env, step, formData, stepResults) {
+async function processStep(env, step, formData, stepResults, expandedFields = {}) {
   const timestamp = new Date().toISOString().substring(11, 19);
   
   // Determine behavior based on what's configured (declarative approach)
@@ -30,7 +30,7 @@ async function processStep(env, step, formData, stepResults) {
   
   // Search for existing record if search is configured
   if (hasSearch) {
-    const searchDomain = processTemplateDomain(step.search.domain, formData, stepResults);
+    const searchDomain = processTemplateDomain(step.search.domain, formData, stepResults, expandedFields);
     
     // If domain contains null references (e.g., $contact.parent_id is null), skip search
     if (searchDomain === null) {
@@ -53,7 +53,7 @@ async function processStep(env, step, formData, stepResults) {
           // Extract fields from step.update.fields or use step.update directly (for backward compatibility)
           const updateFields = step.update.fields || step.update;
           const updateTypes = step._ui_metadata?.update_types || {};
-          const updateData = processTemplateObject(updateFields, formData, stepResults, updateTypes);
+          const updateData = processTemplateObject(updateFields, formData, stepResults, updateTypes, expandedFields);
           
           if (Object.keys(updateData).length > 0) {
             await write(env, {
@@ -67,11 +67,11 @@ async function processStep(env, step, formData, stepResults) {
           
           // Post chatter message if configured for update
           if (step._chatter?.update && recordId) {
-            const chatterMessage = processTemplate(step._chatter.update, formData, stepResults);
+            const chatterMessage = processTemplate(step._chatter.update, formData, stepResults, expandedFields);
             if (chatterMessage) {
               await messagePost(env, {
                 model: step.model,
-                id: [recordId],
+                id: recordId,
                 body: chatterMessage
               });
               console.log(`💬 [${timestamp}] Posted chatter message on updated ${step.model} ID ${recordId}`);
@@ -96,9 +96,12 @@ async function processStep(env, step, formData, stepResults) {
         // Create if configured
         if (hasCreate) {
           console.log(`➕ [${timestamp}] Creating new ${step.model}`);
+          console.log(`🔍 [${timestamp}] RAW create template:`, JSON.stringify(step.create, null, 2));
           
           const createTypes = step._ui_metadata?.create_types || {};
           const createData = processTemplateObject(step.create, formData, stepResults, createTypes);
+          
+          console.log(`✨ [${timestamp}] PROCESSED create data:`, JSON.stringify(createData, null, 2));
           
           recordId = await create(env, {
             model: step.model,
@@ -113,7 +116,7 @@ async function processStep(env, step, formData, stepResults) {
             if (chatterMessage) {
               await messagePost(env, {
                 model: step.model,
-                id: [recordId],
+                id: recordId,
                 body: chatterMessage
               });
               console.log(`💬 [${timestamp}] Posted chatter message on created ${step.model} ID ${recordId}`);
@@ -147,9 +150,12 @@ async function processStep(env, step, formData, stepResults) {
   } else if (hasCreate) {
     // No search, just create
     console.log(`➕ [${timestamp}] Creating new ${step.model} (no search)`);
+    console.log(`🔍 [${timestamp}] RAW create template:`, JSON.stringify(step.create, null, 2));
     
     const createTypes = step._ui_metadata?.create_types || {};
-    const createData = processTemplateObject(step.create, formData, stepResults, createTypes);
+    const createData = processTemplateObject(step.create, formData, stepResults, createTypes, expandedFields);
+    
+    console.log(`✨ [${timestamp}] PROCESSED create data:`, JSON.stringify(createData, null, 2));
     
     recordId = await create(env, {
       model: step.model,
@@ -160,7 +166,7 @@ async function processStep(env, step, formData, stepResults) {
     
     // Post chatter message if configured for create
     if (step._chatter?.create && recordId) {
-      const chatterMessage = processTemplate(step._chatter.create, formData, stepResults);
+      const chatterMessage = processTemplate(step._chatter.create, formData, stepResults, expandedFields);
       if (chatterMessage) {
         await messagePost(env, {
           model: step.model,
@@ -243,42 +249,107 @@ function convertFieldType(value, type) {
   }
 }
 
-function processTemplate(template, formData, stepResults) {
+/**
+ * Process template string with placeholders
+ * 
+ * Supports two types of placeholders:
+ * 1. Step references: ${stepName.fieldName} - References to previous workflow step results
+ * 2. Field references: ${field.fieldName} or ${fieldName} - References to form data
+ * 
+ * @param {string} template - Template string with placeholders
+ * @param {Object} formData - Form data object
+ * @param {Object} stepResults - Results from previous workflow steps
+ * @param {Object} expandedFields - Expanded composite fields
+ * @returns {string|null} - Processed string, or null if contains unresolvable references
+ */
+function processTemplate(template, formData, stepResults, expandedFields = {}) {
   if (typeof template !== 'string') return template;
+  
+  // CLEANUP: Fix broken placeholder syntax
+  // 1. Double placeholders: ${${xxx}} -> ${xxx}
+  template = template.replace(/\$\{\$\{([^}]+)\}\}/g, '${$1}');
+  // 2. Missing braces: $step.field -> ${step.field}
+  template = template.replace(/\$(\w+\.\w+)/g, '${$1}');
   
   let hasNullReference = false;
   
-  const result = template
-    // First process step references: $contact.id
-    .replace(/\$(\w+)\.(\w+)/g, (match, stepName, fieldName) => {
-      // Skip if this is ${field.xxx} syntax (form field reference, not step reference)
-      if (stepName === 'field') {
-        return match; // Leave it for next replacement
-      }
-      if (stepResults[stepName] && stepResults[stepName].record) {
-        const value = stepResults[stepName].record[fieldName] || stepResults[stepName][fieldName];
-        // If value is explicitly null, false, undefined, or 0 (but not empty string)
-        if (value === null || value === undefined || value === false) {
-          hasNullReference = true;
-          return '';
-        }
-        // If value is Many2One (array like [id, "name"]), return just the ID
-        if (Array.isArray(value) && value.length >= 1) {
-          return value[0];
-        }
-        // Trim string values to avoid trailing/leading whitespace issues
-        return typeof value === 'string' ? value.trim() : value;
-      }
-      return '';
-    })
-    // Then process form field references: ${field.email} or ${email}
-    .replace(/\$\{(?:field\.)?(\w+)\}/g, (match, fieldName) => {
-      const value = formData[fieldName];
-      // Trim string values to avoid trailing/leading whitespace issues
-      return value !== undefined ? (typeof value === 'string' ? value.trim() : value) : '';
-    });
+  // Step 1: Process step references first (${stepName.fieldName})
+  // Match pattern: ${word.word} where first word is NOT 'field'
+  const stepReferencePattern = /\$\{(\w+)\.(\w+)\}/g;
   
-  // If we found null references, return null to signal skip
+  let result = template.replace(stepReferencePattern, (match, stepName, fieldName) => {
+    // Skip field references (${field.xxx}) - handle in next step
+    if (stepName === 'field') {
+      return match;
+    }
+    
+    console.log(`🔍 [processTemplate] Resolving step reference: ${match}`);
+    
+    const stepResult = stepResults[stepName];
+    if (!stepResult) {
+      console.log(`   ❌ Step "${stepName}" not found in results`);
+      return '';
+    }
+    
+    // Try to get field from record first, then from step result directly
+    const value = stepResult.record?.[fieldName] ?? stepResult[fieldName];
+    
+    // Handle null/undefined/false (but allow 0 and empty string)
+    if (value === null || value === undefined || value === false) {
+      hasNullReference = true;
+      console.log(`   ⚠️ Null reference: ${stepName}.${fieldName}`);
+      return '';
+    }
+    
+    // Handle Odoo Many2One fields: [id, "display_name"]
+    if (Array.isArray(value) && value.length >= 1) {
+      console.log(`   ✅ Many2One field resolved to ID: ${value[0]}`);
+      return String(value[0]);
+    }
+    
+    // Return trimmed string or value as-is
+    const finalValue = typeof value === 'string' ? value.trim() : value;
+    console.log(`   ✅ Resolved to: ${finalValue}`);
+    return String(finalValue);
+  });
+  
+  // Step 2: Process field references (${field.fieldName} or ${fieldName})
+  // Match pattern: ${field.word} or ${word} (but not ${word.word} which was handled above)
+  const fieldReferencePattern = /\$\{(?:field\.)?(\w+)(?:\.([a-zA-Z0-9_-]+))?\}/g;
+  
+  result = result.replace(fieldReferencePattern, (match, fieldName, subField) => {
+    console.log(`🔍 [processTemplate] Resolving field reference: ${match}`);
+    
+    let value = formData[fieldName];
+    
+    // Handle expanded composite fields (e.g., name field with first-name/last-name)
+    if (expandedFields[fieldName] && !subField) {
+      const combined = expandedFields[fieldName]
+        .map(({ value }) => value)
+        .filter(v => v !== null && v !== undefined && v !== '')
+        .join(' ');
+      console.log(`   ✅ Expanded field resolved to: ${combined}`);
+      return combined;
+    }
+    
+    // Handle nested subfield access (e.g., ${name.first-name})
+    if (subField && value && typeof value === 'object') {
+      // Try variations: dashes, underscores
+      value = value[subField] 
+        || value[subField.replace(/_/g, '-')] 
+        || value[subField.replace(/-/g, '_')];
+    }
+    
+    // Return trimmed string or empty string if undefined
+    const finalValue = value !== undefined 
+      ? (typeof value === 'string' ? value.trim() : String(value))
+      : '';
+    
+    console.log(`   ✅ Resolved to: ${finalValue || '(empty)'}`);
+    return finalValue;
+  });
+  
+  // Return null if we encountered unresolvable references
   return hasNullReference ? null : result;
 }
 
@@ -291,7 +362,7 @@ function processTemplate(template, formData, stepResults) {
  * @param {Object} stepResults - Step results
  * @returns {Array|null} - Processed domain or null if contains null references
  */
-function processTemplateDomain(domain, formData, stepResults) {
+function processTemplateDomain(domain, formData, stepResults, expandedFields = {}) {
   const processed = domain.map(condition => {
     if (Array.isArray(condition)) {
       return condition.map(part => {
@@ -301,7 +372,7 @@ function processTemplateDomain(domain, formData, stepResults) {
         }
         // Process strings
         if (typeof part === 'string') {
-          const result = processTemplate(part, formData, stepResults);
+          const result = processTemplate(part, formData, stepResults, expandedFields);
           return result === null ? false : result; // Convert null to false for domain
         }
         return part;
@@ -328,14 +399,14 @@ function processTemplateDomain(domain, formData, stepResults) {
  * @param {Object} fieldTypes - Optional field type metadata from _ui_metadata
  * @returns {Object} - Processed object with only non-empty values
  */
-function processTemplateObject(obj, formData, stepResults, fieldTypes = {}) {
+function processTemplateObject(obj, formData, stepResults, fieldTypes = {}, expandedFields = {}) {
   const result = {};
   
   for (const [key, value] of Object.entries(obj)) {
     const fieldType = fieldTypes[key] || 'auto';
     
     if (typeof value === 'string') {
-      const processed = processTemplate(value, formData, stepResults);
+      const processed = processTemplate(value, formData, stepResults, expandedFields);
       if (processed) {
         // Apply type conversion based on metadata
         result[key] = convertFieldType(processed, fieldType);
@@ -346,7 +417,7 @@ function processTemplateObject(obj, formData, stepResults, fieldTypes = {}) {
     } else if (Array.isArray(value)) {
       result[key] = value;
     } else if (value && typeof value === 'object') {
-      result[key] = processTemplateObject(value, formData, stepResults);
+      result[key] = processTemplateObject(value, formData, stepResults, {}, expandedFields);
     }
   }
   
@@ -475,7 +546,7 @@ function injectHtmlCards(workflow, formData, globalHtmlCardConfig = null) {
  * @param {Object} htmlCardConfig - HTML card configuration (optional)
  * @returns {Object} - Results from all steps
  */
-export async function executeWorkflow(env, workflow, formData, htmlCardConfig = null) {
+export async function executeWorkflow(env, workflow, formData, htmlCardConfig = null, expandedFields = {}) {
   const timestamp = new Date().toISOString().substring(11, 19);
   
   // Enrich workflow with auto-detected required fields
@@ -490,7 +561,7 @@ export async function executeWorkflow(env, workflow, formData, htmlCardConfig = 
   
   for (const step of processedWorkflow) {
     try {
-      const result = await processStep(env, step, formData, stepResults);
+      const result = await processStep(env, step, formData, stepResults, expandedFields);
       stepResults[step.step] = result;
       
       if (result.skipped) {

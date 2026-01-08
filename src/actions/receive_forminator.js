@@ -16,6 +16,38 @@ export async function receiveForminator({ request, env, data }) {
   // Start with raw data - no automatic normalization
   const formData = { ...data };
   
+  // Parse JSON strings in Forminator composite fields (e.g., name fields)
+  // Forminator sends composite fields as JSON strings like: {"first-name":"John","last-name":"Doe"}
+  const expandedFields = {}; // Track which fields were expanded
+  for (const [key, value] of Object.entries(formData)) {
+    if (typeof value === 'string' && value.startsWith('{') && value.includes('":')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (typeof parsed === 'object' && parsed !== null) {
+          console.log(`🔓 [${timestamp}] Parsed JSON field: ${key}`);
+          
+          // Expand subfields with underscores (e.g., name_1 -> name_1_first_name, name_1_last_name)
+          const subFields = [];
+          for (const [subKey, subValue] of Object.entries(parsed)) {
+            const normalizedSubKey = subKey.replace(/-/g, '_'); // Convert dashes to underscores
+            const expandedKey = `${key}_${normalizedSubKey}`;
+            formData[expandedKey] = subValue;
+            subFields.push({ key: expandedKey, subKey: normalizedSubKey, value: subValue });
+            console.log(`  └─ Expanded: ${expandedKey} = ${subValue}`);
+          }
+          
+          // Track expanded fields for processing later (after mapping is loaded)
+          expandedFields[key] = subFields;
+          
+          // Temporarily keep the original JSON string - we'll replace it after loading mapping
+          // This will be updated with the composite template or default concatenation
+        }
+      } catch (e) {
+        // Not valid JSON, keep original value
+      }
+    }
+  }
+  
   // Check if this form should be synced to Odoo
   const formId = formData.ovme_forminator_id;
   if (!formId) {
@@ -58,14 +90,75 @@ export async function receiveForminator({ request, env, data }) {
     });
   }
   
+  // Process composite fields with templates (after mapping is loaded)
+  for (const [key, subFields] of Object.entries(expandedFields)) {
+    // Check if there's a custom composite template defined in field mapping
+    const compositeTemplate = mapping.field_mapping?._composite_templates?.[key];
+    let combinedValue;
+    
+    if (compositeTemplate) {
+      // Use custom template (e.g., "${last_name}, ${first_name}")
+      combinedValue = compositeTemplate;
+      subFields.forEach(({ subKey, value }) => {
+        // Replace ${first_name}, ${last_name}, etc.
+        const placeholder = `\${${subKey}}`;
+        combinedValue = combinedValue.replace(placeholder, value || '');
+      });
+      console.log(`  └─ Applied template: ${compositeTemplate} = ${combinedValue}`);
+    } else {
+      // Default: space-separated values
+      combinedValue = subFields
+        .map(({ value }) => value)
+        .filter(v => v !== null && v !== undefined && v !== '')
+        .join(' ');
+      console.log(`  └─ Combined value: ${key} = ${combinedValue}`);
+    }
+    
+    formData[key] = combinedValue;
+  }
+  
   // Apply form-specific field mapping if configured
   if (mapping.field_mapping) {
     // First, collect all mappings to avoid modifying object during iteration
     const mappingsToApply = [];
+    const newFieldMappings = {}; // Track new auto-generated mappings to save
+    
     for (const [forminatorField, customName] of Object.entries(mapping.field_mapping)) {
+      // Check if this field has expanded subfields (composite field)
+      if (expandedFields[forminatorField]) {
+        // This field was expanded from JSON - auto-map the expanded subfields
+        console.log(`🔄 [${timestamp}] Auto-mapping expanded fields for: ${forminatorField} → ${customName}`);
+        
+        for (const { key: expandedKey, subKey, value } of expandedFields[forminatorField]) {
+          // Create automatic mapping: name_1_first_name -> first_name (if original was name_1 -> name)
+          const mappedSubField = `${subKey}`;
+          
+          // Only add to newFieldMappings if it doesn't already exist
+          if (!mapping.field_mapping[expandedKey]) {
+            newFieldMappings[expandedKey] = mappedSubField;
+            console.log(`  └─ Auto-mapped NEW: ${expandedKey} → ${mappedSubField}`);
+          } else {
+            console.log(`  └─ Already mapped: ${expandedKey} → ${mapping.field_mapping[expandedKey]}`);
+          }
+          
+          mappingsToApply.push({ 
+            forminatorField: expandedKey, 
+            customName: mappedSubField, 
+            value: value 
+          });
+        }
+      }
+      
+      // Also apply regular field mapping
       if (formData[forminatorField] !== undefined) {
         mappingsToApply.push({ forminatorField, customName, value: formData[forminatorField] });
       }
+    }
+    
+    // Log new field mappings (admin can add them via UI)
+    if (Object.keys(newFieldMappings).length > 0) {
+      console.log(`ℹ️ [${timestamp}] Detected new composite fields: ${Object.keys(newFieldMappings).join(', ')}`);
+      console.log(`   💡 Tip: Add these to form mapping via admin interface for persistence`);
     }
     
     // Then apply all mappings
@@ -129,7 +222,7 @@ export async function receiveForminator({ request, env, data }) {
   
   // Execute workflow with optional HTML card config
   try {
-    const workflowResults = await executeWorkflow(env, mapping.workflow, formData, mapping.html_card || null);
+    const workflowResults = await executeWorkflow(env, mapping.workflow, formData, mapping.html_card || null, expandedFields);
     
     // Log successful execution to history
     await logRequest(env, formId, {

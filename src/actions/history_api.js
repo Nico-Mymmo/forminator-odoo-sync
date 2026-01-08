@@ -1,46 +1,29 @@
-// History API - Get ALL request history across all forms
-export async function handleHistoryGetAll({ request, env, ctx }) {
+import { Database } from '../lib/database.js';
+
+/**
+ * Get ALL submission history across all forms
+ */
+export async function handleHistoryGetAll({ request, env }) {
     try {
-        // Always use PRODUCTION KV for history (where real requests are logged)
-        const kvNamespace = env.MAPPINGS_KV_PROD || env.MAPPINGS_KV;
-        console.log('📚 [handleHistoryGetAll] Using KV namespace:', kvNamespace ? 'exists' : 'MISSING');
-        console.log('📚 [handleHistoryGetAll] MAPPINGS_KV_PROD:', env.MAPPINGS_KV_PROD ? 'exists' : 'MISSING');
-        console.log('📚 [handleHistoryGetAll] MAPPINGS_KV:', env.MAPPINGS_KV ? 'exists' : 'MISSING');
+        const db = new Database(env);
+        const result = await db.submissions.getAllSubmissions({ pageSize: 200 });
         
-        // List all keys in KV that end with _history
-        const listResult = await kvNamespace.list({ prefix: '' });
-        console.log('📚 [handleHistoryGetAll] Found', listResult.keys.length, 'total keys in KV');
-        const allHistory = [];
+        console.log('📚 [handleHistoryGetAll] Retrieved', result.data.length, 'submissions from Supabase');
         
-        // Collect history from all forms
-        for (const key of listResult.keys) {
-            if (key.name.endsWith('_history')) {
-                console.log('📚 [handleHistoryGetAll] Found history key:', key.name);
-                const formId = key.name.replace('_history', '');
-                const historyData = await kvNamespace.get(key.name, { type: 'json' });
-                
-                if (historyData && Array.isArray(historyData)) {
-                    console.log('📚 [handleHistoryGetAll] Form', formId, 'has', historyData.length, 'entries');
-                    // Add formId to each entry
-                    historyData.forEach(entry => {
-                        allHistory.push({
-                            ...entry,
-                            formId
-                        });
-                    });
-                }
-            }
-        }
+        // Transform database format to match frontend expectations (old KV format)
+        const transformed = result.data.map(entry => ({
+            timestamp: entry.submitted_at,
+            formId: entry.form_id,
+            status: entry.status,
+            requestData: entry.request_data,
+            workflowResults: entry.response_data,
+            error: entry.error_message,
+            errorType: entry.error_stack ? 'Error' : undefined,
+            workflowDetails: entry.workflow_steps,
+            odooError: entry.odoo_records
+        }));
         
-        console.log('📚 [handleHistoryGetAll] Total history entries:', allHistory.length);
-        
-        // Sort by timestamp descending (newest first)
-        allHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        
-        // Limit to last 200 entries to avoid huge responses
-        const limited = allHistory.slice(0, 200);
-        
-        return new Response(JSON.stringify(limited), {
+        return new Response(JSON.stringify(transformed), {
             headers: { 'Content-Type': 'application/json' }
         });
     } catch (error) {
@@ -56,7 +39,7 @@ export async function handleHistoryGetAll({ request, env, ctx }) {
 export async function handleHistoryGet({ request, env, ctx, formId }) {
     try {
         // Always use PRODUCTION KV for history (where real requests are logged)
-        const kvNamespace = env.MAPPINGS_KV_PROD || env.MAPPINGS_KV;
+        const kvNamespace = env.MAPPINGS_KV;
         
         // Get history from KV (stored as formId_history key)
         const historyKey = `${formId}_history`;
@@ -86,45 +69,25 @@ export async function handleHistoryGet({ request, env, ctx, formId }) {
     }
 }
 
-// Log a request to history
+/**
+ * Log a form submission to history in Supabase
+ */
 export async function logRequest(env, formId, data) {
     try {
-        // ALWAYS write to PRODUCTION KV for history (same as reading)
-        const kvNamespace = env.MAPPINGS_KV_PROD || env.MAPPINGS_KV;
-        const historyKey = `${formId}_history`;
-        console.log('🔑 [logRequest] Attempting to save history with key:', historyKey);
-        console.log('🔑 [logRequest] Using KV namespace:', kvNamespace ? 'PROD' : 'FALLBACK');
+        const db = new Database(env);
         
-        // Get existing history
-        let history = await kvNamespace.get(historyKey, { type: 'json' }) || [];
-        console.log('📖 [logRequest] Existing history entries:', history.length);
+        await db.submissions.logSubmission(formId, data.requestData || {}, {
+            status: data.status || 'unknown',
+            response_data: data.workflowResults || null,
+            error_message: data.error || null,
+            error_stack: data.errorType || data.stackTrace || null,
+            workflow_steps: data.workflowDetails || null,
+            odoo_records: data.odooError || null
+        });
         
-        // Add new entry
-        const entry = {
-            timestamp: new Date().toISOString(),
-            ...data
-        };
-        
-        history.unshift(entry); // Add to beginning
-        
-        // Keep only last 1000 entries to prevent unlimited growth
-        if (history.length > 1000) {
-            history = history.slice(0, 1000);
-        }
-        
-        console.log('💾 [logRequest] Attempting KV PUT with', history.length, 'entries');
-        
-        // Save back to KV
-        await kvNamespace.put(historyKey, JSON.stringify(history));
-        
-        console.log('✅ [logRequest] Successfully saved to KV:', formId, entry.status);
-        
-        // Verify write
-        const verification = await kvNamespace.get(historyKey);
-        console.log('🔍 [logRequest] Verification read:', verification ? `${verification.length} bytes` : 'NULL');
+        console.log('✅ [logRequest] Logged submission to Supabase:', formId, data.status);
     } catch (error) {
-        console.error('❌ [logRequest] Failed to log request to history:', error);
-        console.error('❌ [logRequest] Error stack:', error.stack);
+        console.error('❌ [logRequest] Failed to log submission:', error);
         // Don't throw - logging failure shouldn't break the main flow
     }
 }

@@ -1,9 +1,12 @@
 /**
  * API endpoints for managing form mappings
  * Requires ADMIN_TOKEN authentication
+ * 
+ * REFACTORED: Now uses Supabase PostgreSQL instead of Cloudflare KV
  */
 
-import mappingsJsonFallback from '../config/mappings.json';
+import { Database } from '../lib/database.js';
+import { invalidateMappingsCache } from '../config/form_mappings.js';
 
 /**
  * Get all mappings
@@ -11,14 +14,10 @@ import mappingsJsonFallback from '../config/mappings.json';
  */
 export async function getMappings({ env }) {
   try {
-    let mappingsJson = await env.MAPPINGS_KV.get('mappings', 'json');
+    const db = new Database(env);
+    const mappingsJson = await db.formMappings.getAllMappings();
     
-    if (!mappingsJson) {
-      // Fallback to mappings.json if KV is empty
-      mappingsJson = mappingsJsonFallback;
-    }
-    
-    // Return mappings directly without wrapper
+    // Return mappings directly without wrapper (backwards compatible format)
     return new Response(JSON.stringify(mappingsJson), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
@@ -40,9 +39,10 @@ export async function getMappings({ env }) {
  */
 export async function getMapping({ env, formId }) {
   try {
-    const mappingsJson = await env.MAPPINGS_KV.get('mappings', 'json');
+    const db = new Database(env);
+    const mapping = await db.formMappings.getMapping(formId);
     
-    if (!mappingsJson || !mappingsJson[formId]) {
+    if (!mapping) {
       return new Response(JSON.stringify({
         success: false,
         error: `Form ${formId} not found`
@@ -54,7 +54,7 @@ export async function getMapping({ env, formId }) {
     
     return new Response(JSON.stringify({
       success: true,
-      data: mappingsJson[formId]
+      data: mapping
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
@@ -74,25 +74,59 @@ export async function getMapping({ env, formId }) {
 /**
  * Save or update form mapping
  * POST /api/mappings/:formId
- * Body: { field_mapping, value_mapping, html_card, workflow }
+ * Body: { name, field_mapping, value_mapping, html_card, workflow, _version }
+ * 
+ * _version is optional - if provided, enables optimistic locking
  */
 export async function saveMapping({ env, formId, data }) {
   try {
-    // Get existing mappings
-    let mappingsJson = await env.MAPPINGS_KV.get('mappings', 'json') || {};
+    console.log(`🔵 [API saveMapping] formId: ${formId}`);
+    console.log(`🔵 [API saveMapping] data.workflow length: ${data.workflow?.length}`);
     
-    // Update specific form
-    mappingsJson[formId] = data;
+    const db = new Database(env);
+    const expectedVersion = data._version || null;
     
-    // Save back to KV
-    await env.MAPPINGS_KV.put('mappings', JSON.stringify(mappingsJson, null, 2));
+    // Check if mapping exists
+    const existing = await db.formMappings.getMapping(formId);
     
-    console.log(`✅ Saved mapping for form ${formId}`);
+    let savedMapping;
+    
+    if (!existing) {
+      // Create new mapping
+      savedMapping = await db.formMappings.createMapping(formId, data);
+      console.log(`✅ Created new mapping for form ${formId}`);
+    } else {
+      // Update existing mapping with optimistic locking
+      try {
+        savedMapping = await db.formMappings.updateMapping(
+          formId, 
+          data, 
+          expectedVersion
+        );
+        console.log(`✅ Updated mapping for form ${formId} (version ${savedMapping._metadata.version})`);
+      } catch (error) {
+        if (error.code === 'VERSION_CONFLICT') {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'conflict',
+            message: error.message,
+            currentVersion: error.currentVersion
+          }), {
+            status: 409, // Conflict
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        throw error;
+      }
+    }
+    
+    // Invalidate cache to ensure fresh data
+    invalidateMappingsCache();
     
     return new Response(JSON.stringify({
       success: true,
       message: `Form ${formId} mapping saved`,
-      data: mappingsJson[formId]
+      data: savedMapping
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
@@ -110,15 +144,16 @@ export async function saveMapping({ env, formId, data }) {
 }
 
 /**
- * Delete form mapping
+ * Delete form mapping (soft delete)
  * DELETE /api/mappings/:formId
  */
 export async function deleteMapping({ env, formId }) {
   try {
-    // Get existing mappings
-    let mappingsJson = await env.MAPPINGS_KV.get('mappings', 'json') || {};
+    const db = new Database(env);
     
-    if (!mappingsJson[formId]) {
+    // Check if exists
+    const existing = await db.formMappings.getMapping(formId);
+    if (!existing) {
       return new Response(JSON.stringify({
         success: false,
         error: `Form ${formId} not found`
@@ -128,13 +163,13 @@ export async function deleteMapping({ env, formId }) {
       });
     }
     
-    // Delete form
-    delete mappingsJson[formId];
+    // Soft delete
+    await db.formMappings.deleteMapping(formId);
     
-    // Save back to KV
-    await env.MAPPINGS_KV.put('mappings', JSON.stringify(mappingsJson, null, 2));
+    // Invalidate cache
+    invalidateMappingsCache();
     
-    console.log(`🗑️ Deleted mapping for form ${formId}`);
+    console.log(`🗑️ Soft deleted mapping for form ${formId}`);
     
     return new Response(JSON.stringify({
       success: true,
@@ -156,9 +191,9 @@ export async function deleteMapping({ env, formId }) {
 }
 
 /**
- * Import entire mappings JSON
+ * Import entire mappings JSON (bulk import)
  * POST /api/mappings/import
- * Body: { mappings: {...} }
+ * Body: { mappings: { "formId1": {...}, "formId2": {...} } }
  */
 export async function importMappings({ env, data }) {
   try {
@@ -173,20 +208,134 @@ export async function importMappings({ env, data }) {
       });
     }
     
-    // Save to KV
-    await env.MAPPINGS_KV.put('mappings', JSON.stringify(data.mappings, null, 2));
+    const db = new Database(env);
+    const formIds = Object.keys(data.mappings);
+    let imported = 0;
+    let updated = 0;
+    let errors = [];
     
-    console.log(`📥 Imported mappings: ${Object.keys(data.mappings).length} forms`);
+    // Import each form mapping
+    for (const formId of formIds) {
+      try {
+        const mapping = data.mappings[formId];
+        const existing = await db.formMappings.getMapping(formId);
+        
+        if (!existing) {
+          await db.formMappings.createMapping(formId, mapping);
+          imported++;
+        } else {
+          await db.formMappings.updateMapping(formId, mapping);
+          updated++;
+        }
+      } catch (error) {
+        console.error(`Failed to import form ${formId}:`, error);
+        errors.push({ formId, error: error.message });
+      }
+    }
+    
+    // Invalidate cache
+    invalidateMappingsCache();
+    
+    console.log(`📥 Imported ${imported} new, updated ${updated} existing mappings`);
     
     return new Response(JSON.stringify({
       success: true,
-      message: `Imported ${Object.keys(data.mappings).length} form mappings`
+      message: `Imported ${imported} new and updated ${updated} existing form mappings`,
+      imported,
+      updated,
+      errors: errors.length > 0 ? errors : undefined
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
     console.error('Error importing mappings:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: error.message
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * Get mapping history
+ * GET /api/mappings/:formId/history
+ */
+export async function getMappingHistory({ env, formId }) {
+  try {
+    const db = new Database(env);
+    
+    // Check if mapping exists
+    const mapping = await db.formMappings.getMapping(formId);
+    if (!mapping) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: `Form ${formId} not found`
+      }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const history = await db.formMappings.getHistory(formId, 100);
+    
+    return new Response(JSON.stringify({
+      success: true,
+      data: history
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Error fetching mapping history:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: error.message
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * Restore mapping from history
+ * POST /api/mappings/:formId/restore
+ * Body: { historyId: "uuid" }
+ */
+export async function restoreMappingFromHistory({ env, formId, data }) {
+  try {
+    if (!data.historyId) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Missing historyId'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const db = new Database(env);
+    const restoredMapping = await db.formMappings.restoreFromHistory(formId, data.historyId);
+    
+    // Invalidate cache
+    invalidateMappingsCache();
+    
+    console.log(`♻️ Restored mapping for form ${formId} from history ${data.historyId}`);
+    
+    return new Response(JSON.stringify({
+      success: true,
+      message: `Form ${formId} restored from history`,
+      data: restoredMapping
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Error restoring mapping:', error);
     return new Response(JSON.stringify({
       success: false,
       error: error.message

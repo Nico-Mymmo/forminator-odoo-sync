@@ -134,7 +134,7 @@ export async function messagePost(env, { model, id, body, staging = false, odooU
   return executeKw(env, {
     model,
     method: "message_post",
-    args: [id],
+    args: [[id]],
     kwargs: {
       body,
       message_type: 'comment',

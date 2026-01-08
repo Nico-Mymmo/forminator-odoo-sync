@@ -1,9 +1,9 @@
-import mappingsJson from './mappings.json';
+import { Database } from '../lib/database.js';
 
 /**
  * Forminator form field mappings to Odoo
  * 
- * Configuration is loaded from KV storage (MAPPINGS_KV) with fallback to mappings.json.
+ * Configuration is loaded from Supabase with in-memory caching.
  * 
  * Structure:
  * {
@@ -18,46 +18,59 @@ import mappingsJson from './mappings.json';
  * If a form_id is not in the mappings, no Odoo sync will happen.
  */
 
-// Cache for KV mappings (prevents multiple KV reads per request)
-let kvMappingsCache = null;
-let kvCacheTimestamp = 0;
-const KV_CACHE_TTL = 60000; // 1 minute cache
+// Cache for database mappings (prevents multiple DB reads per request)
+let dbMappingsCache = null;
+let dbCacheTimestamp = 0;
+const DB_CACHE_TTL = 60000; // 1 minute cache
+
+/**
+ * Invalidate the mappings cache
+ * Called when mappings are updated to ensure fresh data is loaded
+ */
+export function invalidateMappingsCache() {
+  dbMappingsCache = null;
+  dbCacheTimestamp = 0;
+  console.log('🔄 Mappings cache invalidated');
+}
 
 /**
  * Get mapping configuration for a form
- * Tries KV storage first, falls back to mappings.json
+ * Fetches from Supabase with in-memory caching
  * 
  * @param {string} formId - The ovme_forminator_id from the form submission
- * @param {Object} env - Environment with MAPPINGS_KV binding (optional)
+ * @param {Object} env - Environment with Supabase credentials
  * @returns {Object|null} - Mapping config or null if form should not be synced
  */
 export async function getFormMapping(formId, env = null) {
   // Skip internal JSON fields that start with underscore
   if (formId && formId.startsWith('_')) return null;
   
-  // Try KV storage if env is provided
-  if (env && env.MAPPINGS_KV) {
-    try {
-      // Check cache first
-      const now = Date.now();
-      if (kvMappingsCache && (now - kvCacheTimestamp) < KV_CACHE_TTL) {
-        return kvMappingsCache[formId] || null;
-      }
-      
-      // Fetch from KV
-      const kvMappings = await env.MAPPINGS_KV.get('mappings', 'json');
-      if (kvMappings) {
-        kvMappingsCache = kvMappings;
-        kvCacheTimestamp = now;
-        return kvMappings[formId] || null;
-      }
-    } catch (error) {
-      console.error('Error reading from KV, falling back to JSON:', error);
-    }
+  // Require env for database access
+  if (!env) {
+    console.error('No environment provided to getFormMapping');
+    return null;
   }
   
-  // Fallback to static JSON file
-  return mappingsJson[formId] || null;
+  try {
+    // Check cache first
+    const now = Date.now();
+    if (dbMappingsCache && (now - dbCacheTimestamp) < DB_CACHE_TTL) {
+      return dbMappingsCache[formId] || null;
+    }
+    
+    // Fetch from database
+    const db = new Database(env);
+    const allMappings = await db.formMappings.getAllMappings();
+    
+    // Update cache
+    dbMappingsCache = allMappings;
+    dbCacheTimestamp = now;
+    
+    return allMappings[formId] || null;
+  } catch (error) {
+    console.error('Error reading from database:', error);
+    return null;
+  }
 }
 
 /**

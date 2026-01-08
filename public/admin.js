@@ -28,10 +28,93 @@
         let expandedValueMappings = {};
         let currentHtmlCardStepIdx = null;
         let htmlCardElements = [];
-        
-        // Auto-save debounce timer
         let autoSaveTimeout = null;
         let uiStateTimeout = null;
+        
+        /**
+         * Get a path to the currently focused element for restoration after re-render
+         * @param {HTMLElement} element - The focused element
+         * @returns {Object|null} Path object with selectors to find the element again
+         */
+        function getFocusPath(element) {
+            if (!element || element === document.body) return null;
+            
+            // Build a path of identifiable attributes
+            const path = {
+                id: element.id || null,
+                name: element.name || null,
+                className: element.className || null,
+                tagName: element.tagName,
+                placeholder: element.placeholder || null,
+                dataIndex: element.closest('[data-index]')?.dataset.index || null
+            };
+            
+            return path;
+        }
+        
+        /**
+         * Try to restore focus to an element based on its path
+         * @param {Object} path - Path object from getFocusPath
+         */
+        function restoreFocus(path) {
+            if (!path) return;
+            
+            let element = null;
+            
+            // Try ID first (most specific)
+            if (path.id) {
+                element = document.getElementById(path.id);
+            }
+            
+            // Try name + data-index combination
+            if (!element && path.name && path.dataIndex !== null) {
+                const step = document.querySelector(`[data-index="${path.dataIndex}"]`);
+                element = step?.querySelector(`[name="${path.name}"]`);
+            }
+            
+            // Try placeholder within same step
+            if (!element && path.placeholder && path.dataIndex !== null) {
+                const step = document.querySelector(`[data-index="${path.dataIndex}"]`);
+                element = step?.querySelector(`[placeholder="${path.placeholder}"]`);
+            }
+            
+            if (element && typeof element.focus === 'function') {
+                // Use setTimeout to ensure DOM is ready
+                setTimeout(() => {
+                    try {
+                        element.focus();
+                    } catch (e) {
+                        // Silently ignore focus errors
+                    }
+                }, 0);
+            }
+        }
+        
+        /**
+         * Normalize placeholder syntax to ALWAYS use ${} format
+         * Handles both step references (contact.id → ${contact.id}) and field references (email → ${field.email})
+         * @param {string} value - The raw value from drag & drop or input
+         * @returns {string} Normalized value with ${} syntax
+         */
+        function normalizePlaceholderSyntax(value) {
+            if (!value || typeof value !== 'string') return value;
+            
+            // Already has ${} syntax - return as is
+            if (value.includes('${')) return value;
+            
+            // Check if it's a step reference (contains dot: contact.id, lead.name)
+            if (value.includes('.') && !value.includes('field.')) {
+                return '${' + value + '}';
+            }
+            
+            // Check if it already has field. prefix
+            if (value.startsWith('field.')) {
+                return '${' + value + '}';
+            }
+            
+            // Plain field name - add field. prefix
+            return '${field.' + value + '}';
+        }
         
         // State persistence helpers
         function saveUIState(immediate = false) {
@@ -599,7 +682,68 @@
             const container = document.getElementById('fieldMapping');
             container.innerHTML = '';
             
-            Object.entries(fieldMapping).forEach(([formField, odooField]) => {
+            console.log('🎨 [renderFieldMapping] All field mappings:', Object.keys(fieldMapping));
+            
+            // Group fields by parent (detect composite fields like name_1 with name_1_first_name, name_1_last_name)
+            const groupedFields = {};
+            const processedFields = new Set();
+            
+            // Filter out special keys
+            const regularFields = Object.keys(fieldMapping).filter(k => !k.startsWith('_'));
+            
+            console.log('🎨 Regular fields (no _):', regularFields);
+            
+            regularFields.forEach(formField => {
+                // Skip if already processed as a subfield
+                if (processedFields.has(formField)) {
+                    return;
+                }
+                
+                // Check if this is a composite field subfield by looking for known patterns
+                const compositeSubfieldSuffixes = ['_first_name', '_last_name', '_prefix', '_middle_name', '_suffix'];
+                let isSubField = false;
+                let potentialParent = null;
+                
+                for (const suffix of compositeSubfieldSuffixes) {
+                    if (formField.endsWith(suffix)) {
+                        potentialParent = formField.substring(0, formField.length - suffix.length);
+                        console.log(`  🔍 Checking ${formField}: ends with ${suffix}, parent would be ${potentialParent}, exists? ${!!fieldMapping[potentialParent]}`);
+                        
+                        if (fieldMapping[potentialParent] && !potentialParent.startsWith('_')) {
+                            // This is a subfield
+                            if (!groupedFields[potentialParent]) {
+                                groupedFields[potentialParent] = [];
+                            }
+                            groupedFields[potentialParent].push(formField);
+                            processedFields.add(formField);
+                            console.log(`  ✅ Added ${formField} as subfield of ${potentialParent}`);
+                            isSubField = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // Not a subfield or no parent - treat as regular field
+                if (!isSubField && !groupedFields[formField]) {
+                    groupedFields[formField] = [];
+                }
+            });
+            
+            console.log('🎨 Grouped fields:', groupedFields);
+            console.log('🎨 Processed (subfields):', Array.from(processedFields));
+            
+            // Render fields with subfields grouped - SKIP fields that are subfields themselves
+            Object.entries(groupedFields).forEach(([formField, subFields]) => {
+                // Skip if this field is itself a subfield
+                if (processedFields.has(formField)) {
+                    console.log(`  ⏭️ Skipping ${formField} (is a subfield)`);
+                    return;
+                }
+                
+                console.log(`  ✏️ Rendering ${formField} with ${subFields.length} subfields`);
+                const odooField = fieldMapping[formField];
+                const hasSubFields = subFields.length > 0;
+                
                 const containerDiv = document.createElement('div');
                 containerDiv.className = 'collapse collapse-arrow bg-base-200 rounded-box mb-2';
                 containerDiv.dataset.field = formField;
@@ -610,11 +754,50 @@
                     <input type="text" value="${formField}" data-type="key" class="input input-bordered input-sm flex-1" onchange="updateFieldKey('${formField}', this.value)">
                     <span class="text-base-content/50">→</span>
                     <input type="text" value="${odooField}" data-type="value" class="input input-bordered input-sm flex-1" onchange="updateFieldValue('${formField}', this.value)">
+                    ${hasSubFields ? '<span class="badge badge-sm badge-accent">composite</span>' : ''}
                     <button class="btn btn-sm btn-primary" onclick="toggleValueMapping('${formField}')">⚙️</button>
                     <button class="btn btn-sm btn-error btn-square" onclick="deleteField('${formField}')">×</button>
                 `;
                 
                 containerDiv.appendChild(rowDiv);
+                
+                // Add composite template section if has subfields
+                if (hasSubFields) {
+                    const compositeDiv = document.createElement('div');
+                    compositeDiv.className = 'bg-base-300 p-4 mx-4 mb-4 rounded-box border border-base-content/10';
+                    const currentTemplate = fieldMapping['_composite_templates']?.[formField] || subFields.map(sf => '${' + sf.substring(formField.length + 1) + '}').join(' ');
+                    compositeDiv.innerHTML = `
+                        <label class="label"><span class="label-text text-sm font-semibold">📝 Composite Template</span></label>
+                        <input type="text" value="${currentTemplate}" 
+                            class="chip-enabled input input-bordered input-sm w-full font-mono text-xs" 
+                            placeholder="\${first_name} \${last_name}" 
+                            data-field="${formField}"
+                            data-template-for="${formField}">
+                        <p class="text-xs text-base-content/60 mt-2 flex gap-1 flex-wrap">
+                            <span class="opacity-70">Available:</span>
+                            ${subFields.map(sf => '<code class="badge badge-xs badge-outline">${' + sf.substring(formField.length + 1) + '}</code>').join(' ')}
+                        </p>
+                    `;
+                    containerDiv.appendChild(compositeDiv);
+                    
+                    // Show subfields
+                    const subFieldsDiv = document.createElement('div');
+                    subFieldsDiv.className = 'ml-8 mr-4 space-y-2 mb-4';
+                    subFields.forEach(subField => {
+                        const subOdooField = fieldMapping[subField];
+                        const subRow = document.createElement('div');
+                        subRow.className = 'flex gap-2 items-center text-sm p-3 bg-base-200 rounded-lg border border-accent/20';
+                        subRow.innerHTML = `
+                            <span class="badge badge-xs badge-accent">sub</span>
+                            <code class="text-xs flex-1 font-semibold">${subField}</code>
+                            <span class="text-base-content/50">→</span>
+                            <input type="text" value="${subOdooField}" class="input input-bordered input-xs flex-1" onchange="updateFieldValue('${subField}', this.value)">
+                            <button class="btn btn-xs btn-error btn-circle" onclick="deleteField('${subField}')">×</button>
+                        `;
+                        subFieldsDiv.appendChild(subRow);
+                    });
+                    containerDiv.appendChild(subFieldsDiv);
+                }
                 
                 // Add inline value mapping section
                 const valueMappingDiv = document.createElement('div');
@@ -651,6 +834,35 @@
                 // Always render value mapping rows (even if empty)
                 renderValueMappingRows(formField);
             });
+            
+            // Initialize chips for composite template inputs
+            setTimeout(() => {
+                document.querySelectorAll('input[data-template-for]').forEach(input => {
+                    if (!input._tagify) {
+                        const formField = input.dataset.templateFor;
+                        new Tagify(input, {
+                            mode: 'mix',
+                            pattern: /\$\{[^}]+\}/,
+                            tagTextProp: 'value',
+                            duplicates: true,
+                            editTags: false,
+                            dropdown: {
+                                enabled: 1,
+                                position: 'text',
+                                mapValueTo: 'value',
+                                highlightFirst: true
+                            },
+                            mixTagsInterpolator: ['${', '}'],
+                            callbacks: {
+                                change: (e) => {
+                                    const value = e.detail.tagify.DOM.input.textContent;
+                                    updateCompositeTemplate(formField, value);
+                                }
+                            }
+                        });
+                    }
+                });
+            }, 100);
         }
         
         function renderValueMappingRows(formField) {
@@ -710,6 +922,14 @@
             // Add empty row for inline editing (like domain conditions)
             valueMapping[formField][''] = '';
             renderValueMappingRows(formField);
+        }
+        
+        function updateCompositeTemplate(formField, template) {
+            if (!fieldMapping._composite_templates) {
+                fieldMapping._composite_templates = {};
+            }
+            fieldMapping._composite_templates[formField] = template;
+            debouncedAutoSave();
         }
         
         function updateValueMappingKey(formField, oldKey, newKey) {
@@ -791,11 +1011,48 @@
             const formFieldsContainer = document.createElement('div');
             formFieldsContainer.className = 'flex flex-wrap gap-2';
             
+            // Collect all fields including expanded ones
+            const allFields = new Set();
+            
+            // Add regular mapped fields
             Object.entries(fieldMapping).forEach(([formField, odooField]) => {
+                allFields.add({ 
+                    odooField, 
+                    formField, 
+                    isExpanded: false 
+                });
+            });
+            
+            // Detect and add expanded composite fields (e.g., name_1 -> first_name, last_name)
+            const compositeFieldPattern = /^(.+)_(first_name|last_name|prefix|middle_name|suffix)$/;
+            Object.keys(fieldMapping).forEach(formField => {
+                // Check if this field has expanded subfields
+                const relatedFields = Object.keys(fieldMapping).filter(f => f.startsWith(formField + '_'));
+                if (relatedFields.length > 0) {
+                    // This is likely a composite field that gets expanded
+                    // Add the individual subfields
+                    relatedFields.forEach(subField => {
+                        const match = subField.match(compositeFieldPattern);
+                        if (match) {
+                            const subFieldName = match[2]; // e.g., "first_name", "last_name"
+                            allFields.add({
+                                odooField: subFieldName,
+                                formField: subField,
+                                isExpanded: true
+                            });
+                        }
+                    });
+                }
+            });
+            
+            // Render field chips
+            allFields.forEach(({ odooField, formField, isExpanded }) => {
                 const chip = document.createElement('div');
-                chip.className = 'badge badge-primary badge-sm';
+                chip.className = `badge badge-sm ${isExpanded ? 'badge-accent' : 'badge-primary'}`;
                 chip.textContent = odooField;
-                chip.title = `Forminator: ${formField}`;
+                chip.title = isExpanded 
+                    ? `Auto-expanded from ${formField.replace(/_first_name|_last_name|_prefix|_middle_name|_suffix$/, '')}` 
+                    : `Forminator: ${formField}`;
                 chip.draggable = true;
                 chip.dataset.field = odooField;
                 chip.dataset.formfield = formField;
@@ -1041,8 +1298,9 @@
                         if (node.hasAttribute('data-field')) {
                             const fieldName = node.getAttribute('data-field');
                             const chipType = node.getAttribute('data-chip-type');
+                            // ALWAYS use ${} syntax for consistency
                             if (chipType === 'step') {
-                                value += '$' + fieldName;
+                                value += '${' + fieldName + '}';
                             } else {
                                 value += '${field.' + fieldName + '}';
                             }
@@ -1635,6 +1893,26 @@
         
         function renderWorkflowSteps() {
             const container = document.getElementById('workflowSteps');
+            
+            // Preserve scroll position and focused element
+            const scrollParent = container.closest('.overflow-y-auto') || container.parentElement;
+            const previousScrollTop = scrollParent?.scrollTop || 0;
+            const focusedElement = document.activeElement;
+            const focusedElementPath = getFocusPath(focusedElement);
+            
+            // Preserve ALL collapse states if not explicitly set
+            if (preservedCollapseStates === null) {
+                preservedCollapseStates = [];
+                workflowSteps.forEach((step, i) => {
+                    const checkbox = document.getElementById(`step-toggle-${i}`);
+                    if (checkbox) {
+                        preservedCollapseStates.push(checkbox.checked);
+                    } else {
+                        preservedCollapseStates.push(true); // Default: open
+                    }
+                });
+            }
+            
             container.innerHTML = '';
             
             workflowSteps.forEach((step, idx) => {
@@ -1814,6 +2092,13 @@
             // Re-initialize drag and drop for newly rendered elements
             initializeDragAndDrop();
             preservedCollapseStates = null; // Clear after rendering
+            
+            // Restore scroll position and focus
+            if (scrollParent && previousScrollTop > 0) {
+                scrollParent.scrollTop = previousScrollTop;
+            }
+            
+            restoreFocus(focusedElementPath);
         }
         
         function deleteStep(idx) {
@@ -2228,7 +2513,8 @@
             e.target.classList.remove('!border-primary', 'bg-primary/10');
             
             if (draggedFieldName) {
-                updateTemplateValue(idx, fieldKey, draggedFieldName);
+                // Palette chips contain "contact.id", wrap in ${...}
+                updateTemplateValue(idx, fieldKey, '${' + draggedFieldName + '}');
             }
         }
         
@@ -3089,6 +3375,9 @@
         
         // Save & Export
         async function saveForm(silent = false) {
+            console.log('🔴 [SAVE FORM START] workflowSteps.length:', workflowSteps.length);
+            console.log('🔴 [SAVE FORM START] workflowSteps:', JSON.stringify(workflowSteps, null, 2));
+            
             // Convert value_mapping back to Odoo field names and clean up empty mappings
             const cleanedValueMapping = {};
             Object.entries(valueMapping).forEach(([formField, mappings]) => {
@@ -3113,6 +3402,7 @@
             });
             
             // Clean workflow steps: preserve custom domain conditions and template config
+            console.log('🟡 [BEFORE MAP] workflowSteps.length:', workflowSteps.length);
             const cleanedWorkflow = workflowSteps.map((step, idx) => {
                 const cleanedStep = { ...step };
                 
@@ -3165,6 +3455,9 @@
                 workflow: cleanedWorkflow
             };
             
+            console.log('🟢 [DATA TO SAVE] workflowSteps count:', workflowSteps.length);
+            console.log('🟢 [DATA TO SAVE] cleanedWorkflow count:', cleanedWorkflow.length);
+            console.log('🟢 [DATA TO SAVE] data.workflow count:', data.workflow.length);
             console.log('Saving form data:', JSON.stringify(data, null, 2));
             console.log('Original workflowSteps:', JSON.stringify(workflowSteps, null, 2));
             
