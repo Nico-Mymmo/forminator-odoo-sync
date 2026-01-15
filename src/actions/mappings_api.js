@@ -1,6 +1,6 @@
 /**
  * API endpoints for managing form mappings
- * Requires ADMIN_TOKEN authentication
+ * Requires authentication
  * 
  * REFACTORED: Now uses Supabase PostgreSQL instead of Cloudflare KV
  */
@@ -9,10 +9,29 @@ import { Database } from '../lib/database.js';
 import { invalidateMappingsCache } from '../config/form_mappings.js';
 
 /**
+ * Check if user is authenticated
+ */
+function requireAuth(user) {
+  if (!user) {
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: 'Unauthorized' 
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  return null;
+}
+
+/**
  * Get all mappings
  * GET /api/mappings
  */
-export async function getMappings({ env }) {
+export async function getMappings({ env, user }) {
+  const authError = requireAuth(user);
+  if (authError) return authError;
+  
   try {
     const db = new Database(env);
     const mappingsJson = await db.formMappings.getAllMappings();
@@ -37,7 +56,10 @@ export async function getMappings({ env }) {
  * Get specific form mapping
  * GET /api/mappings/:formId
  */
-export async function getMapping({ env, formId }) {
+export async function getMapping({ env, formId, user }) {
+  const authError = requireAuth(user);
+  if (authError) return authError;
+  
   try {
     const db = new Database(env);
     const mapping = await db.formMappings.getMapping(formId);
@@ -78,7 +100,10 @@ export async function getMapping({ env, formId }) {
  * 
  * _version is optional - if provided, enables optimistic locking
  */
-export async function saveMapping({ env, formId, data }) {
+export async function saveMapping({ env, formId, data, user }) {
+  const authError = requireAuth(user);
+  if (authError) return authError;
+  
   try {
     console.log(`🔵 [API saveMapping] formId: ${formId}`);
     console.log(`🔵 [API saveMapping] data.workflow length: ${data.workflow?.length}`);
@@ -147,7 +172,10 @@ export async function saveMapping({ env, formId, data }) {
  * Delete form mapping (soft delete)
  * DELETE /api/mappings/:formId
  */
-export async function deleteMapping({ env, formId }) {
+export async function deleteMapping({ env, formId, user }) {
+  const authError = requireAuth(user);
+  if (authError) return authError;
+  
   try {
     const db = new Database(env);
     
@@ -195,7 +223,10 @@ export async function deleteMapping({ env, formId }) {
  * POST /api/mappings/import
  * Body: { mappings: { "formId1": {...}, "formId2": {...} } }
  */
-export async function importMappings({ env, data }) {
+export async function importMappings({ env, data, user }) {
+  const authError = requireAuth(user);
+  if (authError) return authError;
+  
   try {
     // Validate it's an object
     if (!data.mappings || typeof data.mappings !== 'object') {
@@ -264,7 +295,10 @@ export async function importMappings({ env, data }) {
  * Get mapping history
  * GET /api/mappings/:formId/history
  */
-export async function getMappingHistory({ env, formId }) {
+export async function getMappingHistory({ env, formId, user }) {
+  const authError = requireAuth(user);
+  if (authError) return authError;
+  
   try {
     const db = new Database(env);
     
@@ -306,7 +340,10 @@ export async function getMappingHistory({ env, formId }) {
  * POST /api/mappings/:formId/restore
  * Body: { historyId: "uuid" }
  */
-export async function restoreMappingFromHistory({ env, formId, data }) {
+export async function restoreMappingFromHistory({ env, formId, data, user }) {
+  const authError = requireAuth(user);
+  if (authError) return authError;
+  
   try {
     if (!data.historyId) {
       return new Response(JSON.stringify({

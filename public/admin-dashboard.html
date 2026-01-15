@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administration - OpenVME Operations Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-base-200" style="overflow-y: scroll;">
+    <div id="navbar"></div>
+    
+    <div style="padding-top: 48px;">
+      <div class="pb-8">
+        <div class="container mx-auto px-6 max-w-7xl">
+          <div class="mb-8">
+            <h1 class="text-4xl font-bold mb-2">Administration</h1>
+            <p class="text-base-content/60">Manage users, invites, and module access</p>
+          </div>
+
+          <div class="stats shadow w-full mb-8">
+            <div class="stat">
+              <div class="stat-figure text-primary">
+                <i data-lucide="users" class="w-8 h-8"></i>
+              </div>
+              <div class="stat-title">Total Users</div>
+              <div class="stat-value text-primary" id="statsUsers">0</div>
+              <div class="stat-desc">Active accounts</div>
+            </div>
+            
+            <div class="stat">
+              <div class="stat-figure text-accent">
+                <i data-lucide="package" class="w-8 h-8"></i>
+              </div>
+              <div class="stat-title">Active Modules</div>
+              <div class="stat-value text-accent" id="statsModules">0</div>
+              <div class="stat-desc">Available modules</div>
+            </div>
+          </div>
+
+          <div role="tablist" class="tabs tabs-lifted tabs-lg mb-4">
+            <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Users" checked />
+            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+              <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                  <div class="flex justify-between items-center mb-6">
+                    <h2 class="card-title text-2xl">User Management</h2>
+                  </div>
+                  
+                  <div id="usersTable" class="overflow-x-auto">
+                    <div class="flex justify-center py-8">
+                      <span class="loading loading-spinner loading-lg"></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Create User" />
+            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+              <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                  <div class="flex justify-between items-center mb-6">
+                    <h2 class="card-title text-2xl">Create New User</h2>
+                  </div>
+                  
+                  <form id="createUserForm" class="mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div class="form-control">
+                        <label class="label">
+                          <span class="label-text">Email Address</span>
+                        </label>
+                        <input type="email" name="email" placeholder="user@example.com" class="input input-bordered" required />
+                      </div>
+                      
+                      <div class="form-control">
+                        <label class="label">
+                          <span class="label-text">Password</span>
+                        </label>
+                        <input type="password" name="password" placeholder="Enter password" class="input input-bordered" required />
+                      </div>
+                    </div>
+                    
+                    <div class="form-control mb-4">
+                      <label class="label">
+                        <span class="label-text">Role</span>
+                      </label>
+                      <select name="role" class="select select-bordered" required>
+                        <option value="user">User</option>
+                        <option value="manager">Manager</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+                    
+                    <div class="form-control mb-4">
+                      <label class="label">
+                        <span class="label-text">Modules</span>
+                      </label>
+                      <div id="moduleCheckboxes" class="flex flex-wrap gap-4">
+                        <div class="flex justify-center py-2">
+                          <span class="loading loading-spinner loading-sm"></span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary gap-2">
+                      <i data-lucide="user-plus" class="w-4 h-4"></i>
+                      Create User
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Modules" />
+            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+              <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                  <h2 class="card-title mb-4">Available Modules</h2>
+                  <div id="modulesTable" class="overflow-x-auto">
+                    <div class="flex justify-center py-8">
+                      <span class="loading loading-spinner loading-lg"></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/admin-dashboard.js"></script>
+</body>
+</html>

@@ -1,5 +1,4 @@
 
-        let token = localStorage.getItem('adminToken');
         let currentFormId = null;
         
         // Theme management
@@ -276,7 +275,11 @@
             }
         };
         
-        if (token) { showAdmin(); }
+        // Check if already logged in via cookie
+        fetch('/api/auth/me', { credentials: 'include' })
+            .then(r => r.json())
+            .then(d => { if (d.user) showAdmin(); })
+            .catch(() => {});
         
         function switchStepTab(stepIdx, panelIdx) {
             // Get all tabs and panels for this step
@@ -304,14 +307,55 @@
             });
         }
         
-        function login() {
-            token = document.getElementById('tokenInput').value;
-            localStorage.setItem('adminToken', token);
-            showAdmin();
+        async function login() {
+            const email = document.getElementById('emailInput').value;
+            const password = document.getElementById('passwordInput').value;
+            const errorDiv = document.getElementById('loginError');
+            const errorMsg = document.getElementById('loginErrorMessage');
+            
+            if (!email || !password) {
+                errorMsg.textContent = 'Please enter email and password';
+                errorDiv.style.display = 'flex';
+                return;
+            }
+            
+            try {
+                errorDiv.style.display = 'none';
+                
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Cookie-based auth, no token needed
+                    showAdmin();
+                } else {
+                    errorMsg.textContent = result.error || 'Login failed';
+                    errorDiv.style.display = 'flex';
+                }
+            } catch (err) {
+                errorMsg.textContent = 'Connection error: ' + err.message;
+                errorDiv.style.display = 'flex';
+            }
         }
         
-        function logout() {
-            localStorage.removeItem('adminToken');
+        async function logout() {
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+            } catch (err) {
+                console.error('Logout error:', err);
+            }
             location.reload();
         }
         
@@ -343,22 +387,18 @@
         }
         
         async function apiCall(path, options = {}) {
-            // In dev (localhost), use production URL instead of relative path
-            const isDev = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
-            const baseUrl = isDev ? 'https://forminator-sync.openvme-odoo.workers.dev' : '';
-            const fullUrl = baseUrl + path;
-            
-            const res = await fetch(fullUrl, {
+            // Always use relative paths when working locally
+            const res = await fetch(path, {
                 ...options,
+                credentials: 'include',
                 headers: {
                     ...options.headers,
-                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 }
             });
             if (res.status === 401) {
-                logout();
-                throw new Error('Unauthorized');
+                // Don't auto-logout on 401, might be session issue
+                console.warn('401 Unauthorized on:', path);
             }
             return res;
         }

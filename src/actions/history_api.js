@@ -3,7 +3,18 @@ import { Database } from '../lib/database.js';
 /**
  * Get ALL submission history across all forms
  */
-export async function handleHistoryGetAll({ request, env }) {
+export async function handleHistoryGetAll({ request, env, user }) {
+    // Check authentication
+    if (!user) {
+        return new Response(JSON.stringify({ 
+            success: false, 
+            error: 'Unauthorized' 
+        }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+    
     try {
         const db = new Database(env);
         const result = await db.submissions.getAllSubmissions({ pageSize: 200 });
@@ -36,7 +47,18 @@ export async function handleHistoryGetAll({ request, env }) {
 }
 
 // History API - Get request history for a form
-export async function handleHistoryGet({ request, env, ctx, formId }) {
+export async function handleHistoryGet({ request, env, ctx, formId, user }) {
+    // Check authentication
+    if (!user) {
+        return new Response(JSON.stringify({ 
+            success: false, 
+            error: 'Unauthorized' 
+        }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+    
     try {
         // Always use PRODUCTION KV for history (where real requests are logged)
         const kvNamespace = env.MAPPINGS_KV;

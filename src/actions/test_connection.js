@@ -4,7 +4,18 @@ import { searchRead } from "../lib/odoo.js";
  * Test connection to Odoo
  * Fetches a simple record to verify the entire flow works
  */
-export async function testConnection({ env }) {
+export async function testConnection({ env, user }) {
+  // Check authentication
+  if (!user) {
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: 'Unauthorized' 
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
   // Fetch first partner from Odoo to test connection
   const partners = await searchRead(env, {
     model: "res.partner",
