@@ -36,6 +36,7 @@ export default {
     'GET /api/mappings': handleGetMappings,
     'GET /api/mappings/:id': handleGetMapping,
     'POST /api/mappings': handleSaveMapping,
+    'POST /api/mappings/:id': handleSaveMapping,  // Save specific form mapping
     'POST /api/mappings/import': handleImportMappings,
     'DELETE /api/mappings/:id': handleDeleteMapping,
     
