@@ -2,7 +2,7 @@
  * Generate HTML card from form data based on configuration
  * 
  * @param {Object} formData - The form data to display
- * @param {Object} config - HTML card configuration (supports both old 'sections' format and new 'elements' format)
+ * @param {Object} config - HTML card configuration (supports sections-based format)
  * @returns {string} - HTML string
  */
 export function generateHtmlCard(formData, config) {
@@ -11,7 +11,17 @@ export function generateHtmlCard(formData, config) {
     return generateDefaultCard(formData);
   }
 
-  // Check if new element-based format (version 1)
+  // Check if new sections-based format (version 3)
+  if (config.sections && Array.isArray(config.sections)) {
+    return generateFromSections(formData, config);
+  }
+
+  // Check if template-based format (version 2)
+  if (config.selectedFields && Array.isArray(config.selectedFields)) {
+    return generateFromTemplate(formData, config);
+  }
+
+  // Check if element-based format (version 1)
   if (config.version === 1 && config.elements) {
     return generateFromElements(formData, config.elements);
   }
@@ -61,6 +71,178 @@ export function generateHtmlCard(formData, config) {
   }
   
   html += `</div>`;
+  
+  return html;
+}
+
+/**
+ * Generate HTML card from sections-based configuration (v3)
+ * 
+ * @param {Object} formData - The form data
+ * @param {Object} config - Configuration with sections array and style
+ * @returns {string} - HTML string
+ */
+function generateFromSections(formData, config) {
+  const { sections, style = {} } = config;
+  const { compact = false, borders = false, icons = true, columns = 1 } = style;
+  
+  // Icon mapping using lucide icon names
+  const iconMap = {
+    'email': 'mail',
+    'phone': 'phone',
+    'mobile': 'smartphone',
+    'name': 'user',
+    'first_name': 'user',
+    'last_name': 'user',
+    'street': 'map-pin',
+    'city': 'map',
+    'zip': 'hash',
+    'country': 'globe',
+    'number': 'hash',
+    'ownership_type': 'building',
+    'number_of_units': 'building-2'
+  };
+  
+  let html = `<div style="padding:20px; background:#f9fafb; border-radius:8px; font-family:system-ui,-apple-system,sans-serif;">`;
+  
+  // Track if we're in a grid section
+  let gridItems = [];
+  let currentColumns = 1;
+  
+  sections.forEach((section, idx) => {
+    if (section.type === 'title') {
+      // Close previous grid if exists
+      if (gridItems.length > 0) {
+        html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'}; margin-bottom:${compact ? '16px' : '20px'};">`;
+        html += gridItems.join('');
+        html += '</div>';
+        gridItems = [];
+      }
+      
+      html += `<h3 style="font-size:${compact ? '14px' : '16px'}; font-weight:600; color:#374151; margin:${compact ? '12px' : '16px'} 0 ${compact ? '8px' : '12px'} 0; ${idx === 0 ? 'margin-top:0;' : ''}">${escapeHtml(section.text || 'Section')}</h3>`;
+    } else if (section.type === 'divider') {
+      // Close previous grid if exists
+      if (gridItems.length > 0) {
+        html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'}; margin-bottom:${compact ? '16px' : '20px'};">`;
+        html += gridItems.join('');
+        html += '</div>';
+        gridItems = [];
+      }
+      
+      html += `<hr style="border:none; border-top:1px solid #e5e7eb; margin:${compact ? '12px' : '16px'} 0;">`;
+    } else if (section.type === 'text') {
+      // Close previous grid if exists
+      if (gridItems.length > 0) {
+        html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'}; margin-bottom:${compact ? '16px' : '20px'};">`;
+        html += gridItems.join('');
+        html += '</div>';
+        gridItems = [];
+      }
+      
+      html += `<div style="background:white; padding:${compact ? '10px' : '14px'}; border-radius:6px; ${borders ? 'border:1px solid #e5e7eb;' : ''} margin-bottom:${compact ? '12px' : '16px'}; white-space:pre-wrap; color:#374151; font-size:${compact ? '12px' : '14px'};">${escapeHtml(section.content || '')}</div>`;
+    } else if (section.type === 'columnBreak') {
+      // Close previous grid if exists
+      if (gridItems.length > 0) {
+        html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'}; margin-bottom:${compact ? '16px' : '20px'};">`;
+        html += gridItems.join('');
+        html += '</div>';
+        gridItems = [];
+      }
+      
+      // Update column count for next group
+      currentColumns = section.columns || 1;
+    } else if (section.type === 'field') {
+      const fieldValue = formData[section.field];
+      
+      // Skip empty values
+      if (fieldValue === undefined || fieldValue === null || fieldValue === '') {
+        return;
+      }
+      
+      const label = section.customLabel || section.field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      const icon = iconMap[section.field.toLowerCase()] || 'tag';
+      
+      let itemHtml = `
+        <div style="background:white; padding:${compact ? '8px' : '12px'}; border-radius:6px; ${borders ? 'border:1px solid #e5e7eb;' : ''}">
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+            ${icons ? `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#lucide-${icon}"/></svg>` : ''}
+            <div style="font-size:${compact ? '11px' : '12px'}; color:#6b7280; font-weight:500;">${escapeHtml(label)}</div>
+          </div>
+          <div style="font-size:${compact ? '13px' : '14px'}; color:#111827; font-weight:500;">${escapeHtml(String(fieldValue))}</div>
+        </div>
+      `;
+      
+      gridItems.push(itemHtml);
+    }
+  });
+  
+  // Close final grid if exists
+  if (gridItems.length > 0) {
+    html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'};">`;
+    html += gridItems.join('');
+    html += '</div>';
+  }
+  
+  html += '</div>';
+  
+  return html;
+}
+
+/**
+ * Generate HTML card from template-based configuration (v2)
+ * 
+ * @param {Object} formData - The form data
+ * @param {Object} config - Template configuration with selectedFields and style
+ * @returns {string} - HTML string
+ */
+function generateFromTemplate(formData, config) {
+  const { selectedFields, style = {} } = config;
+  const { compact = false, borders = true, icons = true } = style;
+  
+  // Icon mapping
+  const iconMap = {
+    'email': '✉️',
+    'phone': '📞',
+    'mobile': '📱',
+    'street': '🏠',
+    'city': '🏙️',
+    'zip': '📮',
+    'name': '👤',
+    'first_name': '👤',
+    'last_name': '👤',
+    'number': '🔢',
+    'ownership_type': '🏘️',
+    'number_of_units': '🏢'
+  };
+  
+  const borderStyle = borders ? 'border: 1px solid #e0e0e0; border-radius: 8px;' : '';
+  const padding = compact ? '10px' : '20px';
+  const rowGap = compact ? '8px' : '12px';
+  
+  let html = `<div style="font-family: Arial, sans-serif; ${borderStyle} padding: ${padding}; background-color: #f9f9f9;">`;
+  html += `<h2 style="color: #2c3e50; margin-top: 0; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-bottom: ${rowGap};">Formulier Gegevens</h2>`;
+  html += `<div style="display: grid; gap: ${rowGap};">`;
+  
+  selectedFields.forEach(field => {
+    const value = formData[field];
+    
+    // Skip empty values
+    if (value === undefined || value === null || value === '') {
+      return;
+    }
+    
+    const icon = icons && iconMap[field] ? iconMap[field] + ' ' : '';
+    const label = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    
+    html += `
+      <div style="display: grid; grid-template-columns: ${compact ? '120px' : '150px'} 1fr; gap: 8px; align-items: start;">
+        <strong style="color: #34495e;">${icon}${label}:</strong>
+        <span style="color: #555;">${escapeHtml(String(value))}</span>
+      </div>
+    `;
+  });
+  
+  html += `</div></div>`;
   
   return html;
 }

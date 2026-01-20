@@ -22,17 +22,52 @@ export async function handleHistoryGetAll({ request, env, user }) {
         console.log('📚 [handleHistoryGetAll] Retrieved', result.data.length, 'submissions from Supabase');
         
         // Transform database format to match frontend expectations (old KV format)
-        const transformed = result.data.map(entry => ({
-            timestamp: entry.submitted_at,
-            formId: entry.form_id,
-            status: entry.status,
-            requestData: entry.request_data,
-            workflowResults: entry.response_data,
-            error: entry.error_message,
-            errorType: entry.error_stack ? 'Error' : undefined,
-            workflowDetails: entry.workflow_steps,
-            odooError: entry.odoo_records
-        }));
+        const transformed = result.data.map(entry => {
+            const workflowResults = entry.metadata?.workflow_results;
+            const odooError = entry.metadata?.odoo_error;
+            
+            // Convert workflowResults object to array format if needed
+            let formattedWorkflowResults = null;
+            if (workflowResults && typeof workflowResults === 'object') {
+                if (Array.isArray(workflowResults)) {
+                    formattedWorkflowResults = workflowResults;
+                } else {
+                    // Convert object {stepName: {...}} to array format
+                    formattedWorkflowResults = Object.entries(workflowResults).map(([stepName, stepData]) => ({
+                        step: stepName,
+                        ...stepData
+                    }));
+                }
+            }
+            
+            return {
+                timestamp: entry.submitted_at,
+                formId: entry.form_id,
+                status: entry.status,
+                requestData: entry.submission_data,
+                normalized: entry.processed_data,
+                workflowResults: formattedWorkflowResults,
+                error: entry.error_message,
+                errorType: entry.metadata?.error_type,
+                stackTrace: entry.metadata?.stack_trace,
+                workflowDetails: entry.metadata?.workflow_details,
+                odooError: odooError,
+                invalidField: odooError?.invalidField,
+                hint: odooError?.hint,
+                recordId: entry.odoo_record_id,
+                model: entry.odoo_model,
+                duration: entry.processing_time_ms,
+                // Extract additional useful info from workflowResults for display
+                odooResponse: formattedWorkflowResults ? {
+                    steps: formattedWorkflowResults.map(step => ({
+                        step: step.step,
+                        model: step.model,
+                        status: step.isNew ? 'created' : (step.isUpdated ? 'updated' : 'existing'),
+                        recordId: step.id || step.recordId
+                    }))
+                } : null
+            };
+        });
         
         return new Response(JSON.stringify(transformed), {
             headers: { 'Content-Type': 'application/json' }
@@ -98,13 +133,28 @@ export async function logRequest(env, formId, data) {
     try {
         const db = new Database(env);
         
+        // Extract odoo error with additional fields
+        const odooError = data.odooError ? {
+            ...data.odooError,
+            invalidField: data.invalidField,
+            hint: data.hint
+        } : null;
+        
         await db.submissions.logSubmission(formId, data.requestData || {}, {
-            status: data.status || 'unknown',
-            response_data: data.workflowResults || null,
+            normalized_data: data.normalized || data.normalizedData || null,
+            status: data.status || 'pending',
             error_message: data.error || null,
-            error_stack: data.errorType || data.stackTrace || null,
-            workflow_steps: data.workflowDetails || null,
-            odoo_records: data.odooError || null
+            odoo_record_id: data.recordId || null,
+            odoo_model: data.model || null,
+            processed_at: data.status === 'success' ? new Date().toISOString() : null,
+            duration_ms: data.duration || null,
+            metadata: {
+                workflow_results: data.workflowResults || null,
+                error_type: data.errorType || null,
+                stack_trace: data.stackTrace || null,
+                workflow_details: data.workflowDetails || null,
+                odoo_error: odooError
+            }
         });
         
         console.log('✅ [logRequest] Logged submission to Supabase:', formId, data.status);

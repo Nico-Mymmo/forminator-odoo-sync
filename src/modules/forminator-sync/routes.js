@@ -31,21 +31,63 @@ export async function handleGetMappings(context) {
 }
 
 export async function handleGetMapping(context) {
-  const url = new URL(context.request.url);
-  const id = url.pathname.split('/').pop();
-  const response = await getMapping({ ...context, params: { id } });
+  const formId = context.params?.id;
+  if (!formId) {
+    return addCorsHeaders(new Response(JSON.stringify({
+      success: false,
+      error: 'Missing form ID'
+    }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    }));
+  }
+  
+  const response = await getMapping({ ...context, formId });
   return addCorsHeaders(response);
 }
 
 export async function handleSaveMapping(context) {
-  const response = await saveMapping(context);
+  // Extract formId from params (set by route matcher) or URL
+  let formId = context.params?.id;
+  
+  // If no params.id, try to extract from URL (for routes without param)
+  if (!formId) {
+    const url = new URL(context.request.url);
+    const pathParts = url.pathname.split('/');
+    const lastPart = pathParts[pathParts.length - 1];
+    // Only use last part if it's not 'mappings' (POST /api/mappings creates new)
+    if (lastPart !== 'mappings') {
+      formId = lastPart;
+    }
+  }
+  
+  // Parse request body
+  let data = {};
+  if (context.request.body) {
+    data = await context.request.json();
+  }
+  
+  const response = await saveMapping({ 
+    ...context, 
+    formId,
+    data
+  });
   return addCorsHeaders(response);
 }
 
 export async function handleDeleteMapping(context) {
-  const url = new URL(context.request.url);
-  const id = url.pathname.split('/').pop();
-  const response = await deleteMapping({ ...context, params: { id } });
+  const formId = context.params?.id;
+  if (!formId) {
+    return addCorsHeaders(new Response(JSON.stringify({
+      success: false,
+      error: 'Missing form ID'
+    }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    }));
+  }
+  
+  const response = await deleteMapping({ ...context, formId });
   return addCorsHeaders(response);
 }
 

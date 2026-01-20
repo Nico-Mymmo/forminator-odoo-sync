@@ -26,7 +26,8 @@
         let draggedFieldName = null;
         let expandedValueMappings = {};
         let currentHtmlCardStepIdx = null;
-        let htmlCardElements = [];
+        let htmlCardSelectedFields = [];
+        let htmlCardSections = []; // Array of {type: 'field'|'title'|'divider', ...}
         let autoSaveTimeout = null;
         let uiStateTimeout = null;
         
@@ -208,7 +209,7 @@
                         fields: { email: { label: 'Email veld', dropOnly: true } },
                         typeFilter: true,
                         buildDomain: (values, typeFilter) => {
-                            const domain = [['email', '=', '${field.' + values.email + '}']];
+                            const domain = [['email', '=', values.email]];
                             if (typeFilter === 'contact') domain.push(['is_company', '=', false]);
                             if (typeFilter === 'company') domain.push(['is_company', '=', true]);
                             return domain;
@@ -220,7 +221,7 @@
                         fields: { contactId: { label: 'Contact ID', dropOnly: true } },
                         typeFilter: false,
                         buildDomain: (values) => {
-                            return [['id', '=', '${' + values.contactId + '}']];
+                            return [['id', '=', values.contactId]];
                         },
                         defaultFields: ['id', 'name', 'email', 'is_company']
                     },
@@ -229,7 +230,7 @@
                         fields: { name: { label: 'Naam veld', dropOnly: true } },
                         typeFilter: true,
                         buildDomain: (values, typeFilter) => {
-                            const domain = [['name', '=', '${field.' + values.name + '}']];
+                            const domain = [['name', '=', values.name]];
                             if (typeFilter === 'contact') domain.push(['is_company', '=', false]);
                             if (typeFilter === 'company') domain.push(['is_company', '=', true]);
                             return domain;
@@ -247,7 +248,7 @@
                         fields: { partnerId: { label: 'Contact ID', dropOnly: true } },
                         typeFilter: false,
                         buildDomain: (values) => {
-                            return [['partner_id', '=', '${' + values.partnerId + '}']];
+                            return [['partner_id', '=', values.partnerId]];
                         },
                         defaultFields: ['id', 'name', 'partner_id', 'type']
                     }
@@ -262,7 +263,7 @@
                         fields: { uuid: { label: 'UUID veld', dropOnly: true } },
                         typeFilter: false,
                         buildDomain: (values) => {
-                            return [['x_studio_uuid', '=', '${field.' + values.uuid + '}']];
+                            return [['x_studio_uuid', '=', values.uuid]];
                         },
                         defaultFields: ['id', 'x_studio_uuid', 'x_studio_email']
                     }
@@ -684,6 +685,139 @@
                     <button class="btn btn-outline" onclick="exportForm()">Export JSON</button>
                     <button class="btn btn-error btn-outline" onclick="deleteForm()">Delete Form</button>
                 </div>
+                
+                <!-- HTML Card Editor Modal -->
+                <dialog id="htmlCardModal" class="modal">
+                    <div class="modal-box w-11/12 max-w-6xl max-h-[90vh] p-0 flex flex-col">
+                        <div class="bg-base-200 p-4 border-b border-base-300 flex justify-between items-center">
+                            <h3 class="font-bold text-lg">📋 HTML Card Builder</h3>
+                            <button class="btn btn-sm btn-circle btn-ghost" onclick="closeHtmlCardEditor()">✕</button>
+                        </div>
+                        
+                        <div class="flex-1 flex overflow-hidden">
+                            <!-- Left: Templates & Config -->
+                            <div class="w-80 bg-base-100 border-r border-base-300 overflow-y-auto p-4 space-y-4">
+                                <!-- Template Selection -->
+                                <div>
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i data-lucide="layout-template" class="w-4 h-4"></i>
+                                        Templates
+                                    </h4>
+                                    <div class="grid grid-cols-2 gap-2" id="htmlCardTemplates">
+                                        <button class="btn btn-sm btn-outline" onclick="applyHtmlCardTemplate('contact')">
+                                            👤 Contact
+                                        </button>
+                                        <button class="btn btn-sm btn-outline" onclick="applyHtmlCardTemplate('property')">
+                                            🏢 Property
+                                        </button>
+                                        <button class="btn btn-sm btn-outline" onclick="applyHtmlCardTemplate('summary')">
+                                            📊 Summary
+                                        </button>
+                                        <button class="btn btn-sm btn-outline" onclick="applyHtmlCardTemplate('detailed')">
+                                            📝 Detailed
+                                        </button>
+                                        <button class="btn btn-sm btn-outline" onclick="applyHtmlCardTemplate('simple')">
+                                            ⚡ Simple
+                                        </button>
+                                        <button class="btn btn-sm btn-outline" onclick="applyHtmlCardTemplate('blank')">
+                                            📄 Blank
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div class="divider my-2"></div>
+                                
+                                <!-- Field Selection -->
+                                <div>
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i data-lucide="list" class="w-4 h-4"></i>
+                                        Content Builder
+                                    </h4>
+                                    <div class="text-xs text-base-content/60 mb-2">Build your card structure</div>
+                                    
+                                    <!-- Add Element Buttons -->
+                                    <div class="space-y-2 mb-3">
+                                        <button class="btn btn-xs btn-block btn-outline" onclick="addHtmlCardSection('title')">
+                                            <i data-lucide="heading" class="w-3 h-3"></i>
+                                            Add Title
+                                        </button>
+                                        <button class="btn btn-xs btn-block btn-outline" onclick="addHtmlCardSection('divider')">
+                                            <i data-lucide="minus" class="w-3 h-3"></i>
+                                            Add Divider
+                                        </button>
+                                        <button class="btn btn-xs btn-block btn-outline" onclick="addHtmlCardSection('text')">
+                                            <i data-lucide="text" class="w-3 h-3"></i>
+                                            Add Text
+                                        </button>
+                                        <button class="btn btn-xs btn-block btn-outline" onclick="addHtmlCardSection('columnBreak')">
+                                            <i data-lucide="columns" class="w-3 h-3"></i>
+                                            Start New Group
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="divider my-2 text-xs">Fields</div>
+                                    
+                                    <div id="htmlCardFieldSelector" class="space-y-1 max-h-64 overflow-y-auto"></div>
+                                </div>
+                                
+                                <div class="divider my-2"></div>
+                                
+                                <!-- Style Options -->
+                                <div>
+                                    <h4 class="font-semibold mb-2 flex items-center gap-2">
+                                        <i data-lucide="palette" class="w-4 h-4"></i>
+                                        Style
+                                    </h4>
+                                    <div class="text-xs text-base-content/60 mb-2">Use "Start New Group" to set columns for each section</div>
+                                    <div class="divider my-1"></div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start gap-2">
+                                            <input type="checkbox" id="htmlCardCompact" class="checkbox checkbox-sm" onchange="updateHtmlCardPreview()">
+                                            <span class="label-text text-sm">Compact layout</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start gap-2">
+                                            <input type="checkbox" id="htmlCardBorders" class="checkbox checkbox-sm" checked onchange="updateHtmlCardPreview()">
+                                            <span class="label-text text-sm">Show borders</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-control">
+                                        <label class="label cursor-pointer justify-start gap-2">
+                                            <input type="checkbox" id="htmlCardIcons" class="checkbox checkbox-sm" checked onchange="updateHtmlCardPreview()">
+                                            <span class="label-text text-sm">Show icons</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Right: Preview -->
+                            <div class="flex-1 bg-base-50 p-6 overflow-y-auto">
+                                <div class="mb-3 flex items-center justify-between">
+                                    <h4 class="font-semibold flex items-center gap-2">
+                                        <i data-lucide="eye" class="w-4 h-4"></i>
+                                        Live Preview
+                                    </h4>
+                                    <span class="text-xs text-base-content/60">This is how it will look in Odoo</span>
+                                </div>
+                                <div class="bg-white rounded-box shadow-lg p-6 mx-auto max-w-2xl">
+                                    <div id="htmlCardPreview"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-base-200 p-4 border-t border-base-300 flex gap-2 justify-end">
+                            <button class="btn btn-ghost" onclick="closeHtmlCardEditor()">Cancel</button>
+                            <button class="btn btn-primary" onclick="saveHtmlCard()">
+                                <i data-lucide="save" class="w-4 h-4"></i>
+                                Save HTML Card
+                            </button>
+                        </div>
+                    </div>
+                    <form method="dialog" class="modal-backdrop">
+                        <button>close</button>
+                    </form>
+                </dialog>
             `;
             
             renderFieldMapping();
@@ -2104,7 +2238,7 @@
                                     <i data-lucide="${step.html_card ? 'edit' : 'plus'}" class="w-4 h-4"></i>
                                     ${step.html_card ? 'Edit HTML Card' : 'Create HTML Card'}
                                 </button>
-                                ${step.html_card ? '<div class="alert alert-success mt-3"><i data-lucide="check-circle" class="w-4 h-4"></i><div><strong>HTML Card configured</strong><br/>' + (function(){try{const d=JSON.parse(step.html_card);return d.elements?d.elements.length+' elements':'1 element';}catch(e){return 'legacy format';}}()) + '</div></div>' : ''}
+                                ${step.html_card ? '<div class="alert alert-success mt-3"><i data-lucide="check-circle" class="w-4 h-4"></i><div><strong>HTML Card configured</strong><br/>' + (function(){try{const d=JSON.parse(step.html_card);return d.sections ? d.sections.length + ' sections' : (d.selectedFields ? d.selectedFields.length + ' fields' : 'configured');}catch(e){return 'configured';}}()) + '</div></div>' : ''}
                             </div>
                         </div>
                     </div>
@@ -3487,13 +3621,22 @@
             const formNameInput = document.getElementById('formName');
             const currentFormName = formNameInput ? formNameInput.value.trim() : (mappings[currentFormId]?.name || '');
             
+            // Preserve metadata but don't send it in the update
+            const existingMetadata = mappings[currentFormId]?._metadata;
+            const existingHtmlCard = mappings[currentFormId]?.html_card;
+            
             const data = {
-                ...mappings[currentFormId],
                 name: currentFormName,
                 field_mapping: fieldMapping,
                 value_mapping: cleanedValueMapping,
-                workflow: cleanedWorkflow
+                workflow: cleanedWorkflow,
+                html_card: existingHtmlCard
             };
+            
+            // Include version for optimistic locking if available
+            if (existingMetadata?.version !== undefined) {
+                data._version = existingMetadata.version;
+            }
             
             console.log('🟢 [DATA TO SAVE] workflowSteps count:', workflowSteps.length);
             console.log('🟢 [DATA TO SAVE] cleanedWorkflow count:', cleanedWorkflow.length);
@@ -3502,17 +3645,47 @@
             console.log('Original workflowSteps:', JSON.stringify(workflowSteps, null, 2));
             
             try {
-                await apiCall(`/api/mappings/${currentFormId}`, {
+                const response = await apiCall(`/api/mappings/${currentFormId}`, {
                     method: 'POST',
                     body: JSON.stringify(data)
                 });
-                mappings[currentFormId] = data;
+                
+                // Handle different response statuses
+                if (response.status === 409) {
+                    // Version conflict - reload the form to get latest version
+                    const result = await response.json();
+                    if (!silent) {
+                        showAlert('Form was modified by another user. Reloading...', 'warning');
+                    }
+                    // Reload the form to get the latest version
+                    await loadFormForEdit(currentFormId);
+                    updateSaveStatus('error');
+                    return;
+                }
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || error.message || 'Failed to save');
+                }
+                
+                const result = await response.json();
+                
+                // Update local mappings with response data (includes updated metadata)
+                if (result.success && result.data) {
+                    mappings[currentFormId] = result.data;
+                    console.log('📝 Updated local mapping with new version:', result.data._metadata?.version);
+                } else {
+                    // Fallback: preserve old metadata
+                    mappings[currentFormId] = { ...data, _metadata: existingMetadata };
+                }
+                
                 if (!silent) {
                     console.log('Form saved successfully, mappings updated:', mappings[currentFormId]);
                     showAlert('Form saved successfully', 'success');
                 }
                 updateSaveStatus('saved');
             } catch (err) {
+                console.error('Save error:', err);
                 if (!silent) {
                     showAlert('Failed to save: ' + err.message, 'error');
                 }
@@ -3602,65 +3775,474 @@
         function openHtmlCardEditor(stepIdx) {
             currentHtmlCardStepIdx = stepIdx;
             const modal = document.getElementById('htmlCardModal');
-            modal.classList.add('active');
+            const step = workflowSteps[stepIdx];
+            const isEditing = !!step.html_card;
             
-            // Load existing HTML card if present
-            if (workflowSteps[stepIdx].html_card) {
-                parseHtmlCardToElements(workflowSteps[stepIdx].html_card);
-            } else {
-                htmlCardElements = [];
+            // Update modal title
+            const modalTitle = document.querySelector('#htmlCardModal .font-bold');
+            if (modalTitle) {
+                modalTitle.innerHTML = `${isEditing ? '✏️ Edit' : '➕ Create'} HTML Card`;
             }
             
-            // Populate available fields
-            populateHtmlCardFields();
+            // Load existing config or start fresh
+            if (step.html_card) {
+                try {
+                    const existingConfig = JSON.parse(step.html_card);
+                    htmlCardSections = existingConfig.sections || [];
+                    
+                    // Load style options
+                    const style = existingConfig.style || {};
+                    if (document.getElementById('htmlCardCompact')) {
+                        document.getElementById('htmlCardCompact').checked = style.compact || false;
+                    }
+                    if (document.getElementById('htmlCardBorders')) {
+                        document.getElementById('htmlCardBorders').checked = style.borders !== false;
+                    }
+                    if (document.getElementById('htmlCardIcons')) {
+                        document.getElementById('htmlCardIcons').checked = style.icons !== false;
+                    }
+                } catch (e) {
+                    console.error('Error loading HTML card config:', e);
+                    htmlCardSections = [];
+                }
+            } else {
+                htmlCardSections = [];
+                // Reset style options to defaults
+                if (document.getElementById('htmlCardCompact')) {
+                    document.getElementById('htmlCardCompact').checked = false;
+                }
+                if (document.getElementById('htmlCardBorders')) {
+                    document.getElementById('htmlCardBorders').checked = true;
+                }
+                if (document.getElementById('htmlCardIcons')) {
+                    document.getElementById('htmlCardIcons').checked = true;
+                }
+            }
             
-            // Render canvas
-            renderHtmlCardCanvas();
+            // Populate field checkboxes
+            populateHtmlCardFieldSelector();
             
-            // Initialize drag and drop
-            initializeHtmlCardDragDrop();
+            // Update preview
+            updateHtmlCardPreview();
+            
+            // Show modal
+            if (modal && typeof modal.showModal === 'function') {
+                modal.showModal();
+                // Reinitialize icons after modal opens
+                setTimeout(() => {
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                }, 100);
+            }
         }
         
         function closeHtmlCardEditor() {
-            document.getElementById('htmlCardModal').classList.remove('active');
+            const modal = document.getElementById('htmlCardModal');
+            if (modal && typeof modal.close === 'function') {
+                modal.close();
+            }
             currentHtmlCardStepIdx = null;
-            htmlCardElements = [];
+            htmlCardSections = [];
         }
         
-        function populateHtmlCardFields() {
-            const container = document.getElementById('htmlCardFields');
+        function addHtmlCardSection(type) {
+            if (type === 'title') {
+                htmlCardSections.push({
+                    type: 'title',
+                    text: 'Section Title'
+                });
+            } else if (type === 'divider') {
+                htmlCardSections.push({
+                    type: 'divider'
+                });
+            } else if (type === 'text') {
+                htmlCardSections.push({
+                    type: 'text',
+                    content: 'Add your text here...'
+                });
+            } else if (type === 'columnBreak') {
+                htmlCardSections.push({
+                    type: 'columnBreak',
+                    columns: 1
+                });
+            }
+            populateHtmlCardFieldSelector();
+            updateHtmlCardPreview();
+        }
+        
+        function removeHtmlCardSection(index) {
+            htmlCardSections.splice(index, 1);
+            populateHtmlCardFieldSelector();
+            updateHtmlCardPreview();
+        }
+        
+        function moveHtmlCardSectionUp(index) {
+            if (index > 0) {
+                const temp = htmlCardSections[index];
+                htmlCardSections[index] = htmlCardSections[index - 1];
+                htmlCardSections[index - 1] = temp;
+                populateHtmlCardFieldSelector();
+                updateHtmlCardPreview();
+            }
+        }
+        
+        function moveHtmlCardSectionDown(index) {
+            if (index < htmlCardSections.length - 1) {
+                const temp = htmlCardSections[index];
+                htmlCardSections[index] = htmlCardSections[index + 1];
+                htmlCardSections[index + 1] = temp;
+                populateHtmlCardFieldSelector();
+                updateHtmlCardPreview();
+            }
+        }
+        
+        function updateHtmlCardSectionText(index, text) {
+            if (htmlCardSections[index]) {
+                htmlCardSections[index].text = text;
+                updateHtmlCardPreview();
+            }
+        }
+        
+        function updateHtmlCardSectionContent(index, content) {
+            if (htmlCardSections[index]) {
+                htmlCardSections[index].content = content;
+                updateHtmlCardPreview();
+            }
+        }
+        
+        function updateHtmlCardSectionColumns(index, columns) {
+            if (htmlCardSections[index]) {
+                htmlCardSections[index].columns = parseInt(columns);
+                updateHtmlCardPreview();
+            }
+        }
+        
+        function updateHtmlCardFieldLabel(fieldName, newLabel) {
+            const section = htmlCardSections.find(s => s.type === 'field' && s.field === fieldName);
+            if (section) {
+                section.customLabel = newLabel;
+                updateHtmlCardPreview();
+            }
+        }
+        
+        function populateHtmlCardFieldSelector() {
+            const container = document.getElementById('htmlCardFieldSelector');
             container.innerHTML = '';
             
-            // Add form fields with their Odoo field names (renamed)
-            Object.entries(fieldMapping).forEach(([formField, odooField]) => {
+            // Get all mapped fields
+            const availableFields = Object.entries(fieldMapping).filter(([k]) => !k.startsWith('_'));
+            
+            if (availableFields.length === 0) {
+                container.innerHTML = '<div class="text-sm text-base-content/60 italic">No fields mapped yet</div>';
+                return;
+            }
+            
+            // Show existing sections (fields, titles, dividers, text, columnBreaks)
+            htmlCardSections.forEach((section, idx) => {
                 const div = document.createElement('div');
-                div.className = 'html-card-draggable';
-                div.draggable = true;
-                div.dataset.type = 'field';
-                div.dataset.field = formField;
-                div.dataset.odooField = odooField;
-                div.innerHTML = `<span>📝</span> ${odooField || formField}`;
+                
+                if (section.type === 'title') {
+                    div.className = 'bg-base-200 rounded p-2 mb-1';
+                    div.innerHTML = `
+                        <div class="flex items-center gap-1">
+                            <div class="flex flex-col">
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionUp(${idx})" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionDown(${idx})" ${idx === htmlCardSections.length - 1 ? 'disabled' : ''}>▼</button>
+                            </div>
+                            <i data-lucide="heading" class="w-3 h-3"></i>
+                            <input type="text" 
+                                   value="${section.text || 'Title'}" 
+                                   class="input input-xs flex-1" 
+                                   onchange="updateHtmlCardSectionText(${idx}, this.value)"
+                                   placeholder="Title text">
+                            <button class="btn btn-ghost btn-xs" onclick="removeHtmlCardSection(${idx})">×</button>
+                        </div>
+                    `;
+                } else if (section.type === 'divider') {
+                    div.className = 'bg-base-200 rounded p-2 mb-1';
+                    div.innerHTML = `
+                        <div class="flex items-center gap-1">
+                            <div class="flex flex-col">
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionUp(${idx})" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionDown(${idx})" ${idx === htmlCardSections.length - 1 ? 'disabled' : ''}>▼</button>
+                            </div>
+                            <i data-lucide="minus" class="w-3 h-3"></i>
+                            <span class="text-xs flex-1">Divider</span>
+                            <button class="btn btn-ghost btn-xs" onclick="removeHtmlCardSection(${idx})">×</button>
+                        </div>
+                    `;
+                } else if (section.type === 'text') {
+                    div.className = 'bg-info/10 rounded p-2 mb-1';
+                    div.innerHTML = `
+                        <div class="flex items-center gap-1 mb-1">
+                            <div class="flex flex-col">
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionUp(${idx})" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionDown(${idx})" ${idx === htmlCardSections.length - 1 ? 'disabled' : ''}>▼</button>
+                            </div>
+                            <i data-lucide="text" class="w-3 h-3"></i>
+                            <span class="text-xs flex-1">Text Block</span>
+                            <button class="btn btn-ghost btn-xs" onclick="removeHtmlCardSection(${idx})">×</button>
+                        </div>
+                        <textarea 
+                            class="textarea textarea-xs w-full" 
+                            rows="2"
+                            onchange="updateHtmlCardSectionContent(${idx}, this.value)"
+                            placeholder="Your text here...">${section.content || ''}</textarea>
+                    `;
+                } else if (section.type === 'columnBreak') {
+                    div.className = 'bg-warning/10 rounded p-2 mb-1';
+                    div.innerHTML = `
+                        <div class="flex items-center gap-1">
+                            <div class="flex flex-col">
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionUp(${idx})" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionDown(${idx})" ${idx === htmlCardSections.length - 1 ? 'disabled' : ''}>▼</button>
+                            </div>
+                            <i data-lucide="columns" class="w-3 h-3"></i>
+                            <span class="text-xs flex-1">New Group</span>
+                            <select class="select select-xs" onchange="updateHtmlCardSectionColumns(${idx}, this.value)">
+                                <option value="1" ${section.columns === 1 ? 'selected' : ''}>1 Column</option>
+                                <option value="2" ${section.columns === 2 ? 'selected' : ''}>2 Columns</option>
+                            </select>
+                            <button class="btn btn-ghost btn-xs" onclick="removeHtmlCardSection(${idx})">×</button>
+                        </div>
+                    `;
+                } else if (section.type === 'field') {
+                    div.className = 'bg-primary/10 rounded p-2 mb-1';
+                    div.innerHTML = `
+                        <div class="flex items-center gap-1 mb-1">
+                            <div class="flex flex-col">
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionUp(${idx})" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                                <button class="btn btn-ghost btn-xs p-0 h-3 min-h-0" onclick="moveHtmlCardSectionDown(${idx})" ${idx === htmlCardSections.length - 1 ? 'disabled' : ''}>▼</button>
+                            </div>
+                            <i data-lucide="tag" class="w-3 h-3"></i>
+                            <span class="text-xs font-semibold flex-1">${section.field}</span>
+                            <button class="btn btn-ghost btn-xs" onclick="removeHtmlCardSection(${idx})">×</button>
+                        </div>
+                        <input type="text" 
+                               value="${section.customLabel || section.field.replace(/_/g, ' ')}" 
+                               class="input input-xs w-full" 
+                               onchange="updateHtmlCardFieldLabel('${section.field}', this.value)"
+                               placeholder="Custom label">
+                    `;
+                }
+                
                 container.appendChild(div);
             });
             
-            // Add step results
-            workflowSteps.forEach((step, idx) => {
-                if (idx < currentHtmlCardStepIdx && step.step) {
-                    const fields = step.search?.fields || ['id'];
-                    fields.forEach(field => {
-                        const div = document.createElement('div');
-                        div.className = 'html-card-draggable';
-                        div.draggable = true;
-                        div.dataset.type = 'step-field';
-                        div.dataset.field = `${step.step}.${field}`;
-                        div.innerHTML = `<span>📦</span> ${step.step}.${field}`;
-                        container.appendChild(div);
-                    });
+            // Divider before available fields
+            if (htmlCardSections.length > 0 && availableFields.length > 0) {
+                const divider = document.createElement('div');
+                divider.className = 'divider my-2 text-xs';
+                divider.textContent = 'Available Fields';
+                container.appendChild(divider);
+            }
+            
+            // Show available fields (not yet added)
+            const addedFields = htmlCardSections.filter(s => s.type === 'field').map(s => s.field);
+            availableFields.forEach(([formField, odooField]) => {
+                if (!addedFields.includes(odooField)) {
+                    const div = document.createElement('div');
+                    div.className = 'form-control';
+                    div.innerHTML = `
+                        <button class="btn btn-xs btn-ghost justify-start gap-2" onclick="addHtmlCardField('${odooField}')">
+                            <i data-lucide="plus" class="w-3 h-3"></i>
+                            <span class="text-sm">${odooField}</span>
+                        </button>
+                    `;
+                    container.appendChild(div);
                 }
             });
+            
+            // Reinitialize icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
         }
         
-        function initializeHtmlCardDragDrop() {
+        function addHtmlCardField(fieldName) {
+            htmlCardSections.push({
+                type: 'field',
+                field: fieldName,
+                customLabel: null
+            });
+            populateHtmlCardFieldSelector();
+            updateHtmlCardPreview();
+        }
+        
+        function applyHtmlCardTemplate(templateName) {
+            // Get all available fields
+            const allFields = Object.values(fieldMapping).filter(v => v && !v.startsWith('_'));
+            
+            switch (templateName) {
+                case 'contact':
+                    htmlCardSelectedFields = allFields.filter(f => 
+                        ['first_name', 'last_name', 'name', 'email', 'phone', 'mobile', 'street', 'city', 'zip'].includes(f)
+                    );
+                    break;
+                case 'property':
+                    htmlCardSelectedFields = allFields.filter(f => 
+                        ['street', 'number', 'city', 'zip', 'number_of_units', 'ownership_type'].includes(f)
+                    );
+                    break;
+                case 'summary':
+                    htmlCardSelectedFields = allFields.slice(0, 5); // First 5 fields
+                    break;
+                case 'detailed':
+                    htmlCardSelectedFields = [...allFields]; // All fields
+                    break;
+                case 'simple':
+                    htmlCardSelectedFields = allFields.slice(0, 3); // First 3 fields
+                    break;
+                case 'blank':
+                    htmlCardSelectedFields = [];
+                    break;
+            }
+            
+            // Update UI
+            populateHtmlCardFieldSelector();
+            updateHtmlCardPreview();
+        }
+        
+        function updateHtmlCardPreview() {
+            const preview = document.getElementById('htmlCardPreview');
+            
+            if (!htmlCardSections || htmlCardSections.length === 0) {
+                preview.innerHTML = '<div class="text-sm text-base-content/60 italic p-4">No fields selected</div>';
+                return;
+            }
+            
+            // Get style options
+            const compact = document.getElementById('htmlCardCompact')?.checked || false;
+            const borders = document.getElementById('htmlCardBorders')?.checked || false;
+            const showIcons = document.getElementById('htmlCardIcons')?.checked || true;
+            
+            let html = '<div style="padding:20px; background:#f9fafb; border-radius:8px; font-family:system-ui,-apple-system,sans-serif;">';
+            
+            // Track if we're in a grid section
+            let gridItems = [];
+            let currentColumns = 1;
+            
+            htmlCardSections.forEach((section, idx) => {
+                if (section.type === 'title') {
+                    // Close previous grid if exists
+                    if (gridItems.length > 0) {
+                        html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'}; margin-bottom:${compact ? '16px' : '20px'};">`;
+                        html += gridItems.join('');
+                        html += '</div>';
+                        gridItems = [];
+                    }
+                    
+                    html += `<h3 style="font-size:${compact ? '14px' : '16px'}; font-weight:600; color:#374151; margin:${compact ? '12px' : '16px'} 0 ${compact ? '8px' : '12px'} 0; ${idx === 0 ? 'margin-top:0;' : ''}">${section.text || 'Section'}</h3>`;
+                } else if (section.type === 'divider') {
+                    // Close previous grid if exists
+                    if (gridItems.length > 0) {
+                        html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'}; margin-bottom:${compact ? '16px' : '20px'};">`;
+                        html += gridItems.join('');
+                        html += '</div>';
+                        gridItems = [];
+                    }
+                    
+                    html += `<hr style="border:none; border-top:1px solid #e5e7eb; margin:${compact ? '12px' : '16px'} 0;">`;
+                } else if (section.type === 'text') {
+                    // Close previous grid if exists
+                    if (gridItems.length > 0) {
+                        html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'}; margin-bottom:${compact ? '16px' : '20px'};">`;
+                        html += gridItems.join('');
+                        html += '</div>';
+                        gridItems = [];
+                    }
+                    
+                    html += `<div style="background:white; padding:${compact ? '10px' : '14px'}; border-radius:6px; ${borders ? 'border:1px solid #e5e7eb;' : ''} margin-bottom:${compact ? '12px' : '16px'}; white-space:pre-wrap; color:#374151; font-size:${compact ? '12px' : '14px'};">${section.content || 'Text...'}</div>`;
+                } else if (section.type === 'columnBreak') {
+                    // Close previous grid if exists
+                    if (gridItems.length > 0) {
+                        html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'}; margin-bottom:${compact ? '16px' : '20px'};">`;
+                        html += gridItems.join('');
+                        html += '</div>';
+                        gridItems = [];
+                    }
+                    
+                    // Update column count for next group
+                    currentColumns = section.columns || 1;
+                } else if (section.type === 'field') {
+                    const label = section.customLabel || section.field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const iconMap = {
+                        email: 'mail',
+                        phone: 'phone',
+                        mobile: 'smartphone',
+                        name: 'user',
+                        street: 'map-pin',
+                        city: 'map',
+                        zip: 'hash',
+                        country: 'globe'
+                    };
+                    const icon = iconMap[section.field.toLowerCase()] || 'tag';
+                    
+                    let itemHtml = `
+                        <div style="background:white; padding:${compact ? '8px' : '12px'}; border-radius:6px; ${borders ? 'border:1px solid #e5e7eb;' : ''}">
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                ${showIcons ? `<i data-lucide="${icon}" style="width:14px; height:14px; color:#6b7280;"></i>` : ''}
+                                <div style="font-size:${compact ? '11px' : '12px'}; color:#6b7280; font-weight:500;">${label}</div>
+                            </div>
+                            <div style="font-size:${compact ? '13px' : '14px'}; color:#111827; font-weight:500;">\${${section.field}}</div>
+                        </div>
+                    `;
+                    
+                    gridItems.push(itemHtml);
+                }
+            });
+            
+            // Close final grid if exists
+            if (gridItems.length > 0) {
+                html += `<div style="display:grid; grid-template-columns: repeat(${currentColumns}, 1fr); gap:${compact ? '8px' : '12px'};">`;
+                html += gridItems.join('');
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            preview.innerHTML = html;
+            
+            // Reinitialize icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        }
+        
+        function saveHtmlCard() {
+            const compact = document.getElementById('htmlCardCompact')?.checked || false;
+            const borders = document.getElementById('htmlCardBorders')?.checked || false;
+            const showIcons = document.getElementById('htmlCardIcons')?.checked || true;
+            
+            const config = {
+                sections: htmlCardSections,
+                style: { 
+                    compact, 
+                    borders, 
+                    icons: showIcons
+                }
+            };
+            
+            // Generate the actual HTML that will be used
+            workflowSteps[currentHtmlCardStepIdx].html_card = JSON.stringify(config);
+            
+            // Also set the description field to use __html_card__
+            if (!workflowSteps[currentHtmlCardStepIdx].create) {
+                workflowSteps[currentHtmlCardStepIdx].create = {};
+            }
+            workflowSteps[currentHtmlCardStepIdx].create.description = '__html_card__';
+            
+            console.log('Saved HTML card config:', config);
+            
+            // Close modal and refresh UI
+            closeHtmlCardEditor();
+            renderWorkflowSteps();
+            
+            // Show success message
+            alert('✅ HTML Card saved successfully!');
+        }
+        
+        function showHistoryDetail(idx) {
             const canvas = document.getElementById('htmlCardCanvas');
             const draggables = document.querySelectorAll('.html-card-draggable');
             
@@ -4055,26 +4637,7 @@
             renderHtmlCardCanvas();
         }
         
-        function saveHtmlCard() {
-            // Save as JSON instead of HTML for easy re-editing
-            const cardData = {
-                version: 1,
-                elements: htmlCardElements
-            };
-            
-            console.log('Saving HTML Card data:', cardData);
-            
-            // Save to workflow step
-            workflowSteps[currentHtmlCardStepIdx].html_card = JSON.stringify(cardData);
-            
-            console.log('Saved to workflow step:', workflowSteps[currentHtmlCardStepIdx].html_card);
-            
-            // Re-render workflow to show the updated HTML card
-            renderWorkflowSteps();
-            
-            closeHtmlCardEditor();
-            showAlert('HTML Card saved!', 'success');
-        }
+        // Old saveHtmlCard function removed - using new sections-based version above
         
         function parseHtmlCardToElements(cardDataStr) {
             console.log('parseHtmlCardToElements called with:', cardDataStr);

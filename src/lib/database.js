@@ -366,16 +366,15 @@ export class SubmissionsLogRepository {
       .from('form_submissions_log')
       .insert({
         form_id: formId,
-        request_data: requestData,
-        normalized_data: options.normalized_data || null,
+        submission_data: requestData,
+        processed_data: options.normalized_data || null,
         status: options.status || 'pending',
-        response_data: options.response_data || null,
         error_message: options.error_message || null,
-        error_stack: options.error_stack || null,
-        workflow_steps: options.workflow_steps || null,
-        odoo_records: options.odoo_records || null,
+        odoo_record_id: options.odoo_record_id || null,
+        odoo_model: options.odoo_model || null,
         processed_at: options.processed_at || null,
-        duration_ms: options.duration_ms || null
+        processing_time_ms: options.duration_ms || null,
+        metadata: options.metadata || {}
       })
       .select('id')
       .single();

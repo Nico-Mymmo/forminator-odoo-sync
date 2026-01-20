@@ -99,7 +99,7 @@ async function processStep(env, step, formData, stepResults, expandedFields = {}
           console.log(`🔍 [${timestamp}] RAW create template:`, JSON.stringify(step.create, null, 2));
           
           const createTypes = step._ui_metadata?.create_types || {};
-          const createData = processTemplateObject(step.create, formData, stepResults, createTypes);
+          const createData = processTemplateObject(step.create, formData, stepResults, createTypes, expandedFields);
           
           console.log(`✨ [${timestamp}] PROCESSED create data:`, JSON.stringify(createData, null, 2));
           
@@ -265,17 +265,11 @@ function convertFieldType(value, type) {
 function processTemplate(template, formData, stepResults, expandedFields = {}) {
   if (typeof template !== 'string') return template;
   
-  // CLEANUP: Fix broken placeholder syntax
-  // 1. Double placeholders: ${${xxx}} -> ${xxx}
-  template = template.replace(/\$\{\$\{([^}]+)\}\}/g, '${$1}');
-  // 2. Missing braces: $step.field -> ${step.field}
-  template = template.replace(/\$(\w+\.\w+)/g, '${$1}');
-  
   let hasNullReference = false;
   
-  // Step 1: Process step references first (${stepName.fieldName})
-  // Match pattern: ${word.word} where first word is NOT 'field'
-  const stepReferencePattern = /\$\{(\w+)\.(\w+)\}/g;
+  // Step 1: Process step references first (${stepName.fieldName} or $stepName.fieldName)
+  // Match pattern: ${word.word} or $word.word where first word is NOT 'field'
+  const stepReferencePattern = /\$\{?(\w+)\.(\w+)\}?/g;
   
   let result = template.replace(stepReferencePattern, (match, stepName, fieldName) => {
     // Skip field references (${field.xxx}) - handle in next step
@@ -354,6 +348,48 @@ function processTemplate(template, formData, stepResults, expandedFields = {}) {
 }
 
 /**
+ * Process template and try to preserve the original type (for domains)
+ * Returns the value with its original type (number, string, boolean)
+ */
+function processTemplatePreserveType(template, formData, stepResults, expandedFields = {}) {
+  if (typeof template !== 'string') return template;
+  
+  // Check if this is a pure template reference (no mixing with other text)
+  const pureStepRef = /^\$\{?(\w+)\.(\w+)\}?$/.exec(template);
+  if (pureStepRef) {
+    const [, stepName, fieldName] = pureStepRef;
+    if (stepName !== 'field') {
+      const stepResult = stepResults[stepName];
+      if (stepResult) {
+        const value = stepResult.record?.[fieldName] ?? stepResult[fieldName];
+        if (value !== null && value !== undefined && value !== false) {
+          // Return Many2One ID as number
+          if (Array.isArray(value) && value.length >= 1) {
+            return typeof value[0] === 'number' ? value[0] : parseInt(value[0]);
+          }
+          // Return the value with its original type
+          return value;
+        }
+      }
+    }
+  }
+  
+  // For other cases, use normal string processing
+  const result = processTemplate(template, formData, stepResults, expandedFields);
+  
+  // Try to convert numeric strings back to numbers
+  if (result !== null && typeof result === 'string' && !isNaN(result) && result.trim() !== '') {
+    const num = Number(result);
+    if (Number.isInteger(num)) {
+      return parseInt(result);
+    }
+    return parseFloat(result);
+  }
+  
+  return result;
+}
+
+/**
  * Process template domain (array with nested arrays)
  * Returns null if any template resolves to null (indicating null references)
  * 
@@ -370,9 +406,9 @@ function processTemplateDomain(domain, formData, stepResults, expandedFields = {
         if (typeof part === 'boolean' || typeof part === 'number') {
           return part;
         }
-        // Process strings
+        // Process strings with type preservation
         if (typeof part === 'string') {
-          const result = processTemplate(part, formData, stepResults, expandedFields);
+          const result = processTemplatePreserveType(part, formData, stepResults, expandedFields);
           return result === null ? false : result; // Convert null to false for domain
         }
         return part;
