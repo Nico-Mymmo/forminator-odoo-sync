@@ -11,7 +11,15 @@ function getOdooUrl({ staging = false, odooUrl } = {}) {
 }
 
 export async function executeKw(env, { model, method, args = [], kwargs = {}, staging = false, odooUrl, odooDb }) {
-  const dbName = typeof odooDb === "string" && odooDb.trim() || staging === true && ODOO_DB_STAGING || env.DB_NAME;
+  const dbName = typeof odooDb === "string" && odooDb.trim() || staging === true && ODOO_DB_STAGING || (env.DB_NAME || '').trim();
+  
+  // DEBUG: Log exact values
+  console.log('🔍 DEBUG executeKw:');
+  console.log('  env.DB_NAME:', JSON.stringify(env.DB_NAME));
+  console.log('  dbName (final):', JSON.stringify(dbName));
+  console.log('  odooDb param:', JSON.stringify(odooDb));
+  console.log('  staging:', staging);
+  
   const uid = Number.parseInt(env.UID, 10);
   if (!Number.isFinite(uid)) {
     throw new Error(`Env UID must be numeric, got: ${env.UID}`);

@@ -38,6 +38,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS form_mappings_updated_at ON public.form_mappings;
+
 CREATE TRIGGER form_mappings_updated_at
     BEFORE UPDATE ON public.form_mappings
     FOR EACH ROW
@@ -104,6 +106,8 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS form_mappings_history_trigger ON public.form_mappings;
 
 CREATE TRIGGER form_mappings_history_trigger
     AFTER INSERT OR UPDATE OR DELETE ON public.form_mappings

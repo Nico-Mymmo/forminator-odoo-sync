@@ -4,7 +4,7 @@
 # Odoo Configuration
 DB_NAME=mymmo-main-11883993
 UID=2
-API_KEY=your_odoo_api_key_here
+API_KEY=c6c225cd1740456eb974abe3a5b18d016d12b2c4
 
 # Supabase (history logging)
 SUPABASE_URL=https://your-project.supabase.co

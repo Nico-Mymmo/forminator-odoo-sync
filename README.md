@@ -11,6 +11,7 @@ Cloudflare Worker that synchronizes WordPress Forminator form submissions with O
 - ✅ **Visual admin interface** - Drag-and-drop workflow builder with live preview
 - ✅ **History tracking** - Full audit log of all submissions in Supabase
 - ✅ **Error handling** - Comprehensive logging and error recovery
+- ✅ **Sales Insight Explorer** - Schema-driven query engine for Odoo analytics (NEW)
 
 ## Architecture
 
@@ -154,6 +155,26 @@ npm test
 forminator-odoo-sync/
 ├── src/
 │   ├── index.js              # Main worker entry point
+│   ├── modules/              # Feature modules
+│   │   ├── registry.js       # Module registration system
+│   │   ├── forminator-sync/  # Form → Odoo sync module
+│   │   ├── admin/            # Admin interface module
+│   │   ├── home/             # Dashboard module
+│   │   ├── profile/          # User profile module
+│   │   └── sales-insight-explorer/  # ⭐ NEW: Analytics query engine
+│   │       ├── module.js
+│   │       ├── routes.js
+│   │       ├── lib/
+│   │       │   ├── schema-service.js         # Odoo schema introspection
+│   │       │   ├── capability-detection.js   # Model capability detection
+│   │       │   ├── query-models.js           # QueryDefinition structures
+│   │       │   ├── query-validator.js        # Complete validation engine
+│   │       │   ├── odoo-domain-translator.js # Filter → Odoo domain
+│   │       │   ├── query-executor.js         # 3-path execution engine
+│   │       │   └── preset-generator.js       # Schema-driven presets
+│   │       └── examples/
+│   │           ├── query-examples.js
+│   │           └── preset-examples.js
 │   ├── actions/
 │   │   ├── receive_forminator.js  # Webhook handler
 │   │   ├── mappings_api.js        # Admin API endpoints
@@ -182,10 +203,74 @@ forminator-odoo-sync/
 ├── supabase/
 │   └── migrations/
 │       └── 001_initial_schema.sql # Database schema
+├── SALES_INSIGHT_COMPLETE.md      # ⭐ Sales Insight Explorer documentation
+├── ITERATION_1_DELIVERY.md        # Schema + Validation details
+├── ITERATION_2_DELIVERY.md        # Query Execution details
+├── ITERATION_3_DELIVERY.md        # Preset Generation details
 ├── package.json
 ├── wrangler.jsonc                 # Cloudflare Worker config
 └── README.md
 ```
+
+## Sales Insight Explorer
+
+**NEW:** Production-ready, schema-driven query engine for Odoo analytics.
+
+### Features
+
+- ✅ **Zero hardcoded assumptions** - 100% schema-driven across any Odoo database
+- ✅ **Automatic schema introspection** - Discovers models, fields, and capabilities
+- ✅ **3 execution paths** - read_group (fast), search_read (simple), multi_pass (complex)
+- ✅ **RelationTraversal** - Step-by-step relation walking (not SQL joins)
+- ✅ **Capability-aware** - Respects Odoo limitations automatically
+- ✅ **Preset generation** - Algorithmic starter queries (overview, trend, segmentation, activity, risk)
+- ✅ **Complete validation** - Every query validated before execution
+- ✅ **Honest complexity** - Heuristic estimates with disclaimers
+
+### API Endpoints
+
+```bash
+# Get schema + capabilities + presets
+GET /api/sales-insights/schema
+
+# Validate query without executing
+POST /api/sales-insights/query/validate
+
+# Execute query
+POST /api/sales-insights/query/run
+
+# Preview query (limited results)
+POST /api/sales-insights/query/preview
+
+# Refresh schema
+POST /api/sales-insights/schema/refresh
+```
+
+### Documentation
+
+- [SALES_INSIGHT_COMPLETE.md](SALES_INSIGHT_COMPLETE.md) - Complete implementation summary
+- [ITERATION_1_DELIVERY.md](ITERATION_1_DELIVERY.md) - Schema + Validation
+- [ITERATION_2_DELIVERY.md](ITERATION_2_DELIVERY.md) - Query Execution
+- [ITERATION_3_DELIVERY.md](ITERATION_3_DELIVERY.md) - Preset Generation
+
+### Architecture
+
+```
+User Query
+    ↓
+[Validator] ← Schema + Capabilities
+    ↓
+[Execution Path Selector]
+    ├─→ read_group (aggregations)
+    ├─→ search_read (simple)
+    └─→ multi_pass (complex relations)
+         ↓
+    Odoo JSON-RPC
+         ↓
+    Results + Metadata
+```
+
+
 
 ## License
 

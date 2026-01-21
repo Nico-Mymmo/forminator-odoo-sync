@@ -10,6 +10,7 @@ import forminatorSyncModule from './forminator-sync/module.js';
 import projectGeneratorModule from './project-generator/module.js';
 import adminModule from './admin/module.js';
 import profileModule from './profile/module.js';
+import salesInsightExplorerModule from './sales-insight-explorer/module.js';
 
 /**
  * All registered modules
@@ -19,7 +20,8 @@ export const MODULES = [
   forminatorSyncModule,
   projectGeneratorModule,
   adminModule,
-  profileModule
+  profileModule,
+  salesInsightExplorerModule
 ];
 
 /**
