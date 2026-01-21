@@ -24,6 +24,8 @@ import {
 import { validateQuery, assessQueryComplexity } from './lib/query-validator.js';
 import { validateQueryStructure } from './lib/query-models.js';
 import { executeQuery } from './lib/query-executor.js';
+import { validateSemanticQuery, SemanticError } from './lib/semantic-validator.js';
+import { translateSemanticQuery, describeSemanticQuery } from './lib/semantic-translator.js';
 import { generatePresetQueries } from './lib/preset-generator.js';
 import { 
   saveQuery, 
@@ -36,6 +38,7 @@ import exportRegistry from './lib/export/export-registry.js';
 import jsonExporter from './lib/export/export-json.js';
 import csvExporter from './lib/export/export-csv.js';
 import { queryBuilderUI } from './ui.js';
+import { runPhase0Validation } from './tests/phase0-validation.js';
 
 // Register export formats
 exportRegistry.register('json', jsonExporter);
@@ -1108,16 +1111,605 @@ async function serveAppJS(context) {
 }
 
 /**
+ * GET /components/:filename
+ * 
+ * Serve component modules
+ */
+async function serveComponent(context) {
+  const { params } = context;
+  const filename = params.filename;
+  
+  try {
+    // Dynamically import and serve component
+    let componentModule;
+    
+    switch (filename) {
+      case 'guided-wizard.js':
+        componentModule = await import('./components/guided-wizard.js');
+        break;
+      case 'layer1-selector.js':
+        componentModule = await import('./components/layer1-selector.js');
+        break;
+      case 'layer2-filters.js':
+        componentModule = await import('./components/layer2-filters.js');
+        break;
+      case 'layer3-presentation.js':
+        componentModule = await import('./components/layer3-presentation.js');
+        break;
+      default:
+        return new Response('Component not found', { status: 404 });
+    }
+    
+    // Re-export the module
+    const exports = Object.keys(componentModule).map(key => 
+      `export { ${key} } from './components/${filename}';`
+    ).join('\n');
+    
+    return new Response(exports, {
+      headers: { 
+        'Content-Type': 'application/javascript',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Component serve error:', error);
+    return new Response(`// Error: ${error.message}`, {
+      status: 500,
+      headers: { 'Content-Type': 'application/javascript' }
+    });
+  }
+}
+
+/**
+ * GET /lib/:filename
+ * 
+ * Serve library modules
+ */
+async function serveLib(context) {
+  const { params } = context;
+  const filename = params.filename;
+  
+  try {
+    let libModule;
+    
+    switch (filename) {
+      case 'semantic-validator.js':
+        libModule = await import('./lib/semantic-validator.js');
+        break;
+      case 'semantic-translator.js':
+        libModule = await import('./lib/semantic-translator.js');
+        break;
+      default:
+        return new Response('Library not found', { status: 404 });
+    }
+    
+    // Re-export the module
+    const exports = Object.keys(libModule).map(key => 
+      `export { ${key} } from './lib/${filename}';`
+    ).join('\n');
+    
+    return new Response(exports, {
+      headers: { 
+        'Content-Type': 'application/javascript',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Library serve error:', error);
+    return new Response(`// Error: ${error.message}`, {
+      status: 500,
+      headers: { 'Content-Type': 'application/javascript' }
+    });
+  }
+}
+
+/**
+ * GET /config/:filename
+ * 
+ * Serve config modules
+ */
+async function serveConfig(context) {
+  const { params } = context;
+  const filename = params.filename;
+  
+  try {
+    let configModule;
+    
+    switch (filename) {
+      case 'semantic-layers.js':
+        configModule = await import('./config/semantic-layers.js');
+        break;
+      case 'context-filters.js':
+        configModule = await import('./config/context-filters.js');
+        break;
+      case 'presentation-modes.js':
+        configModule = await import('./config/presentation-modes.js');
+        break;
+      default:
+        return new Response('Config not found', { status: 404 });
+    }
+    
+    // Re-export the module
+    const exports = Object.keys(configModule).map(key => 
+      `export { ${key} } from './config/${filename}';`
+    ).join('\n');
+    
+    return new Response(exports, {
+      headers: { 
+        'Content-Type': 'application/javascript',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Config serve error:', error);
+    return new Response(`// Error: ${error.message}`, {
+      status: 500,
+      headers: { 'Content-Type': 'application/javascript' }
+    });
+  }
+}
+
+/**
+ * GET /api/sales-insights/test/phase0
+ * 
+ * Run Phase 0 pre-implementation validation tests
+ */
+async function runPhase0Tests(context) {
+  try {
+    const { introspectSchema, getCachedSchema } = await import('./lib/schema-service.js');
+    const { executeQuery } = await import('./lib/query-executor.js');
+    const { detectAllCapabilities } = await import('./lib/capability-detection.js');
+
+    // Get or create schema
+    let schema = await getCachedSchema(context.env);
+    if (!schema) {
+      schema = await introspectSchema(context.env);
+    }
+
+    // Get capabilities
+    const capabilities = await detectAllCapabilities(context.env, schema);
+
+    // Run validation
+    const results = await runPhase0Validation(
+      context.env,
+      { introspectSchema, getCachedSchema },
+      { executeQuery },
+      capabilities
+    );
+
+    return new Response(JSON.stringify(results, null, 2), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Phase 0 validation failed:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      phase: 0,
+      error: error.message,
+      stack: error.stack
+    }, null, 2), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * POST /api/sales-insights/semantic/validate
+ * 
+ * Validate semantic query definition
+ * 
+ * Body:
+ * - query: SemanticQuery object
+ */
+async function validateSemanticQueryEndpoint(context) {
+  const { request, env } = context;
+  try {
+    const body = await request.json();
+    
+    if (!body.query) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: 'Missing required field: query',
+          code: 'MISSING_QUERY'
+        }
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const semanticQuery = body.query;
+    
+    // Validate semantic query
+    try {
+      const validation = validateSemanticQuery(semanticQuery);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: validation
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      if (error instanceof SemanticError) {
+        return new Response(JSON.stringify({
+          success: true,
+          data: {
+            valid: false,
+            message: error.message,
+            explanation: error.explanation,
+            suggestions: error.suggestions
+          }
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('❌ Semantic validation failed:', error);
+    
+    return new Response(JSON.stringify({
+      success: false,
+      error: {
+        message: error.message,
+        code: 'SEMANTIC_VALIDATION_FAILED'
+      }
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * POST /api/sales-insights/semantic/preview
+ * 
+ * Preview semantic query (10 rows)
+ * 
+ * Body:
+ * - query: SemanticQuery object
+ */
+async function previewSemanticQuery(context) {
+  const { request, env } = context;
+  try {
+    const body = await request.json();
+    
+    if (!body.query) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: 'Missing required field: query',
+          code: 'MISSING_QUERY'
+        }
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const semanticQuery = body.query;
+    
+    console.log('🔍 Validating semantic query...');
+    
+    // Step 1: Validate semantic query
+    try {
+      const validation = validateSemanticQuery(semanticQuery);
+      if (!validation.valid) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: {
+            message: validation.message,
+            explanation: validation.explanation,
+            suggestions: validation.suggestions,
+            code: 'SEMANTIC_VALIDATION_FAILED'
+          }
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    } catch (error) {
+      if (error instanceof SemanticError) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: {
+            message: error.message,
+            explanation: error.explanation,
+            suggestions: error.suggestions,
+            code: 'SEMANTIC_ERROR'
+          }
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      throw error;
+    }
+    
+    console.log('✅ Semantic validation passed');
+    
+    // Step 2: Get schema
+    const cached = await getCachedSchema(env);
+    if (!cached || !cached.schema) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: 'Schema not available. Please refresh schema first.',
+          code: 'SCHEMA_NOT_AVAILABLE'
+        }
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const { schema, capabilities } = cached;
+    
+    console.log('🔄 Translating semantic query to technical query...');
+    
+    // Step 3: Translate to technical query
+    const technicalQuery = translateSemanticQuery(semanticQuery, schema);
+    
+    console.log('✅ Translation complete');
+    console.log('🔍 Validating technical query...');
+    
+    // Step 4: Validate technical query
+    const technicalValidation = await validateQuery(technicalQuery, schema, capabilities || {});
+    if (!technicalValidation.is_valid) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: 'Technical query validation failed',
+          technical_errors: technicalValidation.errors,
+          code: 'TECHNICAL_VALIDATION_FAILED'
+        }
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    console.log('✅ Technical validation passed');
+    console.log('⚡ Executing preview query...');
+    
+    // Step 5: Execute in preview mode
+    const result = await executeQuery(
+      technicalQuery,
+      schema,
+      capabilities || {},
+      env,
+      { preview: true }
+    );
+    
+    console.log(`✅ Preview executed: ${result.records.length} records`);
+    
+    // Step 6: Generate natural language description
+    const description = describeSemanticQuery(semanticQuery);
+    
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        records: result.records,
+        meta: {
+          ...result.meta,
+          semantic_description: description,
+          preview_mode: true,
+          max_records: 10
+        },
+        semantic_query: semanticQuery,
+        technical_query: technicalQuery
+      }
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('❌ Semantic preview failed:', error);
+    
+    return new Response(JSON.stringify({
+      success: false,
+      error: {
+        message: error.message,
+        code: 'SEMANTIC_PREVIEW_FAILED',
+        stack: error.stack
+      }
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * POST /api/sales-insights/semantic/run
+ * 
+ * Execute semantic query (full results)
+ * 
+ * Body:
+ * - query: SemanticQuery object
+ */
+async function runSemanticQuery(context) {
+  const { request, env } = context;
+  try {
+    const body = await request.json();
+    
+    if (!body.query) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: 'Missing required field: query',
+          code: 'MISSING_QUERY'
+        }
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const semanticQuery = body.query;
+    
+    console.log('🔍 Validating semantic query...');
+    
+    // Step 1: Validate semantic query
+    try {
+      const validation = validateSemanticQuery(semanticQuery);
+      if (!validation.valid) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: {
+            message: validation.message,
+            explanation: validation.explanation,
+            suggestions: validation.suggestions,
+            code: 'SEMANTIC_VALIDATION_FAILED'
+          }
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    } catch (error) {
+      if (error instanceof SemanticError) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: {
+            message: error.message,
+            explanation: error.explanation,
+            suggestions: error.suggestions,
+            code: 'SEMANTIC_ERROR'
+          }
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      throw error;
+    }
+    
+    console.log('✅ Semantic validation passed');
+    
+    // Step 2: Get schema
+    const cached = await getCachedSchema(env);
+    if (!cached || !cached.schema) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: 'Schema not available. Please refresh schema first.',
+          code: 'SCHEMA_NOT_AVAILABLE'
+        }
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const { schema, capabilities } = cached;
+    
+    console.log('🔄 Translating semantic query to technical query...');
+    
+    // Step 3: Translate to technical query
+    const technicalQuery = translateSemanticQuery(semanticQuery, schema);
+    
+    console.log('✅ Translation complete');
+    console.log('🔍 Validating technical query...');
+    
+    // Step 4: Validate technical query
+    const technicalValidation = await validateQuery(technicalQuery, schema, capabilities || {});
+    if (!technicalValidation.is_valid) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: 'Technical query validation failed',
+          technical_errors: technicalValidation.errors,
+          code: 'TECHNICAL_VALIDATION_FAILED'
+        }
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    console.log('✅ Technical validation passed');
+    console.log('⚡ Executing query...');
+    
+    // Step 5: Execute query
+    const result = await executeQuery(
+      technicalQuery,
+      schema,
+      capabilities || {},
+      env,
+      { preview: false }
+    );
+    
+    console.log(`✅ Query executed: ${result.records.length} records, path: ${result.meta.execution_path}`);
+    
+    // Step 6: Generate natural language description
+    const description = describeSemanticQuery(semanticQuery);
+    
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        records: result.records,
+        meta: {
+          ...result.meta,
+          semantic_description: description,
+          preview_mode: false
+        },
+        semantic_query: semanticQuery,
+        technical_query: technicalQuery,
+        schema_context: {
+          version: schema.version,
+          base_model: technicalQuery.base_model,
+          fields: technicalQuery.fields,
+          generated_at: new Date().toISOString()
+        }
+      }
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('❌ Semantic query execution failed:', error);
+    
+    return new Response(JSON.stringify({
+      success: false,
+      error: {
+        message: error.message,
+        code: 'SEMANTIC_QUERY_FAILED',
+        stack: error.stack
+      }
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
  * Route definitions
  */
 export const routes = {
   'GET /': queryBuilderPage,
   'GET /app.js': serveAppJS,
+  'GET /components/:filename': serveComponent,
+  'GET /lib/:filename': serveLib,
+  'GET /config/:filename': serveConfig,
+  'GET /api/sales-insights/test/phase0': runPhase0Tests,
   'GET /api/sales-insights/schema': getSchema,
   'POST /api/sales-insights/schema/refresh': refreshSchema,
   'POST /api/sales-insights/query/validate': validateQueryEndpoint,
   'POST /api/sales-insights/query/run': runQuery,
   'POST /api/sales-insights/query/preview': previewQuery,
+  'POST /api/sales-insights/semantic/validate': validateSemanticQueryEndpoint,
+  'POST /api/sales-insights/semantic/preview': previewSemanticQuery,
+  'POST /api/sales-insights/semantic/run': runSemanticQuery,
   'POST /api/sales-insights/query/save': saveQueryEndpoint,
   'POST /api/sales-insights/query/instantiate-preset': instantiatePreset,
   'GET /api/sales-insights/query/list': listSavedQueries,
