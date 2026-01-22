@@ -406,7 +406,7 @@ export function validateLeadEnrichment(leadEnrichment) {
   }
 
   // Check for unknown keys in lead_enrichment
-  const allowedTopKeys = ['enabled', 'mode', 'filters'];
+  const allowedTopKeys = ['enabled', 'mode', 'filters', 'property_groups'];
   const unknownTopKeys = Object.keys(leadEnrichment).filter(key => !allowedTopKeys.includes(key));
   if (unknownTopKeys.length > 0) {
     return {
@@ -415,6 +415,30 @@ export function validateLeadEnrichment(leadEnrichment) {
       message: `Unknown keys in lead_enrichment: ${unknownTopKeys.join(', ')}`,
       explanation: `Allowed keys are: ${allowedTopKeys.join(', ')}`
     };
+  }
+
+  // Validate property_groups
+  if (leadEnrichment.property_groups !== undefined) {
+    if (!Array.isArray(leadEnrichment.property_groups)) {
+      return {
+        valid: false,
+        code: 'INVALID_PROPERTY_GROUPS',
+        message: 'lead_enrichment.property_groups must be an array',
+        explanation: `Got: ${typeof leadEnrichment.property_groups}`
+      };
+    }
+
+    const validGroups = ['time_flow', 'origin_marketing', 'business_signals'];
+    for (const group of leadEnrichment.property_groups) {
+      if (!validGroups.includes(group)) {
+        return {
+          valid: false,
+          code: 'INVALID_PROPERTY_GROUP',
+          message: `lead_enrichment.property_groups contains invalid value: ${group}`,
+          explanation: `Valid values are: ${validGroups.join(', ')}. Note: status_outcome is always enabled.`
+        };
+      }
+    }
   }
 
   return { valid: true };

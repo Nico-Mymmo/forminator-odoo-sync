@@ -21,6 +21,100 @@
 import { searchRead } from '../../../lib/odoo.js';
 
 /**
+ * Lead Property Groups
+ * 
+ * Defines semantic groupings of lead fields for projection control.
+ * Users can enable/disable toggleable groups to control enrichment shape.
+ * 
+ * RULES:
+ * - "status_outcome" is ALWAYS included (cannot be disabled)
+ * - Other groups are toggleable
+ * - Missing fields resolve to null (no errors)
+ */
+export const LEAD_PROPERTY_GROUPS = {
+  status_outcome: {
+    id: 'status_outcome',
+    label: 'Status & Outcome',
+    always_enabled: true,
+    fields: [
+      'id',
+      'name',
+      'won_status',
+      'stage_id',
+      'lost_reason_id',
+      'active'
+    ]
+  },
+  time_flow: {
+    id: 'time_flow',
+    label: 'Time & Flow',
+    always_enabled: false,
+    fields: [
+      'create_date',
+      'date_last_stage_update',
+      'date_closed',
+      'day_open',
+      'day_close'
+    ]
+  },
+  origin_marketing: {
+    id: 'origin_marketing',
+    label: 'Origin & Marketing',
+    always_enabled: false,
+    fields: [
+      'source_id',
+      'medium_id',
+      'campaign_id',
+      'referred'
+    ]
+  },
+  business_signals: {
+    id: 'business_signals',
+    label: 'Business Signals',
+    always_enabled: false,
+    fields: [
+      'x_studio_hotness_label',
+      'x_studio_hotness_score',
+      'x_studio_lifecycle',
+      'x_studio_marketing_noden',
+      'x_studio_has_linked_actionsheets'
+    ]
+  }
+};
+
+/**
+ * Get all fields from enabled property groups
+ * 
+ * @param {Array<string>} enabledGroups - Group IDs to include (status_outcome always added)
+ * @returns {Array<string>} - Unique field names
+ */
+export function getEnabledFields(enabledGroups = []) {
+  const fields = new Set();
+  
+  // status_outcome is ALWAYS included
+  for (const field of LEAD_PROPERTY_GROUPS.status_outcome.fields) {
+    fields.add(field);
+  }
+  
+  // Add classification field (always needed)
+  fields.add('classification');
+  
+  // Add fields from enabled groups
+  for (const groupId of enabledGroups) {
+    if (LEAD_PROPERTY_GROUPS[groupId] && !LEAD_PROPERTY_GROUPS[groupId].always_enabled) {
+      for (const field of LEAD_PROPERTY_GROUPS[groupId].fields) {
+        fields.add(field);
+      }
+    }
+  }
+  
+  // Always fetch x_studio_opportunity_actionsheet_ids for set building
+  fields.add('x_studio_opportunity_actionsheet_ids');
+  
+  return Array.from(fields);
+}
+
+/**
  * Enrich action sheets with CRM lead data using two-phase set operations
  * 
  * @param {Array} actionSheets - Results from primary query (set A)
@@ -30,6 +124,7 @@ import { searchRead } from '../../../lib/odoo.js';
  * @param {Object} enrichmentConfig.filters - Lead filters
  * @param {Array<number>} enrichmentConfig.filters.stage_ids - Stage IDs to filter
  * @param {Array<string>} enrichmentConfig.filters.won_status - Won status values
+ * @param {Array<string>} enrichmentConfig.property_groups - Enabled property groups
  * @param {Object} env - Cloudflare worker environment
  * @param {Array} notes - Execution notes array (mutated)
  * @returns {Promise<{records: Array, meta: Object}>}
@@ -39,14 +134,20 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
   
   notes.push('🔗 Lead enrichment: two-phase derived set operations');
   
+  // Extract enabled property groups (status_outcome is always enabled)
+  const enabledGroups = enrichmentConfig.property_groups || [];
+  const allEnabledGroups = ['status_outcome', ...enabledGroups.filter(g => g !== 'status_outcome')];
+  notes.push(`Property groups enabled: ${allEnabledGroups.join(', ')}`);
+  
   // Extract action sheet IDs (set A)
   const setA = new Set(actionSheets.map(as => as.id));
   notes.push(`Phase 1: Primary query returned ${setA.size} action sheets (set A)`);
   
-  // Execute secondary query
+  // Execute secondary query with fields from enabled groups
   const secondaryResult = await executeSecondaryLeadQuery(
     enrichmentConfig.filters,
     enrichmentConfig.mode,
+    enabledGroups,
     env,
     notes
   );
@@ -68,7 +169,8 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
         mapM.set(asId, []);
       }
       
-      mapM.get(asId).push(extractLeadPayload(lead));
+      // Extract lead payload with enabled property groups
+      mapM.get(asId).push(extractLeadPayload(lead, enabledGroups));
     }
   }
   
@@ -147,11 +249,12 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
  * 
  * @param {Object} filters - Lead filters
  * @param {string} mode - Enrichment mode
+ * @param {Array<string>} enabledGroups - Enabled property groups
  * @param {Object} env - Worker environment
  * @param {Array} notes - Execution notes
  * @returns {Promise<{leads: Array, truncated: boolean}>}
  */
-async function executeSecondaryLeadQuery(filters, mode, env, notes) {
+async function executeSecondaryLeadQuery(filters, mode, enabledGroups, env, notes) {
   // CRITICAL: Allow both active=true AND active=false to retrieve LOST leads
   // LOST leads in Odoo CRM are: active=false, won_status='lost', lost_reason_id IS SET
   // Classification happens AFTER retrieval, not via exclusion
@@ -167,20 +270,16 @@ async function executeSecondaryLeadQuery(filters, mode, env, notes) {
   
   notes.push(`Secondary query: crm.lead with domain ${JSON.stringify(domain)}`);
   
+  // Get fields from enabled property groups
+  const fields = getEnabledFields(enabledGroups);
+  notes.push(`Fetching ${fields.length} fields from enabled property groups`);
+  
   const SECONDARY_LIMIT = 10000;
   
   const leads = await searchRead(env, {
     model: 'crm.lead',
     domain,
-    fields: [
-      'id',
-      'name',
-      'stage_id',
-      'active',
-      'won_status',
-      'lost_reason_id', // Required for LOST classification
-      'x_studio_opportunity_actionsheet_ids'
-    ],
+    fields,
     limit: SECONDARY_LIMIT
   });
   
@@ -204,21 +303,41 @@ async function executeSecondaryLeadQuery(filters, mode, env, notes) {
 }
 
 /**
- * Extract allowed lead fields into enrichment payload
+ * Extract lead fields based on enabled property groups
+ * 
+ * RULES:
+ * - Status & Outcome is ALWAYS included
+ * - Other groups are included only if enabled
+ * - Field ordering: status_outcome, then groups in order
+ * - Missing fields resolve to null (no errors)
  * 
  * @param {Object} lead - Full lead record from Odoo
+ * @param {Array<string>} enabledGroups - Enabled property groups (excluding status_outcome)
  * @returns {Object} Lead payload for enrichment
  */
-function extractLeadPayload(lead) {
-  return {
-    id: lead.id,
-    name: lead.name,
-    stage_id: lead.stage_id,
-    active: lead.active,
-    won_status: lead.won_status,
-    lost_reason_id: lead.lost_reason_id,
-    classification: classifyLead(lead) // Add classification for analysis
-  };
+function extractLeadPayload(lead, enabledGroups = []) {
+  const payload = {};
+  
+  // ALWAYS include Status & Outcome fields (in order)
+  for (const field of LEAD_PROPERTY_GROUPS.status_outcome.fields) {
+    payload[field] = lead[field] !== undefined ? lead[field] : null;
+  }
+  
+  // Add classification (always included)
+  payload.classification = classifyLead(lead);
+  
+  // Add fields from enabled groups (in group order)
+  const groupOrder = ['time_flow', 'origin_marketing', 'business_signals'];
+  
+  for (const groupId of groupOrder) {
+    if (enabledGroups.includes(groupId) && LEAD_PROPERTY_GROUPS[groupId]) {
+      for (const field of LEAD_PROPERTY_GROUPS[groupId].fields) {
+        payload[field] = lead[field] !== undefined ? lead[field] : null;
+      }
+    }
+  }
+  
+  return payload;
 }
 
 /**
