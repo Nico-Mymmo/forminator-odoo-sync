@@ -39,6 +39,7 @@ import jsonExporter from './lib/export/export-json.js';
 import csvExporter from './lib/export/export-csv.js';
 import { queryBuilderUI } from './ui.js';
 import { runPhase0Validation } from './tests/phase0-validation.js';
+import { searchRead } from '../../lib/odoo.js';  // ADDED: Use existing Odoo integration
 
 // Register export formats
 exportRegistry.register('json', jsonExporter);
@@ -1459,16 +1460,19 @@ async function previewSemanticQuery(context) {
     const technicalQuery = translateSemanticQuery(semanticQuery, schema);
     
     console.log('✅ Translation complete');
+    console.log('� Technical query:', JSON.stringify(technicalQuery, null, 2));
     console.log('🔍 Validating technical query...');
     
     // Step 4: Validate technical query
     const technicalValidation = await validateQuery(technicalQuery, schema, capabilities || {});
+    console.log('📋 Technical validation result:', JSON.stringify(technicalValidation, null, 2));
     if (!technicalValidation.is_valid) {
       return new Response(JSON.stringify({
         success: false,
         error: {
           message: 'Technical query validation failed',
           technical_errors: technicalValidation.errors,
+          technical_query: technicalQuery,
           code: 'TECHNICAL_VALIDATION_FAILED'
         }
       }), {
@@ -1531,22 +1535,36 @@ async function previewSemanticQuery(context) {
 /**
  * POST /api/sales-insights/semantic/run
  * 
- * Execute semantic query (full results)
+ * SIMPLIFIED: Thin translator from wizard payload to Odoo searchRead
+ * 
+ * No semantic executor. No DSL. Just translation:
+ * - wizard payload → Odoo domain + fields → searchRead
  * 
  * Body:
- * - query: SemanticQuery object
+ * {
+ *   base_model: 'x_sales_action_sheet',
+ *   fields: ['id', 'x_name', 'create_date'],
+ *   filters: [
+ *     { field: 'create_date', operator: '>=', value: '2026-01-01' }
+ *   ]
+ * }
  */
 async function runSemanticQuery(context) {
   const { request, env } = context;
+  
   try {
-    const body = await request.json();
+    const payload = await request.json();
     
-    if (!body.query) {
+    console.log('📦 Received wizard payload:', JSON.stringify(payload, null, 2));
+    
+    // STEP 1: Extract base model
+    const model = payload.base_model;
+    if (!model) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Missing required field: query',
-          code: 'MISSING_QUERY'
+          message: 'Missing required field: base_model',
+          code: 'MISSING_BASE_MODEL'
         }
       }), {
         status: 400,
@@ -1554,121 +1572,48 @@ async function runSemanticQuery(context) {
       });
     }
     
-    const semanticQuery = body.query;
+    // STEP 2: Extract fields (default to ['id'] if empty)
+    const fields = Array.isArray(payload.fields) && payload.fields.length > 0 
+      ? payload.fields 
+      : ['id'];
     
-    console.log('🔍 Validating semantic query...');
-    
-    // Step 1: Validate semantic query
-    try {
-      const validation = validateSemanticQuery(semanticQuery);
-      if (!validation.valid) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: {
-            message: validation.message,
-            explanation: validation.explanation,
-            suggestions: validation.suggestions,
-            code: 'SEMANTIC_VALIDATION_FAILED'
-          }
-        }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-    } catch (error) {
-      if (error instanceof SemanticError) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: {
-            message: error.message,
-            explanation: error.explanation,
-            suggestions: error.suggestions,
-            code: 'SEMANTIC_ERROR'
-          }
-        }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      throw error;
-    }
-    
-    console.log('✅ Semantic validation passed');
-    
-    // Step 2: Get schema
-    const cached = await getCachedSchema(env);
-    if (!cached || !cached.schema) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: {
-          message: 'Schema not available. Please refresh schema first.',
-          code: 'SCHEMA_NOT_AVAILABLE'
+    // STEP 3: Translate filters to Odoo domain
+    const domain = [];
+    if (Array.isArray(payload.filters)) {
+      for (const filter of payload.filters) {
+        // Simple translation: { field, operator, value } → [field, operator, value]
+        if (filter.field && filter.operator && filter.value !== undefined) {
+          domain.push([filter.field, filter.operator, filter.value]);
         }
-      }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      }
     }
     
-    const { schema, capabilities } = cached;
+    console.log('🔄 Translated to Odoo call:');
+    console.log('  model:', model);
+    console.log('  domain:', JSON.stringify(domain));
+    console.log('  fields:', JSON.stringify(fields));
     
-    console.log('🔄 Translating semantic query to technical query...');
+    // STEP 4: Call searchRead (existing Odoo integration)
+    const records = await searchRead(env, {
+      model,
+      domain,
+      fields,
+      limit: 100  // Default limit
+    });
     
-    // Step 3: Translate to technical query
-    const technicalQuery = translateSemanticQuery(semanticQuery, schema);
+    console.log(`✅ searchRead returned ${records.length} records`);
     
-    console.log('✅ Translation complete');
-    console.log('🔍 Validating technical query...');
-    
-    // Step 4: Validate technical query
-    const technicalValidation = await validateQuery(technicalQuery, schema, capabilities || {});
-    if (!technicalValidation.is_valid) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: {
-          message: 'Technical query validation failed',
-          technical_errors: technicalValidation.errors,
-          code: 'TECHNICAL_VALIDATION_FAILED'
-        }
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    console.log('✅ Technical validation passed');
-    console.log('⚡ Executing query...');
-    
-    // Step 5: Execute query
-    const result = await executeQuery(
-      technicalQuery,
-      schema,
-      capabilities || {},
-      env,
-      { preview: false }
-    );
-    
-    console.log(`✅ Query executed: ${result.records.length} records, path: ${result.meta.execution_path}`);
-    
-    // Step 6: Generate natural language description
-    const description = describeSemanticQuery(semanticQuery);
-    
+    // STEP 5: Return results
     return new Response(JSON.stringify({
       success: true,
       data: {
-        records: result.records,
+        records,
         meta: {
-          ...result.meta,
-          semantic_description: description,
-          preview_mode: false
-        },
-        semantic_query: semanticQuery,
-        technical_query: technicalQuery,
-        schema_context: {
-          version: schema.version,
-          base_model: technicalQuery.base_model,
-          fields: technicalQuery.fields,
-          generated_at: new Date().toISOString()
+          model,
+          domain,
+          fields,
+          count: records.length,
+          execution_method: 'searchRead'
         }
       }
     }), {
@@ -1676,13 +1621,14 @@ async function runSemanticQuery(context) {
     });
     
   } catch (error) {
-    console.error('❌ Semantic query execution failed:', error);
+    console.error('❌ Semantic query failed:', error);
     
+    // If Odoo error, return it directly
     return new Response(JSON.stringify({
       success: false,
       error: {
         message: error.message,
-        code: 'SEMANTIC_QUERY_FAILED',
+        code: 'ODOO_ERROR',
         stack: error.stack
       }
     }), {
