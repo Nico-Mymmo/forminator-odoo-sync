@@ -96,8 +96,8 @@ export function getEnabledFields(enabledGroups = []) {
     fields.add(field);
   }
   
-  // Add classification field (always needed)
-  fields.add('classification');
+  // NOTE: classification is a DERIVED field (computed by classifyLead)
+  // It is NOT fetched from Odoo, only added in extractLeadPayload
   
   // Add fields from enabled groups
   for (const groupId of enabledGroups) {
