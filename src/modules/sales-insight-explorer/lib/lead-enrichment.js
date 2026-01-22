@@ -241,23 +241,25 @@ function applySetOperation(actionSheets, setA, setB, mapM, mode, notes) {
   switch (mode) {
     case 'include':
       // Return all action sheets, enrich items in A ∩ B
+      // CRITICAL: Use __leads (synthetic field) for export compatibility
       return actionSheets.map(as => {
         if (intersection.has(as.id)) {
-          return { ...as, leads: mapM.get(as.id) };
+          return { ...as, __leads: mapM.get(as.id) };
         }
-        return as; // No 'leads' key when no leads exist
+        return { ...as, __leads: [] }; // Empty array when no leads exist
       });
     
     case 'exclude':
       // Return only action sheets with leads (A ∩ B)
       return actionSheets
         .filter(as => intersection.has(as.id))
-        .map(as => ({ ...as, leads: mapM.get(as.id) }));
+        .map(as => ({ ...as, __leads: mapM.get(as.id) }));
     
     case 'only_without_lead':
       // Return only action sheets without leads (A − B)
-      return actionSheets.filter(as => difference.has(as.id));
-      // No 'leads' key by definition
+      return actionSheets
+        .filter(as => difference.has(as.id))
+        .map(as => ({ ...as, __leads: [] })); // Explicit empty array
     
     default:
       throw new Error(`Invalid lead enrichment mode: ${mode}`);

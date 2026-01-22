@@ -92,23 +92,23 @@ function testSetOperations() {
   const includeResult = applySetOperation(actionSheets, setA, setB, mapM, 'include', notes);
   console.log('Include mode:');
   console.log('  Total:', includeResult.length, '(expected: 5)');
-  console.log('  With leads:', includeResult.filter(r => r.leads).length, '(expected: 3)');
-  console.log('  Without leads:', includeResult.filter(r => !r.leads).length, '(expected: 2)');
-  console.log('  PASS:', includeResult.length === 5 && includeResult.filter(r => r.leads).length === 3);
+  console.log('  With leads:', includeResult.filter(r => r.__leads && r.__leads.length > 0).length, '(expected: 3)');
+  console.log('  Without leads:', includeResult.filter(r => r.__leads.length === 0).length, '(expected: 2)');
+  console.log('  PASS:', includeResult.length === 5 && includeResult.filter(r => r.__leads && r.__leads.length > 0).length === 3);
 
   // Test exclude mode
   const excludeResult = applySetOperation(actionSheets, setA, setB, mapM, 'exclude', notes);
   console.log('Exclude mode:');
   console.log('  Total:', excludeResult.length, '(expected: 3)');
-  console.log('  All have leads:', excludeResult.every(r => r.leads), '(expected: true)');
-  console.log('  PASS:', excludeResult.length === 3 && excludeResult.every(r => r.leads));
+  console.log('  All have __leads:', excludeResult.every(r => r.__leads && r.__leads.length > 0), '(expected: true)');
+  console.log('  PASS:', excludeResult.length === 3 && excludeResult.every(r => r.__leads && r.__leads.length > 0));
 
   // Test only_without_lead mode
   const onlyWithoutResult = applySetOperation(actionSheets, setA, setB, mapM, 'only_without_lead', notes);
   console.log('Only without lead mode:');
   console.log('  Total:', onlyWithoutResult.length, '(expected: 2)');
-  console.log('  None have leads:', onlyWithoutResult.every(r => !r.leads), '(expected: true)');
-  console.log('  PASS:', onlyWithoutResult.length === 2 && onlyWithoutResult.every(r => !r.leads));
+  console.log('  None have leads:', onlyWithoutResult.every(r => r.__leads.length === 0), '(expected: true)');
+  console.log('  PASS:', onlyWithoutResult.length === 2 && onlyWithoutResult.every(r => r.__leads.length === 0));
 }
 
 function applySetOperation(actionSheets, setA, setB, mapM, mode, notes) {
@@ -117,20 +117,23 @@ function applySetOperation(actionSheets, setA, setB, mapM, mode, notes) {
 
   switch (mode) {
     case 'include':
+      // CRITICAL: Use __leads (synthetic field) for export compatibility
       return actionSheets.map(as => {
         if (intersection.has(as.id)) {
-          return { ...as, leads: mapM.get(as.id) };
+          return { ...as, __leads: mapM.get(as.id) };
         }
-        return as;
+        return { ...as, __leads: [] }; // Empty array when no leads exist
       });
 
     case 'exclude':
       return actionSheets
         .filter(as => intersection.has(as.id))
-        .map(as => ({ ...as, leads: mapM.get(as.id) }));
+        .map(as => ({ ...as, __leads: mapM.get(as.id) }));
 
     case 'only_without_lead':
-      return actionSheets.filter(as => difference.has(as.id));
+      return actionSheets
+        .filter(as => difference.has(as.id))
+        .map(as => ({ ...as, __leads: [] })); // Explicit empty array
 
     default:
       throw new Error(`Invalid mode: ${mode}`);

@@ -111,17 +111,24 @@ function buildFieldDefinitions(queryDefinition, schemaContext) {
         field: fieldDef.field,
       };
 
-      // Add type if available in schema
-      if (schemaContext?.models?.[fieldDef.model]?.fields?.[fieldDef.field]) {
-        const schemaField = schemaContext.models[fieldDef.model].fields[fieldDef.field];
-        field.type = schemaField.type;
-      }
+      // CRITICAL: Handle synthetic fields (e.g., __leads)
+      if (fieldDef.is_synthetic) {
+        field.type = fieldDef.type || 'json';
+        field.source = fieldDef.source || 'derived';
+        field.description = fieldDef.description || 'Synthetic field (not from Odoo)';
+      } else {
+        // Add type if available in schema
+        if (schemaContext?.models?.[fieldDef.model]?.fields?.[fieldDef.field]) {
+          const schemaField = schemaContext.models[fieldDef.model].fields[fieldDef.field];
+          field.type = schemaField.type;
+        }
 
-      // Add relation path if field is from related model
-      if (fieldDef.model !== queryDefinition.base_model) {
-        const relationPath = findRelationPath(relations, queryDefinition.base_model, fieldDef.model);
-        if (relationPath) {
-          field.relation_path = relationPath;
+        // Add relation path if field is from related model
+        if (fieldDef.model !== queryDefinition.base_model) {
+          const relationPath = findRelationPath(relations, queryDefinition.base_model, fieldDef.model);
+          if (relationPath) {
+            field.relation_path = relationPath;
+          }
         }
       }
 

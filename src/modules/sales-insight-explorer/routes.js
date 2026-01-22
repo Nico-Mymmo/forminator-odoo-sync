@@ -1707,6 +1707,22 @@ async function runSemanticQuery(context) {
       // EXPORT PATH: Return downloadable file
       console.log(`📤 Exporting to ${exportFormat}`);
       
+      // Build field list (include __leads if enrichment was enabled)
+      let exportFields = fields.map(f => ({ field: f, model, alias: f }));
+      
+      // CRITICAL: Add synthetic __leads field if lead enrichment was used
+      if (enrichmentMeta) {
+        exportFields.push({
+          field: '__leads',
+          model: 'x_sales_action_sheet',
+          alias: '__leads',
+          type: 'json',
+          source: 'derived',
+          is_synthetic: true,
+          description: 'CRM leads enriched via two-phase set operations'
+        });
+      }
+      
       // Normalize to ExportResult
       const result = {
         records,
@@ -1723,7 +1739,7 @@ async function runSemanticQuery(context) {
         },
         query_definition: {
           base_model: model,
-          fields: fields.map(f => ({ field: f, model, alias: f }))
+          fields: exportFields
         },
         schema_context: {
           schema_version: 'semantic_wizard_v1'
