@@ -40,6 +40,7 @@ import xlsxExporter from './lib/export/export-xlsx.js';
 import { queryBuilderUI } from './ui.js';
 import { runPhase0Validation } from './tests/phase0-validation.js';
 import { searchRead } from '../../lib/odoo.js';
+import { enrichWithLeads } from './lib/lead-enrichment.js';
 
 // Register export formats
 exportRegistry.register('json', jsonExporter);
@@ -1557,7 +1558,54 @@ async function runSemanticQuery(context) {
     
     console.log('📦 Received wizard payload:', JSON.stringify(payload, null, 2));
     
-    // STEP 1: Extract base model
+    // STEP 1: Validate no forbidden lead relations (BLOCKER)
+    if (payload.base_model === 'x_sales_action_sheet') {
+      // Check for forbidden relations to crm.lead
+      if (payload.relations && Array.isArray(payload.relations)) {
+        for (const relation of payload.relations) {
+          if (relation.path) {
+            for (const step of relation.path) {
+              if (step.target_model === 'crm.lead') {
+                return new Response(JSON.stringify({
+                  success: false,
+                  error: {
+                    message: 'Relations to crm.lead are not allowed. Use lead_enrichment instead.',
+                    code: 'INVALID_LEAD_RELATION',
+                    explanation: 'x_sales_action_sheet.lead_id does not exist. Use two-phase lead enrichment.',
+                    hint: 'Enable lead enrichment in the wizard instead of using relations.'
+                  }
+                }), {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' }
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Check for forbidden fields with model: 'lead'
+      if (payload.fields && Array.isArray(payload.fields)) {
+        for (const field of payload.fields) {
+          if (typeof field === 'object' && (field.model === 'lead' || field.model === 'crm.lead')) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: {
+                message: 'Fields with model "lead" or "crm.lead" are not allowed. Use lead_enrichment instead.',
+                code: 'INVALID_LEAD_FIELD',
+                explanation: 'Lead fields cannot be fetched via relations. Use two-phase lead enrichment.',
+                hint: 'Enable lead enrichment in the wizard to fetch lead data.'
+              }
+            }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        }
+      }
+    }
+    
+    // STEP 2: Extract base model
     const model = payload.base_model;
     if (!model) {
       return new Response(JSON.stringify({
@@ -1572,10 +1620,23 @@ async function runSemanticQuery(context) {
       });
     }
     
-    // STEP 2: Extract fields (default to ['id'] if empty)
-    const fields = Array.isArray(payload.fields) && payload.fields.length > 0 
-      ? payload.fields 
-      : ['id'];
+    // STEP 3: Extract fields (default to ['id'] if empty)
+    // Handle both string format and {model, field} object format
+    let fields;
+    if (Array.isArray(payload.fields) && payload.fields.length > 0) {
+      // Check if fields are objects with 'field' property or plain strings
+      if (typeof payload.fields[0] === 'object' && payload.fields[0].field) {
+        // Extract field names from {model, field} objects
+        fields = payload.fields
+          .filter(f => f.model === model) // Only base model fields for search_read
+          .map(f => f.field);
+      } else {
+        // Already plain strings
+        fields = payload.fields;
+      }
+    } else {
+      fields = ['id'];
+    }
     
     // STEP 3: Translate filters to Odoo domain
     const domain = [];
@@ -1593,8 +1654,12 @@ async function runSemanticQuery(context) {
     console.log('  domain:', JSON.stringify(domain));
     console.log('  fields:', JSON.stringify(fields));
     
+    // Initialize execution notes for transparency
+    const notes = [];
+    notes.push(`Primary query: ${model} with ${domain.length} filters`);
+    
     // STEP 4: Call searchRead with limit: false to fetch all records
-    const records = await searchRead(env, {
+    let records = await searchRead(env, {
       model,
       domain,
       fields,
@@ -1602,6 +1667,38 @@ async function runSemanticQuery(context) {
     });
     
     console.log(`✅ searchRead returned ${records.length} records`);
+    notes.push(`Primary query returned ${records.length} records`);
+    
+    // STEP 5: Apply lead enrichment if requested
+    let enrichmentMeta = null;
+    if (payload.lead_enrichment && payload.lead_enrichment.enabled) {
+      try {
+        const enriched = await enrichWithLeads(
+          records,
+          payload.lead_enrichment,
+          env,
+          notes
+        );
+        records = enriched.records;
+        enrichmentMeta = enriched.meta;
+      } catch (error) {
+        if (error.code === 'SECONDARY_QUERY_TRUNCATED') {
+          return new Response(JSON.stringify({
+            success: false,
+            error: {
+              message: error.message,
+              code: 'SECONDARY_QUERY_TRUNCATED',
+              hint: 'Add more specific lead filters to reduce result set',
+              mode: payload.lead_enrichment.mode
+            }
+          }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        throw error;
+      }
+    }
     
     // Check if export is requested
     const exportFormat = payload.export;
@@ -1618,9 +1715,11 @@ async function runSemanticQuery(context) {
           domain,
           fields,
           count: records.length,
-          execution_method: 'searchRead',
+          execution_method: enrichmentMeta ? 'two_phase_derived' : 'searchRead',
           execution_path: 'search_read',
-          preview_mode: false
+          preview_mode: false,
+          notes,
+          ...(enrichmentMeta || {})
         },
         query_definition: {
           base_model: model,
@@ -1664,7 +1763,9 @@ async function runSemanticQuery(context) {
           domain,
           fields,
           count: records.length,
-          execution_method: 'searchRead'
+          execution_method: enrichmentMeta ? 'two_phase_derived' : 'searchRead',
+          notes,
+          ...(enrichmentMeta || {})
         }
       }
     }), {
@@ -1690,6 +1791,54 @@ async function runSemanticQuery(context) {
 }
 
 /**
+ * GET /api/sales-insights/stages
+ * 
+ * Fetch CRM stages ordered by sequence
+ * Used by UI for chronological stage filtering
+ */
+async function getCrmStages(context) {
+  const { env } = context;
+  
+  try {
+    console.log('🔍 Fetching CRM stages...');
+    
+    // Fetch crm.stage records ordered by sequence
+    const stages = await searchRead(env, {
+      model: 'crm.stage',
+      domain: [],
+      fields: ['id', 'name', 'sequence'],
+      order: 'sequence ASC',
+      limit: null
+    });
+    
+    console.log(`✅ Found ${stages.length} CRM stages`);
+    
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        stages
+      }
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to fetch CRM stages:', error);
+    
+    return new Response(JSON.stringify({
+      success: false,
+      error: {
+        message: error.message,
+        code: 'STAGE_FETCH_FAILED'
+      }
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
  * Route definitions
  */
 export const routes = {
@@ -1700,6 +1849,7 @@ export const routes = {
   'GET /config/:filename': serveConfig,
   'GET /api/sales-insights/test/phase0': runPhase0Tests,
   'GET /api/sales-insights/schema': getSchema,
+  'GET /api/sales-insights/stages': getCrmStages,
   'POST /api/sales-insights/schema/refresh': refreshSchema,
   'POST /api/sales-insights/query/validate': validateQueryEndpoint,
   'POST /api/sales-insights/query/run': runQuery,

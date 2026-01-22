@@ -9,6 +9,13 @@
  */
 
 // ============================================================================
+// GLOBAL STATE
+// ============================================================================
+
+// Cache for CRM stages (fetched from Odoo via schema)
+let crmStagesCache = null;
+
+// ============================================================================
 // INFORMATION SETS (HARD-CODED, EXTENSIBLE)
 // ============================================================================
 
@@ -89,10 +96,40 @@ class WizardState {
       from: null,
       to: null
     };
+    // Lead enrichment state (TWO-PHASE ARCHITECTURE)
+    this.leadEnrichment = {
+      enabled: false,
+      mode: 'include',  // 'include' | 'exclude' | 'only_without_lead'
+      filters: {
+        won_status: [],        // Array of selected values: 'won', 'lost', 'pending'
+        stage_ids: []          // Array of selected stage IDs
+      }
+    };
   }
 
   toggleInformationSet(key, value) {
     this.informationSets[key] = value;
+  }
+
+  toggleLeadEnrichment(enabled) {
+    this.leadEnrichment.enabled = enabled;
+    // Reset filters when disabling
+    if (!enabled) {
+      this.leadEnrichment.filters.won_status = [];
+      this.leadEnrichment.filters.stage_ids = [];
+    }
+  }
+
+  setLeadEnrichmentMode(mode) {
+    this.leadEnrichment.mode = mode;
+  }
+
+  setLeadWonStatusFilter(statusArray) {
+    this.leadEnrichment.filters.won_status = statusArray;
+  }
+
+  setLeadStageFilter(stageIdsArray) {
+    this.leadEnrichment.filters.stage_ids = stageIdsArray;
   }
 
   setTimeFilter(from, to) {
@@ -110,18 +147,24 @@ class WizardState {
     // Minimal payload - ONLY what user explicitly selected
     const payload = {
       base_model: 'x_sales_action_sheet',
-      fields: ['id', 'x_name', 'create_date'],
+      fields: [
+        { model: 'x_sales_action_sheet', field: 'id' },
+        { model: 'x_sales_action_sheet', field: 'x_name' },
+        { model: 'x_sales_action_sheet', field: 'create_date' }
+      ],
       filters: []
     };
 
     // Add time filter if provided
     if (this.timeFilter.from && this.timeFilter.to) {
       payload.filters.push({
+        model: 'x_sales_action_sheet',
         field: 'create_date',
         operator: '>=',
         value: this.timeFilter.from
       });
       payload.filters.push({
+        model: 'x_sales_action_sheet',
         field: 'create_date',
         operator: '<=',
         value: this.timeFilter.to
@@ -133,6 +176,7 @@ class WizardState {
       // Min filter
       if (this.apartmentsFilter.min !== null) {
         payload.filters.push({
+          model: 'x_sales_action_sheet',
           field: 'x_studio_number_of_apartments',
           operator: '>=',
           value: parseInt(this.apartmentsFilter.min, 10)
@@ -142,6 +186,7 @@ class WizardState {
       // Max filter
       if (this.apartmentsFilter.max !== null) {
         payload.filters.push({
+          model: 'x_sales_action_sheet',
           field: 'x_studio_number_of_apartments',
           operator: '<=',
           value: parseInt(this.apartmentsFilter.max, 10)
@@ -151,6 +196,7 @@ class WizardState {
       // Zero exclusion (only if explicitly disabled)
       if (this.apartmentsFilter.include_zero === false) {
         payload.filters.push({
+          model: 'x_sales_action_sheet',
           field: 'x_studio_number_of_apartments',
           operator: '>',
           value: 0
@@ -159,17 +205,35 @@ class WizardState {
     }
 
     // Add fields from enabled information sets
-    const fieldSet = new Set(payload.fields);
-    
     for (const [setKey, isEnabled] of Object.entries(this.informationSets)) {
       if (isEnabled && INFORMATION_SETS[setKey]) {
         for (const field of INFORMATION_SETS[setKey].fields) {
-          fieldSet.add(field);
+          payload.fields.push({
+            model: 'x_sales_action_sheet',
+            field: field
+          });
         }
       }
     }
-    
-    payload.fields = Array.from(fieldSet);
+
+    // Add lead enrichment if enabled (TWO-PHASE ARCHITECTURE)
+    if (this.leadEnrichment.enabled) {
+      payload.lead_enrichment = {
+        enabled: true,
+        mode: this.leadEnrichment.mode,
+        filters: {}
+      };
+
+      // Add won_status filter if selected
+      if (this.leadEnrichment.filters.won_status.length > 0) {
+        payload.lead_enrichment.filters.won_status = this.leadEnrichment.filters.won_status;
+      }
+
+      // Add stage_id filter if selected
+      if (this.leadEnrichment.filters.stage_ids.length > 0) {
+        payload.lead_enrichment.filters.stage_ids = this.leadEnrichment.filters.stage_ids;
+      }
+    }
 
     return payload;
   }
@@ -192,11 +256,60 @@ class WizardState {
       max: null,
       include_zero: false
     };
+    this.leadEnrichment = {
+      enabled: false,
+      mode: 'include',
+      filters: {
+        won_status: [],
+        stage_ids: []
+      }
+    };
   }
 }
 
 // Global state instance
 const wizardState = new WizardState();
+
+// ============================================================================
+// CRM STAGE FETCHING
+// ============================================================================
+
+/**
+ * Fetch CRM stages from Odoo, ordered by sequence.
+ * Uses schema introspection to maintain strict schema-driven approach.
+ */
+async function fetchCrmStages() {
+  if (crmStagesCache) {
+    return crmStagesCache;
+  }
+
+  try {
+    // Fetch via schema introspection endpoint
+    const response = await fetch('/insights/api/sales-insights/stages', {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      console.error('Failed to fetch CRM stages:', response.status);
+      return [];
+    }
+
+    const result = await response.json();
+    
+    if (result.success && result.data && Array.isArray(result.data.stages)) {
+      crmStagesCache = result.data.stages;
+      return crmStagesCache;
+    }
+
+    console.error('Invalid stages response:', result);
+    return [];
+    
+  } catch (error) {
+    console.error('Error fetching CRM stages:', error);
+    return [];
+  }
+}
 
 // ============================================================================
 // RENDERING: Step Progress
@@ -257,6 +370,36 @@ function renderStep1() {
         <div class="space-y-4">
           ${setToggles}
         </div>
+
+        <!-- CRM Leads Toggle -->
+        <div class="divider mt-8">CRM Leads (Optioneel)</div>
+        
+        <div class="form-control">
+          <label class="label cursor-pointer justify-start gap-4">
+            <input 
+              type="checkbox" 
+              class="checkbox checkbox-secondary"
+              ${wizardState.leadEnrichment.enabled ? 'checked' : ''}
+              onchange="wizardState.toggleLeadEnrichment(this.checked); renderWizard();"
+            />
+            <div>
+              <div class="label-text font-bold">Include CRM Leads (Two-Phase Enrichment)</div>
+              <div class="label-text-alt text-base-content/60">
+                Voeg lead informatie toe via two-phase set operations: id, name, stage_id, active, won_status
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <div class="alert alert-info mt-4">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <span>
+            Als je CRM Leads inschakelt, worden de 5 standaard lead velden opgehaald. 
+            In de volgende stap kun je lead-specifieke filters toepassen.
+          </span>
+        </div>
       </div>
     </div>
   `;
@@ -266,11 +409,95 @@ function renderStep1() {
 // RENDERING: Step 2 - Time Filter
 // ============================================================================
 
-function renderStep2() {
+async function renderStep2() {
   // Ensure apartmentsFilter exists (for backward compatibility)
   if (!wizardState.apartmentsFilter) {
     wizardState.apartmentsFilter = { min: null, max: null, include_zero: false };
   }
+
+  // Fetch CRM stages if CRM leads are enabled
+  let crmStages = [];
+  if (wizardState.leadEnrichment.enabled) {
+    crmStages = await fetchCrmStages();
+  }
+
+  // Build lead filters UI
+  const leadFiltersUI = wizardState.leadEnrichment.enabled ? `
+    <!-- Lead Filters Section -->
+    <div class="divider mt-8">Lead Filters (Optioneel)</div>
+
+    <div class="alert alert-warning mb-4">
+      <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+      </svg>
+      <span>Lead filters zijn optioneel. Laat leeg voor alle leads.</span>
+    </div>
+
+    <!-- Won Status Filter -->
+    <div class="form-control mb-4">
+      <label class="label">
+        <span class="label-text font-semibold">Won Status (multi-select)</span>
+      </label>
+      <div class="flex gap-4">
+        ${['won', 'lost', 'pending'].map(status => `
+          <label class="label cursor-pointer gap-2">
+            <input 
+              type="checkbox" 
+              class="checkbox checkbox-sm"
+              value="${status}"
+              ${wizardState.leadEnrichment.filters.won_status.includes(status) ? 'checked' : ''}
+              onchange="handleWonStatusChange('${status}', this.checked); renderWizard();"
+            />
+            <span class="label-text capitalize">${status}</span>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+
+    <!-- Stage Filter -->
+    <div class="form-control mb-4">
+      <label class="label">
+        <span class="label-text font-semibold">CRM Stages (multi-select, ordered by sequence)</span>
+      </label>
+      ${crmStages.length > 0 ? `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-base-300 rounded">
+          ${crmStages.map(stage => `
+            <label class="label cursor-pointer justify-start gap-2">
+              <input 
+                type="checkbox" 
+                class="checkbox checkbox-sm"
+                value="${stage.id}"
+                ${wizardState.leadEnrichment.filters.stage_ids.includes(stage.id) ? 'checked' : ''}
+                onchange="handleStageChange(${stage.id}, this.checked); renderWizard();"
+              />
+              <span class="label-text text-xs">
+                <span class="badge badge-xs mr-1">${stage.sequence}</span>
+                ${stage.name}
+              </span>
+            </label>
+          `).join('')}
+        </div>
+        <div class="mt-2">
+          <button 
+            class="btn btn-xs btn-ghost"
+            onclick="selectStagesUpTo(${crmStages.length > 0 ? crmStages[crmStages.length - 1].id : 0}); renderWizard();"
+          >
+            Select all stages
+          </button>
+          <button 
+            class="btn btn-xs btn-ghost"
+            onclick="wizardState.setLeadStageFilter([]); renderWizard();"
+          >
+            Clear stages
+          </button>
+        </div>
+      ` : `
+        <div class="alert alert-error">
+          <span>Failed to load CRM stages. Please refresh the page.</span>
+        </div>
+      `}
+    </div>
+  ` : '';
 
   return `
     <div class="card bg-base-100 shadow-xl">
@@ -365,6 +592,8 @@ function renderStep2() {
           </svg>
           <span>Filter wordt toegepast op <strong>x_studio_number_of_apartments</strong></span>
         </div>
+
+        ${leadFiltersUI}
       </div>
     </div>
   `;
@@ -428,7 +657,36 @@ function renderActions() {
 // MAIN RENDER
 // ============================================================================
 
-function renderWizard() {
+// Helper functions for lead filters
+function handleWonStatusChange(status, checked) {
+  const currentStatuses = wizardState.leadEnrichment.filters.won_status;
+  if (checked && !currentStatuses.includes(status)) {
+    wizardState.setLeadWonStatusFilter([...currentStatuses, status]);
+  } else if (!checked && currentStatuses.includes(status)) {
+    wizardState.setLeadWonStatusFilter(currentStatuses.filter(s => s !== status));
+  }
+}
+
+function handleStageChange(stageId, checked) {
+  const currentStages = wizardState.leadEnrichment.filters.stage_ids;
+  if (checked && !currentStages.includes(stageId)) {
+    wizardState.setLeadStageFilter([...currentStages, stageId]);
+  } else if (!checked && currentStages.includes(stageId)) {
+    wizardState.setLeadStageFilter(currentStages.filter(id => id !== stageId));
+  }
+}
+
+async function selectStagesUpTo(maxStageId) {
+  const stages = await fetchCrmStages();
+  const selectedIds = [];
+  for (const stage of stages) {
+    selectedIds.push(stage.id);
+    if (stage.id === maxStageId) break;
+  }
+  wizardState.setLeadStageFilter(selectedIds);
+}
+
+async function renderWizard() {
   const container = document.getElementById('wizard-container');
   if (!container) return;
 
@@ -436,7 +694,7 @@ function renderWizard() {
   if (wizardState.currentStep === 1) {
     stepContent = renderStep1();
   } else if (wizardState.currentStep === 2) {
-    stepContent = renderStep2();
+    stepContent = await renderStep2();
   }
 
   container.innerHTML = renderProgressBar() + stepContent + renderActions();

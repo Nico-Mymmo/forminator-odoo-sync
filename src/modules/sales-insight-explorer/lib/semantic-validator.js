@@ -170,6 +170,14 @@ export function validateSemanticQuery(semanticQuery) {
     return blockadeCheck;
   }
 
+  // 6. Validate lead enrichment if present
+  if (semanticQuery.lead_enrichment) {
+    const leadEnrichmentValidation = validateLeadEnrichment(semanticQuery.lead_enrichment);
+    if (!leadEnrichmentValidation.valid) {
+      return leadEnrichmentValidation;
+    }
+  }
+
   return { valid: true };
 }
 
@@ -296,4 +304,118 @@ export class SemanticError extends Error {
     this.explanation = validation.explanation;
     this.suggestions = validation.suggestions;
   }
+}
+
+/**
+ * Validate lead enrichment configuration
+ * 
+ * Validates the lead_enrichment payload structure according to
+ * two-phase set operations specification.
+ * 
+ * @param {Object} leadEnrichment - Lead enrichment configuration
+ * @returns {SemanticValidationResult}
+ */
+export function validateLeadEnrichment(leadEnrichment) {
+  // Validate enabled field
+  if (typeof leadEnrichment.enabled !== 'boolean') {
+    return {
+      valid: false,
+      code: 'INVALID_LEAD_ENRICHMENT_ENABLED',
+      message: 'lead_enrichment.enabled must be a boolean',
+      explanation: 'The enabled field must be true or false'
+    };
+  }
+
+  // If not enabled, no further validation needed
+  if (!leadEnrichment.enabled) {
+    return { valid: true };
+  }
+
+  // Validate mode field
+  const validModes = ['include', 'exclude', 'only_without_lead'];
+  if (!validModes.includes(leadEnrichment.mode)) {
+    return {
+      valid: false,
+      code: 'INVALID_LEAD_ENRICHMENT_MODE',
+      message: `lead_enrichment.mode must be one of: ${validModes.join(', ')}`,
+      explanation: `Got: ${leadEnrichment.mode}`,
+      suggestions: ['Use "include" for enrichment only', 'Use "exclude" for filtering to only records with leads', 'Use "only_without_lead" for filtering to only records without leads']
+    };
+  }
+
+  // Validate filters object (optional)
+  if (leadEnrichment.filters) {
+    const filters = leadEnrichment.filters;
+
+    // Validate stage_ids
+    if (filters.stage_ids !== undefined) {
+      if (!Array.isArray(filters.stage_ids)) {
+        return {
+          valid: false,
+          code: 'INVALID_STAGE_IDS',
+          message: 'lead_enrichment.filters.stage_ids must be an array',
+          explanation: `Got: ${typeof filters.stage_ids}`
+        };
+      }
+
+      if (!filters.stage_ids.every(id => Number.isInteger(id))) {
+        return {
+          valid: false,
+          code: 'INVALID_STAGE_IDS',
+          message: 'lead_enrichment.filters.stage_ids must contain only integers',
+          explanation: 'Stage IDs must be numeric Odoo record IDs'
+        };
+      }
+    }
+
+    // Validate won_status
+    if (filters.won_status !== undefined) {
+      if (!Array.isArray(filters.won_status)) {
+        return {
+          valid: false,
+          code: 'INVALID_WON_STATUS',
+          message: 'lead_enrichment.filters.won_status must be an array',
+          explanation: `Got: ${typeof filters.won_status}`
+        };
+      }
+
+      const validStatuses = ['won', 'lost', 'pending'];
+      for (const status of filters.won_status) {
+        if (!validStatuses.includes(status)) {
+          return {
+            valid: false,
+            code: 'INVALID_WON_STATUS',
+            message: `lead_enrichment.filters.won_status contains invalid value: ${status}`,
+            explanation: `Valid values are: ${validStatuses.join(', ')}`
+          };
+        }
+      }
+    }
+
+    // Check for unknown keys
+    const allowedKeys = ['stage_ids', 'won_status'];
+    const unknownKeys = Object.keys(filters).filter(key => !allowedKeys.includes(key));
+    if (unknownKeys.length > 0) {
+      return {
+        valid: false,
+        code: 'UNKNOWN_LEAD_FILTER_KEYS',
+        message: `Unknown keys in lead_enrichment.filters: ${unknownKeys.join(', ')}`,
+        explanation: `Allowed keys are: ${allowedKeys.join(', ')}`
+      };
+    }
+  }
+
+  // Check for unknown keys in lead_enrichment
+  const allowedTopKeys = ['enabled', 'mode', 'filters'];
+  const unknownTopKeys = Object.keys(leadEnrichment).filter(key => !allowedTopKeys.includes(key));
+  if (unknownTopKeys.length > 0) {
+    return {
+      valid: false,
+      code: 'UNKNOWN_LEAD_ENRICHMENT_KEYS',
+      message: `Unknown keys in lead_enrichment: ${unknownTopKeys.join(', ')}`,
+      explanation: `Allowed keys are: ${allowedTopKeys.join(', ')}`
+    };
+  }
+
+  return { valid: true };
 }
