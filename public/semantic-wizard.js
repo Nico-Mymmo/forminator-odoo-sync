@@ -445,8 +445,8 @@ function showResults(data, isPreview) {
             </p>
           </div>
           <div class="flex gap-2">
-            <button class="btn btn-sm btn-outline" onclick="exportSemanticQuery('csv')">
-              📊 Export CSV
+            <button class="btn btn-sm btn-outline" onclick="exportSemanticQuery('xlsx')">
+              📈 Export XLSX
             </button>
             <button class="btn btn-sm btn-outline" onclick="exportSemanticQuery('json')">
               📄 Export JSON
@@ -496,7 +496,7 @@ function formatValue(value) {
 }
 
 async function exportSemanticQuery(format) {
-  if (format !== 'csv' && format !== 'json') {
+  if (format !== 'xlsx' && format !== 'json') {
     console.error('Invalid export format:', format);
     return;
   }

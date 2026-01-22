@@ -36,14 +36,14 @@ import {
 import { normalizeToExportResult } from './lib/export/export-normalizer.js';
 import exportRegistry from './lib/export/export-registry.js';
 import jsonExporter from './lib/export/export-json.js';
-import csvExporter from './lib/export/export-csv.js';
+import xlsxExporter from './lib/export/export-xlsx.js';
 import { queryBuilderUI } from './ui.js';
 import { runPhase0Validation } from './tests/phase0-validation.js';
 import { searchRead } from '../../lib/odoo.js';
 
 // Register export formats
 exportRegistry.register('json', jsonExporter);
-exportRegistry.register('csv', csvExporter);
+exportRegistry.register('xlsx', xlsxExporter);
 
 /**
  * GET /api/sales-insights/schema
@@ -1606,7 +1606,7 @@ async function runSemanticQuery(context) {
     // Check if export is requested
     const exportFormat = payload.export;
     
-    if (exportFormat && (exportFormat === 'csv' || exportFormat === 'json')) {
+    if (exportFormat && (exportFormat === 'xlsx' || exportFormat === 'json')) {
       // EXPORT PATH: Return downloadable file
       console.log(`📤 Exporting to ${exportFormat}`);
       
