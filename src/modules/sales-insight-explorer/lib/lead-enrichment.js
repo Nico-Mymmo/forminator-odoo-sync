@@ -51,11 +51,14 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
     notes
   );
   
+  // Filter IGNORED leads after retrieval (classification happens here)
+  const { filteredLeads, classificationCounts } = filterIgnoredLeads(secondaryResult.leads, notes);
+  
   // Build set B and map M
   const setB = new Set();
   const mapM = new Map();
   
-  for (const lead of secondaryResult.leads) {
+  for (const lead of filteredLeads) {
     const actionSheetIds = lead.x_studio_opportunity_actionsheet_ids || [];
     
     for (const asId of actionSheetIds) {
@@ -70,6 +73,8 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
   }
   
   notes.push(`Phase 2: Secondary query returned ${secondaryResult.leads.length} leads`);
+  notes.push(`Lead classification: ${classificationCounts.OPEN} OPEN, ${classificationCounts.WON} WON, ${classificationCounts.LOST} LOST, ${classificationCounts.IGNORED} IGNORED`);
+  notes.push(`After filtering: ${filteredLeads.length} analytically relevant leads`);
   notes.push(`Set B: ${setB.size} unique action sheet IDs referenced by leads`);
   
   // Sort leads deterministically (lead.id ASC)
@@ -113,6 +118,8 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
       primary: { count: actionSheets.length },
       secondary: {
         count: secondaryResult.leads.length,
+        classification_counts: classificationCounts,
+        filtered_count: filteredLeads.length,
         unique_action_sheet_ids: setB.size,
         truncated: secondaryResult.truncated
       }
@@ -145,7 +152,10 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
  * @returns {Promise<{leads: Array, truncated: boolean}>}
  */
 async function executeSecondaryLeadQuery(filters, mode, env, notes) {
-  const domain = [['active', '=', true]];
+  // CRITICAL: Allow both active=true AND active=false to retrieve LOST leads
+  // LOST leads in Odoo CRM are: active=false, won_status='lost', lost_reason_id IS SET
+  // Classification happens AFTER retrieval, not via exclusion
+  const domain = [['active', 'in', [true, false]]];
   
   if (filters?.stage_ids && filters.stage_ids.length > 0) {
     domain.push(['stage_id', 'in', filters.stage_ids]);
@@ -168,6 +178,7 @@ async function executeSecondaryLeadQuery(filters, mode, env, notes) {
       'stage_id',
       'active',
       'won_status',
+      'lost_reason_id', // Required for LOST classification
       'x_studio_opportunity_actionsheet_ids'
     ],
     limit: SECONDARY_LIMIT
@@ -204,7 +215,9 @@ function extractLeadPayload(lead) {
     name: lead.name,
     stage_id: lead.stage_id,
     active: lead.active,
-    won_status: lead.won_status
+    won_status: lead.won_status,
+    lost_reason_id: lead.lost_reason_id,
+    classification: classifyLead(lead) // Add classification for analysis
   };
 }
 
@@ -249,4 +262,81 @@ function applySetOperation(actionSheets, setA, setB, mapM, mode, notes) {
     default:
       throw new Error(`Invalid lead enrichment mode: ${mode}`);
   }
+}
+
+/**
+ * Classify lead based on Odoo CRM semantics
+ * 
+ * CANONICAL CLASSIFICATION:
+ * - OPEN:    active=true,  won_status='pending'
+ * - WON:     active=true,  won_status='won'
+ * - LOST:    active=false, won_status='lost', lost_reason_id IS SET
+ * - IGNORED: active=false AND (won_status != 'lost' OR lost_reason_id IS NULL)
+ * 
+ * IMPORTANT DISTINCTION:
+ * - active is a TECHNICAL VISIBILITY FLAG in Odoo
+ * - won_status + lost_reason_id define ANALYTICAL STATE
+ * - active=false ≠ lost (needs won_status='lost' AND lost_reason_id)
+ * 
+ * @param {Object} lead - Lead record from Odoo
+ * @returns {string} 'OPEN' | 'WON' | 'LOST' | 'IGNORED'
+ */
+function classifyLead(lead) {
+  if (lead.active === true) {
+    if (lead.won_status === 'won') {
+      return 'WON';
+    } else if (lead.won_status === 'pending') {
+      return 'OPEN';
+    } else {
+      // active=true but won_status is something else (edge case)
+      return 'OPEN'; // Default to OPEN for active leads
+    }
+  } else {
+    // active=false
+    if (lead.won_status === 'lost' && lead.lost_reason_id) {
+      return 'LOST';
+    } else {
+      // active=false but NOT properly lost (archived/soft-deleted)
+      return 'IGNORED';
+    }
+  }
+}
+
+/**
+ * Filter IGNORED leads after retrieval and return classification counts
+ * 
+ * IGNORED leads are:
+ * - active=false AND (won_status != 'lost' OR lost_reason_id IS NULL)
+ * 
+ * These are archived/soft-deleted leads that are NOT analytically LOST.
+ * They MUST be discarded AFTER retrieval, not at query level.
+ * 
+ * @param {Array} leads - All leads from secondary query
+ * @param {Array} notes - Execution notes
+ * @returns {{filteredLeads: Array, classificationCounts: Object}}
+ */
+function filterIgnoredLeads(leads, notes) {
+  const classificationCounts = {
+    OPEN: 0,
+    WON: 0,
+    LOST: 0,
+    IGNORED: 0
+  };
+  
+  const filteredLeads = [];
+  
+  for (const lead of leads) {
+    const classification = classifyLead(lead);
+    classificationCounts[classification]++;
+    
+    if (classification !== 'IGNORED') {
+      filteredLeads.push(lead);
+    }
+  }
+  
+  if (classificationCounts.IGNORED > 0) {
+    notes.push(`⚠️  Filtered out ${classificationCounts.IGNORED} IGNORED leads (active=false but not properly LOST)`);
+  }
+  
+  return { filteredLeads, classificationCounts };
 }
