@@ -103,7 +103,8 @@ class WizardState {
       filters: {
         won_status: [],        // Array of selected values: 'won', 'lost', 'pending'
         stage_ids: []          // Array of selected stage IDs
-      }
+      },
+      property_groups: []      // Array of enabled property groups: 'time_flow', 'origin_marketing', 'business_signals'
     };
   }
 
@@ -130,6 +131,14 @@ class WizardState {
 
   setLeadStageFilter(stageIdsArray) {
     this.leadEnrichment.filters.stage_ids = stageIdsArray;
+  }
+
+  toggleLeadPropertyGroup(groupId, enabled) {
+    if (enabled && !this.leadEnrichment.property_groups.includes(groupId)) {
+      this.leadEnrichment.property_groups.push(groupId);
+    } else if (!enabled) {
+      this.leadEnrichment.property_groups = this.leadEnrichment.property_groups.filter(g => g !== groupId);
+    }
   }
 
   setTimeFilter(from, to) {
@@ -233,6 +242,11 @@ class WizardState {
       if (this.leadEnrichment.filters.stage_ids.length > 0) {
         payload.lead_enrichment.filters.stage_ids = this.leadEnrichment.filters.stage_ids;
       }
+
+      // Add property_groups if any are selected
+      if (this.leadEnrichment.property_groups.length > 0) {
+        payload.lead_enrichment.property_groups = this.leadEnrichment.property_groups;
+      }
     }
 
     return payload;
@@ -254,7 +268,7 @@ class WizardState {
     this.apartmentsFilter = {
       min: null,
       max: null,
-      include_zero: false
+      include_zero: true
     };
     this.leadEnrichment = {
       enabled: false,
@@ -262,7 +276,8 @@ class WizardState {
       filters: {
         won_status: [],
         stage_ids: []
-      }
+      },
+      property_groups: []
     };
   }
 }
@@ -391,6 +406,59 @@ function renderStep1() {
           </label>
         </div>
 
+        <!-- Property Groups (only shown when CRM Leads is enabled) -->
+        ${wizardState.leadEnrichment.enabled ? `
+          <div class="ml-12 mt-4 space-y-2">
+            <div class="text-sm font-semibold text-base-content/80 mb-2">Selecteer extra lead velden:</div>
+            
+            <label class="label cursor-pointer justify-start gap-3">
+              <input 
+                type="checkbox" 
+                class="checkbox checkbox-xs checkbox-accent"
+                ${wizardState.leadEnrichment.property_groups.includes('time_flow') ? 'checked' : ''}
+                onchange="wizardState.toggleLeadPropertyGroup('time_flow', this.checked); renderWizard();"
+              />
+              <div class="flex-1">
+                <div class="label-text">⏱️ Time Flow</div>
+                <div class="label-text-alt text-base-content/50">create_date, write_date, date_open, date_closed</div>
+              </div>
+            </label>
+
+            <label class="label cursor-pointer justify-start gap-3">
+              <input 
+                type="checkbox" 
+                class="checkbox checkbox-xs checkbox-accent"
+                ${wizardState.leadEnrichment.property_groups.includes('origin_marketing') ? 'checked' : ''}
+                onchange="wizardState.toggleLeadPropertyGroup('origin_marketing', this.checked); renderWizard();"
+              />
+              <div class="flex-1">
+                <div class="label-text">📍 Origin & Marketing</div>
+                <div class="label-text-alt text-base-content/50">source_id, medium_id, campaign_id, referred</div>
+              </div>
+            </label>
+
+            <label class="label cursor-pointer justify-start gap-3">
+              <input 
+                type="checkbox" 
+                class="checkbox checkbox-xs checkbox-accent"
+                ${wizardState.leadEnrichment.property_groups.includes('business_signals') ? 'checked' : ''}
+                onchange="wizardState.toggleLeadPropertyGroup('business_signals', this.checked); renderWizard();"
+              />
+              <div class="flex-1">
+                <div class="label-text">💼 Business Signals</div>
+                <div class="label-text-alt text-base-content/50">priority, type, expected_revenue, probability</div>
+              </div>
+            </label>
+
+            <div class="alert alert-sm mt-3">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info shrink-0 w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              <span class="text-xs">Status velden (id, name, stage_id, active, won_status) worden altijd opgehaald.</span>
+            </div>
+          </div>
+        ` : ''}
+
         <div class="alert alert-info mt-4">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -412,7 +480,7 @@ function renderStep1() {
 async function renderStep2() {
   // Ensure apartmentsFilter exists (for backward compatibility)
   if (!wizardState.apartmentsFilter) {
-    wizardState.apartmentsFilter = { min: null, max: null, include_zero: false };
+    wizardState.apartmentsFilter = { min: null, max: null, include_zero: true };
   }
 
   // Fetch CRM stages if CRM leads are enabled
