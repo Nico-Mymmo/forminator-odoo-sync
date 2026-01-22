@@ -100,6 +100,12 @@ class WizardState {
     this.timeFilter.to = to;
   }
 
+  setApartmentsFilter(min, max, includeZero) {
+    this.apartmentsFilter.min = min;
+    this.apartmentsFilter.max = max;
+    this.apartmentsFilter.include_zero = includeZero;
+  }
+
   buildPayload() {
     // Minimal payload - ONLY what user explicitly selected
     const payload = {
@@ -120,6 +126,36 @@ class WizardState {
         operator: '<=',
         value: this.timeFilter.to
       });
+    }
+
+    // Add apartments filter if any value is set
+    if (this.apartmentsFilter.min !== null || this.apartmentsFilter.max !== null || this.apartmentsFilter.include_zero === false) {
+      // Min filter
+      if (this.apartmentsFilter.min !== null) {
+        payload.filters.push({
+          field: 'x_studio_number_of_apartments',
+          operator: '>=',
+          value: parseInt(this.apartmentsFilter.min, 10)
+        });
+      }
+      
+      // Max filter
+      if (this.apartmentsFilter.max !== null) {
+        payload.filters.push({
+          field: 'x_studio_number_of_apartments',
+          operator: '<=',
+          value: parseInt(this.apartmentsFilter.max, 10)
+        });
+      }
+      
+      // Zero exclusion (only if explicitly disabled)
+      if (this.apartmentsFilter.include_zero === false) {
+        payload.filters.push({
+          field: 'x_studio_number_of_apartments',
+          operator: '>',
+          value: 0
+        });
+      }
     }
 
     // Add fields from enabled information sets
@@ -150,6 +186,11 @@ class WizardState {
     this.timeFilter = {
       from: null,
       to: null
+    };
+    this.apartmentsFilter = {
+      min: null,
+      max: null,
+      include_zero: false
     };
   }
 }
@@ -226,13 +267,21 @@ function renderStep1() {
 // ============================================================================
 
 function renderStep2() {
+  // Ensure apartmentsFilter exists (for backward compatibility)
+  if (!wizardState.apartmentsFilter) {
+    wizardState.apartmentsFilter = { min: null, max: null, include_zero: false };
+  }
+
   return `
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
-        <h2 class="card-title text-2xl mb-4">Stap 2: Tijdsfilter</h2>
+        <h2 class="card-title text-2xl mb-4">Stap 2: Context filters</h2>
         <p class="text-base-content/70 mb-6">
-          Filter op aanmaakdatum (create_date). Laat leeg voor alle records.
+          Filter op datum en aantal appartementen. Laat leeg voor alle records.
         </p>
+
+        <!-- Time filter section -->
+        <div class="divider">Tijdsfilter</div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="form-control">
@@ -265,6 +314,56 @@ function renderStep2() {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
           </svg>
           <span>Filter wordt toegepast op <strong>x_sales_action_sheet.create_date</strong></span>
+        </div>
+
+        <!-- Apartments filter section -->
+        <div class="divider mt-8">Aantal appartementen</div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-semibold">Minimum</span>
+            </label>
+            <input 
+              type="number" 
+              class="input input-bordered w-full"
+              placeholder="Geen minimum"
+              value="${wizardState.apartmentsFilter.min || ''}"
+              onchange="wizardState.setApartmentsFilter(this.value || null, wizardState.apartmentsFilter.max, wizardState.apartmentsFilter.include_zero); renderWizard();"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-semibold">Maximum</span>
+            </label>
+            <input 
+              type="number" 
+              class="input input-bordered w-full"
+              placeholder="Geen maximum"
+              value="${wizardState.apartmentsFilter.max || ''}"
+              onchange="wizardState.setApartmentsFilter(wizardState.apartmentsFilter.min, this.value || null, wizardState.apartmentsFilter.include_zero); renderWizard();"
+            />
+          </div>
+        </div>
+
+        <div class="form-control mt-4">
+          <label class="label cursor-pointer justify-start gap-4">
+            <input 
+              type="checkbox" 
+              class="checkbox checkbox-primary"
+              ${wizardState.apartmentsFilter.include_zero ? 'checked' : ''}
+              onchange="wizardState.setApartmentsFilter(wizardState.apartmentsFilter.min, wizardState.apartmentsFilter.max, this.checked); renderWizard();"
+            />
+            <span class="label-text">Gebouwen met 0 appartementen meenemen</span>
+          </label>
+        </div>
+
+        <div class="alert alert-info mt-4">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <span>Filter wordt toegepast op <strong>x_studio_number_of_apartments</strong></span>
         </div>
       </div>
     </div>
