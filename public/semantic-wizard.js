@@ -9,16 +9,81 @@
  */
 
 // ============================================================================
+// INFORMATION SETS (HARD-CODED, EXTENSIBLE)
+// ============================================================================
+
+const INFORMATION_SETS = {
+  intake_open_vragen: {
+    label: 'Intake & Open vragen',
+    fields: [
+      'x_studio_open_question_reason_for_contact',
+      'x_studio_open_question_current_situation',
+      'x_studio_open_question_expected_solution',
+      'x_studio_open_question_running_costs',
+      'x_studio_open_question_self_management'
+    ]
+  },
+  communicatie: {
+    label: 'Communicatie',
+    fields: [
+      'x_studio_contact_id',
+      'x_studio_communication_methods',
+      'x_studio_communication_skill_level',
+      'x_studio_digital_skill_level',
+      'x_studio_legal_skill_level',
+      'x_studio_interpersonal_relationship',
+      'x_studio_job_description'
+    ]
+  },
+  huidig_beheer_werking: {
+    label: 'Huidig beheer en werking',
+    fields: [
+      'x_studio_current_syndic',
+      'x_studio_current_syndic_type',
+      'x_studio_current_way_of_working',
+      'x_studio_has_doubly_entry_accounting',
+      'x_studio_has_operating_account',
+      'x_studio_has_reserve_account',
+      'x_studio_has_registration_number',
+      'x_studio_has_insurance'
+    ]
+  },
+  financieel_administratief: {
+    label: 'Financieel en Administratief gedrag',
+    fields: [
+      'x_studio_has_annual_statement',
+      'x_studio_has_allocation_keys',
+      'x_studio_has_advance_payments'
+    ]
+  },
+  gebouw_context: {
+    label: 'Gebouw en Context',
+    fields: [
+      'x_studio_for_company_id',
+      'x_studio_hoa_established',
+      'x_studio_number_of_plots',
+      'x_studio_number_of_apartments',
+      'x_studio_number_of_co_owners',
+      'x_studio_has_commercial_plots',
+      'x_studio_average_tenant_age',
+      'x_studio_age_group'
+    ]
+  }
+};
+
+// ============================================================================
 // WIZARD STATE
 // ============================================================================
 
 class WizardState {
   constructor() {
     this.currentStep = 1;
-    this.includes = {
-      pain_points: false,
-      res_partner: false,
-      crm_lead: false
+    this.informationSets = {
+      intake_open_vragen: false,
+      communicatie: false,
+      huidig_beheer_werking: false,
+      financieel_administratief: false,
+      gebouw_context: false
     };
     this.timeFilter = {
       from: null,
@@ -26,8 +91,8 @@ class WizardState {
     };
   }
 
-  toggleInclude(key, value) {
-    this.includes[key] = value;
+  toggleInformationSet(key, value) {
+    this.informationSets[key] = value;
   }
 
   setTimeFilter(from, to) {
@@ -57,28 +122,30 @@ class WizardState {
       });
     }
 
-    // Add explicit joins ONLY if toggled
-    if (this.includes.pain_points) {
-      payload.fields.push('x_action_sheet_pain_points', 'x_user_painpoints');
+    // Add fields from enabled information sets
+    const fieldSet = new Set(payload.fields);
+    
+    for (const [setKey, isEnabled] of Object.entries(this.informationSets)) {
+      if (isEnabled && INFORMATION_SETS[setKey]) {
+        for (const field of INFORMATION_SETS[setKey].fields) {
+          fieldSet.add(field);
+        }
+      }
     }
     
-    if (this.includes.res_partner) {
-      payload.fields.push('partner_id');
-    }
-    
-    if (this.includes.crm_lead) {
-      payload.fields.push('x_lead_id');
-    }
+    payload.fields = Array.from(fieldSet);
 
     return payload;
   }
 
   resetState() {
     this.currentStep = 1;
-    this.includes = {
-      pain_points: false,
-      res_partner: false,
-      crm_lead: false
+    this.informationSets = {
+      intake_open_vragen: false,
+      communicatie: false,
+      huidig_beheer_werking: false,
+      financieel_administratief: false,
+      gebouw_context: false
     };
     this.timeFilter = {
       from: null,
@@ -118,66 +185,36 @@ function renderProgressBar() {
 // ============================================================================
 
 function renderStep1() {
+  const setToggles = Object.entries(INFORMATION_SETS).map(([setKey, setConfig]) => `
+    <div class="form-control">
+      <label class="label cursor-pointer justify-start gap-4">
+        <input 
+          type="checkbox" 
+          class="checkbox checkbox-primary"
+          ${wizardState.informationSets[setKey] ? 'checked' : ''}
+          onchange="wizardState.toggleInformationSet('${setKey}', this.checked); renderWizard();"
+        />
+        <div>
+          <div class="label-text font-bold">${setConfig.label}</div>
+          <div class="label-text-alt text-base-content/60">
+            ${setConfig.fields.length} velden
+          </div>
+        </div>
+      </label>
+    </div>
+  `).join('');
+
   return `
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
         <h2 class="card-title text-2xl mb-4">Stap 1: Wat wil je ophalen?</h2>
         <p class="text-base-content/70 mb-6">
-          Selecteer expliciet welke gegevens je wilt ophalen. 
+          Selecteer expliciet welke informatiesets je wilt ophalen. 
           <strong>x_sales_action_sheet is altijd inbegrepen.</strong>
         </p>
 
         <div class="space-y-4">
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-4">
-              <input 
-                type="checkbox" 
-                class="checkbox checkbox-primary"
-                ${wizardState.includes.pain_points ? 'checked' : ''}
-                onchange="wizardState.toggleInclude('pain_points', this.checked); renderWizard();"
-              />
-              <div>
-                <div class="label-text font-bold">Pijnpunten & Obstakels</div>
-                <div class="label-text-alt text-base-content/60">
-                  Voegt toe: x_action_sheet_pain_points, x_user_painpoints
-                </div>
-              </div>
-            </label>
-          </div>
-
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-4">
-              <input 
-                type="checkbox" 
-                class="checkbox checkbox-primary"
-                ${wizardState.includes.res_partner ? 'checked' : ''}
-                onchange="wizardState.toggleInclude('res_partner', this.checked); renderWizard();"
-              />
-              <div>
-                <div class="label-text font-bold">Partner/Klant gegevens</div>
-                <div class="label-text-alt text-base-content/60">
-                  Voegt toe: res.partner (naam, adres, etc.)
-                </div>
-              </div>
-            </label>
-          </div>
-
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-4">
-              <input 
-                type="checkbox" 
-                class="checkbox checkbox-primary"
-                ${wizardState.includes.crm_lead ? 'checked' : ''}
-                onchange="wizardState.toggleInclude('crm_lead', this.checked); renderWizard();"
-              />
-              <div>
-                <div class="label-text font-bold">CRM Lead gegevens</div>
-                <div class="label-text-alt text-base-content/60">
-                  Voegt toe: crm.lead (pipeline, verwachte omzet, etc.)
-                </div>
-              </div>
-            </label>
-          </div>
+          ${setToggles}
         </div>
       </div>
     </div>

@@ -39,7 +39,7 @@ import jsonExporter from './lib/export/export-json.js';
 import csvExporter from './lib/export/export-csv.js';
 import { queryBuilderUI } from './ui.js';
 import { runPhase0Validation } from './tests/phase0-validation.js';
-import { searchRead } from '../../lib/odoo.js';  // ADDED: Use existing Odoo integration
+import { searchRead } from '../../lib/odoo.js';
 
 // Register export formats
 exportRegistry.register('json', jsonExporter);
@@ -1593,12 +1593,12 @@ async function runSemanticQuery(context) {
     console.log('  domain:', JSON.stringify(domain));
     console.log('  fields:', JSON.stringify(fields));
     
-    // STEP 4: Call searchRead (existing Odoo integration)
+    // STEP 4: Call searchRead with limit: false to fetch all records
     const records = await searchRead(env, {
       model,
       domain,
       fields,
-      limit: 100  // Default limit
+      limit: false
     });
     
     console.log(`✅ searchRead returned ${records.length} records`);
