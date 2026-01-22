@@ -71,6 +71,58 @@ export function queryBuilderUI(user) {
 
     <script src="/semantic-wizard.js"></script>
     <script>
+      // Initialize theme
+      function changeTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('selectedTheme', theme);
+      }
+      
+      function initTheme() {
+        const savedTheme = localStorage.getItem('selectedTheme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        const selector = document.getElementById('themeSelector');
+        if (selector) {
+          selector.value = savedTheme;
+        }
+      }
+      
+      async function logout() {
+        try {
+          await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            credentials: 'include'
+          });
+        } catch (err) {
+          console.error('Logout error:', err);
+        }
+        localStorage.removeItem('adminToken');
+        window.location.href = '/';
+      }
+      
+      async function syncProdData() {
+        if (!confirm('This will sync production data to dev. Continue?')) return;
+        try {
+          const response = await fetch('/api/admin/sync-prod', {
+            method: 'POST',
+            credentials: 'include'
+          });
+          const result = await response.json();
+          if (result.success) {
+            alert('Sync complete!');
+          } else {
+            alert('Sync failed: ' + (result.error || 'Unknown error'));
+          }
+        } catch (err) {
+          console.error('Sync error:', err);
+          alert('Sync failed: ' + err.message);
+        }
+      }
+      
+      // Initialize on load
+      initTheme();
       lucide.createIcons();
     </script>
 </body>
