@@ -1603,7 +1603,58 @@ async function runSemanticQuery(context) {
     
     console.log(`✅ searchRead returned ${records.length} records`);
     
-    // STEP 5: Return results
+    // Check if export is requested
+    const exportFormat = payload.export;
+    
+    if (exportFormat && (exportFormat === 'csv' || exportFormat === 'json')) {
+      // EXPORT PATH: Return downloadable file
+      console.log(`📤 Exporting to ${exportFormat}`);
+      
+      // Normalize to ExportResult
+      const result = {
+        records,
+        meta: {
+          model,
+          domain,
+          fields,
+          count: records.length,
+          execution_method: 'searchRead',
+          execution_path: 'search_read',
+          preview_mode: false
+        },
+        query_definition: {
+          base_model: model,
+          fields: fields.map(f => ({ field: f, model, alias: f }))
+        },
+        schema_context: {
+          schema_version: 'semantic_wizard_v1'
+        }
+      };
+      
+      const exportResult = normalizeToExportResult(result, {
+        id: 'semantic_query',
+        name: `Semantic Query - ${model}`
+      });
+      
+      // Export to requested format
+      const exportedContent = exportRegistry.export(exportFormat, exportResult);
+      const mimeType = exportRegistry.getMimeType(exportFormat);
+      const fileExtension = exportRegistry.getFileExtension(exportFormat);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const filename = `semantic_query_${model}_${timestamp}${fileExtension}`;
+      
+      console.log(`✅ Export complete: ${filename}`);
+      
+      return new Response(exportedContent, {
+        headers: {
+          'Content-Type': mimeType,
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'X-Record-Count': String(records.length)
+        }
+      });
+    }
+    
+    // NORMAL PATH: Return JSON results
     return new Response(JSON.stringify({
       success: true,
       data: {

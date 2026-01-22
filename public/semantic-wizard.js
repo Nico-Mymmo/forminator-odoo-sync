@@ -437,10 +437,22 @@ function showResults(data, isPreview) {
   container.innerHTML = `
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
-        <h3 class="text-xl font-bold mb-4">✅ Resultaten</h3>
-        <p class="text-sm text-base-content/60 mb-4">
-          ${records.length} ${records.length === 1 ? 'resultaat' : 'resultaten'}
-        </p>
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h3 class="text-xl font-bold">✅ Resultaten</h3>
+            <p class="text-sm text-base-content/60">
+              ${records.length} ${records.length === 1 ? 'resultaat' : 'resultaten'}
+            </p>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-sm btn-outline" onclick="exportSemanticQuery('csv')">
+              📊 Export CSV
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="exportSemanticQuery('json')">
+              📄 Export JSON
+            </button>
+          </div>
+        </div>
 
         <div class="overflow-x-auto">
           <table class="table table-zebra table-sm w-full">
@@ -481,6 +493,58 @@ function formatValue(value) {
     return value.length > 0 ? value.join(', ') : '<span class="text-base-content/40">[]</span>';
   }
   return String(value);
+}
+
+async function exportSemanticQuery(format) {
+  if (format !== 'csv' && format !== 'json') {
+    console.error('Invalid export format:', format);
+    return;
+  }
+
+  try {
+    // Build payload with export format
+    const payload = wizardState.buildPayload();
+    payload.export = format;
+
+    console.log('📤 Exporting as', format);
+    console.log('📦 Payload:', payload);
+
+    const response = await fetch('/insights/api/sales-insights/semantic/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Export failed: ${response.status} ${response.statusText}`);
+    }
+
+    // Get filename from Content-Disposition header or use default
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `export_${format}_${Date.now()}.${format}`;
+    
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?(.+?)"?$/);
+      if (match) filename = match[1];
+    }
+
+    // Download file
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+
+    console.log('✅ Export downloaded:', filename);
+
+  } catch (error) {
+    console.error('❌ Export failed:', error);
+    alert(`Export failed: ${error.message}`);
+  }
 }
 
 // ============================================================================
