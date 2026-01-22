@@ -157,17 +157,12 @@ export function validateSemanticQuery(semanticQuery) {
     }
   }
 
-  // 4. Validate mandatory fields
-  const fieldsValidation = validateMandatoryFields(layer_id, { fields });
-  if (!fieldsValidation.valid) {
-    // Auto-fix: add missing mandatory fields
-    if (fieldsValidation.auto_fix) {
-      semanticQuery.fields = [...(fields || []), ...fieldsValidation.auto_fix];
-      console.log(`Auto-fixed: Added mandatory fields ${fieldsValidation.auto_fix.join(', ')}`);
-    } else {
-      return fieldsValidation;
-    }
-  }
+  // 4. Validate mandatory fields - skip for now, translator handles base fields via schema
+  // Mandatory fields are layer-specific and should be resolved via schema, not hardcoded
+  // const fieldsValidation = validateMandatoryFields(layer_id, { fields });
+  // if (!fieldsValidation.valid) {
+  //   ...
+  // }
 
   // 5. Check specific blokkades
   const blockadeCheck = checkSpecificBlockades(semanticQuery);

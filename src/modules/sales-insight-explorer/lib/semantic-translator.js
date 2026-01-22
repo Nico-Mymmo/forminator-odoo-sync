@@ -81,10 +81,11 @@ export function translateSemanticQuery(semanticQuery, schema) {
     }
   }
 
-  // 3. Add base fields
-  const baseFields = ['id', 'name', 'create_date'];
+  // 3. Add base fields - resolve from schema metadata
+  const displayField = getDisplayNameField(schema, query.base_model);
+  const baseFields = ['id', displayField, 'create_date'];
   for (const field of baseFields) {
-    if (!query.fields.includes(field)) {
+    if (field && !query.fields.includes(field)) {
       query.fields.push(field);
     }
   }
@@ -107,7 +108,70 @@ export function translateSemanticQuery(semanticQuery, schema) {
   // 7. Handle special cases
   handleSpecialCases(query, layer, semanticQuery);
 
+  // 8. Convert fields to proper format (model + field objects)
+  query.fields = query.fields.map(fieldStr => parseFieldString(fieldStr, query.base_model));
+
   return query;
+}
+
+/**
+ * Get display name field from schema
+ * 
+ * @param {Object} schema - SchemaSnapshot
+ * @param {string} modelName - Model name
+ * @returns {string|null} Display field name or null if not found
+ */
+function getDisplayNameField(schema, modelName) {
+  const model = schema.models[modelName];
+  if (!model) {
+    throw new Error(`Model ${modelName} not found in schema`);
+  }
+  
+  // Check for display_name (Odoo auto-generated)
+  if (model.fields['display_name']) {
+    return 'display_name';
+  }
+  
+  // Check for name field
+  if (model.fields['name']) {
+    return 'name';
+  }
+  
+  // Check for x_name (custom field)
+  if (model.fields['x_name']) {
+    return 'x_name';
+  }
+  
+  // Fail explicitly - no display field found
+  throw new Error(
+    `No display name field found for model '${modelName}'. ` +
+    `Available fields: ${Object.keys(model.fields).slice(0, 10).join(', ')}. ` +
+    `Update semantic layer configuration to specify the display field explicitly.`
+  );
+}
+
+/**
+ * Parse field string into {model, field} object
+ * 
+ * @param {string} fieldStr - Field string (e.g., "name" or "res.partner.name")
+ * @param {string} baseModel - Base model name
+ * @returns {Object} Field selection object
+ */
+function parseFieldString(fieldStr, baseModel) {
+  // If field contains a dot, it's a relation field
+  if (fieldStr.includes('.')) {
+    const parts = fieldStr.split('.');
+    // Last part is the field, everything before is the model
+    const field = parts.pop();
+    const model = parts.join('.');
+    return { model, field };
+  }
+  
+  // Simple field belongs to base model
+  return {
+    model: baseModel,
+    field: fieldStr
+  };
 }
 
 /**

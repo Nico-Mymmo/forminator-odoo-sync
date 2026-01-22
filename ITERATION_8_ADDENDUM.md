@@ -1249,4 +1249,143 @@ Deze zijn **sales intelligence assistentie**.
 
 ---
 
+## UPDATE: SEMANTIC WIZARD HARD SIMPLIFICATION
+
+**Date:** January 22, 2026  
+**Type:** Critical Correction - Emergency Simplification  
+**Trigger:** 400 Bad Request errors due to malformed semantic payloads
+
+### PROBLEM STATEMENT
+
+The semantic wizard was causing 400 Bad Request errors because it:
+- Asked too many questions
+- Inferred structure automatically
+- Sent partially-guessed semantics
+- Hallucinated field names and joins
+- Auto-completed semantic objects without user input
+
+**Root cause:** The wizard was TOO intelligent. It tried to help by filling in gaps, which violated the semantic contract.
+
+### HARD REQUIREMENTS (Non-Negotiable)
+
+The wizard must:
+1. ❌ **STOP all inference and hallucination**
+2. ❌ **STOP auto-completing fields**
+3. ❌ **STOP inventing joins**
+4. ✅ **ONLY send what user explicitly selected**
+5. ✅ **Display payload BEFORE execution**
+6. ✅ **Let validator fail if something is missing**
+
+### NEW FLOW (Exactly This)
+
+#### STEP 1 — WHAT TO FETCH
+
+**Always included:**
+- `x_sales_action_sheet` (base model)
+
+**Explicit yes/no toggles:**
+- ☐ Include Pain Points (adds: `x_action_sheet_pain_points`, `x_user_painpoints`)
+- ☐ Include res.partner (adds: `partner_id`)
+- ☐ Include crm.lead (adds: `x_lead_id`)
+
+**Rules:**
+- No defaults
+- No implicit joins
+- If toggle = false → nothing related to that model exists in the query
+- This step defines ONLY: selected entities and explicit joins
+
+#### STEP 2 — TIME CONTEXT ONLY
+
+**Single filter:**
+- `x_sales_action_sheet.create_date`
+- From date / To date
+
+**Rules:**
+- No other filters
+- No phases
+- No grouping
+- No aggregation
+- This step defines ONLY: WHERE clause on create_date
+
+#### STEP 3 — DOES NOT EXIST
+
+Removed completely. No third step. No presentation modes. No grouping logic.
+
+### PAYLOAD STRUCTURE (Minimal & Deterministic)
+
+```javascript
+{
+  base_model: 'x_sales_action_sheet',
+  fields: ['id', 'x_name', 'create_date'],  // Always
+  filters: [
+    // Only if time filter provided:
+    { field: 'create_date', operator: '>=', value: '2026-01-01' },
+    { field: 'create_date', operator: '<=', value: '2026-01-31' }
+  ]
+  // Additional fields ONLY if explicitly toggled:
+  // - If pain_points: ['x_action_sheet_pain_points', 'x_user_painpoints']
+  // - If res_partner: ['partner_id']
+  // - If crm_lead: ['x_lead_id']
+}
+```
+
+### PAYLOAD VISIBILITY (Mandatory)
+
+**Before calling `/semantic/run`:**
+1. Log to console: `console.log('📦 PAYLOAD TO BE SENT:', JSON.stringify(payload, null, 2))`
+2. Display on page in a card:
+   ```html
+   <div class="card bg-base-200">
+     <div class="card-body">
+       <h3>📦 Query Payload</h3>
+       <pre><code>{ JSON payload }</code></pre>
+     </div>
+   </div>
+   ```
+
+**This allows user to verify:** "Yes, that is exactly what I asked for"
+
+### IMPLEMENTATION CHANGES
+
+**File:** `public/semantic-wizard.js`
+- Removed: All semantic layer definitions (pain_points, meeting_evolution, stage_distribution, etc.)
+- Removed: All context filters (building_size, stage_type, time_period, owner, etc.)
+- Removed: All presentation modes (group_by, compare, trend, top_bottom, summarize)
+- Removed: 3-step wizard (renderLayer1, renderLayer2, renderLayer3)
+- Simplified: WizardState to only track: includes + timeFilter
+- Added: buildPayload() - minimal, explicit, no inference
+- Added: Payload display before execution
+- Reduced: From ~738 lines to ~500 lines (32% reduction)
+
+**File:** `src/modules/sales-insight-explorer/ui.js`
+- Added: `<div id="payload-display">` element for payload visibility
+
+### SUCCESS CONDITION
+
+This is successful when:
+1. ✅ `/semantic/run` no longer returns 400
+2. ✅ The payload is understandable by a human
+3. ✅ The user can say: "yes, that is exactly what I asked for"
+4. ✅ No intelligence is added beyond user choice
+
+### WHAT THIS MEANS FOR ITERATION 8
+
+The original ITERATION_8_DESIGN.md vision of "semantic layers" was:
+- **Conceptually correct** — Domain-specific abstraction is the right approach
+- **Prematurely complex** — Cannot be built until semantic validator is proven
+- **Architecturally sound** — Pain points, meetings, stages ARE the right layers
+
+**New reality:**
+1. Build simplest possible wizard first (2 steps, explicit toggles)
+2. Prove semantic validator accepts minimal payloads
+3. Test with real data, real queries
+4. THEN add semantic intelligence layer-by-layer
+5. Each layer must pass validation before next layer
+
+**This is not failure. This is PROPER ENGINEERING.**
+
+Start simple. Prove correctness. Add intelligence incrementally.
+
+---
+
 *"A domain-specific tool disguised as a query builder is still a domain-specific tool."*

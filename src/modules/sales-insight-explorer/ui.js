@@ -54,12 +54,11 @@ export function queryBuilderUI(user) {
             </div>
           </div>
 
-          <!-- Results Container -->
-          <div id="results-container">
-            <!-- Results rendered here -->
+          <!-- Payload Display -->
+          <div id="payload-display">
+            <!-- Payload will be shown here before execution -->
           </div>
 
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <!-- Results Container -->
           <div id="results-container">
             <!-- Results rendered here -->

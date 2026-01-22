@@ -302,13 +302,15 @@ function generateSchemaVersion() {
  */
 function getDefaultModels() {
   return [
-    'crm.lead',           // Opportunities/Leads
-    'res.partner',        // Customers/Contacts
-    'crm.stage',          // CRM Stages
-    'mail.activity',      // Activities
-    'calendar.event',     // Meetings/Events
-    'sale.order',         // Sales Orders (if available)
-    'product.product'     // Products (if available)
+    'x_sales_action_sheet',       // Sales Action Sheets (PRIMARY MODEL) ✓ Exists (415 records)
+    'x_user_painpoints',          // Pain points master data ✓ Exists (14 records)
+    'crm.lead',                   // Opportunities/Leads
+    'res.partner',                // Customers/Contacts
+    'crm.stage',                  // CRM Stages
+    'mail.activity',              // Activities
+    'calendar.event',             // Meetings/Events
+    'sale.order',                 // Sales Orders (if available)
+    'product.product'             // Products (if available)
   ];
 }
 
