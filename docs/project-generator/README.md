@@ -17,9 +17,11 @@
 ### What is Project Generator V1?
 
 A minimal system that allows users to:
-1. **Design** a project structure (stages, milestones, tasks, dependencies)
+1. **Design** a project structure (task stages, milestones, tasks, subtasks, dependencies)
 2. **Save** it as a template (Supabase)
 3. **Generate** an Odoo project from that template (API)
+
+**Architectural Principle:** The Project Generator adapts to Odoo. Odoo is not modified, extended, or bypassed.
 
 ### Deterministic Flow
 

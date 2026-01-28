@@ -15,11 +15,14 @@ All other documents are supporting material. If there's a conflict, this documen
 ## What This Module Does (5-Second Summary)
 
 Users can:
-1. Design a project structure (stages, milestones, tasks, dependencies)
+1. Design a project structure (task stages, milestones, tasks with subtasks, dependencies)
 2. Save it as a template
 3. Generate an Odoo project from that template
 
 Once generated, the Odoo project is completely independent. No sync, no updates.
+
+**Critical Principle:**
+The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.
 
 ---
 
@@ -43,9 +46,11 @@ Once generated, the Odoo project is completely independent. No sync, no updates.
 ┌─────────────────────────────────────────────┐
 │         LAYER 1: BLUEPRINT                   │
 │  Browser memory only (session-scoped)       │
-│  Structure: { stages[], milestones[],       │
-│               tasks[], dependencies[] }      │
+│  Structure: { taskStages[], milestones[],   │
+│               tasks[] (with subtasks),       │
+│               dependencies[] }               │
 │  Validates: errors block, warnings allow     │
+│  Undo: Cancel returns to last saved state    │
 └─────────────────────────────────────────────┘
                     ↓ Save
 ┌─────────────────────────────────────────────┐
@@ -68,11 +73,13 @@ Once generated, the Odoo project is completely independent. No sync, no updates.
 **Create Template:**
 ```
 User designs blueprint → Validates → Saves to Supabase → Done
+(Cancel button returns to last saved state)
 ```
 
 **Generate Project:**
 ```
-Load template → Enter project name → Call Odoo API (5 steps) → Done
+Load template → Enter project name → Call Odoo API (6 steps) → Done
+(Creates: project, task stages, milestones, tasks, subtasks, dependencies)
 ```
 
 **No background jobs. No queues. No webhooks. No sync.**
@@ -107,9 +114,17 @@ CREATE POLICY "Users manage own templates"
 
 ### Blueprint Data Structure (JSONB)
 
+**Critical Terminology:**
+- `taskStages`: Project-specific task stages (maps to `project.task.type` in Odoo)
+- **NOT** project-level stages (those are Odoo-native and out of scope for this generator)
+
+**Odoo Alignment:**
+The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.
+All blueprint fields map directly to existing Odoo model fields.
+
 ```json
 {
-  "stages": [
+  "taskStages": [
     {
       "id": "stage_1",
       "name": "Backlog",
@@ -142,20 +157,39 @@ CREATE POLICY "Users manage own templates"
     {
       "id": "task_1",
       "name": "Setup Development Environment",
-      "milestone_id": "milestone_1"
+      "milestone_id": "milestone_1",
+      "parent_id": null
+    },
+    {
+      "id": "task_1_1",
+      "name": "Install IDE",
+      "milestone_id": "milestone_1",
+      "parent_id": "task_1"
+    },
+    {
+      "id": "task_1_2",
+      "name": "Configure Git",
+      "milestone_id": "milestone_1",
+      "parent_id": "task_1"
     },
     {
       "id": "task_2",
       "name": "Configure CI/CD",
-      "milestone_id": "milestone_1"
+      "milestone_id": "milestone_1",
+      "parent_id": null
     },
     {
       "id": "task_3",
       "name": "Implement Features",
-      "milestone_id": "milestone_2"
+      "milestone_id": "milestone_2",
+      "parent_id": null
     }
   ],
   "dependencies": [
+    {
+      "task_id": "task_1_2",
+      "depends_on_id": "task_1_1"
+    },
     {
       "task_id": "task_2",
       "depends_on_id": "task_1"
@@ -168,14 +202,24 @@ CREATE POLICY "Users manage own templates"
 }
 ```
 
+**Structural Rules (V1):**
+- `parent_id` = null → top-level task
+- `parent_id` = task ID → subtask of that task
+- Subtasks are real Odoo `project.task` records with `parent_id` field set
+- Subtasks inherit project and milestone context from parent
+- Dependencies can exist:
+  - Between top-level tasks
+  - Between subtasks
+  - Across parent boundaries (subtask can depend on top-level task)
+- Circular dependencies across parent boundaries are detected and blocked
+
 **Fields NOT in V1:**
-- ❌ `stage.color`
-- ❌ `stage.type`
+- ❌ `taskStages[].color`
+- ❌ `taskStages[].type`
 - ❌ `task.description`
 - ❌ `task.estimated_hours`
 - ❌ `task.assigned_to`
 - ❌ `task.tags`
-- ❌ `task.subtasks`
 
 ---
 
@@ -186,23 +230,27 @@ CREATE POLICY "Users manage own templates"
 | Rule | Detection | Message |
 |------|-----------|---------|
 | Empty Template Name | `name === ''` | "Template name is required" |
-| Empty Stage Name | `stage.name === ''` | "Stage name is required" |
+| Empty Task Stage Name | `taskStage.name === ''` | "Task stage name is required" |
 | Empty Milestone Name | `milestone.name === ''` | "Milestone name is required" |
 | Empty Task Name | `task.name === ''` | "Task name is required" |
-| Duplicate Stage Names | Set comparison | "Duplicate stage name: '{name}'" |
+| Duplicate Task Stage Names | Set comparison | "Duplicate task stage name: '{name}'" |
 | Duplicate Milestone Names | Set comparison | "Duplicate milestone name: '{name}'" |
-| Circular Dependency | DFS cycle detection | "Circular dependency: Task A → Task B → Task A" |
+| Circular Dependency | DFS cycle detection | "Circular dependency detected: Task A → Task B → Task A" |
 | Invalid Dependency Reference | ID lookup | "Invalid dependency: task not found" |
+| Invalid parent_id | Parent task doesn't exist | "Invalid parent_id: task '{id}' not found" |
+| Circular Parent Hierarchy | Recursive parent check | "Circular parent hierarchy detected" |
 | Empty Project Name | `projectName === ''` | "Project name is required" |
 
 ### Warnings (Allow Save/Generate)
 
 | Rule | Detection | Message |
 |------|-----------|---------|
-| No Stages | `stages.length === 0` | "No stages defined" |
+| No Task Stages | `taskStages.length === 0` | "No task stages defined" |
 | No Milestones | `milestones.length === 0` | "No milestones defined" |
 | Task Without Milestone | `task.milestone_id === null` | "{count} task(s) have no milestone" |
-| Empty Stage | No tasks in stage | "Stage '{name}' has no tasks" |
+| Empty Task Stage | No tasks assigned to stage | "Task stage '{name}' has no tasks" |
+| Isolated Task | No dependencies in/out | "{count} task(s) are isolated" |
+| Empty Task Stage | No tasks assigned to stage | "Task stage '{name}' has no tasks" |
 | Isolated Task | No dependencies in/out | "{count} task(s) are isolated" |
 
 **Implementation:** Pure JavaScript functions in `validation.js`, no external dependencies.
@@ -211,7 +259,10 @@ CREATE POLICY "Users manage own templates"
 
 ## Odoo API Integration
 
-### Sequential Call Pattern
+**Fundamental Principle:**
+The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.
+
+### Sequential Call Pattern (6 Steps)
 
 ```javascript
 async function generateProject(projectName, blueprint) {
@@ -220,9 +271,9 @@ async function generateProject(projectName, blueprint) {
     name: projectName
   }]);
 
-  // 2. Create stages
+  // 2. Create task stages (project-specific, maps to project.task.type)
   const stageMap = new Map();
-  for (const stage of blueprint.stages) {
+  for (const stage of blueprint.taskStages) {
     const stageId = await executeKw('project.task.type', 'create', [{
       name: stage.name,
       project_ids: [[6, 0, [projectId]]],
@@ -241,9 +292,10 @@ async function generateProject(projectName, blueprint) {
     milestoneMap.set(milestone.id, milestoneId);
   }
 
-  // 4. Create tasks (pass 1 - no dependencies yet)
+  // 4. Create top-level tasks (parent_id === null)
   const taskMap = new Map();
-  for (const task of blueprint.tasks) {
+  const topLevelTasks = blueprint.tasks.filter(t => !t.parent_id);
+  for (const task of topLevelTasks) {
     const taskData = { name: task.name, project_id: projectId };
     if (task.milestone_id && milestoneMap.has(task.milestone_id)) {
       taskData.milestone_id = milestoneMap.get(task.milestone_id);
@@ -252,7 +304,23 @@ async function generateProject(projectName, blueprint) {
     taskMap.set(task.id, taskId);
   }
 
-  // 5. Set dependencies (pass 2)
+  // 5. Create subtasks (parent_id !== null), must come after parents
+  const subtasks = blueprint.tasks.filter(t => t.parent_id);
+  for (const subtask of subtasks) {
+    const parentOdooId = taskMap.get(subtask.parent_id);
+    const taskData = {
+      name: subtask.name,
+      project_id: projectId,
+      parent_id: parentOdooId
+    };
+    if (subtask.milestone_id && milestoneMap.has(subtask.milestone_id)) {
+      taskData.milestone_id = milestoneMap.get(subtask.milestone_id);
+    }
+    const taskId = await executeKw('project.task', 'create', [taskData]);
+    taskMap.set(subtask.id, taskId);
+  }
+
+  // 6. Set dependencies (pass after all tasks exist)
   for (const dep of blueprint.dependencies) {
     const taskId = taskMap.get(dep.task_id);
     const dependsOnId = taskMap.get(dep.depends_on_id);
@@ -273,6 +341,8 @@ async function generateProject(projectName, blueprint) {
 - Sequential (not parallel) for simplicity
 - No rollback on error in V1
 - Maps blueprint IDs to Odoo IDs at each step
+- **Subtasks created after their parents** (critical ordering)
+- All tasks (including subtasks) are standard Odoo `project.task` records
 
 ---
 
@@ -331,27 +401,42 @@ src/modules/project-generator/
 **Layout (3-column):**
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  [Template Name Input]         [Validate] [Save] [Cancel]   │
+│  [Template Name Input]    [Validate] [Save] [Cancel/Undo]   │
 ├──────────────┬──────────────────┬────────────────────────────┤
-│  STAGES      │  MILESTONES      │  TASKS                      │
+│  TASK STAGES │  MILESTONES      │  TASKS & SUBTASKS           │
 │              │                  │                             │
 │  □ Backlog   │  □ Phase 1       │  □ Setup Project            │
 │     [X]      │     Description  │     Milestone: [Phase 1▼]   │
-│              │     [X]          │     Dependencies:           │
-│  □ In Progress│                 │     - None                  │
-│     [X]      │  □ Phase 2       │     [+ Add Dependency]      │
-│              │     Description  │     [X]                     │
-│  □ Done      │     [X]          │                             │
-│     [X]      │                  │  □ Configure Tools          │
-│              │  [+ Add          │     Milestone: [Phase 1▼]   │
-│  [+ Add      │   Milestone]     │     Dependencies:           │
-│   Stage]     │                  │     - Setup Project [X]     │
+│              │     [X]          │     Subtasks:               │
+│  □ In Progress│                 │       • Install IDE [X]     │
+│     [X]      │  □ Phase 2       │       • Configure Git [X]   │
+│              │     Description  │     [+ Add Subtask]         │
+│  □ Done      │     [X]          │     Dependencies:           │
+│     [X]      │                  │     - None                  │
+│              │  [+ Add          │     [+ Add Dependency]      │
+│  [+ Add      │   Milestone]     │     [X]                     │
+│   Task Stage]│                  │                             │
+│              │                  │  □ Configure Tools          │
+│              │                  │     Milestone: [Phase 1▼]   │
+│              │                  │     Subtasks: None          │
+│              │                  │     Dependencies:           │
+│              │                  │     - Setup Project [X]     │
 │              │                  │     [+ Add Dependency]      │
 │              │                  │     [X]                     │
 │              │                  │                             │
 │              │                  │  [+ Add Task]               │
 └──────────────┴──────────────────┴────────────────────────────┘
 ```
+
+**Critical UX Elements:**
+
+**Cancel/Undo Button:**
+- Returns editor to last saved state (loaded template)
+- For new templates: returns to empty state
+- This is NOT step-by-step undo
+- This is "discard changes since last save"
+- No redo capability
+- Intentional UX choice to support managers learning process thinking
 
 **Validation Display:**
 - Errors shown in red alert at top (blocks save)
@@ -361,13 +446,18 @@ src/modules/project-generator/
 - Add items: Click "Add [X]" button
 - Remove items: Click [X] button
 - Edit: Direct input/textarea
-- Dependencies: Click "Add Dependency" → Prompt with task list
+- Subtasks: Nested under parent task, shown indented
+- Dependencies: Click "Add Dependency" → Prompt with task list (includes subtasks)
+
+**Terminology Note:**
+- "Task Stages" column clearly labeled (not "Stages")
+- Avoids confusion with project-level stages (Odoo-native, out of scope)
 
 **NOT in V1:**
 - ❌ Drag-and-drop
 - ❌ Visual dependency graph
 - ❌ Auto-save
-- ❌ Undo/redo
+- ❌ Step-by-step undo/redo
 - ❌ Keyboard shortcuts
 
 ---
@@ -547,8 +637,9 @@ export const modules = [
 1. **Prompt for dependency selection** → Not as nice as modal or dropdown
 2. **No drag-and-drop** → Manual reordering via up/down (or recreate)
 3. **No visual dependency graph** → Text list only
-4. **No undo/redo** → Browser refresh loses unsaved work
-5. **No auto-save** → User must explicitly save
+4. **Cancel/Undo returns to last save** → Not step-by-step undo (intentional for simplicity)
+5. **No redo** → Cannot redo undone changes
+6. **No auto-save** → User must explicitly save
 
 ### Technical Limitations
 1. **Sequential API calls** → Slower than parallel (but simpler)
@@ -556,8 +647,12 @@ export const modules = [
 3. **No optimistic UI** → Wait for API response before updating
 4. **No error retry logic** → User must manually retry
 
-### Data Limitations
-1. **No subtasks** → Flat task list only
+### Data Limitations (None - V1 supports essential structure)
+1. Task stages ✅ (project-specific task.type)
+2. Milestones ✅
+3. Tasks ✅
+4. Subtasks ✅ (with parent_id)
+5. Dependencies ✅ (including across subtasks)
 2. **No task descriptions** → Name only
 3. **No estimated hours** → Not captured in template
 4. **No task assignments** → Odoo users not mapped
@@ -566,29 +661,31 @@ export const modules = [
 
 ---
 
-## Success Criteria
+### Success Criteria
 
 ### Must Work
-- [x] User can create template
-- [x] User can edit template
+- [x] User can create template with task stages, milestones, tasks, subtasks
+- [x] User can edit template (Cancel returns to last saved state)
 - [x] User can delete template
 - [x] User can generate Odoo project
-- [x] Generated project matches blueprint
-- [x] Validation catches circular dependencies
+- [x] Generated project matches blueprint (including subtask hierarchy)
+- [x] Validation catches circular dependencies (in tasks and parent hierarchy)
 - [x] RLS prevents cross-user access
+- [x] Subtasks created with correct parent_id
 
 ### Performance Targets
 - Template list loads in <1 second
 - Blueprint editor loads in <500ms
-- Validation runs in <200ms
+- Validation runs in <200ms (including parent hierarchy checks)
 - Template save completes in <1 second
-- Project generation (50 tasks) completes in <10 seconds
+- Project generation (50 tasks + 20 subtasks) completes in <15 seconds
 
 ### Data Integrity
 - No silent failures
 - No orphaned records
 - RLS enforced correctly
 - Validation runs on every save
+- Parent-child relationships preserved
 
 **If these criteria are met, V1 is successful.**
 
@@ -613,22 +710,24 @@ export const modules = [
 - ❌ Template categories
 - ❌ Usage analytics
 - ❌ Performance metrics
-- ❌ Keyboard shortcuts
+- ❌ Keyboard shortcuts (beyond Tab/Enter)
 - ❌ Confetti animation
 - ❌ Email notifications
 - ❌ Link to Odoo after creation
 - ❌ Sync with Odoo
+- ❌ Step-by-step undo/redo
+- ❌ Modification of project-level stages (Odoo-native)
 
 ### Data Elements
-- ❌ Subtasks
 - ❌ Task descriptions
 - ❌ Task estimated hours
 - ❌ Task assignments
 - ❌ Task priorities
 - ❌ Task tags
-- ❌ Stage colors
-- ❌ Stage types
+- ❌ Task stage colors
+- ❌ Task stage types
 - ❌ Custom metadata
+- ❌ Project-level stage management (Odoo-native, out of generator scope)
 
 ### UX Elements
 - ❌ Visual dependency graph
@@ -639,7 +738,7 @@ export const modules = [
 - ❌ Grid view
 - ❌ Bulk operations
 - ❌ Context menus
-- ❌ Tooltips
+- ❌ Tooltips (beyond basic HTML title attributes)
 - ❌ Breadcrumbs
 - ❌ Loading skeletons
 - ❌ Animations
@@ -647,7 +746,7 @@ export const modules = [
 
 ### Technical Elements
 - ❌ Service layer abstractions
-- ❌ Alternative Odoo patterns
+- ❌ Alternative Odoo patterns (uses only existing odoo.js)
 - ❌ Custom validation framework
 - ❌ State management library
 - ❌ GraphQL layer
@@ -695,7 +794,6 @@ export const modules = [
    - Batch generation
 
 7. **Data Enhancements**
-   - Subtasks
    - Task descriptions
    - Estimated hours
    - Tags
@@ -706,7 +804,59 @@ export const modules = [
    - Lock/unlock
    - Comments
 
-**None of these are in V1. Validate core workflow first.**
+**Note:** Subtasks are IN V1. All other data enhancements are V2+.
+
+**None of V2+ features are in V1. Validate core workflow first.**
+
+---
+
+## Architectural Principles (Must Understand)
+
+### 1. Odoo Is Leading
+
+**Principle:**
+The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.
+
+**Implications:**
+- Blueprint structure mirrors Odoo models exactly
+- No custom fields beyond what Odoo `project.task` supports
+- No domain logic beyond Odoo's native capabilities
+- Field names match Odoo field names (`parent_id`, `milestone_id`, `depend_on_ids`)
+
+### 2. Task Stages vs Project Stages
+
+**Critical Distinction:**
+- **Project-level stages**: Odoo-native, global, immutable → OUT OF SCOPE
+- **Task-level stages** (`project.task.type`): Project-specific, generator creates these → IN SCOPE
+
+**Why This Matters:**
+- Prevents architectural confusion
+- Avoids attempting to modify Odoo's project stage workflow
+- Keeps generator focused on task organization only
+
+### 3. Cancel/Undo Philosophy
+
+**Design Choice:**
+- Cancel button returns to last saved state
+- NOT step-by-step undo/redo
+- Intentional simplification for managers learning process thinking
+
+**Why:**
+- Reduces cognitive load
+- Clear "safe point" = last save
+- Prevents partial-state confusion
+- Browser refresh is also a "cancel" (acceptable loss for V1)
+
+### 4. Subtasks Are Essential
+
+**Why In V1:**
+- Process thinking requires task decomposition
+- Odoo natively supports `parent_id`
+- Dependencies can flow across subtask boundaries
+- Enables realistic project templates
+
+**Not Optional:**
+This is a correction from initial analysis, not scope creep.
 
 ---
 
@@ -720,13 +870,19 @@ export const modules = [
 - `EXPLORER.md` (replaced by EXPLORER_V1.md)
 - `PROJECT_GENERATOR_COMPLETE.md` (replaced by this document)
 
-### New V1 Docs
-- `FUNCTIONAL_ANALYSIS_V1.md` → What user can do
-- `TECHNICAL_ANALYSIS_V1.md` → How to implement
-- `EXPLORER_V1.md` → Why these choices
-- `PROJECT_GENERATOR_COMPLETE_V1.md` → This document (single source of truth)
+### New V1 Docs (Corrected)
+- `FUNCTIONAL_ANALYSIS_V1.md` → What user can do (WITH subtasks, WITH cancel/undo)
+- `TECHNICAL_ANALYSIS_V1.md` → How to implement (task stages, parent_id handling)
+- `EXPLORER_V1.md` → Why these choices (Odoo-leading principle)
+- `PROJECT_GENERATOR_COMPLETE_V1.md` → This document (single source of truth - CORRECTED)
 
 **Use only V1 docs going forward. Old docs are deprecated.**
+
+**Key Corrections Applied:**
+1. ✅ Subtasks added (with `parent_id`)
+2. ✅ Task stages vs Project stages distinction clarified
+3. ✅ Cancel/Undo added (returns to last saved state)
+4. ✅ Odoo-leading principle made explicit
 
 ---
 
@@ -738,6 +894,12 @@ This document defines **exactly** what to build for Project Generator V1.
 **Timeline:** 3-5 days  
 **Goal:** Validate core workflow  
 **Future:** Expand only if V1 succeeds
+
+**Critical Principles:**
+1. The Project Generator adapts to Odoo (not the other way around)
+2. Task stages (project-specific) ≠ Project stages (Odoo-native)
+3. Subtasks are essential for process thinking
+4. Cancel returns to last saved state (not step-by-step undo)
 
 **Build this. Nothing more. Nothing less.**
 

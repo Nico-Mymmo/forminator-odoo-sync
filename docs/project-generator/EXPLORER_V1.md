@@ -34,8 +34,8 @@ A simple template system that captures a project structure once and can recreate
 **1. Blueprint Designer**
 - **Why:** Need a way to design the structure before saving
 - **Why Browser-Only:** No persistence needed until user explicitly saves
-- **Why No Auto-Save:** Reduces complexity, user controls when to commit
-- **Why No Undo/Redo:** Browser refresh is the "undo" in V1
+- **Why Cancel/Undo to Last Saved State:** Allows users to experiment without losing work, simpler than step-by-step undo
+- **Why No Step-by-Step Undo/Redo:** Adds complexity (history stack, UI buttons), Cancel to last saved is sufficient for managers learning process thinking
 
 **2. Template Storage**
 - **Why Supabase:** Already integrated, RLS handles permissions
@@ -46,8 +46,10 @@ A simple template system that captures a project structure once and can recreate
 **3. Odoo Project Creation**
 - **Why Sequential API Calls:** Simpler than parallel, dependencies are clear
 - **Why No Rollback:** Complex to implement, V1 assumes success path
-- **Why Stages/Milestones/Tasks Only:** These are the essential building blocks
-- **Why No Subtasks:** Adds complexity, can be added in Odoo after creation
+- **Why Task Stages/Milestones/Tasks/Subtasks:** These are the essential building blocks for process thinking
+- **Why Task Stages (project.task.type):** Odoo-native task kanban stages, NOT project-level stages
+- **Why Subtasks ARE Essential:** Decomposition is fundamental to process thinking, subtasks enable task breakdown
+- **Why parent_id on project.task:** Respects Odoo's native subtask structure (no custom fields needed)
 
 **4. Validation**
 - **Why Errors vs Warnings:** Some things must be correct (no circular deps), others are advisory
@@ -72,9 +74,17 @@ A simple template system that captures a project structure once and can recreate
 - **Future:** V2+ with proper transaction management
 
 **❌ Subtasks**
-- **Why Not V1:** Adds nesting complexity in editor UI, dependency graph becomes multi-level
-- **Workaround:** Users can add subtasks directly in Odoo after project creation
-- **Future:** V2+ if users demand it
+- **CORRECTION:** Subtasks ARE in V1 (this was an incorrect exclusion)
+- **Why Now Included:** Process thinking requires task decomposition, subtasks are essential for managers
+- **Implementation:** parent_id field on project.task (Odoo-native structure)
+- **UI:** Indented display under parent tasks in editor
+- **Future:** Enhanced subtask features (multiple levels, bulk operations)
+
+**❌ Step-by-Step Undo/Redo**
+- **Why Not V1:** Requires history stack, redo stack, UI buttons, event tracking
+- **Workaround:** Cancel button returns to last saved state (simpler, sufficient for V1)
+- **Why Cancel/Undo IS in V1:** Manager-friendly UX, allows experimentation without data loss
+- **Future:** V2+ if users demand granular undo/redo
 
 **❌ Drag-and-Drop Reordering**
 - **Why Not V1:** Requires drag library or custom implementation, adds visual complexity
@@ -266,10 +276,11 @@ Frontend calls generateProject(name, blueprint)
   ↓
 Sequential Odoo API calls:
   1. createProject(name) → projectId
-  2. createStages(projectId, stages) → stageMap
+  2. createTaskStages(projectId, taskStages) → taskStageMap
   3. createMilestones(projectId, milestones) → milestoneMap
-  4. createTasks(projectId, tasks, milestoneMap) → taskMap
-  5. setDependencies(taskMap, dependencies)
+  4. createParentTasks(projectId, tasks, milestoneMap) → taskMap
+  5. createSubtasks(projectId, tasks, milestoneMap, taskMap) → update taskMap
+  6. setDependencies(taskMap, dependencies)
   ↓
 Success → show success message
 Error → show error message
@@ -277,7 +288,7 @@ Error → show error message
 No rollback, no audit log
 ```
 
-**Deterministic, sequential, simple.**
+**Deterministic, sequential, simple. 6 steps (not 5) to handle subtask ordering.**
 
 ---
 
@@ -286,10 +297,11 @@ No rollback, no audit log
 ### Why 3-Column Layout in Editor?
 
 **Reasoning:**
-- Stages, Milestones, Tasks are conceptually distinct
+- Task Stages, Milestones, Tasks & Subtasks are conceptually distinct
 - Side-by-side view shows relationships clearly
 - No scrolling needed for small structures
-- Matches mental model: stage → milestone → task
+- Matches mental model: task stage → milestone → task → subtask
+- **Terminology Correction:** "Task Stages" (not "Stages") to distinguish from project-level stages
 
 **Alternative Rejected:** Single-column accordion
 - Would hide information
@@ -510,7 +522,7 @@ No rollback, no audit log
    - Link to Odoo project after creation
 
 7. **Data Enhancements**
-   - Subtasks
+   - ~~Subtasks~~ ✅ **NOW IN V1** (essential for process thinking)
    - Task descriptions
    - Estimated hours
    - Task assignments (if user mapping exists)
@@ -522,7 +534,7 @@ No rollback, no audit log
    - Lock/unlock templates
    - Comments on templates
 
-**None of these are in V1. V1 is minimal, functional, proven.**
+**None of these (except subtasks) are in V1. V1 is minimal, functional, proven.**
 
 ---
 

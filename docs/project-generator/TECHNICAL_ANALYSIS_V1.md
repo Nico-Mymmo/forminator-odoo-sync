@@ -6,12 +6,20 @@ This document specifies **exactly how** to implement the Project Generator V1 us
 
 **No new patterns. No new abstractions. No new libraries.**
 
+**Architectural Principle: The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.**
+
 Uses:
 - Existing `src/modules/registry.js` for module registration
 - Existing `src/lib/odoo.js` for all Odoo communication
 - Existing `src/lib/database.js` for Supabase queries
 - Existing `src/lib/auth/*` for authentication
 - DaisyUI components matching existing app style
+
+**V1 Corrections Applied:**
+- **Subtasks are essential** (parent_id field on project.task)
+- **Task stages** (project.task.type) ≠ Project stages (Odoo-native)
+- **Cancel/Undo** returns to last saved state (not step-by-step)
+- **Odoo structure is leading** (generator adapts, not extends)
 
 ---
 
@@ -217,20 +225,20 @@ export function validateBlueprint(blueprint) {
   const errors = [];
   const warnings = [];
 
-  // Check stages
-  if (!blueprint.stages || blueprint.stages.length === 0) {
-    warnings.push('No stages defined');
+  // Check task stages
+  if (!blueprint.taskStages || blueprint.taskStages.length === 0) {
+    warnings.push('No task stages defined');
   }
 
-  const stageNames = new Set();
-  blueprint.stages?.forEach((stage, index) => {
-    if (!stage.name || stage.name.trim() === '') {
-      errors.push(`Stage ${index + 1} has no name`);
+  const taskStageNames = new Set();
+  blueprint.taskStages?.forEach((taskStage, index) => {
+    if (!taskStage.name || taskStage.name.trim() === '') {
+      errors.push(`Task stage ${index + 1} has no name`);
     }
-    if (stageNames.has(stage.name)) {
-      errors.push(`Duplicate stage name: "${stage.name}"`);
+    if (taskStageNames.has(taskStage.name)) {
+      errors.push(`Duplicate task stage name: "${taskStage.name}"`);
     }
-    stageNames.add(stage.name);
+    taskStageNames.add(taskStage.name);
   });
 
   // Check milestones
@@ -258,7 +266,17 @@ export function validateBlueprint(blueprint) {
     if (!task.milestone_id) {
       warnings.push(`Task "${task.name}" has no milestone`);
     }
+    // Check parent_id validity
+    if (task.parent_id && !taskIds.has(task.parent_id)) {
+      errors.push(`Invalid parent_id for task "${task.name}": parent not found`);
+    }
   });
+
+  // Check for circular parent hierarchies
+  const circularParent = detectCircularParentHierarchy(blueprint.tasks || []);
+  if (circularParent) {
+    errors.push(`Circular parent hierarchy detected: ${circularParent}`);
+  }
 
   // Check dependencies for circular references
   const circularDep = detectCircularDependencies(
@@ -289,6 +307,39 @@ export function validateBlueprint(blueprint) {
   }
 
   return { errors, warnings };
+}
+
+function detectCircularParentHierarchy(tasks) {
+  // Build parent map
+  const parentMap = new Map();
+  tasks.forEach(task => {
+    if (task.parent_id) {
+      parentMap.set(task.id, task.parent_id);
+    }
+  });
+
+  // Check each task for circular parent chain
+  for (const task of tasks) {
+    if (!task.parent_id) continue;
+
+    const visited = new Set();
+    let current = task.id;
+
+    while (current) {
+      if (visited.has(current)) {
+        // Found cycle
+        const path = Array.from(visited);
+        const taskNames = path.map(id =>
+          tasks.find(t => t.id === id)?.name || id
+        );
+        return taskNames.join(' → ') + ' → ' + (tasks.find(t => t.id === current)?.name || current);
+      }
+      visited.add(current);
+      current = parentMap.get(current);
+    }
+  }
+
+  return null;
 }
 
 function detectCircularDependencies(tasks, dependencies) {
@@ -378,16 +429,19 @@ export async function generateProject(projectName, blueprint) {
     // Step 1: Create project
     const projectId = await createProject(projectName);
 
-    // Step 2: Create stages
-    const stageMap = await createStages(projectId, blueprint.stages);
+    // Step 2: Create task stages (project.task.type, NOT project stages)
+    const taskStageMap = await createTaskStages(projectId, blueprint.taskStages);
 
     // Step 3: Create milestones
     const milestoneMap = await createMilestones(projectId, blueprint.milestones);
 
-    // Step 4: Create tasks (pass 1 - without dependencies)
-    const taskMap = await createTasks(projectId, blueprint.tasks, milestoneMap);
+    // Step 4: Create parent tasks first (parent_id = null)
+    const taskMap = await createParentTasks(projectId, blueprint.tasks, milestoneMap);
 
-    // Step 5: Set task dependencies (pass 2)
+    // Step 5: Create subtasks (parent_id != null) - MUST happen after parents
+    await createSubtasks(projectId, blueprint.tasks, milestoneMap, taskMap);
+
+    // Step 6: Set task dependencies (pass after all tasks exist)
     await setDependencies(taskMap, blueprint.dependencies);
 
     return { success: true, projectId };
@@ -408,23 +462,23 @@ async function createProject(name) {
   return projectId;
 }
 
-async function createStages(projectId, stages) {
-  const stageMap = new Map();
+async function createTaskStages(projectId, taskStages) {
+  const taskStageMap = new Map();
   
-  for (const stage of stages) {
-    const [stageId] = await executeKw(
+  for (const taskStage of taskStages) {
+    const [taskStageId] = await executeKw(
       'project.task.type',
       'create',
       [{
-        name: stage.name,
+        name: taskStage.name,
         project_ids: [[6, 0, [projectId]]],
-        sequence: stage.sequence
+        sequence: taskStage.sequence
       }]
     );
-    stageMap.set(stage.id, stageId);
+    taskStageMap.set(taskStage.id, taskStageId);
   }
   
-  return stageMap;
+  return taskStageMap;
 }
 
 async function createMilestones(projectId, milestones) {
@@ -445,13 +499,17 @@ async function createMilestones(projectId, milestones) {
   return milestoneMap;
 }
 
-async function createTasks(projectId, tasks, milestoneMap) {
+async function createParentTasks(projectId, tasks, milestoneMap) {
   const taskMap = new Map();
   
-  for (const task of tasks) {
+  // Only create tasks with parent_id = null
+  const parentTasks = tasks.filter(task => !task.parent_id);
+  
+  for (const task of parentTasks) {
     const taskData = {
       name: task.name,
-      project_id: projectId
+      project_id: projectId,
+      parent_id: false // Explicitly no parent
     };
     
     if (task.milestone_id && milestoneMap.has(task.milestone_id)) {
@@ -467,6 +525,34 @@ async function createTasks(projectId, tasks, milestoneMap) {
   }
   
   return taskMap;
+}
+
+async function createSubtasks(projectId, tasks, milestoneMap, taskMap) {
+  // Only create tasks with parent_id != null
+  const subtasks = tasks.filter(task => task.parent_id);
+  
+  for (const task of subtasks) {
+    const taskData = {
+      name: task.name,
+      project_id: projectId
+    };
+    
+    // Set parent_id (must exist in taskMap from previous pass)
+    if (task.parent_id && taskMap.has(task.parent_id)) {
+      taskData.parent_id = taskMap.get(task.parent_id);
+    }
+    
+    if (task.milestone_id && milestoneMap.has(task.milestone_id)) {
+      taskData.milestone_id = milestoneMap.get(task.milestone_id);
+    }
+    
+    const [taskId] = await executeKw(
+      'project.task',
+      'create',
+      [taskData]
+    );
+    taskMap.set(task.id, taskId);
+  }
 }
 
 async function setDependencies(taskMap, dependencies) {
@@ -494,6 +580,9 @@ async function setDependencies(taskMap, dependencies) {
 **Key Points:**
 - Uses only `executeKw` from existing `odoo.js`
 - Sequential API calls (not parallel - simpler, more reliable)
+- **6-step process:** project → task stages → milestones → parent tasks → subtasks → dependencies
+- **Critical ordering:** Parents before children (subtasks reference parent_id from taskMap)
+- **Task stages (project.task.type) ≠ Project stages** (Odoo-native kanban)
 - No error rollback in V1 (keep it simple)
 - Returns simple success/error object
 - No logging, no audit trail in V1
@@ -595,12 +684,13 @@ import { getTemplate, createTemplate, updateTemplate } from './data.js';
 import { validateBlueprint } from './validation.js';
 
 let currentBlueprint = {
-  stages: [],
+  taskStages: [],
   milestones: [],
   tasks: [],
   dependencies: []
 };
 
+let savedBlueprint = null; // Store last saved state for Cancel/Undo
 let templateId = null;
 let templateName = '';
 let templateDescription = '';
@@ -613,17 +703,19 @@ export async function renderBlueprintEditor(id) {
     templateName = template.name;
     templateDescription = template.description || '';
     currentBlueprint = template.blueprint_data;
+    savedBlueprint = JSON.parse(JSON.stringify(currentBlueprint)); // Deep copy
   } else {
     // New template
     templateId = null;
     templateName = '';
     templateDescription = '';
     currentBlueprint = {
-      stages: [],
+      taskStages: [],
       milestones: [],
       tasks: [],
       dependencies: []
     };
+    savedBlueprint = JSON.parse(JSON.stringify(currentBlueprint)); // Deep copy
   }
 
   return renderEditor();
@@ -642,12 +734,12 @@ function renderEditor() {
           <button onclick="validateOnly()" class="btn btn-ghost">
             Validate
           </button>
-          <button onclick="saveTemplate()" class="btn btn-primary">
+          <button onclick="cancelChanges()" class="btn btn-ghost">
+            Cancel
+          </button>
+          <button onclick="saveTemplate()" class="btn btn-primary" ${validation.errors.length > 0 ? 'disabled' : ''}>
             Save
           </button>
-          <a href="/project-generator" class="btn btn-ghost">
-            Cancel
-          </a>
         </div>
       </div>
 
@@ -670,7 +762,7 @@ function renderEditor() {
       ` : ''}
 
       <div class="grid grid-cols-3 gap-4">
-        ${renderStagesColumn()}
+        ${renderTaskStagesColumn()}
         ${renderMilestonesColumn()}
         ${renderTasksColumn()}
       </div>
@@ -678,27 +770,27 @@ function renderEditor() {
   `;
 }
 
-function renderStagesColumn() {
+function renderTaskStagesColumn() {
   return html`
     <div class="card bg-base-200">
       <div class="card-body">
-        <h2 class="card-title">Stages</h2>
-        ${currentBlueprint.stages.map((stage, index) => html`
+        <h2 class="card-title">Task Stages</h2>
+        ${currentBlueprint.taskStages.map((taskStage, index) => html`
           <div class="flex gap-2 items-center mb-2">
             <input
               type="text"
-              value="${stage.name}"
-              onchange="updateStageName(${index}, this.value)"
+              value="${taskStage.name}"
+              onchange="updateTaskStageName(${index}, this.value)"
               class="input input-sm input-bordered flex-1"
-              placeholder="Stage name"
+              placeholder="Task stage name"
             />
-            <button onclick="removeStage(${index})" class="btn btn-sm btn-ghost btn-circle">
+            <button onclick="removeTaskStage(${index})" class="btn btn-sm btn-ghost btn-circle">
               ✕
             </button>
           </div>
         `)}
-        <button onclick="addStage()" class="btn btn-sm btn-primary mt-2">
-          Add Stage
+        <button onclick="addTaskStage()" class="btn btn-sm btn-primary mt-2">
+          Add Task Stage
         </button>
       </div>
     </div>
@@ -743,23 +835,23 @@ function renderTasksColumn() {
   return html`
     <div class="card bg-base-200">
       <div class="card-body">
-        <h2 class="card-title">Tasks</h2>
-        ${currentBlueprint.tasks.map((task, index) => html`
+        <h2 class="card-title">Tasks & Subtasks</h2>
+        ${currentBlueprint.tasks.filter(t => !t.parent_id).map((task, index) => html`
           <div class="mb-4 p-2 border border-base-300 rounded">
             <div class="flex gap-2 items-center mb-2">
               <input
                 type="text"
                 value="${task.name}"
-                onchange="updateTaskName(${index}, this.value)"
+                onchange="updateTaskName('${task.id}', this.value)"
                 class="input input-sm input-bordered flex-1"
                 placeholder="Task name"
               />
-              <button onclick="removeTask(${index})" class="btn btn-sm btn-ghost btn-circle">
+              <button onclick="removeTask('${task.id}')" class="btn btn-sm btn-ghost btn-circle">
                 ✕
               </button>
             </div>
             <select
-              onchange="updateTaskMilestone(${index}, this.value)"
+              onchange="updateTaskMilestone('${task.id}', this.value)"
               class="select select-sm select-bordered w-full mb-2"
             >
               <option value="">No milestone</option>
@@ -772,7 +864,31 @@ function renderTasksColumn() {
                 </option>
               `)}
             </select>
-            <div class="text-xs">
+            
+            <!-- Subtasks (indented) -->
+            <div class="ml-4 mt-2 border-l-2 border-base-300 pl-2">
+              <div class="text-xs font-bold mb-1">Subtasks:</div>
+              ${currentBlueprint.tasks.filter(t => t.parent_id === task.id).map(subtask => html`
+                <div class="flex gap-2 items-center mb-1">
+                  <input
+                    type="text"
+                    value="${subtask.name}"
+                    onchange="updateTaskName('${subtask.id}', this.value)"
+                    class="input input-xs input-bordered flex-1"
+                    placeholder="Subtask name"
+                  />
+                  <button onclick="removeTask('${subtask.id}')" class="btn btn-xs btn-ghost btn-circle">
+                    ✕
+                  </button>
+                </div>
+              `)}
+              <button onclick="addSubtask('${task.id}')" class="btn btn-xs btn-ghost mt-1">
+                + Add Subtask
+              </button>
+            </div>
+            
+            <!-- Dependencies -->
+            <div class="text-xs mt-2">
               <div class="font-bold mb-1">Dependencies:</div>
               ${getDependenciesForTask(task.id).map(depId => {
                 const depTask = currentBlueprint.tasks.find(t => t.id === depId);
@@ -803,24 +919,24 @@ function renderTasksColumn() {
 }
 
 // Event handlers (window scope for onclick)
-window.addStage = function() {
-  currentBlueprint.stages.push({
-    id: `stage_${Date.now()}`,
+window.addTaskStage = function() {
+  currentBlueprint.taskStages.push({
+    id: `taskStage_${Date.now()}`,
     name: '',
-    sequence: currentBlueprint.stages.length + 1
+    sequence: currentBlueprint.taskStages.length + 1
   });
   refreshEditor();
 };
 
-window.updateStageName = function(index, name) {
-  currentBlueprint.stages[index].name = name;
+window.updateTaskStageName = function(index, name) {
+  currentBlueprint.taskStages[index].name = name;
 };
 
-window.removeStage = function(index) {
-  currentBlueprint.stages.splice(index, 1);
+window.removeTaskStage = function(index) {
+  currentBlueprint.taskStages.splice(index, 1);
   // Resequence
-  currentBlueprint.stages.forEach((stage, i) => {
-    stage.sequence = i + 1;
+  currentBlueprint.taskStages.forEach((taskStage, i) => {
+    taskStage.sequence = i + 1;
   });
   refreshEditor();
 };
@@ -859,27 +975,48 @@ window.addTask = function() {
   currentBlueprint.tasks.push({
     id: `task_${Date.now()}`,
     name: '',
-    milestone_id: null
+    milestone_id: null,
+    parent_id: null
   });
   refreshEditor();
 };
 
-window.updateTaskName = function(index, name) {
-  currentBlueprint.tasks[index].name = name;
+window.addSubtask = function(parentId) {
+  currentBlueprint.tasks.push({
+    id: `task_${Date.now()}`,
+    name: '',
+    milestone_id: null,
+    parent_id: parentId
+  });
+  refreshEditor();
 };
 
-window.updateTaskMilestone = function(index, milestoneId) {
-  currentBlueprint.tasks[index].milestone_id = milestoneId || null;
+window.updateTaskName = function(taskId, name) {
+  const task = currentBlueprint.tasks.find(t => t.id === taskId);
+  if (task) task.name = name;
 };
 
-window.removeTask = function(index) {
-  const taskId = currentBlueprint.tasks[index].id;
+window.updateTaskMilestone = function(taskId, milestoneId) {
+  const task = currentBlueprint.tasks.find(t => t.id === taskId);
+  if (task) task.milestone_id = milestoneId || null;
+};
+
+window.removeTask = function(taskId) {
   // Remove task
-  currentBlueprint.tasks.splice(index, 1);
+  currentBlueprint.tasks = currentBlueprint.tasks.filter(t => t.id !== taskId);
+  // Remove children (subtasks of this task)
+  currentBlueprint.tasks = currentBlueprint.tasks.filter(t => t.parent_id !== taskId);
   // Remove dependencies
   currentBlueprint.dependencies = currentBlueprint.dependencies.filter(
     dep => dep.task_id !== taskId && dep.depends_on_id !== taskId
   );
+  refreshEditor();
+};
+
+window.cancelChanges = function() {
+  if (!confirm('Discard all unsaved changes and return to last saved state?')) return;
+  // Restore from savedBlueprint
+  currentBlueprint = JSON.parse(JSON.stringify(savedBlueprint));
   refreshEditor();
 };
 
@@ -938,6 +1075,8 @@ window.saveTemplate = async function() {
     } else {
       await createTemplate(templateName, templateDescription, currentBlueprint);
     }
+    // Update savedBlueprint after successful save
+    savedBlueprint = JSON.parse(JSON.stringify(currentBlueprint));
     window.location.href = '/project-generator';
   } catch (error) {
     alert('Failed to save template: ' + error.message);
@@ -961,6 +1100,10 @@ function refreshEditor() {
 - Uses inline DaisyUI components only
 - State in module-scoped variables (no Redux, no Zustand)
 - Event handlers attached via `window` scope (simple onclick)
+- **Cancel/Undo** restores from `savedBlueprint` (last saved state)
+- **Subtasks** displayed indented under parent tasks
+- **Task stages** terminology (not "stages")
+- Save button disabled if validation errors exist
 - Manual re-render with `refreshEditor()`
 - Prompt for dependency selection (simple, no modal in V1)
 
@@ -969,7 +1112,7 @@ function refreshEditor() {
 - ❌ Visual dependency graph
 - ❌ Fancy modals
 - ❌ Auto-save
-- ❌ Undo/redo
+- ❌ Step-by-step undo/redo (Cancel/Undo to last saved state IS in V1)
 
 ---
 
@@ -1155,14 +1298,16 @@ function refreshGenerate() {
 
 ### Testing
 1. Login as user
-2. Create template with 2 stages, 1 milestone, 2 tasks, 1 dependency
-3. Save template
-4. Generate project
-5. Verify in Odoo:
+2. Create template with 2 task stages, 1 milestone, 2 tasks (1 with subtask), 1 dependency
+3. Test Cancel button (returns to last saved state)
+4. Save template
+5. Generate project
+6. Verify in Odoo:
    - Project exists
-   - Stages exist
+   - Task stages exist (project.task.type)
    - Milestone exists
-   - Tasks exist
+   - Parent tasks exist
+   - Subtasks exist with correct parent_id
    - Dependency set correctly
 
 ### What NOT to Deploy
@@ -1224,7 +1369,7 @@ function refreshGenerate() {
 - ❌ API versioning
 
 ### Features
-- ❌ Undo/redo
+- ❌ Step-by-step undo/redo (Cancel/Undo to last saved state IS in V1)
 - ❌ Auto-save
 - ❌ Conflict resolution
 - ❌ Version control
@@ -1255,7 +1400,11 @@ This technical specification defines a **minimal, functional** Project Generator
 1. Integrates into existing app architecture (no new patterns)
 2. Uses existing libraries exclusively (odoo.js, database.js, DaisyUI)
 3. Implements only essential features (create/edit/delete template, generate project)
-4. Has zero dependencies beyond what already exists
-5. Can be built in **days**, not weeks
+4. **Respects Odoo's native structure** (task stages via project.task.type, subtasks via parent_id)
+5. **Provides Cancel/Undo** to last saved state (manager-friendly UX)
+6. Has zero dependencies beyond what already exists
+7. Can be built in **days**, not weeks
+
+**Architectural Principle: The Project Generator adapts to Odoo. Odoo is not modified, extended, or bypassed.**
 
 **This is the source of truth for V1 implementation.**

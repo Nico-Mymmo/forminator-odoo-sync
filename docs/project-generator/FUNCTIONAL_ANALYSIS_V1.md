@@ -18,6 +18,10 @@ Blueprint → Template → Odoo Project
 
 Once created in Odoo, projects are **completely independent**. Template changes never affect existing projects.
 
+**Critical Architectural Principle:**
+The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.
+All blueprint fields map directly to Odoo model fields.
+
 ---
 
 ## Three-Layer Model
@@ -25,30 +29,36 @@ Once created in Odoo, projects are **completely independent**. Template changes 
 ### Layer 1: Blueprint (Design-Time)
 
 **What:** JavaScript object in browser memory  
-**Lifetime:** Session only (lost on refresh)  
+**Lifetime:** Session only (lost on refresh unless saved)  
 **Purpose:** Design workspace
 
-**Contains (V1 Only):**
-- Kanban stages (name, sequence)
-- Milestones (name, description)
-- Tasks (name, milestone assignment)
-- Dependencies (task X depends on task Y)
+**Contains (V1):**
+- **Task stages** (name, sequence) → maps to `project.task.type`
+- Milestones (name, description) → maps to `project.milestone`
+- Tasks (name, milestone assignment, parent_id) → maps to `project.task`
+- Subtasks (tasks with parent_id set) → maps to `project.task` with `parent_id`
+- Dependencies (task X depends on task Y) → maps to `depend_on_ids`
+
+**Critical Terminology:**
+- "Task Stages" = project-specific stages for tasks
+- NOT "Project Stages" (those are Odoo-native, out of scope)
 
 **NOT IN V1:**
-- ❌ Subtasks
-- ❌ Stage colors/types
+- ❌ Task stage colors/types
 - ❌ Tags
 - ❌ Estimated hours
 - ❌ Task descriptions
 - ❌ Custom metadata
 - ❌ Auto-save
-- ❌ Undo/redo
+- ❌ Step-by-step undo/redo
+- ❌ Project-level stage management (Odoo handles this)
 
 **User Actions:**
-- Add/remove/edit stages, milestones, tasks
-- Define dependencies
+- Add/remove/edit task stages, milestones, tasks, subtasks
+- Define dependencies (including across subtasks)
 - Validate structure
 - Save as template
+- **Cancel/Undo** → Returns editor to last saved state
 
 ---
 
@@ -101,12 +111,13 @@ project_templates (
 **Creation Flow:**
 1. User clicks "Generate Project"
 2. User enters project name
-3. System calls Odoo API sequentially:
+3. System calls Odoo API sequentially (6 steps):
    - Create project (`project.project`)
-   - Create stages (`project.task.type`)
+   - Create task stages (`project.task.type`) — project-specific
    - Create milestones (`project.milestone`)
-   - Create tasks (`project.task`) — pass 1
-   - Set dependencies (`project.task`) — pass 2
+   - Create top-level tasks (`project.task` with `parent_id` = null) — pass 1
+   - Create subtasks (`project.task` with `parent_id` set) — pass 2
+   - Set dependencies (`project.task` → `depend_on_ids`) — pass 3
 4. Done
 
 **Key Characteristics:**
@@ -114,6 +125,7 @@ project_templates (
 - 100% Odoo-native records
 - Users manage entirely in Odoo
 - Template modifications have zero effect
+- Subtasks are real `project.task` records with `parent_id` field
 
 **NOT IN V1:**
 - ❌ Generation history/audit trail
@@ -122,6 +134,7 @@ project_templates (
 - ❌ Company selection (uses default)
 - ❌ Description override
 - ❌ Link back to this module
+- ❌ Modification of project-level stages (Odoo-native)
 
 ---
 
@@ -169,10 +182,14 @@ project_templates (
 
 ### 2. Blueprint Design
 
-**Add Stage:**
-- Click "Add Stage"
+**Add Task Stage:**
+- Click "Add Task Stage"
 - Enter name
-- Stages numbered 1, 2, 3...
+- Task stages numbered 1, 2, 3...
+
+**Terminology Note:**
+- "Task Stages" = project-specific task organization (maps to `project.task.type`)
+- NOT "Project Stages" (Odoo-native, global stages out of scope)
 
 **Add Milestone:**
 - Click "Add Milestone"
@@ -183,39 +200,59 @@ project_templates (
 - Click "Add Task"
 - Enter name
 - Select milestone (dropdown, optional)
+- Task is top-level (parent_id = null)
+
+**Add Subtask:**
+- Select parent task
+- Click "Add Subtask"
+- Enter name
+- Subtask inherits project and milestone context
+- Subtask gets parent_id = parent task ID
 
 **Add Dependency:**
-- Select task
+- Select task or subtask
 - Click "Add Dependency"
-- Select prerequisite task
+- Select prerequisite task/subtask
+- Dependencies can cross parent boundaries
 - Done
 
 **Validation (On Save):**
 - **Errors** (block save):
   - Empty template name
-  - Empty stage name
+  - Empty task stage name
   - Empty task name
-  - Circular dependency detected
-  - Duplicate stage names
+  - Circular dependency detected (including across subtasks)
+  - Circular parent hierarchy detected
+  - Invalid parent_id (parent task doesn't exist)
+  - Duplicate task stage names
   - Duplicate milestone names
 - **Warnings** (allow save):
   - Task has no milestone
-  - Stage has no tasks
+  - Task stage has no tasks
   - Task is isolated (no dependencies)
+
+**Cancel/Undo:**
+- Click "Cancel" button
+- Returns editor to last saved state
+- For new templates: returns to empty state
+- NOT step-by-step undo (intentional UX choice)
+- No redo capability
+- Browser refresh also discards unsaved changes
 
 **NOT IN V1:**
 - ❌ Drag-and-drop reorder
-- ❌ Subtasks
 - ❌ Task descriptions
 - ❌ Estimated hours
 - ❌ Tags
-- ❌ Stage colors
+- ❌ Task stage colors/types
 - ❌ Visual dependency graph
 - ❌ Auto-layout
-- ❌ Keyboard shortcuts
+- ❌ Keyboard shortcuts (beyond Tab/Enter)
 - ❌ Bulk operations
 - ❌ Copy/paste tasks
 - ❌ Templates within templates
+- ❌ Step-by-step undo/redo
+- ❌ Auto-save
 
 ---
 
@@ -232,13 +269,19 @@ project_templates (
 
 **Odoo API Sequence:**
 ```javascript
-// Sequential, not parallel
+// Sequential, not parallel (6 steps)
 1. project_id = createProject(name)
-2. stage_ids = createStages(project_id, stages[])
+2. stage_ids = createTaskStages(project_id, taskStages[])  // project.task.type
 3. milestone_ids = createMilestones(project_id, milestones[])
-4. task_ids = createTasks(project_id, tasks[])  // pass 1
-5. setDependencies(task_ids, dependencies[])    // pass 2
+4. task_ids = createTopLevelTasks(project_id, tasks.filter(t => !t.parent_id))  // pass 1
+5. subtask_ids = createSubtasks(project_id, tasks.filter(t => t.parent_id))  // pass 2
+6. setDependencies(task_ids + subtask_ids, dependencies[])  // pass 3
 ```
+
+**Critical Ordering:**
+- Subtasks created AFTER their parent tasks
+- Dependencies set AFTER all tasks exist
+- Maps blueprint IDs to Odoo IDs at each step
 
 **Error Handling (V1):**
 - API call fails → show error message
@@ -300,22 +343,26 @@ project_templates (
 
 **Layout (3-column):**
 
-**Column 1: Stages**
-- List of stages
-- "Add Stage" button
-- Per stage: name input, up/down/delete buttons
+**Column 1: Task Stages**
+- Label: "Task Stages" (NOT "Stages")
+- List of task stages
+- "Add Task Stage" button
+- Per task stage: name input, up/down/delete buttons
 
 **Column 2: Milestones**
 - List of milestones
 - "Add Milestone" button
 - Per milestone: name input, description textarea, delete button
 
-**Column 3: Tasks**
-- List of tasks
+**Column 3: Tasks & Subtasks**
+- List of tasks (with nested subtasks shown indented)
 - "Add Task" button
 - Per task:
   - Name input
   - Milestone dropdown
+  - "Add Subtask" button
+  - List of subtasks (indented)
+    - Per subtask: name input, delete button
   - "Add Dependency" button
   - List of dependencies (with remove button)
   - Delete button
@@ -324,11 +371,17 @@ project_templates (
 - Template name input (if editing)
 - "Validate" button
 - "Save" button
-- "Cancel" button
+- **"Cancel" button** → Returns to last saved state
 
 **Validation Display:**
 - Errors shown in red alert box (block save)
 - Warnings shown in yellow alert box (allow save)
+
+**Cancel/Undo Behavior:**
+- Click "Cancel" → Loads last saved template state
+- For new templates → Returns to empty state
+- This is NOT step-by-step undo
+- Intentional UX choice for managers learning process thinking
 
 **NOT IN V1:**
 - ❌ Visual dependency graph
@@ -336,11 +389,11 @@ project_templates (
 - ❌ Split panes
 - ❌ Preview mode
 - ❌ Auto-save indicator
-- ❌ Undo/redo buttons
-- ❌ Keyboard shortcuts
+- ❌ Step-by-step undo/redo buttons
+- ❌ Keyboard shortcuts (beyond Tab/Enter)
 - ❌ Breadcrumbs
 - ❌ Progress indicators
-- ❌ Tooltips
+- ❌ Tooltips (beyond basic HTML title attributes)
 - ❌ Context menus
 - ❌ Collapsible sections
 - ❌ Search within editor
@@ -383,10 +436,12 @@ project_templates (
 | Rule | Check | Message |
 |------|-------|---------|
 | Empty Template Name | `name === ''` | "Template name is required" |
-| Empty Stage Name | `stage.name === ''` | "Stage name is required" |
+| Empty Task Stage Name | `taskStage.name === ''` | "Task stage name is required" |
 | Empty Task Name | `task.name === ''` | "Task name is required" |
 | Circular Dependency | Graph cycle detection | "Circular dependency: Task A → B → A" |
-| Duplicate Stage Names | `stages[].name` duplicates | "Duplicate stage name: '{name}'" |
+| Circular Parent Hierarchy | Recursive parent check | "Circular parent hierarchy detected" |
+| Invalid parent_id | Parent task doesn't exist | "Invalid parent_id: task not found" |
+| Duplicate Task Stage Names | `taskStages[].name` duplicates | "Duplicate task stage name: '{name}'" |
 | Duplicate Milestone Names | `milestones[].name` duplicates | "Duplicate milestone name: '{name}'" |
 | Invalid Dependency | Task depends on non-existent task | "Invalid dependency reference" |
 | Empty Project Name | `projectName === ''` | "Project name is required" |
@@ -396,9 +451,9 @@ project_templates (
 | Rule | Check | Message |
 |------|-------|---------|
 | Orphaned Task | Task has no milestone | "{count} task(s) have no milestone" |
-| Empty Stage | Stage has zero tasks | "Stage '{name}' has no tasks" |
+| Empty Task Stage | Task stage has zero tasks | "Task stage '{name}' has no tasks" |
 | Isolated Task | Task has no dependencies | "{count} task(s) are isolated" |
-| No Stages | `stages.length === 0` | "No stages defined" |
+| No Task Stages | `taskStages.length === 0` | "No task stages defined" |
 | No Milestones | `milestones.length === 0` | "No milestones defined" |
 
 **NOT IN V1:**
@@ -416,18 +471,19 @@ project_templates (
 
 1. User clicks "New Template"
 2. Editor loads empty
-3. User adds stage "Backlog"
-4. User adds stage "In Progress"
-5. User adds stage "Done"
+3. User adds task stage "Backlog"
+4. User adds task stage "In Progress"
+5. User adds task stage "Done"
 6. User adds milestone "Phase 1"
 7. User adds task "Setup Project"
 8. User assigns "Setup Project" to "Phase 1"
-9. User adds task "Configure Tools"
-10. User adds dependency: "Configure Tools" depends on "Setup Project"
-11. User clicks "Validate" → 1 warning ("1 task has no milestone")
-12. User clicks "Save"
-13. Dialog: enter "Standard Project" → Save
-14. Returns to template library
+9. User adds subtask "Create Repository" under "Setup Project"
+10. User adds task "Configure Tools"
+11. User adds dependency: "Configure Tools" depends on "Setup Project"
+12. User clicks "Validate" → 1 warning ("1 task has no milestone")
+13. User clicks "Save"
+14. Dialog: enter "Standard Project" → Save
+15. Returns to template library
 
 ### Flow B: Generate Project
 
@@ -438,7 +494,7 @@ project_templates (
 5. User enters "Q1 Website Redesign"
 6. User clicks "Create Project"
 7. Loading spinner shows
-8. 5 API calls execute (project, stages, milestones, tasks, dependencies)
+8. 6 API calls execute (project, task stages, milestones, tasks, subtasks, dependencies)
 9. Success message: "Project created successfully"
 10. User clicks "Close"
 11. Returns to template library
@@ -517,14 +573,14 @@ CREATE INDEX idx_project_templates_user ON project_templates(user_id);
 
 ```json
 {
-  "stages": [
+  "taskStages": [
     {
-      "id": "stage_1",
+      "id": "taskStage_1",
       "name": "Backlog",
       "sequence": 1
     },
     {
-      "id": "stage_2",
+      "id": "taskStage_2",
       "name": "In Progress",
       "sequence": 2
     }
@@ -540,17 +596,25 @@ CREATE INDEX idx_project_templates_user ON project_templates(user_id);
     {
       "id": "task_1",
       "name": "Setup Project",
-      "milestone_id": "milestone_1"
+      "milestone_id": "milestone_1",
+      "parent_id": null
     },
     {
       "id": "task_2",
+      "name": "Create Repository",
+      "milestone_id": "milestone_1",
+      "parent_id": "task_1"
+    },
+    {
+      "id": "task_3",
       "name": "Configure Tools",
-      "milestone_id": "milestone_1"
+      "milestone_id": "milestone_1",
+      "parent_id": null
     }
   ],
   "dependencies": [
     {
-      "task_id": "task_2",
+      "task_id": "task_3",
       "depends_on_id": "task_1"
     }
   ]
@@ -558,13 +622,12 @@ CREATE INDEX idx_project_templates_user ON project_templates(user_id);
 ```
 
 **NOT IN V1:**
-- ❌ Subtasks array
 - ❌ Task `estimated_hours`
 - ❌ Task `assigned_to`
 - ❌ Task `description`
 - ❌ Task `tags`
-- ❌ Stage `color`
-- ❌ Stage `type`
+- ❌ Task stage `color`
+- ❌ Task stage `type`
 - ❌ Milestone `deadline`
 
 ---
@@ -576,7 +639,7 @@ CREATE INDEX idx_project_templates_user ON project_templates(user_id);
 - ❌ Template cloning
 - ❌ Template publishing workflow
 - ❌ Template locking
-- ❌ Undo/redo
+- ❌ Step-by-step undo/redo (Cancel/Undo to last saved state IS in V1)
 - ❌ Auto-save
 - ❌ Generation audit trail
 - ❌ Generation history view
@@ -601,14 +664,13 @@ CREATE INDEX idx_project_templates_user ON project_templates(user_id);
 - ❌ Edit Odoo projects from module
 
 ### Data Elements
-- ❌ Subtasks
 - ❌ Task descriptions
 - ❌ Task estimated hours
 - ❌ Task assignments
 - ❌ Task priorities
 - ❌ Task tags
-- ❌ Stage colors
-- ❌ Stage types
+- ❌ Task stage colors
+- ❌ Task stage types
 - ❌ Custom metadata
 - ❌ Attachments
 - ❌ Comments
@@ -644,14 +706,16 @@ CREATE INDEX idx_project_templates_user ON project_templates(user_id);
 ## Success Criteria (V1 Only)
 
 ### Must Work
-1. ✅ User can create template with stages, milestones, tasks, dependencies
+1. ✅ User can create template with task stages, milestones, tasks, subtasks, dependencies
 2. ✅ User can save template to Supabase
 3. ✅ User can edit existing template
 4. ✅ User can delete template
 5. ✅ User can generate Odoo project from template
-6. ✅ Generated project appears in Odoo with correct structure
+6. ✅ Generated project appears in Odoo with correct structure (task stages, subtasks with parent_id)
 7. ✅ Validation blocks circular dependencies
-8. ✅ Warnings display but don't block save
+8. ✅ Validation blocks circular parent hierarchies
+9. ✅ Warnings display but don't block save
+10. ✅ Cancel/Undo returns to last saved state
 
 ### Performance Targets
 - Template list loads in <1 second
@@ -664,6 +728,7 @@ CREATE INDEX idx_project_templates_user ON project_templates(user_id);
 - No orphaned records
 - RLS enforces user_id correctly
 - Validation runs on every save
+- Subtasks created after parent tasks (correct ordering)
 
 **NOT Success Criteria:**
 - ❌ User adoption rates
