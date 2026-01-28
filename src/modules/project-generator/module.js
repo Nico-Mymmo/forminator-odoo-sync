@@ -5,7 +5,8 @@
  */
 
 import { templateLibraryUI, blueprintEditorUI } from './ui.js';
-import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getBlueprintData, saveBlueprintData } from './library.js';
+import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getBlueprintData, saveBlueprintData, getTemplate } from './library.js';
+import { generateProject } from './generate.js';
 
 export default {
   // Module metadata
@@ -213,6 +214,45 @@ export default {
           error: error.message
         }), {
           status,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    },
+    
+    // Generate project from template
+    'POST /api/generate/:id': async (context) => {
+      const { env, params } = context;
+      
+      try {
+        // Get template to access name
+        const template = await getTemplate(env, params.id);
+        
+        if (!template) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Template not found'
+          }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        const result = await generateProject(env, params.id, template.name);
+        
+        return new Response(JSON.stringify(result), {
+          status: result.success ? 200 : 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+      } catch (error) {
+        console.error('[Project Generator] Generate project failed:', error);
+        
+        return new Response(JSON.stringify({
+          success: false,
+          step: 'unknown',
+          error: error.message
+        }), {
+          status: 500,
           headers: { 'Content-Type': 'application/json' }
         });
       }

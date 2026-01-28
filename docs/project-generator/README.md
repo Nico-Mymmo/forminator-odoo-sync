@@ -28,7 +28,8 @@ A minimal system that allows users to:
 **✅ Iteration 1:** Database foundation (`project_templates` table)  
 **✅ Iteration 2:** Template library CRUD + UI  
 **✅ Iteration 3:** Blueprint editor (structure only) - [See ITERATION_3_SUMMARY.md](ITERATION_3_SUMMARY.md)  
-**⏳ Future:** Project generation + Odoo integration  
+**✅ Iteration 4:** Project generation + Odoo integration - [See ITERATION_4_SUMMARY.md](ITERATION_4_SUMMARY.md)  
+**⏳ Future:** Generation history, improvements  
 
 ### Deterministic Flow
 

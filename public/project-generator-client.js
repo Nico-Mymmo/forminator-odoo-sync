@@ -67,6 +67,19 @@ function renderTemplateRow(template) {
   const actionsTd = document.createElement('td');
   actionsTd.className = 'text-right';
   
+  // Generate Project button
+  const generateBtn = document.createElement('button');
+  generateBtn.className = 'btn btn-primary btn-sm';
+  generateBtn.title = 'Generate Project';
+  generateBtn.onclick = () => generateProjectFromTemplate(template.id);
+  
+  const generateIcon = document.createElement('i');
+  generateIcon.setAttribute('data-lucide', 'play');
+  generateIcon.className = 'w-4 h-4';
+  generateBtn.appendChild(generateIcon);
+  
+  actionsTd.appendChild(generateBtn);
+  
   // Edit Blueprint button
   const blueprintBtn = document.createElement('button');
   blueprintBtn.className = 'btn btn-ghost btn-sm';
@@ -264,6 +277,68 @@ async function handleFormSubmit(e) {
     submitBtn.disabled = false;
     submitBtnText.style.display = 'inline';
     submitBtnSpinner.style.display = 'none';
+  }
+}
+
+// Generate project from template
+async function generateProjectFromTemplate(templateId) {
+  if (!confirm('Generate Odoo project from this template?\n\nThis will create a new project in Odoo with all tasks and dependencies.')) {
+    return;
+  }
+  
+  // Show loading toast
+  showToast('Generating project... This may take a moment.', 'info');
+  
+  try {
+    const response = await fetch(`/projects/api/generate/${templateId}`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      const projectUrl = result.odoo_project_url;
+      
+      // Create success message with link
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'alert alert-success shadow-lg';
+      
+      const content = document.createElement('div');
+      
+      const message = document.createElement('p');
+      message.className = 'font-bold';
+      message.textContent = 'Project generated successfully!';
+      content.appendChild(message);
+      
+      if (projectUrl) {
+        const link = document.createElement('a');
+        link.href = projectUrl;
+        link.target = '_blank';
+        link.className = 'underline';
+        link.textContent = 'Open in Odoo';
+        content.appendChild(link);
+      }
+      
+      toast.appendChild(content);
+      container.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.remove();
+      }, 10000);
+      
+    } else {
+      const errorMsg = 'Generation failed at step ' + result.step + ': ' + result.error;
+      showToast(errorMsg, 'error');
+      
+      if (result.odoo_project_id) {
+        showToast('Partial project created (ID: ' + result.odoo_project_id + '). Manual cleanup required.', 'error');
+      }
+    }
+  } catch (err) {
+    console.error('Generate error:', err);
+    showToast('Network error during generation. Please check Odoo manually.', 'error');
   }
 }
 
