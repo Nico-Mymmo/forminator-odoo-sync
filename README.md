@@ -11,7 +11,8 @@ Cloudflare Worker that synchronizes WordPress Forminator form submissions with O
 - ✅ **Visual admin interface** - Drag-and-drop workflow builder with live preview
 - ✅ **History tracking** - Full audit log of all submissions in Supabase
 - ✅ **Error handling** - Comprehensive logging and error recovery
-- ✅ **Sales Insight Explorer** - Schema-driven query engine for Odoo analytics (NEW)
+- ✅ **Sales Insight Explorer** - Schema-driven query engine for Odoo analytics
+- 🚧 **Project Generator** - Template library for project blueprints (Iteration 2 - Template CRUD available)
 
 ## Architecture
 
@@ -161,7 +162,11 @@ forminator-odoo-sync/
 │   │   ├── admin/            # Admin interface module
 │   │   ├── home/             # Dashboard module
 │   │   ├── profile/          # User profile module
-│   │   └── sales-insight-explorer/  # ⭐ NEW: Analytics query engine
+│   │   ├── project-generator/  # 🚧 Project template library (Iteration 2)
+│   │   │   ├── module.js         # Module routes and handlers
+│   │   │   ├── library.js        # Template CRUD data layer
+│   │   │   └── ui.js             # Template library interface
+│   │   └── sales-insight-explorer/  # ⭐ Analytics query engine
 │   │       ├── module.js
 │   │       ├── routes.js
 │   │       ├── lib/
@@ -270,7 +275,36 @@ User Query
     Results + Metadata
 ```
 
+---
 
+## Project Generator
+
+**Status:** 🚧 **In Development** - Iteration 2 Complete (Template Library)
+
+### Current Capabilities (Iteration 2)
+
+- ✅ **Template Library** - View, create, edit, delete project templates
+- ✅ **User-scoped** - RLS-enforced template ownership
+- ✅ **Name + Description** - Basic template metadata management
+- ❌ **Blueprint Editor** - Not yet implemented (Iteration 3)
+- ❌ **Odoo Generation** - Not yet implemented (Iteration 4)
+
+### What You Can Do Now
+
+Navigate to `/projects` to:
+- View your project templates
+- Create new templates (name + description)
+- Edit existing templates
+- Delete templates
+
+**Note:** Blueprint editing and Odoo project generation are planned for future iterations.
+
+### Documentation
+
+- [docs/project-generator/](docs/project-generator/) - Complete specification and implementation logs
+- [ITERATION_11_IMPLEMENTATION_LOG.md](docs/project-generator/ITERATION_11_IMPLEMENTATION_LOG.md) - Progress tracking
+
+---
 
 ## License
 

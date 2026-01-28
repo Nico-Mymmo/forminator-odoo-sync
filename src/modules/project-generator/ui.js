@@ -1,10 +1,13 @@
 /**
  * Project Generator Module - UI
+ * 
+ * Server-side static HTML skeleton only.
+ * ALL dynamic logic is in /project-generator-client.js
  */
 
 import { navbar } from '../../lib/components/navbar.js';
 
-export function projectGeneratorUI(user) {
+export function templateLibraryUI(user) {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
@@ -15,161 +18,442 @@ export function projectGeneratorUI(user) {
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body class="bg-base-200" style="overflow-y: scroll;">
+<body class="bg-base-200">
     ${navbar(user)}
     
     <div style="padding-top: 48px;">
-      <div class="pb-8">
-        <div class="container mx-auto px-6 max-w-7xl">
-          <!-- Header -->
-          <div class="mb-8">
+      <div class="container mx-auto px-6 py-8 max-w-6xl">
+        
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+          <div>
             <h1 class="text-4xl font-bold mb-2">Project Generator</h1>
-            <p class="text-base-content/60">Generate project structures and boilerplate code</p>
+            <p class="text-base-content/60">Manage your project templates</p>
           </div>
+          <button id="newTemplateBtn" class="btn btn-primary">
+            <i data-lucide="plus" class="w-4 h-4 mr-2"></i>
+            New Template
+          </button>
+        </div>
 
-          <!-- Stats Cards -->
-          <div class="stats shadow w-full mb-8">
-            <div class="stat">
-              <div class="stat-figure text-primary">
-                <i data-lucide="layout-template" class="w-8 h-8"></i>
-              </div>
-              <div class="stat-title">Available Templates</div>
-              <div class="stat-value text-primary">3</div>
-              <div class="stat-desc">Ready to use</div>
-            </div>
-            
-            <div class="stat">
-              <div class="stat-figure text-secondary">
-                <i data-lucide="folder" class="w-8 h-8"></i>
-              </div>
-              <div class="stat-title">Projects Generated</div>
-              <div class="stat-value text-secondary">0</div>
-              <div class="stat-desc">Coming soon</div>
-            </div>
+        <!-- Loading State -->
+        <div id="loadingState" class="flex justify-center items-center py-20">
+          <span class="loading loading-spinner loading-lg"></span>
+          <span class="ml-4 text-lg">Loading templates...</span>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="card bg-base-100 shadow-xl" style="display: none;">
+          <div class="card-body items-center text-center py-16">
+            <i data-lucide="folder-open" class="w-16 h-16 text-base-content/30 mb-4"></i>
+            <h2 class="card-title text-2xl mb-2">No templates yet</h2>
+            <p class="text-base-content/60 mb-6">Create your first template to get started</p>
+            <button id="emptyStateCreateBtn" class="btn btn-primary">
+              <i data-lucide="plus" class="w-4 h-4 mr-2"></i>
+              Create Template
+            </button>
           </div>
+        </div>
 
-          <!-- Templates Grid -->
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <!-- Cloudflare Worker Template -->
-            <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow">
-              <div class="card-body">
-                <div class="flex items-start justify-between mb-4">
-                  <div class="p-3 bg-primary/10 rounded-lg">
-                    <i data-lucide="cloud" class="w-8 h-8 text-primary"></i>
-                  </div>
-                  <div class="badge badge-primary">Popular</div>
-                </div>
-                <h2 class="card-title">Cloudflare Worker</h2>
-                <p class="text-sm text-base-content/60 flex-grow">
-                  Modern edge computing template with TypeScript, testing setup, and deployment configuration.
-                </p>
-                <div class="card-actions justify-end mt-4">
-                  <button class="btn btn-primary btn-sm" disabled>
-                    <i data-lucide="download" class="w-4 h-4 mr-1"></i>
-                    Coming Soon
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Next.js Template -->
-            <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow">
-              <div class="card-body">
-                <div class="flex items-start justify-between mb-4">
-                  <div class="p-3 bg-secondary/10 rounded-lg">
-                    <i data-lucide="layout-dashboard" class="w-8 h-8 text-secondary"></i>
-                  </div>
-                  <div class="badge badge-secondary">New</div>
-                </div>
-                <h2 class="card-title">Next.js App</h2>
-                <p class="text-sm text-base-content/60 flex-grow">
-                  Next.js 14 with App Router, Tailwind CSS, DaisyUI, and authentication setup.
-                </p>
-                <div class="card-actions justify-end mt-4">
-                  <button class="btn btn-secondary btn-sm" disabled>
-                    <i data-lucide="download" class="w-4 h-4 mr-1"></i>
-                    Coming Soon
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Node.js API Template -->
-            <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow">
-              <div class="card-body">
-                <div class="flex items-start justify-between mb-4">
-                  <div class="p-3 bg-accent/10 rounded-lg">
-                    <i data-lucide="server" class="w-8 h-8 text-accent"></i>
-                  </div>
-                </div>
-                <h2 class="card-title">Node.js API</h2>
-                <p class="text-sm text-base-content/60 flex-grow">
-                  Express.js REST API with PostgreSQL, authentication, and OpenAPI documentation.
-                </p>
-                <div class="card-actions justify-end mt-4">
-                  <button class="btn btn-accent btn-sm" disabled>
-                    <i data-lucide="download" class="w-4 h-4 mr-1"></i>
-                    Coming Soon
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Info Alert -->
-          <div class="alert alert-info mt-8">
-            <i data-lucide="info" class="w-5 h-5"></i>
-            <div>
-              <h3 class="font-bold">Under Development</h3>
-              <div class="text-sm">
-                The Project Generator module is currently being built. Check back soon for updates!
-              </div>
+        <!-- Templates Table -->
+        <div id="templatesTable" class="card bg-base-100 shadow-xl" style="display: none;">
+          <div class="card-body">
+            <div class="overflow-x-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Created</th>
+                    <th>Updated</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="templatesTableBody">
+                  <!-- Rows inserted by client.js -->
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
+
       </div>
     </div>
 
+    <!-- Create/Edit Modal -->
+    <dialog id="templateModal" class="modal">
+      <div class="modal-box">
+        <h3 id="modalTitle" class="font-bold text-lg mb-4">Create Template</h3>
+        
+        <form id="templateForm">
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Template Name <span class="text-error">*</span></span>
+            </label>
+            <input 
+              type="text" 
+              id="templateName" 
+              name="name"
+              placeholder="My Project Template" 
+              class="input input-bordered" 
+              required 
+              maxlength="100"
+            />
+            <label class="label">
+              <span class="label-text-alt text-error" id="nameError" style="display: none;"></span>
+            </label>
+          </div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Description</span>
+            </label>
+            <textarea 
+              id="templateDescription" 
+              name="description"
+              placeholder="Optional description of your template" 
+              class="textarea textarea-bordered h-24" 
+              maxlength="500"
+            ></textarea>
+          </div>
+          
+          <div class="modal-action">
+            <button type="button" id="cancelBtn" class="btn">Cancel</button>
+            <button type="submit" id="submitBtn" class="btn btn-primary">
+              <span id="submitBtnText">Create Template</span>
+              <span id="submitBtnSpinner" class="loading loading-spinner loading-sm" style="display: none;"></span>
+            </button>
+          </div>
+        </form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+      </form>
+    </dialog>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast toast-top toast-end">
+      <!-- Toasts inserted by client.js -->
+    </div>
+
+    <script src="/project-generator-client.js"></script>
+</body>
+</html>`;
+}
+
+/**
+ * Blueprint Editor UI
+ * 
+ * Server-side static HTML skeleton for blueprint editor.
+ * ALL dynamic logic is in /project-generator-client.js
+ * 
+ * @param {Object} user - User object
+ * @param {string} templateId - Template UUID
+ * @returns {string} HTML string
+ */
+export function blueprintEditorUI(user, templateId) {
+  return `<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blueprint Editor</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-base-200">
+    ${navbar(user)}
+    
+    <div style="padding-top: 48px;">
+      <div class="container mx-auto px-6 py-8 max-w-6xl">
+        
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+          <div>
+            <a href="/projects" class="btn btn-ghost btn-sm mb-2">
+              <i data-lucide="arrow-left" class="w-4 h-4 mr-2"></i>
+              Back to Templates
+            </a>
+            <h1 class="text-4xl font-bold mb-2">Blueprint Editor</h1>
+            <p class="text-base-content/60" id="templateNameDisplay">Loading...</p>
+          </div>
+          <div class="flex gap-2">
+            <button id="cancelBtn" class="btn btn-ghost">Cancel</button>
+            <button id="saveBtn" class="btn btn-primary">
+              <i data-lucide="save" class="w-4 h-4 mr-2"></i>
+              Save Blueprint
+            </button>
+          </div>
+        </div>
+
+        <!-- Validation Messages -->
+        <div id="validationErrors" class="alert alert-error mb-4" style="display: none;">
+          <i data-lucide="alert-circle" class="w-5 h-5"></i>
+          <div>
+            <h3 class="font-bold">Errors (must fix before saving)</h3>
+            <ul id="errorList" class="list-disc list-inside mt-2"></ul>
+          </div>
+        </div>
+
+        <div id="validationWarnings" class="alert alert-warning mb-4" style="display: none;">
+          <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+          <div>
+            <h3 class="font-bold">Warnings</h3>
+            <ul id="warningList" class="list-disc list-inside mt-2"></ul>
+          </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="flex justify-center items-center py-20">
+          <span class="loading loading-spinner loading-lg"></span>
+          <span class="ml-4 text-lg">Loading blueprint...</span>
+        </div>
+
+        <!-- Blueprint Sections -->
+        <div id="blueprintContent" style="display: none;">
+          
+          <!-- Stages Section -->
+          <div class="card bg-base-100 shadow-xl mb-6">
+            <div class="card-body">
+              <div class="flex justify-between items-center mb-4">
+                <h2 class="card-title">
+                  <i data-lucide="layers" class="w-5 h-5 mr-2"></i>
+                  Task Stages
+                </h2>
+                <button id="addStageBtn" class="btn btn-sm btn-primary">
+                  <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
+                  Add Stage
+                </button>
+              </div>
+              <div id="stagesList" class="space-y-2">
+                <!-- Stages inserted by client.js -->
+              </div>
+              <div id="emptyStages" class="text-center py-8 text-base-content/40" style="display: none;">
+                No stages defined
+              </div>
+            </div>
+          </div>
+
+          <!-- Milestones Section -->
+          <div class="card bg-base-100 shadow-xl mb-6">
+            <div class="card-body">
+              <div class="flex justify-between items-center mb-4">
+                <h2 class="card-title">
+                  <i data-lucide="flag" class="w-5 h-5 mr-2"></i>
+                  Milestones
+                </h2>
+                <button id="addMilestoneBtn" class="btn btn-sm btn-primary">
+                  <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
+                  Add Milestone
+                </button>
+              </div>
+              <div id="milestonesList" class="space-y-2">
+                <!-- Milestones inserted by client.js -->
+              </div>
+              <div id="emptyMilestones" class="text-center py-8 text-base-content/40" style="display: none;">
+                No milestones defined
+              </div>
+            </div>
+          </div>
+
+          <!-- Tasks Section -->
+          <div class="card bg-base-100 shadow-xl mb-6">
+            <div class="card-body">
+              <div class="flex justify-between items-center mb-4">
+                <h2 class="card-title">
+                  <i data-lucide="check-square" class="w-5 h-5 mr-2"></i>
+                  Tasks & Subtasks
+                </h2>
+                <button id="addTaskBtn" class="btn btn-sm btn-primary">
+                  <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
+                  Add Task
+                </button>
+              </div>
+              <div id="tasksList" class="space-y-2">
+                <!-- Tasks inserted by client.js -->
+              </div>
+              <div id="emptyTasks" class="text-center py-8 text-base-content/40" style="display: none;">
+                No tasks defined
+              </div>
+            </div>
+          </div>
+
+          <!-- Dependencies Section -->
+          <div class="card bg-base-100 shadow-xl mb-6">
+            <div class="card-body">
+              <div class="flex justify-between items-center mb-4">
+                <h2 class="card-title">
+                  <i data-lucide="git-branch" class="w-5 h-5 mr-2"></i>
+                  Task Dependencies
+                </h2>
+                <button id="addDependencyBtn" class="btn btn-sm btn-primary">
+                  <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
+                  Add Dependency
+                </button>
+              </div>
+              <div id="dependenciesList" class="space-y-2">
+                <!-- Dependencies inserted by client.js -->
+              </div>
+              <div id="emptyDependencies" class="text-center py-8 text-base-content/40" style="display: none;">
+                No dependencies defined
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Stage Modal -->
+    <dialog id="stageModal" class="modal">
+      <div class="modal-box">
+        <h3 id="stageModalTitle" class="font-bold text-lg mb-4">Add Stage</h3>
+        <form id="stageForm">
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Stage Name <span class="text-error">*</span></span>
+            </label>
+            <input 
+              type="text" 
+              id="stageName" 
+              placeholder="To Do" 
+              class="input input-bordered" 
+              required 
+              maxlength="50"
+            />
+          </div>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Sequence <span class="text-error">*</span></span>
+            </label>
+            <input 
+              type="number" 
+              id="stageSequence" 
+              placeholder="1" 
+              class="input input-bordered" 
+              required 
+              min="1"
+            />
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn" onclick="stageModal.close()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Milestone Modal -->
+    <dialog id="milestoneModal" class="modal">
+      <div class="modal-box">
+        <h3 id="milestoneModalTitle" class="font-bold text-lg mb-4">Add Milestone</h3>
+        <form id="milestoneForm">
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Milestone Name <span class="text-error">*</span></span>
+            </label>
+            <input 
+              type="text" 
+              id="milestoneName" 
+              placeholder="Phase 1" 
+              class="input input-bordered" 
+              required 
+              maxlength="100"
+            />
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn" onclick="milestoneModal.close()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Task Modal -->
+    <dialog id="taskModal" class="modal">
+      <div class="modal-box">
+        <h3 id="taskModalTitle" class="font-bold text-lg mb-4">Add Task</h3>
+        <form id="taskForm">
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Task Name <span class="text-error">*</span></span>
+            </label>
+            <input 
+              type="text" 
+              id="taskName" 
+              placeholder="Main Task" 
+              class="input input-bordered" 
+              required 
+              maxlength="200"
+            />
+          </div>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Milestone</span>
+            </label>
+            <select id="taskMilestone" class="select select-bordered">
+              <option value="">No milestone</option>
+              <!-- Options inserted by client.js -->
+            </select>
+          </div>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Parent Task (for subtasks)</span>
+            </label>
+            <select id="taskParent" class="select select-bordered">
+              <option value="">No parent (main task)</option>
+              <!-- Options inserted by client.js -->
+            </select>
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn" onclick="taskModal.close()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Dependency Modal -->
+    <dialog id="dependencyModal" class="modal">
+      <div class="modal-box">
+        <h3 id="dependencyModalTitle" class="font-bold text-lg mb-4">Add Dependency</h3>
+        <form id="dependencyForm">
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Task <span class="text-error">*</span></span>
+            </label>
+            <select id="dependencyTask" class="select select-bordered" required>
+              <option value="">Select task...</option>
+              <!-- Options inserted by client.js -->
+            </select>
+          </div>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Depends On <span class="text-error">*</span></span>
+            </label>
+            <select id="dependencyDependsOn" class="select select-bordered" required>
+              <option value="">Select task...</option>
+              <!-- Options inserted by client.js -->
+            </select>
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn" onclick="dependencyModal.close()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast toast-top toast-end"></div>
+
+    <!-- Store template ID for client.js -->
     <script>
-      // Initialize Lucide icons
-      lucide.createIcons();
-      
-      // Theme switcher
-      function changeTheme(theme) {
-        document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('theme', theme);
-      }
-      
-      // Load saved theme
-      const savedTheme = localStorage.getItem('theme') || 'light';
-      document.documentElement.setAttribute('data-theme', savedTheme);
-      const themeSelector = document.getElementById('themeSelector');
-      if (themeSelector) {
-        themeSelector.value = savedTheme;
-      }
-      
-      // Logout
-      async function logout() {
-        try {
-          await fetch('/api/auth/logout', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            credentials: 'include'
-          });
-        } catch (err) {
-          console.error('Logout error:', err);
-        }
-        localStorage.removeItem('adminToken');
-        window.location.href = '/';
-      }
-      
-      // Sync prod (placeholder for projects)
-      function syncProdData() {
-        alert('Sync functionality not available for Project Generator');
-      }
+      window.TEMPLATE_ID = '${templateId}';
     </script>
+    <script src="/project-generator-client.js"></script>
 </body>
 </html>`;
 }

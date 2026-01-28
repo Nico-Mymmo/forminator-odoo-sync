@@ -23,6 +23,13 @@ A minimal system that allows users to:
 
 **Architectural Principle:** The Project Generator adapts to Odoo. Odoo is not modified, extended, or bypassed.
 
+### Implementation Status
+
+**✅ Iteration 1:** Database foundation (`project_templates` table)  
+**✅ Iteration 2:** Template library CRUD + UI  
+**✅ Iteration 3:** Blueprint editor (structure only) - [See ITERATION_3_SUMMARY.md](ITERATION_3_SUMMARY.md)  
+**⏳ Future:** Project generation + Odoo integration  
+
 ### Deterministic Flow
 
 ```

@@ -1,0 +1,20 @@
+=== HANDMATIGE ACTIE VEREIST ===
+
+STAP 1: Open Supabase SQL Editor
+URL: https://supabase.com/dashboard/project/qsimnkmkonleyfqsjctj/sql/new
+
+STAP 2: Voer exact deze SQL uit (kopieer/plak):
+
+TRUNCATE supabase_migrations.schema_migrations;
+
+STAP 3: Klik "Run"
+
+STAP 4: Verifieer output (moet succesvol zijn zonder errors)
+
+STAP 5: Kom terug naar deze terminal en bevestig dat dit is uitgevoerd
+
+WHY: Dit reset alleen de migration history administratie.
+      Geen data verlies, geen schema wijzigingen.
+      Na deze stap kunnen we een schone baseline genereren.
+
+CRITICAL: Voer ALLEEN deze query uit, niets anders.
