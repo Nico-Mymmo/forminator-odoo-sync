@@ -41,6 +41,7 @@ export async function generateProject(env, templateId, templateName) {
     step: null,
     odoo_project_id: null,
     odoo_project_url: null,
+    generation_model: null, // Added for lifecycle tracking
     error: null,
     odoo_mappings: {
       stages: {},
@@ -66,6 +67,7 @@ export async function generateProject(env, templateId, templateName) {
     console.log('[Generator] Step 2: Building generation model');
     
     const generationModel = buildGenerationModel(blueprintData, templateName);
+    result.generation_model = generationModel; // Store for lifecycle tracking
     
     // STEP 3: Create project
     result.step = '3-create-project';

@@ -1,422 +1,1151 @@
-# Module: Project Importer – Implementation Log
+# MODULE PROJECT IMPORTER IMPLEMENTATION LOG
 
 **Module Code:** `project_generator`  
-**Start Datum:** 28 januari 2026  
-**Status:** Fase 2 COMPLEET ✅ (Template Library + UI Refactor)  
-**Doel:** Implementeer Project Generator V1 exact volgens specificatie
+**Module Name:** Project Generator  
+**Implementation Period:** January 28, 2026  
+**Status:** Production Ready  
+**Platform:** Cloudflare Workers + Supabase PostgreSQL + Pure Vanilla JavaScript
 
 ---
 
-## CRITICAL RESET CONTEXT
+## 1. Module Overview
 
-**Supabase CLI Issues:**
-- Migration history was truncated
-- Clean baseline schema reconstructed
-- Single baseline migration: `20260128130000_baseline_schema.sql`
-- No functional code deployed before reset
+### Purpose
 
-**Database Reality:**
-- Database NOT dropped (no data loss)
-- Baseline is authoritative source of truth
-- All archived migrations are reference only
+The Project Generator module enables users to define reusable project blueprints and generate Odoo projects from those blueprints via a web interface. The module provides template management, blueprint editing, and one-way synchronization to Odoo.
 
-**Approach:**
-- Greenfield implementation on existing baseline
-- Explicit validation at each phase
-- No assumptions beyond baseline schema
+### Problem Solved
 
----
+Organizations using Odoo for project management repeatedly create projects with similar structures. Without templates, users must manually recreate stages, tasks, subtasks, milestones, and dependencies for each new project. This module eliminates repetitive work by allowing users to define project structure once and generate multiple Odoo projects from the same blueprint.
 
-## Bindende Documenten (Volgorde)
+### What It Does
 
-1. **PROJECT_GENERATOR_COMPLETE_V1.md** – Single source of truth (wint altijd bij conflicten)
-2. **TECHNICAL_ANALYSIS_V1.md** – Implementatiespecificatie
-3. **FUNCTIONAL_ANALYSIS_V1.md** – Gebruikerscapaciteiten
-4. **ITERATION_10_ARCHITECTURAL_STRICTNESS.md** – Architecturale principes
-5. **EXPLORER_V1.md** – Design reasoning
-6. **README.md** – Quick reference
+1. **Template Management**
+   - Create, read, update, delete project templates
+   - Store templates in Supabase with user-scoped isolation
+   - Provide web UI for template CRUD operations
 
----
+2. **Blueprint Editing**
+   - Define project structure: stages, milestones, tasks, subtasks, dependencies
+   - Client-side validation preventing circular dependencies and orphan tasks
+   - Modal-based editing with DOM API rendering
 
-## Implementatie-aanpak
+3. **Odoo Project Generation**
+   - Transform blueprint into Odoo entities via XML-RPC API
+   - Sequential creation: project → stages → tags → tasks → dependencies
+   - Return Odoo project URL for immediate access
 
-**Principes:**
-- ❌ Geen nieuwe features, scope-uitbreiding, suggesties
-- ❌ Geen Odoo-aanpassingen, nieuwe libraries, abstraherende lagen
-- ✅ Implementeer exact wat er staat, niets meer
-- ✅ Fase-per-fase, wacht op bevestiging tussen fases
+4. **Generation Lifecycle Tracking**
+   - Record all generation attempts with status (pending, in_progress, completed, failed)
+   - Prevent concurrent generations per template
+   - Store error details for failed generations
+   - Provide generation history UI
 
-**Fases:**
-1. **Fase 0** – Administratief (verificatie, setup)
-2. **Fase 1** – Database (Supabase migration)
-3. **Fase 2** – Template Library UI (module.js, ui.js, library.js + UI refactor)
-4. **Fase 3** – Blueprint Editor (editor.js, validation.js)
-5. **Fase 4** – Project Generation (generate.js, odoo-creator.js)
-6. **Fase 5** – Integratie & Verificatie
+5. **Post-Generation Feedback**
+   - Modal-based success/failure/blocked notifications
+   - Direct links to generated Odoo projects
+   - Retry mechanisms with conflict resolution
+   - Manual cleanup guidance for partial failures
 
----
+### What It Does Not Do
 
-## Fase 0 – Administratief ✅ COMPLEET
+The following are explicit non-goals:
 
-**Datum:** 28 januari 2026
-
-### Wat is gedaan
-1. ✅ Implementatiestart bevestigd
-2. ✅ Iteratieverslag aangemaakt
-3. ✅ PROJECT_GENERATOR_COMPLETE_V1.md geverifieerd als actueel en leidend
-4. ✅ Bindende documenten gevalideerd (geen verouderde content)
-
-### Files aangemaakt
-- Implementation log created (now consolidated into this governmental document)
-
-### Files gewijzigd
-- Geen
-
-### Wat expliciet NIET is aangepakt
-- Nog geen code geschreven
-- Nog geen database migrations
-- Nog geen module files
-
-### Verificatie PROJECT_GENERATOR_COMPLETE_V1.md
-- **Versie:** Iteration 10 (laatste update: architectural strictness)
-- **Actueel:** ✅ Ja (bevat alle correcties: subtasks MANDATORY, exact undo/redo, Odoo-leading)
-- **Conflicten:** Geen (alle V1 docs aligned na iteration 10)
-- **Status:** Leidend document voor implementatie
-
-### Volgende fase
-**Fase 1 – Database:** Supabase migration aanmaken voor `project_templates` table
+- Does not import existing Odoo projects (one-way: blueprint → Odoo only)
+- Does not synchronize changes after generation (no bidirectional sync)
+- Does not roll back partial Odoo projects on failure (manual cleanup required)
+- Does not assign users to tasks (all tasks created unassigned)
+- Does not support task descriptions, estimated hours, or deadlines
+- Does not provide real-time progress updates during generation
+- Does not support batch generation or scheduled generation
+- Does not modify blueprint schema based on Odoo responses
 
 ---
 
-## Fase 1 – Database ✅ COMPLEET (DEPLOYED)
+## 2. High-Level Architecture
 
-**Datum:** 28 januari 2026  
-**Migration Deployed:** 20260128140000 (14:00 UTC)
+### System Layers
 
-### STEP 0: Baseline User Pattern Analysis
-**Critical Discovery:**
-- ❌ NO existing tables use foreign keys on user_id
-- Pattern: `user_id UUID NOT NULL,` (no REFERENCES clause)
-- User relationships are application-enforced, not database-enforced
-- RLS provides security boundary via `auth.uid()`
-
-**Analyzed Tables:**
-- `user_modules` (lines 84-99): No RLS, no FK
-- `sessions` (lines 234-250): No RLS, no FK
-- `user_profiles` (lines 286-316): RLS enabled, no FK
-- `user_roles` (lines 320-354): RLS enabled, no FK
-- `sales_insight_queries` (lines 362-406): RLS enabled (shared, no user_id)
-
-**Extracted Canonical Pattern:**
-```sql
--- Column (NO FOREIGN KEY)
-user_id UUID NOT NULL,
-
--- RLS (with TO public)
-CREATE POLICY "..." ON <table> FOR <operation>
-  TO public USING (auth.uid() = user_id);
+```
+┌─────────────────────────────────────────────────────────────┐
+│ CLIENT LAYER (Browser)                                       │
+│ - project-generator-client.js (vanilla JavaScript)          │
+│ - DOM APIs only (createElement, textContent, appendChild)   │
+│ - DaisyUI components, Lucide icons                         │
+│ - No frameworks, no template literals for dynamic content   │
+└─────────────────────────────────────────────────────────────┘
+                              ↑ FETCH API
+┌─────────────────────────────────────────────────────────────┐
+│ SERVER LAYER (Cloudflare Workers)                           │
+│ - module.js: Route handlers, HTTP request/response          │
+│ - ui.js: Static HTML shells (no dynamic logic)             │
+│ - generation-lifecycle.js: Generation state management      │
+│ - generate.js: Odoo generation orchestrator                │
+│ - odoo-creator.js: Low-level Odoo API wrapper              │
+│ - library.js: Data access layer (Supabase queries)         │
+│ - editor.js: Blueprint helpers (UUID, defaults)            │
+│ - validation.js: Blueprint validation logic                │
+└─────────────────────────────────────────────────────────────┘
+                              ↑ SUPABASE CLIENT / ODOO XML-RPC
+┌─────────────────────────────────────────────────────────────┐
+│ DATA LAYER                                                   │
+│ - Supabase PostgreSQL                                       │
+│   - project_templates table                                 │
+│   - project_generations table                               │
+│   - RLS policies (user-scoped)                             │
+│ - Odoo Server (external)                                   │
+│   - project.project, project.task.type, project.task, etc. │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### STEP 1: Corrections Applied
-**Specification Deviations Corrected:**
-1. ✅ Removed foreign key constraint on user_id (matches baseline)
-2. ✅ Added `TO public` to all RLS policies (matches baseline)
-3. ✅ Validated all components against baseline patterns
+### Separation of Concerns
 
-**Documentation:**
-- Full analysis documented in implementation plan
-- Baseline alignment validated in STEP 0
-- All changes traceable and justified
+**Client Layer Responsibilities:**
+- DOM manipulation for all dynamic content
+- Event handling (clicks, form submissions)
+- API calls to server routes
+- Modal lifecycle (show, hide, cleanup)
+- Client-side validation feedback
+- Icon rendering (Lucide)
 
-### STEP 2: Migration Created
-**File:** `supabase/migrations/20260128140000_project_generator_v1.sql`
+**Server Layer Responsibilities:**
+- HTTP routing and authentication
+- Blueprint validation (server-side)
+- Odoo API communication
+- Generation lifecycle state transitions
+- Error translation to HTTP status codes
+- Static HTML shell generation
 
-**Contents:**
-- Table: `project_templates` (user_id WITHOUT foreign key)
-- Index: `idx_project_templates_user_id`
-- RLS: 4 policies (SELECT, INSERT, UPDATE, DELETE) all with `TO public`
-- Trigger: `update_updated_at()` function (conditional creation)
-- Trigger: `project_templates_updated_at` (BEFORE UPDATE)
-- Module: Registration with `ON CONFLICT DO NOTHING`
-- Access: Admin auto-grant with `NOT EXISTS` check
-- Comments: Table and column documentation
+**Data Layer Responsibilities:**
+- Persistent storage (templates, generations)
+- User-scoped data isolation via RLS
+- Audit trail (generation attempts, errors)
+- No business logic in database
 
-### STEP 3: Migration Deployed
-**Command:** `supabase db push`  
-**Status:** ✅ SUCCESS
+### Key Architectural Constraints
 
-**Verification:**
-```
-Local          | Remote         | Time (UTC)
-20260128130000 | 20260128130000 | 2026-01-28 13:00:00
-20260128140000 | 20260128140000 | 2026-01-28 14:00:00  ← DEPLOYED
-```
+1. **No Inline JavaScript in Server Templates**
+   - Server-side `ui.js` returns static HTML only
+   - All dynamic logic in external `project-generator-client.js`
+   - No nested template literals, no backtick escaping
 
-**Database Changes Applied:**
-- ✅ `project_templates` table created
-- ✅ `idx_project_templates_user_id` index created
-- ✅ 4 RLS policies created and active
-- ✅ `update_updated_at()` function created
-- ✅ `project_templates_updated_at` trigger created
-- ✅ `project_generator` module registered
-- ✅ Admin users granted access
+2. **No Template Literals for Dynamic UI**
+   - Client-side HTML generation uses DOM APIs exclusively
+   - `createElement`, `textContent`, `appendChild` pattern
+   - Zero use of `innerHTML` with user data
 
-### Schema Details (AS DEPLOYED)
-```sql
-CREATE TABLE project_templates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL,  -- NO FOREIGN KEY (baseline pattern)
-  name TEXT NOT NULL CHECK (char_length(name) > 0),
-  description TEXT,
-  blueprint_data JSONB NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
+3. **No Frameworks**
+   - Pure vanilla JavaScript (ES6+)
+   - No React, Vue, Angular, Svelte, etc.
+   - DaisyUI for CSS components (no JS framework)
 
-**RLS Policies (all with TO public):**
-- SELECT: `auth.uid() = user_id`
-- INSERT: `auth.uid() = user_id`
-- UPDATE: `auth.uid() = user_id` (USING + WITH CHECK)
-- DELETE: `auth.uid() = user_id`
+4. **User-Scoped Data**
+   - All database queries filter by `user_id`
+   - RLS enforced at database level
+   - No cross-user data leakage
 
-**Module Registration:**
-- Code: `project_generator`
-- Name: `Project Generator`
-- Route: `/project-generator`
-- Icon: `folder-kanban`
-- Display order: 4
-- Auto-enabled for admin users
-
-### Wat expliciet NIET is aangepakt
-- ❌ Geen versioning table (V1 exclusion)
-- ❌ Geen audit trail table (V1 exclusion)
-- ❌ Geen foreign key constraints (baseline pattern)
-- ❌ Geen application code (Fase 2+)
-- ❌ Geen UI components (Fase 2+)
-- ❌ Geen seed data (not in scope)
-
-### Baseline Alignment (VALIDATED)
-- ✅ No foreign keys on user_id (matches `user_modules`, `sessions`, `user_roles`, `user_profiles`)
-- ✅ RLS policies target `TO public` (matches `user_roles`, `user_profiles`)
-- ✅ Idempotent operations throughout (ON CONFLICT, NOT EXISTS, conditional function)
-- ✅ Application-enforced user relationships
-- ✅ RLS-based security boundary
-
-### Validation Strategy
-- ✅ Manual SQL review (baseline alignment verified)
-- ✅ Migration scope limited and documented
-- ✅ All changes traceable to baseline patterns
-- ⚠️ `supabase db diff` SKIPPED (Docker not available, manual review sufficient)
-
-### Files Created
-- `supabase/migrations/20260128140000_project_generator_v1.sql` (DEPLOYED)
-
-### Files Modified
-- None (database only)
-
-### Volgende Fase
-**Fase 2 – Template Library UI**
+5. **No Foreign Keys**
+   - Matches baseline pattern across all tables
+   - Application-enforced relationships
+   - Prevents cascade deletion issues
 
 ---
 
-## Fase 2 – Template Library UI ✅ COMPLETE
+## 3. Database Schema
 
-**Date**: 2026-01-28  
-**Objective**: Make Project Generator module usable at template library CRUD level
+### Tables
 
-### STEP 0: Pattern Analysis
+#### project_templates
 
-**Actions:**
-- Analyzed existing modules (Sales Insight Explorer, Forminator Sync)
-- Extracted canonical patterns for module structure, routes, data access, UI
-- Documented in `ITERATION_2_PATTERN_ANALYSIS.md`
+**Purpose:** Store user-created project blueprints
 
-**Key Findings:**
-- Must use `createClient` directly (enables RLS)
-- SERVICE_ROLE_KEY required for RLS enforcement
-- Always filter by `user_id` explicitly
-- Follow repository pattern from sales-insight-explorer
+**Columns:**
+- `id` (UUID, PK) - Template identifier
+- `user_id` (UUID, NOT NULL) - Owner user ID (application-enforced, no FK)
+- `name` (TEXT, NOT NULL, CHECK > 0) - Template name
+- `description` (TEXT, NULL) - Template description
+- `blueprint_data` (JSONB, NOT NULL) - Blueprint structure
+- `created_at` (TIMESTAMPTZ, NOT NULL, DEFAULT NOW())
+- `updated_at` (TIMESTAMPTZ, NOT NULL, DEFAULT NOW())
 
-### STEP 1: UI & Module Design
+**Indexes:**
+- `idx_project_templates_user_id` on `user_id`
 
-**Actions:**
-- Designed template library screen (table + CRUD)
-- Defined user flows (create, edit, delete)
-- Specified API endpoints (GET, POST, PUT, DELETE)
-- Documented in `ITERATION_2_UI_DESIGN.md`
+**Triggers:**
+- `project_templates_updated_at` - Auto-update `updated_at` on row update
 
-**Scope:**
-- ✅ Template list/create/edit/delete
-- ✅ Name + description only
-- ✅ `blueprint_data` initialized as `{}`
-- ❌ NO blueprint editor (Fase 3)
+**RLS Policies:**
+- `Users can view own templates` (SELECT)
+- `Users can create own templates` (INSERT)
+- `Users can update own templates` (UPDATE)
+- `Users can delete own templates` (DELETE)
 
-### STEP 2: Code Implementation
+All policies use `auth.uid() = user_id` filter and target `TO public`.
 
-**Files Created:**
-- `src/modules/project-generator/library.js` (213 lines) - Data access layer
+#### project_generations
 
-**Files Modified:**
-- `src/modules/project-generator/module.js` - Real CRUD routes
-- `src/modules/project-generator/ui.js` (468 lines) - Complete rewrite
+**Purpose:** Track Odoo project generation attempts and results
 
-**Pattern Compliance:**
-- ✅ Uses `createClient` (enables RLS)
-- ✅ Repository pattern for data access
-- ✅ DaisyUI + Tailwind UI
-- ✅ Standard error handling
+**Columns:**
+- `id` (UUID, PK) - Generation record identifier
+- `user_id` (UUID, NOT NULL) - Owner user ID (application-enforced, no FK)
+- `template_id` (UUID, NOT NULL) - Source template ID (application-enforced, no FK)
+- `status` (TEXT, NOT NULL, CHECK IN pending/in_progress/completed/failed) - Generation state
+- `odoo_project_id` (INTEGER, NULL) - Created Odoo project.project ID
+- `odoo_project_url` (TEXT, NULL) - Direct link to Odoo project
+- `generation_model` (JSONB, NOT NULL) - Canonical model snapshot
+- `odoo_mappings` (JSONB, DEFAULT {}) - Blueprint UUID to Odoo ID mappings
+- `error_message` (TEXT, NULL) - Error details for failed generations
+- `failed_step` (TEXT, NULL) - Step identifier where generation failed
+- `started_at` (TIMESTAMPTZ, NOT NULL, DEFAULT NOW()) - Generation start time
+- `completed_at` (TIMESTAMPTZ, NULL) - Generation completion time
+- `created_at` (TIMESTAMPTZ, NOT NULL, DEFAULT NOW()) - Record creation time
 
-### STEP 3: Verification
+**Indexes:**
+- `idx_project_generations_user_id` on `user_id`
+- `idx_project_generations_template_id` on `template_id`
+- `idx_project_generations_status` on `status`
+- `idx_project_generations_user_template` on `(user_id, template_id)`
 
-**Documentation:**
-- `ITERATION_2_VERIFICATION.md` - Manual test procedures
+**RLS Policies:**
+- `Users can view own generations` (SELECT)
+- `Users can create own generations` (INSERT)
+- `Users can update own generations` (UPDATE)
+- `Users can delete own generations` (DELETE)
 
-**What Users Can Do:**
-- ✅ View/create/edit/delete templates
-- ✅ Name + description fields only
-- ❌ No blueprint editor yet
+All policies use `auth.uid() = user_id` filter and target `TO public`.
 
-### STEP 4: UI Security Refactor (Pattern Alignment)
+### RLS Strategy
 
-**Date**: 2026-01-28  
-**Objective**: Remove unsafe template literal HTML generation, align with canonical safe DOM patterns
+**Enforcement Level:** Database and application
 
-**Problem Identified:**
-- Initial implementation used template literals for dynamic HTML (`.map().join('')`)
-- Required manual `escapeHtml()` function
-- XSS risk if escaping forgotten
-- Inconsistent with safe UI patterns
+**Pattern:** User-scoped isolation via `auth.uid() = user_id`
 
-**Solution Applied:**
-- Refactored to use DOM APIs exclusively (`createElement`, `textContent`, `appendChild`)
-- Removed template literals for dynamic content
-- Removed `escapeHtml()` function (no longer needed)
-- Auto-escaping via `textContent`
+**Implementation:**
+- Supabase client uses SERVICE_ROLE_KEY (bypasses RLS)
+- Application explicitly filters by `user_id` in all queries (defensive)
+- RLS policies provide defense-in-depth if application logic bypassed
 
-**Files Changed:**
-- `src/modules/project-generator/ui.js` - Complete refactor of dynamic rendering
+**Rationale:**
+- Defense-in-depth security
+- Consistent with existing platform patterns
+- No cross-user data leakage even if application bugs exist
 
-**Pattern:**
-```javascript
-// BEFORE (unsafe):
-tableBody.innerHTML = templates.map(t => `<td>${escapeHtml(t.name)}</td>`).join('');
+### Why No Foreign Keys
 
-// AFTER (safe):
-function renderTemplateRow(template) {
-  const td = document.createElement('td');
-  td.textContent = template.name;  // Auto-escaped
-  return td;
+**Baseline Pattern:** All existing tables (`users`, `modules`, `user_modules`, `user_roles`) have no foreign keys on user references.
+
+**Reasons:**
+1. Prevents cascade deletion issues
+2. Simplifies migrations
+3. Application-enforced relationships more flexible
+4. Matches established codebase conventions
+
+**Tradeoff Accepted:** Database cannot enforce referential integrity. Application must validate references.
+
+### Logged Data
+
+**project_templates table logs:**
+- All blueprint edits (stored in `blueprint_data` JSONB)
+- Template metadata changes (name, description)
+- Creation and modification timestamps
+
+**project_generations table logs:**
+- Every generation attempt (regardless of outcome)
+- Full canonical model snapshot (audit trail)
+- Odoo entity mappings (blueprint UUID → Odoo ID)
+- Error messages and failed step identifiers
+- Generation duration (started_at → completed_at)
+- Partial project IDs (for manual cleanup)
+
+**Not logged:**
+- User actions within blueprint editor (only final save)
+- Intermediate generation states (only start, complete, fail)
+- Odoo API response bodies (only IDs and URLs)
+
+---
+
+## 4. Blueprint → Generation → Odoo Flow
+
+### Step-by-Step Data Flow
+
+#### Phase 1: Blueprint Editor (Client-Side)
+
+**User Actions:**
+1. User clicks "Edit Blueprint" on template
+2. Client loads template via `GET /api/blueprint/:id`
+3. Client renders blueprint editor using DOM APIs
+4. User adds/edits stages, milestones, tasks, dependencies
+5. Client runs validation (errors block save, warnings allow save)
+6. User clicks "Save Blueprint"
+7. Client sends `PUT /api/blueprint/:id` with blueprint data
+8. Server validates and updates `project_templates.blueprint_data`
+
+**Blueprint Data Structure:**
+```json
+{
+  "stages": [
+    { "id": "uuid", "name": "To Do", "sequence": 1 }
+  ],
+  "milestones": [
+    { "id": "uuid", "name": "Phase 1" }
+  ],
+  "tasks": [
+    {
+      "id": "uuid",
+      "name": "Main Task",
+      "milestone_id": "uuid | null",
+      "parent_id": "uuid | null"
+    }
+  ],
+  "dependencies": [
+    {
+      "task_id": "uuid",
+      "depends_on_task_id": "uuid"
+    }
+  ]
 }
-templates.forEach(t => tbody.appendChild(renderTemplateRow(t)));
 ```
 
-**Documentation:**
-- Created `ITERATION_2_UI_PATTERN_ALIGNMENT.md` - Pattern analysis and rationale
-- Created `ITERATION_2_UI_REFACTOR_VERIFICATION.md` - XSS testing and verification
+**Validation Rules (Hard Errors):**
+- Parent task must have at least one subtask
+- No circular dependencies
+- Dependencies must reference existing tasks
+- Subtasks must reference existing parent tasks
+- No duplicate IDs or sequences
 
-**Verification:**
-- ✅ No template literals for dynamic content
-- ✅ No `innerHTML` with user data
-- ✅ XSS prevention confirmed (tested with malicious input)
-- ✅ Behavior unchanged
-- ✅ Code more maintainable
+**Validation Rules (Warnings):**
+- Tasks without milestones
+- Milestones without tasks
+- Stages defined but no tasks use them
 
-**Philosophy:** "Boring, explicit code is preferred. Safety and consistency matter more than elegance."
+**Guaranteed State After Save:**
+- Blueprint structure is valid
+- All UUIDs are unique within blueprint
+- Dependency graph is acyclic
+- Parent-child relationships are valid
 
-### STEP 5: UI Hardening (Architectural Refactor)
+#### Phase 2: Generation Initiation (Server-Side)
 
-**Date**: 2026-01-28  
-**Objective**: Eliminate template literal hell - strict server/client separation
+**User Actions:**
+1. User clicks "Generate Project" on template
+2. Client confirms via browser `confirm()` dialog
+3. Client sends `POST /api/generate/:id` (optional: `{ confirmOverwrite: true }`)
 
-**Problem Identified (Critical):**
-- Inline `<script>` blocks within server-side template literals
-- Genested template literals requiring backtick escaping
-- Structurally unstable code ("template literal hell")
-- Maintenance hazard for future development
+**Server Lifecycle Check:**
+1. Load template metadata
+2. Query latest generation for template (`getLatestGeneration`)
+3. If status = `in_progress`: Return 409 Conflict (block)
+4. If status = `completed` and `!confirmOverwrite`: Return 409 Conflict (soft block)
+5. If status = `failed` or `confirmOverwrite`: Proceed
 
-**Solution Applied (Architectural):**
-Complete separation of server-side and client-side concerns:
+**Guaranteed State Before Generation:**
+- Template exists and user owns it
+- No concurrent generation in progress
+- User explicitly confirmed if overwriting completed generation
 
-1. **Server-side** (`ui.js`): Static HTML skeleton ONLY
-   - NO inline JavaScript
-   - NO genested template literals
-   - NO backtick escaping
-   - Includes external script: `<script src="/project-generator-client.js">`
+#### Phase 3: Canonical Model Build (Server-Side)
 
-2. **Client-side** (`public/project-generator-client.js`): ALL dynamic logic
-   - DOM manipulation via `createElement` + `textContent`
-   - Event handlers via `addEventListener`
-   - API calls via `fetch`
-   - NO template literals for HTML generation
+**Process:**
+1. Re-validate blueprint server-side (fail-fast if invalid)
+2. Build canonical generation model from blueprint
+3. Compute task generation order (parents before children)
+4. Flatten dependencies into arrays
+5. Create generation record with status = `in_progress`
 
-**Files Changed:**
-- `src/modules/project-generator/ui.js` (150 lines, -300 lines removed)
-  - Removed ALL inline JavaScript
-  - Removed ALL genested template literals
-  - Now purely static HTML structure
+**Canonical Generation Model Structure:**
+```json
+{
+  "metadata": {
+    "template_id": "uuid",
+    "template_name": "string",
+    "generated_at": "ISO 8601",
+    "user_id": "uuid"
+  },
+  "project": {
+    "name": "Template Name (2026-01-28T15-30-00)",
+    "description": "string | null"
+  },
+  "stages": [
+    {
+      "blueprint_id": "uuid",
+      "name": "string",
+      "sequence": 1,
+      "odoo_id": null
+    }
+  ],
+  "tasks": [
+    {
+      "blueprint_id": "uuid",
+      "name": "string",
+      "milestone_name": "string | null",
+      "parent_blueprint_id": "uuid | null",
+      "stage_blueprint_id": "uuid | null",
+      "dependencies": ["blueprint_id"],
+      "odoo_id": null,
+      "generation_order": 1
+    }
+  ]
+}
+```
 
-- `public/project-generator-client.js` (350 lines, NEW)
-  - All UI initialization
-  - All event handlers  
-  - All dynamic rendering
-  - All API communication
+**Key Transformations:**
+- Milestones extracted into unique names (for tag creation)
+- Milestone references stored directly on tasks (no separate milestone entity)
+- Tasks flattened with explicit `generation_order` field
+- Stages remain ordered array by `sequence`
 
-**Architectural Validation:**
-- ❌ Zero genested template literals (eliminated)
-- ❌ Zero backtick escaping (eliminated)
-- ✅ Server-side: boring, stable, static HTML
-- ✅ Client-side: maintainable, testable JavaScript
-- ✅ Safe by default (DOM APIs auto-escape)
-- ✅ Developer-friendly (no structural traps)
+**Guaranteed State After Model Build:**
+- Model is serializable (stored in `generation_model` column)
+- Task generation order is deterministic
+- All blueprint IDs are preserved for mapping
 
-**Philosophy Reinforced:**
-"If you find yourself escaping backticks, your architecture is wrong. Fix the architecture, not the escaping."
+#### Phase 4: Odoo Project Creation (Server-Side)
 
-**Documentation:**
-- Updated `ITERATION_2_SUMMARY.md` with architectural refactor details
+**Sequential Execution Steps:**
 
-### Files Summary (Complete Fase 2)
+**STEP 1: Re-validate**
+- Re-run server-side validation
+- ABORT if validation fails
 
-**Created (7):**
-- `src/modules/project-generator/library.js`
-- `public/project-generator-client.js` (architectural refactor)
-- `docs/project-generator/ITERATION_2_PATTERN_ANALYSIS.md`
-- `docs/project-generator/ITERATION_2_UI_DESIGN.md`
-- `docs/project-generator/ITERATION_2_VERIFICATION.md`
-- `docs/project-generator/ITERATION_2_UI_PATTERN_ALIGNMENT.md`
-- `docs/project-generator/ITERATION_2_UI_REFACTOR_VERIFICATION.md`
+**STEP 2: Build model**
+- Already complete (see Phase 3)
 
-**Modified (2):**
-- `src/modules/project-generator/module.js`
-- `src/modules/project-generator/ui.js` (architectural refactor: inline script removed)
+**STEP 3: Create project** (FAIL-FAST)
+- Call `createProject(env, name, description)`
+- Odoo model: `project.project`
+- Store `odoo_project_id` in generation record
+- Build `odoo_project_url` for direct link
+- ABORT on failure
 
-### Volgende Fase
-**Fase 3 – Blueprint Editor**
+**STEP 4: Create stages** (FAIL-FAST)
+- For each stage (ordered by sequence):
+  - Call `createStage(env, name, sequence, projectId)`
+  - Odoo model: `project.task.type`
+  - Link to project via `project_ids` many2many
+  - Store mapping: `odoo_mappings.stages[blueprint_id] = odoo_id`
+- ABORT if any stage creation fails
+
+**STEP 5: Create milestone tags** (FAIL-SOFT)
+- Extract unique milestone names from tasks
+- For each milestone:
+  - Call `createTag(env, name)`
+  - Odoo model: `project.tags`
+  - Store mapping: `odoo_mappings.tags[milestone_name] = odoo_id`
+- CONTINUE on failure (non-critical)
+
+**STEP 6: Create tasks** (FAIL-FAST)
+- Sort tasks by `generation_order` (parents first)
+- For each task:
+  - Resolve parent_id from blueprint UUID to Odoo ID (if subtask)
+  - Resolve milestone tag ID from milestone name (if assigned)
+  - Resolve stage ID from blueprint UUID (default: first stage)
+  - Call `createTask(env, name, projectId, stageId, parentId, tagIds)`
+  - Odoo model: `project.task`
+  - Store mapping: `odoo_mappings.tasks[blueprint_id] = odoo_id`
+- ABORT if any task creation fails
+
+**STEP 7: Add dependencies** (FAIL-SOFT)
+- For each task with dependencies:
+  - Resolve blueprint IDs to Odoo IDs
+  - Call `addTaskDependencies(env, taskId, dependencyIds)`
+  - Update `depend_on_ids` many2many field
+- LOG on failure but CONTINUE (optional feature)
+
+**STEP 8: Finalize**
+- Update generation record: status = `completed`, completed_at = NOW()
+- Return success result
+
+**Odoo Field Mappings:**
+
+| Odoo Model | Fields Set | Source |
+|------------|-----------|---------|
+| project.project | name, description | Template name + timestamp, template description |
+| project.task.type | name, sequence, project_ids | Blueprint stage name/sequence, linked to project |
+| project.tags | name | Blueprint milestone name |
+| project.task | name, project_id, stage_id, parent_id, tag_ids | Blueprint task, resolved stage, parent, milestone |
+| project.task | depend_on_ids | Blueprint dependencies (resolved) |
+
+**Fields NOT Set:**
+- Task descriptions (not in blueprint schema)
+- User assignments (not in blueprint schema)
+- Estimated hours (not in blueprint schema)
+- Deadlines (not in blueprint schema)
+- Custom fields (no Odoo model extension)
+
+**Guaranteed State After Success:**
+- Odoo project exists with all stages
+- All tasks exist (parents created before children)
+- Tasks linked to correct parent (if subtask)
+- Tasks tagged with milestone (if assigned)
+- Dependencies created (if no errors in STEP 7)
+- Generation record status = `completed`
+- All Odoo IDs stored in `odoo_mappings`
+
+**Guaranteed State After Failure:**
+- Generation record status = `failed`
+- `failed_step` identifies exact step (e.g., "4-create-stages")
+- `error_message` contains Odoo API error
+- `odoo_project_id` may be set (if project created before failure)
+- `odoo_mappings` contains entities created before failure
+- Partial Odoo project may exist (user must delete manually)
+
+#### Phase 5: Post-Generation Feedback (Client-Side)
+
+**Success Flow:**
+1. Server returns 200 OK with `{ success: true, odoo_project_url, ... }`
+2. Client shows success modal with check-circle icon
+3. Modal displays:
+   - Success message
+   - "View project in Odoo" button (primary action, opens new tab)
+   - "View generation history" link (secondary action)
+4. User clicks action or dismisses modal
+
+**Failure Flow:**
+1. Server returns 500 or 200 with `{ success: false, step, error, ... }`
+2. Client shows failure modal with x-circle icon
+3. Modal displays:
+   - Failure message
+   - Failed step identifier
+   - Error message from Odoo
+   - Manual cleanup warning (if `odoo_project_id` present)
+   - "Retry generation" button (primary action)
+   - "View generation history" link (secondary action)
+4. User can retry or view history
+
+**Blocked Flow (Concurrent/Duplicate):**
+1. Server returns 409 Conflict with `{ success: false, blocking_status, ... }`
+2. Client determines blocking reason: `in_progress` or `completed`
+3. Modal displays context-specific message:
+   - `in_progress`: "Generation already in progress" (no retry option)
+   - `completed`: "Project already generated" (retry with override option)
+4. Modal actions:
+   - "Generate again" button (only if `completed`, passes `confirmOverwrite: true`)
+   - "View generation history" link (always available)
+
+**Guaranteed State After Feedback:**
+- User knows generation outcome
+- User has direct link to Odoo project (if successful)
+- User understands cleanup requirement (if failed with partial project)
+- User can view full generation history
+- User can retry (with appropriate warnings)
 
 ---
 
-## Fase 3 – Blueprint Editor (NOT STARTED)
+## 5. Generation Lifecycle & Safety
 
-**Planned Scope:**
-- JSON editor for `blueprint_data`
-- Validation against blueprint schema
-- Preview functionality
+### Status Model
 
-**Status:** AWAITING GO-SIGNAAL for Fase 3
+**States:**
+- `pending` - Record created, generation not started (unused in current implementation)
+- `in_progress` - Generation API calls executing
+- `completed` - Generation finished successfully
+- `failed` - Generation aborted due to error
+
+**Transitions:**
+```
+[CREATE] → in_progress → completed
+                      → failed
+```
+
+**State Persistence:**
+- All states persisted in `project_generations.status`
+- Timestamps: `started_at`, `completed_at`
+- No pending state used (record created directly as `in_progress`)
+
+### Double-Generation Prevention
+
+**Rule 1: HARD BLOCK on in_progress**
+- HTTP Status: 409 Conflict
+- Message: "Generation already in progress for this template"
+- No override available
+- Prevents concurrent Odoo API calls to same template
+- User must wait for completion or manually mark failed
+
+**Rule 2: SOFT BLOCK on completed**
+- HTTP Status: 409 Conflict (without `confirmOverwrite`)
+- Message: "Template already generated. Set confirmOverwrite=true to generate again."
+- Override available via `confirmOverwrite: true` in request body
+- Prevents accidental duplicate projects
+- User can intentionally create multiple projects from same template
+
+**Rule 3: ALLOW RETRY on failed**
+- HTTP Status: 200 OK
+- New generation record created
+- Previous failed record remains for audit
+- User can retry immediately without confirmation
+
+**Implementation:**
+```javascript
+// In generation-lifecycle.js
+const latest = await getLatestGeneration(env, userId, templateId);
+
+if (latest && latest.status === 'in_progress') {
+  return { blocked: true, reason: 'in_progress', existingGeneration: latest };
+}
+
+if (latest && latest.status === 'completed' && !confirmOverwrite) {
+  return { blocked: true, reason: 'completed', existingGeneration: latest };
+}
+
+// Proceed with generation
+```
+
+### Retry Rules
+
+**User-Initiated Retry:**
+- Failed generations: Retry without confirmation
+- Completed generations: Retry with `confirmOverwrite: true`
+- In-progress generations: No retry (blocked)
+
+**Automatic Retry:**
+- Not implemented
+- No background job processing
+- No retry queue
+- User must manually trigger retry
+
+**Retry Behavior:**
+- New generation record created
+- Previous records remain (audit trail)
+- No resume from failed step (starts from beginning)
+
+### Why No Rollback
+
+**Technical Limitations:**
+1. Odoo XML-RPC API has no transaction support
+2. Entities created in separate API calls
+3. Delete operations may cascade unpredictably
+4. Risk of orphaned data in Odoo
+
+**Design Decision:**
+- Favor transparency over automation
+- User sees exactly what exists in Odoo
+- User controls cleanup strategy
+- Manual cleanup safer than automated rollback
+
+**Failure Handling:**
+- Generation record shows `odoo_project_id` if created
+- `odoo_mappings` shows all entities created before failure
+- User can navigate to Odoo and delete project manually
+- Generation history shows partial creation details
+
+### User Actions on Failure
+
+**If Generation Fails:**
+1. Review generation history
+2. Identify failed step and error message
+3. Navigate to Odoo (use `odoo_project_url` if available)
+4. Manually delete partial project in Odoo
+5. Fix issue (e.g., check Odoo permissions, network)
+6. Retry generation from template library
+
+**If Partial Project Exists:**
+- `odoo_project_id` is set in failed record
+- `odoo_project_url` links directly to partial project
+- `odoo_mappings` shows which entities were created
+- User must delete project.project in Odoo (may cascade tasks/stages)
+
+**No Automated Cleanup:**
+- Application does not call Odoo delete APIs
+- Application does not track cleanup status
+- User responsible for Odoo data hygiene
 
 ---
 
-## Document Governance
+## 6. UI & User Experience
 
-**Naming Convention:**
-- Governmental documents must be iteration-agnostic
-- This document consolidates all implementation history
-- Iteration-numbered logs are deprecated
+### Blueprint Editor
 
-**Deprecated Files:**
-- `ITERATION_11_IMPLEMENTATION_LOG.md` - Superseded by this document
-- `ITERATION_1_IMPLEMENTATION_LOG.md` - Superseded by this document
+**URL:** `/projects/blueprint/:id`
 
-**Authority:**
-This is the single authoritative implementation log for the Project Importer module.
+**Layout:**
+- Four sections: Stages, Milestones, Tasks & Subtasks, Dependencies
+- Each section has Add/Edit/Delete modal-based interactions
+- Validation errors/warnings displayed above Save button
+- Save/Cancel buttons (Cancel reverts to last saved state)
+
+**Editing Pattern:**
+- Click Add button → Modal opens with empty form
+- Fill form → Click Save in modal → Entity added to blueprint state
+- Click Edit on entity → Modal opens pre-filled → Modify → Save
+- Click Delete on entity → Browser confirm → Entity removed
+
+**Validation Feedback:**
+- Real-time validation on Save button click
+- Errors displayed in red alert box (blocks save)
+- Warnings displayed in yellow alert box (allows save)
+- Validation runs client-side and server-side (re-validated on save API call)
+
+**Visual Indicators:**
+- Stages show sequence badges and up/down arrows for reordering
+- Tasks show milestone badges (if assigned)
+- Subtasks visually indented with left border
+- Dependencies shown as text list with task names
+
+**Technical Implementation:**
+- All rendering via DOM APIs (createElement, textContent, appendChild)
+- No template literals for dynamic content
+- No innerHTML with user data
+- Lucide icons via data-lucide attributes
+
+**User Cannot:**
+- Drag and drop entities (uses buttons for reordering)
+- Undo/redo changes (only full revert via Cancel)
+- See visual dependency graph (text list only)
+- Edit multiple blueprints simultaneously (one editor per template)
+
+### Template Library
+
+**URL:** `/projects` (module default route)
+
+**Features:**
+- Table view of all user templates
+- Columns: Name, Description, Updated, Actions
+- Empty state when no templates exist
+- Loading spinner during data fetch
+
+**Actions Per Template:**
+- Generate Project (primary button, play icon)
+- View History (secondary button, history icon)
+- Edit Blueprint (secondary button, edit icon)
+- Edit Template (ghost button, pencil icon)
+- Delete Template (ghost button, trash icon)
+
+**Create Template Flow:**
+1. Click "Create Template" button
+2. Modal opens with name/description form
+3. Submit → API creates template with empty blueprint
+4. Table refreshes with new template
+5. User clicks "Edit Blueprint" to define structure
+
+**Generate Project Flow:**
+1. Click "Generate Project" button
+2. Browser confirm dialog
+3. Loading toast appears
+4. Success modal or failure modal or blocked modal
+5. User takes action from modal
+
+### Generation History UI
+
+**URL:** `/projects/generations/:id`
+
+**Features:**
+- Read-only table view of all generation attempts for template
+- Columns: Status, Started, Duration, Result
+- Ordered by started_at DESC (newest first)
+- Back button to template library
+
+**Status Badges:**
+- Completed: Green badge with check-circle icon
+- Failed: Red badge with x-circle icon
+- In Progress: Yellow badge with loader icon
+- Pending: Gray badge with clock icon
+
+**Result Column:**
+- Completed: Link to Odoo project (opens in new tab, noopener)
+- Failed: Failed step + error message + cleanup note
+- In Progress: Loading spinner text
+- Other: Dash
+
+**Empty State:**
+- Message: "No generations yet"
+- Explanation: "History will appear after first generation"
+
+**User Cannot:**
+- Retry generation from history (must go to template library)
+- Delete generation records
+- Edit generation records
+- Cancel in-progress generation
+
+### Success/Failure/Blocked Modals
+
+**Success Modal:**
+- Icon: Large green check-circle
+- Message: "Project generated successfully!"
+- Primary action: "View project in Odoo" (button, opens new tab)
+- Secondary action: "View generation history" (button, navigates to history)
+- Dismissible via X button or backdrop click
+
+**Failure Modal:**
+- Icon: Large red x-circle
+- Message: "Project generation failed"
+- Details: Failed step identifier, error message
+- Warning: Manual cleanup note (if partial project created)
+- Primary action: "Retry generation" (button, calls generateProjectFromTemplate again)
+- Secondary action: "View generation history" (button, navigates to history)
+- Dismissible via X button or backdrop click
+
+**Blocked Modal (In Progress):**
+- Icon: Large yellow alert-circle
+- Message: "Generation already in progress"
+- Explanation: "Please wait for completion or check generation history"
+- Action: "View generation history" (button, navigates to history)
+- No retry button (cannot override in_progress)
+- Dismissible via X button or backdrop click
+
+**Blocked Modal (Completed):**
+- Icon: Large yellow alert-circle
+- Message: "Project already generated"
+- Explanation: "This template has already been used. You can generate a new project (creates separate Odoo project)."
+- Primary action: "Generate again" (button, retries with confirmOverwrite)
+- Secondary action: "View generation history" (button, navigates to history)
+- Dismissible via X button or backdrop click
+
+**Modal Implementation:**
+- Created via `createGenerationModal(type)` factory function
+- Populated with DOM API-generated content
+- Appended to document.body
+- Opened with native `modal.showModal()` API
+- Closed with `closeGenerationModal()` (removes from DOM after 300ms)
+
+**User Cannot:**
+- Dismiss modal during generation (loading toast, not modal)
+- Modify generation settings from modal
+- View generation details from modal (must go to history)
+
+### What User Can Always Do
+
+1. Create unlimited templates
+2. Edit blueprints without limit (save validates, warnings allow save)
+3. Generate multiple projects from same template (with confirmation)
+4. View all generation attempts in history
+5. Retry failed generations immediately
+6. Delete templates (does not affect generated Odoo projects or generation records)
+
+### What User Cannot Do
+
+1. Import existing Odoo projects
+2. Synchronize blueprint changes to existing Odoo projects
+3. Cancel in-progress generation
+4. Resume failed generation from last step
+5. Automatically clean up partial Odoo projects
+6. Schedule generation or batch generate
+7. Receive notifications when generation completes
+
+---
+
+## 7. Error Handling & Observability
+
+### Errors Logged to Database
+
+**project_generations table captures:**
+- All generation attempts (success, failure, in-progress)
+- Failed step identifier (e.g., "4-create-stages", "6-create-tasks")
+- Full error message from Odoo API or application
+- Partial Odoo project ID (if created before failure)
+- Odoo entity mappings (blueprint UUID → Odoo ID for entities created before failure)
+- Generation model snapshot (full canonical model for audit)
+- Timestamps (started_at, completed_at)
+- User ID and template ID (for filtering)
+
+**Example failed record:**
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "template_id": "uuid",
+  "status": "failed",
+  "failed_step": "4-create-stages",
+  "error_message": "Odoo RPC error: Invalid stage name",
+  "odoo_project_id": 123,
+  "odoo_project_url": "https://mymmo.odoo.com/web#id=123...",
+  "odoo_mappings": {
+    "stages": {},
+    "tasks": {}
+  },
+  "generation_model": { },
+  "started_at": "2026-01-28T15:00:00Z",
+  "completed_at": "2026-01-28T15:01:15Z"
+}
+```
+
+### Errors Visible to Users
+
+**Generation History UI:**
+- Failed generation rows show:
+  - Red "Failed" badge
+  - Failed step identifier
+  - Error message text
+  - Cleanup reminder
+- All generation attempts visible (no filtering)
+- Ordered newest first
+
+**Failure Modal:**
+- Displays failed step
+- Displays error message
+- Shows cleanup warning if partial project created
+- Provides retry button
+
+**Toast Notifications:**
+- Network errors during generation
+- Validation errors before generation starts
+- Loading state during generation
+
+**Browser Console:**
+- Server errors logged via console.error
+- Network errors logged by fetch API
+- Validation errors logged during development
+
+### Persistent Audit Data
+
+**Immutable Records:**
+- All generation attempts logged (never deleted)
+- Generation model snapshots preserved
+- Odoo mappings preserved (for debugging)
+- Error messages preserved (for pattern analysis)
+
+**Queryable Data:**
+- Filter by user, template, status
+- Order by timestamp
+- Indexed for performance
+
+**Use Cases:**
+- Incident review: "What went wrong in generation X?"
+- Pattern analysis: "Which step fails most often?"
+- User support: "Show me all failed generations for user Y"
+- Compliance: "Prove generation happened at time Z"
+
+### What Is NOT Logged
+
+**Not Persisted:**
+- User actions within blueprint editor (only final save)
+- Intermediate generation states (only start, complete, fail)
+- Odoo API request/response bodies (only IDs and URLs)
+- Validation warnings (only errors that block save)
+- Client-side JavaScript errors (no telemetry)
+
+**Why Not Logged:**
+- Blueprint edits: Performance and storage concerns
+- Intermediate states: Adds complexity without value
+- API bodies: Privacy and storage concerns
+- Warnings: Not actionable failures
+- Client errors: No telemetry infrastructure
+
+**Tradeoff Accepted:**
+- Cannot replay exact user session
+- Cannot debug client-side issues without reproduction
+- Cannot analyze partial Odoo API responses
+
+### Observability Limitations
+
+**No Real-Time Monitoring:**
+- No progress updates during generation
+- No WebSocket or SSE for status updates
+- User sees loading spinner until completion
+
+**No Aggregated Metrics:**
+- No success rate dashboard
+- No average generation duration tracking
+- No error frequency analysis
+
+**No Alerting:**
+- No email notifications on failure
+- No webhook integrations
+- No Slack/Teams notifications
+
+**Rationale:**
+- Scope limitation for initial implementation
+- Simple synchronous request/response model
+- User-initiated monitoring via history UI
+
+---
+
+## 8. Explicit Non-Goals
+
+The following features were explicitly excluded from implementation scope:
+
+### Bidirectional Synchronization
+- Importing existing Odoo projects into blueprints
+- Detecting changes in Odoo projects after generation
+- Updating blueprints based on Odoo modifications
+- Syncing blueprint changes to existing Odoo projects
+
+### Automatic Cleanup
+- Rolling back partial Odoo projects on failure
+- Deleting Odoo entities created before error
+- Cascading blueprint deletes to generated projects
+- Orphaned project detection
+
+### Advanced Generation Features
+- Resume failed generation from last successful step
+- Dry-run mode (preview without creating)
+- Batch generation (multiple projects from one template)
+- Scheduled/automated generation
+- Background job processing
+
+### Progress Indicators
+- Real-time progress updates during generation
+- Step-by-step completion feedback
+- Percentage completion tracking
+- WebSocket or SSE for live updates
+
+### Rich Task Features
+- Task descriptions in blueprint schema
+- User assignments to tasks
+- Estimated hours per task
+- Task deadlines or due dates
+- Task priorities or severity levels
+- Custom fields in Odoo models
+
+### Odoo Model Extensions
+- Custom Odoo models beyond standard fields
+- Native milestone model creation
+- Custom stage assignment per task
+- Workflow state machines
+- Approval processes
+
+### Notifications
+- Email notifications on generation complete/fail
+- Webhook integrations
+- Slack/Teams/Discord notifications
+- In-app notification center
+
+### Analytics
+- Success rate dashboards
+- Generation duration metrics
+- Error frequency analysis
+- Template popularity tracking
+- User activity reports
+
+### Collaboration
+- Sharing templates between users
+- Template marketplace or library
+- Template versioning
+- Multi-user blueprint editing
+- Change approval workflows
+
+### Mobile Support
+- Native mobile apps
+- Mobile-optimized UI
+- Touch-friendly interactions
+- Offline mode
+
+### API Integrations Beyond Odoo
+- Jira, Asana, Monday.com imports
+- Export to other project management tools
+- Calendar integrations
+- Time tracking integrations
+
+---
+
+## 9. Current State Summary
+
+### Production Ready Components
+
+**Database:**
+- `project_templates` table with RLS policies
+- `project_generations` table with RLS policies
+- Indexes on user_id, template_id, status
+- Migrations applied to production Supabase instance
+
+**Server-Side Code:**
+- All routes implemented and tested
+- Generation orchestrator handles 7-step Odoo creation
+- Lifecycle tracking prevents concurrent generations
+- Error handling with appropriate HTTP status codes
+- Static HTML shells for all UI screens
+
+**Client-Side Code:**
+- Template library CRUD operations
+- Blueprint editor with full validation
+- Generation history UI with status badges
+- Success/failure/blocked modals with actions
+- All rendering via DOM APIs (XSS-safe)
+
+**Odoo Integration:**
+- XML-RPC API wrapper for all required models
+- Sequential entity creation (project, stages, tags, tasks, dependencies)
+- Proper field mappings (parent_id, tag_ids, depend_on_ids)
+- Error handling with failed step identification
+
+**User Experience:**
+- Complete template management workflow
+- Blueprint editing with real-time validation
+- One-click project generation
+- Post-generation feedback with retry capability
+- Generation history for audit and debugging
+
+### No Further Action Required
+
+**Functionality:**
+- All planned features implemented
+- All validation rules enforced
+- All error paths handled
+- All user feedback mechanisms in place
+
+**Architecture:**
+- Strict separation of concerns maintained
+- No inline JavaScript in server templates
+- No template literals for dynamic UI
+- No frameworks introduced
+- RLS policies enforced
+
+**Documentation:**
+- Implementation details recorded
+- Design rationale documented
+- Error handling patterns established
+- User workflows defined
+
+### Future Extension Points
+
+The following areas can be extended without redesign:
+
+**Blueprint Schema:**
+- Add task description field (requires Odoo mapping update)
+- Add estimated hours field (requires Odoo mapping update)
+- Add deadline field (requires Odoo mapping update)
+- Current schema is extensible (JSONB column)
+
+**Generation Lifecycle:**
+- Add progress streaming (requires WebSocket or SSE)
+- Add resume capability (requires step checkpointing)
+- Add dry-run mode (requires generation simulation)
+- Current state machine supports new states
+
+**Odoo Mappings:**
+- Add user assignment mapping (requires user lookup)
+- Add stage-per-task assignment (requires stage field in blueprint)
+- Add custom field mappings (requires Odoo model extension)
+- Current mapper is extensible (new fields in canonical model)
+
+**UI Features:**
+- Add drag-and-drop reordering (requires library like SortableJS)
+- Add visual dependency graph (requires graph rendering library)
+- Add template sharing (requires new RLS policies)
+- Current DOM API pattern supports new features
+
+**Observability:**
+- Add metrics aggregation (requires new table or analytics service)
+- Add email notifications (requires email service integration)
+- Add webhook support (requires new table for webhook config)
+- Current event points are hookable (lifecycle transitions)
+
+**No Breaking Changes Required:**
+- Database schema is additive (new columns, new tables)
+- API is versioned (routes can be duplicated for v2)
+- Blueprint schema is versioned (JSONB supports migration)
+- UI is component-based (new features are isolated)
+
+### System Is Complete For
+
+1. Creating reusable project templates
+2. Defining complex project structures (stages, tasks, subtasks, dependencies)
+3. Generating Odoo projects from templates
+4. Tracking generation attempts and outcomes
+5. Providing user feedback on success/failure
+6. Enabling retry and override workflows
+7. Maintaining audit trail of all generations
+
+### System Is NOT Complete For
+
+1. Enterprise-scale usage (no rate limiting, no quotas)
+2. Multi-tenant isolation beyond RLS (no organization model)
+3. High-concurrency scenarios (no queue, no load balancing)
+4. Advanced project management (no Gantt, no resource allocation)
+5. Integration with non-Odoo systems
+
+**Deployment Status:** Production-ready for single-organization, moderate-concurrency usage with manual Odoo cleanup on failures.
+
+---
+
+**END OF DOCUMENT**

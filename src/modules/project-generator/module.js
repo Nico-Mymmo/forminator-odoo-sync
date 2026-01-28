@@ -4,9 +4,10 @@
  * Template library for project blueprints.
  */
 
-import { templateLibraryUI, blueprintEditorUI } from './ui.js';
-import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getBlueprintData, saveBlueprintData, getTemplate } from './library.js';
+import { templateLibraryUI, blueprintEditorUI, generationHistoryUI } from './ui.js';
+import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getBlueprintData, saveBlueprintData, getTemplate, getGenerationsForTemplate } from './library.js';
 import { generateProject } from './generate.js';
+import { validateGenerationStart, startGeneration, markGenerationSuccess, markGenerationFailure } from './generation-lifecycle.js';
 
 export default {
   // Module metadata
@@ -221,10 +222,10 @@ export default {
     
     // Generate project from template
     'POST /api/generate/:id': async (context) => {
-      const { env, params } = context;
+      const { request, env, params, user } = context;
       
       try {
-        // Get template to access name
+        // Get template to access name and user_id
         const template = await getTemplate(env, params.id);
         
         if (!template) {
@@ -237,12 +238,91 @@ export default {
           });
         }
         
-        const result = await generateProject(env, params.id, template.name);
+        // Parse request body for confirmOverwrite flag
+        let confirmOverwrite = false;
+        try {
+          const body = await request.json();
+          confirmOverwrite = body.confirmOverwrite === true;
+        } catch {
+          // No body or invalid JSON, proceed with default
+        }
         
-        return new Response(JSON.stringify(result), {
-          status: result.success ? 200 : 500,
-          headers: { 'Content-Type': 'application/json' }
-        });
+        // LIFECYCLE STEP 1: Validate generation can proceed
+        const validation = await validateGenerationStart(env, user.id, params.id, confirmOverwrite);
+        
+        if (!validation.canProceed) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: validation.reason,
+            existingGeneration: validation.existingGeneration
+          }), {
+            status: 409, // Conflict
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        // Execute generation with lifecycle tracking
+        let generationId = null;
+        let generationModel = null;
+        
+        try {
+          // LIFECYCLE STEP 2: Build generation model (without Odoo calls)
+          const blueprintData = await getBlueprintData(env, params.id);
+          
+          // Import buildGenerationModel or replicate logic
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+          const projectName = `${template.name} (${timestamp})`;
+          
+          // Build minimal model for tracking (full model built in generateProject)
+          generationModel = {
+            project: { name: projectName, description: null },
+            stages: blueprintData.stages || [],
+            tasks: blueprintData.tasks || [],
+            milestones: blueprintData.milestones || [],
+            dependencies: blueprintData.dependencies || []
+          };
+          
+          // LIFECYCLE STEP 3: Start generation record BEFORE Odoo calls
+          generationId = await startGeneration(env, user.id, params.id, generationModel);
+          
+          // LIFECYCLE STEP 4: Execute Odoo generation
+          const result = await generateProject(env, params.id, template.name);
+          
+          if (result.success) {
+            // LIFECYCLE STEP 5: Mark success
+            await markGenerationSuccess(env, generationId, result);
+            
+            return new Response(JSON.stringify({
+              success: true,
+              generationId: generationId,
+              odoo_project_id: result.odoo_project_id,
+              odoo_project_url: result.odoo_project_url
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } else {
+            // LIFECYCLE STEP 6: Mark failure
+            await markGenerationFailure(env, generationId, result.step, result.error);
+            
+            return new Response(JSON.stringify({
+              success: false,
+              generationId: generationId,
+              step: result.step,
+              error: result.error
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+        } catch (generationError) {
+          // LIFECYCLE STEP 7: Mark unexpected failure
+          if (generationId) {
+            await markGenerationFailure(env, generationId, 'unknown', generationError.message);
+          }
+          throw generationError;
+        }
         
       } catch (error) {
         console.error('[Project Generator] Generate project failed:', error);
@@ -250,6 +330,55 @@ export default {
         return new Response(JSON.stringify({
           success: false,
           step: 'unknown',
+          error: error.message
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    },
+    
+    // Generation history UI
+    'GET /generations/:id': async (context) => {
+      const { params, user, env } = context;
+      
+      try {
+        // Get template to check ownership and get name
+        const template = await getTemplate(env, params.id);
+        
+        if (!template) {
+          return new Response('Template not found', { status: 404 });
+        }
+        
+        return new Response(generationHistoryUI(user, params.id, template.name), {
+          headers: { 'Content-Type': 'text/html' }
+        });
+        
+      } catch (error) {
+        console.error('[Project Generator] Generation history UI failed:', error);
+        return new Response('Error loading generation history', { status: 500 });
+      }
+    },
+    
+    // Get generations for template (API)
+    'GET /api/generations/:id': async (context) => {
+      const { env, user, params } = context;
+      
+      try {
+        const generations = await getGenerationsForTemplate(env, user.id, params.id);
+        
+        return new Response(JSON.stringify({
+          success: true,
+          data: generations
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+      } catch (error) {
+        console.error('[Project Generator] Get generations failed:', error);
+        
+        return new Response(JSON.stringify({
+          success: false,
           error: error.message
         }), {
           status: 500,

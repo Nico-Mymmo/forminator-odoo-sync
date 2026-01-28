@@ -457,3 +457,99 @@ export function blueprintEditorUI(user, templateId) {
 </body>
 </html>`;
 }
+
+/**
+ * Generation History UI
+ * 
+ * Read-only view of all generation attempts for a template.
+ * Static HTML shell only - dynamic logic in client.js
+ */
+export function generationHistoryUI(user, templateId, templateName) {
+  return `<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generation History - ${templateName}</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-base-200">
+    ${navbar(user)}
+    
+    <div style="padding-top: 48px;">
+      <div class="container mx-auto px-6 py-8 max-w-6xl">
+        
+        <!-- Header with Back Navigation -->
+        <div class="mb-8">
+          <a href="/projects" class="btn btn-ghost btn-sm mb-4">
+            <i data-lucide="arrow-left" class="w-4 h-4 mr-2"></i>
+            Back to Templates
+          </a>
+          <h1 class="text-4xl font-bold mb-2">Generation History</h1>
+          <p class="text-base-content/60" id="templateNameDisplay">Loading...</p>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="flex justify-center items-center py-20">
+          <span class="loading loading-spinner loading-lg"></span>
+          <span class="ml-4 text-lg">Loading generation history...</span>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="card bg-base-100 shadow-xl" style="display: none;">
+          <div class="card-body items-center text-center py-16">
+            <i data-lucide="history" class="w-16 h-16 text-base-content/30 mb-4"></i>
+            <h2 class="card-title text-2xl mb-2">No generations yet</h2>
+            <p class="text-base-content/60 mb-2">This template has not been generated to Odoo.</p>
+            <p class="text-base-content/60 text-sm">Generation history will appear here after you click "Generate Project".</p>
+          </div>
+        </div>
+
+        <!-- Generation History Table -->
+        <div id="historyTable" class="card bg-base-100 shadow-xl" style="display: none;">
+          <div class="card-body">
+            <div class="overflow-x-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                  <!-- Rows inserted by client.js -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Help Text -->
+        <div id="helpText" class="alert mt-6" style="display: none;">
+          <i data-lucide="info" class="w-5 h-5"></i>
+          <div>
+            <h3 class="font-bold">About Generation History</h3>
+            <p class="text-sm mt-1">This page shows all attempts to generate Odoo projects from this template. Failed generations may require manual cleanup in Odoo.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast toast-top toast-end"></div>
+
+    <!-- Store template ID for client.js -->
+    <script>
+      window.TEMPLATE_ID = '${templateId}';
+      window.TEMPLATE_NAME = '${templateName}';
+      window.VIEW_MODE = 'generation-history';
+    </script>
+    <script src="/project-generator-client.js"></script>
+</body>
+</html>`;
+}

@@ -279,30 +279,75 @@ User Query
 
 ## Project Generator
 
-**Status:** 🚧 **In Development** - Iteration 2 Complete (Template Library)
+**Status:** 🚧 **In Development** - Iteration 4 Complete (Project Generation)
 
-### Current Capabilities (Iteration 2)
+### Current Capabilities (Iteration 4)
 
 - ✅ **Template Library** - View, create, edit, delete project templates
-- ✅ **User-scoped** - RLS-enforced template ownership
-- ✅ **Name + Description** - Basic template metadata management
-- ❌ **Blueprint Editor** - Not yet implemented (Iteration 3)
-- ❌ **Odoo Generation** - Not yet implemented (Iteration 4)
+- ✅ **Blueprint Editor** - Define stages, milestones, tasks, subtasks, dependencies
+- ✅ **Blueprint Validation** - Real-time validation with error messages
+- ✅ **Odoo Generation** - One-click project creation to Odoo
+- ✅ **Generation Lifecycle** - Server-side tracking of generation attempts (Iteration 5)
+- ❌ **Generation History UI** - Not yet implemented (Iteration 5, pending)
 
 ### What You Can Do Now
 
 Navigate to `/projects` to:
 - View your project templates
-- Create new templates (name + description)
-- Edit existing templates
-- Delete templates
+- Create new templates
+- Edit blueprint (stages, milestones, tasks, dependencies)
+- Generate Odoo projects from templates
+- Track generation status (server-side only)
 
-**Note:** Blueprint editing and Odoo project generation are planned for future iterations.
+### Project Generation Lifecycle (Server-side)
+
+**Iteration 5** adds generation observability and safety:
+
+**Generation States:**
+- `in_progress` - Generation currently executing
+- `completed` - Successfully created in Odoo
+- `failed` - Generation failed (see error details)
+
+**Safety Rules:**
+1. **Concurrent generation blocked** - Only one generation at a time per template
+2. **Duplicate prevention** - Requires explicit confirmation to regenerate
+3. **Retry enabled** - Failed generations can be retried
+4. **Audit trail** - Full generation model and Odoo mappings stored
+
+**API Endpoint:**
+```bash
+POST /api/generate/:templateId
+{
+  "confirmOverwrite": true  # Optional: allow re-generation
+}
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "generationId": "uuid",
+  "odoo_project_id": 123,
+  "odoo_project_url": "https://mymmo.odoo.com/web#id=123..."
+}
+```
+
+**Response (Blocked):**
+```json
+{
+  "success": false,
+  "error": "Generation already in progress for this template",
+  "existingGeneration": { /* record */ }
+}
+```
+
+**Note:** Generation is one-way, non-transactional. Partial failures require manual cleanup in Odoo.
 
 ### Documentation
 
 - [docs/project-generator/](docs/project-generator/) - Complete specification and implementation logs
-- [ITERATION_11_IMPLEMENTATION_LOG.md](docs/project-generator/ITERATION_11_IMPLEMENTATION_LOG.md) - Progress tracking
+- [ITERATION_4_SUMMARY.md](docs/project-generator/ITERATION_4_SUMMARY.md) - Project generation details
+- [ITERATION_5_IMPLEMENTATION_LOG.md](docs/project-generator/ITERATION_5_IMPLEMENTATION_LOG.md) - Lifecycle tracking details
 
 ---
 

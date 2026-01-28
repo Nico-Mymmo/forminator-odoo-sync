@@ -267,3 +267,69 @@ export async function saveBlueprintData(env, templateId, blueprintData) {
   console.log('[Template Library] Blueprint saved:', templateId);
   return data;
 }
+
+// ============================================================================
+// GENERATION HISTORY DATA ACCESS (Iteration 5)
+// ============================================================================
+
+/**
+ * Get all generation attempts for a template
+ * 
+ * Returns UI-friendly generation history, newest first.
+ * 
+ * @param {Object} env - Cloudflare Worker environment
+ * @param {string} userId - User UUID
+ * @param {string} templateId - Template UUID
+ * @returns {Promise<Array>} Array of generation objects
+ * @throws {Error} If database operation fails
+ */
+export async function getGenerationsForTemplate(env, userId, templateId) {
+  const supabase = getSupabaseClient(env);
+  
+  const { data, error } = await supabase
+    .from('project_generations')
+    .select('id, status, started_at, completed_at, odoo_project_id, odoo_project_url, failed_step, error_message')
+    .eq('user_id', userId)
+    .eq('template_id', templateId)
+    .order('created_at', { ascending: false });
+  
+  if (error) {
+    console.error('[Template Library] Get generations failed:', error);
+    throw new Error(`Failed to fetch generations: ${error.message}`);
+  }
+  
+  return data || [];
+}
+
+/**
+ * Get a single generation record by ID
+ * 
+ * Returns full generation data including diagnostics.
+ * 
+ * @param {Object} env - Cloudflare Worker environment
+ * @param {string} userId - User UUID
+ * @param {string} generationId - Generation UUID
+ * @returns {Promise<Object|null>} Generation object or null
+ * @throws {Error} If database operation fails
+ */
+export async function getGenerationById(env, userId, generationId) {
+  const supabase = getSupabaseClient(env);
+  
+  const { data, error } = await supabase
+    .from('project_generations')
+    .select('id, status, template_id, started_at, completed_at, odoo_project_id, odoo_project_url, odoo_mappings, failed_step, error_message, generation_model')
+    .eq('user_id', userId)
+    .eq('id', generationId)
+    .single();
+  
+  if (error) {
+    if (error.code === 'PGRST116') {
+      // Not found
+      return null;
+    }
+    console.error('[Template Library] Get generation failed:', error);
+    throw new Error(`Failed to get generation: ${error.message}`);
+  }
+  
+  return data;
+}

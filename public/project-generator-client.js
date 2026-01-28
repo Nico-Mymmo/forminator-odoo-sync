@@ -80,6 +80,19 @@ function renderTemplateRow(template) {
   
   actionsTd.appendChild(generateBtn);
   
+  // View History button
+  const historyBtn = document.createElement('button');
+  historyBtn.className = 'btn btn-ghost btn-sm';
+  historyBtn.title = 'View Generation History';
+  historyBtn.onclick = () => window.location.href = '/projects/generations/' + template.id;
+  
+  const historyIcon = document.createElement('i');
+  historyIcon.setAttribute('data-lucide', 'history');
+  historyIcon.className = 'w-4 h-4';
+  historyBtn.appendChild(historyIcon);
+  
+  actionsTd.appendChild(historyBtn);
+  
   // Edit Blueprint button
   const blueprintBtn = document.createElement('button');
   blueprintBtn.className = 'btn btn-ghost btn-sm';
@@ -292,49 +305,22 @@ async function generateProjectFromTemplate(templateId) {
   try {
     const response = await fetch(`/projects/api/generate/${templateId}`, {
       method: 'POST',
-      credentials: 'include'
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
     });
     
     const result = await response.json();
     
-    if (result.success) {
-      const projectUrl = result.odoo_project_url;
-      
-      // Create success message with link
-      const container = document.getElementById('toastContainer');
-      const toast = document.createElement('div');
-      toast.className = 'alert alert-success shadow-lg';
-      
-      const content = document.createElement('div');
-      
-      const message = document.createElement('p');
-      message.className = 'font-bold';
-      message.textContent = 'Project generated successfully!';
-      content.appendChild(message);
-      
-      if (projectUrl) {
-        const link = document.createElement('a');
-        link.href = projectUrl;
-        link.target = '_blank';
-        link.className = 'underline';
-        link.textContent = 'Open in Odoo';
-        content.appendChild(link);
-      }
-      
-      toast.appendChild(content);
-      container.appendChild(toast);
-      
-      setTimeout(() => {
-        toast.remove();
-      }, 10000);
-      
+    if (response.status === 409) {
+      // Blocked generation (conflict)
+      showBlockedGenerationModal(result, templateId);
+    } else if (result.success) {
+      // Success
+      showSuccessGenerationModal(result, templateId);
     } else {
-      const errorMsg = 'Generation failed at step ' + result.step + ': ' + result.error;
-      showToast(errorMsg, 'error');
-      
-      if (result.odoo_project_id) {
-        showToast('Partial project created (ID: ' + result.odoo_project_id + '). Manual cleanup required.', 'error');
-      }
+      // Failure
+      showFailureGenerationModal(result, templateId);
     }
   } catch (err) {
     console.error('Generate error:', err);
@@ -401,6 +387,12 @@ function formatDate(dateString) {
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
+  // Check if we're on the generation history page
+  if (window.VIEW_MODE === 'generation-history') {
+    initGenerationHistory();
+    return;
+  }
+  
   // Check if we're on the blueprint editor page
   if (window.TEMPLATE_ID) {
     initBlueprintEditor();
@@ -1315,4 +1307,579 @@ function validateAndDisplay() {
   }
   
   lucide.createIcons();
+}
+
+// ============================================================================
+// GENERATION HISTORY
+// ============================================================================
+
+// Initialize generation history view
+async function initGenerationHistory() {
+  initTheme();
+  
+  // Set template name in header
+  const templateNameDisplay = document.getElementById('templateNameDisplay');
+  if (window.TEMPLATE_NAME) {
+    templateNameDisplay.textContent = window.TEMPLATE_NAME;
+  }
+  
+  lucide.createIcons();
+  loadGenerationHistory();
+}
+
+// Load generation history from API
+async function loadGenerationHistory() {
+  const loadingState = document.getElementById('loadingState');
+  const emptyState = document.getElementById('emptyState');
+  const historyTable = document.getElementById('historyTable');
+  const helpText = document.getElementById('helpText');
+  
+  try {
+    const response = await fetch('/projects/api/generations/' + window.TEMPLATE_ID, {
+      credentials: 'include'
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to load generation history');
+    }
+    
+    const result = await response.json();
+    
+    loadingState.style.display = 'none';
+    
+    if (!result.success || !result.data || result.data.length === 0) {
+      emptyState.style.display = 'block';
+      lucide.createIcons();
+      return;
+    }
+    
+    renderGenerationHistory(result.data);
+    historyTable.style.display = 'block';
+    helpText.style.display = 'flex';
+    lucide.createIcons();
+    
+  } catch (error) {
+    console.error('Failed to load generation history:', error);
+    loadingState.style.display = 'none';
+    showToast('Failed to load generation history', 'error');
+  }
+}
+
+// Render generation history table
+function renderGenerationHistory(generations) {
+  const tbody = document.getElementById('historyTableBody');
+  tbody.innerHTML = '';
+  
+  generations.forEach(generation => {
+    const tr = document.createElement('tr');
+    
+    // Status column
+    const statusTd = document.createElement('td');
+    const statusBadge = createStatusBadge(generation.status);
+    statusTd.appendChild(statusBadge);
+    tr.appendChild(statusTd);
+    
+    // Started column
+    const startedTd = document.createElement('td');
+    startedTd.className = 'text-sm';
+    startedTd.textContent = formatDateTime(generation.started_at);
+    tr.appendChild(startedTd);
+    
+    // Duration column
+    const durationTd = document.createElement('td');
+    durationTd.className = 'text-sm';
+    if (generation.completed_at) {
+      durationTd.textContent = calculateDuration(generation.started_at, generation.completed_at);
+    } else if (generation.status === 'in_progress') {
+      durationTd.textContent = 'In progress...';
+    } else {
+      durationTd.textContent = '-';
+    }
+    tr.appendChild(durationTd);
+    
+    // Result column
+    const resultTd = document.createElement('td');
+    
+    if (generation.status === 'completed' && generation.odoo_project_url) {
+      const link = document.createElement('a');
+      link.href = generation.odoo_project_url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.className = 'link link-primary flex items-center gap-2';
+      
+      const linkText = document.createElement('span');
+      linkText.textContent = 'View in Odoo';
+      link.appendChild(linkText);
+      
+      const linkIcon = document.createElement('i');
+      linkIcon.setAttribute('data-lucide', 'external-link');
+      linkIcon.className = 'w-4 h-4';
+      link.appendChild(linkIcon);
+      
+      resultTd.appendChild(link);
+    } else if (generation.status === 'failed') {
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'text-sm';
+      
+      const failedStepText = document.createElement('div');
+      failedStepText.className = 'font-semibold text-error mb-1';
+      failedStepText.textContent = 'Failed at: ' + (generation.failed_step || 'unknown');
+      errorDiv.appendChild(failedStepText);
+      
+      if (generation.error_message) {
+        const errorText = document.createElement('div');
+        errorText.className = 'text-base-content/60';
+        errorText.textContent = generation.error_message;
+        errorDiv.appendChild(errorText);
+      }
+      
+      const cleanupNote = document.createElement('div');
+      cleanupNote.className = 'text-xs text-base-content/40 mt-2';
+      cleanupNote.textContent = 'Manual cleanup in Odoo may be required';
+      errorDiv.appendChild(cleanupNote);
+      
+      resultTd.appendChild(errorDiv);
+    } else if (generation.status === 'in_progress') {
+      const spinner = document.createElement('span');
+      spinner.className = 'loading loading-spinner loading-sm';
+      resultTd.appendChild(spinner);
+    } else {
+      resultTd.textContent = '-';
+    }
+    
+    tr.appendChild(resultTd);
+    tbody.appendChild(tr);
+  });
+}
+
+// Create status badge
+function createStatusBadge(status) {
+  const badge = document.createElement('span');
+  badge.className = 'badge';
+  
+  let icon = '';
+  let badgeClass = '';
+  
+  switch (status) {
+    case 'completed':
+      badgeClass = 'badge-success';
+      icon = 'check-circle';
+      badge.textContent = 'Completed';
+      break;
+    case 'failed':
+      badgeClass = 'badge-error';
+      icon = 'x-circle';
+      badge.textContent = 'Failed';
+      break;
+    case 'in_progress':
+      badgeClass = 'badge-warning';
+      icon = 'loader';
+      badge.textContent = 'In Progress';
+      break;
+    case 'pending':
+      badgeClass = 'badge-ghost';
+      icon = 'clock';
+      badge.textContent = 'Pending';
+      break;
+    default:
+      badge.textContent = status;
+  }
+  
+  badge.className += ' ' + badgeClass + ' gap-1';
+  
+  if (icon) {
+    const iconEl = document.createElement('i');
+    iconEl.setAttribute('data-lucide', icon);
+    iconEl.className = 'w-3 h-3';
+    badge.insertBefore(iconEl, badge.firstChild);
+  }
+  
+  return badge;
+}
+
+// Format date and time
+function formatDateTime(dateString) {
+  if (!dateString) return '-';
+  const date = new Date(dateString);
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+// Calculate duration between two timestamps
+function calculateDuration(startTime, endTime) {
+  if (!startTime || !endTime) return '-';
+  
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const durationMs = end - start;
+  
+  if (durationMs < 0) return '-';
+  
+  const seconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds % 60}s`;
+  } else {
+    return `${seconds}s`;
+  }
+}
+
+// ============================================================================
+// GENERATION FEEDBACK MODALS
+// ============================================================================
+
+/**
+ * Show success modal after successful project generation
+ */
+function showSuccessGenerationModal(result, templateId) {
+  const modal = createGenerationModal('success');
+  const body = modal.querySelector('.modal-body');
+  
+  // Success message
+  const message = document.createElement('p');
+  message.className = 'text-lg mb-4';
+  message.textContent = 'Project generated successfully!';
+  body.appendChild(message);
+  
+  // Buttons container
+  const btnContainer = document.createElement('div');
+  btnContainer.className = 'flex gap-3 justify-end';
+  
+  // View in Odoo button (primary action)
+  if (result.odoo_project_url) {
+    const odooBtn = document.createElement('a');
+    odooBtn.href = result.odoo_project_url;
+    odooBtn.target = '_blank';
+    odooBtn.rel = 'noopener noreferrer';
+    odooBtn.className = 'btn btn-primary';
+    
+    const odooIcon = document.createElement('i');
+    odooIcon.setAttribute('data-lucide', 'external-link');
+    odooIcon.className = 'w-4 h-4';
+    odooBtn.appendChild(odooIcon);
+    
+    const odooText = document.createElement('span');
+    odooText.textContent = 'View project in Odoo';
+    odooBtn.appendChild(odooText);
+    
+    btnContainer.appendChild(odooBtn);
+  }
+  
+  // View history button (secondary action)
+  const historyBtn = document.createElement('button');
+  historyBtn.className = 'btn btn-ghost';
+  historyBtn.onclick = () => {
+    closeGenerationModal(modal);
+    window.location.href = '/projects/generations/' + templateId;
+  };
+  
+  const historyIcon = document.createElement('i');
+  historyIcon.setAttribute('data-lucide', 'history');
+  historyIcon.className = 'w-4 h-4';
+  historyBtn.appendChild(historyIcon);
+  
+  const historyText = document.createElement('span');
+  historyText.textContent = 'View generation history';
+  historyBtn.appendChild(historyText);
+  
+  btnContainer.appendChild(historyBtn);
+  body.appendChild(btnContainer);
+  
+  document.body.appendChild(modal);
+  modal.showModal();
+  lucide.createIcons();
+}
+
+/**
+ * Show failure modal after generation error
+ */
+function showFailureGenerationModal(result, templateId) {
+  const modal = createGenerationModal('error');
+  const body = modal.querySelector('.modal-body');
+  
+  // Failure message
+  const message = document.createElement('p');
+  message.className = 'text-lg font-semibold mb-3';
+  message.textContent = 'Project generation failed';
+  body.appendChild(message);
+  
+  // Failed step (if available)
+  if (result.step) {
+    const stepDiv = document.createElement('div');
+    stepDiv.className = 'mb-2';
+    
+    const stepLabel = document.createElement('span');
+    stepLabel.className = 'font-semibold';
+    stepLabel.textContent = 'Failed step: ';
+    stepDiv.appendChild(stepLabel);
+    
+    const stepValue = document.createElement('span');
+    stepValue.textContent = result.step;
+    stepDiv.appendChild(stepValue);
+    
+    body.appendChild(stepDiv);
+  }
+  
+  // Error message (if available)
+  if (result.error) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'mb-4';
+    
+    const errorLabel = document.createElement('span');
+    errorLabel.className = 'font-semibold';
+    errorLabel.textContent = 'Error: ';
+    errorDiv.appendChild(errorLabel);
+    
+    const errorValue = document.createElement('span');
+    errorValue.className = 'text-error';
+    errorValue.textContent = result.error;
+    errorDiv.appendChild(errorValue);
+    
+    body.appendChild(errorDiv);
+  }
+  
+  // Manual cleanup warning (if partial project created)
+  if (result.odoo_project_id) {
+    const warning = document.createElement('div');
+    warning.className = 'alert alert-warning mb-4';
+    
+    const warningIcon = document.createElement('i');
+    warningIcon.setAttribute('data-lucide', 'alert-triangle');
+    warningIcon.className = 'w-5 h-5';
+    warning.appendChild(warningIcon);
+    
+    const warningText = document.createElement('span');
+    warningText.textContent = 'Partial project created in Odoo. Manual cleanup may be required.';
+    warning.appendChild(warningText);
+    
+    body.appendChild(warning);
+  }
+  
+  // Buttons container
+  const btnContainer = document.createElement('div');
+  btnContainer.className = 'flex gap-3 justify-end';
+  
+  // Retry button (primary action)
+  const retryBtn = document.createElement('button');
+  retryBtn.className = 'btn btn-primary';
+  retryBtn.onclick = async () => {
+    closeGenerationModal(modal);
+    await generateProjectFromTemplate(templateId);
+  };
+  
+  const retryIcon = document.createElement('i');
+  retryIcon.setAttribute('data-lucide', 'refresh-cw');
+  retryIcon.className = 'w-4 h-4';
+  retryBtn.appendChild(retryIcon);
+  
+  const retryText = document.createElement('span');
+  retryText.textContent = 'Retry generation';
+  retryBtn.appendChild(retryText);
+  
+  btnContainer.appendChild(retryBtn);
+  
+  // View history button (secondary action)
+  const historyBtn = document.createElement('button');
+  historyBtn.className = 'btn btn-ghost';
+  historyBtn.onclick = () => {
+    closeGenerationModal(modal);
+    window.location.href = '/projects/generations/' + templateId;
+  };
+  
+  const historyIcon = document.createElement('i');
+  historyIcon.setAttribute('data-lucide', 'history');
+  historyIcon.className = 'w-4 h-4';
+  historyBtn.appendChild(historyIcon);
+  
+  const historyText = document.createElement('span');
+  historyText.textContent = 'View generation history';
+  historyBtn.appendChild(historyText);
+  
+  btnContainer.appendChild(historyBtn);
+  body.appendChild(btnContainer);
+  
+  document.body.appendChild(modal);
+  modal.showModal();
+  lucide.createIcons();
+}
+
+/**
+ * Show blocked modal when generation is prevented by conflict
+ */
+function showBlockedGenerationModal(result, templateId) {
+  const modal = createGenerationModal('warning');
+  const body = modal.querySelector('.modal-body');
+  
+  // Determine blocking reason and message
+  const isInProgress = result.blocking_status === 'in_progress';
+  
+  // Blocked message
+  const message = document.createElement('p');
+  message.className = 'text-lg font-semibold mb-3';
+  message.textContent = isInProgress 
+    ? 'Generation already in progress' 
+    : 'Project already generated';
+  body.appendChild(message);
+  
+  // Explanation text
+  const explanation = document.createElement('p');
+  explanation.className = 'mb-4';
+  explanation.textContent = isInProgress
+    ? 'A generation for this template is currently running. Please wait for it to complete or check the generation history.'
+    : 'This template has already been used to generate a project. You can view the existing generation or generate a new one (will create a separate project).';
+  body.appendChild(explanation);
+  
+  // Buttons container
+  const btnContainer = document.createElement('div');
+  btnContainer.className = 'flex gap-3 justify-end';
+  
+  // Conditional: Generate Again button (only for completed status)
+  if (!isInProgress) {
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'btn btn-primary';
+    retryBtn.onclick = async () => {
+      closeGenerationModal(modal);
+      // Retry with confirmOverwrite flag
+      await retryGenerationWithOverride(templateId);
+    };
+    
+    const retryIcon = document.createElement('i');
+    retryIcon.setAttribute('data-lucide', 'plus-circle');
+    retryIcon.className = 'w-4 h-4';
+    retryBtn.appendChild(retryIcon);
+    
+    const retryText = document.createElement('span');
+    retryText.textContent = 'Generate again';
+    retryBtn.appendChild(retryText);
+    
+    btnContainer.appendChild(retryBtn);
+  }
+  
+  // View history button (secondary action)
+  const historyBtn = document.createElement('button');
+  historyBtn.className = 'btn btn-ghost';
+  historyBtn.onclick = () => {
+    closeGenerationModal(modal);
+    window.location.href = '/projects/generations/' + templateId;
+  };
+  
+  const historyIcon = document.createElement('i');
+  historyIcon.setAttribute('data-lucide', 'history');
+  historyIcon.className = 'w-4 h-4';
+  historyBtn.appendChild(historyIcon);
+  
+  const historyText = document.createElement('span');
+  historyText.textContent = 'View generation history';
+  historyBtn.appendChild(historyText);
+  
+  btnContainer.appendChild(historyBtn);
+  body.appendChild(btnContainer);
+  
+  document.body.appendChild(modal);
+  modal.showModal();
+  lucide.createIcons();
+}
+
+/**
+ * Retry generation with confirmOverwrite flag
+ */
+async function retryGenerationWithOverride(templateId) {
+  if (!confirm('Generate a new project from this template?\n\nThis will create a separate project in Odoo (the previous one will remain).')) {
+    return;
+  }
+  
+  showToast('Generating project... This may take a moment.', 'info');
+  
+  try {
+    const response = await fetch(`/projects/api/generate/${templateId}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmOverwrite: true })
+    });
+    
+    const result = await response.json();
+    
+    if (response.status === 409) {
+      showBlockedGenerationModal(result, templateId);
+    } else if (result.success) {
+      showSuccessGenerationModal(result, templateId);
+    } else {
+      showFailureGenerationModal(result, templateId);
+    }
+  } catch (err) {
+    console.error('Generate error:', err);
+    showToast('Network error during generation. Please check Odoo manually.', 'error');
+  }
+}
+
+/**
+ * Create base modal structure for generation feedback
+ */
+function createGenerationModal(type) {
+  const modal = document.createElement('dialog');
+  modal.className = 'modal';
+  
+  const modalBox = document.createElement('div');
+  modalBox.className = 'modal-box';
+  
+  // Close button (top-right X)
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-sm btn-circle btn-ghost absolute right-2 top-2';
+  closeBtn.onclick = () => closeGenerationModal(modal);
+  closeBtn.textContent = '✕';
+  modalBox.appendChild(closeBtn);
+  
+  // Icon based on type
+  const iconContainer = document.createElement('div');
+  iconContainer.className = 'flex justify-center mb-4';
+  
+  const icon = document.createElement('i');
+  icon.className = 'w-12 h-12';
+  
+  if (type === 'success') {
+    icon.setAttribute('data-lucide', 'check-circle');
+    icon.style.color = 'hsl(var(--su))';
+  } else if (type === 'error') {
+    icon.setAttribute('data-lucide', 'x-circle');
+    icon.style.color = 'hsl(var(--er))';
+  } else if (type === 'warning') {
+    icon.setAttribute('data-lucide', 'alert-circle');
+    icon.style.color = 'hsl(var(--wa))';
+  }
+  
+  iconContainer.appendChild(icon);
+  modalBox.appendChild(iconContainer);
+  
+  // Body container (will be populated by specific modal functions)
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  modalBox.appendChild(body);
+  
+  modal.appendChild(modalBox);
+  
+  // Backdrop (click to close)
+  const backdrop = document.createElement('form');
+  backdrop.method = 'dialog';
+  backdrop.className = 'modal-backdrop';
+  modal.appendChild(backdrop);
+  
+  return modal;
+}
+
+/**
+ * Close and remove generation modal
+ */
+function closeGenerationModal(modal) {
+  modal.close();
+  setTimeout(() => modal.remove(), 300);
 }
