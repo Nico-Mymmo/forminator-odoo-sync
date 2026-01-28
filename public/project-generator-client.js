@@ -1187,14 +1187,8 @@ function validateBlueprint() {
   const tasks = blueprintState.tasks || [];
   const dependencies = blueprintState.dependencies || [];
   
-  // Validate tasks must have subtasks
-  const parentTasks = tasks.filter(t => !t.parent_id);
-  parentTasks.forEach(parent => {
-    const hasSubtasks = tasks.some(t => t.parent_id === parent.id);
-    if (!hasSubtasks) {
-      result.errors.push('Task "' + parent.name + '" must have at least one subtask');
-    }
-  });
+  // Addendum A: Subtasks are now optional (removed validation requirement)
+  // Tasks can exist standalone without subtasks
   
   // Validate dependencies
   dependencies.forEach(dep => {

@@ -124,6 +124,11 @@ export async function createTask(env, data) {
     values.tag_ids = [[6, 0, data.tag_ids]];  // [(6, 0, ids)] = replace with
   }
   
+  // Addendum B: Hide subtasks from Kanban (Odoo-conform behavior)
+  // Main tasks: visible in project Kanban
+  // Subtasks: only visible via parent task
+  values.display_in_project = data.parent_id ? false : true;
+  
   const taskId = await create(env, {
     model: 'project.task',
     values: values

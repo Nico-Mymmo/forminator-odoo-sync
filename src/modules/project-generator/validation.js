@@ -4,11 +4,11 @@
  * Validates blueprint_data structure according to canonical schema.
  * 
  * RULES (NON-NEGOTIABLE):
- * - Every task MUST have at least one subtask
+ * - Subtasks are optional (tasks can exist standalone)
  * - Subtasks are tasks with parent_id !== null
  * - Dependencies cannot form cycles
  * - Dependencies cannot reference self
- * - Parent tasks must exist before subtasks
+ * - Parent tasks must exist before subtasks reference them
  * - IDs are UUIDs
  * 
  * Returns:
@@ -252,20 +252,13 @@ function detectCycles(graph, result) {
 }
 
 /**
- * Validate that every parent task has at least one subtask
- * RULE: Every task MUST have at least one subtask
+ * Validate task-subtask relationships
+ * NOTE: Subtasks are optional (Addendum A - 2026-01-28)
+ * Tasks can exist standalone without subtasks
  */
 function validateTaskSubtasks(tasks, result) {
-  // Find all parent tasks (tasks with no parent_id or parent_id === null)
-  const parentTasks = tasks.filter(t => !t.parent_id);
-  
-  // For each parent task, check if it has at least one subtask
-  parentTasks.forEach(parent => {
-    const hasSubtasks = tasks.some(t => t.parent_id === parent.id);
-    if (!hasSubtasks) {
-      result.errors.push(`Task "${parent.name}" must have at least one subtask`);
-    }
-  });
+  // No validation needed - subtasks are optional
+  // This function remains for future validation if needed
 }
 
 /**
