@@ -34,87 +34,88 @@ A simple template system that captures a project structure once and can recreate
 **1. Blueprint Designer**
 - **Why:** Need a way to design the structure before saving
 - **Why Browser-Only:** No persistence needed until user explicitly saves
-- **Why Cancel/Undo to Last Saved State:** Allows users to experiment without losing work, simpler than step-by-step undo
-- **Why No Step-by-Step Undo/Redo:** Adds complexity (history stack, UI buttons), Cancel to last saved is sufficient for managers learning process thinking
+- **Why Cancel/Undo:** Executes "Discard all unsaved changes and restore last persisted blueprint state"
+- **This is NOT:** Step-by-step undo, redo capability, or state history
+- **This IS:** Deliberate UX choice for managers learning process thinking (safe reset to last save)
 
 **2. Template Storage**
 - **Why Supabase:** Already integrated, RLS handles permissions
 - **Why Single Table:** No versioning in V1 keeps it simple
 - **Why JSONB for Blueprint:** Flexible, no schema changes needed for structure tweaks
-- **Why No Status Field:** Draft/published workflow deferred to V2
+- **Why No Status Field:** Single workflow (create/edit/delete), no draft/published complexity needed
 
 **3. Odoo Project Creation**
-- **Why Sequential API Calls:** Simpler than parallel, dependencies are clear
-- **Why No Rollback:** Complex to implement, V1 assumes success path
-- **Why Task Stages/Milestones/Tasks/Subtasks:** These are the essential building blocks for process thinking
-- **Why Task Stages (project.task.type):** Odoo-native task kanban stages, NOT project-level stages
+- **Why Sequential API Calls:** Simpler than parallel, dependencies are clear, ordering matters (parents before children)
+- **Why No Rollback:** Complex to implement, V1 assumes success path (user manually cleans up on error)
+- **Why Task Stages/Milestones/Tasks/Subtasks:** Complete set of building blocks for process thinking
+- **Why Task Stages (project.task.type):** Odoo-native task kanban stages, project-specific via project_ids
+- **Project-Level Stages:** Odoo-native, globally managed, NEVER touched by generator
+- **Why Subtasks MANDATORY:** Process thinking fundamentally requires task decomposition
+- **Why parent_id:** Respects Odoo's native subtask structure (no custom fields needed)
 - **Why Subtasks ARE Essential:** Decomposition is fundamental to process thinking, subtasks enable task breakdown
 - **Why parent_id on project.task:** Respects Odoo's native subtask structure (no custom fields needed)
 
 **4. Validation**
-- **Why Errors vs Warnings:** Some things must be correct (no circular deps), others are advisory
+- **Why Errors vs Warnings:** Some things must be correct (no circular deps, no circular parent hierarchy), others are advisory
 - **Why Client-Side Only:** No server-side validation needed, client has full context
-- **Why Simple Detection:** Circular dependency check is essential, other validations are nice-to-have
+- **Why Simple Detection:** Circular dependency and parent hierarchy checks are essential, warnings guide users without blocking
 
 ### What We Excluded (and Why)
 
 **❌ Version Control**
-- **Why Not V1:** Adds tables, UX complexity (viewing history, reverting, diffing)
-- **Workaround:** User can manually clone a template if needed
-- **Future:** V2+ feature when patterns emerge
+- **NOT in V1:** Adds tables, UX complexity (viewing history, reverting, diffing)
+- **V1 Reality:** Single version only, overwrite on save
+- **Workaround:** User can manually clone a template to preserve previous state
 
 **❌ Audit Trail**
-- **Why Not V1:** Requires separate table, query complexity, UI to view logs
-- **Workaround:** None needed - templates are simple enough to recreate
-- **Future:** V2+ if compliance becomes critical
+- **NOT in V1:** Requires separate table, query complexity, UI to view logs
+- **V1 Reality:** No generation history tracking - templates are simple enough to recreate if lost
 
 **❌ Rollback on Error**
-- **Why Not V1:** Complex orchestration, requires tracking all created IDs, calling delete APIs
-- **Workaround:** User manually deletes partial project in Odoo if generation fails
-- **Future:** V2+ with proper transaction management
+- **NOT in V1:** Complex orchestration, requires tracking all created IDs, calling delete APIs
+- **V1 Reality:** User manually deletes partial project in Odoo if generation fails (acceptable for MVP validation)
 
-**❌ Subtasks**
-- **CORRECTION:** Subtasks ARE in V1 (this was an incorrect exclusion)
-- **Why Now Included:** Process thinking requires task decomposition, subtasks are essential for managers
-- **Implementation:** parent_id field on project.task (Odoo-native structure)
+**✅ Subtasks (MANDATORY in V1)**
+- **Status:** REQUIRED, not optional, not deferred
+- **Why MANDATORY:** Process thinking fundamentally requires task decomposition
+- **Implementation:** parent_id field on project.task (Odoo-native structure, no custom fields)
+- **Creation Order:** Parents created first, then children (Odoo requirement)
+- **Dependencies:** Subtasks may have dependencies, including cross-parent
 - **UI:** Indented display under parent tasks in editor
-- **Future:** Enhanced subtask features (multiple levels, bulk operations)
+- **This is NOT negotiable:** Without subtasks, no process thinking. V1 requires this.
 
 **❌ Step-by-Step Undo/Redo**
-- **Why Not V1:** Requires history stack, redo stack, UI buttons, event tracking
-- **Workaround:** Cancel button returns to last saved state (simpler, sufficient for V1)
-- **Why Cancel/Undo IS in V1:** Manager-friendly UX, allows experimentation without data loss
-- **Future:** V2+ if users demand granular undo/redo
+- **NOT in V1:** Requires history stack, redo stack, UI buttons, event tracking
+- **What IS in V1:** Cancel button that executes: "Discard all unsaved changes and restore last persisted blueprint state"
+- **This is NOT:** Step-by-step undo, redo capability, state history
+- **This IS:** Deliberate UX choice for managers learning process thinking (safe reset to last save)
+- **Redo:** Explicitly excluded (workflow is forward, not backward)
 
 **❌ Drag-and-Drop Reordering**
-- **Why Not V1:** Requires drag library or custom implementation, adds visual complexity
-- **Workaround:** Use simple up/down buttons or re-create items
-- **Future:** V2+ UX polish
+- **NOT in V1:** Requires drag library or custom implementation, adds visual complexity
+- **V1 Reality:** Simple up/down buttons or re-create items
 
 **❌ Visual Dependency Graph**
-- **Why Not V1:** Requires graph rendering library (D3.js, Vis.js), layout algorithms
-- **Workaround:** Text list of dependencies per task
-- **Future:** V2+ if dependency complexity justifies it
+- **NOT in V1:** Requires graph rendering library (D3.js, Vis.js), layout algorithms
+- **V1 Reality:** Text list of dependencies per task (sufficient for validation)
 
 **❌ Template Search/Filter**
-- **Why Not V1:** Limited templates expected initially, table view sufficient
-- **Workaround:** Use browser Ctrl+F
-- **Future:** V2+ when template library grows
+- **NOT in V1:** Limited templates expected initially, table view sufficient
+- **V1 Reality:** Use browser Ctrl+F for search (acceptable for small template library)
 
 **❌ Import/Export**
-- **Why Not V1:** JSON serialization already exists in JSONB field, no pressing need
-- **Workaround:** Direct database access if needed
-- **Future:** V2+ for sharing templates across instances
+- **NOT in V1:** JSON serialization already exists in JSONB field, no pressing need for user-facing UI
+- **V1 Reality:** Direct database access if needed (developer-level operation only)
 
 **❌ Keyboard Shortcuts**
 - **Why Not V1:** Requires key binding library, discoverability UX (cheat sheet)
-- **Workaround:** Mouse-only interaction acceptable for V1
-- **Future:** V2+ UX polish
+- **V1 Approach:** Mouse-only interaction (acceptable for V1 scope)
+- **Not in scope** for current iteration
 
 **❌ Confetti Animation**
 - **Why Not V1:** Pure polish, zero functional value
-- **Workaround:** Simple success message
-- **Future:** Maybe never (nice to have, not necessary)
+- **V1 Approach:** Simple success message
+- **Not in scope** for any version (unnecessary decoration)
 
 ---
 
@@ -128,46 +129,58 @@ A simple template system that captures a project structure once and can recreate
 - App already has `executeKw` pattern in `odoo.js`
 - Abstracting it adds files, indirection, mental overhead
 - V1 needs are simple: `create` and `write` calls
-- Future refactoring can happen if complexity grows
+- Odoo is architecturally leading (generator adapts, not extends)
 
 **Rejected Alternative:** Create `OdooProjectService` class
 - Would add `src/modules/project-generator/services/odoo-project-service.js`
 - Would require defining interfaces, error handling patterns
 - Overkill for ~100 lines of code
+- Violates principle: no new patterns beyond existing app structure
 
 ---
 
-### Decision 2: Sequential API Calls
+### Decision 2: Sequential API Calls (6 Steps)
 
 **Choice:** Call Odoo APIs one at a time, wait for each to complete
 
 **Reasoning:**
 - Dependencies matter: can't create tasks without project ID
-- Dependencies matter: can't set task dependencies without task IDs
+- Dependencies matter: can't create subtasks without parent task IDs (ordering!)
+- Dependencies matter: can't set task dependencies without all task IDs
 - Error handling simpler: know exactly which step failed
-- Performance acceptable: <10s for 50 tasks is fine
+- Performance acceptable: <15s for 50 tasks + 20 subtasks is fine
+
+**6-Step Sequence (exact order):**
+1. Create project
+2. Create task stages (project.task.type)
+3. Create milestones
+4. Create parent tasks (parent_id = null)
+5. Create subtasks (parent_id != null) - MUST be after step 4
+6. Set dependencies - MUST be after all tasks exist
 
 **Rejected Alternative:** Parallel API calls where possible
 - Would complicate orchestration (Promise.all, error aggregation)
 - Marginal time savings (network latency dominates, not parallelism)
 - V1 prioritizes correctness over speed
+- Parent-child ordering would still require sequencing
 
 ---
 
 ### Decision 3: No State Management Library
 
-**Choice:** Module-scoped variables, manual re-renders
+**Choice:** Module-scoped variables, manual re-renders, savedBlueprint for Cancel
 
 **Reasoning:**
 - Blueprint editor state is simple: one object with arrays
 - No complex interactions between components
 - No cross-module state sharing needed
 - Manual `refreshEditor()` is 10 lines of code vs Redux setup
+- Cancel/Undo: Deep copy savedBlueprint, restore on demand
 
 **Rejected Alternative:** Redux, Zustand, or custom state system
 - Adds dependency, boilerplate, learning curve
 - V1 doesn't need time-travel debugging or state inspection
-- Can refactor later if complexity grows
+- Follows existing app pattern (no state library elsewhere)
 
 ---
 
@@ -187,7 +200,7 @@ A simple template system that captures a project structure once and can recreate
   - UI to view version history
   - UI to revert to previous version (creates new version)
   - Version number increment logic (major.minor.patch? auto-increment?)
-- Deferred to V2+ when patterns emerge (how often do users version? do they need diffs?)
+- NOT in V1: Too complex for MVP validation. User can manually clone template to preserve old version.
 
 ---
 
@@ -235,14 +248,19 @@ A simple template system that captures a project structure once and can recreate
 User clicks "New Template"
   ↓
 Editor loads with empty blueprint (browser state)
+savedBlueprint = deep copy of empty blueprint
   ↓
-User adds stages, milestones, tasks, dependencies
+User adds task stages, milestones, tasks (with subtasks), dependencies
   ↓
 User clicks "Validate"
   ↓
-Validation runs (pure JS function)
+Validation runs (pure JS function, checks parent_id validity, circular hierarchies)
   ↓
 Errors/warnings displayed
+  ↓
+User clicks "Cancel" (optional)
+  → Executes: "Discard all unsaved changes and restore last persisted blueprint state"
+  → currentBlueprint = deep copy of savedBlueprint
   ↓
 User clicks "Save" (if no errors)
   ↓
@@ -253,11 +271,12 @@ INSERT into project_templates (Supabase)
 RLS checks user_id = auth.uid()
   ↓
 Template saved
+savedBlueprint = deep copy of currentBlueprint (update saved state)
   ↓
 Redirect to template library
 ```
 
-**No server-side logic. No background jobs. No queues.**
+**No server-side logic. No background jobs. No queues. No bidirectional sync.**
 
 ---
 
@@ -274,21 +293,28 @@ User clicks "Create"
   ↓
 Frontend calls generateProject(name, blueprint)
   ↓
-Sequential Odoo API calls:
+Sequential Odoo API calls (6-step sequence, EXACT order):
   1. createProject(name) → projectId
   2. createTaskStages(projectId, taskStages) → taskStageMap
+     (project.task.type with project_ids linkage - NOT project-level stages)
   3. createMilestones(projectId, milestones) → milestoneMap
-  4. createParentTasks(projectId, tasks, milestoneMap) → taskMap
-  5. createSubtasks(projectId, tasks, milestoneMap, taskMap) → update taskMap
+  4. createParentTasks(projectId, tasks where parent_id=null, milestoneMap) → taskMap
+  5. createSubtasks(projectId, tasks where parent_id!=null, milestoneMap, taskMap) → update taskMap
+     (MUST come after step 4 - children require parent IDs)
   6. setDependencies(taskMap, dependencies)
+     (MUST come after all tasks exist - requires complete taskMap)
   ↓
-Success → show success message
-Error → show error message
+Success → show success message, project fully autonomous in Odoo
+Error → show error message, user manually cleans up (no automatic rollback)
   ↓
-No rollback, no audit log
+Template and Odoo project: ZERO connection from this point forward
+No sync (never), no updates (never), no reflection (never)
 ```
 
-**Deterministic, sequential, simple. 6 steps (not 5) to handle subtask ordering.**
+**Critical:**
+- 6 steps (not 5) - subtask ordering requires separate pass
+- One-way push only: Template → Odoo, then disconnected forever
+- No rollback, no audit log, no bidirectional sync
 
 ---
 
@@ -378,13 +404,14 @@ No rollback, no audit log
 
 ### Risk: Partial Project Creation on Error
 
-**Mitigation in V1:**
+**V1 Reality:**
 - Show clear error message
-- User manually cleans up in Odoo
+- User manually cleans up in Odoo (acceptable for MVP validation)
 
-**Future Mitigation (V2+):**
-- Implement rollback: track all created IDs, delete in reverse order on failure
-- Requires error aggregation, API call orchestration
+**NOT in V1 (too complex):**
+- Implement rollback: would require tracking all created IDs, delete in reverse order on failure
+- Would require error aggregation, API call orchestration
+- Deferred until V1 proves core workflow value
 
 ---
 
@@ -402,13 +429,25 @@ No rollback, no audit log
 
 ### Risk: User Edits Template, Expects Old Projects to Update
 
-**Mitigation in V1:**
-- Clear messaging: "Templates only affect NEW projects"
-- No link from template to instances
-- Odoo projects are independent after creation
+**Reality in V1:**
+- Templates and Odoo projects have ZERO connection after generation
+- Template changes affect ONLY new generations (never retroactive)
+- This is by design, not a limitation
 
-**Future Mitigation:**
-- Add generation audit log showing which template version was used
+**Mitigation:**
+- Clear messaging: "Templates only affect NEW projects"
+- No link from template to instances (architectural decision)
+- Odoo projects are fully autonomous after creation
+
+**This is NOT:**
+- Something to "fix" in future versions
+- A missing feature
+- A limitation to overcome
+
+**This IS:**
+- Deliberate architectural choice
+- One-way data flow by design
+- Prevents complexity, conflicts, and confusion
 
 ---
 
@@ -417,49 +456,70 @@ No rollback, no audit log
 **Mitigation in V1:**
 - Warning shown if >50 tasks
 - User can proceed anyway
-- Odoo API may timeout (unlikely, sequential calls)
+- Performance target: <15s for 50 tasks + 20 subtasks
+- Odoo API may timeout (unlikely with sequential calls)
 
-**Future Mitigation:**
+**NOT in V1 (wait for actual performance issues):**
 - Batch API calls (create tasks in groups of 10)
-- Show progress indicator with steps
+- Progress indicator with steps
+- Queue system
 
 ---
 
-## Why NOT Bidirectional Sync?
+## Why NO Bidirectional Sync (Architectural Principle)
 
-**This is critical to understand:**
+**This is absolutely critical to understand:**
 
-**Reasons:**
+**One-Way Data Flow:**
+```
+Template → Odoo Project
+(design)   (runtime, fully autonomous)
+
+After generation: ZERO connection
+```
+
+**Why NO sync (ever):**
 1. **Complexity:** Tracking changes in Odoo, detecting conflicts, merging updates
 2. **Scope:** Odoo is the source of truth for runtime project data
 3. **User Expectation:** PMs manage projects in Odoo, not in this module
-4. **Data Model:** Odoo adds fields (assigned_to, actual_hours, attachments) not in template
-5. **Conflict Resolution:** What if user changes Odoo task name, then regenerates from template?
+4. **Data Model:** Odoo adds fields (assigned_to, actual_hours, attachments, comments) not in template
+5. **Conflict Resolution:** Unsolvable - if user changes Odoo task name, which wins?
+6. **Odoo is Leading:** Generator adapts to Odoo. Sync would require Odoo to adapt to generator.
 
-**V1 Stance:**
-- This module is a **project initializer**, not a **project manager**
-- Once created, project is 100% Odoo-native
-- Template modifications don't propagate
-- User freedom in Odoo is unrestricted
+**V1 Stance (Absolute):**
+- This module is a **project initializer**, NOT a **project manager**
+- Once created, project is 100% Odoo-native, fully autonomous
+- Template modifications affect ONLY new generations (never retroactive)
+- User freedom in Odoo is unrestricted (no constraints from generator)
+- After generation: template and project are permanently disconnected
 
-**If V2+ Needs Sync:**
+**This is NOT open for negotiation:**
+- No sync in V1
+- No sync in V2
+- No sync ever
+- If user wants sync → wrong tool, use Odoo's native features
+
+**What sync would require (why it violates principles):**
 - Would require `generated_projects` table linking template_id → odoo_project_id
 - Would require change detection in Odoo (polling? webhooks?)
 - Would require conflict resolution UX
+- Would require Odoo to "remember" generator metadata (violates Odoo-is-leading principle)
 - Massively increases complexity
+- Fundamentally incompatible with "Odoo is leading" principle
 
-**Decision: V1 is one-way push only.**
+**Decision (final): One-way push only. Forever.**
 
 ---
 
 ## Success Metrics (How We Know V1 Works)
 
 ### Functional Success
-1. ✅ User can create template with 10 tasks in <5 minutes
+1. ✅ User can create template with 10 tasks + subtasks in <5 minutes
 2. ✅ User can generate project in <30 seconds
-3. ✅ Generated project appears in Odoo with correct structure
-4. ✅ Validation catches circular dependencies
+3. ✅ Generated project appears in Odoo with correct structure (including subtask parent_id)
+4. ✅ Validation catches circular dependencies (both task dependencies and parent hierarchies)
 5. ✅ Warnings display without blocking save
+6. ✅ Cancel button restores last persisted blueprint state (no step-by-step undo needed)
 
 ### Technical Success
 1. ✅ No crashes or unhandled errors
@@ -480,73 +540,62 @@ No rollback, no audit log
 
 ---
 
-## Future Expansion Paths (V2+ Ideas)
+## Future Expansion Considerations (NOT V1 Scope)
 
-**If V1 succeeds, consider:**
+**These features are explicitly EXCLUDED from V1. They represent potential post-MVP expansions, NOT commitments:**
 
-1. **Versioning System**
-   - Track template versions
-   - View version history
-   - Revert to previous version
-   - Compare versions (diff view)
+1. **Versioning System - NOT in V1**
+   - **Excluded:** Track template versions, view version history, revert to previous version, compare versions (diff view)
+   - **V1 Reality:** Single version only, overwrite on save. If user wants to preserve old version, manually clone template first.
 
-2. **Audit Trail**
-   - Log every project generation
-   - Show which template version was used
-   - Link to generated Odoo project (if accessible)
+2. **Audit Trail - NOT in V1**
+   - **Excluded:** Log every project generation, show which template version was used, link to generated Odoo project
+   - **V1 Reality:** No generation history tracking. Templates are simple enough to recreate if needed.
 
-3. **Advanced Validation**
-   - Complexity score
-   - Critical path calculation
-   - Bottleneck detection
-   - Best practice suggestions
+3. **Advanced Validation - NOT in V1**
+   - **Excluded:** Complexity score, critical path calculation, bottleneck detection, best practice suggestions
+   - **V1 Reality:** Basic validation only (errors block generation, warnings allow with confirmation). Sufficient for MVP validation.
 
-4. **UX Polish**
-   - Visual dependency graph
-   - Drag-and-drop reordering
-   - Modal dialogs instead of prompt/confirm
-   - Keyboard shortcuts
-   - Auto-save draft
+4. **UX Polish - NOT in V1**
+   - **Excluded:** Visual dependency graph, drag-and-drop reordering, modal dialogs, keyboard shortcuts, auto-save draft, confetti animations
+   - **V1 Reality:** Simple forms, prompt/confirm dialogs, manual save, Cancel returns to last saved state. Deliberately minimal for fast validation.
 
-5. **Template Library Enhancements**
-   - Search and filter
-   - Categories/tags
-   - Usage statistics
-   - Template preview
+5. **Template Library Enhancements - NOT in V1**
+   - **Excluded:** Search/filter, categories/tags, usage statistics, template preview
+   - **V1 Reality:** Simple table with browser Ctrl+F for search. Acceptable for small template libraries during validation phase.
 
-6. **Generation Improvements**
-   - Rollback on error
-   - Progress indicator with steps
-   - Batch generation
-   - Schedule generation
-   - Link to Odoo project after creation
+6. **Generation Improvements - NOT in V1**
+   - **Excluded:** Rollback on error, progress indicator with steps, batch generation, schedule generation, link to Odoo project after creation
+   - **V1 Reality:** No rollback (user manually deletes partial project in Odoo), simple loading spinner, one-at-a-time generation, manual trigger, no automatic link to created project. Acceptable for MVP validation.
 
-7. **Data Enhancements**
-   - ~~Subtasks~~ ✅ **NOW IN V1** (essential for process thinking)
-   - Task descriptions
-   - Estimated hours
-   - Task assignments (if user mapping exists)
-   - Tags
+7. **Data Enhancements - PARTIALLY in V1**
+   - **✅ IN V1:** Subtasks (MANDATORY via parent_id field - essential for process thinking)
+   - **NOT in V1:** Task descriptions, estimated hours, task assignments, tags, stage colors
+   - **V1 Reality:** Task names only + parent_id for hierarchy. Metadata expansion deferred until core workflow validated.
 
-8. **Collaboration**
-   - Share templates with team
-   - Template approval workflow
-   - Lock/unlock templates
-   - Comments on templates
+8. **Collaboration - NOT in V1**
+   - **Excluded:** Share templates with team, template approval workflow, lock/unlock templates, comments on templates
+   - **V1 Reality:** User-owned templates only (Supabase RLS). Sharing functionality deferred until single-user workflow validated.
 
-**None of these (except subtasks) are in V1. V1 is minimal, functional, proven.**
+**Critical Reminder:**
+- Subtasks ARE in V1 (MANDATORY - only item from this entire list)
+- Everything else is explicitly OUT of V1 scope
+- These are POSSIBILITIES for post-MVP expansion, NOT commitments
+- V1 must prove core workflow value before ANY expansion
+- No expansion decisions until V1 deployed and user feedback collected
 
 ---
 
 ## Conclusion
 
-This V1 scope is **intentionally minimal** because:
+This V1 scope is **deliberately minimal** because:
 
 1. **Proven Value First:** Validate core workflow before adding features
-2. **Fast to Build:** Days, not weeks
+2. **Fast to Build:** Days, not weeks (~4 days estimated)
 3. **Easy to Understand:** New developers can grasp it quickly
 4. **Low Risk:** Small surface area, few failure modes
-5. **Foundation for Future:** Can expand systematically if users demand it
+5. **Expansion Possible Later:** Can expand systematically after V1 validates core workflow
+6. **Odoo is Leading:** Generator adapts, never extends or modifies Odoo
 
 **This is NOT feature poverty. This is disciplined product development.**
 
@@ -557,6 +606,6 @@ The V1 delivers:
 - ✅ Project generation
 - ✅ Validation
 
-**Everything else is V2+.**
+**Everything else is explicitly excluded until V1 proves value.**
 
 **This document is the source of truth for WHY V1 looks like it does.**

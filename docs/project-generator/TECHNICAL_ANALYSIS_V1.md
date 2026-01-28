@@ -68,7 +68,7 @@ src/modules/project-generator/
 ├── generate.js             # Project generation screen
 ├── validation.js           # Validation logic (pure functions)
 ├── odoo-creator.js         # Odoo API orchestration
-└── styles.css              # Minimal additional styles (if needed)
+└── styles.css              # Module-specific styles (only if DaisyUI insufficient)
 ```
 
 **No `services/` folder. No `models/` folder. No `utils/` folder beyond validation.**

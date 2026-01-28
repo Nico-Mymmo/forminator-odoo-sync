@@ -536,7 +536,7 @@ project_templates (
 **Odoo Communication:**
 - Use existing `src/lib/odoo.js` exclusively
 - Use `executeKw` method for all API calls
-- Use `searchRead` for lookups (if needed)
+- Use `searchRead` for lookups when checking existence (e.g., checking if stage exists before creating)
 - **Do NOT create new Odoo client library**
 
 **Database:**

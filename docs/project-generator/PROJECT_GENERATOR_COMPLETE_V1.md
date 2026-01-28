@@ -800,57 +800,47 @@ export const modules = [
 
 ---
 
-## Future Expansion (V2+ Ideas)
+## Future Expansion Considerations (NOT V1 Scope)
 
-**Only consider IF V1 is successful and users demand it:**
+**These features are explicitly EXCLUDED from V1. They represent potential post-MVP expansions, NOT commitments:**
 
-1. **Versioning**
-   - Track template versions
-   - View version history
-   - Revert to previous version
+1. **Versioning - NOT in V1**
+   - Track template versions, view version history, revert to previous version
+   - V1 Reality: Single version only, overwrite on save
 
-2. **Audit Trail**
-   - Log all project generations
-   - Show which template version was used
-   - Link to Odoo project (if accessible)
+2. **Audit Trail - NOT in V1**
+   - Log all project generations, show which template version was used, link to Odoo project
+   - V1 Reality: No generation history tracking
 
-3. **Advanced Validation**
-   - Complexity score
-   - Critical path calculation
-   - Best practice suggestions
+3. **Advanced Validation - NOT in V1**
+   - Complexity score, critical path calculation, best practice suggestions
+   - V1 Reality: Basic validation only (errors block, warnings allow)
 
-4. **UX Polish**
-   - Visual dependency graph (D3.js/Vis.js)
-   - Drag-and-drop (SortableJS)
-   - Modal dialogs
-   - Keyboard shortcuts
+4. **UX Polish - NOT in V1**
+   - Visual dependency graph (D3.js/Vis.js), drag-and-drop (SortableJS), modal dialogs, keyboard shortcuts
+   - V1 Reality: Simple forms, prompt/confirm, manual operations
 
-5. **Template Library**
-   - Search and filter
-   - Categories/tags
-   - Usage statistics
-   - Preview on hover
+5. **Template Library Enhancements - NOT in V1**
+   - Search and filter, categories/tags, usage statistics, preview on hover
+   - V1 Reality: Simple table, browser Ctrl+F for search
 
-6. **Generation Improvements**
-   - Rollback on error
-   - Progress bar with steps
-   - Link to Odoo project
-   - Batch generation
+6. **Generation Improvements - NOT in V1**
+   - Rollback on error, progress bar with steps, link to Odoo project, batch generation
+   - V1 Reality: No rollback, simple spinner, one-at-a-time, manual trigger
 
-7. **Data Enhancements**
-   - Task descriptions
-   - Estimated hours
-   - Tags
+7. **Data Enhancements - PARTIALLY in V1**
+   - ✅ IN V1: Subtasks (MANDATORY via parent_id field)
+   - NOT in V1: Task descriptions, estimated hours, tags
 
-8. **Collaboration**
-   - Share templates
-   - Approval workflow
-   - Lock/unlock
-   - Comments
+8. **Collaboration - NOT in V1**
+   - Share templates, approval workflow, lock/unlock, comments
+   - V1 Reality: User-owned templates only (Supabase RLS)
 
-**Note:** Subtasks are IN V1. All other data enhancements are V2+.
-
-**None of V2+ features are in V1. Validate core workflow first.**
+**Critical Reminder:**
+- Subtasks ARE in V1 (MANDATORY - only item from entire list)
+- Everything else explicitly OUT of V1 scope
+- These are POSSIBILITIES for post-MVP expansion, NOT commitments
+- V1 must prove core workflow value before ANY expansion
 
 ---
 
@@ -937,7 +927,7 @@ This document defines **exactly** what to build for Project Generator V1.
 **Scope:** Minimal, functional, proven  
 **Timeline:** 3-5 days  
 **Goal:** Validate core workflow  
-**Future:** Expand only if V1 succeeds
+**Expansion:** Only after V1 proves value
 
 **Critical Principles:**
 1. The Project Generator adapts to Odoo (not the other way around)

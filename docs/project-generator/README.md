@@ -49,34 +49,32 @@ Blueprint → Template → Odoo Project
 
 ---
 
-## NOT in V1
+## NOT in V1 Scope
 
-### Features Excluded
-- ❌ Template versioning
-- ❌ Audit trail
-- ❌ Rollback on error
-- ❌ Bidirectional sync
-- ❌ Visual dependency graph
-- ❌ Keyboard shortcuts
-- ❌ Confetti animations
-- ❌ Auto-save
+### Features Explicitly Excluded
+- ❌ Template versioning (single version only, overwrite on save)
+- ❌ Audit trail (no generation history tracking)
+- ❌ Rollback on error (user manually deletes partial project in Odoo)
+- ❌ Bidirectional sync (one-way push only, ZERO connection after generation)
+- ❌ Visual dependency graph (text list only)
+- ❌ Keyboard shortcuts (deliberate exclusion for simplicity)
+- ❌ Confetti animations (deliberate exclusion for simplicity)
+- ❌ Auto-save (manual save only, Cancel returns to last saved state)
 
-### Data Excluded
-- ❌ Subtasks
-- ❌ Task descriptions
-- ❌ Estimated hours
-- ❌ Task assignments
-- ❌ Tags
-- ❌ Stage colors
+### Data Explicitly Excluded (Except Subtasks)
+- ✅ Subtasks (MANDATORY in V1 via parent_id field - essential for process thinking)
+- ❌ Task descriptions (name only in V1)
+- ❌ Estimated hours (not in V1)
+- ❌ Task assignments (not in V1)
+- ❌ Tags (not in V1)
+- ❌ Stage colors (not in V1)
 
-### Technical Excluded
-- ❌ New service layers
-- ❌ Alternative Odoo patterns
-- ❌ State management library
-- ❌ GraphQL
-- ❌ Queue system
-
-**All deferred to V2+ after V1 validation.**
+### Technical Patterns Explicitly Excluded
+- ❌ New service layers (use existing odoo.js, database.js, auth/*)
+- ❌ Alternative Odoo patterns (use existing executeKw from odoo.js only)
+- ❌ State management library (plain JavaScript only)
+- ❌ GraphQL (REST API only via existing patterns)
+- ❌ Queue system (synchronous generation only)
 
 ---
 
