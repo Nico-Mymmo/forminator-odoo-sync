@@ -17,21 +17,33 @@ All other documents are supporting material. If there's a conflict, this documen
 Users can:
 1. Design a project structure (task stages, milestones, tasks with subtasks, dependencies)
 2. Save it as a template
-3. Generate an Odoo project from that template
+3. Generate an Odoo project from that template (one-way push)
 
-Once generated, the Odoo project is completely independent. No sync, no updates.
+**After generation:**
+- Zero connection to template
+- No sync (never)
+- No updates (never)
+- No reflection back to template (never)
+- Odoo project is fully autonomous
 
-**Critical Principle:**
-The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.
+**Critical Principles:**
+1. The Project Generator adapts to Odoo. Odoo is NEVER modified, extended, or bypassed.
+2. Subtasks are MANDATORY (essential for process thinking, not optional)
+3. Task Stages (project.task.type) ≠ Project-Level Stages (Odoo-native, untouched)
+4. One-way data flow only: Template → Odoo. Then: disconnected.
 
 ---
 
 ## What This Module Does NOT Do
 
 - ❌ Manage existing Odoo projects
-- ❌ Sync with Odoo after creation
+- ❌ Sync with Odoo after creation (one-way push only, then disconnected)
+- ❌ Update Odoo projects after creation (no bidirectional sync, ever)
+- ❌ Reflect Odoo changes back to templates (no reverse sync, ever)
 - ❌ Track project progress
 - ❌ Provide analytics
+- ❌ Modify Odoo models (no custom fields, no extensions, ever)
+- ❌ Touch project-level stages (Odoo-native, globally managed)
 - ❌ Version templates (V1)
 - ❌ Audit generations (V1)
 - ❌ Rollback failed generations (V1)
@@ -73,16 +85,38 @@ The Project Generator adapts to Odoo. Odoo is not architecturally modified, exte
 **Create Template:**
 ```
 User designs blueprint → Validates → Saves to Supabase → Done
-(Cancel button returns to last saved state)
 ```
+
+**Cancel/Undo Behavior:**
+```
+Cancel button → Discard all unsaved changes → Restore last persisted blueprint state
+```
+- This is NOT step-by-step undo
+- This is NOT a state history
+- This IS a deliberate UX choice for managers learning process thinking
+- One "safe reset" to last save, nothing more
 
 **Generate Project:**
 ```
 Load template → Enter project name → Call Odoo API (6 steps) → Done
-(Creates: project, task stages, milestones, tasks, subtasks, dependencies)
+Then: ZERO connection to template (fully autonomous Odoo project)
 ```
 
-**No background jobs. No queues. No webhooks. No sync.**
+**What happens in Odoo (6-step sequence):**
+1. Create project (project.project)
+2. Create task stages (project.task.type) - project-specific, NOT global
+3. Create milestones (project.milestone)
+4. Create parent tasks (project.task where parent_id = null)
+5. Create subtasks (project.task where parent_id != null) - MANDATORY for process thinking
+6. Set dependencies (project.task.depend_on_ids)
+
+**After step 6:**
+- Template and Odoo project have ZERO connection
+- Template changes affect ONLY new generations
+- Odoo changes affect ONLY that Odoo project
+- No sync (never), no updates (never), no reflection (never)
+
+**No background jobs. No queues. No webhooks. No sync. One-way push only.**
 
 ---
 
@@ -116,11 +150,21 @@ CREATE POLICY "Users manage own templates"
 
 **Critical Terminology:**
 - `taskStages`: Project-specific task stages (maps to `project.task.type` in Odoo)
-- **NOT** project-level stages (those are Odoo-native and out of scope for this generator)
+- **NOT** project-level stages (Odoo-native, globally managed, NEVER touched by generator)
+
+**Critical Architecture:**
+- **Subtasks are MANDATORY** (not optional, not V2, essential for process thinking)
+- Subtasks are real Odoo `project.task` records with `parent_id` field
+- Subtasks are created AFTER their parents (ordering requirement)
+- Subtasks inherit `project_id` and optionally `milestone_id`
+- Subtasks may have dependencies, including cross-parent dependencies
 
 **Odoo Alignment:**
-The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.
-All blueprint fields map directly to existing Odoo model fields.
+The Project Generator adapts to Odoo. Odoo is NEVER modified, extended, or bypassed.
+- No custom fields (never)
+- No model extensions (never)
+- No workflow overrides (never)
+- All blueprint fields map to existing Odoo model fields (parent_id, project_ids, depend_on_ids, etc.)
 
 ```json
 {

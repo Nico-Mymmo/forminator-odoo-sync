@@ -6,21 +6,32 @@ The Project Generator V1 is a **minimal, deterministic system** that allows user
 
 1. **Design** a project structure (blueprint) in browser
 2. **Save** it as a template in Supabase
-3. **Generate** an Odoo project from that template via API
+3. **Generate** an Odoo project from that template via API (one-way push)
+
+**After generation:**
+- ZERO connection between template and Odoo project
+- NO sync (never)
+- NO updates to Odoo project from template (never)
+- NO reflection of Odoo changes back to template (never)
+- Template changes affect ONLY new generations (never retroactive)
 
 **That's it.** No sync, no live editing, no analytics, no versioning in V1.
 
 **Deterministic Chain:**
 ```
 Blueprint → Template → Odoo Project
-(design)    (storage)   (one-time push)
+(design)    (storage)   (one-time push, then disconnected)
 ```
 
-Once created in Odoo, projects are **completely independent**. Template changes never affect existing projects.
+Once created in Odoo, projects are **fully autonomous**. Template changes never affect existing projects.
 
-**Critical Architectural Principle:**
-The Project Generator adapts to Odoo. Odoo is not architecturally modified, extended, or bypassed.
-All blueprint fields map directly to Odoo model fields.
+**Critical Architectural Principles:**
+1. **Odoo is Leading:** Generator adapts to Odoo. Odoo is NEVER modified, extended, or bypassed.
+2. **Subtasks are MANDATORY:** Essential for process thinking (task decomposition), not optional, not V2.
+3. **Task Stages ≠ Project Stages:** Generator creates task stages (project.task.type). Project-level stages (Odoo-native) are NEVER touched.
+4. **One-Way Data Flow:** Template → Odoo. Then: disconnected forever.
+
+All blueprint fields map directly to existing Odoo model fields (parent_id, project_ids, depend_on_ids, etc.).
 
 ---
 
