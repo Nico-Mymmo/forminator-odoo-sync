@@ -600,6 +600,9 @@ async function loadBlueprint() {
       
       renderAllSections();
       
+      // H.1: Calculate relative timing inheritance after blueprint load
+      recalculateRelativeTiming();
+      
     } else {
       showToast('Failed to load blueprint: ' + result.error, 'error');
     }
@@ -963,7 +966,10 @@ function handleMilestoneSubmit(e) {
   
   document.getElementById('milestoneModal').close();
   renderMilestones();
-  renderTasks(); // Re-render tasks to update milestone options
+  
+  // H.1: Trigger recalculation when milestone timing changes
+  recalculateRelativeTiming();
+  
   validateAndDisplay();
 }
 
@@ -1103,6 +1109,97 @@ function deleteTag(tagId) {
 }
 
 // ============================================================================
+// RELATIVE TIMING INHERITANCE (Addendum H.1)
+// Blueprint-level inheritance engine - marks tasks that inherit, NO data copying
+// ============================================================================
+
+/**
+ * Recalculate relative timing inheritance flags across blueprint
+ * This is RELATIONAL, not data-copying. Tasks are marked as inheriting.
+ * 
+ * Called after:
+ * - Milestone save
+ * - Task milestone change
+ * - Task timing change
+ * - Parent change
+ * - Blueprint load
+ * 
+ * Addendum H.1: Timing inheritance happens at blueprint level (relative),
+ * not just at preview level (absolute)
+ */
+function recalculateRelativeTiming() {
+  if (!blueprintState || !blueprintState.tasks) return;
+  
+  // Create milestone timing map (for inheritance detection)
+  const milestoneTimingMap = new Map();
+  if (blueprintState.milestones) {
+    blueprintState.milestones.forEach(milestone => {
+      milestoneTimingMap.set(milestone.id, {
+        hasDeadline: milestone.deadline_offset_days !== null && milestone.deadline_offset_days !== undefined,
+        hasDuration: milestone.duration_days !== null && milestone.duration_days !== undefined,
+        name: milestone.name
+      });
+    });
+  }
+  
+  // Create parent map (for subtask lookups)
+  const parentMap = new Map();
+  blueprintState.tasks.forEach(task => {
+    parentMap.set(task.id, task);
+  });
+  
+  // Process each task
+  blueprintState.tasks.forEach(task => {
+    // Clear previous inheritance flags
+    task._inheritsTimingFromMilestone = false;
+    task._inheritsTimingFromParent = false;
+    task._inheritedMilestoneName = null;
+    task._inheritsFromParentName = null;
+    
+    // H.1: SUBTASK INHERITANCE (DOMINANT)
+    // Subtasks inherit milestone, tags, and timing from parent
+    if (task.parent_id) {
+      const parent = parentMap.get(task.parent_id);
+      if (parent) {
+        // Subtask always inherits milestone from parent (auto-sync, not just marking)
+        if (parent.milestone_id && task.milestone_id !== parent.milestone_id) {
+          task.milestone_id = parent.milestone_id;
+        }
+        
+        // Subtask inherits tags from parent (auto-sync)
+        if (parent.tag_ids && parent.tag_ids.length > 0) {
+          // Only inherit if subtask doesn't have explicit tags already
+          if (!task.tag_ids || task.tag_ids.length === 0) {
+            task.tag_ids = [...parent.tag_ids];
+          }
+        }
+        
+        // Mark timing inheritance from parent if subtask has no own timing
+        if (!task.deadline_offset_days && !task.duration_days && !task.planned_hours) {
+          if (parent.deadline_offset_days || parent.duration_days || parent.planned_hours) {
+            task._inheritsTimingFromParent = true;
+            task._inheritsFromParentName = parent.name;
+          }
+        }
+      }
+    }
+    
+    // H.1: MILESTONE INHERITANCE
+    // Tasks without own timing inherit from milestone
+    if (task.milestone_id && !task.deadline_offset_days) {
+      const milestoneTiming = milestoneTimingMap.get(task.milestone_id);
+      if (milestoneTiming && (milestoneTiming.hasDeadline || milestoneTiming.hasDuration)) {
+        task._inheritsTimingFromMilestone = true;
+        task._inheritedMilestoneName = milestoneTiming.name;
+      }
+    }
+  });
+  
+  // Re-render tasks to show updated inheritance indicators
+  renderTasks();
+}
+
+// ============================================================================
 // TASKS
 // ============================================================================
 
@@ -1192,8 +1289,34 @@ function renderTaskItem(task, level, container) {
     });
   }
   
-  // Show timing indicator (Addendum G)
-  if (task.deadline_offset_days || task.planned_hours) {
+  // Show timing indicator (Addendum G + H.1)
+  // H.1: Show inheritance instead of raw values when task inherits
+  if (task._inheritsTimingFromMilestone) {
+    // Task inherits timing from milestone
+    const inheritBadge = document.createElement('span');
+    inheritBadge.className = 'badge badge-sm badge-info ml-2 gap-1';
+    const inheritIcon = document.createElement('i');
+    inheritIcon.setAttribute('data-lucide', 'arrow-down-from-line');
+    inheritIcon.className = 'w-3 h-3';
+    inheritBadge.appendChild(inheritIcon);
+    const inheritText = document.createTextNode('Erft van ' + task._inheritedMilestoneName);
+    inheritBadge.appendChild(inheritText);
+    inheritBadge.title = 'Deze taak erft timing van milestone (relatief)';
+    leftDiv.appendChild(inheritBadge);
+  } else if (task._inheritsTimingFromParent) {
+    // Subtask inherits timing from parent
+    const inheritBadge = document.createElement('span');
+    inheritBadge.className = 'badge badge-sm badge-info ml-2 gap-1';
+    const inheritIcon = document.createElement('i');
+    inheritIcon.setAttribute('data-lucide', 'corner-down-right');
+    inheritIcon.className = 'w-3 h-3';
+    inheritBadge.appendChild(inheritIcon);
+    const inheritText = document.createTextNode('Erft van parent');
+    inheritBadge.appendChild(inheritText);
+    inheritBadge.title = 'Deze subtask erft timing van parent task (relatief)';
+    leftDiv.appendChild(inheritBadge);
+  } else if (task.deadline_offset_days || task.planned_hours) {
+    // Task has explicit timing
     const timingBadge = document.createElement('span');
     timingBadge.className = 'badge badge-sm badge-ghost ml-2 gap-1';
     const timingIcon = document.createElement('i');
@@ -1429,7 +1552,10 @@ function handleTaskSubmit(e) {
   }
   
   document.getElementById('taskModal').close();
-  renderTasks();
+  
+  // H.1: Trigger recalculation when task milestone or timing changes
+  recalculateRelativeTiming();
+  
   validateAndDisplay();
 }
 
