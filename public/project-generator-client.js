@@ -556,6 +556,16 @@ async function initBlueprintEditor() {
   document.getElementById('tagForm').addEventListener('submit', handleTagSubmit);
   document.getElementById('taskForm').addEventListener('submit', handleTaskSubmit);
   
+  // I3: Grouping and sorting event listeners
+  const taskGroupingEl = document.getElementById('taskGrouping');
+  const taskSortingEl = document.getElementById('taskSorting');
+  if (taskGroupingEl) {
+    taskGroupingEl.addEventListener('change', renderTasks);
+  }
+  if (taskSortingEl) {
+    taskSortingEl.addEventListener('change', renderTasks);
+  }
+  
   // Color picker event listeners
   document.querySelectorAll('[data-color]').forEach(btn => {
     btn.addEventListener('click', function(e) {
@@ -563,6 +573,19 @@ async function initBlueprintEditor() {
       document.querySelectorAll('[data-color]').forEach(b => b.classList.remove('ring-2', 'ring-primary'));
       this.classList.add('ring-2', 'ring-primary');
       document.getElementById('taskColor').value = this.dataset.color;
+    });
+  });
+  
+  // Milestone color picker event listeners (Addendum I)
+  document.querySelectorAll('[data-milestone-color]').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      document.querySelectorAll('[data-milestone-color]').forEach(b => b.classList.remove('ring-2', 'ring-primary'));
+      this.classList.add('ring-2', 'ring-primary');
+      const colorInput = document.getElementById('milestoneColor');
+      if (colorInput) {
+        colorInput.value = this.dataset.milestoneColor;
+      }
     });
   });
   
@@ -675,8 +698,14 @@ function renderAllSections() {
 function renderStages() {
   const list = document.getElementById('stagesList');
   const empty = document.getElementById('emptyStages');
+  const countBadge = document.getElementById('stagesCount');
   
   list.innerHTML = '';
+  
+  // I1: Update count badge
+  if (countBadge) {
+    countBadge.textContent = blueprintState.stages.length;
+  }
   
   if (blueprintState.stages.length === 0) {
     list.style.display = 'none';
@@ -844,8 +873,14 @@ function moveStage(stageId, direction) {
 function renderMilestones() {
   const list = document.getElementById('milestonesList');
   const empty = document.getElementById('emptyMilestones');
+  const countBadge = document.getElementById('milestonesCount');
   
   list.innerHTML = '';
+  
+  // I1: Update count badge
+  if (countBadge) {
+    countBadge.textContent = blueprintState.milestones.length;
+  }
   
   if (blueprintState.milestones.length === 0) {
     list.style.display = 'none';
@@ -861,12 +896,28 @@ function renderMilestones() {
     div.className = 'flex items-center justify-between p-3 bg-base-200 rounded';
     
     const leftContent = document.createElement('div');
-    leftContent.className = 'flex flex-col';
+    leftContent.className = 'flex items-center gap-3';
+    
+    // Color indicator
+    if (milestone.color && milestone.color > 0 && milestone.color <= 11) {
+      const colorMap = {
+        1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
+        6: '#22C55E', 7: '#A855F7', 8: '#64748B', 9: '#C084FC', 10: '#06B6D4', 11: '#8B5CF6'
+      };
+      const colorDot = document.createElement('span');
+      colorDot.className = 'w-3 h-3 rounded-full flex-shrink-0';
+      colorDot.style.backgroundColor = colorMap[milestone.color];
+      colorDot.title = 'Color';
+      leftContent.appendChild(colorDot);
+    }
+    
+    const textContainer = document.createElement('div');
+    textContainer.className = 'flex flex-col';
     
     const nameSpan = document.createElement('span');
     nameSpan.className = 'font-semibold';
     nameSpan.textContent = milestone.name;
-    leftContent.appendChild(nameSpan);
+    textContainer.appendChild(nameSpan);
     
     // Show timing info if exists (Addendum H)
     if (milestone.deadline_offset_days || milestone.duration_days) {
@@ -876,9 +927,10 @@ function renderMilestones() {
       if (milestone.deadline_offset_days) parts.push('Deadline: +' + milestone.deadline_offset_days + ' days');
       if (milestone.duration_days) parts.push('Duration: ' + milestone.duration_days + ' days');
       timingInfo.textContent = parts.join(' • ');
-      leftContent.appendChild(timingInfo);
+      textContainer.appendChild(timingInfo);
     }
     
+    leftContent.appendChild(textContainer);
     div.appendChild(leftContent);
     
     const btnDiv = document.createElement('div');
@@ -920,6 +972,7 @@ function openMilestoneModal(milestoneId = null) {
   const nameInput = document.getElementById('milestoneName');
   const deadlineOffsetInput = document.getElementById('milestoneDeadlineOffset');
   const durationInput = document.getElementById('milestoneDuration');
+  const colorInput = document.getElementById('milestoneColor');
   
   if (milestoneId) {
     const milestone = blueprintState.milestones.find(m => m.id === milestoneId);
@@ -927,11 +980,25 @@ function openMilestoneModal(milestoneId = null) {
     nameInput.value = milestone.name;
     deadlineOffsetInput.value = milestone.deadline_offset_days || '';
     durationInput.value = milestone.duration_days || '';
+    
+    // Set color
+    if (colorInput) {
+      colorInput.value = milestone.color || '';
+      document.querySelectorAll('[data-milestone-color]').forEach(btn => btn.classList.remove('ring-2', 'ring-primary'));
+      if (milestone.color !== null && milestone.color !== undefined) {
+        const selectedBtn = document.querySelector('[data-milestone-color="' + milestone.color + '"]');
+        if (selectedBtn) selectedBtn.classList.add('ring-2', 'ring-primary');
+      }
+    }
   } else {
     title.textContent = 'Add Milestone';
     nameInput.value = '';
     deadlineOffsetInput.value = '';
     durationInput.value = '';
+    if (colorInput) {
+      colorInput.value = '';
+      document.querySelectorAll('[data-milestone-color]').forEach(btn => btn.classList.remove('ring-2', 'ring-primary'));
+    }
   }
   
   modal.showModal();
@@ -950,17 +1017,23 @@ function handleMilestoneSubmit(e) {
   const deadline_offset_days = deadlineOffsetStr ? parseInt(deadlineOffsetStr, 10) : null;
   const duration_days = durationStr ? parseInt(durationStr, 10) : null;
   
+  // Get color (Addendum I)
+  const colorInput = document.getElementById('milestoneColor');
+  const color = colorInput && colorInput.value ? parseInt(colorInput.value, 10) : null;
+  
   if (editingMilestoneId) {
     const milestone = blueprintState.milestones.find(m => m.id === editingMilestoneId);
     milestone.name = name;
     milestone.deadline_offset_days = deadline_offset_days;
     milestone.duration_days = duration_days;
+    milestone.color = color;
   } else {
     blueprintState.milestones.push({
       id: generateUUID(),
       name: name,
       deadline_offset_days: deadline_offset_days,
-      duration_days: duration_days
+      duration_days: duration_days,
+      color: color
     });
   }
   
@@ -998,8 +1071,14 @@ function deleteMilestone(milestoneId) {
 function renderTags() {
   const list = document.getElementById('tagsList');
   const empty = document.getElementById('emptyTags');
+  const countBadge = document.getElementById('tagsCount');
   
   list.innerHTML = '';
+  
+  // I1: Update count badge
+  if (countBadge) {
+    countBadge.textContent = blueprintState.tags.length;
+  }
   
   if (blueprintState.tags.length === 0) {
     list.style.display = 'none';
@@ -1200,7 +1279,7 @@ function recalculateRelativeTiming() {
 }
 
 // ============================================================================
-// TASKS
+// TASKS (I2 & I3: Enhanced UX with grouping and sorting)
 // ============================================================================
 
 function renderTasks() {
@@ -1218,148 +1297,358 @@ function renderTasks() {
   list.style.display = 'block';
   empty.style.display = 'none';
   
-  // Render parent tasks first
-  const parentTasks = blueprintState.tasks.filter(t => !t.parent_id);
+  // I3: Get grouping and sorting preferences
+  const groupingEl = document.getElementById('taskGrouping');
+  const sortingEl = document.getElementById('taskSorting');
+  const grouping = groupingEl ? groupingEl.value : 'none';
+  const sorting = sortingEl ? sortingEl.value : 'manual';
   
-  parentTasks.forEach(task => {
-    renderTaskItem(task, 0, list);
+  // Get parent tasks (with their subtasks embedded)
+  let taskGroups = getTasksGroupedAndSorted(grouping, sorting);
+  
+  // Render groups
+  taskGroups.forEach(group => {
+    if (group.header) {
+      // Render group header with icon
+      const headerDiv = document.createElement('div');
+      headerDiv.className = 'flex items-center gap-2 text-sm font-semibold text-base-content/70 mt-4 mb-2 px-2';
+      
+      // Add icon based on group type
+      const icon = document.createElement('i');
+      icon.className = 'w-4 h-4';
+      if (group.iconName) {
+        icon.setAttribute('data-lucide', group.iconName);
+      }
+      headerDiv.appendChild(icon);
+      
+      const textSpan = document.createElement('span');
+      textSpan.textContent = group.header;
+      headerDiv.appendChild(textSpan);
+      
+      list.appendChild(headerDiv);
+    }
     
-    // Render subtasks
-    const subtasks = blueprintState.tasks.filter(t => t.parent_id === task.id);
-    subtasks.forEach(subtask => {
-      renderTaskItem(subtask, 1, list);
+    // Render tasks in this group
+    group.tasks.forEach(task => {
+      renderTaskItem(task, 0, list, group.header ? true : false);
+      
+      // Render subtasks
+      const subtasks = blueprintState.tasks.filter(t => t.parent_id === task.id);
+      if (sorting !== 'manual') {
+        // Apply sorting to subtasks if needed
+        sortTasks(subtasks, sorting);
+      }
+      subtasks.forEach(subtask => {
+        renderTaskItem(subtask, 1, list, group.header ? true : false);
+      });
     });
   });
   
   lucide.createIcons();
 }
 
-function renderTaskItem(task, level, container) {
-  const div = document.createElement('div');
-  div.className = 'flex items-center justify-between p-3 bg-base-200 rounded';
-  if (level > 0) {
-    div.style.marginLeft = (level * 2) + 'rem';
-    div.className += ' border-l-4 border-primary';
-  }
+// I3: Group and sort tasks (presentational only)
+function getTasksGroupedAndSorted(grouping, sorting) {
+  const parentTasks = blueprintState.tasks.filter(t => !t.parent_id);
   
-  const leftDiv = document.createElement('div');
+  let groups = [];
   
-  const nameSpan = document.createElement('span');
-  nameSpan.className = 'font-semibold';
-  if (level > 0) {
-    nameSpan.className += ' text-sm';
-  }
-  nameSpan.textContent = task.name;
-  leftDiv.appendChild(nameSpan);
-  
-  // Show milestone
-  if (task.milestone_id) {
-    const milestone = blueprintState.milestones.find(m => m.id === task.milestone_id);
-    if (milestone) {
-      const badge = document.createElement('span');
-      badge.className = 'badge badge-sm badge-primary ml-2';
-      badge.textContent = milestone.name;
-      leftDiv.appendChild(badge);
+  if (grouping === 'none') {
+    // No grouping - single group
+    const sorted = [...parentTasks];
+    sortTasks(sorted, sorting);
+    groups.push({ header: null, iconName: null, tasks: sorted });
+    
+  } else if (grouping === 'milestone') {
+    // Group by milestone
+    const tasksByMilestone = new Map();
+    
+    // Group: No milestone
+    tasksByMilestone.set('__none__', []);
+    
+    // Group: Each milestone
+    blueprintState.milestones.forEach(m => {
+      tasksByMilestone.set(m.id, []);
+    });
+    
+    parentTasks.forEach(task => {
+      const key = task.milestone_id || '__none__';
+      if (!tasksByMilestone.has(key)) {
+        tasksByMilestone.set(key, []);
+      }
+      tasksByMilestone.get(key).push(task);
+    });
+    
+    // Build groups
+    blueprintState.milestones.forEach(m => {
+      const tasks = tasksByMilestone.get(m.id) || [];
+      if (tasks.length > 0) {
+        sortTasks(tasks, sorting);
+        groups.push({
+          header: `${m.name} (${tasks.length})`,
+          iconName: 'flag',
+          tasks: tasks
+        });
+      }
+    });
+    
+    // Add "No milestone" group
+    const noMilestoneTasks = tasksByMilestone.get('__none__') || [];
+    if (noMilestoneTasks.length > 0) {
+      sortTasks(noMilestoneTasks, sorting);
+      groups.push({
+        header: `No milestone (${noMilestoneTasks.length})`,
+        iconName: 'circle-dashed',
+        tasks: noMilestoneTasks
+      });
+    }
+    
+  } else if (grouping === 'tag') {
+    // Group by tag (tasks can appear in multiple groups)
+    const tasksByTag = new Map();
+    
+    // Build tag groups
+    blueprintState.tags.forEach(tag => {
+      const tasksWithTag = parentTasks.filter(t => 
+        t.tag_ids && t.tag_ids.includes(tag.id)
+      );
+      if (tasksWithTag.length > 0) {
+        sortTasks(tasksWithTag, sorting);
+        tasksByTag.set(tag.id, {
+          header: `${tag.name} (${tasksWithTag.length})`,
+          iconName: 'tag',
+          tasks: tasksWithTag
+        });
+      }
+    });
+    
+    // Add groups
+    tasksByTag.forEach(group => groups.push(group));
+    
+    // Add "No tags" group
+    const noTagTasks = parentTasks.filter(t => !t.tag_ids || t.tag_ids.length === 0);
+    if (noTagTasks.length > 0) {
+      sortTasks(noTagTasks, sorting);
+      groups.push({
+        header: `No tags (${noTagTasks.length})`,
+        iconName: 'circle-dashed',
+        tasks: noTagTasks
+      });
+    }
+    
+  } else if (grouping === 'dependency') {
+    // Group by dependency status
+    const withDeps = parentTasks.filter(t => 
+      blueprintState.dependencies.some(d => d.task_id === t.id)
+    );
+    const withoutDeps = parentTasks.filter(t => 
+      !blueprintState.dependencies.some(d => d.task_id === t.id)
+    );
+    
+    if (withDeps.length > 0) {
+      sortTasks(withDeps, sorting);
+      groups.push({
+        header: `Has dependencies (${withDeps.length})`,
+        iconName: 'git-branch',
+        tasks: withDeps
+      });
+    }
+    
+    if (withoutDeps.length > 0) {
+      sortTasks(withoutDeps, sorting);
+      groups.push({
+        header: `No dependencies (${withoutDeps.length})`,
+        iconName: 'circle-dashed',
+        tasks: withoutDeps
+      });
     }
   }
   
-  // Show color (Addendum F)
+  return groups;
+}
+
+// I3: Sort tasks array in place
+function sortTasks(tasks, sorting) {
+  if (sorting === 'alphabetical') {
+    tasks.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (sorting === 'start-date') {
+    tasks.sort((a, b) => {
+      const aOffset = a.deadline_offset_days || Infinity;
+      const bOffset = b.deadline_offset_days || Infinity;
+      return aOffset - bOffset;
+    });
+  } else if (sorting === 'deadline') {
+    tasks.sort((a, b) => {
+      const aOffset = a.deadline_offset_days || Infinity;
+      const bOffset = b.deadline_offset_days || Infinity;
+      return aOffset - bOffset;
+    });
+  }
+  // 'manual' = no sorting
+}
+
+// I2: Compact task item with better visual hierarchy
+function renderTaskItem(task, level, container, isGrouped = false) {
+  const div = document.createElement('div');
+  div.className = 'flex items-center gap-3 p-2.5 bg-base-200 rounded hover:bg-base-300 transition-colors';
+  
+  // I2: Indent for grouped tasks
+  if (isGrouped && level === 0) {
+    div.style.marginLeft = '1.5rem';
+  }
+  
+  // I2: Subtask visual distinction
+  if (level > 0) {
+    div.style.marginLeft = isGrouped ? '3.5rem' : '2rem';
+    div.className = div.className.replace('bg-base-200', 'bg-base-100');
+    div.className += ' border-l-2 border-base-300';
+  }
+  
+  // Left: Task info
+  const leftDiv = document.createElement('div');
+  leftDiv.className = 'flex-1 min-w-0 flex items-center gap-2 flex-wrap';
+  
+  // Task name (primary)
+  const nameSpan = document.createElement('span');
+  nameSpan.className = level > 0 ? 'font-medium text-sm' : 'font-semibold';
+  nameSpan.textContent = task.name;
+  leftDiv.appendChild(nameSpan);
+  
+  // Metadata row (secondary)
+  const metaDiv = document.createElement('div');
+  metaDiv.className = 'flex items-center gap-1 flex-wrap';
+  
+  // I2: Color dot (compact)
   if (task.color && task.color > 0 && task.color <= 11) {
     const colorMap = {
       1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
       6: '#22C55E', 7: '#A855F7', 8: '#64748B', 9: '#C084FC', 10: '#06B6D4', 11: '#8B5CF6'
     };
     const colorDot = document.createElement('span');
-    colorDot.className = 'inline-block w-3 h-3 rounded-full ml-2';
+    colorDot.className = 'w-2.5 h-2.5 rounded-full';
     colorDot.style.backgroundColor = colorMap[task.color];
-    colorDot.title = 'Color: ' + task.color;
-    leftDiv.appendChild(colorDot);
+    colorDot.title = 'Color';
+    metaDiv.appendChild(colorDot);
   }
   
-  // Show tags (Addendum F)
+  // I2: Milestone badge (compact met kleur)
+  if (task.milestone_id) {
+    const milestone = blueprintState.milestones.find(m => m.id === task.milestone_id);
+    if (milestone) {
+      const badge = document.createElement('span');
+      
+      // Use milestone color if available
+      if (milestone.color && milestone.color > 0 && milestone.color <= 11) {
+        const colorMap = {
+          1: 'badge-error', 2: 'badge-warning', 3: 'badge-warning', 4: 'badge-info', 
+          5: 'badge-secondary', 6: 'badge-success', 7: 'badge-secondary', 8: 'badge-neutral',
+          9: 'badge-secondary', 10: 'badge-info', 11: 'badge-secondary'
+        };
+        badge.className = `badge badge-xs ${colorMap[milestone.color]} gap-1`;
+      } else {
+        badge.className = 'badge badge-xs badge-primary gap-1';
+      }
+      
+      const icon = document.createElement('i');
+      icon.setAttribute('data-lucide', 'flag');
+      icon.className = 'w-2.5 h-2.5';
+      badge.appendChild(icon);
+      badge.title = milestone.name;
+      metaDiv.appendChild(badge);
+    }
+  }
+  
+  // I2: Tags (verbeterde leesbaarheid)
   if (task.tag_ids && task.tag_ids.length > 0) {
-    task.tag_ids.forEach(tagId => {
+    task.tag_ids.slice(0, 2).forEach(tagId => {
       const tag = blueprintState.tags.find(t => t.id === tagId);
       if (tag) {
         const tagBadge = document.createElement('span');
-        tagBadge.className = 'badge badge-sm badge-outline ml-2';
+        tagBadge.className = 'badge badge-sm badge-outline';
         tagBadge.textContent = tag.name;
-        leftDiv.appendChild(tagBadge);
+        tagBadge.title = tag.name;
+        metaDiv.appendChild(tagBadge);
       }
     });
+    if (task.tag_ids.length > 2) {
+      const moreBadge = document.createElement('span');
+      moreBadge.className = 'badge badge-sm badge-ghost';
+      moreBadge.textContent = `+${task.tag_ids.length - 2}`;
+      moreBadge.title = 'More tags';
+      metaDiv.appendChild(moreBadge);
+    }
   }
   
-  // Show timing indicator (Addendum G + H.1)
-  // H.1: Show inheritance instead of raw values when task inherits
+  // I2: Timing icons with tooltips (duidelijker)
   if (task._inheritsTimingFromMilestone) {
-    // Task inherits timing from milestone
-    const inheritBadge = document.createElement('span');
-    inheritBadge.className = 'badge badge-sm badge-info ml-2 gap-1';
-    const inheritIcon = document.createElement('i');
-    inheritIcon.setAttribute('data-lucide', 'arrow-down-from-line');
-    inheritIcon.className = 'w-3 h-3';
-    inheritBadge.appendChild(inheritIcon);
-    const inheritText = document.createTextNode('Erft van ' + task._inheritedMilestoneName);
-    inheritBadge.appendChild(inheritText);
-    inheritBadge.title = 'Deze taak erft timing van milestone (relatief)';
-    leftDiv.appendChild(inheritBadge);
+    const badge = document.createElement('span');
+    badge.className = 'badge badge-sm badge-info gap-1';
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', 'arrow-down');
+    icon.className = 'w-3 h-3';
+    badge.appendChild(icon);
+    const text = document.createElement('span');
+    text.textContent = 'Milestone';
+    badge.appendChild(text);
+    badge.title = `Inherits timing from ${task._inheritedMilestoneName}`;
+    metaDiv.appendChild(badge);
   } else if (task._inheritsTimingFromParent) {
-    // Subtask inherits timing from parent
-    const inheritBadge = document.createElement('span');
-    inheritBadge.className = 'badge badge-sm badge-info ml-2 gap-1';
-    const inheritIcon = document.createElement('i');
-    inheritIcon.setAttribute('data-lucide', 'corner-down-right');
-    inheritIcon.className = 'w-3 h-3';
-    inheritBadge.appendChild(inheritIcon);
-    const inheritText = document.createTextNode('Erft van parent');
-    inheritBadge.appendChild(inheritText);
-    inheritBadge.title = 'Deze subtask erft timing van parent task (relatief)';
-    leftDiv.appendChild(inheritBadge);
+    const badge = document.createElement('span');
+    badge.className = 'badge badge-sm badge-info gap-1';
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', 'arrow-down');
+    icon.className = 'w-3 h-3';
+    badge.appendChild(icon);
+    const text = document.createElement('span');
+    text.textContent = 'Parent';
+    badge.appendChild(text);
+    badge.title = 'Inherits timing from parent';
+    metaDiv.appendChild(badge);
   } else if (task.deadline_offset_days || task.planned_hours) {
-    // Task has explicit timing
-    const timingBadge = document.createElement('span');
-    timingBadge.className = 'badge badge-sm badge-ghost ml-2 gap-1';
-    const timingIcon = document.createElement('i');
-    timingIcon.setAttribute('data-lucide', 'clock');
-    timingIcon.className = 'w-3 h-3';
-    timingBadge.appendChild(timingIcon);
-    
+    const badge = document.createElement('span');
+    badge.className = 'badge badge-sm badge-ghost gap-1';
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', 'clock');
+    icon.className = 'w-3 h-3';
+    badge.appendChild(icon);
     const parts = [];
-    if (task.deadline_offset_days) parts.push(task.deadline_offset_days + 'd');
-    if (task.planned_hours) parts.push(task.planned_hours + 'h');
-    
-    const timingText = document.createElement('span');
-    timingText.textContent = parts.join(' / ');
-    timingBadge.appendChild(timingText);
-    timingBadge.title = `Deadline: ${task.deadline_offset_days || '-'} days, Hours: ${task.planned_hours || '-'}`;
-    leftDiv.appendChild(timingBadge);
+    if (task.deadline_offset_days) parts.push(`${task.deadline_offset_days}d`);
+    if (task.planned_hours) parts.push(`${task.planned_hours}h`);
+    const text = document.createElement('span');
+    text.textContent = parts.join(' / ');
+    badge.appendChild(text);
+    badge.title = parts.join(', ');
+    metaDiv.appendChild(badge);
   }
   
-  div.appendChild(leftDiv);
-  
-  const btnDiv = document.createElement('div');
-  btnDiv.className = 'flex gap-1 items-center';
-  
-  // Dependency badge (Addendum E)
+  // I2: Dependencies icon with count
   const taskDependencies = blueprintState.dependencies.filter(d => d.task_id === task.id);
   if (taskDependencies.length > 0) {
-    const depBadge = document.createElement('span');
-    depBadge.className = 'badge badge-sm badge-outline gap-1';
-    depBadge.title = `${taskDependencies.length} dependencies`;
-    const depIcon = document.createElement('i');
-    depIcon.setAttribute('data-lucide', 'git-branch');
-    depIcon.className = 'w-3 h-3';
-    depBadge.appendChild(depIcon);
-    const depCount = document.createElement('span');
-    depCount.textContent = taskDependencies.length;
-    depBadge.appendChild(depCount);
-    btnDiv.appendChild(depBadge);
+    const depContainer = document.createElement('span');
+    depContainer.className = 'flex items-center gap-0.5';
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', 'git-branch');
+    icon.className = 'w-3.5 h-3.5 text-base-content/50';
+    depContainer.appendChild(icon);
+    const count = document.createElement('span');
+    count.className = 'text-xs text-base-content/50';
+    count.textContent = taskDependencies.length;
+    depContainer.appendChild(count);
+    depContainer.title = `${taskDependencies.length} dependencies`;
+    metaDiv.appendChild(depContainer);
   }
   
-  // Dependencies button (Addendum E)
+  leftDiv.appendChild(metaDiv);
+  div.appendChild(leftDiv);
+  
+  // I4: Right: Actions (grouped, subtle)
+  const btnDiv = document.createElement('div');
+  btnDiv.className = 'flex gap-0.5 items-center opacity-60 hover:opacity-100 transition-opacity';
+  
+  // Dependencies button
   const depsBtn = document.createElement('button');
   depsBtn.className = 'btn btn-xs btn-ghost';
-  depsBtn.title = 'Manage Dependencies';
+  depsBtn.title = 'Dependencies';
   depsBtn.onclick = () => openTaskDependenciesModal(task.id);
   const depsIcon = document.createElement('i');
   depsIcon.setAttribute('data-lucide', 'git-branch');
@@ -1367,7 +1656,7 @@ function renderTaskItem(task, level, container) {
   depsBtn.appendChild(depsIcon);
   btnDiv.appendChild(depsBtn);
   
-  // Add subtask button (for parent tasks)
+  // Add subtask (parent tasks only)
   if (!task.parent_id) {
     const addSubBtn = document.createElement('button');
     addSubBtn.className = 'btn btn-xs btn-ghost';
@@ -1380,7 +1669,7 @@ function renderTaskItem(task, level, container) {
     btnDiv.appendChild(addSubBtn);
   }
   
-  // Edit button
+  // Edit
   const editBtn = document.createElement('button');
   editBtn.className = 'btn btn-xs btn-ghost';
   editBtn.title = 'Edit';
@@ -1391,7 +1680,7 @@ function renderTaskItem(task, level, container) {
   editBtn.appendChild(editIcon);
   btnDiv.appendChild(editBtn);
   
-  // Delete button
+  // Delete
   const delBtn = document.createElement('button');
   delBtn.className = 'btn btn-xs btn-ghost text-error';
   delBtn.title = 'Delete';

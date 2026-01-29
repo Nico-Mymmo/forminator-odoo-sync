@@ -213,14 +213,18 @@ export function blueprintEditorUI(user, templateId) {
         <!-- Blueprint Sections -->
         <div id="blueprintContent" style="display: none;">
           
-          <!-- Stages Section -->
-          <div class="card bg-base-100 shadow-xl mb-6">
-            <div class="card-body">
-              <div class="flex justify-between items-center mb-4">
-                <h2 class="card-title">
-                  <i data-lucide="layers" class="w-5 h-5 mr-2"></i>
-                  Task Stages
-                </h2>
+          <!-- Stages Section (I1: Collapsible) -->
+          <div class="collapse collapse-arrow bg-base-100 shadow-xl mb-4">
+            <input type="checkbox" id="stagesCollapseToggle" /> 
+            <div class="collapse-title flex items-center justify-between pr-12">
+              <div class="flex items-center gap-2">
+                <i data-lucide="layers" class="w-5 h-5"></i>
+                <span class="font-semibold">Task Stages</span>
+                <span id="stagesCount" class="badge badge-neutral badge-sm">0</span>
+              </div>
+            </div>
+            <div class="collapse-content">
+              <div class="flex justify-end mb-4 mt-2">
                 <button id="addStageBtn" class="btn btn-sm btn-primary">
                   <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
                   Add Stage
@@ -235,14 +239,18 @@ export function blueprintEditorUI(user, templateId) {
             </div>
           </div>
 
-          <!-- Milestones Section -->
-          <div class="card bg-base-100 shadow-xl mb-6">
-            <div class="card-body">
-              <div class="flex justify-between items-center mb-4">
-                <h2 class="card-title">
-                  <i data-lucide="flag" class="w-5 h-5 mr-2"></i>
-                  Milestones
-                </h2>
+          <!-- Milestones Section (I1: Collapsible) -->
+          <div class="collapse collapse-arrow bg-base-100 shadow-xl mb-4">
+            <input type="checkbox" id="milestonesCollapseToggle" /> 
+            <div class="collapse-title flex items-center justify-between pr-12">
+              <div class="flex items-center gap-2">
+                <i data-lucide="flag" class="w-5 h-5"></i>
+                <span class="font-semibold">Milestones</span>
+                <span id="milestonesCount" class="badge badge-neutral badge-sm">0</span>
+              </div>
+            </div>
+            <div class="collapse-content">
+              <div class="flex justify-end mb-4 mt-2">
                 <button id="addMilestoneBtn" class="btn btn-sm btn-primary">
                   <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
                   Add Milestone
@@ -257,14 +265,18 @@ export function blueprintEditorUI(user, templateId) {
             </div>
           </div>
 
-          <!-- Tags Section (Addendum F) -->
-          <div class="card bg-base-100 shadow-xl mb-6">
-            <div class="card-body">
-              <div class="flex justify-between items-center mb-4">
-                <h2 class="card-title">
-                  <i data-lucide="tag" class="w-5 h-5 mr-2"></i>
-                  Tags
-                </h2>
+          <!-- Tags Section (I1: Collapsible, Addendum F) -->
+          <div class="collapse collapse-arrow bg-base-100 shadow-xl mb-4">
+            <input type="checkbox" id="tagsCollapseToggle" /> 
+            <div class="collapse-title flex items-center justify-between pr-12">
+              <div class="flex items-center gap-2">
+                <i data-lucide="tag" class="w-5 h-5"></i>
+                <span class="font-semibold">Tags</span>
+                <span id="tagsCount" class="badge badge-neutral badge-sm">0</span>
+              </div>
+            </div>
+            <div class="collapse-content">
+              <div class="flex justify-end mb-4 mt-2">
                 <button id="addTagBtn" class="btn btn-sm btn-primary">
                   <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
                   Add Tag
@@ -279,7 +291,7 @@ export function blueprintEditorUI(user, templateId) {
             </div>
           </div>
 
-          <!-- Tasks Section -->
+          <!-- Tasks Section (I2 & I3: Enhanced UX) -->
           <div class="card bg-base-100 shadow-xl mb-6">
             <div class="card-body">
               <div class="flex justify-between items-center mb-4">
@@ -292,6 +304,33 @@ export function blueprintEditorUI(user, templateId) {
                   Add Task
                 </button>
               </div>
+              
+              <!-- I3: Grouping & Sorting Controls -->
+              <div class="flex gap-4 mb-4 flex-wrap">
+                <div class="form-control">
+                  <label class="label py-0 pb-1">
+                    <span class="label-text text-xs font-semibold">Group by</span>
+                  </label>
+                  <select id="taskGrouping" class="select select-bordered select-sm w-48">
+                    <option value="none">No grouping</option>
+                    <option value="milestone">Milestone</option>
+                    <option value="tag">Tag</option>
+                    <option value="dependency">Dependency status</option>
+                  </select>
+                </div>
+                <div class="form-control">
+                  <label class="label py-0 pb-1">
+                    <span class="label-text text-xs font-semibold">Sort by</span>
+                  </label>
+                  <select id="taskSorting" class="select select-bordered select-sm w-48">
+                    <option value="manual">Manual order</option>
+                    <option value="alphabetical">Alphabetical</option>
+                    <option value="start-date">Start date</option>
+                    <option value="deadline">Deadline</option>
+                  </select>
+                </div>
+              </div>
+              
               <div id="tasksList" class="space-y-2">
                 <!-- Tasks inserted by client.js -->
               </div>
@@ -406,6 +445,32 @@ export function blueprintEditorUI(user, templateId) {
             <label class="label">
               <span class="label-text-alt">How many workdays should this milestone span?</span>
             </label>
+          </div>
+          
+          <!-- Color Picker (Addendum I) -->
+          <div class="divider">Color (Optional)</div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Milestone Color</span>
+            </label>
+            <input type="hidden" id="milestoneColor" />
+            <div class="flex gap-2 flex-wrap">
+              <button type="button" class="w-8 h-8 rounded-full bg-red-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="1" title="Red"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-orange-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="2" title="Orange"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-yellow-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="3" title="Yellow"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-blue-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="4" title="Blue"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-pink-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="5" title="Pink"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-green-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="6" title="Green"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-purple-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="7" title="Purple"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-gray-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="8" title="Gray"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-violet-400 hover:ring-2 hover:ring-offset-2" data-milestone-color="9" title="Violet"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-cyan-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="10" title="Cyan"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-indigo-600 hover:ring-2 hover:ring-offset-2" data-milestone-color="11" title="Indigo"></button>
+              <button type="button" class="w-8 h-8 rounded-full border-2 border-dashed border-base-content/30 hover:border-base-content" data-milestone-color="0" title="No color">
+                <i data-lucide="x" class="w-4 h-4 mx-auto text-base-content/40"></i>
+              </button>
+            </div>
           </div>
           
           <div class="modal-action">
