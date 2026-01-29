@@ -441,12 +441,10 @@ async function initBlueprintEditor() {
   document.getElementById('addStageBtn').addEventListener('click', () => openStageModal());
   document.getElementById('addMilestoneBtn').addEventListener('click', () => openMilestoneModal());
   document.getElementById('addTaskBtn').addEventListener('click', () => openTaskModal());
-  // Dependency management is now inline per task (Addendum E)
   
   document.getElementById('stageForm').addEventListener('submit', handleStageSubmit);
   document.getElementById('milestoneForm').addEventListener('submit', handleMilestoneSubmit);
   document.getElementById('taskForm').addEventListener('submit', handleTaskSubmit);
-  // Dependency form removed - now managed inline per task (Addendum E)
   
   // Load blueprint
   await loadBlueprint();
@@ -480,7 +478,6 @@ async function loadBlueprint() {
       document.getElementById('blueprintContent').style.display = 'block';
       
       renderAllSections();
-      validateAndDisplay();
       
     } else {
       showToast('Failed to load blueprint: ' + result.error, 'error');
@@ -543,7 +540,7 @@ function renderAllSections() {
   renderStages();
   renderMilestones();
   renderTasks();
-  renderDependencies();
+  validateAndDisplay();
 }
 
 // ============================================================================
@@ -900,7 +897,34 @@ function renderTaskItem(task, level, container) {
   div.appendChild(leftDiv);
   
   const btnDiv = document.createElement('div');
-  btnDiv.className = 'flex gap-1';
+  btnDiv.className = 'flex gap-1 items-center';
+  
+  // Dependency badge (Addendum E)
+  const taskDependencies = blueprintState.dependencies.filter(d => d.task_id === task.id);
+  if (taskDependencies.length > 0) {
+    const depBadge = document.createElement('span');
+    depBadge.className = 'badge badge-sm badge-outline gap-1';
+    depBadge.title = `${taskDependencies.length} dependencies`;
+    const depIcon = document.createElement('i');
+    depIcon.setAttribute('data-lucide', 'git-branch');
+    depIcon.className = 'w-3 h-3';
+    depBadge.appendChild(depIcon);
+    const depCount = document.createElement('span');
+    depCount.textContent = taskDependencies.length;
+    depBadge.appendChild(depCount);
+    btnDiv.appendChild(depBadge);
+  }
+  
+  // Dependencies button (Addendum E)
+  const depsBtn = document.createElement('button');
+  depsBtn.className = 'btn btn-xs btn-ghost';
+  depsBtn.title = 'Manage Dependencies';
+  depsBtn.onclick = () => openTaskDependenciesModal(task.id);
+  const depsIcon = document.createElement('i');
+  depsIcon.setAttribute('data-lucide', 'git-branch');
+  depsIcon.className = 'w-3 h-3';
+  depsBtn.appendChild(depsIcon);
+  btnDiv.appendChild(depsBtn);
   
   // Add subtask button (for parent tasks)
   if (!task.parent_id) {
@@ -1009,7 +1033,6 @@ function handleTaskSubmit(e) {
   
   document.getElementById('taskModal').close();
   renderTasks();
-  // Dependencies are now managed inline per task (Addendum E)
   validateAndDisplay();
 }
 
@@ -1036,7 +1059,6 @@ function deleteTask(taskId) {
     );
     
     renderTasks();
-    // Dependencies are now managed inline per task (Addendum E)
     validateAndDisplay();
   }
 }
