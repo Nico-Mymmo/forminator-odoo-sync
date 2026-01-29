@@ -41,6 +41,7 @@ export function validateBlueprint(blueprint) {
   
   const stages = blueprint.stages || [];
   const milestones = blueprint.milestones || [];
+  const tags = blueprint.tags || [];
   const tasks = blueprint.tasks || [];
   const dependencies = blueprint.dependencies || [];
   
@@ -50,8 +51,17 @@ export function validateBlueprint(blueprint) {
   // Validate milestones
   validateMilestones(milestones, result);
   
+  // Validate tags (Addendum F)
+  validateTags(tags, result);
+  
   // Validate tasks
   validateTasks(tasks, result);
+  
+  // Validate task colors (Addendum F)
+  validateTaskColors(tasks, result);
+  
+  // Validate task tag references (Addendum F)
+  validateTaskTagReferences(tasks, tags, result);
   
   // Validate dependencies
   validateDependencies(dependencies, tasks, result);
@@ -124,6 +134,32 @@ function validateMilestones(milestones, result) {
     
     if (!milestone.name || milestone.name.trim().length === 0) {
       result.errors.push(`Milestone at index ${index} missing name`);
+    }
+  });
+}
+
+/**
+ * Validate tags array (Addendum F)
+ */
+function validateTags(tags, result) {
+  if (!Array.isArray(tags)) {
+    result.errors.push('Tags must be an array');
+    return;
+  }
+  
+  const seenIds = new Set();
+  
+  tags.forEach((tag, index) => {
+    if (!tag.id) {
+      result.errors.push(`Tag at index ${index} missing id`);
+    } else if (seenIds.has(tag.id)) {
+      result.errors.push(`Duplicate tag id: ${tag.id}`);
+    } else {
+      seenIds.add(tag.id);
+    }
+    
+    if (!tag.name || tag.name.trim().length === 0) {
+      result.errors.push(`Tag at index ${index} missing name`);
     }
   });
 }
@@ -296,4 +332,39 @@ export function warnUnassignedTasks(tasks, result) {
       result.warnings.push(`Task "${task.name}" has no milestone assigned`);
     });
   }
+}
+
+/**
+ * Validate task color values (Addendum F)
+ * Odoo uses integer colors 1-11 (0 = no color)
+ */
+function validateTaskColors(tasks, result) {
+  tasks.forEach((task, index) => {
+    if (task.color !== null && task.color !== undefined) {
+      if (typeof task.color !== 'number') {
+        result.errors.push(`Task "${task.name || index}" has non-numeric color: ${task.color}`);
+      } else if (!Number.isInteger(task.color)) {
+        result.errors.push(`Task "${task.name || index}" color must be integer, got: ${task.color}`);
+      } else if (task.color < 0 || task.color > 11) {
+        result.errors.push(`Task "${task.name || index}" color out of range (0-11): ${task.color}`);
+      }
+    }
+  });
+}
+
+/**
+ * Validate task tag references (Addendum F)
+ */
+function validateTaskTagReferences(tasks, tags, result) {
+  const tagIds = new Set(tags.map(t => t.id));
+  
+  tasks.forEach((task, index) => {
+    if (task.tag_ids && Array.isArray(task.tag_ids)) {
+      task.tag_ids.forEach(tagId => {
+        if (!tagIds.has(tagId)) {
+          result.errors.push(`Task "${task.name || index}" references non-existent tag: ${tagId}`);
+        }
+      });
+    }
+  });
 }

@@ -257,6 +257,28 @@ export function blueprintEditorUI(user, templateId) {
             </div>
           </div>
 
+          <!-- Tags Section (Addendum F) -->
+          <div class="card bg-base-100 shadow-xl mb-6">
+            <div class="card-body">
+              <div class="flex justify-between items-center mb-4">
+                <h2 class="card-title">
+                  <i data-lucide="tag" class="w-5 h-5 mr-2"></i>
+                  Tags
+                </h2>
+                <button id="addTagBtn" class="btn btn-sm btn-primary">
+                  <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
+                  Add Tag
+                </button>
+              </div>
+              <div id="tagsList" class="space-y-2">
+                <!-- Tags inserted by client.js -->
+              </div>
+              <div id="emptyTags" class="text-center py-8 text-base-content/40" style="display: none;">
+                No tags defined
+              </div>
+            </div>
+          </div>
+
           <!-- Tasks Section -->
           <div class="card bg-base-100 shadow-xl mb-6">
             <div class="card-body">
@@ -358,6 +380,32 @@ export function blueprintEditorUI(user, templateId) {
       </div>
     </dialog>
 
+    <!-- Tag Modal (Addendum F) -->
+    <dialog id="tagModal" class="modal">
+      <div class="modal-box">
+        <h3 id="tagModalTitle" class="font-bold text-lg mb-4">Add Tag</h3>
+        <form id="tagForm">
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Tag Name <span class="text-error">*</span></span>
+            </label>
+            <input 
+              type="text" 
+              id="tagName" 
+              placeholder="Urgent" 
+              class="input input-bordered" 
+              required 
+              maxlength="100"
+            />
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn" onclick="tagModal.close()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
     <!-- Task Modal -->
     <dialog id="taskModal" class="modal">
       <div class="modal-box">
@@ -393,6 +441,34 @@ export function blueprintEditorUI(user, templateId) {
               <option value="">No parent (main task)</option>
               <!-- Options inserted by client.js -->
             </select>
+          </div>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Color (Odoo)</span>
+            </label>
+            <div class="flex gap-2 flex-wrap">
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="0" style="background: white;" title="No color"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="1" style="background: #FF0000;" title="Red"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="2" style="background: #FFA500;" title="Orange"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="3" style="background: #FFFF00;" title="Yellow"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="4" style="background: #0000FF;" title="Blue"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="5" style="background: #800080;" title="Purple"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="6" style="background: #FF69B4;" title="Pink"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="7" style="background: #00CED1;" title="Cyan"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="8" style="background: #90EE90;" title="Light Green"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="9" style="background: #006400;" title="Dark Green"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="10" style="background: #FFB6C1;" title="Light Pink"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="11" style="background: #D3D3D3;" title="Light Gray"></button>
+            </div>
+            <input type="hidden" id="taskColor" value="">
+          </div>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Tags</span>
+            </label>
+            <div id="taskTagsContainer" class="flex flex-wrap gap-2">
+              <!-- Tag checkboxes inserted by client.js -->
+            </div>
           </div>
           <div class="modal-action">
             <button type="button" class="btn" onclick="taskModal.close()">Cancel</button>

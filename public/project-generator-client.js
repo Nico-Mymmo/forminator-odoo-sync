@@ -413,6 +413,7 @@ let blueprintState = null;
 let savedBlueprintState = null;
 let editingStageId = null;
 let editingMilestoneId = null;
+let editingTagId = null;
 let editingTaskId = null;
 let editingDependencyIndex = null;
 
@@ -440,11 +441,23 @@ async function initBlueprintEditor() {
   
   document.getElementById('addStageBtn').addEventListener('click', () => openStageModal());
   document.getElementById('addMilestoneBtn').addEventListener('click', () => openMilestoneModal());
+  document.getElementById('addTagBtn').addEventListener('click', () => openTagModal());
   document.getElementById('addTaskBtn').addEventListener('click', () => openTaskModal());
   
   document.getElementById('stageForm').addEventListener('submit', handleStageSubmit);
   document.getElementById('milestoneForm').addEventListener('submit', handleMilestoneSubmit);
+  document.getElementById('tagForm').addEventListener('submit', handleTagSubmit);
   document.getElementById('taskForm').addEventListener('submit', handleTaskSubmit);
+  
+  // Color picker event listeners
+  document.querySelectorAll('[data-color]').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      document.querySelectorAll('[data-color]').forEach(b => b.classList.remove('ring-2', 'ring-primary'));
+      this.classList.add('ring-2', 'ring-primary');
+      document.getElementById('taskColor').value = this.dataset.color;
+    });
+  });
   
   // Load blueprint
   await loadBlueprint();
@@ -468,6 +481,7 @@ async function loadBlueprint() {
       blueprintState = {
         stages: data.stages || [],
         milestones: data.milestones || [],
+        tags: data.tags || [],
         tasks: data.tasks || [],
         dependencies: data.dependencies || []
       };
@@ -539,6 +553,7 @@ function cancelBlueprintClick() {
 function renderAllSections() {
   renderStages();
   renderMilestones();
+  renderTags();
   renderTasks();
   validateAndDisplay();
 }
@@ -831,6 +846,123 @@ function deleteMilestone(milestoneId) {
 }
 
 // ============================================================================
+// TAGS (Addendum F)
+// ============================================================================
+
+function renderTags() {
+  const list = document.getElementById('tagsList');
+  const empty = document.getElementById('emptyTags');
+  
+  list.innerHTML = '';
+  
+  if (blueprintState.tags.length === 0) {
+    list.style.display = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+  
+  list.style.display = 'block';
+  empty.style.display = 'none';
+  
+  blueprintState.tags.forEach(tag => {
+    const div = document.createElement('div');
+    div.className = 'flex items-center justify-between p-3 bg-base-200 rounded';
+    
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'font-semibold';
+    nameSpan.textContent = tag.name;
+    div.appendChild(nameSpan);
+    
+    const btnDiv = document.createElement('div');
+    btnDiv.className = 'flex gap-1';
+    
+    // Edit button
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-xs btn-ghost';
+    editBtn.title = 'Edit';
+    editBtn.onclick = () => openTagModal(tag.id);
+    const editIcon = document.createElement('i');
+    editIcon.setAttribute('data-lucide', 'edit-2');
+    editIcon.className = 'w-3 h-3';
+    editBtn.appendChild(editIcon);
+    btnDiv.appendChild(editBtn);
+    
+    // Delete button
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-xs btn-ghost text-error';
+    delBtn.title = 'Delete';
+    delBtn.onclick = () => deleteTag(tag.id);
+    const delIcon = document.createElement('i');
+    delIcon.setAttribute('data-lucide', 'trash-2');
+    delIcon.className = 'w-3 h-3';
+    delBtn.appendChild(delIcon);
+    btnDiv.appendChild(delBtn);
+    
+    div.appendChild(btnDiv);
+    list.appendChild(div);
+  });
+  
+  lucide.createIcons();
+}
+
+function openTagModal(tagId = null) {
+  editingTagId = tagId;
+  const modal = document.getElementById('tagModal');
+  const title = document.getElementById('tagModalTitle');
+  const nameInput = document.getElementById('tagName');
+  
+  if (tagId) {
+    const tag = blueprintState.tags.find(t => t.id === tagId);
+    title.textContent = 'Edit Tag';
+    nameInput.value = tag.name;
+  } else {
+    title.textContent = 'Add Tag';
+    nameInput.value = '';
+  }
+  
+  modal.showModal();
+}
+
+function handleTagSubmit(e) {
+  e.preventDefault();
+  
+  const name = document.getElementById('tagName').value.trim();
+  if (!name) return;
+  
+  if (editingTagId) {
+    const tag = blueprintState.tags.find(t => t.id === editingTagId);
+    tag.name = name;
+  } else {
+    blueprintState.tags.push({
+      id: generateUUID(),
+      name: name
+    });
+  }
+  
+  document.getElementById('tagModal').close();
+  renderTags();
+  validateAndDisplay();
+}
+
+function deleteTag(tagId) {
+  const tag = blueprintState.tags.find(t => t.id === tagId);
+  if (confirm('Delete tag "' + tag.name + '"?\n\nTasks with this tag will keep the tag (removed from new projects).')) {
+    blueprintState.tags = blueprintState.tags.filter(t => t.id !== tagId);
+    
+    // Remove tag from tasks
+    blueprintState.tasks.forEach(task => {
+      if (task.tag_ids && task.tag_ids.includes(tagId)) {
+        task.tag_ids = task.tag_ids.filter(tid => tid !== tagId);
+      }
+    });
+    
+    renderTags();
+    renderTasks();
+    validateAndDisplay();
+  }
+}
+
+// ============================================================================
 // TASKS
 // ============================================================================
 
@@ -892,6 +1024,32 @@ function renderTaskItem(task, level, container) {
       badge.textContent = milestone.name;
       leftDiv.appendChild(badge);
     }
+  }
+  
+  // Show color (Addendum F)
+  if (task.color && task.color > 0 && task.color <= 11) {
+    const colorMap = {
+      1: '#FF0000', 2: '#FFA500', 3: '#FFFF00', 4: '#0000FF', 5: '#800080',
+      6: '#FF69B4', 7: '#00CED1', 8: '#90EE90', 9: '#006400', 10: '#FFB6C1', 11: '#D3D3D3'
+    };
+    const colorDot = document.createElement('span');
+    colorDot.className = 'inline-block w-3 h-3 rounded-full ml-2';
+    colorDot.style.backgroundColor = colorMap[task.color];
+    colorDot.title = 'Color: ' + task.color;
+    leftDiv.appendChild(colorDot);
+  }
+  
+  // Show tags (Addendum F)
+  if (task.tag_ids && task.tag_ids.length > 0) {
+    task.tag_ids.forEach(tagId => {
+      const tag = blueprintState.tags.find(t => t.id === tagId);
+      if (tag) {
+        const tagBadge = document.createElement('span');
+        tagBadge.className = 'badge badge-sm badge-outline ml-2';
+        tagBadge.textContent = tag.name;
+        leftDiv.appendChild(tagBadge);
+      }
+    });
   }
   
   div.appendChild(leftDiv);
@@ -972,6 +1130,8 @@ function openTaskModal(taskId = null, parentId = null) {
   const nameInput = document.getElementById('taskName');
   const milestoneSelect = document.getElementById('taskMilestone');
   const parentSelect = document.getElementById('taskParent');
+  const colorInput = document.getElementById('taskColor');
+  const tagsContainer = document.getElementById('taskTagsContainer');
   
   // Populate milestone options
   milestoneSelect.innerHTML = '<option value="">No milestone</option>';
@@ -992,17 +1152,59 @@ function openTaskModal(taskId = null, parentId = null) {
     parentSelect.appendChild(option);
   });
   
+  // Populate tag checkboxes
+  tagsContainer.innerHTML = '';
+  if (blueprintState.tags.length === 0) {
+    tagsContainer.innerHTML = '<span class="text-base-content/40">No tags defined yet</span>';
+  } else {
+    blueprintState.tags.forEach(tag => {
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-2 cursor-pointer';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'checkbox checkbox-sm';
+      checkbox.value = tag.id;
+      checkbox.dataset.tagId = tag.id;
+      
+      const span = document.createElement('span');
+      span.textContent = tag.name;
+      
+      label.appendChild(checkbox);
+      label.appendChild(span);
+      tagsContainer.appendChild(label);
+    });
+  }
+  
   if (taskId) {
     const task = blueprintState.tasks.find(t => t.id === taskId);
     title.textContent = task.parent_id ? 'Edit Subtask' : 'Edit Task';
     nameInput.value = task.name;
     milestoneSelect.value = task.milestone_id || '';
     parentSelect.value = task.parent_id || '';
+    
+    // Set color
+    colorInput.value = task.color || '';
+    document.querySelectorAll('[data-color]').forEach(btn => btn.classList.remove('ring-2', 'ring-primary'));
+    if (task.color !== null && task.color !== undefined) {
+      const selectedBtn = document.querySelector('[data-color="' + task.color + '"]');
+      if (selectedBtn) selectedBtn.classList.add('ring-2', 'ring-primary');
+    }
+    
+    // Set tags
+    if (task.tag_ids) {
+      task.tag_ids.forEach(tagId => {
+        const checkbox = tagsContainer.querySelector('[data-tag-id="' + tagId + '"]');
+        if (checkbox) checkbox.checked = true;
+      });
+    }
   } else {
     title.textContent = parentId ? 'Add Subtask' : 'Add Task';
     nameInput.value = '';
     milestoneSelect.value = '';
     parentSelect.value = parentId || '';
+    colorInput.value = '';
+    document.querySelectorAll('[data-color]').forEach(btn => btn.classList.remove('ring-2', 'ring-primary'));
   }
   
   modal.showModal();
@@ -1014,6 +1216,12 @@ function handleTaskSubmit(e) {
   const name = document.getElementById('taskName').value.trim();
   const milestoneId = document.getElementById('taskMilestone').value || null;
   const parentId = document.getElementById('taskParent').value || null;
+  const colorValue = document.getElementById('taskColor').value;
+  const color = colorValue === '' || colorValue === '0' ? null : parseInt(colorValue, 10);
+  
+  // Get selected tags
+  const tagCheckboxes = document.querySelectorAll('#taskTagsContainer input[type="checkbox"]:checked');
+  const tag_ids = Array.from(tagCheckboxes).map(cb => cb.value);
   
   if (!name) return;
   
@@ -1022,12 +1230,16 @@ function handleTaskSubmit(e) {
     task.name = name;
     task.milestone_id = milestoneId;
     task.parent_id = parentId;
+    task.color = color;
+    task.tag_ids = tag_ids;
   } else {
     blueprintState.tasks.push({
       id: generateUUID(),
       name: name,
       milestone_id: milestoneId,
-      parent_id: parentId
+      parent_id: parentId,
+      color: color,
+      tag_ids: tag_ids
     });
   }
   

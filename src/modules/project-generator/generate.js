@@ -10,6 +10,7 @@
  * 3. Create project
  * 4. Create stages
  * 5. Create milestones
+ * 5.5. Create tags (Addendum F)
  * 6. Create tasks (parents first)
  * 7. Create dependencies (fail-soft)
  * 
@@ -22,7 +23,8 @@ import { getBlueprintData } from './library.js';
 import { 
   createProject, 
   createStage, 
-  createMilestone, 
+  createMilestone,
+  createTag,
   createTask, 
   addTaskDependencies 
 } from './odoo-creator.js';
@@ -123,6 +125,21 @@ export async function generateProject(env, templateId, templateName, overrideMod
       console.log(`[Generator] Milestone created: ${milestone.name} (${milestoneId})`);
     }
     
+    // STEP 5.5: Create tags (Addendum F)
+    // NOTE: Tags are GLOBAL in Odoo (no project_id)
+    result.step = '5.5-create-tags';
+    console.log('[Generator] Step 5.5: Creating tags');
+    result.odoo_mappings.tags = {};
+    
+    for (const tag of generationModel.tags) {
+      const tagId = await createTag(env, {
+        name: tag.name
+      });
+      
+      result.odoo_mappings.tags[tag.blueprint_id] = tagId;
+      console.log(`[Generator] Tag created: ${tag.name} (${tagId})`);
+    }
+    
     // STEP 6: Create tasks (ordered)
     result.step = '6-create-tasks';
     console.log('[Generator] Step 6: Creating tasks');
@@ -157,6 +174,18 @@ export async function generateProject(env, templateId, templateName, overrideMod
         if (milestoneOdooId) {
           taskData.milestone_id = milestoneOdooId;
         }
+      }
+      
+      // Add color if exists (Addendum F)
+      if (task.color !== null && task.color !== undefined) {
+        taskData.color = task.color;
+      }
+      
+      // Add tags if exist (Addendum F)
+      if (task.tag_blueprint_ids && task.tag_blueprint_ids.length > 0) {
+        taskData.tag_ids = task.tag_blueprint_ids.map(blueprintId => 
+          result.odoo_mappings.tags[blueprintId]
+        ).filter(id => id !== undefined);
       }
       
       const taskId = await createTask(env, taskData);
@@ -228,6 +257,7 @@ export function buildGenerationModel(blueprint, templateName) {
     },
     stages: [],
     milestones: [],
+    tags: [],
     tasks: []
   };
   
@@ -248,6 +278,14 @@ export function buildGenerationModel(blueprint, templateName) {
     }));
   }
   
+  // Copy tags (Addendum F)
+  if (blueprint.tags && Array.isArray(blueprint.tags)) {
+    model.tags = blueprint.tags.map(tag => ({
+      blueprint_id: tag.id,
+      name: tag.name
+    }));
+  }
+  
   // Build tasks with generation order
   if (blueprint.tasks && Array.isArray(blueprint.tasks)) {
     const taskMap = new Map();
@@ -259,6 +297,8 @@ export function buildGenerationModel(blueprint, templateName) {
         name: task.name,
         milestone_blueprint_id: task.milestone_id || null,
         parent_blueprint_id: task.parent_id,
+        color: task.color || null,
+        tag_blueprint_ids: task.tag_ids || [],
         dependencies: [],
         generation_order: 0
       });

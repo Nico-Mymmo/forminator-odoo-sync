@@ -98,6 +98,26 @@ export async function createMilestone(env, data) {
 }
 
 /**
+ * Create or find project tag (Addendum F)
+ * Tags are GLOBAL in Odoo (no project_id field)
+ * 
+ * @param {Object} env - Cloudflare env
+ * @param {Object} data - Tag data
+ * @param {string} data.name - Tag name
+ * @returns {Promise<number>} Odoo tag ID
+ */
+export async function createTag(env, data) {
+  const tagId = await create(env, {
+    model: 'project.tags',
+    values: {
+      name: data.name
+    }
+  });
+  
+  return tagId;
+}
+
+/**
  * Create task
  * 
  * @param {Object} env - Cloudflare env
@@ -106,8 +126,8 @@ export async function createMilestone(env, data) {
  * @param {number} data.project_id - Project ID
  * @param {number} [data.stage_id] - Stage ID
  * @param {number} [data.parent_id] - Parent task ID (for subtasks)
- * @param {number} [data.milestone_id] - Milestone ID
- * @returns {Promise<number>} Odoo task ID
+ * @param {number} [data.milestone_id] - Milestone ID * @param {number} [data.color] - Odoo color integer (1-11)
+ * @param {Array<number>} [data.tag_ids] - Array of tag IDs * @returns {Promise<number>} Odoo task ID
  */
 export async function createTask(env, data) {
   const values = {
@@ -125,6 +145,16 @@ export async function createTask(env, data) {
   
   if (data.milestone_id) {
     values.milestone_id = data.milestone_id;
+  }
+  
+  // Addendum F: Color support
+  if (data.color !== null && data.color !== undefined) {
+    values.color = data.color;
+  }
+  
+  // Addendum F: Tags support
+  if (data.tag_ids && data.tag_ids.length > 0) {
+    values.tag_ids = data.tag_ids.map(id => [4, id]);  // [(4, id)] = link existing
   }
   
   // Addendum B: Hide subtasks from Kanban (Odoo-conform behavior)
