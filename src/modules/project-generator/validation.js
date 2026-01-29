@@ -42,6 +42,7 @@ export function validateBlueprint(blueprint) {
   const stages = blueprint.stages || [];
   const milestones = blueprint.milestones || [];
   const tags = blueprint.tags || [];
+  const stakeholders = blueprint.stakeholders || []; // Addendum J
   const tasks = blueprint.tasks || [];
   const dependencies = blueprint.dependencies || [];
   
@@ -57,6 +58,9 @@ export function validateBlueprint(blueprint) {
   // Validate tags (Addendum F)
   validateTags(tags, result);
   
+  // Validate stakeholders (Addendum J)
+  validateStakeholders(stakeholders, result);
+  
   // Validate tasks
   validateTasks(tasks, result);
   
@@ -65,6 +69,9 @@ export function validateBlueprint(blueprint) {
   
   // Validate task tag references (Addendum F)
   validateTaskTagReferences(tasks, tags, result);
+  
+  // Validate task stakeholder references (Addendum J)
+  validateTaskStakeholderReferences(tasks, stakeholders, result);
   
   // Validate task timings (Addendum G)
   validateTaskTimings(tasks, result);
@@ -201,6 +208,42 @@ function validateTags(tags, result) {
     if (!tag.name || tag.name.trim().length === 0) {
       result.errors.push(`Tag at index ${index} missing name`);
     }
+  });
+}
+
+/**
+ * Validate stakeholders array (Addendum J)
+ */
+function validateStakeholders(stakeholders, result) {
+  if (!Array.isArray(stakeholders)) {
+    result.errors.push('Stakeholders must be an array');
+    return;
+  }
+  
+  const seenIds = new Set();
+  const seenNames = new Set();
+  
+  stakeholders.forEach((stakeholder, index) => {
+    if (!stakeholder.id) {
+      result.errors.push(`Stakeholder at index ${index} missing id`);
+    } else if (seenIds.has(stakeholder.id)) {
+      result.errors.push(`Duplicate stakeholder id: ${stakeholder.id}`);
+    } else {
+      seenIds.add(stakeholder.id);
+    }
+    
+    if (!stakeholder.name || stakeholder.name.trim().length === 0) {
+      result.errors.push(`Stakeholder at index ${index} missing name`);
+    } else {
+      const lowerName = stakeholder.name.trim().toLowerCase();
+      if (seenNames.has(lowerName)) {
+        result.warnings.push(`Duplicate stakeholder name: ${stakeholder.name}`);
+      } else {
+        seenNames.add(lowerName);
+      }
+    }
+    
+    // Description is optional, no validation needed
   });
 }
 
@@ -403,6 +446,23 @@ function validateTaskTagReferences(tasks, tags, result) {
       task.tag_ids.forEach(tagId => {
         if (!tagIds.has(tagId)) {
           result.errors.push(`Task "${task.name || index}" references non-existent tag: ${tagId}`);
+        }
+      });
+    }
+  });
+}
+
+/**
+ * Validate task stakeholder references (Addendum J)
+ */
+function validateTaskStakeholderReferences(tasks, stakeholders, result) {
+  const stakeholderIds = new Set(stakeholders.map(s => s.id));
+  
+  tasks.forEach((task, index) => {
+    if (task.stakeholder_ids && Array.isArray(task.stakeholder_ids)) {
+      task.stakeholder_ids.forEach(stakeholderId => {
+        if (!stakeholderIds.has(stakeholderId)) {
+          result.errors.push(`Task "${task.name || index}" references non-existent stakeholder: ${stakeholderId}`);
         }
       });
     }

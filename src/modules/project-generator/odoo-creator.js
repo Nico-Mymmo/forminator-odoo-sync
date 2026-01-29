@@ -16,12 +16,33 @@
 import { create, write, searchRead } from '../../lib/odoo.js';
 
 /**
+ * Get active internal Odoo users
+ * 
+ * @param {Object} env - Cloudflare env
+ * @returns {Promise<Array>} Array of user objects with {id, name, login}
+ */
+export async function getActiveUsers(env) {
+  const users = await searchRead(env, {
+    model: 'res.users',
+    domain: [
+      ['active', '=', true],
+      ['share', '=', false]  // Internal users only (not portal/public users)
+    ],
+    fields: ['id', 'name', 'login'],
+    order: 'name asc'
+  });
+  
+  return users;
+}
+
+/**
  * Create Odoo project
  * 
  * @param {Object} env - Cloudflare env
  * @param {Object} data - Project data
  * @param {string} data.name - Project name
  * @param {string} [data.description] - Project description
+ * @param {number} [data.user_id] - Project responsible (Addendum J)
  * @returns {Promise<number>} Odoo project ID
  */
 export async function createProject(env, data) {
@@ -31,6 +52,20 @@ export async function createProject(env, data) {
   
   if (data.description) {
     values.description = data.description;
+  }
+  
+  // Project dates
+  if (data.date_start) {
+    values.date_start = data.date_start;  // Start date
+  }
+  
+  if (data.date) {
+    values.date = data.date;  // End date (calculated from max task deadline)
+  }
+  
+  // Addendum J: Set project responsible
+  if (data.user_id) {
+    values.user_id = data.user_id;
   }
   
   const projectId = await create(env, {
@@ -147,6 +182,7 @@ export async function getOrCreateTag(env, data) {
  * @param {number} [data.milestone_id] - Milestone ID
  * @param {number} [data.color] - Odoo color integer (1-11)
  * @param {Array<number>} [data.tag_ids] - Array of tag IDs
+ * @param {Array<number>} [data.user_ids] - Array of user IDs (Addendum J)
  * @param {string} [data.planned_date_begin] - Start date (ISO format)
  * @param {string} [data.date_deadline] - Deadline date (ISO format)
  * @param {number} [data.allocated_hours] - Estimated hours
@@ -178,6 +214,11 @@ export async function createTask(env, data) {
   // Addendum F: Tags support
   if (data.tag_ids && data.tag_ids.length > 0) {
     values.tag_ids = data.tag_ids.map(id => [4, id]);  // [(4, id)] = link existing
+  }
+  
+  // Addendum J: User assignment support
+  if (data.user_ids && data.user_ids.length > 0) {
+    values.user_ids = data.user_ids.map(id => [4, id]);  // [(4, id)] = link existing
   }
   
   // Addendum G: Timing support

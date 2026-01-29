@@ -291,6 +291,32 @@ export function blueprintEditorUI(user, templateId) {
             </div>
           </div>
 
+          <!-- Stakeholders Section (I1: Collapsible, Addendum J) -->
+          <div class="collapse collapse-arrow bg-base-100 shadow-xl mb-4">
+            <input type="checkbox" id="stakeholdersCollapseToggle" /> 
+            <div class="collapse-title flex items-center justify-between pr-12">
+              <div class="flex items-center gap-2">
+                <i data-lucide="users" class="w-5 h-5"></i>
+                <span class="font-semibold">Stakeholders</span>
+                <span id="stakeholdersCount" class="badge badge-neutral badge-sm">0</span>
+              </div>
+            </div>
+            <div class="collapse-content">
+              <div class="flex justify-end mb-4 mt-2">
+                <button id="addStakeholderBtn" class="btn btn-sm btn-primary">
+                  <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
+                  Add Stakeholder
+                </button>
+              </div>
+              <div id="stakeholdersList" class="space-y-2">
+                <!-- Stakeholders inserted by client.js -->
+              </div>
+              <div id="emptyStakeholders" class="text-center py-8 text-base-content/40" style="display: none;">
+                No stakeholders defined
+              </div>
+            </div>
+          </div>
+
           <!-- Tasks Section (I2 & I3: Enhanced UX) -->
           <div class="card bg-base-100 shadow-xl mb-6">
             <div class="card-body">
@@ -315,6 +341,19 @@ export function blueprintEditorUI(user, templateId) {
                     <option value="none">No grouping</option>
                     <option value="milestone">Milestone</option>
                     <option value="tag">Tag</option>
+                    <option value="stakeholder">Stakeholder</option>
+                    <option value="dependency">Dependency status</option>
+                  </select>
+                </div>
+                <div class="form-control">
+                  <label class="label py-0 pb-1">
+                    <span class="label-text text-xs font-semibold">Then by</span>
+                  </label>
+                  <select id="taskGrouping2" class="select select-bordered select-sm w-48">
+                    <option value="none">No sub-grouping</option>
+                    <option value="milestone">Milestone</option>
+                    <option value="tag">Tag</option>
+                    <option value="stakeholder">Stakeholder</option>
                     <option value="dependency">Dependency status</option>
                   </select>
                 </div>
@@ -507,6 +546,57 @@ export function blueprintEditorUI(user, templateId) {
       </div>
     </dialog>
 
+    <!-- Stakeholder Modal (Addendum J) -->
+    <dialog id="stakeholderModal" class="modal">
+      <div class="modal-box">
+        <h3 id="stakeholderModalTitle" class="font-bold text-lg mb-4">Add Stakeholder</h3>
+        <form id="stakeholderForm">
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Stakeholder Name <span class="text-error">*</span></span>
+            </label>
+            <input 
+              type="text" 
+              id="stakeholderName" 
+              placeholder="Project Manager" 
+              class="input input-bordered" 
+              required 
+              maxlength="100"
+            />
+          </div>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Description</span>
+              <span class="label-text-alt text-base-content/60">Optional role description</span>
+            </label>
+            <textarea 
+              id="stakeholderDescription" 
+              placeholder="Overall responsibility for project delivery" 
+              class="textarea textarea-bordered" 
+              rows="2"
+              maxlength="255"
+            ></textarea>
+          </div>
+          
+          <!-- Color Picker (Addendum J + I5 pattern) -->
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Color</span>
+              <span class="label-text-alt text-base-content/60">Optional visual identifier</span>
+            </label>
+            <div id="stakeholderColorPicker" class="flex gap-2 flex-wrap">
+              <!-- Colors 0-11, dynamically rendered by client.js -->
+            </div>
+          </div>
+          
+          <div class="modal-action">
+            <button type="button" class="btn" onclick="stakeholderModal.close()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
     <!-- Task Modal -->
     <dialog id="taskModal" class="modal">
       <div class="modal-box">
@@ -569,6 +659,16 @@ export function blueprintEditorUI(user, templateId) {
             </label>
             <div id="taskTagsContainer" class="flex flex-wrap gap-2">
               <!-- Tag checkboxes inserted by client.js -->
+            </div>
+          </div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Stakeholders</span>
+              <span class="label-text-alt text-base-content/60">Who is responsible/involved</span>
+            </label>
+            <div id="taskStakeholdersContainer" class="flex flex-wrap gap-2">
+              <!-- Stakeholder checkboxes inserted by client.js -->
             </div>
           </div>
           

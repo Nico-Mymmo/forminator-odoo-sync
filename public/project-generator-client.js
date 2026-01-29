@@ -303,16 +303,50 @@ async function generateProjectFromTemplate(templateId) {
     return;
   }
   
+  // Show loading toast for user fetching
+  showToast('Fetching Odoo users...', 'info');
+  
+  // STEP 0.5: Fetch Odoo users (Addendum J)
+  let odooUsers = [];
+  try {
+    const usersResponse = await fetch('/projects/api/odoo-users', {
+      credentials: 'include'
+    });
+    const usersResult = await usersResponse.json();
+    
+    if (!usersResult.success) {
+      showToast('Failed to fetch Odoo users: ' + usersResult.error, 'error');
+      return;
+    }
+    
+    odooUsers = usersResult.users || [];
+  } catch (err) {
+    console.error('Users fetch error:', err);
+    showToast('Network error fetching users. Please try again.', 'error');
+    return;
+  }
+  
+  // STEP 0.6: Ask for stakeholder → user mapping (Addendum J)
+  const stakeholderMapping = await showStakeholderMappingModal(templateId, odooUsers);
+  
+  if (!stakeholderMapping) {
+    // User cancelled
+    return;
+  }
+  
   // Show loading toast
   showToast('Loading generation preview...', 'info');
   
   try {
-    // STEP 1: Fetch generation preview with projectStartDate (Addendum C + G)
+    // STEP 1: Fetch generation preview with projectStartDate and stakeholderMapping (Addendum J)
     const previewResponse = await fetch(`/projects/api/generate-preview/${templateId}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectStartDate })  // Addendum G
+      body: JSON.stringify({ 
+        projectStartDate,  // Addendum G
+        stakeholderMapping // Addendum J
+      })
     });
     
     const previewResult = await previewResponse.json();
@@ -323,7 +357,7 @@ async function generateProjectFromTemplate(templateId) {
     }
     
     // STEP 2: Show preview modal with editable model
-    await showGenerationPreviewModal(previewResult.generationModel, templateId, projectStartDate);
+    await showGenerationPreviewModal(previewResult.generationModel, templateId, projectStartDate, stakeholderMapping);
     
   } catch (err) {
     console.error('Preview error:', err);
@@ -429,6 +463,238 @@ async function showProjectStartDateModal() {
   });
 }
 
+/**
+ * Show modal for stakeholder → user mapping
+ * Addendum J: Map blueprint stakeholders to real Odoo users
+ */
+async function showStakeholderMappingModal(templateId, odooUsers) {
+  return new Promise(async (resolve) => {
+    let blueprint = null;
+    try {
+      const response = await fetch(`/projects/api/blueprint/${templateId}`, {
+        credentials: 'include'
+      });
+      const result = await response.json();
+      if (result.success) {
+        blueprint = result.data || {};
+      } else {
+        showToast('Failed to load blueprint: ' + result.error, 'error');
+        resolve(null);
+        return;
+      }
+    } catch (err) {
+      console.error('Blueprint fetch error:', err);
+      showToast('Network error loading blueprint', 'error');
+      resolve(null);
+      return;
+    }
+    
+    const stakeholders = blueprint.stakeholders || [];
+    const modal = document.createElement('dialog');
+    modal.className = 'modal modal-open';
+    const modalBox = document.createElement('div');
+    modalBox.className = 'modal-box max-w-2xl';
+    
+    const title = document.createElement('h2');
+    title.className = 'text-xl font-bold mb-2';
+    title.textContent = 'Map Stakeholders to Users';
+    modalBox.appendChild(title);
+    
+    const description = document.createElement('p');
+    description.className = 'text-base-content/60 mb-4';
+    description.textContent = 'Assign real Odoo users to blueprint stakeholders.';
+    modalBox.appendChild(description);
+    
+    const responsibleGroup = document.createElement('div');
+    responsibleGroup.className = 'form-control mb-6';
+    const responsibleLabel = document.createElement('label');
+    responsibleLabel.className = 'label';
+    const responsibleLabelText = document.createElement('span');
+    responsibleLabelText.className = 'label-text font-semibold';
+    responsibleLabelText.textContent = 'Project Responsible ';
+    const requiredSpan = document.createElement('span');
+    requiredSpan.className = 'text-error';
+    requiredSpan.textContent = '*';
+    responsibleLabelText.appendChild(requiredSpan);
+    responsibleLabel.appendChild(responsibleLabelText);
+    responsibleGroup.appendChild(responsibleLabel);
+    
+    const responsibleSelect = document.createElement('select');
+    responsibleSelect.className = 'select select-bordered w-full';
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = '-- Select User --';
+    responsibleSelect.appendChild(defaultOption);
+    odooUsers.forEach(user => {
+      const option = document.createElement('option');
+      option.value = user.id;
+      option.textContent = `${user.name} (${user.login})`;
+      responsibleSelect.appendChild(option);
+    });
+    responsibleGroup.appendChild(responsibleSelect);
+    modalBox.appendChild(responsibleGroup);
+    
+    if (stakeholders.length > 0) {
+      const divider = document.createElement('div');
+      divider.className = 'divider';
+      divider.textContent = 'Stakeholder Assignments (Optional)';
+      modalBox.appendChild(divider);
+      
+      const stakeholderMappingsDiv = document.createElement('div');
+      stakeholderMappingsDiv.className = 'space-y-4 mb-6';
+      
+      stakeholders.forEach(stakeholder => {
+        const stakeholderGroup = document.createElement('div');
+        stakeholderGroup.className = 'form-control';
+        const label = document.createElement('label');
+        label.className = 'label';
+        const labelText = document.createElement('span');
+        labelText.className = 'label-text';
+        labelText.textContent = stakeholder.name;
+        label.appendChild(labelText);
+        if (stakeholder.description) {
+          const labelAlt = document.createElement('span');
+          labelAlt.className = 'label-text-alt text-base-content/60';
+          labelAlt.textContent = stakeholder.description;
+          label.appendChild(labelAlt);
+        }
+        stakeholderGroup.appendChild(label);
+        
+        // Selected users badges container
+        const selectedUsersDiv = document.createElement('div');
+        selectedUsersDiv.className = 'flex flex-wrap gap-2 mb-2 min-h-[2rem] items-center';
+        selectedUsersDiv.dataset.stakeholderId = stakeholder.id;
+        selectedUsersDiv.dataset.selectedUsers = JSON.stringify([]);
+        stakeholderGroup.appendChild(selectedUsersDiv);
+        
+        // Dropdown to add users
+        const selectWrapper = document.createElement('div');
+        selectWrapper.className = 'flex gap-2';
+        const select = document.createElement('select');
+        select.className = 'select select-bordered w-full select-sm';
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = '-- Add user --';
+        select.appendChild(defaultOption);
+        odooUsers.forEach(user => {
+          const option = document.createElement('option');
+          option.value = user.id;
+          option.dataset.userName = user.name;
+          option.dataset.userLogin = user.login;
+          option.textContent = `${user.name} (${user.login})`;
+          select.appendChild(option);
+        });
+        
+        select.onchange = () => {
+          const userId = parseInt(select.value, 10);
+          if (!userId) return;
+          
+          const userName = select.options[select.selectedIndex].dataset.userName;
+          const userLogin = select.options[select.selectedIndex].dataset.userLogin;
+          
+          // Get current selected users
+          let selectedUsers = JSON.parse(selectedUsersDiv.dataset.selectedUsers || '[]');
+          
+          // Check if already added
+          if (selectedUsers.includes(userId)) {
+            showToast('User already added', 'warning');
+            select.value = '';
+            return;
+          }
+          
+          // Add user
+          selectedUsers.push(userId);
+          selectedUsersDiv.dataset.selectedUsers = JSON.stringify(selectedUsers);
+          
+          // Create badge
+          const badge = document.createElement('div');
+          badge.className = 'badge badge-secondary gap-1';
+          badge.dataset.userId = userId;
+          const userIcon = document.createElement('i');
+          userIcon.setAttribute('data-lucide', 'user');
+          userIcon.className = 'w-3 h-3';
+          badge.appendChild(userIcon);
+          const nameSpan = document.createElement('span');
+          nameSpan.textContent = userName;
+          badge.appendChild(nameSpan);
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'ml-1';
+          removeBtn.type = 'button';
+          removeBtn.onclick = () => {
+            selectedUsers = selectedUsers.filter(id => id !== userId);
+            selectedUsersDiv.dataset.selectedUsers = JSON.stringify(selectedUsers);
+            badge.remove();
+          };
+          const removeIcon = document.createElement('i');
+          removeIcon.setAttribute('data-lucide', 'x');
+          removeIcon.className = 'w-3 h-3';
+          removeBtn.appendChild(removeIcon);
+          badge.appendChild(removeBtn);
+          
+          selectedUsersDiv.appendChild(badge);
+          lucide.createIcons();
+          
+          // Reset select
+          select.value = '';
+        };
+        
+        selectWrapper.appendChild(select);
+        stakeholderGroup.appendChild(selectWrapper);
+        
+        stakeholderMappingsDiv.appendChild(stakeholderGroup);
+      });
+      modalBox.appendChild(stakeholderMappingsDiv);
+    }
+    
+    const actions = document.createElement('div');
+    actions.className = 'flex gap-3 justify-end';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = () => {
+      modal.close();
+      modal.remove();
+      resolve(null);
+    };
+    actions.appendChild(cancelBtn);
+    
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-primary';
+    confirmBtn.textContent = 'Continue';
+    confirmBtn.onclick = () => {
+      const projectResponsible = parseInt(responsibleSelect.value, 10);
+      if (!projectResponsible) {
+        showToast('Please select a project responsible', 'error');
+        return;
+      }
+      const mapping = {
+        project_responsible: projectResponsible,
+        stakeholders: {}
+      };
+      stakeholders.forEach(stakeholder => {
+        const selectedUsersDiv = modalBox.querySelector(`[data-stakeholder-id="${stakeholder.id}"]`);
+        if (selectedUsersDiv) {
+          const userIds = JSON.parse(selectedUsersDiv.dataset.selectedUsers || '[]');
+          if (userIds.length > 0) {
+            mapping.stakeholders[stakeholder.id] = userIds;
+          }
+        }
+      });
+      modal.close();
+      modal.remove();
+      resolve(mapping);
+    };
+    actions.appendChild(confirmBtn);
+    
+    modalBox.appendChild(actions);
+    modal.appendChild(modalBox);
+    document.body.appendChild(modal);
+    responsibleSelect.focus();
+    modal.showModal();
+    lucide.createIcons();
+  });
+}
+
 // Delete template
 async function deleteTemplate(id, name) {
   // Safe: name is used in confirm(), which doesn't interpret HTML
@@ -521,6 +787,7 @@ let savedBlueprintState = null;
 let editingStageId = null;
 let editingMilestoneId = null;
 let editingTagId = null;
+let editingStakeholderId = null; // Addendum J
 let editingTaskId = null;
 let editingDependencyIndex = null;
 
@@ -549,18 +816,24 @@ async function initBlueprintEditor() {
   document.getElementById('addStageBtn').addEventListener('click', () => openStageModal());
   document.getElementById('addMilestoneBtn').addEventListener('click', () => openMilestoneModal());
   document.getElementById('addTagBtn').addEventListener('click', () => openTagModal());
+  document.getElementById('addStakeholderBtn').addEventListener('click', () => openStakeholderModal()); // Addendum J
   document.getElementById('addTaskBtn').addEventListener('click', () => openTaskModal());
   
   document.getElementById('stageForm').addEventListener('submit', handleStageSubmit);
   document.getElementById('milestoneForm').addEventListener('submit', handleMilestoneSubmit);
   document.getElementById('tagForm').addEventListener('submit', handleTagSubmit);
+  document.getElementById('stakeholderForm').addEventListener('submit', handleStakeholderSubmit); // Addendum J
   document.getElementById('taskForm').addEventListener('submit', handleTaskSubmit);
   
   // I3: Grouping and sorting event listeners
   const taskGroupingEl = document.getElementById('taskGrouping');
+  const taskGrouping2El = document.getElementById('taskGrouping2');
   const taskSortingEl = document.getElementById('taskSorting');
   if (taskGroupingEl) {
     taskGroupingEl.addEventListener('change', renderTasks);
+  }
+  if (taskGrouping2El) {
+    taskGrouping2El.addEventListener('change', renderTasks);
   }
   if (taskSortingEl) {
     taskSortingEl.addEventListener('change', renderTasks);
@@ -609,9 +882,11 @@ async function loadBlueprint() {
       
       // Ensure all required properties exist with defaults
       blueprintState = {
+        description: data.description || '',  // Template description
         stages: data.stages || [],
         milestones: data.milestones || [],
         tags: data.tags || [],
+        stakeholders: data.stakeholders || [], // Addendum J
         tasks: data.tasks || [],
         dependencies: data.dependencies || []
       };
@@ -620,6 +895,12 @@ async function loadBlueprint() {
       
       document.getElementById('loadingState').style.display = 'none';
       document.getElementById('blueprintContent').style.display = 'block';
+      
+      // Update header with template name
+      const templateNameDisplay = document.getElementById('templateNameDisplay');
+      if (templateNameDisplay && window.TEMPLATE_NAME) {
+        templateNameDisplay.textContent = window.TEMPLATE_NAME;
+      }
       
       renderAllSections();
       
@@ -687,6 +968,7 @@ function renderAllSections() {
   renderStages();
   renderMilestones();
   renderTags();
+  renderStakeholders(); // Addendum J
   renderTasks();
   validateAndDisplay();
 }
@@ -1188,6 +1470,292 @@ function deleteTag(tagId) {
 }
 
 // ============================================================================
+// STAKEHOLDERS (Addendum J)
+// ============================================================================
+
+function renderStakeholders() {
+  const list = document.getElementById('stakeholdersList');
+  const empty = document.getElementById('emptyStakeholders');
+  const countBadge = document.getElementById('stakeholdersCount');
+  
+  list.innerHTML = '';
+  
+  // Update count badge
+  if (countBadge) {
+    countBadge.textContent = blueprintState.stakeholders.length;
+  }
+  
+  if (blueprintState.stakeholders.length === 0) {
+    list.style.display = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+  
+  list.style.display = 'block';
+  empty.style.display = 'none';
+  
+  // Sort by sequence
+  const sortedStakeholders = [...blueprintState.stakeholders].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+  
+  sortedStakeholders.forEach((stakeholder, index) => {
+    const div = document.createElement('div');
+    div.className = 'flex items-start justify-between p-3 bg-base-200 rounded';
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'flex-1 flex items-start gap-2';
+    
+    // Sequence badge
+    const seqSpan = document.createElement('span');
+    seqSpan.className = 'badge badge-neutral badge-sm mt-0.5 flex-shrink-0';
+    seqSpan.textContent = stakeholder.sequence || index + 1;
+    contentDiv.appendChild(seqSpan);
+    
+    // Color dot (if color is set)
+    if (stakeholder.color && stakeholder.color > 0 && stakeholder.color <= 11) {
+      const colorMap = {
+        1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
+        6: '#8B5CF6', 7: '#10B981', 8: '#06B6D4', 9: '#6366F1', 10: '#F59E0B', 11: '#84CC16'
+      };
+      const colorDot = document.createElement('div');
+      colorDot.className = 'w-3 h-3 rounded-full mt-0.5 flex-shrink-0';
+      colorDot.style.backgroundColor = colorMap[stakeholder.color];
+      contentDiv.appendChild(colorDot);
+    }
+    
+    const textDiv = document.createElement('div');
+    textDiv.className = 'flex-1';
+    
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'font-semibold';
+    nameSpan.textContent = stakeholder.name;
+    textDiv.appendChild(nameSpan);
+    
+    if (stakeholder.description) {
+      const descSpan = document.createElement('span');
+      descSpan.className = 'text-xs text-base-content/60 block mt-1';
+      descSpan.textContent = stakeholder.description;
+      textDiv.appendChild(descSpan);
+    }
+    
+    contentDiv.appendChild(textDiv);
+    div.appendChild(contentDiv);
+    
+    const btnDiv = document.createElement('div');
+    btnDiv.className = 'flex gap-1';
+    
+    // Up button
+    if (index > 0) {
+      const upBtn = document.createElement('button');
+      upBtn.className = 'btn btn-xs btn-ghost';
+      upBtn.title = 'Move up';
+      upBtn.onclick = () => moveStakeholder(stakeholder.id, -1);
+      const upIcon = document.createElement('i');
+      upIcon.setAttribute('data-lucide', 'arrow-up');
+      upIcon.className = 'w-3 h-3';
+      upBtn.appendChild(upIcon);
+      btnDiv.appendChild(upBtn);
+    }
+    
+    // Down button
+    if (index < sortedStakeholders.length - 1) {
+      const downBtn = document.createElement('button');
+      downBtn.className = 'btn btn-xs btn-ghost';
+      downBtn.title = 'Move down';
+      downBtn.onclick = () => moveStakeholder(stakeholder.id, 1);
+      const downIcon = document.createElement('i');
+      downIcon.setAttribute('data-lucide', 'arrow-down');
+      downIcon.className = 'w-3 h-3';
+      downBtn.appendChild(downIcon);
+      btnDiv.appendChild(downBtn);
+    }
+    
+    // Edit button
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-xs btn-ghost';
+    editBtn.title = 'Edit';
+    editBtn.onclick = () => openStakeholderModal(stakeholder.id);
+    const editIcon = document.createElement('i');
+    editIcon.setAttribute('data-lucide', 'edit-2');
+    editIcon.className = 'w-3 h-3';
+    editBtn.appendChild(editIcon);
+    btnDiv.appendChild(editBtn);
+    
+    // Delete button
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-xs btn-ghost text-error';
+    delBtn.title = 'Delete';
+    delBtn.onclick = () => deleteStakeholder(stakeholder.id);
+    const delIcon = document.createElement('i');
+    delIcon.setAttribute('data-lucide', 'trash-2');
+    delIcon.className = 'w-3 h-3';
+    delBtn.appendChild(delIcon);
+    btnDiv.appendChild(delBtn);
+    
+    div.appendChild(btnDiv);
+    list.appendChild(div);
+  });
+  
+  lucide.createIcons();
+}
+
+function openStakeholderModal(stakeholderId = null) {
+  editingStakeholderId = stakeholderId;
+  const modal = document.getElementById('stakeholderModal');
+  const title = document.getElementById('stakeholderModalTitle');
+  const nameInput = document.getElementById('stakeholderName');
+  const descInput = document.getElementById('stakeholderDescription');
+  
+  // Render color picker
+  const colorPicker = document.getElementById('stakeholderColorPicker');
+  colorPicker.innerHTML = '';
+  
+  const colorMap = {
+    0: { hex: '#9CA3AF', label: 'No color' },
+    1: { hex: '#EF4444', label: 'Red' },
+    2: { hex: '#F97316', label: 'Orange' },
+    3: { hex: '#EAB308', label: 'Yellow' },
+    4: { hex: '#3B82F6', label: 'Blue' },
+    5: { hex: '#EC4899', label: 'Pink' },
+    6: { hex: '#8B5CF6', label: 'Purple' },
+    7: { hex: '#10B981', label: 'Green' },
+    8: { hex: '#06B6D4', label: 'Cyan' },
+    9: { hex: '#6366F1', label: 'Indigo' },
+    10: { hex: '#F59E0B', label: 'Amber' },
+    11: { hex: '#84CC16', label: 'Lime' }
+  };
+  
+  let selectedColor = 0;
+  
+  if (stakeholderId) {
+    const stakeholder = blueprintState.stakeholders.find(s => s.id === stakeholderId);
+    title.textContent = 'Edit Stakeholder';
+    nameInput.value = stakeholder.name;
+    descInput.value = stakeholder.description || '';
+    selectedColor = stakeholder.color || 0;
+  } else {
+    title.textContent = 'Add Stakeholder';
+    nameInput.value = '';
+    descInput.value = '';
+    selectedColor = 0;
+  }
+  
+  // Create color buttons
+  Object.entries(colorMap).forEach(([colorCode, colorData]) => {
+    const colorBtn = document.createElement('button');
+    colorBtn.type = 'button';
+    colorBtn.className = 'w-8 h-8 rounded-full transition-all';
+    colorBtn.style.backgroundColor = colorData.hex;
+    colorBtn.title = colorData.label;
+    
+    if (parseInt(colorCode) === selectedColor) {
+      colorBtn.className += ' ring-2 ring-offset-2 ring-primary';
+    }
+    
+    colorBtn.onclick = () => {
+      selectedColor = parseInt(colorCode);
+      // Update dataset so form submit gets the correct value
+      colorPicker.dataset.selectedColor = selectedColor;
+      // Update all color buttons
+      colorPicker.querySelectorAll('button').forEach(btn => {
+        btn.className = 'w-8 h-8 rounded-full transition-all';
+        btn.style.backgroundColor = btn.style.backgroundColor; // Preserve color
+      });
+      colorBtn.className = 'w-8 h-8 rounded-full transition-all ring-2 ring-offset-2 ring-primary';
+    };
+    
+    colorPicker.appendChild(colorBtn);
+  });
+  
+  // Store selected color for form submit
+  colorPicker.dataset.selectedColor = selectedColor;
+  
+  modal.showModal();
+}
+
+function handleStakeholderSubmit(e) {
+  e.preventDefault();
+  
+  const name = document.getElementById('stakeholderName').value.trim();
+  const description = document.getElementById('stakeholderDescription').value.trim();
+  const colorPicker = document.getElementById('stakeholderColorPicker');
+  const selectedColor = colorPicker.dataset.selectedColor ? parseInt(colorPicker.dataset.selectedColor) : 0;
+  
+  if (!name) return;
+  
+  if (editingStakeholderId) {
+    const stakeholder = blueprintState.stakeholders.find(s => s.id === editingStakeholderId);
+    stakeholder.name = name;
+    stakeholder.description = description;
+    stakeholder.color = selectedColor;
+  } else {
+    const maxSeq = Math.max(0, ...blueprintState.stakeholders.map(s => s.sequence || 0));
+    blueprintState.stakeholders.push({
+      id: generateUUID(),
+      name: name,
+      description: description,
+      color: selectedColor,
+      sequence: maxSeq + 1
+    });
+  }
+  
+  document.getElementById('stakeholderModal').close();
+  renderStakeholders();
+  renderTasks(); // Update task stakeholder badges
+  validateAndDisplay();
+}
+
+function deleteStakeholder(stakeholderId) {
+  const stakeholder = blueprintState.stakeholders.find(s => s.id === stakeholderId);
+  
+  // Check if stakeholder is used by any tasks
+  const usedByTasks = blueprintState.tasks.filter(task => 
+    task.stakeholder_ids && task.stakeholder_ids.includes(stakeholderId)
+  );
+  
+  if (usedByTasks.length > 0) {
+    const taskNames = usedByTasks.slice(0, 3).map(t => t.name).join(', ');
+    const more = usedByTasks.length > 3 ? ' and ' + (usedByTasks.length - 3) + ' more' : '';
+    
+    if (!confirm('Stakeholder "' + stakeholder.name + '" is used by ' + usedByTasks.length + ' task(s) (' + taskNames + more + ').\n\nDelete anyway? Tasks will lose this stakeholder assignment.')) {
+      return;
+    }
+  }
+  
+  blueprintState.stakeholders = blueprintState.stakeholders.filter(s => s.id !== stakeholderId);
+  
+  // Remove stakeholder from tasks
+  blueprintState.tasks.forEach(task => {
+    if (task.stakeholder_ids && task.stakeholder_ids.includes(stakeholderId)) {
+      task.stakeholder_ids = task.stakeholder_ids.filter(sid => sid !== stakeholderId);
+    }
+  });
+  
+  renderStakeholders();
+  renderTasks();
+  validateAndDisplay();
+}
+
+function moveStakeholder(stakeholderId, direction) {
+  const sortedStakeholders = [...blueprintState.stakeholders].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+  const index = sortedStakeholders.findIndex(s => s.id === stakeholderId);
+  const targetIndex = index + direction;
+  
+  if (targetIndex >= 0 && targetIndex < sortedStakeholders.length) {
+    // Ensure both have sequence values
+    if (!sortedStakeholders[index].sequence) sortedStakeholders[index].sequence = index + 1;
+    if (!sortedStakeholders[targetIndex].sequence) sortedStakeholders[targetIndex].sequence = targetIndex + 1;
+    
+    // Swap sequences
+    const tempSeq = sortedStakeholders[index].sequence;
+    sortedStakeholders[index].sequence = sortedStakeholders[targetIndex].sequence;
+    sortedStakeholders[targetIndex].sequence = tempSeq;
+    
+    renderStakeholders();
+    validateAndDisplay();
+  }
+}
+
+// ============================================================================
 // RELATIVE TIMING INHERITANCE (Addendum H.1)
 // Blueprint-level inheritance engine - marks tasks that inherit, NO data copying
 // ============================================================================
@@ -1253,6 +1821,14 @@ function recalculateRelativeTiming() {
           }
         }
         
+        // J6: Subtask inherits stakeholders from parent (auto-sync) - Addendum J
+        if (parent.stakeholder_ids && parent.stakeholder_ids.length > 0) {
+          // Only inherit if subtask doesn't have explicit stakeholders already
+          if (!task.stakeholder_ids || task.stakeholder_ids.length === 0) {
+            task.stakeholder_ids = [...parent.stakeholder_ids];
+          }
+        }
+        
         // Mark timing inheritance from parent if subtask has no own timing
         if (!task.deadline_offset_days && !task.duration_days && !task.planned_hours) {
           if (parent.deadline_offset_days || parent.duration_days || parent.planned_hours) {
@@ -1299,23 +1875,32 @@ function renderTasks() {
   
   // I3: Get grouping and sorting preferences
   const groupingEl = document.getElementById('taskGrouping');
+  const grouping2El = document.getElementById('taskGrouping2');
   const sortingEl = document.getElementById('taskSorting');
   const grouping = groupingEl ? groupingEl.value : 'none';
+  const grouping2 = grouping2El ? grouping2El.value : 'none';
   const sorting = sortingEl ? sortingEl.value : 'manual';
   
   // Get parent tasks (with their subtasks embedded)
-  let taskGroups = getTasksGroupedAndSorted(grouping, sorting);
+  let taskGroups = getTasksGroupedAndSorted(grouping, grouping2, sorting);
   
   // Render groups
   taskGroups.forEach(group => {
     if (group.header) {
-      // Render group header with icon
+      // Render group header with icon - style based on level
       const headerDiv = document.createElement('div');
-      headerDiv.className = 'flex items-center gap-2 text-sm font-semibold text-base-content/70 mt-4 mb-2 px-2';
+      
+      if (group.level === 1) {
+        // Primary group header - bold, larger
+        headerDiv.className = 'flex items-center gap-2 text-base font-bold text-base-content mt-6 mb-3 px-2';
+      } else {
+        // Secondary group header - lighter, smaller, indented
+        headerDiv.className = 'flex items-center gap-2 text-sm font-semibold text-base-content/60 mt-4 mb-2 px-2 ml-6';
+      }
       
       // Add icon based on group type
       const icon = document.createElement('i');
-      icon.className = 'w-4 h-4';
+      icon.className = group.level === 1 ? 'w-5 h-5' : 'w-4 h-4';
       if (group.iconName) {
         icon.setAttribute('data-lucide', group.iconName);
       }
@@ -1329,8 +1914,9 @@ function renderTasks() {
     }
     
     // Render tasks in this group
+    const indentLevel = group.level === 2 ? 1 : 0;
     group.tasks.forEach(task => {
-      renderTaskItem(task, 0, list, group.header ? true : false);
+      renderTaskItem(task, indentLevel, list, group.header ? true : false);
       
       // Render subtasks
       const subtasks = blueprintState.tasks.filter(t => t.parent_id === task.id);
@@ -1339,7 +1925,7 @@ function renderTasks() {
         sortTasks(subtasks, sorting);
       }
       subtasks.forEach(subtask => {
-        renderTaskItem(subtask, 1, list, group.header ? true : false);
+        renderTaskItem(subtask, indentLevel + 1, list, group.header ? true : false);
       });
     });
   });
@@ -1348,14 +1934,59 @@ function renderTasks() {
 }
 
 // I3: Group and sort tasks (presentational only)
-function getTasksGroupedAndSorted(grouping, sorting) {
+function getTasksGroupedAndSorted(grouping, grouping2, sorting) {
   const parentTasks = blueprintState.tasks.filter(t => !t.parent_id);
   
   let groups = [];
   
+  // If no primary grouping, return single group
   if (grouping === 'none') {
-    // No grouping - single group
     const sorted = [...parentTasks];
+    sortTasks(sorted, sorting);
+    groups.push({ header: null, iconName: null, level: 1, tasks: sorted });
+    return groups;
+  }
+  
+  // Primary grouping
+  const primaryGroups = getTasksByGroup(grouping, parentTasks, sorting);
+  
+  // If no secondary grouping, return primary groups
+  if (grouping2 === 'none' || grouping2 === grouping) {
+    return primaryGroups;
+  }
+  
+  // Two-level grouping: nest secondary groups within primary
+  const nestedGroups = [];
+  primaryGroups.forEach(primaryGroup => {
+    // Add primary header
+    nestedGroups.push({
+      header: primaryGroup.header,
+      iconName: primaryGroup.iconName,
+      level: 1,
+      tasks: []
+    });
+    
+    // Get secondary groups for tasks in this primary group
+    const secondaryGroups = getTasksByGroup(grouping2, primaryGroup.tasks, sorting);
+    secondaryGroups.forEach(secondaryGroup => {
+      nestedGroups.push({
+        header: secondaryGroup.header,
+        iconName: secondaryGroup.iconName,
+        level: 2,
+        tasks: secondaryGroup.tasks
+      });
+    });
+  });
+  
+  return nestedGroups;
+}
+
+// Helper: Get tasks grouped by a specific grouping type
+function getTasksByGroup(grouping, tasks, sorting) {
+  const groups = [];
+  
+  if (grouping === 'none') {
+    const sorted = [...tasks];
     sortTasks(sorted, sorting);
     groups.push({ header: null, iconName: null, tasks: sorted });
     
@@ -1371,7 +2002,7 @@ function getTasksGroupedAndSorted(grouping, sorting) {
       tasksByMilestone.set(m.id, []);
     });
     
-    parentTasks.forEach(task => {
+    tasks.forEach(task => {
       const key = task.milestone_id || '__none__';
       if (!tasksByMilestone.has(key)) {
         tasksByMilestone.set(key, []);
@@ -1409,7 +2040,7 @@ function getTasksGroupedAndSorted(grouping, sorting) {
     
     // Build tag groups
     blueprintState.tags.forEach(tag => {
-      const tasksWithTag = parentTasks.filter(t => 
+      const tasksWithTag = tasks.filter(t => 
         t.tag_ids && t.tag_ids.includes(tag.id)
       );
       if (tasksWithTag.length > 0) {
@@ -1426,7 +2057,7 @@ function getTasksGroupedAndSorted(grouping, sorting) {
     tasksByTag.forEach(group => groups.push(group));
     
     // Add "No tags" group
-    const noTagTasks = parentTasks.filter(t => !t.tag_ids || t.tag_ids.length === 0);
+    const noTagTasks = tasks.filter(t => !t.tag_ids || t.tag_ids.length === 0);
     if (noTagTasks.length > 0) {
       sortTasks(noTagTasks, sorting);
       groups.push({
@@ -1436,12 +2067,46 @@ function getTasksGroupedAndSorted(grouping, sorting) {
       });
     }
     
+  } else if (grouping === 'stakeholder') {
+    // Group by stakeholder (tasks can appear in multiple groups)
+    const tasksByStakeholder = new Map();
+    
+    // Build stakeholder groups (sorted by sequence)
+    const sortedStakeholders = [...blueprintState.stakeholders].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+    sortedStakeholders.forEach(stakeholder => {
+      const tasksWithStakeholder = tasks.filter(t => 
+        t.stakeholder_ids && t.stakeholder_ids.includes(stakeholder.id)
+      );
+      if (tasksWithStakeholder.length > 0) {
+        sortTasks(tasksWithStakeholder, sorting);
+        tasksByStakeholder.set(stakeholder.id, {
+          header: `${stakeholder.name} (${tasksWithStakeholder.length})`,
+          iconName: 'users',
+          tasks: tasksWithStakeholder
+        });
+      }
+    });
+    
+    // Add groups
+    tasksByStakeholder.forEach(group => groups.push(group));
+    
+    // Add "No stakeholders" group
+    const noStakeholderTasks = tasks.filter(t => !t.stakeholder_ids || t.stakeholder_ids.length === 0);
+    if (noStakeholderTasks.length > 0) {
+      sortTasks(noStakeholderTasks, sorting);
+      groups.push({
+        header: `No stakeholders (${noStakeholderTasks.length})`,
+        iconName: 'circle-dashed',
+        tasks: noStakeholderTasks
+      });
+    }
+    
   } else if (grouping === 'dependency') {
     // Group by dependency status
-    const withDeps = parentTasks.filter(t => 
+    const withDeps = tasks.filter(t => 
       blueprintState.dependencies.some(d => d.task_id === t.id)
     );
-    const withoutDeps = parentTasks.filter(t => 
+    const withoutDeps = tasks.filter(t => 
       !blueprintState.dependencies.some(d => d.task_id === t.id)
     );
     
@@ -1575,6 +2240,45 @@ function renderTaskItem(task, level, container, isGrouped = false) {
       moreBadge.className = 'badge badge-sm badge-ghost';
       moreBadge.textContent = `+${task.tag_ids.length - 2}`;
       moreBadge.title = 'More tags';
+      metaDiv.appendChild(moreBadge);
+    }
+  }
+  
+  // J2: Stakeholders (Addendum J)
+  if (task.stakeholder_ids && task.stakeholder_ids.length > 0) {
+    task.stakeholder_ids.slice(0, 2).forEach(stakeholderId => {
+      const stakeholder = blueprintState.stakeholders.find(s => s.id === stakeholderId);
+      if (stakeholder) {
+        const stakeholderBadge = document.createElement('span');
+        
+        // Use stakeholder color if available (Addendum J + I5 pattern)
+        if (stakeholder.color && stakeholder.color > 0 && stakeholder.color <= 11) {
+          const colorMap = {
+            1: 'badge-error', 2: 'badge-warning', 3: 'badge-warning', 4: 'badge-info', 
+            5: 'badge-secondary', 6: 'badge-success', 7: 'badge-secondary', 8: 'badge-neutral',
+            9: 'badge-secondary', 10: 'badge-info', 11: 'badge-success'
+          };
+          stakeholderBadge.className = `badge badge-sm ${colorMap[stakeholder.color]} gap-1`;
+        } else {
+          stakeholderBadge.className = 'badge badge-sm badge-secondary gap-1';
+        }
+        
+        const icon = document.createElement('i');
+        icon.setAttribute('data-lucide', 'user');
+        icon.className = 'w-2.5 h-2.5';
+        stakeholderBadge.appendChild(icon);
+        
+        const text = document.createTextNode(stakeholder.name);
+        stakeholderBadge.appendChild(text);
+        stakeholderBadge.title = stakeholder.description || stakeholder.name;
+        metaDiv.appendChild(stakeholderBadge);
+      }
+    });
+    if (task.stakeholder_ids.length > 2) {
+      const moreBadge = document.createElement('span');
+      moreBadge.className = 'badge badge-sm badge-ghost';
+      moreBadge.textContent = `+${task.stakeholder_ids.length - 2}`;
+      moreBadge.title = 'More stakeholders';
       metaDiv.appendChild(moreBadge);
     }
   }
@@ -1748,6 +2452,31 @@ function openTaskModal(taskId = null, parentId = null) {
     });
   }
   
+  // Populate stakeholder checkboxes (Addendum J)
+  const stakeholdersContainer = document.getElementById('taskStakeholdersContainer');
+  stakeholdersContainer.innerHTML = '';
+  if (blueprintState.stakeholders.length === 0) {
+    stakeholdersContainer.innerHTML = '<span class="text-base-content/40">No stakeholders defined yet</span>';
+  } else {
+    blueprintState.stakeholders.forEach(stakeholder => {
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-2 cursor-pointer';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'checkbox checkbox-sm';
+      checkbox.value = stakeholder.id;
+      checkbox.dataset.stakeholderId = stakeholder.id;
+      
+      const span = document.createElement('span');
+      span.textContent = stakeholder.name;
+      
+      label.appendChild(checkbox);
+      label.appendChild(span);
+      stakeholdersContainer.appendChild(label);
+    });
+  }
+  
   if (taskId) {
     const task = blueprintState.tasks.find(t => t.id === taskId);
     title.textContent = task.parent_id ? 'Edit Subtask' : 'Edit Task';
@@ -1767,6 +2496,14 @@ function openTaskModal(taskId = null, parentId = null) {
     if (task.tag_ids) {
       task.tag_ids.forEach(tagId => {
         const checkbox = tagsContainer.querySelector('[data-tag-id="' + tagId + '"]');
+        if (checkbox) checkbox.checked = true;
+      });
+    }
+    
+    // Set stakeholders (Addendum J)
+    if (task.stakeholder_ids) {
+      task.stakeholder_ids.forEach(stakeholderId => {
+        const checkbox = stakeholdersContainer.querySelector('[data-stakeholder-id="' + stakeholderId + '"]');
         if (checkbox) checkbox.checked = true;
       });
     }
@@ -1805,6 +2542,10 @@ function handleTaskSubmit(e) {
   const tagCheckboxes = document.querySelectorAll('#taskTagsContainer input[type="checkbox"]:checked');
   const tag_ids = Array.from(tagCheckboxes).map(cb => cb.value);
   
+  // Get selected stakeholders (Addendum J)
+  const stakeholderCheckboxes = document.querySelectorAll('#taskStakeholdersContainer input[type="checkbox"]:checked');
+  const stakeholder_ids = Array.from(stakeholderCheckboxes).map(cb => cb.value);
+  
   // Get timing values (Addendum G)
   const deadlineOffsetStr = document.getElementById('taskDeadlineOffset').value;
   const durationStr = document.getElementById('taskDuration').value;
@@ -1823,6 +2564,7 @@ function handleTaskSubmit(e) {
     task.parent_id = parentId;
     task.color = color;
     task.tag_ids = tag_ids;
+    task.stakeholder_ids = stakeholder_ids; // Addendum J
     task.deadline_offset_days = deadline_offset_days;
     task.duration_days = duration_days;
     task.planned_hours = planned_hours;
@@ -1834,6 +2576,7 @@ function handleTaskSubmit(e) {
       parent_id: parentId,
       color: color,
       tag_ids: tag_ids,
+      stakeholder_ids: stakeholder_ids, // Addendum J
       deadline_offset_days: deadline_offset_days,
       duration_days: duration_days,
       planned_hours: planned_hours
@@ -2473,7 +3216,7 @@ function calculateDuration(startTime, endTime) {
  * @param {Object} generationModel - The canonical generation model
  * @param {string} templateId - Template ID for generation
  */
-async function showGenerationPreviewModal(generationModel, templateId, projectStartDate) {
+async function showGenerationPreviewModal(generationModel, templateId, projectStartDate, stakeholderMapping) {
   // Create modal backdrop
   const modal = document.createElement('dialog');
   modal.className = 'modal modal-open';
@@ -2554,7 +3297,7 @@ async function showGenerationPreviewModal(generationModel, templateId, projectSt
   confirmBtn.className = 'btn btn-primary';
   confirmBtn.id = 'confirmGenerationBtn';
   confirmBtn.onclick = async () => {
-    await executeGenerationWithOverride(templateId, generationModel, projectStartDate);
+    await executeGenerationWithOverride(templateId, generationModel, projectStartDate, stakeholderMapping);
     modal.close();
     modal.remove();
   };
@@ -2778,13 +3521,15 @@ function removeTaskFromModel(taskId, generationModel) {
  * Execute generation with override model
  */
 /**
- * Execute generation with override model (Addendum C)
+ * Execute generation with override model (Addendum C + J)
  * 
  * @param {string} templateId - Template ID
  * @param {Object} overrideModel - Modified generation model
+ * @param {string|null} projectStartDate - Project start date
+ * @param {Object|null} stakeholderMapping - Stakeholder to user mapping (Addendum J)
  * @param {boolean} confirmOverwrite - Force generation despite conflicts
  */
-async function executeGenerationWithOverride(templateId, overrideModel, projectStartDate = null, confirmOverwrite = false) {
+async function executeGenerationWithOverride(templateId, overrideModel, projectStartDate = null, stakeholderMapping = null, confirmOverwrite = false) {
   showToast('Generating project... This may take a moment.', 'info');
   
   try {
@@ -2795,6 +3540,7 @@ async function executeGenerationWithOverride(templateId, overrideModel, projectS
       body: JSON.stringify({
         overrideModel: overrideModel,
         projectStartDate: projectStartDate,  // Addendum G
+        stakeholderMapping: stakeholderMapping,  // Addendum J
         confirmOverwrite: confirmOverwrite
       })
     });
@@ -2802,7 +3548,7 @@ async function executeGenerationWithOverride(templateId, overrideModel, projectS
     const result = await response.json();
     
     if (response.status === 409) {
-      showBlockedGenerationModal(result, templateId, overrideModel, projectStartDate);
+      showBlockedGenerationModal(result, templateId, overrideModel, projectStartDate, stakeholderMapping);
     } else if (result.success) {
       showSuccessGenerationModal(result, templateId);
     } else {
@@ -2996,7 +3742,7 @@ function showFailureGenerationModal(result, templateId) {
 /**
  * Show blocked modal when generation is prevented by conflict
  */
-function showBlockedGenerationModal(result, templateId, overrideModel = null, projectStartDate = null) {
+function showBlockedGenerationModal(result, templateId, overrideModel = null, projectStartDate = null, stakeholderMapping = null) {
   const modal = createGenerationModal('warning');
   const body = modal.querySelector('.modal-body');
   
@@ -3030,7 +3776,7 @@ function showBlockedGenerationModal(result, templateId, overrideModel = null, pr
     retryBtn.onclick = async () => {
       closeGenerationModal(modal);
       // Retry with confirmOverwrite flag, override model, and projectStartDate
-      await executeGenerationWithOverride(templateId, overrideModel, projectStartDate, true);
+      await executeGenerationWithOverride(templateId, overrideModel, projectStartDate, stakeholderMapping, true);
     };
     
     const retryIcon = document.createElement('i');

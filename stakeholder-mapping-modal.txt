@@ -1,0 +1,216 @@
+/**
+ * Show modal for stakeholder → user mapping
+ * Addendum J: Map blueprint stakeholders to real Odoo users
+ * 
+ * @param {string} templateId - Template ID to fetch blueprint
+ * @param {Array} odooUsers - Array of Odoo user objects from res.users
+ * @returns {Promise<Object|null>} Mapping object or null if cancelled
+ */
+async function showStakeholderMappingModal(templateId, odooUsers) {
+  return new Promise(async (resolve) => {
+    // Fetch blueprint to get stakeholders
+    let blueprint = null;
+    try {
+      const response = await fetch(`/projects/api/blueprint/${templateId}`, {
+        credentials: 'include'
+      });
+      const result = await response.json();
+      if (result.success) {
+        blueprint = result.data || {};
+      } else {
+        showToast('Failed to load blueprint: ' + result.error, 'error');
+        resolve(null);
+        return;
+      }
+    } catch (err) {
+      console.error('Blueprint fetch error:', err);
+      showToast('Network error loading blueprint', 'error');
+      resolve(null);
+      return;
+    }
+    
+    const stakeholders = blueprint.stakeholders || [];
+    
+    // Create modal
+    const modal = document.createElement('dialog');
+    modal.className = 'modal modal-open';
+    modal.id = 'stakeholderMappingModal';
+    
+    const modalBox = document.createElement('div');
+    modalBox.className = 'modal-box max-w-2xl';
+    
+    // Header
+    const title = document.createElement('h2');
+    title.className = 'text-xl font-bold mb-2';
+    title.textContent = 'Map Stakeholders to Users';
+    modalBox.appendChild(title);
+    
+    const description = document.createElement('p');
+    description.className = 'text-base-content/60 mb-4';
+    description.textContent = 'Assign real Odoo users to blueprint stakeholders. Tasks will be assigned to the users mapped to their stakeholders.';
+    modalBox.appendChild(description);
+    
+    // Project Responsible (Required)
+    const responsibleGroup = document.createElement('div');
+    responsibleGroup.className = 'form-control mb-6';
+    
+    const responsibleLabel = document.createElement('label');
+    responsibleLabel.className = 'label';
+    const responsibleLabelText = document.createElement('span');
+    responsibleLabelText.className = 'label-text font-semibold';
+    const requiredSpan = document.createElement('span');
+    requiredSpan.className = 'text-error';
+    requiredSpan.textContent = ' *';
+    responsibleLabelText.textContent = 'Project Responsible';
+    responsibleLabelText.appendChild(requiredSpan);
+    responsibleLabel.appendChild(responsibleLabelText);
+    responsibleGroup.appendChild(responsibleLabel);
+    
+    const responsibleSelect = document.createElement('select');
+    responsibleSelect.className = 'select select-bordered w-full';
+    responsibleSelect.id = 'projectResponsibleSelect';
+    responsibleSelect.required = true;
+    
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = '-- Select User --';
+    responsibleSelect.appendChild(defaultOption);
+    
+    odooUsers.forEach(user => {
+      const option = document.createElement('option');
+      option.value = user.id;
+      option.textContent = `${user.name} (${user.login})`;
+      responsibleSelect.appendChild(option);
+    });
+    
+    responsibleGroup.appendChild(responsibleSelect);
+    modalBox.appendChild(responsibleGroup);
+    
+    // Stakeholder mappings (optional)
+    if (stakeholders.length > 0) {
+      const divider = document.createElement('div');
+      divider.className = 'divider';
+      divider.textContent = 'Stakeholder Assignments (Optional)';
+      modalBox.appendChild(divider);
+      
+      const stakeholderMappingsDiv = document.createElement('div');
+      stakeholderMappingsDiv.className = 'space-y-4 mb-6';
+      stakeholderMappingsDiv.id = 'stakeholderMappings';
+      
+      stakeholders.forEach(stakeholder => {
+        const stakeholderGroup = document.createElement('div');
+        stakeholderGroup.className = 'form-control';
+        
+        const label = document.createElement('label');
+        label.className = 'label';
+        const labelText = document.createElement('span');
+        labelText.className = 'label-text';
+        labelText.textContent = stakeholder.name;
+        label.appendChild(labelText);
+        if (stakeholder.description) {
+          const labelAlt = document.createElement('span');
+          labelAlt.className = 'label-text-alt text-base-content/60';
+          labelAlt.textContent = stakeholder.description;
+          label.appendChild(labelAlt);
+        }
+        stakeholderGroup.appendChild(label);
+        
+        const select = document.createElement('select');
+        select.className = 'select select-bordered w-full select-sm';
+        select.dataset.stakeholderId = stakeholder.id;
+        select.multiple = true;
+        select.size = Math.min(5, odooUsers.length);
+        
+        odooUsers.forEach(user => {
+          const option = document.createElement('option');
+          option.value = user.id;
+          option.textContent = `${user.name} (${user.login})`;
+          select.appendChild(option);
+        });
+        
+        stakeholderGroup.appendChild(select);
+        
+        const hint = document.createElement('div');
+        hint.className = 'label';
+        const hintText = document.createElement('span');
+        hintText.className = 'label-text-alt text-base-content/40';
+        hintText.textContent = 'Hold Ctrl/Cmd to select multiple users';
+        hint.appendChild(hintText);
+        stakeholderGroup.appendChild(hint);
+        
+        stakeholderMappingsDiv.appendChild(stakeholderGroup);
+      });
+      
+      modalBox.appendChild(stakeholderMappingsDiv);
+    } else {
+      const emptyMessage = document.createElement('div');
+      emptyMessage.className = 'alert alert-info mb-6';
+      const icon = document.createElement('i');
+      icon.setAttribute('data-lucide', 'info');
+      icon.className = 'w-5 h-5';
+      emptyMessage.appendChild(icon);
+      const text = document.createElement('span');
+      text.textContent = 'No stakeholders defined in this blueprint. Tasks will not have assigned users.';
+      emptyMessage.appendChild(text);
+      modalBox.appendChild(emptyMessage);
+      lucide.createIcons();
+    }
+    
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.className = 'flex gap-3 justify-end';
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = () => {
+      modal.close();
+      modal.remove();
+      resolve(null);
+    };
+    actions.appendChild(cancelBtn);
+    
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-primary';
+    confirmBtn.textContent = 'Continue';
+    confirmBtn.onclick = () => {
+      const projectResponsible = parseInt(responsibleSelect.value, 10);
+      if (!projectResponsible) {
+        showToast('Please select a project responsible', 'error');
+        return;
+      }
+      
+      // Build stakeholder mapping
+      const mapping = {
+        project_responsible: projectResponsible,
+        stakeholders: {}
+      };
+      
+      stakeholders.forEach(stakeholder => {
+        const select = modalBox.querySelector(`[data-stakeholder-id="${stakeholder.id}"]`);
+        if (select) {
+          const selectedOptions = Array.from(select.selectedOptions);
+          const userIds = selectedOptions.map(opt => parseInt(opt.value, 10));
+          if (userIds.length > 0) {
+            mapping.stakeholders[stakeholder.id] = userIds;
+          }
+        }
+      });
+      
+      modal.close();
+      modal.remove();
+      resolve(mapping);
+    };
+    actions.appendChild(confirmBtn);
+    
+    modalBox.appendChild(actions);
+    modal.appendChild(modalBox);
+    document.body.appendChild(modal);
+    
+    // Auto-focus responsible select
+    responsibleSelect.focus();
+    
+    modal.showModal();
+    lucide.createIcons();
+  });
+}

@@ -111,7 +111,10 @@ export async function generateProject(env, templateId, templateName, projectStar
     const projectName = generationModel.project.name;
     const projectId = await createProject(env, {
       name: projectName,
-      description: generationModel.project.description
+      description: generationModel.project.description,
+      date_start: generationModel.project.date_start,
+      date: generationModel.project.date,
+      user_id: generationModel.project.user_id  // Addendum J: project responsible
     });
     
     result.odoo_project_id = projectId;
@@ -213,6 +216,11 @@ export async function generateProject(env, templateId, templateName, projectStar
         ).filter(id => id !== undefined);
       }
       
+      // Add user assignments if exist (Addendum J)
+      if (task.user_ids && task.user_ids.length > 0) {
+        taskData.user_ids = task.user_ids;
+      }
+      
       // Add timing if exists (Addendum G)
       if (task.planned_date_begin) {
         taskData.planned_date_begin = task.planned_date_begin;
@@ -287,21 +295,26 @@ export async function generateProject(env, templateId, templateName, projectStar
  * Maps blueprint IDs to generation-ready structure
  * 
  * Addendum H: Implements timing inheritance from milestones and parent tasks
+ * Addendum J: Maps stakeholders to Odoo users
  * 
  * @param {Object} blueprint - Validated blueprint
  * @param {string} templateName - Template name for project naming
  * @param {string} projectStartDate - Project start date (ISO YYYY-MM-DD) - Addendum G
+ * @param {Object} stakeholderMapping - Stakeholder to user mapping - Addendum J
  * @returns {Object} Generation model
  */
-export function buildGenerationModel(blueprint, templateName, projectStartDate = null) {
+export function buildGenerationModel(blueprint, templateName, projectStartDate = null, stakeholderMapping = null) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
   const projectName = `${templateName} (${timestamp})`;
   
   const model = {
     project: {
       name: projectName,
-      description: null,
-      project_start_date: projectStartDate  // Addendum G: for date calculations
+      description: blueprint.description || null,  // Template description
+      project_start_date: projectStartDate,  // Addendum G: for date calculations
+      date_start: null,  // Will be set to projectStartDate (Odoo field)
+      date: null,  // Will be calculated from max task deadline (Odoo end date)
+      user_id: stakeholderMapping?.project_responsible || null  // Addendum J: project responsible
     },
     stages: [],
     milestones: [],
@@ -390,6 +403,11 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
             task.tag_ids = [...parentBlueprint.tag_ids];
           }
           
+          // J6: Subtasks inherit stakeholders from parent (Addendum J)
+          if (parentBlueprint.stakeholder_ids && parentBlueprint.stakeholder_ids.length > 0) {
+            task.stakeholder_ids = [...parentBlueprint.stakeholder_ids];
+          }
+          
           // Subtasks inherit timing from parent (unless task has explicit values)
           if (!task.deadline_offset_days && parentBlueprint.deadline_offset_days) {
             task.deadline_offset_days = parentBlueprint.deadline_offset_days;
@@ -439,6 +457,19 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
         }
       }
       
+      // J3: Map stakeholder_ids to user_ids (Addendum J)
+      let user_ids = [];
+      if (stakeholderMapping && task.stakeholder_ids && task.stakeholder_ids.length > 0) {
+        task.stakeholder_ids.forEach(stakeholderId => {
+          const mappedUsers = stakeholderMapping.stakeholders[stakeholderId];
+          if (mappedUsers && Array.isArray(mappedUsers)) {
+            user_ids.push(...mappedUsers);
+          }
+        });
+        // Remove duplicates
+        user_ids = [...new Set(user_ids)];
+      }
+      
       taskMap.set(task.id, {
         blueprint_id: task.id,
         name: task.name,
@@ -446,6 +477,8 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
         parent_blueprint_id: task.parent_id,
         color: task.color || null,
         tag_blueprint_ids: task.tag_ids || [],
+        stakeholder_blueprint_ids: task.stakeholder_ids || [],  // Addendum J: for tracking
+        user_ids: user_ids,  // Addendum J: mapped user IDs
         planned_date_begin: planned_date_begin,       // Addendum G+H: absolute start date (inherited or explicit)
         date_deadline: date_deadline,                  // Addendum G+H: absolute deadline (inherited or explicit)
         planned_hours: planned_hours,                  // Addendum G+H: estimated hours (inherited or explicit)
@@ -482,6 +515,25 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
     });
     
     model.tasks = Array.from(taskMap.values());
+  }
+  
+  // Calculate project date_start and date (end date)
+  if (projectStartDate) {
+    model.project.date_start = projectStartDate;
+    
+    // Calculate max deadline from all tasks as project end date
+    let maxDeadline = null;
+    model.tasks.forEach(task => {
+      if (task.date_deadline) {
+        if (!maxDeadline || task.date_deadline > maxDeadline) {
+          maxDeadline = task.date_deadline;
+        }
+      }
+    });
+    
+    if (maxDeadline) {
+      model.project.date = maxDeadline;
+    }
   }
   
   return model;

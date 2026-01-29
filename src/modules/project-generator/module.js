@@ -9,6 +9,7 @@ import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getBluepr
 import { generateProject, buildGenerationModel } from './generate.js';
 import { validateBlueprint } from './validation.js';
 import { validateGenerationStart, startGeneration, markGenerationSuccess, markGenerationFailure } from './generation-lifecycle.js';
+import { getActiveUsers } from './odoo-creator.js'; // Addendum J
 
 export default {
   // Module metadata
@@ -221,6 +222,33 @@ export default {
       }
     },
     
+    // Get Odoo users for stakeholder mapping (Addendum J)
+    'GET /api/odoo-users': async (context) => {
+      const { env } = context;
+      
+      try {
+        const users = await getActiveUsers(env);
+        
+        return new Response(JSON.stringify({
+          success: true,
+          users: users
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+      } catch (error) {
+        console.error('[Project Generator] Get users failed:', error);
+        
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    },
+    
     // Preview generation model (Addendum C)
     'POST /api/generate-preview/:id': async (context) => {
       const { request, env, params } = context;
@@ -238,13 +266,15 @@ export default {
           });
         }
         
-        // Parse request body for projectStartDate (Addendum G)
+        // Parse request body for projectStartDate and stakeholderMapping (Addendum G + J)
         let projectStartDate = null;
+        let stakeholderMapping = null;
         try {
           const body = await request.json();
           projectStartDate = body.projectStartDate || null;
+          stakeholderMapping = body.stakeholderMapping || null;  // Addendum J
         } catch {
-          // No body, proceed without date
+          // No body, proceed without date or mapping
         }
         
         // Validate blueprint
@@ -261,8 +291,8 @@ export default {
           });
         }
         
-        // Build generation model with projectStartDate (Addendum G)
-        const generationModel = buildGenerationModel(blueprintData, template.name, projectStartDate);
+        // Build generation model with projectStartDate and stakeholderMapping (Addendum G + J)
+        const generationModel = buildGenerationModel(blueprintData, template.name, projectStartDate, stakeholderMapping);
         
         return new Response(JSON.stringify({
           success: true,
@@ -306,11 +336,13 @@ export default {
         let confirmOverwrite = false;
         let overrideModel = null;
         let projectStartDate = null;  // Addendum G
+        let stakeholderMapping = null;  // Addendum J
         try {
           const body = await request.json();
           confirmOverwrite = body.confirmOverwrite === true;
           overrideModel = body.overrideModel || null;
           projectStartDate = body.projectStartDate || null;  // Addendum G: ISO YYYY-MM-DD
+          stakeholderMapping = body.stakeholderMapping || null;  // Addendum J
         } catch {
           // No body or invalid JSON, proceed with default
         }
@@ -341,7 +373,7 @@ export default {
           } else {
             // Build from blueprint
             const blueprintData = await getBlueprintData(env, params.id);
-            generationModel = buildGenerationModel(blueprintData, template.name, projectStartDate);
+            generationModel = buildGenerationModel(blueprintData, template.name, projectStartDate, stakeholderMapping);
           }
           
           // LIFECYCLE STEP 3: Start generation record BEFORE Odoo calls
