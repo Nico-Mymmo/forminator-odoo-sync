@@ -295,15 +295,24 @@ async function handleFormSubmit(e) {
 
 // Generate project from template
 async function generateProjectFromTemplate(templateId) {
+  // STEP 0: Ask for project start date (Addendum H - datepicker UX)
+  const projectStartDate = await showProjectStartDateModal();
+  
+  if (!projectStartDate) {
+    // User cancelled
+    return;
+  }
+  
   // Show loading toast
   showToast('Loading generation preview...', 'info');
   
   try {
-    // STEP 1: Fetch generation preview (Addendum C)
+    // STEP 1: Fetch generation preview with projectStartDate (Addendum C + G)
     const previewResponse = await fetch(`/projects/api/generate-preview/${templateId}`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectStartDate })  // Addendum G
     });
     
     const previewResult = await previewResponse.json();
@@ -314,12 +323,110 @@ async function generateProjectFromTemplate(templateId) {
     }
     
     // STEP 2: Show preview modal with editable model
-    await showGenerationPreviewModal(previewResult.generationModel, templateId);
+    await showGenerationPreviewModal(previewResult.generationModel, templateId, projectStartDate);
     
   } catch (err) {
     console.error('Preview error:', err);
     showToast('Network error loading preview. Please try again.', 'error');
   }
+}
+
+/**
+ * Show modal with date picker for project start date
+ * Addendum H: Replace prompt() with proper datepicker UX
+ * 
+ * @returns {Promise<string|null>} ISO date string (YYYY-MM-DD) or null if cancelled
+ */
+async function showProjectStartDateModal() {
+  return new Promise((resolve) => {
+    // Create modal
+    const modal = document.createElement('dialog');
+    modal.className = 'modal modal-open';
+    modal.id = 'projectStartDateModal';
+    
+    const modalBox = document.createElement('div');
+    modalBox.className = 'modal-box';
+    
+    // Header
+    const title = document.createElement('h2');
+    title.className = 'text-xl font-bold mb-2';
+    title.textContent = 'Select Project Start Date';
+    modalBox.appendChild(title);
+    
+    const description = document.createElement('p');
+    description.className = 'text-base-content/60 mb-4';
+    description.textContent = 'All task deadlines will be calculated from this date. Weekends will be skipped automatically.';
+    modalBox.appendChild(description);
+    
+    // Date input
+    const inputGroup = document.createElement('div');
+    inputGroup.className = 'form-control mb-6';
+    
+    const label = document.createElement('label');
+    label.className = 'label';
+    const labelText = document.createElement('span');
+    labelText.className = 'label-text font-semibold';
+    labelText.textContent = 'Start Date';
+    label.appendChild(labelText);
+    inputGroup.appendChild(label);
+    
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.className = 'input input-bordered w-full';
+    dateInput.required = true;
+    // Set min to today to prevent past dates
+    dateInput.min = new Date().toISOString().split('T')[0];
+    // Set default to today
+    dateInput.value = new Date().toISOString().split('T')[0];
+    inputGroup.appendChild(dateInput);
+    
+    modalBox.appendChild(inputGroup);
+    
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.className = 'flex gap-3 justify-end';
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = () => {
+      modal.close();
+      modal.remove();
+      resolve(null);
+    };
+    actions.appendChild(cancelBtn);
+    
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-primary';
+    confirmBtn.textContent = 'Continue';
+    confirmBtn.onclick = () => {
+      const selectedDate = dateInput.value;
+      if (!selectedDate) {
+        showToast('Please select a start date', 'error');
+        return;
+      }
+      modal.close();
+      modal.remove();
+      resolve(selectedDate);
+    };
+    actions.appendChild(confirmBtn);
+    
+    modalBox.appendChild(actions);
+    modal.appendChild(modalBox);
+    document.body.appendChild(modal);
+    
+    // Auto-focus date input
+    dateInput.focus();
+    
+    // Allow Enter to confirm
+    dateInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        confirmBtn.click();
+      }
+    });
+    
+    modal.showModal();
+  });
 }
 
 // Delete template
@@ -750,10 +857,26 @@ function renderMilestones() {
     const div = document.createElement('div');
     div.className = 'flex items-center justify-between p-3 bg-base-200 rounded';
     
+    const leftContent = document.createElement('div');
+    leftContent.className = 'flex flex-col';
+    
     const nameSpan = document.createElement('span');
     nameSpan.className = 'font-semibold';
     nameSpan.textContent = milestone.name;
-    div.appendChild(nameSpan);
+    leftContent.appendChild(nameSpan);
+    
+    // Show timing info if exists (Addendum H)
+    if (milestone.deadline_offset_days || milestone.duration_days) {
+      const timingInfo = document.createElement('span');
+      timingInfo.className = 'text-xs text-base-content/60 mt-1';
+      const parts = [];
+      if (milestone.deadline_offset_days) parts.push('Deadline: +' + milestone.deadline_offset_days + ' days');
+      if (milestone.duration_days) parts.push('Duration: ' + milestone.duration_days + ' days');
+      timingInfo.textContent = parts.join(' • ');
+      leftContent.appendChild(timingInfo);
+    }
+    
+    div.appendChild(leftContent);
     
     const btnDiv = document.createElement('div');
     btnDiv.className = 'flex gap-1';
@@ -792,14 +915,20 @@ function openMilestoneModal(milestoneId = null) {
   const modal = document.getElementById('milestoneModal');
   const title = document.getElementById('milestoneModalTitle');
   const nameInput = document.getElementById('milestoneName');
+  const deadlineOffsetInput = document.getElementById('milestoneDeadlineOffset');
+  const durationInput = document.getElementById('milestoneDuration');
   
   if (milestoneId) {
     const milestone = blueprintState.milestones.find(m => m.id === milestoneId);
     title.textContent = 'Edit Milestone';
     nameInput.value = milestone.name;
+    deadlineOffsetInput.value = milestone.deadline_offset_days || '';
+    durationInput.value = milestone.duration_days || '';
   } else {
     title.textContent = 'Add Milestone';
     nameInput.value = '';
+    deadlineOffsetInput.value = '';
+    durationInput.value = '';
   }
   
   modal.showModal();
@@ -811,13 +940,24 @@ function handleMilestoneSubmit(e) {
   const name = document.getElementById('milestoneName').value.trim();
   if (!name) return;
   
+  // Get timing values (Addendum H)
+  const deadlineOffsetStr = document.getElementById('milestoneDeadlineOffset').value;
+  const durationStr = document.getElementById('milestoneDuration').value;
+  
+  const deadline_offset_days = deadlineOffsetStr ? parseInt(deadlineOffsetStr, 10) : null;
+  const duration_days = durationStr ? parseInt(durationStr, 10) : null;
+  
   if (editingMilestoneId) {
     const milestone = blueprintState.milestones.find(m => m.id === editingMilestoneId);
     milestone.name = name;
+    milestone.deadline_offset_days = deadline_offset_days;
+    milestone.duration_days = duration_days;
   } else {
     blueprintState.milestones.push({
       id: generateUUID(),
-      name: name
+      name: name,
+      deadline_offset_days: deadline_offset_days,
+      duration_days: duration_days
     });
   }
   
@@ -1029,8 +1169,8 @@ function renderTaskItem(task, level, container) {
   // Show color (Addendum F)
   if (task.color && task.color > 0 && task.color <= 11) {
     const colorMap = {
-      1: '#FF0000', 2: '#FFA500', 3: '#FFFF00', 4: '#0000FF', 5: '#800080',
-      6: '#FF69B4', 7: '#00CED1', 8: '#90EE90', 9: '#006400', 10: '#FFB6C1', 11: '#D3D3D3'
+      1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
+      6: '#22C55E', 7: '#A855F7', 8: '#64748B', 9: '#C084FC', 10: '#06B6D4', 11: '#8B5CF6'
     };
     const colorDot = document.createElement('span');
     colorDot.className = 'inline-block w-3 h-3 rounded-full ml-2';
@@ -1050,6 +1190,26 @@ function renderTaskItem(task, level, container) {
         leftDiv.appendChild(tagBadge);
       }
     });
+  }
+  
+  // Show timing indicator (Addendum G)
+  if (task.deadline_offset_days || task.planned_hours) {
+    const timingBadge = document.createElement('span');
+    timingBadge.className = 'badge badge-sm badge-ghost ml-2 gap-1';
+    const timingIcon = document.createElement('i');
+    timingIcon.setAttribute('data-lucide', 'clock');
+    timingIcon.className = 'w-3 h-3';
+    timingBadge.appendChild(timingIcon);
+    
+    const parts = [];
+    if (task.deadline_offset_days) parts.push(task.deadline_offset_days + 'd');
+    if (task.planned_hours) parts.push(task.planned_hours + 'h');
+    
+    const timingText = document.createElement('span');
+    timingText.textContent = parts.join(' / ');
+    timingBadge.appendChild(timingText);
+    timingBadge.title = `Deadline: ${task.deadline_offset_days || '-'} days, Hours: ${task.planned_hours || '-'}`;
+    leftDiv.appendChild(timingBadge);
   }
   
   div.appendChild(leftDiv);
@@ -1198,6 +1358,11 @@ function openTaskModal(taskId = null, parentId = null) {
         if (checkbox) checkbox.checked = true;
       });
     }
+    
+    // Set timing (Addendum G)
+    document.getElementById('taskDeadlineOffset').value = task.deadline_offset_days || '';
+    document.getElementById('taskDuration').value = task.duration_days || '';
+    document.getElementById('taskPlannedHours').value = task.planned_hours || '';
   } else {
     title.textContent = parentId ? 'Add Subtask' : 'Add Task';
     nameInput.value = '';
@@ -1205,6 +1370,11 @@ function openTaskModal(taskId = null, parentId = null) {
     parentSelect.value = parentId || '';
     colorInput.value = '';
     document.querySelectorAll('[data-color]').forEach(btn => btn.classList.remove('ring-2', 'ring-primary'));
+    
+    // Clear timing (Addendum G)
+    document.getElementById('taskDeadlineOffset').value = '';
+    document.getElementById('taskDuration').value = '';
+    document.getElementById('taskPlannedHours').value = '';
   }
   
   modal.showModal();
@@ -1223,6 +1393,15 @@ function handleTaskSubmit(e) {
   const tagCheckboxes = document.querySelectorAll('#taskTagsContainer input[type="checkbox"]:checked');
   const tag_ids = Array.from(tagCheckboxes).map(cb => cb.value);
   
+  // Get timing values (Addendum G)
+  const deadlineOffsetStr = document.getElementById('taskDeadlineOffset').value;
+  const durationStr = document.getElementById('taskDuration').value;
+  const plannedHoursStr = document.getElementById('taskPlannedHours').value;
+  
+  const deadline_offset_days = deadlineOffsetStr ? parseInt(deadlineOffsetStr, 10) : null;
+  const duration_days = durationStr ? parseInt(durationStr, 10) : null;
+  const planned_hours = plannedHoursStr ? parseFloat(plannedHoursStr) : null;
+  
   if (!name) return;
   
   if (editingTaskId) {
@@ -1232,6 +1411,9 @@ function handleTaskSubmit(e) {
     task.parent_id = parentId;
     task.color = color;
     task.tag_ids = tag_ids;
+    task.deadline_offset_days = deadline_offset_days;
+    task.duration_days = duration_days;
+    task.planned_hours = planned_hours;
   } else {
     blueprintState.tasks.push({
       id: generateUUID(),
@@ -1239,7 +1421,10 @@ function handleTaskSubmit(e) {
       milestone_id: milestoneId,
       parent_id: parentId,
       color: color,
-      tag_ids: tag_ids
+      tag_ids: tag_ids,
+      deadline_offset_days: deadline_offset_days,
+      duration_days: duration_days,
+      planned_hours: planned_hours
     });
   }
   
@@ -1873,7 +2058,7 @@ function calculateDuration(startTime, endTime) {
  * @param {Object} generationModel - The canonical generation model
  * @param {string} templateId - Template ID for generation
  */
-async function showGenerationPreviewModal(generationModel, templateId) {
+async function showGenerationPreviewModal(generationModel, templateId, projectStartDate) {
   // Create modal backdrop
   const modal = document.createElement('dialog');
   modal.className = 'modal modal-open';
@@ -1954,7 +2139,7 @@ async function showGenerationPreviewModal(generationModel, templateId) {
   confirmBtn.className = 'btn btn-primary';
   confirmBtn.id = 'confirmGenerationBtn';
   confirmBtn.onclick = async () => {
-    await executeGenerationWithOverride(templateId, generationModel);
+    await executeGenerationWithOverride(templateId, generationModel, projectStartDate);
     modal.close();
     modal.remove();
   };
@@ -2014,44 +2199,129 @@ function renderPreviewTasks(container, generationModel) {
 }
 
 /**
- * Create a single task row with rename/remove actions
+ * Create a single task row with rename/remove actions and timing
+ * Addendum H: Show and allow editing of calculated dates and hours
  */
 function createPreviewTaskRow(task, generationModel, isSubtask) {
   const row = document.createElement('div');
-  row.className = 'flex items-center gap-2 p-2 hover:bg-base-200 rounded';
+  row.className = 'flex items-center gap-2 p-3 border border-base-300 rounded hover:bg-base-200';
   row.dataset.taskId = task.blueprint_id;
   
   if (isSubtask) {
     row.className += ' ml-8';
   }
   
+  // Left side: icon + name
+  const leftSide = document.createElement('div');
+  leftSide.className = 'flex items-center gap-2 flex-1 min-w-0';
+  
   // Task icon
   const icon = document.createElement('i');
   icon.setAttribute('data-lucide', isSubtask ? 'corner-down-right' : 'square');
   icon.className = 'w-4 h-4 text-base-content/40 flex-shrink-0';
-  row.appendChild(icon);
+  leftSide.appendChild(icon);
   
   // Task name (editable)
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
-  nameInput.className = 'input input-sm input-ghost flex-1';
+  nameInput.className = 'input input-sm input-ghost flex-1 min-w-0';
   nameInput.value = task.name;
   nameInput.onchange = () => {
     task.name = nameInput.value.trim() || task.name; // Update in-memory
   };
-  row.appendChild(nameInput);
+  leftSide.appendChild(nameInput);
   
   // Milestone badge (if exists)
   if (task.milestone_name) {
     const badge = document.createElement('span');
-    badge.className = 'badge badge-sm badge-outline';
+    badge.className = 'badge badge-sm badge-outline flex-shrink-0';
     badge.textContent = task.milestone_name;
-    row.appendChild(badge);
+    leftSide.appendChild(badge);
   }
+  
+  row.appendChild(leftSide);
+  
+  // Right side: timing fields
+  const timingContainer = document.createElement('div');
+  timingContainer.className = 'flex items-center gap-2 flex-shrink-0';
+  
+  // Start date (if exists)
+  if (task.planned_date_begin) {
+    const startGroup = document.createElement('div');
+    startGroup.className = 'flex flex-col';
+    
+    const startLabel = document.createElement('label');
+    startLabel.className = 'text-xs text-base-content/60';
+    startLabel.textContent = 'Start';
+    startGroup.appendChild(startLabel);
+    
+    const startInput = document.createElement('input');
+    startInput.type = 'date';
+    startInput.className = 'input input-xs input-bordered w-32';
+    startInput.value = task.planned_date_begin;
+    startInput.onchange = () => {
+      task.planned_date_begin = startInput.value;
+      task._manualOverride = true; // Mark as manually overridden (Addendum H)
+    };
+    startGroup.appendChild(startInput);
+    
+    timingContainer.appendChild(startGroup);
+  }
+  
+  // Deadline (if exists)
+  if (task.date_deadline) {
+    const deadlineGroup = document.createElement('div');
+    deadlineGroup.className = 'flex flex-col';
+    
+    const deadlineLabel = document.createElement('label');
+    deadlineLabel.className = 'text-xs text-base-content/60';
+    deadlineLabel.textContent = 'Deadline';
+    deadlineGroup.appendChild(deadlineLabel);
+    
+    const deadlineInput = document.createElement('input');
+    deadlineInput.type = 'date';
+    deadlineInput.className = 'input input-xs input-bordered w-32';
+    deadlineInput.value = task.date_deadline;
+    deadlineInput.onchange = () => {
+      task.date_deadline = deadlineInput.value;
+      task._manualOverride = true; // Mark as manually overridden (Addendum H)
+    };
+    deadlineGroup.appendChild(deadlineInput);
+    
+    timingContainer.appendChild(deadlineGroup);
+  }
+  
+  // Planned hours (if exists)
+  if (task.planned_hours !== null && task.planned_hours !== undefined) {
+    const hoursGroup = document.createElement('div');
+    hoursGroup.className = 'flex flex-col';
+    
+    const hoursLabel = document.createElement('label');
+    hoursLabel.className = 'text-xs text-base-content/60';
+    hoursLabel.textContent = 'Hours';
+    hoursGroup.appendChild(hoursLabel);
+    
+    const hoursInput = document.createElement('input');
+    hoursInput.type = 'number';
+    hoursInput.step = '0.5';
+    hoursInput.min = '0';
+    hoursInput.className = 'input input-xs input-bordered w-20';
+    hoursInput.value = task.planned_hours;
+    hoursInput.onchange = () => {
+      const value = parseFloat(hoursInput.value);
+      task.planned_hours = isNaN(value) ? null : value;
+      task._manualOverride = true; // Mark as manually overridden (Addendum H)
+    };
+    hoursGroup.appendChild(hoursInput);
+    
+    timingContainer.appendChild(hoursGroup);
+  }
+  
+  row.appendChild(timingContainer);
   
   // Remove button
   const removeBtn = document.createElement('button');
-  removeBtn.className = 'btn btn-ghost btn-xs btn-square';
+  removeBtn.className = 'btn btn-ghost btn-xs btn-square flex-shrink-0';
   removeBtn.title = 'Remove task';
   removeBtn.onclick = () => {
     removeTaskFromModel(task.blueprint_id, generationModel);
@@ -2099,7 +2369,7 @@ function removeTaskFromModel(taskId, generationModel) {
  * @param {Object} overrideModel - Modified generation model
  * @param {boolean} confirmOverwrite - Force generation despite conflicts
  */
-async function executeGenerationWithOverride(templateId, overrideModel, confirmOverwrite = false) {
+async function executeGenerationWithOverride(templateId, overrideModel, projectStartDate = null, confirmOverwrite = false) {
   showToast('Generating project... This may take a moment.', 'info');
   
   try {
@@ -2109,6 +2379,7 @@ async function executeGenerationWithOverride(templateId, overrideModel, confirmO
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         overrideModel: overrideModel,
+        projectStartDate: projectStartDate,  // Addendum G
         confirmOverwrite: confirmOverwrite
       })
     });
@@ -2116,7 +2387,7 @@ async function executeGenerationWithOverride(templateId, overrideModel, confirmO
     const result = await response.json();
     
     if (response.status === 409) {
-      showBlockedGenerationModal(result, templateId, overrideModel);
+      showBlockedGenerationModal(result, templateId, overrideModel, projectStartDate);
     } else if (result.success) {
       showSuccessGenerationModal(result, templateId);
     } else {
@@ -2310,7 +2581,7 @@ function showFailureGenerationModal(result, templateId) {
 /**
  * Show blocked modal when generation is prevented by conflict
  */
-function showBlockedGenerationModal(result, templateId, overrideModel = null) {
+function showBlockedGenerationModal(result, templateId, overrideModel = null, projectStartDate = null) {
   const modal = createGenerationModal('warning');
   const body = modal.querySelector('.modal-body');
   
@@ -2343,8 +2614,8 @@ function showBlockedGenerationModal(result, templateId, overrideModel = null) {
     retryBtn.className = 'btn btn-primary';
     retryBtn.onclick = async () => {
       closeGenerationModal(modal);
-      // Retry with confirmOverwrite flag and override model
-      await executeGenerationWithOverride(templateId, overrideModel, true);
+      // Retry with confirmOverwrite flag, override model, and projectStartDate
+      await executeGenerationWithOverride(templateId, overrideModel, projectStartDate, true);
     };
     
     const retryIcon = document.createElement('i');

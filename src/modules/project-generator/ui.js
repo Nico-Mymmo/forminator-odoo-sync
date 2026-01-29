@@ -372,6 +372,42 @@ export function blueprintEditorUI(user, templateId) {
               maxlength="100"
             />
           </div>
+          
+          <!-- Timing (Addendum H) -->
+          <div class="divider">Timing (Optional)</div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Deadline Offset (days after project start)</span>
+            </label>
+            <input 
+              type="number" 
+              id="milestoneDeadlineOffset" 
+              placeholder="e.g., 30" 
+              class="input input-bordered" 
+              min="0"
+            />
+            <label class="label">
+              <span class="label-text-alt">How many workdays after project start should this milestone be complete?</span>
+            </label>
+          </div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Duration (workdays)</span>
+            </label>
+            <input 
+              type="number" 
+              id="milestoneDuration" 
+              placeholder="e.g., 7" 
+              class="input input-bordered" 
+              min="0"
+            />
+            <label class="label">
+              <span class="label-text-alt">How many workdays should this milestone span?</span>
+            </label>
+          </div>
+          
           <div class="modal-action">
             <button type="button" class="btn" onclick="milestoneModal.close()">Cancel</button>
             <button type="submit" class="btn btn-primary">Save</button>
@@ -448,17 +484,17 @@ export function blueprintEditorUI(user, templateId) {
             </label>
             <div class="flex gap-2 flex-wrap">
               <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="0" style="background: white;" title="No color"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="1" style="background: #FF0000;" title="Red"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="2" style="background: #FFA500;" title="Orange"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="3" style="background: #FFFF00;" title="Yellow"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="4" style="background: #0000FF;" title="Blue"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="5" style="background: #800080;" title="Purple"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="6" style="background: #FF69B4;" title="Pink"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="7" style="background: #00CED1;" title="Cyan"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="8" style="background: #90EE90;" title="Light Green"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="9" style="background: #006400;" title="Dark Green"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="10" style="background: #FFB6C1;" title="Light Pink"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="11" style="background: #D3D3D3;" title="Light Gray"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="1" style="background: #EF4444;" title="Red"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="2" style="background: #F97316;" title="Orange"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="3" style="background: #EAB308;" title="Yellow"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="4" style="background: #3B82F6;" title="Blue"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="5" style="background: #EC4899;" title="Pink"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="6" style="background: #22C55E;" title="Green"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="7" style="background: #A855F7;" title="Purple"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="8" style="background: #64748B;" title="Gray-Blue"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="9" style="background: #C084FC;" title="Purple-Pink"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="10" style="background: #06B6D4;" title="Turquoise"></button>
+              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="11" style="background: #8B5CF6;" title="Violet"></button>
             </div>
             <input type="hidden" id="taskColor" value="">
           </div>
@@ -470,6 +506,55 @@ export function blueprintEditorUI(user, templateId) {
               <!-- Tag checkboxes inserted by client.js -->
             </div>
           </div>
+          
+          <!-- Timing Section (Addendum G) -->
+          <div class="divider">Timing (optional)</div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Deadline (days after project start)</span>
+              <span class="label-text-alt text-base-content/60">Relative to project start date</span>
+            </label>
+            <input 
+              type="number" 
+              id="taskDeadlineOffset" 
+              placeholder="e.g., 14" 
+              class="input input-bordered" 
+              min="0"
+              step="1"
+            />
+          </div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Duration (workdays)</span>
+              <span class="label-text-alt text-base-content/60">Determines start date from deadline</span>
+            </label>
+            <input 
+              type="number" 
+              id="taskDuration" 
+              placeholder="e.g., 5" 
+              class="input input-bordered" 
+              min="0"
+              step="1"
+            />
+          </div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Planned Hours</span>
+              <span class="label-text-alt text-base-content/60">Estimated effort</span>
+            </label>
+            <input 
+              type="number" 
+              id="taskPlannedHours" 
+              placeholder="e.g., 8" 
+              class="input input-bordered" 
+              min="0"
+              step="0.5"
+            />
+          </div>
+          
           <div class="modal-action">
             <button type="button" class="btn" onclick="taskModal.close()">Cancel</button>
             <button type="submit" class="btn btn-primary">Save</button>

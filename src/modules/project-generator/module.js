@@ -223,7 +223,7 @@ export default {
     
     // Preview generation model (Addendum C)
     'POST /api/generate-preview/:id': async (context) => {
-      const { env, params } = context;
+      const { request, env, params } = context;
       
       try {
         const template = await getTemplate(env, params.id);
@@ -236,6 +236,15 @@ export default {
             status: 404,
             headers: { 'Content-Type': 'application/json' }
           });
+        }
+        
+        // Parse request body for projectStartDate (Addendum G)
+        let projectStartDate = null;
+        try {
+          const body = await request.json();
+          projectStartDate = body.projectStartDate || null;
+        } catch {
+          // No body, proceed without date
         }
         
         // Validate blueprint
@@ -252,8 +261,8 @@ export default {
           });
         }
         
-        // Build generation model (NO Odoo calls, NO database writes)
-        const generationModel = buildGenerationModel(blueprintData, template.name);
+        // Build generation model with projectStartDate (Addendum G)
+        const generationModel = buildGenerationModel(blueprintData, template.name, projectStartDate);
         
         return new Response(JSON.stringify({
           success: true,
@@ -296,10 +305,12 @@ export default {
         // Parse request body for confirmOverwrite flag and overrideModel
         let confirmOverwrite = false;
         let overrideModel = null;
+        let projectStartDate = null;  // Addendum G
         try {
           const body = await request.json();
           confirmOverwrite = body.confirmOverwrite === true;
           overrideModel = body.overrideModel || null;
+          projectStartDate = body.projectStartDate || null;  // Addendum G: ISO YYYY-MM-DD
         } catch {
           // No body or invalid JSON, proceed with default
         }
@@ -330,14 +341,14 @@ export default {
           } else {
             // Build from blueprint
             const blueprintData = await getBlueprintData(env, params.id);
-            generationModel = buildGenerationModel(blueprintData, template.name);
+            generationModel = buildGenerationModel(blueprintData, template.name, projectStartDate);
           }
           
           // LIFECYCLE STEP 3: Start generation record BEFORE Odoo calls
           generationId = await startGeneration(env, user.id, params.id, generationModel);
           
           // LIFECYCLE STEP 4: Execute Odoo generation (use generationModel which may be override)
-          const result = await generateProject(env, params.id, template.name, generationModel);
+          const result = await generateProject(env, params.id, template.name, projectStartDate, generationModel);
           
           if (result.success) {
             // LIFECYCLE STEP 5: Mark success

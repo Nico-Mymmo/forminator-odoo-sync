@@ -13,7 +13,7 @@
  * - Return Odoo IDs directly
  */
 
-import { create, write } from '../../lib/odoo.js';
+import { create, write, searchRead } from '../../lib/odoo.js';
 
 /**
  * Create Odoo project
@@ -98,15 +98,32 @@ export async function createMilestone(env, data) {
 }
 
 /**
- * Create or find project tag (Addendum F)
+ * Get or create project tag (Addendum F)
  * Tags are GLOBAL in Odoo (no project_id field)
+ * 
+ * Checks if tag with same name exists first to avoid unique constraint violation.
+ * Tags have unique constraint on name in Odoo.
  * 
  * @param {Object} env - Cloudflare env
  * @param {Object} data - Tag data
  * @param {string} data.name - Tag name
- * @returns {Promise<number>} Odoo tag ID
+ * @returns {Promise<number>} Odoo tag ID (existing or newly created)
  */
-export async function createTag(env, data) {
+export async function getOrCreateTag(env, data) {
+  // Search for existing tag with same name
+  const existingTags = await searchRead(env, {
+    model: 'project.tags',
+    domain: [['name', '=', data.name]],
+    fields: ['id'],
+    limit: 1
+  });
+  
+  if (existingTags && existingTags.length > 0) {
+    console.log(`[Odoo Creator] Tag "${data.name}" already exists (ID: ${existingTags[0].id})`);
+    return existingTags[0].id;
+  }
+  
+  // Create new tag if not found
   const tagId = await create(env, {
     model: 'project.tags',
     values: {
@@ -114,6 +131,7 @@ export async function createTag(env, data) {
     }
   });
   
+  console.log(`[Odoo Creator] Tag "${data.name}" created (ID: ${tagId})`);
   return tagId;
 }
 
@@ -126,8 +144,13 @@ export async function createTag(env, data) {
  * @param {number} data.project_id - Project ID
  * @param {number} [data.stage_id] - Stage ID
  * @param {number} [data.parent_id] - Parent task ID (for subtasks)
- * @param {number} [data.milestone_id] - Milestone ID * @param {number} [data.color] - Odoo color integer (1-11)
- * @param {Array<number>} [data.tag_ids] - Array of tag IDs * @returns {Promise<number>} Odoo task ID
+ * @param {number} [data.milestone_id] - Milestone ID
+ * @param {number} [data.color] - Odoo color integer (1-11)
+ * @param {Array<number>} [data.tag_ids] - Array of tag IDs
+ * @param {string} [data.planned_date_begin] - Start date (ISO format)
+ * @param {string} [data.date_deadline] - Deadline date (ISO format)
+ * @param {number} [data.allocated_hours] - Estimated hours
+ * @returns {Promise<number>} Odoo task ID
  */
 export async function createTask(env, data) {
   const values = {
@@ -155,6 +178,17 @@ export async function createTask(env, data) {
   // Addendum F: Tags support
   if (data.tag_ids && data.tag_ids.length > 0) {
     values.tag_ids = data.tag_ids.map(id => [4, id]);  // [(4, id)] = link existing
+  }
+  
+  // Addendum G: Timing support
+  if (data.planned_date_begin) {
+    values.planned_date_begin = data.planned_date_begin;
+  }
+  if (data.date_deadline) {
+    values.date_deadline = data.date_deadline;
+  }
+  if (data.allocated_hours !== null && data.allocated_hours !== undefined) {
+    values.allocated_hours = data.allocated_hours;
   }
   
   // Addendum B: Hide subtasks from Kanban (Odoo-conform behavior)

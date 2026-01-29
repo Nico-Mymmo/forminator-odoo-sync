@@ -51,6 +51,9 @@ export function validateBlueprint(blueprint) {
   // Validate milestones
   validateMilestones(milestones, result);
   
+  // Validate milestone timings (Addendum H)
+  validateMilestoneTimings(milestones, result);
+  
   // Validate tags (Addendum F)
   validateTags(tags, result);
   
@@ -62,6 +65,9 @@ export function validateBlueprint(blueprint) {
   
   // Validate task tag references (Addendum F)
   validateTaskTagReferences(tasks, tags, result);
+  
+  // Validate task timings (Addendum G)
+  validateTaskTimings(tasks, result);
   
   // Validate dependencies
   validateDependencies(dependencies, tasks, result);
@@ -134,6 +140,40 @@ function validateMilestones(milestones, result) {
     
     if (!milestone.name || milestone.name.trim().length === 0) {
       result.errors.push(`Milestone at index ${index} missing name`);
+    }
+  });
+}
+
+/**
+ * Validate milestone timing fields (Addendum H)
+ * All timing fields are optional, but must be valid when present
+ */
+function validateMilestoneTimings(milestones, result) {
+  milestones.forEach((milestone, index) => {
+    const milestoneName = milestone.name || `index ${index}`;
+    
+    // Validate deadline_offset_days
+    if (milestone.deadline_offset_days !== null && milestone.deadline_offset_days !== undefined) {
+      if (typeof milestone.deadline_offset_days !== 'number') {
+        result.errors.push(`Milestone "${milestoneName}" has non-numeric deadline_offset_days: ${milestone.deadline_offset_days}`);
+      } else if (!Number.isInteger(milestone.deadline_offset_days)) {
+        result.errors.push(`Milestone "${milestoneName}" deadline_offset_days must be integer, got: ${milestone.deadline_offset_days}`);
+      } else if (milestone.deadline_offset_days < 0) {
+        result.errors.push(`Milestone "${milestoneName}" deadline_offset_days cannot be negative: ${milestone.deadline_offset_days}`);
+      }
+    }
+    
+    // Validate duration_days
+    if (milestone.duration_days !== null && milestone.duration_days !== undefined) {
+      if (typeof milestone.duration_days !== 'number') {
+        result.errors.push(`Milestone "${milestoneName}" has non-numeric duration_days: ${milestone.duration_days}`);
+      } else if (!Number.isInteger(milestone.duration_days)) {
+        result.errors.push(`Milestone "${milestoneName}" duration_days must be integer, got: ${milestone.duration_days}`);
+      } else if (milestone.duration_days < 0) {
+        result.errors.push(`Milestone "${milestoneName}" duration_days cannot be negative: ${milestone.duration_days}`);
+      } else if (milestone.duration_days > 0 && !milestone.deadline_offset_days) {
+        result.warnings.push(`Milestone "${milestoneName}" has duration but no deadline (start date cannot be calculated)`);
+      }
     }
   });
 }
@@ -365,6 +405,49 @@ function validateTaskTagReferences(tasks, tags, result) {
           result.errors.push(`Task "${task.name || index}" references non-existent tag: ${tagId}`);
         }
       });
+    }
+  });
+}
+
+/**
+ * Validate task timing fields (Addendum G)
+ * All timing fields are optional, but must be valid when present
+ */
+function validateTaskTimings(tasks, result) {
+  tasks.forEach((task, index) => {
+    const taskName = task.name || `index ${index}`;
+    
+    // Validate deadline_offset_days
+    if (task.deadline_offset_days !== null && task.deadline_offset_days !== undefined) {
+      if (typeof task.deadline_offset_days !== 'number') {
+        result.errors.push(`Task "${taskName}" has non-numeric deadline_offset_days: ${task.deadline_offset_days}`);
+      } else if (!Number.isInteger(task.deadline_offset_days)) {
+        result.errors.push(`Task "${taskName}" deadline_offset_days must be integer, got: ${task.deadline_offset_days}`);
+      } else if (task.deadline_offset_days < 0) {
+        result.errors.push(`Task "${taskName}" deadline_offset_days cannot be negative: ${task.deadline_offset_days}`);
+      }
+    }
+    
+    // Validate duration_days
+    if (task.duration_days !== null && task.duration_days !== undefined) {
+      if (typeof task.duration_days !== 'number') {
+        result.errors.push(`Task "${taskName}" has non-numeric duration_days: ${task.duration_days}`);
+      } else if (!Number.isInteger(task.duration_days)) {
+        result.errors.push(`Task "${taskName}" duration_days must be integer, got: ${task.duration_days}`);
+      } else if (task.duration_days < 0) {
+        result.errors.push(`Task "${taskName}" duration_days cannot be negative: ${task.duration_days}`);
+      } else if (task.duration_days > 0 && !task.deadline_offset_days) {
+        result.warnings.push(`Task "${taskName}" has duration but no deadline (start date cannot be calculated)`);
+      }
+    }
+    
+    // Validate planned_hours
+    if (task.planned_hours !== null && task.planned_hours !== undefined) {
+      if (typeof task.planned_hours !== 'number') {
+        result.errors.push(`Task "${taskName}" has non-numeric planned_hours: ${task.planned_hours}`);
+      } else if (task.planned_hours < 0) {
+        result.errors.push(`Task "${taskName}" planned_hours cannot be negative: ${task.planned_hours}`);
+      }
     }
   });
 }
