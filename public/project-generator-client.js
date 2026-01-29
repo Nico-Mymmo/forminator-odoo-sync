@@ -295,36 +295,30 @@ async function handleFormSubmit(e) {
 
 // Generate project from template
 async function generateProjectFromTemplate(templateId) {
-  if (!confirm('Generate Odoo project from this template?\n\nThis will create a new project in Odoo with all tasks and dependencies.')) {
-    return;
-  }
-  
   // Show loading toast
-  showToast('Generating project... This may take a moment.', 'info');
+  showToast('Loading generation preview...', 'info');
   
   try {
-    const response = await fetch(`/projects/api/generate/${templateId}`, {
+    // STEP 1: Fetch generation preview (Addendum C)
+    const previewResponse = await fetch(`/projects/api/generate-preview/${templateId}`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      headers: { 'Content-Type': 'application/json' }
     });
     
-    const result = await response.json();
+    const previewResult = await previewResponse.json();
     
-    if (response.status === 409) {
-      // Blocked generation (conflict)
-      showBlockedGenerationModal(result, templateId);
-    } else if (result.success) {
-      // Success
-      showSuccessGenerationModal(result, templateId);
-    } else {
-      // Failure
-      showFailureGenerationModal(result, templateId);
+    if (!previewResult.success) {
+      showToast('Failed to load preview: ' + previewResult.error, 'error');
+      return;
     }
+    
+    // STEP 2: Show preview modal with editable model
+    await showGenerationPreviewModal(previewResult.generationModel, templateId);
+    
   } catch (err) {
-    console.error('Generate error:', err);
-    showToast('Network error during generation. Please check Odoo manually.', 'error');
+    console.error('Preview error:', err);
+    showToast('Network error loading preview. Please try again.', 'error');
   }
 }
 
@@ -1528,6 +1522,271 @@ function calculateDuration(startTime, endTime) {
 }
 
 // ============================================================================
+// GENERATION PREVIEW MODAL (Addendum C)
+// ============================================================================
+
+/**
+ * Show generation preview modal with editable task list
+ * 
+ * @param {Object} generationModel - The canonical generation model
+ * @param {string} templateId - Template ID for generation
+ */
+async function showGenerationPreviewModal(generationModel, templateId) {
+  // Create modal backdrop
+  const modal = document.createElement('dialog');
+  modal.className = 'modal modal-open';
+  modal.id = 'generationPreviewModal';
+  
+  const modalBox = document.createElement('div');
+  modalBox.className = 'modal-box w-11/12 max-w-5xl';
+  
+  // Header
+  const header = document.createElement('div');
+  header.className = 'mb-4';
+  
+  const title = document.createElement('h2');
+  title.className = 'text-2xl font-bold mb-2';
+  title.textContent = 'Review Project Generation';
+  header.appendChild(title);
+  
+  const subtitle = document.createElement('p');
+  subtitle.className = 'text-base-content/60';
+  subtitle.textContent = 'Review and customize the project structure before creating it in Odoo.';
+  header.appendChild(subtitle);
+  
+  modalBox.appendChild(header);
+  
+  // Project name (editable)
+  const projectSection = document.createElement('div');
+  projectSection.className = 'mb-6';
+  
+  const projectLabel = document.createElement('label');
+  projectLabel.className = 'font-semibold text-sm text-base-content/60 mb-1 block';
+  projectLabel.textContent = 'Project Name';
+  projectSection.appendChild(projectLabel);
+  
+  const projectNameInput = document.createElement('input');
+  projectNameInput.type = 'text';
+  projectNameInput.className = 'input input-bordered w-full';
+  projectNameInput.value = generationModel.project.name;
+  projectNameInput.onchange = () => {
+    generationModel.project.name = projectNameInput.value.trim() || generationModel.project.name;
+  };
+  projectSection.appendChild(projectNameInput);
+  
+  modalBox.appendChild(projectSection);
+  
+  // Task list container
+  const taskSection = document.createElement('div');
+  taskSection.className = 'mb-6';
+  
+  const taskLabel = document.createElement('div');
+  taskLabel.className = 'font-semibold text-sm text-base-content/60 mb-2';
+  taskLabel.textContent = 'Tasks & Subtasks';
+  taskSection.appendChild(taskLabel);
+  
+  const taskList = document.createElement('div');
+  taskList.className = 'space-y-2 max-h-96 overflow-y-auto border border-base-300 rounded-lg p-4';
+  taskList.id = 'previewTaskList';
+  
+  // Render tasks hierarchically
+  renderPreviewTasks(taskList, generationModel);
+  
+  taskSection.appendChild(taskList);
+  modalBox.appendChild(taskSection);
+  
+  // Action buttons
+  const actions = document.createElement('div');
+  actions.className = 'flex gap-3 justify-end';
+  
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-ghost';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = () => {
+    modal.close();
+    modal.remove();
+  };
+  actions.appendChild(cancelBtn);
+  
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'btn btn-primary';
+  confirmBtn.id = 'confirmGenerationBtn';
+  confirmBtn.onclick = async () => {
+    await executeGenerationWithOverride(templateId, generationModel);
+    modal.close();
+    modal.remove();
+  };
+  
+  const confirmIcon = document.createElement('i');
+  confirmIcon.setAttribute('data-lucide', 'play');
+  confirmIcon.className = 'w-4 h-4';
+  confirmBtn.appendChild(confirmIcon);
+  
+  const confirmText = document.createElement('span');
+  confirmText.textContent = 'Confirm & Generate';
+  confirmBtn.appendChild(confirmText);
+  
+  actions.appendChild(confirmBtn);
+  modalBox.appendChild(actions);
+  
+  modal.appendChild(modalBox);
+  document.body.appendChild(modal);
+  
+  // Initialize Lucide icons
+  lucide.createIcons();
+  
+  modal.showModal();
+}
+
+/**
+ * Render tasks hierarchically with inline edit/remove
+ */
+function renderPreviewTasks(container, generationModel) {
+  container.innerHTML = ''; // Clear existing
+  
+  // Group tasks by parent
+  const parentTasks = generationModel.tasks.filter(t => !t.parent_blueprint_id);
+  const subtaskMap = new Map();
+  
+  generationModel.tasks.forEach(task => {
+    if (task.parent_blueprint_id) {
+      if (!subtaskMap.has(task.parent_blueprint_id)) {
+        subtaskMap.set(task.parent_blueprint_id, []);
+      }
+      subtaskMap.get(task.parent_blueprint_id).push(task);
+    }
+  });
+  
+  // Render parent tasks
+  parentTasks.forEach(task => {
+    const taskRow = createPreviewTaskRow(task, generationModel, false);
+    container.appendChild(taskRow);
+    
+    // Render subtasks
+    const subtasks = subtaskMap.get(task.blueprint_id) || [];
+    subtasks.forEach(subtask => {
+      const subtaskRow = createPreviewTaskRow(subtask, generationModel, true);
+      container.appendChild(subtaskRow);
+    });
+  });
+}
+
+/**
+ * Create a single task row with rename/remove actions
+ */
+function createPreviewTaskRow(task, generationModel, isSubtask) {
+  const row = document.createElement('div');
+  row.className = 'flex items-center gap-2 p-2 hover:bg-base-200 rounded';
+  row.dataset.taskId = task.blueprint_id;
+  
+  if (isSubtask) {
+    row.className += ' ml-8';
+  }
+  
+  // Task icon
+  const icon = document.createElement('i');
+  icon.setAttribute('data-lucide', isSubtask ? 'corner-down-right' : 'square');
+  icon.className = 'w-4 h-4 text-base-content/40 flex-shrink-0';
+  row.appendChild(icon);
+  
+  // Task name (editable)
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'input input-sm input-ghost flex-1';
+  nameInput.value = task.name;
+  nameInput.onchange = () => {
+    task.name = nameInput.value.trim() || task.name; // Update in-memory
+  };
+  row.appendChild(nameInput);
+  
+  // Milestone badge (if exists)
+  if (task.milestone_name) {
+    const badge = document.createElement('span');
+    badge.className = 'badge badge-sm badge-outline';
+    badge.textContent = task.milestone_name;
+    row.appendChild(badge);
+  }
+  
+  // Remove button
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'btn btn-ghost btn-xs btn-square';
+  removeBtn.title = 'Remove task';
+  removeBtn.onclick = () => {
+    removeTaskFromModel(task.blueprint_id, generationModel);
+    // Re-render task list
+    const taskList = document.getElementById('previewTaskList');
+    renderPreviewTasks(taskList, generationModel);
+    lucide.createIcons();
+  };
+  
+  const removeIcon = document.createElement('i');
+  removeIcon.setAttribute('data-lucide', 'x');
+  removeIcon.className = 'w-4 h-4';
+  removeBtn.appendChild(removeIcon);
+  
+  row.appendChild(removeBtn);
+  
+  return row;
+}
+
+/**
+ * Remove task and its dependencies from generation model
+ */
+function removeTaskFromModel(taskId, generationModel) {
+  // Remove task itself
+  generationModel.tasks = generationModel.tasks.filter(t => t.blueprint_id !== taskId);
+  
+  // Remove any subtasks
+  generationModel.tasks = generationModel.tasks.filter(t => t.parent_blueprint_id !== taskId);
+  
+  // Remove dependencies pointing to this task
+  generationModel.tasks.forEach(task => {
+    if (task.dependencies && Array.isArray(task.dependencies)) {
+      task.dependencies = task.dependencies.filter(depId => depId !== taskId);
+    }
+  });
+}
+
+/**
+ * Execute generation with override model
+ */
+/**
+ * Execute generation with override model (Addendum C)
+ * 
+ * @param {string} templateId - Template ID
+ * @param {Object} overrideModel - Modified generation model
+ * @param {boolean} confirmOverwrite - Force generation despite conflicts
+ */
+async function executeGenerationWithOverride(templateId, overrideModel, confirmOverwrite = false) {
+  showToast('Generating project... This may take a moment.', 'info');
+  
+  try {
+    const response = await fetch(`/projects/api/generate/${templateId}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        overrideModel: overrideModel,
+        confirmOverwrite: confirmOverwrite
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (response.status === 409) {
+      showBlockedGenerationModal(result, templateId, overrideModel);
+    } else if (result.success) {
+      showSuccessGenerationModal(result, templateId);
+    } else {
+      showFailureGenerationModal(result, templateId);
+    }
+  } catch (err) {
+    console.error('Generate error:', err);
+    showToast('Network error during generation. Please check Odoo manually.', 'error');
+  }
+}
+
+// ============================================================================
 // GENERATION FEEDBACK MODALS
 // ============================================================================
 
@@ -1709,7 +1968,7 @@ function showFailureGenerationModal(result, templateId) {
 /**
  * Show blocked modal when generation is prevented by conflict
  */
-function showBlockedGenerationModal(result, templateId) {
+function showBlockedGenerationModal(result, templateId, overrideModel = null) {
   const modal = createGenerationModal('warning');
   const body = modal.querySelector('.modal-body');
   
@@ -1742,8 +2001,8 @@ function showBlockedGenerationModal(result, templateId) {
     retryBtn.className = 'btn btn-primary';
     retryBtn.onclick = async () => {
       closeGenerationModal(modal);
-      // Retry with confirmOverwrite flag
-      await retryGenerationWithOverride(templateId);
+      // Retry with confirmOverwrite flag and override model
+      await executeGenerationWithOverride(templateId, overrideModel, true);
     };
     
     const retryIcon = document.createElement('i');
@@ -1781,39 +2040,6 @@ function showBlockedGenerationModal(result, templateId) {
   document.body.appendChild(modal);
   modal.showModal();
   lucide.createIcons();
-}
-
-/**
- * Retry generation with confirmOverwrite flag
- */
-async function retryGenerationWithOverride(templateId) {
-  if (!confirm('Generate a new project from this template?\n\nThis will create a separate project in Odoo (the previous one will remain).')) {
-    return;
-  }
-  
-  showToast('Generating project... This may take a moment.', 'info');
-  
-  try {
-    const response = await fetch(`/projects/api/generate/${templateId}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirmOverwrite: true })
-    });
-    
-    const result = await response.json();
-    
-    if (response.status === 409) {
-      showBlockedGenerationModal(result, templateId);
-    } else if (result.success) {
-      showSuccessGenerationModal(result, templateId);
-    } else {
-      showFailureGenerationModal(result, templateId);
-    }
-  } catch (err) {
-    console.error('Generate error:', err);
-    showToast('Network error during generation. Please check Odoo manually.', 'error');
-  }
 }
 
 /**

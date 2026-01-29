@@ -77,21 +77,24 @@ export async function createStage(env, data) {
 }
 
 /**
- * Create project tag (for milestones)
+ * Create project milestone
  * 
  * @param {Object} env - Cloudflare env
- * @param {string} name - Tag name
- * @returns {Promise<number>} Odoo tag ID
+ * @param {Object} data - Milestone data
+ * @param {string} data.name - Milestone name
+ * @param {number} data.project_id - Project ID
+ * @returns {Promise<number>} Odoo milestone ID
  */
-export async function createTag(env, name) {
-  const tagId = await create(env, {
-    model: 'project.tags',
+export async function createMilestone(env, data) {
+  const milestoneId = await create(env, {
+    model: 'project.milestone',
     values: {
-      name: name
+      name: data.name,
+      project_id: data.project_id
     }
   });
   
-  return tagId;
+  return milestoneId;
 }
 
 /**
@@ -103,7 +106,7 @@ export async function createTag(env, name) {
  * @param {number} data.project_id - Project ID
  * @param {number} [data.stage_id] - Stage ID
  * @param {number} [data.parent_id] - Parent task ID (for subtasks)
- * @param {Array<number>} [data.tag_ids] - Tag IDs
+ * @param {number} [data.milestone_id] - Milestone ID
  * @returns {Promise<number>} Odoo task ID
  */
 export async function createTask(env, data) {
@@ -120,8 +123,8 @@ export async function createTask(env, data) {
     values.parent_id = data.parent_id;
   }
   
-  if (data.tag_ids && data.tag_ids.length > 0) {
-    values.tag_ids = [[6, 0, data.tag_ids]];  // [(6, 0, ids)] = replace with
+  if (data.milestone_id) {
+    values.milestone_id = data.milestone_id;
   }
   
   // Addendum B: Hide subtasks from Kanban (Odoo-conform behavior)

@@ -6,7 +6,8 @@
 
 import { templateLibraryUI, blueprintEditorUI, generationHistoryUI } from './ui.js';
 import { getTemplates, createTemplate, updateTemplate, deleteTemplate, getBlueprintData, saveBlueprintData, getTemplate, getGenerationsForTemplate } from './library.js';
-import { generateProject } from './generate.js';
+import { generateProject, buildGenerationModel } from './generate.js';
+import { validateBlueprint } from './validation.js';
 import { validateGenerationStart, startGeneration, markGenerationSuccess, markGenerationFailure } from './generation-lifecycle.js';
 
 export default {
@@ -220,6 +221,60 @@ export default {
       }
     },
     
+    // Preview generation model (Addendum C)
+    'POST /api/generate-preview/:id': async (context) => {
+      const { env, params } = context;
+      
+      try {
+        const template = await getTemplate(env, params.id);
+        
+        if (!template) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Template not found'
+          }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        // Validate blueprint
+        const blueprintData = await getBlueprintData(env, params.id);
+        const validation = validateBlueprint(blueprintData);
+        
+        if (!validation.valid) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Blueprint validation failed: ' + validation.errors.join(', ')
+          }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        // Build generation model (NO Odoo calls, NO database writes)
+        const generationModel = buildGenerationModel(blueprintData, template.name);
+        
+        return new Response(JSON.stringify({
+          success: true,
+          generationModel: generationModel
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+      } catch (error) {
+        console.error('[Project Generator] Generate preview failed:', error);
+        
+        return new Response(JSON.stringify({
+          success: false,
+          error: error.message
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    },
+    
     // Generate project from template
     'POST /api/generate/:id': async (context) => {
       const { request, env, params, user } = context;
@@ -238,11 +293,13 @@ export default {
           });
         }
         
-        // Parse request body for confirmOverwrite flag
+        // Parse request body for confirmOverwrite flag and overrideModel
         let confirmOverwrite = false;
+        let overrideModel = null;
         try {
           const body = await request.json();
           confirmOverwrite = body.confirmOverwrite === true;
+          overrideModel = body.overrideModel || null;
         } catch {
           // No body or invalid JSON, proceed with default
         }
@@ -266,27 +323,21 @@ export default {
         let generationModel = null;
         
         try {
-          // LIFECYCLE STEP 2: Build generation model (without Odoo calls)
-          const blueprintData = await getBlueprintData(env, params.id);
-          
-          // Import buildGenerationModel or replicate logic
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-          const projectName = `${template.name} (${timestamp})`;
-          
-          // Build minimal model for tracking (full model built in generateProject)
-          generationModel = {
-            project: { name: projectName, description: null },
-            stages: blueprintData.stages || [],
-            tasks: blueprintData.tasks || [],
-            milestones: blueprintData.milestones || [],
-            dependencies: blueprintData.dependencies || []
-          };
+          // LIFECYCLE STEP 2: Build generation model (or use override)
+          if (overrideModel) {
+            console.log('[Project Generator] Using override model from preview (Addendum C)');
+            generationModel = overrideModel;
+          } else {
+            // Build from blueprint
+            const blueprintData = await getBlueprintData(env, params.id);
+            generationModel = buildGenerationModel(blueprintData, template.name);
+          }
           
           // LIFECYCLE STEP 3: Start generation record BEFORE Odoo calls
           generationId = await startGeneration(env, user.id, params.id, generationModel);
           
-          // LIFECYCLE STEP 4: Execute Odoo generation
-          const result = await generateProject(env, params.id, template.name);
+          // LIFECYCLE STEP 4: Execute Odoo generation (use generationModel which may be override)
+          const result = await generateProject(env, params.id, template.name, generationModel);
           
           if (result.success) {
             // LIFECYCLE STEP 5: Mark success

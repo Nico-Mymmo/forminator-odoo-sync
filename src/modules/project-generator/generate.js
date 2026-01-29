@@ -9,7 +9,7 @@
  * 2. Build canonical generation model
  * 3. Create project
  * 4. Create stages
- * 5. Create tags (milestones)
+ * 5. Create milestones
  * 6. Create tasks (parents first)
  * 7. Create dependencies (fail-soft)
  * 
@@ -22,7 +22,7 @@ import { getBlueprintData } from './library.js';
 import { 
   createProject, 
   createStage, 
-  createTag, 
+  createMilestone, 
   createTask, 
   addTaskDependencies 
 } from './odoo-creator.js';
@@ -33,9 +33,10 @@ import {
  * @param {Object} env - Cloudflare env
  * @param {string} templateId - Template UUID
  * @param {string} templateName - Template name
+ * @param {Object|null} overrideModel - Optional generation model override (Addendum C)
  * @returns {Promise<Object>} Generation result
  */
-export async function generateProject(env, templateId, templateName) {
+export async function generateProject(env, templateId, templateName, overrideModel = null) {
   const result = {
     success: false,
     step: null,
@@ -45,7 +46,7 @@ export async function generateProject(env, templateId, templateName) {
     error: null,
     odoo_mappings: {
       stages: {},
-      tags: {},
+      milestones: {},
       tasks: {}
     }
   };
@@ -62,11 +63,17 @@ export async function generateProject(env, templateId, templateName) {
       throw new Error('Blueprint validation failed: ' + validation.errors.join(', '));
     }
     
-    // STEP 2: Build canonical generation model
+    // STEP 2: Build canonical generation model (or use override)
     result.step = '2-build-model';
     console.log('[Generator] Step 2: Building generation model');
     
-    const generationModel = buildGenerationModel(blueprintData, templateName);
+    let generationModel;
+    if (overrideModel) {
+      console.log('[Generator] Using override model (Addendum C)');
+      generationModel = overrideModel;
+    } else {
+      generationModel = buildGenerationModel(blueprintData, templateName);
+    }
     result.generation_model = generationModel; // Store for lifecycle tracking
     
     // STEP 3: Create project
@@ -102,25 +109,18 @@ export async function generateProject(env, templateId, templateName) {
       console.log(`[Generator] Stage created: ${stage.name} (${stageId})`);
     }
     
-    // STEP 5: Create tags for milestones
-    result.step = '5-create-tags';
-    console.log('[Generator] Step 5: Creating milestone tags');
+    // STEP 5: Create milestones
+    result.step = '5-create-milestones';
+    console.log('[Generator] Step 5: Creating milestones');
     
-    const uniqueMilestones = [...new Set(
-      generationModel.tasks
-        .map(t => t.milestone_name)
-        .filter(m => m !== null)
-    )];
-    
-    for (const milestoneName of uniqueMilestones) {
-      try {
-        const tagId = await createTag(env, milestoneName);
-        result.odoo_mappings.tags[milestoneName] = tagId;
-        console.log(`[Generator] Tag created: ${milestoneName} (${tagId})`);
-      } catch (err) {
-        // Tags are optional, continue on failure
-        console.warn(`[Generator] Tag creation failed for "${milestoneName}":`, err.message);
-      }
+    for (const milestone of generationModel.milestones) {
+      const milestoneId = await createMilestone(env, {
+        name: milestone.name,
+        project_id: projectId
+      });
+      
+      result.odoo_mappings.milestones[milestone.blueprint_id] = milestoneId;
+      console.log(`[Generator] Milestone created: ${milestone.name} (${milestoneId})`);
     }
     
     // STEP 6: Create tasks (ordered)
@@ -151,9 +151,12 @@ export async function generateProject(env, templateId, templateName) {
         taskData.parent_id = parentOdooId;
       }
       
-      // Add milestone tag if exists
-      if (task.milestone_name && result.odoo_mappings.tags[task.milestone_name]) {
-        taskData.tag_ids = [result.odoo_mappings.tags[task.milestone_name]];
+      // Add milestone if exists
+      if (task.milestone_blueprint_id) {
+        const milestoneOdooId = result.odoo_mappings.milestones[task.milestone_blueprint_id];
+        if (milestoneOdooId) {
+          taskData.milestone_id = milestoneOdooId;
+        }
       }
       
       const taskId = await createTask(env, taskData);
@@ -214,7 +217,7 @@ export async function generateProject(env, templateId, templateName) {
  * @param {string} templateName - Template name
  * @returns {Object} Generation model
  */
-function buildGenerationModel(blueprint, templateName) {
+export function buildGenerationModel(blueprint, templateName) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
   const projectName = `${templateName} (${timestamp})`;
   
@@ -224,6 +227,7 @@ function buildGenerationModel(blueprint, templateName) {
       description: null
     },
     stages: [],
+    milestones: [],
     tasks: []
   };
   
@@ -236,18 +240,24 @@ function buildGenerationModel(blueprint, templateName) {
     }));
   }
   
+  // Copy milestones
+  if (blueprint.milestones && Array.isArray(blueprint.milestones)) {
+    model.milestones = blueprint.milestones.map(milestone => ({
+      blueprint_id: milestone.id,
+      name: milestone.name
+    }));
+  }
+  
   // Build tasks with generation order
   if (blueprint.tasks && Array.isArray(blueprint.tasks)) {
     const taskMap = new Map();
     
     // First pass: create task entries
     blueprint.tasks.forEach(task => {
-      const milestone = blueprint.milestones?.find(m => m.id === task.milestone_id);
-      
       taskMap.set(task.id, {
         blueprint_id: task.id,
         name: task.name,
-        milestone_name: milestone ? milestone.name : null,
+        milestone_blueprint_id: task.milestone_id || null,
         parent_blueprint_id: task.parent_id,
         dependencies: [],
         generation_order: 0
