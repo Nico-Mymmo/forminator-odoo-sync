@@ -441,12 +441,12 @@ async function initBlueprintEditor() {
   document.getElementById('addStageBtn').addEventListener('click', () => openStageModal());
   document.getElementById('addMilestoneBtn').addEventListener('click', () => openMilestoneModal());
   document.getElementById('addTaskBtn').addEventListener('click', () => openTaskModal());
-  document.getElementById('addDependencyBtn').addEventListener('click', () => openDependencyModal());
+  // Dependency management is now inline per task (Addendum E)
   
   document.getElementById('stageForm').addEventListener('submit', handleStageSubmit);
   document.getElementById('milestoneForm').addEventListener('submit', handleMilestoneSubmit);
   document.getElementById('taskForm').addEventListener('submit', handleTaskSubmit);
-  document.getElementById('dependencyForm').addEventListener('submit', handleDependencySubmit);
+  // Dependency form removed - now managed inline per task (Addendum E)
   
   // Load blueprint
   await loadBlueprint();
@@ -1009,7 +1009,7 @@ function handleTaskSubmit(e) {
   
   document.getElementById('taskModal').close();
   renderTasks();
-  renderDependencies(); // Re-render dependencies to update task options
+  // Dependencies are now managed inline per task (Addendum E)
   validateAndDisplay();
 }
 
@@ -1036,133 +1036,241 @@ function deleteTask(taskId) {
     );
     
     renderTasks();
-    renderDependencies();
+    // Dependencies are now managed inline per task (Addendum E)
     validateAndDisplay();
   }
 }
 
 // ============================================================================
-// DEPENDENCIES
+// DEPENDENCIES (Addendum E - Inline per-task management)
 // ============================================================================
 
-function renderDependencies() {
-  const list = document.getElementById('dependenciesList');
-  const empty = document.getElementById('emptyDependencies');
+/**
+ * Open inline dependency management modal for a specific task
+ * Allows multi-select of dependencies with cycle detection
+ */
+function openTaskDependenciesModal(taskId) {
+  const task = blueprintState.tasks.find(t => t.id === taskId);
+  if (!task) return;
   
-  list.innerHTML = '';
+  // Get current dependencies for this task
+  const currentDeps = blueprintState.dependencies
+    .filter(d => d.task_id === taskId)
+    .map(d => d.depends_on_task_id);
   
-  if (blueprintState.dependencies.length === 0) {
-    list.style.display = 'none';
-    empty.style.display = 'block';
-    return;
+  // Create modal
+  const modal = document.createElement('dialog');
+  modal.className = 'modal modal-open';
+  
+  const modalBox = document.createElement('div');
+  modalBox.className = 'modal-box';
+  
+  // Header
+  const title = document.createElement('h3');
+  title.className = 'font-bold text-lg mb-2';
+  title.textContent = 'Manage Dependencies';
+  modalBox.appendChild(title);
+  
+  const subtitle = document.createElement('p');
+  subtitle.className = 'text-sm text-base-content/60 mb-4';
+  subtitle.textContent = `Task: ${task.name}`;
+  modalBox.appendChild(subtitle);
+  
+  // Instructions
+  const instructions = document.createElement('p');
+  instructions.className = 'text-sm mb-4';
+  instructions.textContent = 'Select tasks that this task depends on (must complete before this task can start):';
+  modalBox.appendChild(instructions);
+  
+  // Task list with checkboxes
+  const taskListContainer = document.createElement('div');
+  taskListContainer.className = 'max-h-96 overflow-y-auto border border-base-300 rounded-lg p-3 mb-4';
+  
+  // Get available tasks (exclude self and subtasks of current task)
+  const availableTasks = blueprintState.tasks.filter(t => 
+    t.id !== taskId && t.parent_id !== taskId
+  );
+  
+  if (availableTasks.length === 0) {
+    const emptyMsg = document.createElement('p');
+    emptyMsg.className = 'text-center text-base-content/40';
+    emptyMsg.textContent = 'No other tasks available';
+    taskListContainer.appendChild(emptyMsg);
+  } else {
+    availableTasks.forEach(availableTask => {
+      const label = document.createElement('label');
+      label.className = 'flex items-center gap-2 p-2 hover:bg-base-200 rounded cursor-pointer';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'checkbox checkbox-sm';
+      checkbox.value = availableTask.id;
+      checkbox.checked = currentDeps.includes(availableTask.id);
+      label.appendChild(checkbox);
+      
+      const taskName = document.createElement('span');
+      taskName.className = 'flex-1';
+      taskName.textContent = availableTask.name;
+      
+      // Add visual indicator if subtask
+      if (availableTask.parent_id) {
+        taskName.className += ' ml-4 text-sm text-base-content/60';
+      }
+      
+      label.appendChild(taskName);
+      taskListContainer.appendChild(label);
+    });
   }
   
-  list.style.display = 'block';
-  empty.style.display = 'none';
+  modalBox.appendChild(taskListContainer);
   
-  blueprintState.dependencies.forEach((dep, index) => {
-    const task = blueprintState.tasks.find(t => t.id === dep.task_id);
-    const dependsOn = blueprintState.tasks.find(t => t.id === dep.depends_on_task_id);
-    
-    const div = document.createElement('div');
-    div.className = 'flex items-center justify-between p-3 bg-base-200 rounded';
-    
-    const textDiv = document.createElement('div');
-    
-    const taskSpan = document.createElement('span');
-    taskSpan.className = 'font-semibold';
-    taskSpan.textContent = task ? task.name : 'Unknown task';
-    textDiv.appendChild(taskSpan);
-    
-    const arrow = document.createElement('span');
-    arrow.className = 'mx-2 text-base-content/40';
-    arrow.textContent = '→ depends on →';
-    textDiv.appendChild(arrow);
-    
-    const dependsSpan = document.createElement('span');
-    dependsSpan.className = 'font-semibold';
-    dependsSpan.textContent = dependsOn ? dependsOn.name : 'Unknown task';
-    textDiv.appendChild(dependsSpan);
-    
-    div.appendChild(textDiv);
-    
-    const btnDiv = document.createElement('div');
-    btnDiv.className = 'flex gap-1';
-    
-    // Delete button
-    const delBtn = document.createElement('button');
-    delBtn.className = 'btn btn-xs btn-ghost text-error';
-    delBtn.title = 'Delete';
-    delBtn.onclick = () => deleteDependency(index);
-    const delIcon = document.createElement('i');
-    delIcon.setAttribute('data-lucide', 'trash-2');
-    delIcon.className = 'w-3 h-3';
-    delBtn.appendChild(delIcon);
-    btnDiv.appendChild(delBtn);
-    
-    div.appendChild(btnDiv);
-    list.appendChild(div);
-  });
+  // Error message area
+  const errorMsg = document.createElement('div');
+  errorMsg.className = 'alert alert-error hidden mb-4';
+  errorMsg.id = 'dependencyErrorMsg';
+  modalBox.appendChild(errorMsg);
   
-  lucide.createIcons();
-}
-
-function openDependencyModal() {
-  const modal = document.getElementById('dependencyModal');
-  const taskSelect = document.getElementById('dependencyTask');
-  const dependsOnSelect = document.getElementById('dependencyDependsOn');
+  // Actions
+  const actions = document.createElement('div');
+  actions.className = 'modal-action';
   
-  // Populate task options
-  taskSelect.innerHTML = '<option value="">Select task...</option>';
-  dependsOnSelect.innerHTML = '<option value="">Select task...</option>';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = () => {
+    modal.close();
+    modal.remove();
+  };
+  actions.appendChild(cancelBtn);
   
-  blueprintState.tasks.forEach(task => {
-    const option1 = document.createElement('option');
-    option1.value = task.id;
-    option1.textContent = task.name;
-    taskSelect.appendChild(option1);
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-primary';
+  saveBtn.textContent = 'Save Dependencies';
+  saveBtn.onclick = () => {
+    // Get selected dependencies
+    const checkboxes = taskListContainer.querySelectorAll('input[type="checkbox"]');
+    const selectedDeps = Array.from(checkboxes)
+      .filter(cb => cb.checked)
+      .map(cb => cb.value);
     
-    const option2 = document.createElement('option');
-    option2.value = task.id;
-    option2.textContent = task.name;
-    dependsOnSelect.appendChild(option2);
-  });
+    // Validate: no self-reference (already filtered out, but double-check)
+    if (selectedDeps.includes(taskId)) {
+      showDependencyError(errorMsg, 'Task cannot depend on itself');
+      return;
+    }
+    
+    // Validate: no circular dependencies
+    const cycleCheck = validateNoCycles(taskId, selectedDeps);
+    if (!cycleCheck.valid) {
+      showDependencyError(errorMsg, cycleCheck.error);
+      return;
+    }
+    
+    // Update dependencies
+    // Remove old dependencies for this task
+    blueprintState.dependencies = blueprintState.dependencies.filter(d => d.task_id !== taskId);
+    
+    // Add new dependencies
+    selectedDeps.forEach(depId => {
+      blueprintState.dependencies.push({
+        task_id: taskId,
+        depends_on_task_id: depId
+      });
+    });
+    
+    // Re-render tasks to update badges
+    renderTasks();
+    validateAndDisplay();
+    
+    modal.close();
+    modal.remove();
+    
+    showToast('Dependencies updated', 'success');
+  };
+  actions.appendChild(saveBtn);
+  
+  modalBox.appendChild(actions);
+  modal.appendChild(modalBox);
+  document.body.appendChild(modal);
   
   modal.showModal();
 }
 
-function handleDependencySubmit(e) {
-  e.preventDefault();
-  
-  const taskId = document.getElementById('dependencyTask').value;
-  const dependsOnTaskId = document.getElementById('dependencyDependsOn').value;
-  
-  if (!taskId || !dependsOnTaskId) return;
-  
-  // Check if dependency already exists
-  const exists = blueprintState.dependencies.some(d =>
-    d.task_id === taskId && d.depends_on_task_id === dependsOnTaskId
-  );
-  
-  if (exists) {
-    showToast('This dependency already exists', 'error');
-    return;
-  }
-  
-  blueprintState.dependencies.push({
-    task_id: taskId,
-    depends_on_task_id: dependsOnTaskId
-  });
-  
-  document.getElementById('dependencyModal').close();
-  renderDependencies();
-  validateAndDisplay();
+/**
+ * Show error message in dependency modal
+ */
+function showDependencyError(errorElement, message) {
+  errorElement.textContent = message;
+  errorElement.classList.remove('hidden');
 }
 
-function deleteDependency(index) {
-  blueprintState.dependencies.splice(index, 1);
-  renderDependencies();
-  validateAndDisplay();
+/**
+ * Validate that adding dependencies will not create cycles
+ * Returns {valid: boolean, error: string|null}
+ */
+function validateNoCycles(taskId, newDependsOnIds) {
+  // Build temporary dependency graph with proposed changes
+  const tempDeps = blueprintState.dependencies.filter(d => d.task_id !== taskId);
+  newDependsOnIds.forEach(depId => {
+    tempDeps.push({ task_id: taskId, depends_on_task_id: depId });
+  });
+  
+  // Build adjacency graph
+  const graph = new Map();
+  tempDeps.forEach(dep => {
+    if (!graph.has(dep.task_id)) {
+      graph.set(dep.task_id, []);
+    }
+    graph.get(dep.task_id).push(dep.depends_on_task_id);
+  });
+  
+  // DFS cycle detection
+  const visited = new Set();
+  const recursionStack = new Set();
+  let cycleFound = null;
+  
+  function dfs(node, path) {
+    if (cycleFound) return;
+    
+    visited.add(node);
+    recursionStack.add(node);
+    path.push(node);
+    
+    const neighbors = graph.get(node) || [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        dfs(neighbor, [...path]);
+      } else if (recursionStack.has(neighbor)) {
+        // Cycle detected
+        const cycleStart = path.indexOf(neighbor);
+        const cycle = path.slice(cycleStart).concat(neighbor);
+        const taskNames = cycle.map(id => {
+          const t = blueprintState.tasks.find(task => task.id === id);
+          return t ? t.name : id;
+        });
+        cycleFound = `Circular dependency: ${taskNames.join(' → ')}`;
+        return;
+      }
+    }
+    
+    path.pop();
+    recursionStack.delete(node);
+  }
+  
+  // Check all nodes
+  for (const node of graph.keys()) {
+    if (!visited.has(node)) {
+      dfs(node, []);
+      if (cycleFound) break;
+    }
+  }
+  
+  if (cycleFound) {
+    return { valid: false, error: cycleFound };
+  }
+  
+  return { valid: true, error: null };
 }
 
 // ============================================================================

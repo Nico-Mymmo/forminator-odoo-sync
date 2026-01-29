@@ -279,25 +279,12 @@ export function blueprintEditorUI(user, templateId) {
             </div>
           </div>
 
-          <!-- Dependencies Section -->
-          <div class="card bg-base-100 shadow-xl mb-6">
-            <div class="card-body">
-              <div class="flex justify-between items-center mb-4">
-                <h2 class="card-title">
-                  <i data-lucide="git-branch" class="w-5 h-5 mr-2"></i>
-                  Task Dependencies
-                </h2>
-                <button id="addDependencyBtn" class="btn btn-sm btn-primary">
-                  <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
-                  Add Dependency
-                </button>
-              </div>
-              <div id="dependenciesList" class="space-y-2">
-                <!-- Dependencies inserted by client.js -->
-              </div>
-              <div id="emptyDependencies" class="text-center py-8 text-base-content/40" style="display: none;">
-                No dependencies defined
-              </div>
+          <!-- Dependencies Section (Addendum E - now managed inline per task) -->
+          <div class="alert alert-info mb-6">
+            <i data-lucide="info" class="w-5 h-5"></i>
+            <div>
+              <h3 class="font-semibold">Dependencies are now managed per task</h3>
+              <p class="text-sm">Click the dependency icon (<i data-lucide="git-branch" class="w-3 h-3 inline"></i>) next to any task to set up its dependencies.</p>
             </div>
           </div>
 
@@ -415,36 +402,7 @@ export function blueprintEditorUI(user, templateId) {
       </div>
     </dialog>
 
-    <!-- Dependency Modal -->
-    <dialog id="dependencyModal" class="modal">
-      <div class="modal-box">
-        <h3 id="dependencyModalTitle" class="font-bold text-lg mb-4">Add Dependency</h3>
-        <form id="dependencyForm">
-          <div class="form-control mb-4">
-            <label class="label">
-              <span class="label-text">Task <span class="text-error">*</span></span>
-            </label>
-            <select id="dependencyTask" class="select select-bordered" required>
-              <option value="">Select task...</option>
-              <!-- Options inserted by client.js -->
-            </select>
-          </div>
-          <div class="form-control mb-4">
-            <label class="label">
-              <span class="label-text">Depends On <span class="text-error">*</span></span>
-            </label>
-            <select id="dependencyDependsOn" class="select select-bordered" required>
-              <option value="">Select task...</option>
-              <!-- Options inserted by client.js -->
-            </select>
-          </div>
-          <div class="modal-action">
-            <button type="button" class="btn" onclick="dependencyModal.close()">Cancel</button>
-            <button type="submit" class="btn btn-primary">Save</button>
-          </div>
-        </form>
-      </div>
-    </dialog>
+    <!-- Dependency Modal removed - now managed inline per task (Addendum E) -->
 
     <!-- Toast Container -->
     <div id="toastContainer" class="toast toast-top toast-end"></div>
