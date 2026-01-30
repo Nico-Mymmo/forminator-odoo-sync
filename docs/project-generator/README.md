@@ -1,72 +1,92 @@
-# Project Generator Documentation
+# Project Generator Module Documentatie
 
-## Active Documentation (V1 MVP Scope)
+## Overzicht
+De Project Generator module maakt het mogelijk om herbruikbare projectsjablonen te ontwerpen en automatisch Odoo projecten te genereren op basis van deze sjablonen.
 
-**Single Source of Truth:**
-- [PROJECT_GENERATOR_COMPLETE_V1.md](PROJECT_GENERATOR_COMPLETE_V1.md) - Complete reference for V1 implementation
+## Belangrijkste Documenten
 
-**Supporting Documentation:**
-- [FUNCTIONAL_ANALYSIS_V1.md](FUNCTIONAL_ANALYSIS_V1.md) - What users can do in V1
-- [TECHNICAL_ANALYSIS_V1.md](TECHNICAL_ANALYSIS_V1.md) - How to implement V1
-- [EXPLORER_V1.md](EXPLORER_V1.md) - Why V1 decisions were made
+### Finale Oplevering
+- [PROJECT_GENERATOR_COMPLETE_V1.md](PROJECT_GENERATOR_COMPLETE_V1.md) - Complete referentie voor V1 implementatie
+- [MODULE_PROJECT_IMPORTER_IMPLEMENTATION_LOG.md](MODULE_PROJECT_IMPORTER_IMPLEMENTATION_LOG.md) - Volledige implementatie log met architectuur en beslissingen
 
----
+### Addendums (Specificaties & Contracten)
+Addendums definiëren architecturale beslissingen, data contracten en ordering invariants:
+
+- [ADDENDUM_A_B.md](ADDENDUM_A_B.md) - Foundational specs (A & B combined)
+- [ADDENDUM_C.md](ADDENDUM_C.md) - Blueprint editor enhancements
+- [ADDENDUM_D.md](ADDENDUM_D.md) - Task dependencies
+- [ADDENDUM_E.md](ADDENDUM_E.md) - Stakeholder mapping
+- [ADDENDUM_F.md](ADDENDUM_F.md) - Color coding system
+- [ADDENDUM_G.md](ADDENDUM_G.md) - Tag system
+- [ADDENDUM_H.md](ADDENDUM_H.md) - Task timing
+- [ADDENDUM_H1.md](ADDENDUM_H1.md) - Timing refinements
+- [ADDENDUM_I.md](ADDENDUM_I.md) - Stage system
+- [ADDENDUM_J.md](ADDENDUM_J.md) - Generation lifecycle
+- [ADDENDUM_K.md](ADDENDUM_K.md) - Multi-level task hierarchy
+- [ADDENDUM_L.md](ADDENDUM_L.md) - Parent-child ordering
+- [ADDENDUM_M.md](ADDENDUM_M.md) - Milestone-dominant ordering
+- [ADDENDUM_M1.md](ADDENDUM_M1.md) - Milestone-leading sort fix
+- [ADDENDUM_M2.md](ADDENDUM_M2.md) - Task ordering contract (normative)
+
+### Analyse & Ontwerp
+Zie [analysis/](analysis/) submap voor:
+- [FUNCTIONAL_ANALYSIS_V1.md](analysis/FUNCTIONAL_ANALYSIS_V1.md) - Wat gebruikers kunnen doen
+- [TECHNICAL_ANALYSIS_V1.md](analysis/TECHNICAL_ANALYSIS_V1.md) - Hoe V1 te implementeren
+- [EXPLORER_V1.md](analysis/EXPLORER_V1.md) - Waarom V1 beslissingen genomen zijn
+
+### Forensics & Debugging
+Zie [forensics/](forensics/) submap voor:
+- [FULL_FORENSIC_MODULE_REPORT.md](forensics/FULL_FORENSIC_MODULE_REPORT.md) - Complete module forensics
+- [FORENSIC_ORDERING_TRACE.md](forensics/FORENSIC_ORDERING_TRACE.md) - Task ordering trace analysis
+- [FORENSIC_MILESTONE_REORDER_TRACE.md](forensics/FORENSIC_MILESTONE_REORDER_TRACE.md) - Milestone reordering investigation
+- [DIAGNOSTIC_REPORT_GENERATION_PERFORMANCE.md](forensics/DIAGNOSTIC_REPORT_GENERATION_PERFORMANCE.md) - Performance analyse
+
+### Odoo Models
+Zie [models/](models/) submap voor PDF exports van Odoo modellen
+
 
 ## Quick Reference
 
-### What is Project Generator V1?
+### Wat is Project Generator V1?
 
-A minimal system that allows users to:
-1. **Design** a project structure (task stages, milestones, tasks, subtasks, dependencies)
-2. **Save** it as a template (Supabase)
-3. **Generate** an Odoo project from that template (API)
+Een systeem waarmee gebruikers:
+1. **Ontwerpen** - Een projectstructuur maken (stages, milestones, taken, subtaken, dependencies)
+2. **Opslaan** - Als herbruikbare template (Supabase)
+3. **Genereren** - Een Odoo project aanmaken op basis van de template
 
-**Architectural Principle:** The Project Generator adapts to Odoo. Odoo is not modified, extended, or bypassed.
+**Architectureel Principe:** De Project Generator past zich aan Odoo aan. Odoo wordt niet gewijzigd, uitgebreid of omzeild.
 
-### Implementation Status
+### Implementatie Status
 
-**✅ Iteration 1:** Database foundation (`project_templates` table)  
+**✅ Iteration 1:** Database foundation  
 **✅ Iteration 2:** Template library CRUD + UI  
-**✅ Iteration 3:** Blueprint editor (structure only) - [See ITERATION_3_SUMMARY.md](ITERATION_3_SUMMARY.md)  
-**✅ Iteration 4:** Project generation + Odoo integration - [See ITERATION_4_SUMMARY.md](ITERATION_4_SUMMARY.md)  
-**⏳ Future:** Generation history, improvements  
+**✅ Iteration 3:** Blueprint editor  
+**✅ Iteration 4:** Project generation + Odoo integration  
+**✅ Iteration 5:** Sequence backfill voor legacy data  
 
-### Deterministic Flow
+Zie [iterations/](iterations/) voor volledige implementatie logs.
+
+### Flow
 
 ```
 Blueprint → Template → Odoo Project
-(design)    (storage)   (one-time push)
+(ontwerp)   (opslag)   (één keer pushen)
 ```
 
-**No sync. No updates. No versioning in V1.**
+**Geen sync. Geen updates. Geen versiebeheer in V1.**
 
-### Implementation Scope
+## Documentatie Structuur
 
-**Files to Create:**
-- `src/modules/project-generator/module.js` - Module registration
-- `src/modules/project-generator/library.js` - Template CRUD + list UI
-- `src/modules/project-generator/editor.js` - Blueprint editor UI
-- `src/modules/project-generator/generate.js` - Project generation UI
-- `src/modules/project-generator/validation.js` - Validation logic
-- `src/modules/project-generator/odoo-creator.js` - Odoo API calls
-
-**Database:**
-- Single table: `project_templates` (id, user_id, name, description, blueprint_data, created_at, updated_at)
-
-**Estimated Effort:** 3-5 days
-
----
-
-## NOT in V1 Scope
-
-### Features Explicitly Excluded
-- ❌ Template versioning (single version only, overwrite on save)
-- ❌ Audit trail (no generation history tracking)
-- ❌ Rollback on error (user manually deletes partial project in Odoo)
-- ❌ Bidirectional sync (one-way push only, ZERO connection after generation)
-- ❌ Visual dependency graph (text list only)
-- ❌ Keyboard shortcuts (deliberate exclusion for simplicity)
-- ❌ Confetti animations (deliberate exclusion for simplicity)
+```
+project-generator/
+├── README.md (dit bestand)
+├── PROJECT_GENERATOR_COMPLETE_V1.md (finale oplevering)
+├── ADDENDUM_*.md (specificaties & contracten)
+├── analysis/ (functionele & technische analyse)
+├── forensics/ (debugging & trace analyses)
+├── iterations/ (implementatie logs per iteratie)
+└── models/ (Odoo model exports)
+```
 - ❌ Auto-save (manual save only, Cancel returns to last saved state)
 
 ### Data Explicitly Excluded (Except Subtasks)
@@ -81,86 +101,13 @@ Blueprint → Template → Odoo Project
 - ❌ New service layers (use existing odoo.js, database.js, auth/*)
 - ❌ Alternative Odoo patterns (use existing executeKw from odoo.js only)
 - ❌ State management library (plain JavaScript only)
-- ❌ GraphQL (REST API only via existing patterns)
-- ❌ Queue system (synchronous generation only)
+## Gerelateerde Modules
+- Sales Insight Explorer - Analytics en rapportage
+- CRM Leads - Lead classificatie en verrijking
 
----
+## Support & Contact
+Voor vragen en ondersteuning, zie de hoofddocumentatie in [docs/README.md](../README.md)
 
-## Document History
-
-### 2026-01-28: V1 MVP Scope Rewrite
-- Complete rewrite with strict scope reduction
-- Removed 6 old documents (too broad)
-- Created 4 new documents (V1 focused)
-- Reduced scope from 11-week roadmap to 3-5 day MVP
-- Eliminated all nice-to-have features
-- Anchored entirely in existing app architecture
-
-### 2026-01-28: Initial Analysis (DEPRECATED)
-- Original comprehensive analysis
-- Included versioning, audit trail, advanced UX
-- 11-week implementation roadmap
-- Too broad for initial validation
-- Files removed: FUNCTIONAL_ANALYSIS.md, TECHNICAL_ANALYSIS.md, UX_STRUCTURE.md, RISKS_AND_MITIGATIONS.md, EXPLORER.md, PROJECT_GENERATOR_COMPLETE.md
-
----
-
-## Key Architectural Constraints
-
-### Must Use Existing Patterns
-- `src/modules/registry.js` for module registration
-- `src/lib/odoo.js` for all Odoo communication (executeKw only)
-- `src/lib/database.js` for Supabase queries
-- `src/lib/auth/*` for authentication
-- DaisyUI components for all UI
-
-### Must NOT Create
-- ❌ New service layer abstractions
-- ❌ Alternative Odoo client libraries
-- ❌ Custom validation frameworks
-- ❌ New routing systems
-- ❌ State management libraries
-
-### Sequential API Calls (V1)
-1. Create project (`project.project`)
-2. Create stages (`project.task.type`)
-3. Create milestones (`project.milestone`)
-4. Create tasks (`project.task`) - pass 1
-5. Set dependencies (`project.task`) - pass 2
-
-**No parallel execution in V1.**
-
----
-
-## Validation Rules
-
-### Errors (Block Save)
-- Empty template/stage/task names
-- Circular dependencies
-- Duplicate stage/milestone names
-- Invalid dependency references
-
-### Warnings (Allow Save)
-- Tasks without milestones
-- Empty stages
-- Isolated tasks
-- No milestones defined
-
----
-
-## Success Criteria
-
-### Must Work
-- ✅ Create template
-- ✅ Edit template
-- ✅ Delete template
-- ✅ Generate Odoo project
-- ✅ Project matches blueprint
-- ✅ Validation catches errors
-- ✅ RLS enforced
-
-### Performance
-- Template list: <1s
 - Editor load: <500ms
 - Validation: <200ms
 - Save: <1s

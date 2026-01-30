@@ -27,3 +27,15 @@ temp_*
 check_*
 fix_*
 verify_*
+
+# Build artifacts
+*.zip
+cloudflare-deployment.zip
+
+# Debug snapshots
+*DEBUG*.md
+workflow-debug-snapshot.*
+
+# Temporary documentation
+*-modal.txt
+*INSTRUCTION*.txt
