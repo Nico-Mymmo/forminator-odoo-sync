@@ -364,6 +364,7 @@ export default {
         // Execute generation with lifecycle tracking
         let generationId = null;
         let generationModel = null;
+        let lifecycleClosed = false; // ADDENDUM L: Track whether lifecycle was explicitly closed
         
         try {
           // LIFECYCLE STEP 2: Build generation model (or use override)
@@ -385,6 +386,7 @@ export default {
           if (result.success) {
             // LIFECYCLE STEP 5: Mark success
             await markGenerationSuccess(env, generationId, result);
+            lifecycleClosed = true; // ADDENDUM L: Lifecycle explicitly closed
             
             return new Response(JSON.stringify({
               success: true,
@@ -398,6 +400,7 @@ export default {
           } else {
             // LIFECYCLE STEP 6: Mark failure
             await markGenerationFailure(env, generationId, result.step, result.error);
+            lifecycleClosed = true; // ADDENDUM L: Lifecycle explicitly closed
             
             return new Response(JSON.stringify({
               success: false,
@@ -412,10 +415,28 @@ export default {
           
         } catch (generationError) {
           // LIFECYCLE STEP 7: Mark unexpected failure
-          if (generationId) {
-            await markGenerationFailure(env, generationId, 'unknown', generationError.message);
+          if (generationId && !lifecycleClosed) {
+            try {
+              await markGenerationFailure(env, generationId, 'unknown', generationError.message);
+              lifecycleClosed = true;
+            } catch (lifecycleError) {
+              // ADDENDUM L: If lifecycle update fails here, log but continue to throw original error
+              console.error('[Project Generator] Failed to mark generation failure in catch block:', lifecycleError);
+            }
           }
           throw generationError;
+        } finally {
+          // ADDENDUM L: GUARANTEED LIFECYCLE CLOSURE
+          // This runs even if Worker is killed, exception thrown, or early return
+          if (generationId && !lifecycleClosed) {
+            console.warn('[Project Generator] FINALLY BLOCK: Lifecycle not closed, forcing failure state');
+            try {
+              await markGenerationFailure(env, generationId, 'incomplete', 'Generation did not complete normally');
+            } catch (finallyError) {
+              console.error('[Project Generator] CRITICAL: Finally block lifecycle update failed:', finallyError);
+              // Nothing more we can do - at least we tried
+            }
+          }
         }
         
       } catch (error) {

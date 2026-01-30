@@ -75,8 +75,36 @@ export async function validateGenerationStart(env, userId, templateId, confirmOv
     return { canProceed: true, reason: null, existingGeneration: null };
   }
   
-  // HARD BLOCK: generation in progress
+  // ADDENDUM L: STALE IN_PROGRESS RECOVERY
+  // If a generation is stuck in_progress for > 15 minutes, treat as implicitly failed
   if (existing.status === 'in_progress') {
+    const startedAt = new Date(existing.started_at);
+    const now = new Date();
+    const ageMinutes = (now - startedAt) / (1000 * 60);
+    const STALE_THRESHOLD_MINUTES = 15;
+    
+    if (ageMinutes > STALE_THRESHOLD_MINUTES) {
+      console.warn(`[Generation Lifecycle] Stale in_progress record detected (age: ${ageMinutes.toFixed(1)}m)`);
+      console.warn(`[Generation Lifecycle] Auto-recovering stuck generation ${existing.id}`);
+      
+      // Mark the stuck record as failed
+      try {
+        await markGenerationFailure(env, existing.id, 'timeout', `Auto-recovered: stuck in_progress for ${ageMinutes.toFixed(1)} minutes`);
+        console.log('[Generation Lifecycle] Stale record recovered, allowing new generation');
+        // Allow the new generation to proceed
+        return { canProceed: true, reason: null, existingGeneration: existing };
+      } catch (recoveryError) {
+        console.error('[Generation Lifecycle] Failed to recover stale record:', recoveryError);
+        // Still block if recovery fails to avoid duplicate executions
+        return {
+          canProceed: false,
+          reason: 'Generation stuck in progress (recovery failed)',
+          existingGeneration: existing
+        };
+      }
+    }
+    
+    // Not stale yet - hard block
     return {
       canProceed: false,
       reason: 'Generation already in progress for this template',
@@ -161,6 +189,8 @@ export async function markGenerationSuccess(env, generationId, result) {
   
   if (error) {
     console.error('[Generation Lifecycle] Mark success failed:', error);
+    // ADDENDUM L: Lifecycle update errors MUST be thrown
+    // A stuck in_progress record is worse than a noisy failure
     throw new Error(`Failed to mark generation success: ${error.message}`);
   }
   
@@ -192,7 +222,9 @@ export async function markGenerationFailure(env, generationId, failedStep, error
   
   if (error) {
     console.error('[Generation Lifecycle] Mark failure failed:', error);
-    // Log but don't throw - original error is more important
+    // ADDENDUM L: Lifecycle update errors MUST be thrown
+    // We prefer noisy failure over silent stuck records
+    throw new Error(`Failed to mark generation failure: ${error.message}`);
   }
   
   console.log(`[Generation Lifecycle] Failed generation ${generationId} at step ${failedStep}`);

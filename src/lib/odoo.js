@@ -4,6 +4,26 @@ const ODOO_URL_PROD = "https://mymmo.odoo.com/jsonrpc";
 const ODOO_URL_STAGING = "https://mymmo-test-22961179.dev.odoo.com/jsonrpc";
 const ODOO_DB_STAGING = "mymmo-test-22961179";
 
+// ADDENDUM L: Centralized throttling to prevent rate limits
+const THROTTLE_DELAY_MS = 200; // Delay between Odoo API calls (configurable)
+let lastOdooCallTime = 0;
+
+/**
+ * Throttle helper - ensures minimum delay between Odoo calls
+ * ADDENDUM L: Applied to all executeKw calls to prevent rate limits
+ */
+async function throttle() {
+  const now = Date.now();
+  const timeSinceLastCall = now - lastOdooCallTime;
+  
+  if (timeSinceLastCall < THROTTLE_DELAY_MS) {
+    const waitTime = THROTTLE_DELAY_MS - timeSinceLastCall;
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  
+  lastOdooCallTime = Date.now();
+}
+
 function getOdooUrl({ staging = false, odooUrl } = {}) {
   if (odooUrl) return odooUrl;
   if (staging === true) return ODOO_URL_STAGING;
@@ -11,6 +31,9 @@ function getOdooUrl({ staging = false, odooUrl } = {}) {
 }
 
 export async function executeKw(env, { model, method, args = [], kwargs = {}, staging = false, odooUrl, odooDb }) {
+  // ADDENDUM L: Apply throttle BEFORE making the call
+  await throttle();
+  
   const dbName = typeof odooDb === "string" && odooDb.trim() || staging === true && ODOO_DB_STAGING || (env.DB_NAME || '').trim();
   
   // DEBUG: Log exact values
@@ -121,6 +144,38 @@ export async function create(env, { model, values, staging = false, odooUrl, odo
     model,
     method: "create",
     args: [values],
+    staging,
+    odooUrl,
+    odooDb
+  });
+}
+
+/**
+ * Batch create multiple records (ADDENDUM L: Layer 3 optimization)
+ * 
+ * Creates multiple records in a single Odoo API call.
+ * Odoo's create() method supports both single dict and array of dicts.
+ * Returns array of created IDs in same order as input.
+ * 
+ * @param {Object} env - Cloudflare env
+ * @param {Object} options - Options
+ * @param {string} options.model - Odoo model name
+ * @param {Array<Object>} options.valuesArray - Array of value dicts to create
+ * @param {boolean} [options.staging=false] - Use staging environment
+ * @param {string} [options.odooUrl] - Custom Odoo URL
+ * @param {string} [options.odooDb] - Custom Odoo DB name
+ * @returns {Promise<Array<number>>} Array of created record IDs
+ */
+export async function batchCreate(env, { model, valuesArray, staging = false, odooUrl, odooDb }) {
+  if (!Array.isArray(valuesArray) || valuesArray.length === 0) {
+    throw new Error('batchCreate requires non-empty valuesArray');
+  }
+  
+  // Single call with array of values - Odoo returns array of IDs
+  return executeKw(env, {
+    model,
+    method: "create",
+    args: [valuesArray],
     staging,
     odooUrl,
     odooDb

@@ -13,7 +13,7 @@
  * - Return Odoo IDs directly
  */
 
-import { create, write, searchRead } from '../../lib/odoo.js';
+import { create, write, searchRead, batchCreate } from '../../lib/odoo.js';
 
 /**
  * Get active internal Odoo users
@@ -266,3 +266,109 @@ export async function addTaskDependencies(env, taskId, dependsOnIds) {
     }
   });
 }
+
+/**
+ * ADDENDUM L: Batch create tasks
+ * 
+ * Creates multiple tasks in a single Odoo API call.
+ * Returns array of task IDs in same order as input.
+ * 
+ * IMPORTANT: All tasks must be at same nesting level (all parents or all children).
+ * Do NOT mix parent tasks with subtasks in same batch - parent_id references won't exist yet.
+ * 
+ * @param {Object} env - Cloudflare env
+ * @param {Array<Object>} tasksData - Array of task data objects (same format as createTask)
+ * @returns {Promise<Array<number>>} Array of created task IDs
+ */
+export async function batchCreateTasks(env, tasksData) {
+  if (!Array.isArray(tasksData) || tasksData.length === 0) {
+    return [];
+  }
+  
+  // Build values array (same logic as createTask but for multiple tasks)
+  const valuesArray = tasksData.map(data => {
+    const values = {
+      name: data.name,
+      project_id: data.project_id
+    };
+    
+    if (data.stage_id) values.stage_id = data.stage_id;
+    if (data.parent_id) values.parent_id = data.parent_id;
+    if (data.milestone_id) values.milestone_id = data.milestone_id;
+    if (data.color !== null && data.color !== undefined) values.color = data.color;
+    if (data.tag_ids && data.tag_ids.length > 0) {
+      values.tag_ids = data.tag_ids.map(id => [4, id]);
+    }
+    if (data.user_ids && data.user_ids.length > 0) {
+      values.user_ids = data.user_ids.map(id => [4, id]);
+    }
+    if (data.planned_date_begin) values.planned_date_begin = data.planned_date_begin;
+    if (data.date_deadline) values.date_deadline = data.date_deadline;
+    if (data.allocated_hours !== null && data.allocated_hours !== undefined) {
+      values.allocated_hours = data.allocated_hours;
+    }
+    
+    // ADDENDUM M2: Persist logical order sequence (CRITICAL FIX)
+    if (data.sequence !== null && data.sequence !== undefined) {
+      values.sequence = data.sequence;
+    }
+    
+    // Addendum B: Hide subtasks from Kanban
+    values.display_in_project = data.parent_id ? false : true;
+    
+    return values;
+  });
+  
+  // FORENSIC LOG: Odoo RPC payload verification (ADDENDUM M2 debugging)
+  valuesArray.forEach((values, index) => {
+    console.log(JSON.stringify({
+      forensic: 'ODOO_PAYLOAD',
+      index: index,
+      name: values.name,
+      sequence: values.sequence ?? 'MISSING',
+      milestone_id: values.milestone_id ?? null,
+      parent_id: values.parent_id ?? null,
+      stage_id: values.stage_id ?? null
+    }));
+  });
+  
+  const taskIds = await batchCreate(env, {
+    model: 'project.task',
+    valuesArray: valuesArray
+  });
+  
+  // FORENSIC LOG: Returned IDs from Odoo (ADDENDUM M2 debugging)
+  console.log(JSON.stringify({
+    forensic: 'ODOO_RESPONSE',
+    task_count: taskIds.length,
+    ids: taskIds
+  }));
+  
+  return taskIds;
+}
+
+/**
+ * ADDENDUM L: Batch create milestones
+ * 
+ * @param {Object} env - Cloudflare env
+ * @param {Array<Object>} milestonesData - Array of milestone data objects
+ * @returns {Promise<Array<number>>} Array of created milestone IDs
+ */
+export async function batchCreateMilestones(env, milestonesData) {
+  if (!Array.isArray(milestonesData) || milestonesData.length === 0) {
+    return [];
+  }
+  
+  const valuesArray = milestonesData.map(data => ({
+    name: data.name,
+    project_id: data.project_id
+  }));
+  
+  const milestoneIds = await batchCreate(env, {
+    model: 'project.milestone',
+    valuesArray: valuesArray
+  });
+  
+  return milestoneIds;
+}
+

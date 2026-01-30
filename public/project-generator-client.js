@@ -843,8 +843,10 @@ async function initBlueprintEditor() {
   document.querySelectorAll('[data-color]').forEach(btn => {
     btn.addEventListener('click', function(e) {
       e.preventDefault();
-      document.querySelectorAll('[data-color]').forEach(b => b.classList.remove('ring-2', 'ring-primary'));
-      this.classList.add('ring-2', 'ring-primary');
+      document.querySelectorAll('[data-color]').forEach(b => {
+        b.className = 'w-8 h-8 rounded-full transition-all';
+      });
+      this.className = 'w-8 h-8 rounded-full transition-all ring-2 ring-offset-2 ring-primary';
       document.getElementById('taskColor').value = this.dataset.color;
     });
   });
@@ -891,16 +893,45 @@ async function loadBlueprint() {
         dependencies: data.dependencies || []
       };
       
-      // Auto-fix duplicate stakeholder IDs and sequences
+      // Auto-fix missing/duplicate sequences for stages, milestones, and stakeholders
+      let hasSequenceFixes = false;
+      
+      // Fix stages
+      blueprintState.stages.forEach((stage, index) => {
+        if (stage.sequence === null || stage.sequence === undefined) {
+          stage.sequence = index + 1;
+          hasSequenceFixes = true;
+          console.warn(`Fixed missing sequence for stage: ${stage.name} -> ${stage.sequence}`);
+        }
+      });
+      
+      // Fix milestones
+      blueprintState.milestones.forEach((milestone, index) => {
+        if (milestone.sequence === null || milestone.sequence === undefined) {
+          milestone.sequence = index + 1;
+          hasSequenceFixes = true;
+          console.warn(`Fixed missing sequence for milestone: ${milestone.name} -> ${milestone.sequence}`);
+        }
+      });
+      
+      // Fix tasks
+      blueprintState.tasks.forEach((task, index) => {
+        if (task.sequence === null || task.sequence === undefined) {
+          task.sequence = index + 1;
+          hasSequenceFixes = true;
+          console.warn(`Fixed missing sequence for task: ${task.name} -> ${task.sequence}`);
+        }
+      });
+      
+      // Fix stakeholders (existing logic + duplicate IDs)
       const seenStakeholderIds = new Set();
       const seenSequences = new Set();
-      let hasStakeholderFixes = false;
       
       blueprintState.stakeholders.forEach((stakeholder, index) => {
         // Fix duplicate IDs
         if (seenStakeholderIds.has(stakeholder.id)) {
           stakeholder.id = generateUUID();
-          hasStakeholderFixes = true;
+          hasSequenceFixes = true;
           console.warn(`Fixed duplicate stakeholder ID for: ${stakeholder.name}`);
         }
         seenStakeholderIds.add(stakeholder.id);
@@ -908,14 +939,14 @@ async function loadBlueprint() {
         // Fix missing or duplicate sequences
         if (!stakeholder.sequence || seenSequences.has(stakeholder.sequence)) {
           stakeholder.sequence = index + 1;
-          hasStakeholderFixes = true;
+          hasSequenceFixes = true;
           console.warn(`Fixed duplicate/missing sequence for stakeholder: ${stakeholder.name} -> ${stakeholder.sequence}`);
         }
         seenSequences.add(stakeholder.sequence);
       });
       
-      if (hasStakeholderFixes) {
-        showToast('Auto-fixed duplicate stakeholder sequences. Please save the blueprint.', 'warning');
+      if (hasSequenceFixes) {
+        showToast('Auto-fixed missing sequences. Please save the blueprint.', 'warning');
       }
       
       savedBlueprintState = deepClone(blueprintState);
@@ -1214,7 +1245,12 @@ function renderMilestones() {
   list.style.display = 'block';
   empty.style.display = 'none';
   
-  blueprintState.milestones.forEach(milestone => {
+  // ADDENDUM M: Sort by sequence for deterministic display
+  const sortedMilestones = [...blueprintState.milestones].sort((a, b) => 
+    (a.sequence || 0) - (b.sequence || 0)
+  );
+  
+  sortedMilestones.forEach((milestone, index) => {
     const div = document.createElement('div');
     div.className = 'flex items-center justify-between p-3 bg-base-200 rounded';
     
@@ -1258,6 +1294,30 @@ function renderMilestones() {
     
     const btnDiv = document.createElement('div');
     btnDiv.className = 'flex gap-1';
+    
+    // ADDENDUM M: Up arrow (move earlier in sequence)
+    const upBtn = document.createElement('button');
+    upBtn.className = 'btn btn-xs btn-ghost';
+    upBtn.title = 'Move up';
+    upBtn.disabled = index === 0; // Disable if first
+    upBtn.onclick = () => moveMilestone(milestone.id, 'up');
+    const upIcon = document.createElement('i');
+    upIcon.setAttribute('data-lucide', 'arrow-up');
+    upIcon.className = 'w-3 h-3';
+    upBtn.appendChild(upIcon);
+    btnDiv.appendChild(upBtn);
+    
+    // ADDENDUM M: Down arrow (move later in sequence)
+    const downBtn = document.createElement('button');
+    downBtn.className = 'btn btn-xs btn-ghost';
+    downBtn.title = 'Move down';
+    downBtn.disabled = index === sortedMilestones.length - 1; // Disable if last
+    downBtn.onclick = () => moveMilestone(milestone.id, 'down');
+    const downIcon = document.createElement('i');
+    downIcon.setAttribute('data-lucide', 'arrow-down');
+    downIcon.className = 'w-3 h-3';
+    downBtn.appendChild(downIcon);
+    btnDiv.appendChild(downBtn);
     
     // Edit button
     const editBtn = document.createElement('button');
@@ -1324,7 +1384,10 @@ function openMilestoneModal(milestoneId = null) {
     }
   }
   
+  // Preserve scroll position to prevent scroll jump
+  const scrollPos = window.scrollY;
   modal.showModal();
+  window.scrollTo(0, scrollPos);
 }
 
 async function handleMilestoneSubmit(e) {
@@ -1350,13 +1413,24 @@ async function handleMilestoneSubmit(e) {
     milestone.deadline_offset_days = deadline_offset_days;
     milestone.duration_days = duration_days;
     milestone.color = color;
+    // BUGFIX: Ensure existing milestones have a sequence (backfill for legacy data)
+    if (milestone.sequence === null || milestone.sequence === undefined) {
+      const maxSequence = blueprintState.milestones.reduce((max, m) => 
+        Math.max(max, m.sequence || 0), 0);
+      milestone.sequence = maxSequence + 1;
+    }
   } else {
+    // ADDENDUM M: Auto-assign sequence based on current max + 1
+    const maxSequence = blueprintState.milestones.reduce((max, m) => 
+      Math.max(max, m.sequence || 0), 0);
+    
     blueprintState.milestones.push({
       id: generateUUID(),
       name: name,
       deadline_offset_days: deadline_offset_days,
       duration_days: duration_days,
-      color: color
+      color: color,
+      sequence: maxSequence + 1  // ADDENDUM M: deterministic ordering
     });
   }
   
@@ -1391,6 +1465,34 @@ async function deleteMilestone(milestoneId) {
     // Persist immediately
     await persistBlueprint('milestone_delete');
   }
+}
+
+// ADDENDUM M: Move milestone up/down in sequence
+async function moveMilestone(milestoneId, direction) {
+  // Sort milestones by sequence
+  const sortedMilestones = [...blueprintState.milestones].sort((a, b) => 
+    (a.sequence || 0) - (b.sequence || 0)
+  );
+  
+  const currentIndex = sortedMilestones.findIndex(m => m.id === milestoneId);
+  if (currentIndex === -1) return;
+  
+  // Determine swap target
+  const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+  if (targetIndex < 0 || targetIndex >= sortedMilestones.length) return;
+  
+  // Swap sequence values
+  const currentMilestone = sortedMilestones[currentIndex];
+  const targetMilestone = sortedMilestones[targetIndex];
+  
+  const tempSequence = currentMilestone.sequence;
+  currentMilestone.sequence = targetMilestone.sequence;
+  targetMilestone.sequence = tempSequence;
+  
+  // Re-render and persist
+  renderMilestones();
+  validateAndDisplay();
+  await persistBlueprint('milestone_reorder');
 }
 
 // ============================================================================
@@ -1474,7 +1576,10 @@ function openTagModal(tagId = null) {
     nameInput.value = '';
   }
   
+  // Preserve scroll position to prevent scroll jump
+  const scrollPos = window.scrollY;
   modal.showModal();
+  window.scrollTo(0, scrollPos);
 }
 
 async function handleTagSubmit(e) {
@@ -1722,7 +1827,10 @@ function openStakeholderModal(stakeholderId = null) {
   // Store selected color for form submit
   colorPicker.dataset.selectedColor = selectedColor;
   
+  // Preserve scroll position to prevent scroll jump
+  const scrollPos = window.scrollY;
   modal.showModal();
+  window.scrollTo(0, scrollPos);
 }
 
 async function handleStakeholderSubmit(e) {
@@ -1977,8 +2085,8 @@ function renderTasks() {
     
     // Render tasks in this group
     const indentLevel = group.level === 2 ? 1 : 0;
-    group.tasks.forEach(task => {
-      renderTaskItem(task, indentLevel, list, group.header ? true : false);
+    group.tasks.forEach((task, taskIndex) => {
+      renderTaskItem(task, indentLevel, list, group.header ? true : false, sorting, group.tasks, taskIndex);
       
       // Render subtasks
       const subtasks = blueprintState.tasks.filter(t => t.parent_id === task.id);
@@ -1986,8 +2094,8 @@ function renderTasks() {
         // Apply sorting to subtasks if needed
         sortTasks(subtasks, sorting);
       }
-      subtasks.forEach(subtask => {
-        renderTaskItem(subtask, indentLevel + 1, list, group.header ? true : false);
+      subtasks.forEach((subtask, subtaskIndex) => {
+        renderTaskItem(subtask, indentLevel + 1, list, group.header ? true : false, sorting, subtasks, subtaskIndex);
       });
     });
   });
@@ -2200,7 +2308,10 @@ function getTasksByGroup(grouping, tasks, sorting) {
 
 // I3: Sort tasks array in place
 function sortTasks(tasks, sorting) {
-  if (sorting === 'alphabetical') {
+  if (sorting === 'manual') {
+    // ADDENDUM M: Sort by sequence in manual mode
+    tasks.sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+  } else if (sorting === 'alphabetical') {
     tasks.sort((a, b) => a.name.localeCompare(b.name));
   } else if (sorting === 'start-date') {
     tasks.sort((a, b) => {
@@ -2215,11 +2326,10 @@ function sortTasks(tasks, sorting) {
       return aOffset - bOffset;
     });
   }
-  // 'manual' = no sorting
 }
 
 // I2: Compact task item with better visual hierarchy
-function renderTaskItem(task, level, container, isGrouped = false) {
+function renderTaskItem(task, level, container, isGrouped = false, sorting = 'manual', siblingTasks = [], taskIndex = -1) {
   const div = document.createElement('div');
   div.className = 'flex items-center gap-3 p-2.5 bg-base-200 rounded hover:bg-base-300 transition-colors';
   
@@ -2415,6 +2525,33 @@ function renderTaskItem(task, level, container, isGrouped = false) {
   const btnDiv = document.createElement('div');
   btnDiv.className = 'flex gap-0.5 items-center opacity-60 hover:opacity-100 transition-opacity';
   
+  // ADDENDUM M: Show ordering arrows in manual mode
+  if (sorting === 'manual' && siblingTasks.length > 1 && taskIndex >= 0) {
+    // Up arrow
+    const upBtn = document.createElement('button');
+    upBtn.className = 'btn btn-xs btn-ghost';
+    upBtn.title = 'Move up';
+    upBtn.disabled = taskIndex === 0;
+    upBtn.onclick = () => moveTask(task.id, 'up', task.parent_id, task.milestone_id);
+    const upIcon = document.createElement('i');
+    upIcon.setAttribute('data-lucide', 'arrow-up');
+    upIcon.className = 'w-3 h-3';
+    upBtn.appendChild(upIcon);
+    btnDiv.appendChild(upBtn);
+    
+    // Down arrow
+    const downBtn = document.createElement('button');
+    downBtn.className = 'btn btn-xs btn-ghost';
+    downBtn.title = 'Move down';
+    downBtn.disabled = taskIndex === siblingTasks.length - 1;
+    downBtn.onclick = () => moveTask(task.id, 'down', task.parent_id, task.milestone_id);
+    const downIcon = document.createElement('i');
+    downIcon.setAttribute('data-lucide', 'arrow-down');
+    downIcon.className = 'w-3 h-3';
+    downBtn.appendChild(downIcon);
+    btnDiv.appendChild(downBtn);
+  }
+  
   // Dependencies button
   const depsBtn = document.createElement('button');
   depsBtn.className = 'btn btn-xs btn-ghost';
@@ -2552,10 +2689,14 @@ function openTaskModal(taskId = null, parentId = null) {
     
     // Set color
     colorInput.value = task.color || '';
-    document.querySelectorAll('[data-color]').forEach(btn => btn.classList.remove('ring-2', 'ring-primary'));
+    document.querySelectorAll('[data-color]').forEach(btn => {
+      btn.className = 'w-8 h-8 rounded-full transition-all';
+    });
     if (task.color !== null && task.color !== undefined) {
       const selectedBtn = document.querySelector('[data-color="' + task.color + '"]');
-      if (selectedBtn) selectedBtn.classList.add('ring-2', 'ring-primary');
+      if (selectedBtn) {
+        selectedBtn.className = 'w-8 h-8 rounded-full transition-all ring-2 ring-offset-2 ring-primary';
+      }
     }
     
     // Set tags
@@ -2584,7 +2725,9 @@ function openTaskModal(taskId = null, parentId = null) {
     milestoneSelect.value = '';
     parentSelect.value = parentId || '';
     colorInput.value = '';
-    document.querySelectorAll('[data-color]').forEach(btn => btn.classList.remove('ring-2', 'ring-primary'));
+    document.querySelectorAll('[data-color]').forEach(btn => {
+      btn.className = 'w-8 h-8 rounded-full transition-all';
+    });
     
     // Clear timing (Addendum G)
     document.getElementById('taskDeadlineOffset').value = '';
@@ -2592,7 +2735,10 @@ function openTaskModal(taskId = null, parentId = null) {
     document.getElementById('taskPlannedHours').value = '';
   }
   
+  // Preserve scroll position to prevent scroll jump
+  const scrollPos = window.scrollY;
   modal.showModal();
+  window.scrollTo(0, scrollPos);
 }
 
 async function handleTaskSubmit(e) {
@@ -2634,7 +2780,17 @@ async function handleTaskSubmit(e) {
     task.deadline_offset_days = deadline_offset_days;
     task.duration_days = duration_days;
     task.planned_hours = planned_hours;
+    // BUGFIX: Ensure existing tasks have a sequence (backfill for legacy data)
+    if (task.sequence === null || task.sequence === undefined) {
+      const maxSequence = blueprintState.tasks.reduce((max, t) => 
+        Math.max(max, t.sequence || 0), 0);
+      task.sequence = maxSequence + 1;
+    }
   } else {
+    // ADDENDUM M: Auto-assign sequence based on current max + 1
+    const maxSequence = blueprintState.tasks.reduce((max, t) => 
+      Math.max(max, t.sequence || 0), 0);
+    
     blueprintState.tasks.push({
       id: generateUUID(),
       name: name,
@@ -2645,7 +2801,8 @@ async function handleTaskSubmit(e) {
       stakeholder_ids: stakeholder_ids, // Addendum J
       deadline_offset_days: deadline_offset_days,
       duration_days: duration_days,
-      planned_hours: planned_hours
+      planned_hours: planned_hours,
+      sequence: maxSequence + 1  // ADDENDUM M: deterministic ordering
     });
   }
   
@@ -2688,6 +2845,39 @@ async function deleteTask(taskId) {
     // Persist immediately
     await persistBlueprint('task_delete');
   }
+}
+
+// ADDENDUM M: Move task up/down within its scope (milestone + parent)
+async function moveTask(taskId, direction, parentId, milestoneId) {
+  // Get sibling tasks (same parent, same milestone)
+  let siblingTasks = blueprintState.tasks.filter(t => {
+    const sameParent = (t.parent_id === parentId);
+    const sameMilestone = (t.milestone_id === milestoneId);
+    return sameParent && sameMilestone;
+  });
+  
+  // Sort by sequence
+  siblingTasks.sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+  
+  const currentIndex = siblingTasks.findIndex(t => t.id === taskId);
+  if (currentIndex === -1) return;
+  
+  // Determine swap target
+  const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+  if (targetIndex < 0 || targetIndex >= siblingTasks.length) return;
+  
+  // Swap sequence values
+  const currentTask = siblingTasks[currentIndex];
+  const targetTask = siblingTasks[targetIndex];
+  
+  const tempSequence = currentTask.sequence;
+  currentTask.sequence = targetTask.sequence;
+  targetTask.sequence = tempSequence;
+  
+  // Re-render and persist
+  renderTasks();
+  validateAndDisplay();
+  await persistBlueprint('task_reorder');
 }
 
 // ============================================================================
@@ -3404,31 +3594,143 @@ async function showGenerationPreviewModal(generationModel, templateId, projectSt
 function renderPreviewTasks(container, generationModel) {
   container.innerHTML = ''; // Clear existing
   
-  // Group tasks by parent
-  const parentTasks = generationModel.tasks.filter(t => !t.parent_blueprint_id);
-  const subtaskMap = new Map();
+  // ADDENDUM M2: Sort tasks in LOGICAL order (ASC) for preview
+  // Milestone ASC → Parent first → Sequence ASC
+  const sortedTasks = [...generationModel.tasks].sort((a, b) => {
+    // Get milestone sequences
+    const getMilestoneSeq = (task) => {
+      if (!task.milestone_blueprint_id) return 999999;
+      const milestone = generationModel.milestones.find(m => m.blueprint_id === task.milestone_blueprint_id);
+      return milestone ? (milestone.sequence || 0) : 999999;
+    };
+    
+    const aMilestoneSeq = getMilestoneSeq(a);
+    const bMilestoneSeq = getMilestoneSeq(b);
+    
+    if (aMilestoneSeq !== bMilestoneSeq) {
+      return aMilestoneSeq - bMilestoneSeq; // ASC
+    }
+    
+    // Parent before child
+    const aIsParent = !a.parent_blueprint_id;
+    const bIsParent = !b.parent_blueprint_id;
+    
+    if (aIsParent !== bIsParent) {
+      return aIsParent ? -1 : 1;
+    }
+    
+    // Sequence ASC
+    return (a.sequence || 0) - (b.sequence || 0);
+  });
   
-  generationModel.tasks.forEach(task => {
-    if (task.parent_blueprint_id) {
-      if (!subtaskMap.has(task.parent_blueprint_id)) {
-        subtaskMap.set(task.parent_blueprint_id, []);
+  // Group tasks by milestone
+  const milestoneGroups = new Map();
+  const noMilestoneTasks = [];
+  
+  sortedTasks.forEach(task => {
+    if (task.milestone_blueprint_id) {
+      if (!milestoneGroups.has(task.milestone_blueprint_id)) {
+        const milestone = generationModel.milestones.find(m => m.blueprint_id === task.milestone_blueprint_id);
+        milestoneGroups.set(task.milestone_blueprint_id, {
+          milestone: milestone,
+          parentTasks: [],
+          subtasks: new Map()
+        });
       }
-      subtaskMap.get(task.parent_blueprint_id).push(task);
+      
+      const group = milestoneGroups.get(task.milestone_blueprint_id);
+      if (!task.parent_blueprint_id) {
+        group.parentTasks.push(task);
+      } else {
+        if (!group.subtasks.has(task.parent_blueprint_id)) {
+          group.subtasks.set(task.parent_blueprint_id, []);
+        }
+        group.subtasks.get(task.parent_blueprint_id).push(task);
+      }
+    } else {
+      noMilestoneTasks.push(task);
     }
   });
   
-  // Render parent tasks
-  parentTasks.forEach(task => {
-    const taskRow = createPreviewTaskRow(task, generationModel, false);
-    container.appendChild(taskRow);
+  // Render milestone groups
+  milestoneGroups.forEach((group, milestoneId) => {
+    // Milestone header
+    if (group.milestone) {
+      const milestoneHeader = document.createElement('div');
+      milestoneHeader.className = 'flex items-center gap-2 py-2 px-3 bg-primary/10 rounded-lg mb-2 mt-4 first:mt-0';
+      
+      const icon = document.createElement('i');
+      icon.setAttribute('data-lucide', 'flag');
+      icon.className = 'w-4 h-4 text-primary';
+      milestoneHeader.appendChild(icon);
+      
+      const name = document.createElement('span');
+      name.className = 'font-semibold text-primary';
+      name.textContent = group.milestone.name;
+      milestoneHeader.appendChild(name);
+      
+      container.appendChild(milestoneHeader);
+    }
     
-    // Render subtasks
-    const subtasks = subtaskMap.get(task.blueprint_id) || [];
-    subtasks.forEach(subtask => {
-      const subtaskRow = createPreviewTaskRow(subtask, generationModel, true);
-      container.appendChild(subtaskRow);
+    // Render parent tasks and their subtasks
+    group.parentTasks.forEach(task => {
+      const taskRow = createPreviewTaskRow(task, generationModel, false);
+      container.appendChild(taskRow);
+      
+      // Render subtasks
+      const subtasks = group.subtasks.get(task.blueprint_id) || [];
+      subtasks.forEach(subtask => {
+        const subtaskRow = createPreviewTaskRow(subtask, generationModel, true);
+        container.appendChild(subtaskRow);
+      });
     });
   });
+  
+  // Render tasks without milestone
+  if (noMilestoneTasks.length > 0) {
+    const noMilestoneHeader = document.createElement('div');
+    noMilestoneHeader.className = 'flex items-center gap-2 py-2 px-3 bg-base-200 rounded-lg mb-2 mt-4';
+    
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', 'circle');
+    icon.className = 'w-4 h-4 text-base-content/40';
+    noMilestoneHeader.appendChild(icon);
+    
+    const name = document.createElement('span');
+    name.className = 'font-semibold text-base-content/60';
+    name.textContent = 'No Milestone';
+    noMilestoneHeader.appendChild(name);
+    
+    container.appendChild(noMilestoneHeader);
+    
+    // Build subtask map for no-milestone tasks
+    const subtaskMap = new Map();
+    noMilestoneTasks.forEach(task => {
+      if (task.parent_blueprint_id) {
+        if (!subtaskMap.has(task.parent_blueprint_id)) {
+          subtaskMap.set(task.parent_blueprint_id, []);
+        }
+        subtaskMap.get(task.parent_blueprint_id).push(task);
+      }
+    });
+    
+    // Render parent tasks
+    const parentTasks = noMilestoneTasks.filter(t => !t.parent_blueprint_id);
+    parentTasks.forEach(task => {
+      const taskRow = createPreviewTaskRow(task, generationModel, false);
+      container.appendChild(taskRow);
+      
+      // Render subtasks
+      const subtasks = subtaskMap.get(task.blueprint_id) || [];
+      subtasks.forEach(subtask => {
+        const subtaskRow = createPreviewTaskRow(subtask, generationModel, true);
+        container.appendChild(subtaskRow);
+      });
+    });
+  }
+  
+  // Initialize lucide icons
+  lucide.createIcons();
 }
 
 /**
@@ -3605,7 +3907,8 @@ function removeTaskFromModel(taskId, generationModel) {
  * @param {boolean} confirmOverwrite - Force generation despite conflicts
  */
 async function executeGenerationWithOverride(templateId, overrideModel, projectStartDate = null, stakeholderMapping = null, confirmOverwrite = false) {
-  showToast('Generating project... This may take a moment.', 'info');
+  // Show loading modal during generation
+  const loadingModal = showGenerationLoadingModal();
   
   try {
     const response = await fetch(`/projects/api/generate/${templateId}`, {
@@ -3622,6 +3925,9 @@ async function executeGenerationWithOverride(templateId, overrideModel, projectS
     
     const result = await response.json();
     
+    // Close loading modal
+    closeGenerationModal(loadingModal);
+    
     if (response.status === 409) {
       showBlockedGenerationModal(result, templateId, overrideModel, projectStartDate, stakeholderMapping);
     } else if (result.success) {
@@ -3631,6 +3937,8 @@ async function executeGenerationWithOverride(templateId, overrideModel, projectS
     }
   } catch (err) {
     console.error('Generate error:', err);
+    // Close loading modal on error
+    closeGenerationModal(loadingModal);
     showToast('Network error during generation. Please check Odoo manually.', 'error');
   }
 }
@@ -3638,6 +3946,80 @@ async function executeGenerationWithOverride(templateId, overrideModel, projectS
 // ============================================================================
 // GENERATION FEEDBACK MODALS
 // ============================================================================
+
+/**
+ * Show loading modal during project generation
+ * Returns the modal element so it can be closed later
+ */
+function showGenerationLoadingModal() {
+  const modal = document.createElement('dialog');
+  modal.className = 'modal modal-open';
+  modal.id = 'generationLoadingModal';
+  
+  const modalBox = document.createElement('div');
+  modalBox.className = 'modal-box max-w-md';
+  
+  // Title
+  const title = document.createElement('h3');
+  title.className = 'font-bold text-lg mb-4';
+  title.textContent = 'Generating Project';
+  modalBox.appendChild(title);
+  
+  // Loading spinner with animation
+  const spinnerContainer = document.createElement('div');
+  spinnerContainer.className = 'flex flex-col items-center justify-center py-8';
+  
+  const spinner = document.createElement('span');
+  spinner.className = 'loading loading-spinner loading-lg text-primary';
+  spinnerContainer.appendChild(spinner);
+  
+  const loadingText = document.createElement('p');
+  loadingText.className = 'mt-4 text-base-content/70';
+  loadingText.textContent = 'Creating your project in Odoo...';
+  spinnerContainer.appendChild(loadingText);
+  
+  const subText = document.createElement('p');
+  subText.className = 'mt-2 text-sm text-base-content/50';
+  subText.textContent = 'This may take up to 30 seconds for large projects.';
+  spinnerContainer.appendChild(subText);
+  
+  modalBox.appendChild(spinnerContainer);
+  
+  // Progress indicators (optional visual feedback)
+  const progressContainer = document.createElement('div');
+  progressContainer.className = 'mt-6 space-y-2';
+  
+  const steps = [
+    'Building project structure...',
+    'Creating tasks and milestones...',
+    'Configuring assignments...'
+  ];
+  
+  steps.forEach((step, index) => {
+    const stepDiv = document.createElement('div');
+    stepDiv.className = 'flex items-center gap-2 text-sm';
+    
+    const dot = document.createElement('div');
+    dot.className = 'w-2 h-2 rounded-full bg-primary/30 animate-pulse';
+    dot.style.animationDelay = `${index * 0.2}s`;
+    stepDiv.appendChild(dot);
+    
+    const stepText = document.createElement('span');
+    stepText.className = 'text-base-content/60';
+    stepText.textContent = step;
+    stepDiv.appendChild(stepText);
+    
+    progressContainer.appendChild(stepDiv);
+  });
+  
+  modalBox.appendChild(progressContainer);
+  
+  modal.appendChild(modalBox);
+  document.body.appendChild(modal);
+  modal.showModal();
+  
+  return modal;
+}
 
 /**
  * Show success modal after successful project generation

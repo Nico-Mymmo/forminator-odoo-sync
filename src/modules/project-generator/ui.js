@@ -82,7 +82,7 @@ export function templateLibraryUI(user) {
 
     <!-- Create/Edit Modal -->
     <dialog id="templateModal" class="modal">
-      <div class="modal-box">
+      <div class="modal-box max-w-2xl">
         <h3 id="modalTitle" class="font-bold text-lg mb-4">Create Template</h3>
         
         <form id="templateForm">
@@ -395,7 +395,7 @@ export function blueprintEditorUI(user, templateId) {
 
     <!-- Stage Modal -->
     <dialog id="stageModal" class="modal">
-      <div class="modal-box">
+      <div class="modal-box max-w-2xl">
         <h3 id="stageModalTitle" class="font-bold text-lg mb-4">Add Stage</h3>
         <form id="stageForm">
           <div class="form-control mb-4">
@@ -434,7 +434,7 @@ export function blueprintEditorUI(user, templateId) {
 
     <!-- Milestone Modal -->
     <dialog id="milestoneModal" class="modal">
-      <div class="modal-box">
+      <div class="modal-box max-w-2xl">
         <h3 id="milestoneModalTitle" class="font-bold text-lg mb-4">Add Milestone</h3>
         <form id="milestoneForm">
           <div class="form-control mb-4">
@@ -522,7 +522,7 @@ export function blueprintEditorUI(user, templateId) {
 
     <!-- Tag Modal (Addendum F) -->
     <dialog id="tagModal" class="modal">
-      <div class="modal-box">
+      <div class="modal-box max-w-2xl">
         <h3 id="tagModalTitle" class="font-bold text-lg mb-4">Add Tag</h3>
         <form id="tagForm">
           <div class="form-control mb-4">
@@ -548,7 +548,7 @@ export function blueprintEditorUI(user, templateId) {
 
     <!-- Stakeholder Modal (Addendum J) -->
     <dialog id="stakeholderModal" class="modal">
-      <div class="modal-box">
+      <div class="modal-box max-w-2xl">
         <h3 id="stakeholderModalTitle" class="font-bold text-lg mb-4">Add Stakeholder</h3>
         <form id="stakeholderForm">
           <div class="form-control mb-4">
@@ -599,9 +599,10 @@ export function blueprintEditorUI(user, templateId) {
 
     <!-- Task Modal -->
     <dialog id="taskModal" class="modal">
-      <div class="modal-box">
+      <div class="modal-box max-w-2xl">
         <h3 id="taskModalTitle" class="font-bold text-lg mb-4">Add Task</h3>
         <form id="taskForm">
+          <!-- Basic Information -->
           <div class="form-control mb-4">
             <label class="label">
               <span class="label-text">Task Name <span class="text-error">*</span></span>
@@ -617,16 +618,8 @@ export function blueprintEditorUI(user, templateId) {
           </div>
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text">Milestone</span>
-            </label>
-            <select id="taskMilestone" class="select select-bordered">
-              <option value="">No milestone</option>
-              <!-- Options inserted by client.js -->
-            </select>
-          </div>
-          <div class="form-control mb-4">
-            <label class="label">
-              <span class="label-text">Parent Task (for subtasks)</span>
+              <span class="label-text">Parent Task</span>
+              <span class="label-text-alt text-base-content/60">For subtasks only</span>
             </label>
             <select id="taskParent" class="select select-bordered">
               <option value="">No parent (main task)</option>
@@ -635,39 +628,57 @@ export function blueprintEditorUI(user, templateId) {
           </div>
           <div class="form-control mb-4">
             <label class="label">
-              <span class="label-text">Color (Odoo)</span>
+              <span class="label-text">Milestone</span>
+              <span class="label-text-alt text-base-content/60">Optional grouping</span>
             </label>
-            <div class="flex gap-2 flex-wrap">
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="0" style="background: white;" title="No color"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="1" style="background: #EF4444;" title="Red"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="2" style="background: #F97316;" title="Orange"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="3" style="background: #EAB308;" title="Yellow"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="4" style="background: #3B82F6;" title="Blue"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="5" style="background: #EC4899;" title="Pink"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="6" style="background: #22C55E;" title="Green"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="7" style="background: #A855F7;" title="Purple"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="8" style="background: #64748B;" title="Gray-Blue"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="9" style="background: #C084FC;" title="Purple-Pink"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="10" style="background: #06B6D4;" title="Turquoise"></button>
-              <button type="button" class="w-8 h-8 rounded border-2 border-base-300 hover:border-primary" data-color="11" style="background: #8B5CF6;" title="Violet"></button>
-            </div>
+            <select id="taskMilestone" class="select select-bordered">
+              <option value="">No milestone</option>
+              <!-- Options inserted by client.js -->
+            </select>
+          </div>
+          
+          <!-- Classification -->
+          <div class="divider">Classification</div>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Color (Odoo)</span>
+              <span class="label-text-alt text-base-content/60">Optional visual identifier</span>
+            </label>
             <input type="hidden" id="taskColor" value="">
+            <div class="flex gap-2 flex-wrap">
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #9CA3AF;" data-color="0" title="No color"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #EF4444;" data-color="1" title="Red"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #F97316;" data-color="2" title="Orange"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #EAB308;" data-color="3" title="Yellow"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #3B82F6;" data-color="4" title="Blue"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #EC4899;" data-color="5" title="Pink"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #22C55E;" data-color="6" title="Green"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #A855F7;" data-color="7" title="Purple"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #64748B;" data-color="8" title="Gray-Blue"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #C084FC;" data-color="9" title="Purple-Pink"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #06B6D4;" data-color="10" title="Turquoise"></button>
+              <button type="button" class="w-8 h-8 rounded-full transition-all" style="background: #8B5CF6;" data-color="11" title="Violet"></button>
+            </div>
           </div>
           <div class="form-control mb-4">
             <label class="label">
               <span class="label-text">Tags</span>
             </label>
-            <div id="taskTagsContainer" class="flex flex-wrap gap-2">
+            <div id="taskTagsContainer" class="flex flex-wrap gap-3">
               <!-- Tag checkboxes inserted by client.js -->
             </div>
           </div>
+          
+          <!-- Responsibility -->
+          <div class="divider">Responsibility</div>
           
           <div class="form-control mb-4">
             <label class="label">
               <span class="label-text">Stakeholders</span>
               <span class="label-text-alt text-base-content/60">Who is responsible/involved</span>
             </label>
-            <div id="taskStakeholdersContainer" class="flex flex-wrap gap-2">
+            <div id="taskStakeholdersContainer" class="flex flex-wrap gap-3">
               <!-- Stakeholder checkboxes inserted by client.js -->
             </div>
           </div>

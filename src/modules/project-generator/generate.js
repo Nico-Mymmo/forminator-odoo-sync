@@ -23,9 +23,9 @@ import { getBlueprintData } from './library.js';
 import { 
   createProject, 
   createStage, 
-  createMilestone,
+  batchCreateMilestones,
   getOrCreateTag,
-  createTask, 
+  batchCreateTasks, 
   addTaskDependencies 
 } from './odoo-creator.js';
 
@@ -55,6 +55,100 @@ function addWorkdays(startDate, days) {
 }
 
 /**
+ * ADDENDUM M2: Compute task orderings (logical and execution)
+ * 
+ * NORMATIVE ORDERING CONTRACT:
+ * 1. Milestones are execution boundaries (dominant key)
+ * 2. Parent-before-child is secondary (within milestone only)
+ * 3. Task sequence is tertiary (within milestone + parent scope)
+ * 4. Execution order reverses milestone/task sequence, NOT parent-child
+ * 
+ * @param {Object} generationModel - Generation model with tasks and milestones
+ * @returns {Object} { logicalTasks, executionTasks }
+ */
+function computeTaskOrders(generationModel) {
+  // Build milestone sequence map
+  const milestoneSequenceMap = new Map();
+  if (generationModel.milestones && Array.isArray(generationModel.milestones)) {
+    generationModel.milestones.forEach(m => {
+      milestoneSequenceMap.set(m.blueprint_id, m.sequence || 0);
+    });
+  }
+  
+  // Helper: Get milestone sequence (orphans = 999999 for logical, -999999 for execution)
+  const getMilestoneSeq = (task, isExecution = false) => {
+    if (!task.milestone_blueprint_id) {
+      return isExecution ? -999999 : 999999; // Orphans last in logical, first in execution
+    }
+    return milestoneSequenceMap.get(task.milestone_blueprint_id) || 0;
+  };
+  
+  // LOGICAL ORDER (ASC): Milestone ASC → Parent first → Task ASC
+  const logicalTasks = [...generationModel.tasks].sort((a, b) => {
+    // 1. Milestone sequence (ASC, orphans last)
+    const aMilestoneSeq = getMilestoneSeq(a, false);
+    const bMilestoneSeq = getMilestoneSeq(b, false);
+    
+    if (aMilestoneSeq !== bMilestoneSeq) {
+      return aMilestoneSeq - bMilestoneSeq; // ASC
+    }
+    
+    // 2. Parent before child (within same milestone)
+    const aIsParent = !a.parent_blueprint_id;
+    const bIsParent = !b.parent_blueprint_id;
+    
+    if (aIsParent !== bIsParent) {
+      return aIsParent ? -1 : 1; // Parents first
+    }
+    
+    // 3. Parent scope boundary: subtasks of different parents MUST NOT be compared
+    if (!aIsParent && !bIsParent) {
+      if (a.parent_blueprint_id !== b.parent_blueprint_id) {
+        return 0; // Preserve stable order, do not reorder
+      }
+    }
+    
+    // 4. Task sequence (ASC, within same parent scope only)
+    const aSeq = a.sequence || 0;
+    const bSeq = b.sequence || 0;
+    return aSeq - bSeq; // ASC
+  });
+  
+  // EXECUTION ORDER (DESC): Milestone DESC → Parent first → Task DESC
+  const executionTasks = [...generationModel.tasks].sort((a, b) => {
+    // 1. Milestone sequence (DESC, orphans first)
+    const aMilestoneSeq = getMilestoneSeq(a, true);
+    const bMilestoneSeq = getMilestoneSeq(b, true);
+    
+    if (aMilestoneSeq !== bMilestoneSeq) {
+      return bMilestoneSeq - aMilestoneSeq; // DESC
+    }
+    
+    // 2. Parent before child (NOT reversed - safety constraint)
+    const aIsParent = !a.parent_blueprint_id;
+    const bIsParent = !b.parent_blueprint_id;
+    
+    if (aIsParent !== bIsParent) {
+      return aIsParent ? -1 : 1; // Parents first (NOT reversed)
+    }
+    
+    // 3. Parent scope boundary: subtasks of different parents MUST NOT be compared
+    if (!aIsParent && !bIsParent) {
+      if (a.parent_blueprint_id !== b.parent_blueprint_id) {
+        return 0; // Preserve stable order, do not reorder
+      }
+    }
+    
+    // 4. Task sequence (DESC, within same parent scope only)
+    const aSeq = a.sequence || 0;
+    const bSeq = b.sequence || 0;
+    return bSeq - aSeq; // DESC
+  });
+  
+  return { logicalTasks, executionTasks };
+}
+
+/**
  * Generate Odoo project from template blueprint
  * 
  * @param {Object} env - Cloudflare env
@@ -65,6 +159,23 @@ function addWorkdays(startDate, days) {
  * @returns {Promise<Object>} Generation result
  */
 export async function generateProject(env, templateId, templateName, projectStartDate = null, overrideModel = null) {
+  // ADDENDUM L: Execution timeout guard
+  const WORKER_TIMEOUT_MS = 30000; // Cloudflare Worker CPU limit
+  const SAFETY_MARGIN_MS = 5000;   // Abort before hitting the limit
+  const MAX_EXECUTION_MS = WORKER_TIMEOUT_MS - SAFETY_MARGIN_MS; // 25 seconds
+  
+  const startTime = Date.now();
+  
+  // Helper to check if we're nearing timeout
+  const checkTimeout = () => {
+    const elapsed = Date.now() - startTime;
+    if (elapsed > MAX_EXECUTION_MS) {
+      const error = new Error(`Generation aborted: execution time limit exceeded (${elapsed}ms)`);
+      error.name = 'AbortError';
+      throw error;
+    }
+  };
+  
   const result = {
     success: false,
     step: null,
@@ -83,6 +194,7 @@ export async function generateProject(env, templateId, templateName, projectStar
     // STEP 1: Re-validate blueprint
     result.step = '1-validate';
     console.log('[Generator] Step 1: Validating blueprint');
+    checkTimeout(); // ADDENDUM L: Check before expensive operation
     
     const blueprintData = await getBlueprintData(env, templateId);
     const validation = validateBlueprint(blueprintData);
@@ -94,6 +206,7 @@ export async function generateProject(env, templateId, templateName, projectStar
     // STEP 2: Build canonical generation model (or use override)
     result.step = '2-build-model';
     console.log('[Generator] Step 2: Building generation model');
+    checkTimeout(); // ADDENDUM L
     
     let generationModel;
     if (overrideModel) {
@@ -107,6 +220,7 @@ export async function generateProject(env, templateId, templateName, projectStar
     // STEP 3: Create project
     result.step = '3-create-project';
     console.log('[Generator] Step 3: Creating project');
+    checkTimeout(); // ADDENDUM L
     
     const projectName = generationModel.project.name;
     const projectId = await createProject(env, {
@@ -128,6 +242,7 @@ export async function generateProject(env, templateId, templateName, projectStar
     // STEP 4: Create stages
     result.step = '4-create-stages';
     console.log('[Generator] Step 4: Creating stages');
+    checkTimeout(); // ADDENDUM L
     
     for (const stage of generationModel.stages) {
       const stageId = await createStage(env, {
@@ -140,51 +255,112 @@ export async function generateProject(env, templateId, templateName, projectStar
       console.log(`[Generator] Stage created: ${stage.name} (${stageId})`);
     }
     
-    // STEP 5: Create milestones
+    // STEP 5: Create milestones (ADDENDUM L: batch creation)
     result.step = '5-create-milestones';
-    console.log('[Generator] Step 5: Creating milestones');
+    console.log('[Generator] Step 5: Creating milestones (batch)');
+    checkTimeout(); // ADDENDUM L
     
-    for (const milestone of generationModel.milestones) {
-      const milestoneId = await createMilestone(env, {
+    if (generationModel.milestones.length > 0) {
+      const milestonesData = generationModel.milestones.map(milestone => ({
         name: milestone.name,
         project_id: projectId
-      });
+      }));
       
-      result.odoo_mappings.milestones[milestone.blueprint_id] = milestoneId;
-      console.log(`[Generator] Milestone created: ${milestone.name} (${milestoneId})`);
+      const milestoneIds = await batchCreateMilestones(env, milestonesData);
+      
+      // Map blueprint IDs to Odoo IDs (preserve order)
+      generationModel.milestones.forEach((milestone, index) => {
+        result.odoo_mappings.milestones[milestone.blueprint_id] = milestoneIds[index];
+        console.log(`[Generator] Milestone created: ${milestone.name} (${milestoneIds[index]})`);
+      });
     }
     
-    // STEP 5.5: Create tags (Addendum F)
+    // STEP 5.5: Create tags (Addendum F + ADDENDUM L: cache during generation)
     // NOTE: Tags are GLOBAL in Odoo (no project_id)
     result.step = '5.5-create-tags';
-    console.log('[Generator] Step 5.5: Creating or finding tags');
+    console.log('[Generator] Step 5.5: Creating or finding tags (with caching)');
+    checkTimeout(); // ADDENDUM L
     result.odoo_mappings.tags = {};
     
+    // ADDENDUM L: Cache tag searches to avoid redundant Odoo calls
+    const tagCache = new Map(); // tag name → tag ID
+    
     for (const tag of generationModel.tags) {
-      const tagId = await getOrCreateTag(env, {
-        name: tag.name
-      });
+      let tagId;
+      
+      // Check cache first
+      if (tagCache.has(tag.name)) {
+        tagId = tagCache.get(tag.name);
+        console.log(`[Generator] Tag "${tag.name}" found in cache (ID: ${tagId})`);
+      } else {
+        // Cache miss - fetch from Odoo
+        tagId = await getOrCreateTag(env, {
+          name: tag.name
+        });
+        tagCache.set(tag.name, tagId);
+      }
       
       result.odoo_mappings.tags[tag.blueprint_id] = tagId;
     }
     
-    // STEP 6: Create tasks (ordered)
+    // STEP 6: Create tasks (ADDENDUM M2: linear execution order)
     result.step = '6-create-tasks';
-    console.log('[Generator] Step 6: Creating tasks');
+    console.log('[Generator] Step 6: Creating tasks (linear execution preserving DESC order)');
+    checkTimeout(); // ADDENDUM L
     
     // Get first stage ID as default
     const defaultStageId = Object.values(result.odoo_mappings.stages)[0] || null;
     
-    // Sort tasks by generation order (parents before children)
-    const sortedTasks = [...generationModel.tasks].sort((a, b) => 
-      a.generation_order - b.generation_order
-    );
+    // ADDENDUM M2: Compute canonical task orderings
+    const { logicalTasks, executionTasks } = computeTaskOrders(generationModel);
     
-    for (const task of sortedTasks) {
+    // ADDENDUM M2: Freeze semantic ordering to prevent regression
+    // CRITICAL: logicalTasks is the ONLY semantic source of truth
+    // Any use of executionTasks outside STEP 6 task creation is a critical bug
+    Object.freeze(logicalTasks);
+    
+    // ADDENDUM M2: Validate milestone dominance invariant
+    // Ensures tasks from lower milestone sequence never appear after higher milestone sequence
+    const validateMilestoneDominance = (tasks, label) => {
+      let lastMilestoneSeq = -Infinity;
+      for (const task of tasks) {
+        const currentMilestoneSeq = task.milestone_blueprint_id 
+          ? (generationModel.milestones.find(m => m.blueprint_id === task.milestone_blueprint_id)?.sequence || 0)
+          : 999999; // Orphans last
+        
+        if (currentMilestoneSeq < lastMilestoneSeq) {
+          throw new Error(`[Generator] Milestone dominance violated in ${label}: task "${task.name}" (M-seq ${currentMilestoneSeq}) appears after M-seq ${lastMilestoneSeq}`);
+        }
+        lastMilestoneSeq = currentMilestoneSeq;
+      }
+    };
+    
+    validateMilestoneDominance(logicalTasks, 'logicalTasks');
+    console.log('[Generator] Milestone dominance validated for logical order');
+    
+    // ADDENDUM M2: Build task sequence map from logical order
+    // This maps blueprint_id → sequence number for Odoo persistence
+    // CRITICAL: Logical order (ASC) determines UI display via task.sequence field
+    // Execution order (DESC) only affects API call order, NOT sequence values
+    const taskSequenceMap = new Map();
+    logicalTasks.forEach((task, index) => {
+      taskSequenceMap.set(task.blueprint_id, index * 10); // 0, 10, 20, 30...
+    });
+    console.log(`[Generator] Task sequence map built from ${logicalTasks.length} tasks`);
+    
+    // ADDENDUM M2: Log execution order for verification
+    console.log('[Generator] Execution order (ADDENDUM M2: DESC for Odoo UI correctness):');
+    executionTasks.forEach((task, index) => {
+      console.log(`  ${index + 1}. ${task.name}${task.parent_blueprint_id ? ' (subtask)' : ''}`);
+    });
+    
+    // Helper function to build task data
+    const buildTaskData = (task) => {
       const taskData = {
         name: task.name,
         project_id: projectId,
-        stage_id: defaultStageId
+        stage_id: defaultStageId,
+        sequence: taskSequenceMap.get(task.blueprint_id) ?? 0  // ADDENDUM M2: Persist logical order
       };
       
       // Add parent_id if subtask
@@ -232,21 +408,102 @@ export async function generateProject(env, templateId, templateName, projectStar
         taskData.allocated_hours = task.planned_hours;
       }
       
-      const taskId = await createTask(env, taskData);
-      result.odoo_mappings.tasks[task.blueprint_id] = taskId;
+      return taskData;
+    };
+    
+    // ADDENDUM M2: Linear execution with deferred subtasks
+    // Process tasks in exact execution order, deferring subtasks whose parents don't exist yet
+    const createdBlueprintIds = new Set();
+    let pendingTasks = [...executionTasks];
+    let passCount = 0;
+    const maxPasses = 100; // Safety limit for infinite loop detection
+    
+    while (pendingTasks.length > 0) {
+      passCount++;
+      if (passCount > maxPasses) {
+        throw new Error('[Generator] Infinite loop detected in task creation - possible circular parent-child relationship');
+      }
       
-      const taskType = task.parent_blueprint_id ? 'Subtask' : 'Task';
-      console.log(`[Generator] ${taskType} created: ${task.name} (${taskId})`);
+      checkTimeout(); // ADDENDUM L: Check before each pass
+      
+      const deferredTasks = [];
+      const tasksToCreateThisPass = [];
+      
+      // ADDENDUM M2: Partition tasks into ready vs deferred (preserving order)
+      for (const task of pendingTasks) {
+        if (task.parent_blueprint_id && !createdBlueprintIds.has(task.parent_blueprint_id)) {
+          // Subtask whose parent hasn't been created yet - defer
+          deferredTasks.push(task);
+        } else {
+          // Parent task OR subtask whose parent exists - ready to create
+          tasksToCreateThisPass.push(task);
+        }
+      }
+      
+      // ADDENDUM M2: Safety check - ensure progress
+      if (tasksToCreateThisPass.length === 0) {
+        const orphanedSubtasks = deferredTasks.map(t => t.name).join(', ');
+        throw new Error(`[Generator] Unresolvable parent-child ordering. Orphaned subtasks: ${orphanedSubtasks}`);
+      }
+      
+      // ADDENDUM M2: Create all ready tasks (in order, respecting generation_order)
+      console.log(`[Generator] Pass ${passCount}: Creating ${tasksToCreateThisPass.length} tasks`);
+      
+      for (const task of tasksToCreateThisPass) {
+        const taskData = buildTaskData(task);
+        
+        // FORENSIC LOG: Task creation payload (ADDENDUM M2 debugging)
+        const milestoneSeq = task.milestone_blueprint_id 
+          ? (generationModel.milestones.find(m => m.blueprint_id === task.milestone_blueprint_id)?.sequence ?? 'UNDEFINED')
+          : null;
+        console.log(JSON.stringify({
+          forensic: 'TASK_CREATE',
+          blueprint_id: task.blueprint_id,
+          name: task.name,
+          sequence: taskData.sequence,
+          milestone_id: task.milestone_blueprint_id,
+          milestone_seq: milestoneSeq,
+          parent_id: task.parent_blueprint_id,
+          task_seq_blueprint: task.sequence
+        }));
+        
+        const taskIds = await batchCreateTasks(env, [taskData]);
+        const odooTaskId = taskIds[0];
+        
+        result.odoo_mappings.tasks[task.blueprint_id] = odooTaskId;
+        createdBlueprintIds.add(task.blueprint_id);
+        
+        console.log(`[Generator] Task created: ${task.name} (ID: ${odooTaskId})`);
+      }
+      
+      // ADDENDUM M2: Continue with deferred tasks
+      pendingTasks = deferredTasks;
     }
     
     // STEP 7: Create dependencies (fail-soft)
     result.step = '7-create-dependencies';
-    console.log('[Generator] Step 7: Creating dependencies');
+    console.log('[Generator] Step 7: Creating dependencies (semantic logical order)');
+    checkTimeout(); // ADDENDUM L
+    
+    // ADDENDUM M2: CRITICAL GUARD - Dependencies MUST use logical order
+    // Execution order has ZERO semantic meaning and MUST NEVER be used here
+    // This guard prevents catastrophic regression where execution order leaks into semantic steps
+    if (!Object.isFrozen(logicalTasks)) {
+      throw new Error('[Generator] CRITICAL: logicalTasks must be frozen before STEP 7');
+    }
+    
+    // Validate that we're iterating over the correct (logical) ordering
+    const iterationSource = logicalTasks; // Explicit: only logicalTasks allowed
+    if (iterationSource === executionTasks) {
+      throw new Error('[Generator] CRITICAL BUG: STEP 7 cannot use executionTasks - semantic violation');
+    }
     
     let dependencySuccessCount = 0;
     let dependencyFailCount = 0;
     
-    for (const task of sortedTasks) {
+    // CRITICAL: Use logicalTasks (ASC) for semantic dependency resolution
+    // Execution order is ONLY for task creation, NEVER for dependencies
+    for (const task of iterationSource) {
       if (task.dependencies && task.dependencies.length > 0) {
         try {
           const taskOdooId = result.odoo_mappings.tasks[task.blueprint_id];
@@ -366,7 +623,8 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
       
       return {
         blueprint_id: milestone.id,
-        name: milestone.name
+        name: milestone.name,
+        sequence: milestone.sequence || 0  // CRITICAL FIX: Preserve milestone ordering
       };
     });
   }
@@ -470,10 +728,21 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
         user_ids = [...new Set(user_ids)];
       }
       
+      // ADDENDUM M: Get milestone name for preview display
+      let milestone_name = null;
+      if (task.milestone_id) {
+        const milestone = blueprint.milestones.find(m => m.id === task.milestone_id);
+        if (milestone) {
+          milestone_name = milestone.name;
+        }
+      }
+      
       taskMap.set(task.id, {
         blueprint_id: task.id,
         name: task.name,
+        sequence: task.sequence || 0,  // Store for logical ordering
         milestone_blueprint_id: task.milestone_id || null,
+        milestone_name: milestone_name,  // ADDENDUM M: for preview display
         parent_blueprint_id: task.parent_id,
         color: task.color || null,
         tag_blueprint_ids: task.tag_ids || [],
@@ -482,8 +751,7 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
         planned_date_begin: planned_date_begin,       // Addendum G+H: absolute start date (inherited or explicit)
         date_deadline: date_deadline,                  // Addendum G+H: absolute deadline (inherited or explicit)
         planned_hours: planned_hours,                  // Addendum G+H: estimated hours (inherited or explicit)
-        dependencies: [],
-        generation_order: 0
+        dependencies: []
       });
     });
     
@@ -497,23 +765,7 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
       });
     }
     
-    // Third pass: compute generation order (parents before children)
-    let order = 1;
-    
-    // Parent tasks first
-    taskMap.forEach(task => {
-      if (!task.parent_blueprint_id) {
-        task.generation_order = order++;
-      }
-    });
-    
-    // Then subtasks
-    taskMap.forEach(task => {
-      if (task.parent_blueprint_id) {
-        task.generation_order = order++;
-      }
-    });
-    
+    // Convert taskMap to array
     model.tasks = Array.from(taskMap.values());
   }
   
