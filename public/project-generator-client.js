@@ -891,6 +891,33 @@ async function loadBlueprint() {
         dependencies: data.dependencies || []
       };
       
+      // Auto-fix duplicate stakeholder IDs and sequences
+      const seenStakeholderIds = new Set();
+      const seenSequences = new Set();
+      let hasStakeholderFixes = false;
+      
+      blueprintState.stakeholders.forEach((stakeholder, index) => {
+        // Fix duplicate IDs
+        if (seenStakeholderIds.has(stakeholder.id)) {
+          stakeholder.id = generateUUID();
+          hasStakeholderFixes = true;
+          console.warn(`Fixed duplicate stakeholder ID for: ${stakeholder.name}`);
+        }
+        seenStakeholderIds.add(stakeholder.id);
+        
+        // Fix missing or duplicate sequences
+        if (!stakeholder.sequence || seenSequences.has(stakeholder.sequence)) {
+          stakeholder.sequence = index + 1;
+          hasStakeholderFixes = true;
+          console.warn(`Fixed duplicate/missing sequence for stakeholder: ${stakeholder.name} -> ${stakeholder.sequence}`);
+        }
+        seenSequences.add(stakeholder.sequence);
+      });
+      
+      if (hasStakeholderFixes) {
+        showToast('Auto-fixed duplicate stakeholder sequences. Please save the blueprint.', 'warning');
+      }
+      
       savedBlueprintState = deepClone(blueprintState);
       
       document.getElementById('loadingState').style.display = 'none';
@@ -918,15 +945,18 @@ async function loadBlueprint() {
 
 // Save blueprint to server
 async function saveBlueprintClick() {
+  await persistBlueprint('manual_save');
+}
+
+// Shared persistence helper - called after every blueprint modification
+async function persistBlueprint(saveReason = 'auto') {
+  // Validate before persisting
   const validation = validateBlueprint();
   
   if (!validation.valid) {
     showToast('Cannot save: blueprint has errors', 'error');
-    return;
+    throw new Error('Blueprint validation failed');
   }
-  
-  const saveBtn = document.getElementById('saveBtn');
-  saveBtn.disabled = true;
   
   try {
     const response = await fetch(`/projects/api/blueprint/${window.TEMPLATE_ID}`, {
@@ -940,16 +970,18 @@ async function saveBlueprintClick() {
     
     if (result.success) {
       savedBlueprintState = deepClone(blueprintState);
-      showToast('Blueprint saved successfully', 'success');
+      if (saveReason === 'manual_save') {
+        showToast('Blueprint saved successfully', 'success');
+      }
       validateAndDisplay();
     } else {
       showToast('Save failed: ' + result.error, 'error');
+      throw new Error(result.error);
     }
   } catch (err) {
     console.error('Save blueprint error:', err);
     showToast('Network error saving blueprint', 'error');
-  } finally {
-    saveBtn.disabled = false;
+    throw err;
   }
 }
 
@@ -1099,7 +1131,7 @@ function openStageModal(stageId = null) {
   modal.showModal();
 }
 
-function handleStageSubmit(e) {
+async function handleStageSubmit(e) {
   e.preventDefault();
   
   const name = document.getElementById('stageName').value.trim();
@@ -1122,18 +1154,24 @@ function handleStageSubmit(e) {
   document.getElementById('stageModal').close();
   renderStages();
   validateAndDisplay();
+  
+  // Persist immediately
+  await persistBlueprint('stage_save');
 }
 
-function deleteStage(stageId) {
+async function deleteStage(stageId) {
   const stage = blueprintState.stages.find(s => s.id === stageId);
   if (confirm('Delete stage "' + stage.name + '"?')) {
     blueprintState.stages = blueprintState.stages.filter(s => s.id !== stageId);
     renderStages();
     validateAndDisplay();
+    
+    // Persist immediately
+    await persistBlueprint('stage_delete');
   }
 }
 
-function moveStage(stageId, direction) {
+async function moveStage(stageId, direction) {
   const sortedStages = [...blueprintState.stages].sort((a, b) => a.sequence - b.sequence);
   const index = sortedStages.findIndex(s => s.id === stageId);
   const targetIndex = index + direction;
@@ -1145,6 +1183,9 @@ function moveStage(stageId, direction) {
     
     renderStages();
     validateAndDisplay();
+    
+    // Persist immediately
+    await persistBlueprint('stage_move');
   }
 }
 
@@ -1286,7 +1327,7 @@ function openMilestoneModal(milestoneId = null) {
   modal.showModal();
 }
 
-function handleMilestoneSubmit(e) {
+async function handleMilestoneSubmit(e) {
   e.preventDefault();
   
   const name = document.getElementById('milestoneName').value.trim();
@@ -1326,9 +1367,12 @@ function handleMilestoneSubmit(e) {
   recalculateRelativeTiming();
   
   validateAndDisplay();
+  
+  // Persist immediately
+  await persistBlueprint('milestone_save');
 }
 
-function deleteMilestone(milestoneId) {
+async function deleteMilestone(milestoneId) {
   const milestone = blueprintState.milestones.find(m => m.id === milestoneId);
   if (confirm('Delete milestone "' + milestone.name + '"?\n\nTasks assigned to this milestone will become unassigned.')) {
     blueprintState.milestones = blueprintState.milestones.filter(m => m.id !== milestoneId);
@@ -1343,6 +1387,9 @@ function deleteMilestone(milestoneId) {
     renderMilestones();
     renderTasks();
     validateAndDisplay();
+    
+    // Persist immediately
+    await persistBlueprint('milestone_delete');
   }
 }
 
@@ -1430,7 +1477,7 @@ function openTagModal(tagId = null) {
   modal.showModal();
 }
 
-function handleTagSubmit(e) {
+async function handleTagSubmit(e) {
   e.preventDefault();
   
   const name = document.getElementById('tagName').value.trim();
@@ -1449,9 +1496,12 @@ function handleTagSubmit(e) {
   document.getElementById('tagModal').close();
   renderTags();
   validateAndDisplay();
+  
+  // Persist immediately
+  await persistBlueprint('tag_save');
 }
 
-function deleteTag(tagId) {
+async function deleteTag(tagId) {
   const tag = blueprintState.tags.find(t => t.id === tagId);
   if (confirm('Delete tag "' + tag.name + '"?\n\nTasks with this tag will keep the tag (removed from new projects).')) {
     blueprintState.tags = blueprintState.tags.filter(t => t.id !== tagId);
@@ -1466,6 +1516,9 @@ function deleteTag(tagId) {
     renderTags();
     renderTasks();
     validateAndDisplay();
+    
+    // Persist immediately
+    await persistBlueprint('tag_delete');
   }
 }
 
@@ -1672,7 +1725,7 @@ function openStakeholderModal(stakeholderId = null) {
   modal.showModal();
 }
 
-function handleStakeholderSubmit(e) {
+async function handleStakeholderSubmit(e) {
   e.preventDefault();
   
   const name = document.getElementById('stakeholderName').value.trim();
@@ -1702,9 +1755,12 @@ function handleStakeholderSubmit(e) {
   renderStakeholders();
   renderTasks(); // Update task stakeholder badges
   validateAndDisplay();
+  
+  // Persist immediately
+  await persistBlueprint('stakeholder_save');
 }
 
-function deleteStakeholder(stakeholderId) {
+async function deleteStakeholder(stakeholderId) {
   const stakeholder = blueprintState.stakeholders.find(s => s.id === stakeholderId);
   
   // Check if stakeholder is used by any tasks
@@ -1733,9 +1789,12 @@ function deleteStakeholder(stakeholderId) {
   renderStakeholders();
   renderTasks();
   validateAndDisplay();
+  
+  // Persist immediately
+  await persistBlueprint('stakeholder_delete');
 }
 
-function moveStakeholder(stakeholderId, direction) {
+async function moveStakeholder(stakeholderId, direction) {
   const sortedStakeholders = [...blueprintState.stakeholders].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
   const index = sortedStakeholders.findIndex(s => s.id === stakeholderId);
   const targetIndex = index + direction;
@@ -1752,6 +1811,9 @@ function moveStakeholder(stakeholderId, direction) {
     
     renderStakeholders();
     validateAndDisplay();
+    
+    // Persist immediately
+    await persistBlueprint('stakeholder_move');
   }
 }
 
@@ -1950,8 +2012,12 @@ function getTasksGroupedAndSorted(grouping, grouping2, sorting) {
   // Primary grouping
   const primaryGroups = getTasksByGroup(grouping, parentTasks, sorting);
   
-  // If no secondary grouping, return primary groups
+  // If no secondary grouping, return primary groups as level 1
   if (grouping2 === 'none' || grouping2 === grouping) {
+    // Mark all as level 1 for consistent styling (single-level grouping uses big headers)
+    primaryGroups.forEach(group => {
+      group.level = 1;
+    });
     return primaryGroups;
   }
   
@@ -2529,7 +2595,7 @@ function openTaskModal(taskId = null, parentId = null) {
   modal.showModal();
 }
 
-function handleTaskSubmit(e) {
+async function handleTaskSubmit(e) {
   e.preventDefault();
   
   const name = document.getElementById('taskName').value.trim();
@@ -2589,9 +2655,12 @@ function handleTaskSubmit(e) {
   recalculateRelativeTiming();
   
   validateAndDisplay();
+  
+  // Persist immediately
+  await persistBlueprint('task_save');
 }
 
-function deleteTask(taskId) {
+async function deleteTask(taskId) {
   const task = blueprintState.tasks.find(t => t.id === taskId);
   
   // Check if task has subtasks
@@ -2615,6 +2684,9 @@ function deleteTask(taskId) {
     
     renderTasks();
     validateAndDisplay();
+    
+    // Persist immediately
+    await persistBlueprint('task_delete');
   }
 }
 
@@ -2724,7 +2796,7 @@ function openTaskDependenciesModal(taskId) {
   const saveBtn = document.createElement('button');
   saveBtn.className = 'btn btn-primary';
   saveBtn.textContent = 'Save Dependencies';
-  saveBtn.onclick = () => {
+  saveBtn.onclick = async () => {
     // Get selected dependencies
     const checkboxes = taskListContainer.querySelectorAll('input[type="checkbox"]');
     const selectedDeps = Array.from(checkboxes)
@@ -2762,6 +2834,9 @@ function openTaskDependenciesModal(taskId) {
     
     modal.close();
     modal.remove();
+    
+    // Persist immediately
+    await persistBlueprint('dependencies_save');
     
     showToast('Dependencies updated', 'success');
   };
