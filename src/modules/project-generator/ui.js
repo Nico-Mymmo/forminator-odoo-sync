@@ -386,7 +386,7 @@ export function blueprintEditorUI(user, templateId) {
                   </label>
                   <select id="taskGrouping" class="select select-bordered select-sm w-48">
                     <option value="none">No grouping</option>
-                    <option value="milestone">Milestone</option>
+                    <option value="milestone" selected>Milestone</option>
                     <option value="tag">Tag</option>
                     <option value="stakeholder">Stakeholder</option>
                     <option value="dependency">Dependency status</option>

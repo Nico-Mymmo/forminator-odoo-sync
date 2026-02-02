@@ -1052,6 +1052,12 @@ async function loadBlueprint() {
       
       renderAllSections();
       
+      // Set default grouping to milestone if milestones exist
+      const taskGroupingEl = document.getElementById('taskGrouping');
+      if (taskGroupingEl && blueprintState.milestones && blueprintState.milestones.length > 0) {
+        taskGroupingEl.value = 'milestone';
+      }
+      
       // H.1: Calculate relative timing inheritance after blueprint load
       recalculateRelativeTiming();
       
