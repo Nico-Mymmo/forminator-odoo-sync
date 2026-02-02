@@ -2,6 +2,7 @@
  * Project Generator Module
  * 
  * Template library for project blueprints.
+ * Addendum N: Permission enforcement at API layer
  */
 
 import { templateLibraryUI, blueprintEditorUI, generationHistoryUI } from './ui.js';
@@ -10,6 +11,19 @@ import { generateProject, buildGenerationModel } from './generate.js';
 import { validateBlueprint } from './validation.js';
 import { validateGenerationStart, startGeneration, markGenerationSuccess, markGenerationFailure } from './generation-lifecycle.js';
 import { getActiveUsers } from './odoo-creator.js'; // Addendum J
+import { 
+  canRead, 
+  canGenerate, 
+  canEdit, 
+  canDelete, 
+  canManageEditors,
+  canChangeVisibility,
+  assertCanEdit,
+  createPermissionDeniedResponse, 
+  createNotFoundResponse,
+  isValidVisibility,
+  validateEditorList
+} from './permissions.js'; // Addendum N
 
 export default {
   // Module metadata
@@ -88,15 +102,50 @@ export default {
     
     // Update template
     'PUT /api/templates/:id': async (context) => {
-      const { request, env, params } = context;
+      const { request, env, params, user } = context;
       
       try {
         const updates = await request.json();
-        const template = await updateTemplate(env, params.id, updates);
+        
+        // Addendum N: Fetch template and check permissions
+        const template = await getTemplate(env, params.id, user.id);
+        
+        if (!template) {
+          return createNotFoundResponse(params.id);
+        }
+        
+        // Addendum N: HARD GUARD - Must pass before any mutation
+        assertCanEdit(template, user.id);
+        
+        // Addendum N: Validate visibility change (owner only)
+        if (updates.visibility !== undefined) {
+          if (!canChangeVisibility(template, user.id)) {
+            return createPermissionDeniedResponse(params.id, user.id, 'change visibility', template.visibility);
+          }
+          if (!isValidVisibility(updates.visibility)) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'Invalid visibility mode. Must be: private, public_generate, or public_edit'
+            }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        }
+        
+        // NOTE: Editor management is currently disabled.
+        // public_edit allows all users to edit without restriction.
+        // This code is kept for backward compatibility but has no effect.
+        if (updates.editor_user_ids !== undefined) {
+          // Skip validation - editor list is not enforced
+          console.log('[Project Generator] editor_user_ids update ignored (public_edit allows all users)');
+        }
+        
+        const updatedTemplate = await updateTemplate(env, params.id, updates);
         
         return new Response(JSON.stringify({
           success: true,
-          data: template
+          data: updatedTemplate
         }), {
           headers: { 'Content-Type': 'application/json' }
         });
@@ -104,12 +153,16 @@ export default {
       } catch (error) {
         console.error('[Project Generator] Update template failed:', error);
         
-        const status = error.message.includes('not found') ? 404 :
-                      error.message.includes('empty') ? 400 : 500;
+        const status = error.status || 
+                      (error.code === 'FORBIDDEN' ? 403 :
+                       error.message?.includes('not found') ? 404 :
+                       error.message?.includes('empty') ? 400 : 500);
         
         return new Response(JSON.stringify({
           success: false,
-          error: error.message
+          error: error.message || 'Unknown error',
+          code: error.code || 'ERROR',
+          details: error.details
         }), {
           status,
           headers: { 'Content-Type': 'application/json' }
@@ -119,9 +172,21 @@ export default {
     
     // Delete template
     'DELETE /api/templates/:id': async (context) => {
-      const { env, params } = context;
+      const { env, params, user } = context;
       
       try {
+        // Addendum N: Fetch template and check permissions
+        const template = await getTemplate(env, params.id, user.id);
+        
+        if (!template) {
+          return createNotFoundResponse(params.id);
+        }
+        
+        // Addendum N: Check delete permission (owner only)
+        if (!canDelete(template, user.id)) {
+          return createPermissionDeniedResponse(params.id, user.id, 'delete', template.visibility);
+        }
+        
         const deleted = await deleteTemplate(env, params.id);
         
         if (!deleted) {
@@ -164,9 +229,20 @@ export default {
     
     // Get blueprint data
     'GET /api/blueprint/:id': async (context) => {
-      const { env, params } = context;
+      const { env, params, user } = context;
       
       try {
+        // Addendum N: Fetch template and check read permission
+        const template = await getTemplate(env, params.id, user.id);
+        
+        if (!template) {
+          return createNotFoundResponse(params.id);
+        }
+        
+        if (!canRead(template, user.id)) {
+          return createPermissionDeniedResponse(params.id, user.id, 'read', template.visibility);
+        }
+        
         const blueprintData = await getBlueprintData(env, params.id);
         
         return new Response(JSON.stringify({
@@ -193,28 +269,61 @@ export default {
     
     // Save blueprint data
     'PUT /api/blueprint/:id': async (context) => {
-      const { request, env, params } = context;
+      const { request, env, params, user } = context;
       
       try {
-        const blueprintData = await request.json();
-        const template = await saveBlueprintData(env, params.id, blueprintData);
+        console.log('[Project Generator] PUT /api/blueprint/:id - Start', { templateId: params.id, userId: user?.id });
         
+        if (!user) {
+          console.error('[Project Generator] No user in context');
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'User not authenticated'
+          }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        // Addendum N: Fetch template first (for permission check)
+        const template = await getTemplate(env, params.id, user.id);
+        
+        if (!template) {
+          console.error('[Project Generator] Template not found:', params.id);
+          return createNotFoundResponse(params.id);
+        }
+        
+        // Addendum N: HARD GUARD - Must pass before any mutation
+        assertCanEdit(template, user.id);
+        
+        const blueprintData = await request.json();
+        console.log('[Project Generator] Blueprint data received, saving...');
+        
+        const updatedTemplate = await saveBlueprintData(env, params.id, blueprintData);
+        
+        console.log('[Project Generator] Blueprint saved successfully');
         return new Response(JSON.stringify({
           success: true,
-          data: template
+          data: updatedTemplate
         }), {
           headers: { 'Content-Type': 'application/json' }
         });
         
       } catch (error) {
         console.error('[Project Generator] Save blueprint failed:', error);
+        console.error('[Project Generator] Error stack:', error.stack);
         
-        const status = error.message.includes('not found') ? 404 :
-                      error.message.includes('must be') ? 400 : 500;
+        // Check for specific error codes
+        const status = error.status || 
+                      (error.code === 'FORBIDDEN' ? 403 :
+                       error.message?.includes('not found') ? 404 :
+                       error.message?.includes('must be') ? 400 : 500);
         
         return new Response(JSON.stringify({
           success: false,
-          error: error.message
+          error: error.message || 'Unknown error',
+          code: error.code || 'ERROR',
+          details: error.details
         }), {
           status,
           headers: { 'Content-Type': 'application/json' }
@@ -251,19 +360,18 @@ export default {
     
     // Preview generation model (Addendum C)
     'POST /api/generate-preview/:id': async (context) => {
-      const { request, env, params } = context;
+      const { request, env, params, user } = context;
       
       try {
-        const template = await getTemplate(env, params.id);
+        // Addendum N: Fetch template and check read permission
+        const template = await getTemplate(env, params.id, user.id);
         
         if (!template) {
-          return new Response(JSON.stringify({
-            success: false,
-            error: 'Template not found'
-          }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          return createNotFoundResponse(params.id);
+        }
+        
+        if (!canRead(template, user.id)) {
+          return createPermissionDeniedResponse(params.id, user.id, 'read', template.visibility);
         }
         
         // Parse request body for projectStartDate and stakeholderMapping (Addendum G + J)
@@ -319,17 +427,16 @@ export default {
       const { request, env, params, user } = context;
       
       try {
-        // Get template to access name and user_id
-        const template = await getTemplate(env, params.id);
+        // Addendum N: Fetch template and check generate permission
+        const template = await getTemplate(env, params.id, user.id);
         
         if (!template) {
-          return new Response(JSON.stringify({
-            success: false,
-            error: 'Template not found'
-          }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          return createNotFoundResponse(params.id);
+        }
+        
+        // Addendum N: Check generate permission
+        if (!canGenerate(template, user.id)) {
+          return createPermissionDeniedResponse(params.id, user.id, 'generate from', template.visibility);
         }
         
         // Parse request body for confirmOverwrite flag and overrideModel

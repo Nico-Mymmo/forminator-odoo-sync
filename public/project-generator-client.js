@@ -7,6 +7,38 @@
  */
 
 let editingTemplateId = null;
+let currentUserId = null; // Addendum N: Track current user for permission checks
+
+// Addendum N: Visibility helper functions
+function getVisibilityTooltip(visibility, editorUserIds) {
+  if (visibility === 'private') {
+    return 'Private - Only visible to you';
+  } else if (visibility === 'public_generate') {
+    return 'Public - Anyone can use this template';
+  } else if (visibility === 'public_edit') {
+    return 'Public - Editable (anyone can edit and generate)';
+  }
+  return 'Unknown visibility mode';
+}
+
+// Addendum N: Client-side permission checks (must match server-side logic)
+function canEditTemplate(template, userId) {
+  if (!userId) return false;
+  // Owner always has edit rights
+  if (template.owner_user_id === userId) return true;
+  // Public edit mode: everyone can edit
+  // NOTE: Simplified collaboration model - no editor restrictions
+  if (template.visibility === 'public_edit') {
+    return true;
+  }
+  // Private or public_generate: no one else can edit
+  return false;
+}
+
+function canDeleteTemplate(template, userId) {
+  if (!userId) return false;
+  return template.owner_user_id === userId;
+}
 
 // Theme management
 function changeTheme(theme) {
@@ -31,6 +63,26 @@ async function logout() {
 // Render a single template row using DOM APIs (safe by default)
 function renderTemplateRow(template) {
   const tr = document.createElement('tr');
+  
+  // Addendum N: Visibility icon column
+  const visibilityTd = document.createElement('td');
+  visibilityTd.className = 'text-center';
+  const visibilityIcon = document.createElement('span');
+  visibilityIcon.className = 'text-lg';
+  visibilityIcon.title = getVisibilityTooltip(template.visibility, template.editor_user_ids);
+  
+  if (template.visibility === 'private') {
+    visibilityIcon.textContent = '🔒';
+  } else if (template.visibility === 'public_generate') {
+    visibilityIcon.textContent = '📦';
+  } else if (template.visibility === 'public_edit') {
+    visibilityIcon.textContent = '✏️';
+  } else {
+    visibilityIcon.textContent = '🔒'; // Default to private icon
+  }
+  
+  visibilityTd.appendChild(visibilityIcon);
+  tr.appendChild(visibilityTd);
   
   // Name column
   const nameTd = document.createElement('td');
@@ -106,31 +158,37 @@ function renderTemplateRow(template) {
   
   actionsTd.appendChild(blueprintBtn);
   
-  // Edit button
-  const editBtn = document.createElement('button');
-  editBtn.className = 'btn btn-ghost btn-sm';
-  editBtn.title = 'Edit';
-  editBtn.onclick = () => editTemplate(template.id);
+  // Addendum N: Only show Edit button if user has edit permission
+  if (canEditTemplate(template, currentUserId)) {
+    // Edit button
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-ghost btn-sm';
+    editBtn.title = 'Edit';
+    editBtn.onclick = () => editTemplate(template.id);
+    
+    const editIcon = document.createElement('i');
+    editIcon.setAttribute('data-lucide', 'edit-2');
+    editIcon.className = 'w-4 h-4';
+    editBtn.appendChild(editIcon);
+    
+    actionsTd.appendChild(editBtn);
+  }
   
-  const editIcon = document.createElement('i');
-  editIcon.setAttribute('data-lucide', 'edit-2');
-  editIcon.className = 'w-4 h-4';
-  editBtn.appendChild(editIcon);
-  
-  actionsTd.appendChild(editBtn);
-  
-  // Delete button
-  const deleteBtn = document.createElement('button');
-  deleteBtn.className = 'btn btn-ghost btn-sm text-error';
-  deleteBtn.title = 'Delete';
-  deleteBtn.onclick = () => deleteTemplate(template.id, template.name);
-  
-  const deleteIcon = document.createElement('i');
-  deleteIcon.setAttribute('data-lucide', 'trash-2');
-  deleteIcon.className = 'w-4 h-4';
-  deleteBtn.appendChild(deleteIcon);
-  
-  actionsTd.appendChild(deleteBtn);
+  // Addendum N: Only show Delete button if user is owner
+  if (canDeleteTemplate(template, currentUserId)) {
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn-ghost btn-sm text-error';
+    deleteBtn.title = 'Delete';
+    deleteBtn.onclick = () => deleteTemplate(template.id, template.name);
+    
+    const deleteIcon = document.createElement('i');
+    deleteIcon.setAttribute('data-lucide', 'trash-2');
+    deleteIcon.className = 'w-4 h-4';
+    deleteBtn.appendChild(deleteIcon);
+    
+    actionsTd.appendChild(deleteBtn);
+  }
   tr.appendChild(actionsTd);
   
   return tr;
@@ -195,6 +253,11 @@ function openCreateModal() {
   document.getElementById('submitBtnText').textContent = 'Create Template';
   document.getElementById('templateForm').reset();
   document.getElementById('nameError').style.display = 'none';
+  
+  // Addendum N: Hide visibility section for new templates (defaults to private)
+  const visibilitySection = document.getElementById('visibilitySection');
+  if (visibilitySection) visibilitySection.style.display = 'none';
+  
   document.getElementById('templateModal').showModal();
 }
 
@@ -216,6 +279,18 @@ async function editTemplate(id) {
         document.getElementById('templateName').value = template.name;
         document.getElementById('templateDescription').value = template.description || '';
         document.getElementById('nameError').style.display = 'none';
+        
+        // Addendum N: Show visibility section and set current value
+        const visibilitySection = document.getElementById('visibilitySection');
+        if (visibilitySection) {
+          visibilitySection.style.display = 'block';
+          const currentVisibility = template.visibility || 'private';
+          const radioInputs = document.querySelectorAll('input[name="visibility"]');
+          radioInputs.forEach(input => {
+            input.checked = (input.value === currentVisibility);
+          });
+        }
+        
         document.getElementById('templateModal').showModal();
       }
     }
@@ -224,6 +299,9 @@ async function editTemplate(id) {
     showToast('Failed to load template', 'error');
   }
 }
+
+// NOTE: Editor section management removed - public_edit now allows all users to edit
+// The editorsSection element has been removed from the UI template
 
 // Close modal
 function closeModal() {
@@ -264,11 +342,20 @@ async function handleFormSubmit(e) {
     
     const method = editingTemplateId ? 'PUT' : 'POST';
     
+    // Addendum N: Include visibility in update (if editing)
+    const payload = { name, description };
+    if (editingTemplateId) {
+      const visibilityInput = document.querySelector('input[name=\"visibility\"]:checked');
+      if (visibilityInput) {
+        payload.visibility = visibilityInput.value;
+      }
+    }
+    
     const response = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ name, description })
+      body: JSON.stringify(payload)
     });
     
     const result = await response.json();
@@ -754,6 +841,9 @@ function formatDate(dateString) {
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
+  // Addendum N: Initialize current user ID for permission checks
+  currentUserId = window.__CURRENT_USER_ID__ || null;
+  
   // Check if we're on the generation history page
   if (window.VIEW_MODE === 'generation-history') {
     initGenerationHistory();
@@ -997,6 +1087,22 @@ async function persistBlueprint(saveReason = 'auto') {
       body: JSON.stringify(blueprintState)
     });
     
+    if (!response.ok) {
+      console.error('Server returned error status:', response.status);
+      let errorMsg = 'Server error';
+      try {
+        const result = await response.json();
+        errorMsg = result.error || result.message || errorMsg;
+        console.error('Server error details:', result);
+      } catch (parseErr) {
+        console.error('Could not parse error response:', parseErr);
+        const text = await response.text();
+        console.error('Raw error response:', text.substring(0, 500));
+      }
+      showToast('Save failed: ' + errorMsg, 'error');
+      throw new Error(errorMsg);
+    }
+    
     const result = await response.json();
     
     if (result.success) {
@@ -1006,12 +1112,14 @@ async function persistBlueprint(saveReason = 'auto') {
       }
       validateAndDisplay();
     } else {
-      showToast('Save failed: ' + result.error, 'error');
-      throw new Error(result.error);
+      showToast('Save failed: ' + (result.error || 'Unknown error'), 'error');
+      throw new Error(result.error || 'Unknown error');
     }
   } catch (err) {
     console.error('Save blueprint error:', err);
-    showToast('Network error saving blueprint', 'error');
+    if (!err.message.includes('Save failed')) {
+      showToast('Network error saving blueprint', 'error');
+    }
     throw err;
   }
 }

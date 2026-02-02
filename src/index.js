@@ -45,20 +45,21 @@ async function validateAuth(request, env) {
 
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
+    try {
+      const url = new URL(request.url);
+      const pathname = url.pathname;
 
-    // Handle CORS preflight requests
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Max-Age': '86400',
-        }
-      });
-    }
+      // Handle CORS preflight requests
+      if (request.method === 'OPTIONS') {
+        return new Response(null, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            'Access-Control-Max-Age': '86400',
+          }
+        });
+      }
 
     // Helper to add CORS headers to any response
     const addCorsHeaders = (response) => {
@@ -477,5 +478,21 @@ export default {
       status: 400,
       headers: { "Content-Type": "application/json" }
     });
+    } catch (error) {
+      // Global error handler - prevents Workers from returning HTML error pages
+      console.error('[Worker] Unhandled error in fetch:', error);
+      console.error('[Worker] Error stack:', error.stack);
+      console.error('[Worker] Request URL:', request.url);
+      console.error('[Worker] Request method:', request.method);
+      
+      return new Response(JSON.stringify({ 
+        success: false,
+        error: error.message || 'Internal server error',
+        type: error.name || 'Error'
+      }), { 
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
   }
 };

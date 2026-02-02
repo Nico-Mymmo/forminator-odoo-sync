@@ -9,9 +9,11 @@
  * - Explicit user_id filtering (defensive)
  * - All errors logged and re-thrown
  * - No business logic (pure data access)
+ * - Addendum N: Permission enforcement on all operations
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { canSeeTemplateInList, canRead, canEdit, canDelete } from './permissions.js';
 
 /**
  * Initialize Supabase client
@@ -30,6 +32,10 @@ function getSupabaseClient(env) {
 /**
  * Get all templates for a user
  * 
+ * Addendum N: Enforces list visibility (canSeeTemplateInList)
+ * - Private templates only visible to owner
+ * - Public templates visible to everyone
+ * 
  * @param {Object} env - Cloudflare Worker environment
  * @param {string} userId - User UUID
  * @returns {Promise<Array>} Array of template objects
@@ -38,10 +44,11 @@ function getSupabaseClient(env) {
 export async function getTemplates(env, userId) {
   const supabase = getSupabaseClient(env);
   
+  // Fetch all templates (RLS + visibility filtering)
+  // RLS policy handles visibility, but we filter defensively
   const { data, error } = await supabase
     .from('project_templates')
     .select('*')
-    .eq('user_id', userId)
     .order('created_at', { ascending: false });
   
   if (error) {
@@ -49,18 +56,27 @@ export async function getTemplates(env, userId) {
     throw new Error(`Failed to fetch templates: ${error.message}`);
   }
   
-  return data || [];
+  // Addendum N: Filter by canSeeTemplateInList (privacy invariant)
+  const visibleTemplates = (data || []).filter(template => 
+    canSeeTemplateInList(template, userId)
+  );
+  
+  return visibleTemplates;
 }
 
 /**
  * Get a single template by ID
  * 
+ * Addendum N: Returns null if template doesn't exist OR user lacks read permission.
+ * This prevents leaking existence of private templates.
+ * 
  * @param {Object} env - Cloudflare Worker environment
  * @param {string} templateId - Template UUID
+ * @param {string} userId - User UUID (optional, for permission check)
  * @returns {Promise<Object|null>} Template object or null
  * @throws {Error} If database operation fails
  */
-export async function getTemplate(env, templateId) {
+export async function getTemplate(env, templateId, userId = null) {
   const supabase = getSupabaseClient(env);
   
   const { data, error } = await supabase
@@ -78,17 +94,27 @@ export async function getTemplate(env, templateId) {
     throw new Error(`Failed to get template: ${error.message}`);
   }
   
+  // Addendum N: Permission check
+  // If userId provided and user cannot read, return null (hide existence)
+  if (userId && !canRead(data, userId)) {
+    return null;
+  }
+  
   return data;
 }
 
 /**
  * Create a new template
  * 
+ * Addendum N: Sets owner_user_id, visibility (default: private), editor_user_ids (empty)
+ * 
  * @param {Object} env - Cloudflare Worker environment
  * @param {string} userId - User UUID
  * @param {Object} data - Template data
  * @param {string} data.name - Template name (required)
  * @param {string} [data.description] - Template description (optional)
+ * @param {string} [data.visibility] - Visibility mode (default: private)
+ * @param {Array<string>} [data.editor_user_ids] - Editor list (default: [])
  * @returns {Promise<Object>} Created template
  * @throws {Error} If validation fails or database operation fails
  */
@@ -100,11 +126,15 @@ export async function createTemplate(env, userId, data) {
   
   const supabase = getSupabaseClient(env);
   
+  // Addendum N: Set ownership and visibility
   const row = {
-    user_id: userId,
+    user_id: userId,  // Legacy field (keep for backward compat)
+    owner_user_id: userId,  // Addendum N: Owner
     name: data.name.trim(),
     description: data.description?.trim() || null,
-    blueprint_data: {}  // Empty object for Iteration 2
+    blueprint_data: {},  // Empty object for Iteration 2
+    visibility: data.visibility || 'private',  // Addendum N: Default private
+    editor_user_ids: data.editor_user_ids || []  // Addendum N: Empty list
   };
   
   const { data: inserted, error } = await supabase
@@ -125,11 +155,16 @@ export async function createTemplate(env, userId, data) {
 /**
  * Update an existing template
  * 
+ * Addendum N: Supports visibility and editor_user_ids updates
+ * Note: Permission enforcement happens at module.js layer
+ * 
  * @param {Object} env - Cloudflare Worker environment
  * @param {string} templateId - Template UUID
  * @param {Object} updates - Fields to update
  * @param {string} [updates.name] - New name
  * @param {string} [updates.description] - New description
+ * @param {string} [updates.visibility] - New visibility mode
+ * @param {Array<string>} [updates.editor_user_ids] - New editor list
  * @returns {Promise<Object>} Updated template
  * @throws {Error} If validation fails or database operation fails
  */
@@ -150,6 +185,13 @@ export async function updateTemplate(env, templateId, updates) {
   }
   if (updates.description !== undefined) {
     updateData.description = updates.description?.trim() || null;
+  }
+  // Addendum N: Support visibility and editor updates
+  if (updates.visibility !== undefined) {
+    updateData.visibility = updates.visibility;
+  }
+  if (updates.editor_user_ids !== undefined) {
+    updateData.editor_user_ids = updates.editor_user_ids;
   }
   
   if (Object.keys(updateData).length === 0) {

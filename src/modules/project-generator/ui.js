@@ -17,6 +17,10 @@ export function templateLibraryUI(user) {
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Addendum N: Embed current user ID for client-side permission checks -->
+    <script>
+      window.__CURRENT_USER_ID__ = '${user.id}';
+    </script>
 </head>
 <body class="bg-base-200">
     ${navbar(user)}
@@ -62,6 +66,7 @@ export function templateLibraryUI(user) {
               <table class="table">
                 <thead>
                   <tr>
+                    <th class="w-12"></th>
                     <th>Name</th>
                     <th>Description</th>
                     <th>Created</th>
@@ -117,6 +122,43 @@ export function templateLibraryUI(user) {
             ></textarea>
           </div>
           
+          <!-- Addendum N: Visibility Settings (only shown when editing) -->
+          <div id="visibilitySection" class="form-control mb-4" style="display: none;">
+            <label class="label">
+              <span class="label-text font-semibold">Template Visibility</span>
+            </label>
+            
+            <div class="form-control">
+              <label class="label cursor-pointer justify-start gap-4">
+                <input type="radio" name="visibility" value="private" class="radio" />
+                <div>
+                  <div class="font-semibold">Private</div>
+                  <div class="text-sm opacity-70">Only you can edit and generate from this template</div>
+                </div>
+              </label>
+            </div>
+            
+            <div class="form-control">
+              <label class="label cursor-pointer justify-start gap-4">
+                <input type="radio" name="visibility" value="public_generate" class="radio" />
+                <div>
+                  <div class="font-semibold">Public – Generate only</div>
+                  <div class="text-sm opacity-70">Others can use this template to generate projects</div>
+                </div>
+              </label>
+            </div>
+            
+            <div class="form-control">
+              <label class="label cursor-pointer justify-start gap-4">
+                <input type="radio" name="visibility" value="public_edit" class="radio" />
+                <div>
+                  <div class="font-semibold">Public – Editable</div>
+                  <div class="text-sm opacity-70">Anyone with access can edit this template</div>
+                </div>
+              </label>
+            </div>
+          </div>
+          
           <div class="modal-action">
             <button type="button" id="cancelBtn" class="btn">Cancel</button>
             <button type="submit" id="submitBtn" class="btn btn-primary">
@@ -161,6 +203,11 @@ export function blueprintEditorUI(user, templateId) {
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Addendum N: Embed current user ID and template ID for client-side permission checks -->
+    <script>
+      window.__CURRENT_USER_ID__ = '${user.id}';
+      window.TEMPLATE_ID = '${templateId}';
+    </script>
 </head>
 <body class="bg-base-200">
     ${navbar(user)}
@@ -769,6 +816,13 @@ export function generationHistoryUI(user, templateId, templateName) {
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Addendum N: Embed current user ID for client-side permission checks -->
+    <script>
+      window.__CURRENT_USER_ID__ = '${user.id}';
+      window.VIEW_MODE = 'generation-history';
+      window.TEMPLATE_ID = '${templateId}';
+      window.TEMPLATE_NAME = '${templateName}';
+    </script>
 </head>
 <body class="bg-base-200">
     ${navbar(user)}
