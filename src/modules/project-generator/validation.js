@@ -101,6 +101,8 @@ function validateStages(stages, result) {
   
   const seenIds = new Set();
   const seenSequences = new Set();
+  let doneStageCount = 0;
+  let cancelledStageCount = 0;
   
   stages.forEach((stage, index) => {
     if (!stage.id) {
@@ -122,7 +124,24 @@ function validateStages(stages, result) {
     } else {
       seenSequences.add(stage.sequence);
     }
+    
+    // Addendum O: Stage semantics validation
+    if (stage.is_done_stage) doneStageCount++;
+    if (stage.is_cancelled_stage) cancelledStageCount++;
   });
+  
+  // Addendum O: Enforce exactly one Done and one Cancelled stage
+  if (doneStageCount === 0) {
+    result.errors.push('Blueprint must have exactly one Done stage. Mark one stage as Done in the stage editor.');
+  } else if (doneStageCount > 1) {
+    result.errors.push('Blueprint has multiple Done stages. Only one stage can be marked as Done.');
+  }
+  
+  if (cancelledStageCount === 0) {
+    result.errors.push('Blueprint must have exactly one Cancelled stage. Mark one stage as Cancelled in the stage editor.');
+  } else if (cancelledStageCount > 1) {
+    result.errors.push('Blueprint has multiple Cancelled stages. Only one stage can be marked as Cancelled.');
+  }
 }
 
 /**

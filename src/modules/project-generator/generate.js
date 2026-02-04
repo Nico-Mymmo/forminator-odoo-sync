@@ -248,7 +248,10 @@ export async function generateProject(env, templateId, templateName, projectStar
       const stageId = await createStage(env, {
         name: stage.name,
         sequence: stage.sequence,
-        project_id: projectId
+        project_id: projectId,
+        is_done_stage: stage.is_done_stage || false,         // Addendum O
+        is_approved_stage: stage.is_approved_stage || false, // Addendum O
+        is_cancelled_stage: stage.is_cancelled_stage || false // Addendum O
       });
       
       result.odoo_mappings.stages[stage.blueprint_id] = stageId;
@@ -584,7 +587,10 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
     model.stages = blueprint.stages.map(stage => ({
       blueprint_id: stage.id,
       name: stage.name,
-      sequence: stage.sequence
+      sequence: stage.sequence,
+      is_done_stage: stage.is_done_stage || false,         // Addendum O
+      is_approved_stage: stage.is_approved_stage || false, // Addendum O
+      is_cancelled_stage: stage.is_cancelled_stage || false // Addendum O
     }));
   }
   

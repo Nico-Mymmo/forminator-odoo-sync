@@ -92,6 +92,17 @@ export async function createStage(env, data) {
     sequence: data.sequence
   };
   
+  // Addendum O: Map stage semantics to Odoo custom fields
+  if (data.is_done_stage) {
+    values.x_is_done_stage = true;
+  }
+  if (data.is_approved_stage) {
+    values.x_is_approved_stage = true;
+  }
+  if (data.is_cancelled_stage) {
+    values.x_is_cancelled_stage = true;
+  }
+  
   const stageId = await create(env, {
     model: 'project.task.type',
     values: values

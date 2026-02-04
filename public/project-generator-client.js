@@ -1194,6 +1194,26 @@ function renderStages() {
     nameSpan.textContent = stage.name;
     leftDiv.appendChild(nameSpan);
     
+    // Add semantic badges (Addendum O)
+    if (stage.is_done_stage) {
+      const doneBadge = document.createElement('span');
+      doneBadge.className = 'badge badge-success badge-sm';
+      doneBadge.textContent = 'Done';
+      leftDiv.appendChild(doneBadge);
+    }
+    if (stage.is_approved_stage) {
+      const approvedBadge = document.createElement('span');
+      approvedBadge.className = 'badge badge-warning badge-sm';
+      approvedBadge.textContent = 'Approved';
+      leftDiv.appendChild(approvedBadge);
+    }
+    if (stage.is_cancelled_stage) {
+      const cancelBadge = document.createElement('span');
+      cancelBadge.className = 'badge badge-error badge-sm';
+      cancelBadge.textContent = 'Cancelled';
+      leftDiv.appendChild(cancelBadge);
+    }
+    
     div.appendChild(leftDiv);
     
     const btnDiv = document.createElement('div');
@@ -1260,18 +1280,47 @@ function openStageModal(stageId = null) {
   const title = document.getElementById('stageModalTitle');
   const nameInput = document.getElementById('stageName');
   const seqInput = document.getElementById('stageSequence');
+  const isDoneCheck = document.getElementById('stageIsDone');
+  const isApprovedCheck = document.getElementById('stageIsApproved');
+  const isCancelledCheck = document.getElementById('stageIsCancelled');
   
   if (stageId) {
     const stage = blueprintState.stages.find(s => s.id === stageId);
     title.textContent = 'Edit Stage';
     nameInput.value = stage.name;
     seqInput.value = stage.sequence;
+    isDoneCheck.checked = stage.is_done_stage || false;
+    isApprovedCheck.checked = stage.is_approved_stage || false;
+    isCancelledCheck.checked = stage.is_cancelled_stage || false;
   } else {
     title.textContent = 'Add Stage';
     nameInput.value = '';
     const maxSeq = Math.max(0, ...blueprintState.stages.map(s => s.sequence));
     seqInput.value = maxSeq + 1;
+    isDoneCheck.checked = false;
+    isApprovedCheck.checked = false;
+    isCancelledCheck.checked = false;
   }
+  
+  // 3-way mutual exclusivity logic (Addendum O)
+  isDoneCheck.onchange = () => {
+    if (isDoneCheck.checked) {
+      isApprovedCheck.checked = false;
+      isCancelledCheck.checked = false;
+    }
+  };
+  isApprovedCheck.onchange = () => {
+    if (isApprovedCheck.checked) {
+      isDoneCheck.checked = false;
+      isCancelledCheck.checked = false;
+    }
+  };
+  isCancelledCheck.onchange = () => {
+    if (isCancelledCheck.checked) {
+      isDoneCheck.checked = false;
+      isApprovedCheck.checked = false;
+    }
+  };
   
   modal.showModal();
 }
@@ -1281,18 +1330,42 @@ async function handleStageSubmit(e) {
   
   const name = document.getElementById('stageName').value.trim();
   const sequence = parseInt(document.getElementById('stageSequence').value);
+  const isDone = document.getElementById('stageIsDone').checked;
+  const isApproved = document.getElementById('stageIsApproved').checked;
+  const isCancelled = document.getElementById('stageIsCancelled').checked;
   
   if (!name) return;
+  
+  // Check for duplicate semantic flags across other stages (Addendum O)
+  const otherStages = blueprintState.stages.filter(s => s.id !== editingStageId);
+  if (isDone && otherStages.some(s => s.is_done_stage)) {
+    alert('Only one stage can be marked as Done stage');
+    return;
+  }
+  if (isApproved && otherStages.some(s => s.is_approved_stage)) {
+    alert('Only one stage can be marked as Approved stage');
+    return;
+  }
+  if (isCancelled && otherStages.some(s => s.is_cancelled_stage)) {
+    alert('Only one stage can be marked as Cancelled stage');
+    return;
+  }
   
   if (editingStageId) {
     const stage = blueprintState.stages.find(s => s.id === editingStageId);
     stage.name = name;
     stage.sequence = sequence;
+    stage.is_done_stage = isDone;
+    stage.is_approved_stage = isApproved;
+    stage.is_cancelled_stage = isCancelled;
   } else {
     blueprintState.stages.push({
       id: generateUUID(),
       name: name,
-      sequence: sequence
+      sequence: sequence,
+      is_done_stage: isDone,
+      is_approved_stage: isApproved,
+      is_cancelled_stage: isCancelled
     });
   }
   
@@ -2632,7 +2705,16 @@ function renderTaskItem(task, level, container, isGrouped = false, sorting = 'ma
     count.className = 'text-xs text-base-content/50';
     count.textContent = taskDependencies.length;
     depContainer.appendChild(count);
-    depContainer.title = `${taskDependencies.length} dependencies`;
+    
+    // Build tooltip with dependency task names
+    const dependencyNames = taskDependencies
+      .map(dep => {
+        const depTask = blueprintState.tasks.find(t => t.id === dep.depends_on_task_id);
+        return depTask ? depTask.name : 'Unknown task';
+      })
+      .join('\n');
+    depContainer.title = `Depends on:\n${dependencyNames}`;
+    
     metaDiv.appendChild(depContainer);
   }
   
@@ -3322,6 +3404,27 @@ function validateBlueprint() {
   
   if (stages.length > 0 && tasks.length === 0) {
     result.warnings.push('Stages defined but no tasks exist');
+  }
+  
+  // Addendum O: Stage semantics validation
+  const doneStages = stages.filter(s => s.is_done_stage);
+  const approvedStages = stages.filter(s => s.is_approved_stage);
+  const cancelledStages = stages.filter(s => s.is_cancelled_stage);
+  
+  if (doneStages.length === 0) {
+    result.warnings.push('No Done stage defined. You must define exactly one Done stage before generating.');
+  } else if (doneStages.length > 1) {
+    result.errors.push('Multiple Done stages found. Only one stage can be marked as Done.');
+  }
+  
+  if (approvedStages.length > 1) {
+    result.errors.push('Multiple Approved stages found. Only one stage can be marked as Approved.');
+  }
+  
+  if (cancelledStages.length === 0) {
+    result.warnings.push('No Cancelled stage defined. You must define exactly one Cancelled stage before generating.');
+  } else if (cancelledStages.length > 1) {
+    result.errors.push('Multiple Cancelled stages found. Only one stage can be marked as Cancelled.');
   }
   
   result.valid = result.errors.length === 0;

@@ -471,6 +471,54 @@ export function blueprintEditorUI(user, templateId) {
               min="1"
             />
           </div>
+          
+          <!-- Stage Semantics (Addendum O) -->
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text font-semibold">Workflow Semantics</span>
+              <span class="label-text-alt text-base-content/60">Required for task state automation</span>
+            </label>
+            <div class="space-y-2 pl-2">
+              <label class="label cursor-pointer justify-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="stageIsDone" 
+                  class="checkbox checkbox-success"
+                />
+                <div class="flex flex-col">
+                  <span class="label-text font-medium">Done Stage</span>
+                  <span class="label-text-alt text-base-content/50 text-xs">Tasks moved to this stage are marked as completed</span>
+                </div>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="stageIsApproved" 
+                  class="checkbox checkbox-warning"
+                />
+                <div class="flex flex-col">
+                  <span class="label-text font-medium">Approved Stage</span>
+                  <span class="label-text-alt text-base-content/50 text-xs">Tasks in this stage require formal approval</span>
+                </div>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="stageIsCancelled" 
+                  class="checkbox checkbox-error"
+                />
+                <div class="flex flex-col">
+                  <span class="label-text font-medium">Cancelled Stage</span>
+                  <span class="label-text-alt text-base-content/50 text-xs">Tasks moved to this stage are marked as canceled</span>
+                </div>
+              </label>
+            </div>
+            <div class="alert alert-info text-xs mt-2">
+              <i data-lucide="info" class="w-4 h-4"></i>
+              <span>Required: one Done and one Cancelled stage. Optional: up to one Approved stage.</span>
+            </div>
+          </div>
+          
           <div class="modal-action">
             <button type="button" class="btn" onclick="stageModal.close()">Cancel</button>
             <button type="submit" class="btn btn-primary">Save</button>
