@@ -550,7 +550,7 @@ export function blueprintEditorUI(user, templateId) {
               <button type="button" class="w-8 h-8 rounded-full bg-green-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="6" title="Green"></button>
               <button type="button" class="w-8 h-8 rounded-full bg-purple-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="7" title="Purple"></button>
               <button type="button" class="w-8 h-8 rounded-full bg-gray-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="8" title="Gray"></button>
-              <button type="button" class="w-8 h-8 rounded-full bg-violet-400 hover:ring-2 hover:ring-offset-2" data-milestone-color="9" title="Violet"></button>
+              <button type="button" class="w-8 h-8 rounded-full bg-violet-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="9" title="Violet"></button>
               <button type="button" class="w-8 h-8 rounded-full bg-cyan-500 hover:ring-2 hover:ring-offset-2" data-milestone-color="10" title="Cyan"></button>
               <button type="button" class="w-8 h-8 rounded-full bg-indigo-600 hover:ring-2 hover:ring-offset-2" data-milestone-color="11" title="Indigo"></button>
               <button type="button" class="w-8 h-8 rounded-full border-2 border-dashed border-base-content/30 hover:border-base-content" data-milestone-color="0" title="No color">

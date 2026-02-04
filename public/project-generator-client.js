@@ -1375,7 +1375,7 @@ function renderMilestones() {
     if (milestone.color && milestone.color > 0 && milestone.color <= 11) {
       const colorMap = {
         1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
-        6: '#22C55E', 7: '#A855F7', 8: '#64748B', 9: '#C084FC', 10: '#06B6D4', 11: '#8B5CF6'
+        6: '#22C55E', 7: '#A855F7', 8: '#6B7280', 9: '#8B5CF6', 10: '#06B6D4', 11: '#4F46E5'
       };
       const colorDot = document.createElement('span');
       colorDot.className = 'w-3 h-3 rounded-full flex-shrink-0';
@@ -1786,7 +1786,7 @@ function renderStakeholders() {
     if (stakeholder.color && stakeholder.color > 0 && stakeholder.color <= 11) {
       const colorMap = {
         1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
-        6: '#8B5CF6', 7: '#10B981', 8: '#06B6D4', 9: '#6366F1', 10: '#F59E0B', 11: '#84CC16'
+        6: '#22C55E', 7: '#A855F7', 8: '#6B7280', 9: '#8B5CF6', 10: '#06B6D4', 11: '#4F46E5'
       };
       const colorDot = document.createElement('div');
       colorDot.className = 'w-3 h-3 rounded-full mt-0.5 flex-shrink-0';
@@ -1882,18 +1882,18 @@ function openStakeholderModal(stakeholderId = null) {
   colorPicker.innerHTML = '';
   
   const colorMap = {
-    0: { hex: '#9CA3AF', label: 'No color' },
+    0: { hex: '#E5E7EB', label: 'No color' },
     1: { hex: '#EF4444', label: 'Red' },
     2: { hex: '#F97316', label: 'Orange' },
     3: { hex: '#EAB308', label: 'Yellow' },
     4: { hex: '#3B82F6', label: 'Blue' },
     5: { hex: '#EC4899', label: 'Pink' },
-    6: { hex: '#8B5CF6', label: 'Purple' },
-    7: { hex: '#10B981', label: 'Green' },
-    8: { hex: '#06B6D4', label: 'Cyan' },
-    9: { hex: '#6366F1', label: 'Indigo' },
-    10: { hex: '#F59E0B', label: 'Amber' },
-    11: { hex: '#84CC16', label: 'Lime' }
+    6: { hex: '#22C55E', label: 'Green' },
+    7: { hex: '#A855F7', label: 'Purple' },
+    8: { hex: '#6B7280', label: 'Gray' },
+    9: { hex: '#8B5CF6', label: 'Violet' },
+    10: { hex: '#06B6D4', label: 'Cyan' },
+    11: { hex: '#4F46E5', label: 'Indigo' }
   };
   
   let selectedColor = 0;
@@ -2477,7 +2477,7 @@ function renderTaskItem(task, level, container, isGrouped = false, sorting = 'ma
   if (task.color && task.color > 0 && task.color <= 11) {
     const colorMap = {
       1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
-      6: '#22C55E', 7: '#A855F7', 8: '#64748B', 9: '#C084FC', 10: '#06B6D4', 11: '#8B5CF6'
+      6: '#22C55E', 7: '#A855F7', 8: '#6B7280', 9: '#8B5CF6', 10: '#06B6D4', 11: '#4F46E5'
     };
     const colorDot = document.createElement('span');
     colorDot.className = 'w-2.5 h-2.5 rounded-full';
@@ -2495,11 +2495,13 @@ function renderTaskItem(task, level, container, isGrouped = false, sorting = 'ma
       // Use milestone color if available
       if (milestone.color && milestone.color > 0 && milestone.color <= 11) {
         const colorMap = {
-          1: 'badge-error', 2: 'badge-warning', 3: 'badge-warning', 4: 'badge-info', 
-          5: 'badge-secondary', 6: 'badge-success', 7: 'badge-secondary', 8: 'badge-neutral',
-          9: 'badge-secondary', 10: 'badge-info', 11: 'badge-secondary'
+          1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
+          6: '#22C55E', 7: '#A855F7', 8: '#6B7280', 9: '#8B5CF6', 10: '#06B6D4', 11: '#4F46E5'
         };
-        badge.className = `badge badge-xs ${colorMap[milestone.color]} gap-1`;
+        badge.className = 'badge badge-xs gap-1';
+        badge.style.backgroundColor = colorMap[milestone.color];
+        badge.style.color = 'white';
+        badge.style.borderColor = colorMap[milestone.color];
       } else {
         badge.className = 'badge badge-xs badge-primary gap-1';
       }
@@ -2544,11 +2546,13 @@ function renderTaskItem(task, level, container, isGrouped = false, sorting = 'ma
         // Use stakeholder color if available (Addendum J + I5 pattern)
         if (stakeholder.color && stakeholder.color > 0 && stakeholder.color <= 11) {
           const colorMap = {
-            1: 'badge-error', 2: 'badge-warning', 3: 'badge-warning', 4: 'badge-info', 
-            5: 'badge-secondary', 6: 'badge-success', 7: 'badge-secondary', 8: 'badge-neutral',
-            9: 'badge-secondary', 10: 'badge-info', 11: 'badge-success'
+            1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
+            6: '#22C55E', 7: '#A855F7', 8: '#6B7280', 9: '#8B5CF6', 10: '#06B6D4', 11: '#4F46E5'
           };
-          stakeholderBadge.className = `badge badge-sm ${colorMap[stakeholder.color]} gap-1`;
+          stakeholderBadge.className = 'badge badge-sm gap-1';
+          stakeholderBadge.style.backgroundColor = colorMap[stakeholder.color];
+          stakeholderBadge.style.color = 'white';
+          stakeholderBadge.style.borderColor = colorMap[stakeholder.color];
         } else {
           stakeholderBadge.className = 'badge badge-sm badge-secondary gap-1';
         }
