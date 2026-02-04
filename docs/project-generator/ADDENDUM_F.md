@@ -24,20 +24,20 @@ De huidige Project Generator mist twee expressiviteitslagen die gebruikers verwa
 
 Odoo gebruikt **geen RGB kleuren** maar een integer-based color system voor `project.task`:
 
-| Integer | Kleur | Hex (UI) | Gebruik |
-|---------|-------|----------|---------|
-| 0 | None | `#FFFFFF` | Geen kleur (default) |
-| 1 | Red | `#FF0000` | Hoge prioriteit / blocker |
-| 2 | Orange | `#FFA500` | Medium prioriteit |
-| 3 | Yellow | `#FFFF00` | Review / te valideren |
-| 4 | Blue | `#0000FF` | Informatie / documentatie |
-| 5 | Purple | `#800080` | Design / creative |
-| 6 | Pink | `#FF69B4` | QA / testing |
-| 7 | Cyan | `#00CED1` | Development |
-| 8 | Light Green | `#90EE90` | Approved / groen licht |
-| 9 | Dark Green | `#006400` | Completed (niet DONE stage) |
-| 10 | Light Pink | `#FFB6C1` | Low priority |
-| 11 | Light Gray | `#D3D3D3` | On hold / paused |
+| Integer | Kleur | Hex (UI) | Tailwind Class |
+|---------|-------|----------|----------------|
+| 0 | None | `#E5E7EB` | Gray-200 (default) |
+| 1 | Red | `#EF4444` | Red-500 |
+| 2 | Orange | `#F97316` | Orange-500 |
+| 3 | Yellow | `#EAB308` | Yellow-500 |
+| 4 | Blue | `#3B82F6` | Blue-500 |
+| 5 | Pink | `#EC4899` | Pink-500 |
+| 6 | Green | `#22C55E` | Green-500 |
+| 7 | Purple | `#A855F7` | Purple-500 |
+| 8 | Gray | `#6B7280` | Gray-500 |
+| 9 | Violet | `#8B5CF6` | Violet-500 |
+| 10 | Cyan | `#06B6D4` | Cyan-500 |
+| 11 | Indigo | `#4F46E5` | Indigo-600 |
 
 **Implementatie:**
 - UI: 12 klikbare color buttons (inclusief "geen kleur")
@@ -45,6 +45,7 @@ Odoo gebruikt **geen RGB kleuren** maar een integer-based color system voor `pro
 - Validatie: Range 0-11, moet integer zijn
 - Blueprint: `task.color` (nullable integer)
 - Odoo field: `project.task.color` (standaard Odoo field)
+- **Color mapping:** Zie `src/modules/project-generator/color-constants.js` (sinds 2026-02-04)
 
 ### 2.2 Tags: Project-scoped Classification
 
@@ -452,6 +453,112 @@ Na generatie in Odoo:
 
 ---
 
+## 14. COLOR CONSISTENCY UPDATE (2026-02-04)
+
+**Probleem:** Kleuren waren inconsistent tussen verschillende UI componenten:
+- Color picker buttons gebruikten Tailwind classes (`bg-red-500`, `bg-orange-500`, etc.)
+- Display dots gebruikten verschillende hex codes voor milestones vs stakeholders
+- Task list badges gebruikten DaisyUI color classes die niet overeenkwamen met picker colors
+
+**Oplossing:** Gecentraliseerde color mapping met uniform Odoo color system.
+
+### 14.1 Centralized Color Constants
+
+**Nieuw bestand:** `src/modules/project-generator/color-constants.js`
+
+```javascript
+export const ODOO_COLORS_HEX = {
+  0: '#E5E7EB',  // Gray-200 - No color
+  1: '#EF4444',  // Red-500 - Red
+  2: '#F97316',  // Orange-500 - Orange  
+  3: '#EAB308',  // Yellow-500 - Yellow
+  4: '#3B82F6',  // Blue-500 - Blue
+  5: '#EC4899',  // Pink-500 - Pink
+  6: '#22C55E',  // Green-500 - Green
+  7: '#A855F7',  // Purple-500 - Purple
+  8: '#6B7280',  // Gray-500 - Gray
+  9: '#8B5CF6',  // Violet-500 - Violet
+  10: '#06B6D4', // Cyan-500 - Cyan
+  11: '#4F46E5'  // Indigo-600 - Indigo
+};
+```
+
+**Doel:**
+- Single source of truth voor alle color mappings
+- Odoo integers 0-11 → consistent hex codes
+- Gebruikt in: color pickers, display dots, badges
+
+### 14.2 Implementatie Details
+
+**Voor (inconsistent):**
+```javascript
+// Milestone display - client.js line ~1375
+const colorMap = {
+  1: '#EF4444', ..., 8: '#64748B', 9: '#C084FC', 11: '#8B5CF6'
+};
+
+// Stakeholder display - client.js line ~1790
+const colorMap = {
+  1: '#EF4444', ..., 6: '#8B5CF6', 7: '#10B981', 11: '#84CC16'
+};
+
+// Task list milestone badges - client.js line ~2495
+const colorMap = {
+  1: 'badge-error', ..., 11: 'badge-secondary'  // DaisyUI classes
+};
+```
+
+**Na (consistent):**
+```javascript
+// Overal dezelfde hex codes
+const colorMap = {
+  1: '#EF4444', 2: '#F97316', 3: '#EAB308', 4: '#3B82F6', 5: '#EC4899',
+  6: '#22C55E', 7: '#A855F7', 8: '#6B7280', 9: '#8B5CF6', 10: '#06B6D4', 11: '#4F46E5'
+};
+
+// Badges gebruiken inline styles i.p.v. DaisyUI classes
+badge.style.backgroundColor = colorMap[milestone.color];
+badge.style.color = 'white';
+badge.style.borderColor = colorMap[milestone.color];
+```
+
+### 14.3 Aangepaste Componenten
+
+**UI Color Pickers:**
+- `src/modules/project-generator/ui.js` (milestone color picker)
+- Tailwind class voor color 9: `bg-violet-400` → `bg-violet-500`
+
+**Display Components:**
+- Milestone color dots (renderMilestones)
+- Stakeholder color dots (renderStakeholders)  
+- Stakeholder color picker modal
+
+**Task List Badges:**
+- Milestone badges in task metadata
+- Stakeholder badges in task metadata
+- Van DaisyUI classes naar inline hex styles
+
+### 14.4 Voordelen
+
+✅ **Visual consistency:** Kleur in picker = kleur in lijst = kleur in badge  
+✅ **Maintenance:** Wijzig 1 mapping object, update hele systeem  
+✅ **Odoo alignment:** Hex codes matchen Tailwind equivalenten van Odoo integers  
+✅ **Predictability:** Gebruiker ziet exact wat ze selecteren
+
+### 14.5 Technische Noten
+
+**Waarom inline styles i.p.v. DaisyUI badge classes?**
+- DaisyUI heeft beperkte badge color palette (error, warning, info, success, etc.)
+- Geen 1-op-1 mapping met Odoo's 11 kleuren mogelijk
+- Inline styles garanderen exact match met color picker
+
+**Backwards compatibility:**
+- Bestaande blueprints behouden integer colors (0-11)
+- Geen migratie nodig, puur UI update
+- Odoo generatie ongewijzigd (gebruikt nog steeds integers)
+
+---
+
 ## CONCLUSIE
 
 Addendum F voegt twee complementaire expressiviteitslagen toe:
@@ -465,4 +572,7 @@ Beide features gebruiken standaard Odoo models, geen custom fields. Dit garandee
 - ✅ Filters en grouping out-of-the-box
 - ✅ Consistent met Odoo best practices
 
+**Update 2026-02-04:** Color consistency unified via centralized mapping system.
+
 **Status:** Ready for production testing.
+
