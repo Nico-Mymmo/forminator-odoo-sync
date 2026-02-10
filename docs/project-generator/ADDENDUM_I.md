@@ -617,6 +617,7 @@ function renderTasks() {
 - [x] Metadata iconografisch (milestone, tags, timing, deps)
 - [x] Inheritance iconen i.p.v. badges
 - [x] Primaire info prominent, secundaire info muted
+- [x] Dependency tooltip toont namen van dependente taken (2026-02-04)
 
 ### I3: Grouping & Sorting
 - [x] Grouping selector met 4 opties (none, milestone, tag, dependency)
@@ -694,6 +695,52 @@ function renderTasks() {
 - [ADDENDUM_F.md](./ADDENDUM_F.md) — Task Colors + Tags
 - [ADDENDUM_E.md](./ADDENDUM_E.md) — Task Dependencies
 - [MODULE_PROJECT_IMPORTER_IMPLEMENTATION_LOG.md](./MODULE_PROJECT_IMPORTER_IMPLEMENTATION_LOG.md) — Volledige module geschiedenis
+
+---
+
+## 🔄 Update: Dependency Tooltip Enhancement (2026-02-04)
+
+### Problem
+De dependency icon tooltip toonde alleen het aantal dependencies:
+```
+"3 dependencies"
+```
+
+Dit was niet informatief genoeg - gebruikers moesten de dependencies modal openen om te zien welke taken de dependencies zijn.
+
+### Solution
+De tooltip toont nu de namen van de dependente taken:
+
+```javascript
+// Build tooltip with dependency task names
+const dependencyNames = taskDependencies
+  .map(dep => {
+    const depTask = blueprintState.tasks.find(t => t.id === dep.depends_on_task_id);
+    return depTask ? depTask.name : 'Unknown task';
+  })
+  .join('\n');
+depContainer.title = `Depends on:\n${dependencyNames}`;
+```
+
+### Voorbeeld Output
+Voor een taak met 3 dependencies toont de tooltip nu:
+```
+Depends on:
+Setup database schema
+Configure API endpoints  
+Write user authentication
+```
+
+### Implementation Details
+- **File:** [public/project-generator-client.js](../../public/project-generator-client.js) (line ~2695)
+- **Function:** `renderTaskItem()` - I2 Dependencies icon section
+- **Tooltip format:** Multi-line met `\n` separators
+- **Fallback:** "Unknown task" voor verwijderde/corrupte dependencies
+
+### UX Benefits
+- **Direct inzicht** zonder modal te openen
+- **Snellere workflow** bij complexe dependency chains
+- **Betere context** bij blueprint review
 
 ---
 

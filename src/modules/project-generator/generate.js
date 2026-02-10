@@ -248,7 +248,11 @@ export async function generateProject(env, templateId, templateName, projectStar
       const stageId = await createStage(env, {
         name: stage.name,
         sequence: stage.sequence,
-        project_id: projectId
+        project_id: projectId,
+        is_done_stage: stage.is_done_stage || false,         // Addendum O
+        is_approved_stage: stage.is_approved_stage || false, // Addendum O
+        is_cancelled_stage: stage.is_cancelled_stage || false, // Addendum O
+        is_backlog_stage: stage.is_backlog_stage || false   // Addendum P
       });
       
       result.odoo_mappings.stages[stage.blueprint_id] = stageId;
@@ -393,6 +397,8 @@ export async function generateProject(env, templateId, templateName, projectStar
       }
       
       // Add user assignments if exist (Addendum J)
+      // Note (Addendum P): If user_ids is empty/missing here, odoo-creator.js
+      // will explicitly set it to empty list to prevent Odoo auto-assignment
       if (task.user_ids && task.user_ids.length > 0) {
         taskData.user_ids = task.user_ids;
       }
@@ -584,7 +590,10 @@ export function buildGenerationModel(blueprint, templateName, projectStartDate =
     model.stages = blueprint.stages.map(stage => ({
       blueprint_id: stage.id,
       name: stage.name,
-      sequence: stage.sequence
+      sequence: stage.sequence,
+      is_done_stage: stage.is_done_stage || false,         // Addendum O
+      is_approved_stage: stage.is_approved_stage || false, // Addendum O
+      is_cancelled_stage: stage.is_cancelled_stage || false // Addendum O
     }));
   }
   

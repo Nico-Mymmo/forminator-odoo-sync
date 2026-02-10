@@ -471,6 +471,65 @@ export function blueprintEditorUI(user, templateId) {
               min="1"
             />
           </div>
+          
+          <!-- Stage Semantics (Addendum O) -->
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text font-semibold">Workflow Semantics</span>
+              <span class="label-text-alt text-base-content/60">Required for task state automation</span>
+            </label>
+            <div class="space-y-2 pl-2">
+              <label class="label cursor-pointer justify-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="stageIsDone" 
+                  class="checkbox checkbox-success"
+                />
+                <div class="flex flex-col">
+                  <span class="label-text font-medium">Done Stage</span>
+                  <span class="label-text-alt text-base-content/50 text-xs">Tasks moved to this stage are marked as completed</span>
+                </div>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="stageIsApproved" 
+                  class="checkbox checkbox-warning"
+                />
+                <div class="flex flex-col">
+                  <span class="label-text font-medium">Approved Stage</span>
+                  <span class="label-text-alt text-base-content/50 text-xs">Tasks in this stage require formal approval</span>
+                </div>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="stageIsCancelled" 
+                  class="checkbox checkbox-error"
+                />
+                <div class="flex flex-col">
+                  <span class="label-text font-medium">Cancelled Stage</span>
+                  <span class="label-text-alt text-base-content/50 text-xs">Tasks moved to this stage are marked as canceled</span>
+                </div>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="stageIsBacklog" 
+                  class="checkbox checkbox-info"
+                />
+                <div class="flex flex-col">
+                  <span class="label-text font-medium">Backlog Stage</span>
+                  <span class="label-text-alt text-base-content/50 text-xs">Tasks in this stage are marked as backlog items</span>
+                </div>
+              </label>
+            </div>
+            <div class="alert alert-info text-xs mt-2">
+              <i data-lucide="info" class="w-4 h-4"></i>
+              <span>Required: one Done and one Cancelled stage. Optional: up to one Approved and Backlog stage.</span>
+            </div>
+          </div>
+          
           <div class="modal-action">
             <button type="button" class="btn" onclick="stageModal.close()">Cancel</button>
             <button type="submit" class="btn btn-primary">Save</button>
@@ -633,6 +692,30 @@ export function blueprintEditorUI(user, templateId) {
             </label>
             <div id="stakeholderColorPicker" class="flex gap-2 flex-wrap">
               <!-- Colors 0-11, dynamically rendered by client.js -->
+            </div>
+          </div>
+          
+          <!-- Default Users Section (Addendum P) -->
+          <div class="divider">Default Users (Optional)</div>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Default Users</span>
+              <span class="label-text-alt text-base-content/60">Pre-assign users during project generation</span>
+            </label>
+            <div id="stakeholderDefaultUsersContainer" class="space-y-2">
+              <!-- Selected users badges -->
+              <div id="stakeholderSelectedUsers" class="flex flex-wrap gap-2 min-h-[2rem] items-center mb-2">
+                <!-- Badges added by client.js -->
+              </div>
+              <!-- User selector -->
+              <select id="stakeholderUserSelect" class="select select-bordered w-full select-sm">
+                <option value="">-- Add default user --</option>
+                <!-- Options populated by client.js -->
+              </select>
+              <div class="alert alert-info text-xs mt-2">
+                <i data-lucide="info" class="w-4 h-4"></i>
+                <span>Default users can be overridden during project generation</span>
+              </div>
             </div>
           </div>
           

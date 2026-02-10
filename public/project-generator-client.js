@@ -647,12 +647,47 @@ async function showStakeholderMappingModal(templateId, odooUsers) {
         }
         stakeholderGroup.appendChild(label);
         
+        // Addendum P: Pre-populate with default users
+        const defaultUserIds = stakeholder.default_user_ids || [];
+        
         // Selected users badges container
         const selectedUsersDiv = document.createElement('div');
         selectedUsersDiv.className = 'flex flex-wrap gap-2 mb-2 min-h-[2rem] items-center';
         selectedUsersDiv.dataset.stakeholderId = stakeholder.id;
-        selectedUsersDiv.dataset.selectedUsers = JSON.stringify([]);
+        selectedUsersDiv.dataset.selectedUsers = JSON.stringify(defaultUserIds); // Addendum P: Start with defaults
         stakeholderGroup.appendChild(selectedUsersDiv);
+        
+        // Addendum P: Render default users as badges
+        defaultUserIds.forEach(userId => {
+          const user = odooUsers.find(u => u.id === userId);
+          if (user) {
+            const badge = document.createElement('div');
+            badge.className = 'badge badge-secondary gap-1';
+            badge.dataset.userId = userId;
+            const userIcon = document.createElement('i');
+            userIcon.setAttribute('data-lucide', 'user');
+            userIcon.className = 'w-3 h-3';
+            badge.appendChild(userIcon);
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = user.name;
+            badge.appendChild(nameSpan);
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'ml-1';
+            removeBtn.type = 'button';
+            removeBtn.onclick = () => {
+              let selectedUsers = JSON.parse(selectedUsersDiv.dataset.selectedUsers || '[]');
+              selectedUsers = selectedUsers.filter(id => id !== userId);
+              selectedUsersDiv.dataset.selectedUsers = JSON.stringify(selectedUsers);
+              badge.remove();
+            };
+            const removeIcon = document.createElement('i');
+            removeIcon.setAttribute('data-lucide', 'x');
+            removeIcon.className = 'w-3 h-3';
+            removeBtn.appendChild(removeIcon);
+            badge.appendChild(removeBtn);
+            selectedUsersDiv.appendChild(badge);
+          }
+        });
         
         // Dropdown to add users
         const selectWrapper = document.createElement('div');
@@ -762,6 +797,9 @@ async function showStakeholderMappingModal(templateId, odooUsers) {
         const selectedUsersDiv = modalBox.querySelector(`[data-stakeholder-id="${stakeholder.id}"]`);
         if (selectedUsersDiv) {
           const userIds = JSON.parse(selectedUsersDiv.dataset.selectedUsers || '[]');
+          // Addendum P: Only add to mapping if users are selected
+          // If empty (or defaults were removed), stakeholder won't be in mapping
+          // This allows tasks with no stakeholder mappings to have no user_ids set in Odoo
           if (userIds.length > 0) {
             mapping.stakeholders[stakeholder.id] = userIds;
           }
@@ -1194,6 +1232,33 @@ function renderStages() {
     nameSpan.textContent = stage.name;
     leftDiv.appendChild(nameSpan);
     
+    // Add semantic badges (Addendum O)
+    if (stage.is_done_stage) {
+      const doneBadge = document.createElement('span');
+      doneBadge.className = 'badge badge-success badge-sm';
+      doneBadge.textContent = 'Done';
+      leftDiv.appendChild(doneBadge);
+    }
+    if (stage.is_approved_stage) {
+      const approvedBadge = document.createElement('span');
+      approvedBadge.className = 'badge badge-warning badge-sm';
+      approvedBadge.textContent = 'Approved';
+      leftDiv.appendChild(approvedBadge);
+    }
+    if (stage.is_cancelled_stage) {
+      const cancelBadge = document.createElement('span');
+      cancelBadge.className = 'badge badge-error badge-sm';
+      cancelBadge.textContent = 'Cancelled';
+      leftDiv.appendChild(cancelBadge);
+    }
+    // Addendum P: Backlog stage
+    if (stage.is_backlog_stage) {
+      const backlogBadge = document.createElement('span');
+      backlogBadge.className = 'badge badge-info badge-sm';
+      backlogBadge.textContent = 'Backlog';
+      leftDiv.appendChild(backlogBadge);
+    }
+    
     div.appendChild(leftDiv);
     
     const btnDiv = document.createElement('div');
@@ -1260,18 +1325,51 @@ function openStageModal(stageId = null) {
   const title = document.getElementById('stageModalTitle');
   const nameInput = document.getElementById('stageName');
   const seqInput = document.getElementById('stageSequence');
+  const isDoneCheck = document.getElementById('stageIsDone');
+  const isApprovedCheck = document.getElementById('stageIsApproved');
+  const isCancelledCheck = document.getElementById('stageIsCancelled');
+  const isBacklogCheck = document.getElementById('stageIsBacklog'); // Addendum P
   
   if (stageId) {
     const stage = blueprintState.stages.find(s => s.id === stageId);
     title.textContent = 'Edit Stage';
     nameInput.value = stage.name;
     seqInput.value = stage.sequence;
+    isDoneCheck.checked = stage.is_done_stage || false;
+    isApprovedCheck.checked = stage.is_approved_stage || false;
+    isCancelledCheck.checked = stage.is_cancelled_stage || false;
+    isBacklogCheck.checked = stage.is_backlog_stage || false; // Addendum P
   } else {
     title.textContent = 'Add Stage';
     nameInput.value = '';
     const maxSeq = Math.max(0, ...blueprintState.stages.map(s => s.sequence));
     seqInput.value = maxSeq + 1;
+    isDoneCheck.checked = false;
+    isApprovedCheck.checked = false;
+    isCancelledCheck.checked = false;
+    isBacklogCheck.checked = false; // Addendum P
   }
+  
+  // 3-way mutual exclusivity logic (Addendum O)
+  // Addendum P: Backlog is independent and doesn't participate in mutual exclusivity
+  isDoneCheck.onchange = () => {
+    if (isDoneCheck.checked) {
+      isApprovedCheck.checked = false;
+      isCancelledCheck.checked = false;
+    }
+  };
+  isApprovedCheck.onchange = () => {
+    if (isApprovedCheck.checked) {
+      isDoneCheck.checked = false;
+      isCancelledCheck.checked = false;
+    }
+  };
+  isCancelledCheck.onchange = () => {
+    if (isCancelledCheck.checked) {
+      isDoneCheck.checked = false;
+      isApprovedCheck.checked = false;
+    }
+  };
   
   modal.showModal();
 }
@@ -1281,18 +1379,50 @@ async function handleStageSubmit(e) {
   
   const name = document.getElementById('stageName').value.trim();
   const sequence = parseInt(document.getElementById('stageSequence').value);
+  const isDone = document.getElementById('stageIsDone').checked;
+  const isApproved = document.getElementById('stageIsApproved').checked;
+  const isCancelled = document.getElementById('stageIsCancelled').checked;
+  const isBacklog = document.getElementById('stageIsBacklog').checked; // Addendum P
   
   if (!name) return;
+  
+  // Check for duplicate semantic flags across other stages (Addendum O)
+  const otherStages = blueprintState.stages.filter(s => s.id !== editingStageId);
+  if (isDone && otherStages.some(s => s.is_done_stage)) {
+    alert('Only one stage can be marked as Done stage');
+    return;
+  }
+  if (isApproved && otherStages.some(s => s.is_approved_stage)) {
+    alert('Only one stage can be marked as Approved stage');
+    return;
+  }
+  if (isCancelled && otherStages.some(s => s.is_cancelled_stage)) {
+    alert('Only one stage can be marked as Cancelled stage');
+    return;
+  }
+  // Addendum P: Backlog stage is optional (max 1)
+  if (isBacklog && otherStages.some(s => s.is_backlog_stage)) {
+    alert('Only one stage can be marked as Backlog stage');
+    return;
+  }
   
   if (editingStageId) {
     const stage = blueprintState.stages.find(s => s.id === editingStageId);
     stage.name = name;
     stage.sequence = sequence;
+    stage.is_done_stage = isDone;
+    stage.is_approved_stage = isApproved;
+    stage.is_cancelled_stage = isCancelled;
+    stage.is_backlog_stage = isBacklog; // Addendum P
   } else {
     blueprintState.stages.push({
       id: generateUUID(),
       name: name,
-      sequence: sequence
+      sequence: sequence,
+      is_done_stage: isDone,
+      is_approved_stage: isApproved,
+      is_cancelled_stage: isCancelled,
+      is_backlog_stage: isBacklog // Addendum P
     });
   }
   
@@ -1809,6 +1939,20 @@ function renderStakeholders() {
       textDiv.appendChild(descSpan);
     }
     
+    // Addendum P: Show default users count
+    if (stakeholder.default_user_ids && stakeholder.default_user_ids.length > 0) {
+      const defaultUsersBadge = document.createElement('span');
+      defaultUsersBadge.className = 'badge badge-secondary badge-sm mt-1';
+      const userIcon = document.createElement('i');
+      userIcon.setAttribute('data-lucide', 'users');
+      userIcon.className = 'w-3 h-3 mr-1';
+      defaultUsersBadge.appendChild(userIcon);
+      const userText = document.createElement('span');
+      userText.textContent = `${stakeholder.default_user_ids.length} default user${stakeholder.default_user_ids.length !== 1 ? 's' : ''}`;
+      defaultUsersBadge.appendChild(userText);
+      textDiv.appendChild(defaultUsersBadge);
+    }
+    
     contentDiv.appendChild(textDiv);
     div.appendChild(contentDiv);
     
@@ -1897,6 +2041,7 @@ function openStakeholderModal(stakeholderId = null) {
   };
   
   let selectedColor = 0;
+  let defaultUserIds = []; // Addendum P
   
   if (stakeholderId) {
     const stakeholder = blueprintState.stakeholders.find(s => s.id === stakeholderId);
@@ -1904,11 +2049,13 @@ function openStakeholderModal(stakeholderId = null) {
     nameInput.value = stakeholder.name;
     descInput.value = stakeholder.description || '';
     selectedColor = stakeholder.color || 0;
+    defaultUserIds = stakeholder.default_user_ids || []; // Addendum P
   } else {
     title.textContent = 'Add Stakeholder';
     nameInput.value = '';
     descInput.value = '';
     selectedColor = 0;
+    defaultUserIds = []; // Addendum P
   }
   
   // Create color buttons
@@ -1941,10 +2088,123 @@ function openStakeholderModal(stakeholderId = null) {
   // Store selected color for form submit
   colorPicker.dataset.selectedColor = selectedColor;
   
+  // Addendum P: Fetch and render default users  
+  fetchAndRenderDefaultUsers(defaultUserIds);
+  
   // Preserve scroll position to prevent scroll jump
   const scrollPos = window.scrollY;
   modal.showModal();
   window.scrollTo(0, scrollPos);
+}
+
+// Addendum P: Fetch users and setup default user selector
+async function fetchAndRenderDefaultUsers(selectedUserIds = []) {
+  const selectedUsersDiv = document.getElementById('stakeholderSelectedUsers');
+  const userSelect = document.getElementById('stakeholderUserSelect');
+  
+  // Clear previous selections
+  selectedUsersDiv.innerHTML = '';
+  userSelect.innerHTML = '<option value="">-- Add default user --</option>';
+  
+  // Store selected users in dataset
+  selectedUsersDiv.dataset.selectedUsers = JSON.stringify(selectedUserIds);
+  
+  try {
+    const response = await fetch('/projects/api/odoo-users', { credentials: 'include' });
+    const result = await response.json();
+    
+    if (!result.success) {
+      console.error('Failed to fetch users:', result.error);
+      return;
+    }
+    
+    const users = result.users || [];
+    
+    // Populate dropdown
+    users.forEach(user => {
+      const option = document.createElement('option');
+      option.value = user.id;
+      option.dataset.userName = user.name;
+      option.dataset.userLogin = user.login;
+      option.textContent = `${user.name} (${user.login})`;
+      userSelect.appendChild(option);
+    });
+    
+    // Render already selected users as badges
+    selectedUserIds.forEach(userId => {
+      const user = users.find(u => u.id === userId);
+      if (user) {
+        addUserBadge(selectedUsersDiv, userId, user.name, user.login);
+      }
+    });
+    
+    // Setup change handler for adding users
+    userSelect.onchange = () => {
+      const userId = parseInt(userSelect.value, 10);
+      if (!userId) return;
+      
+      const userName = userSelect.options[userSelect.selectedIndex].dataset.userName;
+      const userLogin = userSelect.options[userSelect.selectedIndex].dataset.userLogin;
+      
+      // Get current selected users
+      let selectedUsers = JSON.parse(selectedUsersDiv.dataset.selectedUsers || '[]');
+      
+      // Check if already added
+      if (selectedUsers.includes(userId)) {
+        showToast('User already added', 'warning');
+        userSelect.value = '';
+        return;
+      }
+      
+      // Add user
+      selectedUsers.push(userId);
+      selectedUsersDiv.dataset.selectedUsers = JSON.stringify(selectedUsers);
+      
+      addUserBadge(selectedUsersDiv, userId, userName, userLogin);
+      
+      // Reset select
+      userSelect.value = '';
+    };
+    
+    lucide.createIcons();
+  } catch (err) {
+    console.error('Error fetching users:', err);
+  }
+}
+
+// Addendum P: Helper to add user badge
+function addUserBadge(container, userId, userName, userLogin) {
+  const badge = document.createElement('div');
+  badge.className = 'badge badge-secondary gap-1';
+  badge.dataset.userId = userId;
+  
+  const userIcon = document.createElement('i');
+  userIcon.setAttribute('data-lucide', 'user');
+  userIcon.className = 'w-3 h-3';
+  badge.appendChild(userIcon);
+  
+  const nameSpan = document.createElement('span');
+  nameSpan.textContent = userName;
+  badge.appendChild(nameSpan);
+  
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'ml-1';
+  removeBtn.type = 'button';
+  removeBtn.onclick = () => {
+    let selectedUsers = JSON.parse(container.dataset.selectedUsers || '[]');
+    selectedUsers = selectedUsers.filter(id => id !== userId);
+    container.dataset.selectedUsers = JSON.stringify(selectedUsers);
+    badge.remove();
+  };
+  
+  const removeIcon = document.createElement('i');
+  removeIcon.setAttribute('data-lucide', 'x');
+  removeIcon.className = 'w-3 h-3';
+  removeBtn.appendChild(removeIcon);
+  badge.appendChild(removeBtn);
+  
+  container.appendChild(badge);
+  lucide.createIcons();
 }
 
 async function handleStakeholderSubmit(e) {
@@ -1955,6 +2215,10 @@ async function handleStakeholderSubmit(e) {
   const colorPicker = document.getElementById('stakeholderColorPicker');
   const selectedColor = colorPicker.dataset.selectedColor ? parseInt(colorPicker.dataset.selectedColor) : 0;
   
+  // Addendum P: Get selected default users
+  const selectedUsersDiv = document.getElementById('stakeholderSelectedUsers');
+  const defaultUserIds = JSON.parse(selectedUsersDiv.dataset.selectedUsers || '[]');
+  
   if (!name) return;
   
   if (editingStakeholderId) {
@@ -1962,6 +2226,7 @@ async function handleStakeholderSubmit(e) {
     stakeholder.name = name;
     stakeholder.description = description;
     stakeholder.color = selectedColor;
+    stakeholder.default_user_ids = defaultUserIds; // Addendum P
   } else {
     const maxSeq = Math.max(0, ...blueprintState.stakeholders.map(s => s.sequence || 0));
     blueprintState.stakeholders.push({
@@ -1969,7 +2234,8 @@ async function handleStakeholderSubmit(e) {
       name: name,
       description: description,
       color: selectedColor,
-      sequence: maxSeq + 1
+      sequence: maxSeq + 1,
+      default_user_ids: defaultUserIds // Addendum P
     });
   }
   
@@ -2632,7 +2898,16 @@ function renderTaskItem(task, level, container, isGrouped = false, sorting = 'ma
     count.className = 'text-xs text-base-content/50';
     count.textContent = taskDependencies.length;
     depContainer.appendChild(count);
-    depContainer.title = `${taskDependencies.length} dependencies`;
+    
+    // Build tooltip with dependency task names
+    const dependencyNames = taskDependencies
+      .map(dep => {
+        const depTask = blueprintState.tasks.find(t => t.id === dep.depends_on_task_id);
+        return depTask ? depTask.name : 'Unknown task';
+      })
+      .join('\n');
+    depContainer.title = `Depends on:\n${dependencyNames}`;
+    
     metaDiv.appendChild(depContainer);
   }
   
@@ -3322,6 +3597,27 @@ function validateBlueprint() {
   
   if (stages.length > 0 && tasks.length === 0) {
     result.warnings.push('Stages defined but no tasks exist');
+  }
+  
+  // Addendum O: Stage semantics validation
+  const doneStages = stages.filter(s => s.is_done_stage);
+  const approvedStages = stages.filter(s => s.is_approved_stage);
+  const cancelledStages = stages.filter(s => s.is_cancelled_stage);
+  
+  if (doneStages.length === 0) {
+    result.warnings.push('No Done stage defined. You must define exactly one Done stage before generating.');
+  } else if (doneStages.length > 1) {
+    result.errors.push('Multiple Done stages found. Only one stage can be marked as Done.');
+  }
+  
+  if (approvedStages.length > 1) {
+    result.errors.push('Multiple Approved stages found. Only one stage can be marked as Approved.');
+  }
+  
+  if (cancelledStages.length === 0) {
+    result.warnings.push('No Cancelled stage defined. You must define exactly one Cancelled stage before generating.');
+  } else if (cancelledStages.length > 1) {
+    result.errors.push('Multiple Cancelled stages found. Only one stage can be marked as Cancelled.');
   }
   
   result.valid = result.errors.length === 0;
