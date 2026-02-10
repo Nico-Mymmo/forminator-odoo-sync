@@ -102,6 +102,10 @@ export async function createStage(env, data) {
   if (data.is_cancelled_stage) {
     values.x_is_cancelled_stage = true;
   }
+  // Addendum P: Backlog stage support
+  if (data.is_backlog_stage) {
+    values.x_is_backlog_stage = true;
+  }
   
   const stageId = await create(env, {
     model: 'project.task.type',
@@ -227,9 +231,12 @@ export async function createTask(env, data) {
     values.tag_ids = data.tag_ids.map(id => [4, id]);  // [(4, id)] = link existing
   }
   
-  // Addendum J: User assignment support
+  // Addendum J/P: User assignment support
+  // ALWAYS set user_ids explicitly to prevent Odoo from auto-assigning creator
   if (data.user_ids && data.user_ids.length > 0) {
     values.user_ids = data.user_ids.map(id => [4, id]);  // [(4, id)] = link existing
+  } else {
+    values.user_ids = [[6, 0, []]];  // [(6, 0, [])] = replace all with empty list
   }
   
   // Addendum G: Timing support
@@ -310,8 +317,11 @@ export async function batchCreateTasks(env, tasksData) {
     if (data.tag_ids && data.tag_ids.length > 0) {
       values.tag_ids = data.tag_ids.map(id => [4, id]);
     }
+    // Addendum J/P: Always set user_ids explicitly (same as createTask)
     if (data.user_ids && data.user_ids.length > 0) {
       values.user_ids = data.user_ids.map(id => [4, id]);
+    } else {
+      values.user_ids = [[6, 0, []]];  // Prevent Odoo auto-assignment
     }
     if (data.planned_date_begin) values.planned_date_begin = data.planned_date_begin;
     if (data.date_deadline) values.date_deadline = data.date_deadline;
