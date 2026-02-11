@@ -132,9 +132,10 @@ export async function getWordPressEvent(env, eventId) {
  * @param {Object} env - Cloudflare env
  * @param {string} userId - Auth user ID
  * @param {number} odooWebinarId - Odoo x_webinar ID
+ * @param {string} status - WordPress post status ('publish', 'draft', 'private')
  * @returns {Promise<{ wp_event_id: number, computed_state: string }>}
  */
-export async function publishToWordPress(env, userId, odooWebinarId) {
+export async function publishToWordPress(env, userId, odooWebinarId, status = 'publish') {
   // 1. Fetch Odoo webinar
   const odooWebinar = await getOdooWebinar(env, odooWebinarId);
   
