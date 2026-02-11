@@ -8,16 +8,18 @@
  * See ANALYSIS V4 section 2.3.1 for clarification.
  */
 
+import { createClient } from '@supabase/supabase-js';
+
 let supabaseClientInstance = null;
 
 /**
  * Get Supabase admin client (singleton per isolate)
  * 
  * @param {Object} env - Cloudflare env
- * @returns {Promise<SupabaseClient>}
+ * @returns {SupabaseClient}
  * @throws {Error} If SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing
  */
-export async function getSupabaseAdminClient(env) {
+export function getSupabaseAdminClient(env) {
   // Validate env vars
   if (!env.SUPABASE_URL) {
     throw new Error('Missing environment variable: SUPABASE_URL');
@@ -29,7 +31,6 @@ export async function getSupabaseAdminClient(env) {
   
   // Singleton pattern (reuse client within same isolate)
   if (!supabaseClientInstance) {
-    const { createClient } = await import('@supabase/supabase-js');
     supabaseClientInstance = createClient(
       env.SUPABASE_URL,
       env.SUPABASE_SERVICE_ROLE_KEY
