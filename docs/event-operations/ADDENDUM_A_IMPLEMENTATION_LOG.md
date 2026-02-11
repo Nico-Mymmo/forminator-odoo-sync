@@ -190,7 +190,7 @@ wrangler deploy
 |------|--------|
 | Date | 2026-02-11 |
 | Branch | events-operations |
-| Git Commit | `cd9442e` |
+| Git Commits | `cd9442e`, `fd2ce6a`, `b585fe5` |
 | Status | ✅ Complete |
 
 ### Actual Files Changed
@@ -201,6 +201,7 @@ wrangler deploy
 | src/modules/event-operations/ui.js | +56, -8 | View toggle UI, cards container, switchView logic, registrationCounts state |
 | src/modules/event-operations/routes.js | +21, -2 | Parallel fetch registration counts, return `{webinars, registrationCounts}` |
 | src/modules/event-operations/odoo-client.js | +11 lines | Add getRegistrationCount() using search_count |
+| src/modules/event-operations/constants.js | +2 lines | Add ODOO_FIELDS.LINKED_WEBINAR constant |
 
 ### Issues Resolved
 
@@ -209,6 +210,7 @@ wrangler deploy
 | 1 | `switchView is not defined` | Inline onclick handlers can't access external script functions | Moved switchView + initView to main ui.js script |
 | 2 | `STATUS_BADGES already declared` | Both ui.js and event-operations-client.js declared constant | Removed from client.js, rely on parent scope |
 | 3 | Cards not rendering on initial load | initView called before data loaded | Move initView call to loadData() finally block |
+| 4 | Registration counts always 0 | Used wrong field `x_webinar_id` instead of `x_studio_linked_webinar` | Changed to correct many2one field name (commit `b585fe5`) |
 
 ### Implementation Details
 
@@ -218,7 +220,7 @@ export async function getRegistrationCount(env, webinarId) {
   const count = await executeKw(env, {
     model: ODOO_MODEL.REGISTRATION,
     method: 'search_count',
-    args: [[['x_webinar_id', '=', webinarId]]]
+    args: [[['x_studio_linked_webinar', '=', webinarId]]]
   });
   return count;
 }
