@@ -5,7 +5,8 @@
  */
 
 import { SYNC_STATUS, ODOO_FIELDS } from './constants.js';
-import { stripHtmlTags, normalizeString, stripShortcodes } from './utils/text.js';
+import { stripHtmlTags, normalizeString, stripShortcodes, stripRenderedForms } from './utils/text.js';
+import { buildEditorialDescription } from './editorial.js';
 
 /**
  * Compute sync state from Odoo and WordPress snapshots
@@ -14,9 +15,10 @@ import { stripHtmlTags, normalizeString, stripShortcodes } from './utils/text.js
  * 
  * @param {Object} odooSnapshot - x_webinar record
  * @param {Object|null} wpSnapshot - WordPress event data
+ * @param {Object|null} editorialContent - Editorial content JSONB (if exists)
  * @returns {string} SYNC_STATUS enum value
  */
-export function computeEventState(odooSnapshot, wpSnapshot) {
+export function computeEventState(odooSnapshot, wpSnapshot, editorialContent = null) {
   // Odoo archived → archived state
   if (!odooSnapshot[ODOO_FIELDS.ACTIVE]) {
     return wpSnapshot ? SYNC_STATUS.ARCHIVED : SYNC_STATUS.DELETED;
@@ -33,7 +35,7 @@ export function computeEventState(odooSnapshot, wpSnapshot) {
   }
   
   // Check for content discrepancies
-  const hasDiscrepancies = detectDiscrepancies(odooSnapshot, wpSnapshot);
+  const hasDiscrepancies = detectDiscrepancies(odooSnapshot, wpSnapshot, editorialContent);
   
   if (hasDiscrepancies) {
     return SYNC_STATUS.OUT_OF_SYNC;
@@ -47,9 +49,10 @@ export function computeEventState(odooSnapshot, wpSnapshot) {
  * 
  * @param {Object} odooSnapshot
  * @param {Object} wpSnapshot
+ * @param {Object|null} editorialContent
  * @returns {boolean}
  */
-function detectDiscrepancies(odooSnapshot, wpSnapshot) {
+function detectDiscrepancies(odooSnapshot, wpSnapshot, editorialContent = null) {
   // Extract WP title (Core API: { rendered }, Tribe API: string)
   const wpTitleRaw = typeof wpSnapshot.title === 'object' 
     ? wpSnapshot.title?.rendered 
@@ -82,12 +85,19 @@ function detectDiscrepancies(odooSnapshot, wpSnapshot) {
   }
   
   // Description mismatch (only if both have content)
-  // Pipeline: stripHtmlTags → stripShortcodes → normalizeString
-  const odooDescRaw = odooSnapshot[ODOO_FIELDS.INFO] || '';
+  // Pipeline: stripRenderedForms (WP only) → stripHtmlTags → stripShortcodes → normalizeString
+  // Build expected Odoo description (use editorial content if present, else Odoo raw)
+  const odooDescRaw = editorialContent && editorialContent.blocks && editorialContent.blocks.length > 0
+    ? buildEditorialDescription(editorialContent, odooSnapshot[ODOO_FIELDS.INFO] || '')
+    : (odooSnapshot[ODOO_FIELDS.INFO] || '');
+  
   const wpDescRaw = wpSnapshot.description || wpSnapshot.content?.rendered || '';
   
+  // Strip rendered forms from WP content BEFORE comparing (WordPress expands shortcodes to HTML)
+  const wpDescCleaned = stripRenderedForms(wpDescRaw);
+  
   const odooDesc = normalizeString(stripShortcodes(stripHtmlTags(odooDescRaw)));
-  const wpDesc = normalizeString(stripShortcodes(stripHtmlTags(wpDescRaw)));
+  const wpDesc = normalizeString(stripShortcodes(stripHtmlTags(wpDescCleaned)));
   
   if (odooDesc && wpDesc && odooDesc !== wpDesc) {
     console.log('🔍 DISCREPANCY DETECTED - Description mismatch:');
