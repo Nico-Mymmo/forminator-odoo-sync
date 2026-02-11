@@ -4,7 +4,7 @@
 
 import { LOG_PREFIX, EMOJI } from './constants.js';
 import { getOdooWebinars } from './odoo-client.js';
-import { getWordPressEvents } from './wp-client.js';
+import { getWordPressEvents, publishToWordPress } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { eventOperationsUI } from './ui.js';
 
@@ -126,6 +126,56 @@ export const routes = {
       
     } catch (error) {
       console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch snapshots failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * POST /events/api/publish
+   * Publish an Odoo webinar to WordPress (two-step flow)
+   * 
+   * Body: { odoo_webinar_id: number }
+   * Response: { success: true, data: { wp_event_id, computed_state } }
+   */
+  'POST /api/publish': async (context) => {
+    const { env, user, request } = context;
+    
+    try {
+      const body = await request.json();
+      const { odoo_webinar_id } = body;
+      
+      if (!odoo_webinar_id) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Missing required field: odoo_webinar_id'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Publishing webinar ${odoo_webinar_id}...`);
+      
+      const result = await publishToWordPress(env, user.id, odoo_webinar_id);
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Published: WP event ${result.wp_event_id}`);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: result
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Publish failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,

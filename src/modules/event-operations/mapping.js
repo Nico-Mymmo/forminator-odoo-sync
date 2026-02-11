@@ -19,9 +19,17 @@ import { stripHtmlTags } from './utils/text.js';
  * @returns {Object} Tribe Events API payload
  */
 export function mapOdooToWordPress(odooWebinar) {
+  const dateValue = odooWebinar[ODOO_FIELDS.DATE];
+  const timeValue = odooWebinar[ODOO_FIELDS.START_TIME];
+  
+  // Odoo returns false for empty fields
+  if (!dateValue) {
+    throw new Error(`Webinar ${odooWebinar.id} has no date (x_studio_date is empty)`);
+  }
+  
   const startDateTime = computeStartDateTime(
-    odooWebinar[ODOO_FIELDS.DATE],
-    odooWebinar[ODOO_FIELDS.START_TIME]
+    dateValue,
+    timeValue || '0u'
   );
   
   const endDateTime = computeEndDateTime(startDateTime, DEFAULT_DURATION_MINUTES);
@@ -30,7 +38,7 @@ export function mapOdooToWordPress(odooWebinar) {
     title: odooWebinar[ODOO_FIELDS.NAME],
     start_date: formatLocalDateTime(startDateTime),
     end_date: formatLocalDateTime(endDateTime),
-    description: stripHtmlTags(odooWebinar[ODOO_FIELDS.INFO] || ''),
+    description: stripHtmlTags(odooWebinar[ODOO_FIELDS.INFO] || '') || ' ',
     status: 'publish',
     timezone: TIMEZONE
   };
@@ -40,16 +48,40 @@ export function mapOdooToWordPress(odooWebinar) {
  * Compute start datetime from Odoo date + time
  * 
  * @param {string} dateStr - YYYY-MM-DD
- * @param {number} timeFloat - Decimal hours (e.g., 14.5 = 14:30)
+ * @param {string} timeStr - Dutch format: "11u", "14u30", "9u30"
  * @returns {Date}
  */
-function computeStartDateTime(dateStr, timeFloat) {
-  const date = new Date(dateStr);
-  const hours = Math.floor(timeFloat);
-  const minutes = Math.round((timeFloat - hours) * 60);
+function computeStartDateTime(dateStr, timeStr) {
+  // Parse YYYY-MM-DD manually to avoid timezone shift
+  const [year, month, day] = dateStr.split('-').map(Number);
   
-  date.setHours(hours, minutes, 0, 0);
-  return date;
+  // Parse Dutch time format: "11u", "14u30", "9u30"
+  const { hours, minutes } = parseOdooTime(timeStr);
+  
+  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+}
+
+/**
+ * Parse Odoo Dutch time string
+ * 
+ * Formats: "11u", "14u30", "9u30", "0u"
+ * 
+ * @param {string} timeStr
+ * @returns {{ hours: number, minutes: number }}
+ */
+function parseOdooTime(timeStr) {
+  const str = String(timeStr).trim().toLowerCase();
+  const match = str.match(/^(\d{1,2})u(\d{1,2})?$/);
+  
+  if (!match) {
+    console.warn(`[Event Operations] Unrecognized time format: "${timeStr}", defaulting to 00:00`);
+    return { hours: 0, minutes: 0 };
+  }
+  
+  return {
+    hours: parseInt(match[1], 10),
+    minutes: match[2] ? parseInt(match[2], 10) : 0
+  };
 }
 
 /**
