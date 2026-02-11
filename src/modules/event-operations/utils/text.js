@@ -37,12 +37,15 @@ export function normalizeString(str) {
   
   return str
     .toLowerCase()
-    .trim()
     .replace(/\u2026/g, '...')   // … (ellipsis) → ...
     .replace(/\u2018|\u2019/g, "'")  // smart quotes → straight
     .replace(/\u201C|\u201D/g, '"')  // smart double quotes → straight
     .replace(/\u2013|\u2014/g, '-')  // en/em dash → hyphen
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/g, ' ')  // Multiple spaces → single space
+    .replace(/\.\s+\.\s+\./g, '...')  // ". . ." → "..."
+    .replace(/\.{3,}/g, '...')  // Multiple dots → exactly 3
+    .replace(/\s*\.{3}\s*$/g, '')  // Remove trailing ellipsis with optional surrounding spaces
+    .trim();
 }
 
 /**

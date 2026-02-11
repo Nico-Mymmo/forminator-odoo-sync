@@ -8,6 +8,7 @@ import { WP_ENDPOINTS, WP_META_KEYS, LOG_PREFIX, EMOJI } from './constants.js';
 import { getOdooWebinar } from './odoo-client.js';
 import { mapOdooToWordPress } from './mapping.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
+import { getTagMappingsForOdooTags } from './tag-mapping.js';
 
 /**
  * Build Basic Auth header from WP_API_TOKEN (format: "username:password")
@@ -69,6 +70,53 @@ export async function getWordPressEventsWithMeta(env) {
 }
 
 /**
+ * Get WordPress Event Categories (tribe_events_cat taxonomy)
+ * 
+ * @param {Object} env
+ * @returns {Promise<Array>} Array of category objects with id, name, slug, count
+ */
+export async function getWordPressEventCategories(env) {
+  const response = await fetch(
+    `${env.WORDPRESS_URL}${WP_ENDPOINTS.WP_EVENT_CATEGORIES}?per_page=100`,
+    {
+      headers: {
+        'Authorization': wpAuthHeader(env)
+      }
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error(`WordPress Event Categories API error: ${response.status}`);
+  }
+  
+  return await response.json();
+}
+
+/**
+ * Get single WordPress event by ID (via Tribe API)
+ * 
+ * @param {Object} env
+ * @param {number} eventId - WordPress event ID
+ * @returns {Promise<Object>} WordPress event object
+ */
+export async function getWordPressEvent(env, eventId) {
+  const response = await fetch(
+    `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}/${eventId}`,
+    {
+      headers: {
+        'Authorization': wpAuthHeader(env)
+      }
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error(`WordPress Tribe API error: ${response.status}`);
+  }
+  
+  return await response.json();
+}
+
+/**
  * Publish Odoo webinar to WordPress (two-step flow with update support)
  * 
  * First checks if a snapshot exists:
@@ -87,11 +135,9 @@ export async function getWordPressEventsWithMeta(env) {
  */
 export async function publishToWordPress(env, userId, odooWebinarId) {
   // 1. Fetch Odoo webinar
-  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Fetching Odoo webinar ${odooWebinarId}...`);
   const odooWebinar = await getOdooWebinar(env, odooWebinarId);
   
   // 2. Check if snapshot exists (to determine create vs update)
-  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Checking for existing snapshot...`);
   const supabase = await getSupabaseAdminClient(env);
   
   const { data: existingSnapshot } = await supabase
@@ -105,14 +151,22 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
   
   // 3. Map to WordPress payload
   const wpPayload = mapOdooToWordPress(odooWebinar);
-  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Mapped payload:`, JSON.stringify(wpPayload));
+  
+  // 3a. Add categories (Tribe V1 API expects comma-separated string of slugs)
+  const odooTagIds = odooWebinar.x_studio_tag_ids || [];
+  if (odooTagIds.length > 0) {
+    const tagMappings = await getTagMappingsForOdooTags(env, userId, odooTagIds);
+    if (tagMappings.length > 0) {
+      const categorySlugs = tagMappings.map(m => m.wp_category_slug);
+      const categoriesString = categorySlugs.join(',');
+      wpPayload.categories = categoriesString;
+    }
+  }
   
   let wpEventId;
   
   if (existingWpEventId) {
     // UPDATE existing WordPress event
-    console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Updating existing WP event ${existingWpEventId}...`);
-    
     const updateResponse = await fetch(
       `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}/${existingWpEventId}`,
       {
@@ -133,11 +187,8 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
     const updateData = await updateResponse.json();
     wpEventId = updateData.id;
     
-    console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} WP event ${wpEventId} updated`);
-    
   } else {
     // CREATE new WordPress event
-    console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Creating new Tribe event...`);
     
     const createResponse = await fetch(
       `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}`,
@@ -162,12 +213,9 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
     if (!wpEventId) {
       throw new Error('Tribe API returned no event ID');
     }
-    
-    console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Tribe event created: ID ${wpEventId}`);
   }
   
   // 4. Set meta on WP event (always do this to ensure meta is correct)
-  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Setting meta on WP event ${wpEventId}...`);
   const metaResponse = await fetch(
     `${env.WORDPRESS_URL}${WP_ENDPOINTS.WP_EVENTS}/${wpEventId}`,
     {
@@ -188,12 +236,9 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
     const errorBody = await metaResponse.text();
     console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Meta update failed: ${errorBody}`);
     // Don't throw — event was created/updated, meta is best-effort
-  } else {
-    console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Meta set on WP event ${wpEventId}`);
   }
   
   // 5. Save snapshot to Supabase
-  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Saving snapshot to Supabase...`);
   await saveSnapshot(env, userId, odooWebinar, wpEventId);
   
   return {
@@ -205,6 +250,7 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
 /**
  * Save/upsert snapshot to Supabase
  * 
+ * Fetches full WordPress event data and stores it in snapshot
  * Uses unique constraint on (user_id, odoo_webinar_id) for upsert
  * 
  * @param {Object} env
@@ -213,6 +259,9 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
  * @param {number} wpEventId - WordPress event ID
  */
 async function saveSnapshot(env, userId, odooWebinar, wpEventId) {
+  // Fetch full WordPress event data from Tribe API
+  const wpEventData = await getWordPressEvent(env, wpEventId);
+  
   const supabase = await getSupabaseAdminClient(env);
   
   const { error } = await supabase
@@ -221,7 +270,7 @@ async function saveSnapshot(env, userId, odooWebinar, wpEventId) {
       user_id: userId,
       odoo_webinar_id: odooWebinar.id,
       odoo_snapshot: odooWebinar,
-      wp_snapshot: { id: wpEventId },
+      wp_snapshot: wpEventData, // Store full WordPress event data
       computed_state: 'published',
       last_synced_at: new Date().toISOString()
     }, {
@@ -231,6 +280,4 @@ async function saveSnapshot(env, userId, odooWebinar, wpEventId) {
   if (error) {
     throw new Error(`Supabase snapshot error: ${error.message}`);
   }
-  
-  console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Snapshot saved for webinar ${odooWebinar.id}`);
 }

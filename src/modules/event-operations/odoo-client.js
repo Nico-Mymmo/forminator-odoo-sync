@@ -26,7 +26,8 @@ export async function getOdooWebinars(env) {
       ODOO_FIELDS.START_TIME,
       ODOO_FIELDS.INFO,
       ODOO_FIELDS.STAGE,
-      ODOO_FIELDS.ACTIVE
+      ODOO_FIELDS.ACTIVE,
+      ODOO_FIELDS.TAG_IDS
     ],
     order: `${ODOO_FIELDS.DATE} DESC`,
     limit: 100
@@ -55,7 +56,8 @@ export async function getOdooWebinar(env, webinarId) {
       ODOO_FIELDS.START_TIME,
       ODOO_FIELDS.INFO,
       ODOO_FIELDS.STAGE,
-      ODOO_FIELDS.ACTIVE
+      ODOO_FIELDS.ACTIVE,
+      ODOO_FIELDS.TAG_IDS
     ],
     limit: 1
   });
@@ -82,4 +84,23 @@ export async function getRegistrationCount(env, webinarId) {
   });
   
   return count;
+}
+
+/**
+ * Get all tags from Odoo x_webinar_tag model
+ * 
+ * Used for tag mapping UI to show all available tags
+ * 
+ * @param {Object} env
+ * @returns {Promise<Array>} Array of tag objects: [{ id, x_name }]
+ */
+export async function getAllOdooTags(env) {
+  const tags = await searchRead(env, {
+    model: ODOO_MODEL.TAGS,
+    fields: ['id', 'x_name'],
+    order: 'x_name ASC',
+    limit: 200
+  });
+  
+  return tags;
 }

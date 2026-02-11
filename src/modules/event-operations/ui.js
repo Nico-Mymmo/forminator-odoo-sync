@@ -57,6 +57,9 @@ export function eventOperationsUI(user) {
                   <i data-lucide="layout-grid" class="w-4 h-4"></i> Cards
                 </button>
               </div>
+              <button id="btnTags" class="btn btn-outline btn-sm gap-2" onclick="openTagModal()">
+                <i data-lucide="tag" class="w-4 h-4"></i> Tags
+              </button>
               <button id="btnSync" class="btn btn-outline btn-sm gap-2" onclick="runSync()">
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All
               </button>
@@ -92,6 +95,71 @@ export function eventOperationsUI(user) {
           <!-- Toast container -->
           <div id="toastContainer" class="toast toast-top toast-end" style="z-index:9999;"></div>
 
+          <!-- Tag Mappings Modal -->
+          <dialog id="tagModal" class="modal">
+            <div class="modal-box max-w-4xl">
+              <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+                <i data-lucide="tag" class="w-5 h-5"></i>
+                Tag Mappings
+              </h3>
+              
+              <!-- Loading State -->
+              <div id="tagMappingLoading" class="flex justify-center py-8">
+                <span class="loading loading-spinner loading-lg"></span>
+              </div>
+              
+              <!-- Content -->
+              <div id="tagMappingContent" class="hidden">
+                <p class="text-sm text-base-content/70 mb-4">
+                  Map Odoo tags to WordPress Event Categories. When a webinar has tags, they will be published as categories.
+                </p>
+                
+                <!-- Add New Mapping Form -->
+                <div class="card bg-base-200 mb-4">
+                  <div class="card-body">
+                    <h4 class="font-semibold mb-2">Add New Mapping</h4>
+                    <div class="flex gap-2">
+                      <select id="odooTagSelect" class="select select-bordered select-sm flex-1">
+                        <option value="">Select Odoo Tag...</option>
+                      </select>
+                      <select id="wpCategorySelect" class="select select-bordered select-sm flex-1">
+                        <option value="">Select WP Category...</option>
+                      </select>
+                      <button id="btnAddTagMapping" class="btn btn-primary btn-sm" onclick="addTagMapping()">
+                        <i data-lucide="plus" class="w-4 h-4"></i> Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Existing Mappings Table -->
+                <div class="overflow-x-auto">
+                  <table class="table table-zebra table-sm">
+                    <thead>
+                      <tr>
+                        <th>Odoo Tag</th>
+                        <th>WordPress Category</th>
+                        <th class="w-24">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tagMappingTableBody">
+                      <!-- Populated by loadTagMappings() -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <div class="modal-action">
+                <form method="dialog">
+                  <button class="btn">Close</button>
+                </form>
+              </div>
+            </div>
+            <form method="dialog" class="modal-backdrop">
+              <button>close</button>
+            </form>
+          </dialog>
+
           <!-- Loading state -->
           <div id="loadingState" class="flex justify-center py-16">
             <span class="loading loading-spinner loading-lg"></span>
@@ -120,6 +188,7 @@ export function eventOperationsUI(user) {
                         <th class="w-32 whitespace-nowrap">Date</th>
                         <th class="w-24 whitespace-nowrap">Time</th>
                         <th class="w-20 whitespace-nowrap">Registrations</th>
+                        <th class="w-32">Tags</th>
                         <th class="w-32">Status</th>
                         <th class="w-24">WP Event</th>
                         <th class="w-32">Actions</th>
@@ -189,6 +258,7 @@ export function eventOperationsUI(user) {
       let odooWebinars = [];
       let snapshotMap = new Map(); // odoo_webinar_id → snapshot
       let registrationCounts = {}; // webinar.id → count
+      let tagNamesMap = new Map(); // tag_id → tag_name
       let activeTab = 'all'; // Current filter tab
 
       // ── Filter webinars by tab ──
@@ -283,13 +353,15 @@ export function eventOperationsUI(user) {
         document.getElementById('dataTable').classList.add('hidden');
 
         try {
-          const [webinarsRes, snapshotsRes] = await Promise.all([
+          const [webinarsRes, snapshotsRes, tagsRes] = await Promise.all([
             fetch('/events/api/odoo-webinars?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json()),
-            fetch('/events/api/snapshots?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json())
+            fetch('/events/api/snapshots?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json()),
+            fetch('/events/api/odoo-tags?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json())
           ]);
 
           if (!webinarsRes.success) throw new Error(webinarsRes.error);
           if (!snapshotsRes.success) throw new Error(snapshotsRes.error);
+          if (!tagsRes.success) throw new Error(tagsRes.error);
 
           odooWebinars = webinarsRes.data.webinars || [];
           registrationCounts = webinarsRes.data.registrationCounts || {};
@@ -298,6 +370,14 @@ export function eventOperationsUI(user) {
           for (const snap of (snapshotsRes.data || [])) {
             snapshotMap.set(snap.odoo_webinar_id, snap);
           }
+          
+          tagNamesMap.clear();
+          for (const tag of (tagsRes.data || [])) {
+            tagNamesMap.set(tag.id, tag.x_name);
+          }
+          
+          // Make tagNamesMap available to external client.js
+          window.tagNamesMap = tagNamesMap;
 
           // Restore active tab from URL hash
           initTabFromHash();
@@ -352,6 +432,15 @@ export function eventOperationsUI(user) {
           const wpId = snap?.wp_snapshot?.id;
           const regCount = registrationCounts[webinar.id] || 0;
           
+          // Render tags badges
+          let tagsHtml = '—';
+          if (webinar.x_studio_tag_ids && Array.isArray(webinar.x_studio_tag_ids) && webinar.x_studio_tag_ids.length > 0) {
+            tagsHtml = webinar.x_studio_tag_ids.map(tagId => {
+              const tagName = tagNamesMap.get(tagId) || 'Tag #' + tagId;
+              return '<span class="badge badge-outline badge-xs mr-1">' + escapeHtml(tagName) + '</span>';
+            }).join('');
+          }
+          
           const tr = document.createElement('tr');
           tr.innerHTML = 
             '<td class="font-mono text-sm">' + webinar.id + '</td>' +
@@ -359,6 +448,7 @@ export function eventOperationsUI(user) {
             '<td class="whitespace-nowrap">' + (webinar.x_studio_date || '—') + '</td>' +
             '<td class="whitespace-nowrap">' + (webinar.x_studio_starting_time || '—') + '</td>' +
             '<td class="text-center whitespace-nowrap"><span class="badge badge-neutral badge-sm">' + regCount + '</span></td>' +
+            '<td class="whitespace-nowrap">' + tagsHtml + '</td>' +
             '<td><span class="badge ' + badge.css + ' badge-sm whitespace-nowrap">' + badge.label + '</span></td>' +
             '<td class="whitespace-nowrap">' + (wpId ? '<a href="https://openvme.be/wp-admin/post.php?post=' + wpId + '&action=edit" target="_blank" class="link link-primary text-sm">WP #' + wpId + '</a>' : '—') + '</td>' +
             '<td class="whitespace-nowrap">' + renderActions(webinar.id, state) + '</td>';

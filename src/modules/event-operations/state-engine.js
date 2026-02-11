@@ -60,28 +60,77 @@ function detectDiscrepancies(odooSnapshot, wpSnapshot) {
     const odooTitle = normalizeString(stripHtmlTags(odooSnapshot[ODOO_FIELDS.NAME] || ''));
     const wpTitle = normalizeString(stripHtmlTags(wpTitleRaw));
     if (odooTitle !== wpTitle) {
+      console.log('🔍 DISCREPANCY DETECTED - Title mismatch:');
+      console.log('  Odoo title:', odooTitle);
+      console.log('  WP title:', wpTitle);
       return true;
     }
   }
   
   // Date/time mismatch (only if WP has start_date — Tribe API field)
-  const wpDate = wpSnapshot.start_date?.split(' ')[0];
-  if (wpDate) {
+  const wpDateRaw = wpSnapshot.start_date;
+  if (wpDateRaw) {
+    // Normalize and extract date part (strip HTML just in case)
+    const wpDate = stripHtmlTags(String(wpDateRaw)).split(' ')[0].trim();
     const odooDate = odooSnapshot[ODOO_FIELDS.DATE];
-    if (odooDate !== wpDate) {
+    if (wpDate && odooDate && wpDate !== odooDate) {
+      console.log('🔍 DISCREPANCY DETECTED - Date mismatch:');
+      console.log('  Odoo date:', odooDate);
+      console.log('  WP date:', wpDate);
       return true;
     }
   }
   
   // Description mismatch (only if both have content)
-  // Strip shortcodes from both descriptions before comparing
-  const odooDescRaw = stripHtmlTags(odooSnapshot[ODOO_FIELDS.INFO] || '').trim();
-  const wpDescRaw = stripHtmlTags(wpSnapshot.description || wpSnapshot.content?.rendered || '').trim();
+  // Pipeline: stripHtmlTags → stripShortcodes → normalizeString
+  const odooDescRaw = odooSnapshot[ODOO_FIELDS.INFO] || '';
+  const wpDescRaw = wpSnapshot.description || wpSnapshot.content?.rendered || '';
   
-  const odooDesc = stripShortcodes(odooDescRaw);
-  const wpDesc = stripShortcodes(wpDescRaw);
+  const odooDesc = normalizeString(stripShortcodes(stripHtmlTags(odooDescRaw)));
+  const wpDesc = normalizeString(stripShortcodes(stripHtmlTags(wpDescRaw)));
   
-  if (odooDesc && wpDesc && normalizeString(odooDesc) !== normalizeString(wpDesc)) {
+  if (odooDesc && wpDesc && odooDesc !== wpDesc) {
+    console.log('🔍 DISCREPANCY DETECTED - Description mismatch:');
+    console.log('  Odoo desc length:', odooDesc.length);
+    console.log('  WP desc length:', wpDesc.length);
+    console.log('  Odoo desc:', odooDesc);
+    console.log('  WP desc:', wpDesc);
+    console.log('  Odoo webinar ID:', odooSnapshot[ODOO_FIELDS.ID]);
+    console.log('  Full Odoo snapshot:', JSON.stringify(odooSnapshot, null, 2));
+    console.log('  Full WP snapshot:', JSON.stringify(wpSnapshot, null, 2));
+    return true;
+  }
+  
+  // Tags/categories mismatch (compare Odoo tag IDs with WP category slugs via comma-separated string)
+  // WordPress categories field contains comma-separated slugs: "live,webinar"
+  const odooTagIds = odooSnapshot[ODOO_FIELDS.TAG_IDS];
+  const wpCategoriesRaw = wpSnapshot.categories; // Tribe V1 API: comma-separated string
+  
+  // Normalize WP categories (strip HTML, normalize string)
+  const wpCategories = wpCategoriesRaw 
+    ? normalizeString(stripHtmlTags(String(wpCategoriesRaw)))
+    : '';
+  
+  if (odooTagIds && Array.isArray(odooTagIds) && odooTagIds.length > 0) {
+    // If Odoo has tags but WP has no categories, it's a discrepancy
+    if (!wpCategories || wpCategories.trim() === '') {
+      console.log('🔍 DISCREPANCY DETECTED - Tags/Categories mismatch:');
+      console.log('  Odoo has tags:', odooTagIds);
+      console.log('  WP categories:', wpCategories || '(empty)');
+      console.log('  Full Odoo snapshot:', JSON.stringify(odooSnapshot, null, 2));
+      console.log('  Full WP snapshot:', JSON.stringify(wpSnapshot, null, 2));
+      return true;
+    }
+    // Note: Full tag→category mapping comparison would require loading mappings here,
+    // which is expensive. For now, we just check presence. Tag mapping changes won't
+    // automatically mark as out-of-sync until next publish.
+  } else if (wpCategories && wpCategories.trim() !== '') {
+    // If WP has categories but Odoo has no tags, it's a discrepancy
+    console.log('🔍 DISCREPANCY DETECTED - Tags/Categories mismatch:');
+    console.log('  Odoo tags:', odooTagIds || '(empty)');
+    console.log('  WP has categories:', wpCategories);
+    console.log('  Full Odoo snapshot:', JSON.stringify(odooSnapshot, null, 2));
+    console.log('  Full WP snapshot:', JSON.stringify(wpSnapshot, null, 2));
     return true;
   }
   
