@@ -105,6 +105,10 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
     // Dropdown button with publish options
     const dropdown = createPublishDropdown(webinar.id, 'Publish', 'btn-primary');
     actions.appendChild(dropdown);
+  } else if (state === 'draft') {
+    // Dropdown button with publish options for draft
+    const dropdown = createPublishDropdown(webinar.id, 'Publish', 'btn-primary');
+    actions.appendChild(dropdown);
   } else {
     // Dropdown button with re-publish options
     const buttonStyle = state === 'out_of_sync' ? 'btn-warning' : 'btn-primary';
@@ -112,7 +116,7 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
     actions.appendChild(dropdown);
   }
   
-  // Edit Description button (for published webinars)
+  // Edit Description button (for published/draft webinars)
   if (state !== 'not_published') {
     const editDescBtn = createActionButton('edit', 'Edit Description', 'btn-outline btn-sm', () => {
       openEditorialEditor(webinar.id);

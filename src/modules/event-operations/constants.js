@@ -19,6 +19,7 @@ export const QUERY_PARAMS = {
 // Sync Status Enum
 export const SYNC_STATUS = {
   NOT_PUBLISHED: 'not_published',
+  DRAFT: 'draft',
   PUBLISHED: 'published',
   OUT_OF_SYNC: 'out_of_sync',
   ARCHIVED: 'archived',

@@ -12,6 +12,7 @@ import { navbar } from '../../lib/components/navbar.js';
  */
 const STATUS_BADGES = {
   not_published: { label: 'Not Published', css: 'badge-ghost' },
+  draft: { label: 'Draft', css: 'badge-neutral' },
   published: { label: 'Published', css: 'badge-success' },
   out_of_sync: { label: 'Out of Sync', css: 'badge-warning' },
   archived: { label: 'Archived', css: 'badge-info' },
@@ -309,7 +310,7 @@ export function eventOperationsUI(user) {
             case 'published':
               return state === 'published';
             case 'draft':
-              return state === 'not_published';
+              return state === 'draft' || state === 'not_published';
             case 'out_of_sync':
               return state === 'out_of_sync';
             case 'archived':
@@ -472,6 +473,19 @@ export function eventOperationsUI(user) {
           // Dropdown with Publish options
           return '<div class="dropdown dropdown-end">' +
             '<div tabindex="0" role="button" class="btn btn-primary btn-xs">' +
+              '<i data-lucide="upload" class="w-3 h-3"></i> Publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
+            '</div>' +
+            '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;publish&apos;)"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;draft&apos;)"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;private&apos;)"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+            '</ul>' +
+          '</div>';
+        }
+        if (state === 'draft') {
+          // Dropdown for draft events - primary action is Publish
+          return '<div class="dropdown dropdown-end">' +
+            '<div tabindex="0" role="button" class="btn btn-neutral btn-xs">' +
               '<i data-lucide="upload" class="w-3 h-3"></i> Publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
             '</div>' +
             '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +

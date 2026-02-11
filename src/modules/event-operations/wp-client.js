@@ -55,7 +55,7 @@ export async function getWordPressEvents(env) {
  */
 export async function getWordPressEventsWithMeta(env) {
   const response = await fetch(
-    `${env.WORDPRESS_URL}${WP_ENDPOINTS.WP_EVENTS}?per_page=100`,
+    `${env.WORDPRESS_URL}${WP_ENDPOINTS.WP_EVENTS}?per_page=100&status=publish,draft,private,pending`,
     {
       headers: {
         'Authorization': wpAuthHeader(env)
@@ -154,8 +154,6 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   // 3. Map to WordPress payload (with status)
   const wpPayload = mapOdooToWordPress(odooWebinar, status);
   
-  console.log(`${LOG_PREFIX} 📤 Publishing with status: ${status}`);
-  
   // 3a. Add categories (Tribe V1 API expects comma-separated string of slugs)
   const odooTagIds = odooWebinar.x_studio_tag_ids || [];
   if (odooTagIds.length > 0) {
@@ -175,7 +173,6 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
     // User has custom editorial content - use it
     const odooDescription = odooWebinar.x_studio_webinar_info || '';
     wpPayload.description = buildEditorialDescription(editorialContent, odooDescription);
-    console.log(`${LOG_PREFIX} 📝 Using editorial content for description`);
   } else {
     // No editorial content - generate default: Odoo description paragraph + registration form
     const odooDescription = odooWebinar.x_studio_webinar_info || '';
@@ -187,11 +184,14 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
       version: 1
     };
     wpPayload.description = buildEditorialDescription(defaultEditorial, odooDescription);
-    editorialContentToSave = defaultEditorial; // Save this so user can edit it later
-    console.log(`${LOG_PREFIX} 📝 Generated default editorial (will be saved to database)`);
+    editorialContentToSave = defaultEditorial;
   }
   
   let wpEventId;
+  let wpEventData; // Store API response for snapshot
+  
+  console.log(`${LOG_PREFIX} 📤 Publish odoo=${odooWebinarId} status=${status} existingWpId=${existingWpEventId || 'none'}`);
+  console.log(`${LOG_PREFIX} 📤 WP payload:`, JSON.stringify({ title: wpPayload.title, status: wpPayload.status, start_date: wpPayload.start_date }));
   
   if (existingWpEventId) {
     // UPDATE existing WordPress event
@@ -214,6 +214,8 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
     
     const updateData = await updateResponse.json();
     wpEventId = updateData.id;
+    wpEventData = updateData;
+    console.log(`${LOG_PREFIX} ✏️ Updated WP event ${wpEventId}, response status: ${updateData.status}`);
     
   } else {
     // CREATE new WordPress event
@@ -237,10 +239,12 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
     
     const createData = await createResponse.json();
     wpEventId = createData.id;
+    wpEventData = createData;
     
     if (!wpEventId) {
       throw new Error('Tribe API returned no event ID');
     }
+    console.log(`${LOG_PREFIX} ✨ Created WP event ${wpEventId}, response status: ${createData.status}`);
   }
   
   // 4. Set meta on WP event (always do this to ensure meta is correct)
@@ -267,11 +271,13 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   }
   
   // 5. Save snapshot to Supabase (include editorial content if generated)
-  await saveSnapshot(env, userId, odooWebinar, wpEventId, editorialContentToSave);
+  const computedState = status === 'draft' ? 'draft' : 'published';
+  await saveSnapshot(env, userId, odooWebinar, wpEventData, editorialContentToSave, computedState);
+  console.log(`${LOG_PREFIX} 💾 Snapshot saved: odoo=${odooWebinarId} wp=${wpEventId} state=${computedState}`);
   
   return {
     wp_event_id: wpEventId,
-    computed_state: 'published'
+    computed_state: computedState
   };
 }
 
@@ -285,20 +291,19 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
  * @param {string} userId
  * @param {Object} odooWebinar - Full Odoo record
  * @param {number} wpEventId - WordPress event ID
+ * @param {Object} wpEventData - Full WordPress event data from create/update response
  * @param {Object|null} editorialContent - Optional editorial content to save (null = don't update)
+ * @param {string} computedState - Computed sync state ('published', 'draft', etc.)
  */
-async function saveSnapshot(env, userId, odooWebinar, wpEventId, editorialContent = null) {
-  // Fetch full WordPress event data from Tribe API
-  const wpEventData = await getWordPressEvent(env, wpEventId);
-  
+async function saveSnapshot(env, userId, odooWebinar, wpEventData, editorialContent = null, computedState = 'published') {
   const supabase = await getSupabaseAdminClient(env);
   
   const snapshotData = {
     user_id: userId,
     odoo_webinar_id: odooWebinar.id,
     odoo_snapshot: odooWebinar,
-    wp_snapshot: wpEventData, // Store full WordPress event data
-    computed_state: 'published',
+    wp_snapshot: wpEventData,
+    computed_state: computedState,
     last_synced_at: new Date().toISOString()
   };
   

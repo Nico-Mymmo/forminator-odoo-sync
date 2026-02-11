@@ -124,8 +124,6 @@ export const routes = {
     const { env, user } = context;
     
     try {
-      console.log(`${LOG_PREFIX} ${EMOJI.EVENT} Fetching snapshots for user ${user.id}...`);
-      
       const supabase = await getSupabaseAdminClient(env);
       
       const { data, error } = await supabase
@@ -138,7 +136,7 @@ export const routes = {
         throw new Error(`Supabase error: ${error.message}`);
       }
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${data.length} snapshots`);
+      console.log(`${LOG_PREFIX} 📋 ${data.length} snapshots (states: ${data.map(s => s.computed_state).join(', ')})`);
       
       return new Response(JSON.stringify({
         success: true,
@@ -188,11 +186,11 @@ export const routes = {
       const validStatuses = ['publish', 'draft', 'private'];
       const wpStatus = validStatuses.includes(status) ? status : 'publish';
       
-      console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Publishing webinar ${odoo_webinar_id} with status: ${wpStatus}...`);
+      console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Publishing webinar ${odoo_webinar_id} status=${wpStatus}`);
       
       const result = await publishToWordPress(env, user.id, odoo_webinar_id, wpStatus);
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Published: WP event ${result.wp_event_id}`);
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Published: WP#${result.wp_event_id} state=${result.computed_state}`);
       
       return new Response(JSON.stringify({
         success: true,
@@ -224,8 +222,6 @@ export const routes = {
     const { env, user } = context;
     
     try {
-      console.log(`${LOG_PREFIX} ${EMOJI.DISCREPANCY} Fetching discrepancies for user ${user.id}...`);
-      
       const supabase = await getSupabaseAdminClient(env);
       
       const { data, error } = await supabase
@@ -238,8 +234,6 @@ export const routes = {
       if (error) {
         throw new Error(`Supabase error: ${error.message}`);
       }
-      
-      console.log(`${LOG_PREFIX} ${EMOJI.DISCREPANCY} Found ${data.length} discrepancies`);
       
       return new Response(JSON.stringify({
         success: true,

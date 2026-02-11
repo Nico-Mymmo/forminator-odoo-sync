@@ -32,6 +32,11 @@ export function computeEventState(odooSnapshot, wpSnapshot) {
     return SYNC_STATUS.DELETED;
   }
   
+  // WordPress event saved as draft
+  if (wpSnapshot.status === 'draft') {
+    return SYNC_STATUS.DRAFT;
+  }
+  
   // Check for content discrepancies (title and date only - no description comparison)
   const hasDiscrepancies = detectDiscrepancies(odooSnapshot, wpSnapshot);
   
