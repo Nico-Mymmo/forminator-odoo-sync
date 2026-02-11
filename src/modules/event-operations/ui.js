@@ -35,12 +35,11 @@ export function eventOperationsUI(user) {
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body class="bg-base-200" style="overflow-y: scroll;">
+<body class="bg-base-200">
     ${navbar(user)}
     
     <div style="padding-top: 48px;">
-      <div class="pb-8">
-        <div class="container mx-auto px-6 max-w-7xl">
+      <div class="container mx-auto px-6 py-8 max-w-6xl">
 
           <!-- Header -->
           <div class="flex items-center justify-between mb-8">
@@ -78,16 +77,16 @@ export function eventOperationsUI(user) {
             <div class="card bg-base-100 shadow-xl">
               <div class="card-body">
                 <div class="overflow-x-auto">
-                  <table class="table">
+                  <table class="table table-zebra">
                     <thead>
                       <tr>
-                        <th>ID</th>
-                        <th>Title</th>
-                        <th>Date</th>
-                        <th>Time</th>
-                        <th>Status</th>
-                        <th>WP Event</th>
-                        <th>Actions</th>
+                        <th class="w-16">ID</th>
+                        <th class="min-w-[200px]">Title</th>
+                        <th class="w-32 whitespace-nowrap">Date</th>
+                        <th class="w-24 whitespace-nowrap">Time</th>
+                        <th class="w-32">Status</th>
+                        <th class="w-24">WP Event</th>
+                        <th class="w-32">Actions</th>
                       </tr>
                     </thead>
                     <tbody id="webinarTableBody"></tbody>
@@ -113,10 +112,41 @@ export function eventOperationsUI(user) {
           </div>
 
         </div>
-      </div>
     </div>
 
     <script>
+      // ── Theme Management ──
+      function changeTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('selectedTheme', theme);
+      }
+      
+      function initTheme() {
+        const savedTheme = localStorage.getItem('selectedTheme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        const selector = document.getElementById('themeSelector');
+        if (selector) selector.value = savedTheme;
+      }
+
+      // ── Navbar Functions ──
+      async function logout() {
+        try {
+          await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include'
+          });
+        } catch (err) {
+          console.error('Logout error:', err);
+        }
+        localStorage.removeItem('adminToken');
+        window.location.href = '/';
+      }
+
+      function syncProdData() {
+        alert('Sync production data not available in this module');
+      }
+
       // Status badge config
       const STATUS_BADGES = ${JSON.stringify(STATUS_BADGES)};
 
@@ -188,12 +218,12 @@ export function eventOperationsUI(user) {
           const tr = document.createElement('tr');
           tr.innerHTML = 
             '<td class="font-mono text-sm">' + webinar.id + '</td>' +
-            '<td>' + escapeHtml(webinar.x_name) + '</td>' +
-            '<td>' + (webinar.x_studio_date || '—') + '</td>' +
-            '<td>' + (webinar.x_studio_starting_time || '—') + '</td>' +
-            '<td><span class="badge ' + badge.css + ' badge-sm">' + badge.label + '</span></td>' +
-            '<td>' + (wpId ? '<a href="https://openvme.be/wp-admin/post.php?post=' + wpId + '&action=edit" target="_blank" class="link link-primary text-sm">WP #' + wpId + '</a>' : '—') + '</td>' +
-            '<td>' + renderActions(webinar.id, state) + '</td>';
+            '<td class="max-w-xs"><div class="truncate" title="' + escapeHtml(webinar.x_name) + '">' + escapeHtml(webinar.x_name) + '</div></td>' +
+            '<td class="whitespace-nowrap">' + (webinar.x_studio_date || '—') + '</td>' +
+            '<td class="whitespace-nowrap">' + (webinar.x_studio_starting_time || '—') + '</td>' +
+            '<td><span class="badge ' + badge.css + ' badge-sm whitespace-nowrap">' + badge.label + '</span></td>' +
+            '<td class="whitespace-nowrap">' + (wpId ? '<a href="https://openvme.be/wp-admin/post.php?post=' + wpId + '&action=edit" target="_blank" class="link link-primary text-sm">WP #' + wpId + '</a>' : '—') + '</td>' +
+            '<td class="whitespace-nowrap">' + renderActions(webinar.id, state) + '</td>';
           
           tbody.appendChild(tr);
         }
@@ -211,10 +241,10 @@ export function eventOperationsUI(user) {
       // ── Render action buttons ──
       function renderActions(webinarId, state) {
         if (state === 'not_published') {
-          return '<button class="btn btn-primary btn-xs gap-1" onclick="publishWebinar(' + webinarId + ', this)"><i data-lucide="upload" class="w-3 h-3"></i> Publish</button>';
+          return '<button class="btn btn-primary btn-xs whitespace-nowrap" onclick="publishWebinar(' + webinarId + ', this)"><i data-lucide="upload" class="w-3 h-3"></i> Publish</button>';
         }
         if (state === 'out_of_sync') {
-          return '<button class="btn btn-warning btn-xs gap-1" onclick="publishWebinar(' + webinarId + ', this)"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish</button>';
+          return '<button class="btn btn-warning btn-xs whitespace-nowrap" onclick="publishWebinar(' + webinarId + ', this)"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish</button>';
         }
         return '<span class="text-base-content/40 text-xs">—</span>';
       }
@@ -302,7 +332,9 @@ export function eventOperationsUI(user) {
       }
 
       // ── Init ──
+      initTheme();
       loadData();
+      lucide.createIcons();
     </script>
 </body>
 </html>`;
