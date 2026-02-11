@@ -611,6 +611,7 @@ export function eventOperationsUI(user) {
       function switchView(viewType) {
         const tableContainer = document.getElementById('dataTable');
         const cardsContainer = document.getElementById('cardsContainer');
+        const emptyState = document.getElementById('emptyState');
         const tableBtn = document.getElementById('viewBtnTable');
         const cardsBtn = document.getElementById('viewBtnCards');
         
@@ -624,6 +625,7 @@ export function eventOperationsUI(user) {
           renderTable(filteredWebinars);
         } else {
           tableContainer.classList.add('hidden');
+          emptyState.classList.add('hidden');
           cardsContainer.classList.remove('hidden');
           tableBtn.classList.remove('btn-active');
           cardsBtn.classList.add('btn-active');
