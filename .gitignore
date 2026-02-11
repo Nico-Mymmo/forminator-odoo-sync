@@ -27,6 +27,7 @@ temp_*
 check_*
 fix_*
 verify_*
+supabase/.temp/
 
 # Build artifacts
 *.zip
