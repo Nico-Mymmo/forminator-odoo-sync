@@ -1,0 +1,40 @@
+/**
+ * Event Operations - Internal Supabase Client
+ * 
+ * Module-scoped helper to reduce boilerplate in routes.
+ * NOT shared with other modules.
+ * 
+ * Singleton scope: Per-isolate (not cross-request guaranteed)
+ * See ANALYSIS V4 section 2.3.1 for clarification.
+ */
+
+let supabaseClientInstance = null;
+
+/**
+ * Get Supabase admin client (singleton per isolate)
+ * 
+ * @param {Object} env - Cloudflare env
+ * @returns {Promise<SupabaseClient>}
+ * @throws {Error} If SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing
+ */
+export async function getSupabaseAdminClient(env) {
+  // Validate env vars
+  if (!env.SUPABASE_URL) {
+    throw new Error('Missing environment variable: SUPABASE_URL');
+  }
+  
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Missing environment variable: SUPABASE_SERVICE_ROLE_KEY');
+  }
+  
+  // Singleton pattern (reuse client within same isolate)
+  if (!supabaseClientInstance) {
+    const { createClient } = await import('@supabase/supabase-js');
+    supabaseClientInstance = createClient(
+      env.SUPABASE_URL,
+      env.SUPABASE_SERVICE_ROLE_KEY
+    );
+  }
+  
+  return supabaseClientInstance;
+}

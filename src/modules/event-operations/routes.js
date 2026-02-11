@@ -5,6 +5,7 @@
 import { LOG_PREFIX, EMOJI } from './constants.js';
 import { getOdooWebinars } from './odoo-client.js';
 import { getWordPressEvents } from './wp-client.js';
+import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { eventOperationsUI } from './ui.js';
 
 export const routes = {
@@ -79,6 +80,52 @@ export const routes = {
       
     } catch (error) {
       console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch WP events failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * GET /events/api/snapshots
+   * Fetch all snapshots for the current user from Supabase
+   * 
+   * Response: { success: true, data: [...] }
+   */
+  'GET /api/snapshots': async (context) => {
+    const { env, user } = context;
+    
+    try {
+      console.log(`${LOG_PREFIX} ${EMOJI.EVENT} Fetching snapshots for user ${user.id}...`);
+      
+      const supabase = await getSupabaseAdminClient(env);
+      
+      const { data, error } = await supabase
+        .from('webinar_snapshots')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        throw new Error(`Supabase error: ${error.message}`);
+      }
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${data.length} snapshots`);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch snapshots failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,
