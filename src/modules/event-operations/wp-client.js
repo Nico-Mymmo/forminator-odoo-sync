@@ -165,7 +165,9 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
   }
   
   // 3b. Build description: use editorial content if present, else generate default (Odoo paragraph + form)
-  const editorialContent = existingSnapshot?.editorial_content;
+  let editorialContent = existingSnapshot?.editorial_content;
+  let editorialContentToSave = null; // Track if we need to save new editorial content
+  
   if (editorialContent && editorialContent.blocks && editorialContent.blocks.length > 0) {
     // User has custom editorial content - use it
     const odooDescription = odooWebinar.x_studio_webinar_info || '';
@@ -182,7 +184,8 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
       version: 1
     };
     wpPayload.description = buildEditorialDescription(defaultEditorial, odooDescription);
-    console.log(`${LOG_PREFIX} 📝 Using default description (Odoo + registration form)`);
+    editorialContentToSave = defaultEditorial; // Save this so user can edit it later
+    console.log(`${LOG_PREFIX} 📝 Generated default editorial (will be saved to database)`);
   }
   
   let wpEventId;
@@ -260,8 +263,8 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
     // Don't throw — event was created/updated, meta is best-effort
   }
   
-  // 5. Save snapshot to Supabase
-  await saveSnapshot(env, userId, odooWebinar, wpEventId);
+  // 5. Save snapshot to Supabase (include editorial content if generated)
+  await saveSnapshot(env, userId, odooWebinar, wpEventId, editorialContentToSave);
   
   return {
     wp_event_id: wpEventId,
@@ -279,23 +282,31 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
  * @param {string} userId
  * @param {Object} odooWebinar - Full Odoo record
  * @param {number} wpEventId - WordPress event ID
+ * @param {Object|null} editorialContent - Optional editorial content to save (null = don't update)
  */
-async function saveSnapshot(env, userId, odooWebinar, wpEventId) {
+async function saveSnapshot(env, userId, odooWebinar, wpEventId, editorialContent = null) {
   // Fetch full WordPress event data from Tribe API
   const wpEventData = await getWordPressEvent(env, wpEventId);
   
   const supabase = await getSupabaseAdminClient(env);
   
+  const snapshotData = {
+    user_id: userId,
+    odoo_webinar_id: odooWebinar.id,
+    odoo_snapshot: odooWebinar,
+    wp_snapshot: wpEventData, // Store full WordPress event data
+    computed_state: 'published',
+    last_synced_at: new Date().toISOString()
+  };
+  
+  // Only include editorial_content if provided (don't overwrite existing custom content with null)
+  if (editorialContent !== null) {
+    snapshotData.editorial_content = editorialContent;
+  }
+  
   const { error } = await supabase
     .from('webinar_snapshots')
-    .upsert({
-      user_id: userId,
-      odoo_webinar_id: odooWebinar.id,
-      odoo_snapshot: odooWebinar,
-      wp_snapshot: wpEventData, // Store full WordPress event data
-      computed_state: 'published',
-      last_synced_at: new Date().toISOString()
-    }, {
+    .upsert(snapshotData, {
       onConflict: 'user_id,odoo_webinar_id'
     });
   
