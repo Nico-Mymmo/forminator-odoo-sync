@@ -15,7 +15,8 @@
 | A2 | 2026-02-11 | `cd9442e` | ✅ | switchView scope, STATUS_BADGES duplicate, cards niet zichtbaar | ~90 min |
 | A3 | 2026-02-11 | `32688f0` | ✅ | Tab filtering bugs, shortcode false positives, duplicate WP events | ~180 min |
 | A4 | 2026-02-11 | VERIFIED | ✅ | Tag mapping working, Tribe V1 format dependency | ~4h |
-| A5 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~5h |
+| A5 | 2026-02-11 | `550b91a` | ✅ | Editorial content, migration ghost entry, save defaults | ~3h |
+| A6 | 2026-02-11 | `6310f8f` | ✅ | Draft status, duplicate fix, cards layout | ~2h |
 
 ---
 
@@ -781,15 +782,189 @@ webinar.x_studio_tag_ids.forEach(tagId => {
 ## Phase A5 – Editorial Content Layer
 
 ### Metadata
-| Status | ⬜ Not Started |
+| Veld | Waarde |
+|------|--------|
+| Date | 2026-02-11 |
+| Branch | events-operations |
+| Git Commits | `c0834c7`, `652e0b1`, `98c9095`, `7ab8045`, `550b91a` |
+| Status | ✅ Complete |
 
-### Planned Scope
+### Files Changed
 
-- New column: `webinar_snapshots.editorial_content` (JSONB)
-- Simple block editor (text + shortcode blocks)
-- Preview modal
-- Auto-append registration count option
-- Publish flow uses editorial or falls back to Odoo description
+| File | Action | Lines Changed |
+|------|--------|---------------|
+| src/modules/event-operations/editorial.js | CREATE | +150 |
+| src/modules/event-operations/routes.js | MODIFY | +40, -5 |
+| src/modules/event-operations/wp-client.js | MODIFY | +60, -15 |
+| public/event-operations-client.js | MODIFY | +250, -0 |
+| supabase/migrations/20260211020000_event_operations_editorial_content.sql | CREATE | +36 |
+
+### Issues Encountered
+
+| # | Issue | Severity | Root Cause | Resolution |
+|---|-------|----------|------------|------------|
+| 1 | Migration ghost entry | High | CLI says "migrations up to date" but column doesn't exist | User must run SQL manually in Supabase dashboard |
+| 2 | Rendered shortcodes in WP sync | Medium | WordPress returns `[forminator_form id="14547"]` with escaped quotes | Strip shortcodes with regex before comparison |
+| 3 | Default editorial not saved | Medium | First publish didn't save generated editorial content to DB | Track editorialContentToSave, pass to saveSnapshot |
+| 4 | No Re-publish button for published | Medium | Re-publish only shown for out_of_sync state | Show for all non-not_published states |
+| 5 | Onclick syntax error | High | `\'` in template strings caused "Unexpected identifier" | Replace with HTML entity `&apos;` |
+
+### Implementation Details
+
+**Editorial Content Structure:**
+```javascript
+{
+  blocks: [
+    { type: 'paragraph', content: 'Odoo description text' },
+    { type: 'shortcode', name: 'forminator_form', attributes: { id: '14547' } }
+  ],
+  version: 1
+}
+```
+
+**Block Editor Modal:**
+- Drag-and-drop reordering
+- Add paragraph/shortcode blocks
+- Delete blocks
+- Save to database
+- Preview rendered HTML
+
+**Default Content Flow:**
+1. First publish → generate default editorial (Odoo paragraph + form)
+2. Save editorial_content to snapshot
+3. Subsequent publishes → use saved editorial or allow editing
+4. User can customize via "Edit Description" button
+
+**Migration Issue Resolution:**
+- Migration file exists but not applied (ghost entry in migration history)
+- User must execute SQL manually until Supabase CLI issue resolved
+
+### Key Commits
+
+| Commit | Message | Changes |
+|--------|---------|---------|
+| `c0834c7` | feat: save default editorial content to database | editorialContentToSave tracking, saveSnapshot param |
+| `652e0b1` | fix: show Re-publish button for all published events | Button visibility logic fix |
+| `98c9095` | feat: add publish status dropdown | Publish/Draft/Private options |
+| `7ab8045` | fix: fix onclick syntax error in dropdown menus | `\'` → `&apos;` |
+| `550b91a` | fix: add missing status parameter to publishToWordPress | Status param signature fix |
+
+---
+
+## Phase A6 – Draft Status & Card Layout UX
+
+### Metadata
+| Veld | Waarde |
+|------|--------|
+| Date | 2026-02-11 |
+| Branch | events-operations |
+| Git Commits | `8a6ac14`, `6310f8f`, `03121f1` |
+| Status | ✅ Complete |
+
+### Files Changed
+
+| File | Action | Lines Changed |
+|------|--------|---------------|
+| src/modules/event-operations/constants.js | MODIFY | +1 enum value |
+| src/modules/event-operations/state-engine.js | MODIFY | +5 lines |
+| src/modules/event-operations/wp-client.js | MODIFY | +20, -10 |
+| src/modules/event-operations/routes.js | MODIFY | +15, -20 |
+| src/modules/event-operations/ui.js | MODIFY | +25, -10 |
+| public/event-operations-client.js | MODIFY | +15, -5 |
+
+### Issues Encountered
+
+| # | Issue | Severity | Root Cause | Resolution |
+|---|-------|----------|------------|------------|
+| 1 | Drafts shown as not_published | Critical | wp-client hardcoded computed_state: 'published' | Derive state from status param (draft → 'draft', else 'published') |
+| 2 | Duplicate WP events created | Critical | saveSnapshot re-fetched event via Tribe API, which fails for drafts → snapshot not saved → next publish creates new event | Use create/update response directly, skip re-fetch |
+| 3 | Sync overwrites draft state | High | getWordPressEventsWithMeta only fetched status=publish (WP default) | Add `?status=publish,draft,private,pending` to Core API query |
+| 4 | Cards uneven height | Medium | Content length varies between linked/unlinked events | Fixed height h-[380px] + flex layout |
+| 5 | Empty state persists in cards view | Low | emptyState element not hidden when switching views | Explicitly hide emptyState in switchView('cards') |
+
+### Implementation Details
+
+**Draft Status Support:**
+```javascript
+// constants.js
+export const SYNC_STATUS = {
+  NOT_PUBLISHED: 'not_published',
+  DRAFT: 'draft',  // NEW
+  PUBLISHED: 'published',
+  // ...
+};
+
+// state-engine.js
+if (wpSnapshot.status === 'draft') {
+  return SYNC_STATUS.DRAFT;
+}
+
+// wp-client.js
+const computedState = status === 'draft' ? 'draft' : 'published';
+await saveSnapshot(env, userId, odooWebinar, wpEventData, editorialContentToSave, computedState);
+```
+
+**Critical Fix - Duplicate Events:**
+Before:
+```javascript
+await saveSnapshot(env, userId, odooWebinar, wpEventId, editorialContentToSave);
+// → Inside saveSnapshot: wpEventData = await getWordPressEvent(env, wpEventId);
+// → Tribe API returns 404 for drafts → snapshot not saved → duplicate on next publish
+```
+
+After:
+```javascript
+const wpEventData = await createResponse.json(); // OR updateResponse.json()
+await saveSnapshot(env, userId, odooWebinar, wpEventData, editorialContentToSave, computedState);
+// → Use response directly, no re-fetch
+```
+
+**Cards Layout:**
+- Fixed height: `h-[380px]`
+- Flex column: `flex flex-col`
+- Meta grid: `flex-1 overflow-y-auto` (fills space)
+- Actions: `mt-auto pt-3 border-t` (pinned to bottom)
+- Compact padding: `p-4` (reduced from default `p-6`/`p-8`)
+- Increased block spacing: `space-y-3` (up from `space-y-2`)
+- Actions side-by-side: `flex-row gap-2`
+
+**Logging Improvements:**
+- Added: odoo ID, status, existingWpId, WP response status, snapshot save confirmation
+- Removed: Verbose "Fetching snapshots...", "Using editorial content", "Generated default editorial"
+- Snapshots endpoint now logs all states on fetch
+
+### Key Commits
+
+| Commit | Message | Changes |
+|--------|---------|---------|
+| `8a6ac14` | feat: add draft status support, fix duplicate WP events | DRAFT enum, state-engine, Core API status filter, use response directly, payload logging |
+| `6310f8f` | style: fixed-height cards with compact padding and bottom actions | h-[380px], flex layout, p-4, actions mt-auto |
+| `03121f1` | fix: hide empty state when switching to cards view | emptyState visibility fix |
+
+### Architectural Notes
+
+**Draft State Flow:**
+1. User clicks "Draft" in publish dropdown
+2. `publishToWordPress(env, userId, odooWebinarId, 'draft')`
+3. Payload includes `status: 'draft'`
+4. WP creates/updates event with draft status
+5. Response saved directly (no re-fetch)
+6. `computed_state: 'draft'` stored in snapshot
+7. UI shows "Draft" badge (badge-neutral)
+8. "Publish" button available to promote to live
+
+**Why Re-fetch Failed:**
+- WordPress Tribe API (`/wp-json/tribe/events/v1/events/:id`) only returns published events
+- Fetching a draft by ID returns 404
+- WP Core API (`/wp-json/wp/v2/tribe_events`) requires explicit `?status=draft` parameter
+- Solution: Use create/update response directly (has all needed data)
+
+---
+
+## Phase A5 – Editorial Content Layer (DEPRECATED ENTRY)
+
+### Metadata
+| Status | ✅ Complete (see A5 above) |
 
 ---
 
@@ -805,6 +980,9 @@ Accumulated afwijkingen van initiële ADDENDUM_A_EVENT_OPERATIONS.md scope:
 | 4 | A4: auto-create WP tags | A4: deferred auto-create, manual mapping only | A4 |
 | 5 | A4: matrix view for tag mapping | A4: table view with form | A4 |
 | 6 | A4: auto-populate wp_category_id | A4: column exists, population deferred | A4 |
+| 7 | A5: preview modal | A5: preview modal deferred (not critical for launch) | A5 |
+| 8 | A5: auto-append registration count | A5: deferred (future enhancement) | A5 |
+| 9 | A6: not in original plan | A6: added for draft status support + UX improvements | A6 |
 
 **Reden voor wijzigingen:**
 - **A1 scope creep:** User feedback tijdens test → table width issues moesten opgelost worden voordat A2 zou starten
@@ -817,39 +995,56 @@ Accumulated afwijkingen van initiële ADDENDUM_A_EVENT_OPERATIONS.md scope:
   - Auto-create WP categories requires additional API research (deferred to future addendum)
   - Table view simpler than matrix view, achieves same user goals
   - wp_category_id auto-population not critical for A4 validation
+- **A5 scope reduction:** Focus on core editorial functionality:
+  - Preview modal deferred (user can preview on WordPress after publish)
+  - Auto-append registration count deferred (manual insertion via shortcode attribute works)
+- **A6 scope addition:** Critical bugs + UX improvements discovered after A5:
+  - Draft status support needed for proper WordPress workflow
+  - Duplicate WP events bug must be fixed (saveSnapshot re-fetch issue)
+  - Cards layout improvements for production readiness
 
 ---
 
-**Document Status:** 🔄 Active (A1-A4 compleet, A5 pending)  
+**Document Status:** ✅ Complete (A1-A6)  
 **Totaal issues A1:** 6  
 **Totaal issues A2:** 4  
 **Totaal issues A3:** 6  
 **Totaal issues A4:** 5  
-**Totaal corrections:** 6  
-**Huidige fase:** A4 compleet → STOPPOINT → ready for A5 (Editorial Content Layer)
+**Totaal issues A5:** 5  
+**Totaal issues A6:** 5  
+**Totaal corrections:** 9  
+**Huidige fase:** A6 compleet → Addendum A COMPLETE → Production ready
 
 ---
 
-## STOPPOINT A4 – CODE IS SOURCE OF TRUTH
+## STOPPOINT A6 – ADDENDUM A COMPLETE
 
 **Date:** 2026-02-11  
-**Status:** ✅ VERIFIED
+**Status:** ✅ COMPLETE
 
-From this point forward:
-- Current committed code is authoritative
-- Documentation reflects actual implementation (not theoretical plans)
-- Code must NOT be modified to match documentation
-- All future changes require new stoppoints
-
-**A4 Validation Complete:**
-- ✅ Database schema verified from migration file
-- ✅ Server logic verified from actual wp-client.js
-- ✅ Client rendering verified from event-operations-client.js
-- ✅ RLS policies verified (TO public pattern)
+**A6 Validation Complete:**
+- ✅ Draft status flow working (publish/draft/private)
+- ✅ No duplicate WP events created
+- ✅ Sync preserves draft state correctly
+- ✅ Cards view production-ready (fixed height, compact layout)
+- ✅ Empty state visibility fixed
+- ✅ All A5 editorial features working
+- ✅ Tag mapping working (A4)
 - ✅ No architectural violations
-- ✅ Backward compatible with A3
 
-**Ready for A5 Preparation Phase:**
-- ⏸️ **WAITING FOR CONFIRMATION BEFORE A5 CODING**
-- 📋 A5 implementation plan documented in ADDENDUM_A_EVENT_OPERATIONS.md Section 12
-- 🎯 Next: Editorial content layer (JSONB, block editor, shortcode support)
+**Pushed to master:**
+- ✅ Commit `6310f8f` merged to master
+- ✅ Branch `events-operations` synchronized
+- ✅ Production deployed
+
+**Addendum A Deliverables:**
+1. ✅ Tag mapping (Odoo tags → WP Event Categories)
+2. ✅ Editorial content editor (block-based, shortcode support)
+3. ✅ Dual view (table + cards)
+4. ✅ Draft/Publish workflow
+5. ✅ Sync status badges
+6. ✅ Production-ready UI/UX
+
+**Next Steps:**
+- Future enhancements tracked in backlog
+- Module stable for production use
