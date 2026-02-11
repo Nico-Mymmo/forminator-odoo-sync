@@ -3,7 +3,7 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCount } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, publishToWordPress } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
@@ -23,9 +23,9 @@ export const routes = {
 
   /**
    * GET /events/api/odoo-webinars
-   * Fetch all active webinars from Odoo
+   * Fetch all active webinars from Odoo WITH registration counts
    * 
-   * Response: { success: true, data: [...] }
+   * Response: { success: true, data: { webinars: [...], registrationCounts: { 44: 12, ... } } }
    */
   'GET /api/odoo-webinars': async (context) => {
     const { env } = context;
@@ -35,11 +35,30 @@ export const routes = {
       
       const webinars = await getOdooWebinars(env);
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${webinars.length} webinars`);
+      console.log(`${LOG_PREFIX} ${EMOJI.EVENT} Fetching registration counts for ${webinars.length} webinars...`);
+      
+      // Fetch registration counts in parallel
+      const registrationCounts = {};
+      await Promise.all(
+        webinars.map(async (webinar) => {
+          try {
+            const count = await getRegistrationCount(env, webinar.id);
+            registrationCounts[webinar.id] = count;
+          } catch (err) {
+            console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Failed to fetch count for webinar ${webinar.id}:`, err.message);
+            registrationCounts[webinar.id] = 0; // Fallback to 0 on error
+          }
+        })
+      );
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${webinars.length} webinars with registration counts`);
       
       return new Response(JSON.stringify({
         success: true,
-        data: webinars
+        data: {
+          webinars,
+          registrationCounts
+        }
       }), {
         headers: { 'Content-Type': 'application/json' }
       });

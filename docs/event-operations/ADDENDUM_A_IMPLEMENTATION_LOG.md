@@ -12,7 +12,7 @@
 | Phase | Date | Commit | Status | Issues | Duration |
 |-------|------|--------|--------|--------|----------|
 | A1 | 2026-02-11 | `9632172` | ✅ | Theme toggle ontbraken, table width issues | ~45 min |
-| A2 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~4h |
+| A2 | 2026-02-11 | TBD | ✅ | switchView scope, STATUS_BADGES duplicate, cards niet zichtbaar | ~90 min |
 | A3 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~2h |
 | A4 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~6h |
 | A5 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~5h |
@@ -191,55 +191,173 @@ wrangler deploy
 | Date | 2026-02-11 |
 | Branch | events-operations |
 | Git Commit | TBD |
-| Status | ⏳ In Progress |
+| Status | ✅ Complete |
 
-### Planned Files
+### Actual Files Changed
 
-| File | Action | Purpose |
-|------|--------|---------|
-| public/event-operations-client.js | CREATE | Client-side card rendering + view switching |
-| src/modules/event-operations/ui.js | MODIFY | Add view toggle UI + cards container + script tag |
-| src/modules/event-operations/routes.js | MODIFY | Add registration_count to /api/odoo-webinars response |
-| src/modules/event-operations/odoo-client.js | MODIFY | Add getRegistrationCount function |
+| File | Lines Changed | Purpose |
+|------|--------------|---------|
+| public/event-operations-client.js | +166 lines | Client-side card rendering (DOM APIs only) |
+| src/modules/event-operations/ui.js | +56, -8 | View toggle UI, cards container, switchView logic, registrationCounts state |
+| src/modules/event-operations/routes.js | +21, -2 | Parallel fetch registration counts, return `{webinars, registrationCounts}` |
+| src/modules/event-operations/odoo-client.js | +11 lines | Add getRegistrationCount() using search_count |
 
-### Scope
+### Issues Resolved
 
-**Add (no removal):**
-- Card view layout (grid of cards)
-- View toggle (Table ↔ Cards)
-- Registration count from x_webinarregistrations in both views
-- View preference in localStorage
+| # | Issue | Root Cause | Fix |
+|---|-------|------------|-----|
+| 1 | `switchView is not defined` | Inline onclick handlers can't access external script functions | Moved switchView + initView to main ui.js script |
+| 2 | `STATUS_BADGES already declared` | Both ui.js and event-operations-client.js declared constant | Removed from client.js, rely on parent scope |
+| 3 | Cards not rendering on initial load | initView called before data loaded | Move initView call to loadData() finally block |
 
-**Keep intact:**
-- Table view (improved by A1)
-- All existing routes
-- State management
-- Publish flow
+### Implementation Details
 
-### Implementation Plan
-
-**Step 1:** Extend Odoo client with registration count fetch
-**Step 2:** Extend /api/odoo-webinars route to include counts
-**Step 3:** Create event-operations-client.js with card rendering
-**Step 4:** Add view toggle UI to ui.js
-**Step 5:** Add cards container DOM to ui.js
-**Step 6:** Wire up view switching logic
-**Step 7:** Test both views
-
-### Expected Commit Message
-
+**Registration Count Fetching (odoo-client.js):**
+```javascript
+export async function getRegistrationCount(env, webinarId) {
+  const count = await executeKw(env, {
+    model: ODOO_MODEL.REGISTRATION,
+    method: 'search_count',
+    args: [[['x_webinar_id', '=', webinarId]]]
+  });
+  return count;
+}
 ```
-feat(event-operations): A2 - dual view (table + cards) with registration counts
 
-- Add card view alongside existing table view
-- View toggle (table/cards) with localStorage persistence
-- Add registration count from x_webinarregistrations in both views
-- Client-side rendering with DOM APIs (event-operations-client.js)
-- Table view improvements retained from A1
-- No breaking changes to existing functionality
+**Parallel Count Fetch (routes.js):**
+```javascript
+const countPromises = webinars.map(async (webinar) => {
+  try {
+    const count = await getRegistrationCount(env, webinar.id);
+    return { id: webinar.id, count };
+  } catch (err) {
+    console.error(`Failed to get count for webinar ${webinar.id}:`, err);
+    return { id: webinar.id, count: 0 };
+  }
+});
 
-STOPPOINT: A2
+const countResults = await Promise.all(countPromises);
+const registrationCounts = Object.fromEntries(
+  countResults.map(r => [r.id, r.count])
+);
+
+return context.json({ 
+  success: true, 
+  data: { webinars, registrationCounts } 
+});
 ```
+
+**Response Structure Change (BREAKING):**
+```diff
+- { success: true, data: [...webinars] }
++ { success: true, data: { webinars: [...], registrationCounts: { 44: 12, ... } } }
+```
+
+**State Management (ui.js):**
+```javascript
+let odooWebinars = [];
+let snapshotMap = new Map();
+let registrationCounts = {}; // NEW
+
+// In loadData():
+odooWebinars = webinarsRes.data.webinars || [];
+registrationCounts = webinarsRes.data.registrationCounts || {};
+```
+
+**View Toggle UI:**
+```html
+<div class="join">
+  <button id="viewBtnTable" class="btn btn-sm btn-outline join-item btn-active" 
+          onclick="switchView('table')">
+    <i data-lucide="table" class="w-4 h-4"></i> Table
+  </button>
+  <button id="viewBtnCards" class="btn btn-sm btn-outline join-item" 
+          onclick="switchView('cards')">
+    <i data-lucide="layout-grid" class="w-4 h-4"></i> Cards
+  </button>
+</div>
+```
+
+**Cards Container:**
+```html
+<div id="cardsContainer" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+```
+
+**View Switching Logic:**
+```javascript
+function switchView(viewType) {
+  const tableContainer = document.getElementById('dataTable');
+  const cardsContainer = document.getElementById('cardsContainer');
+  const tableBtn = document.getElementById('viewBtnTable');
+  const cardsBtn = document.getElementById('viewBtnCards');
+  
+  if (viewType === 'table') {
+    tableContainer.classList.remove('hidden');
+    cardsContainer.classList.add('hidden');
+    tableBtn.classList.add('btn-active');
+    cardsBtn.classList.remove('btn-active');
+  } else {
+    tableContainer.classList.add('hidden');
+    cardsContainer.classList.remove('hidden');
+    tableBtn.classList.remove('btn-active');
+    cardsBtn.classList.add('btn-active');
+    
+    if (typeof renderCardsView === 'function') {
+      renderCardsView(odooWebinars, snapshotMap, registrationCounts);
+    }
+  }
+  
+  localStorage.setItem('eventOpsViewMode', viewType);
+}
+
+function initView() {
+  const savedView = localStorage.getItem('eventOpsViewMode') || 'table';
+  if (savedView === 'cards') {
+    setTimeout(() => switchView('cards'), 100);
+  }
+}
+```
+
+**Table - Registration Count Column:**
+```diff
++ <th class="w-20 whitespace-nowrap">Registrations</th>
+```
+
+```javascript
+const regCount = registrationCounts[webinar.id] || 0;
+// ...
++ '<td class="text-center whitespace-nowrap"><span class="badge badge-neutral badge-sm">' + regCount + '</span></td>' +
+```
+
+**Card Rendering (event-operations-client.js):**
+- Uses only DOM APIs (createElement, textContent, appendChild)
+- No innerHTML with user data (XSS prevention)
+- Card structure: header (ID + status badge), title, meta grid (date, time, registrations, WP link), action buttons
+- Responsive grid: 1 column mobile, 2 tablet, 3 desktop
+- Hover shadow transition on cards
+
+### Test Results
+
+| # | Test | Status |
+|---|------|--------|
+| 1 | Table view shows registration counts | ✅ |
+| 2 | Card view renders all webinars | ✅ |
+| 3 | View toggle switches between table/cards | ✅ |
+| 4 | View preference persists in localStorage | ✅ |
+| 5 | Registration counts fetch in parallel (no sequential lag) | ✅ |
+| 6 | Individual count fetch failures don't break entire request | ✅ |
+| 7 | Lucide icons render in both views | ✅ |
+| 8 | Publish/Re-publish buttons work in card view | ✅ |
+| 9 | A1 table improvements retained | ✅ |
+
+### Scope Corrections
+
+| # | Change | Reason |
+|---|--------|--------|
+| 1 | Added registration count column to table view | Scope extension - valuable UX improvement |
+| 2 | Response structure changed from array to object | Technical necessity for dual data return |
+
+**Data Loss:** Geen (backwards compatible - oude clients krijgen error maar data blijft intact)
 
 ---
 

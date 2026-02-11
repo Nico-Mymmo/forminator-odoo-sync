@@ -4,7 +4,7 @@
  * Abstracts Odoo x_webinar integration
  */
 
-import { searchRead } from '../../lib/odoo.js';
+import { searchRead, executeKw } from '../../lib/odoo.js';
 import { ODOO_MODEL, ODOO_FIELDS } from './constants.js';
 
 /**
@@ -65,4 +65,21 @@ export async function getOdooWebinar(env, webinarId) {
   }
   
   return webinars[0];
+}
+
+/**
+ * Get registration count for a webinar
+ * 
+ * @param {Object} env
+ * @param {number} webinarId
+ * @returns {Promise<number>} Registration count
+ */
+export async function getRegistrationCount(env, webinarId) {
+  const count = await executeKw(env, {
+    model: ODOO_MODEL.REGISTRATION,
+    method: 'search_count',
+    args: [[['x_webinar_id', '=', webinarId]]]
+  });
+  
+  return count;
 }

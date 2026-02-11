@@ -48,6 +48,15 @@ export function eventOperationsUI(user) {
               <p class="text-base-content/60">Odoo webinar → WordPress publication</p>
             </div>
             <div class="flex gap-2">
+              <!-- View toggle -->
+              <div class="join">
+                <button id="viewBtnTable" class="btn btn-sm btn-outline join-item btn-active" onclick="switchView('table')">
+                  <i data-lucide="table" class="w-4 h-4"></i> Table
+                </button>
+                <button id="viewBtnCards" class="btn btn-sm btn-outline join-item" onclick="switchView('cards')">
+                  <i data-lucide="layout-grid" class="w-4 h-4"></i> Cards
+                </button>
+              </div>
               <button id="btnSync" class="btn btn-outline btn-sm gap-2" onclick="runSync()">
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All
               </button>
@@ -84,6 +93,7 @@ export function eventOperationsUI(user) {
                         <th class="min-w-[200px]">Title</th>
                         <th class="w-32 whitespace-nowrap">Date</th>
                         <th class="w-24 whitespace-nowrap">Time</th>
+                        <th class="w-20 whitespace-nowrap">Registrations</th>
                         <th class="w-32">Status</th>
                         <th class="w-24">WP Event</th>
                         <th class="w-32">Actions</th>
@@ -95,6 +105,9 @@ export function eventOperationsUI(user) {
               </div>
             </div>
           </div>
+
+          <!-- Cards view -->
+          <div id="cardsContainer" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
 
           <!-- Discrepancies section -->
           <div id="discrepancySection" class="hidden mt-6">
@@ -164,6 +177,7 @@ export function eventOperationsUI(user) {
       // ── State management ──
       let odooWebinars = [];
       let snapshotMap = new Map(); // odoo_webinar_id → snapshot
+      let registrationCounts = {}; // webinar.id → count
 
       // ── Load data ──
       async function loadData() {
@@ -180,7 +194,8 @@ export function eventOperationsUI(user) {
           if (!webinarsRes.success) throw new Error(webinarsRes.error);
           if (!snapshotsRes.success) throw new Error(snapshotsRes.error);
 
-          odooWebinars = webinarsRes.data || [];
+          odooWebinars = webinarsRes.data.webinars || [];
+          registrationCounts = webinarsRes.data.registrationCounts || {};
           
           snapshotMap.clear();
           for (const snap of (snapshotsRes.data || [])) {
@@ -192,6 +207,8 @@ export function eventOperationsUI(user) {
           showToast('Failed to load: ' + err.message, 'error');
         } finally {
           document.getElementById('loadingState').style.display = 'none';
+          // Apply saved view mode after data is loaded
+          initView();
         }
       }
 
@@ -214,6 +231,7 @@ export function eventOperationsUI(user) {
           const state = snap ? snap.computed_state : 'not_published';
           const badge = STATUS_BADGES[state] || STATUS_BADGES.not_published;
           const wpId = snap?.wp_snapshot?.id;
+          const regCount = registrationCounts[webinar.id] || 0;
           
           const tr = document.createElement('tr');
           tr.innerHTML = 
@@ -221,6 +239,7 @@ export function eventOperationsUI(user) {
             '<td class="max-w-xs"><div class="truncate" title="' + escapeHtml(webinar.x_name) + '">' + escapeHtml(webinar.x_name) + '</div></td>' +
             '<td class="whitespace-nowrap">' + (webinar.x_studio_date || '—') + '</td>' +
             '<td class="whitespace-nowrap">' + (webinar.x_studio_starting_time || '—') + '</td>' +
+            '<td class="text-center whitespace-nowrap"><span class="badge badge-neutral badge-sm">' + regCount + '</span></td>' +
             '<td><span class="badge ' + badge.css + ' badge-sm whitespace-nowrap">' + badge.label + '</span></td>' +
             '<td class="whitespace-nowrap">' + (wpId ? '<a href="https://openvme.be/wp-admin/post.php?post=' + wpId + '&action=edit" target="_blank" class="link link-primary text-sm">WP #' + wpId + '</a>' : '—') + '</td>' +
             '<td class="whitespace-nowrap">' + renderActions(webinar.id, state) + '</td>';
@@ -331,11 +350,48 @@ export function eventOperationsUI(user) {
         return d.innerHTML;
       }
 
+      // ── View Switching ──
+      function switchView(viewType) {
+        const tableContainer = document.getElementById('dataTable');
+        const cardsContainer = document.getElementById('cardsContainer');
+        const tableBtn = document.getElementById('viewBtnTable');
+        const cardsBtn = document.getElementById('viewBtnCards');
+        
+        if (viewType === 'table') {
+          tableContainer.classList.remove('hidden');
+          cardsContainer.classList.add('hidden');
+          tableBtn.classList.add('btn-active');
+          cardsBtn.classList.remove('btn-active');
+        } else {
+          tableContainer.classList.add('hidden');
+          cardsContainer.classList.remove('hidden');
+          tableBtn.classList.remove('btn-active');
+          cardsBtn.classList.add('btn-active');
+          
+          // Re-render cards with current data
+          if (typeof renderCardsView === 'function') {
+            renderCardsView(odooWebinars, snapshotMap, registrationCounts);
+          }
+        }
+        
+        localStorage.setItem('eventOpsViewMode', viewType);
+      }
+
+      function initView() {
+        const savedView = localStorage.getItem('eventOpsViewMode') || 'table';
+        if (savedView === 'cards') {
+          setTimeout(() => switchView('cards'), 100);
+        }
+      }
+
       // ── Init ──
       initTheme();
       loadData();
       lucide.createIcons();
     </script>
+    
+    <!-- External client-side UI module -->
+    <script src="/event-operations-client.js"></script>
 </body>
 </html>`;
 }
