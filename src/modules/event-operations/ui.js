@@ -475,9 +475,9 @@ export function eventOperationsUI(user) {
               '<i data-lucide="upload" class="w-3 h-3"></i> Publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
             '</div>' +
             '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'publish\')"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'draft\')"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'private\')"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;publish&apos;)"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;draft&apos;)"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;private&apos;)"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
             '</ul>' +
           '</div>';
         }
@@ -488,9 +488,9 @@ export function eventOperationsUI(user) {
               '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
             '</div>' +
             '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'publish\')"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'draft\')"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'private\')"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;publish&apos;)"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;draft&apos;)"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;private&apos;)"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
             '</ul>' +
           '</div>';
         }
@@ -501,9 +501,9 @@ export function eventOperationsUI(user) {
               '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
             '</div>' +
             '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'publish\')"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'draft\')"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
-              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'private\')"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;publish&apos;)"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;draft&apos;)"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;private&apos;)"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
             '</ul>' +
           '</div>';
         }
