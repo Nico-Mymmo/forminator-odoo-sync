@@ -16,9 +16,10 @@ import { stripHtmlTags } from './utils/text.js';
  * Convert Odoo x_webinar to WordPress Tribe Event payload
  * 
  * @param {Object} odooWebinar - x_webinar record
+ * @param {string} status - WordPress post status ('publish', 'draft', 'private')
  * @returns {Object} Tribe Events API payload
  */
-export function mapOdooToWordPress(odooWebinar) {
+export function mapOdooToWordPress(odooWebinar, status = 'publish') {
   const dateValue = odooWebinar[ODOO_FIELDS.DATE];
   const timeValue = odooWebinar[ODOO_FIELDS.START_TIME];
   
@@ -39,7 +40,7 @@ export function mapOdooToWordPress(odooWebinar) {
     start_date: formatLocalDateTime(startDateTime),
     end_date: formatLocalDateTime(endDateTime),
     description: stripHtmlTags(odooWebinar[ODOO_FIELDS.INFO] || '') || ' ',
-    status: 'publish',
+    status: status,
     timezone: TIMEZONE
   };
 }

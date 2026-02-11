@@ -102,17 +102,14 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
   actions.className = 'card-actions justify-end mt-4';
   
   if (state === 'not_published') {
-    const publishBtn = createActionButton('upload', 'Publish', 'btn-primary', () => {
-      if (typeof publishWebinar === 'function') publishWebinar(webinar.id, publishBtn);
-    });
-    actions.appendChild(publishBtn);
+    // Dropdown button with publish options
+    const dropdown = createPublishDropdown(webinar.id, 'Publish', 'btn-primary');
+    actions.appendChild(dropdown);
   } else {
-    // Show Re-publish button for published or out_of_sync states
+    // Dropdown button with re-publish options
     const buttonStyle = state === 'out_of_sync' ? 'btn-warning' : 'btn-primary';
-    const republishBtn = createActionButton('refresh-cw', 'Re-publish', buttonStyle, () => {
-      if (typeof publishWebinar === 'function') publishWebinar(webinar.id, republishBtn);
-    });
-    actions.appendChild(republishBtn);
+    const dropdown = createPublishDropdown(webinar.id, 'Re-publish', buttonStyle);
+    actions.appendChild(dropdown);
   }
   
   // Edit Description button (for published webinars)
@@ -175,6 +172,76 @@ function createActionButton(iconName, label, cssClass, onClick) {
   btn.appendChild(span);
   
   return btn;
+}
+
+// ── Helper: Create publish dropdown button ──
+function createPublishDropdown(webinarId, buttonLabel, buttonClass) {
+  const dropdown = document.createElement('div');
+  dropdown.className = 'dropdown dropdown-end';
+  
+  // Main button
+  const btn = document.createElement('div');
+  btn.className = 'btn btn-sm ' + buttonClass;
+  btn.setAttribute('tabindex', '0');
+  btn.setAttribute('role', 'button');
+  
+  const iconName = buttonLabel === 'Publish' ? 'upload' : 'refresh-cw';
+  const icon = document.createElement('i');
+  icon.setAttribute('data-lucide', iconName);
+  icon.className = 'w-4 h-4';
+  
+  const span = document.createElement('span');
+  span.textContent = buttonLabel;
+  
+  const chevron = document.createElement('i');
+  chevron.setAttribute('data-lucide', 'chevron-down');
+  chevron.className = 'w-3 h-3 ml-1';
+  
+  btn.appendChild(icon);
+  btn.appendChild(span);
+  btn.appendChild(chevron);
+  
+  // Dropdown menu
+  const menu = document.createElement('ul');
+  menu.className = 'dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36';
+  menu.setAttribute('tabindex', '0');
+  
+  // Create menu items
+  const options = [
+    { status: 'publish', icon: 'globe', label: 'Publish' },
+    { status: 'draft', icon: 'file-edit', label: 'Draft' },
+    { status: 'private', icon: 'lock', label: 'Private' }
+  ];
+  
+  options.forEach(opt => {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    
+    const optIcon = document.createElement('i');
+    optIcon.setAttribute('data-lucide', opt.icon);
+    optIcon.className = 'w-3 h-3';
+    
+    const optLabel = document.createElement('span');
+    optLabel.textContent = opt.label;
+    
+    a.appendChild(optIcon);
+    a.appendChild(optLabel);
+    
+    a.onclick = function() {
+      // Call publishWebinar with status
+      if (typeof publishWebinar === 'function') {
+        publishWebinar(webinarId, btn, opt.status);
+      }
+    };
+    
+    li.appendChild(a);
+    menu.appendChild(li);
+  });
+  
+  dropdown.appendChild(btn);
+  dropdown.appendChild(menu);
+  
+  return dropdown;
 }
 
 // ── Render cards view (main entry point) ──

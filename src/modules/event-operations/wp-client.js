@@ -150,8 +150,10 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
   
   const existingWpEventId = existingSnapshot?.wp_snapshot?.id;
   
-  // 3. Map to WordPress payload
-  const wpPayload = mapOdooToWordPress(odooWebinar);
+  // 3. Map to WordPress payload (with status)
+  const wpPayload = mapOdooToWordPress(odooWebinar, status);
+  
+  console.log(`${LOG_PREFIX} 📤 Publishing with status: ${status}`);
   
   // 3a. Add categories (Tribe V1 API expects comma-separated string of slugs)
   const odooTagIds = odooWebinar.x_studio_tag_ids || [];

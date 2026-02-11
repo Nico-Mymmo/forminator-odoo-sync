@@ -469,10 +469,43 @@ export function eventOperationsUI(user) {
       // ── Render action buttons ──
       function renderActions(webinarId, state) {
         if (state === 'not_published') {
-          return '<button class="btn btn-primary btn-xs whitespace-nowrap" onclick="publishWebinar(' + webinarId + ', this)"><i data-lucide="upload" class="w-3 h-3"></i> Publish</button>';
+          // Dropdown with Publish options
+          return '<div class="dropdown dropdown-end">' +
+            '<div tabindex="0" role="button" class="btn btn-primary btn-xs">' +
+              '<i data-lucide="upload" class="w-3 h-3"></i> Publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
+            '</div>' +
+            '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'publish\')"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'draft\')"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'private\')"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+            '</ul>' +
+          '</div>';
         }
         if (state === 'out_of_sync') {
-          return '<button class="btn btn-warning btn-xs whitespace-nowrap" onclick="publishWebinar(' + webinarId + ', this)"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish</button>';
+          // Dropdown for out of sync with Re-publish options
+          return '<div class="dropdown dropdown-end">' +
+            '<div tabindex="0" role="button" class="btn btn-warning btn-xs">' +
+              '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
+            '</div>' +
+            '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'publish\')"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'draft\')"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'private\')"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+            '</ul>' +
+          '</div>';
+        }
+        if (state === 'published') {
+          // Dropdown for published events to change status
+          return '<div class="dropdown dropdown-end">' +
+            '<div tabindex="0" role="button" class="btn btn-primary btn-xs">' +
+              '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
+            '</div>' +
+            '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'publish\')"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'draft\')"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, \'private\')"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+            '</ul>' +
+          '</div>';
         }
         return '<span class="text-base-content/40 text-xs">—</span>';
       }
@@ -501,7 +534,7 @@ export function eventOperationsUI(user) {
       }
 
       // ── Publish ──
-      async function publishWebinar(odooWebinarId, btn) {
+      async function publishWebinar(odooWebinarId, btn, status = 'publish') {
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>'; }
         
         try {
@@ -509,11 +542,12 @@ export function eventOperationsUI(user) {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ odoo_webinar_id: odooWebinarId })
+            body: JSON.stringify({ odoo_webinar_id: odooWebinarId, status: status })
           }).then(r => r.json());
 
           if (res.success) {
-            showToast('Published webinar ' + odooWebinarId + ' → WP #' + res.data.wp_event_id, 'success');
+            const statusLabel = status === 'draft' ? 'as Draft' : (status === 'private' ? 'as Private' : '');
+            showToast('Published webinar ' + odooWebinarId + ' ' + statusLabel + ' → WP #' + res.data.wp_event_id, 'success');
             await loadData(); // Refresh table
           } else {
             showToast('Publish failed: ' + res.error, 'error');

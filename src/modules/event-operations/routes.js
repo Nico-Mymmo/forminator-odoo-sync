@@ -172,7 +172,7 @@ export const routes = {
     
     try {
       const body = await request.json();
-      const { odoo_webinar_id } = body;
+      const { odoo_webinar_id, status = 'publish' } = body;
       
       if (!odoo_webinar_id) {
         return new Response(JSON.stringify({
@@ -184,9 +184,13 @@ export const routes = {
         });
       }
       
-      console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Publishing webinar ${odoo_webinar_id}...`);
+      // Validate status
+      const validStatuses = ['publish', 'draft', 'private'];
+      const wpStatus = validStatuses.includes(status) ? status : 'publish';
       
-      const result = await publishToWordPress(env, user.id, odoo_webinar_id);
+      console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Publishing webinar ${odoo_webinar_id} with status: ${wpStatus}...`);
+      
+      const result = await publishToWordPress(env, user.id, odoo_webinar_id, wpStatus);
       
       console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Published: WP event ${result.wp_event_id}`);
       
