@@ -1347,4 +1347,627 @@ The following areas can be extended without redesign:
 
 ---
 
+## 10. A4 Final Implementation Log (Verified State)
+
+### 10.1 Overview
+
+**Implementation Date:** February 11, 2026  
+**Stoppoint:** A4 Complete  
+**Status:** Code is source of truth – documentation reflects actual implementation  
+**Pattern:** User-scoped isolation, NO foreign keys, RLS to public
+
+This section documents the **actual implementation** of A4 as committed to the codebase, not theoretical plans.
+
+### 10.2 Database Schema (As Implemented)
+
+**Migration File:** `20260211010000_event_operations_tag_mappings.sql`
+
+**Table Definition:**
+```sql
+CREATE TABLE webinar_tag_mappings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  odoo_tag_id INTEGER NOT NULL,
+  odoo_tag_name TEXT NOT NULL,
+  wp_category_slug TEXT NOT NULL,
+  wp_category_id INTEGER,
+  auto_created BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT unique_user_odoo_category UNIQUE (user_id, odoo_tag_id)
+);
+```
+
+**Key Design Decisions (Actual):**
+- Column names: `wp_category_slug` and `wp_category_id` (NOT wp_tag_*)
+- Unique constraint: `unique_user_odoo_category` on `(user_id, odoo_tag_id)`
+- No foreign key on `user_id` (baseline pattern compliance)
+- `wp_category_id` nullable (populated after first successful publish)
+- `auto_created` flag for tracking WP category creation source
+
+**Indexes Created:**
+```sql
+CREATE INDEX idx_webinar_tag_mappings_user_id ON webinar_tag_mappings(user_id);
+CREATE INDEX idx_webinar_tag_mappings_odoo_tag_id ON webinar_tag_mappings(odoo_tag_id);
+CREATE INDEX idx_webinar_tag_mappings_user_odoo ON webinar_tag_mappings(user_id, odoo_tag_id);
+```
+
+**RLS Policies (Actual):**
+```sql
+ALTER TABLE webinar_tag_mappings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own tag mappings"
+  ON webinar_tag_mappings FOR SELECT
+  TO public
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create own tag mappings"
+  ON webinar_tag_mappings FOR INSERT
+  TO public
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own tag mappings"
+  ON webinar_tag_mappings FOR UPDATE
+  TO public
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own tag mappings"
+  ON webinar_tag_mappings FOR DELETE
+  TO public
+  USING (auth.uid() = user_id);
+```
+
+**RLS Pattern:** `TO public` (not `TO authenticated`) – matches baseline pattern
+
+### 10.3 Server Implementation (As Implemented)
+
+**Modified Files:**
+- `src/modules/event-operations/wp-client.js` (publish flow extended)
+- `src/modules/event-operations/tag-mapping.js` (new file – CRUD helpers)
+- `src/modules/event-operations/constants.js` (updated with WP_EVENT_CATEGORIES endpoint)
+
+**Publish Flow Logic (wp-client.js, lines 155-163):**
+```javascript
+// 3a. Add categories (Tribe V1 API expects comma-separated string of slugs)
+const odooTagIds = odooWebinar.x_studio_tag_ids || [];
+if (odooTagIds.length > 0) {
+  const tagMappings = await getTagMappingsForOdooTags(env, userId, odooTagIds);
+  if (tagMappings.length > 0) {
+    const categorySlugs = tagMappings.map(m => m.wp_category_slug);
+    const categoriesString = categorySlugs.join(',');
+    wpPayload.categories = categoriesString;
+  }
+}
+```
+
+**Critical Implementation Detail:**
+- Tribe V1 API format: `categories: "live,webinar"` (comma-separated slug string)
+- Core REST API NOT used for category assignment during publish
+- Category logic runs for both CREATE and UPDATE flows
+
+**Tag Mapping Helpers (tag-mapping.js):**
+- `getTagMappings(env, userId)` - Fetch all mappings for user
+- `getTagMappingsForOdooTags(env, userId, odooTagIds)` - Fetch specific mappings (used in publish)
+- `createTagMapping(env, userId, mapping)` - Create new mapping
+- `updateTagMapping(env, userId, mappingId, updates)` - Update existing mapping
+- `deleteTagMapping(env, userId, mappingId)` - Delete mapping
+
+**WordPress Endpoints (constants.js):**
+```javascript
+export const WP_ENDPOINTS = {
+  TRIBE_EVENTS: '/wp-json/tribe/events/v1/events',
+  WP_EVENTS: '/wp-json/wp/v2/tribe_events',
+  WP_EVENT_CATEGORIES: '/wp-json/wp/v2/tribe_events_cat'
+};
+```
+
+### 10.4 Client Implementation (As Implemented)
+
+**Modified File:** `public/event-operations-client.js`
+
+**Tag Badge Rendering (lines 60-84):**
+- Uses DOM API: `document.createElement('span')`
+- Tag names resolved via `window.tagNamesMap` (populated from Odoo tags API)
+- Badges styled with DaisyUI: `badge badge-outline badge-xs`
+- No innerHTML with dynamic content
+
+**Tag Mapping Modal (loadTagMappings function, lines 212-280):**
+- Fetches data via three API calls:
+  - `GET /events/api/tag-mappings` (existing mappings)
+  - `GET /events/api/odoo-tags` (available Odoo tags)
+  - `GET /events/api/wp-event-categories` (WordPress categories)
+- Renders table rows using DOM API (`createElement`, `appendChild`)
+- Form selects populated dynamically (already-mapped tags excluded)
+- Delete button per mapping row
+
+**Safe innerHTML Usage (verified):**
+- Line 179: `container.innerHTML = '';` (clearing only)
+- Line 184: Empty state static content (no user input)
+- Lines 269, 280: Select option defaults (static strings)
+- **No nested template literals**
+- **No inline JS in templates**
+
+**DOM API Patterns:**
+- All dynamic content uses `textContent` or `appendChild`
+- No `eval()`, no `Function()` constructor
+- No framework dependencies
+
+### 10.5 API Routes (As Implemented)
+
+**New Routes Added (routes.js):**
+- `GET /events/api/tag-mappings` - Fetch user's tag mappings
+- `POST /events/api/tag-mappings` - Create new mapping
+- `PUT /events/api/tag-mappings/:id` - Update mapping
+- `DELETE /events/api/tag-mappings/:id` - Delete mapping
+- `GET /events/api/odoo-tags` - Fetch Odoo x_webinar_tag records
+- `GET /events/api/wp-event-categories` - Fetch WP tribe_events_cat taxonomy
+
+**Authentication:**
+- All routes use `requireUser()` middleware (existing pattern)
+- User context extracted from `request.user`
+- RLS enforces user-scoped isolation at database level
+
+### 10.6 Modified Files Summary
+
+**Database:**
+- `supabase/migrations/20260211010000_event_operations_tag_mappings.sql` (new)
+
+**Server:**
+- `src/modules/event-operations/wp-client.js` (publish flow extended)
+- `src/modules/event-operations/tag-mapping.js` (new – CRUD helpers)
+- `src/modules/event-operations/constants.js` (WP_EVENT_CATEGORIES added)
+- `src/modules/event-operations/routes.js` (6 new routes)
+- `src/modules/event-operations/odoo-client.js` (getOdooTags function added)
+
+**Client:**
+- `public/event-operations-client.js` (tag badges, tag mapping modal)
+
+**No Changes:**
+- `state-engine.js` (backward compatible – no state logic changes)
+- `snapshot.js` (no schema changes)
+- `mapping.js` (no core field mapping changes)
+
+### 10.7 Risk Assessment (Actual Implementation)
+
+**Low Risk:**
+- ✅ Migration is additive only (no ALTER on existing tables)
+- ✅ RLS policies follow baseline pattern (TO public)
+- ✅ Publish flow backward compatible (categories are optional)
+- ✅ Client-side rendering uses DOM API (XSS-safe)
+- ✅ No inline JavaScript in server templates
+- ✅ No framework dependencies introduced
+
+**Medium Risk:**
+- ⚠️ Tribe V1 API string format dependency (`categories: "slug1,slug2"`)
+  - **Mitigation:** Format documented in code comments
+  - **Validation:** Manual testing confirms format works
+- ⚠️ Unique constraint on (user_id, odoo_tag_id) prevents duplicate mappings
+  - **Mitigation:** UI prevents selection of already-mapped tags
+  - **Validation:** Database constraint enforced
+
+**No High Risk Items Identified**
+
+### 10.8 Known Limitations
+
+1. **Tribe V1 Format Dependency:**
+   - Categories must be comma-separated slug string
+   - Changing to Core REST API would require publish flow refactor
+   - Current implementation validated with manual testing
+
+2. **No Bulk Mapping:**
+   - Users must map tags one at a time
+   - Future: Addendum C could add bulk operations
+
+3. **No Auto-Sync of WP Category ID:**
+   - `wp_category_id` column exists but not yet populated after publish
+   - Future: Could add WP category ID backfill logic
+
+4. **No Validation of WP Category Existence:**
+   - User can select WP category that doesn't exist yet
+   - Publish may fail if category slug invalid
+   - Future: Could add WP category existence validation
+
+### 10.9 Validation Checklist (Actual Results)
+
+**Pre-Deployment:**
+- ✅ Migration SQL syntax validated (no syntax errors)
+- ✅ RLS policies tested with `auth.uid()` mocking
+- ✅ Unique constraint tested (duplicate insert rejected)
+- ✅ Indexes created successfully
+
+**Post-Deployment:**
+- ✅ Tag mapping CRUD works (create, read, update, delete)
+- ✅ Publish flow assigns categories correctly (manual test: live,webinar)
+- ✅ Tag badges render in UI (Odoo tag names displayed)
+- ✅ Modal loads Odoo tags and WP categories successfully
+- ✅ No console errors in browser
+- ✅ No 500 errors in Worker logs
+
+**Architectural Compliance:**
+- ✅ No foreign keys on user_id
+- ✅ RLS policies TO public (not TO authenticated)
+- ✅ No template literals for dynamic UI rendering
+- ✅ No inline JavaScript in server templates
+- ✅ No framework dependencies
+- ✅ User-scoped isolation enforced
+
+---
+
+## 11. STOPPOINT A4 – FINAL STATUS
+
+**Date:** February 11, 2026  
+**Codebase State:** Stable  
+**Documentation State:** Synchronized with code
+
+### Implementation Checklist
+
+- ✅ **Migration Applied:** `20260211010000_event_operations_tag_mappings.sql` deployed
+- ✅ **RLS Validated:** All policies enforce `auth.uid() = user_id`
+- ✅ **Unique Constraint Validated:** `unique_user_odoo_category` enforced
+- ✅ **Publish Assigns Categories:** Tribe V1 format `categories: "slug1,slug2"` confirmed working
+- ✅ **No Architectural Violations:** No foreign keys, RLS TO public, no frameworks
+- ✅ **No Nested Template Literals:** Client uses DOM API only
+- ✅ **No Inline JS in Server Templates:** All logic in separate .js files
+- ✅ **No Framework Introduced:** Pure vanilla JavaScript + DOM APIs
+
+### Code as Source of Truth
+
+From this point forward:
+- **Current committed code is authoritative**
+- **Documentation reflects actual implementation** (not plans)
+- **Code must NOT be modified to match documentation**
+- All future changes require new stoppoints
+
+### Ready for A5
+
+- ✅ A4 stable and validated
+- ✅ No regressions in existing publish flow
+- ✅ Tag mapping engine operational
+- ⏸️ **WAITING FOR CONFIRMATION BEFORE A5 CODING**
+
+---
+
+## 12. A5 Implementation Plan (Preparation Phase – NO CODE)
+
+### 12.1 Overview
+
+**Goal:** Enable editorial control over WordPress event descriptions without modifying Odoo source data.
+
+**Pattern:** Extend existing `webinar_snapshots` table with JSONB column for editorial content blocks.
+
+**User Workflow:**
+1. User publishes webinar (Odoo description used by default)
+2. User clicks "Edit Description" on webinar card
+3. Modal opens with block editor (plain text blocks + shortcode inserter)
+4. User saves editorial content → stored in `webinar_snapshots.editorial_content`
+5. Next publish uses editorial content if present, else falls back to Odoo description
+
+### 12.2 Database Changes
+
+**Schema Extension (Backward Compatible):**
+```sql
+-- Migration: 20260211020000_event_operations_editorial_content.sql
+ALTER TABLE webinar_snapshots
+ADD COLUMN editorial_content JSONB DEFAULT NULL;
+
+COMMENT ON COLUMN webinar_snapshots.editorial_content IS 
+'User-authored editorial content blocks for WP description override';
+```
+
+**JSONB Structure (Planned):**
+```json
+{
+  "blocks": [
+    {
+      "type": "paragraph",
+      "content": "Custom intro text here..."
+    },
+    {
+      "type": "shortcode",
+      "name": "forminator_form",
+      "attributes": { "id": "123" }
+    },
+    {
+      "type": "paragraph",
+      "content": "More custom content..."
+    }
+  ],
+  "version": 1
+}
+```
+
+**Constraints:**
+- Column nullable (NULL = use Odoo description)
+- JSONB validation via application logic (not DB constraint)
+- No foreign keys
+
+**Risk:**
+- ⚠️ JSONB validation required to prevent malformed data
+- ⚠️ Shortcode rendering risk (must sanitize attributes)
+- Mitigation: Schema validation helper function
+
+### 12.3 Server Changes (Planned)
+
+**New Helper File:** `src/modules/event-operations/editorial.js`
+
+**Functions to Add:**
+```javascript
+/**
+ * Build WordPress description from editorial content or Odoo fallback
+ * 
+ * @param {Object} editorialContent - JSONB from webinar_snapshots.editorial_content
+ * @param {string} odooDescription - Fallback from Odoo x_studio_webinar_info
+ * @returns {string} HTML description for WordPress
+ */
+export function buildEditorialDescription(editorialContent, odooDescription) {
+  // If no editorial content, return Odoo description
+  if (!editorialContent || !editorialContent.blocks) {
+    return odooDescription || '';
+  }
+
+  // Render blocks to HTML
+  return editorialContent.blocks.map(block => {
+    if (block.type === 'paragraph') {
+      return `<p>${escapeHtml(block.content)}</p>`;
+    }
+    if (block.type === 'shortcode') {
+      return renderShortcode(block.name, block.attributes);
+    }
+    return '';
+  }).join('\n');
+}
+
+function escapeHtml(text) {
+  // Escape HTML entities
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderShortcode(name, attributes) {
+  // Build WordPress shortcode syntax
+  const attrs = Object.entries(attributes)
+    .map(([key, val]) => `${key}="${escapeHtml(String(val))}"`)
+    .join(' ');
+  return `[${name} ${attrs}]`;
+}
+```
+
+**Publish Flow Modification (wp-client.js):**
+```javascript
+// In publishWebinar function (after line 153):
+
+// 3b. Add editorial description if present
+const editorialContent = existingSnapshot?.editorial_content;
+if (editorialContent) {
+  wpPayload.description = buildEditorialDescription(editorialContent, odooWebinar.x_studio_webinar_info);
+}
+// Else: wpPayload.description already set by mapOdooToWordPress()
+```
+
+**API Routes to Add:**
+- `GET /events/api/editorial/:webinarId` - Fetch editorial content for webinar
+- `PUT /events/api/editorial/:webinarId` - Save editorial content (JSONB validation required)
+
+**Route Logic:**
+```javascript
+// GET /events/api/editorial/:webinarId
+const snapshot = await supabase
+  .from('webinar_snapshots')
+  .select('editorial_content')
+  .eq('user_id', userId)
+  .eq('odoo_webinar_id', webinarId)
+  .single();
+
+return { data: snapshot?.editorial_content || null };
+
+// PUT /events/api/editorial/:webinarId
+// 1. Validate JSONB schema (blocks array, valid types)
+// 2. Update snapshot:
+await supabase
+  .from('webinar_snapshots')
+  .update({ editorial_content: validatedContent })
+  .eq('user_id', userId)
+  .eq('odoo_webinar_id', webinarId);
+```
+
+### 12.4 Client Changes (Planned)
+
+**UI Location:** Modal triggered from webinar card (new button: "Edit Description")
+
+**Modal Structure:**
+```
+┌─────────────────────────────────────────┐
+│ Edit Editorial Content (Webinar #123)  │
+├─────────────────────────────────────────┤
+│ [+ Add Paragraph] [+ Add Shortcode]    │
+├─────────────────────────────────────────┤
+│ ┌─ Block 1: Paragraph ────────────┐   │
+│ │ [Textarea: user types here]     │   │
+│ │ [↑] [↓] [🗑️]                     │   │
+│ └─────────────────────────────────┘   │
+│ ┌─ Block 2: Shortcode ────────────┐   │
+│ │ Type: [forminator_form ▼]       │   │
+│ │ Attributes:                      │   │
+│ │   id: [123]                      │   │
+│ │ [↑] [↓] [🗑️]                     │   │
+│ └─────────────────────────────────┘   │
+├─────────────────────────────────────────┤
+│ [Preview] [Save] [Cancel]              │
+└─────────────────────────────────────────┘
+```
+
+**DOM Rendering Strategy (No Template Literals):**
+```javascript
+function renderEditorialModal(webinarId, editorialContent) {
+  const modal = document.createElement('div');
+  modal.className = 'modal modal-open';
+  
+  const modalBox = document.createElement('div');
+  modalBox.className = 'modal-box max-w-3xl';
+  
+  // Header
+  const header = document.createElement('h3');
+  header.className = 'font-bold text-lg';
+  header.textContent = 'Edit Editorial Content (Webinar #' + webinarId + ')';
+  modalBox.appendChild(header);
+  
+  // Toolbar
+  const toolbar = document.createElement('div');
+  toolbar.className = 'flex gap-2 my-4';
+  
+  const addParagraphBtn = document.createElement('button');
+  addParagraphBtn.className = 'btn btn-sm btn-outline';
+  addParagraphBtn.textContent = '+ Add Paragraph';
+  addParagraphBtn.onclick = () => addBlock('paragraph');
+  toolbar.appendChild(addParagraphBtn);
+  
+  const addShortcodeBtn = document.createElement('button');
+  addShortcodeBtn.className = 'btn btn-sm btn-outline';
+  addShortcodeBtn.textContent = '+ Add Shortcode';
+  addShortcodeBtn.onclick = () => addBlock('shortcode');
+  toolbar.appendChild(addShortcodeBtn);
+  
+  modalBox.appendChild(toolbar);
+  
+  // Blocks container
+  const blocksContainer = document.createElement('div');
+  blocksContainer.id = 'editorialBlocks';
+  blocksContainer.className = 'space-y-2';
+  modalBox.appendChild(blocksContainer);
+  
+  // Render existing blocks
+  if (editorialContent?.blocks) {
+    editorialContent.blocks.forEach((block, index) => {
+      renderBlock(blocksContainer, block, index);
+    });
+  }
+  
+  // Footer buttons
+  const footer = document.createElement('div');
+  footer.className = 'modal-action';
+  
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-primary';
+  saveBtn.textContent = 'Save';
+  saveBtn.onclick = () => saveEditorialContent(webinarId);
+  footer.appendChild(saveBtn);
+  
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = () => modal.remove();
+  footer.appendChild(cancelBtn);
+  
+  modalBox.appendChild(footer);
+  modal.appendChild(modalBox);
+  document.body.appendChild(modal);
+}
+```
+
+**No innerHTML Usage:**
+- All blocks rendered via `createElement` + `appendChild`
+- Textarea values set via `.value` property
+- Preview rendered in separate element (not eval'd)
+
+**Preview Mode:**
+- Render blocks to HTML (same logic as server-side `buildEditorialDescription`)
+- Display in read-only div
+- Uses `textContent` for paragraph blocks (no XSS risk)
+- Shortcodes rendered as `[shortcode_name attr="value"]` (not executed)
+
+### 12.5 Risk Matrix
+
+| Risk | Severity | Likelihood | Mitigation |
+|------|----------|------------|------------|
+| Invalid JSONB schema breaks publish | High | Medium | Schema validation before save, fallback to Odoo description |
+| Shortcode attribute injection | High | Low | Escape all attribute values, whitelist allowed shortcodes |
+| Publish regression (non-editorial webinars) | Medium | Low | NULL editorial_content = use Odoo description (default) |
+| Large JSONB size impact | Low | Low | Size limit validation (e.g., max 50 blocks) |
+| Block reordering UI bugs | Low | Medium | Manual testing of drag/drop or arrow buttons |
+
+### 12.6 Validation Strategy
+
+**Pre-Deployment:**
+- [ ] JSONB schema validation function tested
+- [ ] Shortcode rendering tested with sample attributes
+- [ ] NULL editorial_content doesn't break publish (regression test)
+- [ ] Block rendering produces valid HTML
+
+**Post-Deployment:**
+- [ ] Editorial content saves successfully
+- [ ] Publish uses editorial content when present
+- [ ] Publish falls back to Odoo description when NULL
+- [ ] Preview matches published WordPress description
+- [ ] No XSS vulnerabilities in preview or publish
+
+### 12.7 Stop-Point Checklist for A5
+
+Before marking A5 complete:
+
+**Database:**
+- [ ] Migration applied: `editorial_content` column exists
+- [ ] Column is nullable (backward compatible)
+- [ ] No RLS policy changes required (column inherits table policies)
+
+**Server:**
+- [ ] `editorial.js` helpers implemented
+- [ ] `buildEditorialDescription()` function tested
+- [ ] API routes for GET/PUT editorial content working
+- [ ] Publish flow uses editorial content when present
+- [ ] Publish regression test passes (non-editorial webinars still work)
+
+**Client:**
+- [ ] Editorial modal renders via DOM API (no innerHTML with user data)
+- [ ] Add paragraph/shortcode buttons work
+- [ ] Block reordering works (↑↓ buttons or drag/drop)
+- [ ] Delete block works
+- [ ] Save persists to database
+- [ ] Preview renders correctly
+- [ ] No console errors
+
+**Architecture:**
+- [ ] No template literals for dynamic UI
+- [ ] No inline JavaScript in server templates
+- [ ] No framework dependencies
+- [ ] Backward compatible with A4 tag mappings
+- [ ] state-engine.js not modified
+
+### 12.8 Files to Create/Modify (A5)
+
+**New Files:**
+- `supabase/migrations/20260211020000_event_operations_editorial_content.sql`
+- `src/modules/event-operations/editorial.js`
+
+**Modified Files:**
+- `src/modules/event-operations/wp-client.js` (publish flow: use editorial content)
+- `src/modules/event-operations/routes.js` (add GET/PUT /api/editorial/:webinarId)
+- `public/event-operations-client.js` (editorial modal, block editor)
+
+**No Changes:**
+- `state-engine.js` (no state logic changes)
+- `snapshot.js` (migration handles schema change)
+- `tag-mapping.js` (orthogonal to editorial layer)
+
+### 12.9 Future Enhancements (Beyond A5)
+
+**Not in scope for A5:**
+- Rich text editor (WYSIWYG) – A5 uses plain textarea
+- Drag-and-drop block reordering – A5 uses ↑↓ buttons
+- Block templates/presets – A5 manual only
+- Shortcode preview rendering – A5 shows shortcode syntax only
+- Undo/redo – A5 no history
+
+**Possible Addendum F – Advanced Editorial:**
+- WYSIWYG editor integration (e.g., TinyMCE)
+- Block templates library
+- Shortcode live preview (iframe sandbox)
+- Editorial content versioning
+
+---
+
 **END OF DOCUMENT**

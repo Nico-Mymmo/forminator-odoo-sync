@@ -14,7 +14,7 @@
 | A1 | 2026-02-11 | `9632172` | ✅ | Theme toggle ontbraken, table width issues | ~45 min |
 | A2 | 2026-02-11 | `cd9442e` | ✅ | switchView scope, STATUS_BADGES duplicate, cards niet zichtbaar | ~90 min |
 | A3 | 2026-02-11 | `32688f0` | ✅ | Tab filtering bugs, shortcode false positives, duplicate WP events | ~180 min |
-| A4 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~6h |
+| A4 | 2026-02-11 | VERIFIED | ✅ | Tag mapping working, Tribe V1 format dependency | ~4h |
 | A5 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~5h |
 
 ---
@@ -638,15 +638,143 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
 ## Phase A4 – Tag Mapping Engine
 
 ### Metadata
-| Status | ⬜ Not Started |
+| Veld | Waarde |
+|------|--------|
+| Date | 2026-02-11 |
+| Branch | events-operations |
+| Status | ✅ COMPLETE (Source of Truth Verified) |
 
-### Planned Scope
+### Files Changed
 
-- New table: `webinar_tag_mappings`
-- Odoo x_studio_tag_ids → WordPress event tags mapping
-- Tag mapping UI (matrix view)
-- Auto-create WP tags option
-- Extended publish flow with tags
+| File | Action | Lines Changed |
+|------|--------|---------------|
+| supabase/migrations/20260211010000_event_operations_tag_mappings.sql | CREATE | +68 |
+| src/modules/event-operations/tag-mapping.js | CREATE | +139 |
+| src/modules/event-operations/wp-client.js | MODIFY | +9 |
+| src/modules/event-operations/odoo-client.js | MODIFY | +18 |
+| src/modules/event-operations/constants.js | MODIFY | +3 |
+| src/modules/event-operations/routes.js | MODIFY | +120 (6 new routes) |
+| public/event-operations-client.js | MODIFY | +140 (tag modal + rendering) |
+
+### Issues Encountered
+
+| # | Issue | Severity | Root Cause | Resolution |
+|---|-------|----------|------------|------------|
+| 1 | Tribe V1 API category format unclear | High | Documentation gap - category format not specified | Verified via manual testing: comma-separated slug string `"live,webinar"` |
+| 2 | Column naming ambiguity (tag vs category) | Medium | WordPress uses "Event Categories" taxonomy, not "tags" | Named columns `wp_category_slug` and `wp_category_id` for clarity |
+| 3 | Tag name resolution in UI | Medium | Odoo tag IDs shown but names needed | Added `window.tagNamesMap` populated from `/api/odoo-tags` |
+| 4 | Safe innerHTML vs DOM API boundary | Medium | Some innerHTML needed for clearing/static content | Documented safe usage: only for container clearing and static options |
+| 5 | RLS policy pattern consistency | Low | Must match baseline (TO public, not TO authenticated) | Verified all policies use `TO public` |
+
+### Implementation Details (Verified from Code)
+
+**Database Schema (Actual):**
+```sql
+CREATE TABLE webinar_tag_mappings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  odoo_tag_id INTEGER NOT NULL,
+  odoo_tag_name TEXT NOT NULL,
+  wp_category_slug TEXT NOT NULL,
+  wp_category_id INTEGER,
+  auto_created BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT unique_user_odoo_category UNIQUE (user_id, odoo_tag_id)
+);
+
+-- RLS Policies (TO public pattern)
+CREATE POLICY "Users can view own tag mappings"
+  ON webinar_tag_mappings FOR SELECT TO public
+  USING (auth.uid() = user_id);
+-- (+ INSERT, UPDATE, DELETE policies with same pattern)
+```
+
+**Publish Flow Extension (wp-client.js lines 155-163):**
+```javascript
+// 3a. Add categories (Tribe V1 API expects comma-separated string of slugs)
+const odooTagIds = odooWebinar.x_studio_tag_ids || [];
+if (odooTagIds.length > 0) {
+  const tagMappings = await getTagMappingsForOdooTags(env, userId, odooTagIds);
+  if (tagMappings.length > 0) {
+    const categorySlugs = tagMappings.map(m => m.wp_category_slug);
+    const categoriesString = categorySlugs.join(',');
+    wpPayload.categories = categoriesString;
+  }
+}
+```
+
+**Tag Badge Rendering (event-operations-client.js lines 73-78):**
+```javascript
+webinar.x_studio_tag_ids.forEach(tagId => {
+  const badge = document.createElement('span');
+  badge.className = 'badge badge-outline badge-xs';
+  const tagName = (window.tagNamesMap && window.tagNamesMap.get(tagId)) || 'Tag #' + tagId;
+  badge.textContent = tagName;
+  valueSpan.appendChild(badge);
+});
+```
+
+**Tag Mapping Modal (loadTagMappings function):**
+- Fetches 3 endpoints in parallel: `/api/tag-mappings`, `/api/odoo-tags`, `/api/wp-event-categories`
+- Renders table rows with DOM API (createElement + appendChild)
+- Form selects exclude already-mapped tags
+- Delete button per row
+
+### Test Results
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Migration applies successfully | ✅ | Table created with correct schema |
+| Unique constraint enforced | ✅ | Duplicate (user_id, odoo_tag_id) rejected |
+| RLS policies work | ✅ | Users see only own mappings |
+| Tag mapping CRUD (create) | ✅ | POST /api/tag-mappings works |
+| Tag mapping CRUD (read) | ✅ | GET /api/tag-mappings returns user data |
+| Tag mapping CRUD (delete) | ✅ | DELETE /api/tag-mappings/:id works |
+| Odoo tags API | ✅ | GET /api/odoo-tags returns x_webinar_tag records |
+| WP categories API | ✅ | GET /api/wp-event-categories returns tribe_events_cat |
+| Publish assigns categories | ✅ | Verified: categories: "live,webinar" format works |
+| Tag badges render in UI | ✅ | Odoo tag names displayed correctly |
+| Modal loads without errors | ✅ | No console errors, data populates |
+| No architectural violations | ✅ | No foreign keys, RLS TO public, no frameworks |
+| No XSS vulnerabilities | ✅ | All dynamic content via textContent or createElement |
+
+### Afwijkingen van ADDENDUM_A.md Initiële Scope
+
+| # | Originele Planning | Werkelijkheid | Aanpassing |
+|---|-------------------|---------------|------------|
+| 1 | Auto-create WP tags option | Not implemented in A4 | Deferred to future addendum (requires WP category creation API) |
+| 2 | Tag mapping "matrix view" | Implemented as table view with form | Simpler UX, same functionality |
+| 3 | wp_category_id population | Column exists but not auto-populated | Manual testing sufficient for A4, auto-fill deferred |
+
+### Known Limitations (Documented)
+
+| # | Limitation | Severity | Mitigation |
+|---|------------|----------|------------|
+| 1 | Tribe V1 format dependency (`categories: "slug1,slug2"`) | Medium | Documented in code comments, manual testing confirms format |
+| 2 | No bulk tag mapping | Low | Users map tags one at a time (future: Addendum C) |
+| 3 | No WP category existence validation | Low | User can select non-existent category → publish may fail |
+| 4 | wp_category_id not auto-populated after publish | Low | Column exists for future enhancement |
+
+### Architectural Compliance Checklist
+
+- ✅ No foreign keys on user_id (baseline pattern)
+- ✅ RLS policies TO public (not TO authenticated)
+- ✅ User-scoped isolation via auth.uid() = user_id
+- ✅ No template literals for dynamic UI
+- ✅ No inline JavaScript in server templates
+- ✅ No framework dependencies
+- ✅ DOM API only for client rendering
+- ✅ Backward compatible with A3 (no breaking changes)
+- ✅ state-engine.js not modified
+
+### Scope Corrections
+
+| # | Change | Reason |
+|---|--------|--------|
+| 1 | Column names: wp_category_* instead of wp_tag_* | WordPress uses "Event Categories" taxonomy (tribe_events_cat), not tags |
+| 2 | Deferred auto-create WP categories | Requires additional WP REST API endpoint research, not critical for A4 |
+| 3 | Table view instead of matrix view | Simpler implementation, same user goals achieved |
 
 ---
 
@@ -674,6 +802,9 @@ Accumulated afwijkingen van initiële ADDENDUM_A_EVENT_OPERATIONS.md scope:
 | 1 | A1: alleen layout fix | A1: layout + theme infrastructure + table width fixes | A1 |
 | 2 | A2: replace table met cards | A2: dual view (table AND cards) | A2 |
 | 3 | A3: alleen client-side filtering | A3: filtering + shortcode stripping + publish update fix | A3 |
+| 4 | A4: auto-create WP tags | A4: deferred auto-create, manual mapping only | A4 |
+| 5 | A4: matrix view for tag mapping | A4: table view with form | A4 |
+| 6 | A4: auto-populate wp_category_id | A4: column exists, population deferred | A4 |
 
 **Reden voor wijzigingen:**
 - **A1 scope creep:** User feedback tijdens test → table width issues moesten opgelost worden voordat A2 zou starten
@@ -682,12 +813,43 @@ Accumulated afwijkingen van initiële ADDENDUM_A_EVENT_OPERATIONS.md scope:
   - False positive discrepancies door WordPress shortcode escaping
   - Duplicate WordPress events door ontbrekende UPDATE logic
   - UI/UX improvements (discrepancy section positioning)
+- **A4 scope reduction:** Rational prioritization:
+  - Auto-create WP categories requires additional API research (deferred to future addendum)
+  - Table view simpler than matrix view, achieves same user goals
+  - wp_category_id auto-population not critical for A4 validation
 
 ---
 
-**Document Status:** 🔄 Active (A1-A3 compleet, A4-A5 pending)  
+**Document Status:** 🔄 Active (A1-A4 compleet, A5 pending)  
 **Totaal issues A1:** 6  
 **Totaal issues A2:** 4  
 **Totaal issues A3:** 6  
-**Totaal corrections:** 3  
-**Huidige fase:** A3 compleet → ready for A4 (Tag Mapping Engine)
+**Totaal issues A4:** 5  
+**Totaal corrections:** 6  
+**Huidige fase:** A4 compleet → STOPPOINT → ready for A5 (Editorial Content Layer)
+
+---
+
+## STOPPOINT A4 – CODE IS SOURCE OF TRUTH
+
+**Date:** 2026-02-11  
+**Status:** ✅ VERIFIED
+
+From this point forward:
+- Current committed code is authoritative
+- Documentation reflects actual implementation (not theoretical plans)
+- Code must NOT be modified to match documentation
+- All future changes require new stoppoints
+
+**A4 Validation Complete:**
+- ✅ Database schema verified from migration file
+- ✅ Server logic verified from actual wp-client.js
+- ✅ Client rendering verified from event-operations-client.js
+- ✅ RLS policies verified (TO public pattern)
+- ✅ No architectural violations
+- ✅ Backward compatible with A3
+
+**Ready for A5 Preparation Phase:**
+- ⏸️ **WAITING FOR CONFIRMATION BEFORE A5 CODING**
+- 📋 A5 implementation plan documented in ADDENDUM_A_EVENT_OPERATIONS.md Section 12
+- 🎯 Next: Editorial content layer (JSONB, block editor, shortcode support)
