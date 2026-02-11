@@ -69,10 +69,15 @@ export async function getWordPressEventsWithMeta(env) {
 }
 
 /**
- * Publish Odoo webinar to WordPress (two-step flow)
+ * Publish Odoo webinar to WordPress (two-step flow with update support)
  * 
- * Step 1: POST Tribe Events endpoint → creates event
- * Step 2: POST Core endpoint → adds meta (odoo_webinar_id)
+ * First checks if a snapshot exists:
+ * - If yes → UPDATE existing WordPress event
+ * - If no → CREATE new WordPress event
+ * 
+ * Step 1: Check Supabase for existing snapshot
+ * Step 2a: POST/PUT to Tribe Events endpoint (create/update event)
+ * Step 2b: POST meta to Core endpoint (add odoo_webinar_id)
  * Step 3: Save snapshot to Supabase
  * 
  * @param {Object} env - Cloudflare env
@@ -85,40 +90,84 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
   console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Fetching Odoo webinar ${odooWebinarId}...`);
   const odooWebinar = await getOdooWebinar(env, odooWebinarId);
   
-  // 2. Map to WordPress payload
+  // 2. Check if snapshot exists (to determine create vs update)
+  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Checking for existing snapshot...`);
+  const supabase = await getSupabaseAdminClient(env);
+  
+  const { data: existingSnapshot } = await supabase
+    .from('webinar_snapshots')
+    .select('wp_snapshot')
+    .eq('user_id', userId)
+    .eq('odoo_webinar_id', odooWebinarId)
+    .single();
+  
+  const existingWpEventId = existingSnapshot?.wp_snapshot?.id;
+  
+  // 3. Map to WordPress payload
   const wpPayload = mapOdooToWordPress(odooWebinar);
   console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Mapped payload:`, JSON.stringify(wpPayload));
   
-  // 3. Step 1: POST to Tribe Events endpoint
-  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Step 1: Creating Tribe event...`);
-  const tribeResponse = await fetch(
-    `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': wpAuthHeader(env),
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(wpPayload)
+  let wpEventId;
+  
+  if (existingWpEventId) {
+    // UPDATE existing WordPress event
+    console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Updating existing WP event ${existingWpEventId}...`);
+    
+    const updateResponse = await fetch(
+      `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}/${existingWpEventId}`,
+      {
+        method: 'POST', // WordPress REST API uses POST for updates too
+        headers: {
+          'Authorization': wpAuthHeader(env),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(wpPayload)
+      }
+    );
+    
+    if (!updateResponse.ok) {
+      const errorBody = await updateResponse.text();
+      throw new Error(`Tribe API update error ${updateResponse.status}: ${errorBody}`);
     }
-  );
-  
-  if (!tribeResponse.ok) {
-    const errorBody = await tribeResponse.text();
-    throw new Error(`Tribe API error ${tribeResponse.status}: ${errorBody}`);
+    
+    const updateData = await updateResponse.json();
+    wpEventId = updateData.id;
+    
+    console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} WP event ${wpEventId} updated`);
+    
+  } else {
+    // CREATE new WordPress event
+    console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Creating new Tribe event...`);
+    
+    const createResponse = await fetch(
+      `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': wpAuthHeader(env),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(wpPayload)
+      }
+    );
+    
+    if (!createResponse.ok) {
+      const errorBody = await createResponse.text();
+      throw new Error(`Tribe API create error ${createResponse.status}: ${errorBody}`);
+    }
+    
+    const createData = await createResponse.json();
+    wpEventId = createData.id;
+    
+    if (!wpEventId) {
+      throw new Error('Tribe API returned no event ID');
+    }
+    
+    console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Tribe event created: ID ${wpEventId}`);
   }
   
-  const tribeData = await tribeResponse.json();
-  const wpEventId = tribeData.id;
-  
-  if (!wpEventId) {
-    throw new Error('Tribe API returned no event ID');
-  }
-  
-  console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Tribe event created: ID ${wpEventId}`);
-  
-  // 4. Step 2: POST meta to Core endpoint
-  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Step 2: Setting meta on WP event ${wpEventId}...`);
+  // 4. Set meta on WP event (always do this to ensure meta is correct)
+  console.log(`${LOG_PREFIX} ${EMOJI.PUBLISH} Setting meta on WP event ${wpEventId}...`);
   const metaResponse = await fetch(
     `${env.WORDPRESS_URL}${WP_ENDPOINTS.WP_EVENTS}/${wpEventId}`,
     {
@@ -138,7 +187,7 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
   if (!metaResponse.ok) {
     const errorBody = await metaResponse.text();
     console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Meta update failed: ${errorBody}`);
-    // Don't throw — event was created, meta is best-effort
+    // Don't throw — event was created/updated, meta is best-effort
   } else {
     console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Meta set on WP event ${wpEventId}`);
   }

@@ -44,3 +44,16 @@ export function normalizeString(str) {
     .replace(/\u2013|\u2014/g, '-')  // en/em dash → hyphen
     .replace(/\s+/g, ' ');
 }
+
+/**
+ * Strip WordPress shortcodes from text
+ * 
+ * @param {string} text - Text with potential shortcodes
+ * @returns {string} Text without shortcodes
+ */
+export function stripShortcodes(text) {
+  if (!text) return '';
+  
+  // Remove all [shortcode attr="value"] patterns
+  return text.replace(/\[([a-z_-]+)(?:\s+[^\]]+)?\]/gi, '').trim();
+}

@@ -63,6 +63,32 @@ export function eventOperationsUI(user) {
             </div>
           </div>
 
+          <!-- Discrepancies section -->
+          <div id="discrepancySection" class="hidden mb-6">
+            <div class="collapse collapse-arrow bg-base-100 shadow-xl">
+              <input type="checkbox" checked />
+              <div class="collapse-title flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-5 h-5 text-warning"></i>
+                <span class="font-semibold">Discrepancies</span>
+                <span id="discrepancyCount" class="badge badge-warning badge-sm">0</span>
+              </div>
+              <div class="collapse-content">
+                <div id="discrepancyList" class="space-y-2"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filter tabs -->
+          <div class="tabs tabs-boxed mb-6 bg-base-100 shadow-sm">
+            <a id="tabAll" class="tab tab-active" onclick="switchTab('all')">Alle</a>
+            <a id="tabUpcoming" class="tab" onclick="switchTab('upcoming')">Komend</a>
+            <a id="tabPast" class="tab" onclick="switchTab('past')">Verleden</a>
+            <a id="tabPublished" class="tab" onclick="switchTab('published')">Gepubliceerd</a>
+            <a id="tabDraft" class="tab" onclick="switchTab('draft')">Concept</a>
+            <a id="tabOutOfSync" class="tab" onclick="switchTab('out_of_sync')">Niet gesync</a>
+            <a id="tabArchived" class="tab" onclick="switchTab('archived')">Gearchiveerd</a>
+          </div>
+
           <!-- Toast container -->
           <div id="toastContainer" class="toast toast-top toast-end" style="z-index:9999;"></div>
 
@@ -108,21 +134,6 @@ export function eventOperationsUI(user) {
 
           <!-- Cards view -->
           <div id="cardsContainer" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
-
-          <!-- Discrepancies section -->
-          <div id="discrepancySection" class="hidden mt-6">
-            <div class="collapse collapse-arrow bg-base-100 shadow-xl">
-              <input type="checkbox" checked />
-              <div class="collapse-title flex items-center gap-2">
-                <i data-lucide="alert-triangle" class="w-5 h-5 text-warning"></i>
-                <span class="font-semibold">Discrepancies</span>
-                <span id="discrepancyCount" class="badge badge-warning badge-sm">0</span>
-              </div>
-              <div class="collapse-content">
-                <div id="discrepancyList" class="space-y-2"></div>
-              </div>
-            </div>
-          </div>
 
         </div>
     </div>
@@ -178,6 +189,92 @@ export function eventOperationsUI(user) {
       let odooWebinars = [];
       let snapshotMap = new Map(); // odoo_webinar_id → snapshot
       let registrationCounts = {}; // webinar.id → count
+      let activeTab = 'all'; // Current filter tab
+
+      // ── Filter webinars by tab ──
+      function filterWebinars(webinars, tab) {
+        if (tab === 'all') return webinars;
+        
+        const now = new Date();
+        now.setHours(0, 0, 0, 0); // Start of today
+        
+        return webinars.filter(webinar => {
+          const snapshot = snapshotMap.get(webinar.id);
+          const state = snapshot ? snapshot.computed_state : 'not_published';
+          
+          // Parse date - Odoo format can be DD/MM/YYYY or YYYY-MM-DD
+          let eventDate = null;
+          if (webinar.x_studio_date) {
+            const dateStr = webinar.x_studio_date.trim();
+            
+            // Try DD/MM/YYYY format first
+            if (dateStr.includes('/')) {
+              const parts = dateStr.split('/');
+              if (parts.length === 3) {
+                const day = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
+                const year = parseInt(parts[2], 10);
+                eventDate = new Date(year, month, day);
+              }
+            } 
+            // Try YYYY-MM-DD format
+            else if (dateStr.includes('-')) {
+              eventDate = new Date(dateStr);
+            }
+            
+            // Validate date
+            if (eventDate && isNaN(eventDate.getTime())) {
+              console.warn('[filterWebinars] Invalid date for webinar', webinar.id, ':', webinar.x_studio_date);
+              eventDate = null;
+            } else if (eventDate) {
+              eventDate.setHours(0, 0, 0, 0); // Normalize to start of day
+            }
+          }
+          
+          switch (tab) {
+            case 'upcoming':
+              return eventDate && eventDate >= now && state !== 'archived';
+            case 'past':
+              return eventDate && eventDate < now && state !== 'archived';
+            case 'published':
+              return state === 'published';
+            case 'draft':
+              return state === 'not_published';
+            case 'out_of_sync':
+              return state === 'out_of_sync';
+            case 'archived':
+              return state === 'archived';
+            default:
+              return true;
+          }
+        });
+      }
+
+      // ── Switch tab ──
+      function switchTab(tab) {
+        activeTab = tab;
+        
+        // Update tab UI
+        document.querySelectorAll('.tabs .tab').forEach(el => el.classList.remove('tab-active'));
+        const tabId = 'tab' + tab.charAt(0).toUpperCase() + tab.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+        const tabEl = document.getElementById(tabId);
+        if (tabEl) tabEl.classList.add('tab-active');
+        
+        // Update URL hash
+        window.location.hash = 'tab=' + tab;
+        
+        // Re-render current view with filtered data
+        const filteredWebinars = filterWebinars(odooWebinars, activeTab);
+        const currentView = localStorage.getItem('eventOpsViewMode') || 'table';
+        
+        if (currentView === 'cards') {
+          if (typeof renderCardsView === 'function') {
+            renderCardsView(filteredWebinars, snapshotMap, registrationCounts);
+          }
+        } else {
+          renderTable(filteredWebinars);
+        }
+      }
 
       // ── Load data ──
       async function loadData() {
@@ -202,7 +299,12 @@ export function eventOperationsUI(user) {
             snapshotMap.set(snap.odoo_webinar_id, snap);
           }
 
-          renderTable();
+          // Restore active tab from URL hash
+          initTabFromHash();
+          
+          // Render with current filter
+          const filteredWebinars = filterWebinars(odooWebinars, activeTab);
+          renderTable(filteredWebinars);
         } catch (err) {
           showToast('Failed to load: ' + err.message, 'error');
         } finally {
@@ -212,12 +314,29 @@ export function eventOperationsUI(user) {
         }
       }
 
+      // ── Init tab from URL hash ──
+      function initTabFromHash() {
+        const hash = window.location.hash.slice(1); // Remove #
+        const params = new URLSearchParams(hash);
+        const tabParam = params.get('tab');
+        
+        if (tabParam && ['all', 'upcoming', 'past', 'published', 'draft', 'out_of_sync', 'archived'].includes(tabParam)) {
+          activeTab = tabParam;
+          
+          // Update tab UI
+          document.querySelectorAll('.tabs .tab').forEach(el => el.classList.remove('tab-active'));
+          const tabId = 'tab' + tabParam.charAt(0).toUpperCase() + tabParam.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          const tabEl = document.getElementById(tabId);
+          if (tabEl) tabEl.classList.add('tab-active');
+        }
+      }
+
       // ── Render table ──
-      function renderTable() {
+      function renderTable(webinars = odooWebinars) {
         const tbody = document.getElementById('webinarTableBody');
         tbody.innerHTML = '';
 
-        if (odooWebinars.length === 0) {
+        if (webinars.length === 0) {
           document.getElementById('emptyState').classList.remove('hidden');
           document.getElementById('dataTable').classList.add('hidden');
           return;
@@ -226,7 +345,7 @@ export function eventOperationsUI(user) {
         document.getElementById('emptyState').classList.add('hidden');
         document.getElementById('dataTable').classList.remove('hidden');
 
-        for (const webinar of odooWebinars) {
+        for (const webinar of webinars) {
           const snap = snapshotMap.get(webinar.id);
           const state = snap ? snap.computed_state : 'not_published';
           const badge = STATUS_BADGES[state] || STATUS_BADGES.not_published;
@@ -248,7 +367,7 @@ export function eventOperationsUI(user) {
         }
 
         // Update discrepancies
-        const discrepancies = odooWebinars.filter(w => {
+        const discrepancies = webinars.filter(w => {
           const s = snapshotMap.get(w.id);
           return s && s.computed_state === 'out_of_sync';
         });
@@ -357,20 +476,23 @@ export function eventOperationsUI(user) {
         const tableBtn = document.getElementById('viewBtnTable');
         const cardsBtn = document.getElementById('viewBtnCards');
         
+        const filteredWebinars = filterWebinars(odooWebinars, activeTab);
+        
         if (viewType === 'table') {
           tableContainer.classList.remove('hidden');
           cardsContainer.classList.add('hidden');
           tableBtn.classList.add('btn-active');
           cardsBtn.classList.remove('btn-active');
+          renderTable(filteredWebinars);
         } else {
           tableContainer.classList.add('hidden');
           cardsContainer.classList.remove('hidden');
           tableBtn.classList.remove('btn-active');
           cardsBtn.classList.add('btn-active');
           
-          // Re-render cards with current data
+          // Re-render cards with filtered data
           if (typeof renderCardsView === 'function') {
-            renderCardsView(odooWebinars, snapshotMap, registrationCounts);
+            renderCardsView(filteredWebinars, snapshotMap, registrationCounts);
           }
         }
         

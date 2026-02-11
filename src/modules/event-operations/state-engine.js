@@ -5,7 +5,7 @@
  */
 
 import { SYNC_STATUS, ODOO_FIELDS } from './constants.js';
-import { stripHtmlTags, normalizeString } from './utils/text.js';
+import { stripHtmlTags, normalizeString, stripShortcodes } from './utils/text.js';
 
 /**
  * Compute sync state from Odoo and WordPress snapshots
@@ -74,8 +74,12 @@ function detectDiscrepancies(odooSnapshot, wpSnapshot) {
   }
   
   // Description mismatch (only if both have content)
-  const odooDesc = stripHtmlTags(odooSnapshot[ODOO_FIELDS.INFO] || '').trim();
-  const wpDesc = stripHtmlTags(wpSnapshot.description || wpSnapshot.content?.rendered || '').trim();
+  // Strip shortcodes from both descriptions before comparing
+  const odooDescRaw = stripHtmlTags(odooSnapshot[ODOO_FIELDS.INFO] || '').trim();
+  const wpDescRaw = stripHtmlTags(wpSnapshot.description || wpSnapshot.content?.rendered || '').trim();
+  
+  const odooDesc = stripShortcodes(odooDescRaw);
+  const wpDesc = stripShortcodes(wpDescRaw);
   
   if (odooDesc && wpDesc && normalizeString(odooDesc) !== normalizeString(wpDesc)) {
     return true;
