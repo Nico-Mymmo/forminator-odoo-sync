@@ -4,6 +4,7 @@
 
 import { LOG_PREFIX, EMOJI } from './constants.js';
 import { getOdooWebinars } from './odoo-client.js';
+import { getWordPressEvents } from './wp-client.js';
 import { eventOperationsUI } from './ui.js';
 
 export const routes = {
@@ -42,6 +43,42 @@ export const routes = {
       
     } catch (error) {
       console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch webinars failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * GET /events/api/wp-events
+   * Fetch all published events from WordPress
+   * 
+   * Response: { success: true, data: [...] }
+   */
+  'GET /api/wp-events': async (context) => {
+    const { env } = context;
+    
+    try {
+      console.log(`${LOG_PREFIX} ${EMOJI.EVENT} Fetching WordPress events...`);
+      
+      const events = await getWordPressEvents(env);
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${events.length} events`);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: events
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch WP events failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,
