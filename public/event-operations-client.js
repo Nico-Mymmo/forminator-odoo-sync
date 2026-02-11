@@ -13,11 +13,11 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
   
   // Create card container
   const card = document.createElement('div');
-  card.className = 'card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow';
+  card.className = 'card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow h-[380px]';
   
   // Card body
   const cardBody = document.createElement('div');
-  cardBody.className = 'card-body';
+  cardBody.className = 'card-body p-4 flex flex-col';
   
   // Header: ID + Status badge
   const header = document.createElement('div');
@@ -36,12 +36,12 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
   
   // Title
   const title = document.createElement('h3');
-  title.className = 'card-title text-base mb-3';
+  title.className = 'card-title text-base mb-4';
   title.textContent = webinar.x_name;
   
   // Meta info grid
   const metaGrid = document.createElement('div');
-  metaGrid.className = 'space-y-2 text-sm';
+  metaGrid.className = 'space-y-3 text-sm flex-1 overflow-y-auto';
   
   // Date
   const dateRow = createMetaRow('calendar', 'Date', webinar.x_studio_date || '—');
@@ -99,7 +99,7 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
   
   // Card actions
   const actions = document.createElement('div');
-  actions.className = 'card-actions justify-end mt-4';
+  actions.className = 'card-actions mt-auto pt-3 border-t border-base-200 flex flex-row gap-2';
   
   if (state === 'not_published') {
     // Dropdown button with publish options
