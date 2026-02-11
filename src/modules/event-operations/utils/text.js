@@ -21,6 +21,8 @@ export function stripHtmlTags(html) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     .trim();
 }
 
@@ -36,5 +38,9 @@ export function normalizeString(str) {
   return str
     .toLowerCase()
     .trim()
+    .replace(/\u2026/g, '...')   // … (ellipsis) → ...
+    .replace(/\u2018|\u2019/g, "'")  // smart quotes → straight
+    .replace(/\u201C|\u201D/g, '"')  // smart double quotes → straight
+    .replace(/\u2013|\u2014/g, '-')  // en/em dash → hyphen
     .replace(/\s+/g, ' ');
 }

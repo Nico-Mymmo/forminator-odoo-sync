@@ -2,10 +2,21 @@
  * Event Operations - UI
  * 
  * HTML rendering for Event Operations module.
- * Follows existing module conventions (daisyUI + Tailwind only).
+ * Follows existing module conventions (daisyUI 4.12.14 + Tailwind only).
  */
 
 import { navbar } from '../../lib/components/navbar.js';
+
+/**
+ * Status badge config: DaisyUI badge variant per computed_state
+ */
+const STATUS_BADGES = {
+  not_published: { label: 'Not Published', css: 'badge-ghost' },
+  published: { label: 'Published', css: 'badge-success' },
+  out_of_sync: { label: 'Out of Sync', css: 'badge-warning' },
+  archived: { label: 'Archived', css: 'badge-info' },
+  deleted: { label: 'Deleted', css: 'badge-error' }
+};
 
 /**
  * Render Event Operations main page
@@ -30,21 +41,268 @@ export function eventOperationsUI(user) {
     <div style="padding-top: 48px;">
       <div class="pb-8">
         <div class="container mx-auto px-6 max-w-7xl">
-          <div class="mb-8">
-            <h1 class="text-4xl font-bold mb-2">Event Operations</h1>
-            <p class="text-base-content/60">Manage Odoo webinar publication to WordPress</p>
-          </div>
-          <div class="card bg-base-100 shadow-xl">
-            <div class="card-body">
-              <p class="text-base-content/60">Module loaded. Data integration coming in Phase 3.</p>
+
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-8">
+            <div>
+              <h1 class="text-4xl font-bold mb-2">Event Operations</h1>
+              <p class="text-base-content/60">Odoo webinar → WordPress publication</p>
+            </div>
+            <div class="flex gap-2">
+              <button id="btnSync" class="btn btn-outline btn-sm gap-2" onclick="runSync()">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All
+              </button>
             </div>
           </div>
+
+          <!-- Toast container -->
+          <div id="toastContainer" class="toast toast-top toast-end" style="z-index:9999;"></div>
+
+          <!-- Loading state -->
+          <div id="loadingState" class="flex justify-center py-16">
+            <span class="loading loading-spinner loading-lg"></span>
+          </div>
+
+          <!-- Empty state -->
+          <div id="emptyState" class="hidden">
+            <div class="card bg-base-100 shadow-xl">
+              <div class="card-body text-center py-16">
+                <i data-lucide="calendar-off" class="w-12 h-12 mx-auto text-base-content/30 mb-4"></i>
+                <p class="text-base-content/60">No webinars found in Odoo.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Webinar table -->
+          <div id="dataTable" class="hidden">
+            <div class="card bg-base-100 shadow-xl">
+              <div class="card-body">
+                <div class="overflow-x-auto">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Status</th>
+                        <th>WP Event</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="webinarTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Discrepancies section -->
+          <div id="discrepancySection" class="hidden mt-6">
+            <div class="collapse collapse-arrow bg-base-100 shadow-xl">
+              <input type="checkbox" checked />
+              <div class="collapse-title flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-5 h-5 text-warning"></i>
+                <span class="font-semibold">Discrepancies</span>
+                <span id="discrepancyCount" class="badge badge-warning badge-sm">0</span>
+              </div>
+              <div class="collapse-content">
+                <div id="discrepancyList" class="space-y-2"></div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
 
     <script>
-      lucide.createIcons();
+      // Status badge config
+      const STATUS_BADGES = ${JSON.stringify(STATUS_BADGES)};
+
+      // ── Toast ──
+      function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        const alertClass = type === 'error' ? 'alert-error' : type === 'success' ? 'alert-success' : 'alert-info';
+        const toast = document.createElement('div');
+        toast.className = 'alert ' + alertClass + ' text-sm py-2 px-4';
+        toast.textContent = message;
+        container.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
+      }
+
+      // ── State management ──
+      let odooWebinars = [];
+      let snapshotMap = new Map(); // odoo_webinar_id → snapshot
+
+      // ── Load data ──
+      async function loadData() {
+        document.getElementById('loadingState').style.display = 'flex';
+        document.getElementById('emptyState').classList.add('hidden');
+        document.getElementById('dataTable').classList.add('hidden');
+
+        try {
+          const [webinarsRes, snapshotsRes] = await Promise.all([
+            fetch('/events/api/odoo-webinars?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json()),
+            fetch('/events/api/snapshots?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json())
+          ]);
+
+          if (!webinarsRes.success) throw new Error(webinarsRes.error);
+          if (!snapshotsRes.success) throw new Error(snapshotsRes.error);
+
+          odooWebinars = webinarsRes.data || [];
+          
+          snapshotMap.clear();
+          for (const snap of (snapshotsRes.data || [])) {
+            snapshotMap.set(snap.odoo_webinar_id, snap);
+          }
+
+          renderTable();
+        } catch (err) {
+          showToast('Failed to load: ' + err.message, 'error');
+        } finally {
+          document.getElementById('loadingState').style.display = 'none';
+        }
+      }
+
+      // ── Render table ──
+      function renderTable() {
+        const tbody = document.getElementById('webinarTableBody');
+        tbody.innerHTML = '';
+
+        if (odooWebinars.length === 0) {
+          document.getElementById('emptyState').classList.remove('hidden');
+          document.getElementById('dataTable').classList.add('hidden');
+          return;
+        }
+
+        document.getElementById('emptyState').classList.add('hidden');
+        document.getElementById('dataTable').classList.remove('hidden');
+
+        for (const webinar of odooWebinars) {
+          const snap = snapshotMap.get(webinar.id);
+          const state = snap ? snap.computed_state : 'not_published';
+          const badge = STATUS_BADGES[state] || STATUS_BADGES.not_published;
+          const wpId = snap?.wp_snapshot?.id;
+          
+          const tr = document.createElement('tr');
+          tr.innerHTML = 
+            '<td class="font-mono text-sm">' + webinar.id + '</td>' +
+            '<td>' + escapeHtml(webinar.x_name) + '</td>' +
+            '<td>' + (webinar.x_studio_date || '—') + '</td>' +
+            '<td>' + (webinar.x_studio_starting_time || '—') + '</td>' +
+            '<td><span class="badge ' + badge.css + ' badge-sm">' + badge.label + '</span></td>' +
+            '<td>' + (wpId ? '<a href="https://openvme.be/wp-admin/post.php?post=' + wpId + '&action=edit" target="_blank" class="link link-primary text-sm">WP #' + wpId + '</a>' : '—') + '</td>' +
+            '<td>' + renderActions(webinar.id, state) + '</td>';
+          
+          tbody.appendChild(tr);
+        }
+
+        // Update discrepancies
+        const discrepancies = odooWebinars.filter(w => {
+          const s = snapshotMap.get(w.id);
+          return s && s.computed_state === 'out_of_sync';
+        });
+        renderDiscrepancies(discrepancies);
+        
+        lucide.createIcons();
+      }
+
+      // ── Render action buttons ──
+      function renderActions(webinarId, state) {
+        if (state === 'not_published') {
+          return '<button class="btn btn-primary btn-xs gap-1" onclick="publishWebinar(' + webinarId + ', this)"><i data-lucide="upload" class="w-3 h-3"></i> Publish</button>';
+        }
+        if (state === 'out_of_sync') {
+          return '<button class="btn btn-warning btn-xs gap-1" onclick="publishWebinar(' + webinarId + ', this)"><i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish</button>';
+        }
+        return '<span class="text-base-content/40 text-xs">—</span>';
+      }
+
+      // ── Render discrepancies ──
+      function renderDiscrepancies(discrepancies) {
+        const section = document.getElementById('discrepancySection');
+        const list = document.getElementById('discrepancyList');
+        const count = document.getElementById('discrepancyCount');
+
+        if (discrepancies.length === 0) {
+          section.classList.add('hidden');
+          return;
+        }
+
+        section.classList.remove('hidden');
+        count.textContent = discrepancies.length;
+        list.innerHTML = '';
+
+        for (const w of discrepancies) {
+          const div = document.createElement('div');
+          div.className = 'alert alert-warning py-2';
+          div.innerHTML = '<i data-lucide="alert-triangle" class="w-4 h-4"></i> <span><strong>#' + w.id + '</strong> ' + escapeHtml(w.x_name) + ' — content differs between Odoo and WordPress</span>';
+          list.appendChild(div);
+        }
+      }
+
+      // ── Publish ──
+      async function publishWebinar(odooWebinarId, btn) {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>'; }
+        
+        try {
+          const res = await fetch('/events/api/publish', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ odoo_webinar_id: odooWebinarId })
+          }).then(r => r.json());
+
+          if (res.success) {
+            showToast('Published webinar ' + odooWebinarId + ' → WP #' + res.data.wp_event_id, 'success');
+            await loadData(); // Refresh table
+          } else {
+            showToast('Publish failed: ' + res.error, 'error');
+          }
+        } catch (err) {
+          showToast('Publish error: ' + err.message, 'error');
+        } finally {
+          if (btn) { btn.disabled = false; }
+        }
+      }
+
+      // ── Sync ──
+      async function runSync() {
+        const btn = document.getElementById('btnSync');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Syncing...';
+
+        try {
+          const res = await fetch('/events/api/sync', {
+            method: 'POST',
+            credentials: 'include'
+          }).then(r => r.json());
+
+          if (res.success) {
+            showToast('Sync complete: ' + res.data.synced_count + ' webinars, ' + res.data.discrepancies.length + ' discrepancies', 'success');
+            await loadData(); // Refresh table with new states
+          } else {
+            showToast('Sync failed: ' + res.error, 'error');
+          }
+        } catch (err) {
+          showToast('Sync error: ' + err.message, 'error');
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All';
+          lucide.createIcons();
+        }
+      }
+
+      // ── Helpers ──
+      function escapeHtml(str) {
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
+      }
+
+      // ── Init ──
+      loadData();
     </script>
 </body>
 </html>`;

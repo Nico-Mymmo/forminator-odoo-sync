@@ -25,7 +25,8 @@ export async function getOdooWebinars(env) {
       ODOO_FIELDS.DATE,
       ODOO_FIELDS.START_TIME,
       ODOO_FIELDS.INFO,
-      ODOO_FIELDS.STAGE
+      ODOO_FIELDS.STAGE,
+      ODOO_FIELDS.ACTIVE
     ],
     order: `${ODOO_FIELDS.DATE} DESC`,
     limit: 100

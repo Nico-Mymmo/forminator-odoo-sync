@@ -43,6 +43,32 @@ export async function getWordPressEvents(env) {
 }
 
 /**
+ * Get WordPress events via Core REST API (includes meta fields)
+ * 
+ * Used by sync to match on odoo_webinar_id meta.
+ * Tribe API does NOT return meta — Core API does.
+ * 
+ * @param {Object} env
+ * @returns {Promise<Array>} Array of WP event objects with .meta
+ */
+export async function getWordPressEventsWithMeta(env) {
+  const response = await fetch(
+    `${env.WORDPRESS_URL}${WP_ENDPOINTS.WP_EVENTS}?per_page=100`,
+    {
+      headers: {
+        'Authorization': wpAuthHeader(env)
+      }
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error(`WordPress Core API error: ${response.status}`);
+  }
+  
+  return await response.json();
+}
+
+/**
  * Publish Odoo webinar to WordPress (two-step flow)
  * 
  * Step 1: POST Tribe Events endpoint → creates event

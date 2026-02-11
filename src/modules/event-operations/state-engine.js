@@ -50,25 +50,34 @@ export function computeEventState(odooSnapshot, wpSnapshot) {
  * @returns {boolean}
  */
 function detectDiscrepancies(odooSnapshot, wpSnapshot) {
-  // Title mismatch
-  if (normalizeString(odooSnapshot[ODOO_FIELDS.NAME]) !== 
-      normalizeString(wpSnapshot.title?.rendered || wpSnapshot.title)) {
-    return true;
+  // Extract WP title (Core API: { rendered }, Tribe API: string)
+  const wpTitleRaw = typeof wpSnapshot.title === 'object' 
+    ? wpSnapshot.title?.rendered 
+    : wpSnapshot.title;
+  
+  // Title mismatch — decode HTML entities before comparing
+  if (wpTitleRaw) {
+    const odooTitle = normalizeString(stripHtmlTags(odooSnapshot[ODOO_FIELDS.NAME] || ''));
+    const wpTitle = normalizeString(stripHtmlTags(wpTitleRaw));
+    if (odooTitle !== wpTitle) {
+      return true;
+    }
   }
   
-  // Date/time mismatch (compare normalized dates)
-  const odooDate = odooSnapshot[ODOO_FIELDS.DATE];
+  // Date/time mismatch (only if WP has start_date — Tribe API field)
   const wpDate = wpSnapshot.start_date?.split(' ')[0];
-  
-  if (odooDate !== wpDate) {
-    return true;
+  if (wpDate) {
+    const odooDate = odooSnapshot[ODOO_FIELDS.DATE];
+    if (odooDate !== wpDate) {
+      return true;
+    }
   }
   
-  // Description mismatch (compare stripped HTML)
-  const odooDesc = stripHtmlTags(odooSnapshot[ODOO_FIELDS.INFO] || '');
-  const wpDesc = stripHtmlTags(wpSnapshot.description || '');
+  // Description mismatch (only if both have content)
+  const odooDesc = stripHtmlTags(odooSnapshot[ODOO_FIELDS.INFO] || '').trim();
+  const wpDesc = stripHtmlTags(wpSnapshot.description || wpSnapshot.content?.rendered || '').trim();
   
-  if (normalizeString(odooDesc) !== normalizeString(wpDesc)) {
+  if (odooDesc && wpDesc && normalizeString(odooDesc) !== normalizeString(wpDesc)) {
     return true;
   }
   
