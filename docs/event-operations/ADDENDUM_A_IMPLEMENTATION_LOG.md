@@ -13,7 +13,7 @@
 |-------|------|--------|--------|--------|----------|
 | A1 | 2026-02-11 | `9632172` | ✅ | Theme toggle ontbraken, table width issues | ~45 min |
 | A2 | 2026-02-11 | `cd9442e` | ✅ | switchView scope, STATUS_BADGES duplicate, cards niet zichtbaar | ~90 min |
-| A3 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~2h |
+| A3 | 2026-02-11 | `32688f0` | ✅ | Tab filtering bugs, shortcode false positives, duplicate WP events | ~180 min |
 | A4 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~6h |
 | A5 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~5h |
 
@@ -363,17 +363,275 @@ const regCount = registrationCounts[webinar.id] || 0;
 
 ---
 
-## Phase A3 – Filtering & Segmentation Layer
+## Phase A3 – Client-side Tab Filtering
 
 ### Metadata
-| Status | ⬜ Not Started |
+| Veld | Waarde |
+|------|--------|
+| Date | 2026-02-11 |
+| Branch | events-operations |
+| Git Commit | `32688f0` |
+| Status | ✅ Complete |
 
-### Planned Scope
+### Files Changed
 
-- Client-side tab filtering: Upcoming, Past, Draft, Out of Sync, Archived, All
-- Filter logic using existing odoo_snapshot.x_studio_date and computed_state
-- URL hash state persistence (`#tab=upcoming`)
-- No server-side changes
+| File | Action | Lines Changed |
+|------|--------|---------------|
+| src/modules/event-operations/ui.js | MODIFY | +130, -25 |
+| src/modules/event-operations/state-engine.js | MODIFY | +7, -2 |
+| src/modules/event-operations/utils/text.js | MODIFY | +11 lines |
+| src/modules/event-operations/wp-client.js | MODIFY | +75, -30 |
+
+### Issues Resolved
+
+| # | Issue | Severity | Root Cause | Fix |
+|---|-------|----------|------------|-----|
+| 1 | Table filtering didn't work | High | renderTable() ignored webinars parameter, always used global odooWebinars | Changed all renderTable() references to use webinars parameter |
+| 2 | Missing "Published" filter | High | Initial design only had status-based tabs | Added "Gepubliceerd" tab with state === 'published' filter |
+| 3 | Date filtering broken | High | Only handled DD/MM/YYYY format | Added YYYY-MM-DD support, date validation, normalized to start of day |
+| 4 | Discrepancies at bottom | Medium | HTML order placed section after table/cards | Moved discrepancy section above tabs (mb-6) |
+| 5 | False positive discrepancies | Critical | WordPress shortcodes differ in escaping vs Odoo | Added stripShortcodes() to remove shortcodes before comparison |
+| 6 | Duplicate WP events on publish | Critical | publishToWordPress() always created new events | Added snapshot check → UPDATE existing event instead of CREATE |
+
+### Implementation Details
+
+**Tab UI (ui.js):**
+```html
+<div class="tabs tabs-boxed mb-6 flex-wrap">
+  <button id="tabAll" class="tab tab-active" onclick="switchTab('all')">All</button>
+  <button id="tabUpcoming" class="tab" onclick="switchTab('upcoming')">Komend</button>
+  <button id="tabPast" class="tab" onclick="switchTab('past')">Verleden</button>
+  <button id="tabPublished" class="tab" onclick="switchTab('published')">Gepubliceerd</button>
+  <button id="tabDraft" class="tab" onclick="switchTab('draft')">Concept</button>
+  <button id="tabOutOfSync" class="tab" onclick="switchTab('out_of_sync')">Out of Sync</button>
+  <button id="tabArchived" class="tab" onclick="switchTab('archived')">Gearchiveerd</button>
+</div>
+```
+
+**Filter Logic (ui.js):**
+```javascript
+function filterWebinars(webinars, tab) {
+  if (tab === 'all') return webinars;
+  
+  const now = new Date();
+  now.setHours(0, 0, 0, 0); // Normalize to start of day
+  
+  return webinars.filter(w => {
+    const snapshot = snapshotMap.get(w.id);
+    const state = snapshot?.computed_state || 'not_published';
+    
+    let eventDate = null;
+    if (w[ODOO_FIELDS.DATE]) {
+      const dateStr = w[ODOO_FIELDS.DATE];
+      // Support DD/MM/YYYY and YYYY-MM-DD
+      if (dateStr.includes('/')) {
+        const [day, month, year] = dateStr.split('/');
+        eventDate = new Date(year, month - 1, day);
+      } else if (dateStr.includes('-')) {
+        eventDate = new Date(dateStr);
+      }
+      
+      if (eventDate && !isNaN(eventDate)) {
+        eventDate.setHours(0, 0, 0, 0);
+      } else {
+        console.warn('Invalid date format:', dateStr);
+        eventDate = null;
+      }
+    }
+    
+    switch(tab) {
+      case 'upcoming':
+        return eventDate && eventDate >= now && state !== 'archived';
+      case 'past':
+        return eventDate && eventDate < now && state !== 'archived';
+      case 'published':
+        return state === 'published';
+      case 'draft':
+        return state === 'not_published';
+      case 'out_of_sync':
+        return state === 'out_of_sync';
+      case 'archived':
+        return state === 'archived';
+      default:
+        return true;
+    }
+  });
+}
+```
+
+**URL Hash State Management:**
+```javascript
+function switchTab(tab) {
+  activeTab = tab;
+  
+  // Update tab UI
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active'));
+  document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1).replace('_', '')).classList.add('tab-active');
+  
+  // Update URL hash
+  window.location.hash = 'tab=' + tab;
+  
+  // Re-render current view with filtered data
+  const filtered = filterWebinars(odooWebinars, activeTab);
+  switchView(currentView); // Refresh view
+}
+
+function initTabFromHash() {
+  const hash = window.location.hash.substring(1);
+  if (hash.startsWith('tab=')) {
+    const tab = hash.replace('tab=', '');
+    if (['all', 'upcoming', 'past', 'published', 'draft', 'out_of_sync', 'archived'].includes(tab)) {
+      switchTab(tab);
+    }
+  }
+}
+
+// Call after data loaded
+initTabFromHash();
+```
+
+**Shortcode Stripping (utils/text.js):**
+```javascript
+/**
+ * Strip WordPress shortcodes from text
+ * 
+ * Prevents false positives when shortcodes differ in escaping
+ * Examples: [forminator_form id="14547"], [gallery ids="1,2,3"]
+ * 
+ * @param {string} text
+ * @returns {string}
+ */
+export function stripShortcodes(text) {
+  if (!text) return '';
+  // Remove all [shortcode attr="value"] patterns
+  return text.replace(/\[([a-z_-]+)(?:\s+[^\]]+)?\]/gi, '').trim();
+}
+```
+
+**State Engine Fix (state-engine.js):**
+```javascript
+import { stripHtmlTags, normalizeString, stripShortcodes } from './utils/text.js';
+
+function detectDiscrepancies(odooSnapshot, wpSnapshot) {
+  // ... title and date checks ...
+  
+  // Description comparison with shortcode stripping
+  const odooDescRaw = stripHtmlTags(odooSnapshot[ODOO_FIELDS.INFO] || '').trim();
+  const wpDescRaw = stripHtmlTags(wpSnapshot.description || wpSnapshot.content?.rendered || '').trim();
+  
+  const odooDesc = stripShortcodes(odooDescRaw);
+  const wpDesc = stripShortcodes(wpDescRaw);
+  
+  if (odooDesc && wpDesc && normalizeString(odooDesc) !== normalizeString(wpDesc)) {
+    return true;
+  }
+  
+  return false;
+}
+```
+
+**Publish Flow Fix (wp-client.js):**
+```javascript
+export async function publishToWordPress(env, userId, odooWebinarId) {
+  // 1. Fetch Odoo webinar
+  const odooWebinar = await getOdooWebinar(env, odooWebinarId);
+  
+  // 2. Check if snapshot exists (to determine create vs update)
+  const supabase = await getSupabaseAdminClient(env);
+  const { data: existingSnapshot } = await supabase
+    .from('webinar_snapshots')
+    .select('wp_snapshot')
+    .eq('user_id', userId)
+    .eq('odoo_webinar_id', odooWebinarId)
+    .single();
+  
+  const existingWpEventId = existingSnapshot?.wp_snapshot?.id;
+  
+  // 3. Map to WordPress payload
+  const wpPayload = mapOdooToWordPress(odooWebinar);
+  
+  let wpEventId;
+  
+  if (existingWpEventId) {
+    // UPDATE existing WordPress event
+    console.log(`Updating existing WP event ${existingWpEventId}...`);
+    
+    const updateResponse = await fetch(
+      `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}/${existingWpEventId}`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': wpAuthHeader(env),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(wpPayload)
+      }
+    );
+    
+    if (!updateResponse.ok) {
+      throw new Error(`Tribe API update error ${updateResponse.status}`);
+    }
+    
+    wpEventId = (await updateResponse.json()).id;
+    
+  } else {
+    // CREATE new WordPress event
+    console.log(`Creating new Tribe event...`);
+    
+    const createResponse = await fetch(
+      `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': wpAuthHeader(env),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(wpPayload)
+      }
+    );
+    
+    if (!createResponse.ok) {
+      throw new Error(`Tribe API create error ${createResponse.status}`);
+    }
+    
+    wpEventId = (await createResponse.json()).id;
+  }
+  
+  // 4. Set meta (always)
+  // 5. Save snapshot
+  
+  return { wp_event_id: wpEventId, computed_state: 'published' };
+}
+```
+
+### Test Results
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| All tabs render correctly | ✅ | 7 tabs visible with proper styling |
+| "Komend" filter (upcoming) | ✅ | Shows only future events, excludes archived |
+| "Verleden" filter (past) | ✅ | Shows only past events, excludes archived |
+| "Gepubliceerd" filter | ✅ | Shows state === 'published' |
+| "Concept" filter | ✅ | Shows state === 'not_published' |
+| "Out of Sync" filter | ✅ | Shows state === 'out_of_sync' |
+| "Gearchiveerd" filter | ✅ | Shows state === 'archived' |
+| Date parsing DD/MM/YYYY | ✅ | Correctly parsed |
+| Date parsing YYYY-MM-DD | ✅ | Correctly parsed |
+| URL hash persistence | ✅ | #tab=upcoming restores filter on reload |
+| Table filtering works | ✅ | renderTable() uses filtered webinars |
+| Card filtering works | ✅ | renderCardsView() uses filtered webinars |
+| Discrepancy section above tabs | ✅ | Moved to top with mb-6 spacing |
+| No shortcode false positives | ✅ | stripShortcodes() prevents discrepancy detection |
+| Publish updates existing event | ✅ | No duplicate events created |
+| Publish creates new event (first time) | ✅ | Works for new webinars |
+
+### Scope Corrections
+
+| # | Change | Reason |
+|---|--------|--------|
+| 1 | Added stripShortcodes() utility | User-reported false positive bug |
+| 2 | Fixed publishToWordPress() to support UPDATE | Critical bug - duplicate events created |
+| 3 | Moved discrepancy section above tabs | UX improvement request |
 
 ---
 
@@ -414,15 +672,22 @@ Accumulated afwijkingen van initiële ADDENDUM_A_EVENT_OPERATIONS.md scope:
 | # | Originele Planning | Werkelijkheid | Fase |
 |---|-------------------|---------------|------|
 | 1 | A1: alleen layout fix | A1: layout + theme infrastructure + table width fixes | A1 |
-| 2 | A2: replace table met cards | A2: dual view (table AND cards) | A2 (planned) |
+| 2 | A2: replace table met cards | A2: dual view (table AND cards) | A2 |
+| 3 | A3: alleen client-side filtering | A3: filtering + shortcode stripping + publish update fix | A3 |
 
 **Reden voor wijzigingen:**
 - **A1 scope creep:** User feedback tijdens test → table width issues moesten opgelost worden voordat A2 zou starten
 - **A2 scope pivot:** User request → beide views behouden i.p.v. table vervangen door cards
+- **A3 scope creep:** Critical bugs discovered tijdens testing:
+  - False positive discrepancies door WordPress shortcode escaping
+  - Duplicate WordPress events door ontbrekende UPDATE logic
+  - UI/UX improvements (discrepancy section positioning)
 
 ---
 
-**Document Status:** 🔄 Active (A1 compleet, A2 in progress)  
+**Document Status:** 🔄 Active (A1-A3 compleet, A4-A5 pending)  
 **Totaal issues A1:** 6  
-**Totaal corrections:** 2  
-**Huidige fase:** A2 (dual-view implementation)
+**Totaal issues A2:** 4  
+**Totaal issues A3:** 6  
+**Totaal corrections:** 3  
+**Huidige fase:** A3 compleet → ready for A4 (Tag Mapping Engine)
