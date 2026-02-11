@@ -106,8 +106,10 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
       if (typeof publishWebinar === 'function') publishWebinar(webinar.id, publishBtn);
     });
     actions.appendChild(publishBtn);
-  } else if (state === 'out_of_sync') {
-    const republishBtn = createActionButton('refresh-cw', 'Re-publish', 'btn-warning', () => {
+  } else {
+    // Show Re-publish button for published or out_of_sync states
+    const buttonStyle = state === 'out_of_sync' ? 'btn-warning' : 'btn-primary';
+    const republishBtn = createActionButton('refresh-cw', 'Re-publish', buttonStyle, () => {
       if (typeof publishWebinar === 'function') publishWebinar(webinar.id, republishBtn);
     });
     actions.appendChild(republishBtn);
