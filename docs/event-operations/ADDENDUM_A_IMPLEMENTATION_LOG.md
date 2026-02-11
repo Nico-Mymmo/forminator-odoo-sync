@@ -12,7 +12,7 @@
 | Phase | Date | Commit | Status | Issues | Duration |
 |-------|------|--------|--------|--------|----------|
 | A1 | 2026-02-11 | `9632172` | ✅ | Theme toggle ontbraken, table width issues | ~45 min |
-| A2 | 2026-02-11 | TBD | ✅ | switchView scope, STATUS_BADGES duplicate, cards niet zichtbaar | ~90 min |
+| A2 | 2026-02-11 | `cd9442e` | ✅ | switchView scope, STATUS_BADGES duplicate, cards niet zichtbaar | ~90 min |
 | A3 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~2h |
 | A4 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~6h |
 | A5 | 2026-02-11 | TBD | ⬜ | Not started | Est. ~5h |
@@ -190,7 +190,7 @@ wrangler deploy
 |------|--------|
 | Date | 2026-02-11 |
 | Branch | events-operations |
-| Git Commit | TBD |
+| Git Commit | `cd9442e` |
 | Status | ✅ Complete |
 
 ### Actual Files Changed
