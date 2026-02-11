@@ -78,7 +78,7 @@ export async function getRegistrationCount(env, webinarId) {
   const count = await executeKw(env, {
     model: ODOO_MODEL.REGISTRATION,
     method: 'search_count',
-    args: [[['x_webinar_id', '=', webinarId]]]
+    args: [[['x_studio_linked_webinar', '=', webinarId]]]
   });
   
   return count;

@@ -39,7 +39,9 @@ export const ODOO_FIELDS = {
   START_TIME: 'x_studio_starting_time',
   INFO: 'x_studio_webinar_info',
   STAGE: 'x_studio_stage_id',
-  ACTIVE: 'x_active'
+  ACTIVE: 'x_active',
+  // Registration fields
+  LINKED_WEBINAR: 'x_studio_linked_webinar'
 };
 
 // WordPress Endpoints
