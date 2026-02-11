@@ -113,6 +113,14 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
     actions.appendChild(republishBtn);
   }
   
+  // Edit Description button (for published webinars)
+  if (state !== 'not_published') {
+    const editDescBtn = createActionButton('edit', 'Edit Description', 'btn-outline btn-sm', () => {
+      openEditorialEditor(webinar.id);
+    });
+    actions.appendChild(editDescBtn);
+  }
+  
   // Assemble card
   cardBody.appendChild(header);
   cardBody.appendChild(title);
@@ -348,4 +356,428 @@ async function deleteTagMapping(id) {
     console.error('Tag mapping delete error:', error);
     alert('❌ Failed to delete mapping: ' + error.message);
   }
+}
+
+// ============================================================================
+// EDITORIAL CONTENT EDITOR
+// ============================================================================
+
+/**
+ * Open editorial editor modal for a webinar
+ */
+async function openEditorialEditor(webinarId) {
+  try {
+    // Fetch existing editorial content
+    const res = await fetch('/events/api/editorial/' + webinarId);
+    if (!res.ok) throw new Error(await res.text());
+    
+    const { data } = await res.json();
+    const editorialContent = data || { blocks: [], version: 1 };
+    
+    // Render modal
+    renderEditorialModal(webinarId, editorialContent);
+    
+  } catch (error) {
+    console.error('Editorial fetch error:', error);
+    alert('❌ Failed to load editorial content: ' + error.message);
+  }
+}
+
+/**
+ * Render editorial editor modal using DOM APIs
+ */
+function renderEditorialModal(webinarId, editorialContent) {
+  // Remove existing modal if any
+  const existing = document.getElementById('editorialModal');
+  if (existing) existing.remove();
+  
+  // Create modal container
+  const modal = document.createElement('div');
+  modal.id = 'editorialModal';
+  modal.className = 'modal modal-open';
+  
+  const modalBox = document.createElement('div');
+  modalBox.className = 'modal-box max-w-4xl';
+  
+  // Header
+  const header = document.createElement('h3');
+  header.className = 'font-bold text-lg mb-4';
+  header.textContent = 'Edit Description - Webinar #' + webinarId;
+  modalBox.appendChild(header);
+  
+  // Toolbar
+  const toolbar = document.createElement('div');
+  toolbar.className = 'flex gap-2 mb-4';
+  
+  const addParaBtn = document.createElement('button');
+  addParaBtn.className = 'btn btn-sm btn-outline';
+  addParaBtn.textContent = '+ Add Paragraph';
+  addParaBtn.onclick = () => addBlock('paragraph');
+  toolbar.appendChild(addParaBtn);
+  
+  const addShortcodeBtn = document.createElement('button');
+  addShortcodeBtn.className = 'btn btn-sm btn-outline';
+  addShortcodeBtn.textContent = '📝 + Add Registration Form';
+  addShortcodeBtn.onclick = () => addBlock('shortcode');
+  toolbar.appendChild(addShortcodeBtn);
+  
+  modalBox.appendChild(toolbar);
+  
+  // Blocks container
+  const blocksContainer = document.createElement('div');
+  blocksContainer.id = 'editorialBlocks';
+  blocksContainer.className = 'space-y-3 mb-4 max-h-96 overflow-y-auto';
+  modalBox.appendChild(blocksContainer);
+  
+  // Render existing blocks
+  if (editorialContent.blocks && editorialContent.blocks.length > 0) {
+    editorialContent.blocks.forEach((block, index) => {
+      renderBlock(blocksContainer, block, index);
+    });
+  } else {
+    const emptyState = document.createElement('p');
+    emptyState.className = 'text-base-content/50 text-center py-8';
+    emptyState.textContent = 'No blocks yet. Add a paragraph or registration form to start.';
+    blocksContainer.appendChild(emptyState);
+  }
+  
+  // Footer actions
+  const footer = document.createElement('div');
+  footer.className = 'modal-action';
+  
+  const previewBtn = document.createElement('button');
+  previewBtn.className = 'btn btn-outline';
+  previewBtn.textContent = 'Preview';
+  previewBtn.onclick = () => previewEditorialContent();
+  footer.appendChild(previewBtn);
+  
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-primary';
+  saveBtn.textContent = 'Save';
+  saveBtn.onclick = () => saveEditorialContent(webinarId);
+  footer.appendChild(saveBtn);
+  
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = () => modal.remove();
+  footer.appendChild(cancelBtn);
+  
+  modalBox.appendChild(footer);
+  modal.appendChild(modalBox);
+  document.body.appendChild(modal);
+  
+  lucide.createIcons();
+}
+
+/**
+ * Render a single block in the editor
+ */
+function renderBlock(container, block, index) {
+  const blockDiv = document.createElement('div');
+  blockDiv.className = 'card bg-base-200 shadow-sm';
+  blockDiv.dataset.blockIndex = index;
+  
+  const blockBody = document.createElement('div');
+  blockBody.className = 'card-body p-4';
+  
+  // Block header
+  const blockHeader = document.createElement('div');
+  blockHeader.className = 'flex justify-between items-center mb-2';
+  
+  const blockTitle = document.createElement('h4');
+  blockTitle.className = 'font-semibold text-sm';
+  blockTitle.textContent = block.type === 'paragraph' ? '📄 Paragraph' : '📝 Registration Form';
+  blockHeader.appendChild(blockTitle);
+  
+  // Block actions
+  const blockActions = document.createElement('div');
+  blockActions.className = 'flex gap-1';
+  
+  const moveUpBtn = document.createElement('button');
+  moveUpBtn.className = 'btn btn-xs btn-ghost';
+  moveUpBtn.innerHTML = '↑';
+  moveUpBtn.onclick = () => moveBlock(index, -1);
+  if (index === 0) moveUpBtn.disabled = true;
+  blockActions.appendChild(moveUpBtn);
+  
+  const moveDownBtn = document.createElement('button');
+  moveDownBtn.className = 'btn btn-xs btn-ghost';
+  moveDownBtn.innerHTML = '↓';
+  moveDownBtn.onclick = () => moveBlock(index, 1);
+  blockActions.appendChild(moveDownBtn);
+  
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'btn btn-xs btn-error btn-ghost';
+  deleteBtn.textContent = '🗑️';
+  deleteBtn.onclick = () => deleteBlock(index);
+  blockActions.appendChild(deleteBtn);
+  
+  blockHeader.appendChild(blockActions);
+  blockBody.appendChild(blockHeader);
+  
+  // Block content
+  if (block.type === 'paragraph') {
+    const textarea = document.createElement('textarea');
+    textarea.className = 'textarea textarea-bordered w-full';
+    textarea.rows = 4;
+    textarea.placeholder = 'Enter paragraph text...';
+    textarea.value = block.content || '';
+    textarea.dataset.blockType = 'paragraph';
+    blockBody.appendChild(textarea);
+  } else if (block.type === 'shortcode') {
+    // Hardcoded shortcode: [forminator_form id="14547"]
+    const shortcodeDisplay = document.createElement('div');
+    shortcodeDisplay.className = 'mockup-code bg-base-200 text-sm';
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = '[forminator_form id="14547"]';
+    pre.appendChild(code);
+    shortcodeDisplay.appendChild(pre);
+    blockBody.appendChild(shortcodeDisplay);
+    
+    const note = document.createElement('p');
+    note.className = 'text-xs text-base-content/60 mt-2';
+    note.textContent = 'Registration form shortcode (auto-inserted)';
+    blockBody.appendChild(note);
+    
+    // Hidden inputs to store values for collectBlocks
+    const nameInput = document.createElement('input');
+    nameInput.type = 'hidden';
+    nameInput.value = 'forminator_form';
+    nameInput.dataset.shortcodePart = 'name';
+    blockBody.appendChild(nameInput);
+    
+    const attrsInput = document.createElement('input');
+    attrsInput.type = 'hidden';
+    attrsInput.value = JSON.stringify({ id: "14547" });
+    attrsInput.dataset.shortcodePart = 'attributes';
+    blockBody.appendChild(attrsInput);
+  }
+  
+  blockDiv.appendChild(blockBody);
+  container.appendChild(blockDiv);
+}
+
+/**
+ * Add a new block
+ */
+function addBlock(type) {
+  const container = document.getElementById('editorialBlocks');
+  
+  // Remove empty state if present
+  const emptyState = container.querySelector('.text-base-content\\/50');
+  if (emptyState) emptyState.remove();
+  
+  const newBlock = type === 'paragraph' 
+    ? { type: 'paragraph', content: '' }
+    : { type: 'shortcode', name: 'forminator_form', attributes: { id: '14547' } };
+  
+  const index = container.children.length;
+  renderBlock(container, newBlock, index);
+  
+  lucide.createIcons();
+}
+
+/**
+ * Delete a block
+ */
+function deleteBlock(index) {
+  const container = document.getElementById('editorialBlocks');
+  const blocks = Array.from(container.children);
+  
+  if (index >= 0 && index < blocks.length) {
+    blocks[index].remove();
+    
+    // Re-index remaining blocks
+    reindexBlocks();
+    
+    // Add empty state if no blocks left
+    if (container.children.length === 0) {
+      const emptyState = document.createElement('p');
+      emptyState.className = 'text-base-content/50 text-center py-8';
+      emptyState.textContent = 'No blocks yet. Add a paragraph or registration form to start.';
+      container.appendChild(emptyState);
+    }
+  }
+}
+
+/**
+ * Move a block up or down
+ */
+function moveBlock(index, direction) {
+  const container = document.getElementById('editorialBlocks');
+  const blocks = Array.from(container.children);
+  const newIndex = index + direction;
+  
+  if (newIndex >= 0 && newIndex < blocks.length) {
+    const block = blocks[index];
+    
+    if (direction === -1) {
+      container.insertBefore(block, blocks[newIndex]);
+    } else {
+      if (newIndex + 1 < blocks.length) {
+        container.insertBefore(block, blocks[newIndex + 1]);
+      } else {
+        container.appendChild(block);
+      }
+    }
+    
+    reindexBlocks();
+  }
+}
+
+/**
+ * Re-index all blocks after deletion/movement
+ */
+function reindexBlocks() {
+  const container = document.getElementById('editorialBlocks');
+  const blocks = Array.from(container.children);
+  
+  blocks.forEach((block, index) => {
+    block.dataset.blockIndex = index;
+    
+    // Update move down button disabled state
+    const moveDownBtn = block.querySelector('button[onclick*="moveBlock"]');
+    if (moveDownBtn && moveDownBtn.textContent === '↓') {
+      moveDownBtn.disabled = (index === blocks.length - 1);
+    }
+    
+    // Update move up button disabled state
+    const moveUpBtn = block.querySelector('button[onclick*="moveBlock"]');
+    if (moveUpBtn && moveUpBtn.textContent === '↑') {
+      moveUpBtn.disabled = (index === 0);
+    }
+  });
+}
+
+/**
+ * Collect blocks from UI
+ */
+function collectBlocks() {
+  const container = document.getElementById('editorialBlocks');
+  const blocks = Array.from(container.children);
+  
+  return blocks.map(blockDiv => {
+    const textarea = blockDiv.querySelector('textarea[data-block-type="paragraph"]');
+    if (textarea) {
+      return {
+        type: 'paragraph',
+        content: textarea.value
+      };
+    }
+    
+    const nameInput = blockDiv.querySelector('input[data-shortcode-part="name"]');
+    const attrsInput = blockDiv.querySelector('input[data-shortcode-part="attributes"]');
+    
+    if (nameInput && attrsInput) {
+      let attributes = {};
+      try {
+        attributes = JSON.parse(attrsInput.value || '{}');
+      } catch (e) {
+        console.warn('Invalid JSON in attributes, using empty object:', e);
+      }
+      
+      return {
+        type: 'shortcode',
+        name: nameInput.value,
+        attributes
+      };
+    }
+    
+    return null;
+  }).filter(block => block !== null);
+}
+
+/**
+ * Preview editorial content
+ */
+function previewEditorialContent() {
+  const blocks = collectBlocks();
+  
+  // Build HTML preview
+  const html = blocks.map(block => {
+    if (block.type === 'paragraph') {
+      return '<p>' + escapeHtml(block.content) + '</p>';
+    } else if (block.type === 'shortcode') {
+      const attrs = Object.entries(block.attributes || {})
+        .map(([k, v]) => k + '="' + escapeHtml(String(v)) + '"')
+        .join(' ');
+      return '[' + block.name + (attrs ? ' ' + attrs : '') + ']';
+    }
+    return '';
+  }).join('\n\n');
+  
+  // Create preview modal
+  const previewModal = document.createElement('div');
+  previewModal.className = 'modal modal-open';
+  
+  const previewBox = document.createElement('div');
+  previewBox.className = 'modal-box max-w-3xl';
+  
+  const previewHeader = document.createElement('h3');
+  previewHeader.className = 'font-bold text-lg mb-4';
+  previewHeader.textContent = 'Preview';
+  previewBox.appendChild(previewHeader);
+  
+  const previewContent = document.createElement('div');
+  previewContent.className = 'bg-base-200 p-4 rounded-lg whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto';
+  previewContent.textContent = html;
+  previewBox.appendChild(previewContent);
+  
+  const previewFooter = document.createElement('div');
+  previewFooter.className = 'modal-action';
+  
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'btn';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = () => previewModal.remove();
+  previewFooter.appendChild(closeBtn);
+  
+  previewBox.appendChild(previewFooter);
+  previewModal.appendChild(previewBox);
+  document.body.appendChild(previewModal);
+}
+
+/**
+ * Save editorial content
+ */
+async function saveEditorialContent(webinarId) {
+  try {
+    const blocks = collectBlocks();
+    
+    const editorialContent = blocks.length > 0 
+      ? { blocks, version: 1 }
+      : null; // NULL = use Odoo description
+    
+    const res = await fetch('/events/api/editorial/' + webinarId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ editorialContent })
+    });
+    
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Save failed');
+    }
+    
+    alert('✅ Editorial content saved! Re-publish the webinar to apply changes.');
+    
+    // Close modal
+    const modal = document.getElementById('editorialModal');
+    if (modal) modal.remove();
+    
+  } catch (error) {
+    console.error('Editorial save error:', error);
+    alert('❌ Failed to save: ' + error.message);
+  }
+}
+
+/**
+ * Escape HTML (client-side helper)
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }

@@ -9,6 +9,7 @@ import { getOdooWebinar } from './odoo-client.js';
 import { mapOdooToWordPress } from './mapping.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { getTagMappingsForOdooTags } from './tag-mapping.js';
+import { buildEditorialDescription } from './editorial.js';
 
 /**
  * Build Basic Auth header from WP_API_TOKEN (format: "username:password")
@@ -142,7 +143,7 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
   
   const { data: existingSnapshot } = await supabase
     .from('webinar_snapshots')
-    .select('wp_snapshot')
+    .select('wp_snapshot, editorial_content')
     .eq('user_id', userId)
     .eq('odoo_webinar_id', odooWebinarId)
     .single();
@@ -162,6 +163,15 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
       wpPayload.categories = categoriesString;
     }
   }
+  
+  // 3b. Use editorial description if present, else use Odoo description
+  const editorialContent = existingSnapshot?.editorial_content;
+  if (editorialContent && editorialContent.blocks && editorialContent.blocks.length > 0) {
+    const odooDescription = odooWebinar.x_studio_webinar_info || '';
+    wpPayload.description = buildEditorialDescription(editorialContent, odooDescription);
+    console.log(`${LOG_PREFIX} 📝 Using editorial content for description`);
+  }
+  // Else: wpPayload.description already set by mapOdooToWordPress()
   
   let wpEventId;
   

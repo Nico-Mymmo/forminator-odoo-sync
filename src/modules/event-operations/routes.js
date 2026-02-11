@@ -10,6 +10,7 @@ import { computeEventState } from './state-engine.js';
 import { extractOdooWebinarId } from './mapping.js';
 import { eventOperationsUI } from './ui.js';
 import { getTagMappings, createTagMapping, deleteTagMapping } from './tag-mapping.js';
+import { validateEditorialContent } from './editorial.js';
 
 export const routes = {
   /**
@@ -548,6 +549,156 @@ export const routes = {
       
     } catch (error) {
       console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch WP event categories failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * GET /events/api/editorial/:webinarId
+   * Get editorial content for a webinar
+   */
+  'GET /api/editorial/:webinarId': async (context) => {
+    const { env, user, params } = context;
+    
+    try {
+      const { webinarId } = params;
+      const odooWebinarId = parseInt(webinarId, 10);
+      
+      if (!odooWebinarId || isNaN(odooWebinarId)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid webinar ID'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      console.log(`${LOG_PREFIX} 📝 Fetching editorial content for webinar ${odooWebinarId}...`);
+      
+      const supabase = await getSupabaseAdminClient(env);
+      
+      const { data: snapshot, error } = await supabase
+        .from('webinar_snapshots')
+        .select('editorial_content')
+        .eq('user_id', user.id)
+        .eq('odoo_webinar_id', odooWebinarId)
+        .single();
+      
+      if (error && error.code !== 'PGRST116') { // PGRST116 = not found (acceptable)
+        throw error;
+      }
+      
+      const editorialContent = snapshot?.editorial_content || null;
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Editorial content retrieved`);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: editorialContent
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch editorial content failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * PUT /events/api/editorial/:webinarId
+   * Save editorial content for a webinar
+   */
+  'PUT /api/editorial/:webinarId': async (context) => {
+    const { env, user, params, request } = context;
+    
+    try {
+      const { webinarId } = params;
+      const odooWebinarId = parseInt(webinarId, 10);
+      
+      if (!odooWebinarId || isNaN(odooWebinarId)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid webinar ID'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      const body = await request.json();
+      const { editorialContent } = body;
+      
+      // Validate editorial content structure
+      const validation = validateEditorialContent(editorialContent);
+      if (!validation.valid) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: validation.error
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      console.log(`${LOG_PREFIX} 📝 Saving editorial content for webinar ${odooWebinarId}...`);
+      
+      const supabase = await getSupabaseAdminClient(env);
+      
+      // Check if snapshot exists
+      const { data: existingSnapshot } = await supabase
+        .from('webinar_snapshots')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('odoo_webinar_id', odooWebinarId)
+        .single();
+      
+      if (!existingSnapshot) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Webinar must be published before adding editorial content'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      // Update editorial content
+      const { error: updateError } = await supabase
+        .from('webinar_snapshots')
+        .update({ editorial_content: editorialContent })
+        .eq('user_id', user.id)
+        .eq('odoo_webinar_id', odooWebinarId);
+      
+      if (updateError) {
+        throw updateError;
+      }
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Editorial content saved`);
+      
+      return new Response(JSON.stringify({
+        success: true
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Save editorial content failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,
