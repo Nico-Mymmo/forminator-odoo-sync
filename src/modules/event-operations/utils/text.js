@@ -60,28 +60,3 @@ export function stripShortcodes(text) {
   // Remove all [shortcode attr="value"] patterns
   return text.replace(/\[([a-z_-]+)(?:\s+[^\]]+)?\]/gi, '').trim();
 }
-
-/**
- * Strip rendered Forminator forms from HTML (WordPress renders shortcodes to HTML)
- * 
- * @param {string} html - HTML content that may contain rendered forminator forms
- * @returns {string} HTML without rendered forminator forms
- */
-export function stripRenderedForms(html) {
-  if (!html) return '';
-  
-  // Remove entire forminator-ui divs (WordPress shortcode→HTML expansion)
-  // Pattern: <div class="forminator-ui ...">...</div> and <form id="forminator-module-...">...</form>
-  let cleaned = html;
-  
-  // Remove forminator divs (may contain nested content)
-  cleaned = cleaned.replace(/<div[^>]*class="[^"]*forminator[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
-  
-  // Remove forminator forms
-  cleaned = cleaned.replace(/<form[^>]*forminator[^>]*>[\s\S]*?<\/form>/gi, '');
-  
-  // Remove forminator edit links
-  cleaned = cleaned.replace(/<div[^>]*forminator-edit-module[^>]*>[\s\S]*?<\/div>/gi, '');
-  
-  return cleaned.trim();
-}

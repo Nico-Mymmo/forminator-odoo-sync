@@ -275,18 +275,7 @@ export const routes = {
         getSupabaseAdminClient(env)
       ]);
       
-      // 2. Fetch existing snapshots for editorial_content
-      const { data: existingSnapshots } = await supabase
-        .from('webinar_snapshots')
-        .select('odoo_webinar_id, editorial_content')
-        .eq('user_id', user.id);
-      
-      const editorialContentMap = new Map();
-      for (const snapshot of (existingSnapshots || [])) {
-        editorialContentMap.set(snapshot.odoo_webinar_id, snapshot.editorial_content);
-      }
-      
-      // 3. Build WP lookup by odoo_webinar_id meta
+      // 2. Build WP lookup by odoo_webinar_id meta
       const wpByOdooId = new Map();
       for (const wpEvent of wpEvents) {
         const odooId = extractOdooWebinarId(wpEvent.meta || {});
@@ -295,13 +284,12 @@ export const routes = {
         }
       }
       
-      // 4. Compute state for each Odoo webinar
+      // 3. Compute state for each Odoo webinar (only title/date comparison)
       const results = [];
       const discrepancies = [];
       
       for (const odooWebinar of odooWebinars) {
         const wpCoreEvent = wpByOdooId.get(odooWebinar.id) || null;
-        const editorialContent = editorialContentMap.get(odooWebinar.id) || null;
         
         // If event exists in WordPress, fetch Tribe API version for accurate snapshot
         // (Core API doesn't include Tribe-specific fields like start_date, categories, etc.)
@@ -315,7 +303,7 @@ export const routes = {
           }
         }
 
-        const state = computeEventState(odooWebinar, wpEvent, editorialContent);
+        const state = computeEventState(odooWebinar, wpEvent);
         
         // Upsert snapshot with full Tribe API event data (or null if not published)
         const { error } = await supabase

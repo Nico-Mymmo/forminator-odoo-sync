@@ -164,14 +164,26 @@ export async function publishToWordPress(env, userId, odooWebinarId) {
     }
   }
   
-  // 3b. Use editorial description if present, else use Odoo description
+  // 3b. Build description: use editorial content if present, else generate default (Odoo paragraph + form)
   const editorialContent = existingSnapshot?.editorial_content;
   if (editorialContent && editorialContent.blocks && editorialContent.blocks.length > 0) {
+    // User has custom editorial content - use it
     const odooDescription = odooWebinar.x_studio_webinar_info || '';
     wpPayload.description = buildEditorialDescription(editorialContent, odooDescription);
     console.log(`${LOG_PREFIX} 📝 Using editorial content for description`);
+  } else {
+    // No editorial content - generate default: Odoo description paragraph + registration form
+    const odooDescription = odooWebinar.x_studio_webinar_info || '';
+    const defaultEditorial = {
+      blocks: [
+        { type: 'paragraph', content: odooDescription },
+        { type: 'shortcode', name: 'forminator_form', attributes: { id: '14547' } }
+      ],
+      version: 1
+    };
+    wpPayload.description = buildEditorialDescription(defaultEditorial, odooDescription);
+    console.log(`${LOG_PREFIX} 📝 Using default description (Odoo + registration form)`);
   }
-  // Else: wpPayload.description already set by mapOdooToWordPress()
   
   let wpEventId;
   
