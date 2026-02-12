@@ -20,25 +20,43 @@ import { stripHtmlTags } from './utils/text.js';
  * @returns {Object} Tribe Events API payload
  */
 export function mapOdooToWordPress(odooWebinar, status = 'publish') {
-  const dateValue = odooWebinar[ODOO_FIELDS.DATE];
-  const timeValue = odooWebinar[ODOO_FIELDS.START_TIME];
+  const eventDatetime = odooWebinar[ODOO_FIELDS.EVENT_DATETIME];
+  const durationMinutes = odooWebinar[ODOO_FIELDS.DURATION_MINUTES] || DEFAULT_DURATION_MINUTES;
   
-  // Odoo returns false for empty fields
-  if (!dateValue) {
-    throw new Error(`Webinar ${odooWebinar.id} has no date (x_studio_date is empty)`);
+  // Validate datetime field
+  if (!eventDatetime) {
+    throw new Error(`Webinar ${odooWebinar.id} has no datetime (x_studio_event_datetime is empty)`);
   }
   
-  const startDateTime = computeStartDateTime(
-    dateValue,
-    timeValue || '0u'
-  );
+  // CRITICAL: Odoo datetime fields are stored in UTC but returned WITHOUT 'Z' suffix
+  // Example: Odoo returns "2026-06-18 09:00:00" for 11:00 Brussels time (stored as UTC)
+  // We must explicitly treat this as UTC by adding 'Z'
+  let isoString = eventDatetime.trim();
   
-  const endDateTime = computeEndDateTime(startDateTime, DEFAULT_DURATION_MINUTES);
+  // If it's in format "YYYY-MM-DD HH:MM:SS" (no T, no Z), convert to ISO with Z
+  if (isoString.includes(' ') && !isoString.includes('T')) {
+    isoString = isoString.replace(' ', 'T') + 'Z';
+  }
+  // If it has T but no Z, add Z
+  else if (isoString.includes('T') && !isoString.endsWith('Z')) {
+    isoString = isoString + 'Z';
+  }
+  
+  // Parse ISO 8601 UTC datetime
+  const startDate = new Date(isoString);
+  
+  // Validate parsed date
+  if (isNaN(startDate.getTime())) {
+    throw new Error(`Webinar ${odooWebinar.id} has invalid datetime: ${eventDatetime}`);
+  }
+  
+  // Compute end time from duration
+  const endDate = new Date(startDate.getTime() + (durationMinutes * 60 * 1000));
   
   return {
     title: odooWebinar[ODOO_FIELDS.NAME],
-    start_date: formatLocalDateTime(startDateTime),
-    end_date: formatLocalDateTime(endDateTime),
+    start_date: startDate.toISOString(),
+    end_date: endDate.toISOString(),
     description: stripHtmlTags(odooWebinar[ODOO_FIELDS.INFO] || '') || ' ',
     status: status,
     timezone: TIMEZONE

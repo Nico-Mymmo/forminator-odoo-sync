@@ -13,7 +13,7 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
   
   // Create card container
   const card = document.createElement('div');
-  card.className = 'card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow h-[380px]';
+  card.className = 'card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow min-h-[480px]';
   
   // Card body
   const cardBody = document.createElement('div');
@@ -43,13 +43,27 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
   const metaGrid = document.createElement('div');
   metaGrid.className = 'space-y-3 text-sm flex-1 overflow-y-auto';
   
+  // Format datetime (use global formatEventDateTime from ui.js)
+  let dateValue = '—';
+  let timeValue = '—';
+  if (webinar.x_studio_event_datetime && window.formatEventDateTime) {
+    const formatted = window.formatEventDateTime(webinar.x_studio_event_datetime);
+    dateValue = formatted.date;
+    timeValue = formatted.time;
+  }
+  
   // Date
-  const dateRow = createMetaRow('calendar', 'Date', webinar.x_studio_date || '—');
+  const dateRow = createMetaRow('calendar', 'Datum', dateValue);
   metaGrid.appendChild(dateRow);
   
   // Time
-  const timeRow = createMetaRow('clock', 'Time', webinar.x_studio_starting_time || '—');
+  const timeRow = createMetaRow('clock', 'Tijd', timeValue);
   metaGrid.appendChild(timeRow);
+  
+  // Duration
+  const durationValue = webinar.x_studio_event_duration_minutes ? webinar.x_studio_event_duration_minutes + ' min' : '—';
+  const durationRow = createMetaRow('clock', 'Duur', durationValue);
+  metaGrid.appendChild(durationRow);
   
   // Registrations
   const regRow = createMetaRow('users', 'Registrations', regCount.toString());

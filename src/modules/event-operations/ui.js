@@ -267,46 +267,42 @@ export function eventOperationsUI(user) {
         if (tab === 'all') return webinars;
         
         const now = new Date();
-        now.setHours(0, 0, 0, 0); // Start of today
         
         return webinars.filter(webinar => {
           const snapshot = snapshotMap.get(webinar.id);
           const state = snapshot ? snapshot.computed_state : 'not_published';
           
-          // Parse date - Odoo format can be DD/MM/YYYY or YYYY-MM-DD
-          let eventDate = null;
-          if (webinar.x_studio_date) {
-            const dateStr = webinar.x_studio_date.trim();
-            
-            // Try DD/MM/YYYY format first
-            if (dateStr.includes('/')) {
-              const parts = dateStr.split('/');
-              if (parts.length === 3) {
-                const day = parseInt(parts[0], 10);
-                const month = parseInt(parts[1], 10) - 1; // JS months are 0-indexed
-                const year = parseInt(parts[2], 10);
-                eventDate = new Date(year, month, day);
+          // Parse datetime - x_studio_event_datetime is in UTC but may lack 'Z'
+          let eventDatetime = null;
+          if (webinar.x_studio_event_datetime) {
+            try {
+              let isoString = webinar.x_studio_event_datetime.trim();
+              
+              // Ensure it's treated as UTC
+              if (isoString.includes(' ') && !isoString.includes('T')) {
+                isoString = isoString.replace(' ', 'T') + 'Z';
+              } else if (isoString.includes('T') && !isoString.endsWith('Z')) {
+                isoString = isoString + 'Z';
               }
-            } 
-            // Try YYYY-MM-DD format
-            else if (dateStr.includes('-')) {
-              eventDate = new Date(dateStr);
-            }
-            
-            // Validate date
-            if (eventDate && isNaN(eventDate.getTime())) {
-              console.warn('[filterWebinars] Invalid date for webinar', webinar.id, ':', webinar.x_studio_date);
-              eventDate = null;
-            } else if (eventDate) {
-              eventDate.setHours(0, 0, 0, 0); // Normalize to start of day
+              
+              eventDatetime = new Date(isoString);
+              
+              // Validate
+              if (isNaN(eventDatetime.getTime())) {
+                console.warn('[filterWebinars] Invalid datetime for webinar', webinar.id, ':', webinar.x_studio_event_datetime);
+                eventDatetime = null;
+              }
+            } catch (err) {
+              console.warn('[filterWebinars] Error parsing datetime for webinar', webinar.id, ':', err);
+              eventDatetime = null;
             }
           }
           
           switch (tab) {
             case 'upcoming':
-              return eventDate && eventDate >= now && state !== 'archived';
+              return eventDatetime && eventDatetime >= now && state !== 'archived';
             case 'past':
-              return eventDate && eventDate < now && state !== 'archived';
+              return eventDatetime && eventDatetime < now && state !== 'archived';
             case 'published':
               return state === 'published';
             case 'draft':
@@ -442,12 +438,17 @@ export function eventOperationsUI(user) {
             }).join('');
           }
           
+          // Format datetime
+          const datetime = formatEventDateTime(webinar.x_studio_event_datetime);
+          const duration = webinar.x_studio_event_duration_minutes ? webinar.x_studio_event_duration_minutes + ' min' : '—';
+          
           const tr = document.createElement('tr');
           tr.innerHTML = 
             '<td class="font-mono text-sm">' + webinar.id + '</td>' +
             '<td class="max-w-xs"><div class="truncate" title="' + escapeHtml(webinar.x_name) + '">' + escapeHtml(webinar.x_name) + '</div></td>' +
-            '<td class="whitespace-nowrap">' + (webinar.x_studio_date || '—') + '</td>' +
-            '<td class="whitespace-nowrap">' + (webinar.x_studio_starting_time || '—') + '</td>' +
+            '<td class="whitespace-nowrap">' + datetime.date + '</td>' +
+            '<td class="whitespace-nowrap">' + datetime.time + '</td>' +
+            '<td class="whitespace-nowrap">' + duration + '</td>' +
             '<td class="text-center whitespace-nowrap"><span class="badge badge-neutral badge-sm">' + regCount + '</span></td>' +
             '<td class="whitespace-nowrap">' + tagsHtml + '</td>' +
             '<td><span class="badge ' + badge.css + ' badge-sm whitespace-nowrap">' + badge.label + '</span></td>' +
@@ -645,6 +646,51 @@ export function eventOperationsUI(user) {
           setTimeout(() => switchView('cards'), 100);
         }
       }
+
+      // ── Helper: Format UTC datetime to Brussels timezone ──
+      function formatEventDateTime(utcDatetimeStr) {
+        if (!utcDatetimeStr) return '—';
+        
+        try {
+          // CRITICAL: Odoo datetime fields are stored in UTC but returned WITHOUT 'Z' suffix
+          // Example: Odoo returns "2026-06-18 09:00:00" for 11:00 Brussels time
+          // We must explicitly treat this as UTC by adding 'Z' or replacing space with 'T' + 'Z'
+          let isoString = utcDatetimeStr.trim();
+          
+          // If it's in format "YYYY-MM-DD HH:MM:SS" (no T, no Z), convert to ISO with Z
+          if (isoString.includes(' ') && !isoString.includes('T')) {
+            isoString = isoString.replace(' ', 'T') + 'Z';
+          }
+          // If it has T but no Z, add Z
+          else if (isoString.includes('T') && !isoString.endsWith('Z')) {
+            isoString = isoString + 'Z';
+          }
+          
+          const date = new Date(isoString);
+          
+          // Format to Brussels timezone - datum en tijd apart
+          const dateFormatted = date.toLocaleDateString('nl-BE', {
+            timeZone: 'Europe/Brussels',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          });
+          
+          const timeFormatted = date.toLocaleTimeString('nl-BE', {
+            timeZone: 'Europe/Brussels',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          
+          return { date: dateFormatted, time: timeFormatted };
+        } catch (err) {
+          console.error('[formatEventDateTime] Invalid datetime:', utcDatetimeStr, err);
+          return { date: '—', time: '—' };
+        }
+      }
+      
+      // Make formatEventDateTime available to external scripts
+      window.formatEventDateTime = formatEventDateTime;
 
       // ── Init ──
       initTheme();

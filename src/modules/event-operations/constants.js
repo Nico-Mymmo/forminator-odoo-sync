@@ -37,8 +37,8 @@ export const ODOO_MODEL = {
 export const ODOO_FIELDS = {
   ID: 'id',
   NAME: 'x_name',
-  DATE: 'x_studio_date',
-  START_TIME: 'x_studio_starting_time',
+  EVENT_DATETIME: 'x_studio_event_datetime',
+  DURATION_MINUTES: 'x_studio_event_duration_minutes',
   INFO: 'x_studio_webinar_info',
   STAGE: 'x_studio_stage_id',
   ACTIVE: 'x_active',

@@ -22,14 +22,14 @@ export async function getOdooWebinars(env) {
     fields: [
       ODOO_FIELDS.ID,
       ODOO_FIELDS.NAME,
-      ODOO_FIELDS.DATE,
-      ODOO_FIELDS.START_TIME,
+      ODOO_FIELDS.EVENT_DATETIME,
+      ODOO_FIELDS.DURATION_MINUTES,
       ODOO_FIELDS.INFO,
       ODOO_FIELDS.STAGE,
       ODOO_FIELDS.ACTIVE,
       ODOO_FIELDS.TAG_IDS
     ],
-    order: `${ODOO_FIELDS.DATE} DESC`,
+    order: `${ODOO_FIELDS.EVENT_DATETIME} DESC`,
     limit: 100
   });
   
@@ -52,8 +52,8 @@ export async function getOdooWebinar(env, webinarId) {
     fields: [
       ODOO_FIELDS.ID,
       ODOO_FIELDS.NAME,
-      ODOO_FIELDS.DATE,
-      ODOO_FIELDS.START_TIME,
+      ODOO_FIELDS.EVENT_DATETIME,
+      ODOO_FIELDS.DURATION_MINUTES,
       ODOO_FIELDS.INFO,
       ODOO_FIELDS.STAGE,
       ODOO_FIELDS.ACTIVE,
