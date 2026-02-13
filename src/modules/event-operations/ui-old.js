@@ -1,5 +1,5 @@
 /**
- * Event Operations - UI (Bootstrap Only - REFACTORED)
+ * Event Operations - UI (Bootstrap Only)
  * 
  * Responsibilities:
  * - Load external dependencies (FullCalendar, TinyMCE)
@@ -45,17 +45,16 @@ export function eventOperationsUI(user) {
     <!-- FullCalendar v6 (Addendum D) -->
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
-    <!-- Quill.js WYSIWYG Editor (Editorial Layer - Addendum D) -->
-    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet" />
-    <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
+    <!-- TinyMCE (Editorial Layer - Addendum D) -->
+    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
     <style>
       /* FullCalendar Minimal DaisyUI Integration (Month View Only) */
       
       .fc {
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background-color: oklch(var(--b1));
-        --fc-border-color: oklch(var(--bc) / 0.06);
-        --fc-today-bg-color: oklch(var(--p) / 0.03);
+        background-color: hsl(var(--b1));
+        --fc-border-color: hsl(var(--bc) / 0.06);
+        --fc-today-bg-color: hsl(var(--p) / 0.03);
       }
       
       /* Toolbar */
@@ -66,14 +65,14 @@ export function eventOperationsUI(user) {
       .fc-toolbar-title {
         font-size: 1.125rem;
         font-weight: 600;
-        color: oklch(var(--bc));
+        color: hsl(var(--bc));
       }
       
       /* Toolbar buttons - DaisyUI btn-sm style */
       .fc .fc-button {
         background-color: transparent;
-        border: 1px solid oklch(var(--bc) / 0.2);
-        color: oklch(var(--bc));
+        border: 1px solid hsl(var(--bc) / 0.2);
+        color: hsl(var(--bc));
         text-transform: none;
         font-weight: 500;
         font-size: 0.875rem;
@@ -83,22 +82,22 @@ export function eventOperationsUI(user) {
         transition: all 0.2s ease;
       }
       .fc .fc-button:hover {
-        background-color: oklch(var(--bc) / 0.05);
+        background-color: hsl(var(--bc) / 0.05);
       }
       .fc .fc-button-primary.fc-button-active {
-        background-color: oklch(var(--p));
-        border-color: oklch(var(--p));
-        color: oklch(var(--pc));
+        background-color: hsl(var(--p));
+        border-color: hsl(var(--p));
+        color: hsl(var(--pc));
         font-weight: 600;
       }
       
       /* Day cells */
       .fc-col-header-cell {
-        border-bottom: 1px solid oklch(var(--bc) / 0.1);
+        border-bottom: 1px solid hsl(var(--bc) / 0.1);
         font-weight: 600;
         text-transform: uppercase;
         font-size: 0.6875rem;
-        color: oklch(var(--bc) / 0.6);
+        color: hsl(var(--bc) / 0.6);
         padding: 0.5rem 0.25rem;
       }
       .fc-daygrid-day-frame {
@@ -108,11 +107,11 @@ export function eventOperationsUI(user) {
       
       /* Today highlight */
       .fc-daygrid-day.fc-day-today {
-        background-color: oklch(var(--p) / 0.03) !important;
+        background-color: hsl(var(--p) / 0.03) !important;
       }
       .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
-        background-color: oklch(var(--p));
-        color: oklch(var(--pc));
+        background-color: hsl(var(--p));
+        color: hsl(var(--pc));
         border-radius: 0.375rem;
         font-weight: 600;
       }
@@ -120,9 +119,9 @@ export function eventOperationsUI(user) {
       /* Events - styled via eventDidMount (CSS variables) */
       .fc-event {
         cursor: pointer;
-        background-color: var(--event-bg, oklch(var(--b2))) !important;
-        border-left: 3px solid var(--event-accent, oklch(var(--p))) !important;
-        color: var(--event-text, oklch(var(--bc))) !important;
+        background-color: var(--event-bg, hsl(var(--b2))) !important;
+        border-left: 3px solid var(--event-accent, hsl(var(--p))) !important;
+        color: var(--event-text, hsl(var(--bc))) !important;
         border-width: 1px !important;
         font-weight: 500;
         font-size: 0.8125rem;
@@ -133,7 +132,7 @@ export function eventOperationsUI(user) {
       }
       .fc-event:hover {
         transform: translateY(-1px);
-        box-shadow: 0 2px 4px oklch(var(--bc) / 0.15);
+        box-shadow: 0 2px 4px hsl(var(--bc) / 0.15);
         filter: brightness(0.95);
       }
       .fc-event-title,
@@ -143,24 +142,24 @@ export function eventOperationsUI(user) {
       
       /* Status Legend */
       .legend-warning {
-        background-color: oklch(var(--wa) / 0.15) !important;
-        border-color: oklch(var(--wa) / 0.3) !important;
-        color: oklch(var(--bc)) !important;
+        background-color: hsl(var(--wa) / 0.15) !important;
+        border-color: hsl(var(--wa) / 0.3) !important;
+        color: hsl(var(--bc)) !important;
       }
       .legend-success {
-        background-color: oklch(var(--su) / 0.15) !important;
-        border-color: oklch(var(--su) / 0.3) !important;
-        color: oklch(var(--bc)) !important;
+        background-color: hsl(var(--su) / 0.15) !important;
+        border-color: hsl(var(--su) / 0.3) !important;
+        color: hsl(var(--bc)) !important;
       }
       .legend-neutral {
-        background-color: oklch(var(--n) / 0.15) !important;
-        border-color: oklch(var(--n) / 0.3) !important;
-        color: oklch(var(--bc)) !important;
+        background-color: hsl(var(--n) / 0.15) !important;
+        border-color: hsl(var(--n) / 0.3) !important;
+        color: hsl(var(--bc)) !important;
       }
       .legend-info {
-        background-color: oklch(var(--in) / 0.15) !important;
-        border-color: oklch(var(--in) / 0.3) !important;
-        color: oklch(var(--bc)) !important;
+        background-color: hsl(var(--in) / 0.15) !important;
+        border-color: hsl(var(--in) / 0.3) !important;
+        color: hsl(var(--bc)) !important;
       }
     </style>
 </head>
@@ -187,12 +186,11 @@ export function eventOperationsUI(user) {
                     <i data-lucide="calendar" class="w-4 h-4"></i> Calendar
                   </button>
                 </div>
-                
                 <!-- Actions (RIGHT) -->
-                <button class="btn btn-sm btn-outline" onclick="openEventTypeMappingModal()">
-                  <i data-lucide="tags" class="w-4 h-4"></i> Event Type Mapping
+                <button id="btnTags" class="btn btn-outline btn-sm gap-2" onclick="openEventTypeMappingModal()">
+                  <i data-lucide="tag" class="w-4 h-4"></i> Event Type Mapping
                 </button>
-                <button id="btnSync" class="btn btn-sm btn-primary" onclick="runSync()">
+                <button id="btnSync" class="btn btn-primary btn-sm gap-2" onclick="runSync()">
                   <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All
                 </button>
               </div>
@@ -210,60 +208,140 @@ export function eventOperationsUI(user) {
 
           <!-- Discrepancies section -->
           <div id="discrepancySection" class="hidden mb-6">
-            <div class="alert alert-warning">
-              <i data-lucide="alert-triangle" class="w-5 h-5"></i>
-              <div>
-                <h3 class="font-bold">Discrepanc fixes (<span id="discrepancyCount">0</span>)</h3>
-                <p class="text-sm">Events out of sync between Odoo and WordPress</p>
+            <div class="collapse collapse-arrow bg-base-100 shadow-xl">
+              <input type="checkbox" checked />
+              <div class="collapse-title flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-5 h-5 text-warning"></i>
+                <span class="font-semibold">Discrepancies</span>
+                <span id="discrepancyCount" class="badge badge-warning badge-sm">0</span>
+              </div>
+              <div class="collapse-content">
+                <div id="discrepancyList" class="space-y-2"></div>
               </div>
             </div>
-            <div id="discrepancyList" class="mt-4 space-y-2"></div>
           </div>
 
-          <!-- Filter Tabs -->
-          <div id="filterTabs" class="tabs tabs-boxed mb-6" role="tablist">
-            <a role="tab" id="tabAll" class="tab tab-active" onclick="switchTab('all')">Alle</a>
-            <a role="tab" id="tabUpcoming" class="tab" onclick="switchTab('upcoming')">Komend</a>
-            <a role="tab" id="tabPast" class="tab" onclick="switchTab('past')">Verleden</a>
-            <a role="tab" id="tabPublished" class="tab" onclick="switchTab('published')">Published</a>
-            <a role="tab" id="tabDraft" class="tab" onclick="switchTab('draft')">Draft</a>
-            <a role="tab" id="tabOutOfSync" class="tab" onclick="switchTab('out_of_sync')">Out of Sync</a>
-            <a role="tab" id="tabArchived" class="tab" onclick="switchTab('archived')">Archived</a>
+          <!-- Filter tabs (Table view only - Addendum D Phase 8) -->
+          <div id="filterTabs" class="tabs tabs-boxed mb-6 bg-base-100 shadow-sm">
+            <a id="tabAll" class="tab tab-active" onclick="switchTab('all')">Alle</a>
+            <a id="tabUpcoming" class="tab" onclick="switchTab('upcoming')">Komend</a>
+            <a id="tabPast" class="tab" onclick="switchTab('past')">Verleden</a>
+            <a id="tabPublished" class="tab" onclick="switchTab('published')">Gepubliceerd</a>
+            <a id="tabDraft" class="tab" onclick="switchTab('draft')">Concept</a>
+            <a id="tabOutOfSync" class="tab" onclick="switchTab('out_of_sync')">Niet gesync</a>
+            <a id="tabArchived" class="tab" onclick="switchTab('archived')">Gearchiveerd</a>
           </div>
 
-          <!-- Loading State -->
-          <div id="loadingState" class="flex justify-center items-center py-12" style="display: none;">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
+          <!-- Toast container -->
+          <div id="toastContainer" class="toast toast-top toast-end" style="z-index:9999;"></div>
+
+          <!-- Event Type Mappings Modal -->
+          <dialog id="eventTypeMappingModal" class="modal">
+            <div class="modal-box max-w-4xl">
+              <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+                <i data-lucide="tag" class="w-5 h-5"></i>
+                Event Type → WordPress Tag Mapping
+              </h3>
+              
+              <!-- Loading State -->
+              <div id="eventTypeMappingLoading" class="flex justify-center py-8">
+                <span class="loading loading-spinner loading-lg"></span>
+              </div>
+              
+              <!-- Content -->
+              <div id="eventTypeMappingContent" class="hidden">
+                <p class="text-sm text-base-content/70 mb-4">
+                  Map each Odoo event type to exactly one WordPress tag. Sync/publish will fail if a webinar event type has no mapping.
+                </p>
+                
+                <!-- Add New Mapping Form -->
+                <div class="card bg-base-200 mb-4">
+                  <div class="card-body">
+                    <h4 class="font-semibold mb-2">Save Mapping</h4>
+                    <div class="flex gap-2">
+                      <select id="odooEventTypeSelect" class="select select-bordered select-sm flex-1">
+                        <option value="">Select Odoo Event Type...</option>
+                      </select>
+                      <select id="wpTagSelect" class="select select-bordered select-sm flex-1">
+                        <option value="">Select WP Tag...</option>
+                      </select>
+                      <button id="btnSaveEventTypeMapping" class="btn btn-primary btn-sm" onclick="saveEventTypeMapping()">
+                        <i data-lucide="save" class="w-4 h-4"></i> Save
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Existing Mappings Table -->
+                <div class="overflow-x-auto">
+                  <table class="table table-zebra table-sm">
+                    <thead>
+                      <tr>
+                        <th>Odoo Event Type</th>
+                        <th>WordPress Tag</th>
+                        <th class="w-24">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="eventTypeMappingTableBody">
+                      <!-- Populated by loadEventTypeMappings() -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <div class="modal-action">
+                <form method="dialog">
+                  <button class="btn">Close</button>
+                </form>
+              </div>
+            </div>
+            <form method="dialog" class="modal-backdrop">
+              <button>close</button>
+            </form>
+          </dialog>
+
+          <!-- Loading state -->
+          <div id="loadingState" class="flex justify-center py-16">
+            <span class="loading loading-spinner loading-lg"></span>
           </div>
 
-          <!-- Empty State -->
-          <div id="emptyState" class="hidden text-center py-12">
-            <i data-lucide="inbox" class="w-16 h-16 mx-auto text-base-content/20 mb-4"></i>
-            <p class="text-lg text-base-content/60">Geen events gevonden</p>
+          <!-- Empty state -->
+          <div id="emptyState" class="hidden">
+            <div class="card bg-base-100 shadow-xl">
+              <div class="card-body text-center py-16">
+                <i data-lucide="calendar-off" class="w-12 h-12 mx-auto text-base-content/30 mb-4"></i>
+                <p class="text-base-content/60">No webinars found in Odoo.</p>
+              </div>
+            </div>
           </div>
 
-          <!-- Table View -->
-          <div id="dataTable" class="hidden overflow-x-auto">
-            <table class="table table-zebra table-sm">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Naam</th>
-                  <th>Datum</th>
-                  <th>Tijd</th>
-                  <th>Duur</th>
-                  <th class="text-center">Aanmeldingen</th>
-                  <th>Event Type</th>
-                  <th>Status</th>
-                  <th>WP</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="webinarTableBody"></tbody>
-            </table>
+          <!-- Webinar table -->
+          <div id="dataTable" class="hidden">
+            <div class="card bg-base-100 shadow-xl">
+              <div class="card-body">
+                <div class="overflow-x-auto">
+                  <table class="table table-zebra">
+                    <thead>
+                      <tr>
+                        <th class="w-16">ID</th>
+                        <th class="min-w-[200px]">Title</th>
+                        <th class="w-32 whitespace-nowrap">Date</th>
+                        <th class="w-24 whitespace-nowrap">Time</th>
+                        <th class="w-20 whitespace-nowrap">Registrations</th>
+                        <th class="w-32">Event Type</th>
+                        <th class="w-32">Status</th>
+                        <th class="w-24">WP Event</th>
+                        <th class="w-32">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="webinarTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Calendar Workspace (Addendum D) -->
+          <!-- Calendar Workspace (Phase 8) -->
           <div id="calendarWorkspace" class="hidden">
             <div class="grid grid-cols-12 gap-6">
               <!-- Calendar Container (8/12) -->
@@ -277,7 +355,7 @@ export function eventOperationsUI(user) {
               
               <!-- Detail Panel (4/12) -->
               <div class="col-span-12 lg:col-span-4">
-                <div class="card bg-base-100 shadow-xl sticky top-4 overflow-visible">
+                <div class="card bg-base-100 shadow-xl sticky top-4">
                   <div class="card-body">
                     <!-- Empty State -->
                     <div id="panel-empty-state" class="text-center py-12">
@@ -293,129 +371,29 @@ export function eventOperationsUI(user) {
             </div>
           </div>
 
-      </div>
+        </div>
     </div>
 
-    <!-- Toast Container -->
-    <div id="toastContainer" class="toast toast-top toast-end z-50"></div>
-
-    <!-- Feedback Modal (Sync / Publish results) -->
-    <dialog id="feedbackModal" class="modal">
-      <div class="modal-box">
-        <h3 id="feedbackModalTitle" class="font-bold text-lg mb-4 flex items-center gap-2"></h3>
-        <div id="feedbackModalBody" class="space-y-3"></div>
-        <div class="modal-action">
-          <form method="dialog">
-            <button class="btn">Sluiten</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop"><button>close</button></form>
-    </dialog>
-
-    <!-- Event Type Mapping Modal -->
-    <dialog id="eventTypeMappingModal" class="modal">
-      <div class="modal-box max-w-4xl">
-        <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
-          <i data-lucide="tag" class="w-5 h-5"></i>
-          Event Type → WordPress Tag Mapping
-        </h3>
-        
-        <!-- Loading State -->
-        <div id="eventTypeMappingLoading" class="flex justify-center py-8">
-          <span class="loading loading-spinner loading-lg"></span>
-        </div>
-        
-        <!-- Content -->
-        <div id="eventTypeMappingContent" class="hidden">
-          <p class="text-sm text-base-content/70 mb-4">
-            Map each Odoo event type to exactly one WordPress tag. Sync/publish will fail if a webinar event type has no mapping.
-          </p>
-          
-          <!-- Add New Mapping Form -->
-          <div class="card bg-base-200 mb-4">
-            <div class="card-body">
-              <h4 class="font-semibold mb-2">Save Mapping</h4>
-              <div class="flex gap-2">
-                <select id="odooEventTypeSelect" class="select select-bordered select-sm flex-1">
-                  <option value="">Select Odoo Event Type...</option>
-                </select>
-                <select id="wpTagSelect" class="select select-bordered select-sm flex-1">
-                  <option value="">Select WP Tag...</option>
-                </select>
-                <button id="btnSaveEventTypeMapping" class="btn btn-primary btn-sm" onclick="saveEventTypeMapping()">
-                  <i data-lucide="save" class="w-4 h-4"></i> Save
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Existing Mappings Table -->
-          <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
-              <thead>
-                <tr>
-                  <th>Odoo Event Type</th>
-                  <th>WordPress Tag</th>
-                  <th class="w-24">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="eventTypeMappingTableBody">
-                <!-- Populated by loadEventTypeMappings() -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-        
-        <div class="modal-action">
-          <form method="dialog">
-            <button class="btn">Close</button>
-          </form>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>close</button>
-      </form>
-    </dialog>
-
-    <!-- Bootstrap Script (ES Module) -->
-    <script type="module">
-      // ── Bootstrap: Event Operations Frontend (Addendum D Refactor) ──
-      
-      import {  appState,
-        setWebinars,
-        setSnapshots,
-        setMappings,
-        setRegistrations,
-        setEditorialOverride,
-        setCurrentEvent,
-        subscribe
-      } from '/state-store.js';
-      
-      import { initializeCalendar, refreshCalendar } from '/calendar-controller.js';
-      import { initializeDetailPanel } from '/detail-panel-controller.js';
-      import { initializeEditorModal } from '/editor-controller.js';
-      
+    <script>
       // ── Theme Management ──
       function changeTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         localStorage.setItem('selectedTheme', theme);
-        // Sync theme selector dropdown
-        const selector = document.getElementById('themeSelector');
-        if (selector) selector.value = theme;
       }
-      window.changeTheme = changeTheme;
       
       function initTheme() {
         const savedTheme = localStorage.getItem('selectedTheme') || 'light';
-        changeTheme(savedTheme);
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        const selector = document.getElementById('themeSelector');
+        if (selector) selector.value = savedTheme;
       }
 
-      // ── Navbar Actions ──
+      // ── Navbar Functions ──
       async function logout() {
         try {
-          await fetch('/api/logout', {
+          await fetch('/api/auth/logout', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             credentials: 'include'
           });
         } catch (err) {
@@ -424,18 +402,15 @@ export function eventOperationsUI(user) {
         localStorage.removeItem('adminToken');
         window.location.href = '/';
       }
-      window.logout = logout;
 
       function syncProdData() {
         alert('Sync production data not available in this module');
       }
-      window.syncProdData = syncProdData;
 
+      // Status badge config
       const STATUS_BADGES = ${JSON.stringify(STATUS_BADGES)};
 
-      let isInitialLoad = true;
-
-      // ── Toast / Notifications ──
+      // ── Toast ──
       function showToast(message, type = 'info') {
         const container = document.getElementById('toastContainer');
         const alertClass = type === 'error' ? 'alert-error' : type === 'success' ? 'alert-success' : 'alert-info';
@@ -445,23 +420,13 @@ export function eventOperationsUI(user) {
         container.appendChild(toast);
         setTimeout(() => toast.remove(), 4000);
       }
-      
-      // Make globally available
-      window.showNotification = showToast;
 
-      // ── Feedback Modal ──
-      function showFeedbackModal(title, icon, bodyHtml) {
-        const modal = document.getElementById('feedbackModal');
-        const titleEl = document.getElementById('feedbackModalTitle');
-        const bodyEl = document.getElementById('feedbackModalBody');
-        titleEl.innerHTML = '<i data-lucide="' + icon + '" class="w-5 h-5"></i> ' + title;
-        bodyEl.innerHTML = bodyHtml;
-        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [titleEl, bodyEl] });
-        modal.showModal();
-      }
-
-      // ── State management (legacy for table view) ──
-      let activeTab = 'all';
+      // ── State management ──
+      let odooWebinars = [];
+      let snapshotMap = new Map(); // odoo_webinar_id → snapshot
+      let registrationCounts = {}; // webinar.id → count
+      let eventTypeNamesMap = new Map(); // event_type_id → event_type_name
+      let activeTab = 'all'; // Current filter tab
 
       // ── Filter webinars by tab ──
       function filterWebinars(webinars, tab) {
@@ -470,14 +435,16 @@ export function eventOperationsUI(user) {
         const now = new Date();
         
         return webinars.filter(webinar => {
-          const snapshot = appState.snapshots[webinar.id];
+          const snapshot = snapshotMap.get(webinar.id);
           const state = snapshot ? snapshot.computed_state : 'not_published';
           
+          // Parse datetime - x_studio_event_datetime is in UTC but may lack 'Z'
           let eventDatetime = null;
-          if (webinar.x_start_datetime) {
+          if (webinar.x_studio_event_datetime) {
             try {
-              let isoString = webinar.x_start_datetime.trim();
+              let isoString = webinar.x_studio_event_datetime.trim();
               
+              // Ensure it's treated as UTC
               if (isoString.includes(' ') && !isoString.includes('T')) {
                 isoString = isoString.replace(' ', 'T') + 'Z';
               } else if (isoString.includes('T') && !isoString.endsWith('Z')) {
@@ -486,8 +453,9 @@ export function eventOperationsUI(user) {
               
               eventDatetime = new Date(isoString);
               
+              // Validate
               if (isNaN(eventDatetime.getTime())) {
-                console.warn('[filterWebinars] Invalid datetime for webinar',  webinar.id, ':', webinar.x_start_datetime);
+                console.warn('[filterWebinars] Invalid datetime for webinar', webinar.id, ':', webinar.x_studio_event_datetime);
                 eventDatetime = null;
               }
             } catch (err) {
@@ -516,27 +484,30 @@ export function eventOperationsUI(user) {
       }
 
       // ── Switch tab ──
-      window.switchTab = function switchTab(tab) {
+      function switchTab(tab) {
         activeTab = tab;
         
+        // Update tab UI
         document.querySelectorAll('.tabs .tab').forEach(el => el.classList.remove('tab-active'));
         const tabId = 'tab' + tab.charAt(0).toUpperCase() + tab.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
         const tabEl = document.getElementById(tabId);
         if (tabEl) tabEl.classList.add('tab-active');
         
+        // Update URL hash
         window.location.hash = 'tab=' + tab;
         
-        const filteredWebinars = filterWebinars(appState.webinars, activeTab);
+        // Re-render current view with filtered data
+        const filteredWebinars = filterWebinars(odooWebinars, activeTab);
         const currentView = localStorage.getItem('eventOpsViewMode') || 'table';
         
-        if (currentView === 'calendar') {
-          // Update appState and refresh calendar
-          setWebinars(filteredWebinars);
-          refreshCalendar();
+        if (currentView === 'cards') {
+          if (typeof renderCardsView === 'function') {
+            renderCardsView(filteredWebinars, snapshotMap, registrationCounts);
+          }
         } else {
           renderTable(filteredWebinars);
         }
-      };
+      }
 
       // ── Load data ──
       async function loadData() {
@@ -556,78 +527,50 @@ export function eventOperationsUI(user) {
           if (!snapshotsRes.success) throw new Error(snapshotsRes.error);
           if (!eventTypesRes.success) throw new Error(eventTypesRes.error);
 
-          // Update state store
-          setWebinars(webinarsRes.data.webinars || []);
-          setRegistrations(webinarsRes.data.registrationCounts || {});
+          odooWebinars = webinarsRes.data.webinars || [];
+          registrationCounts = webinarsRes.data.registrationCounts || {};
           
-          const snapshotMap = {};
+          snapshotMap.clear();
           for (const snap of (snapshotsRes.data || [])) {
-            snapshotMap[snap.odoo_webinar_id] = snap;
+            snapshotMap.set(snap.odoo_webinar_id, snap);
           }
-          setSnapshots(snapshotMap);
           
-          setMappings(mappingsRes.success ? mappingsRes.data : []);
+          eventTypeNamesMap.clear();
+          for (const eventType of (eventTypesRes.data || [])) {
+            eventTypeNamesMap.set(eventType.id, eventType.x_name);
+          }
 
-          // Load editorial overrides from snapshot data
-          for (const snap of (snapshotsRes.data || [])) {
-            if (snap.editorial_content && snap.editorial_content.blocks) {
-              // editorial_content is JSONB { blocks: [...], version: 1 }
-              // Convert blocks to HTML string before storing as editorial override
-              const html = snap.editorial_content.blocks.map(block => {
-                if (!block || !block.type) return '';
-                if (block.type === 'paragraph') return '<p>' + escapeHtml(block.content || '') + '</p>';
-                if (block.type === 'shortcode' && block.name) {
-                  const attrs = Object.entries(block.attributes || {}).map(([k, v]) => k + '="' + escapeHtml(String(v)) + '"').join(' ');
-                  return attrs ? '[' + block.name + ' ' + attrs + ']' : '[' + block.name + ']';
-                }
-                return '';
-              }).filter(Boolean).join('\\n');
-              if (html) setEditorialOverride(snap.odoo_webinar_id, html);
-            }
-          }
+          // Make event type map available to external client.js
+          window.eventTypeNamesMap = eventTypeNamesMap;
+          
+          // Cache event type mappings globally (Phase 8)
+          window.eventTypeMappings = mappingsRes.success ? mappingsRes.data : [];
 
           // Restore active tab from URL hash
           initTabFromHash();
           
-          // Render table data (only on initial load, subsequent loads handled in finally)
-          if (isInitialLoad) {
-            const filteredWebinars = filterWebinars(appState.webinars, activeTab);
-            renderTable(filteredWebinars);
-          }
+          // Render with current filter
+          const filteredWebinars = filterWebinars(odooWebinars, activeTab);
+          renderTable(filteredWebinars);
         } catch (err) {
           showToast('Failed to load: ' + err.message, 'error');
         } finally {
           document.getElementById('loadingState').style.display = 'none';
-          if (isInitialLoad) {
-            initView();
-            isInitialLoad = false;
-          } else {
-            // Refresh in-place — preserve current view and scroll position
-            const currentView = localStorage.getItem('eventOpsViewMode') || 'table';
-            const filteredWebinars = filterWebinars(appState.webinars, activeTab);
-            setWebinars(filteredWebinars);
-            if (currentView === 'calendar') {
-              refreshCalendar();
-            } else {
-              renderTable(filteredWebinars);
-            }
-            // Re-render detail panel if an event is selected
-            if (appState.currentEventId) {
-              setCurrentEvent(appState.currentEventId);
-            }
-          }
+          // Apply saved view mode after data is loaded
+          initView();
         }
       }
 
       // ── Init tab from URL hash ──
       function initTabFromHash() {
-        const hash = window.location.hash.slice(1);
+        const hash = window.location.hash.slice(1); // Remove #
         const params = new URLSearchParams(hash);
         const tabParam = params.get('tab');
         
         if (tabParam && ['all', 'upcoming', 'past', 'published', 'draft', 'out_of_sync', 'archived'].includes(tabParam)) {
           activeTab = tabParam;
           
+          // Update tab UI
           document.querySelectorAll('.tabs .tab').forEach(el => el.classList.remove('tab-active'));
           const tabId = 'tab' + tabParam.charAt(0).toUpperCase() + tabParam.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
           const tabEl = document.getElementById(tabId);
@@ -635,8 +578,8 @@ export function eventOperationsUI(user) {
         }
       }
 
-      // ── Render table (legacy table view) ──
-      function renderTable(webinars = appState.webinars) {
+      // ── Render table ──
+      function renderTable(webinars = odooWebinars) {
         const tbody = document.getElementById('webinarTableBody');
         tbody.innerHTML = '';
 
@@ -650,20 +593,22 @@ export function eventOperationsUI(user) {
         document.getElementById('dataTable').classList.remove('hidden');
 
         for (const webinar of webinars) {
-          const snap = appState.snapshots[webinar.id];
+          const snap = snapshotMap.get(webinar.id);
           const state = snap ? snap.computed_state : 'not_published';
           const badge = STATUS_BADGES[state] || STATUS_BADGES.not_published;
           const wpId = snap?.wp_snapshot?.id;
-          const regCount = appState.registrations[webinar.id] || 0;
+          const regCount = registrationCounts[webinar.id] || 0;
           
           let eventTypeHtml = '—';
           if (Array.isArray(webinar.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 1) {
-            const eventTypeName = webinar.x_webinar_event_type_id[1] || ('Event Type #' + webinar.x_webinar_event_type_id[0]);
+            const eventTypeId = webinar.x_webinar_event_type_id[0];
+            const eventTypeName = webinar.x_webinar_event_type_id[1] || ('Event Type #' + eventTypeId);
             eventTypeHtml = '<span class="badge badge-outline badge-sm">' + escapeHtml(eventTypeName) + '</span>';
           }
           
-          const datetime = formatEventDateTime(webinar);
-          const duration = webinar.x_duration_minutes ? webinar.x_duration_minutes + ' min' : '—';
+          // Format datetime
+          const datetime = formatEventDateTime(webinar.x_studio_event_datetime);
+          const duration = webinar.x_studio_event_duration_minutes ? webinar.x_studio_event_duration_minutes + ' min' : '—';
           
           const tr = document.createElement('tr');
           tr.innerHTML = 
@@ -681,8 +626,9 @@ export function eventOperationsUI(user) {
           tbody.appendChild(tr);
         }
 
+        // Update discrepancies
         const discrepancies = webinars.filter(w => {
-          const s = appState.snapshots[w.id];
+          const s = snapshotMap.get(w.id);
           return s && s.computed_state === 'out_of_sync';
         });
         renderDiscrepancies(discrepancies);
@@ -693,6 +639,7 @@ export function eventOperationsUI(user) {
       // ── Render action buttons ──
       function renderActions(webinarId, state) {
         if (state === 'not_published') {
+          // Dropdown with Publish options
           return '<div class="dropdown dropdown-end">' +
             '<div tabindex="0" role="button" class="btn btn-primary btn-xs">' +
               '<i data-lucide="upload" class="w-3 h-3"></i> Publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
@@ -704,9 +651,36 @@ export function eventOperationsUI(user) {
             '</ul>' +
           '</div>';
         }
-        if (state === 'draft' || state === 'out_of_sync' || state === 'published') {
+        if (state === 'draft') {
+          // Dropdown for draft events - primary action is Publish
           return '<div class="dropdown dropdown-end">' +
-            '<div tabindex="0" role="button" class="btn ' + (state === 'out_of_sync' ? 'btn-warning' : 'btn-primary') + ' btn-xs">' +
+            '<div tabindex="0" role="button" class="btn btn-neutral btn-xs">' +
+              '<i data-lucide="upload" class="w-3 h-3"></i> Publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
+            '</div>' +
+            '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;publish&apos;)"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;draft&apos;)"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;private&apos;)"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+            '</ul>' +
+          '</div>';
+        }
+        if (state === 'out_of_sync') {
+          // Dropdown for out of sync with Re-publish options
+          return '<div class="dropdown dropdown-end">' +
+            '<div tabindex="0" role="button" class="btn btn-warning btn-xs">' +
+              '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
+            '</div>' +
+            '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;publish&apos;)"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;draft&apos;)"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>' +
+              '<li><a onclick="publishWebinar(' + webinarId + ', this, &apos;private&apos;)"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>' +
+            '</ul>' +
+          '</div>';
+        }
+        if (state === 'published') {
+          // Dropdown for published events to change status
+          return '<div class="dropdown dropdown-end">' +
+            '<div tabindex="0" role="button" class="btn btn-primary btn-xs">' +
               '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-publish <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>' +
             '</div>' +
             '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36">' +
@@ -743,7 +717,7 @@ export function eventOperationsUI(user) {
       }
 
       // ── Publish ──
-      window.publishWebinar = async function publishWebinar(odooWebinarId, btn, status = 'publish') {
+      async function publishWebinar(odooWebinarId, btn, status = 'publish') {
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>'; }
         
         try {
@@ -755,33 +729,21 @@ export function eventOperationsUI(user) {
           }).then(r => r.json());
 
           if (res.success) {
-            const statusLabels = { draft: 'Concept', private: 'Privé', publish: 'Gepubliceerd' };
-            const statusLabel = statusLabels[status] || status;
-            await loadData();
-            showFeedbackModal('Publicatie geslaagd', 'check-circle',
-              '<div class="alert alert-success">' +
-                '<div>' +
-                  '<p class="font-semibold">Webinar ' + odooWebinarId + ' is gepubliceerd</p>' +
-                  '<p class="text-sm">Status: ' + statusLabel + ' &bull; WordPress ID: #' + res.data.wp_event_id + '</p>' +
-                '</div>' +
-              '</div>'
-            );
+            const statusLabel = status === 'draft' ? 'as Draft' : (status === 'private' ? 'as Private' : '');
+            showToast('Published webinar ' + odooWebinarId + ' ' + statusLabel + ' → WP #' + res.data.wp_event_id, 'success');
+            await loadData(); // Refresh table
           } else {
-            showFeedbackModal('Publicatie mislukt', 'alert-circle',
-              '<div class="alert alert-error"><p>' + escapeHtml(res.error) + '</p></div>'
-            );
+            showToast('Publish failed: ' + res.error, 'error');
           }
         } catch (err) {
-          showFeedbackModal('Publicatie fout', 'alert-circle',
-            '<div class="alert alert-error"><p>' + escapeHtml(err.message) + '</p></div>'
-          );
+          showToast('Publish error: ' + err.message, 'error');
         } finally {
           if (btn) { btn.disabled = false; }
         }
-      };
+      }
 
       // ── Sync ──
-      window.runSync = async function runSync() {
+      async function runSync() {
         const btn = document.getElementById('btnSync');
         btn.disabled = true;
         btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Syncing...';
@@ -793,38 +755,29 @@ export function eventOperationsUI(user) {
           }).then(r => r.json());
 
           if (res.success) {
-            await loadData();
-            let bodyHtml = '<div class="alert alert-success"><div>' +
-              '<p class="font-semibold">' + res.data.synced_count + ' webinars gesynchroniseerd</p>' +
-              '</div></div>';
-            if (res.data.discrepancies.length > 0) {
-              bodyHtml += '<div class="alert alert-warning mt-2"><div>' +
-                '<p class="font-semibold">' + res.data.discrepancies.length + ' discrepanties gevonden:</p>' +
-                '<ul class="list-disc list-inside text-sm mt-1">';
-              for (const d of res.data.discrepancies) {
-                bodyHtml += '<li>#' + d.odoo_webinar_id + ' — ' + escapeHtml(d.title) + '</li>';
-              }
-              bodyHtml += '</ul></div></div>';
-            }
-            showFeedbackModal('Synchronisatie voltooid', 'refresh-cw', bodyHtml);
+            showToast('Sync complete: ' + res.data.synced_count + ' webinars, ' + res.data.discrepancies.length + ' discrepancies', 'success');
+            await loadData(); // Refresh table with new states
           } else {
-            showFeedbackModal('Synchronisatie mislukt', 'alert-circle',
-              '<div class="alert alert-error"><p>' + escapeHtml(res.error) + '</p></div>'
-            );
+            showToast('Sync failed: ' + res.error, 'error');
           }
         } catch (err) {
-          showFeedbackModal('Synchronisatie fout', 'alert-circle',
-            '<div class="alert alert-error"><p>' + escapeHtml(err.message) + '</p></div>'
-          );
+          showToast('Sync error: ' + err.message, 'error');
         } finally {
           btn.disabled = false;
           btn.innerHTML = '<i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All';
           lucide.createIcons();
         }
-      };
+      }
 
-      // ── View Switching (Table + Calendar) ──
-      window.switchView = function switchView(viewType) {
+      // ── Helpers ──
+      function escapeHtml(str) {
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
+      }
+
+      // ── View Switching (Addendum D Phase 8: Table + Calendar) ──
+      function switchView(viewType) {
         const tableContainer = document.getElementById('dataTable');
         const calendarWorkspace = document.getElementById('calendarWorkspace');
         const emptyState = document.getElementById('emptyState');
@@ -833,32 +786,37 @@ export function eventOperationsUI(user) {
         const filterTabs = document.getElementById('filterTabs');
         const statusLegend = document.getElementById('statusLegend');
         
-        const filteredWebinars = filterWebinars(appState.webinars, activeTab);
+        const filteredWebinars = filterWebinars(odooWebinars, activeTab);
         
         if (viewType === 'table') {
+          // Show table view
           tableContainer.classList.remove('hidden');
           calendarWorkspace.classList.add('hidden');
           tableBtn.classList.add('btn-active');
           calendarBtn.classList.remove('btn-active');
+          // Show filter tabs, hide status legend
           if (filterTabs) filterTabs.classList.remove('hidden');
           if (statusLegend) statusLegend.classList.add('hidden');
           renderTable(filteredWebinars);
         } else if (viewType === 'calendar') {
+          // Show calendar view
           tableContainer.classList.add('hidden');
           emptyState.classList.add('hidden');
           calendarWorkspace.classList.remove('hidden');
           tableBtn.classList.remove('btn-active');
           calendarBtn.classList.add('btn-active');
+          // Hide filter tabs, show status legend
           if (filterTabs) filterTabs.classList.add('hidden');
           if (statusLegend) statusLegend.classList.remove('hidden');
           
-          // Update state and initialize calendar
-          setWebinars(filteredWebinars);
-          initializeCalendar();
+          // Initialize calendar with filtered data (Addendum D Phase 8)
+          if (typeof initializeCalendar === 'function') {
+            initializeCalendar(filteredWebinars, snapshotMap, registrationCounts);
+          }
         }
         
         localStorage.setItem('eventOpsViewMode', viewType);
-      };
+      }
 
       function initView() {
         const savedView = localStorage.getItem('eventOpsViewMode') || 'table';
@@ -868,21 +826,27 @@ export function eventOperationsUI(user) {
       }
 
       // ── Helper: Format UTC datetime to Brussels timezone ──
-      function formatEventDateTime(webinar) {
-        const utcDatetimeStr = webinar.x_studio_event_datetime;
-        if (!utcDatetimeStr) return { date: '—', time: '—' };
+      function formatEventDateTime(utcDatetimeStr) {
+        if (!utcDatetimeStr) return '—';
         
         try {
+          // CRITICAL: Odoo datetime fields are stored in UTC but returned WITHOUT 'Z' suffix
+          // Example: Odoo returns "2026-06-18 09:00:00" for 11:00 Brussels time
+          // We must explicitly treat this as UTC by adding 'Z' or replacing space with 'T' + 'Z'
           let isoString = utcDatetimeStr.trim();
           
+          // If it's in format "YYYY-MM-DD HH:MM:SS" (no T, no Z), convert to ISO with Z
           if (isoString.includes(' ') && !isoString.includes('T')) {
             isoString = isoString.replace(' ', 'T') + 'Z';
-          } else if (isoString.includes('T') && !isoString.endsWith('Z')) {
+          }
+          // If it has T but no Z, add Z
+          else if (isoString.includes('T') && !isoString.endsWith('Z')) {
             isoString = isoString + 'Z';
           }
           
           const date = new Date(isoString);
           
+          // Format to Brussels timezone - datum en tijd apart
           const dateFormatted = date.toLocaleDateString('nl-BE', {
             timeZone: 'Europe/Brussels',
             year: 'numeric',
@@ -903,26 +867,16 @@ export function eventOperationsUI(user) {
         }
       }
       
-      // Make globally available
+      // Make formatEventDateTime available to external scripts
       window.formatEventDateTime = formatEventDateTime;
 
-      // ── Helper: Escape HTML ──
-      function escapeHtml(str) {
-        if (!str) return '';
-        const d = document.createElement('div');
-        d.textContent = str;
-        return d.innerHTML;
-      }
-
-      // ── Initialize Controllers ──
+      // ── Init ──
       initTheme();
-      initializeDetailPanel();
-      initializeEditorModal();
-      
-      // ── Load Data & Render ──
       loadData();
       lucide.createIcons();
     </script>
+    
+    <!-- External client-side UI module -->
     <script src="/event-operations-client.js"></script>
 </body>
 </html>`;

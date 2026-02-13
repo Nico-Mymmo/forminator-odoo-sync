@@ -3,7 +3,7 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars, getRegistrationCount, getAllOdooEventTypes } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCount, getAllOdooEventTypes, updateOdooWebinar } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
@@ -762,6 +762,59 @@ export const routes = {
         success: false,
         error: error.message
       }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * PATCH /events/api/odoo-webinars/:id
+   * Update fields on an Odoo webinar (e.g. description)
+   */
+  'PATCH /api/odoo-webinars/:id': async (context) => {
+    const { env, params, request } = context;
+
+    try {
+      const webinarId = parseInt(params.id, 10);
+      if (!webinarId || isNaN(webinarId)) {
+        return new Response(JSON.stringify({ success: false, error: 'Invalid webinar ID' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const body = await request.json();
+
+      // Only allow updating the description field
+      const allowedFields = ['x_studio_webinar_info'];
+      const values = {};
+      for (const field of allowedFields) {
+        if (field in body) {
+          values[field] = body[field];
+        }
+      }
+
+      if (Object.keys(values).length === 0) {
+        return new Response(JSON.stringify({ success: false, error: 'No valid fields to update' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      console.log(`${LOG_PREFIX} 📝 Updating Odoo webinar ${webinarId}:`, Object.keys(values));
+
+      await updateOdooWebinar(env, webinarId, values);
+
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Odoo webinar ${webinarId} updated`);
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Update Odoo webinar failed:`, error);
+
+      return new Response(JSON.stringify({ success: false, error: error.message }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       });

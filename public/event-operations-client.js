@@ -82,40 +82,40 @@ function transformToCalendarEvents(webinars, snapshotMap, registrationCounts) {
 function getStatusColors(state) {
   const colorMap = {
     'out_of_sync': { 
-      bg: 'hsl(var(--wa) / 0.15)', 
-      border: 'hsl(var(--wa) / 0.3)',
-      accent: 'hsl(var(--wa))',
-      text: 'hsl(var(--bc))'
+      bg: 'oklch(var(--wa) / 0.15)', 
+      border: 'oklch(var(--wa) / 0.3)',
+      accent: 'oklch(var(--wa))',
+      text: 'oklch(var(--bc))'
     },
     'published': { 
-      bg: 'hsl(var(--su) / 0.15)', 
-      border: 'hsl(var(--su) / 0.3)',
-      accent: 'hsl(var(--su))',
-      text: 'hsl(var(--bc))'
+      bg: 'oklch(var(--su) / 0.15)', 
+      border: 'oklch(var(--su) / 0.3)',
+      accent: 'oklch(var(--su))',
+      text: 'oklch(var(--bc))'
     },
     'draft': { 
-      bg: 'hsl(var(--n) / 0.15)', 
-      border: 'hsl(var(--n) / 0.3)',
-      accent: 'hsl(var(--n))',
-      text: 'hsl(var(--bc))'
+      bg: 'oklch(var(--n) / 0.15)', 
+      border: 'oklch(var(--n) / 0.3)',
+      accent: 'oklch(var(--n))',
+      text: 'oklch(var(--bc))'
     },
     'not_published': { 
-      bg: 'hsl(var(--in) / 0.15)', 
-      border: 'hsl(var(--in) / 0.3)',
-      accent: 'hsl(var(--in))',
-      text: 'hsl(var(--bc))'
+      bg: 'oklch(var(--in) / 0.15)', 
+      border: 'oklch(var(--in) / 0.3)',
+      accent: 'oklch(var(--in))',
+      text: 'oklch(var(--bc))'
     },
     'archived': { 
-      bg: 'hsl(var(--n) / 0.08)', 
-      border: 'hsl(var(--n) / 0.2)',
-      accent: 'hsl(var(--n) / 0.5)',
-      text: 'hsl(var(--bc) / 0.6)'
+      bg: 'oklch(var(--n) / 0.08)', 
+      border: 'oklch(var(--n) / 0.2)',
+      accent: 'oklch(var(--n) / 0.5)',
+      text: 'oklch(var(--bc) / 0.6)'
     },
     'deleted': { 
-      bg: 'hsl(var(--er) / 0.15)', 
-      border: 'hsl(var(--er) / 0.3)',
-      accent: 'hsl(var(--er))',
-      text: 'hsl(var(--bc))'
+      bg: 'oklch(var(--er) / 0.15)', 
+      border: 'oklch(var(--er) / 0.3)',
+      accent: 'oklch(var(--er))',
+      text: 'oklch(var(--bc))'
     }
   };
   return colorMap[state] || colorMap.not_published;

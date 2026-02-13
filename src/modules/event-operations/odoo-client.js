@@ -4,7 +4,7 @@
  * Abstracts Odoo x_webinar integration
  */
 
-import { searchRead, executeKw } from '../../lib/odoo.js';
+import { searchRead, executeKw, write } from '../../lib/odoo.js';
 import { ODOO_MODEL, ODOO_FIELDS } from './constants.js';
 
 let cachedEventTypeFieldName = null;
@@ -190,4 +190,20 @@ export async function getAllOdooEventTypes(env) {
   });
 
   return eventTypes;
+}
+
+/**
+ * Update a single Odoo webinar field (e.g. description)
+ *
+ * @param {Object} env
+ * @param {number} webinarId - Odoo record ID
+ * @param {Object} values - Fields to update, e.g. { x_studio_webinar_info: '...' }
+ * @returns {Promise<boolean>} true on success
+ */
+export async function updateOdooWebinar(env, webinarId, values) {
+  return write(env, {
+    model: ODOO_MODEL.WEBINAR,
+    ids: [webinarId],
+    values
+  });
 }
