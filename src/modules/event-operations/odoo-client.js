@@ -7,6 +7,70 @@
 import { searchRead, executeKw } from '../../lib/odoo.js';
 import { ODOO_MODEL, ODOO_FIELDS } from './constants.js';
 
+let cachedEventTypeFieldName = null;
+
+/**
+ * Resolve actual x_webinar event type field name in Odoo.
+ *
+ * Some databases may use a Studio-generated field name variant instead of
+ * `x_webinar_event_type_id`. We detect once via fields_get and normalize.
+ *
+ * @param {Object} env
+ * @returns {Promise<string>}
+ */
+async function resolveEventTypeFieldName(env) {
+  if (cachedEventTypeFieldName) {
+    return cachedEventTypeFieldName;
+  }
+
+  const fieldsInfo = await executeKw(env, {
+    model: ODOO_MODEL.WEBINAR,
+    method: 'fields_get',
+    args: [],
+    kwargs: { attributes: ['type', 'relation'] }
+  });
+
+  const preferredCandidates = [
+    'x_event_type_id',
+    ODOO_FIELDS.EVENT_TYPE_ID,
+    'x_studio_webinar_event_type_id',
+    'x_studio_event_type_id',
+    'x_studio_webinar_type_id',
+    'x_studio_webinar_type'
+  ];
+
+  for (const fieldName of preferredCandidates) {
+    const field = fieldsInfo?.[fieldName];
+    if (field?.type === 'many2one') {
+      cachedEventTypeFieldName = fieldName;
+      return cachedEventTypeFieldName;
+    }
+  }
+
+  for (const [fieldName, field] of Object.entries(fieldsInfo || {})) {
+    if (field?.type === 'many2one' && field?.relation === ODOO_MODEL.EVENT_TYPE) {
+      cachedEventTypeFieldName = fieldName;
+      return cachedEventTypeFieldName;
+    }
+  }
+
+  throw new Error(
+    `Could not resolve event type field on ${ODOO_MODEL.WEBINAR}. Expected a many2one to ${ODOO_MODEL.EVENT_TYPE}.`
+  );
+}
+
+function normalizeWebinarEventTypeField(webinar, actualFieldName) {
+  if (!webinar || typeof webinar !== 'object') {
+    return webinar;
+  }
+
+  if (actualFieldName !== ODOO_FIELDS.EVENT_TYPE_ID) {
+    webinar[ODOO_FIELDS.EVENT_TYPE_ID] = webinar[actualFieldName] || null;
+  }
+
+  return webinar;
+}
+
 /**
  * Get all active webinars from Odoo
  * 
@@ -14,6 +78,8 @@ import { ODOO_MODEL, ODOO_FIELDS } from './constants.js';
  * @returns {Promise<Array>}
  */
 export async function getOdooWebinars(env) {
+  const eventTypeFieldName = await resolveEventTypeFieldName(env);
+
   const webinars = await searchRead(env, {
     model: ODOO_MODEL.WEBINAR,
     domain: [
@@ -27,13 +93,13 @@ export async function getOdooWebinars(env) {
       ODOO_FIELDS.INFO,
       ODOO_FIELDS.STAGE,
       ODOO_FIELDS.ACTIVE,
-      ODOO_FIELDS.TAG_IDS
+      eventTypeFieldName
     ],
     order: `${ODOO_FIELDS.EVENT_DATETIME} DESC`,
     limit: 100
   });
-  
-  return webinars;
+
+  return webinars.map((webinar) => normalizeWebinarEventTypeField(webinar, eventTypeFieldName));
 }
 
 /**
@@ -44,6 +110,8 @@ export async function getOdooWebinars(env) {
  * @returns {Promise<Object>}
  */
 export async function getOdooWebinar(env, webinarId) {
+  const eventTypeFieldName = await resolveEventTypeFieldName(env);
+
   const webinars = await searchRead(env, {
     model: ODOO_MODEL.WEBINAR,
     domain: [
@@ -57,7 +125,7 @@ export async function getOdooWebinar(env, webinarId) {
       ODOO_FIELDS.INFO,
       ODOO_FIELDS.STAGE,
       ODOO_FIELDS.ACTIVE,
-      ODOO_FIELDS.TAG_IDS
+      eventTypeFieldName
     ],
     limit: 1
   });
@@ -65,8 +133,8 @@ export async function getOdooWebinar(env, webinarId) {
   if (webinars.length === 0) {
     throw new Error(`Webinar ${webinarId} not found in Odoo`);
   }
-  
-  return webinars[0];
+
+  return normalizeWebinarEventTypeField(webinars[0], eventTypeFieldName);
 }
 
 /**
@@ -103,4 +171,23 @@ export async function getAllOdooTags(env) {
   });
   
   return tags;
+}
+
+/**
+ * Get all event types from Odoo x_webinar_event_type model
+ *
+ * Used for Addendum C event type mapping UI
+ *
+ * @param {Object} env
+ * @returns {Promise<Array>} Array of event type objects: [{ id, x_name }]
+ */
+export async function getAllOdooEventTypes(env) {
+  const eventTypes = await searchRead(env, {
+    model: ODOO_MODEL.EVENT_TYPE,
+    fields: ['id', 'x_name'],
+    order: 'x_name ASC',
+    limit: 500
+  });
+
+  return eventTypes;
 }

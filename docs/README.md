@@ -53,6 +53,25 @@ Automatische lead classificatie, verrijking en semantic correction.
 
 ---
 
+### 🗓️ Event Operations
+Odoo `x_webinar` synchronisatie naar WordPress The Events Calendar met snapshot state engine.
+
+**Status:** ✅ Production in use, met addenda voor UI/datetime/mapping refactors  
+**Kernfunctionaliteit:**
+- Odoo webinar sync en publish naar WordPress events
+- Snapshot-gebaseerde state/discrepancy detectie
+- Editorial layer en operationele tooling
+- Deterministische event type → WP tag mapping (Addendum C)
+
+**Documentatie:**
+- [IMPLEMENTATION_MASTER_PLAN.md](event-operations/IMPLEMENTATION_MASTER_PLAN.md) - Gefaseerd implementatieplan
+- [IMPLEMENTATION_LOG.md](event-operations/IMPLEMENTATION_LOG.md) - Uitvoering en bugfix historie
+- [ADDENDUM_A_EVENT_OPERATIONS.md](event-operations/ADDENDUM_A_EVENT_OPERATIONS.md) - UI/editorial/tag layer
+- [ADDENDUM_B_EVENT_DATETIME_REFACTOR.md](event-operations/ADDENDUM_B_EVENT_DATETIME_REFACTOR.md) - Datetime model refactor
+- [ADDENDUM_C_EVENT_TYPE_MAPPING.md](event-operations/ADDENDUM_C_EVENT_TYPE_MAPPING.md) - Event type mapping refactor
+
+---
+
 ## Documentatie Structuur per Module
 
 Elke module volgt deze standaard structuur:

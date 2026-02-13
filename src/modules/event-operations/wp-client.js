@@ -8,8 +8,23 @@ import { WP_ENDPOINTS, WP_META_KEYS, LOG_PREFIX, EMOJI } from './constants.js';
 import { getOdooWebinar } from './odoo-client.js';
 import { mapOdooToWordPress } from './mapping.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
-import { getTagMappingsForOdooTags } from './tag-mapping.js';
+import { getEventTypeTagMappingByEventTypeId } from './tag-mapping.js';
 import { buildEditorialDescription } from './editorial.js';
+
+function resolveOdooEventTypeId(odooWebinar) {
+  const relation = odooWebinar.x_webinar_event_type_id;
+
+  if (!Array.isArray(relation) || relation.length === 0) {
+    throw new Error(`Webinar ${odooWebinar.id} has no event type (x_webinar_event_type_id is missing)`);
+  }
+
+  const eventTypeId = Number(relation[0]);
+  if (!Number.isInteger(eventTypeId) || eventTypeId <= 0) {
+    throw new Error(`Webinar ${odooWebinar.id} has invalid event type ID in x_webinar_event_type_id`);
+  }
+
+  return eventTypeId;
+}
 
 /**
  * Build Basic Auth header from WP_API_TOKEN (format: "username:password")
@@ -71,10 +86,10 @@ export async function getWordPressEventsWithMeta(env) {
 }
 
 /**
- * Get WordPress Event Categories (tribe_events_cat taxonomy)
+ * Get WordPress Event Categories (The Events Calendar taxonomy)
  * 
  * @param {Object} env
- * @returns {Promise<Array>} Array of category objects with id, name, slug, count
+ * @returns {Promise<Array>} Array of taxonomy objects with id, name, slug, count
  */
 export async function getWordPressEventCategories(env) {
   const response = await fetch(
@@ -153,17 +168,19 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   
   // 3. Map to WordPress payload (with status)
   const wpPayload = mapOdooToWordPress(odooWebinar, status);
-  
-  // 3a. Add categories (Tribe V1 API expects comma-separated string of slugs)
-  const odooTagIds = odooWebinar.x_studio_tag_ids || [];
-  if (odooTagIds.length > 0) {
-    const tagMappings = await getTagMappingsForOdooTags(env, userId, odooTagIds);
-    if (tagMappings.length > 0) {
-      const categorySlugs = tagMappings.map(m => m.wp_category_slug);
-      const categoriesString = categorySlugs.join(',');
-      wpPayload.categories = categoriesString;
-    }
+
+  // 3a. Add deterministic WP tag (Addendum C)
+  const odooEventTypeId = resolveOdooEventTypeId(odooWebinar);
+  const mapping = await getEventTypeTagMappingByEventTypeId(env, userId, odooEventTypeId);
+
+  if (!mapping) {
+    throw new Error(`Missing event type mapping for webinar ${odooWebinar.id}: odoo_event_type_id=${odooEventTypeId}`);
   }
+
+  // The Events Calendar (Tribe V1) expects category slugs via `categories`
+  // (string for single category, comma-separated for multiple).
+  // Addendum C remains deterministic because mapping lookup is by event type -> single row.
+  wpPayload.categories = mapping.wp_tag_slug;
   
   // 3b. Build description: use editorial content if present, else generate default (Odoo paragraph + form)
   let editorialContent = existingSnapshot?.editorial_content;
@@ -191,7 +208,7 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   let wpEventData; // Store API response for snapshot
   
   console.log(`${LOG_PREFIX} 📤 Publish odoo=${odooWebinarId} status=${status} existingWpId=${existingWpEventId || 'none'}`);
-  console.log(`${LOG_PREFIX} 📤 WP payload:`, JSON.stringify({ title: wpPayload.title, status: wpPayload.status, start_date: wpPayload.start_date }));
+  console.log(`${LOG_PREFIX} 📤 WP payload:`, JSON.stringify({ title: wpPayload.title, status: wpPayload.status, start_date: wpPayload.start_date, wp_tag_id: mapping.wp_tag_id, wp_category_slug: mapping.wp_tag_slug }));
   
   if (existingWpEventId) {
     // UPDATE existing WordPress event

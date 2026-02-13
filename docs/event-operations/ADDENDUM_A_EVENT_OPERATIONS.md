@@ -55,6 +55,10 @@ This addendum resolves these issues through five controlled subfases (A1-A5).
    - Publish flow extended to include tags
    - Auto-create WP tags option
 
+> **Superseded for taxonomy decisions (Addendum C, 2026-02-13):**
+> A4 many2many mapping via `x_studio_tag_ids` is deprecated for publish/sync taxonomy resolution.
+> Current authoritative flow is `x_webinar_event_type_id` → `event_type_wp_tag_mapping` → `wp_tag_id`.
+
 5. **A5 – Editorial Content Layer**
    - New column in `webinar_snapshots`: `editorial_content` (JSONB)
    - Simple block editor for custom WP descriptions

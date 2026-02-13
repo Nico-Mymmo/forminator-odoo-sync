@@ -23,6 +23,113 @@
 
 ---
 
+## Addendum C – Event Type Mapping Refactor (Preparation)
+
+### Metadata
+| Veld | Waarde |
+|------|--------|
+| Date | 2026-02-13 |
+| Status | Ready for Implementation (spec complete) |
+| Document | ADDENDUM_C_EVENT_TYPE_MAPPING.md |
+| Breaking Change | Yes (mapping resolution strategy) |
+
+### Scope Locked
+
+1. Sync source verandert van `x_studio_tag_ids` (many2many) naar `x_event_type_id` (many2one)
+2. Nieuwe module tabel: `event_type_wp_tag_mapping`
+3. Deterministische mapping: één event type → max één WP tag
+4. Meerdere event types mogen naar dezelfde WP tag mappen
+5. Ontbrekende mapping geeft hard fail (geen silent fallback)
+
+### No-Regression Constraints
+
+1. Addendum A functionaliteit blijft intact
+2. Addendum B datetime model blijft onaangetast
+3. Geen foreign keys toevoegen
+4. Geen hardcoded WordPress tags
+5. Geen inline JavaScript in server templates
+
+### Migration Note
+
+`x_studio_tag_ids` blijft bestaan maar is gedepriciteerd voor publish/sync in Event Operations. Er wordt geen automatische migratie uitgevoerd zonder expliciete opdracht.
+
+---
+
+## Addendum C – Event Type Mapping Refactor (Implementation Evidence)
+
+### Metadata
+| Veld | Waarde |
+|------|--------|
+| Date | 2026-02-13 |
+| Status | ✅ Implemented |
+| Migration | `20260213090000_event_operations_addendum_c_event_type_mapping.sql` |
+| Breaking Change | Yes |
+
+### Files Changed
+
+| File | Action |
+|------|--------|
+| `supabase/migrations/20260213090000_event_operations_addendum_c_event_type_mapping.sql` | CREATE |
+| `src/modules/event-operations/constants.js` | MODIFY |
+| `src/modules/event-operations/odoo-client.js` | MODIFY |
+| `src/modules/event-operations/tag-mapping.js` | REPLACE |
+| `src/modules/event-operations/wp-client.js` | MODIFY |
+| `src/modules/event-operations/routes.js` | MODIFY |
+| `src/modules/event-operations/ui.js` | MODIFY |
+| `public/event-operations-client.js` | MODIFY |
+| `docs/event-operations/ADDENDUM_C_EVENT_TYPE_MAPPING.md` | MODIFY |
+| `docs/event-operations/ADDENDUM_A_EVENT_OPERATIONS.md` | MODIFY |
+
+### Implemented Behavior
+
+1. Publish taxonomy gebruikt alleen `x_event_type_id` → `event_type_wp_tag_mapping` → (`wp_tag_id`, `wp_tag_slug`)
+2. `x_studio_tag_ids` wordt niet meer gebruikt voor WP taxonomy beslissingen
+3. Hard-fail validatie toegevoegd:
+	- ontbrekende `x_event_type_id`
+	- ontbrekende mapping voor event type
+4. Mapping UI vervangen door Event Type → WP Category flow (live `tribe_events_cat` via REST)
+5. Sync route valideert nu event type mapping-coverage expliciet vóór snapshot upserts
+6. Tribe publish payload zet categorie via `categories: <wp_tag_slug>`
+
+### Endpoints (Addendum C)
+
+- `GET /events/api/event-type-tag-mappings`
+- `PUT /events/api/event-type-tag-mappings`
+- `DELETE /events/api/event-type-tag-mappings/:id`
+- `GET /events/api/odoo-event-types`
+- `GET /events/api/wp-event-categories`
+
+### Minimal Test Plan (Execution Checklist)
+
+- [ ] Maak 2 Odoo event types en map beide naar dezelfde WP tag; verifieer publish payload gebruikt die ene `wp_tag_id`
+- [ ] Verwijder mapping; verifieer publish faalt met expliciete error
+- [ ] Webinar zonder event type; verifieer publish faalt met expliciete error
+- [ ] Verifieer Addendum B datetime parsing (`x_studio_event_datetime`) blijft correct
+- [ ] Verifieer Addendum A editorial UI en editor laden nog correct
+
+### Validation Performed (Code-Level)
+
+- ✅ Syntax/diagnostics check op gewijzigde JS/MD bestanden zonder errors
+- ⚠️ End-to-end integratie (Odoo/WP/Supabase live) vereist runtime omgeving en handmatige verificatie volgens testplan
+
+### Runtime Issue Encountered (Production Compatibility)
+
+| # | Issue | Severity | Root Cause | Resolution |
+|---|-------|----------|------------|------------|
+| 1 | Odoo error: Invalid field `x_webinar_event_type_id` on `x_webinar` | Critical | Odoo database gebruikt veld `x_event_type_id` voor event type many2one | `odoo-client.js` uitgebreid met `fields_get` autodiscovery (prioriteit op `x_event_type_id`) + normalisatie naar interne key `x_webinar_event_type_id` |
+
+**Result:** Addendum C flow blijft deterministisch (event type → mapping → `wp_tag_id`) zonder fallback naar `x_studio_tag_ids`, terwijl database-specifieke veldnaamvarianten ondersteund worden.
+
+### Post-Implementation Fixes (Finalization)
+
+| # | Issue | Severity | Resolution |
+|---|-------|----------|------------|
+| 1 | UI toonde HTML entities in WP category names (`Q&amp;A`) | Low | Client-side entity decode toegevoegd voor dropdown + mappingtabel weergave |
+| 2 | Mapping tabel toonde generieke labels (`Event Type #X`) | Low | Mapping rows resolven nu Odoo event type namen via live event type lijst |
+| 3 | WP category werd niet meer toegewezen bij publish | High | Tribe payload hersteld naar `categories = wp_tag_slug` (TEC taxonomy assignment) |
+
+---
+
 ## Phase 0 – Baseline Check
 
 ### Metadata

@@ -3,13 +3,13 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars, getRegistrationCount, getAllOdooTags } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCount, getAllOdooEventTypes } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
 import { extractOdooWebinarId } from './mapping.js';
 import { eventOperationsUI } from './ui.js';
-import { getTagMappings, createTagMapping, deleteTagMapping } from './tag-mapping.js';
+import { getEventTypeTagMappings, upsertEventTypeTagMapping, deleteEventTypeTagMapping } from './tag-mapping.js';
 import { validateEditorialContent } from './editorial.js';
 
 export const routes = {
@@ -267,11 +267,58 @@ export const routes = {
     try {
       // 1. Fetch all sources in parallel
       // Core API returns flat array WITH meta (Tribe API does not include meta)
-      const [odooWebinars, wpEvents, supabase] = await Promise.all([
+      const [odooWebinars, wpEvents, supabase, eventTypeMappings] = await Promise.all([
         getOdooWebinars(env),
         getWordPressEventsWithMeta(env),
-        getSupabaseAdminClient(env)
+        getSupabaseAdminClient(env),
+        getEventTypeTagMappings(env, user.id)
       ]);
+
+      const mappingByEventTypeId = new Map(
+        (eventTypeMappings || []).map((mapping) => [mapping.odoo_event_type_id, mapping])
+      );
+
+      const validationErrors = [];
+      for (const webinar of odooWebinars) {
+        const relation = webinar.x_webinar_event_type_id;
+        if (!Array.isArray(relation) || relation.length === 0) {
+          validationErrors.push({
+            odoo_webinar_id: webinar.id,
+            error: 'Missing x_webinar_event_type_id'
+          });
+          continue;
+        }
+
+        const eventTypeId = Number(relation[0]);
+        if (!Number.isInteger(eventTypeId) || eventTypeId <= 0) {
+          validationErrors.push({
+            odoo_webinar_id: webinar.id,
+            error: 'Invalid x_webinar_event_type_id value'
+          });
+          continue;
+        }
+
+        if (!mappingByEventTypeId.has(eventTypeId)) {
+          validationErrors.push({
+            odoo_webinar_id: webinar.id,
+            odoo_event_type_id: eventTypeId,
+            error: `Missing mapping in event_type_wp_tag_mapping for event type ${eventTypeId}`
+          });
+        }
+      }
+
+      if (validationErrors.length > 0) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Sync validation failed: missing/invalid event type mappings',
+          data: {
+            validation_errors: validationErrors
+          }
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
       
       // 2. Build WP lookup by odoo_webinar_id meta
       const wpByOdooId = new Map();
@@ -358,18 +405,18 @@ export const routes = {
   },
 
   /**
-   * GET /events/api/tag-mappings
-   * Get all tag mappings for current user
+   * GET /events/api/event-type-tag-mappings
+   * Get all event type mappings for current user
    */
-  'GET /api/tag-mappings': async (context) => {
+  'GET /api/event-type-tag-mappings': async (context) => {
     const { env, user } = context;
     
     try {
-      console.log(`${LOG_PREFIX} 🏷️  Fetching tag mappings for user ${user.id}...`);
+      console.log(`${LOG_PREFIX} 🏷️  Fetching event type mappings for user ${user.id}...`);
       
-      const mappings = await getTagMappings(env, user.id);
+      const mappings = await getEventTypeTagMappings(env, user.id);
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${mappings.length} tag mappings`);
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${mappings.length} event type mappings`);
       
       return new Response(JSON.stringify({
         success: true,
@@ -379,7 +426,7 @@ export const routes = {
       });
       
     } catch (error) {
-      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch tag mappings failed:`, error);
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch event type mappings failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,
@@ -392,38 +439,51 @@ export const routes = {
   },
 
   /**
-   * POST /events/api/tag-mappings
-   * Create new tag mapping
+   * PUT /events/api/event-type-tag-mappings
+   * Upsert event type mapping
    * 
-   * Body: { odoo_tag_id, odoo_tag_name, wp_category_id, wp_category_slug }
+   * Body: { odoo_event_type_id, wp_tag_id, wp_tag_slug, wp_tag_name }
    */
-  'POST /api/tag-mappings': async (context) => {
+  'PUT /api/event-type-tag-mappings': async (context) => {
     const { env, user, request } = context;
     
     try {
       const body = await request.json();
-      const { odoo_tag_id, odoo_tag_name, wp_category_id, wp_category_slug } = body;
+      const { odoo_event_type_id, wp_tag_id, wp_tag_slug, wp_tag_name } = body;
       
-      if (!odoo_tag_id || !odoo_tag_name || !wp_category_id || !wp_category_slug) {
+      if (!odoo_event_type_id || !wp_tag_id || !wp_tag_slug || !wp_tag_name) {
         return new Response(JSON.stringify({
           success: false,
-          error: 'Missing required fields: odoo_tag_id, odoo_tag_name, wp_category_id, wp_category_slug'
+          error: 'Missing required fields: odoo_event_type_id, wp_tag_id, wp_tag_slug, wp_tag_name'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const odooEventTypeId = Number(odoo_event_type_id);
+      const wpTagId = Number(wp_tag_id);
+
+      if (!Number.isInteger(odooEventTypeId) || !Number.isInteger(wpTagId)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'odoo_event_type_id and wp_tag_id must be integers'
         }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' }
         });
       }
       
-      console.log(`${LOG_PREFIX} 🏷️  Creating tag mapping: ${odoo_tag_name} → ${wp_category_slug} (${wp_category_id})...`);
+      console.log(`${LOG_PREFIX} 🏷️  Upserting event type mapping: ${odooEventTypeId} → ${wp_tag_name} (${wpTagId})...`);
       
-      const mapping = await createTagMapping(env, user.id, {
-        odoo_tag_id,
-        odoo_tag_name,
-        wp_category_slug,
-        wp_category_id
+      const mapping = await upsertEventTypeTagMapping(env, user.id, {
+        odoo_event_type_id: odooEventTypeId,
+        wp_tag_id: wpTagId,
+        wp_tag_slug,
+        wp_tag_name
       });
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Tag mapping created`);
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Event type mapping saved`);
       
       return new Response(JSON.stringify({
         success: true,
@@ -433,7 +493,7 @@ export const routes = {
       });
       
     } catch (error) {
-      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Create tag mapping failed:`, error);
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Upsert event type mapping failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,
@@ -446,10 +506,10 @@ export const routes = {
   },
 
   /**
-   * DELETE /events/api/tag-mappings/:id
-   * Delete tag mapping
+  * DELETE /events/api/event-type-tag-mappings/:id
+  * Delete event type mapping
    */
-  'DELETE /api/tag-mappings/:id': async (context) => {
+  'DELETE /api/event-type-tag-mappings/:id': async (context) => {
     const { env, user, params } = context;
     
     try {
@@ -465,11 +525,11 @@ export const routes = {
         });
       }
       
-      console.log(`${LOG_PREFIX} 🏷️  Deleting tag mapping ${id}...`);
+      console.log(`${LOG_PREFIX} 🏷️  Deleting event type mapping ${id}...`);
       
-      await deleteTagMapping(env, user.id, id);
+      await deleteEventTypeTagMapping(env, user.id, id);
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Tag mapping deleted`);
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Event type mapping deleted`);
       
       return new Response(JSON.stringify({
         success: true
@@ -478,7 +538,7 @@ export const routes = {
       });
       
     } catch (error) {
-      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Delete tag mapping failed:`, error);
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Delete event type mapping failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,
@@ -491,28 +551,28 @@ export const routes = {
   },
 
   /**
-   * GET /events/api/odoo-tags
-   * Get all available Odoo tags
+   * GET /events/api/odoo-event-types
+   * Get all available Odoo event types
    */
-  'GET /api/odoo-tags': async (context) => {
+  'GET /api/odoo-event-types': async (context) => {
     const { env } = context;
     
     try {
-      console.log(`${LOG_PREFIX} 🏷️  Fetching Odoo tags...`);
+      console.log(`${LOG_PREFIX} 🏷️  Fetching Odoo event types...`);
       
-      const tags = await getAllOdooTags(env);
+      const eventTypes = await getAllOdooEventTypes(env);
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${tags.length} Odoo tags`);
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${eventTypes.length} Odoo event types`);
       
       return new Response(JSON.stringify({
         success: true,
-        data: tags
+        data: eventTypes
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
       
     } catch (error) {
-      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch Odoo tags failed:`, error);
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch Odoo event types failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,
@@ -526,13 +586,13 @@ export const routes = {
 
   /**
    * GET /events/api/wp-event-categories
-   * Get all WordPress Event Categories (The Events Calendar taxonomy)
+   * Get WordPress event categories (tribe_events_cat)
    */
   'GET /api/wp-event-categories': async (context) => {
     const { env } = context;
     
     try {
-      console.log(`${LOG_PREFIX} 🏷️  Fetching WordPress Event Categories...`);
+      console.log(`${LOG_PREFIX} 🏷️  Fetching WordPress event categories...`);
       
       const categories = await getWordPressEventCategories(env);
       

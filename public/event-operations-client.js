@@ -69,35 +69,11 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
   const regRow = createMetaRow('users', 'Registrations', regCount.toString());
   metaGrid.appendChild(regRow);
   
-  // Tags
-  if (webinar.x_studio_tag_ids && Array.isArray(webinar.x_studio_tag_ids) && webinar.x_studio_tag_ids.length > 0) {
-    const tagsRow = document.createElement('div');
-    tagsRow.className = 'flex items-center gap-2 text-base-content/80';
-    
-    const icon = document.createElement('i');
-    icon.setAttribute('data-lucide', 'tag');
-    icon.className = 'w-4 h-4 text-base-content/60';
-    
-    const labelSpan = document.createElement('span');
-    labelSpan.className = 'font-medium min-w-[100px]';
-    labelSpan.textContent = 'Tags:';
-    
-    const valueSpan = document.createElement('span');
-    valueSpan.className = 'flex flex-wrap gap-1';
-    webinar.x_studio_tag_ids.forEach(tagId => {
-      const badge = document.createElement('span');
-      badge.className = 'badge badge-outline badge-xs';
-      // Use window.tagNamesMap from parent context
-      const tagName = (window.tagNamesMap && window.tagNamesMap.get(tagId)) || 'Tag #' + tagId;
-      badge.textContent = tagName;
-      valueSpan.appendChild(badge);
-    });
-    
-    tagsRow.appendChild(icon);
-    tagsRow.appendChild(labelSpan);
-    tagsRow.appendChild(valueSpan);
-    metaGrid.appendChild(tagsRow);
-  }
+  const eventTypeName = Array.isArray(webinar.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 1
+    ? webinar.x_webinar_event_type_id[1]
+    : '—';
+  const eventTypeRow = createMetaRow('tag', 'Event Type', eventTypeName);
+  metaGrid.appendChild(eventTypeRow);
   
   // WordPress link (if published)
   if (wpId) {
@@ -298,38 +274,41 @@ function renderCardsView(webinars, snapshotMap, registrationCounts) {
 // TAG MAPPING
 // ══════════════════════════════════════════════════════════════════════════════
 
-function openTagModal() {
-  const modal = document.getElementById('tagModal');
+function openEventTypeMappingModal() {
+  const modal = document.getElementById('eventTypeMappingModal');
   modal.showModal();
-  loadTagMappings();
+  loadEventTypeMappings();
 }
 
-async function loadTagMappings() {
-  const loading = document.getElementById('tagMappingLoading');
-  const content = document.getElementById('tagMappingContent');
-  const tbody = document.getElementById('tagMappingTableBody');
+async function loadEventTypeMappings() {
+  const loading = document.getElementById('eventTypeMappingLoading');
+  const content = document.getElementById('eventTypeMappingContent');
+  const tbody = document.getElementById('eventTypeMappingTableBody');
 
   loading.classList.remove('hidden');
   content.classList.add('hidden');
 
   try {
-    const [mappingsRes, odooTagsRes, wpCatsRes] = await Promise.all([
-      fetch('/events/api/tag-mappings'),
-      fetch('/events/api/odoo-tags'),
+    const [mappingsRes, odooEventTypesRes, wpCategoriesRes] = await Promise.all([
+      fetch('/events/api/event-type-tag-mappings'),
+      fetch('/events/api/odoo-event-types'),
       fetch('/events/api/wp-event-categories')
     ]);
 
-    if (!mappingsRes.ok || !odooTagsRes.ok || !wpCatsRes.ok) {
-      throw new Error('Failed to load tag data');
+    if (!mappingsRes.ok || !odooEventTypesRes.ok || !wpCategoriesRes.ok) {
+      throw new Error('Failed to load mapping data');
     }
 
     const mappingsResponse = await mappingsRes.json();
-    const odooTagsResponse = await odooTagsRes.json();
-    const wpCatsResponse = await wpCatsRes.json();
+    const odooEventTypesResponse = await odooEventTypesRes.json();
+    const wpCategoriesResponse = await wpCategoriesRes.json();
 
     const mappings = mappingsResponse.data;
-    const odooTags = odooTagsResponse.data;
-    const wpCategories = wpCatsResponse.data;
+    const odooEventTypes = odooEventTypesResponse.data;
+    const wpCategories = wpCategoriesResponse.data;
+    const eventTypeNameById = new Map(
+      (odooEventTypes || []).map((eventType) => [eventType.id, eventType.x_name])
+    );
 
     tbody.textContent = '';
 
@@ -338,18 +317,20 @@ async function loadTagMappings() {
       const row = document.createElement('tr');
       
       const tdName = document.createElement('td');
-      tdName.textContent = mapping.odoo_tag_name;
+      const resolvedEventTypeName = eventTypeNameById.get(mapping.odoo_event_type_id);
+      tdName.textContent = resolvedEventTypeName || ('Event Type #' + mapping.odoo_event_type_id);
       row.appendChild(tdName);
 
       const tdCat = document.createElement('td');
-      tdCat.textContent = mapping.wp_category_slug;
+      const displayWpTagName = decodeHtmlEntities(mapping.wp_tag_name || '');
+      tdCat.textContent = displayWpTagName + ' (' + mapping.wp_tag_slug + ')';
       row.appendChild(tdCat);
 
       const tdActions = document.createElement('td');
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'btn btn-xs btn-error btn-outline';
       deleteBtn.textContent = 'Delete';
-      deleteBtn.onclick = () => deleteTagMapping(mapping.id);
+      deleteBtn.onclick = () => deleteEventTypeMapping(mapping.id);
       tdActions.appendChild(deleteBtn);
       row.appendChild(tdActions);
 
@@ -357,90 +338,92 @@ async function loadTagMappings() {
     });
 
     // Populate form selects
-    const odooTagSelect = document.getElementById('odooTagSelect');
-    const wpCategorySelect = document.getElementById('wpCategorySelect');
+    const odooEventTypeSelect = document.getElementById('odooEventTypeSelect');
+    const wpTagSelect = document.getElementById('wpTagSelect');
     
-    // Clear and populate Odoo tag select
-    odooTagSelect.innerHTML = '<option value="">Select Odoo Tag...</option>';
-    const mappedOdooIds = new Set(mappings.map(m => m.odoo_tag_id));
-    odooTags.forEach(tag => {
-      if (mappedOdooIds.has(tag.id)) return; // Skip already mapped tags
+    // Clear and populate Odoo event type select
+    odooEventTypeSelect.innerHTML = '<option value="">Select Odoo Event Type...</option>';
+    const mappedOdooEventTypeIds = new Set(mappings.map(m => m.odoo_event_type_id));
+    odooEventTypes.forEach(eventType => {
+      if (mappedOdooEventTypeIds.has(eventType.id)) return; // Skip already mapped event types
       const option = document.createElement('option');
-      option.value = tag.id;
-      option.textContent = tag.x_name;
-      odooTagSelect.appendChild(option);
+      option.value = eventType.id;
+      option.textContent = eventType.x_name;
+      odooEventTypeSelect.appendChild(option);
     });
 
-    // Clear and populate WP category select
-    wpCategorySelect.innerHTML = '<option value="">Select WP Category...</option>';
-    wpCategories.forEach(cat => {
+    // Clear and populate WP Event Category select
+    wpTagSelect.innerHTML = '<option value="">Select WP Tag...</option>';
+    wpCategories.forEach(tag => {
+      const wpTagNameDecoded = decodeHtmlEntities(tag.name || '');
       const option = document.createElement('option');
-      option.value = cat.id;
-      option.dataset.slug = cat.slug;
-      option.textContent = cat.name + ' (' + cat.count + ')';
-      wpCategorySelect.appendChild(option);
+      option.value = tag.id;
+      option.dataset.slug = tag.slug;
+      option.dataset.name = wpTagNameDecoded;
+      option.textContent = wpTagNameDecoded + ' (' + tag.count + ')';
+      wpTagSelect.appendChild(option);
     });
 
     loading.classList.add('hidden');
     content.classList.remove('hidden');
   } catch (error) {
-    console.error('Tag mapping load error:', error);
-    alert('⚠️  Failed to load tag mappings');
+    console.error('Event type mapping load error:', error);
+    alert('⚠️  Failed to load event type mappings');
     loading.classList.add('hidden');
   }
 }
 
-async function addTagMapping() {
-  const select = document.getElementById('odooTagSelect');
-  const catSelect = document.getElementById('wpCategorySelect');
+async function saveEventTypeMapping() {
+  const eventTypeSelect = document.getElementById('odooEventTypeSelect');
+  const wpTagSelect = document.getElementById('wpTagSelect');
 
-  const odooTagId = parseInt(select.value);
-  const wpCategoryId = parseInt(catSelect.value);
+  const odooEventTypeId = parseInt(eventTypeSelect.value);
+  const wpTagId = parseInt(wpTagSelect.value);
 
-  if (!odooTagId || !wpCategoryId) {
-    alert('⚠️  Select both an Odoo tag and a WP category');
+  if (!odooEventTypeId || !wpTagId) {
+    alert('⚠️  Select both an Odoo event type and a WP tag');
     return;
   }
 
-  const odooTagName = select.options[select.selectedIndex].textContent;
-  const wpCategorySlug = catSelect.options[catSelect.selectedIndex].dataset.slug;
+  const wpTagSlug = wpTagSelect.options[wpTagSelect.selectedIndex].dataset.slug;
+  const wpTagName = wpTagSelect.options[wpTagSelect.selectedIndex].dataset.name;
 
   try {
-    const res = await fetch('/events/api/tag-mappings', {
-      method: 'POST',
+    const res = await fetch('/events/api/event-type-tag-mappings', {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        odoo_tag_id: odooTagId,
-        odoo_tag_name: odooTagName,
-        wp_category_id: wpCategoryId,
-        wp_category_slug: wpCategorySlug
+        odoo_event_type_id: odooEventTypeId,
+        wp_tag_id: wpTagId,
+        wp_tag_slug: wpTagSlug,
+        wp_tag_name: wpTagName
       })
     });
 
     if (!res.ok) throw new Error(await res.text());
 
-    alert('✅ Tag → Category mapping created');
-    loadTagMappings();
+    alert('✅ Event type mapping saved');
+    loadEventTypeMappings();
   } catch (error) {
-    console.error('Tag mapping create error:', error);
-    alert('❌ Failed to create mapping: ' + error.message);
+    console.error('Event type mapping save error:', error);
+    alert('❌ Failed to save mapping: ' + error.message);
   }
 }
 
-async function deleteTagMapping(id) {
-  if (!confirm('Delete this tag mapping?')) return;
+async function deleteEventTypeMapping(id) {
+  if (!confirm('Delete this event type mapping?')) return;
 
   try {
-    const res = await fetch('/events/api/tag-mappings/' + id, {
+    const res = await fetch('/events/api/event-type-tag-mappings/' + id, {
       method: 'DELETE'
     });
 
     if (!res.ok) throw new Error(await res.text());
 
-    alert('✅ Tag mapping deleted');
-    loadTagMappings();
+    alert('✅ Event type mapping deleted');
+    loadEventTypeMappings();
   } catch (error) {
-    console.error('Tag mapping delete error:', error);
+    console.error('Event type mapping delete error:', error);
     alert('❌ Failed to delete mapping: ' + error.message);
   }
 }
@@ -867,4 +850,10 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function decodeHtmlEntities(text) {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = String(text || '');
+  return textarea.value;
 }

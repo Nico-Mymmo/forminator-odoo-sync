@@ -30,7 +30,8 @@ export const SYNC_STATUS = {
 export const ODOO_MODEL = {
   WEBINAR: 'x_webinar',
   REGISTRATION: 'x_webinarregistrations',
-  TAGS: 'x_webinar_tag'
+  TAGS: 'x_webinar_tag',
+  EVENT_TYPE: 'x_webinar_event_type'
 };
 
 // Odoo Fields
@@ -42,6 +43,7 @@ export const ODOO_FIELDS = {
   INFO: 'x_studio_webinar_info',
   STAGE: 'x_studio_stage_id',
   ACTIVE: 'x_active',
+  EVENT_TYPE_ID: 'x_webinar_event_type_id',
   TAG_IDS: 'x_studio_tag_ids',
   // Registration fields
   LINKED_WEBINAR: 'x_studio_linked_webinar'
@@ -51,7 +53,8 @@ export const ODOO_FIELDS = {
 export const WP_ENDPOINTS = {
   TRIBE_EVENTS: '/wp-json/tribe/events/v1/events',
   WP_EVENTS: '/wp-json/wp/v2/tribe_events',
-  WP_EVENT_CATEGORIES: '/wp-json/wp/v2/tribe_events_cat'
+  WP_EVENT_CATEGORIES: '/wp-json/wp/v2/tribe_events_cat',
+  WP_TAGS: '/wp-json/wp/v2/tags'
 };
 
 // Worker Routes
@@ -64,8 +67,8 @@ export const ROUTES = {
   API_SYNC: '/api/sync',
   API_DISCREPANCIES: '/api/discrepancies',
   API_ARCHIVE: '/api/archive',
-  API_TAG_MAPPINGS: '/api/tag-mappings',
-  API_ODOO_TAGS: '/api/odoo-tags',
+  API_EVENT_TYPE_TAG_MAPPINGS: '/api/event-type-tag-mappings',
+  API_ODOO_EVENT_TYPES: '/api/odoo-event-types',
   API_WP_EVENT_CATEGORIES: '/api/wp-event-categories'
 };
 

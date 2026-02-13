@@ -1,138 +1,109 @@
 /**
- * Tag Mapping CRUD Helpers
- * 
- * Manages webinar_tag_mappings table operations
+ * Event Type → WP Tag Mapping Helpers (Addendum C)
  */
 
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 
 /**
- * Get all tag mappings for a user
- * 
+ * Get all event type mappings for a user
+ *
  * @param {Object} env
  * @param {string} userId
  * @returns {Promise<Array>}
  */
-export async function getTagMappings(env, userId) {
+export async function getEventTypeTagMappings(env, userId) {
   const supabase = await getSupabaseAdminClient(env);
-  
+
   const { data, error } = await supabase
-    .from('webinar_tag_mappings')
+    .from('event_type_wp_tag_mapping')
     .select('*')
     .eq('user_id', userId)
-    .order('odoo_tag_name', { ascending: true });
-  
+    .order('odoo_event_type_id', { ascending: true });
+
   if (error) {
-    throw new Error(`Failed to fetch tag mappings: ${error.message}`);
+    throw new Error(`Failed to fetch event type mappings: ${error.message}`);
   }
-  
+
   return data || [];
 }
 
 /**
- * Get tag mappings for specific Odoo tag IDs
- * 
+ * Get mapping for one event type
+ *
  * @param {Object} env
  * @param {string} userId
- * @param {Array<number>} odooTagIds
- * @returns {Promise<Array>}
+ * @param {number} odooEventTypeId
+ * @returns {Promise<Object|null>}
  */
-export async function getTagMappingsForOdooTags(env, userId, odooTagIds) {
-  if (!odooTagIds || odooTagIds.length === 0) {
-    return [];
-  }
-  
+export async function getEventTypeTagMappingByEventTypeId(env, userId, odooEventTypeId) {
   const supabase = await getSupabaseAdminClient(env);
-  
+
   const { data, error } = await supabase
-    .from('webinar_tag_mappings')
+    .from('event_type_wp_tag_mapping')
     .select('*')
     .eq('user_id', userId)
-    .in('odoo_tag_id', odooTagIds);
-  
+    .eq('odoo_event_type_id', odooEventTypeId)
+    .maybeSingle();
+
   if (error) {
-    throw new Error(`Failed to fetch tag mappings for tags: ${error.message}`);
+    throw new Error(`Failed to fetch event type mapping: ${error.message}`);
   }
-  
-  return data || [];
+
+  return data || null;
 }
 
 /**
- * Create a new tag mapping
- * 
+ * Upsert mapping for one event type
+ *
  * @param {Object} env
  * @param {string} userId
- * @param {Object} mapping - { odoo_tag_id, odoo_tag_name, wp_category_slug, wp_category_id?, auto_created? }
- * @returns {Promise<Object>} Created mapping
+ * @param {Object} mapping
+ * @returns {Promise<Object>}
  */
-export async function createTagMapping(env, userId, mapping) {
+export async function upsertEventTypeTagMapping(env, userId, mapping) {
   const supabase = await getSupabaseAdminClient(env);
-  
+
+  const payload = {
+    user_id: userId,
+    odoo_event_type_id: mapping.odoo_event_type_id,
+    wp_tag_id: mapping.wp_tag_id,
+    wp_tag_slug: mapping.wp_tag_slug,
+    wp_tag_name: mapping.wp_tag_name
+  };
+
   const { data, error } = await supabase
-    .from('webinar_tag_mappings')
-    .insert({
-      user_id: userId,
-      odoo_tag_id: mapping.odoo_tag_id,
-      odoo_tag_name: mapping.odoo_tag_name,
-      wp_category_slug: mapping.wp_category_slug,
-      wp_category_id: mapping.wp_category_id || null,
-      auto_created: mapping.auto_created || false
+    .from('event_type_wp_tag_mapping')
+    .upsert(payload, {
+      onConflict: 'user_id,odoo_event_type_id'
     })
     .select()
     .single();
-  
+
   if (error) {
-    throw new Error(`Failed to create tag mapping: ${error.message}`);
+    throw new Error(`Failed to upsert event type mapping: ${error.message}`);
   }
-  
+
   return data;
 }
 
 /**
- * Update tag mapping (e.g., set wp_category_id after usage)
- * 
- * @param {Object} env
- * @param {string} userId
- * @param {string} mappingId
- * @param {Object} updates - { wp_category_id?, wp_category_slug?, auto_created? }
- * @returns {Promise<Object>} Updated mapping
- */
-export async function updateTagMapping(env, userId, mappingId, updates) {
-  const supabase = await getSupabaseAdminClient(env);
-  
-  const { data, error } = await supabase
-    .from('webinar_tag_mappings')
-    .update(updates)
-    .eq('id', mappingId)
-    .eq('user_id', userId)
-    .select()
-    .single();
-  
-  if (error) {
-    throw new Error(`Failed to update tag mapping: ${error.message}`);
-  }
-  
-  return data;
-}
-
-/**
- * Delete tag mapping
- * 
+ * Delete mapping by row id
+ *
  * @param {Object} env
  * @param {string} userId
  * @param {string} mappingId
  * @returns {Promise<void>}
  */
-export async function deleteTagMapping(env, userId, mappingId) {
+export async function deleteEventTypeTagMapping(env, userId, mappingId) {
   const supabase = await getSupabaseAdminClient(env);
-  
+
   const { error } = await supabase
-    .from('webinar_tag_mappings')
+    .from('event_type_wp_tag_mapping')
     .delete()
     .eq('id', mappingId)
     .eq('user_id', userId);
-  
+
   if (error) {
-    throw new Error(`Failed to delete tag mapping: ${error.message}`);
+    throw new Error(`Failed to delete event type mapping: ${error.message}`);
   }
 }
