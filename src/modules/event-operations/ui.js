@@ -35,6 +35,248 @@ export function eventOperationsUI(user) {
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- FullCalendar v6 (Phase 8) -->
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+    <style>
+      /* FullCalendar DaisyUI Visual Alignment (Addendum D Phase 8) */
+      
+      /* Base calendar container - match DaisyUI card aesthetic */
+      .fc {
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background-color: hsl(var(--b1));
+        --fc-border-color: hsl(var(--bc) / 0.06);
+        --fc-today-bg-color: hsl(var(--p) / 0.05);
+      }
+      
+      /* Soften all borders - subtle grid lines */
+      .fc-theme-standard td,
+      .fc-theme-standard th {
+        border-color: hsl(var(--bc) / 0.06);
+      }
+      .fc-theme-standard .fc-scrollgrid {
+        border-color: hsl(var(--bc) / 0.06);
+      }
+      .fc .fc-scrollgrid,
+      .fc .fc-scrollgrid table {
+        border-color: hsl(var(--bc) / 0.06);
+      }
+      
+      /* Toolbar - reduce visual weight and prevent clipping */
+      .fc .fc-toolbar {
+        padding: 0.75rem 0;
+        margin-bottom: 1rem;
+        overflow: visible !important;
+      }
+      .fc-toolbar-title {
+        font-size: 1.125rem !important;
+        font-weight: 600;
+        color: hsl(var(--bc));
+        line-height: 1.5;
+      }
+      .fc .fc-toolbar-chunk {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      
+      /* Toolbar buttons - style as DaisyUI btn-sm btn-outline */
+      .fc .fc-button {
+        background-color: transparent;
+        border: 1px solid hsl(var(--bc) / 0.2);
+        color: hsl(var(--bc));
+        text-transform: none;
+        font-weight: 500;
+        font-size: 0.875rem;
+        padding: 0.375rem 0.75rem;
+        border-radius: 0.5rem;
+        box-shadow: none !important;
+        transition: all 0.2s ease;
+        height: auto;
+        line-height: 1.25rem;
+        flex-shrink: 0;
+      }
+      .fc .fc-button:hover {
+        background-color: hsl(var(--bc) / 0.05);
+        border-color: hsl(var(--bc) / 0.3);
+      }
+      .fc .fc-button:focus {
+        outline: 2px solid hsl(var(--p) / 0.2);
+        outline-offset: 2px;
+        box-shadow: none !important;
+      }
+      .fc .fc-button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      
+      /* Active button - use DaisyUI primary with high contrast */
+      .fc .fc-button-primary:not(:disabled).fc-button-active,
+      .fc .fc-button-primary:not(:disabled):active {
+        background-color: hsl(var(--p));
+        border-color: hsl(var(--p));
+        color: hsl(var(--pc));
+        font-weight: 600;
+      }
+      .fc .fc-button-primary.fc-button-active:hover {
+        background-color: hsl(var(--pf));
+        border-color: hsl(var(--pf));
+      }
+      
+      /* Button group spacing */
+      .fc .fc-button-group {
+        gap: 0;
+      }
+      .fc .fc-button-group > .fc-button {
+        border-radius: 0;
+      }
+      .fc .fc-button-group > .fc-button:first-child {
+        border-top-left-radius: 0.5rem;
+        border-bottom-left-radius: 0.5rem;
+      }
+      .fc .fc-button-group > .fc-button:last-child {
+        border-top-right-radius: 0.5rem;
+        border-bottom-right-radius: 0.5rem;
+      }
+      .fc .fc-button-group > .fc-button:not(:last-child) {
+        border-right-width: 0;
+      }
+      
+      /* Column headers - softer, cleaner look */
+      .fc-col-header-cell {
+        background-color: transparent;
+        border-bottom: 1px solid hsl(var(--bc) / 0.1);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.6875rem;
+        letter-spacing: 0.025em;
+        color: hsl(var(--bc) / 0.6);
+        padding: 0.5rem 0.25rem;
+      }
+      .fc-col-header-cell-cushion {
+        padding: 0.25rem;
+      }
+      
+      /* Day cells - airy and modern */
+      .fc-daygrid-day {
+        background-color: hsl(var(--b1));
+      }
+      .fc-daygrid-day-frame {
+        padding: 0.25rem;
+        min-height: 5rem;
+      }
+      .fc-daygrid-day-number {
+        color: hsl(var(--bc) / 0.7);
+        font-weight: 500;
+        font-size: 0.875rem;
+        padding: 0.25rem 0.375rem;
+      }
+      
+      /* Today highlight - subtle DaisyUI primary tint */
+      .fc-daygrid-day.fc-day-today {
+        background-color: hsl(var(--p) / 0.03) !important;
+      }
+      .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+        background-color: hsl(var(--p));
+        color: hsl(var(--pc));
+        border-radius: 0.375rem;
+        font-weight: 600;
+      }
+      
+      /* Other month days - subtle gray */
+      .fc-daygrid-day.fc-day-other {
+        background-color: hsl(var(--b2) / 0.3);
+      }
+      .fc-daygrid-day.fc-day-other .fc-daygrid-day-number {
+        color: hsl(var(--bc) / 0.4);
+      }
+      
+      /* Events - DaisyUI themed with CSS variables set via eventDidMount */
+      .fc-event {
+        cursor: pointer;
+        /* Use CSS variables set by styleCalendarEvent() */
+        background-color: var(--event-bg, hsl(var(--b2))) !important;
+        border-color: var(--event-border, hsl(var(--bc) / 0.2)) !important;
+        border-width: 1px !important;
+        border-left: 3px solid var(--event-accent, hsl(var(--p))) !important;
+        color: var(--event-text, hsl(var(--bc))) !important;
+        font-weight: 500;
+        font-size: 0.8125rem;
+        padding: 0.125rem 0.375rem;
+        margin-bottom: 0.125rem;
+        border-radius: 0.25rem;
+        transition: all 0.15s ease;
+      }
+      .fc-event:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px hsl(var(--bc) / 0.15);
+        /* Slightly darken background on hover, keep text readable */
+        filter: brightness(0.95);
+      }
+      .fc-event-title,
+      .fc-event-time {
+        color: inherit !important;
+        font-weight: 500;
+      }
+      .fc-daygrid-event-dot {
+        display: none;
+      }
+      
+      /* Time grid styling (week/day view) */
+      .fc-timegrid-slot {
+        height: 2.5rem;
+      }
+      .fc-timegrid-slot-label {
+        color: hsl(var(--bc) / 0.6);
+        font-size: 0.75rem;
+      }
+      .fc-timegrid-divider {
+        padding: 0;
+        border-color: hsl(var(--bc) / 0.08);
+      }
+      
+      /* Subtle DaisyUI focus states - no thick borders */
+      .fc a:focus,
+      .fc button:focus {
+        outline: 2px solid hsl(var(--p) / 0.2);
+        outline-offset: 2px;
+        box-shadow: none !important;
+      }
+      
+      /* Popover styling */
+      .fc-popover {
+        background-color: hsl(var(--b1));
+        border-color: hsl(var(--bc) / 0.06);
+        box-shadow: 0 4px 6px -1px hsl(var(--bc) / 0.1), 0 2px 4px -1px hsl(var(--bc) / 0.06);
+      }
+      
+      /* Status Legend - match calendar event colors using DaisyUI tokens */
+      .legend-warning {
+        background-color: hsl(var(--wa) / 0.15) !important;
+        border-color: hsl(var(--wa) / 0.3) !important;
+        color: hsl(var(--bc)) !important;
+      }
+      .legend-success {
+        background-color: hsl(var(--su) / 0.15) !important;
+        border-color: hsl(var(--su) / 0.3) !important;
+        color: hsl(var(--bc)) !important;
+      }
+      .legend-neutral {
+        background-color: hsl(var(--n) / 0.15) !important;
+        border-color: hsl(var(--n) / 0.3) !important;
+        color: hsl(var(--bc)) !important;
+      }
+      .legend-info {
+        background-color: hsl(var(--in) / 0.15) !important;
+        border-color: hsl(var(--in) / 0.3) !important;
+        color: hsl(var(--bc)) !important;
+      }
+      .legend-archived {
+        background-color: hsl(var(--n) / 0.08) !important;
+        border-color: hsl(var(--n) / 0.2) !important;
+        color: hsl(var(--bc) / 0.6) !important;
+      }
+    </style>
 </head>
 <body class="bg-base-200">
     ${navbar(user)}
@@ -43,27 +285,40 @@ export function eventOperationsUI(user) {
       <div class="container mx-auto px-6 py-8 max-w-6xl">
 
           <!-- Header -->
-          <div class="flex items-center justify-between mb-8">
-            <div>
-              <h1 class="text-4xl font-bold mb-2">Event Operations</h1>
-              <p class="text-base-content/60">Odoo webinar → WordPress publication</p>
-            </div>
-            <div class="flex gap-2">
-              <!-- View toggle -->
-              <div class="join">
-                <button id="viewBtnTable" class="btn btn-sm btn-outline join-item btn-active" onclick="switchView('table')">
-                  <i data-lucide="table" class="w-4 h-4"></i> Table
+          <div class="mb-6">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h1 class="text-4xl font-bold mb-2">Event Operations</h1>
+                <p class="text-base-content/60">Odoo webinar → WordPress publication</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <!-- View toggle (LEFT) -->
+                <div class="join">
+                  <button id="viewBtnTable" class="btn btn-sm btn-outline join-item btn-active" onclick="switchView('table')">
+                    <i data-lucide="table" class="w-4 h-4"></i> Table
+                  </button>
+                  <button id="viewBtnCalendar" class="btn btn-sm btn-outline join-item" onclick="switchView('calendar')">
+                    <i data-lucide="calendar" class="w-4 h-4"></i> Calendar
+                  </button>
+                </div>
+                <!-- Actions (RIGHT) -->
+                <button id="btnTags" class="btn btn-outline btn-sm gap-2" onclick="openEventTypeMappingModal()">
+                  <i data-lucide="tag" class="w-4 h-4"></i> Event Type Mapping
                 </button>
-                <button id="viewBtnCards" class="btn btn-sm btn-outline join-item" onclick="switchView('cards')">
-                  <i data-lucide="layout-grid" class="w-4 h-4"></i> Cards
+                <button id="btnSync" class="btn btn-primary btn-sm gap-2" onclick="runSync()">
+                  <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All
                 </button>
               </div>
-              <button id="btnTags" class="btn btn-outline btn-sm gap-2" onclick="openEventTypeMappingModal()">
-                <i data-lucide="tag" class="w-4 h-4"></i> Event Type Mapping
-              </button>
-              <button id="btnSync" class="btn btn-outline btn-sm gap-2" onclick="runSync()">
-                <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All
-              </button>
+            </div>
+            
+            <!-- Status Legend (Addendum D Phase 8) -->
+            <div id="statusLegend" class="hidden flex flex-wrap gap-2 text-xs">
+              <span class="text-base-content/60 font-medium mr-2">Status:</span>
+              <span class="badge badge-sm legend-warning">Out of Sync</span>
+              <span class="badge badge-sm legend-success">Published</span>
+              <span class="badge badge-sm legend-neutral">Draft</span>
+              <span class="badge badge-sm legend-info">Not Published</span>
+              <span class="badge badge-sm legend-archived">Archived</span>
             </div>
           </div>
 
@@ -82,8 +337,8 @@ export function eventOperationsUI(user) {
             </div>
           </div>
 
-          <!-- Filter tabs -->
-          <div class="tabs tabs-boxed mb-6 bg-base-100 shadow-sm">
+          <!-- Filter tabs (Table view only - Addendum D Phase 8) -->
+          <div id="filterTabs" class="tabs tabs-boxed mb-6 bg-base-100 shadow-sm">
             <a id="tabAll" class="tab tab-active" onclick="switchTab('all')">Alle</a>
             <a id="tabUpcoming" class="tab" onclick="switchTab('upcoming')">Komend</a>
             <a id="tabPast" class="tab" onclick="switchTab('past')">Verleden</a>
@@ -202,8 +457,35 @@ export function eventOperationsUI(user) {
             </div>
           </div>
 
-          <!-- Cards view -->
-          <div id="cardsContainer" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start"></div>
+          <!-- Calendar Workspace (Phase 8) -->
+          <div id="calendarWorkspace" class="hidden">
+            <div class="grid grid-cols-12 gap-6">
+              <!-- Calendar Container (8/12) -->
+              <div class="col-span-12 lg:col-span-8">
+                <div class="card bg-base-100 shadow-xl">
+                  <div class="card-body p-4">
+                    <div id="fullcalendar"></div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Detail Panel (4/12) -->
+              <div class="col-span-12 lg:col-span-4">
+                <div class="card bg-base-100 shadow-xl sticky top-4">
+                  <div class="card-body">
+                    <!-- Empty State -->
+                    <div id="panel-empty-state" class="text-center py-12">
+                      <i data-lucide="mouse-pointer-click" class="w-12 h-12 mx-auto text-base-content/30 mb-2"></i>
+                      <p class="text-base-content/60">Select an event from the calendar</p>
+                    </div>
+                    
+                    <!-- Detail Content (hidden initially) -->
+                    <div id="panel-content" class="hidden"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
         </div>
     </div>
@@ -350,10 +632,11 @@ export function eventOperationsUI(user) {
         document.getElementById('dataTable').classList.add('hidden');
 
         try {
-          const [webinarsRes, snapshotsRes, eventTypesRes] = await Promise.all([
+          const [webinarsRes, snapshotsRes, eventTypesRes, mappingsRes] = await Promise.all([
             fetch('/events/api/odoo-webinars?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json()),
             fetch('/events/api/snapshots?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json()),
-            fetch('/events/api/odoo-event-types?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json())
+            fetch('/events/api/odoo-event-types?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json()),
+            fetch('/events/api/event-type-tag-mappings?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json())
           ]);
 
           if (!webinarsRes.success) throw new Error(webinarsRes.error);
@@ -375,6 +658,9 @@ export function eventOperationsUI(user) {
 
           // Make event type map available to external client.js
           window.eventTypeNamesMap = eventTypeNamesMap;
+          
+          // Cache event type mappings globally (Phase 8)
+          window.eventTypeMappings = mappingsRes.success ? mappingsRes.data : [];
 
           // Restore active tab from URL hash
           initTabFromHash();
@@ -606,32 +892,42 @@ export function eventOperationsUI(user) {
         return d.innerHTML;
       }
 
-      // ── View Switching ──
+      // ── View Switching (Addendum D Phase 8: Table + Calendar) ──
       function switchView(viewType) {
         const tableContainer = document.getElementById('dataTable');
-        const cardsContainer = document.getElementById('cardsContainer');
+        const calendarWorkspace = document.getElementById('calendarWorkspace');
         const emptyState = document.getElementById('emptyState');
         const tableBtn = document.getElementById('viewBtnTable');
-        const cardsBtn = document.getElementById('viewBtnCards');
+        const calendarBtn = document.getElementById('viewBtnCalendar');
+        const filterTabs = document.getElementById('filterTabs');
+        const statusLegend = document.getElementById('statusLegend');
         
         const filteredWebinars = filterWebinars(odooWebinars, activeTab);
         
         if (viewType === 'table') {
+          // Show table view
           tableContainer.classList.remove('hidden');
-          cardsContainer.classList.add('hidden');
+          calendarWorkspace.classList.add('hidden');
           tableBtn.classList.add('btn-active');
-          cardsBtn.classList.remove('btn-active');
+          calendarBtn.classList.remove('btn-active');
+          // Show filter tabs, hide status legend
+          if (filterTabs) filterTabs.classList.remove('hidden');
+          if (statusLegend) statusLegend.classList.add('hidden');
           renderTable(filteredWebinars);
-        } else {
+        } else if (viewType === 'calendar') {
+          // Show calendar view
           tableContainer.classList.add('hidden');
           emptyState.classList.add('hidden');
-          cardsContainer.classList.remove('hidden');
+          calendarWorkspace.classList.remove('hidden');
           tableBtn.classList.remove('btn-active');
-          cardsBtn.classList.add('btn-active');
+          calendarBtn.classList.add('btn-active');
+          // Hide filter tabs, show status legend
+          if (filterTabs) filterTabs.classList.add('hidden');
+          if (statusLegend) statusLegend.classList.remove('hidden');
           
-          // Re-render cards with filtered data
-          if (typeof renderCardsView === 'function') {
-            renderCardsView(filteredWebinars, snapshotMap, registrationCounts);
+          // Initialize calendar with filtered data (Addendum D Phase 8)
+          if (typeof initializeCalendar === 'function') {
+            initializeCalendar(filteredWebinars, snapshotMap, registrationCounts);
           }
         }
         
@@ -640,8 +936,8 @@ export function eventOperationsUI(user) {
 
       function initView() {
         const savedView = localStorage.getItem('eventOpsViewMode') || 'table';
-        if (savedView === 'cards') {
-          setTimeout(() => switchView('cards'), 100);
+        if (savedView === 'calendar') {
+          setTimeout(() => switchView('calendar'), 100);
         }
       }
 

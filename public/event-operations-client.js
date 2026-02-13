@@ -1,49 +1,206 @@
 /**
  * Event Operations - Client-side UI rendering
- * Card view rendering with DOM APIs
- * Depends on: STATUS_BADGES, escapeHtml from parent scope (ui.js)
+ * PHASE 8: FullCalendar workspace with detail panel
+ * Depends on: STATUS_BADGES, FullCalendar v6, formatEventDateTime from ui.js
  */
 
-// ── Render single webinar card ──
-function renderWebinarCard(webinar, snapshot, registrationCount) {
-  const state = snapshot ? snapshot.computed_state : 'not_published';
+// ══════════════════════════════════════════════════════════════════════════════
+// FULLCALENDAR INTEGRATION (Phase 8)
+// ══════════════════════════════════════════════════════════════════════════════
+
+let calendarInstance = null; // Global calendar instance
+
+/**
+ * Initialize FullCalendar with webinar data
+ */
+function initializeCalendar(webinars, snapshotMap, registrationCounts) {
+  const calendarEl = document.getElementById('fullcalendar');
+  if (!calendarEl) {
+    console.error('[initializeCalendar] Calendar element not found');
+    return;
+  }
+
+  // Destroy existing calendar instance if present
+  if (calendarInstance) {
+    calendarInstance.destroy();
+  }
+
+  // Transform webinars to FullCalendar events
+  const events = transformToCalendarEvents(webinars, snapshotMap, registrationCounts);
+
+  // Initialize FullCalendar (month view only)
+  calendarInstance = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: '' // No view switcher - month only
+    },
+    events: events,
+    eventClick: handleEventClick,
+    eventDidMount: styleCalendarEvent,
+    height: 'auto'
+  });
+
+  // Initialize detail panel event delegation (once)
+  initDetailPanelDelegation();
+
+  calendarInstance.render();
+}
+
+/**
+ * Transform webinars to FullCalendar event objects
+ */
+function transformToCalendarEvents(webinars, snapshotMap, registrationCounts) {
+  return webinars.map(webinar => {
+    const snapshot = snapshotMap.get(webinar.id);
+    const state = snapshot ? snapshot.computed_state : 'not_published';
+    const colors = getStatusColors(state);
+
+    return {
+      id: `webinar_${webinar.id}`,
+      title: webinar.x_name || 'Untitled Event',
+      start: webinar.x_studio_event_datetime,
+      end: calculateEndTime(webinar.x_studio_event_datetime, webinar.x_studio_event_duration_minutes),
+      backgroundColor: colors.bg,
+      borderColor: colors.border,
+      extendedProps: {
+        computed_state: state,
+        odoo_webinar_id: webinar.id,
+        registration_count: registrationCounts[webinar.id] || 0,
+        webinar: webinar,
+        snapshot: snapshot
+      }
+    };
+  });
+}
+
+/**
+ * Get status-based colors using DaisyUI CSS variables
+ * Returns CSS variable strings for proper theme integration
+ */
+function getStatusColors(state) {
+  const colorMap = {
+    'out_of_sync': { 
+      bg: 'hsl(var(--wa) / 0.15)', 
+      border: 'hsl(var(--wa) / 0.3)',
+      accent: 'hsl(var(--wa))',
+      text: 'hsl(var(--bc))'
+    },
+    'published': { 
+      bg: 'hsl(var(--su) / 0.15)', 
+      border: 'hsl(var(--su) / 0.3)',
+      accent: 'hsl(var(--su))',
+      text: 'hsl(var(--bc))'
+    },
+    'draft': { 
+      bg: 'hsl(var(--n) / 0.15)', 
+      border: 'hsl(var(--n) / 0.3)',
+      accent: 'hsl(var(--n))',
+      text: 'hsl(var(--bc))'
+    },
+    'not_published': { 
+      bg: 'hsl(var(--in) / 0.15)', 
+      border: 'hsl(var(--in) / 0.3)',
+      accent: 'hsl(var(--in))',
+      text: 'hsl(var(--bc))'
+    },
+    'archived': { 
+      bg: 'hsl(var(--n) / 0.08)', 
+      border: 'hsl(var(--n) / 0.2)',
+      accent: 'hsl(var(--n) / 0.5)',
+      text: 'hsl(var(--bc) / 0.6)'
+    },
+    'deleted': { 
+      bg: 'hsl(var(--er) / 0.15)', 
+      border: 'hsl(var(--er) / 0.3)',
+      accent: 'hsl(var(--er))',
+      text: 'hsl(var(--bc))'
+    }
+  };
+  return colorMap[state] || colorMap.not_published;
+}
+
+/**
+ * Apply DaisyUI-based styling to calendar events using CSS variables
+ * Called via eventDidMount hook
+ */
+function styleCalendarEvent(info) {
+  const { extendedProps } = info.event;
+  const colors = getStatusColors(extendedProps.computed_state);
+  
+  // Set CSS variables on event element for consistent theming
+  const el = info.el;
+  el.style.setProperty('--event-accent', colors.accent);
+  el.style.setProperty('--event-bg', colors.bg);
+  el.style.setProperty('--event-border', colors.border);
+  el.style.setProperty('--event-text', colors.text);
+}
+
+/**
+ * Calculate event end time from start + duration
+ */
+function calculateEndTime(startISO, durationMinutes) {
+  if (!startISO || !durationMinutes) return startISO;
+  const start = new Date(startISO);
+  const end = new Date(start.getTime() + durationMinutes * 60000);
+  return end.toISOString();
+}
+
+/**
+ * Handle calendar event click - update detail panel
+ */
+function handleEventClick(info) {
+  info.jsEvent.preventDefault();
+  const { webinar, snapshot, computed_state, registration_count } = info.event.extendedProps;
+  updateDetailPanel(webinar, snapshot, computed_state, registration_count);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DETAIL PANEL RENDERING (Phase 8)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Update detail panel with selected webinar
+ */
+function updateDetailPanel(webinar, snapshot, state, regCount) {
+  const emptyState = document.getElementById('panel-empty-state');
+  const panelContent = document.getElementById('panel-content');
+
+  if (!emptyState || !panelContent) {
+    console.error('[updateDetailPanel] Panel elements not found');
+    return;
+  }
+
+  emptyState.style.display = 'none';
+  panelContent.style.display = 'block';
+
+  panelContent.innerHTML = renderDetailPanelContent(webinar, snapshot, state, regCount);
+  
+  // Re-initialize Lucide icons after DOM update
+  setTimeout(() => {
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+      lucide.createIcons();
+    }
+  }, 10);
+}
+
+/**
+ * Render detail panel HTML content
+ */
+function renderDetailPanelContent(webinar, snapshot, state, regCount) {
   const badge = STATUS_BADGES[state] || STATUS_BADGES.not_published;
   const wpId = snapshot?.wp_snapshot?.id;
-  const regCount = registrationCount || 0;
-  
-  // Create card container
-  const card = document.createElement('div');
-  card.className = 'card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow min-h-[480px]';
-  
-  // Card body
-  const cardBody = document.createElement('div');
-  cardBody.className = 'card-body p-4 flex flex-col';
-  
-  // Header: ID + Status badge
-  const header = document.createElement('div');
-  header.className = 'flex items-center justify-between mb-2';
-  
-  const idSpan = document.createElement('span');
-  idSpan.className = 'font-mono text-sm text-base-content/60';
-  idSpan.textContent = '#' + webinar.id;
-  
-  const statusBadge = document.createElement('span');
-  statusBadge.className = 'badge ' + badge.css + ' badge-sm';
-  statusBadge.textContent = badge.label;
-  
-  header.appendChild(idSpan);
-  header.appendChild(statusBadge);
-  
-  // Title
-  const title = document.createElement('h3');
-  title.className = 'card-title text-base mb-4';
-  title.textContent = webinar.x_name;
-  
-  // Meta info grid
-  const metaGrid = document.createElement('div');
-  metaGrid.className = 'space-y-3 text-sm flex-1 overflow-y-auto';
-  
-  // Format datetime (use global formatEventDateTime from ui.js)
+  // CRITICAL FIX: Use correct field x_active (not x_studio_active)
+  const isArchived = !webinar.x_active;
+
+  // Check if event type mapping exists
+  const eventTypeId = Array.isArray(webinar.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 0
+    ? webinar.x_webinar_event_type_id[0]
+    : null;
+  const hasMapping = eventTypeId && hasEventTypeMapping(eventTypeId);
+
+  // Format datetime using global helper
   let dateValue = '—';
   let timeValue = '—';
   if (webinar.x_studio_event_datetime && window.formatEventDateTime) {
@@ -51,223 +208,135 @@ function renderWebinarCard(webinar, snapshot, registrationCount) {
     dateValue = formatted.date;
     timeValue = formatted.time;
   }
-  
-  // Date
-  const dateRow = createMetaRow('calendar', 'Datum', dateValue);
-  metaGrid.appendChild(dateRow);
-  
-  // Time
-  const timeRow = createMetaRow('clock', 'Tijd', timeValue);
-  metaGrid.appendChild(timeRow);
-  
-  // Duration
-  const durationValue = webinar.x_studio_event_duration_minutes ? webinar.x_studio_event_duration_minutes + ' min' : '—';
-  const durationRow = createMetaRow('clock', 'Duur', durationValue);
-  metaGrid.appendChild(durationRow);
-  
-  // Registrations
-  const regRow = createMetaRow('users', 'Registrations', regCount.toString());
-  metaGrid.appendChild(regRow);
-  
-  const eventTypeName = Array.isArray(webinar.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 1
-    ? webinar.x_webinar_event_type_id[1]
-    : '—';
-  const eventTypeRow = createMetaRow('tag', 'Event Type', eventTypeName);
-  metaGrid.appendChild(eventTypeRow);
-  
-  // WordPress link (if published)
-  if (wpId) {
-    const wpRow = createMetaRow('external-link', 'WordPress', '');
-    const wpLink = document.createElement('a');
-    wpLink.href = 'https://openvme.be/wp-admin/post.php?post=' + wpId + '&action=edit';
-    wpLink.target = '_blank';
-    wpLink.className = 'link link-primary';
-    wpLink.textContent = 'WP #' + wpId;
-    wpRow.querySelector('.meta-value').appendChild(wpLink);
-    metaGrid.appendChild(wpRow);
-  }
-  
-  // Card actions
-  const actions = document.createElement('div');
-  actions.className = 'card-actions mt-auto pt-3 border-t border-base-200 flex flex-row gap-2';
-  
-  if (state === 'not_published') {
-    // Dropdown button with publish options
-    const dropdown = createPublishDropdown(webinar.id, 'Publish', 'btn-primary');
-    actions.appendChild(dropdown);
-  } else if (state === 'draft') {
-    // Dropdown button with publish options for draft
-    const dropdown = createPublishDropdown(webinar.id, 'Publish', 'btn-primary');
-    actions.appendChild(dropdown);
-  } else {
-    // Dropdown button with re-publish options
-    const buttonStyle = state === 'out_of_sync' ? 'btn-warning' : 'btn-primary';
-    const dropdown = createPublishDropdown(webinar.id, 'Re-publish', buttonStyle);
-    actions.appendChild(dropdown);
-  }
-  
-  // Edit Description button (for published/draft webinars)
-  if (state !== 'not_published') {
-    const editDescBtn = createActionButton('edit', 'Edit Description', 'btn-outline btn-sm', () => {
-      openEditorialEditor(webinar.id);
-    });
-    actions.appendChild(editDescBtn);
-  }
-  
-  // Assemble card
-  cardBody.appendChild(header);
-  cardBody.appendChild(title);
-  cardBody.appendChild(metaGrid);
-  if (actions.children.length > 0) cardBody.appendChild(actions);
-  
-  card.appendChild(cardBody);
-  
-  return card;
+
+  return `
+    <div class="space-y-4">
+      <div class="border-b border-base-200 pb-4">
+        <h2 class="text-xl font-bold mb-2">${escapeHtml(webinar.x_name || 'Untitled')}</h2>
+        <span class="badge ${badge.css} badge-sm">${badge.label}</span>
+      </div>
+      
+      <div class="space-y-2 text-sm">
+        ${renderMetaRow('calendar', 'Datum', dateValue)}
+        ${renderMetaRow('clock', 'Tijd', timeValue)}
+        ${renderMetaRow('clock', 'Duur', webinar.x_studio_event_duration_minutes ? webinar.x_studio_event_duration_minutes + ' min' : '—')}
+        ${renderMetaRow('users', 'Registraties', regCount.toString())}
+        ${renderMetaRow('tag', 'Event Type', getEventTypeName(webinar))}
+        ${wpId ? renderMetaRow('external-link', 'WordPress', `<a href="https://openvme.be/wp-admin/post.php?post=${wpId}&action=edit" target="_blank" class="link link-primary">WP #${wpId}</a>`) : ''}
+      </div>
+      
+      <div class="space-y-2 pt-4 border-t border-base-200">
+        <button 
+          data-action="edit"
+          data-webinar-id="${webinar.id}"
+          class="btn btn-sm btn-outline btn-primary w-full"
+          ${isArchived ? 'disabled' : ''}
+          ${isArchived ? 'title="Event is archived"' : ''}
+        >
+          <i data-lucide="edit" class="w-4 h-4"></i> Edit Description
+        </button>
+        
+        <div class="dropdown dropdown-top w-full">
+          <div 
+            tabindex="0" 
+            role="button" 
+            class="btn btn-sm btn-success w-full ${isArchived || !hasMapping ? 'btn-disabled' : ''}"
+            ${isArchived || !hasMapping ? 'disabled' : ''}
+            title="${isArchived ? 'Event is archived' : (!hasMapping ? 'No event type mapping' : 'Publish to WordPress')}"
+          >
+            <i data-lucide="send" class="w-4 h-4"></i> Publish to WordPress
+            <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>
+          </div>
+          ${!isArchived && hasMapping ? `
+          <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full">
+            <li><a data-action="publish" data-webinar-id="${webinar.id}" data-status="publish"><i data-lucide="globe" class="w-3 h-3"></i> Publish</a></li>
+            <li><a data-action="publish" data-webinar-id="${webinar.id}" data-status="draft"><i data-lucide="file-edit" class="w-3 h-3"></i> Draft</a></li>
+            <li><a data-action="publish" data-webinar-id="${webinar.id}" data-status="private"><i data-lucide="lock" class="w-3 h-3"></i> Private</a></li>
+          </ul>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
-// ── Helper: Create meta row (icon + label + value) ──
-function createMetaRow(iconName, label, value) {
-  const row = document.createElement('div');
-  row.className = 'flex items-center gap-2 text-base-content/80';
-  
-  const icon = document.createElement('i');
-  icon.setAttribute('data-lucide', iconName);
-  icon.className = 'w-4 h-4 text-base-content/60';
-  
-  const labelSpan = document.createElement('span');
-  labelSpan.className = 'font-medium min-w-[100px]';
-  labelSpan.textContent = label + ':';
-  
-  const valueSpan = document.createElement('span');
-  valueSpan.className = 'meta-value';
-  valueSpan.textContent = value;
-  
-  row.appendChild(icon);
-  row.appendChild(labelSpan);
-  row.appendChild(valueSpan);
-  
-  return row;
+/**
+ * Helper: Render metadata row HTML
+ */
+function renderMetaRow(icon, label, value) {
+  return `
+    <div class="flex items-center gap-2">
+      <i data-lucide="${icon}" class="w-4 h-4 text-base-content/60"></i>
+      <span class="text-base-content/60">${label}:</span>
+      <span class="font-medium">${value}</span>
+    </div>
+  `;
 }
 
-// ── Helper: Create action button with icon ──
-function createActionButton(iconName, label, cssClass, onClick) {
-  const btn = document.createElement('button');
-  btn.className = 'btn btn-sm ' + cssClass;
-  btn.onclick = onClick;
-  
-  const icon = document.createElement('i');
-  icon.setAttribute('data-lucide', iconName);
-  icon.className = 'w-4 h-4';
-  
-  const span = document.createElement('span');
-  span.textContent = label;
-  
-  btn.appendChild(icon);
-  btn.appendChild(span);
-  
-  return btn;
+/**
+ * Helper: Get event type name from webinar
+ */
+function getEventTypeName(webinar) {
+  if (Array.isArray(webinar.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 1) {
+    return escapeHtml(webinar.x_webinar_event_type_id[1]);
+  }
+  return '—';
 }
 
-// ── Helper: Create publish dropdown button ──
-function createPublishDropdown(webinarId, buttonLabel, buttonClass) {
-  const dropdown = document.createElement('div');
-  dropdown.className = 'dropdown dropdown-end';
+/**
+ * Helper: Check if event type has mapping
+ */
+function hasEventTypeMapping(eventTypeId) {
+  // Check against cached event type mappings (loaded globally)
+  return window.eventTypeMappings?.some(m => m.odoo_event_type_id === eventTypeId);
+}
+
+/**
+ * Initialize detail panel event delegation (ONCE on calendar init)
+ * Uses event delegation pattern - no inline handlers, no repeated attachment
+ */
+let detailPanelDelegationInitialized = false;
+
+function initDetailPanelDelegation() {
+  if (detailPanelDelegationInitialized) return;
   
-  // Main button
-  const btn = document.createElement('div');
-  btn.className = 'btn btn-sm ' + buttonClass;
-  btn.setAttribute('tabindex', '0');
-  btn.setAttribute('role', 'button');
-  
-  const iconName = buttonLabel === 'Publish' ? 'upload' : 'refresh-cw';
-  const icon = document.createElement('i');
-  icon.setAttribute('data-lucide', iconName);
-  icon.className = 'w-4 h-4';
-  
-  const span = document.createElement('span');
-  span.textContent = buttonLabel;
-  
-  const chevron = document.createElement('i');
-  chevron.setAttribute('data-lucide', 'chevron-down');
-  chevron.className = 'w-3 h-3 ml-1';
-  
-  btn.appendChild(icon);
-  btn.appendChild(span);
-  btn.appendChild(chevron);
-  
-  // Dropdown menu
-  const menu = document.createElement('ul');
-  menu.className = 'dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-36';
-  menu.setAttribute('tabindex', '0');
-  
-  // Create menu items
-  const options = [
-    { status: 'publish', icon: 'globe', label: 'Publish' },
-    { status: 'draft', icon: 'file-edit', label: 'Draft' },
-    { status: 'private', icon: 'lock', label: 'Private' }
-  ];
-  
-  options.forEach(opt => {
-    const li = document.createElement('li');
-    const a = document.createElement('a');
+  const panelContent = document.getElementById('panel-content');
+  if (!panelContent) {
+    console.error('[initDetailPanelDelegation] Panel content not found');
+    return;
+  }
+
+  // Single delegated listener for all panel actions
+  panelContent.addEventListener('click', async (e) => {
+    const actionBtn = e.target.closest('[data-action]');
+    if (!actionBtn || actionBtn.disabled) return;
+
+    const action = actionBtn.dataset.action;
+    const webinarId = Number(actionBtn.dataset.webinarId);
     
-    const optIcon = document.createElement('i');
-    optIcon.setAttribute('data-lucide', opt.icon);
-    optIcon.className = 'w-3 h-3';
-    
-    const optLabel = document.createElement('span');
-    optLabel.textContent = opt.label;
-    
-    a.appendChild(optIcon);
-    a.appendChild(optLabel);
-    
-    a.onclick = function() {
-      // Call publishWebinar with status
-      if (typeof publishWebinar === 'function') {
-        publishWebinar(webinarId, btn, opt.status);
+    if (!webinarId) {
+      console.error('[DetailPanel] Invalid webinar ID');
+      return;
+    }
+
+    // Route action
+    if (action === 'edit') {
+      if (typeof openEditorialEditor === 'function') {
+        openEditorialEditor(webinarId);
+      } else {
+        console.error('[DetailPanel] openEditorialEditor not found');
       }
-    };
-    
-    li.appendChild(a);
-    menu.appendChild(li);
+    } else if (action === 'publish') {
+      const status = actionBtn.dataset.status || 'publish';
+      if (typeof publishWebinar === 'function') {
+        await publishWebinar(webinarId, null, status);
+      } else {
+        console.error('[DetailPanel] publishWebinar not found');
+      }
+    }
   });
-  
-  dropdown.appendChild(btn);
-  dropdown.appendChild(menu);
-  
-  return dropdown;
-}
 
-// ── Render cards view (main entry point) ──
-function renderCardsView(webinars, snapshotMap, registrationCounts) {
-  const container = document.getElementById('cardsContainer');
-  if (!container) {
-    console.error('Cards container element not found');
-    return;
-  }
-  
-  // Clear container
-  container.innerHTML = '';
-  
-  if (webinars.length === 0) {
-    const emptyState = document.createElement('div');
-    emptyState.className = 'col-span-full text-center py-12 text-base-content/60';
-    emptyState.innerHTML = '<i data-lucide="inbox" class="w-12 h-12 mx-auto mb-2 opacity-50"></i><p>No webinars found</p>';
-    container.appendChild(emptyState);
-    lucide.createIcons();
-    return;
-  }
-  
-  // Render cards
-  for (const webinar of webinars) {
-    const snapshot = snapshotMap.get(webinar.id);
-    const regCount = registrationCounts[webinar.id] || 0;
-    const cardEl = renderWebinarCard(webinar, snapshot, regCount);
-    container.appendChild(cardEl);
-  }
-  
-  // Re-initialize Lucide icons
-  lucide.createIcons();
+  detailPanelDelegationInitialized = true;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
