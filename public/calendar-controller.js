@@ -196,7 +196,7 @@ function checkDiscrepancy(webinar, snapshot) {
 
   // Title mismatch (Tribe API title is a string, Core API wraps in { rendered })
   const wpTitle = typeof wp.title === 'object' ? wp.title?.rendered : wp.title;
-  if (wpTitle && webinar.x_name && webinar.x_name !== wpTitle) return true;
+  if (wpTitle && webinar.x_name && decodeEntities(webinar.x_name) !== decodeEntities(wpTitle)) return true;
 
   // Start datetime mismatch (compare date portion only)
   if (wp.start_date && webinar.x_studio_event_datetime) {
@@ -351,6 +351,21 @@ function renderEventContent(arg) {
   `;
 
   return { html };
+}
+
+/**
+ * Decode HTML entities for comparison (e.g. &#038; → &)
+ */
+function decodeEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 /**

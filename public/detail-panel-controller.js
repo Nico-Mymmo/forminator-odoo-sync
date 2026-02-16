@@ -59,6 +59,15 @@ export function initializeDetailPanel() {
  */
 function bindEventDelegation() {
   contentEl.addEventListener('click', async (e) => {
+    // Ctrl+Click on status badge → show sync comparison
+    const badge = e.target.closest('.badge[data-action="compare-sync"]');
+    if (badge && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const webinarId = parseInt(badge.dataset.webinarId);
+      if (webinarId) showSyncComparison(webinarId);
+      return;
+    }
+
     const actionBtn = e.target.closest('[data-action]');
     if (!actionBtn || actionBtn.disabled) return;
 
@@ -150,7 +159,7 @@ function updatePanel(webinar, snapshot, regCount) {
  * Render panel content
  */
 function renderContent(webinar, snapshot, state, regCount, isArchived, hasMapping, wpPostId) {
-  const statusBadge = getStatusBadge(state);
+  const statusBadge = getStatusBadge(state).replace(/__WID__/g, webinar.id);
   const eventTypeName = getEventTypeName(webinar);
   const formattedDate = formatEventDateTime(webinar);
 
@@ -255,9 +264,9 @@ function checkDiscrepancy(webinar, snapshot) {
 
   const wp = snapshot.wp_snapshot;
 
-  // Title mismatch
+  // Title mismatch (decode HTML entities before comparing)
   const wpTitle = typeof wp.title === 'object' ? wp.title?.rendered : wp.title;
-  if (wpTitle && webinar.x_name && webinar.x_name !== wpTitle) return true;
+  if (wpTitle && webinar.x_name && decodeEntities(webinar.x_name) !== decodeEntities(wpTitle)) return true;
 
   // Date mismatch (compare date portion only)
   if (wp.start_date && webinar.x_studio_event_datetime) {
@@ -273,9 +282,9 @@ function checkDiscrepancy(webinar, snapshot) {
  */
 function getStatusBadge(state) {
   const badgeMap = {
-    'out_of_sync': '<span class="badge badge-warning badge-sm">Out of Sync</span>',
-    'published': '<span class="badge badge-success badge-sm">Published</span>',
-    'draft': '<span class="badge badge-neutral badge-sm">Draft</span>',
+    'out_of_sync': '<span class="badge badge-warning badge-sm cursor-help" data-action="compare-sync" data-webinar-id="__WID__" title="Ctrl+Click om versies te vergelijken">Out of Sync</span>',
+    'published': '<span class="badge badge-success badge-sm cursor-help" data-action="compare-sync" data-webinar-id="__WID__" title="Ctrl+Click om versies te vergelijken">Published</span>',
+    'draft': '<span class="badge badge-neutral badge-sm cursor-help" data-action="compare-sync" data-webinar-id="__WID__" title="Ctrl+Click om versies te vergelijken">Draft</span>',
     'not_published': '<span class="badge badge-ghost badge-sm">Not Published</span>',
     'archived': '<span class="badge badge-info badge-sm">Archived</span>'
   };
@@ -320,6 +329,192 @@ function formatEventDateTime(webinar) {
     return result || '—';
   }
   return webinar.x_studio_event_datetime || '—';
+}
+
+/**
+ * Show sync comparison modal — Odoo vs WordPress field-by-field
+ */
+function showSyncComparison(webinarId) {
+  const webinar = getWebinar(webinarId);
+  const snapshot = getSnapshot(webinarId);
+  const modal = document.getElementById('syncComparisonModal');
+  const body = document.getElementById('syncComparisonBody');
+
+  if (!modal || !body || !webinar) return;
+
+  const wp = snapshot?.wp_snapshot;
+  const state = computeState(webinar, snapshot);
+
+  // Build comparison rows
+  const fields = [];
+
+  // 1. Title
+  const odooTitle = webinar.x_name || '';
+  const wpTitleRaw = wp ? (typeof wp.title === 'object' ? wp.title?.rendered : wp.title) : null;
+  const wpTitle = wpTitleRaw || '';
+  fields.push({
+    label: 'Titel',
+    odoo: odooTitle,
+    wp: wpTitle || '—',
+    match: decodeEntities(odooTitle) === decodeEntities(wpTitle),
+    available: !!wp
+  });
+
+  // 2. Start datetime
+  const odooDateRaw = webinar.x_studio_event_datetime || '';
+  const wpDateRaw = wp?.start_date || '';
+  const odooDateNorm = odooDateRaw ? odooDateRaw.replace(' ', 'T').split('T')[0] : '';
+  const wpDateNorm = wpDateRaw ? wpDateRaw.split(' ')[0].trim() : '';
+  fields.push({
+    label: 'Startdatum',
+    odoo: odooDateRaw || '—',
+    wp: wpDateRaw || '—',
+    match: odooDateNorm === wpDateNorm,
+    available: !!wp
+  });
+
+  // 3. Start time
+  const odooTime = odooDateRaw ? odooDateRaw.replace(' ', 'T').split('T')[1] || '' : '';
+  const wpTime = wpDateRaw ? (wpDateRaw.includes(' ') ? wpDateRaw.split(' ').slice(1).join(' ') : '') : '';
+  fields.push({
+    label: 'Starttijd',
+    odoo: odooTime || '—',
+    wp: wpTime || '—',
+    match: odooTime === wpTime,
+    available: !!wp
+  });
+
+  // 4. Duration
+  const odooDuration = webinar.x_studio_event_duration_minutes ? webinar.x_studio_event_duration_minutes + ' min' : '—';
+  const wpDuration = wp?.duration ? wp.duration : '—';
+  fields.push({
+    label: 'Duur',
+    odoo: odooDuration,
+    wp: wpDuration,
+    match: null, // informational, no comparison
+    available: !!wp
+  });
+
+  // 5. Status
+  fields.push({
+    label: 'WP Status',
+    odoo: webinar.x_active ? 'Active' : 'Archived',
+    wp: wp?.status || '—',
+    match: null,
+    available: !!wp
+  });
+
+  // 6. Backend computed state
+  fields.push({
+    label: 'Computed State',
+    odoo: '—',
+    wp: snapshot?.computed_state || '—',
+    match: null,
+    available: !!snapshot
+  });
+
+  // 7. WP Post ID
+  fields.push({
+    label: 'WP Post ID',
+    odoo: '—',
+    wp: wp?.id ? `#${wp.id}` : '—',
+    match: null,
+    available: !!wp
+  });
+
+  // 8. Last synced
+  fields.push({
+    label: 'Laatste sync',
+    odoo: '—',
+    wp: snapshot?.last_synced_at ? new Date(snapshot.last_synced_at).toLocaleString('nl-BE', { timeZone: 'Europe/Brussels' }) : '—',
+    match: null,
+    available: !!snapshot
+  });
+
+  // Render table
+  const headerBadge = state === 'out_of_sync' 
+    ? '<span class="badge badge-warning badge-sm ml-2">Out of Sync</span>' 
+    : `<span class="badge badge-sm ml-2">${state}</span>`;
+
+  let html = `
+    <div class="text-sm text-base-content/70 mb-3">
+      <strong>${escapeHtml(webinar.x_name || 'Untitled')}</strong> ${headerBadge}
+    </div>
+    <div class="overflow-x-auto">
+      <table class="table table-sm table-zebra">
+        <thead>
+          <tr>
+            <th class="w-32">Veld</th>
+            <th>Odoo</th>
+            <th>WordPress</th>
+            <th class="w-16 text-center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  for (const field of fields) {
+    let statusIcon = '';
+    if (field.match === true) {
+      statusIcon = '<span class="text-success" title="Match">✓</span>';
+    } else if (field.match === false) {
+      statusIcon = '<span class="text-error font-bold" title="Mismatch">✗</span>';
+    } else {
+      statusIcon = '<span class="text-base-content/30">—</span>';
+    }
+
+    const rowClass = field.match === false ? 'bg-warning/10' : '';
+
+    html += `
+      <tr class="${rowClass}">
+        <td class="font-medium">${field.label}</td>
+        <td class="font-mono text-xs break-all max-w-xs">${escapeHtml(String(field.odoo))}</td>
+        <td class="font-mono text-xs break-all max-w-xs">${field.available ? escapeHtml(String(field.wp)) : '<span class="text-base-content/30">niet gepubliceerd</span>'}</td>
+        <td class="text-center">${statusIcon}</td>
+      </tr>
+    `;
+  }
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  // If there's a snapshot with raw odoo_snapshot, show the full Odoo event type
+  if (snapshot?.odoo_snapshot) {
+    const odooSnap = snapshot.odoo_snapshot;
+    const eventType = Array.isArray(odooSnap.x_webinar_event_type_id) && odooSnap.x_webinar_event_type_id.length > 1
+      ? odooSnap.x_webinar_event_type_id[1]
+      : '—';
+    html += `
+      <div class="mt-3 text-xs text-base-content/50">
+        <strong>Snapshot metadata:</strong> Event Type: ${escapeHtml(eventType)} · Odoo ID: ${webinar.id} · WP ID: ${wp?.id || '—'}
+      </div>
+    `;
+  }
+
+  body.innerHTML = html;
+  modal.showModal();
+
+  if (typeof lucide !== 'undefined' && lucide.createIcons) {
+    lucide.createIcons();
+  }
+}
+
+/**
+ * Decode HTML entities for comparison (e.g. &#038; → &)
+ */
+function decodeEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 /**

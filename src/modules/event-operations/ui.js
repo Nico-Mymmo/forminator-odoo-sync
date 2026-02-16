@@ -422,6 +422,23 @@ export function eventOperationsUI(user) {
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 
+    <!-- Sync Comparison Modal -->
+    <dialog id="syncComparisonModal" class="modal">
+      <div class="modal-box max-w-3xl">
+        <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+          <i data-lucide="git-compare" class="w-5 h-5"></i>
+          Sync Vergelijking
+        </h3>
+        <div id="syncComparisonBody" class="space-y-3"></div>
+        <div class="modal-action">
+          <form method="dialog">
+            <button class="btn">Sluiten</button>
+          </form>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
     <!-- Event Type Mapping Modal -->
     <dialog id="eventTypeMappingModal" class="modal">
       <div class="modal-box max-w-4xl">

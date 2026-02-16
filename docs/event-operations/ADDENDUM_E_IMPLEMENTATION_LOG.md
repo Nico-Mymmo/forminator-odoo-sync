@@ -234,3 +234,94 @@ deleteEventTypeMapping() ──→  window.dispatchEvent('mappings-changed')
 - [ ] Verify soft vs normal opacity difference is visually distinguishable
 - [ ] Verify edit mode locks event type dropdown
 - [ ] Verify cancel edit restores form to "New Mapping" state
+
+---
+
+## 11. SYNC COMPARISON MODAL (Ctrl+Click)
+
+**Date:** February 16, 2026
+
+### 11.1 Problem
+
+Users had no way to inspect **why** an event was marked "Out of Sync". The status badge showed the state but not the underlying field mismatches.
+
+### 11.2 Solution
+
+Ctrl+Click (or Cmd+Click on macOS) on the **status badge** in the detail panel opens a comparison modal that shows a field-by-field diff between the Odoo source and the WordPress snapshot.
+
+### 11.3 Comparison Fields
+
+| Field | Odoo Source | WordPress Source | Match Check |
+|-------|------------|-----------------|-------------|
+| Titel | `x_name` | `wp_snapshot.title` | ✓/✗ (entity-decoded) |
+| Startdatum | `x_studio_event_datetime` (date part) | `wp_snapshot.start_date` (date part) | ✓/✗ |
+| Starttijd | `x_studio_event_datetime` (time part) | `wp_snapshot.start_date` (time part) | ✓/✗ |
+| Duur | `x_studio_event_duration_minutes` | `wp_snapshot.duration` | Informational |
+| WP Status | `x_active` → Active/Archived | `wp_snapshot.status` | Informational |
+| Computed State | — | `snapshot.computed_state` | Informational |
+| WP Post ID | — | `wp_snapshot.id` | Informational |
+| Laatste sync | — | `snapshot.last_synced_at` | Informational |
+
+Mismatched fields are highlighted with a red ✗ and a `bg-warning/10` row tint.
+
+### 11.4 Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/modules/event-operations/ui.js` | Added `<dialog id="syncComparisonModal">` with table layout |
+| `public/detail-panel-controller.js` | Added `showSyncComparison()` renderer, Ctrl+Click handler in `bindEventDelegation()`, `data-action="compare-sync"` on status badges, cursor-help + tooltip |
+
+### 11.5 UX Details
+
+- **Status badges** for `out_of_sync`, `published`, `draft` show `title="Ctrl+Click om versies te vergelijken"` and `cursor-help`
+- Badges for `not_published` and `archived` have no compare action (nothing to compare)
+- Modal title shows event name + current state badge
+- Snapshot metadata footer shows Event Type, Odoo ID, WP ID
+
+---
+
+## 12. HTML ENTITY DECODE BUGFIX
+
+**Date:** February 16, 2026
+
+### 12.1 Problem
+
+WordPress stores `&` as `&#038;` in titles. The frontend `checkDiscrepancy()` compared raw strings without decoding, causing false positive "Out of Sync" for titles containing `&`:
+
+```
+Odoo:      Q&A Butterfly Solutions x OpenVME
+WordPress: Q&#038;A Butterfly Solutions x OpenVME
+Result:    ✗ false positive mismatch
+```
+
+The **backend** `state-engine.js` already handled this correctly via `stripHtmlTags()` which includes `&#(\d+);` decoding. The bug was frontend-only.
+
+### 12.2 Fix
+
+Added `decodeEntities()` helper to both frontend files:
+
+```javascript
+function decodeEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+```
+
+### 12.3 Files Changed
+
+| File | Change |
+|------|--------|
+| `public/calendar-controller.js` | Added `decodeEntities()`, `checkDiscrepancy()` uses it for title comparison |
+| `public/detail-panel-controller.js` | Added `decodeEntities()`, `checkDiscrepancy()` + `showSyncComparison()` use it for title comparison |
+
+### 12.4 Scope
+
+- Three comparison points fixed: calendar `checkDiscrepancy`, detail panel `checkDiscrepancy`, comparison modal match indicator
+- Backend `state-engine.js` was already correct — no changes needed
