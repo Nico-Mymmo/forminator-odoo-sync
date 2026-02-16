@@ -55,8 +55,8 @@ export function mapOdooToWordPress(odooWebinar, status = 'publish') {
   
   return {
     title: odooWebinar[ODOO_FIELDS.NAME],
-    start_date: startDate.toISOString(),
-    end_date: endDate.toISOString(),
+    start_date: formatDateTimeInTimezone(startDate, TIMEZONE),
+    end_date: formatDateTimeInTimezone(endDate, TIMEZONE),
     description: stripHtmlTags(odooWebinar[ODOO_FIELDS.INFO] || '') || ' ',
     status: status,
     timezone: TIMEZONE
@@ -125,15 +125,31 @@ function computeEndDateTime(startDate, durationMinutes) {
  * @param {Date} date - Local date
  * @returns {string} YYYY-MM-DD HH:MM:SS (local time)
  */
-function formatLocalDateTime(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const seconds = String(date.getSeconds()).padStart(2, '0');
-  
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+function formatDateTimeInTimezone(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(date);
+
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+  const hour = get('hour');
+  const minute = get('minute');
+  const second = get('second');
+
+  if (!year || !month || !day || !hour || !minute || !second) {
+    throw new Error(`Failed to format datetime for timezone ${timeZone}`);
+  }
+
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
 /**
