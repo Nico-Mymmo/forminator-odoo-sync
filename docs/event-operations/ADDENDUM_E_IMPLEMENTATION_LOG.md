@@ -325,3 +325,73 @@ function decodeEntities(str) {
 
 - Three comparison points fixed: calendar `checkDiscrepancy`, detail panel `checkDiscrepancy`, comparison modal match indicator
 - Backend `state-engine.js` was already correct — no changes needed
+
+---
+
+## 13. CALENDAR VISUAL REFINEMENTS (Theme + Layout Stability)
+
+**Date:** February 16, 2026
+
+### 13.1 Problem
+
+- FullCalendar weekday header remained white in non-light DaisyUI themes
+- Calendar grid corners did not fully follow the active DaisyUI radius styling
+- Month height could visually shift when event density changed between months
+- Past days and out-of-month day cells were not visually distinct enough
+
+### 13.2 Solution
+
+- Applied DaisyUI surface tokens to calendar header row (`--b2`) and weekday labels
+- Added rounded corners to the calendar scrollgrid using `--rounded-box`
+- Stabilized month view layout with:
+  - `height: 640`
+  - `fixedWeekCount: true`
+  - `dayMaxEvents: 2` (overflow via `+more`, no row growth from event count)
+- Added day-state styling:
+  - `fc-day-past` (subtle muted background + muted date number)
+  - `fc-day-other` (lightly tinted to distinguish days outside current month)
+
+### 13.3 Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/modules/event-operations/ui.js` | Updated FullCalendar CSS integration: themed weekday header, calendar radius, stable day-event area sizing, past-day and other-month styling |
+| `public/calendar-controller.js` | Updated FullCalendar config: fixed height, fixed 6-week grid, capped day event rows |
+
+### 13.4 Notes
+
+- Changes are visual/UX only; no backend or schema impact
+- Existing event color token behavior from Addendum E remains unchanged
+
+---
+
+## 14. CALENDAR-FIRST DEFAULT VIEW (No persisted view restore)
+
+**Date:** February 16, 2026
+
+### 14.1 Problem
+
+On page reload, UI briefly rendered table view before switching to calendar based on persisted view mode. This created a visual jump and made table feel like the primary workspace.
+
+### 14.2 Solution
+
+- Removed persisted view restore for `eventOpsViewMode` (no `localStorage` read/write for defaulting)
+- Set calendar as the hard default on every load (`initView()` always calls `switchView('calendar')`)
+- Kept table as optional/manual navigation via the existing view toggle
+
+### 14.3 Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/modules/event-operations/ui.js` | View toggle default set to Calendar, removed persisted view-mode dependency, introduced in-memory `activeView` tracking for runtime refresh/tab behavior |
+
+### 14.4 Reload UX Refinement
+
+- `filterTabs` now starts hidden by default (no brief table-filter flash on reload)
+- Added calendar-specific loading placeholder (`#calendarLoadingState`) in the calendar card
+- Loading state is rendered as an overlay while `#fullcalendar` remains layout-visible for correct FullCalendar sizing
+- Disabled generic page spinner (`#loadingState`) for calendar-view data loads to prevent vertical layout jumps
+- Overlay uses DaisyUI-native loading + skeleton components and theme surface/border tokens
+- Removed loading-only frame/border around the calendar area to match non-loading visual container
+- Kept status legend visible in calendar-first default during loading to prevent header-area reflow/jump
+- Result: reload remains visually calendar-first, with a smooth loading state in the correct workspace area

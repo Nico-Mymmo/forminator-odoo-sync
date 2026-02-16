@@ -56,6 +56,23 @@ export function eventOperationsUI(user) {
         background-color: oklch(var(--b1));
         --fc-border-color: oklch(var(--bc) / 0.06);
         --fc-today-bg-color: oklch(var(--p) / 0.03);
+        border-radius: var(--rounded-box, 1rem);
+      }
+
+      #fullcalendar {
+        border-radius: var(--rounded-box, 1rem);
+        overflow: hidden;
+        background-color: oklch(var(--b1));
+      }
+
+      .fc .fc-scrollgrid {
+        border-radius: calc(var(--rounded-box, 1rem) - 0.125rem);
+        overflow: hidden;
+        border-color: oklch(var(--bc) / 0.08);
+      }
+
+      .fc .fc-view-harness {
+        min-height: 34rem;
       }
       
       /* Toolbar */
@@ -141,6 +158,9 @@ export function eventOperationsUI(user) {
       }
       
       /* Day cells */
+      .fc .fc-col-header {
+        background-color: oklch(var(--b2));
+      }
       .fc-col-header-cell {
         border-bottom: 1px solid oklch(var(--bc) / 0.1);
         font-weight: 600;
@@ -148,10 +168,33 @@ export function eventOperationsUI(user) {
         font-size: 0.6875rem;
         color: oklch(var(--bc) / 0.6);
         padding: 0.5rem 0.25rem;
+        background-color: oklch(var(--b2));
+      }
+      .fc .fc-col-header-cell-cushion {
+        color: oklch(var(--bc) / 0.72);
       }
       .fc-daygrid-day-frame {
         padding: 0.25rem;
-        min-height: 5rem;
+        min-height: 5.25rem;
+      }
+
+      .fc .fc-daygrid-day-events {
+        min-height: 3.25rem;
+        margin-bottom: 0 !important;
+      }
+
+      .fc .fc-day-other {
+        background-color: oklch(var(--b2) / 0.5);
+      }
+      .fc .fc-day-other .fc-daygrid-day-number {
+        color: oklch(var(--bc) / 0.45);
+      }
+
+      .fc .fc-day-past:not(.fc-day-today) {
+        background-color: oklch(var(--bc) / 0.03);
+      }
+      .fc .fc-day-past:not(.fc-day-today) .fc-daygrid-day-number {
+        color: oklch(var(--bc) / 0.55);
       }
       
       /* Today highlight */
@@ -289,16 +332,16 @@ export function eventOperationsUI(user) {
               <div class="flex items-center gap-2">
                 <!-- View toggle (LEFT) -->
                 <div class="join">
-                  <button id="viewBtnTable" class="btn btn-sm btn-outline join-item btn-active" onclick="switchView('table')">
+                  <button id="viewBtnTable" class="btn btn-sm btn-outline btn-primary join-item" onclick="switchView('table')">
                     <i data-lucide="table" class="w-4 h-4"></i> Table
                   </button>
-                  <button id="viewBtnCalendar" class="btn btn-sm btn-outline join-item" onclick="switchView('calendar')">
+                  <button id="viewBtnCalendar" class="btn btn-sm btn-outline btn-primary join-item btn-active" onclick="switchView('calendar')">
                     <i data-lucide="calendar" class="w-4 h-4"></i> Calendar
                   </button>
                 </div>
                 
                 <!-- Actions (RIGHT) -->
-                <button class="btn btn-sm btn-outline" onclick="openEventTypeMappingModal()">
+                <button class="btn btn-sm btn-outline btn-primary" onclick="openEventTypeMappingModal()">
                   <i data-lucide="tags" class="w-4 h-4"></i> Event Type Mapping
                 </button>
                 <button id="btnSync" class="btn btn-sm btn-primary" onclick="runSync()">
@@ -308,7 +351,7 @@ export function eventOperationsUI(user) {
             </div>
             
             <!-- Status Legend (Calendar View Only) -->
-            <div id="statusLegend" class="hidden flex flex-wrap gap-2 text-xs mt-4">
+            <div id="statusLegend" class="flex flex-wrap gap-2 text-xs mt-4">
               <span class="text-base-content/60 font-medium mr-2">Status:</span>
               <span class="badge badge-sm legend-warning">Out of Sync</span>
               <span class="badge badge-sm legend-success">Published</span>
@@ -330,7 +373,7 @@ export function eventOperationsUI(user) {
           </div>
 
           <!-- Filter Tabs -->
-          <div id="filterTabs" class="tabs tabs-boxed mb-6" role="tablist">
+          <div id="filterTabs" class="hidden tabs tabs-boxed mb-6" role="tablist">
             <a role="tab" id="tabAll" class="tab tab-active" onclick="switchTab('all')">Alle</a>
             <a role="tab" id="tabUpcoming" class="tab" onclick="switchTab('upcoming')">Komend</a>
             <a role="tab" id="tabPast" class="tab" onclick="switchTab('past')">Verleden</a>
@@ -373,12 +416,51 @@ export function eventOperationsUI(user) {
           </div>
 
           <!-- Calendar Workspace (Addendum D) -->
-          <div id="calendarWorkspace" class="hidden">
+          <div id="calendarWorkspace">
             <div class="grid grid-cols-12 gap-6">
               <!-- Calendar Container (8/12) -->
               <div class="col-span-12 lg:col-span-8">
                 <div class="card bg-base-100 shadow-xl">
-                  <div class="card-body p-4">
+                  <div class="card-body p-4 overflow-hidden rounded-box relative min-h-[34rem]">
+                    <div id="calendarLoadingState" class="absolute inset-4 z-10 p-3 space-y-3 bg-transparent">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <span class="loading loading-dots loading-sm text-primary"></span>
+                          <span class="text-sm text-base-content/70">Kalender laden...</span>
+                        </div>
+                        <div class="flex gap-2">
+                          <div class="skeleton h-8 w-16"></div>
+                          <div class="skeleton h-8 w-20"></div>
+                        </div>
+                      </div>
+                      <div class="grid grid-cols-7 gap-2">
+                        <div class="skeleton h-6"></div>
+                        <div class="skeleton h-6"></div>
+                        <div class="skeleton h-6"></div>
+                        <div class="skeleton h-6"></div>
+                        <div class="skeleton h-6"></div>
+                        <div class="skeleton h-6"></div>
+                        <div class="skeleton h-6"></div>
+                      </div>
+                      <div class="grid grid-cols-7 gap-2">
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                      </div>
+                      <div class="grid grid-cols-7 gap-2">
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                        <div class="skeleton h-20"></div>
+                      </div>
+                    </div>
                     <div id="fullcalendar"></div>
                   </div>
                 </div>
@@ -595,6 +677,17 @@ export function eventOperationsUI(user) {
       // Make globally available
       window.showNotification = showToast;
 
+      function setCalendarLoading(isLoading) {
+        const loadingEl = document.getElementById('calendarLoadingState');
+        if (!loadingEl) return;
+
+        if (isLoading) {
+          loadingEl.classList.remove('hidden');
+        } else {
+          loadingEl.classList.add('hidden');
+        }
+      }
+
       // ── Feedback Modal ──
       function showFeedbackModal(title, icon, bodyHtml) {
         const modal = document.getElementById('feedbackModal');
@@ -608,6 +701,7 @@ export function eventOperationsUI(user) {
 
       // ── State management (legacy for table view) ──
       let activeTab = 'all';
+      let activeView = 'calendar';
 
       // ── Filter webinars by tab ──
       function filterWebinars(webinars, tab) {
@@ -673,7 +767,7 @@ export function eventOperationsUI(user) {
         window.location.hash = 'tab=' + tab;
         
         const filteredWebinars = filterWebinars(appState.webinars, activeTab);
-        const currentView = localStorage.getItem('eventOpsViewMode') || 'table';
+        const currentView = activeView;
         
         if (currentView === 'calendar') {
           // Update appState and refresh calendar
@@ -686,7 +780,16 @@ export function eventOperationsUI(user) {
 
       // ── Load data ──
       async function loadData() {
-        document.getElementById('loadingState').style.display = 'flex';
+        const loadingStateEl = document.getElementById('loadingState');
+        const showGlobalLoading = !isInitialLoad && activeView === 'table';
+        loadingStateEl.style.display = showGlobalLoading ? 'flex' : 'none';
+
+        if (activeView === 'calendar') {
+          const statusLegend = document.getElementById('statusLegend');
+          if (statusLegend) statusLegend.classList.remove('hidden');
+          setCalendarLoading(true);
+        }
+
         document.getElementById('emptyState').classList.add('hidden');
         document.getElementById('dataTable').classList.add('hidden');
 
@@ -735,21 +838,20 @@ export function eventOperationsUI(user) {
           // Restore active tab from URL hash
           initTabFromHash();
           
-          // Render table data (only on initial load, subsequent loads handled in finally)
+          // Initial render is handled by initView() to avoid table flash on reload
           if (isInitialLoad) {
-            const filteredWebinars = filterWebinars(appState.webinars, activeTab);
-            renderTable(filteredWebinars);
+            // no-op
           }
         } catch (err) {
           showToast('Failed to load: ' + err.message, 'error');
         } finally {
-          document.getElementById('loadingState').style.display = 'none';
+          loadingStateEl.style.display = 'none';
           if (isInitialLoad) {
             initView();
             isInitialLoad = false;
           } else {
             // Refresh in-place — preserve current view and scroll position
-            const currentView = localStorage.getItem('eventOpsViewMode') || 'table';
+            const currentView = activeView;
             const filteredWebinars = filterWebinars(appState.webinars, activeTab);
             setWebinars(filteredWebinars);
             if (currentView === 'calendar') {
@@ -761,6 +863,10 @@ export function eventOperationsUI(user) {
             if (appState.currentEventId) {
               setCurrentEvent(appState.currentEventId);
             }
+          }
+
+          if (activeView === 'calendar') {
+            setCalendarLoading(false);
           }
         }
       }
@@ -971,6 +1077,8 @@ export function eventOperationsUI(user) {
 
       // ── View Switching (Table + Calendar) ──
       window.switchView = function switchView(viewType) {
+        activeView = viewType;
+
         const tableContainer = document.getElementById('dataTable');
         const calendarWorkspace = document.getElementById('calendarWorkspace');
         const emptyState = document.getElementById('emptyState');
@@ -997,20 +1105,18 @@ export function eventOperationsUI(user) {
           calendarBtn.classList.add('btn-active');
           if (filterTabs) filterTabs.classList.add('hidden');
           if (statusLegend) statusLegend.classList.remove('hidden');
+
+          setCalendarLoading(true);
           
           // Update state and initialize calendar
           setWebinars(filteredWebinars);
           initializeCalendar();
+          setCalendarLoading(false);
         }
-        
-        localStorage.setItem('eventOpsViewMode', viewType);
       };
 
       function initView() {
-        const savedView = localStorage.getItem('eventOpsViewMode') || 'table';
-        if (savedView === 'calendar') {
-          setTimeout(() => switchView('calendar'), 100);
-        }
+        switchView('calendar');
       }
 
       // ── Helper: Format UTC datetime to Brussels timezone ──

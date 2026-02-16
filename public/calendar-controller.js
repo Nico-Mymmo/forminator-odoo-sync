@@ -88,7 +88,9 @@ export function initializeCalendar() {
     eventDidMount: styleCalendarEvent,
     eventContent: renderEventContent,
     displayEventTime: false,
-    height: 'auto',
+    height: 640,
+    fixedWeekCount: true,
+    dayMaxEvents: 2,
     firstDay: 1, // Monday
     locale: 'nl',
     buttonText: {
