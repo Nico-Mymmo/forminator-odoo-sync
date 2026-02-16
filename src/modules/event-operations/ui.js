@@ -34,11 +34,24 @@ const STATUS_BADGES = {
  */
 export function eventOperationsUI(user) {
   return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Event Operations</title>
+    <script>
+      (function initThemeEarly() {
+        try {
+          const localTheme = localStorage.getItem('selectedTheme');
+          const cookieMatch = document.cookie.match(/(?:^|; )selectedTheme=([^;]+)/);
+          const cookieTheme = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
+          const theme = localTheme || cookieTheme || 'light';
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (_) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -628,6 +641,7 @@ export function eventOperationsUI(user) {
       function changeTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         localStorage.setItem('selectedTheme', theme);
+        document.cookie = 'selectedTheme=' + encodeURIComponent(theme) + '; path=/; max-age=' + (60 * 60 * 24 * 365);
         // Sync theme selector dropdown
         const selector = document.getElementById('themeSelector');
         if (selector) selector.value = theme;
@@ -871,6 +885,59 @@ export function eventOperationsUI(user) {
         }
       }
 
+      // ── Lightweight refresh after sync (no full loading overlays) ──
+      async function refreshSnapshotsAfterSync() {
+        const snapshotsStartedAt = (typeof performance !== 'undefined' && performance.now)
+          ? performance.now()
+          : Date.now();
+
+        const snapshotsRes = await fetch('/events/api/snapshots?_t=' + Date.now(), {
+          credentials: 'include'
+        }).then(r => r.json());
+
+        if (!snapshotsRes.success) {
+          throw new Error(snapshotsRes.error || 'Failed to refresh snapshots');
+        }
+
+        const snapshotMap = {};
+        for (const snap of (snapshotsRes.data || [])) {
+          snapshotMap[snap.odoo_webinar_id] = snap;
+
+          if (snap.editorial_content && snap.editorial_content.blocks) {
+            const html = snap.editorial_content.blocks.map(block => {
+              if (!block || !block.type) return '';
+              if (block.type === 'paragraph') return '<p>' + escapeHtml(block.content || '') + '</p>';
+              if (block.type === 'shortcode' && block.name) {
+                const attrs = Object.entries(block.attributes || {}).map(([k, v]) => k + '="' + escapeHtml(String(v)) + '"').join(' ');
+                return attrs ? '[' + block.name + ' ' + attrs + ']' : '[' + block.name + ']';
+              }
+              return '';
+            }).filter(Boolean).join('\\n');
+
+            if (html) setEditorialOverride(snap.odoo_webinar_id, html);
+          }
+        }
+        setSnapshots(snapshotMap);
+
+        const filteredWebinars = filterWebinars(appState.webinars, activeTab);
+        setWebinars(filteredWebinars);
+
+        if (activeView === 'calendar') {
+          refreshCalendar();
+        } else {
+          renderTable(filteredWebinars);
+        }
+
+        if (appState.currentEventId) {
+          setCurrentEvent(appState.currentEventId);
+        }
+
+        const snapshotsMs = ((typeof performance !== 'undefined' && performance.now)
+          ? performance.now()
+          : Date.now()) - snapshotsStartedAt;
+        console.log('[Event Operations UI] sync_post_refresh_snapshots_ms=' + Math.round(snapshotsMs));
+      }
+
       // ── Init tab from URL hash ──
       function initTabFromHash() {
         const hash = window.location.hash.slice(1);
@@ -1039,13 +1106,28 @@ export function eventOperationsUI(user) {
         btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Syncing...';
 
         try {
+          const clickTs = Date.now();
+          console.log('[Event Operations UI] sync_click_ts=' + clickTs);
+
+          // Ensure spinner is painted before network work starts (smoother perceived UX)
+          await new Promise(resolve => requestAnimationFrame(resolve));
+
+          const syncRequestStartedAt = (typeof performance !== 'undefined' && performance.now)
+            ? performance.now()
+            : Date.now();
+
           const res = await fetch('/events/api/sync', {
             method: 'POST',
             credentials: 'include'
           }).then(r => r.json());
 
+          const syncRequestMs = ((typeof performance !== 'undefined' && performance.now)
+            ? performance.now()
+            : Date.now()) - syncRequestStartedAt;
+          console.log('[Event Operations UI] sync_request_ms=' + Math.round(syncRequestMs));
+
           if (res.success) {
-            await loadData();
+            await refreshSnapshotsAfterSync();
             let bodyHtml = '<div class="alert alert-success"><div>' +
               '<p class="font-semibold">' + res.data.synced_count + ' webinars gesynchroniseerd</p>' +
               '</div></div>';

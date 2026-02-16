@@ -3,7 +3,7 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars, getRegistrationCount, getAllOdooEventTypes, updateOdooWebinar } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCountsByWebinar, getAllOdooEventTypes, updateOdooWebinar } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
@@ -11,6 +11,55 @@ import { extractOdooWebinarId } from './mapping.js';
 import { eventOperationsUI } from './ui.js';
 import { getEventTypeTagMappings, upsertEventTypeTagMapping, deleteEventTypeTagMapping } from './tag-mapping.js';
 import { validateEditorialContent } from './editorial.js';
+
+const SYNC_WORKER_CONCURRENCY = 5;
+const SNAPSHOT_UPSERT_BATCH_SIZE = 25;
+
+function nowMs() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function elapsedMs(start) {
+  return Math.round((nowMs() - start) * 100) / 100;
+}
+
+function chunkArray(items, chunkSize) {
+  if (!Array.isArray(items) || items.length === 0 || chunkSize <= 0) {
+    return [];
+  }
+
+  const chunks = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+async function runWithConcurrency(items, concurrency, worker) {
+  const normalizedConcurrency = Math.max(1, Number(concurrency) || 1);
+  const values = Array.isArray(items) ? items : [];
+  const results = new Array(values.length);
+  let currentIndex = 0;
+
+  async function executeWorker() {
+    while (true) {
+      const index = currentIndex;
+      currentIndex += 1;
+      if (index >= values.length) {
+        return;
+      }
+
+      results[index] = await worker(values[index], index);
+    }
+  }
+
+  const workerCount = Math.min(normalizedConcurrency, values.length || 1);
+  await Promise.all(Array.from({ length: workerCount }, () => executeWorker()));
+
+  return results;
+}
 
 export const routes = {
   /**
@@ -39,19 +88,13 @@ export const routes = {
       
       console.log(`${LOG_PREFIX} ${EMOJI.EVENT} Fetching registration counts for ${webinars.length} webinars...`);
       
-      // Fetch registration counts in parallel
+      const webinarIds = webinars.map((webinar) => webinar.id);
+      const groupedCounts = await getRegistrationCountsByWebinar(env, webinarIds);
       const registrationCounts = {};
-      await Promise.all(
-        webinars.map(async (webinar) => {
-          try {
-            const count = await getRegistrationCount(env, webinar.id);
-            registrationCounts[webinar.id] = count;
-          } catch (err) {
-            console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Failed to fetch count for webinar ${webinar.id}:`, err.message);
-            registrationCounts[webinar.id] = 0; // Fallback to 0 on error
-          }
-        })
-      );
+
+      for (const webinarId of webinarIds) {
+        registrationCounts[webinarId] = groupedCounts[webinarId] || 0;
+      }
       
       console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${webinars.length} webinars with registration counts`);
       
@@ -265,14 +308,45 @@ export const routes = {
     const { env, user } = context;
     
     try {
+      const syncStartedAt = nowMs();
+      console.log(`${LOG_PREFIX} ${EMOJI.SYNC} Sync request received user=${user.id}`);
+      const syncMetrics = {
+        total_sync_ms: 0,
+        fetch_odoo_ms: 0,
+        fetch_wp_core_ms: 0,
+        wp_detail_total_ms: 0,
+        wp_detail_count: 0,
+        snapshot_upsert_total_ms: 0,
+        snapshot_upsert_count: 0
+      };
+
       // 1. Fetch all sources in parallel
       // Core API returns flat array WITH meta (Tribe API does not include meta)
+      const prefetchStartedAt = nowMs();
+      console.log(`${LOG_PREFIX} ${EMOJI.SYNC} Prefetch stage started`);
+
+      const odooFetchPromise = (async () => {
+        const startedAt = nowMs();
+        const data = await getOdooWebinars(env);
+        syncMetrics.fetch_odoo_ms = elapsedMs(startedAt);
+        return data;
+      })();
+
+      const wpCoreFetchPromise = (async () => {
+        const startedAt = nowMs();
+        const data = await getWordPressEventsWithMeta(env);
+        syncMetrics.fetch_wp_core_ms = elapsedMs(startedAt);
+        return data;
+      })();
+
       const [odooWebinars, wpEvents, supabase, eventTypeMappings] = await Promise.all([
-        getOdooWebinars(env),
-        getWordPressEventsWithMeta(env),
+        odooFetchPromise,
+        wpCoreFetchPromise,
         getSupabaseAdminClient(env),
         getEventTypeTagMappings(env, user.id)
       ]);
+
+      console.log(`${LOG_PREFIX} ${EMOJI.SYNC} Prefetch stage completed in ${Math.round(elapsedMs(prefetchStartedAt))}ms (odoo=${odooWebinars.length}, wp_core=${wpEvents.length})`);
 
       const mappingByEventTypeId = new Map(
         (eventTypeMappings || []).map((mapping) => [mapping.odoo_event_type_id, mapping])
@@ -332,52 +406,124 @@ export const routes = {
       // 3. Compute state for each Odoo webinar (only title/date comparison)
       const results = [];
       const discrepancies = [];
-      
-      for (const odooWebinar of odooWebinars) {
-        const wpCoreEvent = wpByOdooId.get(odooWebinar.id) || null;
-        
-        // If event exists in WordPress, fetch Tribe API version for accurate snapshot
-        // (Core API doesn't include Tribe-specific fields like start_date, categories, etc.)
-        let wpEvent = null;
-        if (wpCoreEvent) {
-          try {
-            wpEvent = await getWordPressEvent(env, wpCoreEvent.id);
-          } catch (error) {
-            console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Failed to fetch Tribe event ${wpCoreEvent.id}:`, error.message);
-            wpEvent = wpCoreEvent; // Fallback to Core API data
-          }
-        }
+      const snapshotRows = [];
 
-        const state = computeEventState(odooWebinar, wpEvent);
-        
-        // Upsert snapshot with full Tribe API event data (or null if not published)
-        const { error } = await supabase
-          .from('webinar_snapshots')
-          .upsert({
+      const wpDetailStageStartedAt = nowMs();
+      console.log(`${LOG_PREFIX} ${EMOJI.SYNC} WP detail + state stage started`);
+
+      await runWithConcurrency(
+        odooWebinars,
+        SYNC_WORKER_CONCURRENCY,
+        async (odooWebinar) => {
+          const wpCoreEvent = wpByOdooId.get(odooWebinar.id) || null;
+
+          // If event exists in WordPress, fetch Tribe API version for accurate snapshot
+          // (Core API doesn't include Tribe-specific fields like start_date, categories, etc.)
+          let wpEvent = null;
+          if (wpCoreEvent) {
+            const wpDetailStartedAt = nowMs();
+            try {
+              wpEvent = await getWordPressEvent(env, wpCoreEvent.id);
+            } catch (error) {
+              console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Failed to fetch Tribe event ${wpCoreEvent.id}:`, error.message);
+              wpEvent = wpCoreEvent; // Fallback to Core API data
+            } finally {
+              syncMetrics.wp_detail_total_ms += elapsedMs(wpDetailStartedAt);
+              syncMetrics.wp_detail_count += 1;
+            }
+          }
+
+          let state;
+          try {
+            state = computeEventState(odooWebinar, wpEvent);
+          } catch (error) {
+            console.error(`${LOG_PREFIX} ${EMOJI.ERROR} State compute failed for webinar ${odooWebinar.id}:`, error.message);
+            state = SYNC_STATUS.NOT_PUBLISHED;
+          }
+
+          snapshotRows.push({
             user_id: user.id,
             odoo_webinar_id: odooWebinar.id,
             odoo_snapshot: odooWebinar,
             wp_snapshot: wpEvent, // Store full Tribe API event data (includes all fields like categories)
             computed_state: state,
             last_synced_at: new Date().toISOString()
-          }, {
-            onConflict: 'user_id,odoo_webinar_id'
           });
-        
-        if (error) {
-          console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Snapshot upsert failed for webinar ${odooWebinar.id}:`, error.message);
+
+          results.push({ odoo_id: odooWebinar.id, state });
+
+          if (state === SYNC_STATUS.OUT_OF_SYNC) {
+            discrepancies.push({
+              odoo_webinar_id: odooWebinar.id,
+              title: odooWebinar.x_name,
+              state
+            });
+          }
         }
-        
-        results.push({ odoo_id: odooWebinar.id, state });
-        
-        if (state === SYNC_STATUS.OUT_OF_SYNC) {
-          discrepancies.push({
-            odoo_webinar_id: odooWebinar.id,
-            title: odooWebinar.x_name,
-            state
-          });
+      );
+
+      console.log(`${LOG_PREFIX} ${EMOJI.SYNC} WP detail + state stage completed in ${Math.round(elapsedMs(wpDetailStageStartedAt))}ms (wp_detail_count=${syncMetrics.wp_detail_count}, snapshots_prepared=${snapshotRows.length})`);
+
+      const snapshotBatches = chunkArray(snapshotRows, SNAPSHOT_UPSERT_BATCH_SIZE);
+      console.log(`${LOG_PREFIX} 💾 Snapshot batch upsert: ${snapshotRows.length} rows in ${snapshotBatches.length} batch(es), batch_size=${SNAPSHOT_UPSERT_BATCH_SIZE}`);
+
+      const snapshotWriteStageStartedAt = nowMs();
+      console.log(`${LOG_PREFIX} ${EMOJI.SYNC} Snapshot write stage started`);
+
+      await runWithConcurrency(
+        snapshotBatches,
+        SYNC_WORKER_CONCURRENCY,
+        async (batchRows, batchIndex) => {
+          const upsertStartedAt = nowMs();
+          const { error } = await supabase
+            .from('webinar_snapshots')
+            .upsert(batchRows, {
+              onConflict: 'user_id,odoo_webinar_id'
+            });
+
+          if (!error) {
+            syncMetrics.snapshot_upsert_total_ms += elapsedMs(upsertStartedAt);
+            syncMetrics.snapshot_upsert_count += batchRows.length;
+            console.log(`${LOG_PREFIX} 💾 Snapshot batch ${batchIndex + 1}/${snapshotBatches.length} upserted (${batchRows.length} rows)`);
+            return;
+          }
+
+          console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Snapshot batch ${batchIndex + 1}/${snapshotBatches.length} upsert failed (${batchRows.length} rows):`, error.message);
+
+          // Partial failure handling: isolate failures per row to avoid data loss
+          for (const row of batchRows) {
+            const rowStartedAt = nowMs();
+            const { error: rowError } = await supabase
+              .from('webinar_snapshots')
+              .upsert(row, {
+                onConflict: 'user_id,odoo_webinar_id'
+              });
+
+            syncMetrics.snapshot_upsert_total_ms += elapsedMs(rowStartedAt);
+            syncMetrics.snapshot_upsert_count += 1;
+
+            if (rowError) {
+              console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Snapshot row upsert failed for webinar ${row.odoo_webinar_id}:`, rowError.message);
+            }
+          }
         }
-      }
+      );
+
+      console.log(`${LOG_PREFIX} ${EMOJI.SYNC} Snapshot write stage completed in ${Math.round(elapsedMs(snapshotWriteStageStartedAt))}ms`);
+
+      syncMetrics.total_sync_ms = elapsedMs(syncStartedAt);
+
+      const structuredMetrics = {
+        total_sync_ms: Math.round(syncMetrics.total_sync_ms),
+        fetch_odoo_ms: Math.round(syncMetrics.fetch_odoo_ms),
+        fetch_wp_core_ms: Math.round(syncMetrics.fetch_wp_core_ms),
+        wp_detail_total_ms: Math.round(syncMetrics.wp_detail_total_ms),
+        wp_detail_count: syncMetrics.wp_detail_count,
+        snapshot_upsert_total_ms: Math.round(syncMetrics.snapshot_upsert_total_ms),
+        snapshot_upsert_count: syncMetrics.snapshot_upsert_count
+      };
+
+      console.log(`${LOG_PREFIX} 📊 SYNC_TIMING ${JSON.stringify(structuredMetrics)}`);
       
       console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Sync complete: ${results.length} webinars, ${discrepancies.length} discrepancies`);
       

@@ -155,6 +155,66 @@ export async function getRegistrationCount(env, webinarId) {
 }
 
 /**
+ * Get registration counts for multiple webinars in one Odoo read_group call.
+ *
+ * Response shape is optimized for routes: { [webinarId]: count }
+ * Missing webinar IDs are not returned by Odoo and should default to 0 by caller.
+ *
+ * @param {Object} env
+ * @param {number[]} webinarIds
+ * @returns {Promise<Object<number, number>>}
+ */
+export async function getRegistrationCountsByWebinar(env, webinarIds) {
+  if (!Array.isArray(webinarIds) || webinarIds.length === 0) {
+    return {};
+  }
+
+  const sanitizedIds = webinarIds
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (sanitizedIds.length === 0) {
+    return {};
+  }
+
+  const grouped = await executeKw(env, {
+    model: ODOO_MODEL.REGISTRATION,
+    method: 'read_group',
+    args: [
+      [['x_studio_linked_webinar', 'in', sanitizedIds]],
+      ['x_studio_linked_webinar'],
+      ['x_studio_linked_webinar']
+    ],
+    kwargs: {
+      lazy: false
+    }
+  });
+
+  const counts = {};
+  for (const group of grouped || []) {
+    const relation = group?.x_studio_linked_webinar;
+    const webinarId = Array.isArray(relation)
+      ? Number(relation[0])
+      : Number(relation);
+
+    if (!Number.isInteger(webinarId) || webinarId <= 0) {
+      continue;
+    }
+
+    const count = Number(
+      group?.x_studio_linked_webinar_count ??
+      group?.__count ??
+      group?.id_count ??
+      0
+    );
+
+    counts[webinarId] = Number.isFinite(count) ? count : 0;
+  }
+
+  return counts;
+}
+
+/**
  * Get all tags from Odoo x_webinar_tag model
  * 
  * Used for tag mapping UI to show all available tags

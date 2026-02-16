@@ -70,6 +70,8 @@ Odoo `x_webinar` synchronisatie naar WordPress The Events Calendar met snapshot 
 - [ADDENDUM_B_EVENT_DATETIME_REFACTOR.md](event-operations/ADDENDUM_B_EVENT_DATETIME_REFACTOR.md) - Datetime model refactor
 - [ADDENDUM_C_EVENT_TYPE_MAPPING.md](event-operations/ADDENDUM_C_EVENT_TYPE_MAPPING.md) - Event type mapping refactor
 - [ADDENDUM_C_IMPLEMENTATION_LOG.md](event-operations/ADDENDUM_C_IMPLEMENTATION_LOG.md) - Addendum C implementatie- en fixlog
+- [ADDENDUM_F_SYNC_ANALYSIS.md](event-operations/ADDENDUM_F_SYNC_ANALYSIS.md) - Sync performance analyse en optimalisatievoorstel
+- [ADDENDUM_F_IMPLEMENTATION_LOG.md](event-operations/ADDENDUM_F_IMPLEMENTATION_LOG.md) - Addendum F implementatieverslag van performance-refactor
 
 ---
 
