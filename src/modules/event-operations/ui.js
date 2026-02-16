@@ -69,27 +69,75 @@ export function eventOperationsUI(user) {
         color: oklch(var(--bc));
       }
       
-      /* Toolbar buttons - DaisyUI btn-sm style */
+      /* Toolbar buttons - DaisyUI btn-sm btn-outline style */
       .fc .fc-button {
-        background-color: transparent;
-        border: 1px solid oklch(var(--bc) / 0.2);
-        color: oklch(var(--bc));
-        text-transform: none;
-        font-weight: 500;
-        font-size: 0.875rem;
-        padding: 0.375rem 0.75rem;
-        border-radius: 0.5rem;
+        background-color: oklch(var(--b1)) !important;
+        border: 1px solid oklch(var(--bc) / 0.2) !important;
+        color: oklch(var(--bc)) !important;
+        text-transform: none !important;
+        font-weight: 500 !important;
+        font-size: 0.875rem !important;
+        padding: 0.375rem 0.75rem !important;
+        border-radius: var(--rounded-btn, 0.5rem) !important;
         box-shadow: none !important;
-        transition: all 0.2s ease;
+        transition: all 0.2s ease !important;
+        outline: none !important;
+        height: 2rem !important;
+        line-height: 1 !important;
       }
       .fc .fc-button:hover {
-        background-color: oklch(var(--bc) / 0.05);
+        background-color: oklch(var(--bc) / 0.08) !important;
+        border-color: oklch(var(--bc) / 0.3) !important;
       }
-      .fc .fc-button-primary.fc-button-active {
-        background-color: oklch(var(--p));
-        border-color: oklch(var(--p));
-        color: oklch(var(--pc));
-        font-weight: 600;
+      .fc .fc-button:focus {
+        outline: none !important;
+        box-shadow: none !important;
+      }
+      .fc .fc-button:disabled {
+        opacity: 0.4 !important;
+        cursor: not-allowed !important;
+      }
+      .fc .fc-button-primary:not(:disabled).fc-button-active,
+      .fc .fc-button-primary:not(:disabled):active {
+        background-color: oklch(var(--p)) !important;
+        border-color: oklch(var(--p)) !important;
+        color: oklch(var(--pc)) !important;
+        font-weight: 600 !important;
+      }
+      /* Button group (prev/next) — join style */
+      .fc .fc-button-group {
+        gap: 0 !important;
+      }
+      .fc .fc-button-group > .fc-button {
+        border-radius: 0 !important;
+      }
+      .fc .fc-button-group > .fc-button:first-child {
+        border-top-left-radius: var(--rounded-btn, 0.5rem) !important;
+        border-bottom-left-radius: var(--rounded-btn, 0.5rem) !important;
+      }
+      .fc .fc-button-group > .fc-button:last-child {
+        border-top-right-radius: var(--rounded-btn, 0.5rem) !important;
+        border-bottom-right-radius: var(--rounded-btn, 0.5rem) !important;
+      }
+      .fc .fc-button-group > .fc-button:not(:last-child) {
+        border-right-width: 0 !important;
+      }
+      /* "Vandaag" today button — primary style */
+      .fc .fc-today-button {
+        background-color: oklch(var(--p)) !important;
+        border-color: oklch(var(--p)) !important;
+        color: oklch(var(--pc)) !important;
+        font-weight: 600 !important;
+      }
+      .fc .fc-today-button:hover:not(:disabled) {
+        background-color: oklch(var(--p) / 0.85) !important;
+        border-color: oklch(var(--p) / 0.85) !important;
+      }
+      .fc .fc-today-button:disabled {
+        background-color: oklch(var(--p) / 0.5) !important;
+        border-color: oklch(var(--p) / 0.5) !important;
+        color: oklch(var(--pc)) !important;
+        opacity: 0.5 !important;
       }
       
       /* Day cells */
