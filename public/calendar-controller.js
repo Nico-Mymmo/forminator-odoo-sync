@@ -86,6 +86,8 @@ export function initializeCalendar() {
     events: events,
     eventClick: handleEventClick,
     eventDidMount: styleCalendarEvent,
+    eventContent: renderEventContent,
+    displayEventTime: false,
     height: 'auto',
     firstDay: 1, // Monday
     locale: 'nl',
@@ -126,22 +128,24 @@ function transformToCalendarEvents() {
     const snapshot = getSnapshot(webinar.id);
     const regCount = getRegistrationCount(webinar.id);
     const state = computeState(webinar, snapshot);
-    const colors = getStatusColors(state);
+    const statusColors = getStatusColors(state);
+    const eventTypeColors = getEventTypeColors(webinar);
 
     return {
       id: webinar.id,
       title: webinar.x_name || 'Untitled Event',
       start: startISO,
       end: calculateEndTime(startISO, webinar.x_studio_event_duration_minutes),
-      backgroundColor: colors.bg,
-      borderColor: colors.accent,
-      textColor: colors.text,
+      backgroundColor: eventTypeColors.bg,
+      borderColor: 'transparent',
+      textColor: eventTypeColors.text,
       extendedProps: {
         webinar,
         snapshot,
         state,
         regCount,
-        colors
+        statusColors,
+        eventTypeColors
       }
     };
   });
@@ -207,7 +211,37 @@ function checkDiscrepancy(webinar, snapshot) {
 }
 
 /**
+ * Get event type colors using DaisyUI CSS variables
+ * Card color is determined by event type, not status
+ */
+function getEventTypeColors(webinar) {
+  const eventTypeName = (Array.isArray(webinar?.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 1)
+    ? webinar.x_webinar_event_type_id[1]?.toLowerCase() || ''
+    : '';
+
+  // Map event type keywords to DaisyUI color tokens
+  if (eventTypeName.includes('webinar')) {
+    return { bg: 'oklch(var(--p) / 0.12)', text: 'oklch(var(--bc))' };
+  }
+  if (eventTypeName.includes('infosessie') || eventTypeName.includes('info')) {
+    return { bg: 'oklch(var(--in) / 0.12)', text: 'oklch(var(--bc))' };
+  }
+  if (eventTypeName.includes('workshop')) {
+    return { bg: 'oklch(var(--a) / 0.12)', text: 'oklch(var(--bc))' };
+  }
+  if (eventTypeName.includes('training') || eventTypeName.includes('opleiding')) {
+    return { bg: 'oklch(var(--su) / 0.12)', text: 'oklch(var(--bc))' };
+  }
+  if (eventTypeName.includes('netwerk') || eventTypeName.includes('event')) {
+    return { bg: 'oklch(var(--s) / 0.12)', text: 'oklch(var(--bc))' };
+  }
+  // Default: neutral
+  return { bg: 'oklch(var(--n) / 0.08)', text: 'oklch(var(--bc))' };
+}
+
+/**
  * Get status colors using DaisyUI CSS variables
+ * Used only for status dot indicator
  */
 function getStatusColors(state) {
   const colorMap = {
@@ -258,18 +292,70 @@ function calculateEndTime(startISO, durationMinutes) {
 }
 
 /**
+ * Render custom event content via eventContent hook
+ */
+function renderEventContent(arg) {
+  const { webinar, regCount, state } = arg.event.extendedProps;
+
+  // Event type name
+  let eventType = '';
+  if (Array.isArray(webinar?.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 1) {
+    eventType = webinar.x_webinar_event_type_id[1];
+  }
+
+  // Format time in Brussels timezone
+  let timeStr = '';
+  if (arg.event.start) {
+    try {
+      timeStr = arg.event.start.toLocaleTimeString('nl-BE', {
+        timeZone: 'Europe/Brussels',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      timeStr = '';
+    }
+  }
+
+  const regLabel = regCount > 0 ? `${regCount}` : '';
+
+  const html = `
+    <div class="fc-event-card">
+      <span class="status-dot"></span>
+      <div class="event-type-label">${escapeHtml(eventType || 'Event')}</div>
+      <div class="event-detail-row">
+        ${timeStr ? `<span class="event-time">${timeStr}</span>` : '<span></span>'}
+        ${regLabel ? `<span class="event-reg"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>${regLabel}</span>` : ''}
+      </div>
+    </div>
+  `;
+
+  return { html };
+}
+
+/**
+ * Escape HTML for safe rendering
+ */
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
  * Style calendar event via eventDidMount hook
  */
 function styleCalendarEvent(info) {
-  const colors = info.event.extendedProps.colors;
-  if (!colors) return;
+  const { eventTypeColors, statusColors } = info.event.extendedProps;
 
   const el = info.el;
-  el.style.setProperty('--event-bg', colors.bg);
-  el.style.setProperty('--event-accent', colors.accent);
-  el.style.setProperty('--event-text', colors.text);
+  if (eventTypeColors) {
+    el.style.setProperty('--event-bg', eventTypeColors.bg);
+    el.style.setProperty('--event-text', eventTypeColors.text);
+  }
+  if (statusColors) {
+    el.style.setProperty('--status-dot', statusColors.accent);
+  }
   
-  // Apply custom classes for DaisyUI integration
   el.classList.add('fc-event-custom');
 }
 

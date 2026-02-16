@@ -165,28 +165,89 @@ export function eventOperationsUI(user) {
         font-weight: 600;
       }
       
-      /* Events - styled via eventDidMount (CSS variables) */
+      /* Events — DaisyUI card style */
       .fc-event {
         cursor: pointer;
         background-color: var(--event-bg, oklch(var(--b2))) !important;
-        border-left: 3px solid var(--event-accent, oklch(var(--p))) !important;
+        border: none !important;
         color: var(--event-text, oklch(var(--bc))) !important;
-        border-width: 1px !important;
         font-weight: 500;
         font-size: 0.8125rem;
-        padding: 0.125rem 0.375rem;
-        margin-bottom: 0.125rem;
-        border-radius: 0.25rem;
+        padding: 0.375rem 0.5rem !important;
+        margin-bottom: 0.25rem !important;
+        border-radius: var(--rounded-btn, 0.5rem) !important;
+        box-shadow: 0 1px 2px oklch(var(--bc) / 0.08);
         transition: all 0.15s ease;
+        overflow: visible !important;
+        position: relative;
       }
       .fc-event:hover {
         transform: translateY(-1px);
-        box-shadow: 0 2px 4px oklch(var(--bc) / 0.15);
-        filter: brightness(0.95);
+        box-shadow: 0 3px 8px oklch(var(--bc) / 0.12);
       }
       .fc-event-title,
       .fc-event-time {
         color: inherit !important;
+      }
+
+      /* Event card inner layout */
+      .fc-event-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+        line-height: 1.3;
+        width: 100%;
+        position: relative;
+      }
+      .fc-event-card .event-type-label {
+        font-size: 0.625rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        opacity: 0.85;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding-right: 0.75rem; /* space for status dot */
+      }
+      .fc-event-card .event-detail-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.25rem;
+        font-size: 0.6875rem;
+        font-weight: 500;
+        opacity: 0.7;
+      }
+      .fc-event-card .event-detail-row .event-time {
+        white-space: nowrap;
+      }
+      .fc-event-card .event-detail-row .event-reg {
+        display: flex;
+        align-items: center;
+        gap: 0.2rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      /* Status dot — top-right */
+      .fc-event-card .status-dot {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background-color: var(--status-dot, oklch(var(--n)));
+        border: 1.5px solid oklch(var(--b1));
+      }
+
+      /* Hide default FC dot */
+      .fc-daygrid-event-dot {
+        display: none !important;
+      }
+      .fc-daygrid-block-event .fc-event-main {
+        padding: 0 !important;
       }
       
       /* Status Legend */
