@@ -53,6 +53,18 @@ export function eventOperationsUI(user) {
       })();
     </script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script>
+      (function suppressTailwindCdnWarning() {
+        const originalWarn = console.warn;
+        console.warn = function patchedConsoleWarn(...args) {
+          const firstArg = typeof args[0] === 'string' ? args[0] : '';
+          if (firstArg.includes('cdn.tailwindcss.com should not be used in production')) {
+            return;
+          }
+          return originalWarn.apply(this, args);
+        };
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- FullCalendar v6 (Addendum D) -->

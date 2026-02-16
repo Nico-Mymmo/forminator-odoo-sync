@@ -148,10 +148,204 @@ export async function getRegistrationCount(env, webinarId) {
   const count = await executeKw(env, {
     model: ODOO_MODEL.REGISTRATION,
     method: 'search_count',
-    args: [[['x_studio_linked_webinar', '=', webinarId]]]
+    args: [[[ODOO_FIELDS.LINKED_WEBINAR, '=', webinarId]]]
   });
   
   return count;
+}
+
+/**
+ * Get registration count for one webinar.
+ *
+ * @param {Object} env
+ * @param {number} webinarId
+ * @returns {Promise<number>}
+ */
+export async function getWebinarRegistrationCount(env, webinarId) {
+  return getRegistrationCount(env, webinarId);
+}
+
+/**
+ * Get webinar registrations with offset/limit.
+ *
+ * Fields are intentionally left empty to avoid hard failures on custom field naming
+ * differences across environments. Callers normalize candidate fields.
+ *
+ * @param {Object} env
+ * @param {number} webinarId
+ * @param {Object} options
+ * @param {number} [options.offset=0]
+ * @param {number} [options.limit=50]
+ * @param {string} [options.order='write_date desc, id desc']
+ * @returns {Promise<Array<Object>>}
+ */
+export async function getWebinarRegistrations(env, webinarId, options = {}) {
+  const { offset = 0, limit = 50, order = 'write_date desc, id desc' } = options;
+
+  return searchRead(env, {
+    model: ODOO_MODEL.REGISTRATION,
+    domain: [[ODOO_FIELDS.LINKED_WEBINAR, '=', webinarId]],
+    fields: [],
+    offset,
+    limit,
+    order
+  });
+}
+
+/**
+ * Get leads for a set of partner IDs.
+ *
+ * @param {Object} env
+ * @param {number[]} partnerIds
+ * @returns {Promise<Array<Object>>}
+ */
+export async function getLeadsByPartnerIds(env, partnerIds) {
+  if (!Array.isArray(partnerIds) || partnerIds.length === 0) {
+    return [];
+  }
+
+  const sanitizedPartnerIds = partnerIds
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (sanitizedPartnerIds.length === 0) {
+    return [];
+  }
+
+  return searchRead(env, {
+    model: ODOO_MODEL.LEAD,
+    domain: [['partner_id', 'in', sanitizedPartnerIds]],
+    fields: [
+      'id',
+      'name',
+      'partner_id',
+      'stage_id',
+      'won_status',
+      'lost_reason_id',
+      'active',
+      'write_date',
+      'create_date'
+    ],
+    order: 'write_date desc, create_date desc, id desc',
+    limit: false
+  });
+}
+
+/**
+ * Get partners for a set of partner IDs.
+ *
+ * @param {Object} env
+ * @param {number[]} partnerIds
+ * @returns {Promise<Array<Object>>}
+ */
+export async function getPartnersByIds(env, partnerIds) {
+  if (!Array.isArray(partnerIds) || partnerIds.length === 0) {
+    return [];
+  }
+
+  const sanitizedPartnerIds = partnerIds
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (sanitizedPartnerIds.length === 0) {
+    return [];
+  }
+
+  return searchRead(env, {
+    model: ODOO_MODEL.PARTNER,
+    domain: [['id', 'in', sanitizedPartnerIds]],
+    fields: ['id', 'name', 'email'],
+    limit: false
+  });
+}
+
+/**
+ * Get stage metadata for stage IDs.
+ *
+ * @param {Object} env
+ * @param {number[]} stageIds
+ * @returns {Promise<Array<Object>>}
+ */
+export async function getLeadStagesByIds(env, stageIds) {
+  if (!Array.isArray(stageIds) || stageIds.length === 0) {
+    return [];
+  }
+
+  const sanitizedStageIds = stageIds
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (sanitizedStageIds.length === 0) {
+    return [];
+  }
+
+  return searchRead(env, {
+    model: ODOO_MODEL.LEAD_STAGE,
+    domain: [['id', 'in', sanitizedStageIds]],
+    fields: [],
+    limit: false
+  });
+}
+
+/**
+ * Update attendance for one registration and write mandatory audit metadata.
+ *
+ * @param {Object} env
+ * @param {number} registrationId
+ * @param {Object} values
+ * @param {boolean} values.attended
+ * @param {number} values.updatedByUserId
+ * @param {string} values.updatedAt
+ * @param {string} values.origin
+ * @returns {Promise<boolean>}
+ */
+export async function updateRegistrationAttendance(env, registrationId, values) {
+  const {
+    attended,
+    updatedByUserId,
+    updatedAt,
+    origin
+  } = values;
+
+  const fullPayload = {
+    [ODOO_FIELDS.ATTENDED]: Boolean(attended),
+    [ODOO_FIELDS.ATTENDANCE_UPDATED_AT]: updatedAt,
+    [ODOO_FIELDS.ATTENDANCE_UPDATED_BY]: updatedByUserId,
+    [ODOO_FIELDS.ATTENDANCE_UPDATE_ORIGIN]: origin
+  };
+
+  try {
+    return await write(env, {
+      model: ODOO_MODEL.REGISTRATION,
+      ids: [registrationId],
+      values: fullPayload
+    });
+  } catch (error) {
+    const message = String(error?.message || '').toLowerCase();
+    const likelyAuditFieldIssue =
+      message.includes('x_studio_attendance_') ||
+      message.includes('unknown field') ||
+      message.includes('invalid field') ||
+      message.includes('access') ||
+      message.includes('permission');
+
+    if (!likelyAuditFieldIssue) {
+      throw error;
+    }
+
+    console.warn('[event-operations] Attendance audit write failed, retrying without audit fields', {
+      registrationId,
+      reason: error?.message || 'unknown'
+    });
+
+    return write(env, {
+      model: ODOO_MODEL.REGISTRATION,
+      ids: [registrationId],
+      values: {
+        [ODOO_FIELDS.ATTENDED]: Boolean(attended)
+      }
+    });
+  }
 }
 
 /**

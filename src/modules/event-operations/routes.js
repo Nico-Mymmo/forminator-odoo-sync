@@ -11,6 +11,7 @@ import { extractOdooWebinarId } from './mapping.js';
 import { eventOperationsUI } from './ui.js';
 import { getEventTypeTagMappings, upsertEventTypeTagMapping, deleteEventTypeTagMapping } from './tag-mapping.js';
 import { validateEditorialContent } from './editorial.js';
+import { eventRegistrationRoutes } from './routes/event-registrations.js';
 
 const SYNC_WORKER_CONCURRENCY = 5;
 const SNAPSHOT_UPSERT_BATCH_SIZE = 25;
@@ -62,6 +63,8 @@ async function runWithConcurrency(items, concurrency, worker) {
 }
 
 export const routes = {
+  ...eventRegistrationRoutes,
+
   /**
    * GET /events
    * Main UI

@@ -31,7 +31,10 @@ export const ODOO_MODEL = {
   WEBINAR: 'x_webinar',
   REGISTRATION: 'x_webinarregistrations',
   TAGS: 'x_webinar_tag',
-  EVENT_TYPE: 'x_webinar_event_type'
+  EVENT_TYPE: 'x_webinar_event_type',
+  LEAD: 'crm.lead',
+  LEAD_STAGE: 'crm.stage',
+  PARTNER: 'res.partner'
 };
 
 // Odoo Fields
@@ -46,7 +49,13 @@ export const ODOO_FIELDS = {
   EVENT_TYPE_ID: 'x_webinar_event_type_id',
   TAG_IDS: 'x_studio_tag_ids',
   // Registration fields
-  LINKED_WEBINAR: 'x_studio_linked_webinar'
+  LINKED_WEBINAR: 'x_studio_linked_webinar',
+  REGISTERED_BY: 'x_studio_registered_by',
+  QUESTIONS: 'x_studio_webinar_questions',
+  ATTENDED: 'x_studio_webinar_attended',
+  ATTENDANCE_UPDATED_AT: 'x_studio_attendance_updated_at',
+  ATTENDANCE_UPDATED_BY: 'x_studio_attendance_updated_by',
+  ATTENDANCE_UPDATE_ORIGIN: 'x_studio_attendance_update_origin'
 };
 
 // WordPress Endpoints
