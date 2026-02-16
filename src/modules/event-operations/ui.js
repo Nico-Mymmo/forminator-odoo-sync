@@ -444,16 +444,35 @@ export function eventOperationsUI(user) {
           <!-- Add New Mapping Form -->
           <div class="card bg-base-200 mb-4">
             <div class="card-body">
-              <h4 class="font-semibold mb-2">Save Mapping</h4>
-              <div class="flex gap-2">
+              <h4 id="mappingFormTitle" class="font-semibold mb-2">New Mapping</h4>
+              <div class="flex gap-2 flex-wrap">
                 <select id="odooEventTypeSelect" class="select select-bordered select-sm flex-1">
                   <option value="">Select Odoo Event Type...</option>
                 </select>
                 <select id="wpTagSelect" class="select select-bordered select-sm flex-1">
                   <option value="">Select WP Tag...</option>
                 </select>
+                <select id="calendarColorSelect" class="select select-bordered select-sm w-44">
+                  <option value="primary">🔵 Primary</option>
+                  <option value="primary-soft">🔵 Primary Soft</option>
+                  <option value="secondary">🟣 Secondary</option>
+                  <option value="secondary-soft">🟣 Secondary Soft</option>
+                  <option value="accent">🟠 Accent</option>
+                  <option value="accent-soft">🟠 Accent Soft</option>
+                  <option value="info">🔷 Info</option>
+                  <option value="info-soft">🔷 Info Soft</option>
+                  <option value="success">🟢 Success</option>
+                  <option value="success-soft">🟢 Success Soft</option>
+                  <option value="warning">🟡 Warning</option>
+                  <option value="warning-soft">🟡 Warning Soft</option>
+                  <option value="neutral">⚪ Neutral</option>
+                  <option value="neutral-soft">⚪ Neutral Soft</option>
+                </select>
                 <button id="btnSaveEventTypeMapping" class="btn btn-primary btn-sm" onclick="saveEventTypeMapping()">
                   <i data-lucide="save" class="w-4 h-4"></i> Save
+                </button>
+                <button id="btnCancelEditMapping" class="btn btn-ghost btn-sm hidden" onclick="cancelEditMapping()">
+                  Cancel
                 </button>
               </div>
             </div>
@@ -466,7 +485,8 @@ export function eventOperationsUI(user) {
                 <tr>
                   <th>Odoo Event Type</th>
                   <th>WordPress Tag</th>
-                  <th class="w-24">Actions</th>
+                  <th class="w-36">Color</th>
+                  <th class="w-32">Actions</th>
                 </tr>
               </thead>
               <tbody id="eventTypeMappingTableBody">
@@ -1027,6 +1047,20 @@ export function eventOperationsUI(user) {
       initTheme();
       initializeDetailPanel();
       initializeEditorModal();
+
+      // ── Listen for mapping changes (from legacy client) ──
+      window.addEventListener('mappings-changed', async () => {
+        try {
+          const res = await fetch('/events/api/event-type-tag-mappings');
+          if (res.ok) {
+            const json = await res.json();
+            setMappings(json.data || []);
+            refreshCalendar();
+          }
+        } catch (e) {
+          console.error('[MappingsChanged] Failed to refresh mappings:', e);
+        }
+      });
       
       // ── Load Data & Render ──
       loadData();

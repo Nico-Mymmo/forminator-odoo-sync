@@ -68,7 +68,8 @@ export async function upsertEventTypeTagMapping(env, userId, mapping) {
     odoo_event_type_id: mapping.odoo_event_type_id,
     wp_tag_id: mapping.wp_tag_id,
     wp_tag_slug: mapping.wp_tag_slug,
-    wp_tag_name: mapping.wp_tag_name
+    wp_tag_name: mapping.wp_tag_name,
+    calendar_color: mapping.calendar_color || 'primary'
   };
 
   const { data, error } = await supabase

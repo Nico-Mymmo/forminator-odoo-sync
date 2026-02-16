@@ -449,7 +449,7 @@ export const routes = {
     
     try {
       const body = await request.json();
-      const { odoo_event_type_id, wp_tag_id, wp_tag_slug, wp_tag_name } = body;
+      const { odoo_event_type_id, wp_tag_id, wp_tag_slug, wp_tag_name, calendar_color } = body;
       
       if (!odoo_event_type_id || !wp_tag_id || !wp_tag_slug || !wp_tag_name) {
         return new Response(JSON.stringify({
@@ -480,7 +480,8 @@ export const routes = {
         odoo_event_type_id: odooEventTypeId,
         wp_tag_id: wpTagId,
         wp_tag_slug,
-        wp_tag_name
+        wp_tag_name,
+        calendar_color: calendar_color || 'primary'
       });
       
       console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Event type mapping saved`);

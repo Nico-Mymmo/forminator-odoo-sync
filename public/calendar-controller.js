@@ -212,31 +212,51 @@ function checkDiscrepancy(webinar, snapshot) {
 
 /**
  * Get event type colors using DaisyUI CSS variables
- * Card color is determined by event type, not status
+ * Card color is determined by the calendar_color configured in mappings
+ * Falls back to 'neutral' if no mapping exists
  */
 function getEventTypeColors(webinar) {
-  const eventTypeName = (Array.isArray(webinar?.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 1)
-    ? webinar.x_webinar_event_type_id[1]?.toLowerCase() || ''
-    : '';
+  // Extract Odoo event type ID from many2one field
+  const eventTypeId = (Array.isArray(webinar?.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 0)
+    ? webinar.x_webinar_event_type_id[0]
+    : null;
 
-  // Map event type keywords to DaisyUI color tokens
-  if (eventTypeName.includes('webinar')) {
-    return { bg: 'oklch(var(--p) / 0.12)', text: 'oklch(var(--bc))' };
+  // Look up mapping to get configured color
+  let colorToken = 'neutral';
+  if (eventTypeId && appState.mappings) {
+    const mapping = appState.mappings.find(m => m.odoo_event_type_id === eventTypeId);
+    if (mapping?.calendar_color) {
+      colorToken = mapping.calendar_color;
+    }
   }
-  if (eventTypeName.includes('infosessie') || eventTypeName.includes('info')) {
-    return { bg: 'oklch(var(--in) / 0.12)', text: 'oklch(var(--bc))' };
-  }
-  if (eventTypeName.includes('workshop')) {
-    return { bg: 'oklch(var(--a) / 0.12)', text: 'oklch(var(--bc))' };
-  }
-  if (eventTypeName.includes('training') || eventTypeName.includes('opleiding')) {
-    return { bg: 'oklch(var(--su) / 0.12)', text: 'oklch(var(--bc))' };
-  }
-  if (eventTypeName.includes('netwerk') || eventTypeName.includes('event')) {
-    return { bg: 'oklch(var(--s) / 0.12)', text: 'oklch(var(--bc))' };
-  }
-  // Default: neutral
-  return { bg: 'oklch(var(--n) / 0.08)', text: 'oklch(var(--bc))' };
+
+  return resolveColorToken(colorToken);
+}
+
+/**
+ * Resolve a color token (e.g. 'primary', 'info-soft') to DaisyUI CSS values
+ */
+function resolveColorToken(token) {
+  const isSoft = token.endsWith('-soft');
+  const baseToken = isSoft ? token.replace('-soft', '') : token;
+
+  const cssVarMap = {
+    'primary':   '--p',
+    'secondary': '--s',
+    'accent':    '--a',
+    'info':      '--in',
+    'success':   '--su',
+    'warning':   '--wa',
+    'neutral':   '--n',
+  };
+
+  const cssVar = cssVarMap[baseToken] || '--n';
+  const opacity = isSoft ? 0.08 : 0.15;
+
+  return {
+    bg: `oklch(var(${cssVar}) / ${opacity})`,
+    text: 'oklch(var(--bc))'
+  };
 }
 
 /**

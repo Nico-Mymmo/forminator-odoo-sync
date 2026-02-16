@@ -343,6 +343,30 @@ function initDetailPanelDelegation() {
 // TAG MAPPING
 // ══════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Map color token to a CSS color for preview swatch
+ * Uses DaisyUI CSS variables via getComputedStyle
+ */
+function getCalendarColorPreview(token) {
+  const colorMap = {
+    'primary':        'oklch(var(--p))',
+    'primary-soft':   'oklch(var(--p) / 0.25)',
+    'secondary':      'oklch(var(--s))',
+    'secondary-soft': 'oklch(var(--s) / 0.25)',
+    'accent':         'oklch(var(--a))',
+    'accent-soft':    'oklch(var(--a) / 0.25)',
+    'info':           'oklch(var(--in))',
+    'info-soft':      'oklch(var(--in) / 0.25)',
+    'success':        'oklch(var(--su))',
+    'success-soft':   'oklch(var(--su) / 0.25)',
+    'warning':        'oklch(var(--wa))',
+    'warning-soft':   'oklch(var(--wa) / 0.25)',
+    'neutral':        'oklch(var(--n))',
+    'neutral-soft':   'oklch(var(--n) / 0.25)',
+  };
+  return colorMap[token] || colorMap['primary'];
+}
+
 function openEventTypeMappingModal() {
   const modal = document.getElementById('eventTypeMappingModal');
   modal.showModal();
@@ -395,12 +419,35 @@ async function loadEventTypeMappings() {
       tdCat.textContent = displayWpTagName + ' (' + mapping.wp_tag_slug + ')';
       row.appendChild(tdCat);
 
+      const tdColor = document.createElement('td');
+      const colorToken = mapping.calendar_color || 'primary';
+      const colorSwatch = document.createElement('span');
+      colorSwatch.className = 'inline-flex items-center gap-1';
+      const dot = document.createElement('span');
+      dot.className = 'w-3 h-3 rounded-full inline-block';
+      dot.style.backgroundColor = getCalendarColorPreview(colorToken);
+      colorSwatch.appendChild(dot);
+      const colorLabel = document.createElement('span');
+      colorLabel.className = 'text-xs';
+      colorLabel.textContent = colorToken;
+      colorSwatch.appendChild(colorLabel);
+      tdColor.appendChild(colorSwatch);
+      row.appendChild(tdColor);
+
       const tdActions = document.createElement('td');
+      const btnGroup = document.createElement('div');
+      btnGroup.className = 'flex gap-1';
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn btn-xs btn-info btn-outline';
+      editBtn.textContent = 'Edit';
+      editBtn.onclick = () => editEventTypeMapping(mapping, resolvedEventTypeName);
+      btnGroup.appendChild(editBtn);
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'btn btn-xs btn-error btn-outline';
       deleteBtn.textContent = 'Delete';
       deleteBtn.onclick = () => deleteEventTypeMapping(mapping.id);
-      tdActions.appendChild(deleteBtn);
+      btnGroup.appendChild(deleteBtn);
+      tdActions.appendChild(btnGroup);
       row.appendChild(tdActions);
 
       tbody.appendChild(row);
@@ -442,9 +489,70 @@ async function loadEventTypeMappings() {
   }
 }
 
+/**
+ * Edit an existing mapping — populate the form with current values
+ */
+function editEventTypeMapping(mapping, eventTypeName) {
+  const eventTypeSelect = document.getElementById('odooEventTypeSelect');
+  const wpTagSelect = document.getElementById('wpTagSelect');
+  const colorSelect = document.getElementById('calendarColorSelect');
+  const formTitle = document.getElementById('mappingFormTitle');
+  const cancelBtn = document.getElementById('btnCancelEditMapping');
+  const saveBtn = document.getElementById('btnSaveEventTypeMapping');
+
+  // Add the currently-mapped event type as an option (it's normally filtered out)
+  const existingOpt = eventTypeSelect.querySelector(`option[value="${mapping.odoo_event_type_id}"]`);
+  if (!existingOpt) {
+    const opt = document.createElement('option');
+    opt.value = mapping.odoo_event_type_id;
+    opt.textContent = eventTypeName || ('Event Type #' + mapping.odoo_event_type_id);
+    eventTypeSelect.appendChild(opt);
+  }
+
+  // Set form values
+  eventTypeSelect.value = String(mapping.odoo_event_type_id);
+  eventTypeSelect.disabled = true; // Lock event type during edit
+  wpTagSelect.value = String(mapping.wp_tag_id);
+  if (colorSelect) colorSelect.value = mapping.calendar_color || 'primary';
+
+  // Switch to edit mode UI
+  formTitle.textContent = 'Edit Mapping';
+  cancelBtn.classList.remove('hidden');
+  saveBtn.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i> Update';
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+
+  // Scroll form into view
+  eventTypeSelect.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/**
+ * Cancel edit mode — reset form back to "New Mapping" state
+ */
+function cancelEditMapping() {
+  const eventTypeSelect = document.getElementById('odooEventTypeSelect');
+  const formTitle = document.getElementById('mappingFormTitle');
+  const cancelBtn = document.getElementById('btnCancelEditMapping');
+  const saveBtn = document.getElementById('btnSaveEventTypeMapping');
+  const colorSelect = document.getElementById('calendarColorSelect');
+
+  eventTypeSelect.disabled = false;
+  eventTypeSelect.value = '';
+  document.getElementById('wpTagSelect').value = '';
+  if (colorSelect) colorSelect.value = 'primary';
+
+  formTitle.textContent = 'New Mapping';
+  cancelBtn.classList.add('hidden');
+  saveBtn.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i> Save';
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+
+  // Reload to restore filtered dropdown
+  loadEventTypeMappings();
+}
+
 async function saveEventTypeMapping() {
   const eventTypeSelect = document.getElementById('odooEventTypeSelect');
   const wpTagSelect = document.getElementById('wpTagSelect');
+  const colorSelect = document.getElementById('calendarColorSelect');
 
   const odooEventTypeId = parseInt(eventTypeSelect.value);
   const wpTagId = parseInt(wpTagSelect.value);
@@ -456,6 +564,7 @@ async function saveEventTypeMapping() {
 
   const wpTagSlug = wpTagSelect.options[wpTagSelect.selectedIndex].dataset.slug;
   const wpTagName = wpTagSelect.options[wpTagSelect.selectedIndex].dataset.name;
+  const calendarColor = colorSelect ? colorSelect.value : 'primary';
 
   try {
     const res = await fetch('/events/api/event-type-tag-mappings', {
@@ -465,14 +574,26 @@ async function saveEventTypeMapping() {
         odoo_event_type_id: odooEventTypeId,
         wp_tag_id: wpTagId,
         wp_tag_slug: wpTagSlug,
-        wp_tag_name: wpTagName
+        wp_tag_name: wpTagName,
+        calendar_color: calendarColor
       })
     });
 
     if (!res.ok) throw new Error(await res.text());
 
+    // Reset edit mode if active
+    const formTitle = document.getElementById('mappingFormTitle');
+    const cancelBtn = document.getElementById('btnCancelEditMapping');
+    const saveBtn = document.getElementById('btnSaveEventTypeMapping');
+    eventTypeSelect.disabled = false;
+    formTitle.textContent = 'New Mapping';
+    cancelBtn.classList.add('hidden');
+    saveBtn.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i> Save';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
     alert('✅ Event type mapping saved');
     loadEventTypeMappings();
+    window.dispatchEvent(new CustomEvent('mappings-changed'));
   } catch (error) {
     console.error('Event type mapping save error:', error);
     alert('❌ Failed to save mapping: ' + error.message);
@@ -491,6 +612,7 @@ async function deleteEventTypeMapping(id) {
 
     alert('✅ Event type mapping deleted');
     loadEventTypeMappings();
+    window.dispatchEvent(new CustomEvent('mappings-changed'));
   } catch (error) {
     console.error('Event type mapping delete error:', error);
     alert('❌ Failed to delete mapping: ' + error.message);
