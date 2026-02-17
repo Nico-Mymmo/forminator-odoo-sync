@@ -251,7 +251,10 @@ export const routes = {
           registrationCounts
         }
       }), {
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+        }
       });
       
     } catch (error) {

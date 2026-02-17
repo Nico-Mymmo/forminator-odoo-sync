@@ -9,7 +9,10 @@ import { applyAttendanceUpdate, applyBulkAttendanceUpdates } from '../services/a
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+    }
   });
 }
 

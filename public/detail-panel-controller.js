@@ -33,6 +33,17 @@ const REGISTRATIONS_PER_PAGE = 25;
 const registrationsCacheByWebinar = new Map();
 const expandedQuestionsByWebinar = new Map();
 
+/**
+ * Clear registrations cache (call after sync to force fresh data)
+ */
+export function clearRegistrationsCache(webinarId = null) {
+  if (webinarId) {
+    registrationsCacheByWebinar.delete(webinarId);
+  } else {
+    registrationsCacheByWebinar.clear();
+  }
+}
+
 function getExpandedQuestions(webinarId) {
   if (!expandedQuestionsByWebinar.has(webinarId)) {
     expandedQuestionsByWebinar.set(webinarId, new Set());

@@ -651,7 +651,7 @@ export function eventOperationsUI(user) {
       } from '/state-store.js';
       
       import { initializeCalendar, refreshCalendar } from '/calendar-controller.js';
-      import { initializeDetailPanel } from '/detail-panel-controller.js';
+      import { initializeDetailPanel, clearRegistrationsCache } from '/detail-panel-controller.js';
       import { initializeEditorModal } from '/editor-controller.js';
       
       // ── Theme Management ──
@@ -908,12 +908,21 @@ export function eventOperationsUI(user) {
           ? performance.now()
           : Date.now();
 
-        const snapshotsRes = await fetch('/events/api/snapshots?_t=' + Date.now(), {
-          credentials: 'include'
-        }).then(r => r.json());
+        // Fetch snapshots AND registration counts in parallel
+        const [snapshotsRes, webinarsRes] = await Promise.all([
+          fetch('/events/api/snapshots?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json()),
+          fetch('/events/api/odoo-webinars?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json())
+        ]);
 
         if (!snapshotsRes.success) {
           throw new Error(snapshotsRes.error || 'Failed to refresh snapshots');
+        }
+
+        // Update webinars AND registration counts (fix for deleted registrations not reflected after sync)
+        if (webinarsRes.success && webinarsRes.data) {
+          // First update the full unfiltered webinar list in appState
+          appState.webinars = webinarsRes.data.webinars || [];
+          setRegistrations(webinarsRes.data.registrationCounts || {});
         }
 
         const snapshotMap = {};
@@ -936,6 +945,7 @@ export function eventOperationsUI(user) {
         }
         setSnapshots(snapshotMap);
 
+        // Now filter and update display
         const filteredWebinars = filterWebinars(appState.webinars, activeTab);
         setWebinars(filteredWebinars);
 
@@ -944,6 +954,9 @@ export function eventOperationsUI(user) {
         } else {
           renderTable(filteredWebinars);
         }
+
+        // Clear registrations cache to force fresh data after sync
+        clearRegistrationsCache();
 
         if (appState.currentEventId) {
           setCurrentEvent(appState.currentEventId);

@@ -30,6 +30,12 @@ export function buildEditorialDescription(editorialContent, odooDescription) {
 
     if (block.type === 'paragraph') {
       const content = block.content || '';
+      // If content contains HTML tags, return as-is (trusted Odoo HTML)
+      // This prevents double-wrapping and escaping of Odoo's x_studio_webinar_info HTML
+      if (content.includes('<')) {
+        return content;
+      }
+      // Plain text: escape and wrap in paragraph tags
       return `<p>${escapeHtml(content)}</p>`;
     }
 
