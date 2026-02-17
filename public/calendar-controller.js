@@ -283,8 +283,8 @@ function getStatusColors(state) {
       text: 'oklch(var(--bc))'
     },
     'not_published': {
-      bg: 'oklch(var(--in) / 0.15)',    // info
-      accent: 'oklch(var(--in))',
+      bg: 'oklch(var(--er) / 0.15)',    // error
+      accent: 'oklch(var(--er))',
       text: 'oklch(var(--bc))'
     },
     'archived': {

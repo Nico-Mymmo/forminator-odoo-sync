@@ -18,7 +18,7 @@ import { navbar } from '../../lib/components/navbar.js';
  * Status badge config: DaisyUI badge variant per computed_state
  */
 const STATUS_BADGES = {
-  not_published: { label: 'Not Published', css: 'badge-ghost' },
+  not_published: { label: 'Not Published', css: 'badge-error' },
   draft: { label: 'Draft', css: 'badge-neutral' },
   published: { label: 'Published', css: 'badge-success' },
   out_of_sync: { label: 'Out of Sync', css: 'badge-warning' },
@@ -339,6 +339,11 @@ export function eventOperationsUI(user) {
         border-color: oklch(var(--in) / 0.3) !important;
         color: oklch(var(--bc)) !important;
       }
+      .legend-error {
+        background-color: oklch(var(--er) / 0.15) !important;
+        border-color: oklch(var(--er) / 0.3) !important;
+        color: oklch(var(--bc)) !important;
+      }
     </style>
 </head>
 <body class="bg-base-200">
@@ -381,7 +386,7 @@ export function eventOperationsUI(user) {
               <span class="badge badge-sm legend-warning">Out of Sync</span>
               <span class="badge badge-sm legend-success">Published</span>
               <span class="badge badge-sm legend-neutral">Draft</span>
-              <span class="badge badge-sm legend-info">Not Published</span>
+              <span class="badge badge-sm legend-error">Not Published</span>
             </div>
           </div>
 

@@ -755,10 +755,11 @@ function checkDiscrepancy(webinar, snapshot) {
   const wpTitle = typeof wp.title === 'object' ? wp.title?.rendered : wp.title;
   if (wpTitle && webinar.x_name && decodeEntities(webinar.x_name) !== decodeEntities(wpTitle)) return true;
 
-  // Date mismatch (compare date portion only)
-  if (wp.start_date && webinar.x_studio_event_datetime) {
-    const normalizeDate = (s) => s ? s.replace(' ', 'T').split('T')[0] : '';
-    if (normalizeDate(webinar.x_studio_event_datetime) !== normalizeDate(wp.start_date)) return true;
+  // Date mismatch (timezone-aware via UTC source)
+  if ((wp.utc_start_date || wp.start_date) && webinar.x_studio_event_datetime) {
+    const odooUtc = parseUtcDateTime(webinar.x_studio_event_datetime);
+    const wpUtc = parseUtcDateTime(wp.utc_start_date || wp.start_date);
+    if (odooUtc && wpUtc && odooUtc.getTime() !== wpUtc.getTime()) return true;
   }
 
   return false;
@@ -772,10 +773,43 @@ function getStatusBadge(state) {
     'out_of_sync': '<span class="badge badge-warning badge-sm cursor-help" data-action="compare-sync" data-webinar-id="__WID__" title="Ctrl+Click om versies te vergelijken">Out of Sync</span>',
     'published': '<span class="badge badge-success badge-sm cursor-help" data-action="compare-sync" data-webinar-id="__WID__" title="Ctrl+Click om versies te vergelijken">Published</span>',
     'draft': '<span class="badge badge-neutral badge-sm cursor-help" data-action="compare-sync" data-webinar-id="__WID__" title="Ctrl+Click om versies te vergelijken">Draft</span>',
-    'not_published': '<span class="badge badge-ghost badge-sm">Not Published</span>',
+    'not_published': '<span class="badge badge-error badge-sm">Not Published</span>',
     'archived': '<span class="badge badge-info badge-sm">Archived</span>'
   };
   return badgeMap[state] || '';
+}
+
+function parseUtcDateTime(raw) {
+  if (!raw || typeof raw !== 'string') {
+    return null;
+  }
+
+  let isoString = raw.trim();
+  if (isoString.includes(' ') && !isoString.includes('T')) {
+    isoString = isoString.replace(' ', 'T') + 'Z';
+  } else if (isoString.includes('T') && !isoString.endsWith('Z')) {
+    isoString = isoString + 'Z';
+  }
+
+  const date = new Date(isoString);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatBrusselsDate(date) {
+  return date.toLocaleDateString('nl-BE', {
+    timeZone: 'Europe/Brussels',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+}
+
+function formatBrusselsTime(date) {
+  return date.toLocaleTimeString('nl-BE', {
+    timeZone: 'Europe/Brussels',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 /**
@@ -850,24 +884,26 @@ function showSyncComparison(webinarId) {
   // 2. Start datetime
   const odooDateRaw = webinar.x_studio_event_datetime || '';
   const wpDateRaw = wp?.start_date || '';
-  const odooDateNorm = odooDateRaw ? odooDateRaw.replace(' ', 'T').split('T')[0] : '';
-  const wpDateNorm = wpDateRaw ? wpDateRaw.split(' ')[0].trim() : '';
+  const odooUtc = parseUtcDateTime(odooDateRaw);
+  const wpUtc = parseUtcDateTime(wp?.utc_start_date || wpDateRaw);
+  const odooDateBrussels = odooUtc ? formatBrusselsDate(odooUtc) : '—';
+  const wpDateBrussels = wpUtc ? formatBrusselsDate(wpUtc) : (wpDateRaw || '—');
   fields.push({
     label: 'Startdatum',
-    odoo: odooDateRaw || '—',
-    wp: wpDateRaw || '—',
-    match: odooDateNorm === wpDateNorm,
+    odoo: odooDateBrussels,
+    wp: wpDateBrussels,
+    match: Boolean(odooUtc && wpUtc && odooDateBrussels === wpDateBrussels),
     available: !!wp
   });
 
   // 3. Start time
-  const odooTime = odooDateRaw ? odooDateRaw.replace(' ', 'T').split('T')[1] || '' : '';
-  const wpTime = wpDateRaw ? (wpDateRaw.includes(' ') ? wpDateRaw.split(' ').slice(1).join(' ') : '') : '';
+  const odooTime = odooUtc ? formatBrusselsTime(odooUtc) : '';
+  const wpTime = wpUtc ? formatBrusselsTime(wpUtc) : '';
   fields.push({
     label: 'Starttijd',
     odoo: odooTime || '—',
     wp: wpTime || '—',
-    match: odooTime === wpTime,
+    match: Boolean(odooUtc && wpUtc && odooTime === wpTime),
     available: !!wp
   });
 
