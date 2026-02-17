@@ -2,7 +2,6 @@
 
 **Module Code:** `event_operations`  
 **Module Name:** Event Operations  
-**Document:** ADDENDUM_D_CALENDAR_WORKSPACE_AND_AUTHORING_LAYER.md  
 **Base Implementation:** Phase 0-7 Complete + Addendum A + Addendum B + Addendum C  
 **Implementation Date:** February 13, 2026  
 **Status:** Ready for Implementation  
@@ -95,12 +94,11 @@ Odoo x_studio_description (plain text)
 4. **Explicit Save Workflow**
    - **No autosave** (deliberate editorial control)
    - Save button triggers:
-     1. Check concurrency (compare write_date)
-     2. Write to Odoo `x_studio_description` (CANONICAL)
-     3. On success: Log version to Supabase (best-effort)
-     4. On Odoo failure: Show error, keep editor open
-     5. On Supabase failure: Log warning, return success (Odoo write succeeded)
-   - No compensating transactions or rollbacks
+     1. Create version entry in Supabase
+     2. PUT update to Odoo `x_studio_description`
+     3. On success: Mark event `OUT_OF_SYNC`
+     4. On failure: Rollback version entry, show error
+   - Transactional integrity via compensating actions
 
 5. **Version History System**
    - New Supabase table: `event_description_versions`
@@ -200,23 +198,6 @@ The following are explicit non-goals for Addendum D:
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-### Core Architectural Principles (Reaffirmed)
-
-Addendum D maintains absolute adherence to the following foundational principles:
-
-1. **Single Canonical Source:** Odoo is the authoritative system for all event data, including descriptions
-2. **Unidirectional Sync:** Data flows Odoo → WordPress only (no bidirectional sync)
-3. **Append-Only Audit Log:** Supabase stores version history as immutable log, never used in state comparisons
-4. **No Distributed Transactions:** No XA/2PC; write to Odoo first, log to Supabase second
-5. **Explicit Save:** No autosave; user controls when descriptions are committed
-6. **Deterministic State Engine:** Discrepancy detection compares Odoo current vs WP current only
-
-**Critical Clarification:**
-- Supabase is NOT a parallel database
-- Supabase is NOT compared to WordPress in state engine
-- Supabase is NOT authoritative for any operational decision
-- Supabase versions are historical audit trail ONLY
-
 ### Separation of Concerns (Addendum D Changes)
 
 #### Client Layer Responsibilities (NEW)
@@ -245,67 +226,17 @@ Addendum D maintains absolute adherence to the following foundational principles
 
 #### Server Layer Responsibilities (NEW)
 
-**Description Save Orchestration (Server-Side Only):**
-
-**Route:** `PUT /api/save-description`
-
-**Request Payload:**
-```javascript
-{
-  user_id: UUID,
-  webinar_id: INTEGER,
-  html_content: TEXT,
-  source_type: ENUM('generated', 'manual', 'restored', 'forced_overwrite'),
-  editor_write_date: TIMESTAMP  // From editor open, for concurrency check
-}
-```
-
-**Server Orchestration Steps:**
-
-1. **Validate HTML Content**
-   - Check non-empty
-   - Check length ≤ Odoo field limit (~65000 chars)
-   - **Server-side sanitization** (see Section 5.5.1)
-
-2. **Concurrency Check (Server-Side)**
-   - Fetch current Odoo `write_date` for webinar
-   - Compare `current_write_date` with `editor_write_date` from request
-   - If mismatch: Return `{ conflict: true, current_write_date, message }`
-   - If match: Proceed
-
-3. **Write to Odoo (CANONICAL)**
-   - Call Odoo XML-RPC `write(webinar_id, { x_studio_description: sanitized_html })`
-   - If fails: Return `{ success: false, error: odoo_error_message }`
-   - If succeeds: Capture new `write_date` from response
-
-4. **Log Version to Supabase (Best-Effort)**
-   - Insert into `event_description_versions`
-   - If Supabase insert fails: Log warning, continue (non-fatal)
-   - Version logging failure does NOT abort save
-
-5. **Return Success Response**
-   ```javascript
-   {
-     success: true,
-     new_write_date: TIMESTAMP,  // For client to update stored value
-     version_logged: BOOLEAN      // True if Supabase succeeded, false if failed
-   }
-   ```
-
-6. **Client State Update**
-   - Client receives success response
-   - Client sets local `computed_state = 'out_of_sync'`
-   - Client updates stored `write_date` to `new_write_date`
-   - Client closes editor, refreshes detail panel
-   - No sync API call required
-
-**Critical Constraint:**
-
-**Client NEVER calls Supabase directly for version creation.**
-
-All version logging happens server-side within `/api/save-description`.
-
-Client has no direct access to `event_description_versions` INSERT operations.
+**Description Save Orchestration:**
+1. Receive save request with `{ user_id, webinar_id, html_content, source_type }`
+2. Validate HTML content (length, structure)
+3. Create version entry in Supabase `event_description_versions`
+4. Call Odoo XML-RPC `write()` to update `x_studio_description`
+5. If Odoo write succeeds:
+   - Return success response
+   - Client triggers sync to mark OUT_OF_SYNC
+6. If Odoo write fails:
+   - Delete version entry (compensating transaction)
+   - Return error response with Odoo error message
 
 **Form Template Management:**
 - Return list of active templates sorted by `default_flag DESC, label ASC`
@@ -389,16 +320,10 @@ Client has no direct access to `event_description_versions` INSERT operations.
 - `user_id` (UUID, NOT NULL) - Editor user ID (application-enforced, no FK)
 - `odoo_webinar_id` (INTEGER, NOT NULL) - Odoo x_webinar.id
 - `html_content` (TEXT, NOT NULL) - Full HTML description content
-- `source_type` (TEXT, NOT NULL) - Enum: 'generated' | 'manual' | 'restored' | 'forced_overwrite'
+- `source_type` (TEXT, NOT NULL) - Enum: 'generated' | 'manual'
 - `checksum` (TEXT, NOT NULL) - SHA-256 hash of html_content (integrity check)
 - `created_at` (TIMESTAMPTZ, NOT NULL, DEFAULT NOW())
 - `created_by` (TEXT, NULL) - User email or name (for audit trail)
-
-**Source Type Values:**
-- `'generated'` - Default description generated from template
-- `'manual'` - User-edited content via TipTap editor
-- `'restored'` - Restored from previous version
-- `'forced_overwrite'` - Admin forced save despite concurrency conflict
 
 **Indexes:**
 - `idx_event_description_versions_user_id` on `user_id`
@@ -411,38 +336,15 @@ Client has no direct access to `event_description_versions` INSERT operations.
 **Triggers:**
 - None (created_at is immutable)
 
-**RLS Policies (Event-Scoped Audit Trail):**
-
-**Architectural Decision: Event-Scoped Version History**
-
-Version history is a **shared audit trail** for each event, not a per-user draft log.
-
-**Rationale:**
-- Odoo is canonical and shared across organization
-- Multiple users may edit same event over time
-- Audit trail must show full history regardless of who made changes
-- Transparency: All users see who edited what and when
-- Matches Odoo's shared data model
-
 **RLS Policies:**
-- `All authenticated users can view all versions` (SELECT)  
+- `Users can view own versions` (SELECT)  
   - Target: TO public  
-  - Filter: `TRUE` (no user restriction)
-  - Rationale: Audit transparency
-
-- `No direct client INSERT` (INSERT)  
-  - **No RLS policy defined**
-  - Versions created via server-side `/api/save-description` only
-  - Server uses SERVICE_ROLE_KEY (bypasses RLS)
-  - Client cannot directly insert versions
-
+  - Filter: `auth.uid() = user_id`
+- `Users can create own versions` (INSERT)  
+  - Target: TO public  
+  - Filter: `auth.uid() = user_id`
 - `No updates or deletes` (UPDATE, DELETE)  
   - No policies (versions are immutable)
-  - Not even server can update/delete versions
-
-**User Privacy Note:**
-
-All authenticated users can see version history for all events. If per-user privacy is required, this design must be reconsidered. Current design prioritizes audit transparency over privacy.
 
 **Migration File:** Same as 3.1 (`20260213100000_event_operations_addendum_d_form_templates.sql`)
 
@@ -451,16 +353,6 @@ All authenticated users can see version history for all events. If per-user priv
 - **checksum:** Detect data corruption or tampering
 - **source_type:** Distinguish generated defaults from manual edits
 - **created_by:** Optional user identity for multi-user environments
-
-**Version History Philosophy:**
-
-Supabase `event_description_versions` is:
-1. **Logging layer only** (not authoritative, not operational)
-2. **Best-effort audit trail** (missing entries acceptable if Supabase fails)
-3. **Never used in state comparisons** (state engine uses Odoo vs WP only)
-4. **Immutable append-only log** (no updates, no deletes)
-5. **User-scoped via RLS** (users see only their versions)
-6. **Independent of publish state** (versions track edits, not publishes)
 
 ### 3.3 New Column in webinar_snapshots: DEPRECATED
 
@@ -806,122 +698,63 @@ function generateDefaultDescription(webinarMetadata, formTemplate) {
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ CLIENT: User clicks "Save Description"                      │
-│ Client POSTs to /api/save-description with:                 │
-│   - html_content (from TipTap editor)                       │
-│   - editor_write_date (stored at editor open)               │
-│   - source_type ('manual' or 'generated')                   │
+│ STEP 1: Create Version Entry in Supabase                    │
+│ POST /api/description-versions                              │
+│ Payload: { user_id, odoo_webinar_id, html_content, ... }   │
+│ Returns: { version_id, checksum }                          │
 └─────────────────────────────────────────────────────────────┘
-                          ↓
+                          ↓ SUCCESS
 ┌─────────────────────────────────────────────────────────────┐
-│ SERVER STEP 1: Validate & Sanitize HTML                     │
-│ - Check non-empty                                           │
-│ - Check length ≤ Odoo limit                                 │
-│ - Server-side sanitization (Section 5.5.1)                  │
-│ - Strip dangerous tags/attributes                           │
+│ STEP 2: Write to Odoo x_studio_description                  │
+│ PUT /api/save-description                                   │
+│ Calls: odooClient.write(webinar_id, { x_studio_description })│
+│ Returns: { success: true } or { success: false, error }    │
 └─────────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│ SERVER STEP 2: Concurrency Check (Server-Side Only)         │
-│ - Server fetches current Odoo write_date                    │
-│ - Server compares with editor_write_date from request       │
-│ - If mismatch: Return { conflict: true, current_write_date }│
-│ - If match: Proceed                                         │
-└─────────────────────────────────────────────────────────────┘
-         ↓ NO CONFLICT                    ↓ CONFLICT
-┌─────────────────────────┐  ┌────────────────────────────────┐
-│ SERVER STEP 3: Write to │  │ RETURN CONFLICT                │
-│   Odoo (CANONICAL)      │  │ Client shows conflict modal    │
-│ - Call Odoo XML-RPC     │  │ Options:                       │
-│   write()               │  │   - Reload Latest              │
-│ - Sanitized HTML stored │  │   - Force Overwrite (admin)    │
-│ - Capture new write_date│  │   - Cancel                     │
-└─────────────────────────┘  └────────────────────────────────┘
          ↓ SUCCESS                    ↓ FAILURE
 ┌─────────────────────────┐  ┌────────────────────────────────┐
-│ SERVER STEP 4: Log to   │  │ RETURN ERROR                   │
-│   Supabase (Best-Effort)│  │ - Odoo error message           │
-│ - Insert version entry  │  │ - Save failed                  │
-│ - If fails: Log warning │  │ - No version created           │
-│ - Continue (non-fatal)  │  └────────────────────────────────┘
-└─────────────────────────┘
-         ↓
-┌─────────────────────────────────────────────────────────────┐
-│ SERVER STEP 5: Return Success                               │
-│ Returns: {                                                  │
-│   success: true,                                            │
-│   new_write_date: TIMESTAMP,                                │
-│   version_logged: BOOLEAN                                   │
-│ }                                                           │
-└─────────────────────────────────────────────────────────────┘
-         ↓
-┌─────────────────────────────────────────────────────────────┐
-│ CLIENT: Update State                                        │
-│ - Close editor modal                                        │
-│ - Show success toast                                        │
-│ - Update stored write_date to new_write_date                │
-│ - Set local computed_state = 'out_of_sync'                  │
-│ - Update calendar event color to amber                      │
-│ - Refresh detail panel                                      │
-│ - NO sync API call required                                 │
-└─────────────────────────────────────────────────────────────┘
+│ STEP 3A: Mark Success    │  │ STEP 3B: Rollback Version     │
+│ - Close editor modal     │  │ DELETE /api/description-ver-  │
+│ - Show success toast     │  │   sions/:version_id           │
+│ - Refresh detail panel   │  │ - Show error toast with Odoo  │
+│ - Trigger OUT_OF_SYNC    │  │   error message               │
+│   (via sync operation)   │  │ - Keep editor open            │
+└─────────────────────────┘  └────────────────────────────────┘
 ```
 
-**Critical Constraint:**
+**Transactional Integrity Handling:**
 
-**ALL operations happen server-side within `/api/save-description`.**
-
-Client makes ONE request. Server orchestrates all steps. Client receives ONE response.
-
-**Save Flow Principles:**
-
-**Principle 1: Odoo Write is Authoritative**
-- If Odoo write succeeds, save is successful (even if Supabase logging fails)
-- If Odoo write fails, save is failed (Supabase never attempted)
-- No compensating transactions, no rollbacks
-
-**Principle 2: Supabase is Audit Log Only**
-- Version logging is best-effort
-- Version logging failure does NOT invalidate Odoo write
-- Missing version entries are acceptable (incomplete audit trail)
-- Log warnings for Supabase failures, do not abort
-
-**Principle 3: No Distributed Transaction**
-- No XA/2PC coordination
-- No two-phase commits
-- Simple sequential: Odoo first, Supabase second
-- Accept eventual consistency for audit log
-
-**Case Handling:**
-
-**Case 1: Odoo Write Succeeds, Supabase Insert Succeeds**
-- Version logged correctly
-- User sees success toast
-- OUT_OF_SYNC state set locally
-- Expected path (99% of saves)
-
-**Case 2: Odoo Write Succeeds, Supabase Insert Fails**
-- Canonical write succeeded (description updated in Odoo)
-- Version entry missing (incomplete audit trail)
-- Log warning to monitoring
-- User sees success toast (Odoo write succeeded)
-- OUT_OF_SYNC state set locally
-- **Accepted Tradeoff:** Not all Odoo changes are versioned in Supabase
-
-**Case 3: Odoo Write Fails**
-- No canonical change
-- No Supabase write attempted
-- User sees error toast with Odoo error message
+**Case 1: Supabase Insert Fails (Network/DB Error)**
+- No version created
+- No Odoo write attempted
+- User sees error: "Failed to save version. Please try again."
 - Editor remains open with unsaved content
-- No state change
 
-**Case 4: Concurrency Conflict Detected**
-- Odoo write_date changed since editor opened
-- No writes attempted (Odoo or Supabase)
-- User sees conflict modal with options:
-  - "Reload Latest" → Fetch current Odoo version, discard edits
-  - "Force Overwrite" → Bypass check, write anyway (admin only)
-- Prevents accidental overwrites
+**Case 2: Supabase Insert Succeeds, Odoo Write Fails**
+- Version entry exists in Supabase
+- Odoo description unchanged
+- **Compensating Action:** DELETE version entry
+- User sees error: "Failed to update Odoo: [error message]"
+- Editor remains open with unsaved content
+
+**Case 3: Both Succeed**
+- Version entry logged in Supabase
+- Odoo description updated
+- User sees success: "Description saved successfully"
+- Editor closes
+- Detail panel refreshes to show new content
+- **OUT_OF_SYNC triggered:** State engine detects Odoo != WP
+
+**Case 4: Odoo Write Succeeds, Rollback Delete Fails**
+- **Rare edge case:** Odoo updated, but cannot delete orphaned version
+- Log error to console/monitoring
+- User sees success (Odoo write succeeded, rollback is cleanup)
+- Version entry remains but marked as `source_type: 'failed_rollback'` (optional)
+
+**Why No Distributed Transaction:**
+- No XA/2PC support across Supabase + Odoo
+- Compensating actions are sufficient for this use case
+- Failure rate is low (Odoo write is reliable)
+- Orphaned version entries are benign (audit trail remains)
 
 **Why No Autosave:**
 - Version history integrity requires deliberate save points
@@ -929,309 +762,7 @@ Client makes ONE request. Server orchestrates all steps. Client receives ONE res
 - User controls when descriptions are "done" (editorial workflow)
 - Reduces risk of accidental overwrites
 
-### 5.5.1 Server-Side HTML Sanitization
-
-**Problem:**
-
-TipTap editor runs in client (browser). Client-side output can be manipulated before reaching server.
-
-**Critical Requirement:**
-
-**Server MUST sanitize HTML before writing to Odoo.**
-
-**Sanitization Steps (Server-Side in `/api/save-description`):**
-
-1. **Parse HTML Structure**
-   - Use HTML parser library (e.g., `cheerio` for Node.js)
-   - Reject if malformed (unclosed tags, invalid nesting)
-
-2. **Whitelist Allowed Tags**
-   ```javascript
-   const ALLOWED_TAGS = [
-     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-     'p', 'br', 'hr',
-     'strong', 'em', 'u', 's',
-     'ul', 'ol', 'li',
-     'a',
-     'img',
-     'div',  // For forminator-block
-     'blockquote'
-   ];
-   ```
-
-3. **Whitelist Allowed Attributes**
-   ```javascript
-   const ALLOWED_ATTRIBUTES = {
-     'a': ['href', 'title', 'target'],
-     'img': ['src', 'alt', 'width', 'height'],
-     'div': ['class', 'data-forminator-block', 'data-template-id']
-   };
-   ```
-
-4. **Strip Dangerous Content**
-   - Remove `<script>` tags
-   - Remove `<style>` tags (inline styles allowed)
-   - Remove `javascript:` protocol in `href`
-   - Remove `on*` event handlers (`onclick`, `onerror`, etc.)
-
-5. **Validate Forminator Blocks**
-   - Ensure `data-forminator-block` divs contain only valid shortcode format
-   - Regex: `^\[forminator_form id="\d+"\]$`
-   - Reject if shortcode contains unexpected content
-
-6. **Return Sanitized HTML**
-   - If sanitization removed content: Log warning
-   - If critical structure broken: Return error, abort save
-   - If clean: Proceed with Odoo write
-
-**Implementation Library:**
-
-Use `DOMPurify` (isomorphic version) or equivalent:
-
-```javascript
-import DOMPurify from 'isomorphic-dompurify';
-
-function sanitizeHTML(html) {
-  const clean = DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ALLOWED_TAGS,
-    ALLOWED_ATTR: ALLOWED_ATTRIBUTES,
-    KEEP_CONTENT: false  // Remove tags, don't keep inner content
-  });
-  
-  if (clean !== html) {
-    log.warn('HTML sanitized, content removed', {
-      original_length: html.length,
-      sanitized_length: clean.length
-    });
-  }
-  
-  return clean;
-}
-```
-
-**Why Not Rely on TipTap Alone:**
-
-1. **Client-Side Manipulation:** Browser DevTools can modify TipTap output before POST
-2. **XSS Risk:** Malicious user could inject script via manipulated request
-3. **Defense in Depth:** Server is last line of defense before Odoo
-4. **Odoo Protection:** Prevent malicious HTML from entering canonical database
-
-**Placement in Save Flow:**
-
-Sanitization happens in Step 1 (Validate HTML Content) before concurrency check or Odoo write.
-
-### 5.6 Concurrency Control & Last-Write Protection
-
-**Problem:**
-
-Multiple users or systems can modify Odoo descriptions concurrently:
-
-1. User A opens Event Operations editor for webinar #123
-2. User B updates description directly in Odoo (or via another tool)
-3. User A clicks "Save" in Event Operations
-4. User A's save overwrites User B's changes (lost update)
-
-**Solution: Optimistic Concurrency Control**
-
-Implement optimistic locking using Odoo's built-in `write_date` field.
-
-**Flow:**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ EDITOR OPEN (Initial Load)                                  │
-│ 1. Fetch webinar from Odoo                                  │
-│ 2. Store write_date: "2026-02-13 10:30:00"                  │
-│ 3. Store checksum: SHA-256(x_studio_description)            │
-│ 4. Load description into TipTap editor                      │
-└─────────────────────────────────────────────────────────────┘
-                          ↓ USER EDITS
-┌─────────────────────────────────────────────────────────────┐
-│ SAVE (Concurrency Check)                                    │
-│ 1. Fetch current webinar write_date from Odoo               │
-│ 2. Compare: stored vs current                               │
-│    - Match: Proceed to Step 2 (Odoo write)                  │
-│    - Mismatch: CONFLICT DETECTED                            │
-└─────────────────────────────────────────────────────────────┘
-                          ↓ CONFLICT
-┌─────────────────────────────────────────────────────────────┐
-│ CONFLICT MODAL (User Decision Required)                     │
-│ Message: "This event was modified in Odoo since you opened  │
-│           the editor. Your changes may overwrite recent     │
-│           updates."                                         │
-│                                                             │
-│ Options:                                                    │
-│ 1. [Reload Latest] → Discard edits, fetch current version   │
-│ 2. [Force Overwrite] → Save anyway (admin role only)        │
-│ 3. [Cancel] → Keep editor open, review changes              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Implementation Details:**
-
-**On Editor Open (Client-Side):**
-```javascript
-// Client fetches webinar metadata
-const response = await fetch(`/api/webinar/${webinarId}`);
-const webinar = await response.json();
-
-// Store write_date in client state (for later concurrency check)
-const editorState = {
-  webinarId: webinarId,
-  storedWriteDate: webinar.write_date,  // Will be sent with save request
-  initialContent: webinar.x_studio_description
-};
-
-// Load description into TipTap editor
-editor.setContent(webinar.x_studio_description);
-```
-
-**On Save (Client Sends Stored write_date to Server):**
-```javascript
-// Client POSTs save request with stored write_date
-const response = await fetch('/api/save-description', {
-  method: 'PUT',
-  body: JSON.stringify({
-    user_id: currentUserId,
-    webinar_id: webinarId,
-    html_content: editor.getHTML(),
-    source_type: 'manual',
-    editor_write_date: editorState.storedWriteDate  // From editor open
-  })
-});
-
-const result = await response.json();
-```
-
-**On Server (Concurrency Check):**
-```javascript
-// SERVER SIDE ONLY - Client does NOT perform this fetch
-async function saveDescription(request) {
-  const { webinar_id, editor_write_date, html_content } = request;
-  
-  // Server fetches current write_date from Odoo
-  const current = await odooClient.read('x_webinar', webinar_id, ['write_date']);
-  
-  // Server compares
-  if (current.write_date !== editor_write_date) {
-    // CONFLICT DETECTED
-    return {
-      success: false,
-      conflict: true,
-      current_write_date: current.write_date,
-      message: 'Event modified in Odoo since editor opened'
-    };
-  }
-  
-  // No conflict: Proceed with Odoo write
-  const writeResult = await odooClient.write('x_webinar', webinar_id, {
-    x_studio_description: sanitizeHTML(html_content)
-  });
-  
-  // Capture new write_date from Odoo response
-  const updated = await odooClient.read('x_webinar', webinar_id, ['write_date']);
-  
-  // Log version to Supabase (best-effort)
-  try {
-    await supabase.from('event_description_versions').insert({ ... });
-  } catch (error) {
-    log.warn('Version logging failed', error);
-  }
-  
-  return {
-    success: true,
-    new_write_date: updated.write_date  // Client updates stored value
-  };
-}
-```
-
-**Critical Constraint:**
-
-**Client performs NO extra read before save.**
-
-Client sends `editor_write_date` (stored at editor open) with save request.
-
-Server performs concurrency check internally.
-
-Server returns conflict or new write_date.
-
-**Conflict Resolution Options:**
-
-1. **Reload Latest (Recommended):**
-   - Fetch current `x_studio_description` from Odoo
-   - Replace editor content with current version
-   - Update `initialWriteDate` to current value
-   - User can review and re-edit if needed
-   - Safe: No data loss (current version preserved)
-
-2. **Force Overwrite (Admin Only):**
-   - Bypass `write_date` check
-   - Write editor content to Odoo immediately
-   - Log warning: "Forced overwrite by [user] at [timestamp]"
-   - Create version entry with `source_type: 'forced_overwrite'`
-   - High risk: May overwrite recent changes
-
-3. **Cancel:**
-   - Keep editor open
-   - User can copy content to clipboard
-   - User can manually compare with Odoo version
-   - User decides how to reconcile
-
-**Edge Cases:**
-
-**Case 1: User Edits, Then Odoo Updates, Then User Saves Immediately**
-- Conflict detected on save
-- Modal shown
-- User must choose resolution
-- **No silent overwrite**
-
-**Case 2: Multiple Users Edit Same Event Simultaneously**
-- First save succeeds (updates `write_date`)
-- Second save detects conflict (different `write_date`)
-- Second user sees modal
-- Last-write-wins prevented
-
-**Case 3: User Opens Editor, Odoo System Updates Description Automatically**
-- Conflict detected on save
-- User sees modal
-- User reloads latest (discards edits) or reviews conflict
-- System-generated changes not silently overwritten
-
-**Case 4: Network Delay in write_date Fetch**
-- If fetch fails: Abort save with error (do not proceed)
-- If fetch slow: Show loading state, wait for response
-- If timeout: Abort save, show retry option
-- **Never write without concurrency check**
-
-**Why Not Pessimistic Locking:**
-- Odoo does not support record-level locks via XML-RPC
-- Pessimistic locks require database-level support
-- Optimistic locking is standard for web applications
-- Conflicts are rare (most edits are non-concurrent)
-
-**Why write_date (Not Custom Field):**
-- `write_date` is standard Odoo field (auto-updated on any write)
-- No custom field creation required
-- Works across all Odoo modules
-- Reliable timestamp updated by Odoo server
-
-**Logging Conflict Events:**
-
-All conflict detections should be logged to monitoring:
-
-```javascript
-log.warn('Concurrency conflict detected', {
-  webinar_id: webinarId,
-  user_id: userId,
-  editor_write_date: editorState.initialWriteDate,
-  current_write_date: current.write_date,
-  resolution: 'reload' | 'force_overwrite' | 'cancel'
-});
-```
-
-This enables tracking conflict frequency and resolution patterns.
-
-### 5.7 Version History System
+### 5.6 Version History System
 
 **UI Location:** Modal overlay (opens from "View History" button in detail panel)
 
@@ -1276,8 +807,7 @@ This enables tracking conflict frequency and resolution patterns.
 │   as new version         │  │ - Do not create version entry │
 │ - Mark source_type:      │  └────────────────────────────────┘
 │   'restored'             │
-│ - Set local OUT_OF_SYNC  │
-│   state                  │
+│ - Trigger OUT_OF_SYNC    │
 │ - Close modal            │
 │ - Refresh detail panel   │
 └─────────────────────────┘
@@ -1288,7 +818,7 @@ This enables tracking conflict frequency and resolution patterns.
 - Original version entry remains unchanged (immutable audit trail)
 - New version entry has `source_type: 'restored'`
 - Checksum recalculated for new entry
-- OUT_OF_SYNC set locally after restore (Odoo changed, WP unchanged)
+- OUT_OF_SYNC triggered after restore (Odoo changed, WP unchanged)
 
 **Why Create New Version on Restore:**
 - Maintains complete audit trail (no gaps)
@@ -1296,7 +826,7 @@ This enables tracking conflict frequency and resolution patterns.
 - Allows tracking of "undo" operations
 - Prevents confusion about version chronology
 
-### 5.8 UX Definition
+### 5.7 UX Definition
 
 #### Layout Grid System (Duplicate from 4.1 for Reference)
 
@@ -1403,53 +933,33 @@ function computeEventState(odoo_snapshot, wp_snapshot) {
 
 **New Trigger Point:** Description save operation
 
-**Corrected Flow:**
+**Flow:**
 ```
 User saves description in editor
   ↓
 Description written to Odoo x_studio_description
   ↓
-Odoo write succeeds
+Client calls POST /api/sync (manual trigger)
   ↓
-Client sets local computed_state = 'out_of_sync'
-  ↓
-Calendar event color changes to amber (immediate UI update)
-  ↓
-Detail panel shows OUT_OF_SYNC badge
-  ↓
-NO sync API call required
-  ↓
-Next manual sync will confirm:
+State engine compares:
     Odoo.x_studio_description (NEW VALUE)
     vs
     WP.description (OLD VALUE)
-    → Mismatch confirmed → out_of_sync persisted
+  ↓
+Mismatch detected → computed_state = 'out_of_sync'
+  ↓
+Calendar event color changes to amber
+  ↓
+Detail panel shows OUT_OF_SYNC badge
 ```
-
-**Key Correction:**
-
-**Previous Incorrect Pattern:**
-- Save description → Call `/api/sync` → State engine computes OUT_OF_SYNC
-
-**Correct Pattern:**
-- Save description → Set local state to OUT_OF_SYNC immediately
-- No sync call required
-- Next manual sync confirms discrepancy
-
-**Rationale:**
-1. **Immediate Feedback:** User sees OUT_OF_SYNC state instantly after save
-2. **No Unnecessary Sync:** Sync is expensive (fetches Odoo + WP, computes diff)
-3. **Deterministic:** We KNOW description changed in Odoo, WP unchanged → guaranteed out_of_sync
-4. **Manual Sync Confirms:** Next sync validates local state assumption
 
 **No Changes to State Engine Logic:**
 - Discrepancy detection remains: Odoo current vs WP current
 - No comparison between Supabase versions and WP
 - No comparison between Supabase versions and Odoo
 - Supabase versions are audit trail only, not state source
-- State engine unchanged, just client-side state optimization
 
-**Why No Automatic Publish:**
+**Why No Automatic Sync Trigger:**
 - OUT_OF_SYNC is intentional signal (user must review before publish)
 - Automatic publish would bypass user confirmation pattern
 - User may need to edit description multiple times before publishing
@@ -1471,49 +981,28 @@ Next manual sync will confirm:
 
 **Edge Case Handling:**
 
-**Supabase Role Clarification:**
+**Case 1: User Edits Description in Odoo Directly**
+- Version history in Supabase does NOT reflect this change
+- Next sync operation will NOT mark out_of_sync (Odoo == Odoo)
+- User must manually create version entry via Event Operations if audit trail desired
+- **Accepted Tradeoff:** Version history is incomplete if users bypass Event Operations
 
-Supabase `event_description_versions` table is:
-- **Audit trail only** (historical log)
-- **Not authoritative** (not source of truth)
-- **Not used in state engine** (never compared to Odoo or WP)
-- **Best-effort logging** (missing entries acceptable)
-
-**Version History Completeness Edge Cases:**
-
-**Case 1: User Edits Description in Odoo Directly (Bypassing Event Operations)**
-- Odoo description changes
-- No version entry created in Supabase (edit bypassed Event Operations)
-- Next sync: Odoo != WP → marks `out_of_sync`
-- Version history incomplete (missing Odoo direct edit)
-- **Accepted Tradeoff:** Version history only tracks Event Operations edits
-
-**Case 2: User Saves Description, Supabase Insert Fails**
-- Odoo description updated (canonical write succeeded)
-- Version entry NOT created (Supabase failure)
-- State shows `out_of_sync` (correct)
-- Version history incomplete (missing version entry)
-- **Accepted Tradeoff:** Audit log best-effort, not guaranteed
-
-**Case 3: User Publishes Without Editing in Event Operations**
-- Odoo description unchanged
-- Published to WP as-is
-- No version entry created (no edit occurred)
+**Case 2: User Publishes Without Saving in Editor**
+- Odoo description published to WP as-is
+- No version entry created
 - State engine shows `published` (Odoo == WP)
-- **Expected Behavior:** Versions track edits, not publishes
+- **Accepted Tradeoff:** Not all published descriptions are versioned
 
-**Case 4: User Restores Old Version, Then Publishes**
-- Restore writes to Odoo (canonical update)
-- Restore creates new version entry (source_type: 'restored')
+**Case 3: User Restores Old Version, Then Publishes**
+- Restore creates new version entry
 - Publish syncs Odoo → WP
 - State engine shows `published` (Odoo == WP)
-- Version history complete (restore logged)
+- Version history shows "restored" entry followed by "published" snapshot
 
-**Case 5: WordPress Description Manually Edited**
+**Case 4: WordPress Description Manually Edited**
 - Odoo unchanged
-- Next sync: Odoo != WP → marks `out_of_sync`
-- Version history shows no change (Odoo not edited)
-- User must decide: Re-publish from Odoo (overwrite WP) or accept WP divergence
+- Next sync operation marks `out_of_sync` (Odoo != WP)
+- User must decide: Re-publish from Odoo or accept WP changes
 - **No Bidirectional Sync:** WP changes never written back to Odoo
 
 ---
@@ -1522,64 +1011,27 @@ Supabase `event_description_versions` table is:
 
 ### 7.1 Impact on Addendum A (UI & Editorial Overhaul)
 
-**Completely Supersedes:**
+**Supersedes:**
+- **A2 (Card View Redesign):** Replaced by calendar workspace (sections 4.1-4.4)
+- **A5 (Editorial Content Layer):** Replaced by TipTap authoring layer (sections 5.1-5.7)
 
-**A2 (Card View Redesign):**
-- Replaced by calendar workspace (FullCalendar-based UI)
-- Card grid NOT implemented
-- Registration count displayed in detail panel (not cards)
-- Status badges shown in calendar legend (not per-card)
+**Maintains:**
+- **A1 (Layout & Theme Consistency):** Theme inheritance pattern unchanged
+- **A3 (Filtering & Segmentation):** Month/week/day views provide superior segmentation
+- **A4 (Tag Mapping Engine):** `webinar_tag_mappings` table deprecated by Addendum C (event_type_wp_tag_mapping)
 
-**A5 (Editorial Content Layer):**
-- **COMPLETELY REPLACED** by TipTap authoring layer architecture
-- Addendum A proposed `editorial_content` JSONB column in `webinar_snapshots`
-- Addendum D rejects this pattern:
-  - Odoo is canonical storage (not Supabase)
-  - Supabase is version history log only (not active storage)
-  - `editorial_content` column is NOT added to `webinar_snapshots`
-- Addendum D architecture is cleaner:
-  - Write descriptions to Odoo directly
-  - Log versions to Supabase as audit trail
-  - No dual storage, no ambiguity
-
-**Maintains (Unchanged):**
-
-**A1 (Layout & Theme Consistency):**
-- Theme inheritance pattern unchanged
-- DaisyUI theme propagation still applies
-- Navbar overlap fix pattern retained
-
-**A3 (Filtering & Segmentation):**
-- Month/week/day calendar views provide superior segmentation
-- No need for tab-based filters (calendar is temporal filter)
-- Client-side filtering logic can be adapted to calendar date ranges
-
-**Deprecated (Not Implemented):**
-
-**A4 (Tag Mapping Engine):**
-- `webinar_tag_mappings` table NOT created
-- Superseded by Addendum C `event_type_wp_tag_mapping`
-- Many-to-many tag mapping rejected in favor of deterministic event type mapping
-
-**Database Schema Impact:**
-
-**Tables NOT Created:**
-- `webinar_tag_mappings` (A4 pattern rejected)
-- No `editorial_content` column added (A5 pattern rejected)
-
-**Tables Created (Addendum D):**
-- `form_templates` (form template registry)
-- `event_description_versions` (version history log)
+**Database Schema Changes:**
+- `webinar_tag_mappings` table NOT created (Addendum C superseded A4)
+- `editorial_content` column NOT added to `webinar_snapshots` (superseded by Addendum D)
 
 **Code Migration:**
 - `event-operations-client.js` refactored (card rendering → calendar rendering)
-- Tag mapping UI NOT implemented (Addendum C handles taxonomy)
-- Editorial JSONB logic NOT implemented (Odoo write pattern used instead)
+- Tag mapping UI removed (replaced by event type mapping in Addendum C)
 
 **Backward Compatibility:**
-- Existing `webinar_snapshots` remain functional (no schema breaking changes)
+- Existing webinar_snapshots remain functional (no schema breaking changes)
 - Users without version history can begin creating versions immediately
-- No data migration required from A1-A3 patterns
+- No data migration required
 
 ### 7.2 Impact on Addendum B (Event Datetime Refactor)
 
@@ -1652,19 +1104,15 @@ Supabase `event_description_versions` table is:
 | FullCalendar rendering errors | Medium | High | Extensive testing in dev environment, fallback to table view |
 | TipTap schema conflicts with WordPress | Medium | Medium | Test generated HTML in WP staging site before production |
 | Odoo write permission denied | Low | High | Test write access in Phase 9 pre-check, document required permissions |
-| Odoo write_date field not accessible | Low | High | Verify field exposure in Phase 9 pre-check |
 | Version history table bloat | Low | Medium | Add retention policy (archive versions >1 year old) |
 | Form template migration gaps | High | Medium | Provide seed SQL with default template, validate in Phase 9.1 |
 | Calendar performance (>500 events) | Medium | Medium | Implement date range filtering, lazy load events |
 | User confusion (UI paradigm shift) | High | Low | Provide onboarding modal, document in user guide |
-| Concurrent edit conflicts | Medium | Low | Optimistic locking detects conflicts, user resolves via modal |
-| Supabase logging failures | Low | Low | Log warnings, accept incomplete audit trail |
 
 **Critical Path Dependencies:**
 1. Odoo `write()` permission must be granted before Phase 9
-2. Odoo `write_date` field must be accessible via XML-RPC read() before Phase 9
-3. WordPress staging site must be available for shortcode testing
-4. Form template seed data must be created before editor testing
+2. WordPress staging site must be available for shortcode testing
+3. Form template seed data must be created before editor testing
 
 ---
 
@@ -1761,8 +1209,8 @@ async function writeDescription(webinarId, htmlContent) {
 
 **User Feedback:**
 - Toast notification: "Failed to save description: Odoo permission denied. Contact your administrator."
+- Version entry deleted (compensating transaction)
 - Editor remains open with unsaved content
-- No version entry created (Odoo write failed, no Supabase write attempted)
 
 **Resolution:**
 1. Grant Odoo user write access on `x_studio_description` field
@@ -1852,108 +1300,40 @@ if (templates.length === 0) {
 **Rollback:**
 - Not applicable (data gap, not code issue)
 
-### 8.7 Supabase Logging Failure + Client Crash (Eventual Consistency)
+### 8.6 Transactional Integrity Failure (Orphaned Version)
 
-**Symptom:** Odoo write succeeds, Supabase logging succeeds, but client crashes before setting OUT_OF_SYNC state locally
+**Symptom:** Version entry exists in Supabase but Odoo description unchanged
 
-**Root Cause:** Client-side failure (browser crash, network disconnect, tab closed)
-
-**Impact:**
-- Canonical Odoo description updated (correct)
-- Version logged in Supabase (correct)
-- Local client state NOT updated to OUT_OF_SYNC (stale)
-- User sees old state in calendar (stale)
-
-**Recovery:**
-
-Next manual sync operation reconciles state:
-
-1. User clicks "Sync from Odoo" (or periodic sync triggers)
-2. State engine fetches Odoo current description
-3. State engine fetches WP current description
-4. Comparison: Odoo != WP
-5. State engine sets `computed_state = 'out_of_sync'`
-6. Calendar event color updates to amber
-7. Stale state corrected
-
-**Accepted Eventual Consistency:**
-
-This is an acceptable edge case:
-- Canonical data is correct (Odoo)
-- Audit trail is correct (Supabase)
-- Only client UI state is temporarily stale
-- Next sync auto-corrects
-- No user intervention required
-- No data loss
-
-**Why No Immediate Fix:**
-- Cannot prevent client crashes
-- Cannot guarantee client state updates
-- Eventual consistency is sufficient for UI state
-- State engine is authoritative check on next sync
-
-**Monitoring:**
-- Track save success rate (Odoo write succeeded)
-- Track version logging success rate (Supabase insert succeeded)
-- Track sync frequency (how often users sync)
-- Alert if sync frequency drops (users not seeing corrected state)
-
-**Symptom:** Odoo write succeeds but version entry not created in Supabase
-
-**Root Cause:** Supabase insert failed (network issue, database error, quota exceeded)
-
-**Impact:**
-- Canonical write succeeded (description updated in Odoo)
-- Version entry missing (incomplete audit trail)
-- User sees success toast (Odoo write succeeded)
-- OUT_OF_SYNC state set correctly
-- **No operational impact** (system functions normally)
+**Root Cause:** Supabase insert succeeded, Odoo write failed, rollback DELETE failed
 
 **Detection:**
-```javascript
-// In save workflow
-try {
-  await supabaseClient.insert('event_description_versions', versionData);
-  log.info('Version logged successfully');
-} catch (error) {
-  log.warn('Version logging failed (non-fatal)', {
-    webinar_id: webinarId,
-    error: error.message,
-    odoo_write_succeeded: true
-  });
-  // Continue execution - Odoo write succeeded
-}
+```sql
+-- Find orphaned versions (no corresponding Odoo update)
+SELECT v.*
+FROM event_description_versions v
+WHERE v.created_at > NOW() - INTERVAL '1 hour'
+  AND NOT EXISTS (
+    SELECT 1 FROM webinar_snapshots ws
+    WHERE ws.odoo_webinar_id = v.odoo_webinar_id
+      AND ws.odoo_snapshot->>'x_studio_description' = v.html_content
+  );
 ```
 
-**User Feedback:**
-- Success toast: "Description saved successfully"
-- No warning shown to user (log failure is internal)
-- Editor closes normally
-- OUT_OF_SYNC state visible in UI
+**Impact:**
+- Orphaned version entry in database (benign)
+- Audit trail includes failed save attempt
+- No user data loss (editor content preserved)
 
-**Monitoring Alert:**
-- Log warning to monitoring service
-- Alert on Supabase failure rate >5%
-- Track version logging success rate
+**Cleanup:**
+- Manual DELETE of orphaned versions (DBA task)
+- Add `failed_rollback` flag to version entry for audit
 
-**Resolution:**
-- Investigate Supabase connectivity
-- Check database quota/limits
-- Review RLS policies (ensure user can insert)
-- No user action required (Odoo write succeeded)
+**Prevention:**
+- Log rollback failures to monitoring service
+- Alert on rollback failure rate >1%
 
-**Why This is Acceptable:**
-- Version history is audit trail, not operational requirement
-- Missing versions do not prevent system function
-- Users can still edit, save, publish
-- Next successful save will create version entry
-- Incomplete audit trail is better than blocking saves
-
-**Why No Rollback:**
-- Odoo write is authoritative action
-- Cannot "unsave" description in Odoo
-- Audit log failure should not invalidate canonical write
-- Users expect save to succeed if Odoo succeeds
+**Rollback:**
+- Not applicable (data cleanup, not feature rollback)
 
 ---
 
@@ -2002,38 +1382,26 @@ try {
 - **Draft.js:** React-only (violates no-framework constraint)
 - **CKEditor:** Heavy (~500KB), opinionated toolbar, not headless
 
-### 9.3 Why Odoo First, Supabase Second (Not Reverse)
+### 9.3 Why Odoo as Canonical Storage (Not Supabase)
 
-**Decision:** Write to Odoo `x_studio_description` first, log to Supabase second
+**Decision:** Write descriptions to Odoo `x_studio_description`, use Supabase only for versions
 
 **Rationale:**
-1. **Odoo is Canonical:** Only Odoo write changes operational state
-2. **Supabase is Audit Log:** Version logging is secondary to canonical write
-3. **Simplifies Failure Handling:** If Odoo fails, nothing written (clean abort)
-4. **No Orphan Cleanup:** Never create version entry for failed Odoo write
-5. **Aligns with Principle:** Single source of truth (Odoo), simple append log (Supabase)
+1. **Single Source of Truth:** Odoo is existing canonical system for all event data
+2. **Integration Consistency:** Other Odoo fields (name, datetime, type) already authoritative
+3. **Audit Trail Separation:** Supabase versions are historical log, not active data
+4. **Simplifies State Engine:** No 3-way comparison (Odoo vs WP vs Supabase)
+5. **Odoo as Backend:** Maintains existing architectural principle (Odoo owns data, Event Operations is UI)
 
-**Previous Pattern (INCORRECT):**
-```
-Create Supabase version → Write to Odoo → Rollback version if Odoo fails
-```
+**Tradeoff:**
+- **Odoo Dependency:** Cannot save descriptions if Odoo unavailable
+- **Latency:** XML-RPC write slower than Supabase insert
+- **Permission Complexity:** Requires Odoo user write access setup
 
-**Problems with Previous Pattern:**
-- Creates orphaned versions if rollback fails
-- Requires compensating transaction DELETE
-- Adds complexity without benefit
-- Violates "Supabase is not authoritative" principle
-
-**Current Pattern (CORRECT):**
-```
-Write to Odoo → If success: Log to Supabase → If logging fails: Continue anyway
-```
-
-**Benefits:**
-- No orphaned versions possible
-- No rollback logic needed
-- Clear ownership: Odoo controls state, Supabase observes
-- Supabase failure is non-fatal (audit gap, not operational failure)
+**Alternatives Rejected:**
+- **Supabase as Canonical:** Creates dual source of truth, state engine ambiguity
+- **WordPress as Canonical:** Violates unidirectional sync principle
+- **Dual Write (Odoo + Supabase):** Introduces consistency risks, no transactional guarantee
 
 ### 9.4 Why No Autosave
 
@@ -2045,7 +1413,6 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
 3. **Reduces Odoo Load:** Fewer XML-RPC write calls
 4. **Prevents Accidental Overwrites:** User must confirm save action
 5. **Audit Trail Clarity:** Each version is deliberate save point
-6. **Concurrency Friendly:** Reduces write_date conflicts from background saves
 
 **Tradeoff:**
 - **Risk of Data Loss:** User closes browser without saving
@@ -2121,10 +1488,10 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
 
 **New Modules:**
 1. `src/modules/event-operations/description-versioning.js`
-   - `createVersion(user_id, webinar_id, html_content, source_type, created_by)` (server-side only)
+   - `createVersion(user_id, webinar_id, html_content, source_type, created_by)`
    - `listVersions(user_id, webinar_id)`
    - `restoreVersion(version_id)` → writes to Odoo
-   - **No deleteVersion** (versions are immutable)
+   - `deleteVersion(version_id)` (rollback only)
 
 2. `src/modules/event-operations/form-templates.js`
    - `listTemplates(user_id)` → returns active templates
@@ -2136,34 +1503,19 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
    - `generateDefault(webinar_metadata, form_template)` → returns HTML string
    - Template structure defined in function (not external file)
 
-4. `src/modules/event-operations/concurrency-control.js`
-   - `checkWriteDateConflict(webinar_id, editor_write_date)` → server-side check only
-   - Returns conflict status or allows proceed
-
-5. `src/modules/event-operations/html-sanitizer.js`
-   - `sanitizeHTML(html_content)` → DOMPurify-based sanitization
-   - Whitelist enforcement
-   - Returns clean HTML or throws validation error
-
 **Extended Modules:**
 1. `src/modules/event-operations/odoo-client.js`
    - Add `writeDescription(webinar_id, html_content)` method
-   - Add `fetchWriteDate(webinar_id)` method for server-side concurrency check
    - Validate content length before write
-   - Return `{ success, error, write_date }` object
-
-2. `src/modules/event-operations/routes.js`
-   - Extend with new routes (see above)
-   - `/api/save-description` is the ONLY way to create versions
-   - Client has no direct Supabase version INSERT access
+   - Return `{ success, error }` object
 
 2. `src/modules/event-operations/routes.js`
    - Add `GET /api/form-templates`
    - Add `POST /api/form-templates` (admin only)
-   - Add `GET /api/description-versions/:webinar_id` (LIST versions only)
-   - Add `PUT /api/save-description` (orchestrates concurrency + Odoo write + Supabase log)
+   - Add `GET /api/description-versions/:webinar_id`
+   - Add `POST /api/description-versions`
    - Add `POST /api/restore-version/:version_id`
-   - **Note:** No `POST /api/description-versions` route (versions created server-side only)
+   - Add `PUT /api/save-description` (orchestrates Supabase + Odoo)
 
 3. `src/modules/event-operations/ui.js`
    - Add FullCalendar CSS/JS CDN links
@@ -2188,10 +1540,9 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
    - Add TipTap editor initialization
    - Add form template selector UI
    - Add version history modal
-   - Add save workflow (calls `/api/save-description` only)
+   - Add save workflow orchestration
    - Add confirmation modals
    - Add toast notifications
-   - **NO direct Supabase access** (all version operations via server routes)
 
 **Estimated LOC Changes:**
 - Removed: ~800 lines (card grid logic)
@@ -2217,10 +1568,9 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
 
 **Integration Tests:**
 1. `save-description.test.js`
-   - Test save flow (Odoo write first, Supabase log second)
-   - Test Supabase logging failure (non-fatal, save succeeds)
-   - Test OUT_OF_SYNC local state update
-   - Test concurrency conflict detection (write_date mismatch)
+   - Test transactional flow (Supabase → Odoo)
+   - Test rollback on Odoo failure
+   - Test OUT_OF_SYNC trigger
 
 2. `calendar-workspace.test.js`
    - Test event rendering (color mapping)
@@ -2232,8 +1582,7 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
 2. TipTap editor shortcode insertion
 3. Version history diff view
 4. Restore version confirmation flow
-5. Save success when Odoo succeeds (even if Supabase logging fails)
-6. Concurrency conflict modal (simulate concurrent Odoo update)
+5. Save error handling (disconnect Odoo, verify rollback)
 
 ---
 
@@ -2243,8 +1592,7 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
 
 - [ ] Read Addendum A, B, C to confirm no architectural conflicts
 - [ ] Review Implementation Master Plan phases 0-7 completion status
-- [ ] **CRITICAL:** Verify Odoo user has write permission on `x_studio_description`
-- [ ] **CRITICAL:** Verify Odoo exposes `write_date` field via XML-RPC read()
+- [ ] Verify Odoo user has write permission on `x_studio_description`
 - [ ] Test FullCalendar CDN accessibility (network policy)
 - [ ] Test TipTap CDN accessibility
 - [ ] Confirm WordPress staging site available for shortcode testing
@@ -2265,13 +1613,10 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
 - [ ] TipTap editor loads with toolbar
 - [ ] Form template selector shows active templates
 - [ ] Generate default creates valid HTML structure
-- [ ] Save button writes to Odoo first
+- [ ] Save button triggers version creation
 - [ ] Odoo description updated after save
-- [ ] Supabase version created after Odoo write
-- [ ] Save succeeds even if Supabase logging fails (warning logged)
-- [ ] OUT_OF_SYNC set locally (no sync API call)
-- [ ] Concurrency check detects write_date mismatch
-- [ ] Conflict modal shows when concurrent edit detected
+- [ ] OUT_OF_SYNC triggered after save
+- [ ] Rollback deletes version on Odoo failure
 - [ ] Toast notifications display success/error
 
 ### 11.4 Post-Phase 10 Validation (Version History)
@@ -2279,7 +1624,7 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
 - [ ] Version history modal shows all versions
 - [ ] Diff view highlights changes correctly
 - [ ] Restore version creates new version entry
-- [ ] Restore sets local OUT_OF_SYNC state
+- [ ] Restore triggers OUT_OF_SYNC
 - [ ] Checksum validation passes
 - [ ] Source type badge displays correctly
 
@@ -2373,10 +1718,8 @@ Write to Odoo → If success: Log to Supabase → If logging fails: Continue any
 - [ ] Users can save descriptions to Odoo
 - [ ] Users can view version history
 - [ ] Users can restore previous versions
-- [ ] OUT_OF_SYNC set locally after description save (no sync call)
+- [ ] OUT_OF_SYNC triggered after description save
 - [ ] Calendar colors reflect event status (published, draft, out_of_sync)
-- [ ] Concurrency check prevents overwriting concurrent Odoo edits
-- [ ] Conflict modal shown when write_date mismatch detected
 
 ### 13.2 Performance Criteria
 
@@ -2430,195 +1773,15 @@ The following enhancements are explicitly deferred to future addendums:
 
 ---
 
-## 14.1 Architectural Hardening Summary
-
-This section explicitly documents the architectural corrections applied to eliminate ambiguity and harden security.
-
-### 14.1.1 Save Orchestration: Server-Only Pattern
-
-**Correction Applied:**
-
-All save operations are orchestrated entirely server-side within `/api/save-description`.
-
-**Previous Ambiguity:**
-- Document suggested both `/api/save-description` and separate `/api/description-versions` routes
-- Client's role in version creation was unclear
-
-**Corrected Architecture:**
-
-**Server Route:** `PUT /api/save-description`
-- Receives: `{ html_content, editor_write_date, source_type }`
-- Orchestrates: Validate → Sanitize → Concurrency Check → Odoo Write → Supabase Log
-- Returns: `{ success, new_write_date, version_logged }`
-
-**Server Route:** `GET /api/description-versions/:webinar_id`
-- Purpose: LIST versions only
-- No client INSERT capability
-
-**Explicit Constraint:**
-
-Client NEVER calls Supabase directly for version creation. All version logging happens server-side.
-
-### 14.1.2 Concurrency Check: Server-Side Only
-
-**Correction Applied:**
-
-Concurrency check happens entirely inside server route. Client performs NO extra fetch.
-
-**Previous Ambiguity:**
-- Suggested client might fetch `write_date` before save
-
-**Corrected Flow:**
-
-1. **Editor Open:** Client fetches webinar, stores `write_date` in local state
-2. **Save Request:** Client sends stored `write_date` with save request
-3. **Server Check:** Server fetches current `write_date`, compares with request value
-4. **Conflict Response:** Server returns conflict or proceeds with write
-5. **Client Update:** Client updates stored `write_date` with response value
-
-Client makes ONE request. Server performs concurrency check internally.
-
-### 14.1.3 Version History Scope: Event-Scoped Audit Trail
-
-**Correction Applied:**
-
-Version history is event-scoped (all users see all versions), not user-scoped.
-
-**Previous Inconsistency:**
-- RLS suggested `auth.uid() = user_id` (user-scoped)
-- Document called it "audit trail" (implies shared visibility)
-
-**Corrected Model:**
-
-**Chosen: Option A (Event-Scoped Audit Trail)**
-
-**Rationale:**
-- Odoo webinars are shared across organization
-- Multiple users may edit same event over time
-- Full audit trail requires visibility of all edits
-- Matches Odoo's shared data model
-
-**RLS Policy:**
-- SELECT: `TRUE` (all authenticated users see all versions)
-- INSERT: No RLS policy (server-side only via SERVICE_ROLE_KEY)
-- UPDATE/DELETE: No policies (immutable)
-
-**Trade-Off Accepted:**
-
-All users can see who edited what. If per-user privacy required, this design must be reconsidered.
-
-### 14.1.4 Source Type Enum: Explicit Definition
-
-**Correction Applied:**
-
-Explicitly defined `source_type` enum values in schema documentation.
-
-**Previous Ambiguity:**
-- Enum values mentioned but not formally defined
-
-**Corrected Schema:**
-
-**Column:** `source_type` (TEXT, NOT NULL)
-
-**Allowed Values:**
-1. `'generated'` - Default description generated from template
-2. `'manual'` - User-edited content via TipTap editor
-3. `'restored'` - Restored from previous version
-4. `'forced_overwrite'` - Admin forced save despite concurrency conflict
-
-**Enforcement:**
-
-Application-level validation in `/api/save-description` (no database CHECK constraint).
-
-### 14.1.5 Server-Side HTML Sanitization: Required
-
-**Correction Applied:**
-
-Added explicit server-side HTML sanitization step before Odoo write.
-
-**Previous Gap:**
-- Relied solely on TipTap client-side sanitization
-- No server-side validation defined
-
-**Corrected Architecture:**
-
-**New Module:** `src/modules/event-operations/html-sanitizer.js`
-
-**Sanitization Steps:**
-1. Parse HTML structure (reject if malformed)
-2. Whitelist allowed tags (h1-h6, p, strong, em, ul, ol, li, a, img, div, br, hr, blockquote)
-3. Whitelist allowed attributes (href, src, alt, class, data-*)
-4. Strip dangerous content (`<script>`, `<style>`, `javascript:` protocol, `on*` handlers)
-5. Validate forminator blocks (regex match shortcode format)
-6. Return sanitized HTML or throw error
-
-**Implementation:** DOMPurify (isomorphic version)
-
-**Placement:** Step 1 of `/api/save-description` flow (before concurrency check)
-
-**Why Required:**
-
-Client-side can be bypassed via DevTools. Server is last line of defense before Odoo.
-
-### 14.1.6 OUT_OF_SYNC Local State: Edge Case Clarified
-
-**Correction Applied:**
-
-Explicitly documented edge case: Odoo write succeeds, Supabase logs, client crashes before state update.
-
-**New Section:** 8.7 (Supabase Logging Failure + Client Crash)
-
-**Scenario:**
-1. Server saves description to Odoo (success)
-2. Server logs version to Supabase (success)
-3. Server returns success to client
-4. Client crashes before setting `out_of_sync` state (e.g., browser crash, tab closed)
-
-**Impact:**
-- Canonical data correct (Odoo)
-- Audit trail correct (Supabase)
-- Client UI state stale (still shows old state)
-
-**Recovery:**
-
-Next manual sync reconciles state:
-- State engine compares Odoo vs WP
-- Detects mismatch
-- Sets `computed_state = 'out_of_sync'`
-- Calendar updates
-
-**Accepted Eventual Consistency:**
-
-This is acceptable:
-- No data loss
-- No user intervention required
-- Next sync auto-corrects
-- State engine is authoritative
-
-### 14.1.7 Architectural Constraints Reaffirmed
-
-**The following are UNCHANGED and non-negotiable:**
-
-1. **Odoo is canonical** (Supabase is not authoritative)
-2. **Unidirectional sync** (Odoo → WP only, no WordPress writeback)
-3. **No distributed transactions** (no XA/2PC, no compensating deletes)
-4. **Explicit save** (no autosave)
-5. **Optimistic concurrency** (via `write_date`, not pessimistic locks)
-6. **Best-effort audit log** (Supabase logging failures acceptable)
-7. **Server-side orchestration** (client makes simple requests, server orchestrates)
-
----
-
 ## 15. Conclusion
 
 Addendum D represents a significant architectural evolution of the Event Operations module, transforming it from a read-only view layer into a complete editorial workspace. By introducing the calendar workspace and description authoring layer, users gain:
 
 1. **Visual Planning:** Industry-standard calendar interface for event scheduling context
 2. **Editorial Control:** Rich text editing with WordPress-compatible HTML output
-3. **Version Integrity:** Complete audit trail of all description changes (best-effort)
+3. **Version Integrity:** Complete audit trail of all description changes
 4. **Form Flexibility:** Registry-based template system for dynamic shortcode management
 5. **State Clarity:** OUT_OF_SYNC visualization maintains awareness of publish state
-6. **Concurrency Protection:** Optimistic locking prevents accidental overwrites
 
 The architecture maintains strict adherence to existing principles:
 - **Odoo as canonical source** (no parallel data storage)
@@ -2626,24 +1789,9 @@ The architecture maintains strict adherence to existing principles:
 - **User-scoped isolation** (RLS enforced)
 - **No frameworks** (vanilla JS + controlled dependencies)
 - **Backward compatible** (no breaking changes to existing data)
-- **No distributed transactions** (Odoo first, Supabase second, no rollback)
 
-**Critical Architectural Corrections Applied:**
-
-1. **Save Flow Order:** Odoo write first (canonical), Supabase log second (audit)
-2. **No Rollback Logic:** Supabase failure does not invalidate Odoo write
-3. **OUT_OF_SYNC Optimization:** Set locally after save, no sync API call required
-4. **Concurrency Control:** Optimistic locking via Odoo `write_date` field
-5. **Version History Clarity:** Best-effort logging, not authoritative, not used in state engine
-
-All failure scenarios have defined handling procedures (no rollback deletes), and all edge cases have explicit acceptance criteria. The addendum is ready for phased implementation with clear validation criteria and success metrics.
+All failure scenarios have defined rollback procedures, and all edge cases have explicit handling logic. The addendum is ready for phased implementation with clear validation criteria and success metrics.
 
 **Status:** Ready for Implementation  
 **Next Step:** Phase 8 Implementation (Calendar Workspace UI)  
 **Estimated Completion:** 24-34 hours total implementation time
-
-**Key Risks Mitigated:**
-- Concurrent edit overwrites prevented by write_date check
-- Odoo unavailability blocks saves (expected behavior, Odoo is canonical)
-- Supabase unavailability does NOT block saves (audit gap acceptable)
-- State engine remains simple (Odoo vs WP only, no 3-way comparison)
