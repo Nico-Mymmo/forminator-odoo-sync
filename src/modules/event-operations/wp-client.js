@@ -160,7 +160,6 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   const { data: existingSnapshot } = await supabase
     .from('webinar_snapshots')
     .select('wp_snapshot, editorial_content')
-    .eq('user_id', userId)
     .eq('odoo_webinar_id', odooWebinarId)
     .single();
   
@@ -171,7 +170,7 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
 
   // 3a. Add deterministic WP tag (Addendum C)
   const odooEventTypeId = resolveOdooEventTypeId(odooWebinar);
-  const mapping = await getEventTypeTagMappingByEventTypeId(env, userId, odooEventTypeId);
+  const mapping = await getEventTypeTagMappingByEventTypeId(env, odooEventTypeId);
 
   if (!mapping) {
     throw new Error(`Missing event type mapping for webinar ${odooWebinar.id}: odoo_event_type_id=${odooEventTypeId}`);
@@ -289,7 +288,7 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   
   // 5. Save snapshot to Supabase (include editorial content if generated)
   const computedState = status === 'draft' ? 'draft' : 'published';
-  await saveSnapshot(env, userId, odooWebinar, wpEventData, editorialContentToSave, computedState);
+  await saveSnapshot(env, odooWebinar, wpEventData, editorialContentToSave, computedState);
   console.log(`${LOG_PREFIX} 💾 Snapshot saved: odoo=${odooWebinarId} wp=${wpEventId} state=${computedState}`);
   
   return {
@@ -302,21 +301,19 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
  * Save/upsert snapshot to Supabase
  * 
  * Fetches full WordPress event data and stores it in snapshot
- * Uses unique constraint on (user_id, odoo_webinar_id) for upsert
+ * Uses unique constraint on (odoo_webinar_id) for upsert
  * 
  * @param {Object} env
- * @param {string} userId
  * @param {Object} odooWebinar - Full Odoo record
  * @param {number} wpEventId - WordPress event ID
  * @param {Object} wpEventData - Full WordPress event data from create/update response
  * @param {Object|null} editorialContent - Optional editorial content to save (null = don't update)
  * @param {string} computedState - Computed sync state ('published', 'draft', etc.)
  */
-async function saveSnapshot(env, userId, odooWebinar, wpEventData, editorialContent = null, computedState = 'published') {
+async function saveSnapshot(env, odooWebinar, wpEventData, editorialContent = null, computedState = 'published') {
   const supabase = await getSupabaseAdminClient(env);
   
   const snapshotData = {
-    user_id: userId,
     odoo_webinar_id: odooWebinar.id,
     odoo_snapshot: odooWebinar,
     wp_snapshot: wpEventData,
@@ -332,7 +329,7 @@ async function saveSnapshot(env, userId, odooWebinar, wpEventData, editorialCont
   const { error } = await supabase
     .from('webinar_snapshots')
     .upsert(snapshotData, {
-      onConflict: 'user_id,odoo_webinar_id'
+      onConflict: 'odoo_webinar_id'
     });
   
   if (error) {

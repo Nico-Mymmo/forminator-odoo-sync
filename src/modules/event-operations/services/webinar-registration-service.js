@@ -125,6 +125,30 @@ export async function getWebinarRegistrationsView(env, options) {
     const registeredBy = parseMany2One(pickFirst(row, ['x_studio_registered_by', 'partner_id']));
     const contactCreated = parseBoolean(pickFirst(row, ['x_studio_contact_created', 'x_contact_created', 'contact_created']));
     const attended = parseBoolean(pickFirst(row, ['x_studio_webinar_attended', 'x_webinar_attended', 'attended']));
+    const confirmationEmailSent = parseBoolean(pickFirst(row, [
+      'x_studio_confirmation_email_sent',
+      'x_confirmation_email_sent',
+      'confirmation_email_sent',
+      'x_studio_confirmation_sent',
+      'x_confirmation_sent',
+      'confirmation_sent'
+    ]));
+    const reminderEmailSent = parseBoolean(pickFirst(row, [
+      'x_studio_reminder_email_sent',
+      'x_reminder_email_sent',
+      'reminder_email_sent',
+      'x_studio_reminder_sent',
+      'x_reminder_sent',
+      'reminder_sent'
+    ]));
+    const recapEmailSent = parseBoolean(pickFirst(row, [
+      'x_studio_recap_email_sent',
+      'x_recap_email_sent',
+      'recap_email_sent',
+      'x_studio_recap_sent',
+      'x_recap_sent',
+      'recap_sent'
+    ]));
 
     const rowEmail = pickFirst(row, ['x_studio_email', 'email', 'email_from']);
     const fallbackEmail = registeredBy.id ? (partnerById.get(registeredBy.id)?.email || null) : null;
@@ -137,6 +161,9 @@ export async function getWebinarRegistrationsView(env, options) {
       questions: pickFirst(row, ['x_studio_webinar_questions', 'x_studio_questions', 'questions']),
       questions_is_html_flag: detectHtmlContent(pickFirst(row, ['x_studio_webinar_questions', 'x_studio_questions', 'questions'])),
       contactCreated,
+      x_studio_confirmation_email_sent: confirmationEmailSent,
+      x_studio_reminder_email_sent: reminderEmailSent,
+      x_studio_recap_email_sent: recapEmailSent,
       registeredBy,
       lead: registeredBy.id ? (leadStateByPartnerId.get(registeredBy.id) || null) : null
     };

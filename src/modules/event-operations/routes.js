@@ -3,7 +3,7 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars, getRegistrationCountsByWebinar, getAllOdooEventTypes, updateOdooWebinar } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
@@ -36,6 +36,149 @@ function chunkArray(items, chunkSize) {
     chunks.push(items.slice(i, i + chunkSize));
   }
   return chunks;
+}
+
+function pickFirst(record, candidates) {
+  for (const candidate of candidates) {
+    if (record?.[candidate] !== undefined && record?.[candidate] !== null) {
+      return record[candidate];
+    }
+  }
+  return null;
+}
+
+function parseBooleanLike(value) {
+  if (value === true || value === 1 || value === '1') {
+    return true;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === 'yes' || normalized === 'y';
+  }
+
+  return false;
+}
+
+function parseMany2OneId(value) {
+  if (Array.isArray(value) && value.length > 0) {
+    const candidate = Number(value[0]);
+    return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
+  }
+
+  const candidate = Number(value);
+  return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
+}
+
+function parseDateMs(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function computeRegistrationStats(records) {
+  const rows = Array.isArray(records) ? records : [];
+
+  let attendedCount = 0;
+  let contactCreatedCount = 0;
+  let leadCreatedCount = 0;
+  let confirmationSentCount = 0;
+  let reminderSentCount = 0;
+  let recapSentCount = 0;
+  let maxWriteDateMs = null;
+  let maxWriteDateRaw = null;
+
+  for (const row of rows) {
+    const attended = parseBooleanLike(
+      pickFirst(row, ['x_studio_webinar_attended', 'x_webinar_attended', 'attended'])
+    );
+    if (attended) {
+      attendedCount += 1;
+    }
+
+    const contactCreated = parseBooleanLike(
+      pickFirst(row, ['x_studio_contact_created', 'x_contact_created', 'contact_created'])
+    );
+    if (contactCreated) {
+      contactCreatedCount += 1;
+    }
+
+    const leadCreatedFlag = parseBooleanLike(
+      pickFirst(row, ['x_studio_lead_created', 'x_lead_created', 'lead_created'])
+    );
+    const leadId = parseMany2OneId(
+      pickFirst(row, ['x_studio_linked_lead', 'x_linked_lead', 'lead_id', 'opportunity_id'])
+    );
+    if (leadCreatedFlag || leadId) {
+      leadCreatedCount += 1;
+    }
+
+    const confirmationSent = parseBooleanLike(
+      pickFirst(row, [
+        'x_studio_confirmation_email_sent',
+        'x_confirmation_email_sent',
+        'confirmation_email_sent',
+        'x_studio_confirmation_sent',
+        'x_confirmation_sent',
+        'confirmation_sent'
+      ])
+    );
+    if (confirmationSent) {
+      confirmationSentCount += 1;
+    }
+
+    const reminderSent = parseBooleanLike(
+      pickFirst(row, [
+        'x_studio_reminder_email_sent',
+        'x_reminder_email_sent',
+        'reminder_email_sent',
+        'x_studio_reminder_sent',
+        'x_reminder_sent',
+        'reminder_sent'
+      ])
+    );
+    if (reminderSent) {
+      reminderSentCount += 1;
+    }
+
+    const recapSent = parseBooleanLike(
+      pickFirst(row, [
+        'x_studio_recap_email_sent',
+        'x_recap_email_sent',
+        'recap_email_sent',
+        'x_studio_recap_sent',
+        'x_recap_sent',
+        'recap_sent'
+      ])
+    );
+    if (recapSent) {
+      recapSentCount += 1;
+    }
+
+    const writeDateRaw = pickFirst(row, ['write_date']);
+    const writeDateMs = parseDateMs(writeDateRaw);
+    if (writeDateMs !== null && (maxWriteDateMs === null || writeDateMs > maxWriteDateMs)) {
+      maxWriteDateMs = writeDateMs;
+      maxWriteDateRaw = writeDateRaw;
+    }
+  }
+
+  return {
+    total: rows.length,
+    attended_count: attendedCount,
+    contact_created_count: contactCreatedCount,
+    lead_created_count: leadCreatedCount,
+    confirmation_sent_count: confirmationSentCount,
+    reminder_sent_count: reminderSentCount,
+    recap_sent_count: recapSentCount,
+    any_confirmation_sent: confirmationSentCount > 0,
+    any_reminder_sent: reminderSentCount > 0,
+    any_recap_sent: recapSentCount > 0,
+    last_registration_write_date: maxWriteDateRaw || null
+  };
 }
 
 async function runWithConcurrency(items, concurrency, worker) {
@@ -167,7 +310,7 @@ export const routes = {
    * Response: { success: true, data: [...] }
    */
   'GET /api/snapshots': async (context) => {
-    const { env, user } = context;
+    const { env } = context;
     
     try {
       const supabase = await getSupabaseAdminClient(env);
@@ -175,7 +318,6 @@ export const routes = {
       const { data, error } = await supabase
         .from('webinar_snapshots')
         .select('*')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
       
       if (error) {
@@ -265,7 +407,7 @@ export const routes = {
    * Response: { success: true, data: [...] }
    */
   'GET /api/discrepancies': async (context) => {
-    const { env, user } = context;
+    const { env } = context;
     
     try {
       const supabase = await getSupabaseAdminClient(env);
@@ -273,7 +415,6 @@ export const routes = {
       const { data, error } = await supabase
         .from('webinar_snapshots')
         .select('*')
-        .eq('user_id', user.id)
         .eq('computed_state', SYNC_STATUS.OUT_OF_SYNC)
         .order('updated_at', { ascending: false });
       
@@ -346,7 +487,7 @@ export const routes = {
         odooFetchPromise,
         wpCoreFetchPromise,
         getSupabaseAdminClient(env),
-        getEventTypeTagMappings(env, user.id)
+        getEventTypeTagMappings(env)
       ]);
 
       console.log(`${LOG_PREFIX} ${EMOJI.SYNC} Prefetch stage completed in ${Math.round(elapsedMs(prefetchStartedAt))}ms (odoo=${odooWebinars.length}, wp_core=${wpEvents.length})`);
@@ -420,6 +561,30 @@ export const routes = {
         async (odooWebinar) => {
           const wpCoreEvent = wpByOdooId.get(odooWebinar.id) || null;
 
+          let registrationStats = {
+            total: 0,
+            attended_count: 0,
+            contact_created_count: 0,
+            lead_created_count: 0,
+            confirmation_sent_count: 0,
+            reminder_sent_count: 0,
+            recap_sent_count: 0,
+            any_confirmation_sent: false,
+            any_reminder_sent: false,
+            any_recap_sent: false,
+            last_registration_write_date: null
+          };
+
+          try {
+            const registrationRows = await getWebinarRegistrations(env, odooWebinar.id, {
+              limit: false,
+              order: 'write_date desc, id desc'
+            });
+            registrationStats = computeRegistrationStats(registrationRows);
+          } catch (error) {
+            console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Registration aggregation failed for webinar ${odooWebinar.id}:`, error.message);
+          }
+
           // If event exists in WordPress, fetch Tribe API version for accurate snapshot
           // (Core API doesn't include Tribe-specific fields like start_date, categories, etc.)
           let wpEvent = null;
@@ -445,11 +610,11 @@ export const routes = {
           }
 
           snapshotRows.push({
-            user_id: user.id,
             odoo_webinar_id: odooWebinar.id,
             odoo_snapshot: odooWebinar,
             wp_snapshot: wpEvent, // Store full Tribe API event data (includes all fields like categories)
             computed_state: state,
+            registration_stats: registrationStats,
             last_synced_at: new Date().toISOString()
           });
 
@@ -481,7 +646,7 @@ export const routes = {
           const { error } = await supabase
             .from('webinar_snapshots')
             .upsert(batchRows, {
-              onConflict: 'user_id,odoo_webinar_id'
+              onConflict: 'odoo_webinar_id'
             });
 
           if (!error) {
@@ -499,7 +664,7 @@ export const routes = {
             const { error: rowError } = await supabase
               .from('webinar_snapshots')
               .upsert(row, {
-                onConflict: 'user_id,odoo_webinar_id'
+                onConflict: 'odoo_webinar_id'
               });
 
             syncMetrics.snapshot_upsert_total_ms += elapsedMs(rowStartedAt);
@@ -563,7 +728,7 @@ export const routes = {
     try {
       console.log(`${LOG_PREFIX} 🏷️  Fetching event type mappings for user ${user.id}...`);
       
-      const mappings = await getEventTypeTagMappings(env, user.id);
+      const mappings = await getEventTypeTagMappings(env);
       
       console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Found ${mappings.length} event type mappings`);
       
@@ -625,7 +790,7 @@ export const routes = {
       
       console.log(`${LOG_PREFIX} 🏷️  Upserting event type mapping: ${odooEventTypeId} → ${wp_tag_name} (${wpTagId})...`);
       
-      const mapping = await upsertEventTypeTagMapping(env, user.id, {
+      const mapping = await upsertEventTypeTagMapping(env, {
         odoo_event_type_id: odooEventTypeId,
         wp_tag_id: wpTagId,
         wp_tag_slug,
@@ -677,7 +842,7 @@ export const routes = {
       
       console.log(`${LOG_PREFIX} 🏷️  Deleting event type mapping ${id}...`);
       
-      await deleteEventTypeTagMapping(env, user.id, id);
+      await deleteEventTypeTagMapping(env, id);
       
       console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Event type mapping deleted`);
       
@@ -773,7 +938,7 @@ export const routes = {
    * Get editorial content for a webinar
    */
   'GET /api/editorial/:webinarId': async (context) => {
-    const { env, user, params } = context;
+    const { env, params } = context;
     
     try {
       const { webinarId } = params;
@@ -796,7 +961,6 @@ export const routes = {
       const { data: snapshot, error } = await supabase
         .from('webinar_snapshots')
         .select('editorial_content')
-        .eq('user_id', user.id)
         .eq('odoo_webinar_id', odooWebinarId)
         .single();
       
@@ -833,7 +997,7 @@ export const routes = {
    * Save editorial content for a webinar
    */
   'PUT /api/editorial/:webinarId': async (context) => {
-    const { env, user, params, request } = context;
+    const { env, params, request } = context;
     
     try {
       const { webinarId } = params;
@@ -872,7 +1036,6 @@ export const routes = {
       const { data: existingSnapshot } = await supabase
         .from('webinar_snapshots')
         .select('id')
-        .eq('user_id', user.id)
         .eq('odoo_webinar_id', odooWebinarId)
         .single();
       
@@ -890,7 +1053,6 @@ export const routes = {
       const { error: updateError } = await supabase
         .from('webinar_snapshots')
         .update({ editorial_content: editorialContent })
-        .eq('user_id', user.id)
         .eq('odoo_webinar_id', odooWebinarId);
       
       if (updateError) {

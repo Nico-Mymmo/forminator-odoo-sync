@@ -234,6 +234,7 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
   const statusBadge = getStatusBadge(state).replace(/__WID__/g, webinar.id);
   const eventTypeName = getEventTypeName(webinar);
   const formattedDate = formatEventDateTime(webinar);
+  const registrationStatsBadges = renderRegistrationStatsBadges(snapshot?.registration_stats);
 
   return `
     <div class="space-y-4">
@@ -251,6 +252,8 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
         ${renderMetaRow('tag', 'Event Type', eventTypeName)}
         ${wpPostId ? renderMetaRow('external-link', 'WordPress', `<a href="${snapshot.wp_snapshot?.url || '#'}" target="_blank" class="link link-primary">Bekijk post (#${wpPostId})</a>`) : ''}
       </div>
+
+      ${registrationStatsBadges}
 
       <!-- Actions -->
       <div class="space-y-2">
@@ -324,6 +327,9 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
                   <th>Contact</th>
                   <th>Email</th>
                   <th>Vragen</th>
+                  <th>Confirmation</th>
+                  <th>Reminder</th>
+                  <th>Recap</th>
                   <th>Nieuw contact?</th>
                   <th>Opportunity</th>
                   <th class="w-44">Aanwezig</th>
@@ -347,6 +353,38 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
         </div>
         <form method="dialog" class="modal-backdrop"><button>close</button></form>
       </dialog>
+    </div>
+  `;
+}
+
+function renderRegistrationStatsBadges(registrationStats) {
+  const stats = registrationStats && typeof registrationStats === 'object' ? registrationStats : null;
+
+  if (!stats) {
+    return '';
+  }
+
+  const badges = [];
+
+  if (stats.any_confirmation_sent === true) {
+    badges.push('<span class="badge badge-success badge-sm">Confirmation sent</span>');
+  }
+
+  if (stats.any_reminder_sent === true) {
+    badges.push('<span class="badge badge-info badge-sm">Reminder sent</span>');
+  }
+
+  if (stats.any_recap_sent === true) {
+    badges.push('<span class="badge badge-accent badge-sm">Recap sent</span>');
+  }
+
+  if (badges.length === 0) {
+    return '';
+  }
+
+  return `
+    <div class="flex flex-wrap gap-2 pt-2 border-t border-base-200">
+      ${badges.join('')}
     </div>
   `;
 }
@@ -376,7 +414,7 @@ async function renderRegistrationsModal(webinarId, page = 1, options = {}) {
     const data = await loadRegistrationsPage(webinarId, page, { force });
     renderRegistrationsData(webinarId, data);
   } catch (error) {
-    listEl.innerHTML = '<tr><td colspan="6"><div class="alert alert-error text-sm">Failed to load registrations: ' + escapeHtml(error.message || 'unknown error') + '</div></td></tr>';
+    listEl.innerHTML = '<tr><td colspan="9"><div class="alert alert-error text-sm">Failed to load registrations: ' + escapeHtml(error.message || 'unknown error') + '</div></td></tr>';
   } finally {
     loadingEl.classList.add('hidden');
   }
@@ -427,7 +465,7 @@ function renderRegistrationsData(webinarId, payload) {
   }
 
   if (rows.length === 0) {
-    listEl.innerHTML = '<tr><td colspan="6" class="text-sm text-base-content/60 py-2">Geen inschrijvingen gevonden.</td></tr>';
+    listEl.innerHTML = '<tr><td colspan="9" class="text-sm text-base-content/60 py-2">Geen inschrijvingen gevonden.</td></tr>';
   } else {
     listEl.innerHTML = rows.map((row) => renderRegistrationRow(row, webinarId)).join('');
   }
@@ -473,12 +511,24 @@ function renderRegistrationRow(row, webinarId) {
   const contactCreatedBadge = row?.contactCreated
     ? '<span class="badge badge-success badge-sm">Gemaakt</span>'
     : '<span class="badge badge-ghost badge-sm">Niet gemaakt</span>';
+  const confirmationBadge = row?.x_studio_confirmation_email_sent === true
+    ? '<span class="badge badge-success badge-xs">✓</span>'
+    : '';
+  const reminderBadge = row?.x_studio_reminder_email_sent === true
+    ? '<span class="badge badge-info badge-xs">✓</span>'
+    : '';
+  const recapBadge = row?.x_studio_recap_email_sent === true
+    ? '<span class="badge badge-warning badge-xs">✓</span>'
+    : '';
 
   return `
     <tr data-registration-id="${registrationId}">
       <td class="font-medium">${escapeHtml(contactName)}</td>
       <td class="text-sm">${escapeHtml(row?.email || 'Geen e-mail')}</td>
       <td class="text-xs">${questionsBlock}</td>
+      <td>${confirmationBadge}</td>
+      <td>${reminderBadge}</td>
+      <td>${recapBadge}</td>
       <td>${contactCreatedBadge}</td>
       <td>${leadBadge}</td>
       <td>

@@ -982,10 +982,22 @@ export function eventOperationsUI(user) {
 
         for (const webinar of webinars) {
           const snap = appState.snapshots[webinar.id];
+          const stats = snap?.registration_stats;
           const state = snap ? snap.computed_state : 'not_published';
           const badge = STATUS_BADGES[state] || STATUS_BADGES.not_published;
           const wpId = snap?.wp_snapshot?.id;
           const regCount = appState.registrations[webinar.id] || 0;
+
+          let emailBadges = '';
+          if (stats?.any_confirmation_sent === true) {
+            emailBadges += '<span class="badge badge-success badge-xs ml-1">Confirmation</span>';
+          }
+          if (stats?.any_reminder_sent === true) {
+            emailBadges += '<span class="badge badge-info badge-xs ml-1">Reminder</span>';
+          }
+          if (stats?.any_recap_sent === true) {
+            emailBadges += '<span class="badge badge-warning badge-xs ml-1">Recap</span>';
+          }
           
           let eventTypeHtml = '—';
           if (Array.isArray(webinar.x_webinar_event_type_id) && webinar.x_webinar_event_type_id.length > 1) {
@@ -999,7 +1011,7 @@ export function eventOperationsUI(user) {
           const tr = document.createElement('tr');
           tr.innerHTML = 
             '<td class="font-mono text-sm">' + webinar.id + '</td>' +
-            '<td class="max-w-xs"><div class="truncate" title="' + escapeHtml(webinar.x_name) + '">' + escapeHtml(webinar.x_name) + '</div></td>' +
+            '<td class="max-w-xs"><div class="truncate" title="' + escapeHtml(webinar.x_name) + '">' + escapeHtml(webinar.x_name) + '</div><div class="mt-1">' + emailBadges + '</div></td>' +
             '<td class="whitespace-nowrap">' + datetime.date + '</td>' +
             '<td class="whitespace-nowrap">' + datetime.time + '</td>' +
             '<td class="whitespace-nowrap">' + duration + '</td>' +
