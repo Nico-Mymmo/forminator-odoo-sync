@@ -227,7 +227,8 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
     descriptionHtml += formShortcode;
   }
 
-  wpPayload.description = descriptionHtml;
+  // Tribe API requires non-empty description (fallback to space if empty)
+  wpPayload.description = descriptionHtml || ' ';
   
   // 3c. WordPress linking: verify wp_event_id, search by meta, avoid duplicates
   let wpEventId = existingSnapshot?.wp_event_id || null;
