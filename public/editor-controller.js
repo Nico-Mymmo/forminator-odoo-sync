@@ -108,9 +108,7 @@ function createEditorModal() {
         </label>
         <select id="form-picker-select" class="select select-bordered">
           <option value="">Geen formulier</option>
-          <option value="14547">Webinar Inschrijving (14547)</option>
-          <option value="15201">Workshop Inschrijving (15201)</option>
-          <option value="16034">Training Enrollment (16034)</option>
+          <!-- Forms loaded dynamically -->
         </select>
         <label class="label">
           <span class="label-text-alt text-xs text-gray-500">Het formulier wordt automatisch toegevoegd bij publicatie</span>
@@ -469,7 +467,7 @@ function htmlToBlocks(html) {
 
 /**
  * Initialize form picker dropdown
- * Load current selected_form_id and bind change handler
+ * Load available forms from database and current selected_form_id
  */
 async function initializeFormPicker(webinarId) {
   const formPicker = document.getElementById('form-picker-select');
@@ -479,6 +477,33 @@ async function initializeFormPicker(webinarId) {
   }
 
   try {
+    // Fetch available forms from database
+    const formsResponse = await fetch('/events/api/forms', {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (formsResponse.ok) {
+      const formsResult = await formsResponse.json();
+      const forms = formsResult.data || [];
+      
+      // Clear existing options (except "Geen formulier")
+      formPicker.innerHTML = '<option value="">Geen formulier</option>';
+      
+      // Add form options dynamically
+      forms.forEach(form => {
+        const option = document.createElement('option');
+        option.value = form.id;
+        option.textContent = form.name;
+        if (form.description) {
+          option.title = form.description; // Show as tooltip
+        }
+        formPicker.appendChild(option);
+      });
+      
+      console.log('[EditorController] Forms loaded:', forms.length);
+    }
+
     // Fetch current snapshot to get selected_form_id
     const response = await fetch(`/events/api/editorial/${webinarId}`, {
       method: 'GET',
@@ -487,8 +512,6 @@ async function initializeFormPicker(webinarId) {
 
     if (response.ok) {
       const result = await response.json();
-      // Note: Backend needs to return selected_form_id, not just editorial_content
-      // For now, set to empty if not available
       const selectedFormId = result.selectedFormId || '';
       formPicker.value = selectedFormId;
       console.log('[EditorController] Form picker loaded:', selectedFormId || 'none');

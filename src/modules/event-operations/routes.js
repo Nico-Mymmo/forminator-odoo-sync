@@ -1001,41 +1001,263 @@ export const routes = {
 
   /**
    * GET /events/api/forms
-   * Fetch available Forminator forms from WordPress
+   * Fetch available Forminator forms from database
    */
   'GET /api/forms': async (context) => {
     const { env } = context;
     
     try {
-      console.log(`${LOG_PREFIX} 📝 Fetching Forminator forms...`);
+      console.log(`${LOG_PREFIX} 📝 Fetching Forminator forms from database...`);
       
-      // Hardcoded fallback list (Forminator REST API may not be available)
-      const fallbackForms = [
-        { id: '14547', name: 'Webinar Inschrijving (Standaard)' },
-        { id: '15201', name: 'Workshop Inschrijving' },
-        { id: '16034', name: 'Training Enrollment' }
-      ];
+      const supabase = await getSupabaseAdminClient(env);
       
-      // TODO: If Forminator provides REST API, fetch forms dynamically:
-      // const response = await fetch(`${env.WORDPRESS_URL}/wp-json/forminator/v1/forms`, {
-      //   headers: { 'Authorization': wpAuthHeader(env) }
-      // });
-      // if (response.ok) {
-      //   const forms = await response.json();
-      //   return new Response(JSON.stringify({ success: true, data: forms }), ...);
-      // }
+      const { data: forms, error } = await supabase
+        .from('forminator_forms')
+        .select('form_id, form_name, description')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Forms list retrieved (${fallbackForms.length} forms)`);
+      if (error) {
+        throw error;
+      }
+      
+      // Transform to expected format
+      const formattedForms = (forms || []).map(form => ({
+        id: form.form_id,
+        name: form.form_name,
+        description: form.description
+      }));
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Forms list retrieved (${formattedForms.length} forms)`);
       
       return new Response(JSON.stringify({
         success: true,
-        data: fallbackForms
+        data: formattedForms
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
       
     } catch (error) {
       console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch forms failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * GET /events/api/forminator-forms
+   * Get all forminator forms (including inactive, for admin management)
+   */
+  'GET /api/forminator-forms': async (context) => {
+    const { env } = context;
+    
+    try {
+      const supabase = await getSupabaseAdminClient(env);
+      
+      const { data: forms, error } = await supabase
+        .from('forminator_forms')
+        .select('*')
+        .order('display_order', { ascending: true });
+      
+      if (error) {
+        throw error;
+      }
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: forms || []
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch forminator forms failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * POST /events/api/forminator-forms
+   * Create new forminator form
+   */
+  'POST /api/forminator-forms': async (context) => {
+    const { env, request } = context;
+    
+    try {
+      const body = await request.json();
+      const { form_id, form_name, description, is_active, display_order } = body;
+      
+      if (!form_id || !form_name) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'form_id and form_name are required'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      const supabase = await getSupabaseAdminClient(env);
+      
+      const { data, error } = await supabase
+        .from('forminator_forms')
+        .insert({
+          form_id,
+          form_name,
+          description: description || null,
+          is_active: is_active !== undefined ? is_active : true,
+          display_order: display_order || 0
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        throw error;
+      }
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Forminator form created: ${form_id}`);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: data
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Create forminator form failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * PUT /events/api/forminator-forms/:id
+   * Update forminator form
+   */
+  'PUT /api/forminator-forms/:id': async (context) => {
+    const { env, params, request } = context;
+    
+    try {
+      const { id } = params;
+      const formId = parseInt(id, 10);
+      
+      if (!formId || isNaN(formId)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid form ID'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      const body = await request.json();
+      const { form_id, form_name, description, is_active, display_order } = body;
+      
+      const supabase = await getSupabaseAdminClient(env);
+      
+      const updateData = {};
+      if (form_id !== undefined) updateData.form_id = form_id;
+      if (form_name !== undefined) updateData.form_name = form_name;
+      if (description !== undefined) updateData.description = description;
+      if (is_active !== undefined) updateData.is_active = is_active;
+      if (display_order !== undefined) updateData.display_order = display_order;
+      
+      const { data, error } = await supabase
+        .from('forminator_forms')
+        .update(updateData)
+        .eq('id', formId)
+        .select()
+        .single();
+      
+      if (error) {
+        throw error;
+      }
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Forminator form updated: ${formId}`);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: data
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Update forminator form failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * DELETE /events/api/forminator-forms/:id
+   * Delete forminator form
+   */
+  'DELETE /api/forminator-forms/:id': async (context) => {
+    const { env, params } = context;
+    
+    try {
+      const { id } = params;
+      const formId = parseInt(id, 10);
+      
+      if (!formId || isNaN(formId)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid form ID'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      const supabase = await getSupabaseAdminClient(env);
+      
+      const { error } = await supabase
+        .from('forminator_forms')
+        .delete()
+        .eq('id', formId);
+      
+      if (error) {
+        throw error;
+      }
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Forminator form deleted: ${formId}`);
+      
+      return new Response(JSON.stringify({
+        success: true
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Delete forminator form failed:`, error);
       
       return new Response(JSON.stringify({
         success: false,

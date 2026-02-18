@@ -1034,6 +1034,231 @@ async function saveEditorialContent(webinarId) {
   }
 }
 
+// ================================================================================
+// FORMINATOR FORMS MANAGEMENT
+// ================================================================================
+
+let forminatorForms = [];
+let editingFormId = null;
+
+/**
+ * Open Forminator Forms modal
+ */
+function openForminatorFormsModal() {
+  const modal = document.getElementById('forminatorFormsModal');
+  modal.showModal();
+  loadForminatorForms();
+}
+
+/**
+ * Load forminator forms from backend
+ */
+async function loadForminatorForms() {
+  const loading = document.getElementById('forminatorFormsLoading');
+  const content = document.getElementById('forminatorFormsContent');
+  const tbody = document.getElementById('forminatorFormsTableBody');
+
+  loading.classList.remove('hidden');
+  content.classList.add('hidden');
+
+  try {
+    const response = await fetch('/events/api/forminator-forms', {
+      credentials: 'include'
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch forms');
+    }
+    
+    const result = await response.json();
+    forminatorForms = result.data || [];
+    
+    // Clear table
+    tbody.innerHTML = '';
+    
+    // Sort by display_order
+    forminatorForms.sort((a, b) => a.display_order - b.display_order);
+    
+    // Populate table
+    forminatorForms.forEach(form => {
+      const row = document.createElement('tr');
+      
+      const tdFormId = document.createElement('td');
+      tdFormId.innerHTML = `<code class="badge badge-ghost">${escapeHtml(form.form_id)}</code>`;
+      row.appendChild(tdFormId);
+      
+      const tdName = document.createElement('td');
+      tdName.innerHTML = `<strong>${escapeHtml(form.form_name)}</strong>`;
+      row.appendChild(tdName);
+      
+      const tdDescription = document.createElement('td');
+      tdDescription.innerHTML = form.description 
+        ? `<span class="text-xs">${escapeHtml(form.description)}</span>` 
+        : '<span class="text-gray-400">-</span>';
+      row.appendChild(tdDescription);
+      
+      const tdOrder = document.createElement('td');
+      tdOrder.textContent = form.display_order;
+      row.appendChild(tdOrder);
+      
+      const tdStatus = document.createElement('td');
+      tdStatus.innerHTML = form.is_active 
+        ? '<span class="badge badge-success badge-sm">Actief</span>' 
+        : '<span class="badge badge-ghost badge-sm">Inactief</span>';
+      row.appendChild(tdStatus);
+      
+      const tdActions = document.createElement('td');
+      const btnGroup = document.createElement('div');
+      btnGroup.className = 'flex gap-1';
+      
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn btn-xs btn-info btn-outline';
+      editBtn.textContent = 'Edit';
+      editBtn.onclick = () => editForminatorForm(form);
+      btnGroup.appendChild(editBtn);
+      
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn btn-xs btn-error btn-outline';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.onclick = () => deleteForminatorForm(form.id, form.form_name);
+      btnGroup.appendChild(deleteBtn);
+      
+      tdActions.appendChild(btnGroup);
+      row.appendChild(tdActions);
+      
+      tbody.appendChild(row);
+    });
+
+    loading.classList.add('hidden');
+    content.classList.remove('hidden');
+  } catch (error) {
+    console.error('Forminator forms load error:', error);
+    alert('⚠️  Failed to load forminator forms: ' + error.message);
+    loading.classList.add('hidden');
+  }
+}
+
+/**
+ * Edit forminator form
+ */
+function editForminatorForm(form) {
+  editingFormId = form.id;
+  
+  document.getElementById('formFormTitle').textContent = 'Formulier Bewerken';
+  document.getElementById('editingFormId').value = form.id;
+  document.getElementById('formIdInput').value = form.form_id;
+  document.getElementById('formIdInput').disabled = false;
+  document.getElementById('formNameInput').value = form.form_name;
+  document.getElementById('formDescriptionInput').value = form.description || '';
+  document.getElementById('formOrderInput').value = form.display_order;
+  document.getElementById('formActiveCheckbox').checked = form.is_active;
+  
+  document.getElementById('btnCancelEditForm').classList.remove('hidden');
+  document.getElementById('btnSaveForm').innerHTML = '<i data-lucide="save" class="w-4 h-4"></i> Bijwerken';
+  lucide.createIcons();
+}
+
+/**
+ * Cancel edit form
+ */
+function cancelEditForm() {
+  editingFormId = null;
+  
+  document.getElementById('formFormTitle').textContent = 'Nieuw Formulier';
+  document.getElementById('editingFormId').value = '';
+  document.getElementById('formIdInput').value = '';
+  document.getElementById('formIdInput').disabled = false;
+  document.getElementById('formNameInput').value = '';
+  document.getElementById('formDescriptionInput').value = '';
+  document.getElementById('formOrderInput').value = '0';
+  document.getElementById('formActiveCheckbox').checked = true;
+  
+  document.getElementById('btnCancelEditForm').classList.add('hidden');
+  document.getElementById('btnSaveForm').innerHTML = '<i data-lucide="save" class="w-4 h-4"></i> Opslaan';
+  lucide.createIcons();
+}
+
+/**
+ * Save forminator form (create or update)
+ */
+async function saveForminatorForm() {
+  const formId = document.getElementById('formIdInput').value.trim();
+  const formName = document.getElementById('formNameInput').value.trim();
+  const description = document.getElementById('formDescriptionInput').value.trim();
+  const displayOrder = parseInt(document.getElementById('formOrderInput').value, 10);
+  const isActive = document.getElementById('formActiveCheckbox').checked;
+
+  if (!formId || !formName) {
+    alert('⚠️ Form ID en Naam zijn verplicht');
+    return;
+  }
+
+  const formData = {
+    form_id: formId,
+    form_name: formName,
+    description: description || null,
+    display_order: displayOrder,
+    is_active: isActive
+  };
+
+  try {
+    const url = editingFormId 
+      ? `/events/api/forminator-forms/${editingFormId}`
+      : '/events/api/forminator-forms';
+    
+    const method = editingFormId ? 'PUT' : 'POST';
+    
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(formData)
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to save form');
+    }
+
+    alert(editingFormId ? '✅ Formulier bijgewerkt!' : '✅ Formulier toegevoegd!');
+    cancelEditForm();
+    await loadForminatorForms();
+  } catch (error) {
+    console.error('Save form failed:', error);
+    alert('❌ Fout bij opslaan: ' + error.message);
+  }
+}
+
+/**
+ * Delete forminator form
+ */
+async function deleteForminatorForm(id, name) {
+  if (!confirm(`Weet je zeker dat je "${name}" wilt verwijderen?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/events/api/forminator-forms/${id}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete form');
+    }
+
+    alert('✅ Formulier verwijderd!');
+    await loadForminatorForms();
+  } catch (error) {
+    console.error('Delete form failed:', error);
+    alert('❌ Fout bij verwijderen: ' + error.message);
+  }
+}
+
+// ================================================================================
+// UTILITY FUNCTIONS
+// ================================================================================
+
 /**
  * Escape HTML (client-side helper)
  */

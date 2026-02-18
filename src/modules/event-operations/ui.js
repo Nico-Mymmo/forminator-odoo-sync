@@ -371,9 +371,25 @@ export function eventOperationsUI(user) {
                 </div>
                 
                 <!-- Actions (RIGHT) -->
-                <button class="btn btn-sm btn-outline btn-primary" onclick="openEventTypeMappingModal()">
-                  <i data-lucide="tags" class="w-4 h-4"></i> Event Type Mapping
-                </button>
+                <div class="dropdown dropdown-end">
+                  <button class="btn btn-sm btn-outline btn-primary" tabindex="0">
+                    <i data-lucide="settings" class="w-4 h-4"></i> Settings
+                  </button>
+                  <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-56 mt-1">
+                    <li>
+                      <a onclick="openEventTypeMappingModal()">
+                        <i data-lucide="tags" class="w-4 h-4"></i>
+                        Event Type Mapping
+                      </a>
+                    </li>
+                    <li>
+                      <a onclick="openForminatorFormsModal()">
+                        <i data-lucide="layout-list" class="w-4 h-4"></i>
+                        Forminator Forms
+                      </a>
+                    </li>
+                  </ul>
+                </div>
                 <button id="btnSync" class="btn btn-sm btn-primary" onclick="runSync()">
                   <i data-lucide="refresh-cw" class="w-4 h-4"></i> Sync All
                 </button>
@@ -628,6 +644,101 @@ export function eventOperationsUI(user) {
         <div class="modal-action">
           <form method="dialog">
             <button class="btn">Close</button>
+          </form>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+      </form>
+    </dialog>
+
+    <!-- Forminator Forms Modal -->
+    <dialog id="forminatorFormsModal" class="modal">
+      <div class="modal-box max-w-4xl">
+        <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+          <i data-lucide="layout-list" class="w-5 h-5"></i>
+          Forminator Forms Beheer
+        </h3>
+        
+        <!-- Loading State -->
+        <div id="forminatorFormsLoading" class="flex justify-center py-8">
+          <span class="loading loading-spinner loading-lg"></span>
+        </div>
+        
+        <!-- Content -->
+        <div id="forminatorFormsContent" class="hidden">
+          <p class="text-sm text-base-content/70 mb-4">
+            Beheer formulieren die beschikbaar zijn in de event editor form picker. Alleen actieve formulieren verschijnen in de dropdown.
+          </p>
+          
+          <!-- Add New Form -->
+          <div class="card bg-base-200 mb-4">
+            <div class="card-body">
+              <h4 id="formFormTitle" class="font-semibold mb-2">Nieuw Formulier</h4>
+              <div class="flex gap-2 flex-wrap">
+                <input type="hidden" id="editingFormId" />
+                <input 
+                  id="formIdInput" 
+                  type="text" 
+                  placeholder="Form ID (bijv. 14547)" 
+                  class="input input-bordered input-sm flex-1" 
+                />
+                <input 
+                  id="formNameInput" 
+                  type="text" 
+                  placeholder="Naam (bijv. Webinar Inschrijving)" 
+                  class="input input-bordered input-sm flex-1" 
+                />
+                <input 
+                  id="formOrderInput" 
+                  type="number" 
+                  placeholder="Volgorde" 
+                  value="0" 
+                  class="input input-bordered input-sm w-24" 
+                />
+                <label class="label cursor-pointer gap-2">
+                  <span class="label-text text-xs">Actief</span>
+                  <input id="formActiveCheckbox" type="checkbox" class="checkbox checkbox-sm" checked />
+                </label>
+                <button id="btnSaveForm" class="btn btn-primary btn-sm" onclick="saveForminatorForm()">
+                  <i data-lucide="save" class="w-4 h-4"></i> Opslaan
+                </button>
+                <button id="btnCancelEditForm" class="btn btn-ghost btn-sm hidden" onclick="cancelEditForm()">
+                  Annuleren
+                </button>
+              </div>
+              <textarea 
+                id="formDescriptionInput" 
+                placeholder="Optionele beschrijving..." 
+                class="textarea textarea-bordered textarea-sm mt-2" 
+                rows="2"
+              ></textarea>
+            </div>
+          </div>
+          
+          <!-- Existing Forms Table -->
+          <div class="overflow-x-auto">
+            <table class="table table-zebra table-sm">
+              <thead>
+                <tr>
+                  <th>Form ID</th>
+                  <th>Naam</th>
+                  <th>Beschrijving</th>
+                  <th class="w-20">Volgorde</th>
+                  <th class="w-20">Status</th>
+                  <th class="w-28">Acties</th>
+                </tr>
+              </thead>
+              <tbody id="forminatorFormsTableBody">
+                <!-- Populated by loadForminatorForms() -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div class="modal-action">
+          <form method="dialog">
+            <button class="btn">Sluiten</button>
           </form>
         </div>
       </div>
