@@ -100,6 +100,23 @@ function createEditorModal() {
         </div>
       </div>
 
+      <!-- Form Picker -->
+      <div class="form-control mb-4">
+        <label class="label">
+          <span class="label-text font-semibold">Inschrijfformulier</span>
+          <span class="label-text-alt text-xs text-gray-500">Optioneel - wordt onderaan toegevoegd</span>
+        </label>
+        <select id="form-picker-select" class="select select-bordered">
+          <option value="">Geen formulier</option>
+          <option value="14547">Webinar Inschrijving (14547)</option>
+          <option value="15201">Workshop Inschrijving (15201)</option>
+          <option value="16034">Training Enrollment (16034)</option>
+        </select>
+        <label class="label">
+          <span class="label-text-alt text-xs text-gray-500">Het formulier wordt automatisch toegevoegd bij publicatie</span>
+        </label>
+      </div>
+
       <!-- Editor Container (Quill.js) -->
       <div class="mb-4">
         <div id="editorial-editor" style="height: 400px; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem;"></div>
@@ -135,7 +152,7 @@ function createEditorModal() {
 /**
  * Open editor for webinar
  */
-export function openEditor(webinarId) {
+export async function openEditor(webinarId) {
   currentWebinarId = webinarId;
   const webinar = getWebinar(webinarId);
 
@@ -158,6 +175,9 @@ export function openEditor(webinarId) {
       overrideInfo.classList.add('hidden');
     }
   }
+
+  // Initialize form picker
+  await initializeFormPicker(webinarId);
 
   // Initialize Quill.js editor
   initializeQuill(activeDescription);
@@ -445,6 +465,68 @@ function htmlToBlocks(html) {
   }
 
   return blocks.length > 0 ? { blocks, version: 1 } : null;
+}
+
+/**
+ * Initialize form picker dropdown
+ * Load current selected_form_id and bind change handler
+ */
+async function initializeFormPicker(webinarId) {
+  const formPicker = document.getElementById('form-picker-select');
+  if (!formPicker) {
+    console.warn('[EditorController] Form picker not found');
+    return;
+  }
+
+  try {
+    // Fetch current snapshot to get selected_form_id
+    const response = await fetch(`/events/api/editorial/${webinarId}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      // Note: Backend needs to return selected_form_id, not just editorial_content
+      // For now, set to empty if not available
+      const selectedFormId = result.selectedFormId || '';
+      formPicker.value = selectedFormId;
+      console.log('[EditorController] Form picker loaded:', selectedFormId || 'none');
+    }
+  } catch (error) {
+    console.error('[EditorController] Failed to load form picker:', error);
+  }
+
+  // Bind change handler
+  formPicker.onchange = async (e) => {
+    const formId = e.target.value || null;
+    console.log('[EditorController] Form selection changed:', formId);
+
+    try {
+      const response = await fetch(`/events/api/editorial/${webinarId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ selectedFormId: formId })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save form selection');
+      }
+
+      console.log('[EditorController] Form selection saved');
+      
+      // Show subtle feedback
+      if (typeof showNotification === 'function') {
+        showNotification(formId ? `Formulier ${formId} geselecteerd` : 'Formulier verwijderd', 'success');
+      }
+    } catch (error) {
+      console.error('[EditorController] Save form selection failed:', error);
+      if (typeof showNotification === 'function') {
+        showNotification('Fout bij opslaan formulier', 'error');
+      }
+    }
+  };
 }
 
 /**

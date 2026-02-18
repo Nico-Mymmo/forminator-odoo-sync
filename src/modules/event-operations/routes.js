@@ -963,7 +963,7 @@ export const routes = {
       
       const { data: snapshot, error } = await supabase
         .from('webinar_snapshots')
-        .select('editorial_content')
+        .select('editorial_content, editorial_mode, selected_form_id')
         .eq('odoo_webinar_id', odooWebinarId)
         .single();
       
@@ -972,12 +972,16 @@ export const routes = {
       }
       
       const editorialContent = snapshot?.editorial_content || null;
+      const editorialMode = snapshot?.editorial_mode || 'never_edited';
+      const selectedFormId = snapshot?.selected_form_id || null;
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Editorial content retrieved`);
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Editorial data retrieved: mode=${editorialMode}, formId=${selectedFormId}`);
       
       return new Response(JSON.stringify({
         success: true,
-        data: editorialContent
+        data: editorialContent,
+        editorialMode: editorialMode,
+        selectedFormId: selectedFormId
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
