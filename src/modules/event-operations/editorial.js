@@ -154,3 +154,25 @@ export function validateEditorialContent(content) {
 
   return { valid: true };
 }
+
+/**
+ * Strip all WordPress shortcodes from HTML description
+ * 
+ * Used before pushing descriptions to Odoo to ensure form shortcodes
+ * never leak into Odoo's x_studio_webinar_info field.
+ * 
+ * @param {string} html - HTML description with possible shortcodes
+ * @returns {string} HTML with shortcodes removed
+ */
+export function stripShortcodes(html) {
+  if (!html || typeof html !== 'string') {
+    return '';
+  }
+
+  // Match WordPress shortcode pattern: [shortcode_name attribute="value" ...]
+  // Supports both self-closing and enclosing shortcodes
+  return html
+    .replace(/\[[\w\-_]+(?:\s+[^\]]+)?\]/g, '') // Self-closing: [shortcode attr="val"]
+    .replace(/\[[\w\-_]+(?:\s+[^\]]+)?\][\s\S]*?\[\/[\w\-_]+\]/g, '') // Enclosing: [shortcode]content[/shortcode]
+    .trim();
+}

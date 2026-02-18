@@ -996,6 +996,54 @@ export const routes = {
   },
 
   /**
+   * GET /events/api/forms
+   * Fetch available Forminator forms from WordPress
+   */
+  'GET /api/forms': async (context) => {
+    const { env } = context;
+    
+    try {
+      console.log(`${LOG_PREFIX} 📝 Fetching Forminator forms...`);
+      
+      // Hardcoded fallback list (Forminator REST API may not be available)
+      const fallbackForms = [
+        { id: '14547', name: 'Webinar Inschrijving (Standaard)' },
+        { id: '15201', name: 'Workshop Inschrijving' },
+        { id: '16034', name: 'Training Enrollment' }
+      ];
+      
+      // TODO: If Forminator provides REST API, fetch forms dynamically:
+      // const response = await fetch(`${env.WORDPRESS_URL}/wp-json/forminator/v1/forms`, {
+      //   headers: { 'Authorization': wpAuthHeader(env) }
+      // });
+      // if (response.ok) {
+      //   const forms = await response.json();
+      //   return new Response(JSON.stringify({ success: true, data: forms }), ...);
+      // }
+      
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Forms list retrieved (${fallbackForms.length} forms)`);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: fallbackForms
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} Fetch forms failed:`, error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
    * PUT /events/api/editorial/:webinarId
    * Save editorial content for a webinar
    */
@@ -1017,7 +1065,7 @@ export const routes = {
       }
       
       const body = await request.json();
-      const { editorialContent } = body;
+      const { editorialContent, editorialMode, selectedFormId } = body;
       
       // Validate editorial content structure
       const validation = validateEditorialContent(editorialContent);
@@ -1031,7 +1079,7 @@ export const routes = {
         });
       }
       
-      console.log(`${LOG_PREFIX} 📝 Saving editorial content for webinar ${odooWebinarId}...`);
+      console.log(`${LOG_PREFIX} 📝 Saving editorial for webinar ${odooWebinarId}, mode=${editorialMode}, formId=${selectedFormId}...`);
       
       const supabase = await getSupabaseAdminClient(env);
       
@@ -1052,17 +1100,29 @@ export const routes = {
         });
       }
       
-      // Update editorial content
+      // Build update data (only include provided fields)
+      const updateData = {};
+      if (editorialContent !== undefined) {
+        updateData.editorial_content = editorialContent;
+      }
+      if (editorialMode !== undefined) {
+        updateData.editorial_mode = editorialMode;
+      }
+      if (selectedFormId !== undefined) {
+        updateData.selected_form_id = selectedFormId;
+      }
+      
+      // Update fields
       const { error: updateError } = await supabase
         .from('webinar_snapshots')
-        .update({ editorial_content: editorialContent })
+        .update(updateData)
         .eq('odoo_webinar_id', odooWebinarId);
       
       if (updateError) {
         throw updateError;
       }
       
-      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Editorial content saved`);
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Editorial data saved`);
       
       return new Response(JSON.stringify({
         success: true

@@ -159,11 +159,9 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   
   const { data: existingSnapshot } = await supabase
     .from('webinar_snapshots')
-    .select('wp_snapshot, editorial_content')
+    .select('wp_event_id, editorial_mode, selected_form_id, editorial_content, wp_snapshot')
     .eq('odoo_webinar_id', odooWebinarId)
     .single();
-  
-  const existingWpEventId = existingSnapshot?.wp_snapshot?.id;
   
   // 3. Map to WordPress payload (with status)
   const wpPayload = mapOdooToWordPress(odooWebinar, status);
@@ -181,38 +179,134 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   // Addendum C remains deterministic because mapping lookup is by event type -> single row.
   wpPayload.categories = mapping.wp_tag_slug;
   
-  // 3b. Build description: use editorial content if present, else generate default (Odoo paragraph + form)
-  let editorialContent = existingSnapshot?.editorial_content;
-  let editorialContentToSave = null; // Track if we need to save new editorial content
+  // 3b. Build description using editorial_mode (decoupled from form)
+  const odooDescription = odooWebinar.x_studio_webinar_info || '';
+  const editorialMode = existingSnapshot?.editorial_mode || 'never_edited';
+  const selectedFormId = existingSnapshot?.selected_form_id || null;
+  const editorialContent = existingSnapshot?.editorial_content || null;
+
+  let descriptionHtml = '';
+  let editorialModeToSave = editorialMode;
+  let selectedFormIdToSave = selectedFormId;
+
+  switch (editorialMode) {
+    case 'never_edited':
+      // First publish: use plain Odoo description (NO automatic form injection)
+      descriptionHtml = odooDescription;
+      break;
+      
+    case 'use_odoo_plain':
+      // User explicitly wants plain Odoo description
+      descriptionHtml = odooDescription;
+      break;
+      
+    case 'custom':
+      // User has custom editorial content
+      if (editorialContent && editorialContent.blocks) {
+        descriptionHtml = buildEditorialDescription(editorialContent, odooDescription);
+      } else {
+        // Fallback to Odoo if editorial_content missing
+        descriptionHtml = odooDescription;
+      }
+      break;
+      
+    case 'empty':
+      // User wants empty description
+      descriptionHtml = '';
+      break;
+      
+    default:
+      console.warn(`${LOG_PREFIX} Unknown editorial_mode: ${editorialMode}, using Odoo description`);
+      descriptionHtml = odooDescription;
+      editorialModeToSave = 'never_edited';
+  }
+
+  // Append form shortcode if selected (decoupled from editorial content)
+  if (selectedFormIdToSave) {
+    const formShortcode = `\n\n[forminator_form id="${selectedFormIdToSave}"]`;
+    descriptionHtml += formShortcode;
+  }
+
+  wpPayload.description = descriptionHtml;
   
-  if (editorialContent && editorialContent.blocks && editorialContent.blocks.length > 0) {
-    // User has custom editorial content - use it
-    const odooDescription = odooWebinar.x_studio_webinar_info || '';
-    wpPayload.description = buildEditorialDescription(editorialContent, odooDescription);
-  } else {
-    // No editorial content - generate default: Odoo description paragraph + registration form
-    const odooDescription = odooWebinar.x_studio_webinar_info || '';
-    const defaultEditorial = {
-      blocks: [
-        { type: 'paragraph', content: odooDescription },
-        { type: 'shortcode', name: 'forminator_form', attributes: { id: '14547' } }
-      ],
-      version: 1
-    };
-    wpPayload.description = buildEditorialDescription(defaultEditorial, odooDescription);
-    editorialContentToSave = defaultEditorial;
+  // 3c. WordPress linking: verify wp_event_id, search by meta, avoid duplicates
+  let wpEventId = existingSnapshot?.wp_event_id || null;
+  
+  if (wpEventId) {
+    // Verify WP event still exists
+    console.log(`${LOG_PREFIX} 🔍 Verifying WP event ${wpEventId}...`);
+    const verifyResponse = await fetch(
+      `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}/${wpEventId}`,
+      { headers: { 'Authorization': wpAuthHeader(env) } }
+    );
+    
+    if (verifyResponse.status === 404) {
+      console.warn(`${LOG_PREFIX} ⚠️ WP event ${wpEventId} not found (deleted?), will unlink and search`);
+      wpEventId = null;
+    } else if (!verifyResponse.ok) {
+      throw new Error(`Failed to verify WP event ${wpEventId}: ${verifyResponse.status}`);
+    } else {
+      console.log(`${LOG_PREFIX} ✅ WP event ${wpEventId} verified`);
+    }
   }
   
-  let wpEventId;
+  if (!wpEventId) {
+    // Try to find existing WP event by meta odoo_webinar_id
+    console.log(`${LOG_PREFIX} 🔍 Searching for WP event with meta odoo_webinar_id=${odooWebinarId}`);
+    
+    const searchResponse = await fetch(
+      `${env.WORDPRESS_URL}${WP_ENDPOINTS.WP_EVENTS}?per_page=100&status=publish,draft,private`,
+      { headers: { 'Authorization': wpAuthHeader(env) } }
+    );
+    
+    if (searchResponse.ok) {
+      const allWpEvents = await searchResponse.json();
+      const matchedByMeta = allWpEvents.find(event => 
+        event.meta && String(event.meta[WP_META_KEYS.ODOO_WEBINAR_ID]) === String(odooWebinarId)
+      );
+      
+      if (matchedByMeta) {
+        wpEventId = matchedByMeta.id;
+        console.log(`${LOG_PREFIX} 🔗 Found WP event ${wpEventId} via meta, will link and UPDATE`);
+      } else {
+        // Conservative title+date fallback
+        console.log(`${LOG_PREFIX} 🔍 No meta match, trying title+datetime fallback...`);
+        const odooTitle = odooWebinar.name?.toLowerCase().trim() || '';
+        const odooStartDate = odooWebinar.x_studio_event_datetime;
+        
+        if (odooTitle && odooStartDate) {
+          const odooStart = new Date(odooStartDate.replace(' ', 'T') + 'Z');
+          const candidates = allWpEvents.filter(event => {
+            const wpTitle = (event.title?.rendered || event.title || '').toLowerCase().trim();
+            const wpStartRaw = event.utc_start_date || event.start_date;
+            if (!wpStartRaw) return false;
+            
+            const wpStart = new Date(wpStartRaw.replace(' ', 'T') + 'Z');
+            const timeDiffHours = Math.abs(odooStart - wpStart) / (1000 * 60 * 60);
+            
+            return wpTitle === odooTitle && timeDiffHours <= 2; // ±2 hour tolerance
+          });
+          
+          if (candidates.length === 1) {
+            wpEventId = candidates[0].id;
+            console.log(`${LOG_PREFIX} 🔗 Found single title+datetime match: WP event ${wpEventId}`);
+          } else if (candidates.length > 1) {
+            console.warn(`${LOG_PREFIX} ⚠️ Multiple title+datetime matches found (${candidates.length}), NOT linking to avoid ambiguity`);
+          }
+        }
+      }
+    }
+  }
+  
   let wpEventData; // Store API response for snapshot
   
-  console.log(`${LOG_PREFIX} 📤 Publish odoo=${odooWebinarId} status=${status} existingWpId=${existingWpEventId || 'none'}`);
-  console.log(`${LOG_PREFIX} 📤 WP payload:`, JSON.stringify({ title: wpPayload.title, status: wpPayload.status, start_date: wpPayload.start_date, wp_tag_id: mapping.wp_tag_id, wp_category_slug: mapping.wp_tag_slug }));
+  console.log(`${LOG_PREFIX} 📤 Publish odoo=${odooWebinarId} status=${status} wpEventId=${wpEventId || 'CREATE'}`);
+  console.log(`${LOG_PREFIX} 📤 WP payload:`, JSON.stringify({ title: wpPayload.title, status: wpPayload.status, start_date: wpPayload.start_date, wp_tag_id: mapping.wp_tag_id, wp_category_slug: mapping.wp_tag_slug, editorial_mode: editorialModeToSave }));
   
-  if (existingWpEventId) {
+  if (wpEventId) {
     // UPDATE existing WordPress event
     const updateResponse = await fetch(
-      `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}/${existingWpEventId}`,
+      `${env.WORDPRESS_URL}${WP_ENDPOINTS.TRIBE_EVENTS}/${wpEventId}`,
       {
         method: 'POST', // WordPress REST API uses POST for updates too
         headers: {
@@ -229,7 +323,6 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
     }
     
     const updateData = await updateResponse.json();
-    wpEventId = updateData.id;
     wpEventData = updateData;
     console.log(`${LOG_PREFIX} ✏️ Updated WP event ${wpEventId}, response status: ${updateData.status}`);
     
@@ -286,10 +379,10 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
     // Don't throw — event was created/updated, meta is best-effort
   }
   
-  // 5. Save snapshot to Supabase (include editorial content if generated)
+  // 5. Save snapshot to Supabase (include new fields: wp_event_id, editorial_mode, selected_form_id)
   const computedState = status === 'draft' ? 'draft' : 'published';
-  await saveSnapshot(env, odooWebinar, wpEventData, editorialContentToSave, computedState);
-  console.log(`${LOG_PREFIX} 💾 Snapshot saved: odoo=${odooWebinarId} wp=${wpEventId} state=${computedState}`);
+  await saveSnapshot(env, odooWebinar, wpEventData, wpEventId, editorialModeToSave, selectedFormIdToSave, computedState);
+  console.log(`${LOG_PREFIX} 💾 Snapshot saved: odoo=${odooWebinarId} wp=${wpEventId} state=${computedState} mode=${editorialModeToSave}`);
   
   return {
     wp_event_id: wpEventId,
@@ -305,26 +398,25 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
  * 
  * @param {Object} env
  * @param {Object} odooWebinar - Full Odoo record
- * @param {number} wpEventId - WordPress event ID
  * @param {Object} wpEventData - Full WordPress event data from create/update response
- * @param {Object|null} editorialContent - Optional editorial content to save (null = don't update)
+ * @param {number} wpEventId - WordPress event ID (primary link)
+ * @param {string} editorialMode - Editorial mode enum value
+ * @param {string|null} selectedFormId - Selected form ID (null = no form)
  * @param {string} computedState - Computed sync state ('published', 'draft', etc.)
  */
-async function saveSnapshot(env, odooWebinar, wpEventData, editorialContent = null, computedState = 'published') {
+async function saveSnapshot(env, odooWebinar, wpEventData, wpEventId, editorialMode, selectedFormId, computedState = 'published') {
   const supabase = await getSupabaseAdminClient(env);
   
   const snapshotData = {
     odoo_webinar_id: odooWebinar.id,
     odoo_snapshot: odooWebinar,
     wp_snapshot: wpEventData,
+    wp_event_id: wpEventId,
+    editorial_mode: editorialMode,
+    selected_form_id: selectedFormId,
     computed_state: computedState,
     last_synced_at: new Date().toISOString()
   };
-  
-  // Only include editorial_content if provided (don't overwrite existing custom content with null)
-  if (editorialContent !== null) {
-    snapshotData.editorial_content = editorialContent;
-  }
   
   const { error } = await supabase
     .from('webinar_snapshots')

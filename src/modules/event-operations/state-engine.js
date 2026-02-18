@@ -49,46 +49,75 @@ export function computeEventState(odooSnapshot, wpSnapshot) {
 
 /**
  * Detect content discrepancies between Odoo and WordPress
- * Only checks title and date - description is managed via editorial content
+ * Only checks execution-critical fields: datetime, duration, meeting_link, host
+ * Title and description are NOT compared (user manages via editorial)
  * 
  * @param {Object} odooSnapshot
  * @param {Object} wpSnapshot
  * @returns {boolean}
  */
 function detectDiscrepancies(odooSnapshot, wpSnapshot) {
-  // Extract WP title (Core API: { rendered }, Tribe API: string)
-  const wpTitleRaw = typeof wpSnapshot.title === 'object' 
-    ? wpSnapshot.title?.rendered 
-    : wpSnapshot.title;
+  // 1. DATETIME comparison (full UTC timestamp, NOT date-only)
+  const wpDatetimeRaw = wpSnapshot.utc_start_date || wpSnapshot.start_date;
+  const odooDatetimeRaw = odooSnapshot[ODOO_FIELDS.EVENT_DATETIME];
   
-  // Title mismatch — decode HTML entities before comparing
-  if (wpTitleRaw) {
-    const odooTitle = normalizeString(stripHtmlTags(odooSnapshot[ODOO_FIELDS.NAME] || ''));
-    const wpTitle = normalizeString(stripHtmlTags(wpTitleRaw));
-    if (odooTitle !== wpTitle) {
-      console.log('🔍 DISCREPANCY DETECTED - Title mismatch:');
-      console.log('  Odoo title:', odooTitle);
-      console.log('  WP title:', wpTitle);
-      return true;
+  if (wpDatetimeRaw && odooDatetimeRaw) {
+    const odooUtc = parseAsUTC(odooDatetimeRaw);
+    const wpUtc = parseAsUTC(wpDatetimeRaw);
+    
+    if (odooUtc && wpUtc) {
+      // Compare with 60-second tolerance (as per decision #3)
+      const diffMs = Math.abs(odooUtc.getTime() - wpUtc.getTime());
+      if (diffMs > 60000) { // 60 seconds = 60,000 ms
+        console.log('🔍 DISCREPANCY DETECTED - Datetime mismatch:');
+        console.log('  Odoo datetime:', odooUtc.toISOString());
+        console.log('  WP datetime:', wpUtc.toISOString());
+        console.log('  Difference (minutes):', Math.round(diffMs / 60000));
+        return true;
+      }
     }
   }
   
-  // Date/time mismatch (only if WP has start_date — Tribe API field)
-  const wpDateRaw = wpSnapshot.start_date;
-  if (wpDateRaw) {
-    // Normalize and extract date part (strip HTML just in case)
-    const wpDate = stripHtmlTags(String(wpDateRaw)).split(' ')[0].trim();
-    const odooDate = odooSnapshot[ODOO_FIELDS.DATE];
-    if (wpDate && odooDate && wpDate !== odooDate) {
-      console.log('🔍 DISCREPANCY DETECTED - Date mismatch:');
-      console.log('  Odoo date:', odooDate);
-      console.log('  WP date:', wpDate);
-      return true;
-    }
-  }
+  // 2. DURATION comparison (if available)
+  // TODO: Check if duration fields exist in snapshots
+  // const odooDuration = odooSnapshot[ODOO_FIELDS.DURATION];
+  // const wpDuration = wpSnapshot.duration;
+  // if (odooDuration !== wpDuration) { return true; }
   
-  // No description or tag comparison - user manages description via editorial content
-  // and re-publishes when needed
+  // 3. MEETING LINK comparison (if available)
+  // TODO: Check if meeting_link fields exist in snapshots
+  // const odooMeetingLink = odooSnapshot[ODOO_FIELDS.MEETING_LINK];
+  // const wpMeetingLink = wpSnapshot.meeting_link;
+  // if (odooMeetingLink !== wpMeetingLink) { return true; }
+  
+  // 4. HOST comparison (if available)
+  // TODO: Check if host fields exist in snapshots
+  // const odooHost = odooSnapshot[ODOO_FIELDS.HOST];
+  // const wpHost = wpSnapshot.host;
+  // if (odooHost !== wpHost) { return true; }
   
   return false;
+}
+
+/**
+ * Parse datetime string as UTC
+ * Handles "YYYY-MM-DD HH:MM:SS" format (Odoo) and ISO format (WordPress)
+ * 
+ * @param {string} raw - Datetime string
+ * @returns {Date|null}
+ */
+function parseAsUTC(raw) {
+  if (!raw) return null;
+  
+  let iso = String(raw).trim();
+  
+  // Convert "YYYY-MM-DD HH:MM:SS" to ISO format
+  if (iso.includes(' ') && !iso.includes('T')) {
+    iso = iso.replace(' ', 'T') + 'Z';
+  } else if (iso.includes('T') && !iso.endsWith('Z')) {
+    iso += 'Z';
+  }
+  
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
 }

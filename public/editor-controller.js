@@ -302,18 +302,18 @@ async function saveDescription() {
       await updateOdooDescription(currentWebinarId, newDescription);
       console.log('[EditorController] Odoo description updated');
       
-      // Save editorial content to Supabase (persistent storage)
+      // Save editorial content to Supabase (persistent storage) with mode=custom
       console.log('[EditorController] Saving editorial content to Supabase...');
-      await saveEditorialToSupabase(currentWebinarId, newDescription);
+      await saveEditorialToSupabase(currentWebinarId, newDescription, 'custom');
       console.log('[EditorController] Editorial content saved to Supabase');
     } else {
-      // Clear editorial override (user reset to canonical)
+      // User reset to canonical → set mode to use_odoo_plain (NOT null!)
       clearEditorialOverride(currentWebinarId);
       
-      // Clear editorial content in Supabase (set to null)
-      console.log('[EditorController] Clearing editorial content in Supabase...');
-      await saveEditorialToSupabase(currentWebinarId, null);
-      console.log('[EditorController] Editorial content cleared in Supabase');
+      // Save editorial_mode to Supabase (editorial_content can remain null)
+      console.log('[EditorController] Setting editorial_mode to use_odoo_plain...');
+      await saveEditorialToSupabase(currentWebinarId, null, 'use_odoo_plain');
+      console.log('[EditorController] Editorial mode set to use_odoo_plain');
     }
 
     // Refresh calendar and detail panel
@@ -438,7 +438,8 @@ function htmlToBlocks(html) {
         }
         blocks.push({ type: 'shortcode', name: shortcodeMatch[1], attributes: attrs });
       } else {
-        blocks.push({ type: 'paragraph', content: text });
+        // PRESERVE FULL HTML (not just text!) - use outerHTML to keep formatting
+        blocks.push({ type: 'paragraph', content: node.outerHTML });
       }
     }
   }
@@ -448,18 +449,28 @@ function htmlToBlocks(html) {
 
 /**
  * Save editorial content to Supabase via PUT /events/api/editorial/:webinarId
+ * 
+ * @param {string} webinarId - Odoo webinar ID
+ * @param {string|null} htmlOrNull - HTML description or null
+ * @param {string|null} editorialMode - Editorial mode enum value (null = don't update)
  */
-async function saveEditorialToSupabase(webinarId, htmlOrNull) {
+async function saveEditorialToSupabase(webinarId, htmlOrNull, editorialMode = null) {
   const editorialContent = htmlOrNull ? htmlToBlocks(htmlOrNull) : null;
   
+  const payload = { editorialContent };
+  if (editorialMode) {
+    payload.editorialMode = editorialMode;
+  }
+  
   console.log('[EditorController] PUT /events/api/editorial/' + webinarId, 
-    editorialContent ? `${editorialContent.blocks.length} blocks` : 'null (clear)');
+    editorialContent ? `${editorialContent.blocks.length} blocks` : 'null (clear)',
+    editorialMode ? `mode=${editorialMode}` : '');
 
   const response = await fetch(`/events/api/editorial/${webinarId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ editorialContent })
+    body: JSON.stringify(payload)
   });
 
   if (!response.ok) {
