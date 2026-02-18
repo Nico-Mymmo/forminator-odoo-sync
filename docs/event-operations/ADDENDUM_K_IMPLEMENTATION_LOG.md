@@ -897,7 +897,114 @@ WHERE wp_snapshot IS NOT NULL
 
 ---
 
-**Status:** ✅ Decisions finalized, implementation in progress  
+**Status:** ✅ **IMPLEMENTED** (commit b0e4819)  
 **Review:** Completed by project lead  
-**Next Step:** Begin Part B implementation (wp-client.js)
+**Deployment:** Ready for migration + testing
+
+---
+
+## Implementation Summary (2026-02-18)
+
+### Completed ✅
+
+**Phase 1: Database (Migration)**
+- ✅ Created `20260218000000_addendum_k_editorial_semantics.sql`
+- ✅ Added columns: `wp_event_id`, `editorial_mode`, `selected_form_id`
+- ✅ Data migration: existing editorial_content → mode='custom'
+- ✅ Extracted wp_event_id from wp_snapshot.id
+- ✅ Indexes, constraints, RLS policies applied
+
+**Phase 2: Backend Critical (wp-client.js)**
+- ✅ Editorial mode switch/case replaces NULL-based logic
+- ✅ WordPress linking verification + meta search + title+datetime fallback
+- ✅ Form shortcode decoupled from editorial_content
+- ✅ saveSnapshot() updated to save new fields
+- ✅ Conservative multi-candidate handling (log warning, don't link)
+
+**Phase 3: Frontend Critical (editor-controller.js)**
+- ✅ saveDescription() uses `editorial_mode='use_odoo_plain'` (not NULL)
+- ✅ saveEditorialToSupabase() accepts editorialMode parameter
+- ✅ htmlToBlocks() preserves HTML formatting (outerHTML)
+
+**Phase 4: Backend Routes (routes.js)**
+- ✅ PUT /api/editorial updated for editorialMode + selectedFormId
+- ✅ GET /api/forms endpoint added (hardcoded fallback)
+
+**Phase 5: Sync Engine (state-engine.js)**
+- ✅ Removed title comparison from detectDiscrepancies()
+- ✅ Full UTC datetime comparison with 60s tolerance
+- ✅ Date-only comparison removed
+- ✅ Only execution-critical fields checked
+
+**Phase 6: Editorial Utilities (editorial.js)**
+- ✅ Added stripShortcodes() function (ready for Odoo PATCH sanitization)
+
+### Remaining ⏳
+
+**Form Picker UI (Optional)**
+- ⏳ Frontend dropdown in editor modal (backend ready)
+- ⏳ Load forms via GET /api/forms
+- ⏳ Save selected_form_id on change
+- **Note:** Backend fully supports form picker, UI can be added incrementally
+
+**Manual Testing**
+- ⏳ Run 7 critical manual tests (see Testing Checklist below)
+- ⏳ Verify no regressions on existing events
+
+**Deployment**
+- ⏳ Apply migration: `supabase db push`
+- ⏳ Deploy backend to production
+- ⏳ Monitor first publish cycle
+
+---
+
+## Next Steps
+
+1. **Apply Migration**
+   ```bash
+   cd supabase
+   supabase db push
+   ```
+
+2. **Verify Schema**
+   ```sql
+   SELECT column_name, data_type, is_nullable 
+   FROM information_schema.columns 
+   WHERE table_name = 'webinar_snapshots' 
+   AND column_name IN ('wp_event_id', 'editorial_mode', 'selected_form_id');
+   ```
+
+3. **Test Critical Flows**
+   - [ ] Test 1: Form re-addition bug (CRITICAL)
+   - [ ] Test 2: Time change detection (CRITICAL)
+   - [ ] Test 3: Snapshot desync (CRITICAL)
+   - [ ] Test 4: HTML formatting preservation
+   - [ ] Test 5: WordPress linking verification
+   - [ ] Test 6: Editorial mode transitions
+   - [ ] Test 7: Conservative fallback matching
+
+4. **Deploy to Production**
+   ```bash
+   npm run deploy  # or wrangler deploy
+   ```
+
+5. **Monitor First Publish**
+   - Check logs for WordPress linking behavior
+   - Verify form shortcodes append correctly
+   - Confirm out-of-sync detection works
+
+---
+
+**Commit:** b0e4819  
+**Branch:** events-operations  
+**Files Changed:** 7 files, 1278 insertions(+), 84 deletions(-)
+
+**Migration File:** `supabase/migrations/20260218000000_addendum_k_editorial_semantics.sql`  
+**Implementation Log:** `docs/event-operations/ADDENDUM_K_IMPLEMENTATION_LOG.md`
+
+**Breaking Changes:**
+- `editorial_mode` replaces NULL-based description logic
+- `wp_event_id` is primary WordPress link (verified)
+- Out-of-sync detection excludes title/description
+- Form injection is now fully UI-driven (no automatic defaults)
 
