@@ -5,6 +5,9 @@ node_modules/
 .env
 .dev.vars
 
+# Local Google service account keys
+src/modules/mail-signature-designer/*.json
+
 # Wrangler local cache
 .wrangler/
 

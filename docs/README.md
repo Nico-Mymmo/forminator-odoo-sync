@@ -53,6 +53,23 @@ Automatische lead classificatie, verrijking en semantic correction.
 
 ---
 
+### ✉️ [Mail Signature Designer](mail-signature-designer/)
+Tijdelijke module voor Gmail signature test/authoring via Google Workspace domain-wide delegation.
+
+**Status:** 🧪 In setup
+**Kernfunctionaliteit:**
+- Signature uitlezen via `users.settings.sendAs.list`
+- Primary sendAs bepalen
+- Signature updaten via `users.settings.sendAs.update`
+
+**Documentatie:**
+- [README.md](mail-signature-designer/README.md) - Module overzicht
+- [FASE_0_ARCHITECTURE_ANALYSIS.md](mail-signature-designer/FASE_0_ARCHITECTURE_ANALYSIS.md) - Architectuuranalyse (Fase 0)
+- [PREREQUISITES_ANALYSIS.md](mail-signature-designer/PREREQUISITES_ANALYSIS.md) - Bevestigde prerequisites en status
+- [MAIL_SIGNATURE_DESIGNER_TEST.md](mail-signature-designer/MAIL_SIGNATURE_DESIGNER_TEST.md) - Testflow en run instructie
+
+---
+
 ### 🗓️ Event Operations
 Odoo `x_webinar` synchronisatie naar WordPress The Events Calendar met snapshot state engine.
 
