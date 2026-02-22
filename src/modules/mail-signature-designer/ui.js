@@ -61,7 +61,7 @@ export function mailSignatureDesignerUI(user) {
     #preview-wrap           { background: #f3f4f6; padding: 16px; border-radius: 8px; }
     #preview-canvas         { background: #fff; max-width: 600px; margin: 0 auto;
                               border-radius: 4px; overflow: hidden; }
-    #preview-frame          { border: none; width: 100%; min-height: 240px; display: block; }
+    #preview-frame          { border: none; width: 100%; min-height: 60px; display: block; }
     #preview-frame.narrow   { max-width: 360px; }
     details summary         { cursor: pointer; user-select: none; }
     details summary::-webkit-details-marker { display: none; }

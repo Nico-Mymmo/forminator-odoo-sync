@@ -488,6 +488,17 @@ async function updatePreview() {
       const doc   = frame.contentDocument || frame.contentWindow.document;
       doc.open(); doc.write(json.data.html); doc.close();
 
+      // Auto-size the iframe to fit content (no scrollbar)
+      const autoSize = () => {
+        const h = frame.contentDocument?.body?.scrollHeight;
+        if (h) frame.style.height = (h + 4) + 'px';
+      };
+      requestAnimationFrame(autoSize);
+      // Re-measure once images have loaded
+      Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
+        if (!img.complete) img.addEventListener('load', autoSize);
+      });
+
       const warnDiv  = $('preview-warnings');
       const warnList = $('preview-warnings-list');
       const apiWarnings = (json.data.warnings || []).filter(w => !w.includes('data:'));
