@@ -318,8 +318,8 @@ export function compileSignature(config, userData) {
     ${dividerCell}
     ${textCell}
   </tr>
-  ${eventRow}
   ${linkedinRow}
+  ${eventRow}
   ${disclaimerRow}
 </table>`).replace(/\n\s*\n/g, '\n').trim();
 
