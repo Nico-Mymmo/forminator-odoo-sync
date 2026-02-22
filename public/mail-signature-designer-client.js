@@ -298,6 +298,73 @@ function onLinkedinPromoToggle(checked) {
 }
 window.onLinkedinPromoToggle = onLinkedinPromoToggle;
 
+async function fetchLinkedinMeta() {
+  const urlInput  = $('linkedin-url-input');
+  const statusEl  = $('linkedin-fetch-status');
+  const btn       = $('linkedin-fetch-btn');
+  const textArea  = document.querySelector('[name="linkedinText"]');
+  const url       = urlInput?.value?.trim();
+
+  if (!url) {
+    showToast('Voer eerst een LinkedIn-URL in', 'warning');
+    return;
+  }
+
+  // Enable promo toggle automatically
+  const toggle = $('linkedin-promo-toggle');
+  if (toggle && !toggle.checked) {
+    toggle.checked = true;
+    onLinkedinPromoToggle(true);
+  }
+
+  if (statusEl) {
+    statusEl.className = 'text-xs mt-1 text-info';
+    statusEl.textContent = 'Post ophalen\u2026';
+  }
+  if (btn) btn.disabled = true;
+
+  try {
+    const res  = await fetch('/mail-signatures/api/linkedin-meta?url=' + encodeURIComponent(url));
+    const json = await res.json();
+
+    if (!json.success) {
+      if (statusEl) {
+        statusEl.className = 'text-xs mt-1 text-error';
+        statusEl.textContent = json.error || 'Ophalen mislukt';
+      }
+      showToast('LinkedIn ophalen mislukt: ' + json.error, 'error');
+      return;
+    }
+
+    const { description } = json.data;
+
+    // Auto-fill flavor text only when field is empty
+    if (textArea && !textArea.value && description) {
+      // Strip the author prefix LinkedIn adds ("Dirk Gypen on LinkedIn: ")
+      const cleaned = description.replace(/^[^:]+\s+op LinkedIn:\s*/i, '').replace(/^[^:]+\s+on LinkedIn:\s*/i, '');
+      textArea.value = cleaned.slice(0, 280); // keep it concise
+    }
+
+    if (statusEl) {
+      statusEl.className = 'text-xs mt-1 text-success';
+      statusEl.textContent = '\u2713 Post opgehaald';
+      setTimeout(() => statusEl.classList.add('hidden'), 3000);
+    }
+
+    markDirty();
+    debouncedPreview();
+  } catch (err) {
+    if (statusEl) {
+      statusEl.className = 'text-xs mt-1 text-error';
+      statusEl.textContent = 'Netwerkfout: ' + err.message;
+    }
+    showToast('Netwerkfout: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.fetchLinkedinMeta = fetchLinkedinMeta;
+
 // ════════════════════════════════════════════════════════
 // Config form helpers
 // ════════════════════════════════════════════════════════

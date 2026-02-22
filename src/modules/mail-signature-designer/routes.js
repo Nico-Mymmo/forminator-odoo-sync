@@ -393,6 +393,59 @@ export const routes = {
   },
 
   /**
+   * GET /mail-signatures/api/linkedin-meta?url=
+   * Fetch OG meta tags from a public LinkedIn post URL (server-side, bypasses CORS).
+   * Returns { title, description, imageUrl }
+   */
+  'GET /api/linkedin-meta': async (context) => {
+    const reqUrl = new URL(context.request.url);
+    const target = reqUrl.searchParams.get('url');
+    if (!target) return jsonError('Missing ?url= parameter', 400);
+
+    // Only allow LinkedIn URLs
+    let parsed;
+    try { parsed = new URL(target); } catch { return jsonError('Invalid URL', 400); }
+    if (!parsed.hostname.endsWith('linkedin.com')) {
+      return jsonError('Only linkedin.com URLs are supported', 400);
+    }
+
+    try {
+      const res = await fetch(target, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'nl-BE,nl;q=0.9,en;q=0.8'
+        },
+        redirect: 'follow'
+      });
+
+      if (!res.ok) return jsonError(`LinkedIn returned HTTP ${res.status}`, 502);
+
+      const html = await res.text();
+
+      // Extract OG meta tags with a simple regex (no DOM in workers)
+      const ogGet = (prop) => {
+        const m = html.match(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']+)["']`, 'i'))
+                || html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:${prop}["']`, 'i'));
+        return m ? m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim() : '';
+      };
+
+      const title       = ogGet('title');
+      const description = ogGet('description');
+      const imageUrl    = ogGet('image');
+
+      if (!title && !description) {
+        return jsonError('Kon geen post-inhoud ophalen — mogelijk is de post niet publiek of vereist LinkedIn een login', 422);
+      }
+
+      return jsonOk({ title, description, imageUrl });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} GET /api/linkedin-meta failed:`, err);
+      return jsonError('Ophalen mislukt: ' + err.message);
+    }
+  },
+
+  /**
    * GET /mail-signatures/api/employees
    * Fetch active hr.employee records from Odoo for preview dropdown
    */

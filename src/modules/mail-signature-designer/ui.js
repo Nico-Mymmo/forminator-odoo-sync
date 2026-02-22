@@ -256,9 +256,17 @@ export function mailSignatureDesignerUI(user) {
 
                       <label class="form-control">
                         <div class="label py-0.5"><span class="label-text text-xs">LinkedIn post URL</span></div>
-                        <input type="url" name="linkedinUrl" id="linkedin-url-input"
-                               placeholder="https://linkedin.com/posts/&#8230;"
-                               class="input input-bordered input-xs" />
+                        <div class="flex gap-1.5">
+                          <input type="url" name="linkedinUrl" id="linkedin-url-input"
+                                 placeholder="https://linkedin.com/posts/&#8230;"
+                                 class="input input-bordered input-xs flex-1" />
+                          <button type="button" id="linkedin-fetch-btn"
+                                  onclick="fetchLinkedinMeta()"
+                                  class="btn btn-xs btn-outline" title="Post automatisch ophalen">
+                            <i data-lucide="sparkles" class="w-3 h-3"></i>
+                          </button>
+                        </div>
+                        <div id="linkedin-fetch-status" class="text-xs mt-1 hidden"></div>
                       </label>
 
                       <label class="form-control">
