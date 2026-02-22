@@ -23,6 +23,23 @@ const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl
 const PLACEHOLDER_RE = /{{(\w+)}}/g;
 
 /**
+ * Blend a hex colour toward white.
+ * @param {string} hex  - e.g. '#2563eb'
+ * @param {number} t    - 0 = original, 1 = white
+ * @returns {string}
+ */
+function lightenHex(hex, t = 0.8) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const lr = Math.round(r + (255 - r) * t).toString(16).padStart(2, '0');
+  const lg = Math.round(g + (255 - g) * t).toString(16).padStart(2, '0');
+  const lb = Math.round(b + (255 - b) * t).toString(16).padStart(2, '0');
+  return `#${lr}${lg}${lb}`;
+}
+
+/**
  * Resolve all placeholders in a string.
  * Collects unresolved placeholders as warnings.
  *
@@ -84,19 +101,27 @@ export function compileSignature(config, userData) {
   };
 
   const fontStack = 'Arial, Helvetica, sans-serif';
-  const baseColor = '#222222';
-  const mutedColor = '#666666';
+  const baseColor    = '#222222';
+  const mutedColor   = '#666666';
+  const dividerColor = lightenHex(brandColor, 0.65);  // soft tint for the vertical rule
+  const calloutBg    = lightenHex(brandColor, 0.90);  // very pale fill for event callout
 
-  // ── HEADER ROW ──────────────────────────────────────────────────────────────
-  const photoCell = (data.photoUrl)
-    ? `<td style="width:72px;vertical-align:top;padding-left:16px;">
+  // ── PHOTO CELL (left) ────────────────────────────────────────────────────────
+  const photoCell = data.photoUrl
+    ? `<td style="width:80px;vertical-align:bottom;padding-right:14px;">
         <img src="${data.photoUrl}"
-             width="60" height="60"
+             width="72" height="72"
              alt=""
-             style="border-radius:50%;width:60px;height:60px;object-fit:cover;display:block;" />
+             style="border-radius:50%;width:72px;height:72px;object-fit:cover;display:block;" />
       </td>`
     : '';
 
+  // ── VERTICAL DIVIDER (only when photo present) ───────────────────────────────
+  const dividerCell = data.photoUrl
+    ? `<td style="width:1px;background-color:${dividerColor};padding:0;font-size:0;line-height:0;">&nbsp;</td>`
+    : '';
+
+  // ── TEXT CELL (right) ────────────────────────────────────────────────────────
   const nameBlock = data.fullName
     ? `<div style="font-family:${fontStack};font-size:16px;font-weight:bold;color:${baseColor};line-height:1.3;">${data.fullName}</div>`
     : '';
@@ -109,65 +134,78 @@ export function compileSignature(config, userData) {
     ? `<div style="font-family:${fontStack};font-size:13px;color:${brandColor};margin-top:2px;font-weight:600;">${brandName}</div>`
     : '';
 
-  const nameCell = `<td style="vertical-align:top;">
-    ${nameBlock}${roleBlock}${brandBlock}
-  </td>`;
-
-  // ── SPACER ───────────────────────────────────────────────────────────────────
-  const spacer = `<tr><td colspan="2" style="height:10px;line-height:10px;font-size:10px;">&nbsp;</td></tr>`;
-
-  // ── CONTACT ROW ──────────────────────────────────────────────────────────────
   const contactLines = [];
-
   if (data.phone) {
     contactLines.push(
       `<div style="font-family:${fontStack};font-size:13px;color:${baseColor};">${data.phone}</div>`
     );
   }
-
   if (data.email) {
     contactLines.push(
       `<div style="font-family:${fontStack};font-size:13px;"><a href="mailto:${data.email}" style="color:${brandColor};text-decoration:none;">${data.email}</a></div>`
     );
   }
-
   if (websiteUrl) {
-    const websiteLabel = websiteUrl.replace(/^https?:\/\//, '');
+    const label = websiteUrl.replace(/^https?:\/\//, '');
     contactLines.push(
-      `<div style="font-family:${fontStack};font-size:13px;"><a href="${websiteUrl}" style="color:${brandColor};text-decoration:none;">${websiteLabel}</a></div>`
+      `<div style="font-family:${fontStack};font-size:13px;"><a href="${websiteUrl}" style="color:${brandColor};text-decoration:none;">${label}</a></div>`
     );
   }
 
-  const contactRow = contactLines.length
-    ? `<tr><td colspan="2">${contactLines.join('')}</td></tr>`
+  const contactBlock = contactLines.length
+    ? `<div style="margin-top:8px;">${contactLines.join('')}</div>`
     : '';
 
-  // ── BANNER / EVENT PROMO ─────────────────────────────────────────────────────
-  let bannerRow = '';
+  const textCell = `<td style="vertical-align:bottom;${data.photoUrl ? 'padding-left:14px;' : ''}">
+    ${nameBlock}${roleBlock}${brandBlock}${contactBlock}
+  </td>`;
+
+  // ── EVENT PROMO CALLOUT ───────────────────────────────────────────────────────
+  let eventRow = '';
 
   if (eventPromoEnabled && eventTitle) {
-    const imgTag = eventImageUrl
-      ? `<a href="${eventRegUrl || '#'}" style="display:block;"><img src="${eventImageUrl}" alt="${eventTitle}" width="600" style="display:block;max-width:600px;width:100%;border:0;" /></a>`
+    const imgBlock = eventImageUrl
+      ? `<a href="${eventRegUrl || '#'}" style="display:block;margin-bottom:10px;">
+          <img src="${eventImageUrl}" alt="${eventTitle}" width="552"
+               style="display:block;width:100%;max-width:552px;border:0;border-radius:3px;" />
+        </a>`
       : '';
-    const titleBlock = `<div style="font-family:${fontStack};font-size:14px;font-weight:600;color:${baseColor};margin-top:8px;">${eventTitle}</div>`;
-    const dateBlock = eventDate
+
+    const titleLine = `<div style="font-family:${fontStack};font-size:14px;font-weight:700;color:${baseColor};line-height:1.4;">${eventTitle}</div>`;
+
+    const dateLine = eventDate
       ? `<div style="font-family:${fontStack};font-size:12px;color:${mutedColor};margin-top:3px;">${eventDate}</div>`
       : '';
-    const regBlock = eventRegUrl
-      ? `<div style="margin-top:5px;"><a href="${eventRegUrl}" style="font-family:${fontStack};font-size:12px;color:${brandColor};text-decoration:none;">Schrijf je in &#8594;</a></div>`
+
+    const ctaLine = eventRegUrl
+      ? `<div style="margin-top:7px;">
+          <a href="${eventRegUrl}"
+             style="font-family:${fontStack};font-size:12px;font-weight:600;color:${brandColor};text-decoration:none;">
+            Schrijf je in &#8594;
+          </a>
+        </div>`
       : '';
-    bannerRow = `<tr>
-      <td colspan="2" style="padding-top:12px;">
-        ${imgTag}
-        ${titleBlock}
-        ${dateBlock}
-        ${regBlock}
+
+    // Callout: left accent bar (3px coloured td) + light background
+    eventRow = `<tr>
+      <td colspan="3" style="padding-top:14px;">
+        <table cellpadding="0" cellspacing="0" border="0"
+               style="width:100%;border-collapse:collapse;background-color:${calloutBg};">
+          <tr>
+            <td style="width:3px;background-color:${brandColor};font-size:0;line-height:0;">&nbsp;</td>
+            <td style="padding:12px 14px;">
+              ${imgBlock}${titleLine}${dateLine}${ctaLine}
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>`;
+
   } else if (showBanner && bannerImageUrl) {
-    const bannerImg = `<img src="${bannerImageUrl}" alt="" width="600" style="display:block;max-width:600px;width:100%;border:0;" />`;
-    bannerRow = `<tr>
-      <td colspan="2" style="padding-top:12px;">
+    const bannerImg = `<img src="${bannerImageUrl}" alt="" width="600"
+      style="display:block;max-width:600px;width:100%;border:0;" />`;
+    eventRow = `<tr>
+      <td colspan="3" style="padding-top:12px;">
         ${bannerLinkUrl
           ? `<a href="${bannerLinkUrl}" style="display:block;">${bannerImg}</a>`
           : bannerImg}
@@ -178,10 +216,10 @@ export function compileSignature(config, userData) {
   // ── DISCLAIMER ────────────────────────────────────────────────────────────────
   let disclaimerRow = '';
   if (showDisclaimer && disclaimerText) {
-    const resolvedDisclaimer = resolvePlaceholders(disclaimerText, data, warnings);
+    const resolved = resolvePlaceholders(disclaimerText, data, warnings);
     disclaimerRow = `<tr>
-      <td colspan="2" style="padding-top:10px;font-family:${fontStack};font-size:11px;color:${mutedColor};">
-        ${resolvedDisclaimer}
+      <td colspan="3" style="padding-top:10px;font-family:${fontStack};font-size:11px;color:${mutedColor};">
+        ${resolved}
       </td>
     </tr>`;
   }
@@ -190,12 +228,11 @@ export function compileSignature(config, userData) {
   const html = `<table cellpadding="0" cellspacing="0" border="0"
   style="max-width:600px;width:100%;border-collapse:collapse;font-family:${fontStack};">
   <tr>
-    ${nameCell}
     ${photoCell}
+    ${dividerCell}
+    ${textCell}
   </tr>
-  ${spacer}
-  ${contactRow}
-  ${bannerRow}
+  ${eventRow}
   ${disclaimerRow}
 </table>`.replace(/\n\s*\n/g, '\n').trim();
 
