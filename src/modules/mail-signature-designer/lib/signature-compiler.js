@@ -13,6 +13,10 @@
  * - No empty <br> tags
  * - Unknown placeholders → warnings array
  * - Push continues despite warnings
+ *
+ * Event Amplifier mode:
+ * - If eventPromoEnabled + eventTitle: render event banner block at bottom
+ * - Else if showBanner + bannerImageUrl: render fallback banner
  */
 
 const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl', 'brandName', 'websiteUrl'];
@@ -56,14 +60,18 @@ export function compileSignature(config, userData) {
     brandName = 'OpenVME',
     websiteUrl = 'https://openvme.be',
     showPhoto = false,
-    showCTA = false,
-    showBanner = false,
     showDisclaimer = false,
-    ctaText = '',
-    ctaUrl = '',
+    disclaimerText = '',
+    // Event promo
+    eventPromoEnabled = false,
+    eventTitle = '',
+    eventDate = '',
+    eventImageUrl = '',
+    eventRegUrl = '',
+    // Fallback banner
+    showBanner = false,
     bannerImageUrl = '',
-    bannerLinkUrl = '',
-    disclaimerText = ''
+    bannerLinkUrl = ''
   } = config;
 
   const brandColor = resolvedBrandColor;
@@ -140,22 +148,29 @@ export function compileSignature(config, userData) {
     ? `<tr><td colspan="2">${contactLines.join('')}</td></tr>`
     : '';
 
-  // ── CTA ──────────────────────────────────────────────────────────────────────
-  let ctaRow = '';
-  if (showCTA && ctaText && ctaUrl) {
-    const resolvedCtaText = resolvePlaceholders(ctaText, data, warnings);
-    ctaRow = `<tr>
+  // ── BANNER / EVENT PROMO ─────────────────────────────────────────────────────
+  let bannerRow = '';
+
+  if (eventPromoEnabled && eventTitle) {
+    const imgTag = eventImageUrl
+      ? `<a href="${eventRegUrl || '#'}" style="display:block;"><img src="${eventImageUrl}" alt="${eventTitle}" width="600" style="display:block;max-width:600px;width:100%;border:0;" /></a>`
+      : '';
+    const titleBlock = `<div style="font-family:${fontStack};font-size:14px;font-weight:600;color:${baseColor};margin-top:8px;">${eventTitle}</div>`;
+    const dateBlock = eventDate
+      ? `<div style="font-family:${fontStack};font-size:12px;color:${mutedColor};margin-top:3px;">${eventDate}</div>`
+      : '';
+    const regBlock = eventRegUrl
+      ? `<div style="margin-top:5px;"><a href="${eventRegUrl}" style="font-family:${fontStack};font-size:12px;color:${brandColor};text-decoration:none;">Schrijf je in &#8594;</a></div>`
+      : '';
+    bannerRow = `<tr>
       <td colspan="2" style="padding-top:12px;">
-        <a href="${ctaUrl}"
-           style="display:inline-block;background-color:${brandColor};color:#ffffff;font-family:${fontStack};font-size:13px;font-weight:600;text-decoration:none;padding:8px 18px;border-radius:6px;"
-        >${resolvedCtaText}</a>
+        ${imgTag}
+        ${titleBlock}
+        ${dateBlock}
+        ${regBlock}
       </td>
     </tr>`;
-  }
-
-  // ── BANNER ────────────────────────────────────────────────────────────────────
-  let bannerRow = '';
-  if (showBanner && bannerImageUrl) {
+  } else if (showBanner && bannerImageUrl) {
     const bannerImg = `<img src="${bannerImageUrl}" alt="" width="600" style="display:block;max-width:600px;width:100%;border:0;" />`;
     bannerRow = `<tr>
       <td colspan="2" style="padding-top:12px;">
@@ -186,7 +201,6 @@ export function compileSignature(config, userData) {
   </tr>
   ${spacer}
   ${contactRow}
-  ${ctaRow}
   ${bannerRow}
   ${disclaimerRow}
 </table>`.replace(/\n\s*\n/g, '\n').trim();

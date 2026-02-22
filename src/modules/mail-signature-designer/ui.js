@@ -1,5 +1,5 @@
-/**
- * Mail Signature Designer - UI  (Iteration 3)
+﻿/**
+ * Mail Signature Designer - UI  (Event Amplifier)
  *
  * Server-side HTML skeleton ONLY.
  * ALL dynamic client logic is in /mail-signature-designer-client.js
@@ -63,6 +63,10 @@ export function mailSignatureDesignerUI(user) {
                               border-radius: 4px; overflow: hidden; }
     #preview-frame          { border: none; width: 100%; min-height: 240px; display: block; }
     #preview-frame.narrow   { max-width: 360px; }
+    details summary         { cursor: pointer; user-select: none; }
+    details summary::-webkit-details-marker { display: none; }
+    details[open] .summary-chevron { transform: rotate(90deg); }
+    .summary-chevron        { transition: transform 0.15s; }
   </style>
 </head>
 <body class="bg-base-200">
@@ -78,7 +82,7 @@ export function mailSignatureDesignerUI(user) {
       <!-- Header -->
       <div class="mb-5">
         <h1 class="text-4xl font-bold mb-1">Signature Designer</h1>
-        <p class="text-base-content/60 text-sm">Ontwerp en push e-mailhandtekeningen voor Google Workspace</p>
+        <p class="text-base-content/60 text-sm">Event Amplifier &mdash; promoot events via e-mailhandtekeningen</p>
       </div>
 
       <!-- Tabs -->
@@ -107,124 +111,173 @@ export function mailSignatureDesignerUI(user) {
                 <h2 class="font-semibold text-base">Configuratie</h2>
                 <div class="flex items-center gap-2">
                   <span id="save-status-dot" class="w-2 h-2 rounded-full bg-base-300"></span>
-                  <span id="save-status" class="text-xs text-base-content/40">–</span>
+                  <span id="save-status" class="text-xs text-base-content/40">&#8211;</span>
                 </div>
               </div>
 
               <form id="config-form">
 
-                <!-- ── Sectie 1: Identiteit ── -->
-                <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wider mb-2">Identiteit</p>
-                <p class="text-xs text-base-content/40 mb-3">Naam en kleur die in elke handtekening verschijnen.</p>
+                <!-- Hidden event metadata fields (populated by JS on dropdown change) -->
+                <input type="hidden" name="eventTitle" id="event-hidden-title" />
+                <input type="hidden" name="eventDate"  id="event-hidden-date" />
 
-                <div class="space-y-2 mb-4">
-                  <label class="form-control">
-                    <div class="label py-0.5"><span class="label-text text-sm">Merknaam</span></div>
-                    <input type="text" name="brandName" placeholder="OpenVME"
-                           class="input input-bordered input-sm" />
-                  </label>
-                  <label class="form-control">
-                    <div class="label py-0.5"><span class="label-text text-sm">Website URL</span></div>
-                    <input type="url" name="websiteUrl" placeholder="https://openvme.be"
-                           class="input input-bordered input-sm" />
-                  </label>
-                  <div class="form-control">
-                    <div class="label py-0.5"><span class="label-text text-sm">Primaire kleur</span></div>
+                <!-- ══ SECTIE 1: Event Promotie ══ -->
+                <details id="section-event" open class="mb-4">
+                  <summary class="flex items-center justify-between py-1.5 select-none">
                     <div class="flex items-center gap-2">
-                      <input type="color" name="brandColor" value="#2563eb"
-                             id="brand-color-picker"
-                             class="w-9 h-8 rounded border border-base-300 cursor-pointer p-0.5" />
-                      <input type="text" id="brand-color-text" value="#2563eb"
-                             placeholder="#2563eb"
-                             class="input input-bordered input-sm w-28"
-                             pattern="^#[0-9a-fA-F]{6}$" />
+                      <i data-lucide="calendar" class="w-4 h-4 text-primary"></i>
+                      <span class="text-sm font-semibold">Event Promotie</span>
+                      <span class="badge badge-primary badge-xs">Prioriteit</span>
                     </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+
+                  <div class="pt-3 space-y-3">
+
+                    <!-- Toggle -->
+                    <label class="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" name="eventPromoEnabled" id="event-promo-toggle"
+                             class="toggle toggle-primary toggle-sm"
+                             onchange="onEventPromoToggle(this.checked)" />
+                      <span class="text-sm font-medium">Promoot event in handtekening</span>
+                    </label>
+
+                    <!-- Event select + meta (visible when toggle on) -->
+                    <div id="event-promo-fields" class="cond-field space-y-3">
+
+                      <div class="form-control">
+                        <div class="label py-0.5">
+                          <span class="label-text text-xs font-medium">Aankomend event</span>
+                          <button type="button" onclick="loadEvents()"
+                                  class="label-text-alt btn btn-ghost btn-xs gap-1">
+                            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Vernieuwen
+                          </button>
+                        </div>
+                        <select name="eventId" id="event-select"
+                                class="select select-bordered select-sm"
+                                onchange="onEventSelect(this.value)">
+                          <option value="">&#8212; Laden&#8230; &#8212;</option>
+                        </select>
+                      </div>
+
+                      <!-- Event metadata badge -->
+                      <div id="event-meta" class="hidden rounded-lg bg-base-200 px-3 py-2.5 space-y-1">
+                        <div class="flex items-start justify-between gap-2">
+                          <span id="event-meta-title" class="text-sm font-semibold leading-snug"></span>
+                          <span id="event-meta-badge" class="badge badge-outline badge-sm shrink-0"></span>
+                        </div>
+                        <span id="event-meta-date" class="text-xs text-base-content/50"></span>
+                      </div>
+
+                      <!-- Event banner image URL (manual) -->
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Event afbeelding URL</span></div>
+                        <input type="url" name="eventImageUrl" id="event-image-url-input"
+                               placeholder="https://&#8230;/event-banner.png"
+                               class="input input-bordered input-xs" />
+                      </label>
+
+                      <!-- Registration URL -->
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Registratie URL</span></div>
+                        <input type="url" name="eventRegUrl" id="event-reg-url-input"
+                               placeholder="https://openvme.be/events/&#8230;"
+                               class="input input-bordered input-xs" />
+                      </label>
+
+                    </div>
+
+                    <!-- Fallback banner (visible when toggle off) -->
+                    <div id="fallback-banner-section" class="cond-field visible space-y-2">
+                      <p class="text-xs text-base-content/40">Indien geen event geselecteerd: toon bannerafbeelding.</p>
+
+                      <label class="flex items-start gap-3 cursor-pointer py-0.5">
+                        <input type="checkbox" name="showBanner" class="checkbox checkbox-sm mt-0.5"
+                               onchange="toggleCond('fallback-banner-fields', this.checked)" />
+                        <div>
+                          <span class="text-sm font-medium">Fallback bannerafbeelding</span>
+                        </div>
+                      </label>
+                      <div id="fallback-banner-fields" class="cond-field pl-7 space-y-2">
+                        <label class="form-control">
+                          <div class="label py-0.5"><span class="label-text text-xs">Afbeelding URL</span></div>
+                          <input type="url" name="bannerImageUrl" placeholder="https://&#8230;/banner.png"
+                                 class="input input-bordered input-xs" />
+                        </label>
+                        <label class="form-control">
+                          <div class="label py-0.5"><span class="label-text text-xs">Link URL (optioneel)</span></div>
+                          <input type="url" name="bannerLinkUrl" placeholder="https://openvme.be"
+                                 class="input input-bordered input-xs" />
+                        </label>
+                      </div>
+                    </div>
+
                   </div>
-                </div>
+                </details>
 
-                <div class="divider my-2"></div>
+                <div class="divider my-0"></div>
 
-                <!-- ── Sectie 2: Content ── -->
-                <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wider mb-2">Content</p>
-                <p class="text-xs text-base-content/40 mb-3">Kies welke elementen in de handtekening getoond worden.</p>
-
-                <div class="space-y-2 mb-2">
-                  <!-- showPhoto -->
-                  <label class="flex items-start gap-3 cursor-pointer py-1">
-                    <input type="checkbox" name="showPhoto" class="checkbox checkbox-sm mt-0.5" />
-                    <div>
-                      <span class="text-sm font-medium">Profielfoto</span>
-                      <p class="text-xs text-base-content/40 leading-tight">Vereist publieke HTTPS-URL. data: URLs werken enkel in preview.</p>
+                <!-- ══ SECTIE 2: Branding ══ -->
+                <details id="section-branding" class="mb-4 mt-1">
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="palette" class="w-4 h-4 text-base-content/50"></i>
+                      <span class="text-sm font-semibold">Branding</span>
                     </div>
-                  </label>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
 
-                  <!-- showCTA -->
-                  <label class="flex items-start gap-3 cursor-pointer py-1">
-                    <input type="checkbox" name="showCTA" class="checkbox checkbox-sm mt-0.5"
-                           onchange="toggleCond('cta-fields', this.checked)" />
-                    <div>
-                      <span class="text-sm font-medium">CTA knop</span>
-                      <p class="text-xs text-base-content/40 leading-tight">Knop met tekst en link onderaan de handtekening.</p>
+                  <div class="pt-3 space-y-2">
+
+                    <label class="form-control">
+                      <div class="label py-0.5"><span class="label-text text-sm">Merknaam</span></div>
+                      <input type="text" name="brandName" placeholder="OpenVME"
+                             class="input input-bordered input-sm" />
+                    </label>
+
+                    <label class="form-control">
+                      <div class="label py-0.5"><span class="label-text text-sm">Website URL</span></div>
+                      <input type="url" name="websiteUrl" placeholder="https://openvme.be"
+                             class="input input-bordered input-sm" />
+                    </label>
+
+                    <div class="form-control">
+                      <div class="label py-0.5"><span class="label-text text-sm">Primaire kleur</span></div>
+                      <div class="flex items-center gap-2">
+                        <input type="color" name="brandColor" value="#2563eb"
+                               id="brand-color-picker"
+                               class="w-9 h-8 rounded border border-base-300 cursor-pointer p-0.5" />
+                        <input type="text" id="brand-color-text" value="#2563eb"
+                               placeholder="#2563eb"
+                               class="input input-bordered input-sm w-28"
+                               pattern="^#[0-9a-fA-F]{6}$" />
+                      </div>
                     </div>
-                  </label>
-                  <div id="cta-fields" class="cond-field pl-7 space-y-2">
-                    <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-xs">CTA tekst</span></div>
-                      <input type="text" name="ctaText" placeholder="Bekijk onze diensten"
-                             class="input input-bordered input-xs" />
+
+                    <label class="flex items-start gap-3 cursor-pointer py-0.5">
+                      <input type="checkbox" name="showDisclaimer" class="checkbox checkbox-sm mt-0.5"
+                             onchange="toggleCond('disclaimer-fields', this.checked)" />
+                      <div>
+                        <span class="text-sm font-medium">Disclaimer</span>
+                        <p class="text-xs text-base-content/40 leading-tight">Kleine vertrouwelijkheidstekst onderaan.</p>
+                      </div>
                     </label>
-                    <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-xs">CTA URL</span></div>
-                      <input type="url" name="ctaUrl" placeholder="https://openvme.be"
-                             class="input input-bordered input-xs" />
-                    </label>
+                    <div id="disclaimer-fields" class="cond-field pl-7">
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Disclaimer tekst</span></div>
+                        <textarea name="disclaimerText" rows="2"
+                                  placeholder="Dit bericht is vertrouwelijk&#8230;"
+                                  class="textarea textarea-bordered textarea-xs leading-snug"></textarea>
+                      </label>
+                    </div>
+
                   </div>
+                </details>
 
-                  <!-- showBanner -->
-                  <label class="flex items-start gap-3 cursor-pointer py-1">
-                    <input type="checkbox" name="showBanner" class="checkbox checkbox-sm mt-0.5"
-                           onchange="toggleCond('banner-fields', this.checked)" />
-                    <div>
-                      <span class="text-sm font-medium">Bannerafbeelding</span>
-                      <p class="text-xs text-base-content/40 leading-tight">Afbeelding met optionele link onderaan de handtekening.</p>
-                    </div>
-                  </label>
-                  <div id="banner-fields" class="cond-field pl-7 space-y-2">
-                    <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-xs">Afbeelding URL</span></div>
-                      <input type="url" name="bannerImageUrl" placeholder="https://…/banner.png"
-                             class="input input-bordered input-xs" />
-                    </label>
-                    <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-xs">Link URL (optioneel)</span></div>
-                      <input type="url" name="bannerLinkUrl" placeholder="https://openvme.be"
-                             class="input input-bordered input-xs" />
-                    </label>
-                  </div>
-
-                  <!-- showDisclaimer -->
-                  <label class="flex items-start gap-3 cursor-pointer py-1">
-                    <input type="checkbox" name="showDisclaimer" class="checkbox checkbox-sm mt-0.5"
-                           onchange="toggleCond('disclaimer-fields', this.checked)" />
-                    <div>
-                      <span class="text-sm font-medium">Disclaimer</span>
-                      <p class="text-xs text-base-content/40 leading-tight">Kleine vertrouwelijkheidstekst onderaan.</p>
-                    </div>
-                  </label>
-                  <div id="disclaimer-fields" class="cond-field pl-7">
-                    <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-xs">Disclaimer tekst</span></div>
-                      <textarea name="disclaimerText" rows="2"
-                                placeholder="Dit bericht is vertrouwelijk…"
-                                class="textarea textarea-bordered textarea-xs leading-snug"></textarea>
-                    </label>
-                  </div>
-                </div>
-
-                <div class="divider my-2"></div>
+                <div class="divider my-0"></div>
 
                 <!-- Save -->
-                <div class="flex gap-2 pt-1">
+                <div class="flex gap-2 pt-3">
                   <button type="button" onclick="saveConfig()" class="btn btn-primary btn-sm">
                     <i data-lucide="save" class="w-3.5 h-3.5 mr-1"></i> Opslaan
                   </button>
@@ -241,7 +294,6 @@ export function mailSignatureDesignerUI(user) {
               <!-- Preview header + controls -->
               <div class="flex items-center justify-between">
                 <h2 class="font-semibold text-base">Live preview</h2>
-                <!-- Viewport toggle -->
                 <div class="join">
                   <button id="vp-desktop" class="join-item btn btn-xs btn-active" onclick="setViewport('desktop')" title="Desktop">
                     <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
@@ -258,7 +310,7 @@ export function mailSignatureDesignerUI(user) {
                   <div class="label py-0.5"><span class="label-text text-xs font-medium">Medewerker uit Odoo</span></div>
                   <select id="prev-employee-select" class="select select-bordered select-xs"
                           onchange="onEmployeeSelect(this)">
-                    <option value="">— Laad medewerkers… —</option>
+                    <option value="">&#8212; Laad medewerkers&#8230; &#8212;</option>
                   </select>
                 </div>
                 <button onclick="loadEmployees()" class="btn btn-ghost btn-xs mb-0.5" title="Vernieuwen">
@@ -292,7 +344,7 @@ export function mailSignatureDesignerUI(user) {
                 </label>
                 <label class="form-control">
                   <div class="label py-0.5"><span class="label-text text-xs">Foto URL</span></div>
-                  <input type="url" id="prev-photoUrl" value="" placeholder="https://…"
+                  <input type="url" id="prev-photoUrl" value="" placeholder="https://&#8230;"
                          class="input input-bordered input-xs" />
                 </label>
               </div>
@@ -307,7 +359,7 @@ export function mailSignatureDesignerUI(user) {
               <div id="preview-data-warning" class="hidden">
                 <div class="alert alert-warning py-1.5 text-xs gap-1.5">
                   <i data-lucide="alert-triangle" class="w-3.5 h-3.5 flex-shrink-0"></i>
-                  <span>Foto bevat een data: URL — werkt enkel in preview, niet bij push naar Gmail.</span>
+                  <span>Foto bevat een data: URL &#8212; werkt enkel in preview, niet bij push naar Gmail.</span>
                 </div>
               </div>
 
@@ -338,14 +390,14 @@ export function mailSignatureDesignerUI(user) {
           <div class="card-body gap-4">
             <h2 class="card-title text-base">Signature pushen</h2>
             <p class="text-sm text-base-content/60">
-              Selecteer één of meerdere gebruikers. De handtekening wordt opgesteld op basis van
+              Selecteer &#233;&#233;n of meerdere gebruikers. De handtekening wordt opgesteld op basis van
               de opgeslagen configuratie. Naam, foto en functie worden live opgehaald via de
               Directory- en Odoo-API.
             </p>
 
             <div class="flex gap-2">
               <input type="text" id="push-search"
-                     placeholder="Zoek op naam of e-mailadres…"
+                     placeholder="Zoek op naam of e-mailadres&#8230;"
                      class="input input-bordered input-sm flex-1"
                      onkeydown="if(event.key==='Enter') searchUsers()" />
               <button onclick="searchUsers()" class="btn btn-outline btn-sm">Zoeken</button>
@@ -410,7 +462,7 @@ export function mailSignatureDesignerUI(user) {
                 <tbody id="logs-tbody">
                   <tr>
                     <td colspan="6" class="text-center text-base-content/40 py-4">
-                      Logs laden…
+                      Logs laden&#8230;
                     </td>
                   </tr>
                 </tbody>

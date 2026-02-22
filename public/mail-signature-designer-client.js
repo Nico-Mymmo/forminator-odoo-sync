@@ -1,5 +1,5 @@
 /**
- * Mail Signature Designer — Client JS  (Iteration 3)
+ * Mail Signature Designer — Client JS  (Event Amplifier)
  *
  * Served as static asset: /mail-signature-designer-client.js
  * Referenced by ui.js via: <script src="/mail-signature-designer-client.js"></script>
@@ -40,11 +40,11 @@ function debounce(fn, delay) {
 let _previewState = 'pristine';
 
 const PREVIEW_STATE_CONFIG = {
-  pristine: { dot: 'bg-base-300', text: '',                      textClass: 'text-base-content/40', show: false },
-  dirty:    { dot: 'bg-warning',  text: 'Niet opgeslagen',       textClass: 'text-warning',         show: true  },
-  loading:  { dot: 'bg-info animate-pulse', text: 'Preview laden…', textClass: 'text-info',         show: true  },
-  saved:    { dot: 'bg-success',  text: 'Opgeslagen',            textClass: 'text-success',         show: true  },
-  error:    { dot: 'bg-error',    text: 'Fout bij ophalen',      textClass: 'text-error',           show: true  }
+  pristine: { dot: 'bg-base-300',          text: '',                 textClass: 'text-base-content/40', show: false },
+  dirty:    { dot: 'bg-warning',            text: 'Niet opgeslagen', textClass: 'text-warning',         show: true  },
+  loading:  { dot: 'bg-info animate-pulse', text: 'Preview laden…',  textClass: 'text-info',            show: true  },
+  saved:    { dot: 'bg-success',            text: 'Opgeslagen',      textClass: 'text-success',         show: true  },
+  error:    { dot: 'bg-error',              text: 'Fout bij ophalen',textClass: 'text-error',           show: true  }
 };
 
 function setPreviewState(state) {
@@ -74,16 +74,16 @@ function setSaveStatus(status) {
   if (!label) return;
   if (status === 'dirty') {
     if (dot) dot.className = 'w-2 h-2 rounded-full bg-warning';
-    label.textContent  = 'Niet opgeslagen';
-    label.className    = 'text-xs text-warning font-medium';
+    label.textContent = 'Niet opgeslagen';
+    label.className   = 'text-xs text-warning font-medium';
   } else if (status === 'saved') {
     if (dot) dot.className = 'w-2 h-2 rounded-full bg-success';
-    label.textContent  = 'Opgeslagen';
-    label.className    = 'text-xs text-success font-medium';
+    label.textContent = 'Opgeslagen';
+    label.className   = 'text-xs text-success font-medium';
   } else {
     if (dot) dot.className = 'w-2 h-2 rounded-full bg-base-300';
-    label.textContent  = '–';
-    label.className    = 'text-xs text-base-content/40';
+    label.textContent = '–';
+    label.className   = 'text-xs text-base-content/40';
   }
 }
 
@@ -125,20 +125,20 @@ window.toggleCond = toggleCond;
 // Viewport toggle (desktop / mobile)
 // ════════════════════════════════════════════════════════
 function setViewport(mode) {
-  const frame   = $('preview-frame');
-  const canvas  = $('preview-canvas');
-  const btnD    = $('vp-desktop');
-  const btnM    = $('vp-mobile');
+  const frame  = $('preview-frame');
+  const canvas = $('preview-canvas');
+  const btnD   = $('vp-desktop');
+  const btnM   = $('vp-mobile');
   if (!frame) return;
 
   if (mode === 'mobile') {
-    canvas.style.maxWidth  = '360px';
-    frame.style.maxWidth   = '360px';
+    canvas.style.maxWidth = '360px';
+    frame.style.maxWidth  = '360px';
     btnD?.classList.remove('btn-active');
     btnM?.classList.add('btn-active');
   } else {
-    canvas.style.maxWidth  = '600px';
-    frame.style.maxWidth   = '';
+    canvas.style.maxWidth = '600px';
+    frame.style.maxWidth  = '';
     btnD?.classList.add('btn-active');
     btnM?.classList.remove('btn-active');
   }
@@ -168,29 +168,155 @@ function initColorSync() {
 }
 
 // ════════════════════════════════════════════════════════
+// Event Amplifier — event fetch & dropdown wiring
+// ════════════════════════════════════════════════════════
+let _allEvents = [];
+
+function formatEventDate(isoStr) {
+  if (!isoStr) return '';
+  try {
+    return new Date(isoStr).toLocaleDateString('nl-BE', {
+      day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch (_) { return isoStr; }
+}
+
+async function loadEvents() {
+  const sel = $('event-select');
+  if (!sel) return;
+
+  const prevValue = sel.value;
+  sel.innerHTML = '<option value="">Laden\u2026</option>';
+
+  try {
+    const res  = await fetch('/events/api/odoo-webinars?_t=' + Date.now(), { credentials: 'include' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Onbekende fout');
+
+    const { webinars, registrationCounts } = json.data;
+    _allEvents = (webinars || []).map(w => ({
+      id:                w.id,
+      title:             w.x_name || '(geen naam)',
+      datetime:          w.x_studio_event_datetime || null,
+      registrationCount: (registrationCounts && registrationCounts[w.id]) || 0
+    }));
+
+    // Upcoming only (datetime >= start of today), sorted soonest first
+    const now = Date.now();
+    const upcoming = _allEvents
+      .filter(e => e.datetime && new Date(e.datetime).getTime() >= now)
+      .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+
+    if (upcoming.length === 0) {
+      sel.innerHTML = '<option value="">\u2014 Geen aankomende events \u2014</option>';
+      return;
+    }
+
+    sel.innerHTML = '<option value="">\u2014 Kies een event \u2014</option>' +
+      upcoming.map(e => {
+        const d = formatEventDate(e.datetime);
+        return `<option value="${e.id}">${e.title}${d ? ' \xb7 ' + d : ''}</option>`;
+      }).join('');
+
+    // Restore previous selection when refreshing
+    if (prevValue) {
+      const stillThere = upcoming.find(e => String(e.id) === prevValue);
+      if (stillThere) sel.value = prevValue;
+    }
+
+    lucide.createIcons();
+  } catch (err) {
+    console.error('[sig] loadEvents error:', err);
+    sel.innerHTML = '<option value="">\u2014 Laden mislukt \u2014</option>';
+    showToast('Events laden mislukt: ' + err.message, 'error');
+  }
+}
+window.loadEvents = loadEvents;
+
+function onEventPromoToggle(checked) {
+  toggleCond('event-promo-fields', checked);
+  // Show fallback banner controls only when event promo is OFF
+  const fallback = $('fallback-banner-section');
+  if (fallback) fallback.classList.toggle('visible', !checked);
+  markDirty();
+  debouncedPreview();
+}
+window.onEventPromoToggle = onEventPromoToggle;
+
+function onEventSelect(idStr) {
+  const eventId   = parseInt(idStr, 10);
+  const titleEl   = $('event-hidden-title');
+  const dateEl    = $('event-hidden-date');
+  const metaDiv   = $('event-meta');
+  const metaTitle = $('event-meta-title');
+  const metaDate  = $('event-meta-date');
+  const metaBadge = $('event-meta-badge');
+
+  if (!eventId) {
+    if (titleEl) titleEl.value = '';
+    if (dateEl)  dateEl.value  = '';
+    if (metaDiv) metaDiv.classList.add('hidden');
+    markDirty();
+    debouncedPreview();
+    return;
+  }
+
+  const ev = _allEvents.find(e => e.id === eventId);
+  if (!ev) return;
+
+  const dateStr = formatEventDate(ev.datetime);
+  if (titleEl) titleEl.value = ev.title;
+  if (dateEl)  dateEl.value  = dateStr;
+
+  if (metaDiv) {
+    metaDiv.classList.remove('hidden');
+    if (metaTitle) metaTitle.textContent = ev.title;
+    if (metaDate)  metaDate.textContent  = dateStr;
+    if (metaBadge) {
+      const n = ev.registrationCount;
+      metaBadge.textContent = n + ' inschrijving' + (n !== 1 ? 'en' : '');
+    }
+  }
+
+  markDirty();
+  debouncedPreview();
+}
+window.onEventSelect = onEventSelect;
+
+// ════════════════════════════════════════════════════════
 // Config form helpers
 // ════════════════════════════════════════════════════════
 function getFormConfig() {
-  const f     = $('config-form');
-  const data  = new FormData(f);
+  const f      = $('config-form');
+  const data   = new FormData(f);
   const picker = $('brand-color-picker');
   const txt    = $('brand-color-text');
   const brandColor = (txt?.value && /^#[0-9a-fA-F]{6}$/.test(txt.value))
     ? txt.value
     : (picker?.value || '#2563eb');
 
+  const rawEventId = data.get('eventId');
+  const eventId    = rawEventId ? parseInt(rawEventId, 10) : null;
+
   return {
-    brandName:      data.get('brandName')      || '',
-    websiteUrl:     data.get('websiteUrl')     || '',
-    brandColor,
-    showPhoto:      f.querySelector('[name=showPhoto]').checked,
-    showCTA:        f.querySelector('[name=showCTA]').checked,
-    ctaText:        data.get('ctaText')        || '',
-    ctaUrl:         data.get('ctaUrl')         || '',
-    showBanner:     f.querySelector('[name=showBanner]').checked,
+    // ── Event Amplifier
+    eventPromoEnabled: f.querySelector('[name="eventPromoEnabled"]')?.checked || false,
+    eventId,
+    eventTitle:    data.get('eventTitle')    || '',
+    eventDate:     data.get('eventDate')     || '',
+    eventImageUrl: data.get('eventImageUrl') || '',
+    eventRegUrl:   data.get('eventRegUrl')   || '',
+    // ── Fallback banner
+    showBanner:     f.querySelector('[name="showBanner"]')?.checked || false,
     bannerImageUrl: data.get('bannerImageUrl') || '',
     bannerLinkUrl:  data.get('bannerLinkUrl')  || '',
-    showDisclaimer: f.querySelector('[name=showDisclaimer]').checked,
+    // ── Branding
+    brandName:    data.get('brandName')  || '',
+    websiteUrl:   data.get('websiteUrl') || '',
+    brandColor,
+    // ── Disclaimer
+    showDisclaimer: f.querySelector('[name="showDisclaimer"]')?.checked || false,
     disclaimerText: data.get('disclaimerText') || ''
   };
 }
@@ -199,7 +325,7 @@ function applyConfigToForm(config) {
   if (!config) return;
   const f   = $('config-form');
   const set = (name, val) => {
-    const el = f.querySelector(`[name=${name}]`);
+    const el = f.querySelector(`[name="${name}"]`);
     if (!el) return;
     if (el.type === 'checkbox') el.checked = !!val;
     else el.value = val ?? '';
@@ -208,29 +334,51 @@ function applyConfigToForm(config) {
   // Backwards compat: old configs may use primaryColor
   const brandColor = config.brandColor || config.primaryColor || '#2563eb';
 
-  set('brandName',      config.brandName      ?? '');
-  set('websiteUrl',     config.websiteUrl     ?? '');
-  set('brandColor',     brandColor);
-  set('showPhoto',      config.showPhoto);
-  set('showCTA',        config.showCTA);
-  set('ctaText',        config.ctaText        ?? '');
-  set('ctaUrl',         config.ctaUrl         ?? '');
+  // Branding
+  set('brandName',  config.brandName  ?? '');
+  set('websiteUrl', config.websiteUrl ?? '');
+  set('brandColor', brandColor);
+
+  // Event Amplifier
+  set('eventPromoEnabled', config.eventPromoEnabled);
+  set('eventId',           config.eventId        ?? '');
+  set('eventTitle',        config.eventTitle      ?? '');
+  set('eventDate',         config.eventDate       ?? '');
+  set('eventImageUrl',     config.eventImageUrl   ?? '');
+  set('eventRegUrl',       config.eventRegUrl     ?? '');
+
+  // Fallback banner
   set('showBanner',     config.showBanner);
   set('bannerImageUrl', config.bannerImageUrl ?? '');
   set('bannerLinkUrl',  config.bannerLinkUrl  ?? '');
+
+  // Disclaimer
   set('showDisclaimer', config.showDisclaimer);
   set('disclaimerText', config.disclaimerText ?? '');
 
   // Sync colour controls
   const picker = $('brand-color-picker');
-  const txt    = $('brand-color-text');
+  const txtel  = $('brand-color-text');
   if (picker) picker.value = brandColor;
-  if (txt)    txt.value    = brandColor;
+  if (txtel)  txtel.value  = brandColor;
 
-  // Restore conditional fields
-  toggleCond('cta-fields',        !!config.showCTA);
-  toggleCond('banner-fields',     !!config.showBanner);
-  toggleCond('disclaimer-fields', !!config.showDisclaimer);
+  // Conditional visibility
+  const promoOn = !!config.eventPromoEnabled;
+  toggleCond('event-promo-fields', promoOn);
+  const fallback = $('fallback-banner-section');
+  if (fallback) fallback.classList.toggle('visible', !promoOn);
+  toggleCond('fallback-banner-fields', !!config.showBanner);
+  toggleCond('disclaimer-fields',      !!config.showDisclaimer);
+
+  // Restore event metadata display (badge count restored after loadEvents)
+  if (promoOn && config.eventTitle) {
+    const metaDiv   = $('event-meta');
+    const metaTitle = $('event-meta-title');
+    const metaDate  = $('event-meta-date');
+    if (metaDiv)   metaDiv.classList.remove('hidden');
+    if (metaTitle) metaTitle.textContent = config.eventTitle;
+    if (metaDate)  metaDate.textContent  = config.eventDate || '';
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -243,10 +391,10 @@ async function loadConfig() {
     if (json.success && json.data?.config) {
       applyConfigToForm(json.data.config);
     }
-    setSaveStatus('–');      // reset to neutral after load
+    setSaveStatus('–');
     _isDirty = false;
   } catch (e) {
-    console.error('loadConfig error:', e);
+    console.error('[sig] loadConfig error:', e);
   }
 }
 
@@ -284,6 +432,7 @@ function attachLivePreview() {
   const form = $('config-form');
   if (!form) return;
   form.querySelectorAll('input, textarea, select').forEach(el => {
+    if (el.type === 'hidden') return;  // hidden fields are driven by onEventSelect
     const ev = (el.type === 'checkbox' || el.type === 'radio') ? 'change' : 'input';
     el.addEventListener(ev, () => { markDirty(); debouncedPreview(); });
   });
@@ -299,13 +448,11 @@ let _previewInflight = false;
 let _previewPending  = false;
 
 async function updatePreview() {
-  // Anti-flicker: if already loading, queue one more run
   if (_previewInflight) { _previewPending = true; return; }
 
   _previewInflight = true;
   setPreviewState('loading');
 
-  // data: URL warning
   const photoVal = $('prev-photoUrl')?.value || '';
   const dataWarn = $('preview-data-warning');
   if (dataWarn) dataWarn.classList.toggle('hidden', !photoVal.startsWith('data:'));
@@ -334,7 +481,6 @@ async function updatePreview() {
 
       const warnDiv  = $('preview-warnings');
       const warnList = $('preview-warnings-list');
-      // Filter out data: warnings — handled by our own indicator
       const apiWarnings = (json.data.warnings || []).filter(w => !w.includes('data:'));
       if (apiWarnings.length > 0) {
         warnList.innerHTML = apiWarnings.map(w => `<li>${w}</li>`).join('');
@@ -349,7 +495,7 @@ async function updatePreview() {
       setPreviewState('error');
     }
   } catch (e) {
-    console.error('updatePreview error:', e);
+    console.error('[sig] updatePreview error:', e);
     setPreviewState('error');
   } finally {
     _previewInflight = false;
@@ -362,21 +508,22 @@ async function updatePreview() {
 window.updatePreview = updatePreview;
 
 // ════════════════════════════════════════════════════════
-// Employees dropdown
+// Employees dropdown (preview helper)
 // ════════════════════════════════════════════════════════
 let _employees = [];
 
 async function loadEmployees() {
   const sel = $('prev-employee-select');
-  sel.innerHTML = '<option value="">Laden…</option>';
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Laden\u2026</option>';
   try {
     const res  = await fetch('/mail-signatures/api/employees');
     const json = await res.json();
     if (json.success) {
       _employees = json.data.employees || [];
-      sel.innerHTML = '<option value="">— Kies medewerker —</option>' +
+      sel.innerHTML = '<option value="">\u2014 Kies medewerker \u2014</option>' +
         _employees.map(e =>
-          `<option value="${e.id}">${e.name}${e.jobTitle ? ' · ' + e.jobTitle : ''}</option>`
+          `<option value="${e.id}">${e.name}${e.jobTitle ? ' \xb7 ' + e.jobTitle : ''}</option>`
         ).join('');
     } else {
       sel.innerHTML = '<option value="">Laden mislukt</option>';
@@ -442,7 +589,7 @@ function renderUserList(users) {
         <input type="checkbox" class="checkbox checkbox-xs push-user-check"
                data-email="${u.email}" onchange="updatePushCount()" />
       </td>
-      <td>${u.fullName || '–'}</td>
+      <td>${u.fullName || '\u2013'}</td>
       <td>${u.email}</td>
     </tr>`).join('');
   $('push-user-list').classList.remove('hidden');
@@ -468,10 +615,10 @@ window.updatePushCount = updatePushCount;
 
 async function pushSelected() {
   const emails = [...document.querySelectorAll('.push-user-check:checked')].map(c => c.dataset.email);
-  if (!emails.length) { showToast('Selecteer minstens één gebruiker', 'warning'); return; }
+  if (!emails.length) { showToast('Selecteer minstens \xe9\xe9n gebruiker', 'warning'); return; }
 
   const resultDiv = $('push-result');
-  resultDiv.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Pushen…';
+  resultDiv.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Pushen\u2026';
   resultDiv.classList.remove('hidden');
   $('push-btn').disabled = true;
 
@@ -489,10 +636,10 @@ async function pushSelected() {
           ? (r.changed ? '<span class="badge badge-xs badge-warning">gewijzigd</span>'
                        : '<span class="badge badge-xs badge-ghost">ongewijzigd</span>')
           : '';
-        const info = r.error || (r.warnings?.length ? r.warnings.join(', ') : '–');
+        const info = r.error || (r.warnings?.length ? r.warnings.join(', ') : '\u2013');
         return `<tr class="${r.success ? '' : 'log-row-fail'}">
           <td>${r.email}</td>
-          <td>${r.success ? '✅' : '❌'}</td>
+          <td>${r.success ? '\u2705' : '\u274c'}</td>
           <td>${badge}</td>
           <td class="max-w-xs truncate text-xs text-base-content/60">${info}</td>
         </tr>`;
@@ -536,21 +683,21 @@ async function loadLogs() {
         const changedCell = l.success
           ? (meta.changed === true  ? '<span class="badge badge-xs badge-warning">gewijzigd</span>'
            : meta.changed === false ? '<span class="badge badge-xs badge-ghost">ongewijzigd</span>'
-           : '–')
-          : '–';
+           : '\u2013')
+          : '\u2013';
         const hashInfo = (meta.new_hash && meta.old_hash)
-          ? `<span class="text-xs text-base-content/40" title="old: ${meta.old_hash} → new: ${meta.new_hash}">${meta.new_hash.slice(0, 8)}</span>`
+          ? `<span class="text-xs text-base-content/40" title="old: ${meta.old_hash} \u2192 new: ${meta.new_hash}">${meta.new_hash.slice(0, 8)}</span>`
           : '';
         const foutInfo = l.error_message
           ? `<span class="text-error">${l.error_message}</span>`
           : (meta.warnings?.length
               ? `<span class="text-warning">${meta.warnings.join('; ')}</span>`
-              : hashInfo || '–');
+              : hashInfo || '\u2013');
         return `<tr class="${l.success ? '' : 'log-row-fail'}">
           <td class="whitespace-nowrap">${fmtDate(l.pushed_at)}</td>
-          <td>${l.actor_email || '–'}</td>
-          <td>${l.target_user_email || '–'}</td>
-          <td>${l.success ? '✅' : '❌'}</td>
+          <td>${l.actor_email || '\u2013'}</td>
+          <td>${l.target_user_email || '\u2013'}</td>
+          <td>${l.success ? '\u2705' : '\u274c'}</td>
           <td>${changedCell}</td>
           <td class="max-w-xs truncate">${foutInfo}</td>
         </tr>`;
@@ -588,7 +735,6 @@ window.syncProdData = syncProdData;
 // Boot
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-  // Theme
   const savedTheme = localStorage.getItem('selectedTheme') || 'light';
   changeTheme(savedTheme);
 
@@ -596,6 +742,16 @@ document.addEventListener('DOMContentLoaded', () => {
   initColorSync();
   attachLivePreview();
 
-  loadConfig().then(() => updatePreview());
+  // 1) Load config, then fire initial preview
+  // 2) Load events in parallel; after both complete, restore badge count
+  Promise.all([
+    loadConfig().then(() => updatePreview()),
+    loadEvents()
+  ]).then(() => {
+    // Restore badge count for selected event after loadEvents fills _allEvents
+    const sel = $('event-select');
+    if (sel && sel.value) onEventSelect(sel.value);
+  });
+
   loadEmployees();
 });
