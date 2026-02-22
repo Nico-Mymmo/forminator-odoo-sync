@@ -92,6 +92,7 @@ export function compileSignature(config, userData) {
     // LinkedIn promo
     linkedinPromoEnabled = false,
     linkedinUrl = '',
+    linkedinEyebrow = 'Mijn laatste LinkedIn\u2011post',
     linkedinText = '',
     linkedinAuthorName = '',
     linkedinAuthorImg  = '',
@@ -237,15 +238,25 @@ export function compileSignature(config, userData) {
 
     // Outlook-safe "in" badge
     const iconBadge = `<span style="display:inline-block;background-color:${liBlue};color:#ffffff;font-family:${fontStack};font-size:10px;font-weight:bold;border-radius:3px;width:16px;height:16px;text-align:center;line-height:16px;vertical-align:middle;margin-right:5px;">in</span>`;
-    const eyebrowLine = `<div style="font-family:${fontStack};font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${liBlue};margin-bottom:10px;">${iconBadge}Mijn laatste LinkedIn&#x2011;post</div>`;
+    const eyebrowLine = `<div style="font-family:${fontStack};font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${liBlue};margin-bottom:10px;">${iconBadge}${linkedinEyebrow}</div>`;
 
-    // Author header (avatar + name) — Outlook-safe nested table
+    // Author header: white inset box (avatar top-aligned + name in regular weight)
     let authorBlock = '';
     if (linkedinAuthorName) {
       const avatarCell = linkedinAuthorImg
-        ? `<td style="width:36px;padding-right:8px;vertical-align:middle;"><img src="${linkedinAuthorImg}" width="32" height="32" alt="" style="border-radius:16px;width:32px;height:32px;display:block;" /></td>`
+        ? `<td style="width:40px;padding-right:10px;vertical-align:top;"><img src="${linkedinAuthorImg}" width="32" height="32" alt="" style="border-radius:16px;width:32px;height:32px;display:block;margin-top:1px;" /></td>`
         : '';
-      authorBlock = `<table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px;"><tr>${avatarCell}<td style="vertical-align:middle;"><div style="font-family:${fontStack};font-size:13px;font-weight:700;color:${baseColor};">${linkedinAuthorName}</div></td></tr></table>`;
+      authorBlock = `<table cellpadding="0" cellspacing="0" border="0"
+               style="width:100%;border-collapse:collapse;background-color:#ffffff;border-radius:6px;border:1px solid ${liBlueEdge};margin-bottom:12px;">
+        <tr><td style="padding:10px 12px;">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            ${avatarCell}
+            <td style="vertical-align:top;">
+              <div style="font-family:${fontStack};font-size:13px;font-weight:600;color:${baseColor};line-height:1.3;">${linkedinAuthorName}</div>
+            </td>
+          </tr></table>
+        </td></tr>
+      </table>`;
     }
 
     // Truncate flavor text to ~160 chars with ellipsis
@@ -255,15 +266,15 @@ export function compileSignature(config, userData) {
       ? rawText.slice(0, MAX_PREVIEW).replace(/\s+\S*$/, '') + '\u2026'
       : rawText;
     const flavorLine = truncated
-      ? `<div style="font-family:${fontStack};font-size:13px;color:${baseColor};line-height:1.55;margin-bottom:12px;">${truncated}</div>`
+      ? `<div style="font-family:${fontStack};font-size:13px;color:${baseColor};line-height:1.55;">${truncated}</div>`
       : '';
 
     // Footer: optional likes count + "Lees meer" text link
     const likesSpan = linkedinLikes
       ? `<span style="font-family:${fontStack};font-size:12px;color:${mutedColor};margin-right:10px;">&#128077; ${linkedinLikes}</span>`
       : '';
-    const readMore = `<a href="${linkedinUrl}" style="font-family:${fontStack};font-size:12px;font-weight:700;color:${liBlue};text-decoration:none;">Lees meer &amp; reageer &#8594;</a>`;
-    const footerLine = `<div>${likesSpan}${readMore}</div>`;
+    const readMore = `<a href="${linkedinUrl}" style="font-family:${fontStack};font-size:12px;font-weight:600;color:${liBlue};text-decoration:none;">Lees meer &amp; reageer &#8594;</a>`;
+    const footerLine = `<div style="margin-top:12px;">${likesSpan}${readMore}</div>`;
 
     const cellStart = data.photoUrl
       ? `<td></td><td colspan="2" style="padding-top:16px;padding-right:16px;">`

@@ -418,6 +418,7 @@ function getFormConfig() {
     // ── LinkedIn promo
     linkedinPromoEnabled: f.querySelector('[name="linkedinPromoEnabled"]')?.checked || false,
     linkedinUrl:        data.get('linkedinUrl')        || '',
+    linkedinEyebrow:    data.get('linkedinEyebrow')    || 'Mijn laatste LinkedIn\u2011post',
     linkedinText:       data.get('linkedinText')       || '',
     linkedinAuthorName: data.get('linkedinAuthorName') || '',
     linkedinAuthorImg:  data.get('linkedinAuthorImg')  || '',
@@ -481,6 +482,7 @@ function applyConfigToForm(config) {
   // LinkedIn
   set('linkedinPromoEnabled', config.linkedinPromoEnabled);
   set('linkedinUrl',          config.linkedinUrl  ?? '');
+  set('linkedinEyebrow',      config.linkedinEyebrow || 'Mijn laatste LinkedIn\u2011post');
   set('linkedinText',         config.linkedinText ?? '');
   set('linkedinAuthorName',   config.linkedinAuthorName ?? '');
   set('linkedinAuthorImg',    config.linkedinAuthorImg  ?? '');

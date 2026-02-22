@@ -255,6 +255,15 @@ export function mailSignatureDesignerUI(user) {
                     <div id="linkedin-promo-fields" class="cond-field space-y-3">
 
                       <label class="form-control">
+                        <div class="label py-0.5">
+                          <span class="label-text text-xs">Titel</span>
+                          <span class="label-text-alt text-base-content/40 text-xs">koptekst boven de kaart</span>
+                        </div>
+                        <input type="text" name="linkedinEyebrow" id="linkedin-eyebrow-input"
+                               value="Mijn laatste LinkedIn&#x2011;post"
+                               placeholder="Mijn laatste LinkedIn&#x2011;post"
+                               class="input input-bordered input-xs" />
+                      </label>
                         <div class="label py-0.5"><span class="label-text text-xs">LinkedIn post URL</span></div>
                         <div class="flex gap-1.5">
                           <input type="url" name="linkedinUrl" id="linkedin-url-input"
