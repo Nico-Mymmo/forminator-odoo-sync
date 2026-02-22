@@ -177,6 +177,17 @@ export function mailSignatureDesignerUI(user) {
                                class="input input-bordered input-xs" />
                       </label>
 
+                      <!-- Eyebrow label -->
+                      <label class="form-control">
+                        <div class="label py-0.5">
+                          <span class="label-text text-xs">Eyebrow tekst</span>
+                          <span class="label-text-alt text-base-content/40 text-xs">bv. &ldquo;Aankomend event&rdquo;</span>
+                        </div>
+                        <input type="text" name="eventEyebrow" id="event-eyebrow-input"
+                               placeholder="Kom je ook? &bull; Aankomend event &bull; Mis het niet"
+                               class="input input-bordered input-xs" />
+                      </label>
+
                       <!-- Registration URL -->
                       <label class="form-control">
                         <div class="label py-0.5"><span class="label-text text-xs">Registratie URL</span></div>

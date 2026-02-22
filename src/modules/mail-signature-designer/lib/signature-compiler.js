@@ -80,6 +80,7 @@ export function compileSignature(config, userData) {
     disclaimerText = '',
     // Event promo
     eventPromoEnabled = false,
+    eventEyebrow = '',
     eventTitle = '',
     eventDate = '',
     eventImageUrl = '',
@@ -108,11 +109,11 @@ export function compileSignature(config, userData) {
 
   // ── PHOTO CELL (left) ────────────────────────────────────────────────────────
   const photoCell = data.photoUrl
-    ? `<td style="width:80px;vertical-align:bottom;padding-right:14px;">
+    ? `<td style="width:80px;vertical-align:top;text-align:center;padding-right:14px;">
         <img src="${data.photoUrl}"
              width="72" height="72"
              alt=""
-             style="border-radius:50%;width:72px;height:72px;object-fit:cover;display:block;" />
+             style="border-radius:50%;width:72px;height:72px;object-fit:cover;display:block;margin:0 auto;" />
       </td>`
     : '';
 
@@ -166,9 +167,13 @@ export function compileSignature(config, userData) {
   if (eventPromoEnabled && eventTitle) {
     const imgBlock = eventImageUrl
       ? `<a href="${eventRegUrl || '#'}" style="display:block;margin-bottom:10px;">
-          <img src="${eventImageUrl}" alt="${eventTitle}" width="552"
-               style="display:block;width:100%;max-width:552px;border:0;border-radius:3px;" />
+          <img src="${eventImageUrl}" alt="${eventTitle}" width="536"
+               style="display:block;width:100%;max-width:536px;border:0;border-radius:5px;" />
         </a>`
+      : '';
+
+    const eyebrowLine = eventEyebrow
+      ? `<div style="font-family:${fontStack};font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${brandColor};margin-bottom:5px;">${eventEyebrow}</div>`
       : '';
 
     const titleLine = `<div style="font-family:${fontStack};font-size:14px;font-weight:700;color:${baseColor};line-height:1.4;">${eventTitle}</div>`;
@@ -178,23 +183,25 @@ export function compileSignature(config, userData) {
       : '';
 
     const ctaLine = eventRegUrl
-      ? `<div style="margin-top:7px;">
+      ? `<div style="margin-top:8px;">
           <a href="${eventRegUrl}"
-             style="font-family:${fontStack};font-size:12px;font-weight:600;color:${brandColor};text-decoration:none;">
+             style="font-family:${fontStack};font-size:12px;font-weight:700;color:#ffffff;text-decoration:none;background-color:${brandColor};padding:5px 14px;border-radius:4px;display:inline-block;">
             Schrijf je in &#8594;
           </a>
         </div>`
       : '';
 
-    // Callout: left accent bar (3px coloured td) + light background
+    // Callout: rounded box, top accent line, light tinted background
     eventRow = `<tr>
       <td colspan="3" style="padding-top:14px;">
         <table cellpadding="0" cellspacing="0" border="0"
-               style="width:100%;border-collapse:collapse;background-color:${calloutBg};">
+               style="width:100%;border-collapse:separate;border-spacing:0;background-color:${calloutBg};border-radius:8px;border:1px solid ${dividerColor};">
           <tr>
-            <td style="width:3px;background-color:${brandColor};font-size:0;line-height:0;">&nbsp;</td>
-            <td style="padding:12px 14px;">
-              ${imgBlock}${titleLine}${dateLine}${ctaLine}
+            <td style="height:3px;background-color:${brandColor};border-radius:8px 8px 0 0;font-size:0;line-height:0;padding:0;" colspan="1">&nbsp;</td>
+          </tr>
+          <tr>
+            <td style="padding:14px 16px;">
+              ${eyebrowLine}${imgBlock}${titleLine}${dateLine}${ctaLine}
             </td>
           </tr>
         </table>
