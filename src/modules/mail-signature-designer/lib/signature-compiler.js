@@ -15,7 +15,7 @@
  * - Push continues despite warnings
  */
 
-const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl'];
+const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl', 'brandName', 'websiteUrl'];
 const PLACEHOLDER_RE = /{{(\w+)}}/g;
 
 /**
@@ -49,8 +49,12 @@ function resolvePlaceholders(str, data, warnings) {
 export function compileSignature(config, userData) {
   const warnings = [];
 
+  // Backwards compat: primaryColor was the old key, brandColor is the new one
+  const resolvedBrandColor = config.brandColor || config.primaryColor || '#2563eb';
+
   const {
-    brandColor = '#2563eb',
+    brandName = 'OpenVME',
+    websiteUrl = 'https://openvme.be',
     showPhoto = false,
     showCTA = false,
     showBanner = false,
@@ -62,6 +66,8 @@ export function compileSignature(config, userData) {
     disclaimerText = ''
   } = config;
 
+  const brandColor = resolvedBrandColor;
+
   const data = {
     fullName: userData.fullName || '',
     roleTitle: userData.roleTitle || '',
@@ -69,6 +75,11 @@ export function compileSignature(config, userData) {
     phone: userData.phone || '',
     photoUrl: userData.photoUrl || ''
   };
+
+  // Warn if photo is a data: URL — works in preview but blocked in most email clients
+  if (showPhoto && data.photoUrl && data.photoUrl.startsWith('data:')) {
+    warnings.push('data: URL voor foto is preview-only en wordt geblokkeerd in e-mailclients. Gebruik een publieke HTTPS-URL.');
+  }
 
   const fontStack = 'Arial, Helvetica, sans-serif';
   const baseColor = '#222222';
@@ -92,7 +103,9 @@ export function compileSignature(config, userData) {
     ? `<div style="font-family:${fontStack};font-size:13px;color:${mutedColor};margin-top:2px;">${data.roleTitle}</div>`
     : '';
 
-  const brandBlock = `<div style="font-family:${fontStack};font-size:13px;color:${brandColor};margin-top:2px;font-weight:600;">OpenVME</div>`;
+  const brandBlock = brandName
+    ? `<div style="font-family:${fontStack};font-size:13px;color:${brandColor};margin-top:2px;font-weight:600;">${brandName}</div>`
+    : '';
 
   const nameCell = `<td style="vertical-align:top;">
     ${nameBlock}${roleBlock}${brandBlock}
@@ -116,9 +129,12 @@ export function compileSignature(config, userData) {
     );
   }
 
-  contactLines.push(
-    `<div style="font-family:${fontStack};font-size:13px;"><a href="https://openvme.be" style="color:${brandColor};text-decoration:none;">openvme.be</a></div>`
-  );
+  if (websiteUrl) {
+    const websiteLabel = websiteUrl.replace(/^https?:\/\//, '');
+    contactLines.push(
+      `<div style="font-family:${fontStack};font-size:13px;"><a href="${websiteUrl}" style="color:${brandColor};text-decoration:none;">${websiteLabel}</a></div>`
+    );
+  }
 
   const contactRow = contactLines.length
     ? `<tr><td colspan="2">${contactLines.join('')}</td></tr>`

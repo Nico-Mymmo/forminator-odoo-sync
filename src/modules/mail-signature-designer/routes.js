@@ -341,19 +341,26 @@ export const routes = {
 
             try {
               const { html, warnings } = compileSignature(config, userData);
-              const { sendAsEmail } = await updateSignature(env, targetEmail, html);
-              const htmlHash = quickHash(html);
+              const { sendAsEmail, oldSignature } = await updateSignature(env, targetEmail, html);
+              const newHash = quickHash(html);
+              const oldHash = quickHash(oldSignature || '');
+              const changed = oldHash !== newHash;
 
               await logPush(env, {
                 actor_email: actorEmail,
                 target_user_email: targetEmail,
                 sendas_email: sendAsEmail,
                 success: true,
-                html_hash: htmlHash,
-                metadata: warnings.length ? { warnings } : null
+                html_hash: newHash,
+                metadata: {
+                  ...(warnings.length ? { warnings } : {}),
+                  old_hash: oldHash,
+                  new_hash: newHash,
+                  changed
+                }
               });
 
-              return { email: targetEmail, success: true, warnings };
+              return { email: targetEmail, success: true, warnings, changed, old_hash: oldHash, new_hash: newHash };
             } catch (err) {
               console.error(`${LOG_PREFIX} push failed for ${targetEmail}:`, err);
 
@@ -364,7 +371,7 @@ export const routes = {
                 success: false,
                 error_message: err.message,
                 html_hash: null,
-                metadata: null
+                metadata: {}
               });
 
               return { email: targetEmail, success: false, error: err.message };

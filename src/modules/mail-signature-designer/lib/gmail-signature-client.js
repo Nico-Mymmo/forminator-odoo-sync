@@ -155,7 +155,9 @@ export async function updateSignature(env, userEmail, signatureHtml) {
   const listData = await listResp.json();
   const sendAsList = listData.sendAs || [];
   if (sendAsList.length === 0) throw new Error(`No sendAs identities found for ${userEmail}`);
-  const sendAsEmail = (sendAsList.find(s => s.isPrimary) || sendAsList[0]).sendAsEmail;
+  const primarySendAs = sendAsList.find(s => s.isPrimary) || sendAsList[0];
+  const sendAsEmail = primarySendAs.sendAsEmail;
+  const oldSignature = primarySendAs.signature || '';
 
   const resp = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/${encodeURIComponent(sendAsEmail)}`,
@@ -174,5 +176,5 @@ export async function updateSignature(env, userEmail, signatureHtml) {
     throw new Error(`sendAs.update failed for ${userEmail} (${resp.status}): ${text}`);
   }
 
-  return { sendAsEmail };
+  return { sendAsEmail, oldSignature };
 }

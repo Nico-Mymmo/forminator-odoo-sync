@@ -78,12 +78,12 @@ export async function logPush(env, entry) {
   const { error } = await supabase
     .from('signature_push_log')
     .insert({
-      actor_email: entry.actorEmail,
-      target_user_email: entry.targetUserEmail,
-      sendas_email: entry.sendasEmail,
+      actor_email: entry.actor_email,
+      target_user_email: entry.target_user_email,
+      sendas_email: entry.sendas_email,
       success: entry.success,
-      error_message: entry.errorMessage ?? null,
-      html_hash: entry.htmlHash ?? null,
+      error_message: entry.error_message ?? null,
+      html_hash: entry.html_hash ?? null,
       metadata: entry.metadata ?? {}
     });
 
