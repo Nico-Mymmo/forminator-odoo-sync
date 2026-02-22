@@ -7,6 +7,7 @@
 	"name": "forminator-sync",
 	"main": "src/index.js",
 	"compatibility_date": "2025-07-30",
+	"compatibility_flags": ["nodejs_compat"],
 	"preview_urls": false,
 	"observability": {
 		"enabled": true

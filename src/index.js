@@ -194,6 +194,12 @@ export default {
     if (pathname === '/api/auth/login' && request.method === 'POST') {
       return await handleLogin({ request, env, ctx });
     }
+
+    // TEMPORARY: Google API debug (no auth) — remove after diagnosis
+    if (pathname === '/api/debug-google' && request.method === 'GET') {
+      const { routes: sigRoutes } = await import('./modules/mail-signature-designer/routes.js');
+      return await sigRoutes['GET /api/debug-google']({ env, request, user: null });
+    }
     
     if (pathname === '/api/auth/logout' && request.method === 'POST') {
       return await handleLogout({ request, env, ctx });
