@@ -109,7 +109,7 @@ export function compileSignature(config, userData) {
 
   // ── PHOTO CELL (left) ────────────────────────────────────────────────────────
   const photoCell = data.photoUrl
-    ? `<td style="width:84px;vertical-align:top;text-align:center;padding:0 16px 0 0;">
+    ? `<td style="width:88px;vertical-align:top;text-align:center;padding:0 8px 0 0;">
         <img src="${data.photoUrl}"
              width="72" height="72"
              alt=""
@@ -157,7 +157,7 @@ export function compileSignature(config, userData) {
     ? `<div style="margin-top:8px;">${contactLines.join('')}</div>`
     : '';
 
-  const textCell = `<td style="vertical-align:top;${data.photoUrl ? 'padding-left:16px;' : ''}padding-right:8px;">
+  const textCell = `<td style="vertical-align:top;${data.photoUrl ? 'padding-left:16px;' : ''}padding-right:16px;">
     ${nameBlock}${roleBlock}${brandBlock}${contactBlock}
   </td>`;
 
@@ -191,9 +191,12 @@ export function compileSignature(config, userData) {
         </div>`
       : '';
 
-    // Callout: rounded box with border, light tinted background — no top accent bar
+    // Callout: left edge at divider, text inside aligns with name/contact text above
+    const calloutCell = data.photoUrl
+      ? `<td></td><td colspan="2" style="padding-top:16px;padding-right:16px;">`
+      : `<td style="padding-top:16px;padding-right:16px;">`;
     eventRow = `<tr>
-      <td colspan="3" style="padding-top:16px;">
+      ${calloutCell}
         <table cellpadding="0" cellspacing="0" border="0"
                style="width:100%;border-collapse:separate;border-spacing:0;background-color:${calloutBg};border-radius:8px;border:1px solid ${dividerColor};">
           <tr>
@@ -221,15 +224,20 @@ export function compileSignature(config, userData) {
   let disclaimerRow = '';
   if (showDisclaimer && disclaimerText) {
     const resolved = resolvePlaceholders(disclaimerText, data, warnings);
+    const disclaimerCells = data.photoUrl
+      ? `<td></td><td></td><td style="padding-top:10px;padding-left:16px;padding-right:16px;font-family:${fontStack};font-size:11px;color:${mutedColor};">`
+      : `<td colspan="3" style="padding-top:10px;padding-right:16px;font-family:${fontStack};font-size:11px;color:${mutedColor};">`;
     disclaimerRow = `<tr>
-      <td colspan="3" style="padding-top:10px;font-family:${fontStack};font-size:11px;color:${mutedColor};">
+      ${disclaimerCells}
         ${resolved}
       </td>
     </tr>`;
   }
 
   // ── ASSEMBLE ──────────────────────────────────────────────────────────────────
-  const html = `<table cellpadding="0" cellspacing="0" border="0"
+  const greeting = `<div style="font-family:${fontStack};font-size:14px;color:${baseColor};margin-bottom:16px;">Met vriendelijke groet,<br>&nbsp;</div>`;
+
+  const html = (`${greeting}<table cellpadding="0" cellspacing="0" border="0"
   style="max-width:600px;width:100%;border-collapse:collapse;font-family:${fontStack};">
   <tr>
     ${photoCell}
@@ -238,7 +246,7 @@ export function compileSignature(config, userData) {
   </tr>
   ${eventRow}
   ${disclaimerRow}
-</table>`.replace(/\n\s*\n/g, '\n').trim();
+</table>`).replace(/\n\s*\n/g, '\n').trim();
 
   return { html, warnings };
 }

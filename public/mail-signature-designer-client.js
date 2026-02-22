@@ -376,8 +376,8 @@ function applyConfigToForm(config) {
   toggleCond('event-promo-fields', promoOn);
   const fallback = $('fallback-banner-section');
   if (fallback) fallback.classList.toggle('visible', !promoOn);
-  toggleCond('fallback-banner-fields', !!config.showBanner);
-  toggleCond('disclaimer-fields',      !!config.showDisclaimer);
+  toggleCond('fallback-banner-fields',    !!config.showBanner);
+  toggleCond('disclaimer-fields',          !!config.showDisclaimer);
 
   // Restore event metadata display (badge count restored after loadEvents)
   if (promoOn && config.eventTitle) {
