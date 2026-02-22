@@ -81,7 +81,7 @@ export function compileSignature(config, userData) {
     // Event promo
     eventPromoEnabled = false,
     eventEyebrow = 'Schrijf je in',
-    eventTitle = ''
+    eventTitle = '',
     eventDate = '',
     eventImageUrl = '',
     eventRegUrl = '',
@@ -109,7 +109,7 @@ export function compileSignature(config, userData) {
 
   // ── PHOTO CELL (left) ────────────────────────────────────────────────────────
   const photoCell = data.photoUrl
-    ? `<td style="width:80px;vertical-align:top;text-align:center;padding-right:14px;">
+    ? `<td style="width:84px;vertical-align:top;text-align:center;padding:0 16px 0 0;">
         <img src="${data.photoUrl}"
              width="72" height="72"
              alt=""
@@ -117,9 +117,9 @@ export function compileSignature(config, userData) {
       </td>`
     : '';
 
-  // ── VERTICAL DIVIDER (only when photo present) ───────────────────────────────
+  // ── VERTICAL DIVIDER (only when photo present) ─────────────────────────────────────
   const dividerCell = data.photoUrl
-    ? `<td style="width:1px;background-color:${dividerColor};padding:0;font-size:0;line-height:0;">&nbsp;</td>`
+    ? `<td style="width:1px;background-color:${dividerColor};padding:2px 0;font-size:0;line-height:0;">&nbsp;</td>`
     : '';
 
   // ── TEXT CELL (right) ────────────────────────────────────────────────────────
@@ -157,7 +157,7 @@ export function compileSignature(config, userData) {
     ? `<div style="margin-top:8px;">${contactLines.join('')}</div>`
     : '';
 
-  const textCell = `<td style="vertical-align:bottom;${data.photoUrl ? 'padding-left:14px;' : ''}">
+  const textCell = `<td style="vertical-align:top;${data.photoUrl ? 'padding-left:16px;' : ''}padding-right:8px;">
     ${nameBlock}${roleBlock}${brandBlock}${contactBlock}
   </td>`;
 
@@ -191,14 +191,11 @@ export function compileSignature(config, userData) {
         </div>`
       : '';
 
-    // Callout: rounded box, top accent line, light tinted background
+    // Callout: rounded box with border, light tinted background — no top accent bar
     eventRow = `<tr>
-      <td colspan="3" style="padding-top:14px;">
+      <td colspan="3" style="padding-top:16px;">
         <table cellpadding="0" cellspacing="0" border="0"
                style="width:100%;border-collapse:separate;border-spacing:0;background-color:${calloutBg};border-radius:8px;border:1px solid ${dividerColor};">
-          <tr>
-            <td style="height:3px;background-color:${brandColor};border-radius:8px 8px 0 0;font-size:0;line-height:0;padding:0;" colspan="1">&nbsp;</td>
-          </tr>
           <tr>
             <td style="padding:14px 16px;">
               ${eyebrowLine}${imgBlock}${titleLine}${dateLine}${ctaLine}

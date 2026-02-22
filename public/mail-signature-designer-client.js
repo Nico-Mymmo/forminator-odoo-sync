@@ -312,7 +312,7 @@ function getFormConfig() {
     eventId,
     eventTitle:    data.get('eventTitle')    || '',
     eventDate:     data.get('eventDate')     || '',
-    eventEyebrow:  data.get('eventEyebrow')  || '',
+    eventEyebrow:  data.get('eventEyebrow')  || 'Schrijf je in',
     eventImageUrl: data.get('eventImageUrl') || '',
     eventRegUrl:   data.get('eventRegUrl')   || '',
     // ── Fallback banner
@@ -352,7 +352,7 @@ function applyConfigToForm(config) {
   set('eventId',           config.eventId        ?? '');
   set('eventTitle',        config.eventTitle      ?? '');
   set('eventDate',         config.eventDate       ?? '');
-  set('eventEyebrow',      config.eventEyebrow    ?? '');
+  set('eventEyebrow',      config.eventEyebrow    || 'Schrijf je in');
   set('eventImageUrl',     config.eventImageUrl   ?? '');
   set('eventRegUrl',       config.eventRegUrl     ?? '');
 
