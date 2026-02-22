@@ -59,7 +59,6 @@ export function compileSignature(config, userData) {
   const {
     brandName = 'OpenVME',
     websiteUrl = 'https://openvme.be',
-    showPhoto = false,
     showDisclaimer = false,
     disclaimerText = '',
     // Event promo
@@ -84,17 +83,12 @@ export function compileSignature(config, userData) {
     photoUrl: userData.photoUrl || ''
   };
 
-  // Warn if photo is a data: URL — works in preview but blocked in most email clients
-  if (showPhoto && data.photoUrl && data.photoUrl.startsWith('data:')) {
-    warnings.push('data: URL voor foto is preview-only en wordt geblokkeerd in e-mailclients. Gebruik een publieke HTTPS-URL.');
-  }
-
   const fontStack = 'Arial, Helvetica, sans-serif';
   const baseColor = '#222222';
   const mutedColor = '#666666';
 
   // ── HEADER ROW ──────────────────────────────────────────────────────────────
-  const photoCell = (showPhoto && data.photoUrl)
+  const photoCell = (data.photoUrl)
     ? `<td style="width:72px;vertical-align:top;padding-left:16px;">
         <img src="${data.photoUrl}"
              width="60" height="60"
