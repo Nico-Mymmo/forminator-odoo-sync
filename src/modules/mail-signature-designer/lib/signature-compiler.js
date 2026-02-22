@@ -266,12 +266,12 @@ export function compileSignature(config, userData) {
       ? rawText.slice(0, MAX_PREVIEW).replace(/\s+\S*$/, '') + '\u2026'
       : rawText;
     const flavorLine = truncated
-      ? `<div style="font-family:${fontStack};font-size:13px;color:${baseColor};line-height:1.55;">${truncated}</div>`
+      ? `<div style="font-family:${fontStack};font-size:13px;font-weight:400;color:${baseColor};line-height:1.55;">${truncated}</div>`
       : '';
 
-    // Footer: optional likes count + "Lees meer" text link
+    // Footer: likes count (links to post so reader can like) + "Lees meer" text link
     const likesSpan = linkedinLikes
-      ? `<span style="font-family:${fontStack};font-size:12px;color:${mutedColor};margin-right:10px;">&#128077; ${linkedinLikes}</span>`
+      ? `<a href="${linkedinUrl}" style="font-family:${fontStack};font-size:12px;font-weight:400;color:${mutedColor};text-decoration:none;margin-right:12px;" title="Like deze post op LinkedIn">&#128077; ${linkedinLikes}</a>`
       : '';
     const readMore = `<a href="${linkedinUrl}" style="font-family:${fontStack};font-size:12px;font-weight:600;color:${liBlue};text-decoration:none;">Lees meer &amp; reageer &#8594;</a>`;
     const footerLine = `<div style="margin-top:12px;">${likesSpan}${readMore}</div>`;
