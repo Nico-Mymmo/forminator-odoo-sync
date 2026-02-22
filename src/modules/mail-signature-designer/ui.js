@@ -230,6 +230,53 @@ export function mailSignatureDesignerUI(user) {
 
                 <div class="divider my-0"></div>
 
+                <!-- ══ SECTIE 1b: LinkedIn Post ══ -->
+                <details id="section-linkedin" class="mb-4 mt-1">
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <span style="display:inline-block;background:#0A66C2;color:#fff;font-weight:bold;font-size:9px;border-radius:3px;width:15px;height:15px;text-align:center;line-height:15px;">in</span>
+                      <span class="text-sm font-semibold">LinkedIn Post</span>
+                    </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+
+                  <div class="pt-3 space-y-3">
+
+                    <!-- Toggle -->
+                    <label class="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" name="linkedinPromoEnabled" id="linkedin-promo-toggle"
+                             class="toggle toggle-sm"
+                             style="--tglbg:#0A66C2"
+                             onchange="onLinkedinPromoToggle(this.checked)" />
+                      <span class="text-sm font-medium">Promoot LinkedIn-post in handtekening</span>
+                    </label>
+
+                    <!-- LinkedIn fields (visible when toggle on) -->
+                    <div id="linkedin-promo-fields" class="cond-field space-y-3">
+
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">LinkedIn post URL</span></div>
+                        <input type="url" name="linkedinUrl" id="linkedin-url-input"
+                               placeholder="https://linkedin.com/posts/&#8230;"
+                               class="input input-bordered input-xs" />
+                      </label>
+
+                      <label class="form-control">
+                        <div class="label py-0.5">
+                          <span class="label-text text-xs">Oproeptekst</span>
+                          <span class="label-text-alt text-base-content/40 text-xs">zet aan tot liken &amp; reageren</span>
+                        </div>
+                        <textarea name="linkedinText" id="linkedin-text-input" rows="3"
+                                  placeholder="Ik plaatste zojuist een artikel over &#8230; Jouw like of reactie maakt een groot verschil!"
+                                  class="textarea textarea-bordered textarea-xs leading-snug"></textarea>
+                      </label>
+
+                    </div>
+                  </div>
+                </details>
+
+                <div class="divider my-0"></div>
+
                 <!-- ══ SECTIE 2: Branding ══ -->
                 <details id="section-branding" class="mb-4 mt-1">
                   <summary class="flex items-center justify-between py-1.5 select-none">

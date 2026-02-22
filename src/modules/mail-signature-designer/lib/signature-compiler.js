@@ -88,7 +88,11 @@ export function compileSignature(config, userData) {
     // Fallback banner
     showBanner = false,
     bannerImageUrl = '',
-    bannerLinkUrl = ''
+    bannerLinkUrl = '',
+    // LinkedIn promo
+    linkedinPromoEnabled = false,
+    linkedinUrl = '',
+    linkedinText = ''
   } = config;
 
   const brandColor = resolvedBrandColor;
@@ -220,6 +224,43 @@ export function compileSignature(config, userData) {
     </tr>`;
   }
 
+  // ── LINKEDIN PROMO ────────────────────────────────────────────────────────────
+  let linkedinRow = '';
+
+  if (linkedinPromoEnabled && linkedinUrl) {
+    const liBlue      = '#0A66C2';
+    const liBlueLight = '#EEF3FB';
+    const liBlueEdge  = '#BDD5ED';
+
+    // Outlook-safe "in" badge: inline-block span
+    const iconBadge = `<span style="display:inline-block;background-color:${liBlue};color:#ffffff;font-family:${fontStack};font-size:10px;font-weight:bold;border-radius:3px;width:16px;height:16px;text-align:center;line-height:16px;vertical-align:middle;margin-right:5px;">in</span>`;
+
+    const eyebrowLine = `<div style="font-family:${fontStack};font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${liBlue};margin-bottom:7px;">${iconBadge}Mijn laatste LinkedIn&#x2011;post</div>`;
+
+    const flavorLine = linkedinText
+      ? `<div style="font-family:${fontStack};font-size:13px;color:${baseColor};line-height:1.55;margin-bottom:10px;">${linkedinText}</div>`
+      : '';
+
+    const ctaLine = `<a href="${linkedinUrl}" style="font-family:${fontStack};font-size:12px;font-weight:700;color:#ffffff;text-decoration:none;background-color:${liBlue};padding:5px 14px;border-radius:4px;display:inline-block;">Lees &amp; reageer &#8594;</a>`;
+
+    const cellStart = data.photoUrl
+      ? `<td></td><td colspan="2" style="padding-top:16px;padding-right:16px;">`
+      : `<td style="padding-top:16px;padding-right:16px;">`;
+
+    linkedinRow = `<tr>
+      ${cellStart}
+        <table cellpadding="0" cellspacing="0" border="0"
+               style="width:100%;border-collapse:separate;border-spacing:0;background-color:${liBlueLight};border-radius:8px;border:1px solid ${liBlueEdge};">
+          <tr>
+            <td style="padding:14px 16px;">
+              ${eyebrowLine}${flavorLine}${ctaLine}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>`;
+  }
+
   // ── DISCLAIMER ────────────────────────────────────────────────────────────────
   let disclaimerRow = '';
   if (showDisclaimer && disclaimerText) {
@@ -245,6 +286,7 @@ export function compileSignature(config, userData) {
     ${textCell}
   </tr>
   ${eventRow}
+  ${linkedinRow}
   ${disclaimerRow}
 </table>`).replace(/\n\s*\n/g, '\n').trim();
 

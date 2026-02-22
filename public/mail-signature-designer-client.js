@@ -291,6 +291,13 @@ function onEventSelect(idStr) {
 }
 window.onEventSelect = onEventSelect;
 
+function onLinkedinPromoToggle(checked) {
+  toggleCond('linkedin-promo-fields', checked);
+  markDirty();
+  debouncedPreview();
+}
+window.onLinkedinPromoToggle = onLinkedinPromoToggle;
+
 // ════════════════════════════════════════════════════════
 // Config form helpers
 // ════════════════════════════════════════════════════════
@@ -323,6 +330,10 @@ function getFormConfig() {
     brandName:    data.get('brandName')  || '',
     websiteUrl:   data.get('websiteUrl') || '',
     brandColor,
+    // ── LinkedIn promo
+    linkedinPromoEnabled: f.querySelector('[name="linkedinPromoEnabled"]')?.checked || false,
+    linkedinUrl:  data.get('linkedinUrl')  || '',
+    linkedinText: data.get('linkedinText') || '',
     // ── Disclaimer
     showDisclaimer: f.querySelector('[name="showDisclaimer"]')?.checked || false,
     disclaimerText: data.get('disclaimerText') || ''
@@ -378,6 +389,12 @@ function applyConfigToForm(config) {
   if (fallback) fallback.classList.toggle('visible', !promoOn);
   toggleCond('fallback-banner-fields',    !!config.showBanner);
   toggleCond('disclaimer-fields',          !!config.showDisclaimer);
+
+  // LinkedIn
+  set('linkedinPromoEnabled', config.linkedinPromoEnabled);
+  set('linkedinUrl',          config.linkedinUrl  ?? '');
+  set('linkedinText',         config.linkedinText ?? '');
+  toggleCond('linkedin-promo-fields', !!config.linkedinPromoEnabled);
 
   // Restore event metadata display (badge count restored after loadEvents)
   if (promoOn && config.eventTitle) {
