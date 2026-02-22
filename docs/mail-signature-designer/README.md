@@ -29,7 +29,7 @@ De module biedt een UI om:
 
 - een **globale HTML-handtekeningtemplate** te configureren (kleuren, CTA, banner, disclaimer)
 - de gegenereerde handtekening te **previewen** op basis van medewerkerdata
-- de handtekening te **pushen** naar één of meerdere Google Workspace gebruikers via de Gmail Settings API
+- de handtekening te **pushen** naar ï¿½ï¿½n of meerdere Google Workspace gebruikers via de Gmail Settings API
 - een **pushlog** te bekijken (wie werd bijgewerkt, wanneer, succeeded/failed)
 
 Elke push-operatie haalt de naam en foto op uit Google Directory en de jobtitel en telefoonnummer uit Odoo `hr.employee`, en combineert dat met de globale template.
@@ -118,7 +118,7 @@ Singleton  altijd maximaal 1 rij, gehandhaafd via `CREATE UNIQUE INDEX signature
 
 ### Tabel `signature_push_log`
 
-Append-only audit log. Elke push-poging per gebruiker levert één rij op, ongeacht succes of fout.
+Append-only audit log. Elke push-poging per gebruiker levert ï¿½ï¿½n rij op, ongeacht succes of fout.
 
 | Kolom               | Type        | Beschrijving |
 |--------------------|-------------|--------------|
@@ -217,7 +217,7 @@ compileSignature(config, userData)  { html, warnings }
 - Font: Arial, Helvetica, sans-serif
 - Lege blokken uitgelaten (geen lege `<br>` of lege `<tr>`)
 - Onbekende `{{placeholders}}` in vrije tekstvelden (ctaText, disclaimerText) worden leeg gemaakt en als warning teruggegeven
-- Photo-blok alleen gerenderd als `showPhoto === true` én `photoUrl` niet leeg is
+- Photo-blok alleen gerenderd als `showPhoto === true` ï¿½n `photoUrl` niet leeg is
 
 **Vaste elementen (niet configureerbaar):**
 - Merk-naam "OpenVME" in brandColor
@@ -227,7 +227,7 @@ compileSignature(config, userData)  { html, warnings }
 
 ## 7. Google API integratie
 
-Beide clients gebruiken **native `fetch()` + `crypto.subtle`**  géén `googleapis` SDK.  
+Beide clients gebruiken **native `fetch()` + `crypto.subtle`**  gï¿½ï¿½n `googleapis` SDK.  
 De `googleapis` npm-dependency gebruikt Node.js built-ins die niet werken in Cloudflare Workers, ook niet met `nodejs_compat`.
 
 ### Auth-flow
@@ -257,7 +257,7 @@ Service account JSON (env)
 - Endpoints:
   - `GET https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs`  primair sendAs bepalen
   - `PUT https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/{sendAsEmail}`  handtekening schrijven
-- Één token-exchange per gebruiker voor beide calls
+- ï¿½ï¿½n token-exchange per gebruiker voor beide calls
 - Exports: `getPrimarySendAs(env, userEmail)`, `updateSignature(env, userEmail, html)`
 
 ### Vereiste Google Cloud configuratie
@@ -299,7 +299,7 @@ POST /api/push  { targetUserEmails: ["nico@mymmo.com"] }
 ### Lokale dev (`.dev.vars`)
 
 ```dotenv
-GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...volledig JSON op één regel...}
+GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...volledig JSON op ï¿½ï¿½n regel...}
 ```
 
 Wrangler leest `.dev.vars` opnieuw bij elke herstart van `wrangler dev`. Als de worker al draaide toen de variabele werd toegevoegd, is een herstart vereist.
@@ -310,10 +310,10 @@ Wrangler leest `.dev.vars` opnieuw bij elke herstart van `wrangler dev`. Als de 
 
 ```powershell
 npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON
-# plak de volledige JSON als één regel bij de prompt
+# plak de volledige JSON als ï¿½ï¿½n regel bij de prompt
 ```
 
-Verifiëren:
+Verifiï¿½ren:
 
 ```powershell
 npx wrangler secret list
@@ -344,7 +344,7 @@ npx wrangler secret list
 `thumbnailPhotoUrl` uit Google Directory vereist authenticatie. Gmail-clients buiten het Google domein kunnen de foto niet laden. `showPhoto` werkt alleen met een publiek toegankelijke URL.
 
 **Singleton config**  
-Één globale handtekening voor de hele organisatie. Per-gebruiker templates zijn niet ondersteund in V1.
+ï¿½ï¿½n globale handtekening voor de hele organisatie. Per-gebruiker templates zijn niet ondersteund in V1.
 
 **Odoo-match op email**  
 Koppeling tussen Google Directory-gebruiker en Odoo-medewerker via `work_email`. Bij afwijkend emailadres: graceful degradation naar lege `roleTitle` en `phone`.
