@@ -138,12 +138,13 @@ export function mailSignatureDesignerUI(user) {
                     <label class="flex items-center gap-3 cursor-pointer">
                       <input type="checkbox" name="eventPromoEnabled" id="event-promo-toggle"
                              class="toggle toggle-primary toggle-sm"
+                             checked
                              onchange="onEventPromoToggle(this.checked)" />
                       <span class="text-sm font-medium">Promoot event in handtekening</span>
                     </label>
 
                     <!-- Event select + meta (visible when toggle on) -->
-                    <div id="event-promo-fields" class="cond-field space-y-3">
+                    <div id="event-promo-fields" class="cond-field visible space-y-3">
 
                       <div class="form-control">
                         <div class="label py-0.5">
@@ -184,6 +185,7 @@ export function mailSignatureDesignerUI(user) {
                           <span class="label-text-alt text-base-content/40 text-xs">bv. &ldquo;Aankomend event&rdquo;</span>
                         </div>
                         <input type="text" name="eventEyebrow" id="event-eyebrow-input"
+                               value="Schrijf je in"
                                placeholder="Kom je ook? &bull; Aankomend event &bull; Mis het niet"
                                class="input input-bordered input-xs" />
                       </label>
@@ -199,7 +201,7 @@ export function mailSignatureDesignerUI(user) {
                     </div>
 
                     <!-- Fallback banner (visible when toggle off) -->
-                    <div id="fallback-banner-section" class="cond-field visible space-y-2">
+                    <div id="fallback-banner-section" class="cond-field space-y-2">
                       <p class="text-xs text-base-content/40">Indien geen event geselecteerd: toon bannerafbeelding.</p>
 
                       <label class="flex items-start gap-3 cursor-pointer py-0.5">

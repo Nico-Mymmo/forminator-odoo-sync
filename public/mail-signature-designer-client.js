@@ -199,7 +199,8 @@ async function loadEvents() {
       id:                w.id,
       title:             w.x_name || '(geen naam)',
       datetime:          w.x_studio_event_datetime || null,
-      registrationCount: (registrationCounts && registrationCounts[w.id]) || 0
+      registrationCount: (registrationCounts && registrationCounts[w.id]) || 0,
+      registrationUrl:   w.x_studio_registration_url || null
     }));
 
     // Upcoming only (datetime >= start of today), sorted soonest first
@@ -268,6 +269,12 @@ function onEventSelect(idStr) {
   const dateStr = formatEventDate(ev.datetime);
   if (titleEl) titleEl.value = ev.title;
   if (dateEl)  dateEl.value  = dateStr;
+
+  // Pre-fill registration URL from Odoo when the field is available
+  const regUrlEl = document.querySelector('[name="eventRegUrl"]');
+  if (regUrlEl && ev.registrationUrl && !regUrlEl.value) {
+    regUrlEl.value = ev.registrationUrl;
+  }
 
   if (metaDiv) {
     metaDiv.classList.remove('hidden');

@@ -80,8 +80,8 @@ export function compileSignature(config, userData) {
     disclaimerText = '',
     // Event promo
     eventPromoEnabled = false,
-    eventEyebrow = '',
-    eventTitle = '',
+    eventEyebrow = 'Schrijf je in',
+    eventTitle = ''
     eventDate = '',
     eventImageUrl = '',
     eventRegUrl = '',
