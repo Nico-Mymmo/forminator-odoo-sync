@@ -336,18 +336,36 @@ async function fetchLinkedinMeta() {
       return;
     }
 
-    const { description } = json.data;
+    const { description, authorName, authorImgUrl, likesCount } = json.data;
+
+    // Store scraped metadata in hidden form fields (so it persists on save/load)
+    const setH = (id, v) => { const el = $(id); if (el) el.value = v ?? ''; };
+    setH('linkedin-hidden-author-name', authorName);
+    setH('linkedin-hidden-author-img',  authorImgUrl);
+    setH('linkedin-hidden-likes',       likesCount || '');
+
+    // Show meta badge
+    const metaDiv    = $('linkedin-meta');
+    const metaAuthor = $('linkedin-meta-author');
+    const metaAvatar = $('linkedin-meta-avatar');
+    const metaLikes  = $('linkedin-meta-likes');
+    if (metaDiv) {
+      metaDiv.classList.remove('hidden');
+      if (metaAuthor) metaAuthor.textContent = authorName || '';
+      if (metaAvatar && authorImgUrl) { metaAvatar.src = authorImgUrl; metaAvatar.classList.remove('hidden'); }
+      if (metaLikes && likesCount)    { metaLikes.textContent = `\ud83d\udc4d ${likesCount}`; metaLikes.classList.remove('hidden'); }
+    }
 
     // Auto-fill flavor text only when field is empty
     if (textArea && !textArea.value && description) {
       // Strip the author prefix LinkedIn adds ("Dirk Gypen on LinkedIn: ")
       const cleaned = description.replace(/^[^:]+\s+op LinkedIn:\s*/i, '').replace(/^[^:]+\s+on LinkedIn:\s*/i, '');
-      textArea.value = cleaned.slice(0, 280); // keep it concise
+      textArea.value = cleaned.slice(0, 280);
     }
 
     if (statusEl) {
       statusEl.className = 'text-xs mt-1 text-success';
-      statusEl.textContent = '\u2713 Post opgehaald';
+      statusEl.textContent = '\u2713 Post opgehaald' + (authorName ? ` \u2014 ${authorName}` : '');
       setTimeout(() => statusEl.classList.add('hidden'), 3000);
     }
 
@@ -399,8 +417,11 @@ function getFormConfig() {
     brandColor,
     // ── LinkedIn promo
     linkedinPromoEnabled: f.querySelector('[name="linkedinPromoEnabled"]')?.checked || false,
-    linkedinUrl:  data.get('linkedinUrl')  || '',
-    linkedinText: data.get('linkedinText') || '',
+    linkedinUrl:        data.get('linkedinUrl')        || '',
+    linkedinText:       data.get('linkedinText')       || '',
+    linkedinAuthorName: data.get('linkedinAuthorName') || '',
+    linkedinAuthorImg:  data.get('linkedinAuthorImg')  || '',
+    linkedinLikes:      data.get('linkedinLikes') ? parseInt(data.get('linkedinLikes'), 10) : 0,
     // ── Disclaimer
     showDisclaimer: f.querySelector('[name="showDisclaimer"]')?.checked || false,
     disclaimerText: data.get('disclaimerText') || ''
@@ -461,7 +482,21 @@ function applyConfigToForm(config) {
   set('linkedinPromoEnabled', config.linkedinPromoEnabled);
   set('linkedinUrl',          config.linkedinUrl  ?? '');
   set('linkedinText',         config.linkedinText ?? '');
+  set('linkedinAuthorName',   config.linkedinAuthorName ?? '');
+  set('linkedinAuthorImg',    config.linkedinAuthorImg  ?? '');
+  set('linkedinLikes',        config.linkedinLikes ?? '');
   toggleCond('linkedin-promo-fields', !!config.linkedinPromoEnabled);
+  // Restore scraped meta badge
+  if (config.linkedinAuthorName) {
+    const metaDiv    = $('linkedin-meta');
+    const metaAuthor = $('linkedin-meta-author');
+    const metaAvatar = $('linkedin-meta-avatar');
+    const metaLikes  = $('linkedin-meta-likes');
+    if (metaDiv)   metaDiv.classList.remove('hidden');
+    if (metaAuthor) metaAuthor.textContent = config.linkedinAuthorName;
+    if (metaAvatar && config.linkedinAuthorImg) { metaAvatar.src = config.linkedinAuthorImg; metaAvatar.classList.remove('hidden'); }
+    if (metaLikes  && config.linkedinLikes)     { metaLikes.textContent = `\ud83d\udc4d ${config.linkedinLikes}`; metaLikes.classList.remove('hidden'); }
+  }
 
   // Restore event metadata display (badge count restored after loadEvents)
   if (promoOn && config.eventTitle) {

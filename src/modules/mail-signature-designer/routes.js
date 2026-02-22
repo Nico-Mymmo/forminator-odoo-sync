@@ -438,7 +438,38 @@ export const routes = {
         return jsonError('Kon geen post-inhoud ophalen — mogelijk is de post niet publiek of vereist LinkedIn een login', 422);
       }
 
-      return jsonOk({ title, description, imageUrl });
+      // Parse author name from "Name on LinkedIn: ..." / "Name op LinkedIn: ..."
+      const authorName = title.replace(/\s+(op|on)\s+linkedin[:\s].*/i, '').trim();
+
+      // Try JSON-LD blocks for author image URL and likes count
+      let authorImgUrl = '';
+      let likesCount   = 0;
+      const ldBlocks = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
+      for (const block of ldBlocks) {
+        try {
+          const inner = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '');
+          const ld    = JSON.parse(inner);
+          const nodes = Array.isArray(ld['@graph']) ? ld['@graph'] : [ld];
+          for (const node of nodes) {
+            if (!authorImgUrl && node.author) {
+              const img = node.author?.image;
+              authorImgUrl = (typeof img === 'string' ? img : img?.url) || '';
+            }
+            if (!likesCount && node.interactionStatistic) {
+              const stats = Array.isArray(node.interactionStatistic) ? node.interactionStatistic : [node.interactionStatistic];
+              const likes = stats.find(s => /like|react/i.test(s.interactionType || ''));
+              if (likes?.userInteractionCount) likesCount = parseInt(likes.userInteractionCount, 10) || 0;
+            }
+          }
+        } catch { /* ignore malformed JSON-LD */ }
+      }
+      // Fallback: inline JSON pattern
+      if (!likesCount) {
+        const lm = html.match(/"numLikes"\s*:\s*(\d+)/) || html.match(/(\d[\d,]*)\s*(?:likes|reactions)/i);
+        if (lm) likesCount = parseInt(lm[1].replace(/,/g, ''), 10) || 0;
+      }
+
+      return jsonOk({ title, description, imageUrl, authorName, authorImgUrl, likesCount });
     } catch (err) {
       console.error(`${LOG_PREFIX} GET /api/linkedin-meta failed:`, err);
       return jsonError('Ophalen mislukt: ' + err.message);

@@ -269,6 +269,15 @@ export function mailSignatureDesignerUI(user) {
                         <div id="linkedin-fetch-status" class="text-xs mt-1 hidden"></div>
                       </label>
 
+                      <!-- Scraped post metadata badge -->
+                      <div id="linkedin-meta" class="hidden rounded-lg bg-base-200 px-3 py-2.5">
+                        <div class="flex items-center gap-2">
+                          <img id="linkedin-meta-avatar" class="w-6 h-6 rounded-full hidden" src="" alt="" />
+                          <span id="linkedin-meta-author" class="text-sm font-semibold leading-snug flex-1"></span>
+                          <span id="linkedin-meta-likes" class="badge badge-outline badge-sm shrink-0 hidden"></span>
+                        </div>
+                      </div>
+
                       <label class="form-control">
                         <div class="label py-0.5">
                           <span class="label-text text-xs">Oproeptekst</span>
@@ -278,6 +287,11 @@ export function mailSignatureDesignerUI(user) {
                                   placeholder="Ik plaatste zojuist een artikel over &#8230; Jouw like of reactie maakt een groot verschil!"
                                   class="textarea textarea-bordered textarea-xs leading-snug"></textarea>
                       </label>
+
+                      <!-- Hidden scraped metadata (persisted in config) -->
+                      <input type="hidden" name="linkedinAuthorName" id="linkedin-hidden-author-name" />
+                      <input type="hidden" name="linkedinAuthorImg"  id="linkedin-hidden-author-img" />
+                      <input type="hidden" name="linkedinLikes"      id="linkedin-hidden-likes" />
 
                     </div>
                   </div>
