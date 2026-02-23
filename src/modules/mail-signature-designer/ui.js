@@ -507,15 +507,23 @@ export function mailSignatureDesignerUI(user) {
 
                     </div>
 
-                    <!-- Fallback banner (visible when toggle off) -->
+                    <!-- When event toggle is OFF: choose fallback or nothing -->
                     <div id="fallback-banner-section" class="cond-field space-y-2">
-                      <p class="text-xs text-base-content/40">Indien geen event geselecteerd: toon bannerafbeelding.</p>
+
+                      <!-- "Nothing" info note (always visible in this section) -->
+                      <div class="flex items-start gap-2 rounded-lg bg-base-200 px-3 py-2">
+                        <i data-lucide="info" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-base-content/40"></i>
+                        <p class="text-xs text-base-content/50 leading-snug">
+                          Event-promotie staat uit. Sla op en push naar gebruikers om het marketing-blok uit alle handtekeningen te verwijderen.<br />
+                          <span class="text-base-content/40">Optioneel: vervang het door een vaste bannerafbeelding.</span>
+                        </p>
+                      </div>
 
                       <label class="flex items-start gap-3 cursor-pointer py-0.5">
                         <input type="checkbox" name="showBanner" class="checkbox checkbox-sm mt-0.5"
                                onchange="toggleCond('fallback-banner-fields', this.checked)" />
                         <div>
-                          <span class="text-sm font-medium">Fallback bannerafbeelding</span>
+                          <span class="text-sm font-medium">Vervang door bannerafbeelding</span>
                         </div>
                       </label>
                       <div id="fallback-banner-fields" class="cond-field pl-7 space-y-2">

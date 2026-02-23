@@ -258,7 +258,7 @@ function onEventPromoToggle(checked) {
 }
 window.onEventPromoToggle = onEventPromoToggle;
 
-function onEventSelect(idStr) {
+function onEventSelect(idStr, silent = false) {
   const eventId   = parseInt(idStr, 10);
   const titleEl   = $('event-hidden-title');
   const dateEl    = $('event-hidden-date');
@@ -271,8 +271,7 @@ function onEventSelect(idStr) {
     if (titleEl) titleEl.value = '';
     if (dateEl)  dateEl.value  = '';
     if (metaDiv) metaDiv.classList.add('hidden');
-    markDirty();
-    debouncedPreview();
+    if (!silent) { markDirty(); debouncedPreview(); }
     return;
   }
 
@@ -299,8 +298,7 @@ function onEventSelect(idStr) {
     }
   }
 
-  markDirty();
-  debouncedPreview();
+  if (!silent) { markDirty(); debouncedPreview(); }
 }
 window.onEventSelect = onEventSelect;
 
@@ -1435,21 +1433,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Marketing tabs: only run when user has marketing role
   if (_isMarketing) {
-    // 1) Load marketing config, then fire initial preview
-    // 2) Load events in parallel; after both complete, restore badge count
     Promise.all([
-      loadConfig().then(() => updatePreview()),
+      loadConfig(),
       loadEvents()
     ]).then(() => {
-      // After loadEvents populates the dropdown, force-select the saved eventId
-      // (applyConfigToForm tried earlier but the <select> had no options yet)
+      // Restore the saved eventId now that the dropdown is populated.
+      // Use silent=true so onEventSelect only sets hidden fields + metadata
+      // without triggering markDirty or a debounced preview — we fire one
+      // clean updatePreview() below as the single render trigger.
       const sel = $('event-select');
       if (sel && _pendingEventId) {
         sel.value = _pendingEventId;
-        if (sel.value) onEventSelect(sel.value);
-      } else if (sel && sel.value) {
-        onEventSelect(sel.value);
+        if (sel.value) onEventSelect(sel.value, true);
+      } else if (sel?.value) {
+        onEventSelect(sel.value, true);
       }
+      // Single authoritative preview render after config + events are both loaded
+      updatePreview();
     });
   }
 });
