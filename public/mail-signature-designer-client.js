@@ -25,6 +25,9 @@ const _actorEmail = window.__SIG_STATE__?.actorEmail || '';
  */
 const _isMarketing = (_userRole === 'admin' || _userRole === 'marketing_signature');
 
+// Holds the eventId from the loaded config until the event dropdown is populated
+let _pendingEventId = null;
+
 function showToast(msg, type = 'info') {
   const el = document.createElement('div');
   el.className = `alert alert-${type} fixed bottom-4 right-4 z-50 w-80 shadow-lg text-sm py-2.5`;
@@ -453,6 +456,7 @@ function applyConfigToForm(config) {
   // Event Amplifier
   set('eventPromoEnabled', config.eventPromoEnabled);
   set('eventId',           config.eventId        ?? '');
+  _pendingEventId = config.eventId ? String(config.eventId) : null;  // stash for post-loadEvents restore
   set('eventTitle',        config.eventTitle      ?? '');
   set('eventDate',         config.eventDate       ?? '');
   set('eventEyebrow',         config.eventEyebrow         || 'Schrijf je in');
@@ -1437,9 +1441,15 @@ document.addEventListener('DOMContentLoaded', () => {
       loadConfig().then(() => updatePreview()),
       loadEvents()
     ]).then(() => {
-      // Restore badge count for selected event after loadEvents fills _allEvents
+      // After loadEvents populates the dropdown, force-select the saved eventId
+      // (applyConfigToForm tried earlier but the <select> had no options yet)
       const sel = $('event-select');
-      if (sel && sel.value) onEventSelect(sel.value);
+      if (sel && _pendingEventId) {
+        sel.value = _pendingEventId;
+        if (sel.value) onEventSelect(sel.value);
+      } else if (sel && sel.value) {
+        onEventSelect(sel.value);
+      }
     });
   }
 });
