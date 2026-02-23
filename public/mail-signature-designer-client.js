@@ -203,9 +203,15 @@ async function loadEvents() {
   sel.innerHTML = '<option value="">Laden\u2026</option>';
 
   try {
-    const res  = await fetch('/events/api/odoo-webinars?_t=' + Date.now(), { credentials: 'include' });
-    const json = await res.json();
+    const [webinarRes, publishedRes] = await Promise.all([
+      fetch('/events/api/odoo-webinars?_t=' + Date.now(), { credentials: 'include' }),
+      fetch('/events/api/published-webinar-ids', { credentials: 'include' })
+    ]);
+    const [json, publishedJson] = await Promise.all([webinarRes.json(), publishedRes.json()]);
     if (!json.success) throw new Error(json.error || 'Onbekende fout');
+
+    // Build a set of IDs that are live on WordPress (published or out_of_sync)
+    const publishedIds = new Set((publishedJson.data || []).map(String));
 
     const { webinars, registrationCounts } = json.data;
     _allEvents = (webinars || []).map(w => ({
@@ -216,10 +222,10 @@ async function loadEvents() {
       registrationUrl:   w.x_studio_registration_url || null
     }));
 
-    // Upcoming only (datetime >= start of today), sorted soonest first
+    // Upcoming AND published to WordPress only, sorted soonest first
     const now = Date.now();
     const upcoming = _allEvents
-      .filter(e => e.datetime && new Date(e.datetime).getTime() >= now)
+      .filter(e => e.datetime && new Date(e.datetime).getTime() >= now && publishedIds.has(String(e.id)))
       .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
 
     if (upcoming.length === 0) {
@@ -606,14 +612,15 @@ async function updatePreview() {
     if (json.success) {
       const frame = $('preview-frame');
       const doc   = frame.contentDocument || frame.contentWindow.document;
-      doc.open(); doc.write(json.data.html); doc.close();
 
-      // Auto-size the iframe to fit content (no scrollbar)
+      // Auto-size the iframe to fit content (no scrollbar).
+      // Attach onload BEFORE doc.open() so it fires when doc.close() triggers load.
       const autoSize = () => {
         const h = frame.contentDocument?.body?.scrollHeight;
         if (h) frame.style.height = (h + 4) + 'px';
       };
-      requestAnimationFrame(autoSize);
+      frame.onload = autoSize;
+      doc.open(); doc.write(json.data.html); doc.close();
       // Re-measure once images have loaded
       Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
         if (!img.complete) img.addEventListener('load', autoSize);
@@ -1490,12 +1497,13 @@ async function updateMyPreview() {
       const frame = $('my-preview-frame');
       if (frame) {
         const doc = frame.contentDocument || frame.contentWindow.document;
-        doc.open(); doc.write(json.data.html); doc.close();
+        // Attach onload BEFORE doc.open() so it fires when doc.close() triggers load.
         const autoSize = () => {
           const h = frame.contentDocument?.body?.scrollHeight;
           if (h) frame.style.height = (h + 4) + 'px';
         };
-        requestAnimationFrame(autoSize);
+        frame.onload = autoSize;
+        doc.open(); doc.write(json.data.html); doc.close();
         Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
           if (!img.complete) img.addEventListener('load', autoSize);
         });
