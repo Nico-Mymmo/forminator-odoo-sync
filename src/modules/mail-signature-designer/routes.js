@@ -165,7 +165,9 @@ async function pushOneUser({
       : await getUserSettings(env, targetEmail);
 
     const dirUser  = directoryMap[targetEmail] || {};
-    const odooUser = odooMap[targetEmail]      || {};
+    // Use odoo_email_override when set — some users have a different Odoo work_email
+    const odooLookupEmail = userSettings?.odoo_email_override?.toLowerCase().trim() || targetEmail;
+    const odooUser = odooMap[odooLookupEmail]  || {};
 
     // Merge all layers
     const { config, userData } = mergeSignatureLayers(
@@ -377,13 +379,16 @@ export const routes = {
     try {
       const userEmail = context.user.email;
 
-      // Parallel: load saved settings + fetch Odoo employee profile + Google Directory photo + marketing active event
-      const [settings, odooProfile, activeEvent] = await Promise.all([
-        getUserSettings(context.env, userEmail),
+      // Load settings first so we can use odoo_email_override for the Odoo lookup
+      const settings = await getUserSettings(context.env, userEmail);
+      const odooEmail = settings?.odoo_email_override?.toLowerCase().trim() || userEmail;
+
+      // Parallel: fetch Odoo employee profile + Google Directory photo + marketing active event
+      const [odooProfile, activeEvent] = await Promise.all([
         Promise.all([
           searchRead(context.env, {
             model: 'hr.employee',
-            domain: [['work_email', '=', userEmail]],
+            domain: [['work_email', '=', odooEmail]],
             fields: ['name', 'job_title', 'mobile_phone', 'work_phone'],
             limit: 1
           }).then(rows => {
@@ -395,7 +400,7 @@ export const routes = {
               mobile_phone: emp.mobile_phone || emp.work_phone || null
             };
           }).catch(err => {
-            console.warn(`${LOG_PREFIX} Odoo profile fetch failed for ${userEmail}:`, err.message);
+            console.warn(`${LOG_PREFIX} Odoo profile fetch failed for ${odooEmail}:`, err.message);
             return null;
           }),
           getUserByEmail(context.env, userEmail)
@@ -935,6 +940,58 @@ export const routes = {
 
     } catch (err) {
       console.error(`${LOG_PREFIX} POST /api/push (legacy) failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  // ===========================================================================
+  // ADMIN – USER SETTINGS OVERRIDES
+  // ===========================================================================
+
+  /**
+   * GET /mail-signatures/api/admin/user-settings
+   * Load signature settings for any user (admin/marketing only).
+   * Query param: ?email=user@example.com
+   */
+  'GET /api/admin/user-settings': async (context) => {
+    const deny = guardAuth(context) || guardMarketingRole(context);
+    if (deny) return deny;
+    try {
+      const url    = new URL(context.request.url);
+      const email  = url.searchParams.get('email')?.toLowerCase().trim();
+      if (!email) return jsonError('email query param required', 400);
+      const settings = await getUserSettings(context.env, email);
+      return jsonOk({ settings: settings ?? {} });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} GET /api/admin/user-settings failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  /**
+   * PUT /mail-signatures/api/admin/user-settings
+   * Update signature settings for any user (admin/marketing only).
+   * Body: { userEmail: string, settings: { odoo_email_override?: string|null, ... } }
+   */
+  'PUT /api/admin/user-settings': async (context) => {
+    const deny = guardAuth(context) || guardMarketingRole(context);
+    if (deny) return deny;
+    try {
+      const body = await context.request.json();
+      const userEmail = body?.userEmail?.toLowerCase().trim();
+      if (!userEmail) return jsonError('userEmail required', 400);
+      if (!body?.settings || typeof body.settings !== 'object') {
+        return jsonError('settings object required', 400);
+      }
+      const result = await upsertUserSettings(
+        context.env,
+        userEmail,
+        body.settings,
+        context.user.id ?? null
+      );
+      return jsonOk(result);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} PUT /api/admin/user-settings failed:`, err);
       return jsonError(err.message);
     }
   },

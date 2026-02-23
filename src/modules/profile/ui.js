@@ -108,11 +108,33 @@ export function profileUI(user) {
             </div>
           </div>
         </div>
+
+      <!-- Odoo e-mail koppeling -->
+      <div class="card bg-base-100 shadow-xl mt-6">
+        <div class="card-body">
+          <h2 class="card-title">
+            <i data-lucide="at-sign" class="w-5 h-5"></i>
+            Odoo e-mailkoppeling
+          </h2>
+          <p class="text-sm text-base-content/60 mb-2">
+            Standaard wordt <strong>${user.email}</strong> gebruikt om jouw gegevens (functie, telefoon) op te halen uit Odoo.
+            Als jouw Odoo-account een ander e-mailadres gebruikt, geef dat hier in.
+          </p>
+          <div class="form-control">
+            <label class="label py-0.5">
+              <span class="label-text text-sm">Odoo work_email (leeg = gebruik login-email)</span>
+            </label>
+            <input type="email" id="odooEmailOverride" class="input input-bordered" placeholder="naam@bedrijf.com">
+          </div>
+          <div id="odooEmailStatus" class="text-xs mt-1 hidden"></div>
+          <div class="card-actions justify-end mt-2">
+            <button onclick="saveOdooEmailOverride()" class="btn btn-primary btn-sm">Opslaan</button>
+          </div>
+        </div>
       </div>
     </div>
-    
-    <script>
-      // Initialize theme
+  </div>
+
       function changeTheme(theme) {
         document.elementElement.setAttribute('data-theme', theme);
         localStorage.setItem('selectedTheme', theme);
@@ -230,8 +252,42 @@ export function profileUI(user) {
         }
       });
       
+      // Odoo e-mail override
+      async function loadOdooEmailOverride() {
+        try {
+          const res  = await fetch('/mail-signatures/api/my-settings', { credentials: 'include' });
+          const json = await res.json();
+          const override = json.data?.settings?.odoo_email_override || '';
+          document.getElementById('odooEmailOverride').value = override;
+        } catch (_) {}
+      }
+
+      async function saveOdooEmailOverride() {
+        const val      = document.getElementById('odooEmailOverride').value.trim().toLowerCase();
+        const override = val || null;
+        const status   = document.getElementById('odooEmailStatus');
+        status.className = 'text-xs mt-1';
+        status.textContent = 'Opslaan…';
+        try {
+          const res = await fetch('/mail-signatures/api/my-settings', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { odoo_email_override: override } })
+          });
+          const json = await res.json();
+          if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+          status.className = 'text-xs mt-1 text-success';
+          status.textContent = override ? 'Odoo-email opgeslagen: ' + override : 'Override gewist — login-email wordt gebruikt.';
+        } catch (err) {
+          status.className = 'text-xs mt-1 text-error';
+          status.textContent = 'Fout: ' + err.message;
+        }
+      }
+
       initTheme();
       lucide.createIcons();
+      loadOdooEmailOverride();
     </script>
 </body>
 </html>`;

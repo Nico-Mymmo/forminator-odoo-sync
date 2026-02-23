@@ -223,6 +223,9 @@ function renderUsersTable() {
           '<button class="btn btn-xs btn-ghost join-item" onclick="editUserModules(\'' + user.id + '\')" title="Edit Modules">' +
             '<i data-lucide="package" class="w-3 h-3"></i>' +
           '</button>' +
+          '<button class="btn btn-xs btn-ghost join-item" onclick="editUserOdooEmail(\'' + user.email + '\')" title="Odoo e-mail override">' +
+            '<i data-lucide="at-sign" class="w-3 h-3"></i>' +
+          '</button>' +
           '<button class="btn btn-xs btn-ghost join-item" onclick="toggleUserStatus(\'' + user.id + '\')" title="Toggle Status">' +
             '<i data-lucide="' + (user.isActive ? 'user-x' : 'user-check') + '" class="w-3 h-3"></i>' +
           '</button>' +
@@ -324,6 +327,57 @@ async function saveUserModules(userId, btn) {
   } catch (error) {
     console.error('Failed to update modules:', error);
     alert('Failed to update user modules');
+  }
+}
+
+async function editUserOdooEmail(userEmail) {
+  // Fetch current override from signature settings
+  let current = '';
+  try {
+    const res  = await fetch('/mail-signatures/api/admin/user-settings?email=' + encodeURIComponent(userEmail), { credentials: 'include' });
+    const json = await res.json();
+    current = json.data?.settings?.odoo_email_override || '';
+  } catch (_) {}
+
+  const modal = document.createElement('div');
+  modal.className = 'modal modal-open';
+  modal.innerHTML =
+    '<div class="modal-box">' +
+      '<h3 class="font-bold text-lg mb-1">Odoo e-mail override</h3>' +
+      '<p class="text-sm text-base-content/60 mb-4">Standaard wordt <strong>' + userEmail + '</strong> gebruikt voor de Odoo-koppeling. Vul hieronder een alternatief Odoo work_email in als het afwijkt.</p>' +
+      '<div class="form-control">' +
+        '<label class="label py-0.5"><span class="label-text text-xs">Odoo work_email (leeg = gebruik login-email)</span></label>' +
+        '<input id="odooEmailInput" type="email" class="input input-bordered" placeholder="naam@bedrijf.com" value="' + current + '">' +
+      '</div>' +
+      '<div class="modal-action">' +
+        '<button class="btn btn-sm" onclick="this.closest(\'.modal\').remove()">Annuleren</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="saveUserOdooEmail(\'' + userEmail + '\', this)">Opslaan</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  lucide.createIcons();
+}
+
+async function saveUserOdooEmail(userEmail, btn) {
+  const modal    = btn.closest('.modal');
+  const val      = modal.querySelector('#odooEmailInput').value.trim().toLowerCase();
+  const override = val || null;
+  btn.disabled   = true;
+  btn.textContent = 'Opslaan…';
+  try {
+    const res = await fetch('/mail-signatures/api/admin/user-settings', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userEmail, settings: { odoo_email_override: override } })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+    modal.remove();
+  } catch (err) {
+    alert('Fout: ' + err.message);
+    btn.disabled    = false;
+    btn.textContent = 'Opslaan';
   }
 }
 
