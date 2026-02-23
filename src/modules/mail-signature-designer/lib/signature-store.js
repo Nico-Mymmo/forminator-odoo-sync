@@ -246,7 +246,8 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
     'hidden_event_id',
     'show_disclaimer', 'disclaimer_text',
     'linkedin_promo_enabled', 'linkedin_url', 'linkedin_eyebrow',
-    'linkedin_text', 'linkedin_author_name', 'linkedin_author_img', 'linkedin_likes'
+    'linkedin_text', 'linkedin_author_name', 'linkedin_author_img', 'linkedin_likes',
+    'quote_enabled', 'quote_text', 'quote_author', 'quote_date'
   ];
   const sanitised = {};
   for (const key of ALLOWED_FIELDS) {

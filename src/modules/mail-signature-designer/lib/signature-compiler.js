@@ -41,7 +41,8 @@
  *  3. LinkedIn promo row  (user layer – only when linkedinPromoEnabled)
  *  4. Event promo row    (marketing layer – eventPromoEnabled + eventTitle)
  *     OR fallback banner (showBanner + bannerImageUrl)
- *  5. Disclaimer row     (merged layer – user text or marketing default)
+ *  5. Quote row          (user layer – only when quoteEnabled)
+ *  6. Disclaimer row     (merged layer – user text or marketing default)
  */
 
 const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl', 'brandName', 'websiteUrl'];
@@ -122,7 +123,12 @@ export function compileSignature(config, userData) {
     linkedinText = '',
     linkedinAuthorName = '',
     linkedinAuthorImg  = '',
-    linkedinLikes      = 0
+    linkedinLikes      = 0,
+    // Quote
+    quoteEnabled  = false,
+    quoteText     = '',
+    quoteAuthor   = '',
+    quoteDate     = ''
   } = config;
 
   const brandColor = resolvedBrandColor;
@@ -332,6 +338,28 @@ export function compileSignature(config, userData) {
     </tr>`;
   }
 
+  // ── QUOTE ─────────────────────────────────────────────────────────────────
+  let quoteRow = '';
+  if (quoteEnabled && quoteText) {
+    const attribution = `\u2014 ${quoteAuthor}${quoteDate ? ', ' + quoteDate : ''}`;
+    const cellStart = data.photoUrl
+      ? `<td></td><td colspan="2" style="padding-top:16px;padding-right:16px;">`
+      : `<td style="padding-top:16px;padding-right:16px;">`;
+    quoteRow = `<tr>
+      ${cellStart}
+        <table cellpadding="0" cellspacing="0" border="0"
+               style="width:100%;border-collapse:collapse;background-color:#f5f5f5;border-left:3px solid ${brandColor};">
+          <tr>
+            <td style="padding:12px 16px;">
+              <div style="font-family:${fontStack};font-size:13px;font-style:italic;color:#333333;line-height:1.6;">&ldquo;${quoteText}&rdquo;</div>
+              <div style="font-family:${fontStack};font-size:12px;color:#666666;margin-top:8px;">${attribution}</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>`;
+  }
+
   // ── DISCLAIMER ────────────────────────────────────────────────────────────────
   let disclaimerRow = '';
   if (showDisclaimer && disclaimerText) {
@@ -362,6 +390,7 @@ export function compileSignature(config, userData) {
   </tr>
   ${linkedinRow}
   ${eventRow}
+  ${quoteRow}
   ${disclaimerRow}
 </table>`).replace(/\n\s*\n/g, '\n').trim();
 

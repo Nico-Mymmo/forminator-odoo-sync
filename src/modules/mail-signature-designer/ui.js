@@ -316,6 +316,47 @@ export function mailSignatureDesignerUI(user) {
 
                 <div class="divider my-0"></div>
 
+                <!-- ══ Inspirerende quote ══ -->
+                <details>
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="quote" class="w-4 h-4 text-base-content/50"></i>
+                      <span class="text-sm font-semibold">Inspirerende quote</span>
+                    </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+                  <div class="pt-3 space-y-3">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" name="quote_enabled" id="my-quote-toggle"
+                             class="checkbox checkbox-sm checkbox-primary"
+                             onchange="onMyQuoteToggle(this.checked)" />
+                      <span class="text-sm font-medium">Quote tonen in handtekening</span>
+                    </label>
+                    <div id="my-quote-fields" class="cond-field space-y-3">
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Quote tekst</span></div>
+                        <textarea name="quote_text" rows="2"
+                                  placeholder="De enige manier om goed werk te doen…"
+                                  class="textarea textarea-bordered textarea-xs leading-snug"></textarea>
+                      </label>
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Gezegd door</span></div>
+                        <input type="text" name="quote_author"
+                               placeholder="Steve Jobs"
+                               class="input input-bordered input-xs" />
+                      </label>
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Wanneer <span class="opacity-50">(optioneel)</span></span></div>
+                        <input type="text" name="quote_date"
+                               placeholder="2005"
+                               class="input input-bordered input-xs" />
+                      </label>
+                    </div>
+                  </div>
+                </details>
+
+                <div class="divider my-0"></div>
+
                 <!-- ══ Persoonlijke disclaimer ══ -->
                 <details>
                   <summary class="flex items-center justify-between py-1.5 select-none">

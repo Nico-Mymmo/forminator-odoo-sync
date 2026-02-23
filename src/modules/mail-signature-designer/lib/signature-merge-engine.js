@@ -194,6 +194,10 @@ export function mergeSignatureLayers(
   const linkedinPromoEnabled = !!(u.linkedin_promo_enabled && u.linkedin_url);
   mergedBy['linkedin'] = linkedinPromoEnabled ? 'user' : 'none';
 
+  // ── Quote (user-owned, marketing cannot override) ─────────────────────────
+  const quoteEnabled = !!(u.quote_enabled && u.quote_text);
+  mergedBy['quote'] = quoteEnabled ? 'user' : 'none';
+
   // ── config object ──────────────────────────────────────────────────────────
   // Branding and events are always from the marketing layer.
   // The user layer does not touch these fields.
@@ -229,7 +233,13 @@ export function mergeSignatureLayers(
     linkedinText:       u.linkedin_text      || '',
     linkedinAuthorName: u.linkedin_author_name || '',
     linkedinAuthorImg:  u.linkedin_author_img  || '',
-    linkedinLikes:      u.linkedin_likes       || 0
+    linkedinLikes:      u.linkedin_likes       || 0,
+
+    // ── Quote (user layer only)
+    quoteEnabled,
+    quoteText:   quoteEnabled ? (u.quote_text   || '') : '',
+    quoteAuthor: u.quote_author || '',
+    quoteDate:   u.quote_date   || ''
   };
 
   return { config, userData, mergedBy };

@@ -1169,7 +1169,11 @@ function getMySettingsForm() {
     linkedin_text:          str('linkedin_text')       || null,
     linkedin_author_name:   str('linkedin_author_name') || null,
     linkedin_author_img:    str('linkedin_author_img')  || null,
-    linkedin_likes:         parseInt(str('linkedin_likes') || '0', 10) || 0
+    linkedin_likes:         parseInt(str('linkedin_likes') || '0', 10) || 0,
+    quote_enabled: bool('quote_enabled'),
+    quote_text:    str('quote_text')   || null,
+    quote_author:  str('quote_author') || null,
+    quote_date:    str('quote_date')   || null
   };
 }
 
@@ -1243,6 +1247,11 @@ function applyMySettingsToForm(settings, odooProfile) {
   set('linkedin_author_img',    settings.linkedin_author_img  ?? '');
   set('linkedin_likes',         settings.linkedin_likes ?? '');
 
+  set('quote_enabled', !!settings.quote_enabled);
+  set('quote_text',    settings.quote_text   ?? '');
+  set('quote_author',  settings.quote_author ?? '');
+  set('quote_date',    settings.quote_date   ?? '');
+
   // Dynamic placeholders: show Odoo value so user knows what will be used
   if (odooProfile) {
     setPlaceholder('full_name_override',  odooProfile.name,         'Laat leeg = Odoo naam');
@@ -1253,6 +1262,7 @@ function applyMySettingsToForm(settings, odooProfile) {
   // Conditional visibility
   toggleCond('my-disclaimer-fields', !!settings.show_disclaimer);
   toggleCond('my-linkedin-fields',   !!settings.linkedin_promo_enabled);
+  toggleCond('my-quote-fields',      !!settings.quote_enabled);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1373,6 +1383,16 @@ function onMyLinkedinToggle(checked) {
   debouncedMyPreview();
 }
 window.onMyLinkedinToggle = onMyLinkedinToggle;
+
+// ════════════════════════════════════════════════════════
+// My-signature Quote toggle
+// ════════════════════════════════════════════════════════
+function onMyQuoteToggle(checked) {
+  toggleCond('my-quote-fields', checked);
+  markMyDirty();
+  debouncedMyPreview();
+}
+window.onMyQuoteToggle = onMyQuoteToggle;
 
 // ════════════════════════════════════════════════════════
 // My-signature LinkedIn meta fetch
