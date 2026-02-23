@@ -307,6 +307,36 @@ export const routes = {
   },
 
   /**
+   * GET /events/api/published-webinar-ids
+   * Return Odoo webinar IDs that have at least one snapshot with
+   * computed_state 'published' or 'out_of_sync' (live on WordPress).
+   * Uses admin client (bypasses RLS) — intentionally cross-user.
+   *
+   * Response: { success: true, data: [44, 51, ...] }
+   */
+  'GET /api/published-webinar-ids': async (context) => {
+    const { env } = context;
+    try {
+      const supabase = await getSupabaseAdminClient(env);
+      const { data, error } = await supabase
+        .from('webinar_snapshots')
+        .select('odoo_webinar_id')
+        .in('computed_state', [SYNC_STATUS.PUBLISHED, SYNC_STATUS.OUT_OF_SYNC]);
+      if (error) throw new Error(`Supabase error: ${error.message}`);
+      const ids = [...new Set((data || []).map(r => r.odoo_webinar_id))];
+      return new Response(JSON.stringify({ success: true, data: ids }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} published-webinar-ids failed:`, error);
+      return new Response(JSON.stringify({ success: false, error: error.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
    * GET /events/api/snapshots
    * Fetch all snapshots for the current user from Supabase
    * 

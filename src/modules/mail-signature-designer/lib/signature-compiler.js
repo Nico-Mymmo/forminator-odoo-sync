@@ -386,8 +386,8 @@ export function compileSignature(config, userData) {
     ? `<div style="font-family:${fontStack};font-size:14px;color:${baseColor};margin-bottom:16px;">${greetingText}<br>&nbsp;</div>`
     : '';
 
-  const html = (`${greeting}<table cellpadding="0" cellspacing="0" border="0"
-  style="max-width:600px;width:100%;border-collapse:collapse;font-family:${fontStack};">
+  const html = (`${greeting}<table cellpadding="0" cellspacing="0" border="0" width="600"
+  style="width:600px;max-width:100%;border-collapse:collapse;font-family:${fontStack};">
   <tr>
     ${photoCell}
     ${dividerCell}
