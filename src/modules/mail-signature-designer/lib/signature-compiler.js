@@ -110,7 +110,7 @@ export function compileSignature(config, userData) {
     eventDate = '',
     eventImageUrl = '',
     eventImageMaxHeight = null,
-    eventRegUrl = '',,
+    eventRegUrl = '',
     // Fallback banner
     showBanner = false,
     bannerImageUrl = '',
