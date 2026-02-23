@@ -110,8 +110,7 @@ export function compileSignature(config, userData) {
     eventDate = '',
     eventImageUrl = '',
     eventImageMaxHeight = null,
-    eventImageFit = 'cover',
-    eventRegUrl = '',
+    eventRegUrl = '',,
     // Fallback banner
     showBanner = false,
     bannerImageUrl = '',
@@ -206,12 +205,16 @@ export function compileSignature(config, userData) {
   let eventRow = '';
 
   if (eventPromoEnabled && eventTitle) {
-    const imgMaxH  = eventImageMaxHeight ? `max-height:${eventImageMaxHeight}px;` : '';
-    const imgFit   = eventImageMaxHeight   ? `object-fit:${eventImageFit || 'cover'};` : '';
+    // When max-height is set: let width scale proportionally (width:auto) so the
+    // image shrinks to fit the height cap without distortion. object-fit is not
+    // supported by email clients so we never use it.
+    const imgStyle = eventImageMaxHeight
+      ? `display:block;max-height:${eventImageMaxHeight}px;height:auto;width:auto;max-width:100%;border:0;border-radius:5px;`
+      : `display:block;width:100%;max-width:536px;border:0;border-radius:5px;`;
     const imgBlock = eventImageUrl
       ? `<a href="${eventRegUrl || '#'}" style="display:block;margin-bottom:10px;">
-          <img src="${eventImageUrl}" alt="${eventTitle}" width="536"
-               style="display:block;width:100%;max-width:536px;border:0;border-radius:5px;${imgMaxH}${imgFit}" />
+          <img src="${eventImageUrl}" alt="${eventTitle}"
+               style="${imgStyle}" />
         </a>`
       : '';
 
