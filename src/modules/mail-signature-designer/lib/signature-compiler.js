@@ -341,18 +341,23 @@ export function compileSignature(config, userData) {
   // ── QUOTE ─────────────────────────────────────────────────────────────────
   let quoteRow = '';
   if (quoteEnabled && quoteText) {
-    const attribution = `\u2014 ${quoteAuthor}${quoteDate ? ', ' + quoteDate : ''}`;
+    const quoteLight = blendHex(brandColor, 0.93);
+    const quoteEdge  = blendHex(brandColor, 0.72);
+    const openMark = `<div style="font-family:Georgia,'Times New Roman',serif;font-size:38px;font-weight:700;color:${brandColor};line-height:0.9;margin-bottom:8px;opacity:0.65;">&ldquo;</div>`;
+    const quoteBody = `<div style="font-family:${fontStack};font-size:13px;font-style:italic;font-weight:400;color:${baseColor};line-height:1.65;">${quoteText}&rdquo;</div>`;
+    const attribution = quoteAuthor
+      ? `<div style="font-family:${fontStack};font-size:11px;font-weight:600;color:${mutedColor};margin-top:10px;letter-spacing:0.03em;">\u2014\u2009${quoteAuthor}${quoteDate ? '\u2002\u00B7\u2002' + quoteDate : ''}</div>`
+      : '';
     const cellStart = data.photoUrl
       ? `<td></td><td colspan="2" style="padding-top:16px;padding-right:16px;">`
       : `<td style="padding-top:16px;padding-right:16px;">`;
     quoteRow = `<tr>
       ${cellStart}
         <table cellpadding="0" cellspacing="0" border="0"
-               style="width:100%;border-collapse:collapse;background-color:#f5f5f5;border-left:3px solid ${brandColor};">
+               style="width:100%;border-collapse:separate;border-spacing:0;background-color:${quoteLight};border-radius:8px;border:1px solid ${quoteEdge};">
           <tr>
-            <td style="padding:12px 16px;">
-              <div style="font-family:${fontStack};font-size:13px;font-style:italic;color:#333333;line-height:1.6;">&ldquo;${quoteText}&rdquo;</div>
-              <div style="font-family:${fontStack};font-size:12px;color:#666666;margin-top:8px;">${attribution}</div>
+            <td style="padding:14px 16px;">
+              ${openMark}${quoteBody}${attribution}
             </td>
           </tr>
         </table>
