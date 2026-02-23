@@ -272,3 +272,27 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
 
   return data;
 }
+/**
+ * Clear hidden_event_id for ALL users.
+ * Called when marketing activates a new event or clears the current one.
+ * This resets every user's opt-out so the new/cleared event state is shown
+ * correctly on their next load or push.
+ *
+ * @param {Object} env
+ * @returns {number} count of rows affected
+ */
+export async function clearAllHiddenEventIds(env) {
+  const supabase = getSupabaseAdminClient(env);
+
+  const { data, error } = await supabase
+    .from('user_signature_settings')
+    .update({ hidden_event_id: null })
+    .not('hidden_event_id', 'is', null)
+    .select('user_email');
+
+  if (error) {
+    throw new Error(`[signature-store] clearAllHiddenEventIds failed: ${error.message}`);
+  }
+
+  return data?.length ?? 0;
+}

@@ -44,7 +44,7 @@
 import {
   getConfig, upsertConfig,
   getMarketingSettings, upsertMarketingSettings,
-  getUserSettings, upsertUserSettings,
+  getUserSettings, upsertUserSettings, clearAllHiddenEventIds,
   logPush, getLogs
 } from './lib/signature-store.js';
 import { compileSignature } from './lib/signature-compiler.js';
@@ -327,15 +327,27 @@ export const routes = {
       // Detect event change before overwriting
       const existing    = await getMarketingSettings(context.env);
       const oldEventId  = existing?.config?.eventId  || null;
-      const newEventId  = body.config.eventId         || null;
-      const newEventActive = !!(body.config.eventPromoEnabled && newEventId);
-      const eventChanged   = newEventActive && newEventId !== oldEventId;
+      const oldActive   = !!(existing?.config?.eventPromoEnabled && oldEventId);
+      const newEventId  = body.config.eventId || null;
+      const newActive   = !!(body.config.eventPromoEnabled && newEventId);
+      // Reset all users' hidden_event_id when event changes (new ID) or is cleared/disabled
+      const eventReset = (oldActive && !newActive) ||
+        (newActive && String(oldEventId) !== String(newEventId));
+      // Only auto-push when a genuinely new event is activated
+      const eventChanged = newActive && String(oldEventId) !== String(newEventId);
 
       const result = await upsertMarketingSettings(
         context.env,
         body.config,
         context.user?.id ?? null
       );
+
+      // Clear all users' event opt-outs when the event changes or is removed
+      if (eventReset) {
+        try { await clearAllHiddenEventIds(context.env); } catch (e) {
+          console.warn(`${LOG_PREFIX} clearAllHiddenEventIds warning:`, e.message);
+        }
+      }
 
       // When a new event is activated, push to all users in the background
       if (eventChanged && context.ctx?.waitUntil) {
@@ -814,11 +826,28 @@ export const routes = {
       if (!body?.config || typeof body.config !== 'object') {
         return jsonError('Request body must contain a config object', 400);
       }
+
+      // Detect event change to reset all users' hidden_event_id
+      const existing  = await getMarketingSettings(context.env);
+      const oldEventId = existing?.config?.eventId || null;
+      const oldActive  = !!(existing?.config?.eventPromoEnabled && oldEventId);
+      const newEventId = body.config.eventId || null;
+      const newActive  = !!(body.config.eventPromoEnabled && newEventId);
+      const eventReset = (oldActive && !newActive) ||
+        (newActive && String(oldEventId) !== String(newEventId));
+
       const result = await upsertMarketingSettings(
         context.env,
         body.config,
         context.user?.id ?? null
       );
+
+      if (eventReset) {
+        try { await clearAllHiddenEventIds(context.env); } catch (e) {
+          console.warn(`${LOG_PREFIX} clearAllHiddenEventIds (legacy) warning:`, e.message);
+        }
+      }
+
       return jsonOk(result);
     } catch (err) {
       console.error(`${LOG_PREFIX} PUT /api/config (legacy) failed:`, err);

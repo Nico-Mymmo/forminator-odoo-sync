@@ -530,7 +530,11 @@ async function saveConfig() {
       } else {
         showToast('Configuratie opgeslagen', 'success');
       }
+      // Refresh marketing preview
       updatePreview();
+      // Also refresh the "Mijn handtekening" preview so _activeEvent is up-to-date
+      // (e.g. when the event is changed or cleared, the toggle and preview update too)
+      loadMySettings().then(() => updateMyPreview());
     } else {
       setPreviewState('error');
       showToast('Opslaan mislukt: ' + json.error, 'error');
