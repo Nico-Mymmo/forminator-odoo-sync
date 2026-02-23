@@ -467,13 +467,36 @@ export function mailSignatureDesignerUI(user) {
                         <span id="event-meta-date" class="text-xs text-base-content/50"></span>
                       </div>
 
-                      <!-- Event banner image URL (manual) -->
+                      <!-- Event banner image URL + display options -->
                       <label class="form-control">
                         <div class="label py-0.5"><span class="label-text text-xs">Event afbeelding URL</span></div>
                         <input type="url" name="eventImageUrl" id="event-image-url-input"
                                placeholder="https://&#8230;/event-banner.png"
                                class="input input-bordered input-xs" />
                       </label>
+
+                      <div class="grid grid-cols-2 gap-2">
+                        <label class="form-control">
+                          <div class="label py-0.5">
+                            <span class="label-text text-xs">Max. hoogte (px)</span>
+                            <span class="label-text-alt text-base-content/40 text-xs">leeg = automatisch</span>
+                          </div>
+                          <input type="number" name="eventImageMaxHeight" id="event-image-max-height"
+                                 placeholder="200" min="40" max="600" step="1"
+                                 class="input input-bordered input-xs" />
+                        </label>
+
+                        <label class="form-control">
+                          <div class="label py-0.5"><span class="label-text text-xs">Weergave</span></div>
+                          <select name="eventImageFit" id="event-image-fit"
+                                  class="select select-bordered select-xs">
+                            <option value="fill">Uitrekken (fill)</option>
+                            <option value="cover" selected>Bijsnijden (cover)</option>
+                            <option value="contain">Passend (contain)</option>
+                            <option value="scale-down">Verkleinen (scale-down)</option>
+                          </select>
+                        </label>
+                      </div>
 
                       <!-- Eyebrow label -->
                       <label class="form-control">

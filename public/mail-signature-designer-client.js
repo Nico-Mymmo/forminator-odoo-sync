@@ -414,9 +414,11 @@ function getFormConfig() {
     eventId,
     eventTitle:    data.get('eventTitle')    || '',
     eventDate:     data.get('eventDate')     || '',
-    eventEyebrow:  data.get('eventEyebrow')  || 'Schrijf je in',
-    eventImageUrl: data.get('eventImageUrl') || '',
-    eventRegUrl:   data.get('eventRegUrl')   || '',
+    eventEyebrow:        data.get('eventEyebrow')        || 'Schrijf je in',
+    eventImageUrl:      data.get('eventImageUrl')      || '',
+    eventImageMaxHeight: data.get('eventImageMaxHeight') ? parseInt(data.get('eventImageMaxHeight'), 10) : null,
+    eventImageFit:      data.get('eventImageFit')      || 'cover',
+    eventRegUrl:        data.get('eventRegUrl')        || '',
     // ── Fallback banner
     showBanner:     f.querySelector('[name="showBanner"]')?.checked || false,
     bannerImageUrl: data.get('bannerImageUrl') || '',
@@ -454,9 +456,11 @@ function applyConfigToForm(config) {
   set('eventId',           config.eventId        ?? '');
   set('eventTitle',        config.eventTitle      ?? '');
   set('eventDate',         config.eventDate       ?? '');
-  set('eventEyebrow',      config.eventEyebrow    || 'Schrijf je in');
-  set('eventImageUrl',     config.eventImageUrl   ?? '');
-  set('eventRegUrl',       config.eventRegUrl     ?? '');
+  set('eventEyebrow',         config.eventEyebrow         || 'Schrijf je in');
+  set('eventImageUrl',        config.eventImageUrl        ?? '');
+  set('eventImageMaxHeight',  config.eventImageMaxHeight  ?? '');
+  set('eventImageFit',        config.eventImageFit        || 'cover');
+  set('eventRegUrl',          config.eventRegUrl          ?? '');
 
   // Fallback banner
   set('showBanner',     config.showBanner);

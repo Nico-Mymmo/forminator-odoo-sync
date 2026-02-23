@@ -109,6 +109,8 @@ export function compileSignature(config, userData) {
     eventTitle = '',
     eventDate = '',
     eventImageUrl = '',
+    eventImageMaxHeight = null,
+    eventImageFit = 'cover',
     eventRegUrl = '',
     // Fallback banner
     showBanner = false,
@@ -204,10 +206,12 @@ export function compileSignature(config, userData) {
   let eventRow = '';
 
   if (eventPromoEnabled && eventTitle) {
+    const imgMaxH  = eventImageMaxHeight ? `max-height:${eventImageMaxHeight}px;` : '';
+    const imgFit   = eventImageMaxHeight   ? `object-fit:${eventImageFit || 'cover'};` : '';
     const imgBlock = eventImageUrl
       ? `<a href="${eventRegUrl || '#'}" style="display:block;margin-bottom:10px;">
           <img src="${eventImageUrl}" alt="${eventTitle}" width="536"
-               style="display:block;width:100%;max-width:536px;border:0;border-radius:5px;" />
+               style="display:block;width:100%;max-width:536px;border:0;border-radius:5px;${imgMaxH}${imgFit}" />
         </a>`
       : '';
 
