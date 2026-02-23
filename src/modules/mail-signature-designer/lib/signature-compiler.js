@@ -341,8 +341,8 @@ export function compileSignature(config, userData) {
   // ── QUOTE ─────────────────────────────────────────────────────────────────
   let quoteRow = '';
   if (quoteEnabled && quoteText) {
-    const quoteLight = blendHex(brandColor, 0.93);
-    const quoteEdge  = blendHex(brandColor, 0.72);
+    const quoteLight = lightenHex(brandColor, 0.93);
+    const quoteEdge  = lightenHex(brandColor, 0.72);
     const openMark = `<div style="font-family:Georgia,'Times New Roman',serif;font-size:38px;font-weight:700;color:${brandColor};line-height:0.9;margin-bottom:8px;opacity:0.65;">&ldquo;</div>`;
     const quoteBody = `<div style="font-family:${fontStack};font-size:13px;font-style:italic;font-weight:400;color:${baseColor};line-height:1.65;">${quoteText}&rdquo;</div>`;
     const attribution = quoteAuthor
