@@ -570,6 +570,15 @@ async function updatePreview() {
   setPreviewState('loading');
 
   const config   = getFormConfig();
+  // If eventId is set but eventTitle is empty (config saved before event was selected,
+  // or event is no longer in the upcoming dropdown), look it up live from _allEvents.
+  if (config.eventId && !config.eventTitle) {
+    const ev = _allEvents.find(e => e.id === config.eventId);
+    if (ev) {
+      config.eventTitle = ev.title;
+      if (!config.eventDate) config.eventDate = formatEventDate(ev.datetime);
+    }
+  }
   // Ghost/anonymous userData — marketing preview focuses on the marketing block only
   const userData = {
     fullName:     'Medewerkers naam',
@@ -1444,7 +1453,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const sel = $('event-select');
       if (sel && _pendingEventId) {
         sel.value = _pendingEventId;
-        if (sel.value) onEventSelect(sel.value, true);
+        // Always call onEventSelect — even if the event is past (filtered out of the
+        // dropdown), _allEvents has ALL events so hidden fields will be populated.
+        onEventSelect(sel.value || _pendingEventId, true);
       } else if (sel?.value) {
         onEventSelect(sel.value, true);
       }
