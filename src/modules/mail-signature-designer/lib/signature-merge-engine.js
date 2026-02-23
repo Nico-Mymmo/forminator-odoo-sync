@@ -214,8 +214,9 @@ export function mergeSignatureLayers(
     eventTitle:        m.eventTitle        || '',
     eventDate:         m.eventDate         || '',
     eventEyebrow:      m.eventEyebrow      || 'Schrijf je in',
-    eventImageUrl:     m.eventImageUrl     || '',
-    eventRegUrl:       m.eventRegUrl       || '',
+    eventImageUrl:        m.eventImageUrl        || '',
+    eventImageMaxHeight:  m.eventImageMaxHeight  || null,
+    eventRegUrl:          m.eventRegUrl          || '',
 
     // ── Fallback banner (marketing layer only)
     showBanner:     !!(m.showBanner && m.bannerImageUrl),

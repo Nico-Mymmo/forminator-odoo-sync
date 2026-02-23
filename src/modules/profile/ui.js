@@ -108,11 +108,52 @@ export function profileUI(user) {
             </div>
           </div>
         </div>
+
+      <!-- E-mail koppelingen -->
+      <div class="card bg-base-100 shadow-xl mt-6">
+        <div class="card-body">
+          <h2 class="card-title">
+            <i data-lucide="at-sign" class="w-5 h-5"></i>
+            E-mail koppelingen
+          </h2>
+          <p class="text-sm text-base-content/60 mb-3">
+            Standaard wordt <strong>${user.email}</strong> gebruikt voor beide koppelingen.
+            Als jouw Odoo- of Google Workspace-account een ander e-mailadres heeft, geef dat hier in.
+          </p>
+
+          <!-- Odoo -->
+          <div class="form-control mb-1">
+            <label class="label py-0.5">
+              <span class="label-text text-sm font-medium">Odoo work_email</span>
+              <span class="label-text-alt text-xs text-base-content/50">leeg = gebruik login-email</span>
+            </label>
+            <input type="email" id="odooEmailOverride" class="input input-bordered" placeholder="naam@bedrijf.com">
+          </div>
+          <div id="odooEmailStatus" class="text-xs mt-1 mb-3 hidden"></div>
+          <div class="flex justify-end mb-4">
+            <button onclick="saveOdooEmailOverride()" class="btn btn-primary btn-sm">Odoo opslaan</button>
+          </div>
+
+          <div class="divider my-0"></div>
+
+          <!-- Google Workspace -->
+          <div class="form-control mt-3 mb-1">
+            <label class="label py-0.5">
+              <span class="label-text text-sm font-medium">Google Workspace primair e-mailadres</span>
+              <span class="label-text-alt text-xs text-base-content/50">leeg = gebruik login-email</span>
+            </label>
+            <input type="email" id="googleEmailOverride" class="input input-bordered" placeholder="naam@bedrijf.com">
+          </div>
+          <div id="googleEmailStatus" class="text-xs mt-1 hidden"></div>
+          <div class="flex justify-end mt-2">
+            <button onclick="saveGoogleEmailOverride()" class="btn btn-primary btn-sm">Google opslaan</button>
+          </div>
+        </div>
       </div>
     </div>
-    
+  </div>
+
     <script>
-      // Initialize theme
       function changeTheme(theme) {
         document.elementElement.setAttribute('data-theme', theme);
         localStorage.setItem('selectedTheme', theme);
@@ -230,8 +271,68 @@ export function profileUI(user) {
         }
       });
       
+      // E-mail overrides (Odoo + Google)
+      async function loadEmailOverrides() {
+        try {
+          const res  = await fetch('/mail-signatures/api/my-settings', { credentials: 'include' });
+          const json = await res.json();
+          const s    = json.data?.settings || {};
+          document.getElementById('odooEmailOverride').value   = s.odoo_email_override   || '';
+          document.getElementById('googleEmailOverride').value = s.google_email_override || '';
+        } catch (_) {}
+      }
+
+      async function saveOdooEmailOverride() {
+        const val      = document.getElementById('odooEmailOverride').value.trim().toLowerCase();
+        const override = val || null;
+        const status   = document.getElementById('odooEmailStatus');
+        status.className = 'text-xs mt-1';
+        status.classList.remove('hidden');
+        status.textContent = 'Opslaan…';
+        try {
+          const res = await fetch('/mail-signatures/api/my-settings', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { odoo_email_override: override } })
+          });
+          const json = await res.json();
+          if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+          status.className = 'text-xs mt-1 text-success';
+          status.textContent = override ? 'Odoo-email opgeslagen: ' + override : 'Override gewist — login-email wordt gebruikt.';
+        } catch (err) {
+          status.className = 'text-xs mt-1 text-error';
+          status.textContent = 'Fout: ' + err.message;
+        }
+      }
+
+      async function saveGoogleEmailOverride() {
+        const val      = document.getElementById('googleEmailOverride').value.trim().toLowerCase();
+        const override = val || null;
+        const status   = document.getElementById('googleEmailStatus');
+        status.className = 'text-xs mt-1';
+        status.classList.remove('hidden');
+        status.textContent = 'Opslaan…';
+        try {
+          const res = await fetch('/mail-signatures/api/my-settings', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { google_email_override: override } })
+          });
+          const json = await res.json();
+          if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+          status.className = 'text-xs mt-1 text-success';
+          status.textContent = override ? 'Google-email opgeslagen: ' + override : 'Override gewist — login-email wordt gebruikt.';
+        } catch (err) {
+          status.className = 'text-xs mt-1 text-error';
+          status.textContent = 'Fout: ' + err.message;
+        }
+      }
+
       initTheme();
       lucide.createIcons();
+      loadEmailOverrides();
     </script>
 </body>
 </html>`;

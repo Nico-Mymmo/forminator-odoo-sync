@@ -223,6 +223,9 @@ function renderUsersTable() {
           '<button class="btn btn-xs btn-ghost join-item" onclick="editUserModules(\'' + user.id + '\')" title="Edit Modules">' +
             '<i data-lucide="package" class="w-3 h-3"></i>' +
           '</button>' +
+          '<button class="btn btn-xs btn-ghost join-item" onclick="editUserOdooEmail(\'' + user.email + '\')" title="Odoo e-mail override">' +
+            '<i data-lucide="at-sign" class="w-3 h-3"></i>' +
+          '</button>' +
           '<button class="btn btn-xs btn-ghost join-item" onclick="toggleUserStatus(\'' + user.id + '\')" title="Toggle Status">' +
             '<i data-lucide="' + (user.isActive ? 'user-x' : 'user-check') + '" class="w-3 h-3"></i>' +
           '</button>' +
@@ -324,6 +327,71 @@ async function saveUserModules(userId, btn) {
   } catch (error) {
     console.error('Failed to update modules:', error);
     alert('Failed to update user modules');
+  }
+}
+
+async function editUserOdooEmail(userEmail) {
+  // Fetch current overrides from signature settings
+  let odooCurrent = '', googleCurrent = '';
+  try {
+    const res  = await fetch('/mail-signatures/api/admin/user-settings?email=' + encodeURIComponent(userEmail), { credentials: 'include' });
+    const json = await res.json();
+    odooCurrent   = json.data?.settings?.odoo_email_override   || '';
+    googleCurrent = json.data?.settings?.google_email_override || '';
+  } catch (_) {}
+
+  const modal = document.createElement('div');
+  modal.className = 'modal modal-open';
+  modal.innerHTML =
+    '<div class="modal-box">' +
+      '<h3 class="font-bold text-lg mb-1">E-mail overrides</h3>' +
+      '<p class="text-sm text-base-content/60 mb-4">Standaard wordt <strong>' + userEmail + '</strong> gebruikt. Vul hieronder alternatieven in als het afwijkt.</p>' +
+      '<div class="space-y-3">' +
+        '<div class="form-control">' +
+          '<label class="label py-0.5"><span class="label-text text-xs font-semibold">Odoo work_email</span><span class="label-text-alt text-xs">voor ophalen functie &amp; telefoonnummer</span></label>' +
+          '<input id="adminOdooEmailInput" type="email" class="input input-bordered input-sm" placeholder="naam@bedrijf.com" value="' + odooCurrent + '">' +
+        '</div>' +
+        '<div class="form-control">' +
+          '<label class="label py-0.5"><span class="label-text text-xs font-semibold">Google Workspace e-mail</span><span class="label-text-alt text-xs">voor Gmail-handtekening pushen</span></label>' +
+          '<input id="adminGoogleEmailInput" type="email" class="input input-bordered input-sm" placeholder="naam@bedrijf.com" value="' + googleCurrent + '">' +
+        '</div>' +
+      '</div>' +
+      '<p class="text-xs text-base-content/50 mt-2">Leeg laten = login-email wordt gebruikt.</p>' +
+      '<div class="modal-action">' +
+        '<button class="btn btn-sm" onclick="this.closest(\'.modal\').remove()">Annuleren</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="saveUserEmailOverrides(\'' + userEmail + '\', this)">Opslaan</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  lucide.createIcons();
+}
+
+async function saveUserEmailOverrides(userEmail, btn) {
+  const modal         = btn.closest('.modal');
+  const odooVal       = modal.querySelector('#adminOdooEmailInput').value.trim().toLowerCase();
+  const googleVal     = modal.querySelector('#adminGoogleEmailInput').value.trim().toLowerCase();
+  btn.disabled        = true;
+  btn.textContent     = 'Opslaan…';
+  try {
+    const res = await fetch('/mail-signatures/api/admin/user-settings', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userEmail,
+        settings: {
+          odoo_email_override:   odooVal   || null,
+          google_email_override: googleVal || null
+        }
+      })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+    modal.remove();
+  } catch (err) {
+    alert('Fout: ' + err.message);
+    btn.disabled    = false;
+    btn.textContent = 'Opslaan';
   }
 }
 

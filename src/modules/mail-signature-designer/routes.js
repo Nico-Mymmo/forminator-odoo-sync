@@ -45,7 +45,8 @@ import {
   getConfig, upsertConfig,
   getMarketingSettings, upsertMarketingSettings,
   getUserSettings, upsertUserSettings, clearAllHiddenEventIds,
-  logPush, getLogs
+  logPush, getLogs,
+  getExcludedEmails, setExcludedEmails
 } from './lib/signature-store.js';
 import { compileSignature } from './lib/signature-compiler.js';
 import { mergeSignatureLayers, mergeForPreview } from './lib/signature-merge-engine.js';
@@ -165,7 +166,9 @@ async function pushOneUser({
       : await getUserSettings(env, targetEmail);
 
     const dirUser  = directoryMap[targetEmail] || {};
-    const odooUser = odooMap[targetEmail]      || {};
+    // Use odoo_email_override when set — some users have a different Odoo work_email
+    const odooLookupEmail = userSettings?.odoo_email_override?.toLowerCase().trim() || targetEmail;
+    const odooUser = odooMap[odooLookupEmail]  || {};
 
     // Merge all layers
     const { config, userData } = mergeSignatureLayers(
@@ -179,8 +182,10 @@ async function pushOneUser({
     // Compile pure HTML
     const { html, warnings } = compileSignature(config, userData);
 
-    // Push to Gmail
-    const { sendAsEmail, oldSignature } = await updateSignature(env, targetEmail, html);
+    // Push to Gmail — use google_email_override when the user's Google primary
+    // address differs from their app login email
+    const googleEmail = userSettings?.google_email_override?.toLowerCase().trim() || targetEmail;
+    const { sendAsEmail, oldSignature } = await updateSignature(env, googleEmail, html);
     const newHash = quickHash(html);
     const oldHash = quickHash(oldSignature || '');
     const changed = oldHash !== newHash;
@@ -262,10 +267,13 @@ async function fetchPushDataSources(env) {
  */
 async function triggerPushAllBackground({ env, actorEmail }) {
   try {
-    const { marketingConfig, directoryUsers, directoryMap, odooMap } =
-      await fetchPushDataSources(env);
+    const [{ marketingConfig, directoryUsers, directoryMap, odooMap }, excluded] =
+      await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
     if (directoryUsers.length === 0) return;
-    const targetEmails = directoryUsers.map(u => u.email);
+    const excludedSet = new Set(excluded);
+    const targetEmails = directoryUsers
+      .map(u => u.email)
+      .filter(e => !excludedSet.has((e || '').toLowerCase()));
     for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
       await Promise.all(
         batch.map(email => pushOneUser({
@@ -377,13 +385,16 @@ export const routes = {
     try {
       const userEmail = context.user.email;
 
-      // Parallel: load saved settings + fetch Odoo employee profile + Google Directory photo + marketing active event
-      const [settings, odooProfile, activeEvent] = await Promise.all([
-        getUserSettings(context.env, userEmail),
+      // Load settings first so we can use odoo_email_override for the Odoo lookup
+      const settings = await getUserSettings(context.env, userEmail);
+      const odooEmail = settings?.odoo_email_override?.toLowerCase().trim() || userEmail;
+
+      // Parallel: fetch Odoo employee profile + Google Directory photo + marketing active event
+      const [odooProfile, activeEvent] = await Promise.all([
         Promise.all([
           searchRead(context.env, {
             model: 'hr.employee',
-            domain: [['work_email', '=', userEmail]],
+            domain: [['work_email', '=', odooEmail]],
             fields: ['name', 'job_title', 'mobile_phone', 'work_phone'],
             limit: 1
           }).then(rows => {
@@ -395,7 +406,7 @@ export const routes = {
               mobile_phone: emp.mobile_phone || emp.work_phone || null
             };
           }).catch(err => {
-            console.warn(`${LOG_PREFIX} Odoo profile fetch failed for ${userEmail}:`, err.message);
+            console.warn(`${LOG_PREFIX} Odoo profile fetch failed for ${odooEmail}:`, err.message);
             return null;
           }),
           getUserByEmail(context.env, userEmail)
@@ -620,14 +631,17 @@ export const routes = {
       const { env, user } = context;
       const actorEmail = user.email || 'unknown';
 
-      const { marketingConfig, directoryUsers, directoryMap, odooMap } =
-        await fetchPushDataSources(env);
+      const [{ marketingConfig, directoryUsers, directoryMap, odooMap }, excluded] =
+        await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
 
       if (directoryUsers.length === 0) {
         return jsonError('No users found in Google Directory', 500);
       }
 
-      const targetEmails = directoryUsers.map(u => u.email);
+      const excludedSet  = new Set(excluded);
+      const targetEmails = directoryUsers
+        .map(u => u.email)
+        .filter(e => !excludedSet.has((e || '').toLowerCase()));
       const results = [];
       for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
         const batchResults = await Promise.all(
@@ -656,14 +670,21 @@ export const routes = {
 
   /**
    * GET /mail-signatures/api/directory?search=
-   * Search workspace users via Google Directory API
+   * Search workspace users via Google Directory API.
+   * Excluded email addresses are filtered out of the result so they
+   * do not appear in the push-select dropdown.
    */
   'GET /api/directory': async (context) => {
     try {
       const url = new URL(context.request.url);
       const search = url.searchParams.get('search') || '';
-      const users = await listUsers(context.env, search);
-      return jsonOk({ users });
+      const [users, excluded] = await Promise.all([
+        listUsers(context.env, search),
+        getExcludedEmails(context.env)
+      ]);
+      const excludedSet = new Set(excluded);
+      const filtered = users.filter(u => !excludedSet.has((u.email || '').toLowerCase()));
+      return jsonOk({ users: filtered });
     } catch (err) {
       console.error(`${LOG_PREFIX} GET /api/directory failed:`, err);
       return jsonError(err.message);
@@ -882,10 +903,13 @@ export const routes = {
         const denyMarketing = guardMarketingRole(context);
         if (denyMarketing) return denyMarketing;
         pushScope = 'all';
-        const { directoryUsers, marketingConfig, directoryMap, odooMap } =
-          await fetchPushDataSources(env);
+        const [{ directoryUsers, marketingConfig, directoryMap, odooMap }, excluded] =
+          await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
         if (directoryUsers.length === 0) return jsonError('No users found in directory', 500);
-        targetEmails = directoryUsers.map(u => u.email);
+        const excludedSetLegacy = new Set(excluded);
+        targetEmails = directoryUsers
+          .map(u => u.email)
+          .filter(e => !excludedSetLegacy.has((e || '').toLowerCase()));
 
         const results = [];
         for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
@@ -935,6 +959,105 @@ export const routes = {
 
     } catch (err) {
       console.error(`${LOG_PREFIX} POST /api/push (legacy) failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  // ===========================================================================
+  // ADMIN – USER SETTINGS OVERRIDES
+  // ===========================================================================
+
+  /**
+   * GET /mail-signatures/api/admin/user-settings
+   * Load signature settings for any user (admin/marketing only).
+   * Query param: ?email=user@example.com
+   */
+  'GET /api/admin/user-settings': async (context) => {
+    const deny = guardAuth(context) || guardMarketingRole(context);
+    if (deny) return deny;
+    try {
+      const url    = new URL(context.request.url);
+      const email  = url.searchParams.get('email')?.toLowerCase().trim();
+      if (!email) return jsonError('email query param required', 400);
+      const settings = await getUserSettings(context.env, email);
+      return jsonOk({ settings: settings ?? {} });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} GET /api/admin/user-settings failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  /**
+   * PUT /mail-signatures/api/admin/user-settings
+   * Update signature settings for any user (admin/marketing only).
+   * Body: { userEmail: string, settings: { odoo_email_override?: string|null, ... } }
+   */
+  'PUT /api/admin/user-settings': async (context) => {
+    const deny = guardAuth(context) || guardMarketingRole(context);
+    if (deny) return deny;
+    try {
+      const body = await context.request.json();
+      const userEmail = body?.userEmail?.toLowerCase().trim();
+      if (!userEmail) return jsonError('userEmail required', 400);
+      if (!body?.settings || typeof body.settings !== 'object') {
+        return jsonError('settings object required', 400);
+      }
+      const result = await upsertUserSettings(
+        context.env,
+        userEmail,
+        body.settings,
+        context.user.id ?? null
+      );
+      return jsonOk(result);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} PUT /api/admin/user-settings failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  // ===========================================================================
+  // ADMIN – EXCLUDED EMAILS
+  // ===========================================================================
+
+  /**
+   * GET /mail-signatures/api/admin/excluded-emails
+   * Returns the list of email addresses excluded from bulk push operations.
+   * Admin-only.
+   */
+  'GET /api/admin/excluded-emails': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    if (context.user?.role !== 'admin') {
+      return new Response(JSON.stringify({ success: false, error: 'Admin only' }), { status: 403 });
+    }
+    try {
+      const emails = await getExcludedEmails(context.env);
+      return jsonOk({ emails });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} GET /api/admin/excluded-emails failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  /**
+   * PUT /mail-signatures/api/admin/excluded-emails
+   * Replace the full excluded-emails list.
+   * Body: { emails: string[] }
+   * Admin-only.
+   */
+  'PUT /api/admin/excluded-emails': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    if (context.user?.role !== 'admin') {
+      return new Response(JSON.stringify({ success: false, error: 'Admin only' }), { status: 403 });
+    }
+    try {
+      const body = await context.request.json();
+      if (!Array.isArray(body?.emails)) return jsonError('emails array required', 400);
+      const saved = await setExcludedEmails(context.env, body.emails);
+      return jsonOk({ emails: saved });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} PUT /api/admin/excluded-emails failed:`, err);
       return jsonError(err.message);
     }
   },

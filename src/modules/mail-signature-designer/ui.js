@@ -17,6 +17,7 @@ import { navbar } from '../../lib/components/navbar.js';
 export function mailSignatureDesignerUI(user) {
   // Server-side role check – determines which tabs are rendered
   const isMarketingOrAdmin = user?.role === 'admin' || user?.role === 'marketing_signature';
+  const isAdmin            = user?.role === 'admin';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -105,6 +106,10 @@ export function mailSignatureDesignerUI(user) {
         </button>
         <button role="tab" class="tab" data-tab="logs" onclick="switchTab('logs', this)">
           <i data-lucide="list" class="w-4 h-4 mr-1"></i> Logs
+        </button>` : ''}
+        ${isAdmin ? `
+        <button role="tab" class="tab" data-tab="admin" onclick="switchTab('admin', this)">
+          <i data-lucide="shield" class="w-4 h-4 mr-1"></i> Administratie
         </button>` : ''}
       </div>
 
@@ -414,6 +419,10 @@ export function mailSignatureDesignerUI(user) {
                           onclick="setMyViewport('mobile')" title="Smal (360px)">
                     <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
                   </button>
+                  <button id="my-vp-dark" class="join-item btn btn-xs"
+                          onclick="toggleMyPreviewMode()" title="Dark/light achtergrond">
+                    <i data-lucide="moon" class="w-3.5 h-3.5"></i>
+                  </button>
                 </div>
               </div>
 
@@ -681,6 +690,9 @@ export function mailSignatureDesignerUI(user) {
                   <button id="vp-mobile" class="join-item btn btn-xs" onclick="setViewport('mobile')" title="Smal (360px)">
                     <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
                   </button>
+                  <button id="vp-dark" class="join-item btn btn-xs" onclick="togglePreviewMode()" title="Dark/light achtergrond">
+                    <i data-lucide="moon" class="w-3.5 h-3.5"></i>
+                  </button>
                 </div>
               </div>
 
@@ -799,6 +811,48 @@ export function mailSignatureDesignerUI(user) {
           </div>
         </div>
       </div><!-- /tab-logs -->
+
+      ${isAdmin ? `
+      <!-- ─── TAB: Administratie (ADMIN ONLY) ─────────────────────────────── -->
+      <div id="tab-admin" class="tab-content">
+        <div class="max-w-xl">
+          <div class="card bg-base-100 shadow">
+            <div class="card-body py-4 px-5">
+              <h2 class="font-semibold text-base mb-1">
+                <i data-lucide="ban" class="w-4 h-4 inline-block mr-1 text-error"></i>
+                Uitgesloten e-mailadressen
+              </h2>
+              <p class="text-sm text-base-content/60 mb-3">
+                Deze adressen worden overgeslagen bij <strong>Push alle gebruikers</strong>
+                (inclusief automatische pushes bij evenementwijzigingen) en zijn
+                <strong>niet zichtbaar</strong> in de keuzelijst bij
+                &ldquo;Selecteer gebruikers&rdquo;.
+              </p>
+
+              <!-- Add new email -->
+              <div class="flex gap-2 mb-3">
+                <input type="email" id="excluded-new-input"
+                       class="input input-bordered input-sm flex-1"
+                       placeholder="nieuw@bedrijf.com"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();addExcludedEmail();}" />
+                <button onclick="addExcludedEmail()" class="btn btn-sm btn-primary">
+                  <i data-lucide="plus" class="w-3.5 h-3.5 mr-1"></i> Toevoegen
+                </button>
+              </div>
+
+              <!-- Loading indicator -->
+              <div id="excluded-loading" class="text-sm text-base-content/50 hidden">Laden&hellip;</div>
+
+              <!-- Chip list -->
+              <div id="excluded-chips" class="flex flex-wrap gap-2 min-h-8"></div>
+
+              <!-- Status message -->
+              <div id="excluded-status" class="text-xs mt-2 hidden"></div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /tab-admin -->
+      ` : ''}
 
     </div><!-- /container -->
 

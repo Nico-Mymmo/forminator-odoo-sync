@@ -247,7 +247,8 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
     'show_disclaimer', 'disclaimer_text',
     'linkedin_promo_enabled', 'linkedin_url', 'linkedin_eyebrow',
     'linkedin_text', 'linkedin_author_name', 'linkedin_author_img', 'linkedin_likes',
-    'quote_enabled', 'quote_text', 'quote_author', 'quote_date'
+    'quote_enabled', 'quote_text', 'quote_author', 'quote_date',
+    'odoo_email_override', 'google_email_override'
   ];
   const sanitised = {};
   for (const key of ALLOWED_FIELDS) {
@@ -296,4 +297,51 @@ export async function clearAllHiddenEventIds(env) {
   }
 
   return data?.length ?? 0;
+}
+
+/**
+ * Get the list of email addresses excluded from bulk push operations.
+ *
+ * @param {Object} env
+ * @returns {string[]} array of lowercase email strings
+ */
+export async function getExcludedEmails(env) {
+  const supabase = getSupabaseAdminClient(env);
+  const { data, error } = await supabase
+    .from('signature_push_excluded')
+    .select('email')
+    .order('email');
+  if (error) {
+    throw new Error(`[signature-store] getExcludedEmails failed: ${error.message}`);
+  }
+  return (data || []).map(r => r.email.toLowerCase());
+}
+
+/**
+ * Replace the full excluded-emails list (delete-all + re-insert).
+ *
+ * @param {Object} env
+ * @param {string[]} emails - new list (duplicates are cleaned up)
+ * @returns {string[]} normalised list that was saved
+ */
+export async function setExcludedEmails(env, emails) {
+  const supabase = getSupabaseAdminClient(env);
+  const normalised = [...new Set(emails.map(e => e.toLowerCase().trim()).filter(Boolean))];
+  // Full replace: delete everything then re-insert
+  const { error: delError } = await supabase
+    .from('signature_push_excluded')
+    .delete()
+    .neq('email', '');
+  if (delError) {
+    throw new Error(`[signature-store] setExcludedEmails (delete) failed: ${delError.message}`);
+  }
+  if (normalised.length > 0) {
+    const { error: insError } = await supabase
+      .from('signature_push_excluded')
+      .insert(normalised.map(e => ({ email: e })));
+    if (insError) {
+      throw new Error(`[signature-store] setExcludedEmails (insert) failed: ${insError.message}`);
+    }
+  }
+  return normalised;
 }

@@ -621,9 +621,12 @@ async function updatePreview() {
       };
       frame.onload = autoSize;
       doc.open(); doc.write(json.data.html); doc.close();
-      // Fallback: onload may not fire reliably for same-origin doc.write
+      // Apply dark/light background after write
+      try {
+        const body = frame.contentDocument?.body;
+        if (body) body.style.backgroundColor = _previewDark ? CANVAS_DARK_BG : '';
+      } catch (_) {}
       setTimeout(autoSize, 0);
-      // Re-measure once images have loaded
       Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
         if (!img.complete) img.addEventListener('load', autoSize);
       });
@@ -1069,6 +1072,45 @@ window.syncProdData = syncProdData;
 // ════════════════════════════════════════════════════════
 // Viewport toggle for "Mijn handtekening" preview
 // ════════════════════════════════════════════════════════
+// Dark/light preview background toggle state
+let _myPreviewDark = false;
+let _previewDark   = false;
+
+const PREVIEW_DARK_BG  = '#1e1e2e';
+const PREVIEW_LIGHT_BG = '#f3f4f6';
+const CANVAS_DARK_BG   = '#2a2a3a';
+const CANVAS_LIGHT_BG  = '#ffffff';
+
+function applyPreviewMode(dark, wrapId, canvasId, frameId, btnId, iconName) {
+  const wrap   = $(wrapId);
+  const canvas = $(canvasId);
+  const frame  = $(frameId);
+  const btn    = $(btnId);
+  if (wrap)   wrap.style.backgroundColor   = dark ? PREVIEW_DARK_BG  : PREVIEW_LIGHT_BG;
+  if (canvas) canvas.style.backgroundColor = dark ? CANVAS_DARK_BG   : CANVAS_LIGHT_BG;
+  if (btn)    btn.classList.toggle('btn-active', dark);
+  // Update iframe body background if document is already loaded
+  try {
+    const body = frame?.contentDocument?.body;
+    if (body) body.style.backgroundColor = dark ? CANVAS_DARK_BG : '';
+  } catch (_) {}
+  // Swap icon
+  const icon = btn?.querySelector('[data-lucide]');
+  if (icon) { icon.setAttribute('data-lucide', dark ? 'sun' : 'moon'); lucide.createIcons(); }
+}
+
+function toggleMyPreviewMode() {
+  _myPreviewDark = !_myPreviewDark;
+  applyPreviewMode(_myPreviewDark, 'my-preview-wrap', 'my-preview-canvas', 'my-preview-frame', 'my-vp-dark', 'moon');
+}
+window.toggleMyPreviewMode = toggleMyPreviewMode;
+
+function togglePreviewMode() {
+  _previewDark = !_previewDark;
+  applyPreviewMode(_previewDark, 'preview-wrap', 'preview-canvas', 'preview-frame', 'vp-dark', 'moon');
+}
+window.togglePreviewMode = togglePreviewMode;
+
 function setMyViewport(mode) {
   const canvas = $('my-preview-canvas');
   const frame  = $('my-preview-frame');
@@ -1499,14 +1541,17 @@ async function updateMyPreview() {
       const frame = $('my-preview-frame');
       if (frame) {
         const doc = frame.contentDocument || frame.contentWindow.document;
-        // Attach onload BEFORE doc.open() so it fires when doc.close() triggers load.
         const autoSize = () => {
           const h = frame.contentDocument?.body?.scrollHeight;
           if (h) frame.style.height = (h + 4) + 'px';
         };
         frame.onload = autoSize;
         doc.open(); doc.write(json.data.html); doc.close();
-        // Fallback: onload may not fire reliably for same-origin doc.write
+        // Apply dark/light background after write
+        try {
+          const body = frame.contentDocument?.body;
+          if (body) body.style.backgroundColor = _myPreviewDark ? CANVAS_DARK_BG : '';
+        } catch (_) {}
         setTimeout(autoSize, 0);
         Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
           if (!img.complete) img.addEventListener('load', autoSize);
@@ -1584,3 +1629,102 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// ════════════════════════════════════════════════════════
+// Admin: Excluded emails (Administratie tab)
+// ════════════════════════════════════════════════════════
+
+let _excludedEmails = []; // current working set
+
+async function loadExcludedEmails() {
+  const loading = document.getElementById('excluded-loading');
+  if (loading) loading.classList.remove('hidden');
+  try {
+    const res  = await fetch('/mail-signatures/api/admin/excluded-emails', { credentials: 'include' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Laden mislukt');
+    _excludedEmails = json.data?.emails || [];
+    renderExcludedChips();
+  } catch (e) {
+    showExcludedStatus('Fout bij laden: ' + e.message, 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+function renderExcludedChips() {
+  const container = document.getElementById('excluded-chips');
+  if (!container) return;
+  if (_excludedEmails.length === 0) {
+    container.innerHTML = '<span class="text-sm text-base-content/40 italic">Geen uitgesloten adressen</span>';
+    return;
+  }
+  container.innerHTML = _excludedEmails.map(email =>
+    `<div class="badge badge-outline gap-1 py-3">
+      <span class="text-sm">${email}</span>
+      <button class="btn btn-ghost btn-xs p-0 min-h-0 h-auto ml-1" onclick="removeExcludedEmail('${email}')" title="Verwijderen">
+        <i data-lucide="x" class="w-3 h-3"></i>
+      </button>
+    </div>`
+  ).join('');
+  lucide.createIcons();
+}
+
+async function addExcludedEmail() {
+  const input = document.getElementById('excluded-new-input');
+  if (!input) return;
+  const val = input.value.trim().toLowerCase();
+  if (!val) return;
+  if (_excludedEmails.includes(val)) {
+    showExcludedStatus(`${val} staat al in de lijst`, 'warning');
+    return;
+  }
+  _excludedEmails = [..._excludedEmails, val].sort();
+  input.value = '';
+  renderExcludedChips();
+  await persistExcludedEmails();
+}
+window.addExcludedEmail = addExcludedEmail;
+
+async function removeExcludedEmail(email) {
+  _excludedEmails = _excludedEmails.filter(e => e !== email);
+  renderExcludedChips();
+  await persistExcludedEmails();
+}
+window.removeExcludedEmail = removeExcludedEmail;
+
+async function persistExcludedEmails() {
+  try {
+    const res  = await fetch('/mail-signatures/api/admin/excluded-emails', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: _excludedEmails })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+    _excludedEmails = json.data?.emails || _excludedEmails;
+    renderExcludedChips();
+    showExcludedStatus('Opgeslagen', 'success');
+  } catch (e) {
+    showExcludedStatus('Fout bij opslaan: ' + e.message, 'error');
+  }
+}
+
+function showExcludedStatus(msg, type) {
+  const el = document.getElementById('excluded-status');
+  if (!el) return;
+  el.className = `text-xs mt-2 text-${type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'success'}`;
+  el.classList.remove('hidden');
+  el.textContent = msg;
+  setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+// Load excluded emails when the Administratie tab is opened
+const _origSwitchTab = window.switchTab;
+window.switchTab = function(tabId, btn) {
+  if (_origSwitchTab) _origSwitchTab(tabId, btn);
+  if (tabId === 'admin' && _excludedEmails.length === 0) {
+    loadExcludedEmails();
+  }
+};
