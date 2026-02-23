@@ -668,6 +668,128 @@ async function pushAllUsers() {
 window.pushAllUsers = pushAllUsers;
 
 // ════════════════════════════════════════════════════════
+// Modal: push to selected users
+// ════════════════════════════════════════════════════════
+async function openPushModal() {
+  const dlg = document.getElementById('push-select-modal');
+  if (!dlg) return;
+  dlg.showModal();
+  lucide.createIcons();
+  // Auto-load users if list is empty
+  if ($('modal-push-tbody').innerHTML.trim() === '') {
+    await modalLoadAllUsers();
+  }
+}
+window.openPushModal = openPushModal;
+
+async function modalSearchUsers() {
+  await _fetchModalUsers($('modal-push-search').value.trim());
+}
+window.modalSearchUsers = modalSearchUsers;
+
+async function modalLoadAllUsers() {
+  await _fetchModalUsers('');
+}
+window.modalLoadAllUsers = modalLoadAllUsers;
+
+async function _fetchModalUsers(q) {
+  const loading = $('modal-push-loading');
+  if (loading) loading.classList.remove('hidden');
+  try {
+    const res  = await fetch('/mail-signatures/api/directory?search=' + encodeURIComponent(q));
+    const json = await res.json();
+    if (json.success) {
+      const users = json.data.users || [];
+      const tbody = $('modal-push-tbody');
+      tbody.innerHTML = users.map(u => `
+        <tr>
+          <td><input type="checkbox" class="checkbox checkbox-xs modal-user-check"
+                     data-email="${u.email}" onchange="modalUpdateCount()" /></td>
+          <td>${u.fullName || '\u2013'}</td>
+          <td class="text-xs">${u.email}</td>
+        </tr>`).join('');
+      $('modal-push-list').classList.remove('hidden');
+      $('modal-select-all').checked = false;
+      modalUpdateCount();
+    } else {
+      showToast('Gebruikers laden mislukt: ' + json.error, 'error');
+    }
+  } catch (e) {
+    showToast('Netwerkfout: ' + e.message, 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+function modalToggleAll(cb) {
+  document.querySelectorAll('.modal-user-check').forEach(c => c.checked = cb.checked);
+  modalUpdateCount();
+}
+window.modalToggleAll = modalToggleAll;
+
+function modalUpdateCount() {
+  const n   = document.querySelectorAll('.modal-user-check:checked').length;
+  const btn = $('modal-push-btn');
+  if (btn) btn.disabled = n === 0;
+  const cnt = $('modal-push-count');
+  if (cnt) cnt.textContent = n === 0
+    ? 'Niets geselecteerd'
+    : `${n} gebruiker${n === 1 ? '' : 's'} geselecteerd`;
+}
+window.modalUpdateCount = modalUpdateCount;
+
+async function modalPushSelected() {
+  const emails = [...document.querySelectorAll('.modal-user-check:checked')].map(c => c.dataset.email);
+  if (!emails.length) { showToast('Selecteer minstens \xe9\xe9n gebruiker', 'warning'); return; }
+
+  const resultDiv = $('modal-push-result');
+  const btn       = $('modal-push-btn');
+  btn.disabled    = true;
+  resultDiv.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Pushen\u2026';
+  resultDiv.classList.remove('hidden');
+
+  try {
+    const res  = await fetch('/mail-signatures/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUserEmails: emails })
+    });
+    const json = await res.json();
+    if (json.success) {
+      const { successCount, failCount, results } = json.data;
+      const rows = results.map(r => {
+        const badge = r.success
+          ? (r.changed ? '<span class="badge badge-xs badge-warning">gewijzigd</span>'
+                       : '<span class="badge badge-xs badge-ghost">ongewijzigd</span>')
+          : '';
+        const info = r.error || (r.warnings?.length ? r.warnings.join(', ') : '\u2013');
+        return `<tr class="${r.success ? '' : 'log-row-fail'}">
+          <td>${r.email}</td><td>${r.success ? '\u2705' : '\u274c'}</td>
+          <td>${badge}</td>
+          <td class="max-w-xs truncate text-xs text-base-content/60">${info}</td>
+        </tr>`;
+      }).join('');
+      resultDiv.innerHTML = `
+        <div class="alert alert-${failCount === 0 ? 'success' : 'warning'} text-sm mb-2">
+          ${successCount} geslaagd, ${failCount} mislukt
+        </div>
+        <table class="table table-xs">
+          <thead><tr><th>E-mail</th><th>Status</th><th>Wijziging</th><th>Info</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      showToast(`${successCount} geslaagd, ${failCount} mislukt`, failCount ? 'warning' : 'success');
+    } else {
+      resultDiv.innerHTML = `<div class="alert alert-error text-sm">Push mislukt: ${json.error}</div>`;
+    }
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="alert alert-error text-sm">Netwerkfout: ${e.message}</div>`;
+  } finally {
+    modalUpdateCount();
+  }
+}
+window.modalPushSelected = modalPushSelected;
+
+// ════════════════════════════════════════════════════════
 // Push — user search + selection
 // ════════════════════════════════════════════════════════
 let _loadedUsers = [];

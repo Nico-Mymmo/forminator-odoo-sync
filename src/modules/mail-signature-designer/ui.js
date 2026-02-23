@@ -610,10 +610,13 @@ export function mailSignatureDesignerUI(user) {
 
                 <div class="divider my-0"></div>
 
-                <!-- Save + Push All -->
+                <!-- Save + Push -->
                 <div class="flex gap-2 pt-3 flex-wrap">
                   <button type="button" onclick="saveConfig()" class="btn btn-outline btn-sm">
                     <i data-lucide="save" class="w-3.5 h-3.5 mr-1"></i> Opslaan
+                  </button>
+                  <button type="button" onclick="openPushModal()" class="btn btn-secondary btn-sm">
+                    <i data-lucide="users" class="w-3.5 h-3.5 mr-1"></i> Selecteer gebruikers
                   </button>
                   <button type="button" onclick="pushAllUsers()" id="push-all-btn" class="btn btn-primary btn-sm">
                     <i data-lucide="send" class="w-3.5 h-3.5 mr-1"></i> Pushen naar alle gebruikers
@@ -762,6 +765,69 @@ export function mailSignatureDesignerUI(user) {
       </div><!-- /tab-logs -->
 
     </div><!-- /container -->
+
+  <!-- ─── MODAL: Selecteer gebruikers om naar te pushen ──────────────── -->
+  <dialog id="push-select-modal" class="modal">
+    <div class="modal-box max-w-2xl">
+      <form method="dialog">
+        <button class="btn btn-sm btn-circle btn-ghost absolute right-3 top-3">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </form>
+
+      <h3 class="font-bold text-base mb-1">Selecteer gebruikers</h3>
+      <p class="text-xs text-base-content/50 mb-3">Zoek een of meerdere medewerkers en push hun handtekening op basis van de huidige marketinginstellingen.</p>
+
+      <!-- Search -->
+      <div class="flex gap-2 mb-3">
+        <input type="text" id="modal-push-search"
+               placeholder="Zoek op naam of e-mailadres&#8230;"
+               class="input input-bordered input-sm flex-1"
+               onkeydown="if(event.key==='Enter') modalSearchUsers()" />
+        <button onclick="modalSearchUsers()" class="btn btn-outline btn-sm">Zoeken</button>
+        <button onclick="modalLoadAllUsers()" class="btn btn-ghost btn-sm">Alle laden</button>
+      </div>
+
+      <!-- User list -->
+      <div id="modal-push-list"
+           class="overflow-y-auto max-h-64 border border-base-300 rounded-lg hidden mb-3">
+        <table class="table table-xs w-full">
+          <thead>
+            <tr>
+              <th>
+                <input type="checkbox" id="modal-select-all" class="checkbox checkbox-xs"
+                       onchange="modalToggleAll(this)" />
+              </th>
+              <th>Naam</th>
+              <th>E-mail</th>
+            </tr>
+          </thead>
+          <tbody id="modal-push-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Loading placeholder -->
+      <div id="modal-push-loading" class="hidden flex items-center gap-2 text-sm text-base-content/50 mb-3">
+        <span class="loading loading-spinner loading-xs"></span> Laden&#8230;
+      </div>
+
+      <!-- Result -->
+      <div id="modal-push-result" class="hidden mb-3"></div>
+
+      <!-- Footer -->
+      <div class="flex items-center justify-between gap-3">
+        <span id="modal-push-count" class="text-sm text-base-content/50">Niets geselecteerd</span>
+        <div class="flex gap-2">
+          <form method="dialog"><button class="btn btn-ghost btn-sm">Annuleren</button></form>
+          <button id="modal-push-btn" onclick="modalPushSelected()"
+                  class="btn btn-primary btn-sm" disabled>
+            <i data-lucide="send" class="w-3.5 h-3.5 mr-1"></i> Pushen
+          </button>
+        </div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
   </div><!-- /padding-top -->
 
   <script src="/mail-signature-designer-client.js"></script>
