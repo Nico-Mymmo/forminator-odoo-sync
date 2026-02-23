@@ -188,44 +188,80 @@ export async function handleCreateUser(context) {
  */
 export async function handleUpdateUserRole(context) {
   const { env, user, params } = context;
-  
+
   if (user?.role !== 'admin') {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' }
     });
   }
-  
-  const userId = params.id;
-  const body = await context.request.json();
-  const { role } = body;
-  
-  if (!['admin', 'manager', 'user', 'marketing_signature'].includes(role)) {
-    return new Response(JSON.stringify({ error: 'Invalid role' }), {
-      status: 400,
+
+  try {
+    const userId = params?.id;
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'User ID required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const body = await context.request.json();
+    const { role } = body;
+
+    if (!['admin', 'manager', 'user', 'marketing_signature'].includes(role)) {
+      return new Response(JSON.stringify({ error: 'Invalid role' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+
+    // Update the user's role
+    const { data, error } = await supabase
+      .from('users')
+      .update({ role })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[admin] handleUpdateUserRole – Supabase error:', error);
+      return new Response(JSON.stringify({ error: error.message, details: error }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Auto-grant mail_signature_designer to marketing_signature users
+    // (mirrors the pattern from the roles & layers migration)
+    if (role === 'marketing_signature') {
+      const { data: module } = await supabase
+        .from('modules')
+        .select('id')
+        .eq('code', 'mail_signature_designer')
+        .single();
+
+      if (module?.id) {
+        await supabase
+          .from('user_modules')
+          .upsert(
+            { user_id: userId, module_id: module.id, is_enabled: true, granted_by: userId },
+            { onConflict: 'user_id,module_id' }
+          );
+      }
+    }
+
+    return new Response(JSON.stringify({ user: data }), {
       headers: { 'Content-Type': 'application/json' }
     });
-  }
-  
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-  
-  const { data, error } = await supabase
-    .from('users')
-    .update({ role })
-    .eq('id', userId)
-    .select()
-    .single();
-  
-  if (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+  } catch (err) {
+    console.error('[admin] handleUpdateUserRole – unexpected error:', err);
+    return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
-  
-  return new Response(JSON.stringify({ user: data }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
 }
 
 /**
