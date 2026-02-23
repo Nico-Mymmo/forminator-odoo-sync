@@ -120,7 +120,10 @@ export function mergeSignatureLayers(
   // Per-event opt-out: hidden only when the user explicitly hid this specific event ID.
   // When marketing activates a new event (different ID), the stored hidden_event_id
   // no longer matches and the event block is shown again automatically.
-  const showEventPromo = !(u.hidden_event_id && m.eventId && u.hidden_event_id === m.eventId);
+  // NOTE: hidden_event_id is a TEXT column but m.eventId is a number from JSONB — normalise
+  // both to strings before comparing to avoid a type mismatch with strict equality.
+  const showEventPromo = !(u.hidden_event_id && m.eventId &&
+    String(u.hidden_event_id) === String(m.eventId));
 
   const fullName = resolve('fullName', [
     { layer: 'user',      value: u.full_name_override },

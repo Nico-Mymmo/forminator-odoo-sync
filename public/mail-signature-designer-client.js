@@ -1151,9 +1151,9 @@ function getMySettingsForm() {
     show_email:             bool('show_email'),
     show_phone:             bool('show_phone'),
     show_photo:             bool('show_photo'),
-    // Per-event opt-out: store the current event ID when the user hides it,
-    // clear it when they re-enable. A new event from marketing clears the match.
-    hidden_event_id:        bool('show_event_promo') ? null : (_activeEvent?.id || null),
+    // Per-event opt-out: store the current event ID (as string to match the TEXT column)
+    // when the user hides it, clear it when they re-enable.
+    hidden_event_id:        bool('show_event_promo') ? null : (_activeEvent?.id != null ? String(_activeEvent.id) : null),
     // Preview-only signal — not saved to DB (not in store allowlist).
     // Lets the preview route bypass ID-matching and directly respect the toggle.
     _preview_show_event:    bool('show_event_promo'),
@@ -1200,9 +1200,10 @@ function applyMySettingsToForm(settings, odooProfile) {
   set('show_email',             settings.show_email      !== false);   // default true
   set('show_phone',             settings.show_phone      !== false);   // default true
   set('show_photo',             settings.show_photo      !== false);   // default true
-  // Event toggle: checked UNLESS hidden_event_id matches the current active event
+  // Event toggle: checked UNLESS hidden_event_id matches the current active event.
+  // hidden_event_id is stored as TEXT in the DB so normalise both to strings.
   const eventIsHidden = !!(settings.hidden_event_id && _activeEvent?.id &&
-                           settings.hidden_event_id === _activeEvent.id);
+                           String(settings.hidden_event_id) === String(_activeEvent.id));
   set('show_event_promo', !eventIsHidden);
 
   // Show active event or 'geen event' message
@@ -1306,6 +1307,21 @@ async function pushSelf() {
   }
 
   try {
+    // Always save current form state first — the push reads from DB, so
+    // unsaved changes (e.g. toggling the event off) would be ignored otherwise.
+    const saveRes  = await fetch('/mail-signatures/api/my-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: getMySettingsForm() }),
+      credentials: 'include'
+    });
+    const saveJson = await saveRes.json();
+    if (!saveJson.success) {
+      if (resultDiv) resultDiv.innerHTML = `<div class="alert alert-error text-sm">Opslaan mislukt: ${saveJson.error || 'onbekende fout'}</div>`;
+      return;
+    }
+    markMyClean();
+
     const res  = await fetch('/mail-signatures/api/push/self', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
