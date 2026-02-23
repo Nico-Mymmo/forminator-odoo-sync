@@ -72,6 +72,29 @@ export function getActiveModules() {
 }
 
 /**
+ * Check whether a user has an elevated sub-role access within a specific module.
+ *
+ * Modules can declare a `subRoles` array in their definition.
+ * If a module has sub-roles, a user qualifies for elevated access when their
+ * users.role matches one of the declared sub-roles (other than 'user').
+ *
+ * This does NOT replace the user_modules access gate – it is an additional
+ * intra-module role check used by individual route handlers.
+ *
+ * Example usage in a route handler:
+ *   if (!hasModuleSubRoleAccess(context.user, 'marketing_signature')) { ... }
+ *
+ * @param {Object} user       - Authenticated user object (from session)
+ * @param {string} requiredRole - The sub-role to check (e.g. 'marketing_signature')
+ * @returns {boolean}
+ */
+export function hasModuleSubRoleAccess(user, requiredRole) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;           // admin always qualifies
+  return user.role === requiredRole;
+}
+
+/**
  * Resolve route handler for module
  * @param {Object} module - Module definition
  * @param {string} method - HTTP method

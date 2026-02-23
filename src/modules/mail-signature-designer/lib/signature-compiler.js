@@ -1,22 +1,47 @@
 /**
- * Mail Signature Designer - Signature Compiler
+ * Mail Signature Designer – Signature Compiler
  *
- * Pure function: takes config + userData → { html, warnings }
+ * ─── Responsibility ───────────────────────────────────────────────────────────
  *
- * Rules:
- * - Table-based layout, inline styles only
- * - Outlook compatible
- * - No external CSS, no base64 images, no DOM parsing
- * - Max width 600px
- * - Font: Arial, Helvetica, sans-serif
- * - Conditional rows removed when data/toggle is absent
- * - No empty <br> tags
- * - Unknown placeholders → warnings array
- * - Push continues despite warnings
+ *  Pure function: takes a pre-merged (config, userData) pair → { html, warnings }
  *
- * Event Amplifier mode:
- * - If eventPromoEnabled + eventTitle: render event banner block at bottom
- * - Else if showBanner + bannerImageUrl: render fallback banner
+ *  This module is intentionally ONLY a renderer. It does NOT:
+ *    • fetch data from any database or API
+ *    • resolve layer priorities (that is the merge-engine's job)
+ *    • perform role checks
+ *
+ *  Data should be assembled by signature-merge-engine.js before being handed
+ *  to compileSignature(). The split keeps each module testable in isolation.
+ *
+ * ─── Determinism guarantee ────────────────────────────────────────────────────
+ *
+ *  Given identical (config, userData) inputs the function ALWAYS produces
+ *  identical HTML output. There is:
+ *    • No random data  (no UUIDs, timestamps, or Math.random())
+ *    • No I/O          (no fetch, no DB calls)
+ *    • No side effects
+ *
+ *  This guarantee is relied upon by the push flow to detect whether a
+ *  signature has actually changed (via html_hash comparison).
+ *
+ * ─── Rendering rules ─────────────────────────────────────────────────────────
+ *
+ *  - Table-based layout, inline styles only (Outlook compatible)
+ *  - No external CSS, no base64 images, no DOM parsing
+ *  - Max width 600px
+ *  - Font: Arial, Helvetica, sans-serif
+ *  - Conditional rows removed when data/toggle is absent
+ *  - No empty <br> tags
+ *  - Unknown placeholders → warnings array (push continues despite warnings)
+ *
+ * ─── Section order ────────────────────────────────────────────────────────────
+ *
+ *  1. Greeting line
+ *  2. Identity row (photo | divider | name + role + brand + contact)
+ *  3. LinkedIn promo row  (user layer – only when linkedinPromoEnabled)
+ *  4. Event promo row    (marketing layer – eventPromoEnabled + eventTitle)
+ *     OR fallback banner (showBanner + bannerImageUrl)
+ *  5. Disclaimer row     (merged layer – user text or marketing default)
  */
 
 const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl', 'brandName', 'websiteUrl'];
@@ -102,11 +127,14 @@ export function compileSignature(config, userData) {
   const brandColor = resolvedBrandColor;
 
   const data = {
-    fullName: userData.fullName || '',
-    roleTitle: userData.roleTitle || '',
-    email: userData.email || '',
-    phone: userData.phone || '',
-    photoUrl: userData.photoUrl || ''
+    fullName:     userData.fullName     || '',
+    roleTitle:    userData.roleTitle    || '',
+    email:        userData.email        || '',
+    phone:        userData.phone        || '',
+    photoUrl:     userData.photoUrl     || '',
+    greetingText: userData.greetingText ?? null,    // null = use default
+    showGreeting: userData.showGreeting !== false,  // undefined/true → show
+    company:      userData.company      ?? null     // null = use brandName
   };
 
   const fontStack = 'Arial, Helvetica, sans-serif';
@@ -139,8 +167,11 @@ export function compileSignature(config, userData) {
     ? `<div style="font-family:${fontStack};font-size:13px;color:${mutedColor};margin-top:2px;">${data.roleTitle}</div>`
     : '';
 
-  const brandBlock = brandName
-    ? `<div style="font-family:${fontStack};font-size:13px;color:${brandColor};margin-top:2px;font-weight:600;">${brandName}</div>`
+  // company: per-user resolved name (user override → marketing brandName → 'OpenVME').
+  // Falls back to brandName from config when userData.company is not set (legacy path).
+  const companyDisplay = (data.company !== undefined && data.company !== null) ? data.company : brandName;
+  const brandBlock = companyDisplay
+    ? `<div style="font-family:${fontStack};font-size:13px;color:${brandColor};margin-top:2px;font-weight:600;">${companyDisplay}</div>`
     : '';
 
   const contactLines = [];
@@ -309,7 +340,11 @@ export function compileSignature(config, userData) {
   }
 
   // ── ASSEMBLE ──────────────────────────────────────────────────────────────────
-  const greeting = `<div style="font-family:${fontStack};font-size:14px;color:${baseColor};margin-bottom:16px;">Met vriendelijke groet,<br>&nbsp;</div>`;
+  const greetingText = data.greetingText || 'Met vriendelijke groet,';
+  const showGreeting  = data.showGreeting !== false;
+  const greeting = showGreeting
+    ? `<div style="font-family:${fontStack};font-size:14px;color:${baseColor};margin-bottom:16px;">${greetingText}<br>&nbsp;</div>`
+    : '';
 
   const html = (`${greeting}<table cellpadding="0" cellspacing="0" border="0"
   style="max-width:600px;width:100%;border-collapse:collapse;font-family:${fontStack};">

@@ -148,3 +148,33 @@ export async function listUsers(env, search = '') {
     photoUrl: u.thumbnailPhotoUrl || ''
   }));
 }
+
+/**
+ * Fetch a single user from Google Directory by email address.
+ * Returns { email, fullName, photoUrl } or null if not found.
+ *
+ * @param {Object} env
+ * @param {string} email
+ */
+export async function getUserByEmail(env, email) {
+  const sa    = getServiceAccount(env);
+  const token = await getAccessToken(sa, DIRECTORY_SCOPES, ADMIN_EMAIL);
+
+  const resp = await fetch(
+    `https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(email)}?projection=basic`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  if (resp.status === 404) return null;
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Directory API getUser failed (${resp.status}): ${text}`);
+  }
+
+  const u = await resp.json();
+  return {
+    email:    u.primaryEmail,
+    fullName: u.name?.fullName || '',
+    photoUrl: u.thumbnailPhotoUrl || ''
+  };
+}

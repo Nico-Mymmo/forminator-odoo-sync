@@ -15,6 +15,9 @@
 import { navbar } from '../../lib/components/navbar.js';
 
 export function mailSignatureDesignerUI(user) {
+  // Server-side role check – determines which tabs are rendered
+  const isMarketingOrAdmin = user?.role === 'admin' || user?.role === 'marketing_signature';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -73,7 +76,10 @@ export function mailSignatureDesignerUI(user) {
   ${navbar(user)}
 
   <script>
-    window.__SIG_STATE__ = ${JSON.stringify({ actorEmail: user?.email || '' })};
+    window.__SIG_STATE__ = ${JSON.stringify({
+      actorEmail: user?.email || '',
+      userRole:   user?.role  || 'user'
+    })};
   </script>
 
   <div style="padding-top: 48px;">
@@ -86,20 +92,311 @@ export function mailSignatureDesignerUI(user) {
       </div>
 
       <!-- Tabs -->
-      <div role="tablist" class="tabs tabs-lifted mb-5">
-        <button role="tab" class="tab tab-active" data-tab="builder" onclick="switchTab('builder', this)">
-          <i data-lucide="pencil" class="w-4 h-4 mr-1"></i> Builder
+      <div role="tablist" class="tabs tabs-boxed mb-5 w-fit">
+        <button role="tab" class="tab tab-active" data-tab="my-signature" onclick="switchTab('my-signature', this)">
+          <i data-lucide="user" class="w-4 h-4 mr-1"></i> Mijn handtekening
+        </button>
+        ${isMarketingOrAdmin ? `
+        <button role="tab" class="tab" data-tab="builder" onclick="switchTab('builder', this)">
+          <i data-lucide="megaphone" class="w-4 h-4 mr-1"></i> Marketing
         </button>
         <button role="tab" class="tab" data-tab="push" onclick="switchTab('push', this)">
           <i data-lucide="send" class="w-4 h-4 mr-1"></i> Push
         </button>
         <button role="tab" class="tab" data-tab="logs" onclick="switchTab('logs', this)">
           <i data-lucide="list" class="w-4 h-4 mr-1"></i> Logs
-        </button>
+        </button>` : ''}
       </div>
 
-      <!-- ─── TAB: Builder ───────────────────────────────────────────── -->
-      <div id="tab-builder" class="tab-content active">
+      <!-- ─── TAB: Mijn handtekening (USER SCOPE) ────────────────────────── -->
+      <div id="tab-my-signature" class="tab-content active">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+          <!-- Left: User settings form -->
+          <div class="card bg-base-100 shadow">
+            <div class="card-body py-4 px-5">
+
+              <div class="flex items-center justify-between mb-3">
+                <h2 class="font-semibold text-base">Mijn handtekening</h2>
+                <div class="flex items-center gap-2">
+                  <span id="my-save-status-dot" class="w-2 h-2 rounded-full bg-base-300"></span>
+                  <span id="my-save-status" class="text-xs text-base-content/40">&#8211;</span>
+                </div>
+              </div>
+
+              <form id="my-settings-form" class="space-y-4">
+
+                <!-- ══ Mijn gegevens + zichtbaarheid ══ -->
+                <details open>
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="user" class="w-4 h-4 text-primary"></i>
+                      <span class="text-sm font-semibold">Mijn gegevens</span>
+                    </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+                  <div class="pt-3 space-y-3">
+                    <p class="text-xs text-base-content/50">Odoo-waarde als placeholder. Vink het "toon"-vinkje uit om een veld te verbergen.</p>
+
+                    <!-- Groet -->
+                    <div class="flex items-end gap-2">
+                      <label class="flex flex-col items-center gap-0.5 pb-1" title="Groet tonen">
+                        <span class="text-xs text-base-content/40">toon</span>
+                        <input type="checkbox" name="show_greeting" class="checkbox checkbox-xs checkbox-primary" checked />
+                      </label>
+                      <div class="flex-1">
+                        <div class="label py-0.5"><span class="label-text text-xs">Groet</span></div>
+                        <input type="text" name="greeting_text" id="my-greeting"
+                               placeholder="Met vriendelijke groet,"
+                               class="input input-bordered input-xs w-full" />
+                      </div>
+                    </div>
+
+                    <!-- Naam -->
+                    <div>
+                      <div class="label py-0.5"><span class="label-text text-xs">Naam</span></div>
+                      <input type="text" name="full_name_override" id="my-full-name"
+                             placeholder="Laat leeg = Odoo naam"
+                             class="input input-bordered input-xs w-full" />
+                    </div>
+
+                    <!-- Functietitel -->
+                    <div>
+                      <div class="label py-0.5"><span class="label-text text-xs">Functietitel</span></div>
+                      <input type="text" name="role_title_override" id="my-role-title"
+                             placeholder="Laat leeg = Odoo functie"
+                             class="input input-bordered input-xs w-full" />
+                    </div>
+
+                    <!-- Bedrijf -->
+                    <div class="flex items-end gap-2">
+                      <label class="flex flex-col items-center gap-0.5 pb-1" title="Bedrijf tonen">
+                        <span class="text-xs text-base-content/40">toon</span>
+                        <input type="checkbox" name="show_company" class="checkbox checkbox-xs checkbox-primary" checked />
+                      </label>
+                      <div class="flex-1">
+                        <div class="label py-0.5"><span class="label-text text-xs">Bedrijf</span></div>
+                        <input type="text" name="company_override" id="my-company"
+                               placeholder="OpenVME"
+                               class="input input-bordered input-xs w-full" />
+                      </div>
+                    </div>
+
+                    <!-- Telefoonnummer -->
+                    <div class="flex items-end gap-2">
+                      <label class="flex flex-col items-center gap-0.5 pb-1" title="Telefoon tonen">
+                        <span class="text-xs text-base-content/40">toon</span>
+                        <input type="checkbox" name="show_phone" class="checkbox checkbox-xs checkbox-primary" checked />
+                      </label>
+                      <div class="flex-1">
+                        <div class="label py-0.5"><span class="label-text text-xs">Telefoonnummer</span></div>
+                        <input type="text" name="phone_override" id="my-phone"
+                               placeholder="Laat leeg = Odoo telefoon"
+                               class="input input-bordered input-xs w-full" />
+                      </div>
+                    </div>
+
+                    <!-- E-mailadres -->
+                    <div class="flex items-center gap-2 pl-0.5">
+                      <label class="flex flex-col items-center gap-0.5" title="E-mailadres tonen">
+                        <span class="text-xs text-base-content/40">toon</span>
+                        <input type="checkbox" name="show_email" id="my-show-email"
+                               class="checkbox checkbox-xs checkbox-primary" checked />
+                      </label>
+                      <div class="flex flex-col">
+                        <span class="label-text text-xs">E-mailadres</span>
+                        <span id="my-email-display" class="text-xs text-base-content/50 italic">wordt geladen&#8230;</span>
+                      </div>
+                    </div>
+
+                    <!-- Profielfoto -->
+                    <div class="pl-0.5">
+                      <!-- State A: photo available – show checkbox + thumbnail -->
+                      <div id="my-photo-has-photo" class="hidden flex items-center gap-2">
+                        <label class="flex flex-col items-center gap-0.5" title="Foto tonen">
+                          <span class="text-xs text-base-content/40">toon</span>
+                          <input type="checkbox" name="show_photo" class="checkbox checkbox-xs checkbox-primary" checked />
+                        </label>
+                        <div class="flex items-center gap-2">
+                          <img id="my-photo-thumb" src="" alt="Profielfoto"
+                               class="w-8 h-8 rounded-full object-cover ring-1 ring-base-300" />
+                          <span class="label-text text-xs">Profielfoto (via Google)</span>
+                        </div>
+                      </div>
+                      <!-- State B: no photo -->
+                      <div id="my-photo-no-photo" class="hidden flex items-center gap-2 text-xs text-base-content/40 italic">
+                        <i data-lucide="image-off" class="w-4 h-4 shrink-0"></i>
+                        Geen foto beschikbaar in Google Workspace
+                      </div>
+                    </div>
+
+                  </div>
+                </details>
+
+                <div class="divider my-0"></div>
+
+                <!-- ══ Mijn LinkedIn post ══ -->
+                <details id="my-section-linkedin">
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <span style="display:inline-block;background:#0A66C2;color:#fff;font-weight:bold;font-size:9px;border-radius:3px;width:15px;height:15px;text-align:center;line-height:15px;">in</span>
+                      <span class="text-sm font-semibold">Mijn LinkedIn post</span>
+                    </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+                  <div class="pt-3 space-y-3">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" name="linkedin_promo_enabled" id="my-linkedin-toggle"
+                             class="toggle toggle-sm" style="--tglbg:#0A66C2"
+                             onchange="onMyLinkedinToggle(this.checked)" />
+                      <span class="text-sm font-medium">LinkedIn post tonen in handtekening</span>
+                    </label>
+
+                    <div id="my-linkedin-fields" class="cond-field space-y-3">
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Titel</span></div>
+                        <input type="text" name="linkedin_eyebrow" id="my-linkedin-eyebrow"
+                               value="Mijn laatste LinkedIn&#x2011;post"
+                               class="input input-bordered input-xs" />
+                      </label>
+                      <div class="label py-0.5"><span class="label-text text-xs">LinkedIn post URL</span></div>
+                      <div class="flex gap-1.5">
+                        <input type="url" name="linkedin_url" id="my-linkedin-url"
+                               placeholder="https://linkedin.com/posts/&#8230;"
+                               class="input input-bordered input-xs flex-1" />
+                        <button type="button" id="my-linkedin-fetch-btn"
+                                onclick="fetchMyLinkedinMeta()"
+                                class="btn btn-xs btn-outline" title="Post automatisch ophalen">
+                          <i data-lucide="sparkles" class="w-3 h-3"></i>
+                        </button>
+                      </div>
+                      <div id="my-linkedin-fetch-status" class="text-xs mt-1 hidden"></div>
+
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Oproeptekst</span></div>
+                        <textarea name="linkedin_text" id="my-linkedin-text" rows="3"
+                                  placeholder="Ik plaatste zojuist een artikel over&#8230;"
+                                  class="textarea textarea-bordered textarea-xs leading-snug"></textarea>
+                      </label>
+
+                      <!-- Hidden scraped metadata -->
+                      <input type="hidden" name="linkedin_author_name" id="my-linkedin-author-name" />
+                      <input type="hidden" name="linkedin_author_img"  id="my-linkedin-author-img" />
+                      <input type="hidden" name="linkedin_likes"       id="my-linkedin-likes" />
+                    </div>
+                  </div>
+                </details>
+
+                <div class="divider my-0"></div>
+
+                <!-- ══ Marketing event ══ -->
+                <details>
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="calendar-check" class="w-4 h-4 text-base-content/50"></i>
+                      <span class="text-sm font-semibold">Marketing event</span>
+                    </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+                  <div class="pt-3 space-y-2">
+                    <div id="my-event-active" class="hidden">
+                      <p class="text-xs text-base-content/50 mb-2">Actief event via marketing:</p>
+                      <p id="my-event-title-display" class="text-xs font-medium text-base-content mb-2"></p>
+                      <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" name="show_event_promo" class="checkbox checkbox-sm checkbox-primary" checked />
+                        <span class="text-sm font-medium">Event tonen in mijn handtekening</span>
+                      </label>
+                      <p class="text-xs text-base-content/40 mt-1 pl-9">Vinkje uitzetten verbergt alleen <em>dit</em> event. Bij een nieuw event wordt het automatisch weer getoond &mdash; en worden alle handtekeningen hernieuwd door marketing.</p>
+                    </div>
+                    <div id="my-event-none" class="hidden text-xs text-base-content/40 italic">
+                      Geen actief marketing event op dit moment.
+                    </div>
+                  </div>
+                </details>
+
+                <div class="divider my-0"></div>
+
+                <!-- ══ Persoonlijke disclaimer ══ -->
+                <details>
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="info" class="w-4 h-4 text-base-content/50"></i>
+                      <span class="text-sm font-semibold">Persoonlijke disclaimer</span>
+                    </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+                  <div class="pt-3 space-y-2">
+                    <p class="text-xs text-base-content/50">Laat leeg om de marketing-disclaimer te gebruiken.</p>
+                    <label class="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" name="show_disclaimer" id="my-show-disclaimer"
+                             class="checkbox checkbox-sm"
+                             onchange="toggleCond('my-disclaimer-fields', this.checked)" />
+                      <span class="text-sm font-medium">Disclaimer tonen</span>
+                    </label>
+                    <div id="my-disclaimer-fields" class="cond-field pl-7">
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Disclaimer tekst</span></div>
+                        <textarea name="disclaimer_text" id="my-disclaimer-text" rows="2"
+                                  placeholder="Dit bericht is vertrouwelijk&#8230;"
+                                  class="textarea textarea-bordered textarea-xs leading-snug"></textarea>
+                      </label>
+                    </div>
+                  </div>
+                </details>
+
+                <div class="divider my-0"></div>
+
+                <!-- Actions -->
+                <div class="flex flex-wrap gap-2 pt-2">
+                  <button type="button" onclick="pushSelf()"
+                          class="btn btn-success btn-sm">
+                    <i data-lucide="send" class="w-3.5 h-3.5 mr-1"></i> Naar mijn Gmail pushen
+                  </button>
+                  <div id="my-push-result" class="hidden w-full"></div>
+                </div>
+
+              </form>
+            </div>
+          </div>
+
+          <!-- Right: Preview (same preview panel, shared) -->
+          <div class="card bg-base-100 shadow">
+            <div class="card-body py-4 px-5 gap-3">
+              <div class="flex items-center justify-between">
+                <h2 class="font-semibold text-base">Live preview</h2>
+                <div class="join">
+                  <button id="my-vp-desktop" class="join-item btn btn-xs btn-active"
+                          onclick="setMyViewport('desktop')" title="Desktop">
+                    <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button id="my-vp-mobile" class="join-item btn btn-xs"
+                          onclick="setMyViewport('mobile')" title="Smal (360px)">
+                    <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Status bar -->
+              <div id="my-preview-status-bar" class="flex items-center gap-2 text-xs text-base-content/40 hidden">
+                <span id="my-preview-status-dot" class="w-2 h-2 rounded-full bg-base-300 flex-shrink-0"></span>
+                <span id="my-preview-status-text"></span>
+              </div>
+
+              <!-- Preview canvas -->
+              <div id="my-preview-wrap" style="background:#f3f4f6;padding:16px;border-radius:8px;">
+                <div id="my-preview-canvas" style="background:#fff;max-width:600px;margin:0 auto;border-radius:4px;overflow:hidden;">
+                  <iframe id="my-preview-frame" title="Mijn handtekening preview"
+                          style="border:none;width:100%;min-height:60px;display:block;"></iframe>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div><!-- /tab-my-signature -->
+
+      <!-- ─── TAB: Builder (MARKETING SCOPE) ──────────────────────────── -->
+      <div id="tab-builder" class="tab-content">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
           <!-- Left: Config form -->
@@ -108,7 +405,7 @@ export function mailSignatureDesignerUI(user) {
 
               <!-- Form header -->
               <div class="flex items-center justify-between mb-3">
-                <h2 class="font-semibold text-base">Configuratie</h2>
+                <h2 class="font-semibold text-base">Marketing instellingen</h2>
                 <div class="flex items-center gap-2">
                   <span id="save-status-dot" class="w-2 h-2 rounded-full bg-base-300"></span>
                   <span id="save-status" class="text-xs text-base-content/40">&#8211;</span>
@@ -481,9 +778,9 @@ export function mailSignatureDesignerUI(user) {
           <div class="card-body gap-4">
             <h2 class="card-title text-base">Signature pushen</h2>
             <p class="text-sm text-base-content/60">
-              Selecteer &#233;&#233;n of meerdere gebruikers. De handtekening wordt opgesteld op basis van
-              de opgeslagen configuratie. Naam, foto en functie worden live opgehaald via de
-              Directory- en Odoo-API.
+              Selecteer &#233;&#233;n of meerdere gebruikers. De handtekening wordt opgesteld door de
+              marketinglaag, Odoo-data en eventuele persoonlijke overrides van elke gebruiker samen te
+              voegen. Naam, foto en functie worden live opgehaald via de Directory- en Odoo-API.
             </p>
 
             <div class="flex gap-2">
@@ -545,6 +842,7 @@ export function mailSignatureDesignerUI(user) {
                     <th>Tijdstip</th>
                     <th>Actor</th>
                     <th>Doelgebruiker</th>
+                    <th>Scope</th>
                     <th>Status</th>
                     <th>Gewijzigd</th>
                     <th>Fout / Info</th>

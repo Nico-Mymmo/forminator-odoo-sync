@@ -22,7 +22,7 @@ export async function handleGetUsers(context) {
     // Simple test - just return basic user info
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
     
-    // Get all users WITHOUT the join first
+    // Get all users
     const { data: users, error } = await supabase
       .from('users')
       .select('id, email, role, is_active, created_at')
@@ -35,15 +35,40 @@ export async function handleGetUsers(context) {
         headers: { 'Content-Type': 'application/json' }
       });
     }
-    
-    // Return simple formatted data
+
+    // Get all user_modules with module details (manual join – no FK constraint exists)
+    const { data: userModuleRows, error: umError } = await supabase
+      .from('user_modules')
+      .select('user_id, module_id, is_enabled')
+      .in('user_id', users.map(u => u.id));
+
+    const { data: allModuleRows, error: modError } = await supabase
+      .from('modules')
+      .select('id, code, name');
+
+    if (umError)  console.error('[admin] user_modules fetch error:', umError.message);
+    if (modError) console.error('[admin] modules fetch error:', modError.message);
+
+    // Build module lookup map: id → { code, name }
+    const moduleMap = {};
+    for (const m of (allModuleRows || [])) moduleMap[m.id] = m;
+
+    // Group user_modules by user_id
+    const userModuleMap = {};
+    for (const um of (userModuleRows || [])) {
+      if (um.is_enabled === false) continue;
+      if (!userModuleMap[um.user_id]) userModuleMap[um.user_id] = [];
+      const mod = moduleMap[um.module_id];
+      if (mod) userModuleMap[um.user_id].push({ code: mod.code, name: mod.name });
+    }
+
     const formattedUsers = users.map(u => ({
       id: u.id,
       email: u.email,
       role: u.role,
       isActive: u.is_active,
       createdAt: u.created_at,
-      modules: [] // Empty for now - we'll add this after basic query works
+      modules: userModuleMap[u.id] || []
     }));
     
     return new Response(JSON.stringify({ users: formattedUsers }), {
@@ -86,7 +111,7 @@ export async function handleCreateUser(context) {
       });
     }
     
-    if (!['admin', 'manager', 'user'].includes(role)) {
+    if (!['admin', 'manager', 'user', 'marketing_signature'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Invalid role' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
@@ -175,7 +200,7 @@ export async function handleUpdateUserRole(context) {
   const body = await context.request.json();
   const { role } = body;
   
-  if (!['admin', 'manager', 'user'].includes(role)) {
+  if (!['admin', 'manager', 'user', 'marketing_signature'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Invalid role' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
@@ -380,7 +405,7 @@ export async function handleCreateInvite(context) {
     });
   }
   
-  if (!['admin', 'manager', 'user'].includes(role)) {
+  if (!['admin', 'manager', 'user', 'marketing_signature'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Invalid role' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
@@ -519,7 +544,13 @@ export async function handleGetModules(context) {
     });
   }
   
-  return new Response(JSON.stringify({ modules }), {
+  // Normalize snake_case DB columns to camelCase for the frontend
+  const normalized = (modules || []).map(m => ({
+    ...m,
+    isActive: m.is_active ?? m.isActive ?? false
+  }));
+  
+  return new Response(JSON.stringify({ modules: normalized }), {
     headers: { 'Content-Type': 'application/json' }
   });
 }

@@ -15,6 +15,16 @@
 // ════════════════════════════════════════════════════════
 const $ = id => document.getElementById(id);
 
+// Role injected server-side via window.__SIG_STATE__
+const _userRole   = window.__SIG_STATE__?.userRole   || 'user';
+const _actorEmail = window.__SIG_STATE__?.actorEmail || '';
+
+/**
+ * True when the current user may access marketing config and multi-push.
+ * Mirrors the server-side hasMarketingRole() check in routes.js.
+ */
+const _isMarketing = (_userRole === 'admin' || _userRole === 'marketing_signature');
+
 function showToast(msg, type = 'info') {
   const el = document.createElement('div');
   el.className = `alert alert-${type} fixed bottom-4 right-4 z-50 w-80 shadow-lg text-sm py-2.5`;
@@ -540,7 +550,11 @@ async function saveConfig() {
     if (json.success) {
       markClean();
       setPreviewState('saved');
-      showToast('Configuratie opgeslagen', 'success');
+      if (json.data?.eventPushTriggered) {
+        showToast('Configuratie opgeslagen — handtekeningen worden bijgewerkt voor alle gebruikers', 'success');
+      } else {
+        showToast('Configuratie opgeslagen', 'success');
+      }
       updatePreview();
     } else {
       setPreviewState('error');
@@ -826,6 +840,12 @@ async function loadLogs() {
            : meta.changed === false ? '<span class="badge badge-xs badge-ghost">ongewijzigd</span>'
            : '\u2013')
           : '\u2013';
+        const scopeBadge = {
+          self:   '<span class="badge badge-xs badge-info">self</span>',
+          single: '<span class="badge badge-xs badge-outline">single</span>',
+          multi:  '<span class="badge badge-xs badge-primary">multi</span>',
+          all:    '<span class="badge badge-xs badge-secondary">all</span>'
+        }[l.push_scope] || '\u2013';
         const hashInfo = (meta.new_hash && meta.old_hash)
           ? `<span class="text-xs text-base-content/40" title="old: ${meta.old_hash} \u2192 new: ${meta.new_hash}">${meta.new_hash.slice(0, 8)}</span>`
           : '';
@@ -838,6 +858,7 @@ async function loadLogs() {
           <td class="whitespace-nowrap">${fmtDate(l.pushed_at)}</td>
           <td>${l.actor_email || '\u2013'}</td>
           <td>${l.target_user_email || '\u2013'}</td>
+          <td>${scopeBadge}</td>
           <td>${l.success ? '\u2705' : '\u274c'}</td>
           <td>${changedCell}</td>
           <td class="max-w-xs truncate">${foutInfo}</td>
@@ -873,6 +894,446 @@ function syncProdData() { alert('Sync production data not available in this modu
 window.syncProdData = syncProdData;
 
 // ════════════════════════════════════════════════════════
+// Viewport toggle for "Mijn handtekening" preview
+// ════════════════════════════════════════════════════════
+function setMyViewport(mode) {
+  const canvas = $('my-preview-canvas');
+  const frame  = $('my-preview-frame');
+  const btnD   = $('my-vp-desktop');
+  const btnM   = $('my-vp-mobile');
+  if (!canvas) return;
+  if (mode === 'mobile') {
+    canvas.style.maxWidth = '360px';
+    if (frame) frame.style.maxWidth = '360px';
+    btnD?.classList.remove('btn-active');
+    btnM?.classList.add('btn-active');
+  } else {
+    canvas.style.maxWidth = '600px';
+    if (frame) frame.style.maxWidth = '';
+    btnD?.classList.add('btn-active');
+    btnM?.classList.remove('btn-active');
+  }
+}
+window.setMyViewport = setMyViewport;
+
+// ════════════════════════════════════════════════════════
+// My-signature preview state machine
+// ════════════════════════════════════════════════════════
+function setMyPreviewState(state) {
+  const cfg = PREVIEW_STATE_CONFIG[state] || PREVIEW_STATE_CONFIG.pristine;
+  const bar  = $('my-preview-status-bar');
+  const dot  = $('my-preview-status-dot');
+  const txt  = $('my-preview-status-text');
+  if (!bar) return;
+  if (cfg.show) {
+    bar.classList.remove('hidden');
+    dot.className = `w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`;
+    txt.textContent = cfg.text;
+    txt.className = `text-xs ${cfg.textClass}`;
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+// ════════════════════════════════════════════════════════
+// My-signature save indicator
+// ════════════════════════════════════════════════════════
+let _myIsDirty   = false;
+let _odooProfile = null;  // populated by loadMySettings(); used as preview fallback
+let _activeEvent = null;  // { title, date } of the current marketing event, or null
+
+function setMySaveStatus(status) {
+  const dot   = $('my-save-status-dot');
+  const label = $('my-save-status');
+  if (!label) return;
+  if (status === 'dirty') {
+    if (dot) dot.className = 'w-2 h-2 rounded-full bg-warning';
+    label.textContent = 'Niet opgeslagen';
+    label.className   = 'text-xs text-warning font-medium';
+  } else if (status === 'saved') {
+    if (dot) dot.className = 'w-2 h-2 rounded-full bg-success';
+    label.textContent = 'Opgeslagen';
+    label.className   = 'text-xs text-success font-medium';
+  } else {
+    if (dot) dot.className = 'w-2 h-2 rounded-full bg-base-300';
+    label.textContent = '–';
+    label.className   = 'text-xs text-base-content/40';
+  }
+}
+
+function markMyDirty() { if (!_myIsDirty) { _myIsDirty = true; setMySaveStatus('dirty'); } }
+function markMyClean() { _myIsDirty = false; setMySaveStatus('saved'); }
+
+// ════════════════════════════════════════════════════════
+// Read user settings form
+// ════════════════════════════════════════════════════════
+function getMySettingsForm() {
+  const f = $('my-settings-form');
+  if (!f) return {};
+
+  const bool = (name) => {
+    const el = f.querySelector(`[name="${name}"]`);
+    return el ? el.checked : null;
+  };
+  const str  = (name) => {
+    const el = f.querySelector(`[name="${name}"]`);
+    return el ? (el.value || null) : null;
+  };
+
+  return {
+    full_name_override:     str('full_name_override')  || null,
+    role_title_override:    str('role_title_override') || null,
+    phone_override:         str('phone_override')      || null,
+    show_greeting:          bool('show_greeting'),
+    greeting_text:          str('greeting_text')    || null,
+    show_company:           bool('show_company'),
+    company_override:       str('company_override') || null,
+    show_email:             bool('show_email'),
+    show_phone:             bool('show_phone'),
+    show_photo:             bool('show_photo'),
+    // Per-event opt-out: store the current event ID when the user hides it,
+    // clear it when they re-enable. A new event from marketing clears the match.
+    hidden_event_id:        bool('show_event_promo') ? null : (_activeEvent?.id || null),
+    // Preview-only signal — not saved to DB (not in store allowlist).
+    // Lets the preview route bypass ID-matching and directly respect the toggle.
+    _preview_show_event:    bool('show_event_promo'),
+    show_disclaimer:        bool('show_disclaimer'),
+    disclaimer_text:        str('disclaimer_text')     || null,
+    linkedin_promo_enabled: bool('linkedin_promo_enabled'),
+    linkedin_url:           str('linkedin_url')        || null,
+    linkedin_eyebrow:       str('linkedin_eyebrow')    || null,
+    linkedin_text:          str('linkedin_text')       || null,
+    linkedin_author_name:   str('linkedin_author_name') || null,
+    linkedin_author_img:    str('linkedin_author_img')  || null,
+    linkedin_likes:         parseInt(str('linkedin_likes') || '0', 10) || 0
+  };
+}
+
+// ════════════════════════════════════════════════════════
+// Apply loaded user settings to form
+// ════════════════════════════════════════════════════════
+function applyMySettingsToForm(settings, odooProfile) {
+  if (!settings) return;
+  const f   = $('my-settings-form');
+  if (!f) return;
+
+  const set = (name, val) => {
+    const el = f.querySelector(`[name="${name}"]`);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = val === true || val === 'true';
+    else el.value = val ?? '';
+  };
+
+  const setPlaceholder = (name, odooVal, fallback) => {
+    const el = f.querySelector(`[name="${name}"]`);
+    if (!el) return;
+    el.placeholder = odooVal ? `${odooVal}  (via Odoo)` : fallback;
+  };
+
+  set('show_greeting',          settings.show_greeting   !== false);  // default true
+  set('greeting_text',          settings.greeting_text   ?? '');
+  set('full_name_override',     settings.full_name_override  ?? '');
+  set('role_title_override',    settings.role_title_override ?? '');
+  set('show_company',           settings.show_company    !== false);  // default true
+  set('company_override',       settings.company_override ?? '');
+  set('phone_override',         settings.phone_override      ?? '');
+  set('show_email',             settings.show_email      !== false);   // default true
+  set('show_phone',             settings.show_phone      !== false);   // default true
+  set('show_photo',             settings.show_photo      !== false);   // default true
+  // Event toggle: checked UNLESS hidden_event_id matches the current active event
+  const eventIsHidden = !!(settings.hidden_event_id && _activeEvent?.id &&
+                           settings.hidden_event_id === _activeEvent.id);
+  set('show_event_promo', !eventIsHidden);
+
+  // Show active event or 'geen event' message
+  const hasEvent = !!(_activeEvent?.title);
+  const eventActiveDiv = document.getElementById('my-event-active');
+  const eventNoneDiv   = document.getElementById('my-event-none');
+  const eventTitleEl   = document.getElementById('my-event-title-display');
+  if (eventActiveDiv) eventActiveDiv.classList.toggle('hidden', !hasEvent);
+  if (eventNoneDiv)   eventNoneDiv.classList.toggle('hidden',    hasEvent);
+  if (hasEvent && eventTitleEl) {
+    eventTitleEl.textContent = _activeEvent.title + (_activeEvent.date ? ` — ${_activeEvent.date}` : '');
+  }
+
+  // Show the user's own email address in the read-only display span
+  const emailDisplayEl = document.getElementById('my-email-display');
+  if (emailDisplayEl) emailDisplayEl.textContent = _actorEmail || '';
+
+  // Show photo thumbnail or 'geen foto' message based on what odooProfile provided
+  const hasPhoto     = !!(odooProfile?.photoUrl);
+  const hasPhotoDiv  = document.getElementById('my-photo-has-photo');
+  const noPhotoDiv   = document.getElementById('my-photo-no-photo');
+  const photoThumb   = document.getElementById('my-photo-thumb');
+  if (hasPhotoDiv)  hasPhotoDiv.classList.toggle('hidden', !hasPhoto);
+  if (noPhotoDiv)   noPhotoDiv.classList.toggle('hidden',  hasPhoto);
+  if (hasPhoto && photoThumb) photoThumb.src = odooProfile.photoUrl;
+  set('show_disclaimer',        !!settings.show_disclaimer);
+  set('disclaimer_text',        settings.disclaimer_text     ?? '');
+  set('linkedin_promo_enabled', !!settings.linkedin_promo_enabled);
+  set('linkedin_url',           settings.linkedin_url        ?? '');
+  set('linkedin_eyebrow',       settings.linkedin_eyebrow    || 'Mijn laatste LinkedIn\u2011post');
+  set('linkedin_text',          settings.linkedin_text       ?? '');
+  set('linkedin_author_name',   settings.linkedin_author_name ?? '');
+  set('linkedin_author_img',    settings.linkedin_author_img  ?? '');
+  set('linkedin_likes',         settings.linkedin_likes ?? '');
+
+  // Dynamic placeholders: show Odoo value so user knows what will be used
+  if (odooProfile) {
+    setPlaceholder('full_name_override',  odooProfile.name,         'Laat leeg = Odoo naam');
+    setPlaceholder('role_title_override', odooProfile.job_title,    'Laat leeg = Odoo functie');
+    setPlaceholder('phone_override',      odooProfile.mobile_phone, 'Laat leeg = Odoo telefoon');
+  }
+
+  // Conditional visibility
+  toggleCond('my-disclaimer-fields', !!settings.show_disclaimer);
+  toggleCond('my-linkedin-fields',   !!settings.linkedin_promo_enabled);
+}
+
+// ════════════════════════════════════════════════════════
+// Load / save my settings
+// ════════════════════════════════════════════════════════
+async function loadMySettings() {
+  try {
+    const res  = await fetch('/mail-signatures/api/my-settings', { credentials: 'include' });
+    const json = await res.json();
+    if (json.success && json.data) {
+      _odooProfile = json.data.odooProfile ?? null;
+      _activeEvent = json.data.activeEvent  ?? null;
+      applyMySettingsToForm(json.data.settings ?? {}, _odooProfile);
+    }
+    setMySaveStatus('–');
+    _myIsDirty = false;
+  } catch (e) {
+    console.error('[sig] loadMySettings error:', e);
+  }
+}
+
+async function saveMySettings() {
+  const settings = getMySettingsForm();
+  try {
+    const res = await fetch('/mail-signatures/api/my-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings }),
+      credentials: 'include'
+    });
+    const json = await res.json();
+    if (json.success) {
+      markMyClean();
+      setMyPreviewState('saved');
+      showToast('Instellingen opgeslagen', 'success');
+      updateMyPreview();
+    } else {
+      setMyPreviewState('error');
+      showToast('Opslaan mislukt: ' + json.error, 'error');
+    }
+  } catch (e) {
+    setMyPreviewState('error');
+    showToast('Netwerkfout: ' + e.message, 'error');
+  }
+}
+window.saveMySettings = saveMySettings;
+
+// ════════════════════════════════════════════════════════
+// Push self
+// ════════════════════════════════════════════════════════
+async function pushSelf() {
+  const resultDiv = $('my-push-result');
+  if (resultDiv) {
+    resultDiv.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Pushen\u2026';
+    resultDiv.classList.remove('hidden');
+  }
+
+  try {
+    const res  = await fetch('/mail-signatures/api/push/self', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      credentials: 'include'
+    });
+    const json = await res.json();
+    if (json.success) {
+      const r = json.data.results?.[0] || {};
+      if (r.success) {
+        const badge = r.changed
+          ? '<span class="badge badge-xs badge-warning">gewijzigd</span>'
+          : '<span class="badge badge-xs badge-ghost">ongewijzigd</span>';
+        if (resultDiv) {
+          resultDiv.innerHTML = `<div class="alert alert-success text-sm">Handtekening gepusht naar jouw Gmail ${badge}</div>`;
+        }
+        showToast('Handtekening gepusht', 'success');
+      } else {
+        if (resultDiv) {
+          resultDiv.innerHTML = `<div class="alert alert-error text-sm">Push mislukt: ${r.error}</div>`;
+        }
+        showToast('Push mislukt: ' + r.error, 'error');
+      }
+    } else {
+      if (resultDiv) {
+        resultDiv.innerHTML = `<div class="alert alert-error text-sm">Push mislukt: ${json.error}</div>`;
+      }
+      showToast('Push mislukt: ' + json.error, 'error');
+    }
+  } catch (e) {
+    if (resultDiv) {
+      resultDiv.innerHTML = `<div class="alert alert-error text-sm">Netwerkfout: ${e.message}</div>`;
+    }
+    showToast('Netwerkfout: ' + e.message, 'error');
+  }
+}
+window.pushSelf = pushSelf;
+
+// ════════════════════════════════════════════════════════
+// My-signature LinkedIn toggle
+// ════════════════════════════════════════════════════════
+function onMyLinkedinToggle(checked) {
+  toggleCond('my-linkedin-fields', checked);
+  markMyDirty();
+  debouncedMyPreview();
+}
+window.onMyLinkedinToggle = onMyLinkedinToggle;
+
+// ════════════════════════════════════════════════════════
+// My-signature LinkedIn meta fetch
+// Mirrors fetchLinkedinMeta() but uses the my-settings form fields.
+// ════════════════════════════════════════════════════════
+async function fetchMyLinkedinMeta() {
+  const urlInput  = $('my-linkedin-url');
+  const statusEl  = $('my-linkedin-fetch-status');
+  const btn       = $('my-linkedin-fetch-btn');
+  const textArea  = $('my-linkedin-text');
+  const url       = urlInput?.value?.trim();
+
+  if (!url) { showToast('Voer eerst een LinkedIn-URL in', 'warning'); return; }
+
+  // Auto-enable toggle
+  const toggle = $('my-linkedin-toggle');
+  if (toggle && !toggle.checked) { toggle.checked = true; onMyLinkedinToggle(true); }
+
+  if (statusEl) { statusEl.className = 'text-xs mt-1 text-info'; statusEl.textContent = 'Post ophalen\u2026'; statusEl.classList.remove('hidden'); }
+  if (btn) btn.disabled = true;
+
+  try {
+    const res  = await fetch('/mail-signatures/api/linkedin-meta?url=' + encodeURIComponent(url));
+    const json = await res.json();
+    if (!json.success) {
+      if (statusEl) { statusEl.className = 'text-xs mt-1 text-error'; statusEl.textContent = json.error || 'Ophalen mislukt'; }
+      showToast('LinkedIn ophalen mislukt: ' + json.error, 'error');
+      return;
+    }
+    const { description, authorName, authorImgUrl, likesCount } = json.data;
+    const setH = (id, v) => { const el = $(id); if (el) el.value = v ?? ''; };
+    setH('my-linkedin-author-name', authorName);
+    setH('my-linkedin-author-img',  authorImgUrl);
+    setH('my-linkedin-likes',       likesCount || '');
+
+    if (textArea && !textArea.value && description) {
+      const cleaned = description.replace(/^[^:]+\s+op LinkedIn:\s*/i, '').replace(/^[^:]+\s+on LinkedIn:\s*/i, '');
+      textArea.value = cleaned.slice(0, 280);
+    }
+    if (statusEl) {
+      statusEl.className = 'text-xs mt-1 text-success';
+      statusEl.textContent = '\u2713 Post opgehaald' + (authorName ? ` \u2014 ${authorName}` : '');
+      setTimeout(() => statusEl.classList.add('hidden'), 3000);
+    }
+    markMyDirty();
+    debouncedMyPreview();
+  } catch (err) {
+    if (statusEl) { statusEl.className = 'text-xs mt-1 text-error'; statusEl.textContent = 'Netwerkfout: ' + err.message; }
+    showToast('Netwerkfout: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.fetchMyLinkedinMeta = fetchMyLinkedinMeta;
+
+// ════════════════════════════════════════════════════════
+// My-signature live preview
+// ════════════════════════════════════════════════════════
+let _myPreviewInflight = false;
+let _myPreviewPending  = false;
+
+const debouncedMyPreview = debounce(updateMyPreview, 300);
+
+async function updateMyPreview() {
+  if (_myPreviewInflight) { _myPreviewPending = true; return; }
+
+  _myPreviewInflight = true;
+  setMyPreviewState('loading');
+
+  const userSettings = getMySettingsForm();
+  // Use actorEmail as the preview target (shows own email in signature)
+  const previewEmail = _actorEmail || 'preview@example.com';
+
+  try {
+    const res = await fetch('/mail-signatures/api/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'user',
+        userSettings,
+        userData: {
+          email:        previewEmail,
+          fullName:     userSettings.full_name_override  || _odooProfile?.name         || '',
+          roleTitle:    userSettings.role_title_override || _odooProfile?.job_title    || '',
+          phone:        (userSettings.show_phone    !== false) ? (userSettings.phone_override    || _odooProfile?.mobile_phone || '') : '',
+          photoUrl:     (userSettings.show_photo    !== false) ? (_odooProfile?.photoUrl         || '') : '',
+          greetingText: (userSettings.show_greeting !== false) ? (userSettings.greeting_text    || 'Met vriendelijke groet,') : '',
+          showGreeting: userSettings.show_greeting !== false,
+          company:      (userSettings.show_company  !== false) ? (userSettings.company_override || 'OpenVME') : ''
+        }
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      const frame = $('my-preview-frame');
+      if (frame) {
+        const doc = frame.contentDocument || frame.contentWindow.document;
+        doc.open(); doc.write(json.data.html); doc.close();
+        const autoSize = () => {
+          const h = frame.contentDocument?.body?.scrollHeight;
+          if (h) frame.style.height = (h + 4) + 'px';
+        };
+        requestAnimationFrame(autoSize);
+        Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
+          if (!img.complete) img.addEventListener('load', autoSize);
+        });
+      }
+      setMyPreviewState(_myIsDirty ? 'dirty' : 'saved');
+    } else {
+      setMyPreviewState('error');
+    }
+  } catch (e) {
+    console.error('[sig] updateMyPreview error:', e);
+    setMyPreviewState('error');
+  } finally {
+    _myPreviewInflight = false;
+    if (_myPreviewPending) { _myPreviewPending = false; setTimeout(updateMyPreview, 0); }
+  }
+}
+window.updateMyPreview = updateMyPreview;
+
+// ════════════════════════════════════════════════════════
+// Wire live preview for my-settings form
+// ════════════════════════════════════════════════════════
+function attachMyLivePreview() {
+  const form = $('my-settings-form');
+  if (!form) return;
+  form.querySelectorAll('input, textarea').forEach(el => {
+    if (el.type === 'hidden') return;
+    if (el.type === 'checkbox') {
+      // Checkbox: save immediately + refresh preview
+      el.addEventListener('change', () => { debouncedMyPreview(); saveMySettings(); });
+    } else {
+      // Text / textarea: live preview while typing; save on focus-out
+      el.addEventListener('input', () => { markMyDirty(); debouncedMyPreview(); });
+      el.addEventListener('blur',  () => { if (_myIsDirty) saveMySettings(); });
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════
 // Boot
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
@@ -882,17 +1343,24 @@ document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
   initColorSync();
   attachLivePreview();
+  attachMyLivePreview();
 
-  // 1) Load config, then fire initial preview
-  // 2) Load events in parallel; after both complete, restore badge count
-  Promise.all([
-    loadConfig().then(() => updatePreview()),
-    loadEvents()
-  ]).then(() => {
-    // Restore badge count for selected event after loadEvents fills _allEvents
-    const sel = $('event-select');
-    if (sel && sel.value) onEventSelect(sel.value);
-  });
+  // ── "Mijn handtekening" tab: load user settings then fire preview
+  loadMySettings().then(() => updateMyPreview());
 
-  loadEmployees();
+  // ── Marketing tabs: only run when user has marketing role
+  if (_isMarketing) {
+    // 1) Load marketing config, then fire initial preview
+    // 2) Load events in parallel; after both complete, restore badge count
+    Promise.all([
+      loadConfig().then(() => updatePreview()),
+      loadEvents()
+    ]).then(() => {
+      // Restore badge count for selected event after loadEvents fills _allEvents
+      const sel = $('event-select');
+      if (sel && sel.value) onEventSelect(sel.value);
+    });
+
+    loadEmployees();
+  }
 });

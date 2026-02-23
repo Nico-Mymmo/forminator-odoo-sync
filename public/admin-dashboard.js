@@ -200,13 +200,14 @@ function renderUsersTable() {
         '<select class="select select-sm select-bordered" onchange="updateUserRole(\'' + user.id + '\', this.value)">' +
           '<option value="user" ' + (user.role === 'user' ? 'selected' : '') + '>User</option>' +
           '<option value="manager" ' + (user.role === 'manager' ? 'selected' : '') + '>Manager</option>' +
+          '<option value="marketing_signature" ' + (user.role === 'marketing_signature' ? 'selected' : '') + '>Marketing Signatures</option>' +
           '<option value="admin" ' + (user.role === 'admin' ? 'selected' : '') + '>Admin</option>' +
         '</select>' +
       '</td>' +
       '<td>' +
         '<div class="flex flex-wrap gap-1">' +
           (user.modules && user.modules.length > 0 
-            ? user.modules.map(m => '<span class="badge badge-sm">' + m + '</span>').join('')
+            ? user.modules.map(m => '<span class="badge badge-sm">' + (m.name || m.code || m) + '</span>').join('')
             : '<span class="text-sm text-base-content/60">None</span>'
           ) +
         '</div>' +
@@ -219,7 +220,7 @@ function renderUsersTable() {
       '<td>' + new Date(user.createdAt).toLocaleDateString() + '</td>' +
       '<td>' +
         '<div class="join">' +
-          '<button class="btn btn-xs btn-ghost join-item" onclick="editUserModules(\'' + user.id + '\', ' + JSON.stringify(user.modules || []) + ')" title="Edit Modules">' +
+          '<button class="btn btn-xs btn-ghost join-item" onclick="editUserModules(\'' + user.id + '\')" title="Edit Modules">' +
             '<i data-lucide="package" class="w-3 h-3"></i>' +
           '</button>' +
           '<button class="btn btn-xs btn-ghost join-item" onclick="toggleUserStatus(\'' + user.id + '\')" title="Toggle Status">' +
@@ -276,11 +277,16 @@ async function toggleUserStatus(userId) {
   }
 }
 
-function editUserModules(userId, currentModules) {
+function editUserModules(userId) {
+  const user = allUsers.find(u => u.id === userId);
+  const currentModules = user ? (user.modules || []) : [];
+  // currentModules may be an array of strings or objects {code, name}
+  const currentCodes = currentModules.map(m => typeof m === 'string' ? m : m.code);
+  
   const checkboxes = allModules.map(m =>
     '<label class="label cursor-pointer justify-start gap-2">' +
       '<input type="checkbox" value="' + m.code + '" ' +
-        (currentModules.includes(m.code) ? 'checked' : '') +
+        (currentCodes.includes(m.code) ? 'checked' : '') +
         ' class="checkbox checkbox-sm">' +
       '<span class="label-text">' + m.name + '</span>' +
     '</label>'
