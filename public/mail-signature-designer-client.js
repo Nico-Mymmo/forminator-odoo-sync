@@ -417,7 +417,7 @@ function getFormConfig() {
     eventEyebrow:        data.get('eventEyebrow')        || 'Schrijf je in',
     eventImageUrl:       data.get('eventImageUrl')       || '',
     eventImageMaxHeight: data.get('eventImageMaxHeight') ? parseInt(data.get('eventImageMaxHeight'), 10) : null,
-    eventRegUrl:         data.get('eventRegUrl')         || '',,
+    eventRegUrl:         data.get('eventRegUrl')         || '',
     // ── Fallback banner
     showBanner:     f.querySelector('[name="showBanner"]')?.checked || false,
     bannerImageUrl: data.get('bannerImageUrl') || '',
