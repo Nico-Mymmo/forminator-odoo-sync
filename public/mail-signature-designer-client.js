@@ -652,6 +652,19 @@ async function pushAllUsers() {
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Bezig…'; }
   if (resultDiv) resultDiv.classList.add('hidden');
   try {
+    // Always save the current form state first so the push uses the latest config
+    // (e.g. if the user toggled the event off without clicking Opslaan first).
+    const saveRes  = await fetch('/mail-signatures/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: getFormConfig() })
+    });
+    const saveJson = await saveRes.json();
+    if (!saveJson.success) {
+      showToast('Opslaan mislukt voor push: ' + (saveJson.error || 'onbekende fout'), 'error');
+      return;
+    }
+    markClean();
     const res  = await fetch('/mail-signatures/api/push/all', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     const json = await res.json();
     if (json.success) {
@@ -758,6 +771,18 @@ async function modalPushSelected() {
   resultDiv.classList.remove('hidden');
 
   try {
+    // Always save first so the push reflects the current form state
+    const saveRes  = await fetch('/mail-signatures/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: getFormConfig() })
+    });
+    const saveJson = await saveRes.json();
+    if (!saveJson.success) {
+      resultDiv.innerHTML = `<div class="alert alert-error text-sm">Opslaan mislukt: ${saveJson.error || 'onbekende fout'}</div>`;
+      return;
+    }
+    markClean();
     const res  = await fetch('/mail-signatures/api/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -870,6 +895,18 @@ async function pushSelected() {
   $('push-btn').disabled = true;
 
   try {
+    // Always save first so the push reflects the current form state
+    const saveRes  = await fetch('/mail-signatures/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: getFormConfig() })
+    });
+    const saveJson = await saveRes.json();
+    if (!saveJson.success) {
+      resultDiv.innerHTML = `<div class="alert alert-error text-sm">Opslaan mislukt: ${saveJson.error || 'onbekende fout'}</div>`;
+      return;
+    }
+    markClean();
     const res  = await fetch('/mail-signatures/api/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
