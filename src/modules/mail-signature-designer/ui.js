@@ -419,6 +419,10 @@ export function mailSignatureDesignerUI(user) {
                           onclick="setMyViewport('mobile')" title="Smal (360px)">
                     <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
                   </button>
+                  <button id="my-vp-dark" class="join-item btn btn-xs"
+                          onclick="toggleMyPreviewMode()" title="Dark/light achtergrond">
+                    <i data-lucide="moon" class="w-3.5 h-3.5"></i>
+                  </button>
                 </div>
               </div>
 
@@ -685,6 +689,9 @@ export function mailSignatureDesignerUI(user) {
                   </button>
                   <button id="vp-mobile" class="join-item btn btn-xs" onclick="setViewport('mobile')" title="Smal (360px)">
                     <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button id="vp-dark" class="join-item btn btn-xs" onclick="togglePreviewMode()" title="Dark/light achtergrond">
+                    <i data-lucide="moon" class="w-3.5 h-3.5"></i>
                   </button>
                 </div>
               </div>

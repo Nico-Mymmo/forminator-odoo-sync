@@ -621,9 +621,12 @@ async function updatePreview() {
       };
       frame.onload = autoSize;
       doc.open(); doc.write(json.data.html); doc.close();
-      // Fallback: onload may not fire reliably for same-origin doc.write
+      // Apply dark/light background after write
+      try {
+        const body = frame.contentDocument?.body;
+        if (body) body.style.backgroundColor = _previewDark ? CANVAS_DARK_BG : '';
+      } catch (_) {}
       setTimeout(autoSize, 0);
-      // Re-measure once images have loaded
       Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
         if (!img.complete) img.addEventListener('load', autoSize);
       });
@@ -1069,6 +1072,45 @@ window.syncProdData = syncProdData;
 // ════════════════════════════════════════════════════════
 // Viewport toggle for "Mijn handtekening" preview
 // ════════════════════════════════════════════════════════
+// Dark/light preview background toggle state
+let _myPreviewDark = false;
+let _previewDark   = false;
+
+const PREVIEW_DARK_BG  = '#1e1e2e';
+const PREVIEW_LIGHT_BG = '#f3f4f6';
+const CANVAS_DARK_BG   = '#2a2a3a';
+const CANVAS_LIGHT_BG  = '#ffffff';
+
+function applyPreviewMode(dark, wrapId, canvasId, frameId, btnId, iconName) {
+  const wrap   = $(wrapId);
+  const canvas = $(canvasId);
+  const frame  = $(frameId);
+  const btn    = $(btnId);
+  if (wrap)   wrap.style.backgroundColor   = dark ? PREVIEW_DARK_BG  : PREVIEW_LIGHT_BG;
+  if (canvas) canvas.style.backgroundColor = dark ? CANVAS_DARK_BG   : CANVAS_LIGHT_BG;
+  if (btn)    btn.classList.toggle('btn-active', dark);
+  // Update iframe body background if document is already loaded
+  try {
+    const body = frame?.contentDocument?.body;
+    if (body) body.style.backgroundColor = dark ? CANVAS_DARK_BG : '';
+  } catch (_) {}
+  // Swap icon
+  const icon = btn?.querySelector('[data-lucide]');
+  if (icon) { icon.setAttribute('data-lucide', dark ? 'sun' : 'moon'); lucide.createIcons(); }
+}
+
+function toggleMyPreviewMode() {
+  _myPreviewDark = !_myPreviewDark;
+  applyPreviewMode(_myPreviewDark, 'my-preview-wrap', 'my-preview-canvas', 'my-preview-frame', 'my-vp-dark', 'moon');
+}
+window.toggleMyPreviewMode = toggleMyPreviewMode;
+
+function togglePreviewMode() {
+  _previewDark = !_previewDark;
+  applyPreviewMode(_previewDark, 'preview-wrap', 'preview-canvas', 'preview-frame', 'vp-dark', 'moon');
+}
+window.togglePreviewMode = togglePreviewMode;
+
 function setMyViewport(mode) {
   const canvas = $('my-preview-canvas');
   const frame  = $('my-preview-frame');
@@ -1499,14 +1541,17 @@ async function updateMyPreview() {
       const frame = $('my-preview-frame');
       if (frame) {
         const doc = frame.contentDocument || frame.contentWindow.document;
-        // Attach onload BEFORE doc.open() so it fires when doc.close() triggers load.
         const autoSize = () => {
           const h = frame.contentDocument?.body?.scrollHeight;
           if (h) frame.style.height = (h + 4) + 'px';
         };
         frame.onload = autoSize;
         doc.open(); doc.write(json.data.html); doc.close();
-        // Fallback: onload may not fire reliably for same-origin doc.write
+        // Apply dark/light background after write
+        try {
+          const body = frame.contentDocument?.body;
+          if (body) body.style.backgroundColor = _myPreviewDark ? CANVAS_DARK_BG : '';
+        } catch (_) {}
         setTimeout(autoSize, 0);
         Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
           if (!img.complete) img.addEventListener('load', autoSize);
