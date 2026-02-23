@@ -621,6 +621,8 @@ async function updatePreview() {
       };
       frame.onload = autoSize;
       doc.open(); doc.write(json.data.html); doc.close();
+      // Fallback: onload may not fire reliably for same-origin doc.write
+      setTimeout(autoSize, 0);
       // Re-measure once images have loaded
       Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
         if (!img.complete) img.addEventListener('load', autoSize);
@@ -1504,6 +1506,8 @@ async function updateMyPreview() {
         };
         frame.onload = autoSize;
         doc.open(); doc.write(json.data.html); doc.close();
+        // Fallback: onload may not fire reliably for same-origin doc.write
+        setTimeout(autoSize, 0);
         Array.from(frame.contentDocument?.querySelectorAll('img') || []).forEach(img => {
           if (!img.complete) img.addEventListener('load', autoSize);
         });

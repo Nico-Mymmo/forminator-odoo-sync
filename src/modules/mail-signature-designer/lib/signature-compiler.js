@@ -348,11 +348,11 @@ export function compileSignature(config, userData) {
     quoteRow = `<tr>
       ${cellStart}
         <table cellpadding="0" cellspacing="0" border="0"
-               style="width:100%;border-collapse:collapse;background-color:#f5f5f5;border-left:3px solid ${brandColor};">
+               style="width:100%;border-collapse:separate;border-spacing:0;background-color:${calloutBg};border-radius:8px;border:1px solid ${dividerColor};">
           <tr>
-            <td style="padding:12px 16px;">
-              <div style="font-family:${fontStack};font-size:13px;font-style:italic;color:#333333;line-height:1.6;">&ldquo;${quoteText}&rdquo;</div>
-              <div style="font-family:${fontStack};font-size:12px;color:#666666;margin-top:8px;">${attribution}</div>
+            <td style="padding:14px 16px;">
+              <div style="font-family:${fontStack};font-size:13px;font-style:italic;color:${baseColor};line-height:1.6;">&ldquo;${quoteText}&rdquo;</div>
+              <div style="font-family:${fontStack};font-size:12px;color:${brandColor};margin-top:8px;font-weight:600;">${attribution}</div>
             </td>
           </tr>
         </table>
@@ -381,8 +381,8 @@ export function compileSignature(config, userData) {
     ? `<div style="font-family:${fontStack};font-size:14px;color:${baseColor};margin-bottom:16px;">${greetingText}<br>&nbsp;</div>`
     : '';
 
-  const html = (`${greeting}<table cellpadding="0" cellspacing="0" border="0"
-  style="max-width:600px;width:100%;border-collapse:collapse;font-family:${fontStack};">
+  const html = (`${greeting}<table cellpadding="0" cellspacing="0" border="0" width="600"
+  style="width:600px;max-width:100%;border-collapse:collapse;font-family:${fontStack};">
   <tr>
     ${photoCell}
     ${dividerCell}
