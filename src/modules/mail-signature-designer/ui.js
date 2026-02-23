@@ -617,7 +617,7 @@ export function mailSignatureDesignerUI(user) {
                     <i data-lucide="send" class="w-3.5 h-3.5 mr-1"></i> Pushen naar alle gebruikers
                   </button>
                 </div>
-                <div id="push-all-result" class="hidden mt-2"></div>
+                <div id="push-all-result" class="hidden mt-2 max-h-64 overflow-y-auto"></div>
 
               </form>
             </div>

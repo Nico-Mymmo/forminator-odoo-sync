@@ -650,10 +650,9 @@ async function pushAllUsers() {
   const btn = $('push-all-btn');
   const resultDiv = $('push-all-result');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Bezig…'; }
-  if (resultDiv) resultDiv.classList.add('hidden');
+  if (resultDiv) { resultDiv.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Pushen…'; resultDiv.classList.remove('hidden'); }
   try {
-    // Always save the current form state first so the push uses the latest config
-    // (e.g. if the user toggled the event off without clicking Opslaan first).
+    // 1. Save current form state first (same as pushSelected)
     const saveRes  = await fetch('/mail-signatures/api/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -661,24 +660,56 @@ async function pushAllUsers() {
     });
     const saveJson = await saveRes.json();
     if (!saveJson.success) {
-      showToast('Opslaan mislukt voor push: ' + (saveJson.error || 'onbekende fout'), 'error');
+      if (resultDiv) resultDiv.innerHTML = `<div class="alert alert-error text-sm">Opslaan mislukt: ${saveJson.error || 'onbekende fout'}</div>`;
       return;
     }
     markClean();
-    const res  = await fetch('/mail-signatures/api/push/all', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+
+    // 2. Fetch all directory users
+    const dirRes  = await fetch('/mail-signatures/api/directory?search=');
+    const dirJson = await dirRes.json();
+    if (!dirJson.success) throw new Error(dirJson.error || 'Directory laden mislukt');
+    const emails = (dirJson.data.users || []).map(u => u.email).filter(Boolean);
+    if (!emails.length) {
+      if (resultDiv) resultDiv.innerHTML = '<div class="alert alert-warning text-sm">Geen gebruikers gevonden in directory</div>';
+      return;
+    }
+
+    // 3. Push to all emails via the same endpoint as pushSelected
+    const res  = await fetch('/mail-signatures/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUserEmails: emails })
+    });
     const json = await res.json();
     if (json.success) {
-      const { successCount = 0, failCount = 0 } = json.data || {};
+      const { successCount, failCount, results } = json.data;
+      const rows = results.map(r => {
+        const badge = r.success
+          ? (r.changed ? '<span class="badge badge-xs badge-warning">gewijzigd</span>'
+                       : '<span class="badge badge-xs badge-ghost">ongewijzigd</span>')
+          : '';
+        const info = r.error || (r.warnings?.length ? r.warnings.join(', ') : '–');
+        return `<tr class="${r.success ? '' : 'log-row-fail'}">
+          <td>${r.email}</td><td>${r.success ? '✅' : '❌'}</td>
+          <td>${badge}</td>
+          <td class="max-w-xs truncate text-xs text-base-content/60">${info}</td>
+        </tr>`;
+      }).join('');
+      if (resultDiv) resultDiv.innerHTML = `
+        <div class="alert alert-${failCount === 0 ? 'success' : 'warning'} text-sm mb-2">
+          ${successCount} geslaagd, ${failCount} mislukt
+        </div>
+        <table class="table table-xs">
+          <thead><tr><th>E-mail</th><th>Status</th><th>Wijziging</th><th>Info</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
       showToast(`Push voltooid — ${successCount} geslaagd, ${failCount} mislukt`, failCount ? 'warning' : 'success');
-      if (resultDiv) {
-        resultDiv.innerHTML = `<div class="alert alert-${failCount ? 'warning' : 'success'} py-1.5 text-xs">${successCount} geslaagd, ${failCount} mislukt</div>`;
-        resultDiv.classList.remove('hidden');
-      }
     } else {
-      showToast('Push mislukt: ' + (json.error || 'onbekende fout'), 'error');
+      if (resultDiv) resultDiv.innerHTML = `<div class="alert alert-error text-sm">Push mislukt: ${json.error}</div>`;
     }
   } catch (e) {
-    showToast('Netwerkfout: ' + e.message, 'error');
+    if (resultDiv) resultDiv.innerHTML = `<div class="alert alert-error text-sm">Netwerkfout: ${e.message}</div>`;
   } finally {
     if (btn) {
       btn.disabled = false;
