@@ -425,14 +425,6 @@ function getFormConfig() {
     brandName:    data.get('brandName')  || '',
     websiteUrl:   data.get('websiteUrl') || '',
     brandColor,
-    // ── LinkedIn promo
-    linkedinPromoEnabled: f.querySelector('[name="linkedinPromoEnabled"]')?.checked || false,
-    linkedinUrl:        data.get('linkedinUrl')        || '',
-    linkedinEyebrow:    data.get('linkedinEyebrow')    || 'Mijn laatste LinkedIn\u2011post',
-    linkedinText:       data.get('linkedinText')       || '',
-    linkedinAuthorName: data.get('linkedinAuthorName') || '',
-    linkedinAuthorImg:  data.get('linkedinAuthorImg')  || '',
-    linkedinLikes:      data.get('linkedinLikes') ? parseInt(data.get('linkedinLikes'), 10) : 0,
     // ── Disclaimer
     showDisclaimer: f.querySelector('[name="showDisclaimer"]')?.checked || false,
     disclaimerText: data.get('disclaimerText') || ''
@@ -488,27 +480,6 @@ function applyConfigToForm(config) {
   if (fallback) fallback.classList.toggle('visible', !promoOn);
   toggleCond('fallback-banner-fields',    !!config.showBanner);
   toggleCond('disclaimer-fields',          !!config.showDisclaimer);
-
-  // LinkedIn
-  set('linkedinPromoEnabled', config.linkedinPromoEnabled);
-  set('linkedinUrl',          config.linkedinUrl  ?? '');
-  set('linkedinEyebrow',      config.linkedinEyebrow || 'Mijn laatste LinkedIn\u2011post');
-  set('linkedinText',         config.linkedinText ?? '');
-  set('linkedinAuthorName',   config.linkedinAuthorName ?? '');
-  set('linkedinAuthorImg',    config.linkedinAuthorImg  ?? '');
-  set('linkedinLikes',        config.linkedinLikes ?? '');
-  toggleCond('linkedin-promo-fields', !!config.linkedinPromoEnabled);
-  // Restore scraped meta badge
-  if (config.linkedinAuthorName) {
-    const metaDiv    = $('linkedin-meta');
-    const metaAuthor = $('linkedin-meta-author');
-    const metaAvatar = $('linkedin-meta-avatar');
-    const metaLikes  = $('linkedin-meta-likes');
-    if (metaDiv)   metaDiv.classList.remove('hidden');
-    if (metaAuthor) metaAuthor.textContent = config.linkedinAuthorName;
-    if (metaAvatar && config.linkedinAuthorImg) { metaAvatar.src = config.linkedinAuthorImg; metaAvatar.classList.remove('hidden'); }
-    if (metaLikes  && config.linkedinLikes)     { metaLikes.textContent = `\ud83d\udc4d ${config.linkedinLikes}`; metaLikes.classList.remove('hidden'); }
-  }
 
   // Restore event metadata display (badge count restored after loadEvents)
   if (promoOn && config.eventTitle) {
@@ -580,9 +551,6 @@ function attachLivePreview() {
     const ev = (el.type === 'checkbox' || el.type === 'radio') ? 'change' : 'input';
     el.addEventListener(ev, () => { markDirty(); debouncedPreview(); });
   });
-  ['prev-fullName', 'prev-roleTitle', 'prev-email', 'prev-phone', 'prev-photoUrl'].forEach(id => {
-    $(id)?.addEventListener('input', debouncedPreview);
-  });
 }
 
 // ════════════════════════════════════════════════════════
@@ -597,17 +565,17 @@ async function updatePreview() {
   _previewInflight = true;
   setPreviewState('loading');
 
-  const photoVal = $('prev-photoUrl')?.value || '';
-  const dataWarn = $('preview-data-warning');
-  if (dataWarn) dataWarn.classList.toggle('hidden', !photoVal.startsWith('data:'));
-
   const config   = getFormConfig();
+  // Ghost/anonymous userData — marketing preview focuses on the marketing block only
   const userData = {
-    fullName:  $('prev-fullName')?.value  || '',
-    roleTitle: $('prev-roleTitle')?.value || '',
-    email:     $('prev-email')?.value     || '',
-    phone:     $('prev-phone')?.value     || '',
-    photoUrl:  photoVal
+    fullName:     'Medewerkers naam',
+    roleTitle:    'Functietitel',
+    email:        'medewerker@openvme.be',
+    phone:        '',
+    photoUrl:     '',
+    greetingText: 'Met vriendelijke groet,',
+    showGreeting: true,
+    company:      config.brandName || 'OpenVME'
   };
 
   try {
@@ -663,48 +631,37 @@ async function updatePreview() {
 window.updatePreview = updatePreview;
 
 // ════════════════════════════════════════════════════════
-// Employees dropdown (preview helper)
+// Push all users (marketing builder tab)
 // ════════════════════════════════════════════════════════
-let _employees = [];
-
-async function loadEmployees() {
-  const sel = $('prev-employee-select');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">Laden\u2026</option>';
+async function pushAllUsers() {
+  const btn = $('push-all-btn');
+  const resultDiv = $('push-all-result');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Bezig…'; }
+  if (resultDiv) resultDiv.classList.add('hidden');
   try {
-    const res  = await fetch('/mail-signatures/api/employees');
+    const res  = await fetch('/mail-signatures/api/push/all', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     const json = await res.json();
     if (json.success) {
-      _employees = json.data.employees || [];
-      sel.innerHTML = '<option value="">\u2014 Kies medewerker \u2014</option>' +
-        _employees.map(e =>
-          `<option value="${e.id}">${e.name}${e.jobTitle ? ' \xb7 ' + e.jobTitle : ''}</option>`
-        ).join('');
+      const { successCount = 0, failCount = 0 } = json.data || {};
+      showToast(`Push voltooid — ${successCount} geslaagd, ${failCount} mislukt`, failCount ? 'warning' : 'success');
+      if (resultDiv) {
+        resultDiv.innerHTML = `<div class="alert alert-${failCount ? 'warning' : 'success'} py-1.5 text-xs">${successCount} geslaagd, ${failCount} mislukt</div>`;
+        resultDiv.classList.remove('hidden');
+      }
     } else {
-      sel.innerHTML = '<option value="">Laden mislukt</option>';
-      showToast('Medewerkers laden mislukt: ' + json.error, 'error');
+      showToast('Push mislukt: ' + (json.error || 'onbekende fout'), 'error');
     }
-  } catch (err) {
-    sel.innerHTML = '<option value="">Laden mislukt</option>';
-    showToast('Netwerkfout: ' + err.message, 'error');
+  } catch (e) {
+    showToast('Netwerkfout: ' + e.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="send" class="w-3.5 h-3.5 mr-1"></i> Pushen naar alle gebruikers';
+      lucide.createIcons();
+    }
   }
-  lucide.createIcons();
 }
-window.loadEmployees = loadEmployees;
-
-function onEmployeeSelect(sel) {
-  const id  = parseInt(sel.value, 10);
-  if (!id) return;
-  const emp = _employees.find(e => e.id === id);
-  if (!emp) return;
-  $('prev-fullName').value  = emp.name     || '';
-  $('prev-roleTitle').value = emp.jobTitle || '';
-  $('prev-email').value     = emp.email    || '';
-  $('prev-phone').value     = emp.phone    || '';
-  $('prev-photoUrl').value  = emp.photoB64 ? `data:image/png;base64,${emp.photoB64}` : '';
-  updatePreview();
-}
-window.onEmployeeSelect = onEmployeeSelect;
+window.pushAllUsers = pushAllUsers;
 
 // ════════════════════════════════════════════════════════
 // Push — user search + selection
@@ -1360,7 +1317,5 @@ document.addEventListener('DOMContentLoaded', () => {
       const sel = $('event-select');
       if (sel && sel.value) onEventSelect(sel.value);
     });
-
-    loadEmployees();
   }
 });

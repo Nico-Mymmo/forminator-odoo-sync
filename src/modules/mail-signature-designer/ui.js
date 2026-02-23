@@ -423,7 +423,7 @@ export function mailSignatureDesignerUI(user) {
                   <summary class="flex items-center justify-between py-1.5 select-none">
                     <div class="flex items-center gap-2">
                       <i data-lucide="calendar" class="w-4 h-4 text-primary"></i>
-                      <span class="text-sm font-semibold">Event Promotie</span>
+                      <span class="text-sm font-semibold">Event</span>
                       <span class="badge badge-primary badge-xs">Prioriteit</span>
                     </div>
                     <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
@@ -527,117 +527,40 @@ export function mailSignatureDesignerUI(user) {
 
                 <div class="divider my-0"></div>
 
-                <!-- ══ SECTIE 1b: LinkedIn Post ══ -->
-                <details id="section-linkedin" class="mb-4 mt-1">
+                <!-- ══ SECTIE 2: Defaults ══ -->
+                <details id="section-defaults" class="mb-4 mt-1">
                   <summary class="flex items-center justify-between py-1.5 select-none">
                     <div class="flex items-center gap-2">
-                      <span style="display:inline-block;background:#0A66C2;color:#fff;font-weight:bold;font-size:9px;border-radius:3px;width:15px;height:15px;text-align:center;line-height:15px;">in</span>
-                      <span class="text-sm font-semibold">LinkedIn Post</span>
+                      <i data-lucide="sliders-horizontal" class="w-4 h-4 text-base-content/50"></i>
+                      <span class="text-sm font-semibold">Defaults</span>
+                      <span class="badge badge-ghost badge-xs text-base-content/50">branding &amp; disclaimer</span>
                     </div>
                     <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
                   </summary>
 
                   <div class="pt-3 space-y-3">
 
-                    <!-- Toggle -->
-                    <label class="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" name="linkedinPromoEnabled" id="linkedin-promo-toggle"
-                             class="toggle toggle-sm"
-                             style="--tglbg:#0A66C2"
-                             onchange="onLinkedinPromoToggle(this.checked)" />
-                      <span class="text-sm font-medium">Promoot LinkedIn-post in handtekening</span>
-                    </label>
-
-                    <!-- LinkedIn fields (visible when toggle on) -->
-                    <div id="linkedin-promo-fields" class="cond-field space-y-3">
-
-                      <label class="form-control">
-                        <div class="label py-0.5">
-                          <span class="label-text text-xs">Titel</span>
-                          <span class="label-text-alt text-base-content/40 text-xs">koptekst boven de kaart</span>
-                        </div>
-                        <input type="text" name="linkedinEyebrow" id="linkedin-eyebrow-input"
-                               value="Mijn laatste LinkedIn&#x2011;post"
-                               placeholder="Mijn laatste LinkedIn&#x2011;post"
-                               class="input input-bordered input-xs" />
-                      </label>
-                        <div class="label py-0.5"><span class="label-text text-xs">LinkedIn post URL</span></div>
-                        <div class="flex gap-1.5">
-                          <input type="url" name="linkedinUrl" id="linkedin-url-input"
-                                 placeholder="https://linkedin.com/posts/&#8230;"
-                                 class="input input-bordered input-xs flex-1" />
-                          <button type="button" id="linkedin-fetch-btn"
-                                  onclick="fetchLinkedinMeta()"
-                                  class="btn btn-xs btn-outline" title="Post automatisch ophalen">
-                            <i data-lucide="sparkles" class="w-3 h-3"></i>
-                          </button>
-                        </div>
-                        <div id="linkedin-fetch-status" class="text-xs mt-1 hidden"></div>
-                      </label>
-
-                      <!-- Scraped post metadata badge -->
-                      <div id="linkedin-meta" class="hidden rounded-lg bg-base-200 px-3 py-2.5">
-                        <div class="flex items-center gap-2">
-                          <img id="linkedin-meta-avatar" class="w-6 h-6 rounded-full hidden" src="" alt="" />
-                          <span id="linkedin-meta-author" class="text-sm font-semibold leading-snug flex-1"></span>
-                          <span id="linkedin-meta-likes" class="badge badge-outline badge-sm shrink-0 hidden"></span>
-                        </div>
-                      </div>
-
-                      <label class="form-control">
-                        <div class="label py-0.5">
-                          <span class="label-text text-xs">Oproeptekst</span>
-                          <span class="label-text-alt text-base-content/40 text-xs">zet aan tot liken &amp; reageren</span>
-                        </div>
-                        <textarea name="linkedinText" id="linkedin-text-input" rows="3"
-                                  placeholder="Ik plaatste zojuist een artikel over &#8230; Jouw like of reactie maakt een groot verschil!"
-                                  class="textarea textarea-bordered textarea-xs leading-snug"></textarea>
-                      </label>
-
-                      <!-- Hidden scraped metadata (persisted in config) -->
-                      <input type="hidden" name="linkedinAuthorName" id="linkedin-hidden-author-name" />
-                      <input type="hidden" name="linkedinAuthorImg"  id="linkedin-hidden-author-img" />
-                      <input type="hidden" name="linkedinLikes"      id="linkedin-hidden-likes" />
-
-                    </div>
-                  </div>
-                </details>
-
-                <div class="divider my-0"></div>
-
-                <!-- ══ SECTIE 2: Branding ══ -->
-                <details id="section-branding" class="mb-4 mt-1">
-                  <summary class="flex items-center justify-between py-1.5 select-none">
-                    <div class="flex items-center gap-2">
-                      <i data-lucide="palette" class="w-4 h-4 text-base-content/50"></i>
-                      <span class="text-sm font-semibold">Branding</span>
-                    </div>
-                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
-                  </summary>
-
-                  <div class="pt-3 space-y-2">
-
                     <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-sm">Merknaam</span></div>
+                      <div class="label py-0.5"><span class="label-text text-xs">Merknaam</span></div>
                       <input type="text" name="brandName" placeholder="OpenVME"
-                             class="input input-bordered input-sm" />
+                             class="input input-bordered input-xs" />
                     </label>
 
                     <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-sm">Website URL</span></div>
+                      <div class="label py-0.5"><span class="label-text text-xs">Website URL</span></div>
                       <input type="url" name="websiteUrl" placeholder="https://openvme.be"
-                             class="input input-bordered input-sm" />
+                             class="input input-bordered input-xs" />
                     </label>
 
                     <div class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-sm">Primaire kleur</span></div>
+                      <div class="label py-0.5"><span class="label-text text-xs">Primaire kleur</span></div>
                       <div class="flex items-center gap-2">
                         <input type="color" name="brandColor" value="#2563eb"
                                id="brand-color-picker"
                                class="w-9 h-8 rounded border border-base-300 cursor-pointer p-0.5" />
                         <input type="text" id="brand-color-text" value="#2563eb"
                                placeholder="#2563eb"
-                               class="input input-bordered input-sm w-28"
+                               class="input input-bordered input-xs w-28"
                                pattern="^#[0-9a-fA-F]{6}$" />
                       </div>
                     </div>
@@ -647,7 +570,7 @@ export function mailSignatureDesignerUI(user) {
                              onchange="toggleCond('disclaimer-fields', this.checked)" />
                       <div>
                         <span class="text-sm font-medium">Disclaimer</span>
-                        <p class="text-xs text-base-content/40 leading-tight">Kleine vertrouwelijkheidstekst onderaan.</p>
+                        <p class="text-xs text-base-content/40 leading-tight">Kleine vertrouwelijkheidstekst onderaan. Gebruikers kunnen dit overschrijven met een persoonlijke tekst.</p>
                       </div>
                     </label>
                     <div id="disclaimer-fields" class="cond-field pl-7">
@@ -664,24 +587,31 @@ export function mailSignatureDesignerUI(user) {
 
                 <div class="divider my-0"></div>
 
-                <!-- Save -->
-                <div class="flex gap-2 pt-3">
-                  <button type="button" onclick="saveConfig()" class="btn btn-primary btn-sm">
+                <!-- Save + Push All -->
+                <div class="flex gap-2 pt-3 flex-wrap">
+                  <button type="button" onclick="saveConfig()" class="btn btn-outline btn-sm">
                     <i data-lucide="save" class="w-3.5 h-3.5 mr-1"></i> Opslaan
                   </button>
+                  <button type="button" onclick="pushAllUsers()" id="push-all-btn" class="btn btn-primary btn-sm">
+                    <i data-lucide="send" class="w-3.5 h-3.5 mr-1"></i> Pushen naar alle gebruikers
+                  </button>
                 </div>
+                <div id="push-all-result" class="hidden mt-2"></div>
 
               </form>
             </div>
           </div>
 
-          <!-- Right: Preview -->
+          <!-- Right: Preview (anonymous – shows marketing blocks only) -->
           <div class="card bg-base-100 shadow">
             <div class="card-body py-4 px-5 gap-3">
 
-              <!-- Preview header + controls -->
+              <!-- Preview header -->
               <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-base">Live preview</h2>
+                <div>
+                  <h2 class="font-semibold text-base">Live preview</h2>
+                  <p class="text-xs text-base-content/40 mt-0.5">Gebruikersgegevens worden anoniem weergegeven — focus ligt op het marketing-blok.</p>
+                </div>
                 <div class="join">
                   <button id="vp-desktop" class="join-item btn btn-xs btn-active" onclick="setViewport('desktop')" title="Desktop">
                     <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
@@ -692,63 +622,10 @@ export function mailSignatureDesignerUI(user) {
                 </div>
               </div>
 
-              <!-- Employee dropdown -->
-              <div class="flex gap-2 items-end">
-                <div class="form-control flex-1">
-                  <div class="label py-0.5"><span class="label-text text-xs font-medium">Medewerker uit Odoo</span></div>
-                  <select id="prev-employee-select" class="select select-bordered select-xs"
-                          onchange="onEmployeeSelect(this)">
-                    <option value="">&#8212; Laad medewerkers&#8230; &#8212;</option>
-                  </select>
-                </div>
-                <button onclick="loadEmployees()" class="btn btn-ghost btn-xs mb-0.5" title="Vernieuwen">
-                  <i data-lucide="refresh-cw" class="w-3 h-3"></i>
-                </button>
-              </div>
-
-              <div class="text-xs text-base-content/40 text-center -my-1">of vul handmatig in</div>
-
-              <!-- Sample user fields -->
-              <div class="grid grid-cols-2 gap-x-3 gap-y-1">
-                <label class="form-control col-span-2">
-                  <div class="label py-0.5"><span class="label-text text-xs">Naam</span></div>
-                  <input type="text" id="prev-fullName" value="Jan De Vries"
-                         class="input input-bordered input-xs" />
-                </label>
-                <label class="form-control">
-                  <div class="label py-0.5"><span class="label-text text-xs">Rol</span></div>
-                  <input type="text" id="prev-roleTitle" value="Syndicus"
-                         class="input input-bordered input-xs" />
-                </label>
-                <label class="form-control">
-                  <div class="label py-0.5"><span class="label-text text-xs">E-mail</span></div>
-                  <input type="email" id="prev-email" value="jan@mymmo.com"
-                         class="input input-bordered input-xs" />
-                </label>
-                <label class="form-control">
-                  <div class="label py-0.5"><span class="label-text text-xs">Telefoon</span></div>
-                  <input type="text" id="prev-phone" value=""
-                         class="input input-bordered input-xs" />
-                </label>
-                <label class="form-control">
-                  <div class="label py-0.5"><span class="label-text text-xs">Foto URL</span></div>
-                  <input type="url" id="prev-photoUrl" value="" placeholder="https://&#8230;"
-                         class="input input-bordered input-xs" />
-                </label>
-              </div>
-
               <!-- Preview status bar -->
               <div id="preview-status-bar" class="flex items-center gap-2 text-xs text-base-content/40 hidden">
                 <span id="preview-status-dot" class="w-2 h-2 rounded-full bg-base-300 flex-shrink-0"></span>
                 <span id="preview-status-text"></span>
-              </div>
-
-              <!-- data: URL warning -->
-              <div id="preview-data-warning" class="hidden">
-                <div class="alert alert-warning py-1.5 text-xs gap-1.5">
-                  <i data-lucide="alert-triangle" class="w-3.5 h-3.5 flex-shrink-0"></i>
-                  <span>Foto bevat een data: URL &#8212; werkt enkel in preview, niet bij push naar Gmail.</span>
-                </div>
               </div>
 
               <!-- API warnings -->
