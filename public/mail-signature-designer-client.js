@@ -1584,3 +1584,102 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// ════════════════════════════════════════════════════════
+// Admin: Excluded emails (Administratie tab)
+// ════════════════════════════════════════════════════════
+
+let _excludedEmails = []; // current working set
+
+async function loadExcludedEmails() {
+  const loading = document.getElementById('excluded-loading');
+  if (loading) loading.classList.remove('hidden');
+  try {
+    const res  = await fetch('/mail-signatures/api/admin/excluded-emails', { credentials: 'include' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Laden mislukt');
+    _excludedEmails = json.data?.emails || [];
+    renderExcludedChips();
+  } catch (e) {
+    showExcludedStatus('Fout bij laden: ' + e.message, 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+function renderExcludedChips() {
+  const container = document.getElementById('excluded-chips');
+  if (!container) return;
+  if (_excludedEmails.length === 0) {
+    container.innerHTML = '<span class="text-sm text-base-content/40 italic">Geen uitgesloten adressen</span>';
+    return;
+  }
+  container.innerHTML = _excludedEmails.map(email =>
+    `<div class="badge badge-outline gap-1 py-3">
+      <span class="text-sm">${email}</span>
+      <button class="btn btn-ghost btn-xs p-0 min-h-0 h-auto ml-1" onclick="removeExcludedEmail('${email}')" title="Verwijderen">
+        <i data-lucide="x" class="w-3 h-3"></i>
+      </button>
+    </div>`
+  ).join('');
+  lucide.createIcons();
+}
+
+async function addExcludedEmail() {
+  const input = document.getElementById('excluded-new-input');
+  if (!input) return;
+  const val = input.value.trim().toLowerCase();
+  if (!val) return;
+  if (_excludedEmails.includes(val)) {
+    showExcludedStatus(`${val} staat al in de lijst`, 'warning');
+    return;
+  }
+  _excludedEmails = [..._excludedEmails, val].sort();
+  input.value = '';
+  renderExcludedChips();
+  await persistExcludedEmails();
+}
+window.addExcludedEmail = addExcludedEmail;
+
+async function removeExcludedEmail(email) {
+  _excludedEmails = _excludedEmails.filter(e => e !== email);
+  renderExcludedChips();
+  await persistExcludedEmails();
+}
+window.removeExcludedEmail = removeExcludedEmail;
+
+async function persistExcludedEmails() {
+  try {
+    const res  = await fetch('/mail-signatures/api/admin/excluded-emails', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: _excludedEmails })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+    _excludedEmails = json.data?.emails || _excludedEmails;
+    renderExcludedChips();
+    showExcludedStatus('Opgeslagen', 'success');
+  } catch (e) {
+    showExcludedStatus('Fout bij opslaan: ' + e.message, 'error');
+  }
+}
+
+function showExcludedStatus(msg, type) {
+  const el = document.getElementById('excluded-status');
+  if (!el) return;
+  el.className = `text-xs mt-2 text-${type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'success'}`;
+  el.classList.remove('hidden');
+  el.textContent = msg;
+  setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+// Load excluded emails when the Administratie tab is opened
+const _origSwitchTab = window.switchTab;
+window.switchTab = function(tabId, btn) {
+  if (_origSwitchTab) _origSwitchTab(tabId, btn);
+  if (tabId === 'admin' && _excludedEmails.length === 0) {
+    loadExcludedEmails();
+  }
+};
