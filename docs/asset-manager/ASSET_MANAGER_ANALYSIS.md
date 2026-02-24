@@ -1,6 +1,6 @@
 # Asset Manager — Analyse
 
-> **Status:** Fase 0 — Analyse & Architectuur (Iteratie 2)  
+> **Status:** Fase 0 — Analyse & Architectuur (Iteratie 3)  
 > **Branch:** `assets-manager`  
 > **Datum:** 2026-02-24  
 > **Auteur:** GitHub Copilot (ontwerp), Nico Plinke (opdrachtgever)
@@ -549,6 +549,31 @@ R2 bucket public-access is uitgeschakeld. Alle requests gaan via de Worker, die:
 3. Cache headers bepaalt
 4. Optioneel signed URLs genereert (future)
 
+### 7.7 Upload beperkingen — streaming buiten scope
+
+**`request.formData()` laadt de volledige request body in Worker-geheugen.** Dit is een fundamentele beperking van de multipart upload-aanpak in Cloudflare Workers.
+
+| Aspect | Situatie |
+|--------|----------|
+| Upload-methode | `request.formData()` — volledig in memory geladen |
+| Streaming uploads | **Niet ondersteund in MVP** |
+| Direct-to-R2 presigned upload | **Niet ondersteund in MVP** |
+| Max upload-grootte | 10 MB (`MAX_UPLOAD_BYTES`) — directe gevolg van deze beperking |
+
+**Waarom 10 MB als hard maximum:**
+- `formData()` buffert het volledige bestand in het Worker-geheugen vóór verwerking
+- Cloudflare Workers hebben een geheugenbeperking — grote payloads veroorzaken crashes of timeouts
+- De 10 MB limiet is de veilige werkgrens voor de huidige aanpak
+
+**Wat dit praktisch uitsluit voor MVP:**
+- Video-uploads (doorgaans > 10 MB)
+- Grote PDF-documenten of archieven
+- Bulk-uploads van meerdere grote bestanden tegelijk
+
+**Future extensibility:** Streaming of presigned direct-to-R2 uploads kunnen later worden toegevoegd als de 10 MB limiet knelt. Dit vereist een aparte flow: de Worker genereert een tijdelijk presigned token, de browser POST direct naar R2 zonder via de Worker te gaan. Zie sectie 10.2 (Signed URLs) voor de architecturele haak die hiervoor klaarstaat.
+
+**Implementatienoot:** Controleer `Content-Length` header vóór `formData()` aanroepen. Als de waarde `MAX_UPLOAD_BYTES` overschrijdt: retourneer onmiddellijk HTTP 413 zonder de body te verwerken.
+
 ---
 
 ## 8. MVP scope
@@ -576,6 +601,68 @@ R2 bucket public-access is uitgeschakeld. Alle requests gaan via de Worker, die:
 - Asset-tagging systeem
 - Koppeling met WordPress media library
 - Signed/expiring URLs (tenzij alsnog in scope voor security)
+- Streaming uploads / presigned direct-to-R2 (zie sectie 7.7)
+
+---
+
+## 8.5 Performance Overwegingen
+
+> **Geen implementatie in Fase 0** — dit zijn ontwerpbeslissingen die de architectuur sturen.
+
+### 8.5.1 R2 `list()` limiet
+
+R2 `list()` retourneert maximaal **1000 objecten per aanroep**. Dit is een hard platform-maximum, geen configureerbare instelling.
+
+**Gevolg voor ontwerp:**
+- De API-response bevat altijd een `truncated` vlag en een `cursor` voor vervolgpagina's
+- De client mag **nooit** aannemen dat de eerste response de volledige bucket-inhoud bevat
+- Cursor-based paginering is een architecturele vereiste, geen optimalisatie
+
+### 8.5.2 Waarom default limit 50 is
+
+De default paginagrootte is ingesteld op **50 objecten** (ver onder het maximum van 1000):
+
+| Reden | Toelichting |
+|-------|-------------|
+| Snelle eerste render | 50 rijen laden sneller dan 1000 |
+| Minder DOM-werk | Browser rendert 50 `<tr>` elementen, niet 1000 |
+| Kleinere response body | Minder JSON serialisatie overhead |
+| Vooruitloopt op groei | Bucket groeit over tijd; 50 blijft responsief |
+
+De client kan via de `limit` parameter hogere waarden aanvragen (max 1000).
+
+### 8.5.3 Cursor-based paginering is verplicht
+
+R2 list gebruikt **cursor-based paginering** — geen offset/page-number aanpak.
+
+- `truncated: true` → er zijn meer objecten na de huidige pagina
+- `cursor: "<opaque string>"` → door te geven als `cursor` param in de volgende aanroep
+- Cursors zijn opaque: de client mag ze niet interpreteren of manipuleren
+- Een cursor is alleen geldig voor dezelfde `prefix` en `limit` combinatie
+
+**Implicatie voor client JS:** `loadList(prefix, cursor)` moet de cursor doorgeven bij elke "Volgende pagina" actie.
+
+### 8.5.4 Client-side zoeken werkt alleen op de geladen pagina
+
+De UI biedt een zoekveld voor bestandsnamen. **Belangrijk:** dit zoekfilter werkt uitsluitend op de objecten die momenteel in de browser geladen zijn (één pagina).
+
+- Er is **geen server-side full-text zoeken** op R2 keys in MVP
+- R2 list() ondersteunt alleen prefix-filtering, geen substring-matching
+- Als er 500 bestanden zijn maar de pagina toont er 50, zoekt de UI alleen in die 50
+
+**Communiceer dit in de UI:** Een label "Zoeken in huidige pagina (50 van X)" voorkomt verwarring.
+
+### 8.5.5 Metadata-index via Supabase als toekomstige oplossing
+
+Voor full-text zoeken, filtering op `uploadedBy`, of sortering op velden die R2 niet ondersteunt, is een **externe metadata-index** vereist.
+
+**Toekomstige aanpak (niet in MVP):**
+- Supabase tabel `asset_metadata`: `key`, `original_name`, `size`, `content_type`, `module`, `uploaded_by`, `uploaded_at`
+- Bij elke upload schrijft de Worker ook een rij in `asset_metadata`
+- Zoek-endpoints bevragen Supabase, halen bestanden op via R2
+- `r2-client.js` blijft puur R2 — `asset-store.js` (zie sectie 10.3) is de metadata-laag
+
+**Architecturele beslissing voor MVP:** De `lib/`-structuur anti-paleert al op `asset-store.js` als optioneel bestand. De R2-client en routes hoeven niet aangepast te worden wanneer de Supabase-laag later wordt toegevoegd.
 
 ---
 
@@ -718,6 +805,13 @@ Andere modules (mail-signature-designer, event-operations) kunnen assets opvrage
 ---
 
 ## Changelog
+
+### Iteratie 3 — 2026-02-24
+
+- **Sectie 7.7:** Nieuwe sectie toegevoegd — Upload beperkingen: `formData()` laadt in memory, streaming buiten MVP, 10 MB limiet als directe gevolg, future extensibility via presigned URLs, implementatienoot voor Content-Length pre-check
+- **Sectie 8.5:** Nieuwe sectie toegevoegd — Performance Overwegingen: R2 list() max 1000 objecten, default limit 50 met onderbouwing, cursor-based paginering als verplichte architectuurkeuze, client-side zoeken beperkt tot geladen pagina, Supabase metadata-index als toekomstige oplossing
+- **Sectie 8 Bewust buiten MVP:** Streaming uploads / presigned uploads toegevoegd aan de lijst (verwijzing naar 7.7)
+- **Consistentiecheck:** Alle verwijzingen naar R2 binding gebruiken `R2_ASSETS` — geen `ASSETS` als R2 binding gevonden; geen hardcoded domeinen gevonden
 
 ### Iteratie 2 — 2026-02-24
 

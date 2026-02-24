@@ -1,6 +1,6 @@
 # Asset Manager — Implementatieplan
 
-> **Status:** Fase 0 — Planning (Iteratie 2)  
+> **Status:** Fase 0 — Planning (Iteratie 3)  
 > **Branch:** `assets-manager`  
 > **Datum:** 2026-02-24  
 > **Vorige stap:** [ASSET_MANAGER_ARCHITECTURE.md](./ASSET_MANAGER_ARCHITECTURE.md)
@@ -198,6 +198,13 @@ Nieuwe volgorde:
 
 Aanpassing in `src/index.js` (exact blok):
 - Controleer `pathname.startsWith('/assets/')` en `method === 'GET'`
+
+  > **Precisieplicht — trailing slash is verplicht:**  
+  > Gebruik `pathname.startsWith('/assets/')` — **niet** `pathname.startsWith('/assets')`.  
+  > `/assets` (zonder slash) is de module-UI — die moet de module-router bereiken met authenticatie.  
+  > `/assets/*` (met slash) zijn publieke bestanden — die worden hier onderschept zonder auth.  
+  > Een verkeerde check blokkeert de module-UI en stuurt een R2-response terug in plaats van de interface.
+
 - Extraheer key: `pathname.slice('/assets/'.length)`
 - Valideer key via `validateKey(key)` uit path-utils
 - Haal op via `env.R2_ASSETS.get(key)`
@@ -260,14 +267,22 @@ In `routes.js`:
 
 In `routes.js`:
 - Parse multipart/form-data via `request.formData()`
+
+  > **Memory-limiet:** `formData()` laadt de volledige request body in Worker-geheugen. Controleer de `Content-Length` header vóór `formData()` aanroepen. Als `Content-Length > MAX_UPLOAD_BYTES`: return onmiddellijk HTTP 413 zonder de body te lezen. Streaming uploads zijn buiten scope voor MVP (zie Analysis sectie 7.7).
+
 - Extraheer `file`, `prefix`, `filename`
 - Valideer MIME-type via `mime-types.isAllowedMimeType`
-- Valideer bestandsgrootte (max configureerbaar, default 10 MB)
+- Valideer bestandsgrootte (max `MAX_UPLOAD_BYTES`, default 10 MB)
 - Bouw key: `${prefix}${sanitizedFilename}`
 - Valideer key via `validateKey`
 - Role check: `hasUploadAccess(context, prefix)`
 - Roep `r2-client.putObject` aan
-- Bouw publieke URL: `https://openvme.be/assets/${key}` (of eigen domein)
+- Bouw publieke URL **dynamisch** — nooit hardcoden:
+  ```js
+  const origin = new URL(request.url).origin;
+  const url = `${origin}/assets/${key}`;
+  ```
+  Dit garandeert correcte werking op `workers.dev`, custom domein en preview environments.
 - Return `jsonOk({ key, url, size, contentType })`
 
 **4.3 — DELETE /api/assets/delete implementeren**
@@ -412,6 +427,12 @@ Zaken die **niet** in de asset_manager horen:
 ---
 
 ## Changelog
+
+### Iteratie 3 — 2026-02-24
+
+- **Fase 2, stap 2.1:** Precisie-noot toegevoegd — `pathname.startsWith('/assets/')` met trailing slash is verplicht; toelichting waarom de verkeerde check de module-UI blokkeert
+- **Fase 3, stap 4.2:** Hardcoded URL `https://openvme.be/assets/${key}` vervangen door dynamische `new URL(request.url).origin` aanpak met codevoorbeeld; `formData()` memory-beperking gedocumenteerd met implementatienoot voor Content-Length pre-check
+- **Consistentiecheck:** Alle binding-referenties bevestigd als `R2_ASSETS`; hardcoded domein opgespoord en verwijderd; geen contradicties met Analysis en Architecture gevonden
 
 ### Iteratie 2 — 2026-02-24
 

@@ -1,6 +1,6 @@
 # Asset Manager — Architectuur
 
-> **Status:** Fase 0 — Architectuurontwerp (Iteratie 2)  
+> **Status:** Fase 0 — Architectuurontwerp (Iteratie 3)  
 > **Branch:** `assets-manager`  
 > **Datum:** 2026-02-24  
 > **Vorige stap:** [ASSET_MANAGER_ANALYSIS.md](./ASSET_MANAGER_ANALYSIS.md)
@@ -162,12 +162,21 @@ Response:
     success: true,
     data: {
       key: string,          // definitief R2 object-pad
-      url: string,          // publieke URL (als public/ prefix)
+      url: string,          // publieke URL — ALTIJD dynamisch opgebouwd
       size: number,
       contentType: string
     }
   }
 ```
+
+> **Dynamische URL-opbouw — nooit hardcoden:**  
+> De `url` in de upload-response wordt altijd opgebouwd via `new URL(request.url).origin`:  
+> ```js  
+> const origin = new URL(request.url).origin;  
+> const url = `${origin}/assets/${key}`;  
+> ```  
+> Dit garandeert dat de module werkt op `workers.dev`, op een custom domein en in preview environments,  
+> zonder enige code-aanpassing. Nooit een domein hardcoden zoals `https://openvme.be/...`.
 
 **DELETE /api/assets/delete**
 ```
@@ -223,6 +232,18 @@ if (pathname.startsWith('/assets/') && request.method === 'GET') {
   // return Response met headers
 }
 ```
+
+> **Kritisch detail — exacte check verplicht:**  
+> De check **moet** `pathname.startsWith('/assets/')` zijn — met een trailing slash — niet `pathname.startsWith('/assets')`.  
+>
+> | Check | Matcht | Gedrag |
+> |-------|--------|--------|
+> | `startsWith('/assets/')` | `/assets/logo.svg`, `/assets/uploads/banner.jpg` | Correct: alleen file-serving |
+> | `startsWith('/assets')` | `/assets`, `/assets/`, `/assets/logo.svg` | **Fout:** matcht ook de module-UI |
+>
+> `/assets` (zonder slash) is de module-UI route — die moet de module-router bereiken met authenticatie.  
+> `/assets/*` (met slash) zijn publieke bestanden — die worden zonder auth geserveerd.  
+> Een verkeerde match **blokkeert de module-UI** en stuurt de gebruiker een R2-bestandsresponse in plaats van de interface.
 
 Kritische headers voor publieke assets:
 
@@ -473,6 +494,12 @@ De asset_manager is een **dienende module** — andere modules kunnen ze als ops
 ---
 
 ## Changelog
+
+### Iteratie 3 — 2026-02-24
+
+- **Sectie 4.3 upload response:** `url` veld bijgewerkt — expliciete notitie toegevoegd dat de URL altijd dynamisch via `new URL(request.url).origin` opgebouwd wordt; nooit een domein hardcoden
+- **Sectie 5 index.js uitbreiding:** Precisie-waarschuwingstabel toegevoegd — `startsWith('/assets/')` vs `startsWith('/assets')` onderscheid, tabel met twee matches en gevolgen, verklaring waarom de verkeerde check de module-UI blokkeert
+- **Consistentiecheck:** Alle verwijzingen naar R2 binding bevestigd als `R2_ASSETS`; geen hardcoded domeinen in voorbeeldcode; geen contradicties met ANALYSIS.md gevonden
 
 ### Iteratie 2 — 2026-02-24
 
