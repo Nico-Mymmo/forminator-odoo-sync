@@ -315,27 +315,18 @@ In `wrangler.jsonc`, naast de bestaande `kv_namespaces`:
 
 **Na toevoegen:** de Dashboard-binding kan worden verwijderd. Bij volgende deploy staat alles in sync.
 
-### 5.4 Dev vs production configuratie
+### 5.4 Development workflow
 
-Voor lokale ontwikkeling met `wrangler dev`:
+Dit project gebruikt **geen lokale runtime**. Er is geen `wrangler dev`, geen `preview_bucket_name`, geen in-memory R2 simulatie.
 
-```jsonc
-// In wrangler.jsonc:
-"r2_buckets": [
-  {
-    "binding": "R2_ASSETS",
-    "bucket_name": "<bucket-naam>",
-    "preview_bucket_name": "<bucket-naam>-dev"  // aparte dev bucket (aanbevolen)
-  }
-]
-```
+**Workflow:**
 
-Alternatief — lokale R2 zonder aparte bucket:
-```bash
-wrangler dev --local  # gebruikt in-memory R2 simulatie — geen echte bucket nodig
-```
+1. Code wijzigen
+2. `git commit`
+3. `npm run deploy` (`wrangler deploy`)
+4. Testen via https://forminator-sync.openvme-odoo.workers.dev
 
-**Aanbeveling voor dit project:** gebruik `wrangler dev --local` voor development. Geen aparte dev-bucket vereist tenzij persistentie tussen sessies nodig is.
+**Rationale:** Dit is een interne tool. De overhead van een lokale dev-runtime (env-variabelen, bindings mocken, R2 sync) weegt niet op tegen de eenvoud van direct naar productie deployen. R2 interacties raken altijd `openvme-assets` — de echte bucket.
 
 ### 5.5 Migratiestrategie als bucket al data bevat
 
@@ -780,7 +771,7 @@ Andere modules (mail-signature-designer, event-operations) kunnen assets opvrage
 - ❌ Dashboard-state als bron van waarheid gebruiken
 - ❌ Binding `ASSETS` gebruiken voor R2 (gebruik `R2_ASSETS` — `ASSETS` is al in gebruik voor static files)
 - ❌ Publieke R2 bucket-access inschakelen (altijd via Worker)
-- ❌ `wrangler dev` overslaan voor testen (altijd testen met lokale binding)
+- ❌ `wrangler dev` gebruiken (geen lokale runtime — altijd deployen en testen via workers.dev URL)
 - ❌ Routes inline in `module.js` definiëren (gebruik `routes.js` — project-generator patroon NIET volgen)
 - ❌ Backticks in `<script>` blokken van `ui.js`
 - ❌ Template literals voor HTML in `asset-manager-client.js` (gebruik DOM-API)

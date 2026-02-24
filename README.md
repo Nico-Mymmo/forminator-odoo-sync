@@ -142,13 +142,22 @@ npx wrangler tail
 
 ## Development
 
+> Deze app heeft geen lokale runtime. Altijd testen via productie-deploy.
+
 ```bash
-# Local development
-npm run dev
+# Deploy naar Cloudflare Workers
+npm run deploy
+
+# Live logs bekijken
+npm run logs
 
 # Run tests
 npm test
 ```
+
+**Test URL:** https://forminator-sync.openvme-odoo.workers.dev
+
+Geen `wrangler dev`, geen lokale R2 mock, geen 127.0.0.1.
 
 ## Project Structure
 

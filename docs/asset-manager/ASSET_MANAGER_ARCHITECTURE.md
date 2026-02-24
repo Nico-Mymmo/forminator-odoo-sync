@@ -491,6 +491,36 @@ De asset_manager is een **dienende module** — andere modules kunnen ze als ops
 
 ---
 
+## Runtime Model
+
+De `asset_manager` module — en de volledige app — draait **uitsluitend op echte Cloudflare Workers**.
+
+| Aspect | Situatie |
+|--------|----------|
+| Runtime | Cloudflare Workers (productie) |
+| R2 | Productie-bucket `openvme-assets` |
+| Lokale emulatie | ❌ Geen |
+| Preview-runtime | ❌ Geen |
+| `wrangler dev` | ❌ Niet gebruikt |
+| Lokale R2 mock | ❌ Niet gebruikt |
+| Docker shadow DB | ❌ Niet nodig |
+
+**Development workflow:**
+
+```bash
+# 1. Wijzigingen maken
+# 2. Committen
+git add -A && git commit -m "feat: ..."
+
+# 3. Deployen
+npm run deploy
+
+# 4. Testen
+# https://forminator-sync.openvme-odoo.workers.dev/assets
+```
+
+**Rationale:** Dit is een interne tool. Alle R2-interacties gaan altijd tegen de echte `openvme-assets` bucket. Er is geen omgevingsscheiding nodig. `wrangler deploy` duurt ~5 seconden — de overhead is verwaarloosbaar ten opzichte van de complexiteit van een lokale dev-runtime.
+
 ---
 
 ## Changelog
