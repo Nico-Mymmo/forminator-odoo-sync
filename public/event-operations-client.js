@@ -264,14 +264,15 @@ function renderDetailPanelContent(webinar, snapshot, state, regCount) {
       </div>
 
       <!-- ── Webinar Recap ── -->
-      <div class="pt-4 border-t border-base-200 space-y-3">
-        <div class="flex items-center justify-between">
-          <h3 class="font-semibold text-sm flex items-center gap-2">
+      <details class="pt-4 border-t border-base-200">
+        <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
+          <span class="flex items-center gap-2">
             <i data-lucide="video" class="w-4 h-4 text-primary"></i>
             Webinar Recap
-          </h3>
+          </span>
           <span id="recap-loading-indicator" class="loading loading-spinner loading-xs hidden"></span>
-        </div>
+        </summary>
+        <div class="space-y-3">
 
         <!-- Video URL -->
         <div>
@@ -292,6 +293,14 @@ function renderDetailPanelContent(webinar, snapshot, state, regCount) {
               title="URL verwerken en thumbnail ophalen"
             >
               <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            </button>
+            <button
+              data-action="clear-video-url"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-xs btn-ghost btn-square shrink-0"
+              title="URL en thumbnail wissen"
+            >
+              <i data-lucide="x" class="w-3 h-3"></i>
             </button>
           </div>
           <div id="recap-url-alert" class="hidden mt-1 text-xs"></div>
@@ -354,7 +363,8 @@ function renderDetailPanelContent(webinar, snapshot, state, regCount) {
           <i data-lucide="send" class="w-4 h-4"></i>
           Verstuur Recap
         </button>
-      </div>
+        </div>
+      </details>
     </div>
   `;
 }
@@ -432,46 +442,10 @@ function initDetailPanelDelegation() {
       } else {
         console.error('[DetailPanel] publishWebinar not found');
       }
-    }
-  });
-
-  if (detailPanelDelegationInitialized) return;
-  
-  const panelContent = document.getElementById('panel-content');
-  if (!panelContent) {
-    console.error('[initDetailPanelDelegation] Panel content not found');
-    return;
-  }
-
-  // Single delegated listener for all panel actions
-  panelContent.addEventListener('click', async (e) => {
-    const actionBtn = e.target.closest('[data-action]');
-    if (!actionBtn || actionBtn.disabled) return;
-
-    const action = actionBtn.dataset.action;
-    const webinarId = Number(actionBtn.dataset.webinarId);
-    
-    if (!webinarId) {
-      console.error('[DetailPanel] Invalid webinar ID');
-      return;
-    }
-
-    // Route action
-    if (action === 'edit') {
-      if (typeof openEditorialEditor === 'function') {
-        openEditorialEditor(webinarId);
-      } else {
-        console.error('[DetailPanel] openEditorialEditor not found');
-      }
-    } else if (action === 'publish') {
-      const status = actionBtn.dataset.status || 'publish';
-      if (typeof publishWebinar === 'function') {
-        await publishWebinar(webinarId, null, status);
-      } else {
-        console.error('[DetailPanel] publishWebinar not found');
-      }
     } else if (action === 'set-video-url') {
       await recapHandleSetVideoUrl(webinarId);
+    } else if (action === 'clear-video-url') {
+      await recapHandleClearVideoUrl(webinarId);
     } else if (action === 'trigger-thumb-upload') {
       const fi = document.getElementById('recap-thumb-file');
       if (fi) fi.click();
@@ -529,7 +503,8 @@ async function initRecapSection(webinarId, webinarHint) {
         placeholder: 'Schrijf hier de recap HTML...',
         modules: {
           toolbar: [
-            ['bold', 'italic', 'underline'],
+            [{ 'header': [2, 3, 4, false] }],
+            ['bold', 'italic', 'underline', 'strike'],
             [{ 'list': 'ordered' }, { 'list': 'bullet' }],
             ['link'],
             ['clean']
@@ -579,10 +554,23 @@ function setRecapThumbnailPreview(url) {
   const container = document.getElementById('recap-thumb-container');
   if (!container) return;
   if (url) {
+    // Proxy through current origin so dev-mode loads from localhost
+    // instead of the production worker URL stored in Odoo
+    let displayUrl = url;
+    try {
+      const parsed = new URL(url);
+      if (parsed.pathname.startsWith('/assets/')) {
+        displayUrl = window.location.origin + parsed.pathname;
+      }
+    } catch (e) { /* keep original url */ }
     const img = document.createElement('img');
-    img.src = url;
+    img.src = displayUrl;
     img.alt = 'Thumbnail';
     img.className = 'w-full h-full object-cover';
+    img.onerror = () => {
+      container.innerHTML = '<div class="flex flex-col items-center gap-1 text-xs text-base-content/40"><i data-lucide="image-off" class="w-6 h-6"></i><span>Laden mislukt</span></div>';
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    };
     container.innerHTML = '';
     container.appendChild(img);
   } else {
@@ -647,6 +635,38 @@ async function recapHandleSetVideoUrl(webinarId) {
     setRecapThumbnailPreview(json.data.thumbnail_url);
     recapShowAlert(alertEl, json.data.platform + ' thumbnail opgehaald ✓', 'success');
     // Refresh ready status
+    await recapRefreshReadyStatus(webinarId);
+
+  } catch (err) {
+    recapShowAlert(alertEl, err.message, 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+/**
+ * Clear the video URL and thumbnail for a webinar.
+ * @param {number} webinarId
+ */
+async function recapHandleClearVideoUrl(webinarId) {
+  const input = document.getElementById('recap-video-url');
+  const alertEl = document.getElementById('recap-url-alert');
+  const loading = document.getElementById('recap-loading-indicator');
+
+  if (loading) loading.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/events/api/webinar/' + webinarId + '/video-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: '' })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Wissen mislukt');
+
+    if (input) input.value = '';
+    setRecapThumbnailPreview(null);
+    recapShowAlert(alertEl, 'URL en thumbnail gewist ✓', 'success');
     await recapRefreshReadyStatus(webinarId);
 
   } catch (err) {

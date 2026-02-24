@@ -161,6 +161,10 @@ function bindEventDelegation() {
       if (webinarId && typeof window.recapHandleSetVideoUrl === 'function') {
         await window.recapHandleSetVideoUrl(webinarId);
       }
+    } else if (action === 'clear-video-url') {
+      if (webinarId && typeof window.recapHandleClearVideoUrl === 'function') {
+        await window.recapHandleClearVideoUrl(webinarId);
+      }
     } else if (action === 'trigger-thumb-upload') {
       const fi = document.getElementById('recap-thumb-file');
       if (fi) fi.click();
@@ -386,14 +390,15 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
       </dialog>
 
       <!-- ── Webinar Recap ── -->
-      <div class="pt-4 border-t border-base-200 space-y-3">
-        <div class="flex items-center justify-between">
-          <h3 class="font-semibold text-sm flex items-center gap-2">
+      <details class="pt-4 border-t border-base-200">
+        <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
+          <span class="flex items-center gap-2">
             <i data-lucide="video" class="w-4 h-4 text-primary"></i>
             Webinar Recap
-          </h3>
+          </span>
           <span id="recap-loading-indicator" class="loading loading-spinner loading-xs hidden"></span>
-        </div>
+        </summary>
+        <div class="space-y-3">
 
         <!-- Video URL -->
         <div>
@@ -414,6 +419,14 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
               title="URL verwerken en thumbnail ophalen"
             >
               <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            </button>
+            <button
+              data-action="clear-video-url"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-xs btn-ghost btn-square shrink-0"
+              title="URL en thumbnail wissen"
+            >
+              <i data-lucide="x" class="w-3 h-3"></i>
             </button>
           </div>
           <div id="recap-url-alert" class="hidden mt-1 text-xs"></div>
@@ -476,7 +489,8 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
           <i data-lucide="send" class="w-4 h-4"></i>
           Verstuur Recap
         </button>
-      </div>
+        </div>
+      </details>
     </div>
   `;
 }

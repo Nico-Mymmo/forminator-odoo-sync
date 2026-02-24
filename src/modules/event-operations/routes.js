@@ -1524,9 +1524,17 @@ export const routes = {
       }
 
       const { url } = await request.json();
-      if (!url || typeof url !== 'string') {
+      if (typeof url !== 'string') {
         return new Response(JSON.stringify({ success: false, error: 'Missing or invalid "url" field' }), {
           status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Empty URL → clear video_url and thumbnail_url in Odoo
+      if (!url.trim()) {
+        await updateWebinarRecapFields(env, webinarId, { video_url: '', thumbnail_url: '' });
+        return new Response(JSON.stringify({ success: true, data: { cleared: true } }), {
+          headers: { 'Content-Type': 'application/json' }
         });
       }
 
