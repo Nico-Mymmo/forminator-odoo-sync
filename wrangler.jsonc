@@ -25,7 +25,8 @@
 		{
 			"binding": "R2_ASSETS",
 			"bucket_name": "openvme-assets"
-			// preview_bucket_name optioneel: gebruik --local voor dev
+			// Geen preview_bucket_name — zowel wrangler dev als wrangler deploy
+			// gebruiken dezelfde echte bucket. Geen lokale R2 mock.
 		}
 	],
 	"assets": {

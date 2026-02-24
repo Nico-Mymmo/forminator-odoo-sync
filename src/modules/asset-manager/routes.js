@@ -23,7 +23,7 @@
 import { assetManagerUI } from './ui.js';
 import { validateKey, sanitizeFilename, buildUserPrefix, isWithinPrefix, normalizePrefix } from './lib/path-utils.js';
 import { isAllowedMimeType, getMimeType } from './lib/mime-types.js';
-import { listObjects, putObject, deleteObject, copyObject } from './lib/r2-client.js';
+import { listObjects, putObject, deleteObject, headObject, copyObject } from './lib/r2-client.js';
 
 const LOG_PREFIX = '[asset-manager]';
 
@@ -157,6 +157,8 @@ export const routes = {
       return jsonError(`Bestand te groot. Maximum is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, 413, 'FILE_TOO_LARGE');
     }
 
+    const overwrite = formData.get('overwrite') === 'true';
+
     if (!canWritePrefix(user, prefix)) {
       return jsonError('Geen schrijfrechten voor dit prefix.', 403, 'PREFIX_FORBIDDEN');
     }
@@ -167,6 +169,14 @@ export const routes = {
 
     if (!validateKey(key)) {
       return jsonError('Ongeldige bestandssleutel.', 400, 'KEY_INVALID');
+    }
+
+    // Overschrijfbeveiliging — standaard geblokkeerd tenzij overwrite=true
+    if (!overwrite) {
+      const existing = await headObject(env, key);
+      if (existing) {
+        return jsonError('Bestand bestaat al. Stuur overwrite=true om te overschrijven.', 409, 'KEY_EXISTS');
+      }
     }
 
     const detectedMime = file.type || getMimeType(safeFilename);
@@ -244,6 +254,7 @@ export const routes = {
     if (!key || !newKey)   return jsonError('key en newKey zijn verplicht.', 400);
     if (!validateKey(key))    return jsonError('Ongeldige source key.', 400, 'KEY_INVALID');
     if (!validateKey(newKey)) return jsonError('Ongeldige target key.', 400, 'KEY_INVALID');
+    if (key === newKey)       return jsonError('Source en target zijn identiek.', 400, 'KEY_IDENTICAL');
 
     try {
       await copyObject(env, key, newKey);
@@ -277,7 +288,8 @@ export const routes = {
     const filename = key.split('/').pop();
     const newKey   = `${normalizePrefix(targetPrefix)}${filename}`;
 
-    if (!validateKey(newKey)) return jsonError('Resulterende target key is ongeldig.', 400, 'KEY_INVALID');
+    if (!validateKey(newKey))  return jsonError('Resulterende target key is ongeldig.', 400, 'KEY_INVALID');
+    if (key === newKey)        return jsonError('Bestand staat al op het opgegeven prefix.', 400, 'KEY_IDENTICAL');
 
     try {
       await copyObject(env, key, newKey);

@@ -53,9 +53,13 @@ export function sanitizeFilename(name) {
     .replace(/\s+/g, '-')
     .replace(/[^a-zA-Z0-9._\-]/g, '')
     .replace(/^\.+/, '')   // geen leading dots
+    .replace(/\.{2,}/g, '.') // geen dubbele punten in naam
+    .replace(/-{2,}/g, '-')  // geen dubbele koppeltekens
     .toLowerCase();
 
-  return sanitized || 'file';
+  // Zorg dat het resultaat altijd een geldige bestandsnaam is
+  if (!sanitized || sanitized === '.' || sanitized === '-') return 'file';
+  return sanitized;
 }
 
 /**
@@ -96,11 +100,14 @@ export function isWithinPrefix(key, allowedPrefix) {
 
 /**
  * Forceert een trailing slash op een prefix-string.
+ * Comprimeert dubbele slashes tot één slash.
  *
  * @param {string} prefix
  * @returns {string}
  */
 export function normalizePrefix(prefix) {
   if (typeof prefix !== 'string') return '';
-  return prefix.endsWith('/') ? prefix : prefix + '/';
+  // Comprimeer dubbele (of meer) slashes
+  const cleaned = prefix.replace(/\/+/g, '/');
+  return cleaned.endsWith('/') ? cleaned : cleaned + '/';
 }

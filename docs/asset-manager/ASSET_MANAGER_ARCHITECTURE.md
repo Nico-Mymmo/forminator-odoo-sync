@@ -491,35 +491,53 @@ De asset_manager is een **dienende module** — andere modules kunnen ze als ops
 
 ---
 
-## Runtime Model
+## Unified R2 Runtime Model
 
-De `asset_manager` module — en de volledige app — draait **uitsluitend op echte Cloudflare Workers**.
+Zowel `wrangler dev` als `wrangler deploy` gebruiken **exact dezelfde R2 bucket** (`openvme-assets`). Er is geen lokale R2-emulatie, geen shadow storage, geen aparte dev-bucket.
 
-| Aspect | Situatie |
-|--------|----------|
-| Runtime | Cloudflare Workers (productie) |
-| R2 | Productie-bucket `openvme-assets` |
-| Lokale emulatie | ❌ Geen |
-| Preview-runtime | ❌ Geen |
-| `wrangler dev` | ❌ Niet gebruikt |
-| Lokale R2 mock | ❌ Niet gebruikt |
-| Docker shadow DB | ❌ Niet nodig |
+| Aspect | wrangler dev | wrangler deploy |
+|--------|--------------|-----------------|
+| Runtime | Lokale miniflare-instantie | Cloudflare Workers |
+| R2 bucket | `openvme-assets` (echt) | `openvme-assets` (echt) |
+| Binding | `R2_ASSETS` | `R2_ASSETS` |
+| R2 mock | ❌ Geen | ❌ Geen |
+| Staging bucket | ❌ Geen | ❌ Geen |
+| Code-verschil | Geen | Geen |
+
+**Hoe dit werkt:** `wrangler.jsonc` declareert de binding zonder `preview_bucket_name`. Hierdoor gebruikt `wrangler dev` automatisch de echte bucket via remote binding.
+
+```jsonc
+// wrangler.jsonc
+"r2_buckets": [
+  {
+    "binding": "R2_ASSETS",
+    "bucket_name": "openvme-assets"
+    // Geen preview_bucket_name — dev gebruikt dezelfde bucket
+  }
+]
+```
+
+**Consequentie:** Uploads tijdens `wrangler dev` raken de productie-bucket. Dit is bewust. De app is een interne tool — er is geen reden voor omgevingsscheiding.
+
+**Niet doen:**
+- ❌ `wrangler dev --local` gebruiken (activeert in-memory R2 mock)
+- ❌ `preview_bucket_name` toevoegen (introduceert divergente state)
+- ❌ Aparte staging bucket aanmaken
+- ❌ Conditionals op `env.ENVIRONMENT` of `env.CF_ENV` voor bucket-keuze
 
 **Development workflow:**
 
 ```bash
-# 1. Wijzigingen maken
-# 2. Committen
-git add -A && git commit -m "feat: ..."
+# Lokale dev (echte R2 bucket)
+npm run dev
 
-# 3. Deployen
+# Of direct deployen
 npm run deploy
 
-# 4. Testen
-# https://forminator-sync.openvme-odoo.workers.dev/assets
+# Testen via
+# http://localhost:8787/assets          (dev)
+# https://forminator-sync.openvme-odoo.workers.dev/assets  (productie)
 ```
-
-**Rationale:** Dit is een interne tool. Alle R2-interacties gaan altijd tegen de echte `openvme-assets` bucket. Er is geen omgevingsscheiding nodig. `wrangler deploy` duurt ~5 seconden — de overhead is verwaarloosbaar ten opzichte van de complexiteit van een lokale dev-runtime.
 
 ---
 

@@ -84,8 +84,9 @@ export default {
     // Public asset serving — geen auth, vóór module-router
     // Exacte check: startsWith('/assets/') met trailing slash — NIET '/assets'
     // '/assets' (zonder slash) = module-UI, moet de module-router bereiken met auth
+    // '/assets/api/*'          = API routes, moeten module-router bereiken met auth
     // '/assets/*' (met slash)  = publieke bestanden, worden hier geserveerd zonder auth
-    if (pathname.startsWith('/assets/') && request.method === 'GET') {
+    if (pathname.startsWith('/assets/') && !pathname.startsWith('/assets/api/') && request.method === 'GET') {
       const key = pathname.slice('/assets/'.length);
 
       if (!validateKey(key)) {
@@ -101,7 +102,6 @@ export default {
       }
 
       if (!object) {
-        console.log('[asset-manager] 404 GET /assets/' + key);
         return new Response('Not Found', { status: 404 });
       }
 
@@ -115,8 +115,6 @@ export default {
       } else {
         cacheControl = 'private, no-store';
       }
-
-      console.log('[asset-manager] GET /assets/' + key + ' — ' + (object.size || '?') + ' bytes');
 
       return new Response(object.body, {
         headers: {

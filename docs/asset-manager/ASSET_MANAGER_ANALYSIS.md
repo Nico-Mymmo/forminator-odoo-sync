@@ -315,18 +315,26 @@ In `wrangler.jsonc`, naast de bestaande `kv_namespaces`:
 
 **Na toevoegen:** de Dashboard-binding kan worden verwijderd. Bij volgende deploy staat alles in sync.
 
-### 5.4 Development workflow
+### 5.4 Development workflow en R2-runtime
 
-Dit project gebruikt **geen lokale runtime**. Er is geen `wrangler dev`, geen `preview_bucket_name`, geen in-memory R2 simulatie.
+Zowel `wrangler dev` als `wrangler deploy` gebruiken de **echte `openvme-assets` bucket**.
 
-**Workflow:**
+Dit is mogelijk omdat `wrangler.jsonc` géén `preview_bucket_name` declareert. Zonder `preview_bucket_name` valt `wrangler dev` automatisch terug op de productie-binding.
 
-1. Code wijzigen
-2. `git commit`
-3. `npm run deploy` (`wrangler deploy`)
-4. Testen via https://forminator-sync.openvme-odoo.workers.dev
+```bash
+# Lokale dev (echte R2 bucket)
+npm run dev
 
-**Rationale:** Dit is een interne tool. De overhead van een lokale dev-runtime (env-variabelen, bindings mocken, R2 sync) weegt niet op tegen de eenvoud van direct naar productie deployen. R2 interacties raken altijd `openvme-assets` — de echte bucket.
+# Deploy
+npm run deploy
+```
+
+**Niet doen:**
+- ❌ `wrangler dev --local` (activeert in-memory R2 mock — data gaat verloren bij stop)
+- ❌ `preview_bucket_name` toevoegen (introduceert divergente storage state)
+- ❌ Twee buckets beheren (vergroot kans op sync-problemen)
+
+Zie ook: `ASSET_MANAGER_ARCHITECTURE.md` → sectie *Unified R2 Runtime Model*.
 
 ### 5.5 Migratiestrategie als bucket al data bevat
 
