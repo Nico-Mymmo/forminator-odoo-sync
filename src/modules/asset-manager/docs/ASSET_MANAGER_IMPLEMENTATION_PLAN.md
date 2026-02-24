@@ -1,0 +1,397 @@
+# Asset Manager — Implementatieplan
+
+> **Status:** Fase 0 — Planning  
+> **Branch:** `assets-manager`  
+> **Datum:** 2026-02-24  
+> **Vorige stap:** [ASSET_MANAGER_ARCHITECTURE.md](./ASSET_MANAGER_ARCHITECTURE.md)
+
+---
+
+## Overzicht
+
+Dit document beschrijft de fasering en volgorde van implementatie voor de `asset_manager` module. Elke fase heeft duidelijke deliverables en een go/no-go checkpoint.
+
+**Totaal: 5 fasen**
+
+| Fase | Naam | Scope | Blocker voor |
+|------|------|-------|-------------|
+| 0 | Analyse & Architectuur | Documenten | Fase 1 |
+| 1 | Infra-correctie | wrangler.jsonc + R2 binding | Fase 2 |
+| 2 | Core backend | r2-client, path-utils, routes skeleton | Fase 3 |
+| 3 | UI skeleton | ui.js, module.js, registry | Fase 4 |
+| 4 | Client JS + integratie | asset-manager-client.js, upload/lijst | Fase 5 |
+| 5 | Polish & koppeling | Role-gating, domain, module-koppelingen | — |
+
+---
+
+## Fase 0 — Analyse & Architectuur ✅ (huidig)
+
+**Deliverables:**
+- [x] `ASSET_MANAGER_ANALYSIS.md` — uitgebreide codebase-analyse
+- [x] `ASSET_MANAGER_ARCHITECTURE.md` — module-ontwerp + API-contract
+- [x] `ASSET_MANAGER_IMPLEMENTATION_PLAN.md` — dit document
+
+**Checkpoint:** Alle drie documenten aanwezig en compleet.
+
+---
+
+## Fase 1 — Infra-correctie
+
+> **Doel:** Dashboard-binding elimineren. wrangler.jsonc is single source of truth.
+
+### Stappen (volgorde dwingend)
+
+**1.1 — Vaststellen huidige R2 bucket naam**
+- Open Cloudflare Dashboard → R2 → bestaande buckets
+- Noteer de exacte bucket-naam (bv. `openvme-assets` of anders)
+- Noteer of er al bestanden in zitten die bewaard moeten blijven
+
+**1.2 — R2 binding toevoegen aan wrangler.jsonc**
+```jsonc
+"r2_buckets": [
+  {
+    "binding": "R2_ASSETS",
+    "bucket_name": "<exacte-bucket-naam>",
+    "preview_bucket_name": "<bucket-naam>-dev"
+  }
+]
+```
+- Bestand: `wrangler.jsonc`
+- Commit message: `infra: add R2_ASSETS binding to wrangler config`
+
+**1.3 — Dev-bucket aanmaken (optioneel maar aanbevolen)**
+```bash
+wrangler r2 bucket create openvme-assets-dev
+```
+Of: gebruik `wrangler dev --local` als geen echte dev-bucket gewenst is.
+
+**1.4 — Deploy verificatie**
+```bash
+wrangler deploy
+```
+- Controleer: geen waarschuwing meer over dashboard-bindings
+- Controleer: Worker draait nog correct (bestaande modules intact)
+
+**1.5 — Dashboard opruimen**
+- Verwijder handmatig de binding uit het Cloudflare Dashboard na succesvolle deploy
+- Dashboard toont nu exact dezelfde state als wrangler.jsonc
+
+**Checkpoint Fase 1:**
+- [ ] `wrangler deploy` geeft geen binding-waarschuwing
+- [ ] Alle bestaande modules werken nog
+- [ ] `env.R2_ASSETS` beschikbaar in Worker (test via debug-route)
+
+---
+
+## Fase 2 — Core backend
+
+> **Doel:** R2 abstractielaag en veiligheidshelpers gereed. Nog geen UI.
+
+### Bestanden aanmaken
+
+**2.1 — `src/modules/asset-manager/lib/path-utils.js`**
+
+Inhoud: pure functies voor key-validatie en -normalisatie.
+
+Functies te implementeren:
+- `validateKey(key)` → boolean
+- `sanitizeFilename(name)` → string
+- `buildUserPrefix(userId)` → `'users/${userId}/'`
+- `isPublicKey(key)` → boolean
+- `isWithinPrefix(key, prefix)` → boolean
+- `normalizePrefix(prefix)` → string (trailing slash afdwingen)
+
+Veiligheidseisen:
+- Blokkeer `..` in keys (path traversal)
+- Blokkeer keys die beginnen met `/`
+- Blokkeer null bytes
+- Max key-lengte: 1024 tekens
+- Geldige karakters: `[a-zA-Z0-9._\-\/]` (plus URL-encoded uitbreidingen)
+
+**2.2 — `src/modules/asset-manager/lib/mime-types.js`**
+
+Inhoud:
+- MIME-type whitelist (toegestane upload-types)
+- `getMimeType(filename)` → string op basis van extensie
+- `isAllowedMimeType(mimeType)` → boolean
+
+Toegestane types (MVP):
+```
+image/*:    jpeg, png, gif, webp, svg
+video/*:    mp4, webm (optioneel, later)
+text/*:     html, css, plain
+application/pdf
+application/zip
+application/json
+```
+
+**2.3 — `src/modules/asset-manager/lib/r2-client.js`**
+
+Inhoud: dunne wrapper om `env.R2_ASSETS`.
+
+Functies:
+- `listObjects(env, { prefix, cursor, limit })` → `{ objects[], truncated, cursor }`
+- `putObject(env, key, body, { contentType, customMetadata })` → `{ key, etag, size }`
+- `getObject(env, key)` → `R2ObjectBody | null`
+- `deleteObject(env, key)` → `void`
+- `headObject(env, key)` → `R2Object | null`
+- `copyObject(env, sourceKey, destKey)` → `{ key }`
+
+Foutafhandeling: elke functie vangt R2-errors en gooit een consistent error-object.
+
+**2.4 — `src/modules/asset-manager/routes.js` (skeleton)**
+
+Alleen de handler-signatures + jOk/jsonError helpers. Nog geen volledige logica.
+Routes die gedeclareerd worden:
+- `GET /`
+- `GET /api/assets/list`
+- `POST /api/assets/upload`
+- `DELETE /api/assets/delete`
+- `POST /api/assets/rename`
+- `POST /api/assets/move`
+
+**2.5 — `src/modules/asset-manager/module.js`**
+
+Volledige module registratie. Klaar voor registry.
+
+**Checkpoint Fase 2:**
+- [ ] `path-utils.js` heeft unit-achtige validatie
+- [ ] `r2-client.js` heeft alle functies
+- [ ] `routes.js` heeft alle route-keys gedefinieerd (skeletons)
+- [ ] `module.js` klaar voor registry-toevoeging
+- [ ] Geen code-fouten in nieuwe bestanden
+
+---
+
+## Fase 3 — Public asset serving + UI skeleton
+
+> **Doel:** `/assets/*` publiek serveert. Module verschijnt in navbar.
+
+### Stappen
+
+**3.1 — Public asset serving in index.js**
+
+Invoegpunt: vóór de bestaande CORS-handlers, MAAR na CORS preflight en favicon.
+
+```
+Bestaande volgorde:
+  1. CORS preflight  ← bestaand
+  2. /favicon.ico    ← bestaand
+  3. /test-db        ← bestaand
+  ...
+
+Nieuwe volgorde:
+  1. CORS preflight  ← bestaand
+  2. /favicon.ico    ← bestaand
+  3. GET /assets/*   ← NIEUW (publiek, geen auth)
+  4. /test-db        ← bestaand
+  ...
+```
+
+Aanpassing in `src/index.js` (exact blok):
+- Controleer `pathname.startsWith('/assets/')` en `method === 'GET'`
+- Extraheer key: `pathname.slice('/assets/'.length)`
+- Valideer key via `validateKey(key)` uit path-utils
+- Haal op via `env.R2_ASSETS.get(key)`
+- Return `404` als null, anders Response met correct Content-Type
+- Cache-Control: `public, max-age=31536000, immutable` voor keys die beginnen met `public/`
+
+**3.2 — ui.js aanmaken**
+
+Volledig HTML-skelet conform analyse (Sectie 3.1 van Architecture document):
+- Theme early-init IIFE
+- DaisyUI + Tailwind + Lucide
+- `${navbar(user)}`
+- `window.__ASSET_STATE__` block
+- Lege containers voor: breadcrumb, bestandslijst, upload-zone, modals
+- `<script src="/asset-manager-client.js"></script>`
+
+**3.3 — Module toevoegen aan registry**
+
+In `src/modules/registry.js`:
+- Import toevoegen: `import assetManagerModule from './asset-manager/module.js';`
+- Toevoegen aan `MODULES` array
+
+**3.4 — Route handler voor GET /**
+
+In `routes.js`, de `'GET /'` handler implementeren:
+```js
+'GET /': async (context) => {
+  return new Response(assetManagerUI(context.user), {
+    headers: { 'Content-Type': 'text/html' }
+  });
+}
+```
+
+**Checkpoint Fase 3:**
+- [ ] `GET /assets/some-key` serveert een bestand uit R2 (of 404)
+- [ ] `GET /assets` laadt de module-pagina met navbar
+- [ ] Module verschijnt in navbar voor gebruikers met toegang
+- [ ] Geen regressie in bestaande modules
+
+---
+
+## Fase 4 — API implementatie + Client JS
+
+> **Doel:** Werkende upload/lijst/delete flow in de browser.
+
+### Stappen
+
+**4.1 — GET /api/assets/list implementeren**
+
+In `routes.js`:
+- Lees `prefix`, `cursor`, `limit` uit query params
+- Valideer prefix via `isWithinPrefix` (user mag alleen eigen prefix of admin alles)
+- Roep `r2-client.listObjects` aan
+- Return `jsonOk({ objects, truncated, cursor })`
+
+**4.2 — POST /api/assets/upload implementeren**
+
+In `routes.js`:
+- Parse multipart/form-data via `request.formData()`
+- Extraheer `file`, `prefix`, `filename`
+- Valideer MIME-type via `mime-types.isAllowedMimeType`
+- Valideer bestandsgrootte (max configureerbaar, default 10 MB)
+- Bouw key: `${prefix}${sanitizedFilename}`
+- Valideer key via `validateKey`
+- Role check: `hasUploadAccess(context, prefix)`
+- Roep `r2-client.putObject` aan
+- Bouw publieke URL: `https://openvme.be/assets/${key}` (of eigen domein)
+- Return `jsonOk({ key, url, size, contentType })`
+
+**4.3 — DELETE /api/assets/delete implementeren**
+
+In `routes.js`:
+- Parse JSON body: `{ key }`
+- Valideer key
+- Controleer eigenaarschap of admin rol
+- Roep `r2-client.deleteObject` aan
+- Return `jsonOk({ key })`
+
+**4.4 — POST /api/assets/rename implementeren**
+
+In `routes.js`:
+- Admin only
+- Parse `{ key, newKey }`
+- Valideer beide keys
+- Kopie via `r2-client.copyObject(env, key, newKey)`
+- Verwijder origineel via `r2-client.deleteObject(env, key)`
+- Return `jsonOk({ oldKey, newKey })`
+
+**4.5 — public/asset-manager-client.js aanmaken**
+
+Verantwoordelijkheden (zie Architecture sectie 9):
+- `init()` — lees `__ASSET_STATE__`, laad initiële lijst
+- `loadList(prefix, cursor)` — fetch lijst, render in tabel
+- `renderFileRow(object)` — één `<tr>` via DOM-API (geen template literals)
+- `renderBreadcrumb(prefix)` — navigatie boven de lijst
+- `uploadFile(file, prefix)` — fetch upload, voortgangsbalk
+- `deleteFile(key)` — confirm modal + fetch delete
+- `copyUrl(key)` — clipboard API
+- `switchFolder(prefix)` — update actieve prefix, reload lijst
+
+**Checkpoint Fase 4:**
+- [ ] Bestanden laden en weergeven in tabel
+- [ ] Upload werkt (bestand in R2 na submit)
+- [ ] Verwijderen werkt (confirm modal + definitief weg)
+- [ ] URL kopiëren werkt
+- [ ] Folder-navigatie werkt (prefix-navigatie)
+- [ ] Role-gating werkt (geen upload-knop voor gewone users)
+
+---
+
+## Fase 5 — Polish, domain en module-koppelingen
+
+> **Doel:** Productieklaar. Domeinconfiguratie. Koppelingen met andere modules.
+
+### Stappen
+
+**5.1 — assets.openvme.be configureren (optioneel voor MVP)**
+
+In `wrangler.jsonc`:
+```jsonc
+"routes": [
+  { "pattern": "assets.openvme.be/*", "zone_name": "openvme.be" }
+]
+```
+
+Vereisten:
+- Domein `openvme.be` moet bij Cloudflare geregistreerd of geproxied zijn
+- DNS: CNAME `assets.openvme.be` → Worker route
+
+**5.2 — Cache-Control strategie verfijnen**
+
+| Prefix | Cache-Control |
+|--------|--------------|
+| `public/` | `public, max-age=31536000, immutable` |
+| `uploads/` | `public, max-age=3600` |
+| `users/` | `private, no-store` |
+| `system/` | `private, no-store` |
+
+**5.3 — Koppeling mail-signature-designer**
+
+Optionele uitbreiding: "Kies bestand uit Asset Manager" knop in de banner-uploaded sectie van Signature Designer. Dit is een aparte feature-slice, buiten MVP.
+
+**5.4 — Supabase metadata-laag (optioneel)**
+
+Als zoeken en filteren op metadata vereist is:
+- Nieuwe tabel `asset_metadata` in Supabase
+- Sla key, uploadedBy, originalName, module, size, contentType op
+- `asset-store.js` in lib/ implementeren
+- Endpoints uitbreiden met Supabase-queries
+
+Dit is bewust buiten MVP gehouden (zie Analysis sectie 8).
+
+**5.5 — Foutafhandeling en logging**
+
+- Consistente error responses voor alle API-eindpunten
+- Server-side logs met prefix `[asset-manager]`
+- Client-side toast-feedback bij elke actie (succes + fout)
+- Upload-grootte-overschrijding foutmelding met vriendelijke tekst
+
+**Checkpoint Fase 5 (= MVP-release):**
+- [ ] Public assets bereikbaar via productie-URL
+- [ ] Upload/lijst/delete volledig functioneel
+- [ ] Role-gating actief (user / asset_manager / admin)
+- [ ] Alle bestaande modules ongewijzigd
+- [ ] Geen dashboard-bindings meer
+
+---
+
+## Implementatievolgorde samenvatting
+
+```
+Fase 0  [✅]  Documenten aanmaken
+Fase 1  [ ]   wrangler.jsonc + R2 binding
+  ↓
+Fase 2  [ ]   lib/path-utils.js
+              lib/mime-types.js
+              lib/r2-client.js
+              routes.js (skeleton)
+              module.js
+  ↓
+Fase 3  [ ]   index.js: publieke /assets/* serving
+              ui.js skeleton
+              registry.js: module registreren
+  ↓
+Fase 4  [ ]   routes.js: list, upload, delete, rename implementeren
+              asset-manager-client.js
+  ↓
+Fase 5  [ ]   Polish, domain, optionele koppelingen
+```
+
+---
+
+## Buitengrenzen (herhaling)
+
+Zaken die **niet** in de asset_manager horen:
+
+- ❌ Bestandsconversie (PDF → afbeelding, resize, etc.) — aparte microservice indien nodig
+- ❌ Eigen authenticatiesysteem — hergebruik bestaande sessie-validatie
+- ❌ Directe S3-API exposure — altijd via Worker API
+- ❌ Eigen dashboard-binding voor R2 — altijd via wrangler.jsonc
+- ❌ Meerdere Workers per module — één Worker, meerdere routes
+
+---
+
+*Dit document is het eindpunt van Fase 0. Implementatie begint met Fase 1: infra-correctie.*
