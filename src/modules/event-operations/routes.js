@@ -3,7 +3,7 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar, getWebinarRecapFields, updateWebinarRecapFields, sendWebinarRecap } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar, getWebinarRecapFields, getWebinarRecapSentStatus, updateWebinarRecapFields, sendWebinarRecap } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
@@ -1471,7 +1471,10 @@ export const routes = {
         });
       }
 
-      const webinar = await getWebinarRecapFields(env, webinarId);
+      const [webinar, recapSent] = await Promise.all([
+        getWebinarRecapFields(env, webinarId),
+        getWebinarRecapSentStatus(env, webinarId)
+      ]);
       if (!webinar) {
         return new Response(JSON.stringify({ success: false, error: 'Webinar not found' }), {
           status: 404, headers: { 'Content-Type': 'application/json' }
@@ -1487,7 +1490,7 @@ export const routes = {
           video_url:      webinar.x_studio_vimeo_url      || null,
           thumbnail_url:  webinar.x_studio_vimeo_thumbnail_url || null,
           followup_html:  webinar.x_studio_followup_html  || '',
-          recap_sent:     Boolean(webinar.x_studio_recap_email_sent),
+          recap_sent:     recapSent,
           recap_ready:    ready,
           recap_reasons:  reasons
         }
@@ -1689,7 +1692,8 @@ export const routes = {
       }
 
       // Guard: prevent re-send if already sent
-      if (webinar.x_studio_recap_email_sent) {
+      const alreadySent = await getWebinarRecapSentStatus(env, webinarId);
+      if (alreadySent) {
         return new Response(JSON.stringify({
           success: false,
           error: 'Recap is al eerder verstuurd',

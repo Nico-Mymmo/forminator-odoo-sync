@@ -483,12 +483,33 @@ export async function getWebinarRecapFields(env, webinarId) {
         ODOO_FIELDS.EVENT_DATETIME,
         ODOO_FIELDS.VIDEO_URL,
         ODOO_FIELDS.THUMBNAIL_URL,
-        ODOO_FIELDS.FOLLOWUP_HTML,
-        ODOO_FIELDS.RECAP_MAIL_SENT
+        ODOO_FIELDS.FOLLOWUP_HTML
       ]
     }
   });
   return Array.isArray(result) && result.length > 0 ? result[0] : null;
+}
+
+/**
+ * Check whether any registration for this webinar has already received a recap
+ * email. The field x_studio_recap_email_sent lives on x_webinarregistrations,
+ * NOT on x_webinar.
+ *
+ * @param {Object} env
+ * @param {number} webinarId
+ * @returns {Promise<boolean>}
+ */
+export async function getWebinarRecapSentStatus(env, webinarId) {
+  const count = await executeKw(env, {
+    model: ODOO_MODEL.REGISTRATION,
+    method: 'search_count',
+    args: [[[
+      ODOO_FIELDS.LINKED_WEBINAR, '=', webinarId
+    ], [
+      'x_studio_recap_email_sent', '=', true
+    ]]]
+  });
+  return count > 0;
 }
 
 /**
