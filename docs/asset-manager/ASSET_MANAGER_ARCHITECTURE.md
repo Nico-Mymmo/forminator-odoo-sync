@@ -491,52 +491,49 @@ De asset_manager is een **dienende module** — andere modules kunnen ze als ops
 
 ---
 
-## Unified R2 Runtime Model
+## Development Runtime Model
 
-Zowel `wrangler dev` als `wrangler deploy` gebruiken **exact dezelfde R2 bucket** (`openvme-assets`). Er is geen lokale R2-emulatie, geen shadow storage, geen aparte dev-bucket.
+`npm run dev` draait via `wrangler dev --remote`. De Worker-code wordt uitgevoerd op de **Cloudflare edge**, niet in een lokale runtime. R2 binding verwijst naar de echte `openvme-assets` productie-bucket.
 
-| Aspect | wrangler dev | wrangler deploy |
-|--------|--------------|-----------------|
-| Runtime | Lokale miniflare-instantie | Cloudflare Workers |
+| Aspect | `wrangler dev --remote` | `wrangler deploy` |
+|--------|-------------------------|-------------------|
+| Uitvoering | Cloudflare edge | Cloudflare edge |
+| URL | `http://localhost:8787` (tunnel) | workers.dev URL |
 | R2 bucket | `openvme-assets` (echt) | `openvme-assets` (echt) |
 | Binding | `R2_ASSETS` | `R2_ASSETS` |
 | R2 mock | ❌ Geen | ❌ Geen |
-| Staging bucket | ❌ Geen | ❌ Geen |
+| Preview bucket | ❌ Geen | ❌ Geen |
 | Code-verschil | Geen | Geen |
 
-**Hoe dit werkt:** `wrangler.jsonc` declareert de binding zonder `preview_bucket_name`. Hierdoor gebruikt `wrangler dev` automatisch de echte bucket via remote binding.
+**Consequentie:** Uploads tijdens `npm run dev` raken de productiebucket. Dit is bewust — de app is een interne tool zonder omgevingsscheiding.
+
+**Altijd gebruiken:**
+- ✅ `wrangler dev --remote` — edge runtime, echte R2
+- ✅ `wrangler deploy` — productie-deploy
+
+**Nooit gebruiken:**
+- ❌ `wrangler dev` — zonder `--remote` activeert Miniflare lokaal; R2 gedrag is onbepaald
+- ❌ `wrangler dev --local` — activeert in-memory R2 mock; data gaat verloren bij stop
+- ❌ `preview_bucket_name` in `wrangler.jsonc` — introduceert divergente storage state
+- ❌ Aparte dev/staging bucket
 
 ```jsonc
-// wrangler.jsonc
+// wrangler.jsonc — geen preview_bucket_name, geen local-simulatie
 "r2_buckets": [
   {
     "binding": "R2_ASSETS",
     "bucket_name": "openvme-assets"
-    // Geen preview_bucket_name — dev gebruikt dezelfde bucket
   }
 ]
 ```
 
-**Consequentie:** Uploads tijdens `wrangler dev` raken de productie-bucket. Dit is bewust. De app is een interne tool — er is geen reden voor omgevingsscheiding.
-
-**Niet doen:**
-- ❌ `wrangler dev --local` gebruiken (activeert in-memory R2 mock)
-- ❌ `preview_bucket_name` toevoegen (introduceert divergente state)
-- ❌ Aparte staging bucket aanmaken
-- ❌ Conditionals op `env.ENVIRONMENT` of `env.CF_ENV` voor bucket-keuze
-
-**Development workflow:**
-
 ```bash
-# Lokale dev (echte R2 bucket)
-npm run dev
+# Development
+npm run dev        # wrangler dev --remote — Cloudflare edge, echte R2
+npm run deploy     # wrangler deploy — productie
 
-# Of direct deployen
-npm run deploy
-
-# Testen via
-# http://localhost:8787/assets          (dev)
-# https://forminator-sync.openvme-odoo.workers.dev/assets  (productie)
+# Test URL (dev)
+http://localhost:8787/assets
 ```
 
 ---

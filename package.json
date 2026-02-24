@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
+		"dev": "wrangler dev --remote",
 		"logs": "wrangler tail",
 		"test": "vitest",
 		"sync": "node sync-kv.js",

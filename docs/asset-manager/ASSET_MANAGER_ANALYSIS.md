@@ -317,24 +317,26 @@ In `wrangler.jsonc`, naast de bestaande `kv_namespaces`:
 
 ### 5.4 Development workflow en R2-runtime
 
-Zowel `wrangler dev` als `wrangler deploy` gebruiken de **echte `openvme-assets` bucket**.
-
-Dit is mogelijk omdat `wrangler.jsonc` géén `preview_bucket_name` declareert. Zonder `preview_bucket_name` valt `wrangler dev` automatisch terug op de productie-binding.
+`npm run dev` draait via `wrangler dev --remote`. De Worker draait op de Cloudflare edge en gebruikt de **echte `openvme-assets` bucket** — geen lokale runtime, geen R2 mock.
 
 ```bash
-# Lokale dev (echte R2 bucket)
-npm run dev
+# Development — Cloudflare edge, echte R2
+npm run dev        # = wrangler dev --remote
 
-# Deploy
+# Productie-deploy
 npm run deploy
 ```
 
-**Niet doen:**
-- ❌ `wrangler dev --local` (activeert in-memory R2 mock — data gaat verloren bij stop)
-- ❌ `preview_bucket_name` toevoegen (introduceert divergente storage state)
-- ❌ Twee buckets beheren (vergroot kans op sync-problemen)
+**Altijd gebruiken:**
+- ✅ `wrangler dev --remote`
+- ✅ `wrangler deploy`
 
-Zie ook: `ASSET_MANAGER_ARCHITECTURE.md` → sectie *Unified R2 Runtime Model*.
+**Nooit gebruiken:**
+- ❌ `wrangler dev` (zonder `--remote` — R2 gedrag is onbepaald)
+- ❌ `wrangler dev --local` (in-memory R2 mock — data verdwijnt bij stop)
+- ❌ `preview_bucket_name` toevoegen (introduceert divergente storage state)
+
+Zie ook: `ASSET_MANAGER_ARCHITECTURE.md` → sectie *Development Runtime Model*.
 
 ### 5.5 Migratiestrategie als bucket al data bevat
 
@@ -779,7 +781,7 @@ Andere modules (mail-signature-designer, event-operations) kunnen assets opvrage
 - ❌ Dashboard-state als bron van waarheid gebruiken
 - ❌ Binding `ASSETS` gebruiken voor R2 (gebruik `R2_ASSETS` — `ASSETS` is al in gebruik voor static files)
 - ❌ Publieke R2 bucket-access inschakelen (altijd via Worker)
-- ❌ `wrangler dev` gebruiken (geen lokale runtime — altijd deployen en testen via workers.dev URL)
+- ❌ `wrangler dev` gebruiken zonder `--remote` (R2 gedrag is onbepaald — altijd `wrangler dev --remote`)
 - ❌ Routes inline in `module.js` definiëren (gebruik `routes.js` — project-generator patroon NIET volgen)
 - ❌ Backticks in `<script>` blokken van `ui.js`
 - ❌ Template literals voor HTML in `asset-manager-client.js` (gebruik DOM-API)

@@ -143,8 +143,9 @@ npx wrangler tail
 ## Development
 
 ```bash
-# Lokale dev-server (gebruikt echte R2 bucket)
+# Lokale dev-server via Cloudflare edge (echte R2 bucket)
 npm run dev
+# = wrangler dev --remote
 
 # Deploy naar Cloudflare Workers
 npm run deploy
@@ -156,8 +157,10 @@ npm run logs
 npm test
 ```
 
-> `wrangler dev` gebruikt de echte `openvme-assets` R2 bucket — geen lokale mock, geen aparte dev-bucket.
-> Uploads tijdens lokale ontwikkeling raken de productie-bucket.
+> **`npm run dev` gebruikt `wrangler dev --remote`** — de Worker draait op de Cloudflare edge, niet lokaal.
+> R2 binding verwijst naar de echte `openvme-assets` bucket. Uploads tijdens development raken de productiebucket.
+
+> ⚠️ Gebruik **nooit** `wrangler dev` of `wrangler dev --local` — dit activeert een lokale R2 mock en divergeert van productie.
 
 ## Project Structure
 
