@@ -28,6 +28,7 @@
  *  POST /api/assets/move   → Fase 3
  */
 
+import { assetManagerUI } from './ui.js';
 import { validateKey, sanitizeFilename, buildUserPrefix, isWithinPrefix, normalizePrefix } from './lib/path-utils.js';
 import { isAllowedMimeType, getMimeType } from './lib/mime-types.js';
 import { listObjects, putObject, deleteObject, copyObject } from './lib/r2-client.js';
@@ -102,10 +103,10 @@ function canReadPrefix(user, keyOrPrefix) {
 
 export const routes = {
 
-  // ── UI — geïmplementeerd in Fase 2 ──────────────────────────────────────────
-  'GET /': async (_context) => {
-    return new Response('Asset Manager — UI volgt in Fase 2', {
-      headers: { 'Content-Type': 'text/plain' }
+  // ── UI ──────────────────────────────────────────────────────────────────────
+  'GET /': async (context) => {
+    return new Response(assetManagerUI(context.user), {
+      headers: { 'Content-Type': 'text/html' }
     });
   },
 

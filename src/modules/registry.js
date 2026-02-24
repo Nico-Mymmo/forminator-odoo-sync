@@ -13,6 +13,7 @@ import profileModule from './profile/module.js';
 import salesInsightExplorerModule from './sales-insight-explorer/module.js';
 import eventOperationsModule from './event-operations/module.js';
 import mailSignatureDesignerModule from './mail-signature-designer/module.js';
+import assetManagerModule from './asset-manager/module.js';
 
 /**
  * All registered modules
@@ -25,7 +26,8 @@ export const MODULES = [
   profileModule,
   salesInsightExplorerModule,
   eventOperationsModule,
-  mailSignatureDesignerModule
+  mailSignatureDesignerModule,
+  assetManagerModule
 ];
 
 /**

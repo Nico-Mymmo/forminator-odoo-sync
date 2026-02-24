@@ -5,6 +5,8 @@ import { requireAdminAuth } from "./lib/admin_auth.js";
 import { validateSession } from "./lib/auth/session.js";
 import { getForminatorForm, extractFieldsFromForm, generateFieldMapping } from "./lib/wordpress.js";
 import { handleLogin, handleLogout, handleMe } from "./api/auth.js";
+import { validateKey } from "./modules/asset-manager/lib/path-utils.js";
+import { getMimeType } from "./modules/asset-manager/lib/mime-types.js";
 
 const ACTIONS = {
   test_connection: testConnection,
@@ -78,7 +80,53 @@ export default {
     if (pathname === '/favicon.ico') {
       return new Response(null, { status: 204 });
     }
-    
+
+    // Public asset serving — geen auth, vóór module-router
+    // Exacte check: startsWith('/assets/') met trailing slash — NIET '/assets'
+    // '/assets' (zonder slash) = module-UI, moet de module-router bereiken met auth
+    // '/assets/*' (met slash)  = publieke bestanden, worden hier geserveerd zonder auth
+    if (pathname.startsWith('/assets/') && request.method === 'GET') {
+      const key = pathname.slice('/assets/'.length);
+
+      if (!validateKey(key)) {
+        return new Response('Not Found', { status: 404 });
+      }
+
+      let object;
+      try {
+        object = await env.R2_ASSETS.get(key);
+      } catch (err) {
+        console.error('[asset-manager] R2 get error:', err.message);
+        return new Response('Internal Server Error', { status: 500 });
+      }
+
+      if (!object) {
+        console.log('[asset-manager] 404 GET /assets/' + key);
+        return new Response('Not Found', { status: 404 });
+      }
+
+      const contentType = object.httpMetadata?.contentType || getMimeType(key);
+
+      let cacheControl;
+      if (key.startsWith('public/')) {
+        cacheControl = 'public, max-age=31536000, immutable';
+      } else if (key.startsWith('uploads/')) {
+        cacheControl = 'public, max-age=3600';
+      } else {
+        cacheControl = 'private, no-store';
+      }
+
+      console.log('[asset-manager] GET /assets/' + key + ' — ' + (object.size || '?') + ' bytes');
+
+      return new Response(object.body, {
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': cacheControl,
+          'ETag': object.etag || '',
+        }
+      });
+    }
+
     // TEST DATABASE CONNECTION
     if (pathname === '/test-db') {
       try {
