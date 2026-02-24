@@ -1487,7 +1487,7 @@ export const routes = {
           video_url:      webinar.x_studio_vimeo_url      || null,
           thumbnail_url:  webinar.x_studio_vimeo_thumbnail_url || null,
           followup_html:  webinar.x_studio_followup_html  || '',
-          recap_sent:     Boolean(webinar.x_studio_recap_mail_sent),
+          recap_sent:     Boolean(webinar.x_studio_recap_email_sent),
           recap_ready:    ready,
           recap_reasons:  reasons
         }
@@ -1689,7 +1689,7 @@ export const routes = {
       }
 
       // Guard: prevent re-send if already sent
-      if (webinar.x_studio_recap_mail_sent) {
+      if (webinar.x_studio_recap_email_sent) {
         return new Response(JSON.stringify({
           success: false,
           error: 'Recap is al eerder verstuurd',

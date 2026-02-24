@@ -52,7 +52,7 @@ export const ODOO_FIELDS = {
   VIDEO_URL: 'x_studio_vimeo_url',
   THUMBNAIL_URL: 'x_studio_vimeo_thumbnail_url',
   FOLLOWUP_HTML: 'x_studio_followup_html',
-  RECAP_MAIL_SENT: 'x_studio_recap_mail_sent',
+  RECAP_MAIL_SENT: 'x_studio_recap_email_sent',
   // Registration fields
   LINKED_WEBINAR: 'x_studio_linked_webinar',
   REGISTERED_BY: 'x_studio_registered_by',
