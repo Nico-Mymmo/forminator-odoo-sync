@@ -4,7 +4,7 @@
  * ─── Endpoint map ───────────────────────────────────────────────────────────
  *
  *  UI
- *    GET  /                           → Full-page UI (authenticated) [Fase 2]
+ *    GET  /                           → Full-page UI (authenticated)
  *
  *  Asset API  (authenticated)
  *    GET  /api/assets/list            → Lijst bestanden op prefix (paginering)
@@ -18,14 +18,6 @@
  *  'admin'          – Alles: alle prefixen, rename, move, system/
  *  'asset_manager'  – Upload/delete in alle uploads/ prefixen
  *  'user'           – Eigen prefix (users/{id}/) lezen + eigen bestanden verwijderen
- *
- * ─── Implementatiestatus ───────────────────────────────────────────────────
- *  GET /                   → Fase 2 (ui.js wordt dan toegevoegd)
- *  GET /api/assets/list    → Fase 3
- *  POST /api/assets/upload → Fase 3
- *  DELETE /api/assets/delete → Fase 3
- *  POST /api/assets/rename → Fase 3
- *  POST /api/assets/move   → Fase 3
  */
 
 import { assetManagerUI } from './ui.js';
@@ -110,25 +102,192 @@ export const routes = {
     });
   },
 
-  // ── API — geïmplementeerd in Fase 3 ─────────────────────────────────────────
-  'GET /api/assets/list': async (_context) => {
-    return jsonError('Niet geïmplementeerd (Fase 3)', 501);
+  // ── API — geïmplementeerd ────────────────────────────────────────────────────
+  'GET /api/assets/list': async (context) => {
+    const { request, env, user } = context;
+    const url = new URL(request.url);
+    const prefix = url.searchParams.get('prefix') || '';
+    const cursor = url.searchParams.get('cursor') || undefined;
+    const limit  = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 1000);
+
+    if (prefix && !canReadPrefix(user, prefix)) {
+      console.error(`${LOG_PREFIX} list forbidden: user ${user?.id} op prefix ${prefix}`);
+      return jsonError('Geen toegang tot dit prefix.', 403, 'PREFIX_FORBIDDEN');
+    }
+
+    try {
+      const result = await listObjects(env, { prefix, cursor, limit });
+      console.log(`${LOG_PREFIX} LIST prefix=${prefix || '/'} count=${result.objects.length} truncated=${result.truncated}`);
+      return jsonOk(result);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} list error:`, err.message);
+      return jsonError('Lijst ophalen mislukt.', 500);
+    }
   },
 
-  'POST /api/assets/upload': async (_context) => {
-    return jsonError('Niet geïmplementeerd (Fase 3)', 501);
+  'POST /api/assets/upload': async (context) => {
+    const { request, env, user } = context;
+
+    if (!hasUploadAccess(user)) {
+      return jsonError('Onvoldoende rechten om te uploaden.', 403, 'FORBIDDEN');
+    }
+
+    // Content-Length pre-check — laad geen body als te groot
+    const contentLength = parseInt(request.headers.get('content-length') || '0', 10);
+    if (contentLength > MAX_UPLOAD_BYTES) {
+      return jsonError(`Bestand te groot. Maximum is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, 413, 'FILE_TOO_LARGE');
+    }
+
+    let formData;
+    try {
+      formData = await request.formData();
+    } catch (_err) {
+      return jsonError('Ongeldige multipart-body.', 400);
+    }
+
+    const file     = formData.get('file');
+    const prefix   = formData.get('prefix') || 'uploads/';
+    const filename = formData.get('filename') || file?.name || 'file';
+
+    if (!file || typeof file.arrayBuffer !== 'function') {
+      return jsonError('Geen bestand ontvangen.', 400);
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return jsonError(`Bestand te groot. Maximum is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`, 413, 'FILE_TOO_LARGE');
+    }
+
+    if (!canWritePrefix(user, prefix)) {
+      return jsonError('Geen schrijfrechten voor dit prefix.', 403, 'PREFIX_FORBIDDEN');
+    }
+
+    const safeFilename      = sanitizeFilename(filename);
+    const normalizedPrefix  = normalizePrefix(prefix);
+    const key               = `${normalizedPrefix}${safeFilename}`;
+
+    if (!validateKey(key)) {
+      return jsonError('Ongeldige bestandssleutel.', 400, 'KEY_INVALID');
+    }
+
+    const detectedMime = file.type || getMimeType(safeFilename);
+    if (!isAllowedMimeType(detectedMime)) {
+      return jsonError(`Bestandstype niet toegestaan: ${detectedMime}`, 415, 'MIME_NOT_ALLOWED');
+    }
+
+    const body = await file.arrayBuffer();
+    const customMetadata = {
+      uploadedBy:   user.id,
+      originalName: file.name || safeFilename,
+      module:       'asset_manager',
+      uploadedAt:   new Date().toISOString(),
+    };
+
+    try {
+      const result = await putObject(env, key, body, { contentType: detectedMime, customMetadata });
+      // Dynamische URL — nooit hardcoded domein
+      const origin    = new URL(request.url).origin;
+      const publicUrl = `${origin}/assets/${key}`;
+      console.log(`${LOG_PREFIX} UPLOAD ${key} — ${result.size} bytes — user ${user.id}`);
+      return jsonOk({ key, url: publicUrl, size: result.size, contentType: detectedMime });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} upload error:`, err.message);
+      return jsonError('Upload mislukt.', 500);
+    }
   },
 
-  'DELETE /api/assets/delete': async (_context) => {
-    return jsonError('Niet geïmplementeerd (Fase 3)', 501);
+  'DELETE /api/assets/delete': async (context) => {
+    const { request, env, user } = context;
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+
+    const { key } = body;
+    if (!key)             return jsonError('key is verplicht.', 400);
+    if (!validateKey(key)) return jsonError('Ongeldige key.', 400, 'KEY_INVALID');
+
+    if (!isAdmin(user)) {
+      const ownPrefix = buildUserPrefix(user.id);
+      if (!isWithinPrefix(key, ownPrefix)) {
+        return jsonError('Geen verwijderrechten voor dit bestand.', 403, 'PREFIX_FORBIDDEN');
+      }
+    }
+
+    try {
+      await deleteObject(env, key);
+      console.log(`${LOG_PREFIX} DELETE ${key} — user ${user?.id}`);
+      return jsonOk({ key });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} delete error:`, err.message);
+      return jsonError('Verwijderen mislukt.', 500);
+    }
   },
 
-  'POST /api/assets/rename': async (_context) => {
-    return jsonError('Niet geïmplementeerd (Fase 3)', 501);
+  'POST /api/assets/rename': async (context) => {
+    const { request, env, user } = context;
+
+    if (!isAdmin(user)) {
+      return jsonError('Alleen admins mogen bestanden hernoemen.', 403, 'FORBIDDEN');
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+
+    const { key, newKey } = body;
+    if (!key || !newKey)   return jsonError('key en newKey zijn verplicht.', 400);
+    if (!validateKey(key))    return jsonError('Ongeldige source key.', 400, 'KEY_INVALID');
+    if (!validateKey(newKey)) return jsonError('Ongeldige target key.', 400, 'KEY_INVALID');
+
+    try {
+      await copyObject(env, key, newKey);
+      await deleteObject(env, key);
+      console.log(`${LOG_PREFIX} RENAME ${key} → ${newKey} — user ${user.id}`);
+      return jsonOk({ oldKey: key, newKey });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} rename error:`, err.message);
+      return jsonError('Hernoemen mislukt.', 500);
+    }
   },
 
-  'POST /api/assets/move': async (_context) => {
-    return jsonError('Niet geïmplementeerd (Fase 3)', 501);
+  'POST /api/assets/move': async (context) => {
+    const { request, env, user } = context;
+
+    if (!isAdmin(user)) {
+      return jsonError('Alleen admins mogen bestanden verplaatsen.', 403, 'FORBIDDEN');
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+
+    const { key, targetPrefix } = body;
+    if (!key || !targetPrefix) return jsonError('key en targetPrefix zijn verplicht.', 400);
+    if (!validateKey(key))     return jsonError('Ongeldige source key.', 400, 'KEY_INVALID');
+
+    const filename = key.split('/').pop();
+    const newKey   = `${normalizePrefix(targetPrefix)}${filename}`;
+
+    if (!validateKey(newKey)) return jsonError('Resulterende target key is ongeldig.', 400, 'KEY_INVALID');
+
+    try {
+      await copyObject(env, key, newKey);
+      await deleteObject(env, key);
+      console.log(`${LOG_PREFIX} MOVE ${key} → ${newKey} — user ${user.id}`);
+      return jsonOk({ oldKey: key, newKey });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} move error:`, err.message);
+      return jsonError('Verplaatsen mislukt.', 500);
+    }
   },
 
 };
