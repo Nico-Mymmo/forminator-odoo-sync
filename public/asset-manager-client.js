@@ -85,7 +85,7 @@
   }
 
   function formatDate(iso) {
-    if (!iso) return 'â€”';
+    if (!iso) return '\u2014';
     try {
       return new Date(iso).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' });
     } catch (_) { return iso; }
@@ -120,6 +120,15 @@
 
   function isOwnKey(key) {
     return key.startsWith('users/' + state.userId + '/');
+  }
+
+  function mimeFromKey(key) {
+    var ext = (key.split('.').pop() || '').toLowerCase();
+    var map = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+                webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif',
+                ico: 'image/x-icon', bmp: 'image/bmp',
+                pdf: 'application/pdf', mp4: 'video/mp4', webm: 'video/webm' };
+    return map[ext] || '';
   }
 
   function isImageMime(mime) {
@@ -243,7 +252,7 @@
     thumb.title = 'Preview';
     thumb.addEventListener('click', function() { openPreviewModal(obj); });
 
-    var mime = obj.contentType || '';
+    var mime = obj.contentType || mimeFromKey(obj.key);
     if (isImageMime(mime)) {
       var img = document.createElement('img');
       img.src = window.location.origin + '/assets/' + obj.key;
@@ -311,7 +320,7 @@
     // Thumbnail
     var tdThumb = document.createElement('td');
     tdThumb.className = 'w-10 pr-0';
-    var mime = obj.contentType || '';
+    var mime = obj.contentType || mimeFromKey(obj.key);
     if (isImageMime(mime)) {
       var img = document.createElement('img');
       img.src = window.location.origin + '/assets/' + obj.key;
@@ -435,7 +444,7 @@
   }
 
   function renderPreviewContent(obj, container) {
-    var mime = obj.contentType || '';
+    var mime = obj.contentType || mimeFromKey(obj.key);
     var url  = window.location.origin + '/assets/' + obj.key;
 
     // Visuele preview
@@ -464,8 +473,8 @@
 
     var metaEl = document.createElement('p');
     metaEl.className = 'text-sm text-base-content/50 mb-5';
-    metaEl.textContent = [mime || 'â€”', formatBytes(obj.size), obj.uploaded ? formatDate(obj.uploaded) : '']
-      .filter(Boolean).join(' Â· ');
+    metaEl.textContent = [mime || '\u2014', formatBytes(obj.size), obj.uploaded ? formatDate(obj.uploaded) : '']
+      .filter(Boolean).join(' \u00B7 ');
     container.appendChild(metaEl);
 
     // URL rij
@@ -560,7 +569,7 @@
         if (data.truncated && data.cursor) {
           activeCursor = data.cursor;
           if (pagination) pagination.style.removeProperty('display');
-          if (paginationInfo) paginationInfo.textContent = allObjects.length + ' geladen â€” meer beschikbaar';
+          if (paginationInfo) paginationInfo.textContent = allObjects.length + ' geladen \u2014 meer beschikbaar';
         } else {
           activeCursor = null;
           if (pagination) pagination.style.setProperty('display', 'none', 'important');
