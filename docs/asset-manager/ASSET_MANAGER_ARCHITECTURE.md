@@ -1,6 +1,6 @@
 # Asset Manager — Architectuur
 
-> **Status:** Fase 0 — Architectuurontwerp  
+> **Status:** Fase 0 — Architectuurontwerp (Iteratie 2)  
 > **Branch:** `assets-manager`  
 > **Datum:** 2026-02-24  
 > **Vorige stap:** [ASSET_MANAGER_ANALYSIS.md](./ASSET_MANAGER_ANALYSIS.md)
@@ -37,25 +37,17 @@ De `asset_manager` module leeft op route `/assets`. De publieke bestandsserving 
 src/modules/asset-manager/
 │
 ├── module.js              ← Module registratie (code, name, route, icon, routes)
-├── routes.js              ← Alle API- en UI-handlers
-├── ui.js                  ← Server-rendered HTML skeleton
+├── routes.js              ← Alle API- en UI-handlers (named export { routes })
+├── ui.js                  ← Server-rendered HTML skeleton ONLY
 │
-├── lib/
-│   ├── r2-client.js       ← R2 abstractielaag (put, get, list, delete, head)
-│   ├── asset-store.js     ← Optioneel: Supabase metadata-laag
-│   ├── mime-types.js      ← MIME-type whitelist + content-type detectie
-│   └── path-utils.js      ← Key-normalisatie, prefix-helpers, veiligheidsvalidatie
-│
-├── components/            ← Server-side HTML component-functies
-│   ├── file-row.js        ← <tr> voor een bestand in de lijst
-│   ├── folder-breadcrumb.js ← Breadcrumb-navigatie voor prefix-pad
-│   └── upload-zone.js     ← Upload-formulier HTML
-│
-└── docs/
-    ├── ASSET_MANAGER_ANALYSIS.md          ← (dit document's voorganger)
-    ├── ASSET_MANAGER_ARCHITECTURE.md      ← dit document
-    └── ASSET_MANAGER_IMPLEMENTATION_PLAN.md
+└── lib/
+    ├── r2-client.js       ← R2 abstractielaag (put, get, list, delete, head)
+    ├── asset-store.js     ← Optioneel (Fase 4+): Supabase metadata-laag
+    ├── mime-types.js      ← MIME-type whitelist + content-type detectie
+    └── path-utils.js      ← Key-normalisatie, prefix-helpers, veiligheidsvalidatie
 ```
+
+**Bewust geen `components/` subfolder:** `ui.js` rendert alleen een minimaal HTML-skelet. Er zijn geen herbruikbare server-side HTML-componenten nodig — alle rendering gebeurt client-side door `asset-manager-client.js`.
 
 Client-side JS (dynamisch gedrag in de browser):
 
@@ -63,6 +55,18 @@ Client-side JS (dynamisch gedrag in de browser):
 public/
 └── asset-manager-client.js   ← Alle browser JS (upload, lijst refresh, kopieer-URL, etc.)
 ```
+
+### 2.1 Patroonkeuze — verantwoording
+
+**Gevolgd:** `mail-signature-designer` + `sales-insight-explorer`
+- `module.js` is minimaal: importeert `routes`, exporteert module-object
+- Routes zitten in `routes.js` als `export const routes = { ... }`
+- `ui.js` heeft precies één exported functie die een HTML-string retourneert
+- `lib/` heeft geïsoleerde, testbare services
+
+**NIET gevolgd:** `project-generator`
+- Routes horen **niet** inline in `module.js` — dat is een historische uitzondering, geen patroon
+- Geen `permissions.js` voor MVP — role-gating zit inline als helper-functies in `routes.js`
 
 ---
 
@@ -345,16 +349,22 @@ Dit bestand draait in de browser. Het is verantwoordelijk voor:
 - Kopieer-URL knop (clipboard API)
 - Verwijder-bevestiging (DaisyUI modal openen)
 - Verwijder request naar `DELETE /assets/api/assets/delete`
-- Rename flow (modal + PATCH request)
+- Rename flow (modal + POST request)
 - User feedback: alert tonen na elke actie
 
-**Geen backticks** voor HTML-generatie in client JS — `createElement` + `textContent` of DaisyUI component-initialisatie via klassen.
+**HTML-generatie in client JS — harde regels:**
+- **Geen template literals** voor HTML-strings (geen `` `<tr>${value}</tr>` ``)
+- Gebruik `document.createElement('tr')` + `element.textContent = value`
+- Strings die uit de server komen worden **nooit** als innerHTML ingezet zonder sanitatie
+- DaisyUI klassen worden gezet via `element.classList.add('badge', 'badge-success')`
+
+Deze regel is hetzelfde als de `mail-signature-designer` regel voor `<script>` blokken, maar dan voor client JS.
 
 ---
 
 ## 10. wrangler.jsonc voorstel (volledig)
 
-Dit is de doelconfiguratie na correcte R2-integratie:
+Dit is de doelconfiguratie na correcte R2-integratie. **Binding naam is `R2_ASSETS`** — niet `ASSETS` (dat is al in gebruik voor static files).
 
 ```jsonc
 {
@@ -365,7 +375,7 @@ Dit is de doelconfiguratie na correcte R2-integratie:
   "compatibility_flags": ["nodejs_compat"],
   "preview_urls": false,
   "observability": {
-    "enabled": true
+    "enabled": true  // wrangler tail werkt hiermee
   },
   "kv_namespaces": [
     {
@@ -373,30 +383,32 @@ Dit is de doelconfiguratie na correcte R2-integratie:
       "id": "04e4118b842b48a58f5777e008931026"
     }
   ],
+  // R2_ASSETS = de R2 bucket binding
+  // ASSETS (hieronder) = de static files binding voor de /public/ map
+  // Dit zijn twee verschillende bindings met twee verschillende namen
   "r2_buckets": [
     {
       "binding": "R2_ASSETS",
-      "bucket_name": "openvme-assets",
-      "preview_bucket_name": "openvme-assets-dev"
+      "bucket_name": "<exacte-bucket-naam-uit-dashboard>"
+      // preview_bucket_name optioneel: gebruik --local voor dev als geen aparte bucket bestaat
     }
   ],
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
-  },
-  // Optioneel: routes voor custom domeinen
+    "binding": "ASSETS"  // dit blijft ongewijzigd
+  }
+  // Custom domain route is OPTIONEEL en geen vereiste voor MVP:
   // "routes": [
   //   { "pattern": "assets.openvme.be/*", "zone_name": "openvme.be" }
   // ]
 }
 ```
 
-**Acties na implementatie:**
-1. Verifieer dat de R2 bucket `openvme-assets` bestaat in Cloudflare Dashboard
-2. Voeg de binding toe in `wrangler.jsonc`
-3. Verwijder de dashboard-binding (of laat wrangler deze overschrijven bij deploy)
-4. Commit + deploy
-5. Verifieer dat de waarschuwing verdwenen is
+**Verificatie na deploy:**
+1. `wrangler deploy` geeft geen enkele binding-waarschuwing (nul tolerantie)
+2. Worker draait correct — alle bestaande modules ongewijzigd
+3. `env.R2_ASSETS` beschikbaar in Worker (valideer via tijdelijke debug-route)
+4. Dashboard toont dezelfde bindings als `wrangler.jsonc`
 
 ---
 
@@ -457,5 +469,17 @@ Browser
 De asset_manager is een **dienende module** — andere modules kunnen ze als opslaglaag gebruiken. De koppeling is losjes: andere modules genereren gewoon een URL en slaan die op.
 
 ---
+
+---
+
+## Changelog
+
+### Iteratie 2 — 2026-02-24
+
+- **Sectie 2:** `components/` subfolder verwijderd uit folderstructuur — skeleton-only aanpak maakt server-side HTML-componenten overbodig
+- **Sectie 2.1:** Expliciete patroonkeuze toegevoegd: `routes.js` patroon gevolgd, project-generator patroon NIET gevolgd, verantwoording gegeven
+- **Sectie 9:** HTML-generatieregels voor client JS formeel vastgelegd: geen template literals, `createElement` + `textContent`, nooit `innerHTML` zonder sanitatie
+- **Sectie 10:** Binding naam `R2_ASSETS` vs `ASSETS` expliciet gedocumenteerd met naamconflict-uitleg; `preview_bucket_name` optioneel gemaakt; nul-tolerantie voor binding-warnings formeel vastgelegd; custom domain als optioneel gemarkeerd
+- **Globaal:** Consistentie check — alle verwijzingen naar de R2 binding gebruiken nu `R2_ASSETS`
 
 *Volgende stap: ASSET_MANAGER_IMPLEMENTATION_PLAN.md — fasering, volgorde, checkpoints*

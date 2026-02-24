@@ -1,6 +1,6 @@
 # Asset Manager — Analyse
 
-> **Status:** Fase 0 — Analyse & Architectuur  
+> **Status:** Fase 0 — Analyse & Architectuur (Iteratie 2)  
 > **Branch:** `assets-manager`  
 > **Datum:** 2026-02-24  
 > **Auteur:** GitHub Copilot (ontwerp), Nico Plinke (opdrachtgever)
@@ -72,7 +72,21 @@ Context die elke handler krijgt: `{ request, env, ctx, user, params }`
 
 **Conclusie:** Het geprefereerde patroon is `module.js` + `routes.js` + `ui.js` + `lib/`. Client-side JS leeft in `/public/`.
 
-### 2.4 Observaties per module
+### 2.4 Expliciete patroonkeuze voor asset_manager
+
+**BESLISSING — gevolgd patroon:** `mail-signature-designer` + `sales-insight-explorer`
+- `module.js` importeert enkel `routes` uit `routes.js` en exporteert het module-object
+- `routes.js` bevat alle API- en UI-handlers als named export `{ routes }`
+- `ui.js` retourneert uitsluitend een HTML-skelet string — geen dynamiek
+- `lib/` bevat geïsoleerde services (r2-client, path-utils, mime-types)
+- `public/asset-manager-client.js` bevat alle browser-side logica
+
+**BESLISSING — NIET gevolgd patroon:** `project-generator`
+- Routes horen **niet** direct in `module.js` — dat patroon is een historische uitzondering
+- Geen `permissions.js` voorlopig — role-gating zit inline in `routes.js`
+- Geen `components/` subfolder — server-side HTML is minimaal (skeleton only)
+
+### 2.5 Observaties per module
 
 **event-operations**
 - Meest complexe module: eigen editorial layer, Odoo client, WP client, state-engine, tag-mapping
@@ -155,6 +169,12 @@ De `mail-signature-designer` heeft expliciete regels die voor de hele codebase g
 - Geen inline business logic in `ui.js` — alleen HTML-skelet
 - Server→client data altijd via `window.__STATE__ = ${JSON.stringify({...})}`
 
+**BESLISSING voor asset_manager:**
+- `ui.js` rendert server-side uitsluitend het HTML-skelet
+- Alle dynamiek (lijst laden, upload, navigatie) zit in `public/asset-manager-client.js`
+- Geen template literals met HTML in `asset-manager-client.js` — DOM-manipulatie via `document.createElement` en `textContent`
+- Dit is een harde architectuurkeuze, geen suggestie
+
 ---
 
 ## 4. API patronen
@@ -233,6 +253,10 @@ Dit betekent dat een **R2 bucket binding** via het Cloudflare Dashboard is toege
 
 **Dit is een infra-inconsistentie.** De config-source-of-truth is gesplitst: deel in `wrangler.jsonc`, deel in het dashboard.
 
+**Doelstelling:** Na de infra-fix mag `wrangler deploy` geen enkele binding-waarschuwing meer produceren. Nul. Dit is een harde eis, geen nice-to-have.
+
+**Branch-strategie:** De infra-fix (toevoegen van R2 binding aan `wrangler.jsonc`) gebeurt op de **`master`-branch**, vóórdat de module-branch `assets-manager` gemerged of geïmplementeerd wordt. De module mag de binding gebruiken, maar mag hem niet introduceren.
+
 ### 5.2 Waarom dashboard-bindings vermeden moeten worden
 
 | Probleem | Gevolg |
@@ -245,7 +269,17 @@ Dit betekent dat een **R2 bucket binding** via het Cloudflare Dashboard is toege
 
 **Principe:** Elke binding die de Worker gebruikt **moet** gedeclareerd zijn in `wrangler.jsonc`. Het Dashboard is alleen voor inzien, niet voor configureren.
 
-### 5.3 Hoe R2 binding correct gedeclareerd wordt
+### 5.3 Bindingsnaam — definitieve keuze
+
+**De binding heet `R2_ASSETS` — overal, altijd, zonder uitzondering.**
+
+Verklaring:
+- `ASSETS` is al in gebruik voor de Cloudflare Static Assets binding (`"binding": "ASSETS"` in de assets-sectie)
+- Om naamconflict te vermijden en de semantiek duidelijk te maken, is `R2_ASSETS` de correcte naam
+- Code die de binding gebruikt: `env.R2_ASSETS.put(...)`, `env.R2_ASSETS.get(...)`, enz.
+- Documentatie, routes.js, r2-client.js en de wrangler.jsonc gebruiken allen `R2_ASSETS`
+
+### 5.3b Hoe R2 binding correct gedeclareerd wordt
 
 In `wrangler.jsonc`, naast de bestaande `kv_namespaces`:
 
@@ -264,16 +298,17 @@ In `wrangler.jsonc`, naast de bestaande `kv_namespaces`:
   ],
   
   // R2 bucket binding — CORRECT GEDECLAREERD IN CONFIG
+  // Binding naam: R2_ASSETS (niet ASSETS — dat is al in gebruik voor static files)
   "r2_buckets": [
     {
-      "binding": "R2_ASSETS",        // naam waarmee env.R2_ASSETS beschikbaar is
-      "bucket_name": "openvme-assets" // naam van de R2 bucket in Cloudflare
+      "binding": "R2_ASSETS",
+      "bucket_name": "<exacte-bucket-naam-uit-dashboard>"
     }
   ],
   
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS"  // dit blijft ongewijzigd
   }
 }
 ```
@@ -289,18 +324,50 @@ Voor lokale ontwikkeling met `wrangler dev`:
 "r2_buckets": [
   {
     "binding": "R2_ASSETS",
-    "bucket_name": "openvme-assets",
-    "preview_bucket_name": "openvme-assets-dev"  // aparte dev bucket
+    "bucket_name": "<bucket-naam>",
+    "preview_bucket_name": "<bucket-naam>-dev"  // aparte dev bucket (aanbevolen)
   }
 ]
 ```
 
 Alternatief — lokale R2 zonder aparte bucket:
 ```bash
-wrangler dev --local  # gebruikt in-memory R2 simulatie
+wrangler dev --local  # gebruikt in-memory R2 simulatie — geen echte bucket nodig
 ```
 
-### 5.5 Hoe toekomstige modules infra-consistent blijven
+**Aanbeveling voor dit project:** gebruik `wrangler dev --local` voor development. Geen aparte dev-bucket vereist tenzij persistentie tussen sessies nodig is.
+
+### 5.5 Migratiestrategie als bucket al data bevat
+
+Als de R2 bucket al bestanden bevat op het moment van de infra-fix:
+
+1. **Niets verandert aan de data** — het toevoegen van de binding aan `wrangler.jsonc` heeft geen effect op de inhoud van de bucket
+2. **Geen data-migratie nodig** — R2 objecten blijven intact tijdens bindings-config-wijzigingen
+3. **Verifieer bestandslijst vóór en na** de infra-deploy via Dashboard → R2 → bucket-bestanden
+4. **Bestaande URLs blijven geldig** — de bucket-naam verandert niet
+
+**Actie:** Noteer het aantal objecten in de bestaande bucket vóór de infra-fix. Controleer na deploy dat dit aantal gelijk is.
+
+### 5.6 Logging en observability
+
+De Worker heeft `observability: { enabled: true }` in `wrangler.jsonc`. Dit schakelt Cloudflare Workers Logpush in.
+
+**`wrangler tail` voor live debugging:**
+```bash
+npx wrangler tail
+```
+Dit streamt live Worker-logs naar de terminal — nuttig voor upload-debugging, R2-foutopsporing en auth-problemen.
+
+**Log prefix conventie:** Alle server-side logs van de asset_manager gebruiken `[asset-manager]` als prefix:
+```
+[asset-manager] PUT uploads/banners/header.jpg — 204KB — user abc123
+[asset-manager] ERROR R2 put failed: key too long
+[asset-manager] DELETE uploads/banners/old.jpg — user abc123
+```
+
+Deze conventie bestaat al in andere modules (`[event-operations]`, `[mail-signature-designer]`) en wordt hier voortgezet.
+
+### 5.7 Hoe toekomstige modules infra-consistent blijven
 
 **Regel:** Elke nieuwe binding (R2, KV, D1, Queue, AI) die een module nodig heeft, wordt **eerst** gedeclareerd in `wrangler.jsonc` vóór implementatie.
 
@@ -313,7 +380,7 @@ Workflow:
 
 **Nooit:** een binding via het Dashboard aanmaken en aannemen dat die beschikbaar blijft.
 
-### 5.6 Hoe meerdere routes/domeinen aan dezelfde Worker gekoppeld worden
+### 5.8 Hoe meerdere routes/domeinen aan dezelfde Worker gekoppeld worden
 
 ```jsonc
 {
@@ -407,19 +474,80 @@ await env.R2_ASSETS.put(key, fileBody, {
 | Verwijderen | admin, of eigenaar van bestand |
 | Hernoemen/verplaatsen | admin |
 
-### 7.2 Public asset-serving
+### 7.1b Prefix-isolatie (formeel)
+
+Prefix-isolatie is de primaire beveiligingslaag voor niet-admin gebruikers.
+
+**Definitie:** Een gebruiker met rol `user` mag uitsluitend lezen en schrijven binnen zijn/haar eigen prefix: `users/{user.id}/`.
+
+**Harde regels:**
+1. De prefix wordt **server-side** berekend op basis van `user.id` — nooit op basis van client-input alleen
+2. Een user-supplied prefix wordt geverifieerd: `isWithinPrefix(suppliedPrefix, buildUserPrefix(user.id))`
+3. Als de check mislukt → 403 Forbidden
+4. Een admin kan elke prefix benaderen — geen prefix-restrictie
+5. Een `asset_manager` rol heeft toegang tot alle `uploads/` prefixen maar niet tot `users/` van anderen of `system/`
+
+**Aanvalsvector die geblokkeerd wordt:** Een kwaadwillende user die `prefix=uploads/banners/` meestuurt in een upload-request om in de verkeerde map te schrijven.
+
+### 7.2 Max upload-groottelimiet
+
+De maximale uploadgrootte wordt als constante gedefinieerd in `routes.js` (bovenaan het bestand, naast andere constanten):
+
+```
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024   // 10 MB standaard
+```
+
+Deze waarde is bewust een named constant zodat hij op één plek aangepast kan worden. Het is geen magic number verspreid door de code.
+
+Bij overschrijding: HTTP 413 met `{ success: false, error: 'Bestand te groot. Maximum is 10 MB.' }`
+
+### 7.3 Rate limiting strategie
+
+Cloudflare Workers hebben geen ingebouwde per-user rate limiting. Voor MVP is dit acceptabel (interne tooling, beperkt aantal gebruikers).
+
+**Future-ready strategie (niet in MVP):**
+- Gebruik KV om upload-counts per user per tijdvenster bij te houden
+- Sleutel: `ratelimit:{userId}:{windowMinute}` → count
+- TTL: 60 seconden
+- Limiet: 20 uploads per minuut per user
+
+**Huidige maatregel (MVP):** max bestandsgrootte + authenticatievereiste zijn voldoende bescherming voor intern gebruik.
+
+### 7.4 Gestandaardiseerde error-structuur
+
+Alle API-fouten gebruiken het zelfde schema:
+
+```
+{
+  success: false,
+  error: string,        // leesbare foutmelding
+  code: string,         // machine-leesbare code (optioneel)
+  status: number        // HTTP status (in de Response, niet in de body)
+}
+```
+
+Voorbeelden van foutcodes:
+- `KEY_INVALID` — key bevat `..` of begint met `/`
+- `PREFIX_FORBIDDEN` — user probeert buiten eigen prefix te schrijven
+- `MIME_NOT_ALLOWED` — bestandstype niet in whitelist
+- `FILE_TOO_LARGE` — groter dan MAX_UPLOAD_BYTES
+- `NOT_FOUND` — R2 object bestaat niet
+- `UNAUTHORIZED` — geen geldige sessie
+- `FORBIDDEN` — geldige sessie maar onvoldoende rol
+
+### 7.5 Public asset-serving
 
 Public assets (`GET /assets/*`) mogen **zonder authenticatie** bereikbaar zijn — dit is noodzakelijk voor het embedden van afbeeldingen in e-mailhandtekeningen en WordPress-pagina's.
 
 **Cruciaal:** de `/assets/*` route mag nooit de Worker-authenticatie loop ingaan. Deze route wordt afgehandeld vóór session-validatie.
 
-### 7.3 Geen directe R2 public-access
+### 7.6 Geen directe R2 public-access
 
 R2 bucket public-access is uitgeschakeld. Alle requests gaan via de Worker, die:
 1. Autoriseert (of doorlaat voor public prefix)
 2. Juiste `Content-Type` headers zet
 3. Cache headers bepaalt
-4. Optioneel signed URLs genereert
+4. Optioneel signed URLs genereert (future)
 
 ---
 
@@ -456,21 +584,37 @@ R2 bucket public-access is uitgeschakeld. Alle requests gaan via de Worker, die:
 ### 9.1 Huidige situatie
 
 De Worker is bereikbaar op:
-- `forminator-sync.workers.dev` (workers.dev subdomain)
+- `forminator-sync.workers.dev` (workers.dev subdomain, automatisch actief)
 - Mogelijk gekoppeld aan `openvme.be` via Cloudflare route
 
-### 9.2 Waarom `assets.openvme.be` beter is
+### 9.2 workers.dev is voldoende voor interne tooling
+
+Dit is een **interne applicatie** — gebruikt door OpenVME-medewerkers, niet door het grote publiek.
 
 | Aspect | `workers.dev` | `assets.openvme.be` |
 |--------|--------------|---------------------|
-| Professioneel | Nee | Ja |
-| Insluitbaar in e-mail img src | Beperkt (spam-filters) | Ja |
-| Cacheable via Cloudflare CDN | Beperkt | Ja (via Cache Rules) |
-| CORS-controle | Ingewikkeld | Volledig beheerbaar |
+| Setup-complexiteit | Nul | Vereist Cloudflare Zone + DNS |
+| Vereist domein bij CF | Nee | Ja |
+| Geschikt voor intern gebruik | Ja | Ja |
+| Geschikt voor e-mail `img src` | Beperkt | Beter |
 | Branded URL | Nee | Ja |
-| Toekomstige CDN-integratie | Moeilijk | Eenvoudig |
+| CDN caching | Beperkt | Volledig |
 
-**Aanbeveling:** Stel `assets.openvme.be` in als route in `wrangler.jsonc`, gekoppeld aan de bestaande Worker. Geen aparte Worker nodig.
+**Beslissing voor MVP:** `workers.dev` is productieklaar voor interne tooling. Een custom domein is optioneel en kan later toegevoegd worden zonder architectuurwijzigingen.
+
+**Wanneer custom domein wel nuttig wordt:**
+- Als asset-URLs worden ingesloten in e-mails die naar externe ontvangers gaan
+- Als assets op een branded URL gepubliceerd worden
+- Als Cloudflare Cache Rules gewenst zijn voor publieke assets
+
+**Hoe custom domein later toe te voegen** (geen blocker voor MVP):
+```jsonc
+// Toe te voegen aan wrangler.jsonc wanneer gewenst:
+"routes": [
+  { "pattern": "assets.openvme.be/*", "zone_name": "openvme.be" }
+]
+```
+Vereist: domein `openvme.be` bij Cloudflare geregistreerd of geproxied.
 
 ### 9.3 Waarom public route gescheiden moet blijven
 
@@ -491,39 +635,102 @@ Implementatievolgorde in `index.js`:
 
 ### 9.4 Deploymentstrategie
 
-- Eén Worker, meerdere routes (`openvme.be/*` + `assets.openvme.be/*`)
-- Beide routes worden gedefinieerd in `wrangler.jsonc`
+- Eén Worker, één codebase, één `wrangler deploy`
 - Geen aparte Worker-deploy voor assets
 - `wrangler.jsonc` is de single source of truth voor alle routes en bindings
+- Custom domein is een optionele toekomstige uitbreiding, geen architecturele vereiste
 
 ---
 
-## 10. Niet-doen lijst
+## 10. Future extensibility
+
+Deze sectie documenteert uitbreidingen die bewust buiten MVP gehouden worden maar architectureel rekening mee gehouden is.
+
+### 10.1 Image resizing hook
+
+R2 heeft geen ingebouwde image-resize. Toekomstige aanpak:
+- Upload origineel naar `uploads/originals/{key}`
+- Cloudflare Images of een externe service transformeert on-demand
+- Cache resultaat in R2 onder `uploads/resized/{width}x{height}/{key}`
+- De `r2-client.js` abstactielaag is zo ontworpen dat dit later toegevoegd kan worden zonder de routes aan te passen
+
+### 10.2 Signed URLs (private assets)
+
+Voor bestanden die niet publiek mogen zijn maar toch deelbaar zijn:
+- Worker genereert een tijdelijk token (in KV opgeslagen, 1 uur TTL)
+- URL: `/assets/signed/{token}/{key}`
+- Worker valideert token, serveert bestand, verwijdert token uit KV
+- Vereiste toevoeging: `GET /assets/signed/:token/:key` route in `index.js`
+
+### 10.3 Metadata-index via Supabase
+
+R2 list ondersteunt geen full-text zoeken of filtering op custom metadata. Toekomstige aanpak:
+- `asset_metadata` tabel in Supabase met kolommen: `key`, `original_name`, `size`, `content_type`, `module`, `uploaded_by`, `uploaded_at`
+- `asset-store.js` in `lib/` schrijft metadata bij elke upload
+- Zoek-endpoints gebruiken Supabase, haal bestand op via R2
+- `r2-client.js` blijft puur R2 — `asset-store.js` is de metadata-laag
+
+### 10.4 CDN caching rules
+
+Na custom domain configuratie:
+- Cloudflare Cache Rules voor `assets.openvme.be/public/*` → Edge cache 1 jaar
+- Cache purge API call na hernoemen/verwijderen van publieke bestanden
+- `Cache-Control: public, max-age=31536000, immutable` op public prefix
+
+### 10.5 Cross-module asset picker API
+
+Andere modules (mail-signature-designer, event-operations) kunnen assets opvragen via een interne pickup-API:
+- `GET /assets/api/assets/list?prefix=uploads/banners/` → lijst met URL's
+- Frontend van andere module toont een modal met asset-kiezer
+- Geselecteerde URL wordt teruggegeven aan de aanroepende module
+- Geen extra Worker-communicatie nodig — gewone fetch tussen client-side JS bestanden
+
+---
+
+## 11. Niet-doen lijst
 
 - ❌ R2 binding via Dashboard configureren (altijd via `wrangler.jsonc`)
 - ❌ Dashboard-state als bron van waarheid gebruiken
+- ❌ Binding `ASSETS` gebruiken voor R2 (gebruik `R2_ASSETS` — `ASSETS` is al in gebruik voor static files)
 - ❌ Publieke R2 bucket-access inschakelen (altijd via Worker)
-- ❌ `wrangler dev` skipping voor testen (altijd testen met lokale binding)
-- ❌ Routes inline in `module.js` definiëren (gebruik `routes.js`)
+- ❌ `wrangler dev` overslaan voor testen (altijd testen met lokale binding)
+- ❌ Routes inline in `module.js` definiëren (gebruik `routes.js` — project-generator patroon NIET volgen)
 - ❌ Backticks in `<script>` blokken van `ui.js`
+- ❌ Template literals voor HTML in `asset-manager-client.js` (gebruik DOM-API)
 - ❌ Business logic in `ui.js` (alleen HTML-skelet)
 - ❌ Eigen CORS-headers op sub-routes (geregeld in `index.js`)
 - ❌ Nieuwe UI-primitieven uitvinden (bestaande components hergebruiken)
 - ❌ Half dashboard / half wrangler situatie laten bestaan
+- ❌ custom domein verplicht stellen voor MVP (workers.dev is voldoende voor interne tooling)
 
 ---
 
-## 11. Open vragen
+## 12. Open vragen
 
-1. **Bucket naam:** Welke naam krijgt de R2 bucket in Cloudflare? (`openvme-assets`? `forminator-assets`?)
-2. **Dev bucket:** Aparte `openvme-assets-dev` bucket voor lokaal testen, of `--local` modus?
-3. **Domein timing:** Wanneer wordt `assets.openvme.be` geconfigureerd? Voor of na MVP?
-4. **Max bestandsgrootte:** Wat is de gewenste uploadlimiet? (R2 ondersteunt objecten tot 5 TB; Workers request body is max 100 MB)
-5. **Bestandstypen whitelist:** Welke MIME-types zijn toegestaan op upload?
-6. **Bestaande bestanden:** Zijn er al bestanden in de R2 bucket die gemigreerd moeten worden?
-7. **Koppeling met mail-signature:** Moeten banners direct vanuit asset_manager inzetbaar zijn in de Signature Designer?
-8. **Supabase metadata:** Bijhouden van asset-metadata in Supabase (voor zoeken/filteren) of alleen R2 custom metadata?
+1. **Bucket naam:** Wat is de exacte naam van de bestaande R2 bucket in Cloudflare Dashboard?
+2. **Bestaande bestanden:** Hoeveel objecten zitten er al in de bucket? Moeten ze bewaard worden?
+3. **Max bestandsgrootte:** Is 10 MB voldoende, of is een hogere limiet gewenst? (default: 10 MB)
+4. **Bestandstypen whitelist:** Zijn de genoemde MIME-types voldoende, of zijn er extra types nodig?
+5. **Koppeling met mail-signature:** Is een asset-picker modal in de Signature Designer gewenst voor MVP, of later?
+6. **Supabase metadata:** Moet zoeken/filteren op metadata aangeboden worden? Zo ja, dan is de Supabase-laag nodig.
+7. **Custom domein timing:** Wanneer wordt `assets.openvme.be` geconfigureerd? Voor of na MVP? (geen blocker)
 
 ---
+
+## Changelog
+
+### Iteratie 2 — 2026-02-24
+
+- **Sectie 2.3/2.4:** Expliciete patroonkeuze toegevoegd — `routes.js` patroon gevolgd, `project-generator` patroon expliciet NIET gevolgd
+- **Sectie 3.5:** Architectuurkeuze formeel vastgelegd: `ui.js` = skeleton only, alle dynamiek in client JS, geen template literals in client
+- **Sectie 5.1:** Duidelijk gemaakt dat infra-fix op `master` branch plaatsvindt vóór module-branch; nul binding-warnings als harde eis
+- **Sectie 5.3:** Bindingsnaam definitief vastgelegd als `R2_ASSETS` (niet `ASSETS`), met verklaring van naamconflict vermijding
+- **Sectie 5.4:** Migratiestrategie toegevoegd voor het geval de bucket al data bevat
+- **Sectie 5.6:** Logging & observability sectie toegevoegd: `wrangler tail`, `[asset-manager]` log prefix conventie
+- **Sectie 7:** Security volledig uitgebreid: prefix-isolatie formeel uitgeschreven, max upload-grootte als named constant, rate limiting strategie, gestandaardiseerde error-structuur met foutcodes
+- **Sectie 9:** Domeinstrategie herzien: `workers.dev` is voldoende voor interne tooling, custom domein is optioneel
+- **Sectie 10:** Nieuwe sectie: Future extensibility (image resizing, signed URLs, Supabase metadata-index, CDN, cross-module asset picker)
+- **Sectie 11:** Niet-doen lijst uitgebreid met `R2_ASSETS` naamregel, DOM-API vereiste voor client JS, project-generator patroon verbod
+- **Sectie 12:** Open vragen vereenvoudigd (domein niet meer urgente vraag)
 
 *Volgende stap: ASSET_MANAGER_ARCHITECTURE.md — module-structuur, component-ontwerp, API-contract*
