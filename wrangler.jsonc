@@ -18,6 +18,16 @@
 			"id": "04e4118b842b48a58f5777e008931026"
 		}
 	],
+	// R2_ASSETS = R2 bucket binding voor de asset_manager module
+	// ASSETS (hieronder) = static files binding voor de /public/ map
+	// Dit zijn twee verschillende bindings met twee verschillende namen — geen conflict
+	"r2_buckets": [
+		{
+			"binding": "R2_ASSETS",
+			"bucket_name": "openvme-assets"
+			// preview_bucket_name optioneel: gebruik --local voor dev
+		}
+	],
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS"
