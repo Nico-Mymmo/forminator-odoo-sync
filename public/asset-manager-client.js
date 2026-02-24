@@ -1,26 +1,34 @@
 /**
  * Asset Manager — Client JS
  *
- * Draait in de browser. Geen server-side code hier.
+ * Draait uitsluitend in de browser. Geen server-side code.
  *
- * Regels (conform architectuur):
+ * Architectuurregels:
  *  - Geen template literals voor HTML-generatie
  *  - DOM-manipulatie via document.createElement + element.textContent
- *  - Strings van de server worden NOOIT als innerHTML ingezet zonder sanitatie
- *  - DaisyUI klassen gezet via element.classList.add(...)
- *  - Geen inline backtick HTML strings
+ *  - Gebruikers-input NOOIT via innerHTML
+ *  - Lucide icon SVG strings (bibliotheekcode) wél via innerHTML toegestaan
+ *  - DaisyUI klassen via classList.add
+ *  - IIFE om global scope niet te vervuilen
+ * @version 2.0.0 — 3-pane layout, folder tree, preview pane, sort, move
  */
 
 (function AssetManagerClient() {
   'use strict';
 
-  // ─── State ─────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // STATE
+  // ══════════════════════════════════════════════════════════════════════════
 
-  var state = window.__ASSET_STATE__ || { userRole: 'user', userId: '', canUpload: false, canAdmin: false };
+  var state       = window.__ASSET_STATE__ || { userRole: 'user', userId: '', canUpload: false, canAdmin: false };
   var activePrefix = '';
   var activeCursor = null;
   var pendingDeleteKey = null;
   var pendingRenameKey = null;
+  var pendingMoveKey   = null;
+  var sortField        = 'name';   // 'name' | 'size' | 'date'
+  var sortAsc          = true;
+  var allObjects       = [];       // cache voor client-side sortering
 
   // ─── DOM refs ──────────────────────────────────────────────────────────────
 
@@ -44,6 +52,23 @@
   var renameModal       = document.getElementById('asset-rename-modal');
   var renameNewKeyInput = document.getElementById('rename-newkey-input');
   var renameConfirmBtn  = document.getElementById('rename-confirm-btn');
+  var moveModal         = document.getElementById('asset-move-modal');
+  var moveFilename      = document.getElementById('move-modal-filename');
+  var movePrefixInput   = document.getElementById('move-prefix-input');
+  var moveConfirmBtn    = document.getElementById('move-confirm-btn');
+  var folderTree        = document.getElementById('folder-tree');
+  var folderRootLink    = document.getElementById('folder-root-link');
+  var previewPane       = document.getElementById('preview-pane');
+  var previewContent    = document.getElementById('preview-content');
+  var previewCloseBtn   = document.getElementById('preview-close-btn');
+  var previewModal      = document.getElementById('preview-modal');
+  var previewModalTitle = document.getElementById('preview-modal-title');
+  var previewModalContent = document.getElementById('preview-modal-content');
+  var assetCount        = document.getElementById('asset-count');
+  var sortNameBtn       = document.getElementById('sort-name-btn');
+  var sortSizeBtn       = document.getElementById('sort-size-btn');
+  var sortDateBtn       = document.getElementById('sort-date-btn');
+  var uploadOverwriteInput = document.getElementById('upload-overwrite-input');
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -166,7 +191,14 @@
 
     // Acties cel
     var tdActions = document.createElement('td');
-    tdActions.className = 'flex gap-1';
+    tdActions.className = 'flex gap-1 justify-end';
+
+    // Selecteer rij voor preview
+    tr.className = 'cursor-pointer hover:bg-base-200';
+    tr.addEventListener('click', function(e) {
+      if (e.target.tagName === 'BUTTON') return; // acties niet triggeren
+      selectFile(obj);
+    });
 
     // Kopieer-URL knop
     var copyBtn = document.createElement('button');
@@ -202,6 +234,18 @@
       tdActions.appendChild(renBtn);
     }
 
+    // Move knop (admin only)
+    if (state.canAdmin) {
+      var moveBtn = document.createElement('button');
+      moveBtn.className = 'btn btn-ghost btn-xs';
+      moveBtn.title = 'Verplaatsen';
+      moveBtn.textContent = 'Verplaats';
+      moveBtn.addEventListener('click', function() {
+        openMoveModal(obj.key);
+      });
+      tdActions.appendChild(moveBtn);
+    }
+
     tr.appendChild(tdName);
     tr.appendChild(tdType);
     tr.appendChild(tdSize);
@@ -235,7 +279,7 @@
     setLoading(true);
     hideAlert();
 
-    var url = '/assets/api/assets/list?limit=50';
+    var url = '/assets/api/assets/list?limit=100';
     if (prefix)  url += '&prefix=' + encodeURIComponent(prefix);
     if (cursor)  url += '&cursor=' + encodeURIComponent(cursor);
 
@@ -248,8 +292,14 @@
           return;
         }
         var data = json.data;
-        renderList(data.objects);
+        allObjects = data.objects || [];
+        buildFolderTree(allObjects);
+        var sorted = sortObjects(allObjects);
+        renderList(sorted);
         renderBreadcrumb(prefix);
+        applySortIcons();
+        if (assetCount) assetCount.textContent = allObjects.length + ' bestand' + (allObjects.length !== 1 ? 'en' : '');
+        hidePreview();
 
         // Paginering
         if (data.truncated && data.cursor) {
@@ -273,6 +323,16 @@
   function switchFolder(prefix) {
     activePrefix = prefix;
     activeCursor = null;
+    // Markeer actieve map in folder tree
+    if (folderRootLink) {
+      folderRootLink.classList.toggle('active', prefix === '');
+    }
+    if (folderTree) {
+      var allLinks = folderTree.querySelectorAll('a[data-prefix]');
+      allLinks.forEach(function(a) {
+        a.classList.toggle('active', a.dataset.prefix === prefix);
+      });
+    }
     loadList(prefix, null);
   }
 
@@ -285,6 +345,8 @@
     var formData = new FormData();
     formData.append('file', file);
     formData.append('prefix', prefix || 'uploads/');
+    var overwrite = uploadOverwriteInput && uploadOverwriteInput.checked ? 'true' : 'false';
+    formData.append('overwrite', overwrite);
 
     fetch('/assets/api/assets/upload', {
       method: 'POST',
@@ -406,9 +468,317 @@
     });
   }
 
+  // ─── Folder tree ──────────────────────────────────────────────────────────
+
+  function buildFolderTree(objects) {
+    if (!folderTree) return;
+    // Haal bestaande gegenereerde items weg (behoud root)
+    var existing = folderTree.querySelectorAll('li[data-generated]');
+    existing.forEach(function(li) { li.remove(); });
+
+    // Verzamel unieke top-level prefixes uit de keys
+    var prefixSet = {};
+    objects.forEach(function(obj) {
+      var parts = obj.key.split('/');
+      if (parts.length > 1) {
+        // Top-level mapnaam
+        var top = parts[0] + '/';
+        prefixSet[top] = prefixSet[top] || {};
+        if (parts.length > 2) {
+          var sub = parts[0] + '/' + parts[1] + '/';
+          prefixSet[top][sub] = true;
+        }
+      }
+    });
+
+    Object.keys(prefixSet).sort().forEach(function(top) {
+      var li = document.createElement('li');
+      li.dataset.generated = '1';
+      var a = document.createElement('a');
+      a.href = '#';
+      a.dataset.prefix = top;
+      a.className = 'gap-2' + (activePrefix === top ? ' active' : '');
+      a.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = top.replace(/\/$/, '');
+      a.appendChild(nameSpan);
+      a.addEventListener('click', function(e) { e.preventDefault(); switchFolder(top); });
+      li.appendChild(a);
+
+      // Submappen
+      var subs = Object.keys(prefixSet[top]).sort();
+      if (subs.length > 0) {
+        var subUl = document.createElement('ul');
+        subs.forEach(function(sub) {
+          var subLi = document.createElement('li');
+          var subA = document.createElement('a');
+          subA.href = '#';
+          subA.dataset.prefix = sub;
+          subA.className = 'gap-2 text-xs' + (activePrefix === sub ? ' active' : '');
+          subA.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+          var subNameSpan = document.createElement('span');
+          var subParts = sub.replace(/\/$/, '').split('/');
+          subNameSpan.textContent = subParts[subParts.length - 1];
+          subA.appendChild(subNameSpan);
+          subA.addEventListener('click', function(e) { e.preventDefault(); switchFolder(sub); });
+          subLi.appendChild(subA);
+          subUl.appendChild(subLi);
+        });
+        li.appendChild(subUl);
+      }
+
+      folderTree.appendChild(li);
+    });
+  }
+
+  // ─── Sortering ────────────────────────────────────────────────────────────
+
+  function sortObjects(objects) {
+    var arr = objects.slice();
+    arr.sort(function(a, b) {
+      var va, vb;
+      if (sortField === 'size') {
+        va = a.size || 0; vb = b.size || 0;
+        return sortAsc ? va - vb : vb - va;
+      } else if (sortField === 'date') {
+        va = a.uploaded ? new Date(a.uploaded).getTime() : 0;
+        vb = b.uploaded ? new Date(b.uploaded).getTime() : 0;
+        return sortAsc ? va - vb : vb - va;
+      } else {
+        va = (a.key || '').toLowerCase();
+        vb = (b.key || '').toLowerCase();
+        return sortAsc ? (va < vb ? -1 : va > vb ? 1 : 0) : (vb < va ? -1 : vb > va ? 1 : 0);
+      }
+    });
+    return arr;
+  }
+
+  function setSort(field) {
+    if (sortField === field) {
+      sortAsc = !sortAsc;
+    } else {
+      sortField = field;
+      sortAsc = true;
+    }
+    applySortIcons();
+    renderList(sortObjects(allObjects));
+    filterList(searchInput ? searchInput.value : '');
+  }
+
+  function applySortIcons() {
+    var icons = { name: sortNameBtn, size: sortSizeBtn, date: sortDateBtn };
+    var fields = ['name', 'size', 'date'];
+    fields.forEach(function(f) {
+      var btn = icons[f];
+      if (!btn) return;
+      var iconSpan = btn.querySelector('span');
+      if (!iconSpan) return;
+      if (sortField === f) {
+        iconSpan.textContent = sortAsc ? ' ↑' : ' ↓';
+      } else {
+        iconSpan.textContent = '';
+      }
+    });
+  }
+
+  // ─── Preview ──────────────────────────────────────────────────────────────
+
+  var selectedKey = null;
+
+  function selectFile(obj) {
+    selectedKey = obj.key;
+    // Highlight rij
+    if (listBody) {
+      var rows = listBody.querySelectorAll('tr');
+      rows.forEach(function(tr) {
+        tr.classList.toggle('bg-primary/10', tr.dataset.key === obj.key);
+      });
+    }
+    // Desktop: toon preview pane
+    var isDesktop = window.innerWidth >= 1024;
+    if (isDesktop) {
+      showPreview(obj);
+    } else {
+      showPreviewModal(obj);
+    }
+  }
+
+  function showPreview(obj) {
+    if (!previewPane) return;
+    previewPane.style.display = 'flex';
+    renderPreviewCard(obj, previewContent);
+  }
+
+  function hidePreview() {
+    selectedKey = null;
+    if (previewPane) previewPane.style.display = 'none';
+    if (previewContent) {
+      previewContent.textContent = '';
+      var placeholder = document.createElement('div');
+      placeholder.className = 'flex flex-col items-center justify-center h-full text-base-content/30 gap-3';
+      placeholder.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg><span class="text-sm">Selecteer een bestand</span>';
+      previewContent.appendChild(placeholder);
+    }
+  }
+
+  function showPreviewModal(obj) {
+    if (!previewModal) return;
+    if (previewModalTitle) previewModalTitle.textContent = obj.key;
+    if (previewModalContent) renderPreviewCard(obj, previewModalContent);
+    if (previewModal.showModal) previewModal.showModal();
+  }
+
+  function isImageMime(mime) {
+    return mime && (mime.indexOf('image/') === 0 || mime === 'image/svg+xml');
+  }
+
+  function renderPreviewCard(obj, container) {
+    container.textContent = '';
+    var mime = obj.contentType || '';
+    var url  = window.location.origin + '/assets/' + obj.key;
+
+    // Image preview
+    if (isImageMime(mime)) {
+      var imgWrap = document.createElement('div');
+      imgWrap.className = 'flex items-center justify-center bg-base-200 rounded-lg mb-3 overflow-hidden';
+      imgWrap.style.maxHeight = '220px';
+      var img = document.createElement('img');
+      img.src = url;
+      img.alt = basename(obj.key);
+      img.style.maxWidth = '100%';
+      img.style.maxHeight = '220px';
+      img.style.objectFit = 'contain';
+      imgWrap.appendChild(img);
+      container.appendChild(imgWrap);
+    } else {
+      // File icon placeholder
+      var iconWrap = document.createElement('div');
+      iconWrap.className = 'flex items-center justify-center bg-base-200 rounded-lg mb-3 py-8';
+      iconWrap.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" class="opacity-30"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+      container.appendChild(iconWrap);
+    }
+
+    // Bestandsnaam
+    var nameEl = document.createElement('p');
+    nameEl.className = 'font-medium text-sm mb-1 break-all';
+    nameEl.textContent = basename(obj.key);
+    container.appendChild(nameEl);
+
+    // Metadata
+    var metaEl = document.createElement('p');
+    metaEl.className = 'text-xs text-base-content/50 mb-3';
+    metaEl.textContent = (mime || '—') + ' · ' + formatBytes(obj.size) + (obj.uploaded ? ' · ' + formatDate(obj.uploaded) : '');
+    container.appendChild(metaEl);
+
+    // URL kopiëren
+    var urlLabel = document.createElement('div');
+    urlLabel.className = 'label';
+    var urlLabelSpan = document.createElement('span');
+    urlLabelSpan.className = 'label-text text-xs';
+    urlLabelSpan.textContent = 'URL';
+    urlLabel.appendChild(urlLabelSpan);
+    container.appendChild(urlLabel);
+
+    var urlRow = document.createElement('div');
+    urlRow.className = 'flex gap-1 mb-3';
+    var urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    urlInput.readOnly = true;
+    urlInput.value = url;
+    urlInput.className = 'input input-xs input-bordered flex-1 font-mono text-xs';
+    var copyUrlBtn = document.createElement('button');
+    copyUrlBtn.className = 'btn btn-xs btn-ghost';
+    copyUrlBtn.textContent = 'Kopieer';
+    copyUrlBtn.addEventListener('click', function() { copyUrl(obj.key); });
+    urlRow.appendChild(urlInput);
+    urlRow.appendChild(copyUrlBtn);
+    container.appendChild(urlRow);
+
+    // Acties
+    var actRow = document.createElement('div');
+    actRow.className = 'flex flex-wrap gap-1';
+
+    if (state.canAdmin || isOwnKey(obj.key)) {
+      var del2Btn = document.createElement('button');
+      del2Btn.className = 'btn btn-xs btn-error btn-outline';
+      del2Btn.textContent = 'Verwijder';
+      del2Btn.addEventListener('click', function() { openDeleteModal(obj.key); });
+      actRow.appendChild(del2Btn);
+    }
+    if (state.canAdmin) {
+      var ren2Btn = document.createElement('button');
+      ren2Btn.className = 'btn btn-xs btn-outline';
+      ren2Btn.textContent = 'Hernoem';
+      ren2Btn.addEventListener('click', function() { openRenameModal(obj.key); });
+      actRow.appendChild(ren2Btn);
+
+      var mov2Btn = document.createElement('button');
+      mov2Btn.className = 'btn btn-xs btn-outline';
+      mov2Btn.textContent = 'Verplaats';
+      mov2Btn.addEventListener('click', function() { openMoveModal(obj.key); });
+      actRow.appendChild(mov2Btn);
+    }
+    container.appendChild(actRow);
+  }
+
+  // ─── Move ─────────────────────────────────────────────────────────────────
+
+  function openMoveModal(key) {
+    pendingMoveKey = key;
+    if (moveFilename) moveFilename.textContent = key;
+    if (movePrefixInput) movePrefixInput.value = activePrefix || 'uploads/';
+    if (moveModal && moveModal.showModal) moveModal.showModal();
+  }
+
+  function confirmMove() {
+    if (!pendingMoveKey) return;
+    var key    = pendingMoveKey;
+    var target = movePrefixInput ? movePrefixInput.value.trim() : '';
+    pendingMoveKey = null;
+    if (moveModal && moveModal.close) moveModal.close();
+
+    if (!target) return;
+
+    fetch('/assets/api/assets/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key, targetPrefix: target }),
+    })
+      .then(function(res) { return res.json(); })
+      .then(function(json) {
+        if (!json.success) {
+          showAlert(json.error || 'Verplaatsen mislukt.', 'error');
+          return;
+        }
+        showAlert('Verplaatst naar: ' + json.data.newKey, 'success');
+        loadList(activePrefix, null);
+      })
+      .catch(function(err) {
+        showAlert('Move fout: ' + err.message, 'error');
+      });
+  }
+
   // ─── Event listeners ──────────────────────────────────────────────────────
 
   function bindEvents() {
+    // Folder root link
+    if (folderRootLink) {
+      folderRootLink.addEventListener('click', function(e) {
+        e.preventDefault();
+        switchFolder('');
+      });
+    }
+
+    // Preview sluiten
+    if (previewCloseBtn) {
+      previewCloseBtn.addEventListener('click', hidePreview);
+    }
+
+    // Sortering
+    if (sortNameBtn) sortNameBtn.addEventListener('click', function() { setSort('name'); });
+    if (sortSizeBtn) sortSizeBtn.addEventListener('click', function() { setSort('size'); });
+    if (sortDateBtn) sortDateBtn.addEventListener('click', function() { setSort('date'); });
+
     // Upload knop
     if (uploadBtn) {
       uploadBtn.addEventListener('click', function() {
@@ -439,6 +809,11 @@
     // Rename bevestigen
     if (renameConfirmBtn) {
       renameConfirmBtn.addEventListener('click', confirmRename);
+    }
+
+    // Move bevestigen
+    if (moveConfirmBtn) {
+      moveConfirmBtn.addEventListener('click', confirmMove);
     }
 
     // Paginering
