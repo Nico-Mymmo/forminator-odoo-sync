@@ -317,24 +317,21 @@ In `wrangler.jsonc`, naast de bestaande `kv_namespaces`:
 
 ### 5.4 Development workflow en R2-runtime
 
-`npm run dev` draait via `wrangler dev --remote`. De Worker draait op de Cloudflare edge en gebruikt de **echte `openvme-assets` bucket** — geen lokale runtime, geen R2 mock.
+`npm run dev` draait via `wrangler dev` met `"remote": true` op de R2- en KV-bindings in `wrangler.jsonc`. De echte `openvme-assets` bucket is actief in zowel dev als productie.
 
 ```bash
-# Development — Cloudflare edge, echte R2
-npm run dev        # = wrangler dev --remote
-
-# Productie-deploy
-npm run deploy
+npm run dev     # wrangler dev — echte R2 via remote binding
+npm run deploy  # wrangler deploy — productie
 ```
 
 **Altijd gebruiken:**
-- ✅ `wrangler dev --remote`
+- ✅ `wrangler dev` met `remote: true` in binding-config
 - ✅ `wrangler deploy`
 
 **Nooit gebruiken:**
-- ❌ `wrangler dev` (zonder `--remote` — R2 gedrag is onbepaald)
-- ❌ `wrangler dev --local` (in-memory R2 mock — data verdwijnt bij stop)
-- ❌ `preview_bucket_name` toevoegen (introduceert divergente storage state)
+- ❌ `wrangler dev --remote` (dwingt preview-buckets af voor àlle bindings)
+- ❌ `wrangler dev --local` (negeert `remote: true`, activeert in-memory R2 mock)
+- ❌ `preview_bucket_name` toevoegen
 
 Zie ook: `ASSET_MANAGER_ARCHITECTURE.md` → sectie *Development Runtime Model*.
 
@@ -781,7 +778,7 @@ Andere modules (mail-signature-designer, event-operations) kunnen assets opvrage
 - ❌ Dashboard-state als bron van waarheid gebruiken
 - ❌ Binding `ASSETS` gebruiken voor R2 (gebruik `R2_ASSETS` — `ASSETS` is al in gebruik voor static files)
 - ❌ Publieke R2 bucket-access inschakelen (altijd via Worker)
-- ❌ `wrangler dev` gebruiken zonder `--remote` (R2 gedrag is onbepaald — altijd `wrangler dev --remote`)
+- ❌ `wrangler dev --remote` gebruiken (dwingt preview-buckets af — gebruik `wrangler dev` met `remote: true` per binding)
 - ❌ Routes inline in `module.js` definiëren (gebruik `routes.js` — project-generator patroon NIET volgen)
 - ❌ Backticks in `<script>` blokken van `ui.js`
 - ❌ Template literals voor HTML in `asset-manager-client.js` (gebruik DOM-API)

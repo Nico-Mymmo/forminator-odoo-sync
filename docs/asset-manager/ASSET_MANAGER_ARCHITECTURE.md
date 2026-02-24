@@ -493,44 +493,50 @@ De asset_manager is een **dienende module** — andere modules kunnen ze als ops
 
 ## Development Runtime Model
 
-`npm run dev` draait via `wrangler dev --remote`. De Worker-code wordt uitgevoerd op de **Cloudflare edge**, niet in een lokale runtime. R2 binding verwijst naar de echte `openvme-assets` productie-bucket.
+`npm run dev` draait via `wrangler dev` met **remote bindings**. De KV- en R2-bindings hebben `"remote": true` in `wrangler.jsonc`, waardoor ze altijd de echte Cloudflare-resources gebruiken — ook tijdens lokale ontwikkeling.
 
-| Aspect | `wrangler dev --remote` | `wrangler deploy` |
-|--------|-------------------------|-------------------|
-| Uitvoering | Cloudflare edge | Cloudflare edge |
-| URL | `http://localhost:8787` (tunnel) | workers.dev URL |
-| R2 bucket | `openvme-assets` (echt) | `openvme-assets` (echt) |
-| Binding | `R2_ASSETS` | `R2_ASSETS` |
+| Aspect | `wrangler dev` (remote bindings) | `wrangler deploy` |
+|--------|-----------------------------------|--------------------|
+| Worker runtime | Lokale Miniflare | Cloudflare edge |
+| R2 bucket | `openvme-assets` (echt, remote) | `openvme-assets` (echt) |
+| KV namespace | `MAPPINGS_KV` (echt, remote) | `MAPPINGS_KV` (echt) |
+| Binding config | `remote: true` per binding | productie binding |
 | R2 mock | ❌ Geen | ❌ Geen |
 | Preview bucket | ❌ Geen | ❌ Geen |
 | Code-verschil | Geen | Geen |
 
-**Consequentie:** Uploads tijdens `npm run dev` raken de productiebucket. Dit is bewust — de app is een interne tool zonder omgevingsscheiding.
-
-**Altijd gebruiken:**
-- ✅ `wrangler dev --remote` — edge runtime, echte R2
-- ✅ `wrangler deploy` — productie-deploy
-
-**Nooit gebruiken:**
-- ❌ `wrangler dev` — zonder `--remote` activeert Miniflare lokaal; R2 gedrag is onbepaald
-- ❌ `wrangler dev --local` — activeert in-memory R2 mock; data gaat verloren bij stop
-- ❌ `preview_bucket_name` in `wrangler.jsonc` — introduceert divergente storage state
-- ❌ Aparte dev/staging bucket
+**Hoe dit werkt:**
 
 ```jsonc
-// wrangler.jsonc — geen preview_bucket_name, geen local-simulatie
+// wrangler.jsonc
+"kv_namespaces": [
+  { "binding": "MAPPINGS_KV", "id": "...", "remote": true }
+],
 "r2_buckets": [
-  {
-    "binding": "R2_ASSETS",
-    "bucket_name": "openvme-assets"
-  }
+  { "binding": "R2_ASSETS", "bucket_name": "openvme-assets", "remote": true }
 ]
 ```
 
+`remote: true` is de nieuwe Wrangler-aanpak ter vervanging van `wrangler dev --remote`. Met `--remote` worden álle bindings remote gerouteerd en zijn preview-buckets verplicht. Met `remote: true` per binding kies je exact welke resources echt zijn, zonder preview-bucket-eis.
+
+**Consequentie:** Uploads tijdens `npm run dev` raken de productiebucket. Dit is bewust — de app is een interne tool zonder omgevingsscheiding.
+
+**Altijd gebruiken:**
+- ✅ `wrangler dev` — lokale runtime met remote bindings via `remote: true` in config
+- ✅ `wrangler deploy` — productie-deploy
+
+**Nooit gebruiken:**
+- ❌ `wrangler dev --remote` — verouderde aanpak, dwingt preview-buckets af voor àlle bindings
+- ❌ `wrangler dev --local` — negeert `remote: true`, activeert in-memory R2 mock
+- ❌ `preview_bucket_name` toevoegen — niet nodig, introduceert divergente state
+- ❌ Aparte dev/staging bucket
+
 ```bash
 # Development
-npm run dev        # wrangler dev --remote — Cloudflare edge, echte R2
-npm run deploy     # wrangler deploy — productie
+npm run dev     # wrangler dev — Miniflare lokaal + echte R2/KV via remote bindings
+
+# Productie
+npm run deploy  # wrangler deploy
 
 # Test URL (dev)
 http://localhost:8787/assets

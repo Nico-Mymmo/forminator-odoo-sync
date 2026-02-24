@@ -15,7 +15,8 @@
 	"kv_namespaces": [
 		{
 			"binding": "MAPPINGS_KV",
-			"id": "04e4118b842b48a58f5777e008931026"
+			"id": "04e4118b842b48a58f5777e008931026",
+			"remote": true
 		}
 	],
 	// R2_ASSETS = R2 bucket binding voor de asset_manager module
@@ -24,9 +25,10 @@
 	"r2_buckets": [
 		{
 			"binding": "R2_ASSETS",
-			"bucket_name": "openvme-assets"
-			// Geen preview_bucket_name — zowel wrangler dev als wrangler deploy
-			// gebruiken dezelfde echte bucket. Geen lokale R2 mock.
+			"bucket_name": "openvme-assets",
+			"remote": true
+			// remote: true = echte bucket in zowel wrangler dev als wrangler deploy
+			// Geen preview_bucket_name — geen aparte dev-bucket
 		}
 	],
 	"assets": {
