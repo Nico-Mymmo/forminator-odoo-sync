@@ -157,6 +157,21 @@ function bindEventDelegation() {
       if (typeof window.publishWebinar === 'function') {
         await window.publishWebinar(webinarId, null, status);
       }
+    } else if (action === 'set-video-url') {
+      if (webinarId && typeof window.recapHandleSetVideoUrl === 'function') {
+        await window.recapHandleSetVideoUrl(webinarId);
+      }
+    } else if (action === 'trigger-thumb-upload') {
+      const fi = document.getElementById('recap-thumb-file');
+      if (fi) fi.click();
+    } else if (action === 'save-recap-html') {
+      if (webinarId && typeof window.recapHandleSaveHtml === 'function') {
+        await window.recapHandleSaveHtml(webinarId);
+      }
+    } else if (action === 'send-recap') {
+      if (webinarId && typeof window.recapOpenConfirmModal === 'function') {
+        window.recapOpenConfirmModal(webinarId);
+      }
     }
   });
 
@@ -235,6 +250,11 @@ function updatePanel(webinar, snapshot, regCount) {
   // Re-initialize Lucide icons
   if (typeof lucide !== 'undefined' && lucide.createIcons) {
     lucide.createIcons();
+  }
+
+  // Initialize recap section (async, non-blocking)
+  if (typeof window.initRecapSection === 'function') {
+    window.initRecapSection(webinar.id, webinar);
   }
 }
 
@@ -364,6 +384,99 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
         </div>
         <form method="dialog" class="modal-backdrop"><button>close</button></form>
       </dialog>
+
+      <!-- ── Webinar Recap ── -->
+      <div class="pt-4 border-t border-base-200 space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold text-sm flex items-center gap-2">
+            <i data-lucide="video" class="w-4 h-4 text-primary"></i>
+            Webinar Recap
+          </h3>
+          <span id="recap-loading-indicator" class="loading loading-spinner loading-xs hidden"></span>
+        </div>
+
+        <!-- Video URL -->
+        <div>
+          <label class="label py-0 pb-1">
+            <span class="label-text text-xs font-medium">Video URL</span>
+          </label>
+          <div class="flex gap-1">
+            <input
+              id="recap-video-url"
+              type="url"
+              class="input input-bordered input-xs flex-1 font-mono text-xs min-w-0"
+              placeholder="https://youtu.be/... of vimeo.com/..."
+            >
+            <button
+              data-action="set-video-url"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-xs btn-primary shrink-0"
+              title="URL verwerken en thumbnail ophalen"
+            >
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            </button>
+          </div>
+          <div id="recap-url-alert" class="hidden mt-1 text-xs"></div>
+        </div>
+
+        <!-- Thumbnail -->
+        <div>
+          <label class="label py-0 pb-1">
+            <span class="label-text text-xs font-medium">Thumbnail</span>
+          </label>
+          <div
+            id="recap-thumb-container"
+            class="rounded-lg overflow-hidden bg-base-200 flex items-center justify-center mb-2"
+            style="aspect-ratio:16/9;"
+          >
+            <i data-lucide="image" class="w-8 h-8 text-base-content/30"></i>
+          </div>
+          <input id="recap-thumb-file" type="file" accept="image/*" class="hidden">
+          <button
+            data-action="trigger-thumb-upload"
+            data-webinar-id="${webinar.id}"
+            class="btn btn-xs btn-outline w-full gap-1"
+          >
+            <i data-lucide="upload" class="w-3 h-3"></i> Upload eigen thumbnail
+          </button>
+          <div id="recap-thumb-alert" class="hidden mt-1 text-xs"></div>
+        </div>
+
+        <!-- Recap HTML Editor -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="label-text text-xs font-medium">Recap HTML</span>
+            <button
+              data-action="save-recap-html"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-xs btn-outline btn-primary gap-1"
+            >
+              <i data-lucide="save" class="w-3 h-3"></i> Opslaan
+            </button>
+          </div>
+          <div
+            id="recap-html-editor"
+            class="rounded-lg border border-base-content/20 bg-base-100 text-sm overflow-hidden"
+            style="min-height:140px;"
+          ></div>
+          <div id="recap-html-alert" class="hidden mt-1 text-xs"></div>
+        </div>
+
+        <!-- Recap Ready Status -->
+        <div id="recap-ready-status"></div>
+
+        <!-- Send Recap Button -->
+        <button
+          id="recap-send-btn"
+          data-action="send-recap"
+          data-webinar-id="${webinar.id}"
+          class="btn btn-sm btn-success w-full gap-1"
+          disabled
+        >
+          <i data-lucide="send" class="w-4 h-4"></i>
+          Verstuur Recap
+        </button>
+      </div>
     </div>
   `;
 }

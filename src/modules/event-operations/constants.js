@@ -48,6 +48,11 @@ export const ODOO_FIELDS = {
   ACTIVE: 'x_active',
   EVENT_TYPE_ID: 'x_webinar_event_type_id',
   TAG_IDS: 'x_studio_tag_ids',
+  // Recap fields
+  VIDEO_URL: 'x_studio_vimeo_url',
+  THUMBNAIL_URL: 'x_studio_vimeo_thumbnail_url',
+  FOLLOWUP_HTML: 'x_studio_followup_html',
+  RECAP_MAIL_SENT: 'x_studio_recap_mail_sent',
   // Registration fields
   LINKED_WEBINAR: 'x_studio_linked_webinar',
   REGISTERED_BY: 'x_studio_registered_by',
@@ -78,8 +83,20 @@ export const ROUTES = {
   API_ARCHIVE: '/api/archive',
   API_EVENT_TYPE_TAG_MAPPINGS: '/api/event-type-tag-mappings',
   API_ODOO_EVENT_TYPES: '/api/odoo-event-types',
-  API_WP_EVENT_CATEGORIES: '/api/wp-event-categories'
+  API_WP_EVENT_CATEGORIES: '/api/wp-event-categories',
+  // Recap routes
+  API_WEBINAR_RECAP: '/api/webinar/:id/recap',
+  API_WEBINAR_VIDEO_URL: '/api/webinar/:id/video-url',
+  API_WEBINAR_THUMBNAIL: '/api/webinar/:id/thumbnail',
+  API_WEBINAR_RECAP_HTML: '/api/webinar/:id/recap-html',
+  API_WEBINAR_SEND_RECAP: '/api/webinar/:id/send-recap'
 };
+
+/**
+ * Base URL for public asset serving.
+ * Override via env.BASE_ASSET_URL in wrangler.jsonc for custom domains.
+ */
+export const BASE_ASSET_URL = 'https://forminator-sync.openvme-odoo.workers.dev';
 
 // Timezone
 export const TIMEZONE = 'Europe/Brussels';

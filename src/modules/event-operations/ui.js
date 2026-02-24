@@ -567,6 +567,39 @@ export function eventOperationsUI(user) {
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 
+    <!-- Send Recap Confirmation Modal -->
+    <dialog id="sendRecapModal" class="modal">
+      <div class="modal-box max-w-md">
+        <h3 class="font-bold text-lg mb-3 flex items-center gap-2">
+          <i data-lucide="send" class="w-5 h-5 text-primary"></i>
+          Recap versturen
+        </h3>
+        <p class="text-sm text-base-content/70 mb-2">
+          Je staat op het punt de recap e-mail te versturen naar alle geregistreerde deelnemers
+          voor webinar <strong id="sendRecapWebinarName" class="text-base-content"></strong>.
+        </p>
+        <div class="alert alert-warning text-sm mb-4">
+          <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+          <span>Dit kan <strong>niet ongedaan gemaakt</strong> worden. Elke deelnemer ontvangt hoogstens één recap e-mail.</span>
+        </div>
+        <div id="sendRecapStatus" class="hidden"></div>
+        <div class="modal-action">
+          <form method="dialog">
+            <button class="btn btn-ghost btn-sm" id="sendRecapCancelBtn">Annuleren</button>
+          </form>
+          <button
+            id="sendRecapConfirmBtn"
+            class="btn btn-primary btn-sm gap-1"
+            data-action="confirm-send-recap"
+          >
+            <i data-lucide="send" class="w-4 h-4"></i>
+            Ja, verstuur recap
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
     <!-- Event Type Mapping Modal -->
     <dialog id="eventTypeMappingModal" class="modal">
       <div class="modal-box max-w-4xl">
