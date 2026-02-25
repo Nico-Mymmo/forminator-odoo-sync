@@ -28,6 +28,8 @@ import {
 let panelInitialized = false;
 let emptyStateEl = null;
 let contentEl = null;
+let descriptionQuillEditor = null;
+let descriptionQuillController = null;
 
 const REGISTRATIONS_PER_PAGE = 25;
 const registrationsCacheByWebinar = new Map();
@@ -176,6 +178,14 @@ function bindEventDelegation() {
       if (webinarId && typeof window.recapOpenConfirmModal === 'function') {
         window.recapOpenConfirmModal(webinarId);
       }
+    } else if (action === 'save-description') {
+      if (webinarId) {
+        await saveDescriptionInline(webinarId);
+      }
+    } else if (action === 'save-title-override') {
+      if (webinarId) {
+        await saveTitleOverride(webinarId);
+      }
     }
   });
 
@@ -256,6 +266,8 @@ function updatePanel(webinar, snapshot, regCount) {
     lucide.createIcons();
   }
 
+  initializeInlineDescriptionEditor(webinar.id, webinar.x_studio_webinar_info || '', isArchived);
+
   // Initialize recap section (async, non-blocking)
   if (typeof window.initRecapSection === 'function') {
     window.initRecapSection(webinar.id, webinar);
@@ -270,13 +282,39 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
   const eventTypeName = getEventTypeName(webinar);
   const formattedDate = formatEventDateTime(webinar);
   const registrationStatsBadges = renderRegistrationStatsBadges(snapshot?.registration_stats);
+  const effectiveTitle = snapshot?.title_override || webinar.x_name || 'Untitled Event';
 
   return `
     <div class="space-y-4">
       <!-- Title + Status -->
       <div>
-        <h3 class="text-lg font-semibold mb-1">${escapeHtml(webinar.x_name || 'Untitled Event')}</h3>
+        <h3 class="text-lg font-semibold mb-1" data-role="event-title">${escapeHtml(effectiveTitle)}</h3>
         ${statusBadge}
+
+        <div class="mt-2 space-y-1">
+          <label class="label py-0 pb-1">
+            <span class="label-text text-xs font-medium">Titel override</span>
+          </label>
+          <div class="flex items-center gap-2">
+            <input
+              id="title-override-input"
+              type="text"
+              class="input input-bordered input-sm flex-1"
+              placeholder="${escapeHtml(webinar.x_name || 'Webinar titel')}"
+              value="${escapeHtml(snapshot?.title_override || '')}"
+              ${isArchived ? 'disabled' : ''}
+            >
+            <button
+              data-action="save-title-override"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-sm btn-outline btn-primary"
+              ${isArchived ? 'disabled' : ''}
+            >
+              <i data-lucide="save" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <p class="text-xs text-base-content/60">Leeg laten = standaard Odoo titel gebruiken</p>
+        </div>
       </div>
 
       <!-- Metadata -->
@@ -290,19 +328,26 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
 
       ${registrationStatsBadges}
 
+      <!-- ── Beschrijving (inline, geen modal) ── -->
+      <details class="pt-4 border-t border-base-200">
+        <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
+          <span class="flex items-center gap-2">
+            <i data-lucide="file-text" class="w-4 h-4 text-primary"></i>
+            Beschrijving
+          </span>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-base-content/60"></i>
+        </summary>
+        <div class="space-y-2">
+          <div
+            id="description-inline-editor"
+            class="text-sm"
+            style="min-height:220px;"
+          ></div>
+        </div>
+      </details>
+
       <!-- Actions -->
       <div class="space-y-2">
-        <!-- Edit Description -->
-        <button 
-          data-action="edit" 
-          data-webinar-id="${webinar.id}"
-          class="btn btn-sm btn-outline w-full"
-          ${isArchived ? 'disabled' : ''}
-        >
-          <i data-lucide="edit-3" class="w-4 h-4"></i>
-          Beschrijving bewerken
-        </button>
-
         <!-- Publish Dropdown -->
         <div class="dropdown dropdown-end w-full">
           <button 
@@ -396,7 +441,10 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
             <i data-lucide="video" class="w-4 h-4 text-primary"></i>
             Webinar Recap
           </span>
-          <span id="recap-loading-indicator" class="loading loading-spinner loading-xs hidden"></span>
+          <span class="flex items-center gap-2">
+            <span id="recap-loading-indicator" class="loading loading-spinner loading-xs hidden"></span>
+            <i data-lucide="chevron-down" class="w-4 h-4 text-base-content/60"></i>
+          </span>
         </summary>
         <div class="space-y-3">
 
@@ -457,15 +505,8 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
 
         <!-- Recap HTML Editor -->
         <div>
-          <div class="flex items-center justify-between mb-1">
+          <div class="mb-1">
             <span class="label-text text-xs font-medium">Recap HTML</span>
-            <button
-              data-action="save-recap-html"
-              data-webinar-id="${webinar.id}"
-              class="btn btn-xs btn-outline btn-primary gap-1"
-            >
-              <i data-lucide="save" class="w-3 h-3"></i> Opslaan
-            </button>
           </div>
           <div
             id="recap-html-editor"
@@ -493,6 +534,39 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
       </details>
     </div>
   `;
+}
+
+function initializeInlineDescriptionEditor(webinarId, initialHtml, readOnly = false) {
+  const editorEl = document.getElementById('description-inline-editor');
+  if (!editorEl) return;
+
+  descriptionQuillEditor = null;
+  descriptionQuillController = null;
+
+  if (typeof Quill === 'undefined' || !window.EOQuill || typeof window.EOQuill.create !== 'function') {
+    editorEl.innerHTML = '<div class="p-3 text-sm text-base-content/70">Editor kon niet geladen worden.</div>';
+    return;
+  }
+
+  descriptionQuillController = window.EOQuill.create({
+    target: editorEl,
+    initialHtml,
+    readOnly,
+    placeholder: 'Voer beschrijving in...',
+    toolbar: [
+      [{ header: [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline'],
+      [{ list: 'ordered' }, { list: 'bullet' }],
+      [{ align: [] }],
+      ['link']
+    ],
+    onSave: async () => {
+      await saveDescriptionInline(webinarId);
+    },
+    saveTooltip: 'Beschrijving opslaan'
+  });
+
+  descriptionQuillEditor = descriptionQuillController?.quill || null;
 }
 
 function renderRegistrationStatsBadges(registrationStats) {
@@ -526,6 +600,108 @@ function renderRegistrationStatsBadges(registrationStats) {
     </div>
   `;
 }
+
+async function saveDescriptionInline(webinarId) {
+  const descriptionRaw = descriptionQuillController ? descriptionQuillController.getHTML() : '';
+  const normalized = String(descriptionRaw || '').trim();
+  const description = normalized === '<p><br></p>' ? '' : descriptionRaw;
+
+  try {
+    const response = await fetch(`/events/api/odoo-webinars/${webinarId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ x_studio_webinar_info: description })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(errBody || 'Failed to save description');
+    }
+
+    const webinar = getWebinar(webinarId);
+    if (webinar) {
+      webinar.x_studio_webinar_info = description;
+    }
+
+    const editorialResponse = await fetch(`/events/api/editorial/${webinarId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        editorialMode: 'use_odoo_plain',
+        editorialContent: null
+      })
+    });
+
+    if (!editorialResponse.ok) {
+      const errBody = await editorialResponse.text();
+      throw new Error(errBody || 'Failed to switch editorial mode');
+    }
+
+    const snapshot = getSnapshot(webinarId);
+    if (snapshot) {
+      snapshot.editorial_mode = 'use_odoo_plain';
+      snapshot.editorial_content = null;
+    }
+
+    if (descriptionQuillController) {
+      descriptionQuillController.markSaved();
+    }
+
+    if (typeof window.showNotification === 'function') {
+      window.showNotification('Beschrijving opgeslagen', 'success');
+    }
+  } catch (error) {
+    console.error('[DetailPanel] Save description failed:', error);
+    if (typeof window.showNotification === 'function') {
+      window.showNotification('Fout bij opslaan beschrijving', 'error');
+    }
+  }
+}
+
+async function saveTitleOverride(webinarId) {
+  const inputEl = document.getElementById('title-override-input');
+  if (!inputEl) return;
+
+  const value = (inputEl.value || '').trim();
+  const titleOverride = value === '' ? null : value;
+
+  try {
+    const response = await fetch(`/events/api/editorial/${webinarId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ titleOverride })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(errBody || 'Failed to save title override');
+    }
+
+    const snapshot = getSnapshot(webinarId);
+    if (snapshot) {
+      snapshot.title_override = titleOverride;
+    }
+
+    const webinar = getWebinar(webinarId);
+    const titleEl = contentEl?.querySelector('[data-role="event-title"]');
+    if (titleEl) {
+      titleEl.textContent = titleOverride || webinar?.x_name || 'Untitled Event';
+    }
+
+    if (typeof window.showNotification === 'function') {
+      window.showNotification('Titel opgeslagen', 'success');
+    }
+  } catch (error) {
+    console.error('[DetailPanel] Save title override failed:', error);
+    if (typeof window.showNotification === 'function') {
+      window.showNotification('Fout bij opslaan titel', 'error');
+    }
+  }
+}
+
 async function openRegistrationsModal(webinarId) {
   const modal = document.getElementById(`registrations-modal-${webinarId}`);
   if (!modal) return;

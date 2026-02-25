@@ -10,6 +10,7 @@
 
 let calendarInstance = null; // Global calendar instance
 let recapQuillEditor = null; // Global Quill instance for recap HTML editor
+let recapQuillController = null;
 
 /**
  * Initialize FullCalendar with webinar data
@@ -496,24 +497,24 @@ async function initRecapSection(webinarId, webinarHint) {
 
     // ── Quill editor ──
     const editorEl = document.getElementById('recap-html-editor');
-    if (editorEl && typeof Quill !== 'undefined') {
-      // Quill v2: use delta or HTML
-      recapQuillEditor = new Quill(editorEl, {
-        theme: 'snow',
+    if (editorEl && window.EOQuill && typeof window.EOQuill.create === 'function') {
+      recapQuillController = window.EOQuill.create({
+        target: editorEl,
+        initialHtml: followup_html || '',
+        readOnly: false,
         placeholder: 'Schrijf hier de recap HTML...',
-        modules: {
-          toolbar: [
-            [{ 'header': [2, 3, 4, false] }],
-            ['bold', 'italic', 'underline', 'strike'],
-            [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-            ['link'],
-            ['clean']
-          ]
-        }
+        toolbar: [
+          [{ 'header': [2, 3, 4, false] }],
+          ['bold', 'italic', 'underline'],
+          [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+          ['link']
+        ],
+        onSave: async () => {
+          await recapHandleSaveHtml(webinarId);
+        },
+        saveTooltip: 'Recap HTML opslaan'
       });
-      if (followup_html) {
-        recapQuillEditor.root.innerHTML = followup_html;
-      }
+      recapQuillEditor = recapQuillController?.quill || null;
     }
 
     // ── Recap Ready status ──
@@ -725,7 +726,9 @@ async function recapHandleSaveHtml(webinarId) {
   const alertEl = document.getElementById('recap-html-alert');
   const loading = document.getElementById('recap-loading-indicator');
 
-  const html = recapQuillEditor ? recapQuillEditor.root.innerHTML : '';
+  const html = recapQuillController
+    ? recapQuillController.getHTML()
+    : (recapQuillEditor ? recapQuillEditor.root.innerHTML : '');
 
   if (loading) loading.classList.remove('hidden');
 
@@ -739,6 +742,9 @@ async function recapHandleSaveHtml(webinarId) {
     if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
 
     recapShowAlert(alertEl, 'HTML opgeslagen ✓', 'success');
+    if (recapQuillController) {
+      recapQuillController.markSaved();
+    }
     await recapRefreshReadyStatus(webinarId);
 
   } catch (err) {

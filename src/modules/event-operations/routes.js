@@ -994,7 +994,7 @@ export const routes = {
       
       const { data: snapshot, error } = await supabase
         .from('webinar_snapshots')
-        .select('editorial_content, editorial_mode, selected_form_id')
+        .select('editorial_content, editorial_mode, selected_form_id, title_override')
         .eq('odoo_webinar_id', odooWebinarId)
         .single();
       
@@ -1005,6 +1005,7 @@ export const routes = {
       const editorialContent = snapshot?.editorial_content || null;
       const editorialMode = snapshot?.editorial_mode || 'never_edited';
       const selectedFormId = snapshot?.selected_form_id || null;
+      const titleOverride = snapshot?.title_override || null;
       
       console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Editorial data retrieved: mode=${editorialMode}, formId=${selectedFormId}`);
       
@@ -1012,7 +1013,8 @@ export const routes = {
         success: true,
         data: editorialContent,
         editorialMode: editorialMode,
-        selectedFormId: selectedFormId
+        selectedFormId: selectedFormId,
+        titleOverride: titleOverride
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
@@ -1322,7 +1324,7 @@ export const routes = {
       }
       
       const body = await request.json();
-      const { editorialContent, editorialMode, selectedFormId } = body;
+      const { editorialContent, editorialMode, selectedFormId, titleOverride } = body;
       
       // Validate editorial content structure
       const validation = validateEditorialContent(editorialContent);
@@ -1367,6 +1369,11 @@ export const routes = {
       }
       if (selectedFormId !== undefined) {
         updateData.selected_form_id = selectedFormId;
+      }
+      if (titleOverride !== undefined) {
+        updateData.title_override = (typeof titleOverride === 'string' && titleOverride.trim() !== '')
+          ? titleOverride.trim()
+          : null;
       }
       
       // Update fields

@@ -31,6 +31,7 @@ import {
 import { refreshCalendar } from './calendar-controller.js';
 
 let editorInstance = null;
+let editorController = null;
 let currentWebinarId = null;
 let editorModal = null;
 
@@ -50,12 +51,6 @@ export function initializeEditorModal() {
   const closeBtn = document.getElementById('close-editor-btn');
   if (closeBtn) {
     closeBtn.addEventListener('click', closeEditor);
-  }
-
-  // Bind save button
-  const saveBtn = document.getElementById('save-editor-btn');
-  if (saveBtn) {
-    saveBtn.addEventListener('click', saveDescription);
   }
 
   // Bind reset button
@@ -127,10 +122,6 @@ function createEditorModal() {
           Reset naar Odoo
         </button>
         <button id="close-editor-btn" class="btn btn-ghost">Annuleren</button>
-        <button id="save-editor-btn" class="btn btn-primary">
-          <i data-lucide="save" class="w-4 h-4"></i>
-          Opslaan
-        </button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
@@ -197,6 +188,7 @@ export async function openEditor(webinarId) {
 function closeEditor() {
   // Quill instance will be garbage collected, no need to manually destroy
   editorInstance = null;
+  editorController = null;
 
   if (editorModal) {
     editorModal.close();
@@ -245,34 +237,30 @@ function initializeQuill(content) {
     return;
   }
 
-  // Remove any existing Quill toolbar (sibling inserted before container)
-  const existingToolbar = editorContainer.previousElementSibling;
-  if (existingToolbar && existingToolbar.classList.contains('ql-toolbar')) {
-    existingToolbar.remove();
+  if (!window.EOQuill || typeof window.EOQuill.create !== 'function') {
+    console.error('[EditorController] EOQuill component not available');
+    return;
   }
-  // Also remove any extra toolbars that may have accumulated
-  editorContainer.parentElement.querySelectorAll('.ql-toolbar').forEach(tb => tb.remove());
 
-  // Clear container and reset Quill wrapper class
-  editorContainer.innerHTML = '';
-  editorContainer.className = '';
-  editorContainer.setAttribute('style', 'height: 400px; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem;');
-
-  // Initialize Quill.js
-  editorInstance = new Quill('#editorial-editor', {
-    theme: 'snow',
+  editorController = window.EOQuill.create({
+    target: editorContainer,
+    initialHtml: '',
+    readOnly: false,
     placeholder: 'Voer beschrijving in...',
-    modules: {
-      toolbar: [
-        [{ 'header': [1, 2, 3, false] }],
-        ['bold', 'italic', 'underline', 'strike'],
-        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-        [{ 'align': [] }],
-        ['link', 'image'],
-        ['clean']
-      ]
-    }
+    toolbar: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'align': [] }],
+      ['link', 'image']
+    ],
+    onSave: async () => {
+      await saveDescription();
+    },
+    saveTooltip: 'Beschrijving opslaan'
   });
+
+  editorInstance = editorController?.quill || null;
 
   // Set initial content (guard against non-string values)
   let htmlContent = content || '';
@@ -288,7 +276,11 @@ function initializeQuill(content) {
       htmlContent = '';
     }
   }
-  editorInstance.root.innerHTML = htmlContent;
+  if (editorController) {
+    editorController.setHTML(htmlContent, true);
+  } else {
+    editorInstance.root.innerHTML = htmlContent;
+  }
 }
 
 /**
@@ -297,16 +289,13 @@ function initializeQuill(content) {
 async function saveDescription() {
   if (!editorInstance || !currentWebinarId) return;
 
-  const newDescription = editorInstance.root.innerHTML;
+  const newDescription = editorController
+    ? editorController.getHTML()
+    : editorInstance.root.innerHTML;
   const webinar = getWebinar(currentWebinarId);
   const canonicalDescription = webinar?.x_studio_webinar_info || '';
 
   try {
-    // Show loading state
-    const saveBtn = document.getElementById('save-editor-btn');
-    saveBtn.disabled = true;
-    saveBtn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Opslaan...';
-
     // Determine if this is an override or canonical update
     const isOverride = newDescription !== canonicalDescription;
     console.log('[EditorController] Save start:', { webinarId: currentWebinarId, isOverride, descLength: newDescription.length });
@@ -346,21 +335,17 @@ async function saveDescription() {
       showNotification('Beschrijving opgeslagen', 'success');
     }
 
+    if (editorController) {
+      editorController.markSaved();
+    }
+
   } catch (error) {
     console.error('[EditorController] Save failed:', error);
     
     if (typeof showNotification === 'function') {
       showNotification('Fout bij opslaan', 'error');
     }
-  } finally {
-    // Always restore save button state
-    const saveBtn = document.getElementById('save-editor-btn');
-    if (saveBtn) {
-      saveBtn.disabled = false;
-      saveBtn.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i> Opslaan';
-      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [saveBtn] });
-    }
-  }
+  } finally {}
 }
 
 /**

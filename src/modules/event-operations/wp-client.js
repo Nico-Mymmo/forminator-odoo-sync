@@ -11,6 +11,17 @@ import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { getEventTypeTagMappingByEventTypeId } from './tag-mapping.js';
 import { buildEditorialDescription } from './editorial.js';
 
+function toSlug(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
 function resolveOdooEventTypeId(odooWebinar) {
   const relation = odooWebinar.x_webinar_event_type_id;
 
@@ -159,7 +170,7 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   
   const { data: existingSnapshot } = await supabase
     .from('webinar_snapshots')
-    .select('wp_event_id, editorial_mode, selected_form_id, editorial_content, wp_snapshot')
+    .select('wp_event_id, editorial_mode, selected_form_id, editorial_content, title_override, wp_snapshot')
     .eq('odoo_webinar_id', odooWebinarId)
     .single();
   
@@ -184,6 +195,7 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   const editorialMode = existingSnapshot?.editorial_mode || 'never_edited';
   const selectedFormId = existingSnapshot?.selected_form_id || null;
   const editorialContent = existingSnapshot?.editorial_content || null;
+  const titleOverride = (existingSnapshot?.title_override || '').trim();
 
   let descriptionHtml = '';
   let editorialModeToSave = editorialMode;
@@ -225,6 +237,15 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   if (selectedFormIdToSave) {
     const formShortcode = `\n\n[forminator_form id="${selectedFormIdToSave}"]`;
     descriptionHtml += formShortcode;
+  }
+
+  // Title override from snapshot (if configured)
+  if (titleOverride) {
+    wpPayload.title = titleOverride;
+    const slug = toSlug(titleOverride);
+    if (slug) {
+      wpPayload.slug = slug;
+    }
   }
 
   // Tribe API requires non-empty description (fallback to space if empty)
@@ -302,7 +323,16 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   let wpEventData; // Store API response for snapshot
   
   console.log(`${LOG_PREFIX} 📤 Publish odoo=${odooWebinarId} status=${status} wpEventId=${wpEventId || 'CREATE'}`);
-  console.log(`${LOG_PREFIX} 📤 WP payload:`, JSON.stringify({ title: wpPayload.title, status: wpPayload.status, start_date: wpPayload.start_date, wp_tag_id: mapping.wp_tag_id, wp_category_slug: mapping.wp_tag_slug, editorial_mode: editorialModeToSave }));
+  console.log(`${LOG_PREFIX} 📤 WP payload:`, JSON.stringify({
+    title: wpPayload.title,
+    slug: wpPayload.slug,
+    status: wpPayload.status,
+    start_date: wpPayload.start_date,
+    description_len: (wpPayload.description || '').length,
+    wp_tag_id: mapping.wp_tag_id,
+    wp_category_slug: mapping.wp_tag_slug,
+    editorial_mode: editorialModeToSave
+  }));
   
   if (wpEventId) {
     // UPDATE existing WordPress event

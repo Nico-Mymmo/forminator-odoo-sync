@@ -73,6 +73,7 @@ export function eventOperationsUI(user) {
     <!-- Quill.js WYSIWYG Editor (Editorial Layer - Addendum D) -->
     <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
+    <script src="/quill-editor-component.js"></script>
     <style>
       /* FullCalendar Minimal DaisyUI Integration (Month View Only) */
       
@@ -344,6 +345,7 @@ export function eventOperationsUI(user) {
         border-color: oklch(var(--er) / 0.3) !important;
         color: oklch(var(--bc)) !important;
       }
+
     </style>
 </head>
 <body class="bg-base-200">
@@ -464,8 +466,8 @@ export function eventOperationsUI(user) {
           <!-- Calendar Workspace (Addendum D) -->
           <div id="calendarWorkspace">
             <div class="grid grid-cols-12 gap-6">
-              <!-- Calendar Container (8/12) -->
-              <div class="col-span-12 lg:col-span-8">
+              <!-- Calendar Container (7/12) -->
+              <div class="col-span-12 lg:col-span-7">
                 <div class="card bg-base-100 shadow-xl">
                   <div class="card-body p-4 overflow-hidden rounded-box relative min-h-[34rem]">
                     <div id="calendarLoadingState" class="absolute inset-4 z-10 p-3 space-y-3 bg-transparent">
@@ -513,7 +515,7 @@ export function eventOperationsUI(user) {
               </div>
               
               <!-- Detail Panel (4/12) -->
-              <div class="col-span-12 lg:col-span-4">
+              <div class="col-span-12 lg:col-span-5">
                 <div class="card bg-base-100 shadow-xl sticky top-4 overflow-visible">
                   <div class="card-body">
                     <!-- Empty State -->
@@ -796,7 +798,6 @@ export function eventOperationsUI(user) {
       
       import { initializeCalendar, refreshCalendar } from '/calendar-controller.js';
       import { initializeDetailPanel, clearRegistrationsCache } from '/detail-panel-controller.js';
-      import { initializeEditorModal } from '/editor-controller.js';
       
       // ── Theme Management ──
       function changeTheme(theme) {
@@ -1437,7 +1438,6 @@ export function eventOperationsUI(user) {
       // ── Initialize Controllers ──
       initTheme();
       initializeDetailPanel();
-      initializeEditorModal();
 
       // ── Listen for mapping changes (from legacy client) ──
       window.addEventListener('mappings-changed', async () => {
