@@ -8,6 +8,7 @@ import { searchRead, executeKw, write } from '../../lib/odoo.js';
 import { ODOO_MODEL, ODOO_FIELDS } from './constants.js';
 
 let cachedEventTypeFieldName = null;
+let cachedRecapTemplateFieldName = null;
 
 function resolveRecapTemplateId(env) {
   const candidates = [
@@ -23,6 +24,83 @@ function resolveRecapTemplateId(env) {
   }
 
   return 0;
+}
+
+async function resolveRecapTemplateFieldName(env) {
+  if (cachedRecapTemplateFieldName) {
+    return cachedRecapTemplateFieldName;
+  }
+
+  const fieldsInfo = await executeKw(env, {
+    model: ODOO_MODEL.WEBINAR,
+    method: 'fields_get',
+    args: [],
+    kwargs: { attributes: ['type', 'relation'] }
+  });
+
+  const preferredCandidates = [
+    'x_studio_recap_template_id',
+    'x_studio_recap_mail_template_id',
+    'x_recap_template_id',
+    'recap_template_id'
+  ];
+
+  for (const fieldName of preferredCandidates) {
+    const field = fieldsInfo?.[fieldName];
+    if (field?.type === 'many2one' && field?.relation === 'mail.template') {
+      cachedRecapTemplateFieldName = fieldName;
+      return cachedRecapTemplateFieldName;
+    }
+  }
+
+  for (const [fieldName, field] of Object.entries(fieldsInfo || {})) {
+    if (field?.type !== 'many2one' || field?.relation !== 'mail.template') {
+      continue;
+    }
+
+    const normalized = String(fieldName || '').toLowerCase();
+    if (normalized.includes('recap') && normalized.includes('template')) {
+      cachedRecapTemplateFieldName = fieldName;
+      return cachedRecapTemplateFieldName;
+    }
+  }
+
+  return null;
+}
+
+export async function ensureWebinarRecapTemplate(env, webinarId) {
+  const recapTemplateId = resolveRecapTemplateId(env);
+  if (!Number.isInteger(recapTemplateId) || recapTemplateId <= 0) {
+    return { ensured: false, reason: 'missing_template_id' };
+  }
+
+  const recapTemplateField = await resolveRecapTemplateFieldName(env);
+  if (!recapTemplateField) {
+    return { ensured: false, reason: 'missing_template_field' };
+  }
+
+  const rows = await executeKw(env, {
+    model: ODOO_MODEL.WEBINAR,
+    method: 'read',
+    args: [[webinarId]],
+    kwargs: { fields: [recapTemplateField] }
+  });
+
+  const webinar = Array.isArray(rows) ? rows[0] : null;
+  const currentValue = webinar?.[recapTemplateField];
+  const currentId = Array.isArray(currentValue) ? Number(currentValue[0]) : Number(currentValue);
+
+  if (Number.isInteger(currentId) && currentId > 0) {
+    return { ensured: true, field: recapTemplateField, template_id: currentId, changed: false };
+  }
+
+  await write(env, {
+    model: ODOO_MODEL.WEBINAR,
+    ids: [webinarId],
+    values: { [recapTemplateField]: recapTemplateId }
+  });
+
+  return { ensured: true, field: recapTemplateField, template_id: recapTemplateId, changed: true };
 }
 
 /**
