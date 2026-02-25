@@ -30,6 +30,7 @@ let emptyStateEl = null;
 let contentEl = null;
 let descriptionQuillEditor = null;
 let descriptionQuillController = null;
+let descriptionFormsCache = null;
 
 const REGISTRATIONS_PER_PAGE = 25;
 const registrationsCacheByWebinar = new Map();
@@ -182,14 +183,53 @@ function bindEventDelegation() {
       if (webinarId) {
         await saveDescriptionInline(webinarId);
       }
-    } else if (action === 'save-title-override') {
+    } else if (action === 'toggle-title-edit') {
       if (webinarId) {
-        await saveTitleOverride(webinarId);
+        const isEditing = actionBtn.dataset.editing === 'true';
+        if (isEditing) {
+          await persistTitleOverride(webinarId);
+          deactivateTitleEditor();
+        } else {
+          activateTitleEditor(webinarId);
+        }
       }
     }
   });
 
+  contentEl.addEventListener('keydown', async (e) => {
+    const input = e.target.closest('#title-edit-input');
+    if (!input || input.disabled) return;
+
+    const webinarId = parseInt(input.dataset.webinarId || '0', 10);
+    if (!webinarId) return;
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      await persistTitleOverride(webinarId);
+      deactivateTitleEditor();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      restoreTitleEditorValue(webinarId);
+      deactivateTitleEditor();
+    }
+  });
+
+  contentEl.addEventListener('toggle', (e) => {
+    const detailsEl = e.target.closest('details[data-expander]');
+    if (!detailsEl) return;
+    syncExpanderChevron(detailsEl);
+  });
+
   contentEl.addEventListener('change', async (e) => {
+    const formPicker = e.target.closest('#description-form-picker');
+    if (formPicker) {
+      const webinarId = parseInt(formPicker.dataset.webinarId || '0', 10);
+      if (webinarId) {
+        await saveDescriptionSelectedForm(webinarId, formPicker.value || null);
+      }
+      return;
+    }
+
     const checkbox = e.target.closest('input[data-action="toggle-attendance"]');
     if (!checkbox || checkbox.disabled) {
       return;
@@ -267,6 +307,8 @@ function updatePanel(webinar, snapshot, regCount) {
   }
 
   initializeInlineDescriptionEditor(webinar.id, webinar.x_studio_webinar_info || '', isArchived);
+  initializeDescriptionFormPicker(webinar.id, snapshot?.selected_form_id || null, isArchived);
+  syncExpanderChevrons();
 
   // Initialize recap section (async, non-blocking)
   if (typeof window.initRecapSection === 'function') {
@@ -282,60 +324,75 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
   const eventTypeName = getEventTypeName(webinar);
   const formattedDate = formatEventDateTime(webinar);
   const registrationStatsBadges = renderRegistrationStatsBadges(snapshot?.registration_stats);
+  const odooTitle = webinar.x_name || 'Untitled Event';
+  const overrideTitle = snapshot?.title_override || '';
   const effectiveTitle = snapshot?.title_override || webinar.x_name || 'Untitled Event';
 
   return `
     <div class="space-y-4">
       <!-- Title + Status -->
       <div>
-        <h3 class="text-lg font-semibold mb-1" data-role="event-title">${escapeHtml(effectiveTitle)}</h3>
-        ${statusBadge}
-
-        <div class="mt-2 space-y-1">
-          <label class="label py-0 pb-1">
-            <span class="label-text text-xs font-medium">Titel override</span>
-          </label>
-          <div class="flex items-center gap-2">
+        <div class="flex items-start justify-between gap-2 mb-2">
+          <div class="flex-1 min-w-0">
+            <h3
+              class="text-lg font-semibold leading-tight"
+              data-role="event-title"
+              data-odoo-title="${escapeHtml(odooTitle)}"
+              data-override-title="${escapeHtml(overrideTitle)}"
+            >${escapeHtml(effectiveTitle)}</h3>
             <input
-              id="title-override-input"
+              id="title-edit-input"
               type="text"
-              class="input input-bordered input-sm flex-1"
-              placeholder="${escapeHtml(webinar.x_name || 'Webinar titel')}"
-              value="${escapeHtml(snapshot?.title_override || '')}"
-              ${isArchived ? 'disabled' : ''}
-            >
-            <button
-              data-action="save-title-override"
+              class="w-full hidden bg-transparent border-0 border-b border-base-content/25 rounded-none px-0 py-0 text-lg font-semibold leading-tight focus:outline-none focus:border-primary"
+              value="${escapeHtml(effectiveTitle)}"
               data-webinar-id="${webinar.id}"
-              class="btn btn-sm btn-outline btn-primary"
               ${isArchived ? 'disabled' : ''}
             >
-              <i data-lucide="save" class="w-4 h-4"></i>
-            </button>
           </div>
-          <p class="text-xs text-base-content/60">Leeg laten = standaard Odoo titel gebruiken</p>
+          <button
+            data-action="toggle-title-edit"
+            data-webinar-id="${webinar.id}"
+            data-editing="false"
+            class="btn btn-xs btn-ghost btn-circle"
+            title="Titel bewerken"
+            aria-label="Titel bewerken"
+            ${isArchived ? 'disabled' : ''}
+          >
+            <i data-role="title-toggle-icon" data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+          </button>
         </div>
       </div>
 
-      <!-- Metadata -->
-      <div class="space-y-2 text-sm">
-        ${renderMetaRow('calendar', 'Datum', formattedDate)}
-        ${renderMetaRow('clock', 'Duur', `${webinar.x_studio_event_duration_minutes || 0} minuten`)}
-        ${renderMetaRow('users', 'Inschrijvingen', `<button class="btn btn-ghost btn-xs px-2" data-action="open-registrations-modal" data-webinar-id="${webinar.id}">${regCount} bekijken</button>`)}
-        ${renderMetaRow('tag', 'Event Type', eventTypeName)}
-        ${wpPostId ? renderMetaRow('external-link', 'WordPress', `<a href="${snapshot.wp_snapshot?.url || '#'}" target="_blank" class="link link-primary">Bekijk post (#${wpPostId})</a>`) : ''}
-      </div>
-
-      ${registrationStatsBadges}
+      <!-- Info (default open) -->
+      <details class="pt-2 border-t border-base-200" data-expander open>
+        <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
+          <span class="flex items-center gap-2">
+            <i data-lucide="info" class="w-4 h-4 text-primary"></i>
+            Info
+          </span>
+          <i data-role="expander-chevron" data-lucide="chevron-down" class="w-4 h-4 text-base-content/60 transition-transform duration-200"></i>
+        </summary>
+        <div class="space-y-3">
+          ${statusBadge}
+          <div class="space-y-2 text-sm">
+            ${renderMetaRow('calendar', 'Datum', formattedDate)}
+            ${renderMetaRow('clock', 'Duur', `${webinar.x_studio_event_duration_minutes || 0} minuten`)}
+            ${renderMetaRow('users', 'Inschrijvingen', `<button class="btn btn-ghost btn-xs px-2" data-action="open-registrations-modal" data-webinar-id="${webinar.id}">${regCount} bekijken</button>`)}
+            ${renderMetaRow('tag', 'Event Type', eventTypeName)}
+            ${wpPostId ? renderMetaRow('external-link', 'WordPress', `<a href="${snapshot.wp_snapshot?.url || '#'}" target="_blank" class="link link-primary">Bekijk post (#${wpPostId})</a>`) : ''}
+          </div>
+          ${registrationStatsBadges}
+        </div>
+      </details>
 
       <!-- ── Beschrijving (inline, geen modal) ── -->
-      <details class="pt-4 border-t border-base-200">
+      <details class="pt-4 border-t border-base-200" data-expander>
         <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
           <span class="flex items-center gap-2">
             <i data-lucide="file-text" class="w-4 h-4 text-primary"></i>
             Beschrijving
           </span>
-          <i data-lucide="chevron-down" class="w-4 h-4 text-base-content/60"></i>
+          <i data-role="expander-chevron" data-lucide="chevron-down" class="w-4 h-4 text-base-content/60 transition-transform duration-200"></i>
         </summary>
         <div class="space-y-2">
           <div
@@ -343,44 +400,21 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
             class="text-sm"
             style="min-height:220px;"
           ></div>
+          <div class="pt-1">
+            <label class="label py-0 pb-1">
+              <span class="label-text text-xs font-medium">Inschrijfformulier</span>
+            </label>
+            <select
+              id="description-form-picker"
+              data-webinar-id="${webinar.id}"
+              class="select select-bordered select-sm w-full"
+              ${isArchived ? 'disabled' : ''}
+            >
+              <option value="">Geen formulier</option>
+            </select>
+          </div>
         </div>
       </details>
-
-      <!-- Actions -->
-      <div class="space-y-2">
-        <!-- Publish Dropdown -->
-        <div class="dropdown dropdown-end w-full">
-          <button 
-            class="btn btn-sm btn-primary w-full" 
-            tabindex="0"
-            ${isArchived || !hasMapping ? 'disabled' : ''}
-          >
-            <i data-lucide="upload" class="w-4 h-4"></i>
-            Publiceren naar WordPress
-            <i data-lucide="chevron-down" class="w-4 h-4"></i>
-          </button>
-          <ul tabindex="0" class="dropdown-content menu bg-base-200 rounded-box z-10 w-full p-2 shadow">
-            <li>
-              <a data-action="publish" data-webinar-id="${webinar.id}" data-status="publish">
-                <i data-lucide="check-circle" class="w-4 h-4"></i>
-                Publiceren
-              </a>
-            </li>
-            <li>
-              <a data-action="publish" data-webinar-id="${webinar.id}" data-status="draft">
-                <i data-lucide="file-text" class="w-4 h-4"></i>
-                Concept
-              </a>
-            </li>
-            <li>
-              <a data-action="publish" data-webinar-id="${webinar.id}" data-status="private">
-                <i data-lucide="lock" class="w-4 h-4"></i>
-                Privé
-              </a>
-            </li>
-          </ul>
-        </div>
-      </div>
 
       <dialog id="registrations-modal-${webinar.id}" class="modal">
         <div class="modal-box max-w-6xl w-11/12">
@@ -435,7 +469,7 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
       </dialog>
 
       <!-- ── Webinar Recap ── -->
-      <details class="pt-4 border-t border-base-200">
+      <details class="pt-4 border-t border-base-200" data-expander>
         <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
           <span class="flex items-center gap-2">
             <i data-lucide="video" class="w-4 h-4 text-primary"></i>
@@ -443,7 +477,7 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
           </span>
           <span class="flex items-center gap-2">
             <span id="recap-loading-indicator" class="loading loading-spinner loading-xs hidden"></span>
-            <i data-lucide="chevron-down" class="w-4 h-4 text-base-content/60"></i>
+            <i data-role="expander-chevron" data-lucide="chevron-down" class="w-4 h-4 text-base-content/60 transition-transform duration-200"></i>
           </span>
         </summary>
         <div class="space-y-3">
@@ -532,8 +566,55 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
         </button>
         </div>
       </details>
+
+      <!-- Actions -->
+      <div class="space-y-2">
+        <div class="dropdown dropdown-end w-full">
+          <button 
+            class="btn btn-sm btn-primary w-full" 
+            tabindex="0"
+            ${isArchived || !hasMapping ? 'disabled' : ''}
+          >
+            <i data-lucide="upload" class="w-4 h-4"></i>
+            Publiceren naar WordPress
+            <i data-lucide="chevron-down" class="w-4 h-4"></i>
+          </button>
+          <ul tabindex="0" class="dropdown-content menu bg-base-200 rounded-box z-10 w-full p-2 shadow">
+            <li>
+              <a data-action="publish" data-webinar-id="${webinar.id}" data-status="publish">
+                <i data-lucide="check-circle" class="w-4 h-4"></i>
+                Publiceren
+              </a>
+            </li>
+            <li>
+              <a data-action="publish" data-webinar-id="${webinar.id}" data-status="draft">
+                <i data-lucide="file-text" class="w-4 h-4"></i>
+                Concept
+              </a>
+            </li>
+            <li>
+              <a data-action="publish" data-webinar-id="${webinar.id}" data-status="private">
+                <i data-lucide="lock" class="w-4 h-4"></i>
+                Privé
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
     </div>
   `;
+}
+
+function syncExpanderChevron(detailsEl) {
+  const chevron = detailsEl.querySelector('[data-role="expander-chevron"]');
+  if (!chevron) return;
+  chevron.classList.toggle('rotate-180', Boolean(detailsEl.open));
+}
+
+function syncExpanderChevrons() {
+  contentEl?.querySelectorAll('details[data-expander]').forEach((detailsEl) => {
+    syncExpanderChevron(detailsEl);
+  });
 }
 
 function initializeInlineDescriptionEditor(webinarId, initialHtml, readOnly = false) {
@@ -601,6 +682,89 @@ function renderRegistrationStatsBadges(registrationStats) {
   `;
 }
 
+async function fetchDescriptionForms() {
+  if (Array.isArray(descriptionFormsCache)) {
+    return descriptionFormsCache;
+  }
+
+  try {
+    const response = await fetch('/events/api/forms', {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      descriptionFormsCache = [];
+      return descriptionFormsCache;
+    }
+
+    const result = await response.json();
+    descriptionFormsCache = Array.isArray(result?.data) ? result.data : [];
+    return descriptionFormsCache;
+  } catch (error) {
+    console.error('[DetailPanel] Failed to fetch forms:', error);
+    descriptionFormsCache = [];
+    return descriptionFormsCache;
+  }
+}
+
+async function initializeDescriptionFormPicker(webinarId, selectedFormId = null, readOnly = false) {
+  const formPicker = document.getElementById('description-form-picker');
+  if (!formPicker) return;
+
+  formPicker.disabled = Boolean(readOnly);
+  formPicker.innerHTML = '<option value="">Geen formulier</option>';
+
+  const forms = await fetchDescriptionForms();
+  forms.forEach((form) => {
+    const option = document.createElement('option');
+    option.value = String(form.id);
+    option.textContent = form.name || `Formulier ${form.id}`;
+    if (form.description) {
+      option.title = form.description;
+    }
+    formPicker.appendChild(option);
+  });
+
+  const selectedValue = selectedFormId === null || selectedFormId === undefined
+    ? ''
+    : String(selectedFormId);
+  formPicker.value = selectedValue;
+  formPicker.dataset.webinarId = String(webinarId);
+}
+
+async function saveDescriptionSelectedForm(webinarId, selectedFormId) {
+  const formId = selectedFormId ? String(selectedFormId) : null;
+
+  try {
+    const response = await fetch(`/events/api/editorial/${webinarId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ selectedFormId: formId })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(errBody || 'Failed to save selected form');
+    }
+
+    const snapshot = getSnapshot(webinarId);
+    if (snapshot) {
+      snapshot.selected_form_id = formId;
+    }
+
+    if (typeof window.showNotification === 'function') {
+      window.showNotification(formId ? 'Formulier geselecteerd' : 'Formulier verwijderd', 'success');
+    }
+  } catch (error) {
+    console.error('[DetailPanel] Save selected form failed:', error);
+    if (typeof window.showNotification === 'function') {
+      window.showNotification('Fout bij opslaan formulier', 'error');
+    }
+  }
+}
+
 async function saveDescriptionInline(webinarId) {
   const descriptionRaw = descriptionQuillController ? descriptionQuillController.getHTML() : '';
   const normalized = String(descriptionRaw || '').trim();
@@ -660,8 +824,76 @@ async function saveDescriptionInline(webinarId) {
   }
 }
 
-async function saveTitleOverride(webinarId) {
-  const inputEl = document.getElementById('title-override-input');
+function activateTitleEditor(webinarId) {
+  const inputEl = document.getElementById('title-edit-input');
+  const titleEl = contentEl?.querySelector('[data-role="event-title"]');
+  const toggleBtn = contentEl?.querySelector('[data-action="toggle-title-edit"]');
+  if (!inputEl || !titleEl || !toggleBtn) return;
+
+  const odooTitle = titleEl?.dataset.odooTitle || getWebinar(webinarId)?.x_name || 'Untitled Event';
+  const currentOverride = titleEl?.dataset.overrideTitle || '';
+
+  inputEl.value = currentOverride || odooTitle;
+  titleEl.classList.add('hidden');
+  inputEl.classList.remove('hidden');
+  toggleBtn.dataset.editing = 'true';
+  toggleBtn.setAttribute('title', 'Titel opslaan');
+  toggleBtn.setAttribute('aria-label', 'Titel opslaan');
+
+  const icon = toggleBtn.querySelector('[data-role="title-toggle-icon"]');
+  if (icon) {
+    icon.setAttribute('data-lucide', 'save');
+  }
+  if (typeof lucide !== 'undefined' && lucide.createIcons) {
+    lucide.createIcons({ nodes: [toggleBtn] });
+  }
+
+  setTimeout(() => {
+    inputEl.focus();
+    inputEl.select();
+  }, 0);
+}
+
+function deactivateTitleEditor() {
+  const inputEl = document.getElementById('title-edit-input');
+  const titleEl = contentEl?.querySelector('[data-role="event-title"]');
+  const toggleBtn = contentEl?.querySelector('[data-action="toggle-title-edit"]');
+
+  if (inputEl) {
+    inputEl.classList.add('hidden');
+  }
+  if (titleEl) {
+    titleEl.classList.remove('hidden');
+  }
+
+  if (toggleBtn) {
+    toggleBtn.dataset.editing = 'false';
+    toggleBtn.setAttribute('title', 'Titel bewerken');
+    toggleBtn.setAttribute('aria-label', 'Titel bewerken');
+
+    const icon = toggleBtn.querySelector('[data-role="title-toggle-icon"]');
+    if (icon) {
+      icon.setAttribute('data-lucide', 'edit-3');
+    }
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+      lucide.createIcons({ nodes: [toggleBtn] });
+    }
+  }
+}
+
+function restoreTitleEditorValue(webinarId) {
+  const inputEl = document.getElementById('title-edit-input');
+  const titleEl = contentEl?.querySelector('[data-role="event-title"]');
+  if (!inputEl || !titleEl) return;
+
+  const odooTitle = titleEl.dataset.odooTitle || getWebinar(webinarId)?.x_name || 'Untitled Event';
+  const overrideTitle = titleEl.dataset.overrideTitle || '';
+  inputEl.value = overrideTitle || odooTitle;
+}
+
+async function persistTitleOverride(webinarId, options = {}) {
+  const { silent = false } = options;
+  const inputEl = document.getElementById('title-edit-input');
   if (!inputEl) return;
 
   const value = (inputEl.value || '').trim();
@@ -688,15 +920,16 @@ async function saveTitleOverride(webinarId) {
     const webinar = getWebinar(webinarId);
     const titleEl = contentEl?.querySelector('[data-role="event-title"]');
     if (titleEl) {
+      titleEl.dataset.overrideTitle = titleOverride || '';
       titleEl.textContent = titleOverride || webinar?.x_name || 'Untitled Event';
     }
 
-    if (typeof window.showNotification === 'function') {
+    if (!silent && typeof window.showNotification === 'function') {
       window.showNotification('Titel opgeslagen', 'success');
     }
   } catch (error) {
-    console.error('[DetailPanel] Save title override failed:', error);
-    if (typeof window.showNotification === 'function') {
+    console.error('[DetailPanel] Persist title override failed:', error);
+    if (!silent && typeof window.showNotification === 'function') {
       window.showNotification('Fout bij opslaan titel', 'error');
     }
   }
