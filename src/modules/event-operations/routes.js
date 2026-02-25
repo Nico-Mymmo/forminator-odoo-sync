@@ -3,7 +3,7 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar, getWebinarRecapFields, getWebinarRecapSentStatus, updateWebinarRecapFields, sendWebinarRecap, resetWebinarRecapStatus } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar, getWebinarRecapFields, getWebinarRecapSentStatus, updateWebinarRecapFields, sendWebinarRecap, resetWebinarRecapStatus, ensureWebinarRecapTemplate } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
@@ -1724,6 +1724,11 @@ export const routes = {
           thumbnail_url: thumbnailUrl,
           followup_html: followupHtml
         });
+      }
+
+      const templateEnsureResult = await ensureWebinarRecapTemplate(env, webinarId);
+      if (!templateEnsureResult?.ensured) {
+        console.warn(`${LOG_PREFIX} recap template not ensured for webinar ${webinarId}: ${templateEnsureResult?.reason || 'unknown'}`);
       }
 
       // Guard: verify recap is ready before sending
