@@ -3,7 +3,7 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar, getWebinarRecapFields, getWebinarRecapSentStatus, updateWebinarRecapFields, sendWebinarRecap } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar, getWebinarRecapFields, getWebinarRecapSentStatus, updateWebinarRecapFields, sendWebinarRecap, resetWebinarRecapStatus } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
@@ -1681,12 +1681,44 @@ export const routes = {
    * Returns number of mails sent + any errors from Odoo.
    */
   'POST /api/webinar/:id/send-recap': async (context) => {
-    const { env, params } = context;
+    const { env, params, request } = context;
     try {
       const webinarId = parseInt(params.id, 10);
       if (!webinarId) {
         return new Response(JSON.stringify({ success: false, error: 'Invalid webinar ID' }), {
           status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      let payload = {};
+      try {
+        payload = await request.json();
+      } catch {
+        payload = {};
+      }
+
+      const titleOverride = typeof payload?.titleOverride === 'string'
+        ? payload.titleOverride.trim()
+        : '';
+      const videoUrl = typeof payload?.videoUrl === 'string'
+        ? payload.videoUrl
+        : undefined;
+      const thumbnailUrl = typeof payload?.thumbnailUrl === 'string'
+        ? payload.thumbnailUrl
+        : undefined;
+      const followupHtml = typeof payload?.followupHtml === 'string'
+        ? payload.followupHtml
+        : undefined;
+
+      if (titleOverride) {
+        await updateOdooWebinar(env, webinarId, { x_name: titleOverride });
+      }
+
+      if (videoUrl !== undefined || thumbnailUrl !== undefined || followupHtml !== undefined) {
+        await updateWebinarRecapFields(env, webinarId, {
+          video_url: videoUrl,
+          thumbnail_url: thumbnailUrl,
+          followup_html: followupHtml
         });
       }
 
@@ -1729,6 +1761,36 @@ export const routes = {
 
     } catch (error) {
       console.error(`${LOG_PREFIX} ${EMOJI.ERROR} send-recap failed:`, error);
+      return new Response(JSON.stringify({ success: false, error: error.message }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * POST /events/api/webinar/:id/reset-recap
+   *
+   * Reset recap sent status via Odoo Server Action.
+   */
+  'POST /api/webinar/:id/reset-recap': async (context) => {
+    const { env, params } = context;
+    try {
+      const webinarId = parseInt(params.id, 10);
+      if (!webinarId) {
+        return new Response(JSON.stringify({ success: false, error: 'Invalid webinar ID' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      await resetWebinarRecapStatus(env, webinarId);
+
+      return new Response(JSON.stringify({
+        success: true,
+        webinar_id: webinarId
+      }), { headers: { 'Content-Type': 'application/json' } });
+
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} reset-recap failed:`, error);
       return new Response(JSON.stringify({ success: false, error: error.message }), {
         status: 500, headers: { 'Content-Type': 'application/json' }
       });

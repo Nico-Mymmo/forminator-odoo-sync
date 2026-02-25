@@ -526,14 +526,25 @@ async function initRecapSection(webinarId, webinarHint) {
 
     // ── Send Recap button ──
     const sendBtn = document.getElementById('recap-send-btn');
+    const resetBtn = document.getElementById('recap-reset-btn');
     if (sendBtn) {
       if (recap_sent) {
         sendBtn.textContent = '✓ Recap al verstuurd';
         sendBtn.disabled = true;
         sendBtn.className = 'btn btn-sm btn-disabled w-full gap-1';
       } else if (recap_ready) {
+        sendBtn.textContent = 'Verstuur Recap';
+        sendBtn.className = 'btn btn-sm btn-success w-full gap-1';
         sendBtn.disabled = false;
+      } else {
+        sendBtn.textContent = 'Verstuur Recap';
+        sendBtn.className = 'btn btn-sm btn-success w-full gap-1';
+        sendBtn.disabled = true;
       }
+    }
+
+    if (resetBtn) {
+      resetBtn.classList.toggle('hidden', !recap_sent);
     }
 
   } catch (err) {
@@ -554,6 +565,7 @@ async function initRecapSection(webinarId, webinarHint) {
 function setRecapThumbnailPreview(url) {
   const container = document.getElementById('recap-thumb-container');
   if (!container) return;
+  container.dataset.thumbnailUrl = url || '';
   if (url) {
     // Proxy through current origin so dev-mode loads from localhost
     // instead of the production worker URL stored in Odoo
@@ -773,8 +785,22 @@ async function recapRefreshReadyStatus(webinarId) {
     }
 
     const sendBtn = document.getElementById('recap-send-btn');
-    if (sendBtn && !recap_sent) {
-      sendBtn.disabled = !recap_ready;
+    const resetBtn = document.getElementById('recap-reset-btn');
+
+    if (sendBtn) {
+      if (recap_sent) {
+        sendBtn.textContent = '✓ Recap al verstuurd';
+        sendBtn.disabled = true;
+        sendBtn.className = 'btn btn-sm btn-disabled w-full gap-1';
+      } else {
+        sendBtn.textContent = 'Verstuur Recap';
+        sendBtn.className = 'btn btn-sm btn-success w-full gap-1';
+        sendBtn.disabled = !recap_ready;
+      }
+    }
+
+    if (resetBtn) {
+      resetBtn.classList.toggle('hidden', !recap_sent);
     }
   } catch (_) {}
 }
@@ -809,6 +835,36 @@ function recapOpenConfirmModal(webinarId) {
 }
 
 /**
+ * Open the Reset Recap confirmation modal.
+ * @param {number} webinarId
+ */
+function recapOpenResetModal(webinarId) {
+  const modal = document.getElementById('resetRecapModal');
+  if (!modal) return;
+
+  const statusEl = document.getElementById('resetRecapStatus');
+  if (statusEl) {
+    statusEl.className = 'hidden';
+    statusEl.innerHTML = '';
+  }
+
+  const confirmBtn = document.getElementById('resetRecapConfirmBtn');
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = '<i data-lucide="rotate-ccw" class="w-4 h-4"></i> Ja, reset status';
+    confirmBtn.dataset.webinarId = String(webinarId);
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  const cancelBtn = document.getElementById('resetRecapCancelBtn');
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+  }
+
+  modal.showModal();
+}
+
+/**
  * Execute the recap send after modal confirmation.
  * @param {number} webinarId
  */
@@ -822,7 +878,35 @@ async function recapConfirmSend(webinarId) {
   if (cancelBtn)  cancelBtn.disabled = true;
 
   try {
-    const res  = await fetch('/events/api/webinar/' + webinarId + '/send-recap', { method: 'POST' });
+    const videoInput = document.getElementById('recap-video-url');
+    const thumbContainer = document.getElementById('recap-thumb-container');
+    const titleEl = document.querySelector('#panel-content [data-role="event-title"]');
+    const titleInput = document.getElementById('title-edit-input');
+
+    const odooTitle = (titleEl?.dataset?.odooTitle || '').trim();
+    const isEditingTitle = Boolean(titleInput && !titleInput.classList.contains('hidden'));
+    const candidateTitle = isEditingTitle
+      ? (titleInput?.value || '').trim()
+      : (titleEl?.dataset?.overrideTitle || '').trim();
+
+    const effectiveTitleOverride = candidateTitle && candidateTitle !== odooTitle
+      ? candidateTitle
+      : null;
+
+    const uiPayload = {
+      titleOverride: effectiveTitleOverride,
+      videoUrl: (videoInput?.value || '').trim(),
+      thumbnailUrl: (thumbContainer?.dataset?.thumbnailUrl || '').trim(),
+      followupHtml: recapQuillController
+        ? recapQuillController.getHTML()
+        : (recapQuillEditor ? recapQuillEditor.root.innerHTML : '')
+    };
+
+    const res  = await fetch('/events/api/webinar/' + webinarId + '/send-recap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(uiPayload)
+    });
     const json = await res.json();
 
     if (!json.success) throw new Error(json.error || 'Versturen mislukt');
@@ -861,6 +945,52 @@ async function recapConfirmSend(webinarId) {
     if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Opnieuw proberen'; }
     if (cancelBtn)  cancelBtn.disabled = false;
     if (loading)    loading.classList.add('hidden');
+  }
+}
+
+/**
+ * Execute recap reset after modal confirmation.
+ * @param {number} webinarId
+ */
+async function recapConfirmReset(webinarId) {
+  const confirmBtn  = document.getElementById('resetRecapConfirmBtn');
+  const cancelBtn   = document.getElementById('resetRecapCancelBtn');
+  const statusEl    = document.getElementById('resetRecapStatus');
+  const loading     = document.getElementById('recap-loading-indicator');
+
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Resetten...'; }
+  if (cancelBtn)  cancelBtn.disabled = true;
+  if (loading)    loading.classList.remove('hidden');
+
+  try {
+    const res  = await fetch('/events/api/webinar/' + webinarId + '/reset-recap', { method: 'POST' });
+    const json = await res.json();
+
+    if (!json.success) throw new Error(json.error || 'Reset mislukt');
+
+    if (statusEl) {
+      statusEl.className = 'alert alert-success text-sm p-2 mb-2';
+      statusEl.innerHTML = '<i data-lucide="check-circle" class="w-4 h-4"></i><span>Recap status gereset.</span>';
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }
+
+    await recapRefreshReadyStatus(webinarId);
+
+    setTimeout(() => {
+      const modal = document.getElementById('resetRecapModal');
+      if (modal) modal.close();
+    }, 900);
+
+  } catch (err) {
+    if (statusEl) {
+      statusEl.className = 'alert alert-error text-sm p-2 mb-2';
+      statusEl.innerHTML = '<i data-lucide="x-circle" class="w-4 h-4"></i><span>' + escapeHtml(err.message) + '</span>';
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Opnieuw proberen'; }
+    if (cancelBtn)  cancelBtn.disabled = false;
+  } finally {
+    if (loading) loading.classList.add('hidden');
   }
 }
 
@@ -1825,5 +1955,14 @@ document.addEventListener('click', function(e) {
   const webinarId = Number(btn.dataset.webinarId);
   if (webinarId) {
     recapConfirmSend(webinarId);
+  }
+});
+
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('#resetRecapConfirmBtn');
+  if (!btn || btn.disabled) return;
+  const webinarId = Number(btn.dataset.webinarId);
+  if (webinarId) {
+    recapConfirmReset(webinarId);
   }
 });

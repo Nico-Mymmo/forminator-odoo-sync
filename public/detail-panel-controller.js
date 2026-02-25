@@ -179,6 +179,10 @@ function bindEventDelegation() {
       if (webinarId && typeof window.recapOpenConfirmModal === 'function') {
         window.recapOpenConfirmModal(webinarId);
       }
+    } else if (action === 'reset-recap') {
+      if (webinarId && typeof window.recapOpenResetModal === 'function') {
+        window.recapOpenResetModal(webinarId);
+      }
     } else if (action === 'save-description') {
       if (webinarId) {
         await saveDescriptionInline(webinarId);
@@ -516,9 +520,20 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
 
         <!-- Thumbnail -->
         <div>
-          <label class="label py-0 pb-1">
-            <span class="label-text text-xs font-medium">Thumbnail</span>
-          </label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="label py-0">
+              <span class="label-text text-xs font-medium">Thumbnail</span>
+            </label>
+            <button
+              data-action="trigger-thumb-upload"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-xs btn-ghost btn-circle"
+              title="Upload eigen thumbnail"
+              aria-label="Upload eigen thumbnail"
+            >
+              <i data-lucide="upload" class="w-3 h-3"></i>
+            </button>
+          </div>
           <div
             id="recap-thumb-container"
             class="rounded-lg overflow-hidden bg-base-200 flex items-center justify-center mb-2"
@@ -527,13 +542,6 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
             <i data-lucide="image" class="w-8 h-8 text-base-content/30"></i>
           </div>
           <input id="recap-thumb-file" type="file" accept="image/*" class="hidden">
-          <button
-            data-action="trigger-thumb-upload"
-            data-webinar-id="${webinar.id}"
-            class="btn btn-xs btn-outline w-full gap-1"
-          >
-            <i data-lucide="upload" class="w-3 h-3"></i> Upload eigen thumbnail
-          </button>
           <div id="recap-thumb-alert" class="hidden mt-1 text-xs"></div>
         </div>
 
@@ -563,6 +571,16 @@ function renderContent(webinar, snapshot, state, regCount, isArchived, hasMappin
         >
           <i data-lucide="send" class="w-4 h-4"></i>
           Verstuur Recap
+        </button>
+
+        <button
+          id="recap-reset-btn"
+          data-action="reset-recap"
+          data-webinar-id="${webinar.id}"
+          class="btn btn-sm btn-outline btn-warning w-full gap-1 hidden"
+        >
+          <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+          Reset Recap Status
         </button>
         </div>
       </details>

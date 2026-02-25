@@ -602,6 +602,33 @@ export function eventOperationsUI(user) {
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 
+    <!-- Reset Recap Confirmation Modal -->
+    <dialog id="resetRecapModal" class="modal">
+      <div class="modal-box max-w-md">
+        <h3 class="font-bold text-lg mb-3 flex items-center gap-2">
+          <i data-lucide="rotate-ccw" class="w-5 h-5 text-warning"></i>
+          Reset Recap Status
+        </h3>
+        <p class="text-sm text-base-content/80 mb-4">
+          Ben je zeker dat je alle deelnemers opnieuw verzendbaar wil maken?
+        </p>
+        <div id="resetRecapStatus" class="hidden"></div>
+        <div class="modal-action">
+          <form method="dialog">
+            <button class="btn btn-ghost btn-sm" id="resetRecapCancelBtn">Annuleren</button>
+          </form>
+          <button
+            id="resetRecapConfirmBtn"
+            class="btn btn-warning btn-sm gap-1"
+          >
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+            Ja, reset status
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
     <!-- Event Type Mapping Modal -->
     <dialog id="eventTypeMappingModal" class="modal">
       <div class="modal-box max-w-4xl">
