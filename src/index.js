@@ -284,6 +284,37 @@ export default {
     // Route to module or redirect to default
     // Check if pathname matches a module route
     const hasAction = url.searchParams.has('action');
+
+    // Public webhook intake for Forminator Sync V2 (token-auth, no session required)
+    if (pathname === '/forminator-v2/api/webhook' && request.method === 'POST') {
+      const isAuthorized = await validateAuth(request, env);
+      if (!isAuthorized) {
+        return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const v2Module = getModuleByCode('forminator_sync_v2');
+      if (!v2Module) {
+        return new Response(JSON.stringify({ success: false, error: 'Forminator Sync V2 module unavailable' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const context = { request, env, ctx, user: null };
+      const resolved = resolveModuleRoute(v2Module, request.method, pathname);
+      if (!resolved) {
+        return new Response(JSON.stringify({ success: false, error: 'Webhook route not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      context.params = resolved.params;
+      return await resolved.handler(context);
+    }
     
     // Special handling for legacy /api/ routes -> redirect to forminator module
     if (pathname.startsWith('/api/mappings') || pathname.startsWith('/api/history') || pathname === '/api/test-connection') {

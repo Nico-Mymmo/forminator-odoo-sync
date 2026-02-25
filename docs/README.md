@@ -107,6 +107,24 @@ Oorspronkelijke module voor Forminator webhook ingest, mappingbeheer en Odoo wor
 
 ---
 
+### 🧱 [Forminator Sync V2](forminator-sync-v2/)
+Nieuwe MVP-module met strikte freeze: Resolvers → Context → Targets, zonder generieke workflow-engine.
+
+**Status:** 🚧 Fase 1 Foundation afgerond
+**Kernfunctionaliteit (MVP-doel):**
+- Nieuwe, losstaande V2 module (geen V1 code/tabellen)
+- Strikte configuratie met 2 resolvertypes en max 2 targets
+- Idempotency/retry/partial-failure contracten vastgelegd voor volgende fases
+
+**Documentatie:**
+- [MVP_SPEC.md](forminator-sync-v2/MVP_SPEC.md) - Definitieve MVP-scope en beperkingen
+- [API_CONTRACT.md](forminator-sync-v2/API_CONTRACT.md) - Endpoint contracten per fase
+- [UX_SPEC.md](forminator-sync-v2/UX_SPEC.md) - Marketeer-first UI specificatie
+- [OPERATIONAL_BEHAVIOR.md](forminator-sync-v2/OPERATIONAL_BEHAVIOR.md) - Runtime policies en fase-status
+- [IMPLEMENTATION_LOG.md](forminator-sync-v2/IMPLEMENTATION_LOG.md) - Chronologisch implementatieverslag
+
+---
+
 ## Documentatie Structuur per Module
 
 Elke module volgt deze standaard structuur:
