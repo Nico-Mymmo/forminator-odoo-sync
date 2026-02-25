@@ -6,7 +6,8 @@ const TABLES = {
   targets: 'fs_v2_targets',
   mappings: 'fs_v2_mappings',
   submissions: 'fs_v2_submissions',
-  submissionTargets: 'fs_v2_submission_targets'
+  submissionTargets: 'fs_v2_submission_targets',
+  wpConnections: 'wp_connections'
 };
 
 function getSupabase(env) {
@@ -505,4 +506,60 @@ export async function getIntegrationBundle(env, integrationId) {
     targets,
     mappingsByTarget
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// wp_connections — lees-/schrijffuncties voor Forminator Sync V2 discovery
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function listWpConnections(env) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.wpConnections)
+    .select('id, name, base_url, is_active, created_at')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+
+  if (error) throw new Error(`Failed to list wp_connections: ${error.message}`);
+  return ensureArray(data);
+}
+
+export async function getWpConnectionById(env, id) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.wpConnections)
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to fetch wp_connection: ${error.message}`);
+  return data || null;
+}
+
+export async function createWpConnection(env, payload) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.wpConnections)
+    .insert({
+      name: payload.name,
+      base_url: payload.base_url,
+      auth_token: payload.auth_token,
+      is_active: payload.is_active !== false
+    })
+    .select('id, name, base_url, is_active, created_at')
+    .single();
+
+  if (error) throw new Error(`Failed to create wp_connection: ${error.message}`);
+  return data;
+}
+
+export async function deleteWpConnection(env, id) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.wpConnections)
+    .delete()
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to delete wp_connection: ${error.message}`);
+  return { deleted: true };
 }

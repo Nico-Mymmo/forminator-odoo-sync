@@ -506,11 +506,157 @@ export const forminatorSyncV2ClientScript = String.raw`
     try {
       await loadMeta();
       await loadIntegrations();
+      await loadWpConnections();
       renderDetail();
     } catch (error) {
       showStatus(error.message, 'error');
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // WordPress Discovery
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async function loadWpConnections() {
+    try {
+      const res = await fetch('/forminator-v2/api/discovery/connections');
+      const json = await res.json();
+      const connections = json.data || [];
+
+      const select = document.getElementById('wpConnectionSelect');
+      if (!select) return;
+      select.innerHTML = '<option value="">— selecteer site —</option>';
+      connections.forEach((c) => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.name + ' (' + c.base_url + ')';
+        select.appendChild(opt);
+      });
+
+      renderConnectionList(connections);
+    } catch (err) {
+      showStatus('Fout bij laden WordPress connecties: ' + err.message, 'error');
+    }
+  }
+
+  function renderConnectionList(connections) {
+    const el = document.getElementById('connectionList');
+    if (!el) return;
+    if (connections.length === 0) {
+      el.innerHTML = '<p class="text-sm text-base-content/60">Geen connecties geconfigureerd.</p>';
+      return;
+    }
+    el.innerHTML = '<ul class="list-none space-y-1">' +
+      connections.map((c) =>
+        '<li class="flex items-center gap-2 text-sm">' +
+        '<span class="font-medium">' + c.name + '</span>' +
+        '<span class="text-base-content/60">' + c.base_url + '</span>' +
+        '<button class="btn btn-xs btn-error ml-auto" data-action="delete-connection" data-id="' + c.id + '">Verwijderen</button>' +
+        '</li>'
+      ).join('') +
+      '</ul>';
+  }
+
+  async function handleLoadForms() {
+    const select = document.getElementById('wpConnectionSelect');
+    const resultEl = document.getElementById('formDiscoveryResult');
+    if (!select || !resultEl) return;
+
+    const wpConnectionId = select.value;
+    if (!wpConnectionId) {
+      showStatus('Selecteer eerst een WordPress site.', 'error');
+      return;
+    }
+
+    resultEl.style.display = 'none';
+    resultEl.innerHTML = '<p class="text-sm text-base-content/60">Formulieren ophalen...</p>';
+    resultEl.style.display = '';
+
+    try {
+      const res = await fetch('/forminator-v2/api/discovery/forms?wp_connection_id=' + encodeURIComponent(wpConnectionId));
+      const json = await res.json();
+
+      if (!json.success) {
+        resultEl.innerHTML = '<p class="text-sm text-error">Fout: ' + (json.error || 'onbekend') + '</p>';
+        return;
+      }
+
+      const forms = json.data || [];
+      if (forms.length === 0) {
+        resultEl.innerHTML = '<p class="text-sm text-base-content/60">Geen formulieren gevonden op deze site.</p>';
+        return;
+      }
+
+      resultEl.innerHTML = forms.map((form) => {
+        const fields = Array.isArray(form.fields) ? form.fields : [];
+        return '<div class="mb-4 border rounded p-3">' +
+          '<p class="font-semibold">' + form.form_name + ' <span class="badge badge-ghost badge-sm">ID: ' + form.form_id + '</span></p>' +
+          (fields.length > 0
+            ? '<table class="table table-xs mt-2"><thead><tr><th>Veld ID</th><th>Label</th><th>Type</th><th>Verplicht</th></tr></thead><tbody>' +
+              fields.map((f) =>
+                '<tr><td>' + f.field_id + '</td><td>' + f.label + '</td><td>' + f.type + '</td><td>' + (f.required ? '✓' : '') + '</td></tr>'
+              ).join('') +
+              '</tbody></table>'
+            : '<p class="text-xs text-base-content/60 mt-1">Geen velden beschikbaar.</p>'
+          ) +
+          '</div>';
+      }).join('');
+    } catch (err) {
+      resultEl.innerHTML = '<p class="text-sm text-error">Fout: ' + err.message + '</p>';
+    }
+  }
+
+  async function handleAddConnection(event) {
+    event.preventDefault();
+    const form = event.target;
+    const payload = {
+      name: form.name.value.trim(),
+      base_url: form.base_url.value.trim(),
+      auth_token: form.auth_token.value.trim()
+    };
+    const res = await fetch('/forminator-v2/api/discovery/connections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!json.success) {
+      showStatus('Fout: ' + json.error, 'error');
+      return;
+    }
+    form.reset();
+    showStatus('Connectie toegevoegd.', 'success');
+    loadWpConnections();
+  }
+
+  async function handleDeleteConnection(id) {
+    const res = await fetch('/forminator-v2/api/discovery/connections/' + id, { method: 'DELETE' });
+    const json = await res.json();
+    if (!json.success) {
+      showStatus('Fout bij verwijderen: ' + json.error, 'error');
+      return;
+    }
+    showStatus('Connectie verwijderd.', 'success');
+    loadWpConnections();
+  }
+
+  document.getElementById('loadFormsBtn')?.addEventListener('click', () => {
+    handleLoadForms().catch((err) => showStatus(err.message, 'error'));
+  });
+
+  document.getElementById('addConnectionForm')?.addEventListener('submit', (event) => {
+    handleAddConnection(event).catch((err) => showStatus(err.message, 'error'));
+  });
+
+  document.addEventListener('click', async (event) => {
+    if (event.target?.dataset?.action === 'delete-connection') {
+      const id = event.target.dataset.id;
+      if (id) await handleDeleteConnection(id);
+    }
+  });
+
+  // einde WordPress Discovery
+  // ─────────────────────────────────────────────────────────────────────────
 
   document.addEventListener('submit', async (event) => {
     try {

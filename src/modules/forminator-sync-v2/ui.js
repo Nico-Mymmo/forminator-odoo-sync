@@ -23,6 +23,45 @@ export function forminatorSyncV2UI(user) {
 
     <div id="statusAlert" class="alert alert-info mb-4" style="display: none;"></div>
 
+    <!-- WordPress Discovery block -->
+    <div class="card bg-base-100 shadow mb-6">
+      <div class="card-body">
+        <h2 class="card-title">0) WordPress connectie &amp; formulieren</h2>
+        <p class="text-sm text-base-content/70">Kies een WordPress site en laad de beschikbare Forminator-formulieren live op.</p>
+
+        <div class="flex flex-wrap gap-3 items-end mt-3">
+          <label class="form-control flex-1 min-w-[200px]">
+            <span class="label-text">WordPress site</span>
+            <select id="wpConnectionSelect" class="select select-bordered">
+              <option value="">— selecteer site —</option>
+            </select>
+          </label>
+          <button id="loadFormsBtn" class="btn btn-secondary" type="button">Formulieren ophalen</button>
+        </div>
+
+        <div id="formDiscoveryResult" class="mt-4" style="display:none;"></div>
+
+        <div class="divider"></div>
+        <h3 class="font-semibold text-sm">WordPress connecties beheren</h3>
+        <div id="connectionList" class="mb-3"></div>
+        <form id="addConnectionForm" class="flex flex-wrap gap-3 items-end">
+          <label class="form-control flex-1 min-w-[140px]">
+            <span class="label-text">Naam</span>
+            <input name="name" class="input input-bordered input-sm" placeholder="Site A" required />
+          </label>
+          <label class="form-control flex-1 min-w-[200px]">
+            <span class="label-text">Base URL</span>
+            <input name="base_url" class="input input-bordered input-sm" placeholder="https://mijnsite.nl" required />
+          </label>
+          <label class="form-control flex-1 min-w-[200px]">
+            <span class="label-text">Auth token (user:pass)</span>
+            <input name="auth_token" class="input input-bordered input-sm" type="password" placeholder="user:application-password" required />
+          </label>
+          <button class="btn btn-primary btn-sm" type="submit">Toevoegen</button>
+        </form>
+      </div>
+    </div>
+
     <div class="card bg-base-100 shadow mb-6">
       <div class="card-body">
         <h2 class="card-title">Bestaande integraties</h2>

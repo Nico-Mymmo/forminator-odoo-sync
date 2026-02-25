@@ -221,3 +221,58 @@
 - Niet volledig live uitgevoerd in workspace (externe afhankelijkheden):
   - Replay success op echte `partial_failed` submission tegen live Odoo.
   - Security calls tegen live endpoint met/zonder `X-Forminator-Secret` header.
+
+## 2026-02-25 — Multi-site WordPress Discovery
+
+### Wat gebouwd is
+
+**Migratie**
+- Nieuwe tabel `wp_connections` (id, name, base_url, auth_token, is_active, created_at).
+- RLS ingesteld: alleen service_role.
+- Pushed als `20260225170000_wp_connections.sql`.
+
+**wp-client.js uitgebreid (events-operations)**
+- Twee nieuwe exports toegevoegd onderaan; bestaande functies ongewijzigd:
+  - `fetchForminatorForms(baseUrl, authToken)` — live fetch van WP REST endpoint `/wp-json/openvme/v1/forminator/forms`.
+  - `getWpClient(env, connection = null)` — factory die met expliciete connection object werkt of terugvalt op `env.WORDPRESS_URL` / `env.WP_API_TOKEN`.
+- Events-operations routes.js importeert alleen de originele 5 functies; geen wijziging nodig.
+
+**database.js (forminator-sync-v2)**
+- `wpConnections` tabel-sleutel toegevoegd aan TABLES constant.
+- Nieuwe exports: `listWpConnections`, `getWpConnectionById`, `createWpConnection`, `deleteWpConnection`.
+
+**routes.js (forminator-sync-v2)**
+- Import van nieuwe database-functies + `getWpClient` uit wp-client.js.
+- Vier nieuwe discovery routes toegevoegd:
+  - `GET  /api/discovery/connections` — lijst actieve WP connecties (no auth_token in response).
+  - `POST /api/discovery/connections` — connectie aanmaken.
+  - `DELETE /api/discovery/connections/:connectionId` — connectie verwijderen.
+  - `GET  /api/discovery/forms?wp_connection_id=xxx` — live formulieren ophalen via WP REST.
+
+**ui.js (forminator-sync-v2)**
+- Nieuw blok "0) WordPress connectie & formulieren" toegevoegd vóór bestaand integraties-overzicht.
+- Bevat: site-dropdown, "Formulieren ophalen" knop, veldpreview tabel, connectiebeheer (lijst + toevoegen/verwijderen).
+
+**public/client.js (forminator-sync-v2)**
+- Discovery functies toegevoegd: `loadWpConnections`, `renderConnectionList`, `handleLoadForms`, `handleAddConnection`, `handleDeleteConnection`.
+- `loadWpConnections()` opgenomen in `bootstrap()`.
+- Afzonderlijke click-listener voor `delete-connection` data-action (naast bestaande tabelacties-listener).
+
+### Wat bewust NIET gebouwd is
+- Geen opslag van formulieren in eigen DB.
+- Geen caching.
+- Geen sync-mechanisme.
+- Geen nieuwe integratie-engine.
+- Geen wijzigingen in events-operations module.
+- Geen automatische mapping.
+
+### Events-operations — garantie ongewijzigd
+- `routes.js` in event-operations importeert uitsluitend: `getWordPressEvents`, `getWordPressEventsWithMeta`, `getWordPressEvent`, `publishToWordPress`, `getWordPressEventCategories`.
+- Geen van deze functies is aangepast.
+- Legacy env-vars `WORDPRESS_URL` + `WP_API_TOKEN` blijven de enige configuratie voor events.
+
+### Testcriteria
+1. Events-operations haalt events op zoals voorheen → ongewijzigde imports/functiehandtekeningen.
+2. Forminator Sync V2 kan site A kiezen → forms ophalen → site B kiezen → forms ophalen.
+3. Geen errors bij `wp_connection_id` ontbreekt in events module (gebruikt env-vars, niet tabel).
+4. Geen wijziging nodig in bestaande env-config voor events.

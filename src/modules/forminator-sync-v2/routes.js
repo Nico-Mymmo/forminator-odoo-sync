@@ -22,8 +22,13 @@ import {
   hasSuccessfulTestSubmission,
   listSubmissionsByIntegration,
   getSubmissionById,
-  listSubmissionTargetResults
+  listSubmissionTargetResults,
+  listWpConnections,
+  getWpConnectionById,
+  createWpConnection,
+  deleteWpConnection
 } from './database.js';
+import { getWpClient } from '../event-operations/wp-client.js';
 import {
   getMvpConstants,
   validateResolverPayload,
@@ -442,6 +447,64 @@ export const routes = {
 
       const result = await processDueRetries(context.env, limit);
       return jsonResponse({ success: true, data: result });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // WordPress Discovery — multi-site formulierenselectie
+  // ─────────────────────────────────────────────────────────────────────────
+
+  'GET /api/discovery/connections': async (context) => {
+    try {
+      const rows = await listWpConnections(context.env);
+      return jsonResponse({ success: true, data: rows });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/discovery/connections': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      if (!payload.name || !payload.base_url || !payload.auth_token) {
+        return jsonResponse({ success: false, error: 'name, base_url en auth_token zijn verplicht' }, 400);
+      }
+      const created = await createWpConnection(context.env, payload);
+      return jsonResponse({ success: true, data: created }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/discovery/connections/:connectionId': async (context) => {
+    try {
+      const connectionId = context.params?.connectionId;
+      if (!connectionId) return jsonResponse({ success: false, error: 'connectionId is required' }, 400);
+      const result = await deleteWpConnection(context.env, connectionId);
+      return jsonResponse({ success: true, data: result });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/discovery/forms': async (context) => {
+    try {
+      const url = new URL(context.request.url);
+      const wpConnectionId = url.searchParams.get('wp_connection_id');
+      if (!wpConnectionId) {
+        return jsonResponse({ success: false, error: 'wp_connection_id query param is verplicht' }, 400);
+      }
+
+      const connection = await getWpConnectionById(context.env, wpConnectionId);
+      if (!connection) {
+        return jsonResponse({ success: false, error: 'WordPress connectie niet gevonden' }, 404);
+      }
+
+      const client = getWpClient(context.env, connection);
+      const forms = await client.fetchForms();
+      return jsonResponse({ success: true, data: forms });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
