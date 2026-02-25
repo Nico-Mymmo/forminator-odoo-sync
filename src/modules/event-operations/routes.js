@@ -1728,7 +1728,22 @@ export const routes = {
 
       const templateEnsureResult = await ensureWebinarRecapTemplate(env, webinarId);
       if (!templateEnsureResult?.ensured) {
-        console.warn(`${LOG_PREFIX} recap template not ensured for webinar ${webinarId}: ${templateEnsureResult?.reason || 'unknown'}`);
+        const reason = templateEnsureResult?.reason || 'unknown';
+        console.warn(`${LOG_PREFIX} recap template not ensured for webinar ${webinarId}: ${reason}`);
+
+        if (reason === 'missing_template_id') {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Recap template ID ontbreekt in Worker env (RECAP_MAIL_TEMPLATE_ID of ODOO_RECAP_TEMPLATE_ID).'
+          }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (reason === 'missing_template_field') {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Kon geen recap template-veld op webinar vinden. Stel env RECAP_TEMPLATE_FIELD in met de exacte Odoo veldnaam.'
+          }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
       }
 
       // Guard: verify recap is ready before sending

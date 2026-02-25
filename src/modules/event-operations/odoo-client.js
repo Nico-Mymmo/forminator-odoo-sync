@@ -9,6 +9,7 @@ import { ODOO_MODEL, ODOO_FIELDS } from './constants.js';
 
 let cachedEventTypeFieldName = null;
 let cachedRecapTemplateFieldName = null;
+const DEFAULT_RECAP_TEMPLATE_ID = 53;
 
 function resolveRecapTemplateId(env) {
   const candidates = [
@@ -23,11 +24,17 @@ function resolveRecapTemplateId(env) {
     }
   }
 
-  return 0;
+  return DEFAULT_RECAP_TEMPLATE_ID;
 }
 
 async function resolveRecapTemplateFieldName(env) {
   if (cachedRecapTemplateFieldName) {
+    return cachedRecapTemplateFieldName;
+  }
+
+  const envOverride = String(env?.RECAP_TEMPLATE_FIELD || '').trim();
+  if (envOverride) {
+    cachedRecapTemplateFieldName = envOverride;
     return cachedRecapTemplateFieldName;
   }
 
@@ -41,6 +48,9 @@ async function resolveRecapTemplateFieldName(env) {
   const preferredCandidates = [
     'x_studio_recap_template_id',
     'x_studio_recap_mail_template_id',
+    'x_studio_recap_template',
+    'x_studio_recap_mail_template',
+    'x_recap_mail_template_id',
     'x_recap_template_id',
     'recap_template_id'
   ];
@@ -76,6 +86,39 @@ export async function ensureWebinarRecapTemplate(env, webinarId) {
 
   const recapTemplateField = await resolveRecapTemplateFieldName(env);
   if (!recapTemplateField) {
+    const writeCandidates = [
+      'x_studio_recap_template_id',
+      'x_studio_recap_mail_template_id',
+      'x_studio_recap_template',
+      'x_studio_recap_mail_template',
+      'x_recap_mail_template_id',
+      'x_recap_template_id',
+      'recap_template_id'
+    ];
+
+    for (const candidateField of writeCandidates) {
+      try {
+        await write(env, {
+          model: ODOO_MODEL.WEBINAR,
+          ids: [webinarId],
+          values: { [candidateField]: recapTemplateId }
+        });
+
+        cachedRecapTemplateFieldName = candidateField;
+        return { ensured: true, field: candidateField, template_id: recapTemplateId, changed: true, via: 'fallback_write' };
+      } catch (error) {
+        const message = String(error?.message || '').toLowerCase();
+        const isUnknownFieldError =
+          message.includes('unknown field') ||
+          message.includes('invalid field') ||
+          message.includes('field') && message.includes('does not exist');
+
+        if (!isUnknownFieldError) {
+          throw error;
+        }
+      }
+    }
+
     return { ensured: false, reason: 'missing_template_field' };
   }
 
