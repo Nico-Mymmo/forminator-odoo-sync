@@ -885,15 +885,18 @@ async function recapConfirmSend(webinarId) {
 
     const odooTitle = (titleEl?.dataset?.odooTitle || '').trim();
     const isEditingTitle = Boolean(titleInput && !titleInput.classList.contains('hidden'));
+    const visibleTitleText = (titleEl?.textContent || '').trim();
     const candidateTitle = isEditingTitle
       ? (titleInput?.value || '').trim()
-      : (titleEl?.dataset?.overrideTitle || '').trim();
+      : visibleTitleText;
 
+    const effectiveTitle = candidateTitle || odooTitle || null;
     const effectiveTitleOverride = candidateTitle && candidateTitle !== odooTitle
       ? candidateTitle
       : null;
 
     const uiPayload = {
+      effectiveTitle,
       titleOverride: effectiveTitleOverride,
       videoUrl: (videoInput?.value || '').trim(),
       thumbnailUrl: (thumbContainer?.dataset?.thumbnailUrl || '').trim(),
