@@ -8,6 +8,7 @@
 import homeModule from './home/module.js';
 import forminatorSyncModule from './forminator-sync/module.js';
 import forminatorSyncV2Module from './forminator-sync-v2/module.js';
+import wpFormSchemasModule from './wp-form-schemas/module.js';
 import projectGeneratorModule from './project-generator/module.js';
 import adminModule from './admin/module.js';
 import profileModule from './profile/module.js';
@@ -23,6 +24,7 @@ export const MODULES = [
   homeModule,
   forminatorSyncModule,
   forminatorSyncV2Module,
+  wpFormSchemasModule,
   projectGeneratorModule,
   adminModule,
   profileModule,

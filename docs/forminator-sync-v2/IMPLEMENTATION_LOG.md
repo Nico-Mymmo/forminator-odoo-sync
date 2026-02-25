@@ -276,3 +276,180 @@
 2. Forminator Sync V2 kan site A kiezen → forms ophalen → site B kiezen → forms ophalen.
 3. Geen errors bij `wp_connection_id` ontbreekt in events module (gebruikt env-vars, niet tabel).
 4. Geen wijziging nodig in bestaande env-config voor events.
+
+---
+
+## 2026-02-25 — Discovery: blocker WP REST endpoint
+
+### Wat getest is
+
+Na implementatie van de discovery-route werd live getest tegen `https://openvme.be`.
+
+Getest met Basic Auth (`Marketing:S0o7vkfcsB2s9CsYI1FI5cM6`):
+
+| Endpoint | Status |
+|---|---|
+| `/wp-json/openvme/v1/forminator/forms` | 404 |
+| `/wp-json/forminator/v1/forms` | 404 |
+| `/wp-json/wp/v2/forminator_forms` | 404 |
+| `/wp-json/openvme/v1/` (namespace root) | 404 |
+
+### Conclusie
+
+Het custom WP REST endpoint `openvme/v1/forminator/forms` dat de discovery-route verwacht bestaat **niet** op `openvme.be`. De WP-plugin (of custom code) die dit endpoint registreert is niet geïnstalleerd of niet actief op de site.
+
+De 401-fout die de Worker teruggeeft is een gevolg van de eigen foutafhandeling in `fetchForminatorForms` die elke niet-200 status als WP API error rapporteert — de werkelijke HTTP status van WP is 404.
+
+### Wat geblokkeerd is
+
+Testcriterium 2 (live formulieren ophalen) kan pas werken als het WP REST endpoint beschikbaar is.
+
+### Twee opties om verder te gaan
+
+**Optie A — WP-plugin endpoint aanmaken (voorkeur)**
+Voeg server-side PHP toe aan de WordPress plugin/theme op `openvme.be` (en eventuele tweede site) die het endpoint registreert:
+```php
+register_rest_route('openvme/v1', '/forminator/forms', [
+  'methods'             => 'GET',
+  'callback'            => 'openvme_get_forminator_forms',
+  'permission_callback' => function() {
+    return current_user_can('edit_posts');
+  }
+]);
+```
+De callback haalt Forminator forms op via `Forminator_API::get_forms()` en retourneert `form_id`, `form_name` en `fields`.
+
+**Optie B — Bestaande Forminator REST API gebruiken**
+Forminator Pro biedt vanaf v1.15 een eigen namespace `forminator/v1`. Op `openvme.be` geeft dit echter ook 404 — de Pro versie is niet actief of de REST API is uitgeschakeld in de Forminator instellingen.
+Fixparcours: Forminator instellingen → REST API inschakelen, daarna testen op `/wp-json/forminator/v1/forms`.
+
+### Aanbeveling
+
+Optie B eerst proberen (geen code nodig, alleen instellingen in WP). Als dat geen optie is, Optie A via de bestaande plugin implementeren.
+
+De Node/Worker-code **is klaar** en hoeft niet aangepast te worden — het enige wat ontbreekt is het WP-side endpoint.
+
+---
+
+## 2026-02-26 — Module: WP Form Schemas (multi-site sync)
+
+### Architectuurschets
+
+```
+wp_sites (DB)
+  └─ POST /wp-sites                → site aanmaken
+  └─ GET  /wp-sites                → sites oplijsten
+  └─ POST /wp-sites/:id/sync       → fetch WP + flatten + upsert in DB
+  └─ GET  /wp-sites/:id/forms      → lijst gesyncte formulieren
+  └─ GET  /wp-sites/:id/forms/:fid → flattened schema + raw schema
+
+WordPressFormsService
+  └─ fetchFormsFromSite(baseUrl, apiSecret)  → GET {base_url}/wp-json/openvme/v2/forminator/forms
+                                                header: X-API-SECRET
+
+flattenFields(fields)
+  ├─ is_composite === true  → parent overslaan, children afzonderlijk toevoegen
+  ├─ type in skip set       → volledig negeren (page-break, group, html, section, captcha)
+  ├─ dubbele field_id       → Error
+  └─ rest                   → rechtstreeks mappable veld
+```
+
+### Nieuwe bestanden
+
+| Bestand | Inhoud |
+|---|---|
+| `supabase/migrations/20260226100000_wp_form_schemas.sql` | Tabellen `wp_sites` + `wp_form_schemas` met RLS, FK, uniek constraint |
+| `src/modules/wp-form-schemas/database.js` | CRUD voor beide tabellen + `upsertFormSchema` |
+| `src/modules/wp-form-schemas/flattening.js` | `flattenFields` + `flattenRawSchema` |
+| `src/modules/wp-form-schemas/service.js` | `fetchFormsFromSite` + `syncSiteForms` |
+| `src/modules/wp-form-schemas/routes.js` | 5 route handlers |
+| `src/modules/wp-form-schemas/module.js` | Module definitie (route: `/wp-sites`) |
+
+### Gewijzigde bestanden
+
+| Bestand | Wijziging |
+|---|---|
+| `src/modules/registry.js` | Import + registratie van `wpFormSchemasModule` |
+
+### Wat de module doet
+
+- Meerdere WP-sites registreren (`POST /wp-sites`) met `name`, `base_url`, `api_secret`.
+- Sync triggeren (`POST /wp-sites/:id/sync`): haalt live formulieren op via `X-API-SECRET` header, slaat raw én flattened schema op in DB.
+- Formulieren terugsturen zonder WP opnieuw te raadplegen (`GET /wp-sites/:id/forms/:formId`).
+- Inactieve sites worden geblokkeerd bij sync.
+- Nette foutmeldingen bij WP onbereikbaar (502), 401, 404 endpoint.
+
+### Wat bewust NIET gebouwd is
+- Geen webhook listener
+- Geen submission verwerking
+- Geen Odoo integratie
+- Geen retry / queue
+- Geen diff-detectie
+- Geen UI (API-only module)
+
+### Volledig los van events-operations
+- Geen import van `wp-client.js`
+- Geen gebruik van `WORDPRESS_URL` of `WP_API_TOKEN` env vars
+- Geen hergebruik van `forminator_forms` tabel of events-tabellen
+- Eigen auth-mechanisme (X-API-SECRET vs Basic Auth)
+- Eigen namespace op WP-side (`openvme/v2` vs `openvme/v1`)
+
+### Geblokkeerd: WP-side endpoint
+
+Het WP-endpoint `GET /wp-json/openvme/v2/forminator/forms` moet aanwezig zijn op elke te syncen WP-site. Dit endpoint bestaat nog niet (404 op openvme.be bij eerdere tests).
+
+**Benodigde PHP (toevoegen aan WP-plugin of theme):**
+
+```php
+add_action('rest_api_init', function () {
+    register_rest_route('openvme/v2', '/forminator/forms', [
+        'methods'             => 'GET',
+        'permission_callback' => function (WP_REST_Request $request) {
+            return $request->get_header('x_api_secret') === OPENVME_API_SECRET;
+        },
+        'callback'            => function () {
+            if (!class_exists('Forminator_API')) return new WP_Error('no_forminator', 'Forminator niet actief', ['status' => 503]);
+            $forms  = Forminator_API::get_forms(null, 1, 9999);
+            $result = [];
+            foreach ($forms as $form) {
+                $id     = $form->id;
+                $data   = Forminator_API::get_form($id);
+                $fields = [];
+                foreach (($data->fields ?? []) as $field) {
+                    $slug    = $field->slug ?? '';
+                    $subGrps = $field->raw['subgroups'] ?? $field->raw['fields'] ?? [];
+                    $isComp  = !empty($subGrps);
+                    $entry   = [
+                        'field_id'     => $slug,
+                        'label'        => $field->raw['field_label'] ?? $slug,
+                        'type'         => $field->raw['type'] ?? 'text',
+                        'required'     => !empty($field->raw['required']) && $field->raw['required'] === 'true',
+                        'is_composite' => $isComp,
+                    ];
+                    if ($isComp) {
+                        $children = [];
+                        foreach ($subGrps as $sub) {
+                            $children[] = [
+                                'field_id' => $sub['id'] ?? ($slug . '.' . ($sub['label'] ?? '')),
+                                'label'    => $sub['label'] ?? '',
+                                'type'     => $field->raw['type'] ?? 'text',
+                                'required' => !empty($field->raw['required']) && $field->raw['required'] === 'true',
+                            ];
+                        }
+                        $entry['children'] = $children;
+                    }
+                    $fields[] = $entry;
+                }
+                $result[] = [
+                    'form_id'   => (string)$id,
+                    'form_name' => $data->settings['formName'] ?? "Form $id",
+                    'fields'    => $fields,
+                ];
+            }
+            return rest_ensure_response($result);
+        }
+    ]);
+});
+```
+
+`OPENVME_API_SECRET` moet in `wp-config.php` gedefinieerd zijn en overeenkomen met de `api_secret` in `wp_sites`.
