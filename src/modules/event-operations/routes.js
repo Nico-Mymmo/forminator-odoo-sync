@@ -1697,6 +1697,9 @@ export const routes = {
         payload = {};
       }
 
+      const effectiveTitle = typeof payload?.effectiveTitle === 'string'
+        ? payload.effectiveTitle.trim()
+        : '';
       const titleOverride = typeof payload?.titleOverride === 'string'
         ? payload.titleOverride.trim()
         : '';
@@ -1710,8 +1713,9 @@ export const routes = {
         ? payload.followupHtml
         : undefined;
 
-      if (titleOverride) {
-        await updateOdooWebinar(env, webinarId, { x_name: titleOverride });
+      const titleToWrite = effectiveTitle || titleOverride;
+      if (titleToWrite) {
+        await updateOdooWebinar(env, webinarId, { x_name: titleToWrite });
       }
 
       if (videoUrl !== undefined || thumbnailUrl !== undefined || followupHtml !== undefined) {
