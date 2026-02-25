@@ -1,5 +1,10 @@
 # Addendum L — Recap Mail & Odoo Dependency Analysis
 
+> Note (2026-02-25): the send/reset execution mechanism is now documented in
+> `ADDENDUM_M_RECAP_SERVER_ACTIONS.md`.
+> This document remains valid for dependency/risk analysis, but references to
+> direct `send_recap_email` invocation are historical.
+
 **Date:** 2026-02-25  
 **Scope:** End-to-end behavior of recap sending in Event Operations (frontend + Worker + Odoo RPC), with specific focus on whether mails can be sent correctly when `x_webinar` is custom/non-standard.  
 **Source of truth:** Only repository code (no external assumptions).

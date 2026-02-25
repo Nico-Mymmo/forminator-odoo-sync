@@ -9,6 +9,22 @@ import { ODOO_MODEL, ODOO_FIELDS } from './constants.js';
 
 let cachedEventTypeFieldName = null;
 
+function resolveRecapTemplateId(env) {
+  const candidates = [
+    env?.RECAP_MAIL_TEMPLATE_ID,
+    env?.ODOO_RECAP_TEMPLATE_ID
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = Number.parseInt(String(candidate || '').trim(), 10);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
 /**
  * Resolve actual x_webinar event type field name in Odoo.
  *
@@ -539,22 +555,48 @@ export async function updateWebinarRecapFields(env, webinarId, fields) {
 }
 
 /**
- * Trigger the server-side recap email send on an Odoo webinar.
- *
- * Odoo will:
- *  - Query all x_webinarregistrations for this webinar
- *  - Filter: x_active = True, x_studio_recap_mail_sent = False
- *  - Send the mailtemplate
- *  - Set x_studio_recap_mail_sent = True per participant
+ * Trigger recap sending through Odoo Server Action 1099.
  *
  * @param {Object} env
  * @param {number} webinarId
- * @returns {Promise<any>}  Odoo method return value
+ * @returns {Promise<any>}
  */
 export async function sendWebinarRecap(env, webinarId) {
+  const recapTemplateId = resolveRecapTemplateId(env);
+
   return executeKw(env, {
-    model: ODOO_MODEL.WEBINAR,
-    method: 'send_recap_email',
-    args: [[webinarId]]
+    model: 'ir.actions.server',
+    method: 'run',
+    args: [[1099]],
+    kwargs: {
+      context: {
+        active_model: ODOO_MODEL.WEBINAR,
+        active_id: webinarId,
+        active_ids: [webinarId],
+        recap_template_id: recapTemplateId
+      }
+    }
+  });
+}
+
+/**
+ * Reset recap sent status through Odoo Server Action 1100.
+ *
+ * @param {Object} env
+ * @param {number} webinarId
+ * @returns {Promise<any>}
+ */
+export async function resetWebinarRecapStatus(env, webinarId) {
+  return executeKw(env, {
+    model: 'ir.actions.server',
+    method: 'run',
+    args: [[1100]],
+    kwargs: {
+      context: {
+        active_model: ODOO_MODEL.WEBINAR,
+        active_id: webinarId,
+        active_ids: [webinarId]
+      }
+    }
   });
 }
