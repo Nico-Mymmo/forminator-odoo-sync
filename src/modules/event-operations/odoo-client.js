@@ -461,3 +461,100 @@ export async function updateOdooWebinar(env, webinarId, values) {
     values
   });
 }
+
+// ─── Recap / video functions ──────────────────────────────────────────────────
+
+/**
+ * Fetch only the recap-relevant fields for one webinar from Odoo.
+ *
+ * @param {Object} env
+ * @param {number} webinarId
+ * @returns {Promise<Object|null>}
+ */
+export async function getWebinarRecapFields(env, webinarId) {
+  const result = await executeKw(env, {
+    model: ODOO_MODEL.WEBINAR,
+    method: 'read',
+    args: [[webinarId]],
+    kwargs: {
+      fields: [
+        ODOO_FIELDS.ID,
+        ODOO_FIELDS.NAME,
+        ODOO_FIELDS.EVENT_DATETIME,
+        ODOO_FIELDS.VIDEO_URL,
+        ODOO_FIELDS.THUMBNAIL_URL,
+        ODOO_FIELDS.FOLLOWUP_HTML
+      ]
+    }
+  });
+  return Array.isArray(result) && result.length > 0 ? result[0] : null;
+}
+
+/**
+ * Check whether any registration for this webinar has already received a recap
+ * email. The field x_studio_recap_email_sent lives on x_webinarregistrations,
+ * NOT on x_webinar.
+ *
+ * @param {Object} env
+ * @param {number} webinarId
+ * @returns {Promise<boolean>}
+ */
+export async function getWebinarRecapSentStatus(env, webinarId) {
+  const count = await executeKw(env, {
+    model: ODOO_MODEL.REGISTRATION,
+    method: 'search_count',
+    args: [[[
+      ODOO_FIELDS.LINKED_WEBINAR, '=', webinarId
+    ], [
+      'x_studio_recap_email_sent', '=', true
+    ]]]
+  });
+  return count > 0;
+}
+
+/**
+ * Write recap-related fields to an Odoo webinar record.
+ *
+ * Only the fields present in `fields` are written — undefined/absent keys
+ * are skipped by Odoo's write() naturally.
+ *
+ * @param {Object} env
+ * @param {number} webinarId
+ * @param {{ video_url?: string, thumbnail_url?: string, followup_html?: string }} fields
+ * @returns {Promise<boolean>}
+ */
+export async function updateWebinarRecapFields(env, webinarId, fields) {
+  const values = {};
+  if (fields.video_url     !== undefined) values[ODOO_FIELDS.VIDEO_URL]     = fields.video_url;
+  if (fields.thumbnail_url !== undefined) values[ODOO_FIELDS.THUMBNAIL_URL] = fields.thumbnail_url;
+  if (fields.followup_html !== undefined) values[ODOO_FIELDS.FOLLOWUP_HTML] = fields.followup_html;
+
+  if (Object.keys(values).length === 0) return true; // nothing to write
+
+  return write(env, {
+    model: ODOO_MODEL.WEBINAR,
+    ids: [webinarId],
+    values
+  });
+}
+
+/**
+ * Trigger the server-side recap email send on an Odoo webinar.
+ *
+ * Odoo will:
+ *  - Query all x_webinarregistrations for this webinar
+ *  - Filter: x_active = True, x_studio_recap_mail_sent = False
+ *  - Send the mailtemplate
+ *  - Set x_studio_recap_mail_sent = True per participant
+ *
+ * @param {Object} env
+ * @param {number} webinarId
+ * @returns {Promise<any>}  Odoo method return value
+ */
+export async function sendWebinarRecap(env, webinarId) {
+  return executeKw(env, {
+    model: ODOO_MODEL.WEBINAR,
+    method: 'send_recap_email',
+    args: [[webinarId]]
+  });
+}

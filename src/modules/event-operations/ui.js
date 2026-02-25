@@ -73,6 +73,7 @@ export function eventOperationsUI(user) {
     <!-- Quill.js WYSIWYG Editor (Editorial Layer - Addendum D) -->
     <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
+    <script src="/quill-editor-component.js"></script>
     <style>
       /* FullCalendar Minimal DaisyUI Integration (Month View Only) */
       
@@ -344,6 +345,7 @@ export function eventOperationsUI(user) {
         border-color: oklch(var(--er) / 0.3) !important;
         color: oklch(var(--bc)) !important;
       }
+
     </style>
 </head>
 <body class="bg-base-200">
@@ -464,8 +466,8 @@ export function eventOperationsUI(user) {
           <!-- Calendar Workspace (Addendum D) -->
           <div id="calendarWorkspace">
             <div class="grid grid-cols-12 gap-6">
-              <!-- Calendar Container (8/12) -->
-              <div class="col-span-12 lg:col-span-8">
+              <!-- Calendar Container (7/12) -->
+              <div class="col-span-12 lg:col-span-7">
                 <div class="card bg-base-100 shadow-xl">
                   <div class="card-body p-4 overflow-hidden rounded-box relative min-h-[34rem]">
                     <div id="calendarLoadingState" class="absolute inset-4 z-10 p-3 space-y-3 bg-transparent">
@@ -513,7 +515,7 @@ export function eventOperationsUI(user) {
               </div>
               
               <!-- Detail Panel (4/12) -->
-              <div class="col-span-12 lg:col-span-4">
+              <div class="col-span-12 lg:col-span-5">
                 <div class="card bg-base-100 shadow-xl sticky top-4 overflow-visible">
                   <div class="card-body">
                     <!-- Empty State -->
@@ -562,6 +564,39 @@ export function eventOperationsUI(user) {
           <form method="dialog">
             <button class="btn">Sluiten</button>
           </form>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- Send Recap Confirmation Modal -->
+    <dialog id="sendRecapModal" class="modal">
+      <div class="modal-box max-w-md">
+        <h3 class="font-bold text-lg mb-3 flex items-center gap-2">
+          <i data-lucide="send" class="w-5 h-5 text-primary"></i>
+          Recap versturen
+        </h3>
+        <p class="text-sm text-base-content/70 mb-2">
+          Je staat op het punt de recap e-mail te versturen naar alle geregistreerde deelnemers
+          voor webinar <strong id="sendRecapWebinarName" class="text-base-content"></strong>.
+        </p>
+        <div class="alert alert-warning text-sm mb-4">
+          <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+          <span>Dit kan <strong>niet ongedaan gemaakt</strong> worden. Elke deelnemer ontvangt hoogstens één recap e-mail.</span>
+        </div>
+        <div id="sendRecapStatus" class="hidden"></div>
+        <div class="modal-action">
+          <form method="dialog">
+            <button class="btn btn-ghost btn-sm" id="sendRecapCancelBtn">Annuleren</button>
+          </form>
+          <button
+            id="sendRecapConfirmBtn"
+            class="btn btn-primary btn-sm gap-1"
+            data-action="confirm-send-recap"
+          >
+            <i data-lucide="send" class="w-4 h-4"></i>
+            Ja, verstuur recap
+          </button>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
@@ -763,7 +798,6 @@ export function eventOperationsUI(user) {
       
       import { initializeCalendar, refreshCalendar } from '/calendar-controller.js';
       import { initializeDetailPanel, clearRegistrationsCache } from '/detail-panel-controller.js';
-      import { initializeEditorModal } from '/editor-controller.js';
       
       // ── Theme Management ──
       function changeTheme(theme) {
@@ -1404,7 +1438,6 @@ export function eventOperationsUI(user) {
       // ── Initialize Controllers ──
       initTheme();
       initializeDetailPanel();
-      initializeEditorModal();
 
       // ── Listen for mapping changes (from legacy client) ──
       window.addEventListener('mappings-changed', async () => {

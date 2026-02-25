@@ -9,6 +9,8 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 let calendarInstance = null; // Global calendar instance
+let recapQuillEditor = null; // Global Quill instance for recap HTML editor
+let recapQuillController = null;
 
 /**
  * Initialize FullCalendar with webinar data
@@ -172,6 +174,9 @@ function updateDetailPanel(webinar, snapshot, state, regCount) {
     return;
   }
 
+  // Destroy existing Quill instance before re-render
+  recapQuillEditor = null;
+
   emptyState.style.display = 'none';
   panelContent.style.display = 'block';
 
@@ -182,6 +187,8 @@ function updateDetailPanel(webinar, snapshot, state, regCount) {
     if (typeof lucide !== 'undefined' && lucide.createIcons) {
       lucide.createIcons();
     }
+    // Initialize recap section (async, non-blocking)
+    initRecapSection(webinar.id, webinar);
   }, 10);
 }
 
@@ -256,6 +263,109 @@ function renderDetailPanelContent(webinar, snapshot, state, regCount) {
           ` : ''}
         </div>
       </div>
+
+      <!-- ── Webinar Recap ── -->
+      <details class="pt-4 border-t border-base-200">
+        <summary class="font-semibold text-sm flex items-center justify-between cursor-pointer list-none pb-3">
+          <span class="flex items-center gap-2">
+            <i data-lucide="video" class="w-4 h-4 text-primary"></i>
+            Webinar Recap
+          </span>
+          <span id="recap-loading-indicator" class="loading loading-spinner loading-xs hidden"></span>
+        </summary>
+        <div class="space-y-3">
+
+        <!-- Video URL -->
+        <div>
+          <label class="label py-0 pb-1">
+            <span class="label-text text-xs font-medium">Video URL</span>
+          </label>
+          <div class="flex gap-1">
+            <input
+              id="recap-video-url"
+              type="url"
+              class="input input-bordered input-xs flex-1 font-mono text-xs min-w-0"
+              placeholder="https://youtu.be/... of vimeo.com/..."
+            >
+            <button
+              data-action="set-video-url"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-xs btn-primary shrink-0"
+              title="URL verwerken en thumbnail ophalen"
+            >
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            </button>
+            <button
+              data-action="clear-video-url"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-xs btn-ghost btn-square shrink-0"
+              title="URL en thumbnail wissen"
+            >
+              <i data-lucide="x" class="w-3 h-3"></i>
+            </button>
+          </div>
+          <div id="recap-url-alert" class="hidden mt-1 text-xs"></div>
+        </div>
+
+        <!-- Thumbnail -->
+        <div>
+          <label class="label py-0 pb-1">
+            <span class="label-text text-xs font-medium">Thumbnail</span>
+          </label>
+          <div
+            id="recap-thumb-container"
+            class="rounded-lg overflow-hidden bg-base-200 flex items-center justify-center mb-2"
+            style="aspect-ratio:16/9;"
+          >
+            <i data-lucide="image" class="w-8 h-8 text-base-content/30"></i>
+          </div>
+          <input id="recap-thumb-file" type="file" accept="image/*" class="hidden">
+          <button
+            data-action="trigger-thumb-upload"
+            data-webinar-id="${webinar.id}"
+            class="btn btn-xs btn-outline w-full gap-1"
+          >
+            <i data-lucide="upload" class="w-3 h-3"></i> Upload eigen thumbnail
+          </button>
+          <div id="recap-thumb-alert" class="hidden mt-1 text-xs"></div>
+        </div>
+
+        <!-- Recap HTML Editor -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="label-text text-xs font-medium">Recap HTML</span>
+            <button
+              data-action="save-recap-html"
+              data-webinar-id="${webinar.id}"
+              class="btn btn-xs btn-outline btn-primary gap-1"
+            >
+              <i data-lucide="save" class="w-3 h-3"></i> Opslaan
+            </button>
+          </div>
+          <div
+            id="recap-html-editor"
+            class="rounded-lg border border-base-content/20 bg-base-100 text-sm overflow-hidden"
+            style="min-height:140px;"
+          ></div>
+          <div id="recap-html-alert" class="hidden mt-1 text-xs"></div>
+        </div>
+
+        <!-- Recap Ready Status -->
+        <div id="recap-ready-status"></div>
+
+        <!-- Send Recap Button -->
+        <button
+          id="recap-send-btn"
+          data-action="send-recap"
+          data-webinar-id="${webinar.id}"
+          class="btn btn-sm btn-success w-full gap-1"
+          disabled
+        >
+          <i data-lucide="send" class="w-4 h-4"></i>
+          Verstuur Recap
+        </button>
+        </div>
+      </details>
     </div>
   `;
 }
@@ -333,10 +443,441 @@ function initDetailPanelDelegation() {
       } else {
         console.error('[DetailPanel] publishWebinar not found');
       }
+    } else if (action === 'set-video-url') {
+      await recapHandleSetVideoUrl(webinarId);
+    } else if (action === 'clear-video-url') {
+      await recapHandleClearVideoUrl(webinarId);
+    } else if (action === 'trigger-thumb-upload') {
+      const fi = document.getElementById('recap-thumb-file');
+      if (fi) fi.click();
+    } else if (action === 'save-recap-html') {
+      await recapHandleSaveHtml(webinarId);
+    } else if (action === 'send-recap') {
+      recapOpenConfirmModal(webinarId);
     }
   });
 
   detailPanelDelegationInitialized = true;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RECAP SECTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Initialize the recap section for a webinar.
+ * Called automatically after the detail panel is rendered.
+ *
+ * @param {number} webinarId
+ * @param {Object} [webinarHint]  Optional partial webinar data (datetime, etc.)
+ */
+async function initRecapSection(webinarId, webinarHint) {
+  const loading = document.getElementById('recap-loading-indicator');
+  if (loading) loading.classList.remove('hidden');
+
+  try {
+    const res  = await fetch('/events/api/webinar/' + webinarId + '/recap');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Laden mislukt');
+
+    const { video_url, thumbnail_url, followup_html, recap_sent, recap_ready, recap_reasons } = json.data;
+
+    // ── Video URL ──
+    const videoInput = document.getElementById('recap-video-url');
+    if (videoInput && video_url) videoInput.value = video_url;
+
+    // ── Thumbnail preview ──
+    setRecapThumbnailPreview(thumbnail_url);
+
+    // ── Bind file-input change ──
+    const fileInput = document.getElementById('recap-thumb-file');
+    if (fileInput) {
+      fileInput.onchange = () => recapHandleThumbUpload(webinarId, fileInput);
+    }
+
+    // ── Quill editor ──
+    const editorEl = document.getElementById('recap-html-editor');
+    if (editorEl && window.EOQuill && typeof window.EOQuill.create === 'function') {
+      recapQuillController = window.EOQuill.create({
+        target: editorEl,
+        initialHtml: followup_html || '',
+        readOnly: false,
+        placeholder: 'Schrijf hier de recap HTML...',
+        toolbar: [
+          [{ 'header': [2, 3, 4, false] }],
+          ['bold', 'italic', 'underline'],
+          [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+          ['link']
+        ],
+        onSave: async () => {
+          await recapHandleSaveHtml(webinarId);
+        },
+        saveTooltip: 'Recap HTML opslaan'
+      });
+      recapQuillEditor = recapQuillController?.quill || null;
+    }
+
+    // ── Recap Ready status ──
+    const statusEl = document.getElementById('recap-ready-status');
+    if (statusEl) {
+      statusEl.innerHTML = renderRecapReadyBadge(recap_ready, recap_reasons, recap_sent);
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }
+
+    // ── Send Recap button ──
+    const sendBtn = document.getElementById('recap-send-btn');
+    if (sendBtn) {
+      if (recap_sent) {
+        sendBtn.textContent = '✓ Recap al verstuurd';
+        sendBtn.disabled = true;
+        sendBtn.className = 'btn btn-sm btn-disabled w-full gap-1';
+      } else if (recap_ready) {
+        sendBtn.disabled = false;
+      }
+    }
+
+  } catch (err) {
+    console.error('[initRecapSection] Error:', err);
+    const statusEl = document.getElementById('recap-ready-status');
+    if (statusEl) {
+      statusEl.innerHTML = '<div class="alert alert-error text-xs p-2"><span>Recap laden mislukt: ' + escapeHtml(err.message) + '</span></div>';
+    }
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+/**
+ * Set the thumbnail preview image in the recap section.
+ * @param {string|null} url
+ */
+function setRecapThumbnailPreview(url) {
+  const container = document.getElementById('recap-thumb-container');
+  if (!container) return;
+  if (url) {
+    // Proxy through current origin so dev-mode loads from localhost
+    // instead of the production worker URL stored in Odoo
+    let displayUrl = url;
+    try {
+      const parsed = new URL(url);
+      if (parsed.pathname.startsWith('/assets/')) {
+        displayUrl = window.location.origin + parsed.pathname;
+      }
+    } catch (e) { /* keep original url */ }
+    const img = document.createElement('img');
+    img.src = displayUrl;
+    img.alt = 'Thumbnail';
+    img.className = 'w-full h-full object-cover';
+    img.onerror = () => {
+      container.innerHTML = '<div class="flex flex-col items-center gap-1 text-xs text-base-content/40"><i data-lucide="image-off" class="w-6 h-6"></i><span>Laden mislukt</span></div>';
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    };
+    container.innerHTML = '';
+    container.appendChild(img);
+  } else {
+    container.innerHTML = '<i data-lucide="image" class="w-8 h-8 text-base-content/30"></i>';
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+}
+
+/**
+ * Render the "Recap Ready" status badge.
+ * @param {boolean} ready
+ * @param {string[]} reasons
+ * @param {boolean} sent
+ * @returns {string} HTML
+ */
+function renderRecapReadyBadge(ready, reasons, sent) {
+  if (sent) {
+    return '<div class="badge badge-success gap-1 w-full justify-start py-3 text-xs">' +
+      '<i data-lucide="check-circle" class="w-3 h-3"></i> Recap verzonden</div>';
+  }
+  if (ready) {
+    return '<div class="badge badge-success badge-outline gap-1 w-full justify-start py-3 text-xs">' +
+      '<i data-lucide="check-circle" class="w-3 h-3"></i> Klaar om te versturen</div>';
+  }
+  const items = reasons.map(function(r) {
+    return '<li>' + escapeHtml(r) + '</li>';
+  }).join('');
+  return '<div class="alert alert-warning text-xs p-2">' +
+    '<div><div class="font-medium mb-1 flex items-center gap-1">' +
+    '<i data-lucide="alert-circle" class="w-3 h-3"></i> Recap nog niet klaar:</div>' +
+    '<ul class="list-disc list-inside space-y-0.5">' + items + '</ul></div></div>';
+}
+
+/**
+ * Handle "Verwerk URL" button: POST video URL, update thumbnail preview.
+ * @param {number} webinarId
+ */
+async function recapHandleSetVideoUrl(webinarId) {
+  const input = document.getElementById('recap-video-url');
+  const alertEl = document.getElementById('recap-url-alert');
+  const loading = document.getElementById('recap-loading-indicator');
+  if (!input) return;
+
+  const url = input.value.trim();
+  if (!url) {
+    recapShowAlert(alertEl, 'Voer een URL in', 'error');
+    return;
+  }
+
+  if (loading) loading.classList.remove('hidden');
+  if (alertEl) alertEl.classList.add('hidden');
+
+  try {
+    const res  = await fetch('/events/api/webinar/' + webinarId + '/video-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Verwerken mislukt');
+
+    setRecapThumbnailPreview(json.data.thumbnail_url);
+    recapShowAlert(alertEl, json.data.platform + ' thumbnail opgehaald ✓', 'success');
+    // Refresh ready status
+    await recapRefreshReadyStatus(webinarId);
+
+  } catch (err) {
+    recapShowAlert(alertEl, err.message, 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+/**
+ * Clear the video URL and thumbnail for a webinar.
+ * @param {number} webinarId
+ */
+async function recapHandleClearVideoUrl(webinarId) {
+  const input = document.getElementById('recap-video-url');
+  const alertEl = document.getElementById('recap-url-alert');
+  const loading = document.getElementById('recap-loading-indicator');
+
+  if (loading) loading.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/events/api/webinar/' + webinarId + '/video-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: '' })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Wissen mislukt');
+
+    if (input) input.value = '';
+    setRecapThumbnailPreview(null);
+    recapShowAlert(alertEl, 'URL en thumbnail gewist ✓', 'success');
+    await recapRefreshReadyStatus(webinarId);
+
+  } catch (err) {
+    recapShowAlert(alertEl, err.message, 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+/**
+ * Handle custom thumbnail file upload.
+ * @param {number} webinarId
+ * @param {HTMLInputElement} fileInput
+ */
+async function recapHandleThumbUpload(webinarId, fileInput) {
+  const alertEl = document.getElementById('recap-thumb-alert');
+  const loading = document.getElementById('recap-loading-indicator');
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    recapShowAlert(alertEl, 'Selecteer een afbeeldingsbestand', 'error');
+    return;
+  }
+
+  if (loading) loading.classList.remove('hidden');
+
+  try {
+    const formData = new FormData();
+    formData.append('thumbnail', file);
+
+    const res  = await fetch('/events/api/webinar/' + webinarId + '/thumbnail', {
+      method: 'POST',
+      body: formData
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Upload mislukt');
+
+    setRecapThumbnailPreview(json.data.thumbnail_url);
+    recapShowAlert(alertEl, 'Thumbnail geüpload ✓', 'success');
+    await recapRefreshReadyStatus(webinarId);
+
+  } catch (err) {
+    recapShowAlert(alertEl, err.message, 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+    fileInput.value = '';
+  }
+}
+
+/**
+ * Handle "Opslaan" for recap HTML.
+ * @param {number} webinarId
+ */
+async function recapHandleSaveHtml(webinarId) {
+  const alertEl = document.getElementById('recap-html-alert');
+  const loading = document.getElementById('recap-loading-indicator');
+
+  const html = recapQuillController
+    ? recapQuillController.getHTML()
+    : (recapQuillEditor ? recapQuillEditor.root.innerHTML : '');
+
+  if (loading) loading.classList.remove('hidden');
+
+  try {
+    const res  = await fetch('/events/api/webinar/' + webinarId + '/recap-html', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+
+    recapShowAlert(alertEl, 'HTML opgeslagen ✓', 'success');
+    if (recapQuillController) {
+      recapQuillController.markSaved();
+    }
+    await recapRefreshReadyStatus(webinarId);
+
+  } catch (err) {
+    recapShowAlert(alertEl, err.message, 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+/**
+ * Refresh the recap-ready status + send button after a change.
+ * @param {number} webinarId
+ */
+async function recapRefreshReadyStatus(webinarId) {
+  try {
+    const res  = await fetch('/events/api/webinar/' + webinarId + '/recap');
+    const json = await res.json();
+    if (!json.success) return;
+
+    const { recap_ready, recap_reasons, recap_sent } = json.data;
+
+    const statusEl = document.getElementById('recap-ready-status');
+    if (statusEl) {
+      statusEl.innerHTML = renderRecapReadyBadge(recap_ready, recap_reasons, recap_sent);
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }
+
+    const sendBtn = document.getElementById('recap-send-btn');
+    if (sendBtn && !recap_sent) {
+      sendBtn.disabled = !recap_ready;
+    }
+  } catch (_) {}
+}
+
+/**
+ * Open the Send Recap confirmation modal.
+ * @param {number} webinarId
+ */
+function recapOpenConfirmModal(webinarId) {
+  const modal = document.getElementById('sendRecapModal');
+  if (!modal) return;
+
+  // Set webinar name in modal
+  const nameEl = document.getElementById('sendRecapWebinarName');
+  const panelTitle = document.querySelector('#panel-content h2');
+  if (nameEl) nameEl.textContent = panelTitle ? panelTitle.textContent : '#' + webinarId;
+
+  // Reset status area
+  const statusEl = document.getElementById('sendRecapStatus');
+  if (statusEl) { statusEl.className = 'hidden'; statusEl.innerHTML = ''; }
+
+  // Re-enable confirm button
+  const confirmBtn = document.getElementById('sendRecapConfirmBtn');
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> Ja, verstuur recap';
+    confirmBtn.dataset.webinarId = String(webinarId);
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  modal.showModal();
+}
+
+/**
+ * Execute the recap send after modal confirmation.
+ * @param {number} webinarId
+ */
+async function recapConfirmSend(webinarId) {
+  const confirmBtn  = document.getElementById('sendRecapConfirmBtn');
+  const cancelBtn   = document.getElementById('sendRecapCancelBtn');
+  const statusEl    = document.getElementById('sendRecapStatus');
+  const loading     = document.getElementById('recap-loading-indicator');
+
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Versturen...'; }
+  if (cancelBtn)  cancelBtn.disabled = true;
+
+  try {
+    const res  = await fetch('/events/api/webinar/' + webinarId + '/send-recap', { method: 'POST' });
+    const json = await res.json();
+
+    if (!json.success) throw new Error(json.error || 'Versturen mislukt');
+
+    // Success
+    if (statusEl) {
+      statusEl.className = 'alert alert-success text-sm p-2 mb-2';
+      statusEl.innerHTML = '<i data-lucide="check-circle" class="w-4 h-4"></i><span>Recap succesvol verstuurd!</span>';
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }
+
+    // Close modal and update panel
+    setTimeout(() => {
+      const modal = document.getElementById('sendRecapModal');
+      if (modal) modal.close();
+      // Mark send button as sent
+      const sendBtn = document.getElementById('recap-send-btn');
+      if (sendBtn) {
+        sendBtn.textContent = '✓ Recap verstuurd';
+        sendBtn.disabled = true;
+        sendBtn.className = 'btn btn-sm btn-disabled w-full';
+      }
+      const readyEl = document.getElementById('recap-ready-status');
+      if (readyEl) {
+        readyEl.innerHTML = renderRecapReadyBadge(true, [], true);
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      }
+    }, 1500);
+
+  } catch (err) {
+    if (statusEl) {
+      statusEl.className = 'alert alert-error text-sm p-2 mb-2';
+      statusEl.innerHTML = '<i data-lucide="x-circle" class="w-4 h-4"></i><span>' + escapeHtml(err.message) + '</span>';
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Opnieuw proberen'; }
+    if (cancelBtn)  cancelBtn.disabled = false;
+    if (loading)    loading.classList.add('hidden');
+  }
+}
+
+/**
+ * Small inline alert helper for the recap section.
+ * @param {Element|null} el
+ * @param {string} msg
+ * @param {'success'|'error'|'info'} type
+ */
+function recapShowAlert(el, msg, type) {
+  if (!el) return;
+  const classes = { success: 'text-success', error: 'text-error', info: 'text-info' };
+  el.className = 'mt-1 text-xs ' + (classes[type] || '');
+  el.textContent = msg;
+  if (type === 'success') {
+    setTimeout(() => { el.classList.add('hidden'); }, 3000);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1273,3 +1814,16 @@ function decodeHtmlEntities(text) {
   textarea.innerHTML = String(text || '');
   return textarea.value;
 }
+
+// ── Send Recap modal: confirm button global binding ───────────────────────────
+// The confirm button lives outside the detail panel (inside a <dialog>),
+// so it cannot be handled by the delegated panel listener. We bind it once
+// at module-load time via a document-level click listener.
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('#sendRecapConfirmBtn');
+  if (!btn || btn.disabled) return;
+  const webinarId = Number(btn.dataset.webinarId);
+  if (webinarId) {
+    recapConfirmSend(webinarId);
+  }
+});

@@ -3,7 +3,7 @@
  */
 
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
-import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar } from './odoo-client.js';
+import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar, getWebinarRecapFields, getWebinarRecapSentStatus, updateWebinarRecapFields, sendWebinarRecap } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
 import { getSupabaseAdminClient } from './lib/supabaseClient.js';
 import { computeEventState } from './state-engine.js';
@@ -12,6 +12,7 @@ import { eventOperationsUI } from './ui.js';
 import { getEventTypeTagMappings, upsertEventTypeTagMapping, deleteEventTypeTagMapping } from './tag-mapping.js';
 import { validateEditorialContent } from './editorial.js';
 import { eventRegistrationRoutes } from './routes/event-registrations.js';
+import { parseVideoUrl, fetchVideoThumbnailBuffer, storeThumbnailInR2, computeRecapReady } from './services/recap-service.js';
 
 const SYNC_WORKER_CONCURRENCY = 5;
 const SNAPSHOT_UPSERT_BATCH_SIZE = 25;
@@ -993,7 +994,7 @@ export const routes = {
       
       const { data: snapshot, error } = await supabase
         .from('webinar_snapshots')
-        .select('editorial_content, editorial_mode, selected_form_id')
+        .select('editorial_content, editorial_mode, selected_form_id, title_override')
         .eq('odoo_webinar_id', odooWebinarId)
         .single();
       
@@ -1004,6 +1005,7 @@ export const routes = {
       const editorialContent = snapshot?.editorial_content || null;
       const editorialMode = snapshot?.editorial_mode || 'never_edited';
       const selectedFormId = snapshot?.selected_form_id || null;
+      const titleOverride = snapshot?.title_override || null;
       
       console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Editorial data retrieved: mode=${editorialMode}, formId=${selectedFormId}`);
       
@@ -1011,7 +1013,8 @@ export const routes = {
         success: true,
         data: editorialContent,
         editorialMode: editorialMode,
-        selectedFormId: selectedFormId
+        selectedFormId: selectedFormId,
+        titleOverride: titleOverride
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
@@ -1321,7 +1324,7 @@ export const routes = {
       }
       
       const body = await request.json();
-      const { editorialContent, editorialMode, selectedFormId } = body;
+      const { editorialContent, editorialMode, selectedFormId, titleOverride } = body;
       
       // Validate editorial content structure
       const validation = validateEditorialContent(editorialContent);
@@ -1366,6 +1369,11 @@ export const routes = {
       }
       if (selectedFormId !== undefined) {
         updateData.selected_form_id = selectedFormId;
+      }
+      if (titleOverride !== undefined) {
+        updateData.title_override = (typeof titleOverride === 'string' && titleOverride.trim() !== '')
+          ? titleOverride.trim()
+          : null;
       }
       
       // Update fields
@@ -1448,6 +1456,281 @@ export const routes = {
       return new Response(JSON.stringify({ success: false, error: error.message }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RECAP ROUTES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * GET /events/api/webinar/:id/recap
+   * Fetch recap fields + computed ready status for one webinar.
+   */
+  'GET /api/webinar/:id/recap': async (context) => {
+    const { env, params } = context;
+    try {
+      const webinarId = parseInt(params.id, 10);
+      if (!webinarId) {
+        return new Response(JSON.stringify({ success: false, error: 'Invalid webinar ID' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const [webinar, recapSent] = await Promise.all([
+        getWebinarRecapFields(env, webinarId),
+        getWebinarRecapSentStatus(env, webinarId)
+      ]);
+      if (!webinar) {
+        return new Response(JSON.stringify({ success: false, error: 'Webinar not found' }), {
+          status: 404, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const { ready, reasons } = computeRecapReady(webinar);
+
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          webinar_id: webinarId,
+          video_url:      webinar.x_studio_vimeo_url      || null,
+          thumbnail_url:  webinar.x_studio_vimeo_thumbnail_url || null,
+          followup_html:  webinar.x_studio_followup_html  || '',
+          recap_sent:     recapSent,
+          recap_ready:    ready,
+          recap_reasons:  reasons
+        }
+      }), { headers: { 'Content-Type': 'application/json' } });
+
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} GET recap failed:`, error);
+      return new Response(JSON.stringify({ success: false, error: error.message }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * POST /events/api/webinar/:id/video-url
+   * Body: { url: string }
+   *
+   * 1. Detect platform (YouTube / Vimeo)
+   * 2. Fetch official thumbnail server-side
+   * 3. Store in R2 as webinars/{id}/thumbnail.jpg
+   * 4. Sync video_url + thumbnail_url to Odoo
+   */
+  'POST /api/webinar/:id/video-url': async (context) => {
+    const { env, params, request } = context;
+    try {
+      const webinarId = parseInt(params.id, 10);
+      if (!webinarId) {
+        return new Response(JSON.stringify({ success: false, error: 'Invalid webinar ID' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const { url } = await request.json();
+      if (typeof url !== 'string') {
+        return new Response(JSON.stringify({ success: false, error: 'Missing or invalid "url" field' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Empty URL → clear video_url and thumbnail_url in Odoo
+      if (!url.trim()) {
+        await updateWebinarRecapFields(env, webinarId, { video_url: '', thumbnail_url: '' });
+        return new Response(JSON.stringify({ success: true, data: { cleared: true } }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // 1. Parse URL
+      const parsed = parseVideoUrl(url);
+      if (!parsed) {
+        return new Response(JSON.stringify({ success: false, error: 'Geen geldige YouTube of Vimeo URL herkend' }), {
+          status: 422, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      console.log(`${LOG_PREFIX} Processing ${parsed.platform} video ${parsed.id} for webinar ${webinarId}`);
+
+      // 2. Fetch thumbnail
+      const { buffer, mimeType } = await fetchVideoThumbnailBuffer(parsed);
+
+      // 3. Store in R2
+      const { url: thumbnailUrl } = await storeThumbnailInR2(env, webinarId, buffer, mimeType, 'auto');
+
+      // 4. Sync to Odoo
+      await updateWebinarRecapFields(env, webinarId, {
+        video_url:     url.trim(),
+        thumbnail_url: thumbnailUrl
+      });
+
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Video URL processed for webinar ${webinarId}`);
+
+      return new Response(JSON.stringify({
+        success: true,
+        data: { platform: parsed.platform, thumbnail_url: thumbnailUrl }
+      }), { headers: { 'Content-Type': 'application/json' } });
+
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} video-url failed:`, error);
+      return new Response(JSON.stringify({ success: false, error: error.message }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * POST /events/api/webinar/:id/thumbnail
+   * Multipart form: file field "thumbnail"
+   *
+   * Accepts a custom thumbnail upload, stores it in R2 (overwriting the
+   * auto-generated one), and syncs the URL to Odoo.
+   */
+  'POST /api/webinar/:id/thumbnail': async (context) => {
+    const { env, params, request } = context;
+    try {
+      const webinarId = parseInt(params.id, 10);
+      if (!webinarId) {
+        return new Response(JSON.stringify({ success: false, error: 'Invalid webinar ID' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const formData = await request.formData();
+      const file = formData.get('thumbnail');
+      if (!file || typeof file.arrayBuffer !== 'function') {
+        return new Response(JSON.stringify({ success: false, error: 'Missing file field "thumbnail"' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const buffer   = await file.arrayBuffer();
+      const mimeType = file.type || 'image/jpeg';
+
+      if (!mimeType.startsWith('image/')) {
+        return new Response(JSON.stringify({ success: false, error: 'Bestand moet een afbeelding zijn' }), {
+          status: 422, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const { url: thumbnailUrl } = await storeThumbnailInR2(env, webinarId, buffer, mimeType, 'upload');
+
+      await updateWebinarRecapFields(env, webinarId, { thumbnail_url: thumbnailUrl });
+
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Custom thumbnail stored for webinar ${webinarId}`);
+
+      return new Response(JSON.stringify({
+        success: true,
+        data: { thumbnail_url: thumbnailUrl }
+      }), { headers: { 'Content-Type': 'application/json' } });
+
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} thumbnail upload failed:`, error);
+      return new Response(JSON.stringify({ success: false, error: error.message }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * PUT /events/api/webinar/:id/recap-html
+   * Body: { html: string }
+   *
+   * Save recap HTML locally (Odoo field x_studio_followup_html).
+   */
+  'PUT /api/webinar/:id/recap-html': async (context) => {
+    const { env, params, request } = context;
+    try {
+      const webinarId = parseInt(params.id, 10);
+      if (!webinarId) {
+        return new Response(JSON.stringify({ success: false, error: 'Invalid webinar ID' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const { html } = await request.json();
+      if (typeof html !== 'string') {
+        return new Response(JSON.stringify({ success: false, error: 'Missing "html" field' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      await updateWebinarRecapFields(env, webinarId, { followup_html: html });
+
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Recap HTML saved for webinar ${webinarId} (${html.length} chars)`);
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} recap-html failed:`, error);
+      return new Response(JSON.stringify({ success: false, error: error.message }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  /**
+   * POST /events/api/webinar/:id/send-recap
+   *
+   * Trigger Odoo recap mail send (idempotent: Odoo filters already-sent).
+   * Returns number of mails sent + any errors from Odoo.
+   */
+  'POST /api/webinar/:id/send-recap': async (context) => {
+    const { env, params } = context;
+    try {
+      const webinarId = parseInt(params.id, 10);
+      if (!webinarId) {
+        return new Response(JSON.stringify({ success: false, error: 'Invalid webinar ID' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Guard: verify recap is ready before sending
+      const webinar = await getWebinarRecapFields(env, webinarId);
+      if (!webinar) {
+        return new Response(JSON.stringify({ success: false, error: 'Webinar niet gevonden' }), {
+          status: 404, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const { ready, reasons } = computeRecapReady(webinar);
+      if (!ready) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Recap is nog niet klaar: ' + reasons.join(', ')
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // Guard: prevent re-send if already sent
+      const alreadySent = await getWebinarRecapSentStatus(env, webinarId);
+      if (alreadySent) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Recap is al eerder verstuurd',
+          already_sent: true
+        }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      console.log(`${LOG_PREFIX} Sending recap for webinar ${webinarId}...`);
+
+      const odooResult = await sendWebinarRecap(env, webinarId);
+
+      console.log(`${LOG_PREFIX} ${EMOJI.SUCCESS} Recap sent for webinar ${webinarId}:`, odooResult);
+
+      return new Response(JSON.stringify({
+        success: true,
+        data: { odoo_result: odooResult, sent_at: new Date().toISOString() }
+      }), { headers: { 'Content-Type': 'application/json' } });
+
+    } catch (error) {
+      console.error(`${LOG_PREFIX} ${EMOJI.ERROR} send-recap failed:`, error);
+      return new Response(JSON.stringify({ success: false, error: error.message }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
       });
     }
   }
