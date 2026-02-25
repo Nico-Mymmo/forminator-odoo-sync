@@ -371,6 +371,33 @@ export async function getSubmissionById(env, submissionId) {
   return data || null;
 }
 
+export async function getRunningReplayByOriginalSubmissionId(env, originalSubmissionId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.submissions)
+    .select('*')
+    .eq('replay_of_submission_id', originalSubmissionId)
+    .eq('status', 'running')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to fetch running replay submission: ${error.message}`);
+  return data || null;
+}
+
+export async function listReplaySubmissionsByOriginalSubmissionId(env, originalSubmissionId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.submissions)
+    .select('*')
+    .eq('replay_of_submission_id', originalSubmissionId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(`Failed to list replay submissions: ${error.message}`);
+  return ensureArray(data);
+}
+
 export async function listDueRetrySubmissions(env, nowIso, limit = 25) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase

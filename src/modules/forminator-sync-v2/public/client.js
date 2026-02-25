@@ -5,7 +5,8 @@ export const forminatorSyncV2ClientScript = String.raw`
     activeIntegrationId: null,
     meta: null,
     detail: null,
-    testStatus: null
+    testStatus: null,
+    submissions: []
   };
 
   const els = {
@@ -21,8 +22,84 @@ export const forminatorSyncV2ClientScript = String.raw`
     targetRows: document.getElementById('targetRows'),
     mappingRows: document.getElementById('mappingRows'),
     activationToggle: document.getElementById('integrationActive'),
-    testInfo: document.getElementById('testInfo')
+    testInfo: document.getElementById('testInfo'),
+    submissionRows: document.getElementById('submissionRows')
   };
+
+  function formatDateTime(value) {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleString('nl-BE');
+  }
+
+  function shortId(value) {
+    const raw = String(value || '');
+    return raw ? raw.slice(0, 8) : '-';
+  }
+
+  function isReplayAllowedStatus(status) {
+    return ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(status || ''));
+  }
+
+  function statusBadgeClass(status) {
+    const value = String(status || '');
+    if (value === 'success') return 'badge-success';
+    if (value === 'partial_failed') return 'badge-warning';
+    if (value === 'permanent_failed') return 'badge-error';
+    if (value === 'retry_scheduled') return 'badge-warning';
+    if (value === 'retry_running') return 'badge-info';
+    if (value === 'retry_exhausted') return 'badge-error';
+    if (value === 'duplicate_inflight') return 'badge-info';
+    if (value === 'duplicate_ignored') return 'badge-neutral';
+    if (value === 'running') return 'badge-info';
+    return 'badge-ghost';
+  }
+
+  function findLatestReplayChild(parentSubmissionId) {
+    const children = (state.submissions || [])
+      .filter((row) => row.replay_of_submission_id === parentSubmissionId)
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+    return children[0] || null;
+  }
+
+  function renderSubmissionHistory() {
+    if (!els.submissionRows) return;
+
+    const submissions = state.submissions || [];
+    if (submissions.length === 0) {
+      els.submissionRows.innerHTML = '<tr><td colspan="8" class="text-base-content/60">Nog geen submissions</td></tr>';
+      return;
+    }
+
+    els.submissionRows.innerHTML = submissions.map((submission) => {
+      const replayAllowed = isReplayAllowedStatus(submission.status);
+      const latestReplay = findLatestReplayChild(submission.id);
+      const replayAction = replayAllowed
+        ? '<button class="btn btn-xs btn-primary" data-action="replay-submission" data-id="' + submission.id + '">Opnieuw uitvoeren</button>'
+        : '<span class="text-base-content/50">-</span>';
+
+      const replayOf = submission.replay_of_submission_id
+        ? '<span class="font-mono">' + escapeHtml(shortId(submission.replay_of_submission_id)) + '</span>'
+        : '-';
+
+      const replayChild = latestReplay
+        ? '<span class="font-mono">' + escapeHtml(shortId(latestReplay.id)) + '</span>'
+        : '-';
+
+      return '<tr>' +
+        '<td><span class="font-mono">' + escapeHtml(shortId(submission.id)) + '</span></td>' +
+        '<td><span class="badge ' + statusBadgeClass(submission.status) + '">' + escapeHtml(submission.status || '-') + '</span></td>' +
+        '<td>' + escapeHtml(String(submission.retry_count ?? '-')) + '</td>' +
+        '<td>' + escapeHtml(formatDateTime(submission.next_retry_at)) + '</td>' +
+        '<td>' + replayOf + '</td>' +
+        '<td>' + replayChild + '</td>' +
+        '<td>' + escapeHtml(formatDateTime(submission.created_at)) + '</td>' +
+        '<td>' + replayAction + '</td>' +
+      '</tr>';
+    }).join('');
+  }
 
   function showStatus(message, type = 'info') {
     if (!els.statusAlert) return;
@@ -78,6 +155,7 @@ export const forminatorSyncV2ClientScript = String.raw`
       if (els.mappingRows) els.mappingRows.innerHTML = '<tr><td colspan="6" class="text-base-content/60">Selecteer eerst een target</td></tr>';
       if (els.activationToggle) els.activationToggle.checked = false;
       if (els.testInfo) els.testInfo.textContent = 'Geen test uitgevoerd.';
+      if (els.submissionRows) els.submissionRows.innerHTML = '<tr><td colspan="8" class="text-base-content/60">Selecteer eerst een integratie</td></tr>';
       return;
     }
 
@@ -131,6 +209,8 @@ export const forminatorSyncV2ClientScript = String.raw`
         ? 'Laatste teststatus: geslaagd. Activatie toegestaan.'
         : 'Laatste teststatus: niet geslaagd. Activatie blijft geblokkeerd.';
     }
+
+    renderSubmissionHistory();
 
     populateMappingTargetSelect();
   }
@@ -228,6 +308,9 @@ export const forminatorSyncV2ClientScript = String.raw`
 
     const test = await api('/integrations/' + id + '/test-status');
     state.testStatus = test.data;
+
+    const submissions = await api('/integrations/' + id + '/submissions');
+    state.submissions = submissions.data || [];
 
     renderIntegrations();
     renderDetail();
@@ -399,6 +482,13 @@ export const forminatorSyncV2ClientScript = String.raw`
     if (action === 'delete-mapping') {
       await api('/mappings/' + id, { method: 'DELETE' });
       showStatus('Veldkoppeling verwijderd.', 'success');
+      await loadIntegrationDetail(state.activeIntegrationId);
+      return;
+    }
+
+    if (action === 'replay-submission') {
+      const body = await api('/submissions/' + id + '/replay', { method: 'POST', body: JSON.stringify({}) });
+      showStatus('Replay gestart: nieuwe submission ' + shortId(body.data?.replay_submission_id), 'success');
       await loadIntegrationDetail(state.activeIntegrationId);
     }
   }

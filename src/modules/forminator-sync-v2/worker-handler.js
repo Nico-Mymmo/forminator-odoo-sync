@@ -6,6 +6,8 @@ import {
   getIntegrationBundle,
   getLatestSubmissionByIdempotencyKey,
   getLatestSubmissionTargetResultByTarget,
+  getRunningReplayByOriginalSubmissionId,
+  getSubmissionById,
   listDueRetrySubmissions,
   listMappingsByTarget,
   transitionSubmissionStatus,
@@ -256,34 +258,9 @@ function classifyFinalSubmissionStatus(targetResults) {
   return 'permanent_failed';
 }
 
-async function createDuplicateSubmissionRecord(env, {
-  integrationId,
-  idempotencyKey,
-  payloadHash,
-  sourcePayload,
-  status,
-  reason
-}) {
-  const now = new Date().toISOString();
-  return createSubmission(env, {
-    integration_id: integrationId,
-    idempotency_key: idempotencyKey,
-    payload_hash: payloadHash,
-    source_payload: sourcePayload,
-    resolved_context: {
-      duplicate_status: status,
-      reason
-    },
-    status,
-    retry_count: 0,
-    retry_status: null,
-    next_retry_at: null,
-    replay_of_submission_id: null,
-    last_error: reason,
-    started_at: now,
-    finished_at: now,
-    created_at: now
-  });
+function isUniqueViolationError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('duplicate key value') && message.includes('idempotency');
 }
 
 function toHttpResponse(payload, status = 200) {
@@ -291,6 +268,40 @@ function toHttpResponse(payload, status = 200) {
     status,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+function createHttpError(message, code = 'VALIDATION_ERROR') {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function assertWebhookSharedSecret(env, request) {
+  const configuredSecret = normalizeString(env?.FORMINATOR_WEBHOOK_SECRET);
+  if (!configuredSecret) {
+    return toHttpResponse({
+      success: false,
+      error: 'FORMINATOR_WEBHOOK_SECRET is not configured'
+    }, 500);
+  }
+
+  const headerSecret = normalizeString(request?.headers?.get('X-Forminator-Secret'));
+  if (!headerSecret || headerSecret !== configuredSecret) {
+    return toHttpResponse({
+      success: false,
+      error: 'Unauthorized webhook request'
+    }, 401);
+  }
+
+  return null;
+}
+
+function canReplaySubmissionStatus(status) {
+  return ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(status);
+}
+
+function buildReplayIdempotencyKey(originalSubmissionId) {
+  return `replay-${originalSubmissionId}-${crypto.randomUUID()}`;
 }
 
 async function scheduleRetryOrExhaust(env, submission, processingError, resolverLogs, contextObject) {
@@ -477,6 +488,11 @@ async function runSubmissionAttempt(env, {
 }
 
 export async function handleForminatorV2Webhook({ env, request, payload: payloadOverride = null }) {
+  const authErrorResponse = assertWebhookSharedSecret(env, request);
+  if (authErrorResponse) {
+    return authErrorResponse;
+  }
+
   const now = new Date().toISOString();
   let rawPayload = payloadOverride;
 
@@ -516,39 +532,48 @@ export async function handleForminatorV2Webhook({ env, request, payload: payload
   const duplicateStatus = classifyDuplicateStatus(existing?.status);
 
   if (duplicateStatus) {
-    const duplicateRecord = await createDuplicateSubmissionRecord(env, {
-      integrationId: integration.id,
-      idempotencyKey,
-      payloadHash,
-      sourcePayload: rawPayload,
-      status: duplicateStatus,
-      reason: `Duplicate webhook (${duplicateStatus})`
-    });
-
     return toHttpResponse({
       success: true,
       data: {
-        submission_id: duplicateRecord.id,
+        submission_id: existing?.id || null,
         status: duplicateStatus
       }
     });
   }
 
-  let submission = await createSubmission(env, {
-    integration_id: integration.id,
-    idempotency_key: idempotencyKey,
-    payload_hash: payloadHash,
-    source_payload: rawPayload,
-    resolved_context: {},
-    status: 'running',
-    retry_count: 0,
-    retry_status: null,
-    next_retry_at: null,
-    replay_of_submission_id: null,
-    started_at: now,
-    finished_at: null,
-    created_at: now
-  });
+  let submission;
+  try {
+    submission = await createSubmission(env, {
+      integration_id: integration.id,
+      idempotency_key: idempotencyKey,
+      payload_hash: payloadHash,
+      source_payload: rawPayload,
+      resolved_context: {},
+      status: 'running',
+      retry_count: 0,
+      retry_status: null,
+      next_retry_at: null,
+      replay_of_submission_id: null,
+      started_at: now,
+      finished_at: null,
+      created_at: now
+    });
+  } catch (insertError) {
+    if (!isUniqueViolationError(insertError)) {
+      throw insertError;
+    }
+
+    const current = await getLatestSubmissionByIdempotencyKey(env, integration.id, idempotencyKey);
+    const conflictStatus = classifyDuplicateStatus(current?.status) || 'duplicate_ignored';
+
+    return toHttpResponse({
+      success: true,
+      data: {
+        submission_id: current?.id || null,
+        status: conflictStatus
+      }
+    });
+  }
 
   const firstRunning = await getFirstRunningSubmissionByIdempotencyKey(env, integration.id, idempotencyKey);
   if (firstRunning && firstRunning.id !== submission.id) {
@@ -599,6 +624,62 @@ export async function handleForminatorV2Webhook({ env, request, payload: payload
       next_retry_at: result.nextRetryAt || null
     }
   }, result.httpStatus || 500);
+}
+
+export async function replaySubmission(env, originalSubmissionId) {
+  const originalSubmission = await getSubmissionById(env, originalSubmissionId);
+  if (!originalSubmission) {
+    throw createHttpError('Submission not found', 'NOT_FOUND');
+  }
+
+  if (!canReplaySubmissionStatus(originalSubmission.status)) {
+    throw createHttpError(`Replay not allowed for status: ${originalSubmission.status}`, 'VALIDATION_ERROR');
+  }
+
+  const runningReplay = await getRunningReplayByOriginalSubmissionId(env, originalSubmissionId);
+  if (runningReplay) {
+    throw createHttpError('Replay already running for this submission', 'VALIDATION_ERROR');
+  }
+
+  const integrationBundle = await getIntegrationBundle(env, originalSubmission.integration_id);
+  if (!integrationBundle) {
+    throw createHttpError('Integration bundle not found for submission', 'NOT_FOUND');
+  }
+
+  const now = new Date().toISOString();
+  const sourcePayload = originalSubmission.source_payload || {};
+  const payloadHash = await computePayloadHash(sourcePayload);
+
+  const replaySubmissionRecord = await createSubmission(env, {
+    integration_id: originalSubmission.integration_id,
+    idempotency_key: buildReplayIdempotencyKey(originalSubmission.id),
+    payload_hash: payloadHash,
+    source_payload: sourcePayload,
+    resolved_context: {},
+    status: 'running',
+    retry_count: 0,
+    retry_status: null,
+    next_retry_at: null,
+    replay_of_submission_id: originalSubmission.id,
+    started_at: now,
+    finished_at: null,
+    created_at: now
+  });
+
+  const result = await runSubmissionAttempt(env, {
+    submission: replaySubmissionRecord,
+    integrationBundle,
+    rawPayload: sourcePayload,
+    mode: 'initial'
+  });
+
+  return {
+    replay_submission_id: replaySubmissionRecord.id,
+    replay_of_submission_id: originalSubmission.id,
+    status: result.finalStatus || result.status || 'unknown',
+    next_retry_at: result.nextRetryAt || null,
+    success: Boolean(result.success)
+  };
 }
 
 export async function processDueRetries(env, limit = 10) {

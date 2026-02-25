@@ -1,8 +1,8 @@
 # Forminator Sync V2 — Operational Behavior
 Datum: 2026-02-25
 
-## Fase 3A status
-Webhook core flow uit Fase 2 blijft actief. Fase 3A voegt uitsluitend retry-hardening toe, zonder nieuwe configuratiemogelijkheden.
+## Fase 3B status
+Webhook core flow uit Fase 2 + retry flow uit Fase 3A blijven actief. Fase 3B voegt replay en webhook security hardening toe, zonder nieuwe configuratiemogelijkheden.
 
 ## Activatiegedrag
 - Integratie kan nog steeds niet actief gezet worden zonder geslaagde teststatus.
@@ -13,9 +13,21 @@ Webhook core flow uit Fase 2 blijft actief. Fase 3A voegt uitsluitend retry-hard
 - `payload_hash` blijft deterministisch:
   - object keys alfabetisch gesorteerd
   - whitespace genormaliseerd
+- DB-level guardrail:
+  - unieke index op `(integration_id, idempotency_key)` blokkeert duplicate submission rows bij race-condities
 - Duplicate handling:
   - `running`, `retry_running`, `retry_scheduled` ⇒ `duplicate_inflight`
   - terminal statussen (`success`, `partial_failed`, `permanent_failed`, `retry_exhausted`) ⇒ `duplicate_ignored`
+  - duplicate response verwijst naar bestaande submission-id (geen nieuwe duplicate submission)
+
+## Webhook security (Fase 3B)
+- Vereiste header: `X-Forminator-Secret`
+- Vereiste env var: `FORMINATOR_WEBHOOK_SECRET`
+- Zonder geldige secret:
+  - directe `401 Unauthorized`
+  - geen submission record aangemaakt
+- Met geldige secret:
+  - normale intake-flow
 
 ## Retry mechanisme (Fase 3A)
 - Retry geldt enkel voor recoverable fouten.
@@ -52,6 +64,21 @@ Permanent:
 - Retry runner claimt submissions atomisch via status-transitie `retry_scheduled` → `retry_running`.
 - Parallelle retry op dezelfde submission wordt hierdoor geweigerd (`skip_locked` resultaat).
 - Webhook duplicate checks blijven actief tijdens retry lifecycle.
+- Replay start wordt geweigerd als al een child replay met status `running` bestaat voor dezelfde `replay_of_submission_id`.
+
+## Replay gedrag (Fase 3B)
+- Endpoint: `POST /forminator-v2/api/submissions/:submissionId/replay`
+- Replay maakt altijd een nieuwe submission row.
+- `replay_of_submission_id` verwijst naar originele submission.
+- `source_payload` wordt gekopieerd van origineel.
+- `payload_hash` wordt opnieuw berekend uit gekopieerde payload.
+- `idempotency_key` wordt geforceerd nieuw (`replay-<original>-<uuid>`) zodat replay geen duplicate_ignored wordt.
+- Originele submission blijft ongewijzigd.
+- Replay doorloopt volledige runtimeflow: resolvers → context → targets.
+- Toegelaten originele statussen:
+  - `partial_failed`
+  - `permanent_failed`
+  - `retry_exhausted`
 
 ## Finalisatie statuses
 - `success`
@@ -73,19 +100,31 @@ Permanent:
 
 ## Eenvoudige flowdiagram-beschrijving (uitgebreid)
 1. Webhook binnenkomen
-2. Actieve integratie op form-id zoeken
-3. Idempotency key berekenen
-4. Duplicate check
-5. Submission starten (`running`)
-6. Resolvers uitvoeren en context opbouwen
-7. Targets uitvoeren (identifier-based)
-8. Targetresultaten loggen
-9. Bij recoverable fout: `retry_scheduled` met `next_retry_at`
-10. Retry runner claimt due submissions en zet `retry_running`
-11. Alleen nog niet-succesvolle targets opnieuw uitvoeren
-12. Eindstatus finaliseren (`success` / `partial_failed` / `permanent_failed` / `retry_exhausted`)
+2. Security check op `X-Forminator-Secret`
+3. Actieve integratie op form-id zoeken
+4. Idempotency key berekenen
+5. Duplicate check
+6. Submission starten (`running`)
+7. Resolvers uitvoeren en context opbouwen
+8. Targets uitvoeren (identifier-based)
+9. Targetresultaten loggen
+10. Bij recoverable fout: `retry_scheduled` met `next_retry_at`
+11. Retry runner claimt due submissions en zet `retry_running`
+12. Alleen nog niet-succesvolle targets opnieuw uitvoeren
+13. Eindstatus finaliseren (`success` / `partial_failed` / `permanent_failed` / `retry_exhausted`)
 
-## Niet in Fase 3A
-- Replay mechanisme (Fase 3B)
-- Webhook security hardening (Fase 3B)
-- UX-uitbreiding buiten statusweergave (Fase 3B)
+## Replay flow steps (simpel)
+1. Replay request met `submissionId`
+2. Originele submission ophalen
+3. Statuscheck (alleen `partial_failed` / `permanent_failed` / `retry_exhausted`)
+4. Concurrency check op bestaande `running` child replay
+5. Nieuwe replay submission aanmaken met nieuwe idempotency key
+6. Volledige runtimeflow uitvoeren
+7. Nieuwe replay submission status teruggeven
+
+## Niet in Fase 3B
+- Geen nieuwe resolvertypes
+- Geen nieuwe targetmodellen
+- Geen branching/conditionele logica
+- Geen expression engine
+- Geen extra configuratievelden in blok 1–4

@@ -116,6 +116,11 @@
   - recoverable/permanent classificatie
   - vast retrieschema (1 min, 5 min)
   - max attempts = 3
+- DB-level idempotency hardening toegevoegd op submissions:
+  - unieke index op `(integration_id, idempotency_key)`
+- Duplicate webhook gedrag afgestemd op unieke idempotency:
+  - geen extra duplicate submission rows
+  - duplicate response verwijst naar bestaande submission-id
 - Worker state machine uitgebreid in `src/modules/forminator-sync-v2/worker-handler.js`:
   - recoverable fouten → `retry_scheduled`
   - retry run-status → `retry_running`
@@ -145,7 +150,7 @@
 
 ### Open technische risico’s
 - Retry scheduling gebruikt een expliciete run-due endpoint; automatische scheduler-koppeling moet operationeel worden ingericht (cron/trigger buiten modulecode).
-- Voor absolute duplicate-preventie onder extreme concurrentie blijft Odoo-side unieke constraint aanbevolen.
+- DB-level unique index op submissions voorkomt duplicate intake rows per integratie/idempotency key; Odoo-side unieke constraints blijven relevant voor domeinspecifieke data-integriteit per model.
 - Errorclassificatie is bericht/statuscode-gebaseerd; infrastructuurfouten met niet-standaard foutteksten kunnen foutief als permanent geclassificeerd worden.
 
 ### Failure matrix (Fase 3A)
@@ -166,3 +171,53 @@
   - Niet uitgevoerd in Fase 3A (buiten scope, gepland in Fase 3B).
 - Replay geweigerd:
   - Niet uitgevoerd in Fase 3A (buiten scope, gepland in Fase 3B).
+
+## 2026-02-25 — Fase 3B (Hardening: Replay + Security + UX)
+
+### Wat gebouwd is
+- Replay endpoint toegevoegd:
+  - `POST /forminator-v2/api/submissions/:submissionId/replay`
+- Replay backendflow toegevoegd in worker-handler:
+  - nieuwe child submission per replay
+  - `replay_of_submission_id` verwijst naar origineel
+  - `source_payload` gekopieerd van origineel
+  - `payload_hash` opnieuw berekend op gekopieerde payload
+  - `idempotency_key` geforceerd nieuw (`replay-<original>-<uuid>`)
+  - volledige runtimeflow opnieuw uitgevoerd (resolvers → context → targets)
+- Replay statusguardrails toegevoegd:
+  - toegestaan: `partial_failed`, `permanent_failed`, `retry_exhausted`
+  - geweigerd: alle andere statussen (incl. `running`, `retry_scheduled`, `retry_running`)
+- Replay concurrencyregel toegevoegd:
+  - replay start geweigerd als al een child replay `running` is voor dezelfde originele submission
+- Webhook security hardening toegevoegd:
+  - vereiste header `X-Forminator-Secret`
+  - secret uit env `FORMINATOR_WEBHOOK_SECRET`
+  - invalid/missing secret ⇒ `401`, zonder submission insert
+- Minimale blok-5 UX uitgebreid:
+  - history tabel met status badges
+  - weergave `retry_count` en `next_retry_at`
+  - replay knop enkel bij toegelaten statussen
+  - child replay zichtbaar in history via `replay_of_submission_id` + laatste replay referentie
+
+### Wat bewust NIET gebouwd is
+- Geen wijziging aan retry mechanisme uit Fase 3A.
+- Geen nieuwe resolvertypes.
+- Geen nieuwe targetmodellen.
+- Geen branching/conditionele logica.
+- Geen expression engine.
+- Geen auto-suggest mappings.
+- Geen nieuwe configuratievelden in blok 1–4.
+- Geen nieuwe tabellen.
+
+### Open technische risico’s
+- Webhook shared secret gebruikt stringvergelijking; rotatiebeleid/secret lifecycle moet operationeel beheerd worden buiten modulecode.
+- Replay kan businessmatig opnieuw externe side-effects triggeren; functioneel bewust als force-run ontworpen.
+
+### Testresultaten (Fase 3B)
+- Uitgevoerd (code/contract):
+  - Diagnostics op `worker-handler.js`, `routes.js`, `database.js`, `public/client.js`, `ui.js`: geen errors.
+  - Replay contractpad aanwezig met 404/400 guards en force-run idempotency key generatie.
+  - Webhook auth guard staat vóór submission creatiepad in webhook handler.
+- Niet volledig live uitgevoerd in workspace (externe afhankelijkheden):
+  - Replay success op echte `partial_failed` submission tegen live Odoo.
+  - Security calls tegen live endpoint met/zonder `X-Forminator-Secret` header.

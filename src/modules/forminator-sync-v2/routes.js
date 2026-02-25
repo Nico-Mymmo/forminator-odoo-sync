@@ -32,7 +32,7 @@ import {
   validateRequiredMappingsForTarget
 } from './validation.js';
 import { forminatorSyncV2UI } from './ui.js';
-import { handleForminatorV2Webhook, processDueRetries } from './worker-handler.js';
+import { handleForminatorV2Webhook, processDueRetries, replaySubmission } from './worker-handler.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -44,6 +44,7 @@ function jsonResponse(data, status = 200) {
 function parseErrorStatus(error) {
   if (error?.code === 'NOT_FOUND') return 404;
   if (error?.code === 'VALIDATION_ERROR') return 400;
+  if (error?.code === 'CONFLICT') return 409;
 
   const message = String(error?.message || '').toLowerCase();
   if (message.includes('not found')) return 404;
@@ -414,6 +415,20 @@ export const routes = {
           target_results: targetResults
         }
       });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/submissions/:submissionId/replay': async (context) => {
+    try {
+      const submissionId = context.params?.submissionId;
+      if (!submissionId) {
+        return jsonResponse({ success: false, error: 'Submission id is required' }, 400);
+      }
+
+      const result = await replaySubmission(context.env, submissionId);
+      return jsonResponse({ success: true, data: result }, 201);
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

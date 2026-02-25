@@ -183,11 +183,29 @@ export function forminatorSyncV2UI(user) {
       <div class="card bg-base-100 shadow lg:col-span-2">
         <div class="card-body">
           <h2 class="card-title">5) Test en geschiedenis</h2>
-          <p class="text-sm text-base-content/70">Fase 1 gebruikt een teststub. Live webhookverwerking komt in Fase 2.</p>
+          <p class="text-sm text-base-content/70">Teststatus, webhookgeschiedenis en replay-actie (alleen toegelaten statussen).</p>
           <form id="testForm" class="mt-2">
             <button class="btn btn-secondary" type="submit">Test uitvoeren</button>
           </form>
           <p id="testInfo" class="text-sm mt-2">Geen test uitgevoerd.</p>
+
+          <div class="overflow-x-auto mt-4">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Submission</th>
+                  <th>Status</th>
+                  <th>Retry count</th>
+                  <th>Next retry</th>
+                  <th>Replay van</th>
+                  <th>Laatste replay</th>
+                  <th>Aangemaakt</th>
+                  <th>Actie</th>
+                </tr>
+              </thead>
+              <tbody id="submissionRows"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

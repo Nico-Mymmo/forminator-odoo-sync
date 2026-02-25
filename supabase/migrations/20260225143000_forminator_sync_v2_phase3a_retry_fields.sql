@@ -1,5 +1,6 @@
 -- Forminator Sync V2 Phase 3A
 -- Minimal retry/replay support fields on existing submissions table
+-- Prerequisite: 20260225142000_forminator_sync_v2_phase1_base_schema.sql
 
 ALTER TABLE fs_v2_submissions
   ADD COLUMN IF NOT EXISTS retry_status text,
@@ -16,3 +17,6 @@ CREATE INDEX IF NOT EXISTS idx_fs_v2_submissions_retry_due
 CREATE INDEX IF NOT EXISTS idx_fs_v2_submissions_replay_of
   ON fs_v2_submissions (replay_of_submission_id)
   WHERE replay_of_submission_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_fs_v2_submissions_integration_idempotency
+  ON fs_v2_submissions (integration_id, idempotency_key);
