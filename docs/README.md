@@ -92,6 +92,21 @@ Odoo `x_webinar` synchronisatie naar WordPress The Events Calendar met snapshot 
 
 ---
 
+### 🔄 [Forminator Sync](forminator-sync/)
+Oorspronkelijke module voor Forminator webhook ingest, mappingbeheer en Odoo workflow-executie.
+
+**Status:** ⚙️ In reanalyse voor revamp  
+**Kernfunctionaliteit:**
+- Forminator webhook intake en workflowverwerking
+- Mappingeditor (field/value/workflow/html-card)
+- Submission history en debugging
+
+**Documentatie:**
+- [README.md](forminator-sync/README.md) - Module documentatie-index
+- [FORMINATOR_SYNC_REANALYSIS_2026-02-25.md](forminator-sync/FORMINATOR_SYNC_REANALYSIS_2026-02-25.md) - Eerlijke nulmeting + revamp-richting
+
+---
+
 ## Documentatie Structuur per Module
 
 Elke module volgt deze standaard structuur:
