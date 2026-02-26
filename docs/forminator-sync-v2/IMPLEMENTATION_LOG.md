@@ -575,3 +575,18 @@ Bestaande exports (etchOpenVmeForminatorForms, getForminatorForm, extractFields
 
 src/modules/event-operations/wp-client.js is **niet gewijzigd**.
 getForminatorForm(formId, env) in lib/wordpress.js is **niet gewijzigd**.
+
+
+---
+
+## SITE_2 Secrets Deployed (2026-02-26)
+
+Cloudflare secrets voor syndicoach.be zijn ingesteld via wrangler secret put:
+
+| Secret | Status |
+|--------|--------|
+| WORDPRESS_URL_SITE_2 | ✅ https://syndicoach.be |
+| WP_API_TOKEN_SITE_2 | ✅ dmin:**** (plain tekst, runtime btoa) |
+
+Lokaal gespiegeld in .dev.vars (gitignored).
+Na de volgende wrangler deploy verschijnt syndicoach.be in de site-dropdown van kaart 0b.
