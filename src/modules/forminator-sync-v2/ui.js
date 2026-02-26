@@ -73,6 +73,12 @@ export function forminatorSyncV2UI(user) {
                   Verbindingen
                 </a>
               </li>
+              <li>
+                <a data-action="goto-defaults">
+                  <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+                  Standaard velden
+                </a>
+              </li>
             </ul>
           </div>
 
@@ -138,6 +144,27 @@ export function forminatorSyncV2UI(user) {
         <div id="connectionsList"></div>
 
       </div><!-- /view-connections -->
+
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- VIEW: DEFAULTS                                                   -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="view-defaults" style="display:none;">
+
+        <button class="btn btn-ghost btn-sm mb-6" data-action="goto-list" type="button">
+          <i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i>
+          Terug naar overzicht
+        </button>
+
+        <div class="mb-6">
+          <h2 class="text-3xl font-bold mb-1">Standaard velden</h2>
+          <p class="text-base-content/60">Stel per Odoo model in welke velden standaard als rijen verschijnen in de wizard</p>
+        </div>
+
+        <!-- Populated by client.js renderDefaults() -->
+        <div id="defaultsList"></div>
+
+      </div><!-- /view-defaults -->
 
 
       <!-- ═══════════════════════════════════════════════════════════════ -->

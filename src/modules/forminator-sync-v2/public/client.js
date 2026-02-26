@@ -146,7 +146,7 @@ function showAlert(message, type) {
 
 function showView(name) {
   S.view = name;
-  ['list', 'connections', 'wizard', 'detail'].forEach(function(v) {
+  ['list', 'connections', 'wizard', 'detail', 'defaults'].forEach(function(v) {
     var el = document.getElementById('view-' + v);
     if (el) el.style.display = (v === name) ? '' : 'none';
   });
@@ -426,16 +426,25 @@ function renderConnections() {
       '</div>';
   }
 
-  // ── Standaard veldmapping per model ────────────────────────────────────
-  var defaultsSectionHtml =
-    '<div class="divider mt-10">Standaard veldmapping</div>' +
-    '<p class="text-sm text-base-content/60 mb-5">Stel per Odoo model in welke velden standaard als rijen verschijnen in de wizard. Leeg = gebruik de ingebouwde veldlijst.</p>' +
+  el.innerHTML = sitesHtml;
+  if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER: DEFAULTS
+// ═══════════════════════════════════════════════════════════════════════════
+function renderDefaults() {
+  var el = document.getElementById('defaultsList');
+  if (!el) return;
+
+  var html =
+    '<p class="text-sm text-base-content/60 mb-5">Stel per Odoo model in welke velden standaard als rijen verschijnen in de wizard.</p>' +
     '<div class="space-y-4">' +
     Object.keys(ACTIONS).map(function(actionKey) {
-      var cfg    = ACTIONS[actionKey];
-      var model  = cfg.odoo_model;
-      var editor = S.modelDefaultsEditors[model] || {};
-      var saved  = S.modelDefaultsCache[model];  // undefined = not yet fetched, [] = fetched but empty
+      var cfg      = ACTIONS[actionKey];
+      var model    = cfg.odoo_model;
+      var editor   = S.modelDefaultsEditors[model] || {};
+      var saved    = S.modelDefaultsCache[model];  // undefined = not yet fetched, [] = fetched but empty
       var modelKey = model.replace(/\./g, '_');
 
       // ── Closed state: summary of saved defaults ──────────────────────
@@ -444,7 +453,7 @@ function renderConnections() {
         if (saved === undefined || saved === null) {
           summaryHtml = '<p class="text-xs text-base-content/40 italic py-1">Laden…</p>';
         } else if (saved.length === 0) {
-          summaryHtml = '<p class="text-xs text-base-content/40 italic py-1">Geen aangepaste standaarden — wizard gebruikt ingebouwde veldlijst.</p>';
+          summaryHtml = '<p class="text-xs text-base-content/40 italic py-1">Geen standaarden opgeslagen.</p>';
         } else {
           summaryHtml =
             '<div class="flex flex-wrap gap-1.5 mt-2">' +
@@ -542,7 +551,7 @@ function renderConnections() {
     }).join('') +
     '</div>';
 
-  el.innerHTML = sitesHtml + defaultsSectionHtml;
+  el.innerHTML = html;
 
   // Bind required-toggle checkboxes (change = update pendingFields in-memory, no re-render needed)
   el.querySelectorAll('.defaults-req-toggle').forEach(function(cb) {
@@ -1400,11 +1409,16 @@ document.addEventListener('click', function(event) {
     if (action === 'goto-connections') {
       showView('connections');
       renderConnections();
-      // Pre-load Odoo fields for all action models (non-blocking, for the defaults editor)
+      return;
+    }
+    if (action === 'goto-defaults') {
+      showView('defaults');
+      renderDefaults();
+      // Pre-load Odoo fields for all action models (non-blocking, for the field picker)
       Object.keys(ACTIONS).forEach(function(key) {
         var m = ACTIONS[key].odoo_model;
         if (!S.odooFieldsCache[m] || !S.odooFieldsCache[m].length) {
-          loadOdooFieldsForModel(m).then(function() { if (S.view === 'connections') renderConnections(); });
+          loadOdooFieldsForModel(m).then(function() { if (S.view === 'defaults') renderDefaults(); });
         }
       });
       return;
@@ -1459,15 +1473,15 @@ document.addEventListener('click', function(event) {
         mdEd.pendingFields = saved2.map(function(f) { return Object.assign({}, f); });
         mdEd.open = true;
         S.modelDefaultsEditors[mdModel] = mdEd;
-        renderConnections();
+        renderDefaults();
         // Load Odoo fields if not yet cached
         if (!S.odooFieldsCache[mdModel] || !S.odooFieldsCache[mdModel].length) {
-          loadOdooFieldsForModel(mdModel).then(function() { if (S.view === 'connections') renderConnections(); });
+          loadOdooFieldsForModel(mdModel).then(function() { if (S.view === 'defaults') renderDefaults(); });
         }
       } else {
         mdEd.open = false;
         S.modelDefaultsEditors[mdModel] = mdEd;
-        renderConnections();
+        renderDefaults();
       }
       return;
     }
@@ -1492,7 +1506,7 @@ document.addEventListener('click', function(event) {
         order_index: addEd.pendingFields.length,
       });
       S.modelDefaultsEditors[addModel] = addEd;
-      renderConnections();
+      renderDefaults();
       return;
     }
     if (action === 'remove-default-field') {
@@ -1501,7 +1515,7 @@ document.addEventListener('click', function(event) {
       var rmEd    = S.modelDefaultsEditors[rmModel];
       if (rmEd && !isNaN(rmIdx)) {
         rmEd.pendingFields.splice(rmIdx, 1);
-        renderConnections();
+        renderDefaults();
       }
       return;
     }
@@ -1519,7 +1533,7 @@ document.addEventListener('click', function(event) {
       S.modelDefaultsCache[saveModel]  = saveFields;
       S.modelDefaultsEditors[saveModel] = { open: false, pendingFields: [] };
       showAlert('Standaard velden opgeslagen.', 'success');
-      renderConnections();
+      renderDefaults();
       return;
     }
     if (action === 'wizard-add-extra-row') {
