@@ -216,6 +216,14 @@ export function forminatorSyncV2UI(user) {
               <input name="odoo_field" class="input input-bordered" placeholder="email_from" required />
             </label>
             <label class="form-control">
+              <span class="label-text">Odoo veld type</span>
+              <select id="mappingOdooFieldType" name="odoo_field_type" class="select select-bordered select-sm">
+                <option value="text">Tekst (directe waarde)</option>
+                <option value="selection">Selection (vaste keuzes)</option>
+                <option value="many2many">Many2many (meerdere keuzes)</option>
+              </select>
+            </label>
+            <label class="form-control">
               <span class="label-text">Bron *</span>
               <select id="mappingSourceType" name="source_type" class="select select-bordered"></select>
             </label>
@@ -223,6 +231,18 @@ export function forminatorSyncV2UI(user) {
               <span class="label-text">Bronwaarde *</span>
               <input name="source_value" class="input input-bordered" placeholder="email" required />
             </label>
+
+            <!-- Choice picker: zichtbaar wanneer Odoo veld type = selection/many2many
+                 én er een form preview is geladen met choice-velden -->
+            <div id="choicePickerSection" style="display:none;" class="rounded-box border border-base-300 bg-base-200 p-3">
+              <p class="text-xs font-semibold text-base-content/70 mb-2">
+                Klik op een Forminator-waarde om source_value in te vullen:
+              </p>
+              <div id="choicePickerGrid"></div>
+              <p class="text-xs text-base-content/40 mt-2 italic">
+                Open een formulier-preview (blok 0/0b) om keuzes te laden.
+              </p>
+            </div>
             <label class="label cursor-pointer justify-start gap-3">
               <input name="is_required" type="checkbox" class="checkbox" />
               <span class="label-text">Verplicht veld</span>

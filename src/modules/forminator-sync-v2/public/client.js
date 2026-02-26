@@ -6,7 +6,8 @@ export const forminatorSyncV2ClientScript = String.raw`
     meta: null,
     detail: null,
     testStatus: null,
-    submissions: []
+    submissions: [],
+    lastPreviewedFields: []   // set elke keer dat een form preview opent
   };
 
   const els = {
@@ -518,6 +519,58 @@ export const forminatorSyncV2ClientScript = String.raw`
   // WordPress Discovery
   // ─────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Vul of verberg de choice-picker in het mapping form (blok 4).
+   * Wordt aangeroepen:
+   *   - elke keer dat een form preview wordt geopend
+   *   - elke keer dat odoo_field_type van waarde verandert
+   */
+  function updateChoicePicker() {
+    var section  = document.getElementById('choicePickerSection');
+    var grid     = document.getElementById('choicePickerGrid');
+    var typeEl   = document.getElementById('mappingOdooFieldType');
+    if (!section || !grid) return;
+
+    var odooType = typeEl ? typeEl.value : 'text';
+    var isChoiceMode = (odooType === 'selection' || odooType === 'many2many');
+
+    var fields = state.lastPreviewedFields || [];
+    var choiceFields = fields.filter(function(f) {
+      return hasChoices(f) && !SKIP_TYPES.includes(String(f.type || ''));
+    });
+    fields.forEach(function(f) {
+      if (f.is_composite && Array.isArray(f.children)) {
+        f.children.forEach(function(child) {
+          if (hasChoices(child)) choiceFields.push(child);
+        });
+      }
+    });
+
+    if (!isChoiceMode || choiceFields.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+
+    grid.innerHTML = choiceFields.map(function(f) {
+      var typeBadge = isMultiChoiceType(f.type)
+        ? '<span class="badge badge-info badge-xs mr-1">multi</span>'
+        : '<span class="badge badge-secondary badge-xs mr-1">single</span>';
+      var header = '<p class="text-xs font-semibold mt-2 mb-1">' + typeBadge +
+        escapeHtml(String(f.label || f.field_id)) +
+        ' <span class="font-mono text-base-content/50">[' + escapeHtml(String(f.field_id)) + ']</span></p>';
+      var chips = (f.choices || []).map(function(c) {
+        return '<button type="button" class="btn btn-xs btn-outline" ' +
+          'data-action="pick-choice" data-value="' + escapeHtml(String(c.value ?? '')) + '">' +
+          escapeHtml(String(c.label ?? c.value ?? '')) +
+          '</button>';
+      }).join('');
+      return header + '<div class="flex flex-wrap gap-1">' + chips + '</div>';
+    }).join('');
+  }
+
+
   async function loadWpConnections() {
     try {
       const res = await fetch('/forminator-v2/api/discovery/connections');
@@ -605,7 +658,7 @@ export const forminatorSyncV2ClientScript = String.raw`
             'data-action="preview-form" ' +
             'data-form-id="' + escapeHtml(String(form.form_id)) + '" ' +
             'data-form-name="' + escapeHtml(String(form.form_name || form.form_id)) + '" ' +
-            'data-fields=\'' + escapeHtml(JSON.stringify(fields)) + '\'>Preview velden</button>' +
+            'data-fields="' + JSON.stringify(fields).replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">Preview velden</button>' +
             '</div></div>';
         }).join('') + '</div>';
     } catch (err) {
@@ -613,11 +666,70 @@ export const forminatorSyncV2ClientScript = String.raw`
     }
   }
 
+  // ── Choice-veld helpers ────────────────────────────────────────────
+
+  var MULTI_CHOICE_TYPES  = ['checkbox', 'multi'];
+  var SINGLE_CHOICE_TYPES = ['radio', 'select', 'dropdown'];
+  var SKIP_TYPES          = ['page-break', 'group', 'html', 'section', 'captcha'];
+
+  function isMultiChoiceType(type) {
+    return MULTI_CHOICE_TYPES.includes(String(type || '').toLowerCase());
+  }
+
+  function isSingleChoiceType(type) {
+    return SINGLE_CHOICE_TYPES.includes(String(type || '').toLowerCase());
+  }
+
+  function hasChoices(field) {
+    return Array.isArray(field.choices) && field.choices.length > 0;
+  }
+
+  /**
+   * Bouw een DaisyUI <details> collapsible met een tabel van choices.
+   * @param {Array} choices - [{ value, label }]
+   * @param {string} fieldId - gebruikt als id-suffix voor uniekheid
+   */
+  function renderChoicesBlock(choices, fieldId) {
+    if (!choices || choices.length === 0) return '';
+    var rows = choices.map(function(c) {
+      return '<tr>' +
+        '<td class="font-mono text-xs">' + escapeHtml(String(c.value ?? '')) + '</td>' +
+        '<td class="text-sm">'          + escapeHtml(String(c.label ?? c.value ?? '')) + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<details class="mt-1">' +
+      '<summary class="text-xs text-base-content/60 cursor-pointer select-none hover:text-base-content">' +
+      choices.length + ' mogelijke waarden</summary>' +
+      '<div class="overflow-x-auto mt-1">' +
+      '<table class="table table-xs">' +
+      '<thead><tr><th>Forminator waarde</th><th>Label</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+      '</table></div></details>';
+  }
+
+  /**
+   * Geeft de type-badge HTML terug incl. keuze-indicator voor choice-velden.
+   */
+  function renderTypeBadges(field) {
+    var type = String(field.type ?? '');
+    var html = '<span class="badge badge-outline badge-xs">' + escapeHtml(type) + '</span>';
+    if (isMultiChoiceType(type)) {
+      html += ' <span class="badge badge-info badge-xs">Multi-value</span>';
+    } else if (isSingleChoiceType(type)) {
+      html += ' <span class="badge badge-secondary badge-xs">Single selection</span>';
+    }
+    return html;
+  }
+
   function openFormPreview(formId, formName, fields) {
     const modal = document.getElementById('formPreviewModal');
     const title = document.getElementById('formPreviewTitle');
     const body  = document.getElementById('formPreviewBody');
     if (!modal || !title || !body) return;
+
+    // Sla velden op voor de choice picker in het mapping form
+    state.lastPreviewedFields = Array.isArray(fields) ? fields : [];
+    updateChoicePicker();
 
     title.textContent = formName + ' (ID: ' + formId + ')';
 
@@ -627,28 +739,30 @@ export const forminatorSyncV2ClientScript = String.raw`
       body.innerHTML =
         '<div class="overflow-x-auto">' +
         '<table class="table table-xs table-zebra">' +
-        '<thead><tr><th>Veld ID</th><th>Label</th><th>Type</th><th>Verplicht</th></tr></thead>' +
+        '<thead><tr><th>Veld ID</th><th>Label</th><th>Type / Keuzes</th><th>Verplicht</th></tr></thead>' +
         '<tbody>' +
-        fields.flatMap((f) => {
-          const isSkip = ['page-break','group','html','section','captcha'].includes(f.type);
-          const rows = [];
-          const rowClass = isSkip ? 'opacity-40' : '';
+        fields.flatMap(function(f) {
+          var isSkip = SKIP_TYPES.includes(String(f.type || ''));
+          var rows = [];
+          var rowClass = isSkip ? 'opacity-40' : '';
+          var labelExtra = (f.is_composite ? ' <span class="badge badge-ghost badge-xs">composite</span>' : '');
+          var choicesHtml = hasChoices(f) ? renderChoicesBlock(f.choices, String(f.field_id ?? '')) : '';
           rows.push(
             '<tr class="' + rowClass + '">' +
-            '<td class="font-mono text-xs">' + escapeHtml(String(f.field_id ?? '')) + '</td>' +
-            '<td>' + escapeHtml(String(f.label ?? '')) + (f.is_composite ? ' <span class="badge badge-ghost badge-xs">composite</span>' : '') + '</td>' +
-            '<td><span class="badge badge-outline badge-xs">' + escapeHtml(String(f.type ?? '')) + '</span></td>' +
-            '<td>' + (f.required ? '<span class="badge badge-error badge-xs">verplicht</span>' : '') + '</td>' +
+            '<td class="font-mono text-xs align-top">' + escapeHtml(String(f.field_id ?? '')) + '</td>' +
+            '<td class="align-top">' + escapeHtml(String(f.label ?? '')) + labelExtra + '</td>' +
+            '<td class="align-top">' + renderTypeBadges(f) + choicesHtml + '</td>' +
+            '<td class="align-top">' + (f.required ? '<span class="badge badge-error badge-xs">verplicht</span>' : '') + '</td>' +
             '</tr>'
           );
           if (f.is_composite && Array.isArray(f.children)) {
-            f.children.forEach((child) => {
+            f.children.forEach(function(child) {
               rows.push(
                 '<tr class="bg-base-200">' +
-                '<td class="font-mono text-xs pl-6">↳ ' + escapeHtml(String(child.field_id ?? '')) + '</td>' +
-                '<td class="pl-6 text-sm">' + escapeHtml(String(child.label ?? '')) + '</td>' +
-                '<td><span class="badge badge-outline badge-xs">' + escapeHtml(String(child.type ?? '')) + '</span></td>' +
-                '<td>' + (child.required ? '<span class="badge badge-error badge-xs">verplicht</span>' : '') + '</td>' +
+                '<td class="font-mono text-xs pl-6 align-top">↳ ' + escapeHtml(String(child.field_id ?? '')) + '</td>' +
+                '<td class="pl-6 text-sm align-top">' + escapeHtml(String(child.label ?? '')) + '</td>' +
+                '<td class="align-top">' + renderTypeBadges(child) + (hasChoices(child) ? renderChoicesBlock(child.choices, String(child.field_id ?? '')) : '') + '</td>' +
+                '<td class="align-top">' + (child.required ? '<span class="badge badge-error badge-xs">verplicht</span>' : '') + '</td>' +
                 '</tr>'
               );
             });
@@ -803,7 +917,7 @@ export const forminatorSyncV2ClientScript = String.raw`
             'data-action="preview-form" ' +
             'data-form-id="' + escapeHtml(String(form.form_id)) + '" ' +
             'data-form-name="' + escapeHtml(String(form.form_name || form.form_id)) + '" ' +
-            'data-fields=\'' + escapeHtml(JSON.stringify(fields)) + '\'>Preview velden</button>' +
+            'data-fields="' + JSON.stringify(fields).replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">Preview velden</button>' +
             '</div></div>';
         }).join('') + '</div>';
     } catch (err) {
@@ -840,6 +954,18 @@ export const forminatorSyncV2ClientScript = String.raw`
 
   document.getElementById('resolverType')?.addEventListener('change', updateResolverDependentUi);
   document.getElementById('targetModel')?.addEventListener('change', updateTargetDependentUi);
+  document.getElementById('mappingOdooFieldType')?.addEventListener('change', updateChoicePicker);
+
+  // Klik op een choice-chip → vul source_value in
+  document.addEventListener('click', function(event) {
+    if (event.target?.dataset?.action === 'pick-choice') {
+      var input = document.querySelector('#mappingForm [name="source_value"]');
+      if (input) {
+        input.value = event.target.dataset.value || '';
+        input.focus();
+      }
+    }
+  });
   els.activationToggle?.addEventListener('change', async (event) => {
     try {
       await handleActivationToggle(event);
