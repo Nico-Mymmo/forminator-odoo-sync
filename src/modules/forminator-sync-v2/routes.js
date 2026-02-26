@@ -1,3 +1,4 @@
+import { executeKw } from '../../lib/odoo.js';
 import {
   listIntegrationSummaries,
   createIntegrationRecord,
@@ -574,6 +575,44 @@ export const routes = {
 
       const forms = await fetchForminatorFormsBasicAuth({ baseUrl, token });
       return jsonResponse({ success: true, data: forms, site: siteKey, base_url: baseUrl });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  /**
+   * GET /api/odoo/fields?model=res.partner
+   * Returns all stored, user-visible fields for the given Odoo model.
+   * Used by the mapping UI to provide a searchable dropdown of Odoo fields.
+   */
+  'GET /api/odoo/fields': async (context) => {
+    try {
+      const url = new URL(context.request.url);
+      const model = (url.searchParams.get('model') || '').trim();
+
+      if (!model) {
+        return jsonResponse({ success: false, error: 'model query param is verplicht, bv. ?model=res.partner' }, 400);
+      }
+
+      const rawFields = await executeKw(context.env, {
+        model,
+        method: 'fields_get',
+        args: [],
+        kwargs: { attributes: ['string', 'type', 'store', 'readonly'] },
+      });
+
+      // Transform to sorted array; only expose stored fields
+      const fields = Object.entries(rawFields)
+        .filter(([, meta]) => meta.store === true)
+        .map(([name, meta]) => ({
+          name,
+          label: meta.string || name,
+          type: meta.type,
+          readonly: !!meta.readonly,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'nl'));
+
+      return jsonResponse({ success: true, data: fields, model });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

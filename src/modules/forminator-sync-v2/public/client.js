@@ -100,6 +100,7 @@ var S = {
   detail: null,
   testStatus: null,
   submissions: [],
+  odooFieldsCache: {},
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -167,7 +168,7 @@ function shortId(v) {
 }
 
 function resetWizard() {
-  S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false };
+  S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false, extraMappings: [] };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -198,6 +199,20 @@ function suggestFormField(odooField, formFields) {
     if (match) return match.field_id;
   }
   return '';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ODOO FIELD CACHE
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadOdooFieldsForModel(model) {
+  if (S.odooFieldsCache[model]) return S.odooFieldsCache[model];
+  try {
+    var body = await api('/odoo/fields?model=' + encodeURIComponent(model));
+    S.odooFieldsCache[model] = body.data || [];
+  } catch (_) {
+    S.odooFieldsCache[model] = [];
+  }
+  return S.odooFieldsCache[model];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -448,9 +463,8 @@ function renderWizardMapping() {
   var cfg = ACTIONS[S.wizard.action];
   if (!cfg) return;
 
-  var allFields   = (S.wizard.form && S.wizard.form.fields) ? S.wizard.form.fields : [];
-  var formFields  = allFields.filter(function(f) { return !SKIP_TYPES.includes(f.type); });
-  var fieldOpts   = buildFieldOptions(formFields);
+  var allFields  = (S.wizard.form && S.wizard.form.fields) ? S.wizard.form.fields : [];
+  var formFields = allFields.filter(function(f) { return !SKIP_TYPES.includes(f.type); });
 
   // Auto-fill name input once
   var nameInput = document.getElementById('wizardName');
@@ -463,17 +477,19 @@ function renderWizardMapping() {
   var table = document.getElementById('wizardMappingTable');
   if (!table) return;
 
-  var rows = cfg.odooFields.map(function(of_) {
-    var suggested = suggestFormField(of_.field, formFields);
-    // Build options with suggested selected
-    var opts = '<option value="">— niet koppelen —</option>' +
+  function buildFormOpts(selectedId) {
+    return '<option value="">\u2014 niet koppelen \u2014</option>' +
       formFields.map(function(f) {
-        var id = String(f.field_id);
-        var label = String(f.label || f.field_id);
-        var sel = (id === suggested) ? ' selected' : '';
-        return '<option value="' + esc(id) + '"' + sel + '>' + esc(label) + ' [' + esc(id) + ']</option>';
+        var id  = String(f.field_id);
+        var lbl = String(f.label || f.field_id);
+        var sel = (id === selectedId) ? ' selected' : '';
+        return '<option value="' + esc(id) + '"' + sel + '>' + esc(lbl) + ' [' + esc(id) + ']</option>';
       }).join('');
+  }
 
+  // Default field rows
+  var defaultRows = cfg.odooFields.map(function(of_) {
+    var suggested = suggestFormField(of_.field, formFields);
     return '<tr>' +
       '<td class="align-middle py-3">' +
         '<span class="font-medium text-sm">' + esc(of_.label) + '</span>' +
@@ -482,26 +498,88 @@ function renderWizardMapping() {
       '</td>' +
       '<td class="py-2">' +
         '<select class="select select-bordered select-sm w-full" name="map-form-' + esc(of_.field) + '">' +
-          opts +
+          buildFormOpts(suggested) +
         '</select>' +
       '</td>' +
       '<td class="py-2">' +
         '<input class="input input-bordered input-sm w-full" name="map-static-' + esc(of_.field) + '" placeholder="Vaste waarde..." />' +
       '</td>' +
+      '<td></td>' +
     '</tr>';
   }).join('');
 
-  table.innerHTML = '<div class="overflow-x-auto">' +
-    '<table class="table">' +
-      '<thead><tr>' +
-        '<th>Odoo veld</th>' +
-        '<th>Formulier veld</th>' +
-        '<th>Of vaste waarde</th>' +
-      '</tr></thead>' +
-      '<tbody>' + rows + '</tbody>' +
-    '</table>' +
-  '</div>' +
-  '<p class="text-xs text-base-content/40 mt-3">Rij zonder selectie en zonder vaste waarde wordt overgeslagen.</p>';
+  // Extra rows added by the user
+  var extraRows = (S.wizard.extraMappings || []).map(function(em, idx) {
+    return '<tr class="bg-base-200/40">' +
+      '<td class="align-middle py-3">' +
+        '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' +
+        '<br><span class="font-mono text-xs text-base-content/40">' + esc(em.odooField) + '</span>' +
+      '</td>' +
+      '<td class="py-2">' +
+        '<select class="select select-bordered select-sm w-full" name="extra-form-' + idx + '">' +
+          buildFormOpts(em.formField || '') +
+        '</select>' +
+      '</td>' +
+      '<td class="py-2">' +
+        '<input class="input input-bordered input-sm w-full" name="extra-static-' + idx + '" value="' + esc(em.staticValue || '') + '" placeholder="Vaste waarde..." />' +
+      '</td>' +
+      '<td class="py-2">' +
+        '<button type="button" class="btn btn-ghost btn-xs text-error" data-action="wizard-remove-extra-row" data-idx="' + idx + '" title="Verwijder">' +
+          '<i data-lucide="x" class="w-3 h-3"></i>' +
+        '</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  // Odoo fields datalist (from cache; populated async if empty)
+  var cachedFields = S.odooFieldsCache[cfg.odoo_model] || [];
+  var datalistHtml =
+    '<datalist id="wizardOdooFieldsList">' +
+      cachedFields.map(function(f) {
+        return '<option value="' + esc(f.name) + '">' + esc(f.label) + ' [' + esc(f.type) + ']</option>';
+      }).join('') +
+    '</datalist>';
+
+  var addExtraHtml =
+    '<div class="divider text-xs text-base-content/40 mt-2">Extra Odoo-veld toevoegen</div>' +
+    datalistHtml +
+    '<div class="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">' +
+      '<div class="form-control">' +
+        '<label class="label py-0 pb-1">' +
+          '<span class="label-text text-xs">Odoo veld</span>' +
+          '<span id="wizardOdooFieldsCount" class="label-text-alt text-xs text-base-content/40">' +
+            (cachedFields.length > 0 ? cachedFields.length + ' velden' : 'laden\u2026') +
+          '</span>' +
+        '</label>' +
+        '<input id="wizardExtraOdooField" list="wizardOdooFieldsList" class="input input-bordered input-sm" placeholder="bv. x_mijn_veld" autocomplete="off" />' +
+      '</div>' +
+      '<div class="form-control">' +
+        '<label class="label py-0 pb-1"><span class="label-text text-xs">Formulier veld</span></label>' +
+        '<select id="wizardExtraFormField" class="select select-bordered select-sm">' +
+          '<option value="">\u2014 niet koppelen \u2014</option>' +
+          formFields.map(function(f) {
+            return '<option value="' + esc(String(f.field_id)) + '">' + esc(String(f.label || f.field_id)) + ' [' + esc(String(f.field_id)) + ']</option>';
+          }).join('') +
+        '</select>' +
+      '</div>' +
+      '<div class="form-control">' +
+        '<label class="label py-0 pb-1"><span class="label-text text-xs">Of vaste waarde</span></label>' +
+        '<input id="wizardExtraStaticValue" class="input input-bordered input-sm" placeholder="Vaste waarde..." />' +
+      '</div>' +
+      '<button type="button" class="btn btn-outline btn-sm" data-action="wizard-add-extra-row">+ Voeg toe</button>' +
+    '</div>';
+
+  table.innerHTML =
+    '<div class="overflow-x-auto">' +
+      '<table class="table">' +
+        '<thead><tr>' +
+          '<th>Odoo veld</th><th>Formulier veld</th><th>Of vaste waarde</th><th></th>' +
+        '</tr></thead>' +
+        '<tbody>' + defaultRows + extraRows + '</tbody>' +
+      '</table>' +
+    '</div>' +
+    addExtraHtml +
+    '<p class="text-xs text-base-content/40 mt-3">Rij zonder selectie en zonder vaste waarde wordt overgeslagen.</p>';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -635,9 +713,18 @@ function renderDetailMappings() {
   var addFormHtml =
     '<div class="divider text-xs text-base-content/40">Koppeling toevoegen</div>' +
     '<form id="addMappingForm" data-target-id="' + esc(String(firstTarget.id)) + '" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">' +
+'<datalist id="detailOdooFieldsList">' +
+      (function() {
+        var targets2 = (S.detail && S.detail.targets) ? S.detail.targets : [];
+        var model2   = targets2.length > 0 ? targets2[0].odoo_model : null;
+        return (model2 ? (S.odooFieldsCache[model2] || []) : []).map(function(f) {
+          return '<option value="' + esc(f.name) + '">' + esc(f.label) + ' (' + esc(f.type) + ')</option>';
+        }).join('');
+      })() +
+    '</datalist>' +
       '<div class="form-control">' +
         '<label class="label py-0 pb-1"><span class="label-text text-xs">Odoo veld</span></label>' +
-        '<input name="odoo_field" class="input input-bordered input-sm" placeholder="bijv. email_from" required />' +
+        '<input name="odoo_field" list="detailOdooFieldsList" class="input input-bordered input-sm" placeholder="bijv. email_from" autocomplete="off" required />' +
       '</div>' +
       '<div class="form-control">' +
         '<label class="label py-0 pb-1"><span class="label-text text-xs">Bron</span></label>' +
@@ -769,9 +856,26 @@ function wizardSelectForm(formId, formName, fields) {
 function wizardSelectAction(actionKey) {
   S.wizard.action = actionKey;
   S.wizard.step   = 4;
+  S.wizard.extraMappings = S.wizard.extraMappings || [];
   renderWizard();
   var sec = document.getElementById('wizard-section-mapping');
   if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Pre-fetch Odoo fields for this model (non-blocking, populates datalist)
+  var actionCfg = ACTIONS[actionKey];
+  if (actionCfg && !S.odooFieldsCache[actionCfg.odoo_model]) {
+    loadOdooFieldsForModel(actionCfg.odoo_model).then(function() {
+      if (S.wizard.action !== actionKey) return;
+      var dl = document.getElementById('wizardOdooFieldsList');
+      var counter = document.getElementById('wizardOdooFieldsCount');
+      var fields = S.odooFieldsCache[actionCfg.odoo_model] || [];
+      if (dl) {
+        dl.innerHTML = fields.map(function(f) {
+          return '<option value="' + esc(f.name) + '">' + esc(f.label) + ' [' + esc(f.type) + ']</option>';
+        }).join('');
+      }
+      if (counter) counter.textContent = fields.length + ' velden';
+    });
+  }
 }
 
 async function submitWizard() {
@@ -858,6 +962,37 @@ async function submitWizard() {
       }
     });
 
+    // Also process extra rows added by the user
+    (S.wizard.extraMappings || []).forEach(function(em, idx) {
+      var formSel   = mappingSection ? mappingSection.querySelector('[name="extra-form-' + idx + '"]') : null;
+      var staticInp = mappingSection ? mappingSection.querySelector('[name="extra-static-' + idx + '"]') : null;
+      var formVal   = formSel   ? (formSel.value   || '') : '';
+      var staticVal = staticInp ? ((staticInp.value || '').trim()) : '';
+      if (formVal) {
+        mappingPromises.push(api('/targets/' + targetId + '/mappings', {
+          method: 'POST',
+          body: JSON.stringify({
+            odoo_field:   em.odooField,
+            source_type:  'form',
+            source_value: formVal,
+            is_required:  false,
+            order_index:  orderIdx++,
+          }),
+        }));
+      } else if (staticVal) {
+        mappingPromises.push(api('/targets/' + targetId + '/mappings', {
+          method: 'POST',
+          body: JSON.stringify({
+            odoo_field:   em.odooField,
+            source_type:  'static',
+            source_value: staticVal,
+            is_required:  false,
+            order_index:  orderIdx++,
+          }),
+        }));
+      }
+    });
+
     await Promise.all(mappingPromises);
 
     // Step 5 — run test stub (non-blocking)
@@ -902,6 +1037,22 @@ async function openDetail(id) {
     S.detail      = results[0].data;
     S.testStatus  = results[1].data;
     S.submissions = results[2].data || [];
+    // Pre-fetch Odoo fields for the target model (non-blocking; fills datalist after render)
+    var detailTargets = (S.detail && S.detail.targets) ? S.detail.targets : [];
+    if (detailTargets.length > 0 && detailTargets[0].odoo_model) {
+      var detailModel = detailTargets[0].odoo_model;
+      if (!S.odooFieldsCache[detailModel]) {
+        loadOdooFieldsForModel(detailModel).then(function() {
+          if (S.activeId !== id) return;
+          var dl = document.getElementById('detailOdooFieldsList');
+          if (dl) {
+            dl.innerHTML = (S.odooFieldsCache[detailModel] || []).map(function(f) {
+              return '<option value="' + esc(f.name) + '">' + esc(f.label) + ' (' + esc(f.type) + ')</option>';
+            }).join('');
+          }
+        });
+      }
+    }
     renderDetail();
   } catch (err) {
     showAlert(err.message, 'error');
@@ -1037,6 +1188,43 @@ document.addEventListener('click', function(event) {
     }
     if (action === 'replay-submission') {
       await handleReplay(btn.dataset.id);
+      return;
+    }
+    if (action === 'wizard-add-extra-row') {
+      var fieldInput  = document.getElementById('wizardExtraOdooField');
+      var extraForm   = document.getElementById('wizardExtraFormField');
+      var extraStatic = document.getElementById('wizardExtraStaticValue');
+      var fieldName   = fieldInput ? fieldInput.value.trim() : '';
+      if (!fieldName) { showAlert('Voer een Odoo veldnaam in.', 'error'); return; }
+      var actionCfg2 = ACTIONS[S.wizard.action];
+      var cached2    = actionCfg2 ? (S.odooFieldsCache[actionCfg2.odoo_model] || []) : [];
+      var matched    = cached2.find(function(f) { return f.name === fieldName; });
+      S.wizard.extraMappings = S.wizard.extraMappings || [];
+      S.wizard.extraMappings.push({
+        odooField:   fieldName,
+        odooLabel:   matched ? matched.label : fieldName,
+        formField:   extraForm   ? extraForm.value   : '',
+        staticValue: extraStatic ? extraStatic.value.trim() : '',
+      });
+      renderWizard();
+      return;
+    }
+    if (action === 'wizard-remove-extra-row') {
+      var removeIdx = parseInt(btn.dataset.idx, 10);
+      if (!isNaN(removeIdx) && S.wizard.extraMappings) {
+        // Persist any changed select/input values before splicing
+        var mappingSec = document.getElementById('wizard-section-mapping');
+        if (mappingSec) {
+          S.wizard.extraMappings.forEach(function(em, i) {
+            var fs = mappingSec.querySelector('[name="extra-form-'   + i + '"]');
+            var si = mappingSec.querySelector('[name="extra-static-' + i + '"]');
+            if (fs) em.formField   = fs.value;
+            if (si) em.staticValue = (si.value || '').trim();
+          });
+        }
+        S.wizard.extraMappings.splice(removeIdx, 1);
+        renderWizard();
+      }
       return;
     }
   };
