@@ -100,6 +100,7 @@ var S = {
   detail: null,
   testStatus: null,
   submissions: [],
+  detailFormFields: null,  // null=not fetched, 'loading'=busy, [{...}]=done
   odooFieldsCache: {},
   modelDefaultsCache: {},   // model → [{name, label, required, order_index}]
   modelDefaultsEditors: {}, // model → {open, pendingFields}
@@ -943,6 +944,7 @@ function renderDetail() {
 
   updateDetailTestStatus();
   renderDetailMappings();
+  renderDetailFormFields();
   renderDetailSubmissions();
 
   if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
@@ -1107,6 +1109,86 @@ function renderDetailSubmissions() {
     '</div>';
 }
 
+function renderDetailFormFields() {
+  var el = document.getElementById('detailFormFields');
+  if (!el) return;
+
+  var integration = S.detail && S.detail.integration;
+  var siteKey     = integration && integration.site_key;
+
+  if (!siteKey) {
+    el.innerHTML =
+      '<p class="text-sm text-base-content/60 py-2">' +
+        '<i data-lucide="info" class="w-4 h-4 inline mr-1 -mt-0.5"></i>' +
+        'Site-sleutel niet opgeslagen voor deze integratie — veldoverzicht niet beschikbaar. ' +
+        'Nieuwe integraties bewaren de site-sleutel automatisch.' +
+      '</p>';
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    return;
+  }
+
+  if (S.detailFormFields === null) {
+    el.innerHTML =
+      '<button type="button" class="btn btn-sm btn-outline" data-action="fetch-form-fields">' +
+        '<i data-lucide="download" class="w-4 h-4"></i> Formuliervelden ophalen' +
+      '</button>';
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    return;
+  }
+
+  if (S.detailFormFields === 'loading') {
+    el.innerHTML = '<div class="flex items-center gap-2 py-2 text-sm text-base-content/60">' +
+      '<span class="loading loading-spinner loading-xs"></span> Bezig met ophalen…</div>';
+    return;
+  }
+
+  // Build lookup: formFieldId → odoo_field for mapped form fields
+  var mappedLookup = {}; // formFieldId → [odoo_field, ...]
+  var targets = (S.detail && S.detail.targets) || [];
+  targets.forEach(function(t) {
+    var mappings = (S.detail.mappingsByTarget && S.detail.mappingsByTarget[t.id]) || [];
+    mappings.forEach(function(m) {
+      if (m.source_type === 'form') {
+        var key = String(m.source_value);
+        if (!mappedLookup[key]) mappedLookup[key] = [];
+        mappedLookup[key].push(m.odoo_field);
+      }
+    });
+  });
+
+  var fields = S.detailFormFields;
+  if (!fields.length) {
+    el.innerHTML = '<p class="text-sm text-base-content/60 py-2">Geen velden gevonden voor dit formulier.</p>';
+    return;
+  }
+
+  el.innerHTML =
+    '<div class="overflow-x-auto">' +
+      '<table class="table table-xs">' +
+        '<thead><tr>' +
+          '<th>Veld-ID</th><th>Label</th><th>Type</th><th>Gekoppeld aan Odoo</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+        fields.map(function(f) {
+          var fid      = String(f.field_id || '');
+          var coupled  = mappedLookup[fid];
+          var badge    = coupled && coupled.length
+            ? coupled.map(function(of_) {
+                return '<span class="badge badge-success badge-xs font-mono">' + esc(of_) + '</span>';
+              }).join(' ')
+            : '<span class="text-base-content/30 text-xs">—</span>';
+          return '<tr>' +
+            '<td class="font-mono text-xs">' + esc(fid) + '</td>' +
+            '<td class="text-sm">' + esc(f.label || f.field_id || '—') + '</td>' +
+            '<td><span class="badge badge-outline badge-xs">' + esc(f.type || '—') + '</span></td>' +
+            '<td>' + badge + '</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody>' +
+      '</table>' +
+    '</div>';
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DATA LOADING
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1201,6 +1283,7 @@ async function submitWizard() {
         name: name,
         forminator_form_id: String(S.wizard.form.form_id),
         odoo_connection_id: 'default',
+        site_key: S.wizard.site ? S.wizard.site.key : null,
       }),
     });
     var integrationId = intRes.data.id;
@@ -1341,6 +1424,7 @@ async function openDetail(id) {
     S.detail      = results[0].data;
     S.testStatus  = results[1].data;
     S.submissions = results[2].data || [];
+    S.detailFormFields = null; // reset on each open
     // Pre-fetch Odoo fields for the target model (non-blocking; re-renders add-mapping form when done)
     var detailTargets = (S.detail && S.detail.targets) ? S.detail.targets : [];
     if (detailTargets.length > 0 && detailTargets[0].odoo_model) {
@@ -1519,6 +1603,25 @@ document.addEventListener('click', function(event) {
     }
     if (action === 'delete-mapping') {
       await handleDeleteMapping(btn.dataset.id);
+      return;
+    }
+    if (action === 'fetch-form-fields') {
+      var integration2 = S.detail && S.detail.integration;
+      var sk = integration2 && integration2.site_key;
+      var fid = integration2 && integration2.forminator_form_id;
+      if (!sk || !fid) return;
+      S.detailFormFields = 'loading';
+      renderDetailFormFields();
+      try {
+        var ffBody = await api('/forminator/forms?site=' + encodeURIComponent(sk));
+        var ffForms = ffBody.data || [];
+        var ffMatch = ffForms.find(function(f) { return String(f.form_id) === String(fid); });
+        S.detailFormFields = ffMatch && ffMatch.fields ? ffMatch.fields : [];
+      } catch (e) {
+        S.detailFormFields = [];
+        showAlert('Formuliervelden ophalen mislukt: ' + e.message, 'error');
+      }
+      renderDetailFormFields();
       return;
     }
     if (action === 'toggle-model-defaults') {

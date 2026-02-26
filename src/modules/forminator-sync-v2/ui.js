@@ -292,6 +292,18 @@ export function forminatorSyncV2UI(user) {
           </div>
         </div>
 
+        <!-- Form fields overview (collapsible) -->
+        <div class="collapse collapse-arrow bg-base-100 shadow mb-6">
+          <input type="checkbox" />
+          <div class="collapse-title font-semibold">
+            <i data-lucide="layout-list" class="w-4 h-4 inline mr-2 -mt-0.5"></i>
+            Formulier velden
+          </div>
+          <div class="collapse-content">
+            <div id="detailFormFields" class="pt-2"></div>
+          </div>
+        </div>
+
         <!-- Submission history (collapsible) -->
         <div class="collapse collapse-arrow bg-base-100 shadow mb-6">
           <input type="checkbox" />
