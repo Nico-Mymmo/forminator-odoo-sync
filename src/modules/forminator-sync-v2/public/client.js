@@ -242,6 +242,45 @@ function getDefaultFieldsForAction(actionKey) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// STATIC VALUE INPUT — renders the right control based on Odoo field type
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Returns an <input> or <select> HTML string for a mapping's "static value" cell.
+ * @param {string|null} name   - name attribute value (null = omit name attr)
+ * @param {object|null} meta   - Odoo field meta: {type, selection} (null = plain text input)
+ * @param {string}      value  - Current value
+ * @param {string}      [extraAttrs] - Extra HTML attribute string, e.g. ' id="foo"'
+ */
+function renderStaticInput(name, meta, value, extraAttrs) {
+  var type     = (meta && meta.type) || '';
+  var nameAttr = name ? (' name="' + esc(name) + '"') : '';
+  var extra    = extraAttrs || '';
+  var selCls   = 'select select-bordered select-sm w-full';
+  var inpCls   = 'input input-bordered input-sm w-full';
+
+  if (type === 'boolean') {
+    var ja  = (value === '1' || value === 'true')  ? ' selected' : '';
+    var nee = (value === '0' || value === 'false') ? ' selected' : '';
+    return '<select class="' + selCls + '"' + nameAttr + extra + '>' +
+      '<option value="">— geen —</option>' +
+      '<option value="1"' + ja  + '>Ja</option>' +
+      '<option value="0"' + nee + '>Nee</option>' +
+    '</select>';
+  }
+  if (type === 'selection' && meta.selection && meta.selection.length) {
+    return '<select class="' + selCls + '"' + nameAttr + extra + '>' +
+      '<option value="">— geen —</option>' +
+      meta.selection.map(function(opt) {
+        var k = String(opt[0]);
+        var l = String(opt[1]);
+        return '<option value="' + esc(k) + '"' + (value === k ? ' selected' : '') + '>' + esc(l) + '</option>';
+      }).join('') +
+    '</select>';
+  }
+  return '<input class="' + inpCls + '"' + nameAttr + extra + ' value="' + esc(value || '') + '" placeholder="Vaste waarde..." />';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // CUSTOM FIELD PICKER COMBOBOX (replaces native <datalist>)
 // Fixed height • scrollbar • searchbox • full field metadata visible
 // ═══════════════════════════════════════════════════════════════════════════
@@ -741,7 +780,8 @@ function renderWizardMapping() {
   // Default field rows (from Supabase model defaults, or hardcoded ACTIONS fallback)
   var defaultFieldDefs = getDefaultFieldsForAction(S.wizard.action);
   var defaultRows = defaultFieldDefs.map(function(of_) {
-    var suggested = suggestFormField(of_.field, formFields);
+    var suggested   = suggestFormField(of_.field, formFields);
+    var defFieldMeta = (S.odooFieldsCache[cfg.odoo_model] || []).find(function(f) { return f.name === of_.field; }) || null;
     return '<tr>' +
       '<td class="align-middle py-3">' +
         '<span class="font-medium text-sm">' + esc(of_.label) + '</span>' +
@@ -754,7 +794,7 @@ function renderWizardMapping() {
         '</select>' +
       '</td>' +
       '<td class="py-2">' +
-        '<input class="input input-bordered input-sm w-full" name="map-static-' + esc(of_.field) + '" placeholder="Vaste waarde..." />' +
+        renderStaticInput('map-static-' + of_.field, defFieldMeta, '') +
       '</td>' +
       '<td></td>' +
     '</tr>';
@@ -762,6 +802,7 @@ function renderWizardMapping() {
 
   // Extra rows added by the user
   var extraRows = (S.wizard.extraMappings || []).map(function(em, idx) {
+    var extraFieldMeta = (S.odooFieldsCache[cfg.odoo_model] || []).find(function(f) { return f.name === em.odooField; }) || null;
     return '<tr class="bg-base-200/40">' +
       '<td class="align-middle py-3">' +
         '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' +
@@ -773,7 +814,7 @@ function renderWizardMapping() {
         '</select>' +
       '</td>' +
       '<td class="py-2">' +
-        '<input class="input input-bordered input-sm w-full" name="extra-static-' + idx + '" value="' + esc(em.staticValue || '') + '" placeholder="Vaste waarde..." />' +
+        renderStaticInput('extra-static-' + idx, extraFieldMeta, em.staticValue || '') +
       '</td>' +
       '<td class="py-2">' +
         '<button type="button" class="btn btn-ghost btn-xs text-error" data-action="wizard-remove-extra-row" data-idx="' + idx + '" title="Verwijder">' +
@@ -816,7 +857,7 @@ function renderWizardMapping() {
       '</div>' +
       '<div class="form-control">' +
         '<label class="label py-0 pb-1"><span class="label-text text-xs">Of vaste waarde</span></label>' +
-        '<input id="wizardExtraStaticValue" class="input input-bordered input-sm" placeholder="Vaste waarde..." />' +
+        '<div id="wizardExtraStaticWrap"><input id="wizardExtraStaticValue" class="input input-bordered input-sm w-full" placeholder="Vaste waarde..." /></div>' +
       '</div>' +
       '<button type="button" class="btn btn-outline btn-sm" data-action="wizard-add-extra-row">+ Voeg toe</button>' +
     '</div>';
@@ -832,6 +873,21 @@ function renderWizardMapping() {
     '</div>' +
     addExtraHtml +
     '<p class="text-xs text-base-content/40 mt-3">Rij zonder selectie en zonder vaste waarde wordt overgeslagen.</p>';
+
+  // Dynamically update the "Of vaste waarde" input in the add-row form
+  // when the user picks a field, so it reflects the field type.
+  var extraOdooFieldEl = table.querySelector('#wizardExtraOdooField');
+  if (extraOdooFieldEl) {
+    extraOdooFieldEl.addEventListener('input', function() {
+      var wrap  = table.querySelector('#wizardExtraStaticWrap');
+      if (!wrap) return;
+      var fname = (extraOdooFieldEl.value || '').trim();
+      var fmeta = fname
+        ? ((S.odooFieldsCache[cfg.odoo_model] || []).find(function(f) { return f.name === fname; }) || null)
+        : null;
+      wrap.innerHTML = renderStaticInput(null, fmeta, '', ' id="wizardExtraStaticValue"');
+    });
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

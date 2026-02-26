@@ -634,7 +634,7 @@ export const routes = {
         model,
         method: 'fields_get',
         args: [],
-        kwargs: { attributes: ['string', 'type', 'store', 'readonly'] },
+        kwargs: { attributes: ['string', 'type', 'store', 'readonly', 'selection'] },
       });
 
       // Transform to sorted array; only expose stored fields
@@ -645,6 +645,7 @@ export const routes = {
           label: meta.string || name,
           type: meta.type,
           readonly: !!meta.readonly,
+          selection: Array.isArray(meta.selection) && meta.selection.length ? meta.selection : null,
         }))
         .sort((a, b) => a.label.localeCompare(b.label, 'nl'));
 
