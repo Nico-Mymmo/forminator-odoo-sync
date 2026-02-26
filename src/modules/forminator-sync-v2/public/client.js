@@ -507,6 +507,7 @@ export const forminatorSyncV2ClientScript = String.raw`
       await loadMeta();
       await loadIntegrations();
       await loadWpConnections();
+      await loadSitesFromEnv();
       renderDetail();
     } catch (error) {
       showStatus(error.message, 'error');
@@ -577,34 +578,101 @@ export const forminatorSyncV2ClientScript = String.raw`
       const json = await res.json();
 
       if (!json.success) {
-        resultEl.innerHTML = '<p class="text-sm text-error">Fout: ' + (json.error || 'onbekend') + '</p>';
+        resultEl.innerHTML = '<div class="alert alert-error"><span>Fout: ' + escapeHtml(json.error || 'onbekend') + '</span></div>';
         return;
       }
 
       const forms = json.data || [];
       if (forms.length === 0) {
-        resultEl.innerHTML = '<p class="text-sm text-base-content/60">Geen formulieren gevonden op deze site.</p>';
+        resultEl.innerHTML = '<div class="alert alert-warning"><span>Geen formulieren gevonden op deze site.</span></div>';
         return;
       }
 
-      resultEl.innerHTML = forms.map((form) => {
-        const fields = Array.isArray(form.fields) ? form.fields : [];
-        return '<div class="mb-4 border rounded p-3">' +
-          '<p class="font-semibold">' + form.form_name + ' <span class="badge badge-ghost badge-sm">ID: ' + form.form_id + '</span></p>' +
-          (fields.length > 0
-            ? '<table class="table table-xs mt-2"><thead><tr><th>Veld ID</th><th>Label</th><th>Type</th><th>Verplicht</th></tr></thead><tbody>' +
-              fields.map((f) =>
-                '<tr><td>' + f.field_id + '</td><td>' + f.label + '</td><td>' + f.type + '</td><td>' + (f.required ? '✓' : '') + '</td></tr>'
-              ).join('') +
-              '</tbody></table>'
-            : '<p class="text-xs text-base-content/60 mt-1">Geen velden beschikbaar.</p>'
-          ) +
-          '</div>';
-      }).join('');
+      resultEl.innerHTML = '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">' +
+        forms.map((form) => {
+          const fields = Array.isArray(form.fields) ? form.fields : [];
+          const mappableCount = fields.filter(f => !['page-break','group','html','section','captcha'].includes(f.type)).length;
+          return '<div class="card card-compact bg-base-200 border">' +
+            '<div class="card-body">' +
+            '<div class="flex items-start justify-between gap-2">' +
+            '<div>' +
+            '<p class="font-semibold text-sm">' + escapeHtml(form.form_name || form.form_id) + '</p>' +
+            '<p class="text-xs text-base-content/60">ID: ' + escapeHtml(String(form.form_id)) + '</p>' +
+            '</div>' +
+            '<span class="badge badge-neutral badge-sm shrink-0">' + mappableCount + ' velden</span>' +
+            '</div>' +
+            '<button class="btn btn-xs btn-primary mt-2 w-full" ' +
+            'data-action="preview-form" ' +
+            'data-form-id="' + escapeHtml(String(form.form_id)) + '" ' +
+            'data-form-name="' + escapeHtml(String(form.form_name || form.form_id)) + '" ' +
+            'data-fields=\'' + escapeHtml(JSON.stringify(fields)) + '\'>Preview velden</button>' +
+            '</div></div>';
+        }).join('') + '</div>';
     } catch (err) {
-      resultEl.innerHTML = '<p class="text-sm text-error">Fout: ' + err.message + '</p>';
+      resultEl.innerHTML = '<div class="alert alert-error"><span>Fout: ' + escapeHtml(err.message) + '</span></div>';
     }
   }
+
+  function openFormPreview(formId, formName, fields) {
+    const modal = document.getElementById('formPreviewModal');
+    const title = document.getElementById('formPreviewTitle');
+    const body  = document.getElementById('formPreviewBody');
+    if (!modal || !title || !body) return;
+
+    title.textContent = formName + ' (ID: ' + formId + ')';
+
+    if (!fields || fields.length === 0) {
+      body.innerHTML = '<p class="text-sm text-base-content/60">Geen velden beschikbaar.</p>';
+    } else {
+      body.innerHTML =
+        '<div class="overflow-x-auto">' +
+        '<table class="table table-xs table-zebra">' +
+        '<thead><tr><th>Veld ID</th><th>Label</th><th>Type</th><th>Verplicht</th></tr></thead>' +
+        '<tbody>' +
+        fields.flatMap((f) => {
+          const isSkip = ['page-break','group','html','section','captcha'].includes(f.type);
+          const rows = [];
+          const rowClass = isSkip ? 'opacity-40' : '';
+          rows.push(
+            '<tr class="' + rowClass + '">' +
+            '<td class="font-mono text-xs">' + escapeHtml(String(f.field_id ?? '')) + '</td>' +
+            '<td>' + escapeHtml(String(f.label ?? '')) + (f.is_composite ? ' <span class="badge badge-ghost badge-xs">composite</span>' : '') + '</td>' +
+            '<td><span class="badge badge-outline badge-xs">' + escapeHtml(String(f.type ?? '')) + '</span></td>' +
+            '<td>' + (f.required ? '<span class="badge badge-error badge-xs">verplicht</span>' : '') + '</td>' +
+            '</tr>'
+          );
+          if (f.is_composite && Array.isArray(f.children)) {
+            f.children.forEach((child) => {
+              rows.push(
+                '<tr class="bg-base-200">' +
+                '<td class="font-mono text-xs pl-6">↳ ' + escapeHtml(String(child.field_id ?? '')) + '</td>' +
+                '<td class="pl-6 text-sm">' + escapeHtml(String(child.label ?? '')) + '</td>' +
+                '<td><span class="badge badge-outline badge-xs">' + escapeHtml(String(child.type ?? '')) + '</span></td>' +
+                '<td>' + (child.required ? '<span class="badge badge-error badge-xs">verplicht</span>' : '') + '</td>' +
+                '</tr>'
+              );
+            });
+          }
+          return rows;
+        }).join('') +
+        '</tbody></table></div>';
+    }
+
+    modal.showModal();
+  }
+
+  // Preview knop click voor form discovery
+  document.addEventListener('click', (event) => {
+    if (event.target?.dataset?.action === 'preview-form') {
+      const btn = event.target;
+      try {
+        const fields = JSON.parse(btn.dataset.fields || '[]');
+        openFormPreview(btn.dataset.formId, btn.dataset.formName, fields);
+      } catch {
+        showStatus('Kon velden niet tonen.', 'error');
+      }
+    }
+  });
 
   async function handleAddConnection(event) {
     event.preventDefault();
@@ -653,6 +721,98 @@ export const forminatorSyncV2ClientScript = String.raw`
       const id = event.target.dataset.id;
       if (id) await handleDeleteConnection(id);
     }
+  });
+
+  // ── Cloudflare Secrets multi-site ────────────────────────────────────────────
+
+  async function loadSitesFromEnv() {
+    try {
+      const res = await fetch('/forminator-v2/api/forminator/sites');
+      const json = await res.json();
+      const sites = json.data || [];
+
+      const select = document.getElementById('siteEnvSelect');
+      if (!select) return;
+
+      if (sites.length === 0) {
+        select.innerHTML = '<option value="">\u2014 geen sites geconfigureerd in Cloudflare secrets \u2014</option>';
+        return;
+      }
+
+      select.innerHTML = '<option value="">\u2014 selecteer site \u2014</option>';
+      sites.forEach((s) => {
+        const opt = document.createElement('option');
+        opt.value = s.key;
+        const tokenStatus = s.has_token ? '' : ' \u26A0\uFE0F geen token';
+        opt.textContent = s.label + ' (' + s.url + ')' + tokenStatus;
+        select.appendChild(opt);
+      });
+    } catch (err) {
+      showStatus('Fout bij laden Cloudflare sites: ' + err.message, 'error');
+    }
+  }
+
+  async function handleLoadSiteForms() {
+    const select = document.getElementById('siteEnvSelect');
+    const resultEl = document.getElementById('siteFormDiscoveryResult');
+    if (!select || !resultEl) return;
+
+    const siteKey = select.value;
+    if (!siteKey) {
+      showStatus('Selecteer eerst een WordPress site.', 'error');
+      return;
+    }
+
+    resultEl.style.display = 'none';
+    resultEl.innerHTML = '<p class="text-sm text-base-content/60">Formulieren ophalen via Basic Auth...</p>';
+    resultEl.style.display = '';
+
+    try {
+      const res = await fetch('/forminator-v2/api/forminator/forms?site=' + encodeURIComponent(siteKey));
+      const json = await res.json();
+
+      if (!json.success) {
+        resultEl.innerHTML = '<div class="alert alert-error"><span>Fout: ' + escapeHtml(json.error || 'onbekend') + '</span></div>';
+        return;
+      }
+
+      const forms = json.data || [];
+      if (forms.length === 0) {
+        resultEl.innerHTML = '<div class="alert alert-warning"><span>Geen formulieren gevonden op ' + escapeHtml(json.base_url || siteKey) + '.</span></div>';
+        return;
+      }
+
+      resultEl.innerHTML =
+        '<p class="text-xs text-base-content/60 mb-2">Site: ' + escapeHtml(json.base_url || siteKey) + ' &middot; ' + forms.length + ' formulieren</p>' +
+        '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">' +
+        forms.map((form) => {
+          const fields = Array.isArray(form.fields) ? form.fields : [];
+          const mappableCount = fields.filter(function(f) {
+            return !['page-break','group','html','section','captcha'].includes(f.type);
+          }).length;
+          return '<div class="card card-compact bg-base-200 border">' +
+            '<div class="card-body">' +
+            '<div class="flex items-start justify-between gap-2">' +
+            '<div>' +
+            '<p class="font-semibold text-sm">' + escapeHtml(form.form_name || form.form_id) + '</p>' +
+            '<p class="text-xs text-base-content/60">ID: ' + escapeHtml(String(form.form_id)) + '</p>' +
+            '</div>' +
+            '<span class="badge badge-neutral badge-sm shrink-0">' + mappableCount + ' velden</span>' +
+            '</div>' +
+            '<button class="btn btn-xs btn-primary mt-2 w-full" ' +
+            'data-action="preview-form" ' +
+            'data-form-id="' + escapeHtml(String(form.form_id)) + '" ' +
+            'data-form-name="' + escapeHtml(String(form.form_name || form.form_id)) + '" ' +
+            'data-fields=\'' + escapeHtml(JSON.stringify(fields)) + '\'>Preview velden</button>' +
+            '</div></div>';
+        }).join('') + '</div>';
+    } catch (err) {
+      resultEl.innerHTML = '<div class="alert alert-error"><span>Fout: ' + escapeHtml(err.message) + '</span></div>';
+    }
+  }
+
+  document.getElementById('loadSiteFormsBtn')?.addEventListener('click', () => {
+    handleLoadSiteForms().catch((err) => showStatus(err.message, 'error'));
   });
 
   // einde WordPress Discovery

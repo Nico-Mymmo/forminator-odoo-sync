@@ -54,11 +54,34 @@ export function forminatorSyncV2UI(user) {
             <input name="base_url" class="input input-bordered input-sm" placeholder="https://mijnsite.nl" required />
           </label>
           <label class="form-control flex-1 min-w-[200px]">
-            <span class="label-text">Auth token (user:pass)</span>
-            <input name="auth_token" class="input input-bordered input-sm" type="password" placeholder="user:application-password" required />
+            <span class="label-text">WordPress API Secret</span>
+            <input name="auth_token" class="input input-bordered input-sm" type="password" placeholder="X-OPENVME-SECRET waarde" required />
           </label>
           <button class="btn btn-primary btn-sm" type="submit">Toevoegen</button>
         </form>
+      </div>
+    </div>
+
+    <!-- Cloudflare Secrets multi-site block -->
+    <div class="card bg-base-100 shadow mb-6">
+      <div class="card-body">
+        <h2 class="card-title">0b) Formulieren ophalen via Cloudflare Secrets</h2>
+        <p class="text-sm text-base-content/70">
+          Sites geconfigureerd als <code>WORDPRESS_URL_SITE_1</code> / <code>WP_API_TOKEN_SITE_1</code> Cloudflare secrets.
+          Credentials worden nooit opgeslagen in de database — de Worker doet runtime Basic Auth encoding.
+        </p>
+
+        <div class="flex flex-wrap gap-3 items-end mt-3">
+          <label class="form-control flex-1 min-w-[200px]">
+            <span class="label-text">WordPress Site</span>
+            <select id="siteEnvSelect" class="select select-bordered">
+              <option value="">— sites laden... —</option>
+            </select>
+          </label>
+          <button id="loadSiteFormsBtn" class="btn btn-secondary" type="button">Formulieren ophalen</button>
+        </div>
+
+        <div id="siteFormDiscoveryResult" class="mt-4" style="display:none;"></div>
       </div>
     </div>
 
@@ -251,6 +274,16 @@ export function forminatorSyncV2UI(user) {
   </div>
 
   <script>${forminatorSyncV2ClientScript}</script>
+
+  <!-- Form preview modal -->
+  <dialog id="formPreviewModal" class="modal">
+    <div class="modal-box w-11/12 max-w-3xl">
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+      <h3 id="formPreviewTitle" class="font-bold text-lg mb-4">Formulier velden</h3>
+      <div id="formPreviewBody"></div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
 </body>
 </html>`;
 }

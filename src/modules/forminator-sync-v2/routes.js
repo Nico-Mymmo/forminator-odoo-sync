@@ -28,7 +28,7 @@ import {
   createWpConnection,
   deleteWpConnection
 } from './database.js';
-import { getWpClient } from '../event-operations/wp-client.js';
+import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
   getMvpConstants,
   validateResolverPayload,
@@ -468,8 +468,9 @@ export const routes = {
   'POST /api/discovery/connections': async (context) => {
     try {
       const payload = await readJsonBody(context.request);
+      // auth_token = waarde die als X-OPENVME-SECRET naar WP gestuurd wordt
       if (!payload.name || !payload.base_url || !payload.auth_token) {
-        return jsonResponse({ success: false, error: 'name, base_url en auth_token zijn verplicht' }, 400);
+        return jsonResponse({ success: false, error: 'name, base_url en auth_token (X-OPENVME-SECRET waarde) zijn verplicht' }, 400);
       }
       const created = await createWpConnection(context.env, payload);
       return jsonResponse({ success: true, data: created }, 201);
@@ -502,9 +503,77 @@ export const routes = {
         return jsonResponse({ success: false, error: 'WordPress connectie niet gevonden' }, 404);
       }
 
-      const client = getWpClient(context.env, connection);
-      const forms = await client.fetchForms();
+      if (!connection.is_active) {
+        return jsonResponse({ success: false, error: `Connectie "${connection.name}" is inactief` }, 400);
+      }
+
+      // auth_token bevat de X-OPENVME-SECRET waarde
+      const forms = await fetchOpenVmeForminatorForms({
+        baseUrl: connection.base_url,
+        secret:  connection.auth_token
+      });
       return jsonResponse({ success: true, data: forms });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // ─── Cloudflare-secrets-based multi-site (Basic Auth) ──────────────────────
+
+  /**
+   * GET /api/forminator/sites
+   * Geeft de lijst van geconfigureerde WP-sites terug op basis van
+   * WORDPRESS_URL_SITE_N env vars. Nooit credentials in de response.
+   */
+  'GET /api/forminator/sites': async (context) => {
+    try {
+      const sites = [];
+      for (let i = 1; i <= 10; i++) {
+        const key = `SITE_${i}`;
+        const url = context.env[`WORDPRESS_URL_${key}`];
+        if (!url) continue;
+        // Geef aan of het token geconfigureerd is maar stuur het NOOIT mee
+        const hasToken = Boolean(context.env[`WP_API_TOKEN_${key}`]);
+        sites.push({ key, label: `Site ${i}`, url, has_token: hasToken });
+      }
+      return jsonResponse({ success: true, data: sites });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * GET /api/forminator/forms?site=SITE_1
+   * Haalt Forminator forms op van de opgegeven site via Basic Auth.
+   * Credentials komen uitsluitend uit Cloudflare env vars (nooit DB).
+   */
+  'GET /api/forminator/forms': async (context) => {
+    try {
+      const url = new URL(context.request.url);
+      const siteKey = (url.searchParams.get('site') || '').toUpperCase().trim();
+
+      if (!siteKey) {
+        return jsonResponse({ success: false, error: 'site query param is verplicht, bv. ?site=SITE_1' }, 400);
+      }
+
+      const baseUrl = context.env[`WORDPRESS_URL_${siteKey}`];
+      const token   = context.env[`WP_API_TOKEN_${siteKey}`];
+
+      if (!baseUrl) {
+        return jsonResponse(
+          { success: false, error: `WORDPRESS_URL_${siteKey} is niet geconfigureerd in Cloudflare secrets` },
+          404
+        );
+      }
+      if (!token) {
+        return jsonResponse(
+          { success: false, error: `WP_API_TOKEN_${siteKey} is niet geconfigureerd in Cloudflare secrets` },
+          404
+        );
+      }
+
+      const forms = await fetchForminatorFormsBasicAuth({ baseUrl, token });
+      return jsonResponse({ success: true, data: forms, site: siteKey, base_url: baseUrl });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
