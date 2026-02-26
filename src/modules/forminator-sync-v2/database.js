@@ -7,7 +7,8 @@ const TABLES = {
   mappings: 'fs_v2_mappings',
   submissions: 'fs_v2_submissions',
   submissionTargets: 'fs_v2_submission_targets',
-  wpConnections: 'wp_connections'
+  wpConnections: 'wp_connections',
+  modelDefaults: 'fs_v2_model_defaults',
 };
 
 function getSupabase(env) {
@@ -562,4 +563,33 @@ export async function deleteWpConnection(env, id) {
 
   if (error) throw new Error(`Failed to delete wp_connection: ${error.message}`);
   return { deleted: true };
+}
+
+// ─── Model defaults ─────────────────────────────────────────────────────────
+
+export async function getModelDefaults(env, model) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.modelDefaults)
+    .select('*')
+    .eq('odoo_model', model)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to get model defaults: ${error.message}`);
+  return data || null;
+}
+
+export async function upsertModelDefaults(env, model, fields) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.modelDefaults)
+    .upsert(
+      { odoo_model: model, fields, updated_at: new Date().toISOString() },
+      { onConflict: 'odoo_model' }
+    )
+    .select('*')
+    .single();
+
+  if (error) throw new Error(`Failed to upsert model defaults: ${error.message}`);
+  return data;
 }

@@ -27,7 +27,9 @@ import {
   listWpConnections,
   getWpConnectionById,
   createWpConnection,
-  deleteWpConnection
+  deleteWpConnection,
+  getModelDefaults,
+  upsertModelDefaults,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -577,6 +579,40 @@ export const routes = {
       return jsonResponse({ success: true, data: forms, site: siteKey, base_url: baseUrl });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  /**
+   * GET /api/settings/model-defaults?model=res.partner
+   * Returns the saved default field list for a given Odoo model from Supabase.
+   */
+  'GET /api/settings/model-defaults': async (context) => {
+    try {
+      const url   = new URL(context.request.url);
+      const model = (url.searchParams.get('model') || '').trim();
+      if (!model) return jsonResponse({ success: false, error: 'model param required' }, 400);
+      const row = await getModelDefaults(context.env, model);
+      return jsonResponse({ success: true, data: row ? row.fields : [] });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * PUT /api/settings/model-defaults
+   * Saves the default field list for a given Odoo model (upsert).
+   * Body: { model: "res.partner", fields: [{name, label, required, order_index}] }
+   */
+  'PUT /api/settings/model-defaults': async (context) => {
+    try {
+      const body   = await readJsonBody(context.request);
+      const { model, fields } = body;
+      if (!model)                 return jsonResponse({ success: false, error: 'model required' }, 400);
+      if (!Array.isArray(fields)) return jsonResponse({ success: false, error: 'fields must be an array' }, 400);
+      const row = await upsertModelDefaults(context.env, model, fields);
+      return jsonResponse({ success: true, data: row });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
     }
   },
 

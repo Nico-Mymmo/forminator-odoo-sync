@@ -101,6 +101,8 @@ var S = {
   testStatus: null,
   submissions: [],
   odooFieldsCache: {},
+  modelDefaultsCache: {},   // model → [{name, label, required, order_index}]
+  modelDefaultsEditors: {}, // model → {open, pendingFields}
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -215,6 +217,116 @@ async function loadOdooFieldsForModel(model) {
   return S.odooFieldsCache[model];
 }
 
+async function loadModelDefaultsForModel(model) {
+  if (S.modelDefaultsCache[model] !== undefined) return S.modelDefaultsCache[model];
+  try {
+    var body = await api('/settings/model-defaults?model=' + encodeURIComponent(model));
+    S.modelDefaultsCache[model] = body.data || [];
+  } catch (_) {
+    S.modelDefaultsCache[model] = [];
+  }
+  return S.modelDefaultsCache[model];
+}
+
+/** Returns saved DB defaults for an action’s model, or falls back to hardcoded cfg.odooFields. */
+function getDefaultFieldsForAction(actionKey) {
+  var cfg  = ACTIONS[actionKey];
+  if (!cfg) return [];
+  var saved = S.modelDefaultsCache[cfg.odoo_model];
+  if (saved && saved.length > 0) {
+    return saved.map(function(f) {
+      return { field: f.name, label: f.label || f.name, required: !!f.required };
+    });
+  }
+  return cfg.odooFields;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CUSTOM FIELD PICKER COMBOBOX (replaces native <datalist>)
+// Fixed height • scrollbar • searchbox • full field metadata visible
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Renders a custom searchable field picker.
+ * @param {string} id          - Unique ID for this picker instance.
+ * @param {string} inputName   - name attr for the hidden value input (‘--unused--’ = no name).
+ * @param {Array}  allFields   - [{name, label, type}] from Odoo fields cache.
+ * @param {string} selectedName - Currently selected field name (or empty string).
+ */
+function renderFieldPicker(id, inputName, allFields, selectedName) {
+  var sf      = allFields.find(function(f) { return f.name === selectedName; });
+  var selLbl  = sf ? (sf.label || sf.name) : (selectedName || '');
+  var isEmpty = !selectedName;
+
+  var items = allFields.map(function(f) {
+    var isSel = f.name === selectedName;
+    return '<li class="fsp-item flex items-center justify-between gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-base-200' +
+      (isSel ? ' bg-primary/10 font-semibold' : '') + '"' +
+      ' data-fsp-id="' + esc(id) + '" data-fsp-name="' + esc(f.name) + '" data-fsp-label="' + esc(f.label || f.name) + '">' +
+      '<div class="min-w-0">' +
+        '<span class="font-medium">' + esc(f.label || f.name) + '</span>' +
+        '<span class="font-mono text-xs text-base-content/40 ml-1.5">' + esc(f.name) + '</span>' +
+      '</div>' +
+      '<span class="badge badge-ghost badge-xs shrink-0">' + esc(f.type || '') + '</span>' +
+    '</li>';
+  }).join('');
+
+  return (
+    '<div class="fsp-wrap relative w-full" id="fsp-' + esc(id) + '">' +
+      '<button type="button"' +
+        ' class="input input-bordered input-sm w-full flex items-center gap-2 cursor-pointer fsp-trigger text-left"' +
+        ' data-fsp-id="' + esc(id) + '">' +
+        '<span class="fsp-display flex-1 text-sm truncate' + (isEmpty ? ' text-base-content/50 italic' : '') + '">' +
+          esc(isEmpty ? '— kies veld —' : selLbl) +
+        '</span>' +
+        '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 opacity-40"><path d="m6 9 6 6 6-6"/></svg>' +
+      '</button>' +
+      '<input type="hidden"' +
+        (inputName !== '--unused--' ? ' name="' + esc(inputName) + '"' : '') +
+        ' id="fsp-val-' + esc(id) + '" value="' + esc(selectedName || '') + '" />' +
+      '<div class="fsp-panel absolute z-50 w-full mt-1 rounded-lg shadow-xl bg-base-100 border border-base-300 hidden"' +
+        ' id="fsp-panel-' + esc(id) + '" style="min-width:260px;">' +
+        '<div class="p-2 border-b border-base-200 bg-base-100 sticky top-0">' +
+          '<input class="input input-sm input-bordered w-full fsp-search"' +
+            ' data-fsp-id="' + esc(id) + '" placeholder="Zoeken op veldnaam of label…" autocomplete="off" />' +
+        '</div>' +
+        '<ul class="overflow-y-auto" style="max-height:220px;" id="fsp-list-' + esc(id) + '">' +
+          '<li class="fsp-item px-3 py-2 text-sm cursor-pointer hover:bg-base-200 text-base-content/50 italic"' +
+            ' data-fsp-id="' + esc(id) + '" data-fsp-name="" data-fsp-label="">— niet koppelen —</li>' +
+          items +
+        '</ul>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function closeAllFspPanels() {
+  document.querySelectorAll('.fsp-panel:not(.hidden)').forEach(function(p) { p.classList.add('hidden'); });
+}
+
+function filterFspList(fspId, query) {
+  var list = document.getElementById('fsp-list-' + fspId);
+  if (!list) return;
+  var q = (query || '').toLowerCase().trim();
+  list.querySelectorAll('.fsp-item').forEach(function(li) {
+    var name  = (li.dataset.fspName  || '').toLowerCase();
+    var label = (li.dataset.fspLabel || '').toLowerCase();
+    li.style.display = (!q || name.includes(q) || label.includes(q)) ? '' : 'none';
+  });
+}
+
+function selectFspItem(fspId, name, label) {
+  var valEl = document.getElementById('fsp-val-' + fspId);
+  var dispEl = document.querySelector('#fsp-' + fspId + ' .fsp-display');
+  var panel  = document.getElementById('fsp-panel-' + fspId);
+  if (valEl)  valEl.value = name;
+  if (dispEl) {
+    dispEl.textContent = name ? (label || name) : '— kies veld —';
+    if (name) { dispEl.classList.remove('text-base-content/50', 'italic'); }
+    else      { dispEl.classList.add('text-base-content/50', 'italic'); }
+  }
+  if (panel) panel.classList.add('hidden');
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // RENDER: LIST VIEW
 // ═══════════════════════════════════════════════════════════════════════════
@@ -280,37 +392,167 @@ function renderConnections() {
   var el = document.getElementById('connectionsList');
   if (!el) return;
 
+  // ── WP sites ────────────────────────────────────────────────────────────
+  var sitesHtml;
   if (S.sites.length === 0) {
-    el.innerHTML = '<div class="alert alert-warning mt-4">' +
-      '<i data-lucide="alert-triangle" class="w-5 h-5 shrink-0"></i>' +
-      '<span>Geen WordPress sites geconfigureerd. Voeg <code class="bg-base-200 px-1 rounded">WORDPRESS_URL_SITE_1</code> en <code class="bg-base-200 px-1 rounded">WP_API_TOKEN_SITE_1</code> toe als Cloudflare secrets.</span>' +
+    sitesHtml =
+      '<div class="alert alert-warning mt-4">' +
+        '<i data-lucide="alert-triangle" class="w-5 h-5 shrink-0"></i>' +
+        '<span>Geen WordPress sites geconfigureerd. Voeg <code class="bg-base-200 px-1 rounded">WORDPRESS_URL_SITE_1</code> en <code class="bg-base-200 px-1 rounded">WP_API_TOKEN_SITE_1</code> toe als Cloudflare secrets.</span>' +
       '</div>';
-    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
-    return;
+  } else {
+    sitesHtml =
+      '<div class="space-y-3 mt-4">' +
+        S.sites.map(function(s) {
+          return '<div class="card bg-base-100 shadow">' +
+            '<div class="card-body p-4 flex-row items-center gap-4">' +
+              '<div class="w-10 h-10 rounded-full bg-base-200 flex items-center justify-center shrink-0">' +
+                '<i data-lucide="globe" class="w-5 h-5 text-base-content/50"></i>' +
+              '</div>' +
+              '<div class="flex-1 min-w-0">' +
+                '<p class="font-semibold truncate">' + esc(s.label) + '</p>' +
+                '<p class="text-sm text-base-content/60 truncate">' + esc(s.url) + '</p>' +
+              '</div>' +
+              (s.has_token
+                ? '<div class="flex items-center gap-1.5 text-success text-sm shrink-0"><i data-lucide="check-circle" class="w-4 h-4"></i><span>Actief</span></div>'
+                : '<div class="flex items-center gap-1.5 text-error text-sm shrink-0"><i data-lucide="alert-circle" class="w-4 h-4"></i><span>Geen token</span></div>') +
+            '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+      '<div class="alert alert-info mt-6">' +
+        '<i data-lucide="shield" class="w-4 h-4 shrink-0"></i>' +
+        '<span>Credentials worden beheerd via Cloudflare secrets. Geen wachtwoorden of API-sleutels zichtbaar in de interface.</span>' +
+      '</div>';
   }
 
-  el.innerHTML = '<div class="space-y-3 mt-4">' +
-    S.sites.map(function(s) {
+  // ── Standaard veldmapping per model ────────────────────────────────────
+  var defaultsSectionHtml =
+    '<div class="divider mt-10">Standaard veldmapping</div>' +
+    '<p class="text-sm text-base-content/60 mb-5">Stel per Odoo model in welke velden standaard als rijen verschijnen in de wizard. Leeg = gebruik de ingebouwde veldlijst.</p>' +
+    '<div class="space-y-4">' +
+    Object.keys(ACTIONS).map(function(actionKey) {
+      var cfg    = ACTIONS[actionKey];
+      var model  = cfg.odoo_model;
+      var editor = S.modelDefaultsEditors[model] || {};
+      var saved  = S.modelDefaultsCache[model];  // undefined = not yet fetched, [] = fetched but empty
+      var modelKey = model.replace(/\./g, '_');
+
+      // ── Closed state: summary of saved defaults ──────────────────────
+      var summaryHtml = '';
+      if (!editor.open) {
+        if (saved === undefined || saved === null) {
+          summaryHtml = '<p class="text-xs text-base-content/40 italic py-1">Laden…</p>';
+        } else if (saved.length === 0) {
+          summaryHtml = '<p class="text-xs text-base-content/40 italic py-1">Geen aangepaste standaarden — wizard gebruikt ingebouwde veldlijst.</p>';
+        } else {
+          summaryHtml =
+            '<div class="flex flex-wrap gap-1.5 mt-2">' +
+            saved.map(function(f) {
+              return '<span class="badge badge-outline badge-sm">' +
+                esc(f.label || f.name) +
+                (f.required ? ' <span class="text-error">*</span>' : '') +
+              '</span>';
+            }).join('') +
+            '</div>';
+        }
+      }
+
+      // ── Open state: editable list + field picker ─────────────────────
+      var editorHtml = '';
+      if (editor.open) {
+        var pending    = editor.pendingFields || [];
+        var odooFields = S.odooFieldsCache[model] || [];
+
+        var rowsHtml = pending.length === 0
+          ? '<tr><td colspan="3" class="text-xs text-base-content/40 italic py-2">Leeg — wizard valt terug op ingebouwde defaults.</td></tr>'
+          : pending.map(function(f, i) {
+              return '<tr>' +
+                '<td class="py-1.5">' +
+                  '<span class="font-medium text-sm">' + esc(f.label || f.name) + '</span>' +
+                  '<span class="font-mono text-xs text-base-content/40 ml-1.5">' + esc(f.name) + '</span>' +
+                '</td>' +
+                '<td class="py-1.5">' +
+                  '<label class="flex items-center gap-1.5 cursor-pointer">' +
+                    '<input type="checkbox" class="checkbox checkbox-xs defaults-req-toggle"' +
+                      ' data-model="' + esc(model) + '" data-idx="' + i + '"' + (f.required ? ' checked' : '') + ' />' +
+                    '<span class="text-xs">Verplicht</span>' +
+                  '</label>' +
+                '</td>' +
+                '<td class="py-1.5 text-right">' +
+                  '<button type="button" class="btn btn-ghost btn-xs text-error"' +
+                    ' data-action="remove-default-field" data-model="' + esc(model) + '" data-idx="' + i + '">' +
+                    '<i data-lucide="x" class="w-3 h-3"></i>' +
+                  '</button>' +
+                '</td>' +
+              '</tr>';
+            }).join('');
+
+        var addRowHtml =
+          '<div class="flex flex-wrap items-end gap-2 mt-3">' +
+            '<div class="form-control flex-1 min-w-40">' +
+              '<label class="label py-0 pb-1">' +
+                '<span class="label-text text-xs">Odoo veld</span>' +
+                '<span class="label-text-alt text-xs text-base-content/40">' +
+                  (odooFields.length > 0 ? odooFields.length + ' velden beschikbaar' : '<span class="loading loading-xs loading-spinner"></span> laden…') +
+                '</span>' +
+              '</label>' +
+              (odooFields.length > 0
+                ? renderFieldPicker('defaults-add-' + modelKey, '--unused--', odooFields, '')
+                : '<div class="input input-bordered input-sm flex items-center gap-2 text-base-content/40"><span class="loading loading-spinner loading-xs"></span><span class="text-xs">Velden laden…</span></div>') +
+            '</div>' +
+            '<label class="flex items-center gap-1.5 shrink-0 pb-0.5">' +
+              '<input type="checkbox" id="defaults-new-req-' + esc(modelKey) + '" class="checkbox checkbox-xs" />' +
+              '<span class="text-xs">Verplicht</span>' +
+            '</label>' +
+            '<button type="button" class="btn btn-sm btn-outline shrink-0"' +
+              ' data-action="add-default-field" data-model="' + esc(model) + '">+ Voeg toe</button>' +
+          '</div>';
+
+        editorHtml =
+          '<div class="mt-4 border-t border-base-200 pt-4">' +
+            '<div class="overflow-x-auto mb-2">' +
+              '<table class="table table-sm"><tbody>' + rowsHtml + '</tbody></table>' +
+            '</div>' +
+            addRowHtml +
+            '<div class="flex gap-2 justify-end mt-5">' +
+              '<button type="button" class="btn btn-ghost btn-sm"' +
+                ' data-action="toggle-model-defaults" data-model="' + esc(model) + '">Annuleer</button>' +
+              '<button type="button" class="btn btn-primary btn-sm"' +
+                ' data-action="save-model-defaults" data-model="' + esc(model) + '">Opslaan</button>' +
+            '</div>' +
+          '</div>';
+      }
+
       return '<div class="card bg-base-100 shadow">' +
-        '<div class="card-body p-4 flex-row items-center gap-4">' +
-          '<div class="w-10 h-10 rounded-full bg-base-200 flex items-center justify-center shrink-0">' +
-            '<i data-lucide="globe" class="w-5 h-5 text-base-content/50"></i>' +
+        '<div class="card-body p-4">' +
+          '<div class="flex items-start justify-between gap-4">' +
+            '<div>' +
+              '<p class="font-semibold">' + esc(cfg.label) + '</p>' +
+              '<p class="text-xs font-mono text-base-content/50">' + esc(model) + '</p>' +
+            '</div>' +
+            '<button type="button" class="btn btn-ghost btn-xs shrink-0"' +
+              ' data-action="toggle-model-defaults" data-model="' + esc(model) + '">' +
+              (editor.open ? 'Sluiten' : 'Bewerken') +
+            '</button>' +
           '</div>' +
-          '<div class="flex-1 min-w-0">' +
-            '<p class="font-semibold truncate">' + esc(s.label) + '</p>' +
-            '<p class="text-sm text-base-content/60 truncate">' + esc(s.url) + '</p>' +
-          '</div>' +
-          (s.has_token
-            ? '<div class="flex items-center gap-1.5 text-success text-sm shrink-0"><i data-lucide="check-circle" class="w-4 h-4"></i><span>Actief</span></div>'
-            : '<div class="flex items-center gap-1.5 text-error text-sm shrink-0"><i data-lucide="alert-circle" class="w-4 h-4"></i><span>Geen token</span></div>') +
+          summaryHtml + editorHtml +
         '</div>' +
       '</div>';
     }).join('') +
-  '</div>' +
-  '<div class="alert alert-info mt-6">' +
-    '<i data-lucide="shield" class="w-4 h-4 shrink-0"></i>' +
-    '<span>Credentials worden beheerd via Cloudflare secrets. Geen wachtwoorden of API-sleutels zichtbaar in de interface.</span>' +
-  '</div>';
+    '</div>';
+
+  el.innerHTML = sitesHtml + defaultsSectionHtml;
+
+  // Bind required-toggle checkboxes (change = update pendingFields in-memory, no re-render needed)
+  el.querySelectorAll('.defaults-req-toggle').forEach(function(cb) {
+    cb.addEventListener('change', function() {
+      var ed = S.modelDefaultsEditors[cb.dataset.model];
+      if (ed && ed.pendingFields && ed.pendingFields[parseInt(cb.dataset.idx, 10)]) {
+        ed.pendingFields[parseInt(cb.dataset.idx, 10)].required = cb.checked;
+      }
+    });
+  });
 
   if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
 }
@@ -487,8 +729,9 @@ function renderWizardMapping() {
       }).join('');
   }
 
-  // Default field rows
-  var defaultRows = cfg.odooFields.map(function(of_) {
+  // Default field rows (from Supabase model defaults, or hardcoded ACTIONS fallback)
+  var defaultFieldDefs = getDefaultFieldsForAction(S.wizard.action);
+  var defaultRows = defaultFieldDefs.map(function(of_) {
     var suggested = suggestFormField(of_.field, formFields);
     return '<tr>' +
       '<td class="align-middle py-3">' +
@@ -713,18 +956,14 @@ function renderDetailMappings() {
   var addFormHtml =
     '<div class="divider text-xs text-base-content/40">Koppeling toevoegen</div>' +
     '<form id="addMappingForm" data-target-id="' + esc(String(firstTarget.id)) + '" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">' +
-'<datalist id="detailOdooFieldsList">' +
-      (function() {
-        var targets2 = (S.detail && S.detail.targets) ? S.detail.targets : [];
-        var model2   = targets2.length > 0 ? targets2[0].odoo_model : null;
-        return (model2 ? (S.odooFieldsCache[model2] || []) : []).map(function(f) {
-          return '<option value="' + esc(f.name) + '">' + esc(f.label) + ' (' + esc(f.type) + ')</option>';
-        }).join('');
-      })() +
-    '</datalist>' +
-      '<div class="form-control">' +
+'<div class="form-control">' +
         '<label class="label py-0 pb-1"><span class="label-text text-xs">Odoo veld</span></label>' +
-        '<input name="odoo_field" list="detailOdooFieldsList" class="input input-bordered input-sm" placeholder="bijv. email_from" autocomplete="off" required />' +
+        (function() {
+          var targets2  = (S.detail && S.detail.targets) ? S.detail.targets : [];
+          var model2    = targets2.length > 0 ? targets2[0].odoo_model : null;
+          var detFields = model2 ? (S.odooFieldsCache[model2] || []) : [];
+          return renderFieldPicker('detail-odoo-field', 'odoo_field', detFields, '');
+        })() +
       '</div>' +
       '<div class="form-control">' +
         '<label class="label py-0 pb-1"><span class="label-text text-xs">Bron</span></label>' +
@@ -1037,19 +1276,15 @@ async function openDetail(id) {
     S.detail      = results[0].data;
     S.testStatus  = results[1].data;
     S.submissions = results[2].data || [];
-    // Pre-fetch Odoo fields for the target model (non-blocking; fills datalist after render)
+    // Pre-fetch Odoo fields for the target model (non-blocking; re-renders add-mapping form when done)
     var detailTargets = (S.detail && S.detail.targets) ? S.detail.targets : [];
     if (detailTargets.length > 0 && detailTargets[0].odoo_model) {
       var detailModel = detailTargets[0].odoo_model;
-      if (!S.odooFieldsCache[detailModel]) {
+      if (!S.odooFieldsCache[detailModel] || !S.odooFieldsCache[detailModel].length) {
         loadOdooFieldsForModel(detailModel).then(function() {
           if (S.activeId !== id) return;
-          var dl = document.getElementById('detailOdooFieldsList');
-          if (dl) {
-            dl.innerHTML = (S.odooFieldsCache[detailModel] || []).map(function(f) {
-              return '<option value="' + esc(f.name) + '">' + esc(f.label) + ' (' + esc(f.type) + ')</option>';
-            }).join('');
-          }
+          renderDetailMappings();
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
         });
       }
     }
@@ -1134,14 +1369,44 @@ async function handleReplay(submissionId) {
 // EVENT DELEGATION
 // ═══════════════════════════════════════════════════════════════════════════
 document.addEventListener('click', function(event) {
+  // ── Custom field picker ──────────────────────────────────────────────────
+  var fspTrigger = event.target.closest('.fsp-trigger');
+  var fspItem    = event.target.closest('.fsp-item');
+  if (fspTrigger) {
+    var fspId = fspTrigger.dataset.fspId;
+    var panel = document.getElementById('fsp-panel-' + fspId);
+    if (panel) {
+      var isOpen = !panel.classList.contains('hidden');
+      closeAllFspPanels();
+      if (!isOpen) {
+        panel.classList.remove('hidden');
+        var srch = panel.querySelector('.fsp-search');
+        if (srch) { srch.value = ''; filterFspList(fspId, ''); srch.focus(); }
+      }
+    }
+    return;
+  }
+  if (fspItem) {
+    selectFspItem(fspItem.dataset.fspId, fspItem.dataset.fspName || '', fspItem.dataset.fspLabel || '');
+    return;
+  }
+  if (!event.target.closest('.fsp-wrap')) closeAllFspPanels();
+  // ── data-action delegation ───────────────────────────────────────────────
   var btn = event.target.closest('[data-action]');
   if (!btn) return;
   var action = btn.dataset.action;
 
   var run = async function() {
     if (action === 'goto-connections') {
-      renderConnections();
       showView('connections');
+      renderConnections();
+      // Pre-load Odoo fields for all action models (non-blocking, for the defaults editor)
+      Object.keys(ACTIONS).forEach(function(key) {
+        var m = ACTIONS[key].odoo_model;
+        if (!S.odooFieldsCache[m] || !S.odooFieldsCache[m].length) {
+          loadOdooFieldsForModel(m).then(function() { if (S.view === 'connections') renderConnections(); });
+        }
+      });
       return;
     }
     if (action === 'goto-list') {
@@ -1186,16 +1451,83 @@ document.addEventListener('click', function(event) {
       await handleDeleteMapping(btn.dataset.id);
       return;
     }
-    if (action === 'replay-submission') {
-      await handleReplay(btn.dataset.id);
+    if (action === 'toggle-model-defaults') {
+      var mdModel = btn.dataset.model;
+      var mdEd    = S.modelDefaultsEditors[mdModel] || { open: false, pendingFields: [] };
+      if (!mdEd.open) {
+        var saved2 = S.modelDefaultsCache[mdModel] || [];
+        mdEd.pendingFields = saved2.map(function(f) { return Object.assign({}, f); });
+        mdEd.open = true;
+        S.modelDefaultsEditors[mdModel] = mdEd;
+        renderConnections();
+        // Load Odoo fields if not yet cached
+        if (!S.odooFieldsCache[mdModel] || !S.odooFieldsCache[mdModel].length) {
+          loadOdooFieldsForModel(mdModel).then(function() { if (S.view === 'connections') renderConnections(); });
+        }
+      } else {
+        mdEd.open = false;
+        S.modelDefaultsEditors[mdModel] = mdEd;
+        renderConnections();
+      }
+      return;
+    }
+    if (action === 'add-default-field') {
+      var addModel  = btn.dataset.model;
+      var addMKey   = addModel.replace(/\./g, '_');
+      var fspValEl  = document.getElementById('fsp-val-defaults-add-' + addMKey);
+      var reqCbEl   = document.getElementById('defaults-new-req-' + addMKey);
+      var addName   = fspValEl ? fspValEl.value.trim() : '';
+      if (!addName) { showAlert('Kies een Odoo veld.', 'error'); return; }
+      var allF      = S.odooFieldsCache[addModel] || [];
+      var matchF    = allF.find(function(f) { return f.name === addName; });
+      var addEd     = S.modelDefaultsEditors[addModel] || { open: true, pendingFields: [] };
+      if (addEd.pendingFields.find(function(f) { return f.name === addName; })) {
+        showAlert('Veld "' + addName + '" staat al in de lijst.', 'warning');
+        return;
+      }
+      addEd.pendingFields.push({
+        name:        addName,
+        label:       matchF ? matchF.label : addName,
+        required:    reqCbEl ? reqCbEl.checked : false,
+        order_index: addEd.pendingFields.length,
+      });
+      S.modelDefaultsEditors[addModel] = addEd;
+      renderConnections();
+      return;
+    }
+    if (action === 'remove-default-field') {
+      var rmModel = btn.dataset.model;
+      var rmIdx   = parseInt(btn.dataset.idx, 10);
+      var rmEd    = S.modelDefaultsEditors[rmModel];
+      if (rmEd && !isNaN(rmIdx)) {
+        rmEd.pendingFields.splice(rmIdx, 1);
+        renderConnections();
+      }
+      return;
+    }
+    if (action === 'save-model-defaults') {
+      var saveModel  = btn.dataset.model;
+      var saveEd     = S.modelDefaultsEditors[saveModel];
+      if (!saveEd) return;
+      var saveFields = (saveEd.pendingFields || []).map(function(f, i) {
+        return { name: f.name, label: f.label, required: !!f.required, order_index: i };
+      });
+      await api('/settings/model-defaults', {
+        method: 'PUT',
+        body: JSON.stringify({ model: saveModel, fields: saveFields }),
+      });
+      S.modelDefaultsCache[saveModel]  = saveFields;
+      S.modelDefaultsEditors[saveModel] = { open: false, pendingFields: [] };
+      showAlert('Standaard velden opgeslagen.', 'success');
+      renderConnections();
       return;
     }
     if (action === 'wizard-add-extra-row') {
-      var fieldInput  = document.getElementById('wizardExtraOdooField');
+      var fieldInput  = document.getElementById('fsp-val-wizard-extra-add');
       var extraForm   = document.getElementById('wizardExtraFormField');
       var extraStatic = document.getElementById('wizardExtraStaticValue');
       var fieldName   = fieldInput ? fieldInput.value.trim() : '';
-      if (!fieldName) { showAlert('Voer een Odoo veldnaam in.', 'error'); return; }
+      if (!fieldName) { showAlert('Kies of typ een Odoo veldnaam.', 'error'); return; }
       var actionCfg2 = ACTIONS[S.wizard.action];
       var cached2    = actionCfg2 ? (S.odooFieldsCache[actionCfg2.odoo_model] || []) : [];
       var matched    = cached2.find(function(f) { return f.name === fieldName; });
@@ -1232,12 +1564,25 @@ document.addEventListener('click', function(event) {
   run().catch(function(err) { showAlert(err.message, 'error'); });
 });
 
+// Filter field picker list on search input
+document.addEventListener('input', function(event) {
+  var srch = event.target.closest('.fsp-search');
+  if (!srch) return;
+  filterFspList(srch.dataset.fspId, srch.value);
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════════════════
 async function bootstrap() {
   try {
-    await Promise.all([loadSites(), loadIntegrations()]);
+    await Promise.all(
+      [loadSites(), loadIntegrations()].concat(
+        Object.keys(ACTIONS).map(function(key) {
+          return loadModelDefaultsForModel(ACTIONS[key].odoo_model);
+        })
+      )
+    );
     showView('list');
     renderList();
   } catch (err) {
