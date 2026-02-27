@@ -5,7 +5,7 @@
  * No showUpdateColumn flag, no conditional branches \u2014 same HTML always.
  *
  * Dependencies:
- *   forminator-sync-v2-core.js    (FSV2.esc, FSV2.suggestOdooField, FSV2.renderStaticInput)
+ *   forminator-sync-v2-core.js    (FSV2.esc, FSV2.suggestOdooField)
  *   field-picker-component.js     (window.OpenVME.FieldPicker)
  */
 (function () {
@@ -42,12 +42,41 @@
       }).join('') + '</div>';
   }
 
+  // renderStaticInput: renders the right control based on Odoo field type
+  function renderStaticInput(name, meta, value, extraAttrs) {
+    var type     = (meta && meta.type) || '';
+    var nameAttr = name ? (' name="' + esc(name) + '"') : '';
+    var extra    = extraAttrs || '';
+    var selCls   = 'select select-bordered select-sm w-full';
+    var inpCls   = 'input input-bordered input-sm w-full';
+    if (type === 'boolean') {
+      var ja  = (value === '1' || value === 'true')  ? ' selected' : '';
+      var nee = (value === '0' || value === 'false') ? ' selected' : '';
+      return '<select class="' + selCls + '"' + nameAttr + extra + '>'
+        + '<option value="">&mdash; geen &mdash;</option>'
+        + '<option value="1"' + ja  + '>Ja</option>'
+        + '<option value="0"' + nee + '>Nee</option>'
+        + '</select>';
+    }
+    if (type === 'selection' && meta.selection && meta.selection.length) {
+      return '<select class="' + selCls + '"' + nameAttr + extra + '>'
+        + '<option value="">&mdash; geen &mdash;</option>'
+        + meta.selection.map(function (opt) {
+            var k = String(opt[0]);
+            var l = String(opt[1]);
+            return '<option value="' + esc(k) + '"' + (value === k ? ' selected' : '') + '>' + esc(l) + '</option>';
+          }).join('')
+        + '</select>';
+    }
+    return '<input class="' + inpCls + '"' + nameAttr + extra + ' value="' + esc(value || '') + '" placeholder="Vaste waarde..." />';
+  }
+
   function valueInput(fieldName, value, nameAttr, idStr, odooCache, flatFields) {
     var meta  = fieldName ? (odooCache.find(function (f) { return f.name === fieldName; }) || null) : null;
     var ftype = (meta && meta.type) || '';
     idStr = idStr || '';
     if (ftype === 'boolean' || (ftype === 'selection' && meta && meta.selection && meta.selection.length)) {
-      return window.FSV2.renderStaticInput(nameAttr, meta, value, idStr);
+      return renderStaticInput(nameAttr, meta, value, idStr);
     }
     var nameA = nameAttr ? ' name="' + esc(nameAttr) + '"' : '';
     if (ftype === 'many2one') {

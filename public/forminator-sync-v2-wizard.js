@@ -1,8 +1,8 @@
 ﻿/**
- * Forminator Sync V2 â€” Wizard
+ * Forminator Sync V2 - Wizard
  *
- * Extends window.FSV2 with: renderStaticInput, renderWizard (+ sub-renders),
- * buildFieldOptions, and all wizard action handlers (wizardSelectSite, â€¦, submitWizard).
+ * Extends window.FSV2 with: renderWizard (+ sub-renders),
+ * buildFieldOptions, and all wizard action handlers (wizardSelectSite, submitWizard).
  *
  * Dependencies: forminator-sync-v2-core.js (FSV2), field-picker-component.js (OpenVME.FieldPicker)
  */
@@ -23,34 +23,6 @@
    * @param {string}      value      - Current value
    * @param {string}      [extraAttrs] - Extra HTML attribute string
    */
-  function renderStaticInput(name, meta, value, extraAttrs) {
-    var type     = (meta && meta.type) || '';
-    var nameAttr = name ? (' name="' + esc(name) + '"') : '';
-    var extra    = extraAttrs || '';
-    var selCls   = 'select select-bordered select-sm w-full';
-    var inpCls   = 'input input-bordered input-sm w-full';
-
-    if (type === 'boolean') {
-      var ja  = (value === '1' || value === 'true')  ? ' selected' : '';
-      var nee = (value === '0' || value === 'false') ? ' selected' : '';
-      return '<select class="' + selCls + '"' + nameAttr + extra + '>' +
-        '<option value="">\\u2014 geen \\u2014</option>' +
-        '<option value="1"' + ja  + '>Ja</option>' +
-        '<option value="0"' + nee + '>Nee</option>' +
-      '</select>';
-    }
-    if (type === 'selection' && meta.selection && meta.selection.length) {
-      return '<select class="' + selCls + '"' + nameAttr + extra + '>' +
-        '<option value="">\\u2014 geen \\u2014</option>' +
-        meta.selection.map(function (opt) {
-          var k = String(opt[0]);
-          var l = String(opt[1]);
-          return '<option value="' + esc(k) + '"' + (value === k ? ' selected' : '') + '>' + esc(l) + '</option>';
-        }).join('') +
-      '</select>';
-    }
-    return '<input class="' + inpCls + '"' + nameAttr + extra + ' value="' + esc(value || '') + '" placeholder="Vaste waarde..." />';
-  }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // RENDER: WIZARD
@@ -452,7 +424,6 @@
   // EXPORT â€” extend FSV2
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Object.assign(window.FSV2, {
-    renderStaticInput:    renderStaticInput,
     renderWizard:         renderWizard,
     renderWizardSteps:    renderWizardSteps,
     renderWizardSites:    renderWizardSites,
