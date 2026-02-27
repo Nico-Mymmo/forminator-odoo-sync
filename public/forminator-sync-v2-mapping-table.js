@@ -96,10 +96,12 @@
             '</td>' +
             '<td class="py-1"><span class="badge badge-ghost badge-xs">' + esc(f.type || '') + '</span></td>' +
             '<td class="py-1.5 min-w-52">' +
-              '<select class="select select-bordered select-sm w-full ' + esc(cfg.selectClass || '') + '"' +
-                ' name="' + esc(cfg.namePrefix || '') + 'odoo-' + esc(fid) + '">' +
-                buildOdooOpts(suggested, preselected, odooCache, odooLoaded) +
-              '</select>' +
+              window.OpenVME.FieldPicker.render(
+                (cfg.namePrefix || 'ff-') + 'fsp-' + fid,
+                (cfg.namePrefix || '') + 'odoo-' + fid,
+                odooCache,
+                preselected || ''
+              ) +
             '</td>' +
             '<td class="text-center py-2">' +
               '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.idCheckClass || '') + '"' +
@@ -178,16 +180,16 @@
     container.innerHTML =
       wrapOpen +
       '<div class="mb-6">' +
-        '<h4 class="font-semibold text-sm mb-3 flex items-center gap-2">' +
+        '<h4 class="font-medium text-sm mb-3 flex items-center gap-2">' +
           '<i data-lucide="link" class="w-4 h-4 text-primary"></i> Formuliervelden koppelen aan Odoo' +
           (!odooLoaded ? ' <span class="loading loading-xs loading-spinner ml-1"></span>' : '') +
         '</h4>' +
         '<div class="overflow-x-auto">' +
           '<table class="table table-sm">' +
             '<thead><tr>' +
-              '<th>Formulier veld</th><th>Type</th><th>Koppelen aan Odoo veld</th>' +
-              '<th class="text-center" title="Identifier: gebruik als zoekcriterium bij record matching"><i data-lucide="key" class="w-3.5 h-3.5 inline-block"></i></th>' +
-              '<th class="text-center" title="Bijwerken: schrijf dit veld ook wanneer een bestaand record wordt bijgewerkt"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block"></i></th>' +
+              '<th class="font-normal text-xs text-base-content/50">Formulier veld</th><th class="font-normal text-xs text-base-content/50">Type</th><th class="font-normal text-xs text-base-content/50">Koppelen aan Odoo veld</th>' +
+              '<th class="text-center font-normal" title="Identifier: gebruik als zoekcriterium bij record matching"><i data-lucide="key" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
+              '<th class="text-center font-normal" title="Bijwerken: schrijf dit veld ook wanneer een bestaand record wordt bijgewerkt"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
             '</tr></thead>' +
             '<tbody>' + formRowsHtml + '</tbody>' +
           '</table>' +
@@ -198,15 +200,15 @@
         '</p>' +
       '</div>' +
       '<div>' +
-        '<h4 class="font-semibold text-sm mb-2 flex items-center gap-2">' +
+        '<h4 class="font-medium text-sm mb-2 flex items-center gap-2">' +
           '<i data-lucide="tag" class="w-4 h-4 text-warning"></i> Extra Odoo-velden met vaste waarde' +
         '</h4>' +
         '<div class="overflow-x-auto">' +
           '<table class="table table-sm">' +
             '<thead><tr>' +
-              '<th colspan="2">Odoo veld</th><th>Waarde / sjabloon</th>' +
-              '<th class="text-center" title="Identifier"><i data-lucide="key" class="w-3.5 h-3.5 inline-block"></i></th>' +
-              '<th class="text-center" title="Bijwerken bij update"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block"></i></th>' +
+              '<th class="font-normal text-xs text-base-content/50" colspan="2">Odoo veld</th><th class="font-normal text-xs text-base-content/50">Waarde / sjabloon</th>' +
+              '<th class="text-center font-normal" title="Identifier"><i data-lucide="key" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
+              '<th class="text-center font-normal" title="Bijwerken bij update"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
               '<th></th>' +
             '</tr></thead>' +
             '<tbody>' + (extraRowsHtml || '<tr><td colspan="6" class="text-xs text-base-content/40 italic py-2">Nog geen extra velden toegevoegd.</td></tr>') + '</tbody>' +

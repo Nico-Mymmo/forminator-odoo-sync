@@ -373,9 +373,7 @@
       flatWizardFields.forEach(function (ff) {
         if (!mappingSection) return;
         var fid   = String(ff.field_id);
-        var selEl = Array.from(mappingSection.querySelectorAll('select.wizard-ff-select')).find(function (el) {
-          return el.getAttribute('name') === 'ff-odoo-' + fid;
-        });
+        var selEl    = mappingSection.querySelector('[name="ff-odoo-' + fid + '"]');
         var odooField = selEl ? (selEl.value || '') : '';
         if (!odooField) return;
 

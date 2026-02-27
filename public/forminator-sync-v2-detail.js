@@ -547,9 +547,7 @@
     var orderIdx    = 0;
     flatFields.forEach(function (ff) {
       var fid    = String(ff.field_id);
-      var selEl  = Array.from(editor.querySelectorAll('select.detail-ff-select')).find(function (el) {
-        return el.getAttribute('name') === 'det-ff-odoo-' + fid;
-      });
+      var selEl    = editor.querySelector('[name="det-ff-odoo-' + fid + '"]');
       var odooField = selEl ? (selEl.value || '') : '';
       if (!odooField) return;
       var idCheckEl  = Array.from(editor.querySelectorAll('input.detail-ff-id-check')).find(function (el) {
