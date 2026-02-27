@@ -74,7 +74,7 @@
       return '<li class="fsp-item flex items-center justify-between gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-base-200' +
         (isSel ? ' bg-primary/10 font-semibold' : '') + '"' +
         ' data-fsp-id="' + esc(id) + '" data-fsp-name="' + esc(f.name) + '" data-fsp-label="' + esc(f.label || f.name) + '">' +
-        '<div class="min-w-0">' +
+        '<div class="min-w-0 truncate">' +
           '<span class="font-medium">' + esc(f.label || f.name) + '</span>' +
           '<span class="font-mono text-xs text-base-content/40 ml-1.5">' + esc(f.name) + '</span>' +
         '</div>' +
@@ -96,12 +96,12 @@
           (inputName !== '--unused--' ? ' name="' + esc(inputName) + '"' : '') +
           ' id="fsp-val-' + esc(id) + '" value="' + esc(selectedName || '') + '" />' +
         '<div class="fsp-panel rounded-lg shadow-xl bg-base-100 border border-base-300 hidden"' +
-          ' id="fsp-panel-' + esc(id) + '" data-fsp-panel-id="' + esc(id) + '" style="position:fixed;z-index:9999;min-width:360px;">' +
+          ' id="fsp-panel-' + esc(id) + '" data-fsp-panel-id="' + esc(id) + '" style="position:fixed;z-index:9999;min-width:420px;overflow:hidden;">' +
           '<div class="p-2 border-b border-base-200 bg-base-100 sticky top-0">' +
             '<input class="input input-sm input-bordered w-full fsp-search"' +
               ' data-fsp-id="' + esc(id) + '" placeholder="Zoeken op veldnaam of label…" autocomplete="off" />' +
           '</div>' +
-          '<ul class="overflow-y-auto" style="max-height:220px;" id="fsp-list-' + esc(id) + '">' +
+          '<ul class="overflow-y-auto overflow-x-hidden" style="max-height:220px;" id="fsp-list-' + esc(id) + '">' +
             '<li class="fsp-item px-3 py-2 text-sm cursor-pointer hover:bg-base-200 text-base-content/50 italic"' +
               ' data-fsp-id="' + esc(id) + '" data-fsp-name="" data-fsp-label="">— niet koppelen —</li>' +
             items +
