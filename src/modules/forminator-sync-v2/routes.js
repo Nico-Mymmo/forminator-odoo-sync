@@ -18,6 +18,7 @@ import {
   createMapping,
   updateMapping,
   deleteMapping,
+  deleteMappingsByTarget,
   listMappingsByTarget,
   createSubmission,
   hasSuccessfulTestSubmission,
@@ -301,7 +302,8 @@ export const routes = {
         odoo_field: payload.odoo_field,
         source_type: payload.source_type,
         source_value: payload.source_value,
-        is_required: payload.is_required === true
+        is_required: payload.is_required === true,
+        is_identifier: payload.is_identifier === true
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -320,7 +322,8 @@ export const routes = {
         odoo_field: payload.odoo_field,
         source_type: payload.source_type,
         source_value: payload.source_value,
-        is_required: payload.is_required === true
+        is_required: payload.is_required === true,
+        is_identifier: payload.is_identifier === true
       });
 
       return jsonResponse({ success: true, data: updated });
@@ -332,6 +335,15 @@ export const routes = {
   'DELETE /api/mappings/:mappingId': async (context) => {
     try {
       await deleteMapping(context.env, context.params?.mappingId);
+      return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/targets/:targetId/mappings': async (context) => {
+    try {
+      await deleteMappingsByTarget(context.env, context.params?.targetId);
       return jsonResponse({ success: true });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
@@ -380,6 +392,42 @@ export const routes = {
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
+  },
+
+  'GET /api/webhook-config': async (context) => {
+    try {
+      const secret = context.env?.FORMINATOR_WEBHOOK_SECRET || null;
+      const url    = new URL(context.request.url);
+      const base   = `${url.protocol}//${url.host}`;
+      const webhookPath = '/forminator-v2/api/webhook';
+      const webhookUrl  = secret
+        ? `${base}${webhookPath}?token=${encodeURIComponent(secret)}`
+        : null;
+      return jsonResponse({
+        success: true,
+        data: {
+          secret_configured: !!secret,
+          webhook_url: webhookUrl,
+          webhook_path: webhookPath,
+          note: secret
+            ? 'Plak deze URL in het WordPress Forminator webhook-veld.'
+            : 'Stel de Cloudflare secret FORMINATOR_WEBHOOK_SECRET in en deploy opnieuw.',
+        },
+      });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  // Forminator validation ping — sends GET before saving webhook URL
+  'GET /api/webhook': async (context) => {
+    const url = new URL(context.request.url);
+    const token = url.searchParams.get('token');
+    const configured = context.env?.FORMINATOR_WEBHOOK_SECRET;
+    if (!configured || token !== configured) {
+      return jsonResponse({ success: false, error: 'Unauthorized' }, 401);
+    }
+    return jsonResponse({ success: true, message: 'Webhook endpoint ready' });
   },
 
   'POST /api/webhook': async (context) => {

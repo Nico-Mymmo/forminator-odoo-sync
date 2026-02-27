@@ -19,7 +19,13 @@ async function validateAuth(request, env) {
   const url = new URL(request.url);
   const tokenParam = url.searchParams.get("token");
   
-  // Public Forminator token: only works from openvme.be User-Agent
+  // Webhook secret token — FORMINATOR_WEBHOOK_SECRET (no UA restriction, for WordPress webhooks)
+  const webhookSecret = env?.FORMINATOR_WEBHOOK_SECRET;
+  if (webhookSecret && tokenParam && tokenParam === webhookSecret) {
+    return true;
+  }
+
+  // Public Forminator token: only works from openvme.be User-Agent (legacy)
   if (tokenParam === "openvmeform") {
     if (!userAgent.includes("openvme.be")) {
       console.error(`🚫 openvmeform token used but User-Agent doesn't contain openvme.be: ${userAgent}`);

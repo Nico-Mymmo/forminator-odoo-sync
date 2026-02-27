@@ -280,6 +280,17 @@ export async function deleteMapping(env, mappingId) {
   return true;
 }
 
+export async function deleteMappingsByTarget(env, targetId) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.mappings)
+    .delete()
+    .eq('target_id', targetId);
+
+  if (error) throw new Error(`Failed to delete mappings for target: ${error.message}`);
+  return true;
+}
+
 export async function createSubmission(env, payload) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase

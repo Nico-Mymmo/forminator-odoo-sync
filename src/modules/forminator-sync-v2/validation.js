@@ -1,8 +1,8 @@
 const RESOLVER_TYPES = ['partner_by_email', 'webinar_by_external_id'];
 const TARGET_MODELS = ['crm.lead', 'res.partner', 'x_webinarregistrations'];
 const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty'];
-const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite'];
-const SOURCE_TYPES = ['form', 'context', 'static'];
+const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields'];
+const SOURCE_TYPES = ['form', 'context', 'static', 'template'];
 
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== '';
@@ -101,16 +101,18 @@ export function validateTargetPayload(payload) {
     throw createError('Update policy is not allowed in MVP');
   }
 
-  if (payload.odoo_model === 'crm.lead' && payload.identifier_type !== 'single_email') {
-    throw createError('crm.lead requires single_email identifier in MVP');
-  }
+  if (payload.identifier_type !== 'mapped_fields') {
+    if (payload.odoo_model === 'crm.lead' && payload.identifier_type !== 'single_email') {
+      throw createError('crm.lead requires single_email or mapped_fields identifier');
+    }
 
-  if (payload.odoo_model === 'res.partner' && payload.identifier_type !== 'single_email') {
-    throw createError('res.partner requires single_email identifier in MVP');
-  }
+    if (payload.odoo_model === 'res.partner' && payload.identifier_type !== 'single_email') {
+      throw createError('res.partner requires single_email or mapped_fields identifier');
+    }
 
-  if (payload.odoo_model === 'x_webinarregistrations' && payload.identifier_type !== 'registration_composite') {
-    throw createError('x_webinarregistrations requires registration_composite identifier in MVP');
+    if (payload.odoo_model === 'x_webinarregistrations' && payload.identifier_type !== 'registration_composite') {
+      throw createError('x_webinarregistrations requires registration_composite or mapped_fields identifier');
+    }
   }
 }
 

@@ -64,8 +64,10 @@ function resolveFormId(payload, normalizedForm) {
     payload?.form_id,
     payload?.formId,
     payload?.forminator_form_id,
+    payload?.ovme_forminator_id,
     normalizedForm.form_id,
-    normalizedForm.formId
+    normalizedForm.formId,
+    normalizedForm.ovme_forminator_id,
   ];
 
   for (const candidate of candidates) {
@@ -190,6 +192,12 @@ function resolveMappingValue(mapping, normalizedForm, contextObject) {
     return mapping.source_value;
   }
 
+  if (mapping.source_type === 'template') {
+    // Replace {field_id} placeholders with form values
+    return (mapping.source_value || '').replace(/\{([^}]+)\}/g, function(_, key) {
+      return normalizeString(normalizedForm[key]);
+    });
+  }
   return null;
 }
 
@@ -228,7 +236,21 @@ function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contex
     ];
   }
 
-  throw createPermanentError(`Unsupported identifier type in MVP: ${target.identifier_type}`);
+  if (target.identifier_type === 'mapped_fields') {
+    const identifierMappings = mappings.filter((m) => m.is_identifier);
+    if (!identifierMappings.length) {
+      throw createPermanentError('No identifier fields are marked in this target’s mappings. Mark at least one field as identifier.');
+    }
+    return identifierMappings.map((m) => {
+      const value = resolveMappingValue(m, normalizedForm, contextObject);
+      if (!value && value !== 0) {
+        throw createPermanentError(`Identifier field "${m.odoo_field}" resolved to an empty value`);
+      }
+      return [m.odoo_field, '=', value];
+    });
+  }
+
+  throw createPermanentError(`Unsupported identifier type: ${target.identifier_type}`);
 }
 
 function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject) {
@@ -285,15 +307,20 @@ function assertWebhookSharedSecret(env, request) {
     }, 500);
   }
 
+  // Accept secret from X-Forminator-Secret header OR ?token= query param
+  // (WordPress Forminator webhook sends token in URL, not a custom header)
   const headerSecret = normalizeString(request?.headers?.get('X-Forminator-Secret'));
-  if (!headerSecret || headerSecret !== configuredSecret) {
-    return toHttpResponse({
-      success: false,
-      error: 'Unauthorized webhook request'
-    }, 401);
+  const url = new URL(request.url);
+  const queryToken = normalizeString(url.searchParams.get('token'));
+
+  if (headerSecret === configuredSecret || queryToken === configuredSecret) {
+    return null; // authorized
   }
 
-  return null;
+  return toHttpResponse({
+    success: false,
+    error: 'Unauthorized webhook request'
+  }, 401);
 }
 
 function canReplaySubmissionStatus(status) {
@@ -498,27 +525,50 @@ export async function handleForminatorV2Webhook({ env, request, payload: payload
 
   if (!rawPayload) {
     const contentType = String(request.headers.get('content-type') || '').toLowerCase();
-    if (contentType.includes('application/json')) {
-      rawPayload = await request.json();
-    } else {
-      const formData = await request.formData();
-      rawPayload = {};
-      for (const [key, value] of formData.entries()) {
-        rawPayload[key] = value;
+    try {
+      if (contentType.includes('application/json')) {
+        rawPayload = await request.json();
+      } else if (contentType.includes('form')) {
+        const formData = await request.formData();
+        rawPayload = {};
+        for (const [key, value] of formData.entries()) {
+          rawPayload[key] = value;
+        }
+      } else {
+        // Empty body or unknown content-type (e.g. Forminator validation ping)
+        rawPayload = {};
       }
+    } catch (_) {
+      rawPayload = {};
     }
   }
 
   const normalizedForm = normalizeFormValues(rawPayload);
-  const formId = resolveFormId(rawPayload, normalizedForm);
+
+  // Log every incoming webhook for debugging
+  console.log('[webhook] raw payload keys:', Object.keys(rawPayload || {}).join(', ') || '(empty)');
+  console.log('[webhook] raw payload:', JSON.stringify(rawPayload).slice(0, 1000));
+
+  // Resolve form ID gracefully — Forminator sends a validation ping with no body
+  let formId;
+  try {
+    formId = resolveFormId(rawPayload, normalizedForm);
+  } catch (_) {
+    console.log('[webhook] no form_id found in payload — treated as validation ping');
+    return toHttpResponse({ success: true, message: 'Webhook received (no form ID in payload)' }, 200);
+  }
+
+  console.log('[webhook] resolved form_id:', formId);
 
   const integration = await getActiveIntegrationByFormId(env, formId);
   if (!integration) {
+    console.log('[webhook] no active integration for form_id:', formId);
+    // Return 200 so Forminator does not disable the webhook
     return toHttpResponse({
-      success: false,
-      error: 'No active V2 integration found for form',
+      success: true,
+      message: 'No active integration configured for this form',
       form_id: formId
-    }, 404);
+    }, 200);
   }
 
   const payloadHash = await computePayloadHash(rawPayload);
