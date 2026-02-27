@@ -1,5 +1,148 @@
 // WordPress REST API wrapper for Forminator
 
+/**
+ * Fetch Forminator forms via the openvme/v1 custom endpoint.
+ *
+ * Single source of truth for ALL modules that need live form data.
+ *
+ * Postman-verified call:
+ *   GET {baseUrl}/wp-json/openvme/v1/forminator/forms
+ *   Header: X-OPENVME-SECRET: <secret>
+ *   Header: Accept: application/json
+ *
+ * @param {{ baseUrl: string, secret: string }} opts
+ * @returns {Promise<Array>} Array of { form_id, form_name, fields }
+ */
+export async function fetchOpenVmeForminatorForms({ baseUrl, secret }) {
+  const url = `${String(baseUrl).replace(/\/$/, '')}/wp-json/openvme/v1/forminator/forms`;
+
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        'X-OPENVME-SECRET': secret,
+        'Accept':           'application/json'
+      }
+    });
+  } catch (networkErr) {
+    throw new Error(`WP onbereikbaar (${url}): ${networkErr.message}`);
+  }
+
+  if (response.status === 401) {
+    const body = await response.text().catch(() => '');
+    throw new Error(
+      `WP weigerde toegang (401) op ${url}. ` +
+      `Controleer de X-OPENVME-SECRET waarde. WP antwoord: ${body.slice(0, 200)}`
+    );
+  }
+
+  if (response.status === 404) {
+    throw new Error(
+      `WP endpoint niet gevonden (404): ${url}. ` +
+      `De openvme/v1 plugin is niet actief op deze WP-site.`
+    );
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`WP openvme forminator forms error ${response.status}: ${body.slice(0, 300)}`);
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`Ongeldige JSON ontvangen van ${url}`);
+  }
+
+  if (!Array.isArray(data)) {
+    throw new Error(`Verwachtte array van formulieren, maar kreeg ${typeof data} van ${url}`);
+  }
+
+  return data;
+}
+
+/**
+ * Bouw een Basic Auth header vanuit een token in het formaat "Gebruiker:AppWachtwoord".
+ *
+ * Het token wordt NOOIT vooraf geëncodeerd opgeslagen — deze functie doet de
+ * base64-encoding runtime in de Worker.
+ *
+ * @param {string} token  Formaat: "Gebruiker:AppWachtwoord"
+ * @returns {string}      "Basic <base64>"
+ */
+export function getWpAuthHeader(token) {
+  if (!token || !String(token).includes(':')) {
+    throw new Error(
+      'WP_API_TOKEN heeft een ongeldig formaat. ' +
+      'Verwacht: "Gebruiker:AppWachtwoord" (niet vooraf base64 encoded).'
+    );
+  }
+  return `Basic ${btoa(String(token))}`;
+}
+
+/**
+ * Haal Forminator forms op via Basic Auth (WP_API_TOKEN_SITE_X secrets).
+ *
+ * Zelfde endpoint als fetchOpenVmeForminatorForms maar gebruikt
+ * Authorization: Basic in plaats van X-OPENVME-SECRET.
+ *
+ * @param {{ baseUrl: string, token: string }} opts
+ *   token = plain "Gebruiker:AppWachtwoord" string (Cloudflare secret, nooit encoded)
+ * @returns {Promise<Array>}
+ */
+export async function fetchForminatorFormsBasicAuth({ baseUrl, token }) {
+  const authHeader = getWpAuthHeader(token);
+  const url = `${String(baseUrl).replace(/\/$/, '')}/wp-json/openvme/v1/forminator/forms`;
+
+  let response;
+  try {
+    response = await fetch(url, {
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        'Authorization': authHeader,
+        'Accept':        'application/json'
+      }
+    });
+  } catch (networkErr) {
+    throw new Error(`WP onbereikbaar (${url}): ${networkErr.message}`);
+  }
+
+  if (response.status === 401) {
+    const body = await response.text().catch(() => '');
+    throw new Error(
+      `WP weigerde toegang (401) op ${url}. ` +
+      `Controleer WP_API_TOKEN — formaat moet "Gebruiker:AppWachtwoord" zijn. ` +
+      `WP antwoord: ${body.slice(0, 200)}`
+    );
+  }
+
+  if (response.status === 404) {
+    throw new Error(
+      `WP endpoint niet gevonden (404): ${url}. ` +
+      `De openvme/v1 plugin is niet actief op deze WP-site.`
+    );
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`WP Basic Auth forminator forms error ${response.status}: ${body.slice(0, 300)}`);
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`Ongeldige JSON ontvangen van ${url}`);
+  }
+
+  if (!Array.isArray(data)) {
+    throw new Error(`Verwachtte array van formulieren, maar kreeg ${typeof data} van ${url}`);
+  }
+
+  return data;
+}
+
 export async function getForminatorForm(formId, env) {
     const auth = btoa(`${env.WP_USERNAME}:${env.WP_PASSWORD}`);
     

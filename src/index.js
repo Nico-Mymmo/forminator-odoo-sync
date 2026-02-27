@@ -19,7 +19,13 @@ async function validateAuth(request, env) {
   const url = new URL(request.url);
   const tokenParam = url.searchParams.get("token");
   
-  // Public Forminator token: only works from openvme.be User-Agent
+  // Webhook secret token — FORMINATOR_WEBHOOK_SECRET (no UA restriction, for WordPress webhooks)
+  const webhookSecret = env?.FORMINATOR_WEBHOOK_SECRET;
+  if (webhookSecret && tokenParam && tokenParam === webhookSecret) {
+    return true;
+  }
+
+  // Public Forminator token: only works from openvme.be User-Agent (legacy)
   if (tokenParam === "openvmeform") {
     if (!userAgent.includes("openvme.be")) {
       console.error(`🚫 openvmeform token used but User-Agent doesn't contain openvme.be: ${userAgent}`);
@@ -284,6 +290,37 @@ export default {
     // Route to module or redirect to default
     // Check if pathname matches a module route
     const hasAction = url.searchParams.has('action');
+
+    // Public webhook intake for Forminator Sync V2 (token-auth, no session required)
+    if (pathname === '/forminator-v2/api/webhook' && request.method === 'POST') {
+      const isAuthorized = await validateAuth(request, env);
+      if (!isAuthorized) {
+        return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const v2Module = getModuleByCode('forminator_sync_v2');
+      if (!v2Module) {
+        return new Response(JSON.stringify({ success: false, error: 'Forminator Sync V2 module unavailable' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const context = { request, env, ctx, user: null };
+      const resolved = resolveModuleRoute(v2Module, request.method, pathname);
+      if (!resolved) {
+        return new Response(JSON.stringify({ success: false, error: 'Webhook route not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      context.params = resolved.params;
+      return await resolved.handler(context);
+    }
     
     // Special handling for legacy /api/ routes -> redirect to forminator module
     if (pathname.startsWith('/api/mappings') || pathname.startsWith('/api/history') || pathname === '/api/test-connection') {

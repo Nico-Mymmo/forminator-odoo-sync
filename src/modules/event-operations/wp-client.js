@@ -459,3 +459,54 @@ async function saveSnapshot(env, odooWebinar, wpEventData, wpEventId, editorialM
     throw new Error(`Supabase snapshot error: ${error.message}`);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-site helpers (Forminator Sync V2 — discovery)
+// Events-operations blijft zijn eigen env-gebaseerde functies gebruiken;
+// deze exports zijn ALLEEN bedoeld voor de discovery laag in V2.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Haal live Forminator-formulieren op van een WP-site via het openvme plugin endpoint.
+ *
+ * @param {string} baseUrl    - bijv. "https://mijnsite.nl"
+ * @param {string} authToken  - "username:application-password" (Basic Auth)
+ * @returns {Promise<Array>}  - array van { form_id, form_name, fields }
+ */
+export async function fetchForminatorForms(baseUrl, authToken) {
+  const url = `${baseUrl.replace(/\/$/, '')}/wp-json/openvme/v1/forminator/forms`;
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Basic ${btoa(authToken)}`,
+      'Accept': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`WP API error ${response.status} bij ${url}`);
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Multi-site WP client factory.
+ *
+ * Gebruik:
+ *   const client = getWpClient(env);            // legacy — events-operations fallback
+ *   const client = getWpClient(env, connection); // explicit connection record
+ *
+ *   const forms = await client.fetchForms();
+ *
+ * @param {Object}      env        - Cloudflare env
+ * @param {Object|null} connection - wp_connections record (base_url, auth_token) of null
+ */
+export function getWpClient(env, connection = null) {
+  const baseUrl   = connection ? connection.base_url   : env.WORDPRESS_URL;
+  const authToken = connection ? connection.auth_token : env.WP_API_TOKEN;
+
+  return {
+    fetchForms: () => fetchForminatorForms(baseUrl, authToken)
+  };
+}
