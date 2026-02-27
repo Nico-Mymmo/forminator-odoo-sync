@@ -1260,6 +1260,9 @@ function wizardSelectAction(actionKey) {
         }).join('');
       }
       if (counter) counter.textContent = fields.length + ' velden';
+      // Re-render mapping rows so static-value cells get the correct type-aware
+      // input (boolean toggle / selection dropdown) now that the cache is filled.
+      renderWizardMapping();
     });
   }
 }
