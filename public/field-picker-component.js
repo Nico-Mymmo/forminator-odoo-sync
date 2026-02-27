@@ -48,7 +48,7 @@
       valEl.dispatchEvent(new Event('change', { bubbles: true }));
     }
     if (dispEl) {
-      dispEl.textContent = name ? (label || name) : '— kies veld —';
+      dispEl.textContent = name ? (label || name) : '\u2014 kies veld \u2014';
       if (name) { dispEl.classList.remove('text-base-content/50', 'italic'); }
       else      { dispEl.classList.add('text-base-content/50', 'italic'); }
     }
@@ -88,7 +88,7 @@
           ' class="input input-bordered input-sm w-full flex items-center gap-2 cursor-pointer fsp-trigger text-left"' +
           ' data-fsp-id="' + esc(id) + '">' +
           '<span class="fsp-display flex-1 text-sm truncate' + (isEmpty ? ' text-base-content/50 italic' : '') + '">' +
-            esc(isEmpty ? '— kies veld —' : selLbl) +
+            esc(isEmpty ? '\u2014 kies veld \u2014' : selLbl) +
           '</span>' +
           '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 opacity-40"><path d="m6 9 6 6 6-6"/></svg>' +
         '</button>' +
@@ -96,14 +96,14 @@
           (inputName !== '--unused--' ? ' name="' + esc(inputName) + '"' : '') +
           ' id="fsp-val-' + esc(id) + '" value="' + esc(selectedName || '') + '" />' +
         '<div class="fsp-panel rounded-lg shadow-xl bg-base-100 border border-base-300 hidden"' +
-          ' id="fsp-panel-' + esc(id) + '" data-fsp-panel-id="' + esc(id) + '" style="position:fixed;z-index:9999;min-width:420px;overflow:hidden;">' +
+          ' id="fsp-panel-' + esc(id) + '" data-fsp-panel-id="' + esc(id) + '" style="position:absolute;z-index:9999;min-width:420px;overflow:hidden;">' +
           '<div class="p-2 border-b border-base-200 bg-base-100 sticky top-0">' +
             '<input class="input input-sm input-bordered w-full fsp-search"' +
-              ' data-fsp-id="' + esc(id) + '" placeholder="Zoeken op veldnaam of label…" autocomplete="off" />' +
+              ' data-fsp-id="' + esc(id) + '" placeholder="Zoeken op veldnaam of label\u2026" autocomplete="off" />' +
           '</div>' +
           '<ul class="overflow-y-auto overflow-x-hidden" style="max-height:220px;" id="fsp-list-' + esc(id) + '">' +
             '<li class="fsp-item px-3 py-2 text-sm cursor-pointer hover:bg-base-200 text-base-content/50 italic"' +
-              ' data-fsp-id="' + esc(id) + '" data-fsp-name="" data-fsp-label="">— niet koppelen —</li>' +
+              ' data-fsp-id="' + esc(id) + '" data-fsp-name="" data-fsp-label="">\u2014 niet koppelen \u2014</li>' +
             items +
           '</ul>' +
         '</div>' +

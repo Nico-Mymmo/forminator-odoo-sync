@@ -1,5 +1,5 @@
 /**
- * Forminator Sync V2 — Core
+ * Forminator Sync V2 \u2014 Core
  *
  * Defines window.FSV2 with: ACTIONS, SKIP_TYPES, S (state), utilities,
  * auto-suggest logic, Odoo field cache loaders, model-defaults loader,
@@ -11,7 +11,7 @@
   'use strict';
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ACTION CONFIG — maps user-facing choices to internal V2 model config
+  // ACTION CONFIG \u2014 maps user-facing choices to internal V2 model config
   // ═══════════════════════════════════════════════════════════════════════════
   var ACTIONS = {
     contact: {
@@ -311,7 +311,7 @@
               ? '<span class="badge badge-success badge-sm shrink-0">Actief</span>'
               : '<span class="badge badge-ghost badge-sm shrink-0">Inactief</span>') +
           '</div>' +
-          '<p class="text-xs text-base-content/60 mb-1 font-mono">' + esc(row.forminator_form_id || '—') + '</p>' +
+          '<p class="text-xs text-base-content/60 mb-1 font-mono">' + esc(row.forminator_form_id || '\u2014') + '</p>' +
           (actionLabel
             ? '<div class="mb-3"><span class="badge ' + actionBadgeClass + ' badge-sm">' + esc(actionLabel) + '</span></div>'
             : '<div class="mb-3"></div>') +
@@ -418,7 +418,7 @@
           var odooFields = S.odooFieldsCache[model] || [];
 
           var rowsHtml = pending.length === 0
-            ? '<tr><td colspan="3" class="text-xs text-base-content/40 italic py-2">Leeg — wizard valt terug op ingebouwde defaults.</td></tr>'
+            ? '<tr><td colspan="3" class="text-xs text-base-content/40 italic py-2">Leeg \u2014 wizard valt terug op ingebouwde defaults.</td></tr>'
             : pending.map(function (f, i) {
                 return '<tr>' +
                   '<td class="py-1.5">' +

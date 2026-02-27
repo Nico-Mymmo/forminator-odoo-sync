@@ -1,5 +1,5 @@
 /**
- * Forminator Sync V2 — Bootstrap
+ * Forminator Sync V2 \u2014 Bootstrap
  *
  * Defensive guard → event delegation (click + input) → bootstrap().
  *
@@ -22,7 +22,7 @@
   var S = window.FSV2.S;
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // EVENT DELEGATION — click
+  // EVENT DELEGATION \u2014 click
   // ═══════════════════════════════════════════════════════════════════════════
   document.addEventListener('click', function (event) {
 

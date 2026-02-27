@@ -1,8 +1,8 @@
 ﻿/**
- * Forminator Sync V2 — MappingTable (shared component)
+ * Forminator Sync V2 \u2014 MappingTable (shared component)
  *
  * ONE implementation. Used identically by wizard and detail.
- * No showUpdateColumn flag, no conditional branches — same HTML always.
+ * No showUpdateColumn flag, no conditional branches \u2014 same HTML always.
  *
  * Dependencies:
  *   forminator-sync-v2-core.js    (FSV2.esc, FSV2.suggestOdooField, FSV2.renderStaticInput)
@@ -151,27 +151,29 @@
         '</td></tr>';
     }).join('');
 
-    // Add-extra footer row
+    // Add-extra row \u2014 rendered as a standalone div BELOW the table (not in tfoot)
     var emptyVal = valueInput('', '', null, ' id="' + esc(cfg.extraValueInputId) + '"', odooCache, flatFields);
-    var addFooterRow =
-      '<tr class="border-t-2 border-base-300">' +
-        '<td class="py-2 min-w-40" colspan="2">' +
+    var addRowDiv =
+      '<div class="flex flex-wrap items-start gap-2 pt-3 mt-1 border-t border-base-300">' +
+        '<div class="flex-1 min-w-48 max-w-64">' +
           window.OpenVME.FieldPicker.render(cfg.fspId, '--unused--', odooCache, '') +
-          '<span class="text-xs text-base-content/40 mt-0.5 block">' +
+          '<span class="text-xs text-base-content/40 mt-1 block">' +
             (odooLoaded ? odooCache.length + ' velden beschikbaar' : '<span class="loading loading-xs loading-spinner inline-block"></span>') +
           '</span>' +
-        '</td>' +
-        '<td class="py-2 min-w-52"><div id="' + esc(cfg.extraValueWrapId) + '">' + emptyVal + '</div></td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" id="' + esc(cfg.extraIsIdentifierId || '') + '" class="checkbox checkbox-xs" title="Identifier" />' +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" id="' + esc(cfg.extraIsUpdateFieldId || '') + '" class="checkbox checkbox-xs" title="Bijwerken bij updates" checked />' +
-        '</td>' +
-        '<td class="py-2 text-right">' +
+        '</div>' +
+        '<div class="flex-1 min-w-40" id="' + esc(cfg.extraValueWrapId) + '">' + emptyVal + '</div>' +
+        '<div class="flex items-center gap-3 pt-1">' +
+          '<label class="flex items-center gap-1 cursor-pointer" title="Identifier: gebruik als zoekcriterium">' +
+            '<input type="checkbox" id="' + esc(cfg.extraIsIdentifierId || '') + '" class="checkbox checkbox-xs" />' +
+            '<span class="text-xs text-base-content/50"><i data-lucide="key" class="w-3 h-3 inline-block"></i></span>' +
+          '</label>' +
+          '<label class="flex items-center gap-1 cursor-pointer" title="Bijwerken bij updates">' +
+            '<input type="checkbox" id="' + esc(cfg.extraIsUpdateFieldId || '') + '" class="checkbox checkbox-xs" checked />' +
+            '<span class="text-xs text-base-content/50"><i data-lucide="pencil" class="w-3 h-3 inline-block"></i></span>' +
+          '</label>' +
           '<button type="button" class="btn btn-outline btn-xs" data-action="' + esc(cfg.addAction || '') + '">+ Voeg toe</button>' +
-        '</td>' +
-      '</tr>';
+        '</div>' +
+      '</div>';
 
     var wrapOpen = cfg.targetId
       ? '<div id="mappingEditor" data-target-id="' + esc(String(cfg.targetId)) + '">'
@@ -184,7 +186,7 @@
           '<i data-lucide="link" class="w-4 h-4 text-primary"></i> Formuliervelden koppelen aan Odoo' +
           (!odooLoaded ? ' <span class="loading loading-xs loading-spinner ml-1"></span>' : '') +
         '</h4>' +
-        '<div class="overflow-x-auto">' +
+        '<div>' +
           '<table class="table table-sm">' +
             '<thead><tr>' +
               '<th class="font-normal text-xs text-base-content/50">Formulier veld</th><th class="font-normal text-xs text-base-content/50">Type</th><th class="font-normal text-xs text-base-content/50">Koppelen aan Odoo veld</th>' +
@@ -203,8 +205,8 @@
         '<h4 class="font-medium text-sm mb-2 flex items-center gap-2">' +
           '<i data-lucide="tag" class="w-4 h-4 text-warning"></i> Extra Odoo-velden met vaste waarde' +
         '</h4>' +
-        '<div class="overflow-x-auto">' +
-          '<table class="table table-sm">' +
+        '<div class="overflow-visible">' +
+          '<table class="table table-sm w-full">' +
             '<thead><tr>' +
               '<th class="font-normal text-xs text-base-content/50" colspan="2">Odoo veld</th><th class="font-normal text-xs text-base-content/50">Waarde / sjabloon</th>' +
               '<th class="text-center font-normal" title="Identifier"><i data-lucide="key" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
@@ -212,9 +214,9 @@
               '<th></th>' +
             '</tr></thead>' +
             '<tbody>' + (extraRowsHtml || '<tr><td colspan="6" class="text-xs text-base-content/40 italic py-2">Nog geen extra velden toegevoegd.</td></tr>') + '</tbody>' +
-            '<tfoot>' + addFooterRow + '</tfoot>' +
           '</table>' +
         '</div>' +
+        addRowDiv +
       '</div>' +
       (cfg.saveAction
         ? '<div class="mt-6 flex justify-end">' +
