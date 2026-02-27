@@ -358,7 +358,10 @@ function selectFspItem(fspId, name, label) {
   var valEl = document.getElementById('fsp-val-' + fspId);
   var dispEl = document.querySelector('#fsp-' + fspId + ' .fsp-display');
   var panel  = document.getElementById('fsp-panel-' + fspId);
-  if (valEl)  valEl.value = name;
+  if (valEl)  {
+    valEl.value = name;
+    valEl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
   if (dispEl) {
     dispEl.textContent = name ? (label || name) : '— kies veld —';
     if (name) { dispEl.classList.remove('text-base-content/50', 'italic'); }
@@ -985,7 +988,29 @@ function renderDetailMappings() {
     return;
   }
 
-  // Collect all mappings across all targets
+  var model      = firstTarget.odoo_model;
+  var odooCache  = S.odooFieldsCache[model] || [];
+  var ffList     = Array.isArray(S.detailFormFields) ? S.detailFormFields.filter(function(f) { return !SKIP_TYPES.includes(f.type); }) : [];
+
+  function odooLbl(name) {
+    var f = odooCache.find(function(x) { return x.name === name; });
+    return f ? f.label : null;
+  }
+  function odooMeta(name) {
+    return odooCache.find(function(x) { return x.name === name; }) || null;
+  }
+  function formLbl(id) {
+    var f = ffList.find(function(x) { return String(x.field_id) === String(id); });
+    return f ? (f.label || null) : null;
+  }
+  function sourceBadge(st) {
+    if (st === 'form')    return '<span class="badge badge-primary badge-xs">formulier</span>';
+    if (st === 'static')  return '<span class="badge badge-neutral badge-xs">vast</span>';
+    if (st === 'context') return '<span class="badge badge-secondary badge-xs">context</span>';
+    return '<span class="badge badge-ghost badge-xs">' + esc(st) + '</span>';
+  }
+
+  // Collect all mappings
   var allMappings = [];
   targets.forEach(function(t) {
     var mappings = (S.detail.mappingsByTarget && S.detail.mappingsByTarget[t.id]) ? S.detail.mappingsByTarget[t.id] : [];
@@ -994,20 +1019,38 @@ function renderDetailMappings() {
 
   var tableHtml;
   if (allMappings.length === 0) {
-    tableHtml = '<p class="text-sm text-base-content/60 py-2">Nog geen veldkoppelingen &mdash; voeg er hieronder toe.</p>';
+    tableHtml = '<p class="text-sm text-base-content/60 py-2">Nog geen veldkoppelingen — voeg er hieronder toe.</p>';
   } else {
     tableHtml =
-      '<div class="overflow-x-auto">' +
-        '<table class="table table-sm">' +
-          '<thead><tr><th>Odoo veld</th><th>Bron</th><th>Waarde</th><th>Verplicht</th><th></th></tr></thead>' +
+      '<div class="overflow-x-auto mb-4">' +
+        '<table class="table">' +
+          '<thead><tr>' +
+            '<th>Odoo veld</th><th>Waarde / formulier veld</th><th>Verplicht</th><th></th>' +
+          '</tr></thead>' +
           '<tbody>' +
           allMappings.map(function(m) {
+            var oLabel   = odooLbl(m.odoo_field);
+            var odooCell = oLabel
+              ? '<span class="font-medium text-sm">' + esc(oLabel) + '</span><br><span class="font-mono text-xs text-base-content/40">' + esc(m.odoo_field) + '</span>'
+              : '<span class="font-mono text-sm">' + esc(m.odoo_field) + '</span>';
+
+            var valueCell;
+            if (m.source_type === 'form') {
+              var fLabel = formLbl(m.source_value);
+              valueCell = sourceBadge('form') + '&nbsp;' + (fLabel
+                ? '<span class="text-sm ml-1">' + esc(fLabel) + '</span> <span class="font-mono text-xs text-base-content/40">[' + esc(m.source_value) + ']</span>'
+                : '<span class="font-mono text-sm ml-1">' + esc(m.source_value) + '</span>');
+            } else if (m.source_type === 'static') {
+              valueCell = sourceBadge('static') + '&nbsp;<span class="text-sm font-medium ml-1">' + esc(m.source_value) + '</span>';
+            } else {
+              valueCell = sourceBadge(m.source_type) + '&nbsp;<span class="font-mono text-sm ml-1">' + esc(m.source_value) + '</span>';
+            }
+
             return '<tr>' +
-              '<td class="font-mono text-sm">' + esc(m.odoo_field) + '</td>' +
-              '<td><span class="badge badge-outline badge-sm">' + esc(m.source_type) + '</span></td>' +
-              '<td class="text-sm max-w-xs truncate">' + esc(m.source_value) + '</td>' +
-              '<td>' + (m.is_required ? '<span class="badge badge-error badge-xs">verplicht</span>' : '') + '</td>' +
-              '<td>' +
+              '<td class="align-middle py-3">' + odooCell + '</td>' +
+              '<td class="py-3">' + valueCell + '</td>' +
+              '<td class="py-3">' + (m.is_required ? '<span class="badge badge-error badge-xs">verplicht</span>' : '') + '</td>' +
+              '<td class="py-3">' +
                 '<button class="btn btn-ghost btn-xs text-error" data-action="delete-mapping" data-id="' + esc(m.id) + '" title="Verwijder koppeling">' +
                   '<i data-lucide="x" class="w-3 h-3"></i>' +
                 '</button>' +
@@ -1019,33 +1062,41 @@ function renderDetailMappings() {
       '</div>';
   }
 
-  // Add-mapping form
+  // Form-field options for "form" source type
+  var ffOptions = '<option value="">— kies formulier veld —</option>' +
+    ffList.map(function(f) {
+      return '<option value="' + esc(String(f.field_id)) + '">' +
+        esc(String(f.label || f.field_id)) + ' [' + esc(String(f.field_id)) + ']</option>';
+    }).join('');
+  var hasFormFields = ffList.length > 0;
+
   var addFormHtml =
-    '<div class="divider text-xs text-base-content/40">Koppeling toevoegen</div>' +
-    '<form id="addMappingForm" data-target-id="' + esc(String(firstTarget.id)) + '" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">' +
-'<div class="form-control">' +
-        '<label class="label py-0 pb-1"><span class="label-text text-xs">Odoo veld</span></label>' +
-        (function() {
-          var targets2  = (S.detail && S.detail.targets) ? S.detail.targets : [];
-          var model2    = targets2.length > 0 ? targets2[0].odoo_model : null;
-          var detFields = model2 ? (S.odooFieldsCache[model2] || []) : [];
-          return renderFieldPicker('detail-odoo-field', 'odoo_field', detFields, '');
-        })() +
+    '<div class="divider text-xs text-base-content/40 mt-2">Koppeling toevoegen</div>' +
+    '<form id="addMappingForm" data-target-id="' + esc(String(firstTarget.id)) + '">' +
+      '<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">' +
+        '<div class="form-control">' +
+          '<label class="label py-0 pb-1"><span class="label-text text-xs">Odoo veld</span></label>' +
+          (function() {
+            return renderFieldPicker('detail-odoo-field', 'odoo_field', odooCache, '');
+          })() +
+        '</div>' +
+        '<div class="form-control">' +
+          '<label class="label py-0 pb-1"><span class="label-text text-xs">Bron</span></label>' +
+          '<select id="detailAddSourceType" name="source_type" class="select select-bordered select-sm">' +
+            '<option value="form">Formulier veld</option>' +
+            '<option value="static">Vaste waarde</option>' +
+            '<option value="context">Context</option>' +
+          '</select>' +
+        '</div>' +
       '</div>' +
-      '<div class="form-control">' +
-        '<label class="label py-0 pb-1"><span class="label-text text-xs">Bron</span></label>' +
-        '<select name="source_type" class="select select-bordered select-sm">' +
-          '<option value="form">Formulier veld</option>' +
-          '<option value="static">Vaste waarde</option>' +
-          '<option value="context">Context</option>' +
-        '</select>' +
-      '</div>' +
-      '<div class="form-control">' +
-        '<label class="label py-0 pb-1"><span class="label-text text-xs">Waarde / veld-ID</span></label>' +
-        '<input name="source_value" class="input input-bordered input-sm" placeholder="bijv. email" required />' +
-      '</div>' +
-      '<div class="flex items-end gap-2 pb-0.5">' +
-        '<label class="flex items-center gap-1.5 cursor-pointer">' +
+      '<div class="grid grid-cols-1 md:grid-cols-[1fr,auto,auto] gap-3 items-end">' +
+        '<div class="form-control" id="detailAddValueWrap">' +
+          '<label class="label py-0 pb-1"><span class="label-text text-xs">Formulier veld</span></label>' +
+          (hasFormFields
+            ? '<select name="source_value" class="select select-bordered select-sm">' + ffOptions + '</select>'
+            : '<input name="source_value" class="input input-bordered input-sm" placeholder="veld-ID bijv. text-1" />') +
+        '</div>' +
+        '<label class="flex items-center gap-1.5 cursor-pointer pb-0.5">' +
           '<input name="is_required" type="checkbox" class="checkbox checkbox-sm" />' +
           '<span class="text-xs">Verplicht</span>' +
         '</label>' +
@@ -1055,7 +1106,39 @@ function renderDetailMappings() {
 
   container.innerHTML = tableHtml + addFormHtml;
 
-  // Attach submit listener directly to avoid delegation issues after re-render
+  // Dynamic value input
+  var sourceTypeEl = container.querySelector('#detailAddSourceType');
+  var valueWrapEl  = container.querySelector('#detailAddValueWrap');
+
+  function rebuildValueInput() {
+    if (!sourceTypeEl || !valueWrapEl) return;
+    var st = sourceTypeEl.value;
+    var odooFieldVal = '';
+    var fspValEl = document.getElementById('fsp-val-detail-odoo-field');
+    if (fspValEl) odooFieldVal = fspValEl.value.trim();
+    var meta = odooFieldVal ? odooMeta(odooFieldVal) : null;
+    var html;
+    if (st === 'form') {
+      html = '<label class="label py-0 pb-1"><span class="label-text text-xs">Formulier veld</span></label>' +
+        (hasFormFields
+          ? '<select name="source_value" class="select select-bordered select-sm">' + ffOptions + '</select>'
+          : '<input name="source_value" class="input input-bordered input-sm" placeholder="veld-ID bijv. text-1" />');
+    } else if (st === 'static') {
+      html = '<label class="label py-0 pb-1"><span class="label-text text-xs">Vaste waarde</span></label>' +
+        renderStaticInput('source_value', meta, '');
+    } else {
+      html = '<label class="label py-0 pb-1"><span class="label-text text-xs">Context sleutel</span></label>' +
+        '<input name="source_value" class="input input-bordered input-sm" placeholder="bijv. context.partner_id" />';
+    }
+    valueWrapEl.innerHTML = html;
+  }
+
+  if (sourceTypeEl) sourceTypeEl.addEventListener('change', rebuildValueInput);
+  // React to Odoo field selection (selectFspItem now dispatches a change event on the hidden input)
+  var fspValEl2 = document.getElementById('fsp-val-detail-odoo-field');
+  if (fspValEl2) fspValEl2.addEventListener('change', rebuildValueInput);
+
+  // Submit
   var addForm = container.querySelector('#addMappingForm');
   if (addForm) {
     addForm.addEventListener('submit', function(e) {
@@ -1625,6 +1708,7 @@ document.addEventListener('click', function(event) {
         showAlert('Formuliervelden ophalen mislukt: ' + e.message, 'error');
       }
       renderDetailFormFields();
+      renderDetailMappings(); // refresh add-form dropdowns with newly-fetched form fields
       return;
     }
     if (action === 'toggle-model-defaults') {
