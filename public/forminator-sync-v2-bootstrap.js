@@ -60,7 +60,7 @@
       );
       return;
     }
-    if (!event.target.closest('.fsp-wrap')) window.OpenVME.FieldPicker.closeAll();
+    if (!event.target.closest('.fsp-wrap') && !event.target.closest('.fsp-panel')) window.OpenVME.FieldPicker.closeAll();
 
     // ── Insert placeholder chips ───────────────────────────────────────────
     var phChip = event.target.closest('.insert-placeholder');
@@ -304,7 +304,8 @@
   });
 
   // ── Close field picker on scroll ───────────────────────────────────────────
-  document.addEventListener('scroll', function () {
+  document.addEventListener('scroll', function (e) {
+    if (e.target && (e.target.closest && e.target.closest('.fsp-panel'))) return;
     window.OpenVME.FieldPicker.closeAll();
   }, true);
 
