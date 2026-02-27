@@ -36,6 +36,11 @@
         var isOpen = !panel.classList.contains('hidden');
         window.OpenVME.FieldPicker.closeAll();
         if (!isOpen) {
+          var rect = fspTrigger.getBoundingClientRect();
+          if (panel.parentElement !== document.body) document.body.appendChild(panel);
+          panel.style.top   = (rect.bottom + window.scrollY + 4) + 'px';
+          panel.style.left  = (rect.left + window.scrollX) + 'px';
+          panel.style.width = Math.max(rect.width, 360) + 'px';
           panel.classList.remove('hidden');
           var srch = panel.querySelector('.fsp-search');
           if (srch) {
@@ -297,6 +302,11 @@
 
     run().catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
   });
+
+  // ── Close field picker on scroll ───────────────────────────────────────────
+  document.addEventListener('scroll', function () {
+    window.OpenVME.FieldPicker.closeAll();
+  }, true);
 
   // ── Filter field picker list on search input ───────────────────────────────
   document.addEventListener('input', function (event) {

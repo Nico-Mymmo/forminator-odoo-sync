@@ -95,8 +95,8 @@
         '<input type="hidden"' +
           (inputName !== '--unused--' ? ' name="' + esc(inputName) + '"' : '') +
           ' id="fsp-val-' + esc(id) + '" value="' + esc(selectedName || '') + '" />' +
-        '<div class="fsp-panel absolute z-50 w-full mt-1 rounded-lg shadow-xl bg-base-100 border border-base-300 hidden"' +
-          ' id="fsp-panel-' + esc(id) + '" style="min-width:260px;">' +
+        '<div class="fsp-panel rounded-lg shadow-xl bg-base-100 border border-base-300 hidden"' +
+          ' id="fsp-panel-' + esc(id) + '" data-fsp-panel-id="' + esc(id) + '" style="position:fixed;z-index:9999;min-width:360px;">' +
           '<div class="p-2 border-b border-base-200 bg-base-100 sticky top-0">' +
             '<input class="input input-sm input-bordered w-full fsp-search"' +
               ' data-fsp-id="' + esc(id) + '" placeholder="Zoeken op veldnaam of label…" autocomplete="off" />' +
