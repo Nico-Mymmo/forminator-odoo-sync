@@ -1,5 +1,5 @@
-/**
- * Forminator Sync V2 — Detail
+﻿/**
+ * Forminator Sync V2 â€” Detail
  *
  * Extends window.FSV2 with: renderDetail, updateDetailTestStatus,
  * renderDetailMappings, renderDetailSubmissions, renderDetailFormFields,
@@ -15,9 +15,9 @@
   function S()    { return window.FSV2.S; }
   function esc(v) { return window.FSV2.esc(v); }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // RENDER: DETAIL VIEW
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   function renderDetail() {
     if (!S().detail) return;
     var integration = S().detail.integration;
@@ -187,220 +187,39 @@
       });
     }
 
-    // ── Local helpers ──────────────────────────────────────────────────────
-    function detBuildOdooOpts(suggested, preselected) {
-      var sel  = preselected || suggested || '';
-      var opts = '<option value="">— niet koppelen —</option>';
-      if (!odooLoaded) {
-        opts += '<option disabled>\u2026 Odoo velden laden \u2026</option>';
-      } else {
-        opts += odooCache.map(function (f) {
-          var isSel = (f.name === sel) ? ' selected' : '';
-          return '<option value="' + esc(f.name) + '"' + isSel + '>' + esc(f.label || f.name) + ' (' + esc(f.name) + ')</option>';
-        }).join('');
-      }
-      return opts;
-    }
-
-    function detChips(targetId) {
-      if (!flatFields.length) return '';
-      return '<div class="flex flex-wrap gap-1 mt-1.5 items-center">' +
-        '<span class="text-xs text-base-content/40 shrink-0 mr-0.5">Invoegen:</span>' +
-        flatFields.map(function (f) {
-          var fid = String(f.field_id);
-          return '<button type="button" class="badge badge-outline badge-xs cursor-pointer hover:badge-primary insert-placeholder font-mono"' +
-            ' data-field="' + esc(fid) + '" data-target="' + esc(targetId) + '"' +
-            ' title="' + esc(f.label || fid) + '">' + esc(fid) + '</button>';
-        }).join('') + '</div>';
-    }
-
-    function detValueInput(fieldName, value, nameAttr, idStr) {
-      var meta  = fieldName ? (odooCache.find(function (f) { return f.name === fieldName; }) || null) : null;
-      var ftype = (meta && meta.type) || '';
-      idStr = idStr || '';
-      if (ftype === 'boolean' || (ftype === 'selection' && meta && meta.selection && meta.selection.length)) {
-        return window.FSV2.renderStaticInput(nameAttr, meta, value, idStr);
-      }
-      var nameA = nameAttr ? ' name="' + esc(nameAttr) + '"' : '';
-      if (ftype === 'many2one') {
-        return '<div><input class="input input-bordered input-sm w-full"' + nameA + idStr +
-          ' value="' + esc(value || '') + '" placeholder="Numeriek Odoo-record ID\u2026" />' +
-          '<p class="text-xs text-base-content/40 mt-1"><i data-lucide="info" class="w-3 h-3 inline -mt-0.5 mr-0.5"></i>Geef het numerieke ID op van het gekoppelde record.</p></div>';
-      }
-      if (ftype === 'integer' || ftype === 'float') {
-        return '<input class="input input-bordered input-sm w-full"' + nameA + idStr +
-          ' type="number" value="' + esc(value || '') + '" placeholder="Getal\u2026" />';
-      }
-      var idMatch    = idStr.match(/id="([^"]+)"/);
-      var chipTarget = idMatch ? idMatch[1] : null;
-      return '<div><input class="input input-bordered input-sm w-full"' + nameA + idStr +
-        ' value="' + esc(value || '') + '" placeholder="Vaste waarde of {veld-id} sjabloon\u2026" />' +
-        (chipTarget ? detChips(chipTarget) : '') + '</div>';
-    }
-
-    // ── Section 1: form fields → Odoo field select ────────────────────────
-    var AUTO_IDENTIFIERS = ['email', 'email_from', 'x_email', 'vat', 'ref'];
-    var formRowsHtml;
-    if (flatFields.length === 0) {
-      var ffMsg = (S().detailFormFields === null || S().detailFormFields === 'loading')
-        ? 'Formuliervelden worden opgehaald\u2026'
-        : 'Geen formuliervelden gevonden.';
-      formRowsHtml = '<tr><td colspan="5" class="text-sm text-base-content/40 italic py-3">' + esc(ffMsg) + '</td></tr>';
-    } else {
-      formRowsHtml = flatFields.map(function (f) {
-        var fid          = String(f.field_id);
-        var existing     = formMappingsByField[fid] || null;
-        var preselected  = existing ? existing.odoo_field : null;
-        var suggested    = preselected || window.FSV2.suggestOdooField(fid, f.label || '', model);
-        var isIdentifier  = existing ? !!existing.is_identifier  : AUTO_IDENTIFIERS.includes(suggested);
-        var isUpdateField = existing ? existing.is_update_field !== false : true;
-        var isSubField    = !rawFf.find(function (pf) { return String(pf.field_id) === fid; });
-        return '<tr' + (isSubField ? ' class="bg-base-200/30"' : '') + '>' +
-          '<td class="align-middle py-2">' +
-            (isSubField ? '<span class="text-base-content/40 mr-1">\u21b3</span>' : '') +
-            '<span class="font-medium text-sm">' + esc(f.label || fid) + '</span>' +
-            '<br><span class="font-mono text-xs text-base-content/40">' + esc(fid) + '</span>' +
-          '</td>' +
-          '<td class="py-1"><span class="badge badge-ghost badge-xs">' + esc(f.type || '') + '</span></td>' +
-          '<td class="py-1.5 min-w-52">' +
-            '<select class="select select-bordered select-sm w-full detail-ff-select" name="det-ff-odoo-' + esc(fid) + '">' +
-              detBuildOdooOpts(suggested, preselected) +
-            '</select>' +
-          '</td>' +
-          '<td class="text-center py-2">' +
-            '<input type="checkbox" class="checkbox checkbox-xs detail-ff-id-check"' +
-            ' name="det-identifier-' + esc(fid) + '"' +
-            ' title="Identifier: gebruikt om bestaand record op te zoeken voor update"' +
-            (isIdentifier ? ' checked' : '') + '>' +
-          '</td>' +
-          '<td class="text-center py-2">' +
-            '<input type="checkbox" class="checkbox checkbox-xs detail-ff-upd-check"' +
-            ' name="det-update-' + esc(fid) + '"' +
-            ' title="Bijwerken: schrijf dit veld ook bij updates (uitvinken = alleen bij aanmaken)"' +
-            (isUpdateField ? ' checked' : '') + '>' +
-          '</td>' +
-        '</tr>';
-      }).join('');
-    }
-
-    // ── Section 2: extra static/template rows ─────────────────────────────
-    var extraRowsHtml = S().detail._extraRows.map(function (em, idx) {
-      var tname     = 'det-extra-' + idx;
-      var meta      = odooCache.find(function (f) { return f.name === em.odooField; }) || null;
-      var ftype     = meta ? meta.type : '';
-      var typeBadge = ftype ? ' <span class="badge badge-ghost badge-xs font-mono ml-1">' + esc(ftype) + '</span>' : '';
-      return '<tr class="bg-warning/5">' +
-        '<td class="align-middle py-2 whitespace-nowrap">' +
-          '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' + typeBadge +
-          '<br><span class="font-mono text-xs text-base-content/40">' + esc(em.odooField) + '</span>' +
-        '</td>' +
-        '<td class="py-1"><span class="badge badge-ghost badge-xs">vast/sjabloon</span></td>' +
-        '<td class="py-1.5">' + detValueInput(em.odooField, em.staticValue || '', tname, ' id="det-inp-' + esc(tname) + '"') + '</td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" class="checkbox checkbox-xs detail-extra-id-check"' +
-          ' name="det-extra-identifier-' + idx + '"' +
-          ' title="Identifier: gebruik als zoekcriterium"' +
-          (em.isIdentifier ? ' checked' : '') + '>' +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" class="checkbox checkbox-xs detail-extra-upd-check"' +
-          ' name="det-extra-update-' + idx + '"' +
-          ' title="Bijwerken: schrijf dit veld ook bij updates"' +
-          (em.isUpdateField !== false ? ' checked' : '') + '>' +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<button type="button" class="btn btn-ghost btn-xs text-error" data-action="detail-remove-extra-row" data-idx="' + idx + '" title="Verwijder">' +
-            '<i data-lucide="x" class="w-3 h-3"></i></button>' +
-        '</td>' +
-      '</tr>';
-    }).join('');
-
-    var addExtraFooterRow =
-      '<tr class="border-t-2 border-base-300">' +
-        '<td class="py-2 min-w-40">' +
-          window.OpenVME.FieldPicker.render('det-extra-add', '--unused--', odooCache, '') +
-          '<span class="text-xs text-base-content/40 mt-0.5 block">' +
-            (odooLoaded ? odooCache.length + ' velden beschikbaar' : '<span class="loading loading-xs loading-spinner inline-block"></span>') +
-          '</span>' +
-        '</td>' +
-        '<td class="py-2 text-center"><span class="badge badge-ghost badge-xs">nieuw</span></td>' +
-        '<td class="py-2 min-w-52">' +
-          '<div id="detExtraStaticWrap">' + detValueInput('', '', null, ' id="detExtraStaticValue"') + '</div>' +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" id="detExtraIsIdentifier" class="checkbox checkbox-xs" title="Identifier: gebruik als zoekcriterium" />' +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" id="detExtraIsUpdateField" class="checkbox checkbox-xs" title="Bijwerken: schrijf ook bij updates" checked />' +
-        '</td>' +
-        '<td class="py-2 text-right">' +
-          '<button type="button" class="btn btn-outline btn-xs" data-action="detail-add-extra-row">+ Voeg toe</button>' +
-        '</td>' +
-      '</tr>';
-
-    container.innerHTML =
-      '<div id="detailMappingEditor" data-target-id="' + esc(String(firstTarget.id)) + '">' +
-        '<div class="mb-6">' +
-          '<h4 class="font-semibold text-sm mb-3 flex items-center gap-2">' +
-            '<i data-lucide="link" class="w-4 h-4 text-primary"></i> Formuliervelden koppelen aan Odoo' +
-            (!odooLoaded ? ' <span class="loading loading-xs loading-spinner ml-1"></span>' : '') +
-          '</h4>' +
-          '<div class="overflow-x-auto">' +
-            '<table class="table table-sm">' +
-              '<thead><tr>' +
-                '<th>Formulier veld</th><th>Type</th><th>Koppelen aan Odoo veld</th>' +
-                '<th class="text-center" title="Identifier: gebruik als zoekcriterium bij record matching"><i data-lucide="key" class="w-3.5 h-3.5 inline-block"></i></th>' +
-                '<th class="text-center" title="Bijwerken: schrijf dit veld ook wanneer een bestaand record wordt bijgewerkt"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block"></i></th>' +
-              '</tr></thead>' +
-              '<tbody>' + formRowsHtml + '</tbody>' +
-            '</table>' +
-          '</div>' +
-          '<p class="text-xs text-base-content/40 mt-2">' +
-            '<i data-lucide="key" class="w-3 h-3 inline -mt-0.5"></i> Identifier = record opzoeken. ' +
-            '<i data-lucide="pencil" class="w-3 h-3 inline -mt-0.5"></i> Bijwerken = ook schrijven bij update (uitvinken = alleen bij aanmaken).' +
-          '</p>' +
-        '</div>' +
-        '<div>' +
-          '<h4 class="font-semibold text-sm mb-2 flex items-center gap-2">' +
-            '<i data-lucide="tag" class="w-4 h-4 text-warning"></i> Extra Odoo-velden met vaste waarde' +
-          '</h4>' +
-          '<div class="overflow-x-auto">' +
-            '<table class="table table-sm">' +
-              '<thead><tr>' +
-                '<th>Odoo veld</th><th>Type</th><th>Waarde / sjabloon</th>' +
-                '<th class="text-center" title="Identifier"><i data-lucide="key" class="w-3.5 h-3.5 inline-block"></i></th>' +
-                '<th class="text-center" title="Bijwerken bij update"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block"></i></th>' +
-                '<th></th>' +
-              '</tr></thead>' +
-              '<tbody>' + (extraRowsHtml || '<tr><td colspan="6" class="text-xs text-base-content/40 italic py-2">Nog geen extra velden toegevoegd.</td></tr>') + '</tbody>' +
-              '<tfoot>' + addExtraFooterRow + '</tfoot>' +
-            '</table>' +
-          '</div>' +
-        '</div>' +
-        '<div class="mt-6 flex justify-end">' +
-          '<button type="button" class="btn btn-primary" data-action="save-detail-mappings">' +
-            '<i data-lucide="save" class="w-4 h-4 mr-2"></i> Koppelingen opslaan' +
-          '</button>' +
-        '</div>' +
-      '</div>';
-
-    // Reactive: field picker for extra field changes → rebuild value input
-    var fspDetExtraVal = document.getElementById('fsp-val-det-extra-add');
-    if (fspDetExtraVal) {
-      fspDetExtraVal.addEventListener('change', function () {
-        var wrap = document.getElementById('detExtraStaticWrap');
-        if (!wrap) return;
-        wrap.innerHTML = detValueInput(fspDetExtraVal.value || '', '', null, ' id="detExtraStaticValue"');
-        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
-      });
-    }
-
-    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    window.FSV2.MappingTable.render('detailMappingsContainer', {
+      flatFields:            flatFields,
+      topLevelFields:        rawFf,
+      odooCache:             odooCache,
+      odooLoaded:            odooLoaded,
+      odooModel:             model,
+      existingFormMappings:  formMappingsByField,
+      extraRows:             S().detail._extraRows,
+      showUpdateColumn:      true,
+      selectClass:           'detail-ff-select',
+      idCheckClass:          'detail-ff-id-check',
+      updCheckClass:         'detail-ff-upd-check',
+      namePrefix:            'det-ff-',
+      checkPrefix:           'det-',
+      extraRowPrefix:        'det-extra-',
+      extraInputPrefix:      'det-inp-',
+      extraIdCheckClass:     'detail-extra-id-check',
+      extraUpdCheckClass:    'detail-extra-upd-check',
+      addAction:             'detail-add-extra-row',
+      removeAction:          'detail-remove-extra-row',
+      fspId:                 'det-extra-add',
+      extraValueWrapId:      'detExtraStaticWrap',
+      extraValueInputId:     'detExtraStaticValue',
+      extraIsIdentifierId:   'detExtraIsIdentifier',
+      extraIsUpdateFieldId:  'detExtraIsUpdateField',
+      saveAction:            'save-detail-mappings',
+      targetId:              String(firstTarget.id),
+    });
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // RENDER: SUBMISSIONS
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   function renderDetailSubmissions() {
     var el = document.getElementById('detailHistory');
     if (!el) return;
@@ -497,7 +316,7 @@
               ? '<span class="text-xs text-error/80 font-mono" title="' + esc(sub.last_error) + '">' +
                   esc(sub.last_error.slice(0, 60)) + (sub.last_error.length > 60 ? '\u2026' : '') +
                 '</span>'
-              : '<span class="text-base-content/30">—</span>';
+              : '<span class="text-base-content/30">â€”</span>';
             return '<tr' + (isReplay ? ' class="bg-success/5"' : '') + '>' +
               '<td class="font-mono text-xs">' +
                 (isReplay ? '<span class="text-base-content/40 mr-1">\u21b3</span>' : '') +
@@ -517,9 +336,9 @@
       '</div>';
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // RENDER: FORM FIELDS TAB
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   function renderDetailFormFields() {
     var el = document.getElementById('detailFormFields');
     if (!el) return;
@@ -531,7 +350,7 @@
       el.innerHTML =
         '<p class="text-sm text-base-content/60 py-2">' +
           '<i data-lucide="info" class="w-4 h-4 inline mr-1 -mt-0.5"></i>' +
-          'Site-sleutel niet opgeslagen voor deze integratie — veldoverzicht niet beschikbaar. ' +
+          'Site-sleutel niet opgeslagen voor deze integratie â€” veldoverzicht niet beschikbaar. ' +
           'Nieuwe integraties bewaren de site-sleutel automatisch.' +
         '</p>';
       if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
@@ -582,11 +401,11 @@
               ? coupled.map(function (of_) {
                   return '<span class="badge badge-success badge-xs font-mono">' + esc(of_) + '</span>';
                 }).join(' ')
-              : '<span class="text-base-content/30 text-xs">—</span>';
+              : '<span class="text-base-content/30 text-xs">â€”</span>';
             return '<tr>' +
               '<td class="font-mono text-xs">' + esc(fid) + '</td>' +
-              '<td class="text-sm">' + esc(f.label || f.field_id || '—') + '</td>' +
-              '<td><span class="badge badge-outline badge-xs">' + esc(f.type || '—') + '</span></td>' +
+              '<td class="text-sm">' + esc(f.label || f.field_id || 'â€”') + '</td>' +
+              '<td><span class="badge badge-outline badge-xs">' + esc(f.type || 'â€”') + '</span></td>' +
               '<td>' + badge + '</td>' +
             '</tr>';
           }).join('') +
@@ -595,9 +414,9 @@
       '</div>';
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // DETAIL ACTIONS
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   async function openDetail(id) {
     S().activeId = id;
     window.FSV2.showView('detail');
@@ -824,9 +643,9 @@
     await openDetail(S().activeId);
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // EXPORT — extend FSV2
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // EXPORT â€” extend FSV2
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Object.assign(window.FSV2, {
     renderDetail:            renderDetail,
     updateDetailTestStatus:  updateDetailTestStatus,

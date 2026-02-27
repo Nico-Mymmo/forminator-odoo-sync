@@ -1,8 +1,8 @@
-/**
- * Forminator Sync V2 — Wizard
+﻿/**
+ * Forminator Sync V2 â€” Wizard
  *
  * Extends window.FSV2 with: renderStaticInput, renderWizard (+ sub-renders),
- * buildFieldOptions, and all wizard action handlers (wizardSelectSite, …, submitWizard).
+ * buildFieldOptions, and all wizard action handlers (wizardSelectSite, â€¦, submitWizard).
  *
  * Dependencies: forminator-sync-v2-core.js (FSV2), field-picker-component.js (OpenVME.FieldPicker)
  */
@@ -13,9 +13,9 @@
   function S()  { return window.FSV2.S; }
   function esc(v) { return window.FSV2.esc(v); }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // STATIC VALUE INPUT — renders the right control based on Odoo field type
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // STATIC VALUE INPUT â€” renders the right control based on Odoo field type
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   /**
    * Returns an <input> or <select> HTML string for a mapping's "static value" cell.
    * @param {string|null} name       - name attribute value (null = omit name attr)
@@ -34,14 +34,14 @@
       var ja  = (value === '1' || value === 'true')  ? ' selected' : '';
       var nee = (value === '0' || value === 'false') ? ' selected' : '';
       return '<select class="' + selCls + '"' + nameAttr + extra + '>' +
-        '<option value="">— geen —</option>' +
+        '<option value="">â€” geen â€”</option>' +
         '<option value="1"' + ja  + '>Ja</option>' +
         '<option value="0"' + nee + '>Nee</option>' +
       '</select>';
     }
     if (type === 'selection' && meta.selection && meta.selection.length) {
       return '<select class="' + selCls + '"' + nameAttr + extra + '>' +
-        '<option value="">— geen —</option>' +
+        '<option value="">â€” geen â€”</option>' +
         meta.selection.map(function (opt) {
           var k = String(opt[0]);
           var l = String(opt[1]);
@@ -52,9 +52,9 @@
     return '<input class="' + inpCls + '"' + nameAttr + extra + ' value="' + esc(value || '') + '" placeholder="Vaste waarde..." />';
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // RENDER: WIZARD
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   function renderWizard() {
     renderWizardSteps();
     renderWizardSites();
@@ -182,7 +182,7 @@
   }
 
   function buildFieldOptions(formFields) {
-    return '<option value="">— niet koppelen —</option>' +
+    return '<option value="">â€” niet koppelen â€”</option>' +
       formFields.map(function (f) {
         var label = String(f.label || f.field_id);
         var id    = String(f.field_id);
@@ -197,8 +197,8 @@
     if (!S().wizard.action) { section.style.display = 'none'; return; }
     section.style.display = '';
 
-    var cfg = window.FSV2.ACTIONS[S().wizard.action];
-    if (!cfg) return;
+    var actionCfg = window.FSV2.ACTIONS[S().wizard.action];
+    if (!actionCfg) return;
 
     var allFields   = (S().wizard.form && S().wizard.form.fields) ? S().wizard.form.fields : [];
     var formFields  = allFields.filter(function (f) { return !window.FSV2.SKIP_TYPES.includes(f.type); });
@@ -219,219 +219,38 @@
       var formPart = (S().wizard.form && S().wizard.form.form_name)
         ? S().wizard.form.form_name
         : (S().wizard.form ? String(S().wizard.form.form_id) : 'Formulier');
-      nameInput.value = sitePart + ' \u2014 ' + formPart + ' \u2014 ' + cfg.label;
+      nameInput.value = sitePart + ' \u2014 ' + formPart + ' \u2014 ' + actionCfg.label;
     }
 
-    var table = document.getElementById('wizardMappingTable');
-    if (!table) return;
+    var cachedFields = S().odooFieldsCache[actionCfg.odoo_model] || [];
+    window.FSV2.MappingTable.render('wizardMappingTable', {
+      flatFields:           flatFields,
+      topLevelFields:       formFields,
+      odooCache:            cachedFields,
+      odooLoaded:           cachedFields.length > 0,
+      odooModel:            actionCfg.odoo_model,
+      existingFormMappings: {},
+      extraRows:            S().wizard.extraMappings || [],
+      showUpdateColumn:     false,
+      selectClass:          'wizard-ff-select',
+      idCheckClass:         'wizard-ff-id-check',
+      namePrefix:           'ff-',
+      checkPrefix:          'ff-',
+      extraRowPrefix:       'extra-static-',
+      extraInputPrefix:     'inp-',
+      addAction:            'wizard-add-extra-row',
+      removeAction:         'wizard-remove-extra-row',
+      fspId:                'wizard-extra-add',
+      extraValueWrapId:     'wizardExtraStaticWrap',
+      extraValueInputId:    'wizardExtraStaticValue',
+      saveAction:           null,
+    });
 
-    var cachedFields = S().odooFieldsCache[cfg.odoo_model] || [];
-    var fieldsLoaded = cachedFields.length > 0;
-
-    // ── Inner helpers ────────────────────────────────────────────────────────
-    function buildOdooOpts(suggested) {
-      var opts = '<option value="">\u2014 niet koppelen \u2014</option>';
-      if (!fieldsLoaded) {
-        opts += '<option disabled>\u2026 Odoo velden laden \u2026</option>';
-      } else {
-        opts += cachedFields.map(function (f) {
-          var sel = (f.name === suggested) ? ' selected' : '';
-          return '<option value="' + esc(f.name) + '"' + sel + '>' + esc(f.label || f.name) + ' (' + esc(f.name) + ')</option>';
-        }).join('');
-      }
-      return opts;
-    }
-
-    function placeholderChips(targetName) {
-      if (!flatFields.length) return '';
-      return '<div class="flex flex-wrap gap-1 mt-1.5 items-center">' +
-        '<span class="text-xs text-base-content/40 shrink-0 mr-0.5">Invoegen:</span>' +
-        flatFields.map(function (f) {
-          var fid = String(f.field_id);
-          return '<button type="button"' +
-            ' class="badge badge-outline badge-xs cursor-pointer hover:badge-primary insert-placeholder font-mono"' +
-            ' data-field="' + esc(fid) + '" data-target="' + esc(targetName) + '"' +
-            ' title="' + esc(f.label || fid) + '">' +
-            esc(fid) +
-            '</button>';
-        }).join('') +
-      '</div>';
-    }
-
-    function renderExtraValueInput(fieldName, value, nameAttr, idStr) {
-      var meta  = fieldName
-        ? (cachedFields.find(function (f) { return f.name === fieldName; }) || null)
-        : null;
-      var ftype = (meta && meta.type) || '';
-      idStr = idStr || '';
-
-      if (ftype === 'boolean' || (ftype === 'selection' && meta && meta.selection && meta.selection.length)) {
-        return renderStaticInput(nameAttr, meta, value, idStr);
-      }
-
-      var nameA = nameAttr ? ' name="' + esc(nameAttr) + '"' : '';
-      if (ftype === 'many2one') {
-        return '<div>' +
-          '<input class="input input-bordered input-sm w-full"' + nameA + idStr +
-            ' value="' + esc(value || '') + '"' +
-            ' placeholder="Numeriek Odoo-record ID\u2026" />' +
-          '<p class="text-xs text-base-content/40 mt-1">' +
-            '<i data-lucide="info" class="w-3 h-3 inline -mt-0.5 mr-0.5"></i>' +
-            'Geef het numerieke ID op van het gekoppelde record.' +
-          '</p>' +
-        '</div>';
-      }
-      if (ftype === 'integer' || ftype === 'float') {
-        return '<input class="input input-bordered input-sm w-full"' + nameA + idStr +
-          ' type="number"' +
-          ' value="' + esc(value || '') + '"' +
-          ' placeholder="Getal\u2026" />';
-      }
-      var idMatch    = idStr.match(/id="([^"]+)"/);
-      var chipTarget = idMatch ? idMatch[1] : null;
-      return '<div>' +
-        '<input class="input input-bordered input-sm w-full"' + nameA + idStr +
-          ' value="' + esc(value || '') + '"' +
-          ' placeholder="Vaste waarde of {veld-id} sjabloon\u2026" />' +
-        (chipTarget ? placeholderChips(chipTarget) : '') +
-      '</div>';
-    }
-
-    // ── Section 1: form fields → Odoo fields ─────────────────────────────────
-    var formRows = flatFields.map(function (f) {
-      var fid          = String(f.field_id);
-      var suggested    = window.FSV2.suggestOdooField(fid, f.label || '', cfg.odoo_model);
-      var isSubField   = !formFields.find(function (pf) { return String(pf.field_id) === fid; });
-      var identifierFields = ['email', 'email_from', 'x_email', 'vat', 'ref'];
-      var autoIdentifier   = identifierFields.includes(suggested);
-      return '<tr' + (isSubField ? ' class="bg-base-200/30"' : '') + '>' +
-        '<td class="align-middle py-2">' +
-          (isSubField ? '<span class="text-base-content/40 mr-1">\u21b3</span>' : '') +
-          '<span class="font-medium text-sm">' + esc(f.label || fid) + '</span>' +
-          '<br><span class="font-mono text-xs text-base-content/40">' + esc(fid) + '</span>' +
-        '</td>' +
-        '<td class="py-1"><span class="badge badge-ghost badge-xs">' + esc(f.type || '') + '</span></td>' +
-        '<td class="py-1.5 min-w-52">' +
-          '<select class="select select-bordered select-sm w-full wizard-ff-select" name="ff-odoo-' + esc(fid) + '">' +
-            buildOdooOpts(suggested) +
-          '</select>' +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" class="checkbox checkbox-xs wizard-ff-id-check"' +
-            ' name="ff-identifier-' + esc(fid) + '"' +
-            ' title="Gebruik als identifier (record opzoeken / matchen)"' +
-            (autoIdentifier ? ' checked' : '') +
-          '>' +
-        '</td>' +
-      '</tr>';
-    }).join('');
-
-    // ── Section 2: extra static/template rows ─────────────────────────────────
-    var extraRows = (S().wizard.extraMappings || []).map(function (em, idx) {
-      var targetName = 'extra-static-' + idx;
-      var meta       = cachedFields.find(function (f) { return f.name === em.odooField; }) || null;
-      var ftype      = meta ? meta.type : '';
-      var typeBadge  = ftype
-        ? ' <span class="badge badge-ghost badge-xs font-mono ml-1 align-middle">' + esc(ftype) + '</span>'
-        : '';
-      return '<tr class="bg-warning/5">' +
-        '<td class="align-middle py-2 whitespace-nowrap">' +
-          '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' + typeBadge +
-          '<br><span class="font-mono text-xs text-base-content/40">' + esc(em.odooField) + '</span>' +
-        '</td>' +
-        '<td class="py-2">' +
-          renderExtraValueInput(em.odooField, em.staticValue || '', targetName, ' id="inp-' + esc(targetName) + '"') +
-        '</td>' +
-        '<td class="py-2 text-right">' +
-          '<button type="button" class="btn btn-ghost btn-xs text-error"' +
-            ' data-action="wizard-remove-extra-row" data-idx="' + idx + '" title="Verwijder">' +
-            '<i data-lucide="x" class="w-3 h-3"></i>' +
-          '</button>' +
-        '</td>' +
-      '</tr>';
-    }).join('');
-
-    // ── Add extra row form ────────────────────────────────────────────────────
-    var addExtraHtml =
-      '<div class="divider text-xs text-base-content/40 mt-4">Extra Odoo-veld toevoegen (vaste waarde / sjabloon)</div>' +
-      '<div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">' +
-        '<div class="form-control">' +
-          '<label class="label py-0 pb-1">' +
-            '<span class="label-text text-xs">Odoo veld</span>' +
-            '<span class="label-text-alt text-xs text-base-content/40">' +
-              (fieldsLoaded ? cachedFields.length + ' velden beschikbaar' : '<span class="loading loading-xs loading-spinner"></span> laden\u2026') +
-            '</span>' +
-          '</label>' +
-          window.OpenVME.FieldPicker.render('wizard-extra-add', '--unused--', cachedFields, '') +
-        '</div>' +
-        '<div class="form-control">' +
-          '<label class="label py-0 pb-1"><span class="label-text text-xs">Waarde</span></label>' +
-          '<div id="wizardExtraStaticWrap">' +
-            renderExtraValueInput('', '', null, ' id="wizardExtraStaticValue"') +
-          '</div>' +
-        '</div>' +
-        '<div class="pt-5">' +
-          '<button type="button" class="btn btn-outline btn-sm w-full" data-action="wizard-add-extra-row">+ Voeg toe</button>' +
-        '</div>' +
-      '</div>';
-
-    table.innerHTML =
-      '<div class="mb-6">' +
-        '<h4 class="font-semibold text-sm mb-3 flex items-center gap-2">' +
-          '<i data-lucide="link" class="w-4 h-4 text-primary"></i>' +
-          ' Formuliervelden koppelen aan Odoo' +
-          (!fieldsLoaded ? ' <span class="loading loading-xs loading-spinner ml-1"></span>' : '') +
-        '</h4>' +
-        '<div class="overflow-x-auto">' +
-          '<table class="table table-sm">' +
-            '<thead><tr>' +
-              '<th>Formulier veld</th><th>Type</th><th>Koppelen aan Odoo veld</th>' +
-              '<th class="text-center" title="Vink aan welk veld gebruikt wordt om bestaande records op te zoeken">' +
-                '<i data-lucide="key" class="w-3.5 h-3.5 inline-block"></i>' +
-              '</th>' +
-            '</tr></thead>' +
-            '<tbody>' +
-              (flatFields.length
-                ? formRows
-                : '<tr><td colspan="4" class="text-sm text-base-content/40 italic py-3">Geen formuliervelden gevonden voor dit formulier.</td></tr>') +
-            '</tbody>' +
-          '</table>' +
-        '</div>' +
-        '<p class="text-xs text-base-content/40 mt-2">Rijen zonder geselecteerd Odoo veld worden genegeerd.</p>' +
-      '</div>' +
-      '<div>' +
-        '<h4 class="font-semibold text-sm mb-2 flex items-center gap-2">' +
-          '<i data-lucide="tag" class="w-4 h-4 text-warning"></i>' +
-          ' Extra Odoo-velden met vaste waarde' +
-        '</h4>' +
-        ((S().wizard.extraMappings || []).length > 0
-          ? '<div class="overflow-x-auto mb-3">' +
-              '<table class="table table-sm">' +
-                '<thead><tr><th>Odoo veld</th><th>Vaste waarde / sjabloon</th><th></th></tr></thead>' +
-                '<tbody>' + extraRows + '</tbody>' +
-              '</table>' +
-            '</div>'
-          : '') +
-        addExtraHtml +
-      '</div>';
-
-    // Reactive: when the user picks an Odoo field in the add-extra form rebuild the value input
-    var fspExtraVal = document.getElementById('fsp-val-wizard-extra-add');
-    if (fspExtraVal) {
-      fspExtraVal.addEventListener('change', function () {
-        var wrap = document.getElementById('wizardExtraStaticWrap');
-        if (!wrap) return;
-        wrap.innerHTML = renderExtraValueInput(fspExtraVal.value || '', '', null, ' id="wizardExtraStaticValue"');
-        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
-      });
-    }
-
-    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // WIZARD ACTIONS
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   async function wizardSelectSite(siteKey, siteUrl, siteLabel) {
     S().wizard.site = { key: siteKey, url: siteUrl, label: siteLabel };
     S().wizard.form = null;
@@ -493,7 +312,7 @@
       if (!cfg) throw new Error('Geen actie geselecteerd.');
       if (!S().wizard.form) throw new Error('Geen formulier geselecteerd.');
 
-      // Step 1 — create integration
+      // Step 1 â€” create integration
       var intRes = await window.FSV2.api('/integrations', {
         method: 'POST',
         body: JSON.stringify({
@@ -505,7 +324,7 @@
       });
       var integrationId = intRes.data.id;
 
-      // Step 2 — create resolver (only when the action requires one)
+      // Step 2 â€” create resolver (only when the action requires one)
       if (cfg.resolver_type) {
         await window.FSV2.api('/integrations/' + integrationId + '/resolvers', {
           method: 'POST',
@@ -519,7 +338,7 @@
         });
       }
 
-      // Step 3 — create target
+      // Step 3 â€” create target
       var targetRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
         method: 'POST',
         body: JSON.stringify({
@@ -531,7 +350,7 @@
       });
       var targetId = targetRes.data.id;
 
-      // Step 4 — create mappings from form fields → Odoo fields
+      // Step 4 â€” create mappings from form fields â†’ Odoo fields
       var mappingSection = document.getElementById('wizard-section-mapping');
       var mappingPromises = [];
       var orderIdx = 0;
@@ -595,7 +414,7 @@
 
       await Promise.all(mappingPromises);
 
-      // Step 5 — run test stub (non-blocking)
+      // Step 5 â€” run test stub (non-blocking)
       try {
         await window.FSV2.api('/integrations/' + integrationId + '/test-stub', {
           method: 'POST',
@@ -616,9 +435,9 @@
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // EXPORT — extend FSV2
-  // ═══════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // EXPORT â€” extend FSV2
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Object.assign(window.FSV2, {
     renderStaticInput:    renderStaticInput,
     renderWizard:         renderWizard,
