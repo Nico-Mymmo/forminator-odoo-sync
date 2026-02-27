@@ -14,7 +14,7 @@
   function esc(v) { return window.FSV2.esc(v); }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // STATIC VALUE INPUT â€” renders the right control based on Odoo field type
+  // STATIC VALUE INPUT &mdash; renders the right control based on Odoo field type
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   /**
    * Returns an <input> or <select> HTML string for a mapping's "static value" cell.
@@ -154,7 +154,7 @@
   }
 
   function buildFieldOptions(formFields) {
-    return '<option value="">â€” niet koppelen â€”</option>' +
+    return '<option value="">&mdash; niet koppelen &mdash;</option>' +
       formFields.map(function (f) {
         var label = String(f.label || f.field_id);
         var id    = String(f.field_id);
@@ -288,7 +288,7 @@
       if (!cfg) throw new Error('Geen actie geselecteerd.');
       if (!S().wizard.form) throw new Error('Geen formulier geselecteerd.');
 
-      // Step 1 â€” create integration
+      // Step 1 &mdash; create integration
       var intRes = await window.FSV2.api('/integrations', {
         method: 'POST',
         body: JSON.stringify({
@@ -300,7 +300,7 @@
       });
       var integrationId = intRes.data.id;
 
-      // Step 2 â€” create resolver (only when the action requires one)
+      // Step 2 &mdash; create resolver (only when the action requires one)
       if (cfg.resolver_type) {
         await window.FSV2.api('/integrations/' + integrationId + '/resolvers', {
           method: 'POST',
@@ -314,7 +314,7 @@
         });
       }
 
-      // Step 3 â€” create target
+      // Step 3 &mdash; create target
       var targetRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
         method: 'POST',
         body: JSON.stringify({
@@ -326,7 +326,7 @@
       });
       var targetId = targetRes.data.id;
 
-      // Step 4 â€” create mappings from form fields â†’ Odoo fields
+      // Step 4 &mdash; create mappings from form fields â†&rsquo; Odoo fields
       var mappingSection = document.getElementById('wizard-section-mapping');
       var mappingPromises = [];
       var orderIdx = 0;
@@ -399,7 +399,7 @@
 
       await Promise.all(mappingPromises);
 
-      // Step 5 â€” run test stub (non-blocking)
+      // Step 5 &mdash; run test stub (non-blocking)
       try {
         await window.FSV2.api('/integrations/' + integrationId + '/test-stub', {
           method: 'POST',
@@ -421,7 +421,7 @@
   }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // EXPORT â€” extend FSV2
+  // EXPORT &mdash; extend FSV2
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Object.assign(window.FSV2, {
     renderWizard:         renderWizard,

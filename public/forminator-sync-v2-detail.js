@@ -1,5 +1,5 @@
 ﻿/**
- * Forminator Sync V2 â€” Detail
+ * Forminator Sync V2 &mdash; Detail
  *
  * Extends window.FSV2 with: renderDetail, updateDetailTestStatus,
  * renderDetailMappings, renderDetailSubmissions, renderDetailFormFields,
@@ -315,7 +315,7 @@
               ? '<span class="text-xs text-error/80 font-mono" title="' + esc(sub.last_error) + '">' +
                   esc(sub.last_error.slice(0, 60)) + (sub.last_error.length > 60 ? '\u2026' : '') +
                 '</span>'
-              : '<span class="text-base-content/30">â€”</span>';
+              : '<span class="text-base-content/30">&mdash;</span>';
             return '<tr' + (isReplay ? ' class="bg-success/5"' : '') + '>' +
               '<td class="font-mono text-xs">' +
                 (isReplay ? '<span class="text-base-content/40 mr-1">\u21b3</span>' : '') +
@@ -349,7 +349,7 @@
       el.innerHTML =
         '<p class="text-sm text-base-content/60 py-2">' +
           '<i data-lucide="info" class="w-4 h-4 inline mr-1 -mt-0.5"></i>' +
-          'Site-sleutel niet opgeslagen voor deze integratie â€” veldoverzicht niet beschikbaar. ' +
+          'Site-sleutel niet opgeslagen voor deze integratie &mdash; veldoverzicht niet beschikbaar. ' +
           'Nieuwe integraties bewaren de site-sleutel automatisch.' +
         '</p>';
       if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
@@ -400,11 +400,11 @@
               ? coupled.map(function (of_) {
                   return '<span class="badge badge-success badge-xs font-mono">' + esc(of_) + '</span>';
                 }).join(' ')
-              : '<span class="text-base-content/30 text-xs">â€”</span>';
+              : '<span class="text-base-content/30 text-xs">&mdash;</span>';
             return '<tr>' +
               '<td class="font-mono text-xs">' + esc(fid) + '</td>' +
-              '<td class="text-sm">' + esc(f.label || f.field_id || 'â€”') + '</td>' +
-              '<td><span class="badge badge-outline badge-xs">' + esc(f.type || 'â€”') + '</span></td>' +
+              '<td class="text-sm">' + esc(f.label || f.field_id || '-') + '</td>' +
+              '<td><span class="badge badge-outline badge-xs">' + esc(f.type || '-') + '</span></td>' +
               '<td>' + badge + '</td>' +
             '</tr>';
           }).join('') +
@@ -640,7 +640,7 @@
   }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // EXPORT â€” extend FSV2
+  // EXPORT &mdash; extend FSV2
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Object.assign(window.FSV2, {
     renderDetail:            renderDetail,
