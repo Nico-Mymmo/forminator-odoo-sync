@@ -34,6 +34,40 @@ function normalizeString(value) {
   return String(value).replace(/\s+/g, ' ').trim();
 }
 
+function normalizeFieldKey(key) {
+  return String(key || '').toLowerCase().replace(/[-_\s]+/g, '_');
+}
+
+function lookupFormValue(normalizedForm, sourceValue) {
+  if (!sourceValue) return '';
+  // 1. Exact match
+  const exact = normalizeString(normalizedForm[sourceValue]);
+  if (exact) return exact;
+  // 2. Normalize dashes/underscores and compare — e.g. "email-1" matches "email_1"
+  const normalizedSource = normalizeFieldKey(sourceValue);
+  for (const [key, val] of Object.entries(normalizedForm)) {
+    if (normalizeFieldKey(key) === normalizedSource) {
+      const resolved = normalizeString(val);
+      if (resolved) {
+        console.log(`[mapping] normalized match: source_value="${sourceValue}" → form key "${key}"`);
+        return resolved;
+      }
+    }
+  }
+  // 3. Prefix match — source_value without trailing digit, e.g. "email" matches "email_1"
+  const prefix = normalizeFieldKey(sourceValue);
+  for (const [key, val] of Object.entries(normalizedForm)) {
+    if (normalizeFieldKey(key).startsWith(prefix + '_') || normalizeFieldKey(key).startsWith(prefix + '-')) {
+      const resolved = normalizeString(val);
+      if (resolved) {
+        console.log(`[mapping] prefix match: source_value="${sourceValue}" → form key "${key}"`);
+        return resolved;
+      }
+    }
+  }
+  return '';
+}
+
 function normalizeFormValues(payload) {
   const raw = payload && typeof payload === 'object' ? payload : {};
   const candidate = raw.form_fields || raw.form_data || raw.data || raw.submission || raw;
@@ -73,6 +107,13 @@ function resolveFormId(payload, normalizedForm) {
   for (const candidate of candidates) {
     const value = normalizeString(candidate);
     if (value) return value;
+  }
+
+  // Forminator always sends form_uid like "forminator-custom-form-123" — extract numeric ID
+  const formUid = normalizeString(payload?.form_uid || normalizedForm.form_uid);
+  if (formUid) {
+    const match = formUid.match(/(\d+)$/);
+    if (match) return match[1];
   }
 
   throw createPermanentError('Missing form identifier in webhook payload');
@@ -121,7 +162,8 @@ function getWebinarExternalField(env) {
 async function runResolver(env, resolver, normalizedForm, contextObject, resolverLogs) {
   const resolverType = resolver.resolver_type;
   const inputField = normalizeString(resolver.input_source_field);
-  const inputValue = normalizeString(normalizedForm[inputField]);
+
+  const inputValue = lookupFormValue(normalizedForm, inputField);
 
   if (!inputValue) {
     throw createPermanentError(`Resolver input missing for ${resolverType}`);
@@ -146,7 +188,7 @@ async function runResolver(env, resolver, normalizedForm, contextObject, resolve
         identifierDomain: [['email', '=', inputValue]],
         incomingValues: {
           email: inputValue,
-          name: normalizeString(normalizedForm.name) || inputValue
+          name: normalizeString(normalizedForm.name || normalizedForm.name_1 || normalizedForm.full_name || normalizedForm.full_name_1) || inputValue
         },
         updatePolicy: 'always_overwrite'
       });
@@ -181,7 +223,7 @@ async function runResolver(env, resolver, normalizedForm, contextObject, resolve
 
 function resolveMappingValue(mapping, normalizedForm, contextObject) {
   if (mapping.source_type === 'form') {
-    return normalizeString(normalizedForm[mapping.source_value]);
+    return lookupFormValue(normalizedForm, mapping.source_value);
   }
 
   if (mapping.source_type === 'context') {
@@ -203,7 +245,7 @@ function resolveMappingValue(mapping, normalizedForm, contextObject) {
 
 function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject) {
   if (target.identifier_type === 'single_email') {
-    const emailValue = normalizeString(normalizedForm.email);
+    const emailValue = lookupFormValue(normalizedForm, 'email');
     if (!emailValue) {
       throw createPermanentError('single_email identifier requires form field email');
     }
@@ -244,7 +286,12 @@ function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contex
     return identifierMappings.map((m) => {
       const value = resolveMappingValue(m, normalizedForm, contextObject);
       if (!value && value !== 0) {
-        throw createPermanentError(`Identifier field "${m.odoo_field}" resolved to an empty value`);
+        const availableKeys = Object.keys(normalizedForm).filter((k) => !['form_id', 'form_uid', 'ovme_forminator_id'].includes(k)).join(', ') || '(geen)';
+        throw createPermanentError(
+          `Kan Odoo-record niet identificeren: identifierveld "${m.odoo_field}" is gekoppeld aan formulierveld "${m.source_value}", maar dat veld heeft geen waarde in de ingediende data. ` +
+          `Beschikbare formuliervelden: ${availableKeys}. ` +
+          `Controleer of de veldnaam in de mapping overeenkomt met wat het formulier verstuurt.`
+        );
       }
       return [m.odoo_field, '=', value];
     });
@@ -255,14 +302,25 @@ function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contex
 
 function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject) {
   const values = {};
-
   for (const mapping of mappings) {
     const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject);
     if (resolvedValue !== null && resolvedValue !== undefined) {
       values[mapping.odoo_field] = resolvedValue;
     }
   }
+  return values;
+}
 
+// Only include fields that are allowed to be written on update (is_update_field !== false)
+function buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject) {
+  const values = {};
+  for (const mapping of mappings) {
+    if (mapping.is_update_field === false) continue;
+    const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject);
+    if (resolvedValue !== null && resolvedValue !== undefined) {
+      values[mapping.odoo_field] = resolvedValue;
+    }
+  }
   return values;
 }
 
@@ -406,13 +464,29 @@ async function runSubmissionAttempt(env, {
     finished_at: null
   });
 
+  const attemptTag = '[attempt:' + submission.id.slice(0, 8) + ']';
+
+  // Resolvers are required for registration_composite targets (need context values).
+  // For mapped_fields targets (contact/lead), resolvers are legacy/optional — failures are non-fatal.
+  const needsResolver = integrationBundle.targets.some((t) => t.identifier_type === 'registration_composite');
+
   try {
     for (const resolver of integrationBundle.resolvers) {
-      await runResolver(env, resolver, normalizedForm, contextObject, resolverLogs);
+      console.log(attemptTag, 'running resolver:', resolver.resolver_type, '| required:', needsResolver);
+      try {
+        await runResolver(env, resolver, normalizedForm, contextObject, resolverLogs);
+        console.log(attemptTag, 'resolver done, contextObject keys:', Object.keys(contextObject).join(', '));
+      } catch (resolverError) {
+        if (needsResolver) throw resolverError;
+        console.log(attemptTag, 'resolver warning (non-fatal):', resolverError.message);
+        resolverLogs.push({ resolver_type: resolver.resolver_type, action: 'skipped', error: resolverError.message });
+      }
     }
 
     for (const target of integrationBundle.targets) {
+      console.log(attemptTag, 'processing target:', target.id, target.odoo_model);
       const mappings = await listMappingsByTarget(env, target.id);
+      console.log(attemptTag, 'mappings count:', mappings.length);
 
       if (isRetryAttempt) {
         const latestTargetResult = await getLatestSubmissionTargetResultByTarget(env, submission.id, target.id);
@@ -434,12 +508,17 @@ async function runSubmissionAttempt(env, {
 
       const identifierDomain = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
       const incomingValues = buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject);
+      const updateValues   = buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject);
+      console.log(attemptTag, 'identifierDomain:', JSON.stringify(identifierDomain));
+      console.log(attemptTag, 'incomingValues (create):', JSON.stringify(incomingValues));
+      console.log(attemptTag, 'updateValues (update):', JSON.stringify(updateValues));
 
       try {
         const result = await upsertRecordStrict(env, {
           model: target.odoo_model,
           identifierDomain,
           incomingValues,
+          updateValues,
           updatePolicy: target.update_policy
         });
 
@@ -476,7 +555,12 @@ async function runSubmissionAttempt(env, {
       next_retry_at: null,
       resolved_context: {
         ...contextObject,
-        resolver_logs: resolverLogs
+        resolver_logs: resolverLogs,
+        target_actions: targetResults.map((r) => ({
+          model: integrationBundle.targets.find((t) => t.id === r.target_id)?.odoo_model || r.target_id,
+          action: r.action_result,
+          record_id: r.odoo_record_id || null
+        }))
       },
       last_error: finalStatus === 'success' ? null : targetResults.find((row) => row.action_result === 'failed')?.error_detail || null,
       finished_at: new Date().toISOString()
@@ -560,6 +644,7 @@ export async function handleForminatorV2Webhook({ env, request, payload: payload
 
   console.log('[webhook] resolved form_id:', formId);
 
+  console.log('[webhook] looking up integration for form_id:', formId);
   const integration = await getActiveIntegrationByFormId(env, formId);
   if (!integration) {
     console.log('[webhook] no active integration for form_id:', formId);
@@ -578,8 +663,10 @@ export async function handleForminatorV2Webhook({ env, request, payload: payload
     payloadHash
   });
 
+  console.log('[webhook] integration found:', integration.id, '| idempotency_key:', idempotencyKey);
   const existing = await getLatestSubmissionByIdempotencyKey(env, integration.id, idempotencyKey);
   const duplicateStatus = classifyDuplicateStatus(existing?.status);
+  console.log('[webhook] duplicate check:', duplicateStatus || 'none');
 
   if (duplicateStatus) {
     return toHttpResponse({
@@ -643,10 +730,12 @@ export async function handleForminatorV2Webhook({ env, request, payload: payload
     });
   }
 
+  console.log('[webhook] fetching integration bundle...');
   const integrationBundle = await getIntegrationBundle(env, integration.id);
   if (!integrationBundle) {
     throw createPermanentError('Integration bundle not found for active integration');
   }
+  console.log('[webhook] starting runSubmissionAttempt | submission:', submission.id, '| integration:', integration.name || integration.id);
 
   const result = await runSubmissionAttempt(env, {
     submission,

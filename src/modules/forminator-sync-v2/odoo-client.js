@@ -62,31 +62,29 @@ export async function upsertRecordStrict(env, {
   model,
   identifierDomain,
   incomingValues,
+  updateValues,
   updatePolicy
 }) {
+  // updateValues: fields to write on UPDATE (defaults to incomingValues)
+  // incomingValues: fields to write on CREATE
+  const valuesOnUpdate = applyPolicyToValues(updateValues !== undefined ? updateValues : incomingValues, updatePolicy);
+  const valuesOnCreate = applyPolicyToValues(incomingValues, updatePolicy);
+
   let existing = await findRecordByIdentifier(env, {
     model,
     identifierDomain,
     fields: ['id']
   });
 
-  const valuesForWrite = applyPolicyToValues(incomingValues, updatePolicy);
-
   if (existing) {
-    if (Object.keys(valuesForWrite).length === 0) {
-      return {
-        action: 'skipped',
-        recordId: existing.id
-      };
+    if (Object.keys(valuesOnUpdate).length === 0) {
+      return { action: 'skipped', recordId: existing.id };
     }
-
-    await updateRecord(env, { model, id: existing.id, values: valuesForWrite });
-    return {
-      action: 'updated',
-      recordId: existing.id
-    };
+    await updateRecord(env, { model, id: existing.id, values: valuesOnUpdate });
+    return { action: 'updated', recordId: existing.id };
   }
 
+  // Second lookup to handle race conditions
   existing = await findRecordByIdentifier(env, {
     model,
     identifierDomain,
@@ -94,27 +92,13 @@ export async function upsertRecordStrict(env, {
   });
 
   if (existing) {
-    if (Object.keys(valuesForWrite).length === 0) {
-      return {
-        action: 'skipped',
-        recordId: existing.id
-      };
+    if (Object.keys(valuesOnUpdate).length === 0) {
+      return { action: 'skipped', recordId: existing.id };
     }
-
-    await updateRecord(env, { model, id: existing.id, values: valuesForWrite });
-    return {
-      action: 'updated',
-      recordId: existing.id
-    };
+    await updateRecord(env, { model, id: existing.id, values: valuesOnUpdate });
+    return { action: 'updated', recordId: existing.id };
   }
 
-  const recordId = await createRecord(env, {
-    model,
-    values: valuesForWrite
-  });
-
-  return {
-    action: 'created',
-    recordId
-  };
+  const recordId = await createRecord(env, { model, values: valuesOnCreate });
+  return { action: 'created', recordId };
 }

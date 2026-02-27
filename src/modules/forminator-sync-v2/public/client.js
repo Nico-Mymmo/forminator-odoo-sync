@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Forminator Sync V2 — Client Script
  *
  * Full UX overhaul: intuitive 3-step wizard, no internal V2 terminology.
@@ -20,10 +20,6 @@ var ACTIONS = {
     icon: 'user',
     badge: 'res.partner',
     badgeClass: 'badge-info',
-    resolver_type: 'partner_by_email',
-    input_source_field: 'email',
-    create_if_missing: true,
-    output_context_key: 'context.partner_id',
     odoo_model: 'res.partner',
     identifier_type: 'mapped_fields',
     update_policy: 'always_overwrite',
@@ -43,10 +39,6 @@ var ACTIONS = {
     icon: 'trending-up',
     badge: 'crm.lead',
     badgeClass: 'badge-success',
-    resolver_type: 'partner_by_email',
-    input_source_field: 'email',
-    create_if_missing: true,
-    output_context_key: 'context.partner_id',
     odoo_model: 'crm.lead',
     identifier_type: 'mapped_fields',
     update_policy: 'always_overwrite',
@@ -1205,10 +1197,12 @@ function renderDetailMappings() {
     S.detail._extraRows = initialExtraRows.map(function(m) {
       var meta = odooCache.find(function(f) { return f.name === m.odoo_field; });
       return {
-        odooField:   m.odoo_field,
-        odooLabel:   (meta && meta.label) || m.odoo_field,
-        staticValue: m.source_value,
-        sourceType:  m.source_type,
+        odooField:    m.odoo_field,
+        odooLabel:    (meta && meta.label) || m.odoo_field,
+        staticValue:  m.source_value,
+        sourceType:   m.source_type,
+        isIdentifier: !!m.is_identifier,
+        isUpdateField: m.is_update_field !== false,
       };
     });
   }
@@ -1264,21 +1258,22 @@ function renderDetailMappings() {
       (chipTarget ? detChips(chipTarget) : '') + '</div>';
   }
 
-  // ── Section 1: form fields → Odoo field select + identifier checkbox ───────
+  // ── Section 1: form fields → Odoo field select + identifier/update checkboxes ─────
   var AUTO_IDENTIFIERS = ['email', 'email_from', 'x_email', 'vat', 'ref'];
   var formRowsHtml;
   if (flatFields.length === 0) {
     var ffMsg = (S.detailFormFields === null || S.detailFormFields === 'loading')
       ? 'Formuliervelden worden opgehaald\u2026'
       : 'Geen formuliervelden gevonden.';
-    formRowsHtml = '<tr><td colspan="4" class="text-sm text-base-content/40 italic py-3">' + esc(ffMsg) + '</td></tr>';
+    formRowsHtml = '<tr><td colspan="5" class="text-sm text-base-content/40 italic py-3">' + esc(ffMsg) + '</td></tr>';
   } else {
     formRowsHtml = flatFields.map(function(f) {
       var fid = String(f.field_id);
       var existing = formMappingsByField[fid] || null;
       var preselected = existing ? existing.odoo_field : null;
       var suggested = preselected || suggestOdooField(fid, f.label || '', model);
-      var isIdentifier = existing ? !!existing.is_identifier : AUTO_IDENTIFIERS.includes(suggested);
+      var isIdentifier  = existing ? !!existing.is_identifier  : AUTO_IDENTIFIERS.includes(suggested);
+      var isUpdateField = existing ? existing.is_update_field !== false : true;
       var isSubField = !rawFf.find(function(pf) { return String(pf.field_id) === fid; });
       return '<tr' + (isSubField ? ' class="bg-base-200/30"' : '') + '>' +
         '<td class="align-middle py-2">' +
@@ -1295,8 +1290,14 @@ function renderDetailMappings() {
         '<td class="text-center py-2">' +
           '<input type="checkbox" class="checkbox checkbox-xs detail-ff-id-check"' +
           ' name="det-identifier-' + esc(fid) + '"' +
-          ' title="Gebruik als identifier voor record matching"' +
+          ' title="Identifier: gebruikt om bestaand record op te zoeken voor update"' +
           (isIdentifier ? ' checked' : '') + '>' +
+        '</td>' +
+        '<td class="text-center py-2">' +
+          '<input type="checkbox" class="checkbox checkbox-xs detail-ff-upd-check"' +
+          ' name="det-update-' + esc(fid) + '"' +
+          ' title="Bijwerken: schrijf dit veld ook bij updates (uitvinken = alleen bij aanmaken)"' +
+          (isUpdateField ? ' checked' : '') + '>' +
         '</td>' +
       '</tr>';
     }).join('');
@@ -1316,32 +1317,46 @@ function renderDetailMappings() {
       '<td class="py-1"><span class="badge badge-ghost badge-xs">vast/sjabloon</span></td>' +
       '<td class="py-1.5">' + detValueInput(em.odooField, em.staticValue || '', tname, ' id="det-inp-' + esc(tname) + '"') + '</td>' +
       '<td class="text-center py-2">' +
+        '<input type="checkbox" class="checkbox checkbox-xs detail-extra-id-check"' +
+        ' name="det-extra-identifier-' + idx + '"' +
+        ' title="Identifier: gebruik als zoekcriterium"' +
+        (em.isIdentifier ? ' checked' : '') + '>' +
+      '</td>' +
+      '<td class="text-center py-2">' +
+        '<input type="checkbox" class="checkbox checkbox-xs detail-extra-upd-check"' +
+        ' name="det-extra-update-' + idx + '"' +
+        ' title="Bijwerken: schrijf dit veld ook bij updates"' +
+        (em.isUpdateField !== false ? ' checked' : '') + '>' +
+      '</td>' +
+      '<td class="text-center py-2">' +
         '<button type="button" class="btn btn-ghost btn-xs text-error" data-action="detail-remove-extra-row" data-idx="' + idx + '" title="Verwijder">' +
           '<i data-lucide="x" class="w-3 h-3"></i></button>' +
       '</td>' +
     '</tr>';
   }).join('');
 
-  var addExtraHtml =
-    '<div class="divider text-xs text-base-content/40 mt-4">Extra Odoo-veld toevoegen (vaste waarde / sjabloon)</div>' +
-    '<div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">' +
-      '<div class="form-control">' +
-        '<label class="label py-0 pb-1">' +
-          '<span class="label-text text-xs">Odoo veld</span>' +
-          '<span class="label-text-alt text-xs text-base-content/40">' +
-            (odooLoaded ? odooCache.length + ' velden' : '<span class="loading loading-xs loading-spinner"></span>') +
-          '</span>' +
-        '</label>' +
+  var addExtraFooterRow =
+    '<tr class="border-t-2 border-base-300">' +
+      '<td class="py-2 min-w-40">' +
         renderFieldPicker('det-extra-add', '--unused--', odooCache, '') +
-      '</div>' +
-      '<div class="form-control">' +
-        '<label class="label py-0 pb-1"><span class="label-text text-xs">Waarde</span></label>' +
+        '<span class="text-xs text-base-content/40 mt-0.5 block">' +
+          (odooLoaded ? odooCache.length + ' velden beschikbaar' : '<span class="loading loading-xs loading-spinner inline-block"></span>') +
+        '</span>' +
+      '</td>' +
+      '<td class="py-2 text-center"><span class="badge badge-ghost badge-xs">nieuw</span></td>' +
+      '<td class="py-2 min-w-52">' +
         '<div id="detExtraStaticWrap">' + detValueInput('', '', null, ' id="detExtraStaticValue"') + '</div>' +
-      '</div>' +
-      '<div class="pt-5">' +
-        '<button type="button" class="btn btn-outline btn-sm w-full" data-action="detail-add-extra-row">+ Voeg toe</button>' +
-      '</div>' +
-    '</div>';
+      '</td>' +
+      '<td class="text-center py-2">' +
+        '<input type="checkbox" id="detExtraIsIdentifier" class="checkbox checkbox-xs" title="Identifier: gebruik als zoekcriterium" />' +
+      '</td>' +
+      '<td class="text-center py-2">' +
+        '<input type="checkbox" id="detExtraIsUpdateField" class="checkbox checkbox-xs" title="Bijwerken: schrijf ook bij updates" checked />' +
+      '</td>' +
+      '<td class="py-2 text-right">' +
+        '<button type="button" class="btn btn-outline btn-xs" data-action="detail-add-extra-row">+ Voeg toe</button>' +
+      '</td>' +
+    '</tr>';
 
   container.innerHTML =
     '<div id="detailMappingEditor" data-target-id="' + esc(String(firstTarget.id)) + '">' +
@@ -1354,23 +1369,30 @@ function renderDetailMappings() {
           '<table class="table table-sm">' +
             '<thead><tr>' +
               '<th>Formulier veld</th><th>Type</th><th>Koppelen aan Odoo veld</th>' +
-              '<th class="text-center" title="Identifier: gebruikt voor record opzoeken / matchen"><i data-lucide="key" class="w-3.5 h-3.5 inline-block"></i></th>' +
+              '<th class="text-center" title="Identifier: gebruik als zoekcriterium bij record matching"><i data-lucide="key" class="w-3.5 h-3.5 inline-block"></i></th>' +
+              '<th class="text-center" title="Bijwerken: schrijf dit veld ook wanneer een bestaand record wordt bijgewerkt"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block"></i></th>' +
             '</tr></thead>' +
             '<tbody>' + formRowsHtml + '</tbody>' +
           '</table>' +
         '</div>' +
-        '<p class="text-xs text-base-content/40 mt-2">Rijen zonder geselecteerd Odoo veld worden genegeerd. <i data-lucide="key" class="w-3 h-3 inline -mt-0.5"></i> = identifier voor record matching.</p>' +
+        '<p class="text-xs text-base-content/40 mt-2"><i data-lucide="key" class="w-3 h-3 inline -mt-0.5"></i> Identifier = record opzoeken. <i data-lucide="pencil" class="w-3 h-3 inline -mt-0.5"></i> Bijwerken = ook schrijven bij update (uitvinken = alleen bij aanmaken).</p>' +
       '</div>' +
       '<div>' +
         '<h4 class="font-semibold text-sm mb-2 flex items-center gap-2">' +
           '<i data-lucide="tag" class="w-4 h-4 text-warning"></i> Extra Odoo-velden met vaste waarde' +
         '</h4>' +
-        (S.detail._extraRows.length > 0
-          ? '<div class="overflow-x-auto mb-3"><table class="table table-sm"><thead><tr>' +
-              '<th>Odoo veld</th><th>Type</th><th>Waarde / sjabloon</th><th></th>' +
-            '</tr></thead><tbody>' + extraRowsHtml + '</tbody></table></div>'
-          : '') +
-        addExtraHtml +
+        '<div class="overflow-x-auto">' +
+          '<table class="table table-sm">' +
+            '<thead><tr>' +
+              '<th>Odoo veld</th><th>Type</th><th>Waarde / sjabloon</th>' +
+              '<th class="text-center" title="Identifier"><i data-lucide="key" class="w-3.5 h-3.5 inline-block"></i></th>' +
+              '<th class="text-center" title="Bijwerken bij update"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block"></i></th>' +
+              '<th></th>' +
+            '</tr></thead>' +
+            '<tbody>' + (extraRowsHtml || '<tr><td colspan="6" class="text-xs text-base-content/40 italic py-2">Nog geen extra velden toegevoegd.</td></tr>') + '</tbody>' +
+            '<tfoot>' + addExtraFooterRow + '</tfoot>' +
+          '</table>' +
+        '</div>' +
       '</div>' +
       '<div class="mt-6 flex justify-end">' +
         '<button type="button" class="btn btn-primary" data-action="save-detail-mappings">' +
@@ -1402,6 +1424,51 @@ function renderDetailSubmissions() {
     return;
   }
 
+  // Build list of identifier mappings (source_type=form, is_identifier=true) across all targets
+  var identifierFields = []; // [{source_value, odoo_field, label}]
+  var targets = (S.detail && S.detail.targets) || [];
+  targets.forEach(function(t) {
+    var mappings = (S.detail.mappingsByTarget && S.detail.mappingsByTarget[t.id]) || [];
+    mappings.forEach(function(m) {
+      if (m.is_identifier && m.source_type === 'form') {
+        var alreadyAdded = identifierFields.some(function(f) { return f.source_value === m.source_value; });
+        if (!alreadyAdded) identifierFields.push({ source_value: String(m.source_value), odoo_field: m.odoo_field });
+      }
+    });
+  });
+
+  // Fuzzy form value lookup: normalise dashes/underscores, then try prefix match
+  function normalizeKey(k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); }
+  function lookupPayloadValue(payload, sourceValue) {
+    if (!payload || !sourceValue) return '';
+    var normSource = normalizeKey(sourceValue);
+    var keys = Object.keys(payload);
+    // 1. exact
+    if (payload[sourceValue] !== undefined && payload[sourceValue] !== '') return String(payload[sourceValue]);
+    // 2. normalised match (email-1 == email_1)
+    var match = keys.find(function(k) { return normalizeKey(k) === normSource && payload[k]; });
+    if (match) return String(payload[match]);
+    // 3. prefix (email → email_1)
+    var prefix = keys.find(function(k) { return normalizeKey(k).startsWith(normSource + '_') && payload[k]; });
+    if (prefix) return String(payload[prefix]);
+    return '';
+  }
+
+  // Parse source_payload once per submission
+  function parsePayload(sub) {
+    try { return JSON.parse(sub.source_payload || '{}'); } catch(e) { return {}; }
+  }
+
+  function submitterInfo(sub) {
+    if (!identifierFields.length) return '';
+    var payload = parsePayload(sub);
+    var parts = identifierFields.map(function(f) {
+      var val = lookupPayloadValue(payload, f.source_value);
+      return val ? '<span class="font-medium">' + esc(val) + '</span>' : '';
+    }).filter(Boolean);
+    return parts.length ? parts.join(' &middot; ') : '<span class="text-base-content/30">onbekend</span>';
+  }
+
   var statusBadge = function(status) {
     var classes = {
       success: 'badge-success', processed: 'badge-success',
@@ -1413,18 +1480,55 @@ function renderDetailSubmissions() {
     return '<span class="badge badge-sm ' + (classes[status] || 'badge-ghost') + '">' + esc(status || '-') + '</span>';
   };
 
+  // Sort: originals first, then replays under their parent
+  var originals = S.submissions.filter(function(s) { return !s.replay_of_submission_id; });
+  var replays   = S.submissions.filter(function(s) { return !!s.replay_of_submission_id; });
+  var ordered = [];
+  originals.forEach(function(orig) {
+    ordered.push({ sub: orig, isReplay: false });
+    replays.filter(function(r) { return r.replay_of_submission_id === orig.id; })
+      .forEach(function(r) { ordered.push({ sub: r, isReplay: true }); });
+  });
+  // Any orphaned replays at the end
+  replays.filter(function(r) { return !originals.find(function(o) { return o.id === r.replay_of_submission_id; }); })
+    .forEach(function(r) { ordered.push({ sub: r, isReplay: true }); });
+
+  var showIndiener = identifierFields.length > 0;
+
+  function actionBadge(sub) {
+    try {
+      var ctx = JSON.parse(sub.resolved_context || '{}');
+      var actions = ctx.target_actions || [];
+      if (!actions.length) return '';
+      var labels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt' };
+      var colors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error' };
+      return actions.map(function(a) {
+        return '<span class="badge badge-xs ' + (colors[a.action] || 'badge-ghost') + ' ml-1">' + (labels[a.action] || esc(a.action)) + '</span>';
+      }).join('');
+    } catch(e) { return ''; }
+  }
+
   el.innerHTML =
     '<div class="overflow-x-auto">' +
       '<table class="table table-xs">' +
-        '<thead><tr><th>ID</th><th>Status</th><th>Retries</th><th>Aangemaakt</th><th>Actie</th></tr></thead>' +
+        '<thead><tr><th>ID</th>' + (showIndiener ? '<th>Indiener</th>' : '') + '<th>Status</th><th>Fout</th><th>Aangemaakt</th><th>Actie</th></tr></thead>' +
         '<tbody>' +
-        S.submissions.map(function(sub) {
-          var replayAllowed = ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
-          return '<tr>' +
-            '<td class="font-mono">' + esc(shortId(sub.id)) + '</td>' +
-            '<td>' + statusBadge(sub.status) + '</td>' +
-            '<td>' + esc(String(sub.retry_count != null ? sub.retry_count : 0)) + '</td>' +
-            '<td class="text-xs">' + esc(fmt(sub.created_at)) + '</td>' +
+        ordered.map(function(item) {
+          var sub = item.sub;
+          var isReplay = item.isReplay;
+          var replayAllowed = !isReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
+          var errorCell = sub.last_error
+            ? '<span class="text-xs text-error/80 font-mono" title="' + esc(sub.last_error) + '">' + esc(sub.last_error.slice(0, 60)) + (sub.last_error.length > 60 ? '\u2026' : '') + '</span>'
+            : '<span class="text-base-content/30">—</span>';
+          return '<tr' + (isReplay ? ' class="bg-success/5"' : '') + '>' +
+            '<td class="font-mono text-xs">' +
+              (isReplay ? '<span class="text-base-content/40 mr-1">↳</span>' : '') +
+              esc(shortId(sub.id)) +
+            '</td>' +
+            (showIndiener ? '<td class="text-xs">' + submitterInfo(sub) + '</td>' : '') +
+            '<td>' + statusBadge(sub.status) + actionBadge(sub) + '</td>' +
+            '<td class="max-w-xs truncate">' + errorCell + '</td>' +
+            '<td class="text-xs whitespace-nowrap">' + esc(fmt(sub.created_at)) + '</td>' +
             '<td>' + (replayAllowed
               ? '<button class="btn btn-xs btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '">Replay</button>'
               : '') + '</td>' +
@@ -1605,17 +1709,19 @@ async function submitWizard() {
     });
     var integrationId = intRes.data.id;
 
-    // Step 2 — create resolver
-    await api('/integrations/' + integrationId + '/resolvers', {
-      method: 'POST',
-      body: JSON.stringify({
-        resolver_type:       cfg.resolver_type,
-        input_source_field:  cfg.input_source_field,
-        create_if_missing:   cfg.create_if_missing,
-        output_context_key:  cfg.output_context_key,
-        order_index: 0,
-      }),
-    });
+    // Step 2 — create resolver (only for actions that need one, e.g. webinar)
+    if (cfg.resolver_type) {
+      await api('/integrations/' + integrationId + '/resolvers', {
+        method: 'POST',
+        body: JSON.stringify({
+          resolver_type:       cfg.resolver_type,
+          input_source_field:  cfg.input_source_field,
+          create_if_missing:   cfg.create_if_missing,
+          output_context_key:  cfg.output_context_key,
+          order_index: 0,
+        }),
+      });
+    }
 
     // Step 3 — create target
     var targetRes = await api('/integrations/' + integrationId + '/targets', {
@@ -1862,8 +1968,12 @@ async function handleSaveMappings() {
     var idCheckEl = Array.from(editor.querySelectorAll('input.detail-ff-id-check')).find(function(el) {
       return el.getAttribute('name') === 'det-identifier-' + fid;
     });
-    var isIdentifier = idCheckEl ? idCheckEl.checked : false;
-    newMappings.push({ odoo_field: odooField, source_type: 'form', source_value: fid, is_identifier: isIdentifier, is_required: false, order_index: orderIdx++ });
+    var updCheckEl = Array.from(editor.querySelectorAll('input.detail-ff-upd-check')).find(function(el) {
+      return el.getAttribute('name') === 'det-update-' + fid;
+    });
+    var isIdentifier  = idCheckEl  ? idCheckEl.checked  : false;
+    var isUpdateField = updCheckEl ? updCheckEl.checked : true;
+    newMappings.push({ odoo_field: odooField, source_type: 'form', source_value: fid, is_identifier: isIdentifier, is_update_field: isUpdateField, is_required: false, order_index: orderIdx++ });
   });
 
   (S.detail._extraRows || []).forEach(function(em, idx) {
@@ -1871,7 +1981,11 @@ async function handleSaveMappings() {
     var val = inpEl ? (inpEl.value || '').trim() : (em.staticValue || '');
     if (!val) return;
     var sourceType = /\{[^}]+\}/.test(val) ? 'template' : 'static';
-    newMappings.push({ odoo_field: em.odooField, source_type: sourceType, source_value: val, is_identifier: false, is_required: false, order_index: orderIdx++ });
+    var extraIdChk = editor.querySelector('input[name="det-extra-identifier-' + idx + '"]');
+    var extraUpdChk = editor.querySelector('input[name="det-extra-update-' + idx + '"]');
+    var extraIsIdentifier  = extraIdChk  ? extraIdChk.checked  : false;
+    var extraIsUpdateField = extraUpdChk ? extraUpdChk.checked : true;
+    newMappings.push({ odoo_field: em.odooField, source_type: sourceType, source_value: val, is_identifier: extraIsIdentifier, is_update_field: extraIsUpdateField, is_required: false, order_index: orderIdx++ });
   });
 
   await api('/targets/' + targetId + '/mappings', { method: 'DELETE' });
@@ -2055,6 +2169,10 @@ document.addEventListener('click', function(event) {
       await handleToggleIdentifier(btn.dataset.id);
       return;
     }
+    if (action === 'replay-submission') {
+      await handleReplay(btn.dataset.id);
+      return;
+    }
     if (action === 'save-detail-mappings') {
       await handleSaveMappings();
       return;
@@ -2067,12 +2185,16 @@ document.addEventListener('click', function(event) {
       var detModel = S.detail && S.detail.targets && S.detail.targets[0] ? S.detail.targets[0].odoo_model : '';
       var detCached = S.odooFieldsCache[detModel] || [];
       var detMatched = detCached.find(function(f) { return f.name === detFieldName; });
+      var detIsIdentifier  = !!(document.getElementById('detExtraIsIdentifier')  || {}).checked;
+      var detIsUpdateField = (document.getElementById('detExtraIsUpdateField') || { checked: true }).checked;
       S.detail._extraRows = S.detail._extraRows || [];
       S.detail._extraRows.push({
-        odooField:   detFieldName,
-        odooLabel:   detMatched ? detMatched.label : detFieldName,
-        staticValue: detExtraStatic ? detExtraStatic.value.trim() : '',
-        sourceType:  'static',
+        odooField:    detFieldName,
+        odooLabel:    detMatched ? detMatched.label : detFieldName,
+        staticValue:  detExtraStatic ? detExtraStatic.value.trim() : '',
+        sourceType:   'static',
+        isIdentifier: detIsIdentifier,
+        isUpdateField: detIsUpdateField,
       });
       renderDetailMappings();
       return;
