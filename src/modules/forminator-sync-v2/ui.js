@@ -10,7 +10,9 @@
  */
 
 import { navbar } from '../../lib/components/navbar.js';
-import { forminatorSyncV2ClientScript } from './public/client.js';
+
+/** Cache-busting version — bump whenever any of the 5 public FSV2 files change. */
+const FSV2_ASSET_VERSION = '20260227';
 
 export function forminatorSyncV2UI(user) {
   return `<!DOCTYPE html>
@@ -328,8 +330,12 @@ export function forminatorSyncV2UI(user) {
     });
   </script>
 
-  <!-- ─── Main client script ───────────────────────────────────────────── -->
-  <script>${forminatorSyncV2ClientScript}</script>
+  <!-- ─── FSV2 public assets (load order is significant — no async/defer) ── -->
+  <script src="/field-picker-component.js?v=${FSV2_ASSET_VERSION}"></script>
+  <script src="/forminator-sync-v2-core.js?v=${FSV2_ASSET_VERSION}"></script>
+  <script src="/forminator-sync-v2-wizard.js?v=${FSV2_ASSET_VERSION}"></script>
+  <script src="/forminator-sync-v2-detail.js?v=${FSV2_ASSET_VERSION}"></script>
+  <script src="/forminator-sync-v2-bootstrap.js?v=${FSV2_ASSET_VERSION}"></script>
 
 </body>
 </html>`;
