@@ -231,18 +231,22 @@
       odooModel:            actionCfg.odoo_model,
       existingFormMappings: {},
       extraRows:            S().wizard.extraMappings || [],
-      showUpdateColumn:     false,
       selectClass:          'wizard-ff-select',
       idCheckClass:         'wizard-ff-id-check',
+      updCheckClass:        'wizard-ff-upd-check',
       namePrefix:           'ff-',
       checkPrefix:          'ff-',
       extraRowPrefix:       'extra-static-',
       extraInputPrefix:     'inp-',
+      extraIdCheckClass:    'wizard-extra-id-check',
+      extraUpdCheckClass:   'wizard-extra-upd-check',
       addAction:            'wizard-add-extra-row',
       removeAction:         'wizard-remove-extra-row',
       fspId:                'wizard-extra-add',
       extraValueWrapId:     'wizardExtraStaticWrap',
       extraValueInputId:    'wizardExtraStaticValue',
+      extraIsIdentifierId:  'wizardExtraIsIdentifier',
+      extraIsUpdateFieldId: 'wizardExtraIsUpdateField',
       saveAction:           null,
     });
 
@@ -375,39 +379,50 @@
         var odooField = selEl ? (selEl.value || '') : '';
         if (!odooField) return;
 
-        var idCheckEl    = Array.from(mappingSection.querySelectorAll('input.wizard-ff-id-check')).find(function (el) {
+        var idCheckEl  = Array.from(mappingSection.querySelectorAll('input.wizard-ff-id-check')).find(function (el) {
           return el.getAttribute('name') === 'ff-identifier-' + fid;
         });
-        var isIdentifier = idCheckEl ? idCheckEl.checked : false;
+        var updCheckEl = Array.from(mappingSection.querySelectorAll('input.wizard-ff-upd-check')).find(function (el) {
+          return el.getAttribute('name') === 'ff-update-' + fid;
+        });
+        var isIdentifier  = idCheckEl  ? idCheckEl.checked  : false;
+        var isUpdateField = updCheckEl ? updCheckEl.checked : true;
 
         mappingPromises.push(window.FSV2.api('/targets/' + targetId + '/mappings', {
           method: 'POST',
           body: JSON.stringify({
-            odoo_field:    odooField,
-            source_type:   'form',
-            source_value:  fid,
-            is_required:   false,
-            is_identifier: isIdentifier,
-            order_index:   orderIdx++,
+            odoo_field:      odooField,
+            source_type:     'form',
+            source_value:    fid,
+            is_required:     false,
+            is_identifier:   isIdentifier,
+            is_update_field: isUpdateField,
+            order_index:     orderIdx++,
           }),
         }));
       });
 
       // Extra rows: static / template values
       (S().wizard.extraMappings || []).forEach(function (em, idx) {
-        var targetName = 'extra-static-' + idx;
-        var inpEl      = document.getElementById('inp-' + targetName);
-        var staticVal  = inpEl ? ((inpEl.value || '').trim()) : (em.staticValue || '');
+        var targetName   = 'extra-static-' + idx;
+        var inpEl        = document.getElementById('inp-' + targetName);
+        var staticVal    = inpEl ? ((inpEl.value || '').trim()) : (em.staticValue || '');
         if (!staticVal) return;
-        var sourceType = /\{[^}]+\}/.test(staticVal) ? 'template' : 'static';
+        var sourceType   = /\{[^}]+\}/.test(staticVal) ? 'template' : 'static';
+        var idChkEl      = document.querySelector('input.wizard-extra-id-check[name="extra-static-identifier-' + idx + '"]');
+        var updChkEl     = document.querySelector('input.wizard-extra-upd-check[name="extra-static-update-' + idx + '"]');
+        var isIdentifier  = idChkEl  ? idChkEl.checked  : false;
+        var isUpdateField = updChkEl ? updChkEl.checked : true;
         mappingPromises.push(window.FSV2.api('/targets/' + targetId + '/mappings', {
           method: 'POST',
           body: JSON.stringify({
-            odoo_field:   em.odooField,
-            source_type:  sourceType,
-            source_value: staticVal,
-            is_required:  false,
-            order_index:  orderIdx++,
+            odoo_field:      em.odooField,
+            source_type:     sourceType,
+            source_value:    staticVal,
+            is_required:     false,
+            is_identifier:   isIdentifier,
+            is_update_field: isUpdateField,
+            order_index:     orderIdx++,
           }),
         }));
       });

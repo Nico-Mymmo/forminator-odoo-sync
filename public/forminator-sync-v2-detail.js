@@ -195,7 +195,6 @@
       odooModel:             model,
       existingFormMappings:  formMappingsByField,
       extraRows:             S().detail._extraRows,
-      showUpdateColumn:      true,
       selectClass:           'detail-ff-select',
       idCheckClass:          'detail-ff-id-check',
       updCheckClass:         'detail-ff-upd-check',
