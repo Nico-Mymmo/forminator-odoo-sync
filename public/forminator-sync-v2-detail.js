@@ -523,14 +523,13 @@
   }
 
   async function handleSaveMappings() {
-    var editor = document.getElementById('detailMappingEditor');
+    var editor = document.getElementById('detailMappingsContainer');
     if (!editor) { window.FSV2.showAlert('Editor niet gevonden.', 'error'); return; }
-    var targetId = editor.dataset.targetId;
-    if (!targetId) { window.FSV2.showAlert('Geen doel gevonden.', 'error'); return; }
-
     var targets     = (S().detail && S().detail.targets) ? S().detail.targets : [];
     var firstTarget = targets[0];
-    var model       = firstTarget ? firstTarget.odoo_model : '';
+    if (!firstTarget) { window.FSV2.showAlert('Geen doel gevonden.', 'error'); return; }
+    var targetId = String(firstTarget.id);
+    var model    = firstTarget.odoo_model || '';
 
     var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
     var flatFields = [];

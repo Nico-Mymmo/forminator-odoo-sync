@@ -34,14 +34,14 @@
       var ja  = (value === '1' || value === 'true')  ? ' selected' : '';
       var nee = (value === '0' || value === 'false') ? ' selected' : '';
       return '<select class="' + selCls + '"' + nameAttr + extra + '>' +
-        '<option value="">â€” geen â€”</option>' +
+        '<option value="">\\u2014 geen \\u2014</option>' +
         '<option value="1"' + ja  + '>Ja</option>' +
         '<option value="0"' + nee + '>Nee</option>' +
       '</select>';
     }
     if (type === 'selection' && meta.selection && meta.selection.length) {
       return '<select class="' + selCls + '"' + nameAttr + extra + '>' +
-        '<option value="">â€” geen â€”</option>' +
+        '<option value="">\\u2014 geen \\u2014</option>' +
         meta.selection.map(function (opt) {
           var k = String(opt[0]);
           var l = String(opt[1]);
