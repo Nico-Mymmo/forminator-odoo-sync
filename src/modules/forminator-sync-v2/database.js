@@ -127,6 +127,28 @@ export async function deleteIntegration(env, integrationId) {
   return true;
 }
 
+export async function getTargetById(env, targetId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.targets)
+    .select('*')
+    .eq('id', targetId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to get target: ${error.message}`);
+  return data;
+}
+
+export async function getMappingById(env, mappingId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.mappings)
+    .select('*')
+    .eq('id', mappingId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to get mapping: ${error.message}`);
+  return data;
+}
+
 export async function listResolversByIntegration(env, integrationId) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase

@@ -12,6 +12,8 @@ import {
   updateResolver,
   deleteResolver,
   listTargetsByIntegration,
+  getTargetById,
+  getMappingById,
   createTarget,
   updateTarget,
   deleteTarget,
@@ -53,6 +55,7 @@ function jsonResponse(data, status = 200) {
 function parseErrorStatus(error) {
   if (error?.code === 'NOT_FOUND') return 404;
   if (error?.code === 'VALIDATION_ERROR') return 400;
+  if (error?.code === 'CHAIN_REFERENCE_ERROR') return 422;
   if (error?.code === 'CONFLICT') return 409;
 
   const message = String(error?.message || '').toLowerCase();
@@ -109,6 +112,46 @@ async function enforceNoDuplicateResolverType(env, integrationId, resolverType, 
 async function enforceRequiredMappingsForTarget(env, targetId, targetModel) {
   const mappings = await listMappingsByTarget(env, targetId);
   validateRequiredMappingsForTarget({ odoo_model: targetModel }, mappings);
+}
+
+async function enforceChainReferenceOrder(env, targetId, sourceValue) {
+  // Validate that a previous_step_output reference points to a step with lower execution_order.
+  const currentTarget = await getTargetById(env, targetId);
+  if (!currentTarget) return; // let existing NOT_FOUND handling deal with missing target
+
+  const allTargets = await listTargetsByIntegration(env, currentTarget.integration_id);
+
+  // source_value must be 'step.<order_or_label>.record_id'
+  const match = String(sourceValue || '').match(/^step\.([^.]+)\.record_id$/);
+  if (!match) {
+    const error = new Error('previous_step_output bronwaarde moet de vorm "step.<stap_of_label>.record_id" hebben');
+    error.code = 'CHAIN_REFERENCE_ERROR';
+    throw error;
+  }
+
+  const ref = match[1];
+  const refAsNumber = Number(ref);
+
+  const referencedTarget = isNaN(refAsNumber)
+    ? allTargets.find((t) => t.label === ref)
+    : allTargets.find((t) => (t.execution_order ?? t.order_index ?? 0) === refAsNumber);
+
+  if (!referencedTarget) {
+    const error = new Error(`Vorige stap "${ref}" niet gevonden in deze integratie`);
+    error.code = 'CHAIN_REFERENCE_ERROR';
+    throw error;
+  }
+
+  const currentOrder    = currentTarget.execution_order    ?? currentTarget.order_index    ?? 0;
+  const referencedOrder = referencedTarget.execution_order ?? referencedTarget.order_index ?? 0;
+
+  if (referencedOrder >= currentOrder) {
+    const error = new Error(
+      `Stap-referentie "${ref}" (execution_order ${referencedOrder}) moet v\u00f3\u00f3r het huidige doel komen (execution_order ${currentOrder})`
+    );
+    error.code = 'CHAIN_REFERENCE_ERROR';
+    throw error;
+  }
 }
 
 export const routes = {
@@ -296,6 +339,10 @@ export const routes = {
       const payload = await readJsonBody(context.request);
       validateMappingPayload(payload);
 
+      if (payload.source_type === 'previous_step_output') {
+        await enforceChainReferenceOrder(context.env, context.params?.targetId, payload.source_value);
+      }
+
       const created = await createMapping(context.env, {
         target_id: context.params?.targetId,
         order_index: Number(payload.order_index || 0),
@@ -317,6 +364,13 @@ export const routes = {
     try {
       const payload = await readJsonBody(context.request);
       validateMappingPayload(payload);
+
+      if (payload.source_type === 'previous_step_output') {
+        const existingMapping = await getMappingById(context.env, context.params?.mappingId);
+        if (existingMapping?.target_id) {
+          await enforceChainReferenceOrder(context.env, existingMapping.target_id, payload.source_value);
+        }
+      }
 
       const updated = await updateMapping(context.env, context.params?.mappingId, {
         order_index: Number(payload.order_index || 0),
