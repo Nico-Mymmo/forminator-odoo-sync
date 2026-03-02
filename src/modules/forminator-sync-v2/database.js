@@ -181,7 +181,7 @@ export async function listTargetsByIntegration(env, integrationId) {
     .from(TABLES.targets)
     .select('*')
     .eq('integration_id', integrationId)
-    .order('order_index', { ascending: true });
+    .order('execution_order', { ascending: true, nullsFirst: false });
 
   if (error) throw new Error(`Failed to list targets: ${error.message}`);
   return ensureArray(data);
