@@ -10,6 +10,7 @@ import {
   getSubmissionById,
   listDueRetrySubmissions,
   listMappingsByTarget,
+  listSubmissionTargetResults,
   transitionSubmissionStatus,
   updateSubmission
 } from './database.js';
@@ -19,7 +20,7 @@ import {
   computePayloadHash
 } from './idempotency.js';
 import { classifyFailureType, computeNextRetryAt, getMaxAttemptsTotal } from './retry.js';
-import { findRecordByIdentifier, upsertRecordStrict } from './odoo-client.js';
+import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord } from './odoo-client.js';
 
 function createPermanentError(message) {
   const error = new Error(message);
@@ -159,6 +160,98 @@ function getWebinarExternalField(env) {
   return fromEnv || 'x_studio_external_id';
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PIPELINE HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Registers step output into contextObject after a successful target execution.
+// Keys written: step.<execution_order>.record_id, step.<label>.record_id (if label set),
+// step.<execution_order>.action. Identical structure is used by restoreStepOutputsFromDB.
+function registerTargetOutput(contextObject, target, result) {
+  const order = target.execution_order ?? target.order_index ?? 0;
+  contextObject[`step.${order}.record_id`] = result.recordId || null;
+  contextObject[`step.${order}.action`]    = result.action;
+  const label = normalizeString(target.label);
+  if (label) {
+    contextObject[`step.${label}.record_id`] = result.recordId || null;
+    contextObject[`step.${label}.action`]    = result.action;
+  }
+}
+
+// Restores resolver-written context keys from the saved resolved_context JSON.
+// Step output keys (step.*) are excluded — those are restored from DB via restoreStepOutputsFromDB.
+function restoreResolverContext(resolvedContextJson, contextObject) {
+  let saved;
+  try {
+    saved = typeof resolvedContextJson === 'string'
+      ? JSON.parse(resolvedContextJson)
+      : (resolvedContextJson && typeof resolvedContextJson === 'object' ? resolvedContextJson : {});
+  } catch (_) {
+    return; // corrupt resolved_context — skip silently, DB restore is the primary source
+  }
+  for (const [key, value] of Object.entries(saved)) {
+    if (key === 'resolver_logs' || key === 'target_actions' || key.startsWith('step.')) continue;
+    contextObject[key] = value;
+  }
+}
+
+// Restores step output context from fs_v2_submission_targets (primary source for retry).
+// Called after restoreResolverContext so that step outputs are available for chained targets.
+async function restoreStepOutputsFromDB(env, submissionId, sortedTargets, contextObject) {
+  const allResults = await listSubmissionTargetResults(env, submissionId);
+  // Sort by execution_order to restore in deterministic order
+  const sorted = [...allResults].sort((a, b) => {
+    const ao = a.execution_order ?? 0;
+    const bo = b.execution_order ?? 0;
+    return ao - bo;
+  });
+  for (const row of sorted) {
+    // Only restore results that represent a completed step — not aborted or missing-dependency skips
+    if (!['created', 'updated', 'skipped'].includes(row.action_result)) continue;
+    if (row.skipped_reason === 'pipeline_abort') continue;
+    if (row.skipped_reason === 'dependency_missing') continue;
+    const target = sortedTargets.find((t) => t.id === row.target_id);
+    if (!target) continue;
+    const order = row.execution_order ?? target.execution_order ?? target.order_index ?? 0;
+    contextObject[`step.${order}.record_id`] = row.odoo_record_id || null;
+    contextObject[`step.${order}.action`]    = row.action_result;
+    const label = normalizeString(target.label);
+    if (label) {
+      contextObject[`step.${label}.record_id`] = row.odoo_record_id || null;
+      contextObject[`step.${label}.action`]    = row.action_result;
+    }
+  }
+}
+
+// Checks whether all required previous_step_output mappings have a resolved value.
+// Returns { hasMissingDependency: false } or { hasMissingDependency: true, field, sourceValue }.
+// Also emits a console warning for previous_step_output mappings missing is_required.
+function checkRequiredDependencies(mappings, contextObject, attemptTag) {
+  for (const mapping of mappings) {
+    if (mapping.source_type !== 'previous_step_output') continue;
+    if (!mapping.is_required) {
+      console.warn(attemptTag, `[pipeline] WARNING: previous_step_output used without is_required=true on field "${mapping.odoo_field}" (source_value: "${mapping.source_value}")`);
+      continue;
+    }
+    const val = resolveContextValue(contextObject, mapping.source_value);
+    if (val === null || val === undefined) {
+      return { hasMissingDependency: true, field: mapping.odoo_field, sourceValue: mapping.source_value };
+    }
+  }
+  return { hasMissingDependency: false };
+}
+
+// Determines whether a target should be skipped in a retry run based on its last result.
+// pipeline_abort and dependency_missing are re-executed; successfully completed steps are not.
+function shouldSkipOnRetry(latestResult) {
+  if (!latestResult) return false;
+  if (!['created', 'updated', 'skipped'].includes(latestResult.action_result)) return false;
+  // These special skips must be retried — they did not complete successfully
+  if (latestResult.skipped_reason === 'pipeline_abort') return false;
+  if (latestResult.skipped_reason === 'dependency_missing') return false;
+  return true;
+}
+
 async function runResolver(env, resolver, normalizedForm, contextObject, resolverLogs) {
   const resolverType = resolver.resolver_type;
   const inputField = normalizeString(resolver.input_source_field);
@@ -240,6 +333,13 @@ function resolveMappingValue(mapping, normalizedForm, contextObject) {
       return normalizeString(normalizedForm[key]);
     });
   }
+
+  // Pipeline chaining: reads step output written by registerTargetOutput of a prior step.
+  // Architecturally identical to 'context' — delegates to resolveContextValue.
+  if (mapping.source_type === 'previous_step_output') {
+    return resolveContextValue(contextObject, mapping.source_value);
+  }
+
   return null;
 }
 
@@ -325,16 +425,16 @@ function buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject) 
 }
 
 function classifyFinalSubmissionStatus(targetResults) {
-  const failedCount = targetResults.filter((row) => row.action_result === 'failed').length;
+  const failedCount     = targetResults.filter((r) => r.action_result === 'failed').length;
+  // pipeline_abort counts as a problem — a step was blocked from running
+  const abortCount      = targetResults.filter((r) => r.skipped_reason === 'pipeline_abort').length;
 
-  if (failedCount === 0) {
-    return 'success';
-  }
+  if (failedCount === 0 && abortCount === 0) return 'success';
 
-  if (failedCount < targetResults.length) {
-    return 'partial_failed';
-  }
+  const totalProblematic = failedCount + abortCount;
+  if (totalProblematic < targetResults.length) return 'partial_failed';
 
+  // All targets either failed or were aborted — nothing succeeded
   return 'permanent_failed';
 }
 
@@ -466,11 +566,27 @@ async function runSubmissionAttempt(env, {
 
   const attemptTag = '[attempt:' + submission.id.slice(0, 8) + ']';
 
+  // Sort targets by execution_order; fall back to order_index for transitional pre-migration rows.
+  const sortedTargets = [...integrationBundle.targets].sort((a, b) => {
+    const ao = a.execution_order ?? a.order_index ?? 0;
+    const bo = b.execution_order ?? b.order_index ?? 0;
+    return ao - bo;
+  });
+
   // Resolvers are required for registration_composite targets (need context values).
   // For mapped_fields targets (contact/lead), resolvers are legacy/optional — failures are non-fatal.
-  const needsResolver = integrationBundle.targets.some((t) => t.identifier_type === 'registration_composite');
+  const needsResolver = sortedTargets.some((t) => t.identifier_type === 'registration_composite');
 
   try {
+    // ── Retry: restore context BEFORE resolver loop and target loop ─────────
+    // Primary: step outputs from fs_v2_submission_targets (authoritative).
+    // Secondary: resolver context keys from resolved_context (convenience snapshot).
+    if (isRetryAttempt) {
+      restoreResolverContext(submission.resolved_context, contextObject);
+      await restoreStepOutputsFromDB(env, submission.id, sortedTargets, contextObject);
+      console.log(attemptTag, '[retry] restored context keys:', Object.keys(contextObject).join(', ') || '(none)');
+    }
+
     for (const resolver of integrationBundle.resolvers) {
       console.log(attemptTag, 'running resolver:', resolver.resolver_type, '| required:', needsResolver);
       try {
@@ -483,49 +599,104 @@ async function runSubmissionAttempt(env, {
       }
     }
 
-    for (const target of integrationBundle.targets) {
-      console.log(attemptTag, 'processing target:', target.id, target.odoo_model);
+    for (let i = 0; i < sortedTargets.length; i++) {
+      const target      = sortedTargets[i];
+      const executionOrder = target.execution_order ?? target.order_index ?? i;
+      const opType      = target.operation_type || 'upsert';
+      const errStrategy = target.error_strategy  || 'allow_partial';
+
+      console.log(attemptTag, 'processing target:', target.id, target.odoo_model, '| op:', opType, '| order:', executionOrder);
       const mappings = await listMappingsByTarget(env, target.id);
       console.log(attemptTag, 'mappings count:', mappings.length);
 
+      // ── Retry skip ─────────────────────────────────────────────────────────
       if (isRetryAttempt) {
         const latestTargetResult = await getLatestSubmissionTargetResultByTarget(env, submission.id, target.id);
-        if (latestTargetResult && ['created', 'updated', 'skipped'].includes(latestTargetResult.action_result)) {
+        if (shouldSkipOnRetry(latestTargetResult)) {
+          console.log(attemptTag, 'retry skip target:', target.id);
           const skipResult = {
             submission_id: submission.id,
             target_id: target.id,
+            execution_order: executionOrder,
             action_result: 'skipped',
+            skipped_reason: 'retry_skip_already_successful',
             odoo_record_id: latestTargetResult.odoo_record_id || null,
-            error_detail: 'retry_skip_already_successful',
+            error_detail: null,
             processed_at: new Date().toISOString()
           };
-
           await createSubmissionTargetResult(env, skipResult);
           targetResults.push(skipResult);
           continue;
         }
       }
 
-      const identifierDomain = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
+      // ── Dependency pre-flight: required previous_step_output must be present ─
+      const depCheck = checkRequiredDependencies(mappings, contextObject, attemptTag);
+      if (depCheck.hasMissingDependency) {
+        console.log(attemptTag, 'dependency_missing on target:', target.id, '| field:', depCheck.field, '| source:', depCheck.sourceValue);
+        const depResult = {
+          submission_id: submission.id,
+          target_id: target.id,
+          execution_order: executionOrder,
+          action_result: 'skipped',
+          skipped_reason: 'dependency_missing',
+          odoo_record_id: null,
+          error_detail: `Required previous_step_output "${depCheck.sourceValue}" missing for field "${depCheck.field}"`,
+          processed_at: new Date().toISOString()
+        };
+        await createSubmissionTargetResult(env, depResult);
+        targetResults.push(depResult);
+        continue;
+      }
+
+      // ── Build values ───────────────────────────────────────────────────────
+      // 'create' op type never needs an identifier domain.
+      let identifierDomain = null;
+      if (opType !== 'create') {
+        identifierDomain = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
+      }
       const incomingValues = buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject);
       const updateValues   = buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject);
-      console.log(attemptTag, 'identifierDomain:', JSON.stringify(identifierDomain));
-      console.log(attemptTag, 'incomingValues (create):', JSON.stringify(incomingValues));
-      console.log(attemptTag, 'updateValues (update):', JSON.stringify(updateValues));
+      console.log(attemptTag, 'opType:', opType, '| identifierDomain:', JSON.stringify(identifierDomain));
+      console.log(attemptTag, 'incomingValues:', JSON.stringify(incomingValues));
+      console.log(attemptTag, 'updateValues:', JSON.stringify(updateValues));
 
+      // ── Dispatch on operation_type ─────────────────────────────────────────
       try {
-        const result = await upsertRecordStrict(env, {
-          model: target.odoo_model,
-          identifierDomain,
-          incomingValues,
-          updateValues,
-          updatePolicy: target.update_policy
-        });
+        let result;
+
+        if (opType === 'create') {
+          // Always create a new record — never searches for an existing one.
+          result = await createRecordOnly(env, {
+            model: target.odoo_model,
+            values: incomingValues,
+            updatePolicy: target.update_policy
+          });
+        } else if (opType === 'update_only') {
+          // Update if found, skip silently if not found — never creates.
+          result = await updateOnlyRecord(env, {
+            model: target.odoo_model,
+            identifierDomain,
+            values: updateValues,
+            updatePolicy: target.update_policy
+          });
+        } else {
+          // Default: upsert (find-or-create, then update).
+          result = await upsertRecordStrict(env, {
+            model: target.odoo_model,
+            identifierDomain,
+            incomingValues,
+            updateValues,
+            updatePolicy: target.update_policy
+          });
+        }
 
         const targetResult = {
           submission_id: submission.id,
           target_id: target.id,
+          execution_order: executionOrder,
           action_result: result.action,
+          skipped_reason: null,
           odoo_record_id: result.recordId || null,
           error_detail: null,
           processed_at: new Date().toISOString()
@@ -533,11 +704,18 @@ async function runSubmissionAttempt(env, {
 
         await createSubmissionTargetResult(env, targetResult);
         targetResults.push(targetResult);
+
+        // Write step output into context so downstream targets can use it.
+        registerTargetOutput(contextObject, target, result);
+        console.log(attemptTag, 'target done:', result.action, '| record_id:', result.recordId || null);
+
       } catch (targetError) {
         const targetResult = {
           submission_id: submission.id,
           target_id: target.id,
+          execution_order: executionOrder,
           action_result: 'failed',
+          skipped_reason: null,
           odoo_record_id: null,
           error_detail: targetError.message,
           processed_at: new Date().toISOString()
@@ -545,6 +723,29 @@ async function runSubmissionAttempt(env, {
 
         await createSubmissionTargetResult(env, targetResult);
         targetResults.push(targetResult);
+        console.log(attemptTag, 'target failed:', targetError.message);
+
+        // ── stop_on_error: mark all remaining targets as pipeline_abort ───
+        if (errStrategy === 'stop_on_error') {
+          console.log(attemptTag, 'stop_on_error triggered — aborting', sortedTargets.length - i - 1, 'remaining targets');
+          for (let j = i + 1; j < sortedTargets.length; j++) {
+            const abortTarget = sortedTargets[j];
+            const abortOrder  = abortTarget.execution_order ?? abortTarget.order_index ?? j;
+            const abortResult = {
+              submission_id: submission.id,
+              target_id: abortTarget.id,
+              execution_order: abortOrder,
+              action_result: 'skipped',
+              skipped_reason: 'pipeline_abort',
+              odoo_record_id: null,
+              error_detail: `Pipeline aborted by step ${executionOrder}: ${targetError.message}`,
+              processed_at: new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, abortResult);
+            targetResults.push(abortResult);
+          }
+          break;
+        }
       }
     }
 
@@ -556,11 +757,18 @@ async function runSubmissionAttempt(env, {
       resolved_context: {
         ...contextObject,
         resolver_logs: resolverLogs,
-        target_actions: targetResults.map((r) => ({
-          model: integrationBundle.targets.find((t) => t.id === r.target_id)?.odoo_model || r.target_id,
-          action: r.action_result,
-          record_id: r.odoo_record_id || null
-        }))
+        target_actions: targetResults.map((r) => {
+          const t = sortedTargets.find((t) => t.id === r.target_id);
+          return {
+            model: t?.odoo_model || r.target_id,
+            label: t?.label || null,
+            execution_order: r.execution_order ?? t?.execution_order ?? null,
+            action: r.action_result,
+            record_id: r.odoo_record_id || null,
+            skipped_reason: r.skipped_reason || null,
+            error_detail: r.error_detail || null
+          };
+        })
       },
       last_error: finalStatus === 'success' ? null : targetResults.find((row) => row.action_result === 'failed')?.error_detail || null,
       finished_at: new Date().toISOString()
