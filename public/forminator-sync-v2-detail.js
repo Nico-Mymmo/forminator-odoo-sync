@@ -106,10 +106,12 @@
   }
 
   function isChainSuggestionApplied(tid, odooField) {
+    // Check in-memory edits first
     var rows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
-    return rows.some(function (r) {
-      return r.odooField === odooField && r.sourceType === 'previous_step_output';
-    });
+    if (rows.some(function (r) { return r.odooField === odooField && r.sourceType === 'previous_step_output'; })) return true;
+    // Fall back to DB state (for collapsed cards that haven't been initialized yet)
+    var dbMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[tid]) || [];
+    return dbMappings.some(function (m) { return m.odoo_field === odooField && m.source_type === 'previous_step_output'; });
   }
 
   function renderDetail() {
@@ -1075,7 +1077,12 @@
                       : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
       var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
       if (!sourceValue) return;
-      // Skip chain rows whose source_value doesn't match the required pattern
+      // Normalize legacy chain source_value format before validating/saving
+      if (em.sourceType === 'previous_step_output') {
+        var legFix = String(sourceValue).match(/^step_(\d+)_id$/);
+        if (legFix) sourceValue = 'step.' + legFix[1] + '.record_id';
+      }
+      // Skip chain rows still not matching the required pattern after normalization
       if (em.sourceType === 'previous_step_output' && !/^step\.[^.]+\.record_id$/.test(sourceValue)) {
         console.warn('[FSV2] chain row skipped: invalid source_value', sourceValue, em);
         return;
@@ -1242,9 +1249,8 @@
       odooField:   odooField,
       odooLabel:   odooLabel || odooField,
       sourceType:  'previous_step_output',
-      staticValue: 'step_' + stepOrder + '_id',
-      label:       '\u2190 Uitvoer van ' + (stepLabel || ('Stap ' + stepOrder)),
-      isRequired:  false,
+      staticValue: 'step.' + stepOrder + '.record_id',
+      isRequired:  true,
     });
     if (integrationId) getPipelineOpen(integrationId)[String(tid)] = true;
     renderDetailMappings();
