@@ -1062,6 +1062,11 @@
                       : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
       var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
       if (!sourceValue) return;
+      // Skip chain rows whose source_value doesn't match the required pattern
+      if (em.sourceType === 'previous_step_output' && !/^step\.[^.]+\.record_id$/.test(sourceValue)) {
+        console.warn('[FSV2] chain row skipped: invalid source_value', sourceValue, em);
+        return;
+      }
       var extraIdChk  = mcEl.querySelector('input[name="det-extra-' + tid + '-identifier-' + i + '"]');
       var extraUpdChk = mcEl.querySelector('input[name="det-extra-' + tid + '-update-' + i + '"]');
       var chainReqChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-req-' + i + '"]');
