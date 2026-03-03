@@ -333,9 +333,10 @@ function resolveMappingValue(mapping, normalizedForm, contextObject) {
   }
 
   if (mapping.source_type === 'template') {
-    // Replace {field_id} placeholders with form values
+    // Replace {field_id} placeholders with form values.
+    // Use lookupFormValue (not direct key access) so that {email-1} matches form key email_1.
     return (mapping.source_value || '').replace(/\{([^}]+)\}/g, function(_, key) {
-      return normalizeString(normalizedForm[key]);
+      return lookupFormValue(normalizedForm, key);
     });
   }
 
