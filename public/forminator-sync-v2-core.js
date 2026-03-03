@@ -178,9 +178,17 @@
   function getModelCfg(modelName) {
     var cached     = (S.odooModelsCache || []).find(function (m) { return m.name === modelName; });
     var builtin    = DEFAULT_ODOO_MODELS.find(function (m) { return m.name === modelName; });
-    var defFields  = (cached && Array.isArray(cached.default_fields) && cached.default_fields.length)
-      ? cached.default_fields
-      : (builtin && Array.isArray(builtin.default_fields) ? builtin.default_fields : []);
+    // Merge: start from builtin, then apply DB overrides/additions.
+    // This ensures builtin required fields are never dropped by an older DB record.
+    var builtinFields = (builtin && Array.isArray(builtin.default_fields)) ? builtin.default_fields : [];
+    var dbFields      = (cached  && Array.isArray(cached.default_fields))  ? cached.default_fields  : [];
+    var merged = builtinFields.map(function (f) { return Object.assign({}, f); });
+    dbFields.forEach(function (df) {
+      var idx = merged.findIndex(function (f) { return f.name === df.name; });
+      if (idx >= 0) { merged[idx] = Object.assign({}, merged[idx], df); }
+      else          { merged.push(Object.assign({}, df)); }
+    });
+    var defFields = merged.length ? merged : [];
     return {
       label:           cached ? cached.label : (builtin ? builtin.label : modelName),
       description:     'Gegevens synchroniseren naar ' + (cached ? cached.label : modelName) + ' in Odoo.',
