@@ -224,9 +224,10 @@
       var chainLbl = '';
       if (chainMch) {
         var chainR     = chainMch[1];
-        var chainFound = precedingSteps.find(function (s) { return String(s.order) === chainR || s.label === chainR; });
+        var chainFoundIdx = precedingSteps.findIndex(function (s) { return String(s.order) === chainR || s.label === chainR; });
+        var chainFound = chainFoundIdx >= 0 ? precedingSteps[chainFoundIdx] : null;
         chainLbl = chainFound
-          ? ('Stap ' + chainFound.order + (chainFound.label ? ' \u2014 ' + esc(chainFound.label) : ''))
+          ? ('Stap ' + (chainFoundIdx + 1) + (chainFound.label ? ' \u2014 ' + esc(chainFound.label) : ''))
           : esc(chainRef);
       } else { chainLbl = esc(chainRef); }
       var reqName  = (cfg.extraRowPrefix || 'extra-') + 'chain-req-' + idx;
@@ -314,9 +315,9 @@
     // Chain section: dedicated block between form-fields and extra-static sections
     var chainSection = '';
     if (precedingSteps.length > 0) {
-      var stepOptions = precedingSteps.map(function (s) {
+      var stepOptions = precedingSteps.map(function (s, si) {
         var val = 'step.' + (s.label || s.order) + '.record_id';
-        var lbl = 'Stap ' + s.order + (s.label ? ' \u2014 ' + s.label : '');
+        var lbl = 'Stap ' + (si + 1) + (s.label ? ' \u2014 ' + s.label : '');
         return '<option value="' + esc(val) + '">' + esc(lbl) + '</option>';
       }).join('');
       var addChainForm =
@@ -357,7 +358,7 @@
     }
 
     var wrapOpen = cfg.targetId
-      ? '<div id="mappingEditor" data-target-id="' + esc(String(cfg.targetId)) + '">'
+      ? '<div id="mappingEditor" data-mt-target-id="' + esc(String(cfg.targetId)) + '">'
       : '<div>';
 
     container.innerHTML =
@@ -366,7 +367,7 @@
       '<div class="mb-6">' +
         '<h4 class="font-medium text-sm mb-3 flex items-center gap-2">' +
           '<i data-lucide="link" class="w-4 h-4 text-primary"></i>' +
-          (stepBadge > 0 ? ' <span class="badge badge-outline badge-sm font-mono mr-0.5">[ ' + stepBadge + ' ]</span>' : '') +
+          (stepBadge > 0 ? ' <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-neutral text-neutral-content text-xs font-bold shrink-0 mr-1">' + stepBadge + '</span>' : '') +
           ' Formuliervelden koppelen aan Odoo' +
           (!odooLoaded ? ' <span class="loading loading-xs loading-spinner ml-1"></span>' : '') +
         '</h4>' +

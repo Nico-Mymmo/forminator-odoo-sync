@@ -302,7 +302,7 @@
       // Left: badge + name + meta
       html +=         '<div class="flex items-center gap-3 min-w-0">';
       if (!isSingle) {
-        html +=           '<div class="badge badge-outline font-mono shrink-0 py-3 px-2.5 text-sm">[ ' + (idx + 1) + ' ]</div>';
+        html +=           '<span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral text-neutral-content text-sm font-bold shrink-0">' + (idx + 1) + '</span>';
       }
       html +=           '<div class="min-w-0">';
       html +=             '<div class="font-bold text-base leading-snug">' + esc(stepName) + '</div>';
@@ -940,7 +940,10 @@
           ? 'previous_step_output'
           : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
         var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
-        var isRequired  = em.isRequired || false;
+        var chainReqEl  = em.sourceType === 'previous_step_output'
+          ? container.querySelector('input[name="det-extra-' + tid + '-chain-req-' + idx + '"]')
+          : null;
+        var isRequired  = chainReqEl ? chainReqEl.checked : (em.isRequired || false);
         if (!sourceValue) return;
         var extraIdChk  = container.querySelector('input[name="det-extra-' + tid + '-identifier-' + idx + '"]');
         var extraUpdChk = container.querySelector('input[name="det-extra-' + tid + '-update-' + idx + '"]');
