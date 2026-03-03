@@ -291,21 +291,19 @@
     try {
       var body = await api('/settings/odoo-models');
       var stored = Array.isArray(body.data) ? body.data : [];
-      // Merge: start from stored list; seed defaults if empty
       if (stored.length === 0) {
+        // First run: seed defaults into DB so everything lives in the database
+        await api('/settings/odoo-models', {
+          method: 'PUT',
+          body: JSON.stringify({ models: DEFAULT_ODOO_MODELS }),
+        });
         S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
       } else {
-        // Ensure all defaults are present (merge without duplicates)
-        var merged = stored.slice();
-        DEFAULT_ODOO_MODELS.forEach(function (d) {
-          if (!merged.some(function (m) { return m.name === d.name; })) {
-            merged.push(d);
-          }
-        });
-        S.odooModelsCache = merged;
+        S.odooModelsCache = stored;
       }
     } catch (_) {
-      S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
+      // Fallback to defaults in memory if network fails
+      if (!S.odooModelsCache.length) S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
     }
   }
 

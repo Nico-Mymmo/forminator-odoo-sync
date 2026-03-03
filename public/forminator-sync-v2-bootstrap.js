@@ -186,10 +186,6 @@
       if (action === 'delete-odoo-model') {
         var delModelIdx = parseInt(btn.dataset.idx, 10);
         if (isNaN(delModelIdx)) return;
-        var modelToDelete = (S.odooModelsCache || [])[delModelIdx];
-        if (modelToDelete && (window.FSV2.DEFAULT_ODOO_MODELS || []).some(function (d) { return d.name === modelToDelete.name; })) {
-          window.FSV2.showAlert('Standaardmodellen kunnen niet worden verwijderd.', 'error'); return;
-        }
         var withoutModel = (S.odooModelsCache || []).filter(function (_, i) { return i !== delModelIdx; });
         var toSaveDel = withoutModel.filter(function (m) {
           return !(window.FSV2.DEFAULT_ODOO_MODELS || []).some(function (d) { return d.name === m.name; });

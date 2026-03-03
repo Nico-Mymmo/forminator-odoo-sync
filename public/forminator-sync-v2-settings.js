@@ -49,11 +49,8 @@
         return found ? (found.icon || 'box') : 'box';
     }
 
-    /** True when the model is a built-in default (cannot be deleted) */
-    function isDefaultModel(name) {
-        var defaults = Array.isArray(window.FSV2.DEFAULT_ODOO_MODELS) ? window.FSV2.DEFAULT_ODOO_MODELS : [];
-        return defaults.some(function (d) { return d.name === name; });
-    }
+/** True when the model is a built-in default — kept for reference but no longer blocks deletion */
+  function isDefaultModel(_name) { return false; }
 
     // ───────────────────────────────────────────────────────────────────
     // Section 1 — Odoo model registry
