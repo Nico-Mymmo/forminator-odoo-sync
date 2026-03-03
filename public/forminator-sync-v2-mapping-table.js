@@ -95,6 +95,59 @@
       (chipTarget ? placeholderChips(chipTarget, flatFields) : '') + '</div>';
   }
 
+  // ── Value-map section builder ─────────────────────────────────────────────
+  /**
+   * Bouw de inhoud van een waarde-mapping sectie.
+   *
+   * @param {Array}  choices       - [{value, label}] uit het flattened schema
+   * @param {Object} odooMeta      - Odoo veld metadata (type, selection, …) of null
+   * @param {Object} existingVmap  - Bestaande waarde-mapping { formValue: odooValue } of null
+   * @param {string} inputPrefix   - Naamprefix voor de inputs (bijv. 'det-ff-tid-vmapv-fid-')
+   * @returns {string} HTML
+   */
+  function buildVmapSectionContent(choices, odooMeta, existingVmap, inputPrefix) {
+    var odooType = (odooMeta && odooMeta.type) || '';
+    var selOpts  = (odooMeta && odooMeta.selection) || [];
+
+    var rows = choices.map(function (ch, idx) {
+      var existing  = (existingVmap && Object.prototype.hasOwnProperty.call(existingVmap, ch.value))
+        ? String(existingVmap[ch.value])
+        : '';
+      var inputName = esc(inputPrefix + idx);
+      var inputHtml;
+      if (odooType === 'selection' && selOpts.length > 0) {
+        inputHtml = '<select class="select select-bordered select-xs w-full"' +
+          ' name="' + inputName + '" data-choice-value="' + esc(ch.value) + '">' +
+          '<option value="">\u2014 leeg laten \u2014</option>' +
+          selOpts.map(function (opt) {
+            var k = String(opt[0]);
+            var l = String(opt[1]);
+            return '<option value="' + esc(k) + '"' + (existing === k ? ' selected' : '') + '>' + esc(l) + '</option>';
+          }).join('') +
+          '</select>';
+      } else {
+        var ph = odooType === 'many2one' ? 'Record ID\u2026' : 'Odoo-waarde\u2026';
+        inputHtml = '<input type="text" class="input input-bordered input-xs w-full"' +
+          ' name="' + inputName + '" data-choice-value="' + esc(ch.value) + '"' +
+          ' value="' + esc(existing) + '" placeholder="' + esc(ph) + '" />';
+      }
+      return '<div class="flex items-center gap-2">' +
+        '<span class="text-xs text-base-content/70 truncate shrink-0 max-w-[40%]"' +
+          ' title="' + esc(ch.value) + '">' + esc(ch.label || ch.value) + '</span>' +
+        '<span class="text-xs text-base-content/30 shrink-0">\u2192</span>' +
+        '<div class="flex-1 min-w-0">' + inputHtml + '</div>' +
+        '</div>';
+    });
+
+    var hint = '';
+    if (odooType === 'many2one') {
+      hint = '<p class="text-xs text-base-content/40 mt-1.5"><i data-lucide="info" class="inline w-3 h-3 -mt-0.5 mr-0.5"></i>' +
+        'Vul het numerieke Odoo record-ID in voor elke keuzoptie.</p>';
+    }
+
+    return '<div class="grid gap-1.5">' + rows.join('') + '</div>' + hint;
+  }
+
   function render(containerId, cfg) {
     var container = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
     if (!container) return;
@@ -150,14 +203,23 @@
     if (flatFields.length === 0) {
       formRowsHtml = '<tr><td colspan="5" class="text-sm text-base-content/40 italic py-3">Geen formuliervelden gevonden voor dit formulier.</td></tr>';
     } else {
-      // Partition: fields with a mapping in THIS step first, then new, then already-done-in-other-steps
+      // Partition top-level fields only (children are always rendered right after their parent).
       var groupMappedHere = [], groupNew = [], groupElsewhere = [];
       flatFields.forEach(function (f) {
+        if (f.parent_field_id) return; // skip children — injected after parent below
         var fid = String(f.field_id);
         var existing = cfg.existingFormMappings ? (cfg.existingFormMappings[fid] || null) : null;
         if (existing && existing.odoo_field) { groupMappedHere.push(f); }
         else if (alreadyElsewhere.includes(fid)) { groupElsewhere.push(f); }
         else { groupNew.push(f); }
+      });
+      // Build child-lookup for O(1) access
+      var childrenByParent = {};
+      flatFields.forEach(function (f) {
+        if (!f.parent_field_id) return;
+        var pid = String(f.parent_field_id);
+        if (!childrenByParent[pid]) childrenByParent[pid] = [];
+        childrenByParent[pid].push(f);
       });
 
       function buildFormRow(f, greyedOut) {
@@ -168,16 +230,23 @@
         var isIdentifier  = greyedOut ? false : (existing ? !!existing.is_identifier          : autoIds.includes(suggested));
         var isUpdateField = greyedOut ? false : (existing ? existing.is_update_field !== false : true);
         var isSubField    = !topLevel.find(function (pf) { return String(pf.field_id) === fid; });
+        var parentFid     = f.parent_field_id ? String(f.parent_field_id) : null;
         var rowCls = greyedOut
-          ? ' class="opacity-40"'
-          : (isSubField ? ' class="bg-base-200/30"' : '');
-        return '<tr' + rowCls + '>' +
+          ? 'opacity-40 form-field-row'
+          : (isSubField ? 'bg-base-200/30 form-field-row' : 'form-field-row');
+        var trAttrs = parentFid ? ' data-composite-child="' + esc(parentFid) + '" style="display:none"' : '';
+
+        var mainRow = '<tr class="' + rowCls + '"' + trAttrs + '>' +
           '<td class="align-middle py-2">' +
             (isSubField ? '<span class="text-base-content/40 mr-1">\u21b3</span>' : '') +
             '<span class="font-medium text-sm">' + esc(f.label || fid) + '</span>' +
             (greyedOut ? '<br><span class="text-xs text-base-content/40 italic">Al gekoppeld in een andere stap</span>' : '<br><span class="font-mono text-xs text-base-content/40">' + esc(fid) + '</span>') +
           '</td>' +
-          '<td class="py-1"><span class="badge badge-ghost badge-xs">' + esc(f.type || '') + '</span></td>' +
+          '<td class="py-1">' +
+            '<span class="badge badge-ghost badge-xs">' + esc(f.type || '') + '</span>' +
+            ((!greyedOut && f.choices && f.choices.length > 0) ? ' <span class="badge badge-info badge-xs opacity-70" title="Dit veld heeft keuzeopties. Koppel aan een Odoo selectieveld of koppelveld om de waarden te mappen.">\u21c4</span>' : '') +
+            (f.is_composite ? ' <button type="button" class="badge badge-warning badge-xs opacity-60 cursor-pointer hover:opacity-100 composite-toggle" data-composite-toggle="' + esc(fid) + '" title="Klik om individuele subvelden te tonen/verbergen">\u22ef\u00a0<span class="composite-arrow">\u25b8</span></button>' : '') +
+          '</td>' +
           '<td class="py-1.5 min-w-52">' +
             window.OpenVME.FieldPicker.render(
               (cfg.namePrefix || 'ff-') + 'fsp-' + fid,
@@ -199,18 +268,71 @@
             (isUpdateField ? ' checked' : '') + (greyedOut ? ' disabled' : '') + '>' +
           '</td>' +
         '</tr>';
+
+        // ── Waarde-map rij (voor keuzevelden, niet uitgegrauw) ───────────────
+        if (greyedOut || !f.choices || f.choices.length === 0) return mainRow;
+
+        var vmapInputPrefix = (cfg.namePrefix || '') + 'vmapv-' + fid + '-';
+        var existingVmap    = (existing && existing.value_map) || null;
+        var presMeta        = preselected ? (odooCache.find(function (fo) { return fo.name === preselected; }) || null) : null;
+        var presType        = (presMeta && presMeta.type) || '';
+        var choicesJson     = JSON.stringify(f.choices);
+
+        var vmapInnerContent;
+        if (presType === 'selection' || presType === 'many2one') {
+          vmapInnerContent = buildVmapSectionContent(f.choices, presMeta, existingVmap, vmapInputPrefix);
+        } else if (existingVmap && Object.keys(existingVmap).length > 0) {
+          // Bestaande waarde-map aanwezig maar Odoo-veld is nog niet geladen — toon text inputs
+          vmapInnerContent = buildVmapSectionContent(f.choices, null, existingVmap, vmapInputPrefix);
+        } else {
+          // Preview: toon beschikbare keuzes als chips
+          vmapInnerContent =
+            '<div class="flex flex-wrap gap-1 items-center mb-1.5">' +
+              '<span class="text-xs text-base-content/40 shrink-0 mr-0.5">Opties:</span>' +
+              f.choices.map(function (ch) {
+                return '<span class="badge badge-ghost badge-xs" title="' + esc(String(ch.value || '')) + '">' +
+                  esc(String(ch.label || ch.value || '')) + '</span>';
+              }).join('') +
+            '</div>' +
+            '<p class="text-xs text-base-content/40 italic">Kies een Odoo <strong>selectie</strong>- of <strong>many2one</strong>-veld hierboven om de waarden te mappen.</p>';
+        }
+
+        var vmapRow = '<tr class="vmap-row"' +
+          (parentFid ? ' data-composite-child="' + esc(parentFid) + '" style="display:none"' : '') +
+          ' data-vmap-fid="' + esc(fid) + '"' +
+          ' data-vmap-input-prefix="' + esc(vmapInputPrefix) + '"' +
+          ' data-vmap-choices="' + esc(choicesJson) + '"' +
+          ' data-vmap-model="' + esc(cfg.odooModel || '') + '">' +
+          '<td colspan="5" class="pb-3 pt-0 pl-6 pr-2">' +
+            '<div class="vmap-content rounded-lg bg-base-100 border border-base-300 p-3">' +
+              '<p class="text-xs font-semibold text-base-content/60 mb-2 flex items-center gap-1">' +
+                '<i data-lucide="arrow-right-left" class="w-3 h-3"></i> Waarde-mapping' +
+              '</p>' +
+              '<div class="vmap-inner">' + vmapInnerContent + '</div>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+
+        return mainRow + vmapRow;
+      }
+
+      function buildRowWithChildren(f, greyedOut) {
+        var html = buildFormRow(f, greyedOut);
+        var kids = childrenByParent[String(f.field_id)];
+        if (kids) kids.forEach(function (child) { html += buildFormRow(child, greyedOut); });
+        return html;
       }
 
       var rows = [];
-      groupMappedHere.forEach(function (f) { rows.push(buildFormRow(f, false)); });
-      groupNew.forEach(function (f) { rows.push(buildFormRow(f, false)); });
+      groupMappedHere.forEach(function (f) { rows.push(buildRowWithChildren(f, false)); });
+      groupNew.forEach(function (f) { rows.push(buildRowWithChildren(f, false)); });
       if (groupElsewhere.length > 0) {
         rows.push(
           '<tr><td colspan="5" class="pt-3 pb-1">' +
             '<p class="text-xs text-base-content/40 font-medium">Onderstaande velden zijn al gekoppeld in een andere stap</p>' +
           '</td></tr>'
         );
-        groupElsewhere.forEach(function (f) { rows.push(buildFormRow(f, true)); });
+        groupElsewhere.forEach(function (f) { rows.push(buildRowWithChildren(f, true)); });
       }
       formRowsHtml = rows.join('');
     }
@@ -425,6 +547,22 @@
         : '') +
       '</div>';
 
+    // ── Composite toggle ─────────────────────────────────────────────────────
+    container.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-composite-toggle]');
+      if (!btn) return;
+      var pfid     = btn.getAttribute('data-composite-toggle');
+      var table    = btn.closest('table');
+      if (!table) return;
+      var expanded = btn.getAttribute('data-expanded') === '1';
+      table.querySelectorAll('[data-composite-child="' + pfid + '"]').forEach(function (r) {
+        r.style.display = expanded ? 'none' : '';
+      });
+      btn.setAttribute('data-expanded', expanded ? '0' : '1');
+      var arrow = btn.querySelector('.composite-arrow');
+      if (arrow) arrow.textContent = expanded ? '\u25b8' : '\u25be';
+    });
+
     var fspVal = document.getElementById('fsp-val-' + cfg.fspId);
     if (fspVal) {
       fspVal.addEventListener('change', function () {
@@ -437,6 +575,6 @@
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
-  window.FSV2.MappingTable = { render: render, buildOdooOpts: buildOdooOpts, placeholderChips: placeholderChips, valueInput: valueInput };
+  window.FSV2.MappingTable = { render: render, buildOdooOpts: buildOdooOpts, placeholderChips: placeholderChips, valueInput: valueInput, buildVmapSectionContent: buildVmapSectionContent };
 
 }());

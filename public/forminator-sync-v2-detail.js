@@ -47,6 +47,79 @@
          : (t.order_index    != null ? t.order_index : (fallback != null ? fallback : 0));
   }
 
+  /**
+   * Bouw { topLevel, flatFields } vanuit de ruwe WP-velden (S().detailFormFields).
+   *
+   * topLevel   = ouder-velden + gewone velden (geen composite-kinderen)
+   * flatFields = alle mappable velden: ouders + kinderen + gewone velden
+   *
+   * Composite ouders (is_composite: true) worden opgenomen met:
+   *   is_composite: true, composite_children: [field_id, ...]
+   * Composite kinderen worden opgenomen met:
+   *   parent_field_id: ouder-field_id
+   *
+   * In de MappingTable: kinderen (parent_field_id aanwezig) worden als inspringende
+   * sub-rijen getoond. De ouder wordt als top-rij getoond en samenvoegt bij gebruik
+   * alle kinderwaarden met een spatie (afgehandeld in de worker).
+   */
+  function buildDetailFlatFields(rawInput) {
+    var SKIP = window.FSV2.SKIP_TYPES;
+    var topLevel   = [];
+    var flatFields = [];
+
+    (Array.isArray(rawInput) ? rawInput : []).forEach(function (f) {
+      var type = String(f.type || '');
+      if (SKIP.includes(type)) return;
+
+      if (f.is_composite === true) {
+        var children = Array.isArray(f.children) ? f.children : [];
+        if (children.length === 0) return;
+
+        // Composite ouder: mappable als gecombineerde waarde (worker voegt samen met spatie)
+        var parentEntry = {
+          field_id:           String(f.field_id),
+          label:              String(f.label || f.field_id),
+          type:               type,
+          required:           !!f.required,
+          is_composite:       true,
+          composite_children: children.map(function (c) { return String(c.field_id); }),
+        };
+        topLevel.push(parentEntry);
+        flatFields.push(parentEntry);
+
+        // Kinderen: individueel mappable als sub-veld (inspringend in de tabel)
+        children.forEach(function (child) {
+          var childType = String(child.type || type);
+          if (SKIP.includes(childType)) return;
+          var childEntry = {
+            field_id:        String(child.field_id),
+            label:           String(child.label || child.field_id),
+            type:            childType,
+            required:        !!child.required,
+            parent_field_id: String(f.field_id),
+          };
+          // Keuzemogelijkheden doorgeven als aanwezig
+          if (Array.isArray(child.choices) && child.choices.length > 0) childEntry.choices = child.choices;
+          flatFields.push(childEntry);
+        });
+
+      } else {
+        var plain = {
+          field_id: String(f.field_id),
+          label:    String(f.label || f.field_id),
+          type:     type,
+          required: !!f.required,
+        };
+        // Keuzemogelijkheden doorgeven voor radio/checkbox/select
+        if (Array.isArray(f.choices) && f.choices.length > 0) plain.choices = f.choices;
+        topLevel.push(plain);
+        flatFields.push(plain);
+      }
+    });
+
+    return { topLevel: topLevel, flatFields: flatFields };
+  }
+
   function computeChainSuggestions(currentTarget, precedingTargets) {
     var model       = currentTarget.odoo_model;
     var suggestions = [];
@@ -278,14 +351,9 @@
     var pipelineOpen  = getPipelineOpen(integrationId);
     var isSingle      = sortedTargets.length === 1;
 
-    var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
-    var flatFields = [];
-    rawFf.forEach(function (f) {
-      if (!window.FSV2.SKIP_TYPES.includes(f.type)) flatFields.push(f);
-      if (Array.isArray(f.sub_fields)) f.sub_fields.forEach(function (sf) {
-        if (!window.FSV2.SKIP_TYPES.includes(sf.type)) flatFields.push(sf);
-      });
-    });
+    var _ffr       = buildDetailFlatFields(S().detailFormFields);
+    var flatFields = _ffr.flatFields;
+    var rawFf      = _ffr.topLevel;    // gebruikt als topLevelFields in MappingTable.render
 
     // ── Build card HTML ──────────────────────────────────────────────────────
     var html = '';
@@ -1018,16 +1086,8 @@
              ((b.execution_order != null ? b.execution_order : (b.order_index != null ? b.order_index : 0)));
     });
 
-    var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
-    var flatFields = [];
-    rawFf.forEach(function (f) {
-      if (!window.FSV2.SKIP_TYPES.includes(f.type)) flatFields.push(f);
-      if (Array.isArray(f.sub_fields)) {
-        f.sub_fields.forEach(function (sf) {
-          if (!window.FSV2.SKIP_TYPES.includes(sf.type)) flatFields.push(sf);
-        });
-      }
-    });
+    var _ffr       = buildDetailFlatFields(S().detailFormFields);
+    var flatFields = _ffr.flatFields;
 
     for (var i = 0; i < sortedForChain.length; i++) {
       var target   = sortedForChain[i];
@@ -1049,8 +1109,24 @@
         });
         var isIdentifier  = idCheckEl  ? idCheckEl.checked  : false;
         var isUpdateField = updCheckEl ? updCheckEl.checked : true;
+
+        // Collect value_map for choice fields
+        var vmapInputs = container.querySelectorAll('[name^="det-ff-' + tid + '-vmapv-' + fid + '-"]');
+        var valueMap = null;
+        if (vmapInputs.length > 0) {
+          var vmapObj = {};
+          var hasAny  = false;
+          vmapInputs.forEach(function (inp) {
+            var choiceVal = inp.dataset.choiceValue;
+            var odooVal   = (inp.value || '').trim();
+            if (choiceVal && odooVal) { vmapObj[choiceVal] = odooVal; hasAny = true; }
+          });
+          if (hasAny) valueMap = vmapObj;
+        }
+
         newMappings.push({ odoo_field: odooField, source_type: 'form', source_value: fid,
-          is_identifier: isIdentifier, is_update_field: isUpdateField, is_required: false, order_index: orderIdx++ });
+          is_identifier: isIdentifier, is_update_field: isUpdateField, is_required: false, order_index: orderIdx++,
+          value_map: valueMap });
       });
 
       // Extra / chain rows (keyed per target).
@@ -1145,14 +1221,8 @@
       });
     }
 
-    var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
-    var flatFields = [];
-    rawFf.forEach(function (f) {
-      if (!window.FSV2.SKIP_TYPES.includes(f.type)) flatFields.push(f);
-      if (Array.isArray(f.sub_fields)) f.sub_fields.forEach(function (sf) {
-        if (!window.FSV2.SKIP_TYPES.includes(sf.type)) flatFields.push(sf);
-      });
-    });
+    var _ffr       = buildDetailFlatFields(S().detailFormFields);
+    var flatFields = _ffr.flatFields;
 
     var newMappings = [];
     var orderIdx    = 0;
@@ -1168,11 +1238,27 @@
       var updChk = Array.from(mcEl.querySelectorAll('input.detail-ff-upd-check')).find(function (el) {
         return el.getAttribute('name') === 'det-' + tid + '-update-' + fid;
       });
+
+      // Collect value_map for choice fields
+      var vmapInputs = mcEl.querySelectorAll('[name^="det-ff-' + tid + '-vmapv-' + fid + '-"]');
+      var valueMap = null;
+      if (vmapInputs.length > 0) {
+        var vmapObj = {};
+        var hasAny  = false;
+        vmapInputs.forEach(function (inp) {
+          var choiceVal = inp.dataset.choiceValue;
+          var odooVal   = (inp.value || '').trim();
+          if (choiceVal && odooVal) { vmapObj[choiceVal] = odooVal; hasAny = true; }
+        });
+        if (hasAny) valueMap = vmapObj;
+      }
+
       newMappings.push({
         odoo_field: odooField, source_type: 'form', source_value: fid,
         is_identifier: idChk ? idChk.checked : false,
         is_update_field: updChk ? updChk.checked : true,
         is_required: false, order_index: orderIdx++,
+        value_map: valueMap,
       });
     });
 

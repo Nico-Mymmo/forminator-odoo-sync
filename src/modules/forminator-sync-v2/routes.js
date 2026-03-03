@@ -350,7 +350,10 @@ export const routes = {
         source_value: payload.source_value,
         is_required: payload.is_required === true,
         is_identifier: payload.is_identifier === true,
-        is_update_field: payload.is_update_field !== false
+        is_update_field: payload.is_update_field !== false,
+        value_map: (payload.value_map && typeof payload.value_map === 'object' && !Array.isArray(payload.value_map))
+          ? payload.value_map
+          : null,
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -378,7 +381,10 @@ export const routes = {
         source_value: payload.source_value,
         is_required: payload.is_required === true,
         is_identifier: payload.is_identifier === true,
-        is_update_field: payload.is_update_field !== false
+        is_update_field: payload.is_update_field !== false,
+        value_map: (payload.value_map && typeof payload.value_map === 'object' && !Array.isArray(payload.value_map))
+          ? payload.value_map
+          : null,
       });
 
       return jsonResponse({ success: true, data: updated });

@@ -546,6 +546,63 @@
     window.OpenVME.FieldPicker.filterList(srch.dataset.fspId, srch.value);
   });
 
+  // ── FieldPicker change → waarde-map rij tonen/bijwerken ──────────────────
+  // Wanneer de gebruiker een Odoo-veld selecteert voor een formulierveld met keuzemogelijkheden,
+  // tonen we automatisch de waarde-mapping sectie als het een selection- of many2one-veld is.
+  document.addEventListener('change', function (event) {
+    var inp = event.target;
+    if (!inp || inp.tagName !== 'INPUT' || inp.type !== 'hidden') return;
+    if (!inp.id || inp.id.indexOf('fsp-val-') !== 0) return;
+
+    // Zoek de dichtstbijzijnde form-field TR (heeft class 'form-field-row')
+    var mainRow = inp.closest('tr.form-field-row');
+    if (!mainRow) return;
+    var vmapRow = mainRow.nextElementSibling;
+    if (!vmapRow || !vmapRow.classList.contains('vmap-row')) return;
+
+    var selectedField  = inp.value || '';
+    var model          = vmapRow.dataset.vmapModel || '';
+    var choicesJson    = vmapRow.dataset.vmapChoices || '[]';
+    var inputPrefix    = vmapRow.dataset.vmapInputPrefix || '';
+    var odooCache      = (S.odooFieldsCache || {})[model] || [];
+    var odooMeta       = selectedField ? (odooCache.find(function (f) { return f.name === selectedField; }) || null) : null;
+    var odooType       = (odooMeta && odooMeta.type) || '';
+    var showVmap       = (odooType === 'selection' || odooType === 'many2one');
+
+    var vmapInner = vmapRow.querySelector('.vmap-inner');
+    if (!vmapInner) return;
+
+    if (!showVmap) {
+      var previewChoices;
+      try { previewChoices = JSON.parse(choicesJson); } catch (_) { previewChoices = []; }
+      vmapInner.innerHTML =
+        '<div class="flex flex-wrap gap-1 items-center mb-1.5">' +
+          '<span class="text-xs text-base-content/40 shrink-0 mr-0.5">Opties:</span>' +
+          previewChoices.map(function (ch) {
+            return '<span class="badge badge-ghost badge-xs" title="' + window.FSV2.esc(String(ch.value || '')) + '">' +
+              window.FSV2.esc(String(ch.label || ch.value || '')) + '</span>';
+          }).join('') +
+        '</div>' +
+        '<p class="text-xs text-base-content/40 italic">Kies een Odoo <strong>selectie</strong>- of <strong>many2one</strong>-veld hierboven om de waarden te mappen.</p>';
+      return;
+    }
+
+    var choices;
+    try { choices = JSON.parse(choicesJson); } catch (_) { choices = []; }
+
+    // Lees bestaande ingevulde waarden (vóór rebuild) om te bewaren
+    var existingVmap = {};
+    vmapRow.querySelectorAll('[data-choice-value]').forEach(function (el) {
+      if (el.dataset.choiceValue && el.value) existingVmap[el.dataset.choiceValue] = el.value;
+    });
+
+    vmapInner.innerHTML = window.FSV2.MappingTable.buildVmapSectionContent(
+      choices, odooMeta, Object.keys(existingVmap).length > 0 ? existingVmap : null, inputPrefix
+    );
+    vmapRow.style.display = '';
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // BOOTSTRAP
   // ═══════════════════════════════════════════════════════════════════════════

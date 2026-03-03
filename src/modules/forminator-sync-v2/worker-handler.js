@@ -81,14 +81,37 @@ function normalizeFormValues(payload) {
       continue;
     }
 
-    if (value && typeof value === 'object') {
-      if (Object.prototype.hasOwnProperty.call(value, 'value')) {
-        normalized[key] = normalizeString(value.value);
+    // Forminator stuurt soms composite velden als JSON-string: '{"first-name":"nico",...}'
+    // Probeer te parsen zodat de object-branch hieronder het correct afhandelt.
+    let parsedValue = value;
+    if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+      try { parsedValue = JSON.parse(value); } catch (_) { /* geen geldig JSON — gewoon als string behandelen */ }
+    }
+
+    if (parsedValue && typeof parsedValue === 'object') {
+      if (Object.prototype.hasOwnProperty.call(parsedValue, 'value')) {
+        normalized[key] = normalizeString(parsedValue.value);
+      } else if (Array.isArray(parsedValue)) {
+        normalized[key] = parsedValue.map((entry) => normalizeString(entry)).join(', ');
+      } else {
+        // Composite veld (bijv. name-1: {"first-name": "Nico", "last-name": "Plinke"})
+        // Samenvoegen van alle niet-lege waarden met een spatie.
+        // Subvelden (name-1.fname, name-1.lname) worden OOK afzonderlijk opgenomen.
+        const parts = Object.entries(parsedValue)
+          .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
+          .map(([subKey, v]) => {
+            const joined = normalizeString(String(v));
+            // Subveld opslaan als key.subKey (bijv. 'name-1.first-name')
+            if (joined.length > 0) normalized[key + '.' + subKey] = joined;
+            return joined;
+          })
+          .filter((s) => s.length > 0);
+        if (parts.length > 0) normalized[key] = parts.join(' ');
       }
       continue;
     }
 
-    normalized[key] = normalizeString(value);
+    normalized[key] = normalizeString(parsedValue ?? value);
   }
 
   return normalized;
@@ -316,7 +339,16 @@ async function runResolver(env, resolver, normalizedForm, contextObject, resolve
 
 function resolveMappingValue(mapping, normalizedForm, contextObject) {
   if (mapping.source_type === 'form') {
-    return lookupFormValue(normalizedForm, mapping.source_value);
+    const raw = lookupFormValue(normalizedForm, mapping.source_value);
+    // Pas value_map toe als aanwezig: formulierwaarde → Odoo-waarde.
+    // Handig voor keuzevelden (radio/checkbox/select) gekoppeld aan selection- of many2one-velden.
+    // Fallback: als de waarde niet in de map staat, wordt de ruwe formulierwaarde gebruikt.
+    if (raw && mapping.value_map && typeof mapping.value_map === 'object') {
+      if (Object.prototype.hasOwnProperty.call(mapping.value_map, raw)) {
+        return mapping.value_map[raw];
+      }
+    }
+    return raw;
   }
 
   if (mapping.source_type === 'context') {
