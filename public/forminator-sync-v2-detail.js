@@ -501,6 +501,27 @@
             isUpdateField: m.is_update_field !== false,
           };
         });
+
+        // Inject missing required default_fields as empty template rows
+        var modelCfgForReq = window.FSV2.getModelCfg(model);
+        if (Array.isArray(modelCfgForReq.default_fields)) {
+          var allMappedFields = targetMappings.map(function (m) { return m.odoo_field; });
+          modelCfgForReq.default_fields.forEach(function (df) {
+            if (!df.required) return;
+            if (allMappedFields.includes(df.name)) return;
+            if (S().detail._extraRowsByTarget[tid].some(function (r) { return r.odooField === df.name; })) return;
+            var meta = odooCache.find(function (f) { return f.name === df.name; });
+            S().detail._extraRowsByTarget[tid].push({
+              odooField:     df.name,
+              odooLabel:     (meta && meta.label) || df.label || df.name,
+              staticValue:   '',
+              sourceType:    'template',
+              isRequired:    true,
+              isIdentifier:  false,
+              isUpdateField: true,
+            });
+          });
+        }
       }
 
       var precedingSteps = sortedTargets.slice(0, idx).map(function (t) {
