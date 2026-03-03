@@ -8,7 +8,6 @@ const TABLES = {
   submissions:     'fs_v2_submissions',
   submissionTargets: 'fs_v2_submission_targets',
   wpConnections:   'wp_connections',
-  modelDefaults:   'fs_v2_model_defaults',
   odooModels:      'fs_v2_odoo_models',
   modelLinks:      'fs_v2_model_links',
 };
@@ -600,33 +599,17 @@ export async function deleteWpConnection(env, id) {
   return { deleted: true };
 }
 
-// ─── Model defaults ─────────────────────────────────────────────────────────
-
+// ─── Model defaults (reads/writes default_fields on fs_v2_odoo_models) ────────
+//  getModelDefaults left as compatibility shim — reads default_fields column.
 export async function getModelDefaults(env, model) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
-    .from(TABLES.modelDefaults)
-    .select('*')
-    .eq('odoo_model', model)
+    .from(TABLES.odooModels)
+    .select('default_fields')
+    .eq('name', model)
     .maybeSingle();
-
   if (error) throw new Error(`Failed to get model defaults: ${error.message}`);
-  return data || null;
-}
-
-export async function upsertModelDefaults(env, model, fields) {
-  const supabase = getSupabase(env);
-  const { data, error } = await supabase
-    .from(TABLES.modelDefaults)
-    .upsert(
-      { odoo_model: model, fields, updated_at: new Date().toISOString() },
-      { onConflict: 'odoo_model' }
-    )
-    .select('*')
-    .single();
-
-  if (error) throw new Error(`Failed to upsert model defaults: ${error.message}`);
-  return data;
+  return data ? { fields: data.default_fields || [] } : null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -688,10 +671,20 @@ export async function getOdooModels(env) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
     .from(TABLES.odooModels)
-    .select('name, label, icon, sort_order')
+    .select('name, label, icon, sort_order, default_fields, identifier_type, update_policy, resolver_type')
     .order('sort_order', { ascending: true });
   if (error) throw new Error(`Failed to get odoo models: ${error.message}`);
   return ensureArray(data);
+}
+
+export async function updateModelDefaultFields(env, model, fields) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.odooModels)
+    .update({ default_fields: fields })
+    .eq('name', model);
+  if (error) throw new Error(`Failed to update model default fields: ${error.message}`);
+  return true;
 }
 
 export async function upsertOdooModels(env, models) {

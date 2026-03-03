@@ -95,8 +95,8 @@
       if (action === 'goto-defaults') {
         window.FSV2.showView('defaults');
         window.FSV2.renderDefaults();
-        Object.keys(window.FSV2.ACTIONS).forEach(function (key) {
-          var m = window.FSV2.ACTIONS[key].odoo_model;
+        (S.odooModelsCache || []).forEach(function (model) {
+          var m = model.name;
           if (!S.odooFieldsCache[m] || !S.odooFieldsCache[m].length) {
             window.FSV2.loadOdooFieldsForModel(m).then(function () {
               if (S.view === 'defaults') window.FSV2.renderDefaults();
@@ -414,7 +414,8 @@
         var mdModel = btn.dataset.model;
         var mdEd    = S.modelDefaultsEditors[mdModel] || { open: false, pendingFields: [] };
         if (!mdEd.open) {
-          var saved2 = S.modelDefaultsCache[mdModel] || [];
+          var mdEntry = (S.odooModelsCache || []).find(function (m) { return m.name === mdModel; }) || {};
+          var saved2 = mdEntry.default_fields || [];
           mdEd.pendingFields = saved2.map(function (f) { return Object.assign({}, f); });
           mdEd.open = true;
           S.modelDefaultsEditors[mdModel] = mdEd;
@@ -476,39 +477,9 @@
           method: 'PUT',
           body: JSON.stringify({ model: saveModel, fields: saveFields }),
         });
-        S.modelDefaultsCache[saveModel]   = saveFields;
         S.modelDefaultsEditors[saveModel] = { open: false, pendingFields: [] };
         window.FSV2.showAlert('Standaard velden opgeslagen.', 'success');
         window.FSV2.renderDefaults();
-        return;
-      }
-      if (action === 'wizard-add-extra-row') {
-        var fieldInput  = document.getElementById('fsp-val-wizard-extra-add');
-        var extraStatic = document.getElementById('wizardExtraStaticValue');
-        var fieldName   = fieldInput ? fieldInput.value.trim() : '';
-        if (!fieldName) { window.FSV2.showAlert('Kies een Odoo veld uit de lijst.', 'error'); return; }
-        var actionCfg2 = window.FSV2.ACTIONS[S.wizard.action];
-        var cached2    = actionCfg2 ? (S.odooFieldsCache[actionCfg2.odoo_model] || []) : [];
-        var matched    = cached2.find(function (f) { return f.name === fieldName; });
-        S.wizard.extraMappings = S.wizard.extraMappings || [];
-        S.wizard.extraMappings.push({
-          odooField:   fieldName,
-          odooLabel:   matched ? matched.label : fieldName,
-          staticValue: extraStatic ? extraStatic.value.trim() : '',
-        });
-        window.FSV2.renderWizard();
-        return;
-      }
-      if (action === 'wizard-remove-extra-row') {
-        var removeIdx = parseInt(btn.dataset.idx, 10);
-        if (!isNaN(removeIdx) && S.wizard.extraMappings) {
-          S.wizard.extraMappings.forEach(function (em, i) {
-            var inpEl = document.getElementById('inp-extra-static-' + i);
-            if (inpEl) em.staticValue = (inpEl.value || '').trim();
-          });
-          S.wizard.extraMappings.splice(removeIdx, 1);
-          window.FSV2.renderWizard();
-        }
         return;
       }
     };
@@ -534,13 +505,12 @@
   // ═══════════════════════════════════════════════════════════════════════════
   async function bootstrap() {
     try {
-      await Promise.all(
-        [window.FSV2.loadSites(), window.FSV2.loadIntegrations(), window.FSV2.loadModelLinks(), window.FSV2.loadOdooModels()].concat(
-          Object.keys(window.FSV2.ACTIONS).map(function (key) {
-            return window.FSV2.loadModelDefaultsForModel(window.FSV2.ACTIONS[key].odoo_model);
-          })
-        )
-      );
+      await Promise.all([
+        window.FSV2.loadSites(),
+        window.FSV2.loadIntegrations(),
+        window.FSV2.loadModelLinks(),
+        window.FSV2.loadOdooModels(),
+      ]);
       window.FSV2.showView('list');
       window.FSV2.renderList();
     } catch (err) {

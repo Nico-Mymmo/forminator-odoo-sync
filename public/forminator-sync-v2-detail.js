@@ -27,18 +27,13 @@
     return _pipelineOpenById[String(integrationId)];
   }
 
-  var MODEL_LABELS = {
-    'res.partner':            'Contact',
-    'crm.lead':               'Lead',
-    'x_webinarregistrations': 'Webinaarinschrijving',
-  };
-  /** Returns a human label for an Odoo model, using live cache or static fallback. */
+  /** Returns a human label for an Odoo model from live registry cache. */
   function modelLabel(modelName) {
     var cache = (window.FSV2.S && Array.isArray(window.FSV2.S.odooModelsCache))
       ? window.FSV2.S.odooModelsCache : [];
     var found = cache.find(function (m) { return m.name === modelName; });
     if (found && found.label) return found.label;
-    return MODEL_LABELS[modelName] || modelName;
+    return modelName;
   }
   var POLICY_LABELS = {
     'always_overwrite': 'Bijwerken of aanmaken',
@@ -124,13 +119,7 @@
 
     var resolver  = resolvers[0];
     var target    = targets[0];
-    var actionCfg = null;
-    var actionKeys = Object.keys(window.FSV2.ACTIONS);
-    for (var i = 0; i < actionKeys.length; i++) {
-      var cfg = window.FSV2.ACTIONS[actionKeys[i]];
-      if (resolver && cfg.resolver_type === resolver.resolver_type) { actionCfg = cfg; break; }
-      if (target   && cfg.odoo_model    === target.odoo_model)      { actionCfg = cfg; break; }
-    }
+    var actionCfg = target ? (window.FSV2.getModelCfg(target.odoo_model) || null) : null;
 
     var headerEl = document.getElementById('detailHeader');
     if (headerEl) {
@@ -968,7 +957,7 @@
       chosenModel = firstTarget.odoo_model;
     }
 
-    var actionCfg = window.FSV2.getActionCfgByModel(chosenModel);
+    var actionCfg = window.FSV2.getModelCfg(chosenModel) || {};
 
     var maxOrder = targets.reduce(function (max, t) {
       return Math.max(max, getTargetOrder(t, 0));

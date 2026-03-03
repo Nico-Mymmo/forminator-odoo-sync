@@ -32,7 +32,7 @@ import {
   createWpConnection,
   deleteWpConnection,
   getModelDefaults,
-  upsertModelDefaults,
+  updateModelDefaultFields,
   getModelLinks,
   upsertModelLinks,
   getOdooModels,
@@ -697,22 +697,6 @@ export const routes = {
   },
 
   /**
-   * GET /api/settings/model-defaults?model=res.partner
-   * Returns the saved default field list for a given Odoo model from Supabase.
-   */
-  'GET /api/settings/model-defaults': async (context) => {
-    try {
-      const url   = new URL(context.request.url);
-      const model = (url.searchParams.get('model') || '').trim();
-      if (!model) return jsonResponse({ success: false, error: 'model param required' }, 400);
-      const row = await getModelDefaults(context.env, model);
-      return jsonResponse({ success: true, data: row ? row.fields : [] });
-    } catch (error) {
-      return jsonResponse({ success: false, error: error.message }, 500);
-    }
-  },
-
-  /**
    * PUT /api/settings/model-defaults
    * Saves the default field list for a given Odoo model (upsert).
    * Body: { model: "res.partner", fields: [{name, label, required, order_index}] }
@@ -723,8 +707,8 @@ export const routes = {
       const { model, fields } = body;
       if (!model)                 return jsonResponse({ success: false, error: 'model required' }, 400);
       if (!Array.isArray(fields)) return jsonResponse({ success: false, error: 'fields must be an array' }, 400);
-      const row = await upsertModelDefaults(context.env, model, fields);
-      return jsonResponse({ success: true, data: row });
+      await updateModelDefaultFields(context.env, model, fields);
+      return jsonResponse({ success: true, data: { model, fields } });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);
     }

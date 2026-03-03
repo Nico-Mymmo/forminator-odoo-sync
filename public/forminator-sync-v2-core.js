@@ -1,8 +1,8 @@
 /**
  * Forminator Sync V2 \u2014 Core
  *
- * Defines window.FSV2 with: ACTIONS, SKIP_TYPES, S (state), utilities,
- * auto-suggest logic, Odoo field cache loaders, model-defaults loader,
+ * Defines window.FSV2 with: SKIP_TYPES, S (state), utilities,
+ * auto-suggest logic, Odoo field/model cache loaders, getModelCfg,
  * renderList, renderConnections, renderDefaults, loadSites, loadIntegrations.
  *
  * Dependencies: field-picker-component.js (OpenVME.FieldPicker)
@@ -10,66 +10,6 @@
 (function () {
   'use strict';
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ACTION CONFIG \u2014 maps user-facing choices to internal V2 model config
-  // ═══════════════════════════════════════════════════════════════════════════
-  var ACTIONS = {
-    contact: {
-      label: 'Contact aanmaken / updaten',
-      description: 'Formuliergegevens opslaan of bijwerken als contact in Odoo.',
-      icon: 'user',
-      badge: 'res.partner',
-      badgeClass: 'badge-info',
-      odoo_model: 'res.partner',
-      identifier_type: 'mapped_fields',
-      update_policy: 'always_overwrite',
-      odooFields: [
-        { field: 'name',   label: 'Naam',     required: false },
-        { field: 'email',  label: 'E-mail',   required: false },
-        { field: 'phone',  label: 'Telefoon', required: false },
-        { field: 'mobile', label: 'Mobiel',   required: false },
-        { field: 'street', label: 'Straat',   required: false },
-        { field: 'city',   label: 'Stad',     required: false },
-        { field: 'zip',    label: 'Postcode', required: false },
-      ],
-    },
-    lead: {
-      label: 'Lead aanmaken',
-      description: 'Maak een nieuwe verkooplead aan in Odoo CRM.',
-      icon: 'trending-up',
-      badge: 'crm.lead',
-      badgeClass: 'badge-success',
-      odoo_model: 'crm.lead',
-      identifier_type: 'mapped_fields',
-      update_policy: 'always_overwrite',
-      odooFields: [
-        { field: 'partner_name', label: 'Naam',               required: false },
-        { field: 'email_from',   label: 'E-mail',             required: true  },
-        { field: 'phone',        label: 'Telefoon',           required: false },
-        { field: 'description',  label: 'Bericht / Notities', required: false },
-      ],
-    },
-    webinar: {
-      label: 'Webinaarinschrijving',
-      description: 'Registreer de contactpersoon voor een webinar in Odoo.',
-      icon: 'video',
-      badge: 'x_webinar',
-      badgeClass: 'badge-warning',
-      resolver_type: 'webinar_by_external_id',
-      input_source_field: 'webinar_id',
-      create_if_missing: false,
-      output_context_key: 'context.webinar_id',
-      odoo_model: 'x_webinarregistrations',
-      identifier_type: 'registration_composite',
-      update_policy: 'always_overwrite',
-      odooFields: [
-        { field: 'partner_id', label: 'Contact',          required: true  },
-        { field: 'webinar_id', label: 'Webinar',          required: true  },
-        { field: 'x_name',     label: 'Naam deelnemer',   required: false },
-        { field: 'x_email',    label: 'E-mail deelnemer', required: false },
-      ],
-    },
-  };
 
   var SKIP_TYPES = ['page-break', 'group', 'html', 'section', 'captcha'];
 
@@ -95,10 +35,9 @@
     detailFormFields: null,  // null=not fetched, 'loading'=busy, [{...}]=done
     webhookConfig: null,     // cached result of GET /api/webhook-config
     odooFieldsCache: {},
-    modelDefaultsCache: {},   // model → [{name, label, required, order_index}]
-    modelDefaultsEditors: {}, // model → {open, pendingFields}
+    modelDefaultsEditors: {}, // model \u2192 {open, pendingFields}
     modelLinksCache: [],      // [{model_a, model_b, link_field, link_label}]
-    odooModelsCache: [],      // [{name, label, icon}] — user-managed model registry
+    odooModelsCache: [],      // [{name, label, icon, default_fields, identifier_type, update_policy, resolver_type}]
     editingModelIdx: null,    // index of model row currently being edited (or null)
     editingLinkIdx:  null,    // index of link row currently being edited (or null)
   };
@@ -167,7 +106,7 @@
   }
 
   function resetWizard() {
-    S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false, extraMappings: [] };
+    S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -236,52 +175,18 @@
     return S.odooFieldsCache[model];
   }
 
-  async function loadModelDefaultsForModel(model) {
-    if (S.modelDefaultsCache[model] !== undefined) return S.modelDefaultsCache[model];
-    try {
-      var body = await api('/settings/model-defaults?model=' + encodeURIComponent(model));
-      S.modelDefaultsCache[model] = body.data || [];
-    } catch (_) {
-      S.modelDefaultsCache[model] = [];
-    }
-    return S.modelDefaultsCache[model];
-  }
-
-  /** Returns saved DB defaults for an action's model, or falls back to hardcoded cfg.odooFields. */
-  function getDefaultFieldsForAction(actionKey) {
-    var cfg  = ACTIONS[actionKey];
-    if (!cfg) return [];
-    var saved = S.modelDefaultsCache[cfg.odoo_model];
-    if (saved && saved.length > 0) {
-      return saved.map(function (f) {
-        return { field: f.name, label: f.label || f.name, required: !!f.required };
-      });
-    }
-    return cfg.odooFields;
-  }
-
-  /**
-   * Returns ACTIONS config for a given Odoo model technical name.
-   * Falls back to a minimal generated config for models not in ACTIONS
-   * (i.e. custom models added via the model registry in settings).
-   */
-  function getActionCfgByModel(modelName) {
-    var keys = Object.keys(ACTIONS);
-    for (var i = 0; i < keys.length; i++) {
-      if (ACTIONS[keys[i]].odoo_model === modelName) return ACTIONS[keys[i]];
-    }
-    // Dynamic / custom model — build minimal config from odooModelsCache
+  function getModelCfg(modelName) {
     var cached = (S.odooModelsCache || []).find(function (m) { return m.name === modelName; });
     return {
-      label:           cached ? cached.label           : modelName,
+      label:           cached ? cached.label : modelName,
       description:     'Gegevens synchroniseren naar ' + (cached ? cached.label : modelName) + ' in Odoo.',
       icon:            cached ? (cached.icon || 'box') : 'box',
-      badge:           modelName,
       badgeClass:      'badge-ghost',
       odoo_model:      modelName,
-      identifier_type: 'mapped_fields',
-      update_policy:   'always_overwrite',
-      odooFields:      [],
+      identifier_type: (cached && cached.identifier_type) ? cached.identifier_type : 'mapped_fields',
+      update_policy:   (cached && cached.update_policy)   ? cached.update_policy   : 'always_overwrite',
+      resolver_type:   (cached && cached.resolver_type)   ? cached.resolver_type   : null,
+      default_fields:  (cached && Array.isArray(cached.default_fields)) ? cached.default_fields : [],
     };
   }
 
@@ -345,21 +250,11 @@
 
     cards.innerHTML = S.integrations.map(function (row) {
       var isActive = row.is_active;
-      var actionLabel = '';
-      var actionBadgeClass = 'badge-ghost';
-      var actionIcon = 'box';
-      var actionModel = '';
-      var actionKeys = Object.keys(ACTIONS);
-      for (var i = 0; i < actionKeys.length; i++) {
-        var cfg = ACTIONS[actionKeys[i]];
-        if (cfg.resolver_type === row.resolver_type || cfg.odoo_model === row.odoo_model) {
-          actionLabel = cfg.label;
-          actionBadgeClass = cfg.badgeClass;
-          actionIcon = cfg.icon;
-          actionModel = cfg.odoo_model;
-          break;
-        }
-      }
+      var cfg = getModelCfg(row.odoo_model);
+      var actionLabel = cfg.label;
+      var actionBadgeClass = cfg.badgeClass;
+      var actionIcon = cfg.icon;
+      var actionModel = cfg.odoo_model;
 
       // Flow preview (uses shared FlowBuilder if available)
       var flowHtml = '';
@@ -454,11 +349,10 @@
     var html =
       '<p class="text-sm text-base-content/60 mb-5">Stel per Odoo model in welke velden standaard als rijen verschijnen in de wizard.</p>' +
       '<div class="space-y-4">' +
-      Object.keys(ACTIONS).map(function (actionKey) {
-        var cfg      = ACTIONS[actionKey];
-        var model    = cfg.odoo_model;
+      (S.odooModelsCache || []).map(function (m) {
+        var model    = m.name;
         var editor   = S.modelDefaultsEditors[model] || {};
-        var saved    = S.modelDefaultsCache[model];
+        var saved    = Array.isArray(m.default_fields) ? m.default_fields : null;
         var modelKey = model.replace(/\./g, '_');
 
         // ── Closed state: summary ──
@@ -553,7 +447,7 @@
           '<div class="card-body p-4">' +
             '<div class="flex items-start justify-between gap-4">' +
               '<div>' +
-                '<p class="font-semibold">' + esc(cfg.label) + '</p>' +
+                '<p class="font-semibold">' + esc(m.label) + '</p>' +
                 '<p class="text-xs font-mono text-base-content/50">' + esc(model) + '</p>' +
               '</div>' +
               '<button type="button" class="btn btn-ghost btn-xs shrink-0"' +
@@ -586,12 +480,8 @@
   // EXPORT
   // ═══════════════════════════════════════════════════════════════════════════
   window.FSV2 = {
-    // Config
-    ACTIONS: ACTIONS,
     SKIP_TYPES: SKIP_TYPES,
-    // State (shared mutable reference)
     S: S,
-    // Utilities
     esc: esc,
     api: api,
     showAlert: showAlert,
@@ -599,21 +489,15 @@
     fmt: fmt,
     shortId: shortId,
     resetWizard: resetWizard,
-    // Auto-suggest
     FIELD_KEYWORDS: FIELD_KEYWORDS,
     suggestFormField: suggestFormField,
     suggestOdooField: suggestOdooField,
-    // Loaders
     loadOdooFieldsForModel: loadOdooFieldsForModel,
-    loadModelDefaultsForModel: loadModelDefaultsForModel,
-    getDefaultFieldsForAction: getDefaultFieldsForAction,
-    getActionCfgByModel: getActionCfgByModel,
+    getModelCfg: getModelCfg,
     loadSites: loadSites,
     loadIntegrations: loadIntegrations,
     loadModelLinks: loadModelLinks,
     loadOdooModels: loadOdooModels,
-    DEFAULT_ODOO_MODELS: DEFAULT_ODOO_MODELS,
-    // Renders
     renderList: renderList,
     renderConnections: renderConnections,
     renderDefaults: renderDefaults,
