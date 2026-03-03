@@ -290,19 +290,8 @@
   async function loadOdooModels() {
     try {
       var body = await api('/settings/odoo-models');
-      var stored = Array.isArray(body.data) ? body.data : [];
-      if (stored.length === 0) {
-        // First run: seed defaults into DB so everything lives in the database
-        await api('/settings/odoo-models', {
-          method: 'PUT',
-          body: JSON.stringify({ models: DEFAULT_ODOO_MODELS }),
-        });
-        S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
-      } else {
-        S.odooModelsCache = stored;
-      }
+      S.odooModelsCache = Array.isArray(body.data) ? body.data : DEFAULT_ODOO_MODELS.slice();
     } catch (_) {
-      // Fallback to defaults in memory if network fails
       if (!S.odooModelsCache.length) S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
     }
   }

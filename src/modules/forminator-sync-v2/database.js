@@ -1,14 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 
 const TABLES = {
-  integrations: 'fs_v2_integrations',
-  resolvers: 'fs_v2_resolvers',
-  targets: 'fs_v2_targets',
-  mappings: 'fs_v2_mappings',
-  submissions: 'fs_v2_submissions',
+  integrations:    'fs_v2_integrations',
+  resolvers:       'fs_v2_resolvers',
+  targets:         'fs_v2_targets',
+  mappings:        'fs_v2_mappings',
+  submissions:     'fs_v2_submissions',
   submissionTargets: 'fs_v2_submission_targets',
-  wpConnections: 'wp_connections',
-  modelDefaults: 'fs_v2_model_defaults',
+  wpConnections:   'wp_connections',
+  modelDefaults:   'fs_v2_model_defaults',
+  odooModels:      'fs_v2_odoo_models',
+  modelLinks:      'fs_v2_model_links',
 };
 
 function getSupabase(env) {
@@ -628,59 +630,103 @@ export async function upsertModelDefaults(env, model, fields) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// MODEL LINK REGISTRY
-// Stored as a JSON array under the sentinel key '__model_links__' in
-// fs_v2_model_defaults.  No schema change required.
+// MODEL LINK REGISTRY  (fs_v2_model_links)
+// Each row: model_a, model_b, link_field, link_label
 // ──────────────────────────────────────────────────────────────────────────
 export async function getModelLinks(env) {
   const supabase = getSupabase(env);
-  const { data } = await supabase
-    .from(TABLES.modelDefaults)
-    .select('fields')
-    .eq('odoo_model', '__model_links__')
-    .maybeSingle();
-  return data ? (Array.isArray(data.fields) ? data.fields : []) : [];
+  const { data, error } = await supabase
+    .from(TABLES.modelLinks)
+    .select('model_a, model_b, link_field, link_label')
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`Failed to get model links: ${error.message}`);
+  return ensureArray(data);
 }
 
 export async function upsertModelLinks(env, links) {
-  const supabase = getSupabase(env);
-  const { data, error } = await supabase
-    .from(TABLES.modelDefaults)
-    .upsert(
-      { odoo_model: '__model_links__', fields: links, updated_at: new Date().toISOString() },
-      { onConflict: 'odoo_model' }
-    )
-    .select('fields')
-    .single();
-  if (error) throw new Error(`Failed to save model links: ${error.message}`);
-  return Array.isArray(data.fields) ? data.fields : [];
+  // Full replace: compute delta then apply
+  const supabase  = getSupabase(env);
+  const { data: existing, error: fetchErr } = await supabase
+    .from(TABLES.modelLinks)
+    .select('id, model_a, model_b, link_field');
+  if (fetchErr) throw new Error(`Failed to fetch model links: ${fetchErr.message}`);
+
+  // Delete rows not present in the new list
+  const toDelete = ensureArray(existing).filter(
+    ex => !links.some(l => l.model_a === ex.model_a && l.model_b === ex.model_b && l.link_field === ex.link_field)
+  );
+  if (toDelete.length > 0) {
+    const { error: delErr } = await supabase
+      .from(TABLES.modelLinks)
+      .delete()
+      .in('id', toDelete.map(r => r.id));
+    if (delErr) throw new Error(`Failed to delete model links: ${delErr.message}`);
+  }
+
+  // Upsert all rows in the new list
+  if (links.length > 0) {
+    const rows = links.map(l => ({
+      model_a:    l.model_a,
+      model_b:    l.model_b,
+      link_field: l.link_field,
+      link_label: l.link_label || '',
+    }));
+    const { error: upsErr } = await supabase
+      .from(TABLES.modelLinks)
+      .upsert(rows, { onConflict: 'model_a,model_b,link_field' });
+    if (upsErr) throw new Error(`Failed to save model links: ${upsErr.message}`);
+  }
+
+  return getModelLinks(env);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// ODOO MODEL REGISTRY
-// Stored as JSON array under sentinel key '__odoo_models__' in fs_v2_model_defaults.
-// Each entry: { name: 'res.partner', label: 'Contact', icon: 'user' }
+// ODOO MODEL REGISTRY  (fs_v2_odoo_models)
+// Each row: name (unique), label, icon, sort_order
 // ──────────────────────────────────────────────────────────────────────────
 export async function getOdooModels(env) {
   const supabase = getSupabase(env);
-  const { data } = await supabase
-    .from(TABLES.modelDefaults)
-    .select('fields')
-    .eq('odoo_model', '__odoo_models__')
-    .maybeSingle();
-  return data ? (Array.isArray(data.fields) ? data.fields : []) : [];
+  const { data, error } = await supabase
+    .from(TABLES.odooModels)
+    .select('name, label, icon, sort_order')
+    .order('sort_order', { ascending: true });
+  if (error) throw new Error(`Failed to get odoo models: ${error.message}`);
+  return ensureArray(data);
 }
 
 export async function upsertOdooModels(env, models) {
+  // Full replace: compute delta then apply
   const supabase = getSupabase(env);
-  const { data, error } = await supabase
-    .from(TABLES.modelDefaults)
-    .upsert(
-      { odoo_model: '__odoo_models__', fields: models, updated_at: new Date().toISOString() },
-      { onConflict: 'odoo_model' }
-    )
-    .select('fields')
-    .single();
-  if (error) throw new Error(`Failed to save odoo models: ${error.message}`);
-  return Array.isArray(data.fields) ? data.fields : [];
+  const { data: existing, error: fetchErr } = await supabase
+    .from(TABLES.odooModels)
+    .select('id, name');
+  if (fetchErr) throw new Error(`Failed to fetch odoo models: ${fetchErr.message}`);
+
+  const newNames = models.map(m => m.name);
+
+  // Delete rows not present in the new list
+  const toDelete = ensureArray(existing).filter(ex => !newNames.includes(ex.name));
+  if (toDelete.length > 0) {
+    const { error: delErr } = await supabase
+      .from(TABLES.odooModels)
+      .delete()
+      .in('id', toDelete.map(r => r.id));
+    if (delErr) throw new Error(`Failed to delete odoo models: ${delErr.message}`);
+  }
+
+  // Upsert all rows in the new list
+  if (models.length > 0) {
+    const rows = models.map((m, i) => ({
+      name:       m.name,
+      label:      m.label || m.name,
+      icon:       m.icon || 'box',
+      sort_order: i,
+    }));
+    const { error: upsErr } = await supabase
+      .from(TABLES.odooModels)
+      .upsert(rows, { onConflict: 'name' });
+    if (upsErr) throw new Error(`Failed to save odoo models: ${upsErr.message}`);
+  }
+
+  return getOdooModels(env);
 }
