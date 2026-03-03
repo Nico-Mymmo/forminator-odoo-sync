@@ -260,6 +260,31 @@
     return cfg.odooFields;
   }
 
+  /**
+   * Returns ACTIONS config for a given Odoo model technical name.
+   * Falls back to a minimal generated config for models not in ACTIONS
+   * (i.e. custom models added via the model registry in settings).
+   */
+  function getActionCfgByModel(modelName) {
+    var keys = Object.keys(ACTIONS);
+    for (var i = 0; i < keys.length; i++) {
+      if (ACTIONS[keys[i]].odoo_model === modelName) return ACTIONS[keys[i]];
+    }
+    // Dynamic / custom model — build minimal config from odooModelsCache
+    var cached = (S.odooModelsCache || []).find(function (m) { return m.name === modelName; });
+    return {
+      label:           cached ? cached.label           : modelName,
+      description:     'Gegevens synchroniseren naar ' + (cached ? cached.label : modelName) + ' in Odoo.',
+      icon:            cached ? (cached.icon || 'box') : 'box',
+      badge:           modelName,
+      badgeClass:      'badge-ghost',
+      odoo_model:      modelName,
+      identifier_type: 'mapped_fields',
+      update_policy:   'always_overwrite',
+      odooFields:      [],
+    };
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // DATA LOADING
   // ═══════════════════════════════════════════════════════════════════════════
@@ -582,6 +607,7 @@
     loadOdooFieldsForModel: loadOdooFieldsForModel,
     loadModelDefaultsForModel: loadModelDefaultsForModel,
     getDefaultFieldsForAction: getDefaultFieldsForAction,
+    getActionCfgByModel: getActionCfgByModel,
     loadSites: loadSites,
     loadIntegrations: loadIntegrations,
     loadModelLinks: loadModelLinks,

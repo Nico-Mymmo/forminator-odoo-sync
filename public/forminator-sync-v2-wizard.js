@@ -131,12 +131,21 @@
     var grid = section.querySelector('.actions-grid');
     if (!grid) return;
 
-    grid.innerHTML = Object.keys(window.FSV2.ACTIONS).map(function (key) {
-      var cfg      = window.FSV2.ACTIONS[key];
-      var selected = S().wizard.action === key;
+    // Use the dynamic model registry as primary source.
+    // Fall back to the hardcoded ACTIONS list if the cache is empty (first load race).
+    var models = (S().odooModelsCache && S().odooModelsCache.length > 0)
+      ? S().odooModelsCache
+      : Object.keys(window.FSV2.ACTIONS).map(function (k) {
+          var cfg = window.FSV2.ACTIONS[k];
+          return { name: cfg.odoo_model, label: cfg.label, icon: cfg.icon };
+        });
+
+    grid.innerHTML = models.map(function (m) {
+      var cfg      = window.FSV2.getActionCfgByModel(m.name);
+      var selected = S().wizard.action === m.name;
       return '<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ' +
         (selected ? 'border-primary bg-primary/5' : 'border-transparent hover:border-base-300') +
-        '" data-action="wizard-select-action" data-key="' + esc(key) + '">' +
+        '" data-action="wizard-select-action" data-key="' + esc(m.name) + '">' +
         '<div class="card-body p-5">' +
           '<div class="flex items-center gap-3 mb-3">' +
             (selected
@@ -147,7 +156,7 @@
             '<p class="font-bold">' + esc(cfg.label) + '</p>' +
           '</div>' +
           '<p class="text-sm text-base-content/60 mb-3">' + esc(cfg.description) + '</p>' +
-          '<span class="badge ' + esc(cfg.badgeClass) + ' badge-sm">' + esc(cfg.badge) + '</span>' +
+          '<span class="badge ' + esc(cfg.badgeClass) + ' badge-sm font-mono">' + esc(cfg.odoo_model) + '</span>' +
         '</div>' +
       '</button>';
     }).join('');
@@ -169,7 +178,7 @@
     if (!S().wizard.action) { section.style.display = 'none'; return; }
     section.style.display = '';
 
-    var actionCfg = window.FSV2.ACTIONS[S().wizard.action];
+    var actionCfg = window.FSV2.getActionCfgByModel(S().wizard.action);
     if (!actionCfg) return;
 
     var allFields   = (S().wizard.form && S().wizard.form.fields) ? S().wizard.form.fields : [];
@@ -266,7 +275,7 @@
     renderWizard();
     var sec = document.getElementById('wizard-section-mapping');
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    var actionCfg = window.FSV2.ACTIONS[actionKey];
+    var actionCfg = window.FSV2.getActionCfgByModel(actionKey);
     if (actionCfg && (!S().odooFieldsCache[actionCfg.odoo_model] || !S().odooFieldsCache[actionCfg.odoo_model].length)) {
       window.FSV2.loadOdooFieldsForModel(actionCfg.odoo_model).then(function () {
         if (S().wizard.action !== actionKey) return;
@@ -284,7 +293,7 @@
       var name = ((document.getElementById('wizardName') || {}).value || '').trim();
       if (!name) throw new Error('Geef de integratie een naam.');
 
-      var cfg = window.FSV2.ACTIONS[S().wizard.action];
+      var cfg = window.FSV2.getActionCfgByModel(S().wizard.action);
       if (!cfg) throw new Error('Geen actie geselecteerd.');
       if (!S().wizard.form) throw new Error('Geen formulier geselecteerd.');
 

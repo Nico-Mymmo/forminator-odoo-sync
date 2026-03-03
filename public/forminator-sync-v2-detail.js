@@ -32,6 +32,14 @@
     'crm.lead':               'Lead',
     'x_webinarregistrations': 'Webinaarinschrijving',
   };
+  /** Returns a human label for an Odoo model, using live cache or static fallback. */
+  function modelLabel(modelName) {
+    var cache = (window.FSV2.S && Array.isArray(window.FSV2.S.odooModelsCache))
+      ? window.FSV2.S.odooModelsCache : [];
+    var found = cache.find(function (m) { return m.name === modelName; });
+    if (found && found.label) return found.label;
+    return MODEL_LABELS[modelName] || modelName;
+  }
   var POLICY_LABELS = {
     'always_overwrite': 'Bijwerken of aanmaken',
     'upsert':           'Bijwerken of aanmaken',
@@ -267,7 +275,7 @@
           '</div>';
       }
 
-      var stepName   = target.label || MODEL_LABELS[target.odoo_model] || target.odoo_model;
+      var stepName   = target.label || modelLabel(target.odoo_model);
       var policyLbl  = POLICY_LABELS[target.update_policy] || esc(target.update_policy || '');
       var preceding  = sortedTargets.slice(0, idx);
       var suggestions = isSingle ? [] : computeChainSuggestions(target, preceding);
@@ -315,29 +323,36 @@
       html +=           '</div>';
       html +=         '</div>';
 
-      // Right: reorder + toggle
-      html +=         '<div class="flex items-center gap-1 shrink-0">';
+      // Right: reorder + delete + expand toggle
+      html +=         '<div class="flex items-center gap-0.5 shrink-0">';
       if (!isSingle) {
+        // Reorder: arrow-up/arrow-down (distinct from chevron expand)
         if (!isFirst) {
-          html += '<button type="button" class="btn btn-ghost btn-xs" title="Omhoog"' +
+          html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="Omhoog"' +
             ' data-action="reorder-target-up" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
-            '<i data-lucide="chevron-up" class="w-4 h-4"></i></button>';
+            '<i data-lucide="arrow-up" class="w-3.5 h-3.5"></i></button>';
+        } else {
+          html += '<div class="w-7"></div>';
         }
         if (!isLast) {
-          html += '<button type="button" class="btn btn-ghost btn-xs" title="Omlaag"' +
+          html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="Omlaag"' +
             ' data-action="reorder-target-down" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
-            '<i data-lucide="chevron-down" class="w-4 h-4"></i></button>';
+            '<i data-lucide="arrow-down" class="w-3.5 h-3.5"></i></button>';
+        } else {
+          html += '<div class="w-7"></div>';
         }
-        html += '<div class="w-px h-4 bg-base-300 mx-0.5"></div>';
+        html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
+        // Delete step button
+        html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 text-error/50 hover:text-error hover:bg-error/10" title="Stap verwijderen"' +
+          ' data-action="delete-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+          '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
+        html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
       }
-      html += '<button type="button" class="btn btn-ghost btn-xs gap-1.5"' +
-        ' data-action="toggle-step-open" data-target-id="' + esc(tid) + '">';
-      if (isOpen) {
-        html += '<i data-lucide="chevron-up" class="w-3.5 h-3.5"></i><span class="text-xs">Inklappen</span>';
-      } else {
-        html += '<i data-lucide="settings-2" class="w-3.5 h-3.5"></i><span class="text-xs">Bewerken</span>';
-      }
-      html +=   '</button>';
+      // Expand/collapse — pure chevron icon, no text label
+      html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="' + (isOpen ? 'Inklappen' : 'Uitklappen') + '"' +
+        ' data-action="toggle-step-open" data-target-id="' + esc(tid) + '">' +
+        '<i data-lucide="' + (isOpen ? 'chevron-up' : 'chevron-down') + '" class="w-4 h-4"></i>' +
+        '</button>';
       html +=         '</div>'; // right
 
       html +=       '</div>'; // flex row
@@ -351,7 +366,7 @@
             '<div class="flex-1 min-w-0">' +
               '<span class="font-medium">Koppeling mogelijk: </span>' +
               '<code class="text-xs bg-base-200 px-1 py-0.5 rounded">' + esc(sug.odooField) + '</code>' +
-              ' <span class="text-base-content/60">\u2192 ' + esc(MODEL_LABELS[sug.relation] || sug.relation) + ' (Stap ' + esc(String(sug.stepNum)) + ')</span>' +
+              ' <span class="text-base-content/60">\u2192 ' + esc(modelLabel(sug.relation)) + ' (Stap ' + esc(String(sug.stepNum)) + ')</span>' +
             '</div>' +
             '<button type="button" class="btn btn-info btn-xs shrink-0"' +
               ' data-action="apply-chain-suggestion"' +
@@ -388,12 +403,20 @@
 
     // Stap toevoegen (max 2 targets in MVP)
     if (integrationId && sortedTargets.length < 2) {
+      var addModels = Array.isArray(window.FSV2.S.odooModelsCache) ? window.FSV2.S.odooModelsCache : window.FSV2.DEFAULT_ODOO_MODELS;
+      var modelOpts = addModels.map(function (m) {
+        return '<option value="' + esc(m.name) + '">' + esc(m.label || m.name) + ' (' + esc(m.name) + ')</option>';
+      }).join('');
       html +=
         '<div class="flex flex-col items-center my-2 select-none" aria-hidden="true">' +
           '<div class="w-px h-5 bg-base-content/20"></div>' +
           '<i data-lucide="chevron-down" class="w-4 h-4 text-base-content/30"></i>' +
         '</div>' +
-        '<div class="flex justify-center">' +
+        '<div class="flex items-center justify-center gap-2">' +
+          '<select id="addTargetModelSelect-' + esc(String(integrationId)) + '"' +
+            ' class="select select-bordered select-sm text-sm">' +
+            modelOpts +
+          '</select>' +
           '<button type="button" class="btn btn-outline btn-sm gap-1.5"' +
             ' data-action="add-target" data-integrationid="' + esc(String(integrationId)) + '">' +
             '<i data-lucide="plus" class="w-4 h-4"></i> Stap toevoegen' +
@@ -934,17 +957,28 @@
 
   async function handleAddTarget(integrationId) {
     var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
-    var firstTarget = targets[0];
-    if (!firstTarget) { window.FSV2.showAlert('Geen bestaand schrijfdoel gevonden als sjabloon.', 'error'); return; }
+
+    // Read chosen model from the inline model-select (rendered next to the button).
+    var sel       = document.getElementById('addTargetModelSelect-' + integrationId);
+    var chosenModel = sel ? sel.value : null;
+    if (!chosenModel) {
+      // Legacy fallback: copy first target's model if select not present.
+      var firstTarget = targets[0];
+      if (!firstTarget) { window.FSV2.showAlert('Kies een model voor de nieuwe stap.', 'error'); return; }
+      chosenModel = firstTarget.odoo_model;
+    }
+
+    var actionCfg = window.FSV2.getActionCfgByModel(chosenModel);
+
     var maxOrder = targets.reduce(function (max, t) {
       return Math.max(max, getTargetOrder(t, 0));
     }, 0);
     await window.FSV2.api('/integrations/' + integrationId + '/targets', {
       method: 'POST',
       body: JSON.stringify({
-        odoo_model:      firstTarget.odoo_model,
-        identifier_type: firstTarget.identifier_type || 'mapped_fields',
-        update_policy:   firstTarget.update_policy   || 'always_overwrite',
+        odoo_model:      chosenModel,
+        identifier_type: actionCfg.identifier_type || 'mapped_fields',
+        update_policy:   actionCfg.update_policy   || 'always_overwrite',
         execution_order: maxOrder + 1,
       }),
     });
@@ -1133,6 +1167,20 @@
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
+  async function handleDeleteTarget(targetId, integrationId) {
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    if (targets.length <= 1) {
+      window.FSV2.showAlert('Kan de enige stap niet verwijderen. Verwijder de volledige integratie als je deze wilt wissen.', 'warning');
+      return;
+    }
+    if (!confirm('Weet je zeker dat je deze stap wilt verwijderen? Alle veldkoppelingen van deze stap gaan ook verloren.')) return;
+    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + targetId, { method: 'DELETE' });
+    window.FSV2.showAlert('Stap verwijderd.', 'success');
+    var po = getPipelineOpen(integrationId);
+    delete po[String(targetId)];
+    await openDetail(S().activeId);
+  }
+
   function applyChainSuggestion(tid, odooField, odooLabel, stepOrder, stepLabel) {
     var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
     if (!S().detail._extraRowsByTarget)       S().detail._extraRowsByTarget = {};
@@ -1168,6 +1216,7 @@
     handleDeleteMapping:     handleDeleteMapping,
     handleSaveMappings:      handleSaveMappings,
     handleAddTarget:         handleAddTarget,
+    handleDeleteTarget:      handleDeleteTarget,
     handleSaveStepMappings:  handleSaveStepMappings,
     handleReorderTarget:     handleReorderTarget,
     toggleStepOpen:          toggleStepOpen,

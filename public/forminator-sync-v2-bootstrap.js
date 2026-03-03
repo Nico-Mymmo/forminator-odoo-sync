@@ -300,6 +300,10 @@
         await window.FSV2.handleAddTarget(btn.dataset.integrationid);
         return;
       }
+      if (action === 'delete-target') {
+        await window.FSV2.handleDeleteTarget(btn.dataset.targetId, btn.dataset.integrationId);
+        return;
+      }
       if (action === 'toggle-step-open') {
         window.FSV2.toggleStepOpen(btn.dataset.targetId);
         return;

@@ -51,12 +51,27 @@
 
     if (!steps || !steps.length) return '';
 
+    // Prefer the live odooModelsCache for icon/label lookup; hard-coded maps as fallback.
+    var modelsCache = (window.FSV2 && window.FSV2.S && Array.isArray(window.FSV2.S.odooModelsCache))
+      ? window.FSV2.S.odooModelsCache : [];
+
+    function iconFor(model) {
+      var cached = modelsCache.find(function (m) { return m.name === model; });
+      if (cached && cached.icon) return cached.icon;
+      return MODEL_ICONS[model] || 'box';
+    }
+    function labelFor(model) {
+      var cached = modelsCache.find(function (m) { return m.name === model; });
+      if (cached && cached.label) return cached.label;
+      return MODEL_LABELS[model] || model;
+    }
+
     return '<div class="flex items-center gap-1 flex-wrap">' +
       steps.map(function (step, i) {
         var model = step.model || step.odoo_model || '';
-        var icon  = MODEL_ICONS[model]  || 'box';
+        var icon  = iconFor(model);
         var color = MODEL_COLORS[model] || 'text-base-content/60';
-        var lbl   = MODEL_LABELS[model] || model;
+        var lbl   = labelFor(model);
         var name  = (opts.showLabels !== false) ? (step.label || step.name || '') : '';
 
         return (i > 0
