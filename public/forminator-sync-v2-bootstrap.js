@@ -346,6 +346,11 @@
         var detModel   = detTarget ? detTarget.odoo_model : '';
         var detCached  = S.odooFieldsCache[detModel] || [];
         var detMatched = detCached.find(function (f) { return f.name === detFieldName; });
+        var detStaticVal = detExtraStatic ? detExtraStatic.value : '';
+        if (!detStaticVal) {
+          window.FSV2.showAlert('Voer eerst een waarde in (of kies Ja/Nee) voordat je het veld toevoegt.', 'warning');
+          return;
+        }
         var detIsIdentifier  = !!(document.getElementById('detExtraIsIdentifier-' + detTid)  || {}).checked;
         var detIsUpdateField = (document.getElementById('detExtraIsUpdateField-' + detTid) || { checked: true }).checked;
         S.detail._extraRowsByTarget = S.detail._extraRowsByTarget || {};
@@ -353,7 +358,7 @@
         S.detail._extraRowsByTarget[detTid].push({
           odooField:     detFieldName,
           odooLabel:     detMatched ? detMatched.label : detFieldName,
-          staticValue:   detExtraStatic ? detExtraStatic.value.trim() : '',
+          staticValue:   detStaticVal.trim(),
           sourceType:    'static',
           isIdentifier:  detIsIdentifier,
           isUpdateField: detIsUpdateField,

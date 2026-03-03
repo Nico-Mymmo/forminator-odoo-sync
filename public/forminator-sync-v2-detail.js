@@ -620,7 +620,9 @@
     function buildTimelineRow(sub) {
       var shortId = window.FSV2.shortId(sub.id);
       var ctx;
-      try { ctx = JSON.parse(sub.resolved_context || '{}'); } catch (e2) { ctx = {}; }
+      // resolved_context can arrive as a JSONB object (Supabase) or serialized JSON string.
+      var rc = sub.resolved_context;
+      try { ctx = (rc && typeof rc === 'object') ? rc : JSON.parse(rc || '{}'); } catch (e2) { ctx = {}; }
       var actions  = ctx.target_actions || [];
       var payload  = parsePayload(sub);
       var pKeys    = Object.keys(payload).filter(function (k) { return payload[k] && k !== 'nonce'; }).slice(0, 5);
@@ -654,6 +656,13 @@
             error_detail:    null
           };
         });
+      }
+
+      // If every step is missing an action, don't show phantom "niet uitgevoerd" rows
+      // for success submissions — just note no details were stored.
+      var allActionsNull = stepsToShow.length > 0 && stepsToShow.every(function (a) { return !a.action; });
+      if (allActionsNull && !isFailed) {
+        stepsToShow = [];
       }
 
       var timelineHtml = stepsToShow.length
