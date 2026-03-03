@@ -1,7 +1,7 @@
 const RESOLVER_TYPES = ['partner_by_email', 'webinar_by_external_id'];
 const TARGET_MODELS = ['crm.lead', 'res.partner', 'x_webinarregistrations'];
-const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty'];
-const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields'];
+const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty', 'upsert'];
+const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields', 'odoo_id'];
 const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_output'];
 
 function hasValue(value) {
