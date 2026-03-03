@@ -50,12 +50,12 @@
     var selCls   = 'select select-bordered select-sm w-full';
     var inpCls   = 'input input-bordered input-sm w-full';
     if (type === 'boolean') {
-      var ja  = (value === '1' || value === 'true')  ? ' selected' : '';
-      var nee = (value === '0' || value === 'false') ? ' selected' : '';
+      var ja  = (value === 'true'  || value === '1') ? ' selected' : '';
+      var nee = (value === 'false' || value === '0') ? ' selected' : '';
       return '<select class="' + selCls + '"' + nameAttr + extra + '>'
         + '<option value="">&mdash; geen &mdash;</option>'
-        + '<option value="1"' + ja  + '>Ja</option>'
-        + '<option value="0"' + nee + '>Nee</option>'
+        + '<option value="true"'  + ja  + '>Ja</option>'
+        + '<option value="false"' + nee + '>Nee</option>'
         + '</select>';
     }
     if (type === 'selection' && meta.selection && meta.selection.length) {
@@ -234,6 +234,7 @@
           : esc(chainRef);
       } else { chainLbl = esc(chainRef); }
       var reqName  = (cfg.extraRowPrefix || 'extra-') + 'chain-req-' + idx;
+      var idName   = (cfg.extraRowPrefix || 'extra-') + 'chain-id-'  + idx;
       var warnText = (!em.isRequired)
         ? '<p class="text-xs text-warning/80 mt-1.5 flex items-center gap-1 leading-snug"><i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i>\u00a0Niet verplicht: als de vorige stap niets aanmaakte, wordt dit veld leeg gelaten maar gaat de stap w\u00e9l door.</p>'
         : '';
@@ -245,6 +246,10 @@
           ' <span class="font-mono text-xs text-base-content/40">(' + esc(em.odooField) + ')</span>' +
           ' \u2190 ID van <strong>' + chainLbl + '</strong></p>' +
           '<label class="flex items-center gap-2 mt-1.5 cursor-pointer">' +
+            '<input type="checkbox" class="checkbox checkbox-xs" name="' + esc(idName) + '"' + (em.isIdentifier !== false ? ' checked' : '') + '>' +
+            '<span class="text-xs text-base-content/60 font-medium">Zoekcriterium \u2014 gebruik deze ID om een bestaand record te zoeken (aanbevolen)</span>' +
+          '</label>' +
+          '<label class="flex items-center gap-2 mt-1 cursor-pointer">' +
             '<input type="checkbox" class="checkbox checkbox-xs" name="' + esc(reqName) + '"' + (em.isRequired ? ' checked' : '') + '>' +
             '<span class="text-xs text-base-content/60">Verplicht \u2014 als de vorige stap mislukt of niets aanmaakte, wordt ook deze stap overgeslagen</span>' +
           '</label>' +

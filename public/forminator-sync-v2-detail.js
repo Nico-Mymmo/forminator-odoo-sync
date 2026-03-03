@@ -1130,12 +1130,13 @@
       var extraIdChk  = mcEl.querySelector('input[name="det-extra-' + tid + '-identifier-' + i + '"]');
       var extraUpdChk = mcEl.querySelector('input[name="det-extra-' + tid + '-update-' + i + '"]');
       var chainReqChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-req-' + i + '"]');
+      var chainIdChk  = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-id-'  + i + '"]');
       var isRequired  = em.sourceType === 'previous_step_output'
         ? (chainReqChk ? chainReqChk.checked : (em.isRequired || false))
         : false;
       newMappings.push({
         odoo_field: em.odooField, source_type: sourceType, source_value: sourceValue,
-        is_identifier: em.sourceType === 'previous_step_output' ? false : (extraIdChk ? extraIdChk.checked : false),
+        is_identifier: em.sourceType === 'previous_step_output' ? (chainIdChk ? chainIdChk.checked : true) : (extraIdChk ? extraIdChk.checked : false),
         is_update_field: em.sourceType === 'previous_step_output' ? true : (extraUpdChk ? extraUpdChk.checked : true),
         is_required: isRequired, order_index: orderIdx++,
       });
@@ -1150,7 +1151,7 @@
     var needsId = newOpType === 'upsert' || newOpType === 'update_only';
     var hasId   = newMappings.some(function (m) { return m.is_identifier; });
     if (needsId && !hasId && newMappings.length > 0) {
-      window.FSV2.showAlert('Let op: geen veld als identifier gemarkeerd. Bij upsert/update is minstens één identifier verplicht.', 'warning');
+      window.FSV2.showAlert('Let op: geen zoekcriterium (identifier) ingesteld. Bij “zoeken/bijwerken” is minstens één zoekcriterium verplicht — tik het slotje-icoon aan of gebruik de ID van de vorige stap als zoekcriterium.', 'warning');
     }
 
     window.FSV2.showAlert('Stap opgeslagen.', 'success');
@@ -1298,6 +1299,7 @@
       sourceType:  'previous_step_output',
       staticValue: 'step.' + stepOrder + '.record_id',
       isRequired:  true,
+      isIdentifier: true,
     });
     if (integrationId) getPipelineOpen(integrationId)[String(tid)] = true;
     renderDetailMappings();
