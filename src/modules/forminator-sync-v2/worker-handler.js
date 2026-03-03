@@ -324,7 +324,12 @@ function resolveMappingValue(mapping, normalizedForm, contextObject) {
   }
 
   if (mapping.source_type === 'static') {
-    return mapping.source_value;
+    // Coerce boolean-looking strings so Odoo receives true JS booleans.
+    // In Python (Odoo XML-RPC), bool("0") === True — so we must send actual booleans.
+    const v = mapping.source_value;
+    if (v === 'true'  || v === '1') return true;
+    if (v === 'false' || v === '0') return false;
+    return v;
   }
 
   if (mapping.source_type === 'template') {
