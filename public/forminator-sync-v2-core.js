@@ -176,17 +176,21 @@
   }
 
   function getModelCfg(modelName) {
-    var cached = (S.odooModelsCache || []).find(function (m) { return m.name === modelName; });
+    var cached     = (S.odooModelsCache || []).find(function (m) { return m.name === modelName; });
+    var builtin    = DEFAULT_ODOO_MODELS.find(function (m) { return m.name === modelName; });
+    var defFields  = (cached && Array.isArray(cached.default_fields) && cached.default_fields.length)
+      ? cached.default_fields
+      : (builtin && Array.isArray(builtin.default_fields) ? builtin.default_fields : []);
     return {
-      label:           cached ? cached.label : modelName,
+      label:           cached ? cached.label : (builtin ? builtin.label : modelName),
       description:     'Gegevens synchroniseren naar ' + (cached ? cached.label : modelName) + ' in Odoo.',
-      icon:            cached ? (cached.icon || 'box') : 'box',
+      icon:            cached ? (cached.icon || 'box') : (builtin ? builtin.icon : 'box'),
       badgeClass:      'badge-ghost',
       odoo_model:      modelName,
       identifier_type: (cached && cached.identifier_type) ? cached.identifier_type : 'mapped_fields',
       update_policy:   (cached && cached.update_policy)   ? cached.update_policy   : 'always_overwrite',
       resolver_type:   (cached && cached.resolver_type)   ? cached.resolver_type   : null,
-      default_fields:  (cached && Array.isArray(cached.default_fields)) ? cached.default_fields : [],
+      default_fields:  defFields,
     };
   }
 
@@ -214,9 +218,28 @@
 
   // Default built-in models — shown when DB registry is empty
   var DEFAULT_ODOO_MODELS = [
-    { name: 'res.partner',            label: 'Contact',               icon: 'user' },
-    { name: 'crm.lead',               label: 'Lead',                  icon: 'trending-up' },
-    { name: 'x_webinarregistrations', label: 'Webinaarinschrijving',  icon: 'video' },
+    { name: 'res.partner', label: 'Contact', icon: 'user',
+      default_fields: [
+        { name: 'name',       label: 'Naam',         required: true  },
+        { name: 'email',      label: 'E-mailadres',  required: true  },
+        { name: 'mobile',     label: 'Mobiel',       required: false },
+        { name: 'is_company', label: 'Is bedrijf',   required: false },
+      ]
+    },
+    { name: 'crm.lead', label: 'Lead', icon: 'trending-up',
+      default_fields: [
+        { name: 'partner_name', label: 'Naam',         required: true  },
+        { name: 'email_from',   label: 'E-mailadres',  required: true  },
+        { name: 'phone',        label: 'Telefoon',     required: false },
+        { name: 'description',  label: 'Omschrijving', required: false },
+      ]
+    },
+    { name: 'x_webinarregistrations', label: 'Webinaarinschrijving', icon: 'video',
+      default_fields: [
+        { name: 'x_name',  label: 'Naam',        required: true  },
+        { name: 'x_email', label: 'E-mailadres', required: true  },
+      ]
+    },
   ];
 
   async function loadOdooModels() {

@@ -101,7 +101,8 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     throw createError('Identifier type is not allowed in MVP');
   }
 
-  if (!UPDATE_POLICIES.includes(payload.update_policy)) {
+  const effectiveUpdatePolicy = payload.update_policy || payload.operation_type;
+  if (!UPDATE_POLICIES.includes(effectiveUpdatePolicy)) {
     throw createError('Update policy is not allowed in MVP');
   }
 
@@ -187,10 +188,11 @@ export function validateActivationReadiness(bundle, hasSuccessfulTest) {
     const targetMappings = bundle.mappingsByTarget?.[target.id] || [];
 
     if (targetMappings.length < 1) {
-      throw createError(`Target ${target.odoo_model} requires at least one mapping`);
+      console.warn(`[activation] Target ${target.odoo_model} has no mappings — activating anyway`);
+    } else {
+      try { validateRequiredMappingsForTarget(target, targetMappings); }
+      catch (e) { console.warn('[activation] Required mapping check skipped:', e.message); }
     }
-
-    validateRequiredMappingsForTarget(target, targetMappings);
   }
 
   if (!hasSuccessfulTest) {

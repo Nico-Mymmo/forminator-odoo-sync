@@ -32,6 +32,7 @@
     renderWizardSites();
     renderWizardForms();
     renderWizardActions();
+    renderWizardMapping();
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
@@ -162,6 +163,69 @@
     if (mappingSec) mappingSec.style.display = S().wizard.action ? '' : 'none';
   }
 
+  function renderWizardMapping() {
+    var container = document.getElementById('wizardMappingTable');
+    if (!container) return;
+
+    var action = S().wizard.action;
+    if (!action) { container.innerHTML = ''; return; }
+
+    var cfg           = window.FSV2.getModelCfg(action);
+    var defaultFields = (cfg && Array.isArray(cfg.default_fields)) ? cfg.default_fields : [];
+    var formFields    = (S().wizard.form && Array.isArray(S().wizard.form.fields))
+      ? S().wizard.form.fields.filter(function (f) { return !window.FSV2.SKIP_TYPES.includes(f.type); })
+      : [];
+
+    if (defaultFields.length === 0) {
+      container.innerHTML = '<p class="text-sm text-base-content/60 italic">Geen standaard velden voor dit model \u2014 stel koppelingen in na aanmaken.</p>';
+      return;
+    }
+
+    // Auto-suggest on first render per field
+    if (!S().wizard.fieldMappings) S().wizard.fieldMappings = {};
+    defaultFields.forEach(function (f) {
+      if (!(f.name in S().wizard.fieldMappings)) {
+        S().wizard.fieldMappings[f.name] = window.FSV2.suggestFormField(f.name, formFields);
+      }
+    });
+
+    var rows = defaultFields.map(function (f) {
+      var current = S().wizard.fieldMappings[f.name] || '';
+      var opts = '<option value="">\u2014 geen koppeling \u2014</option>' +
+        formFields.map(function (ff) {
+          return '<option value="' + esc(ff.field_id) + '"' + (current === ff.field_id ? ' selected' : '') + '>'
+            + esc(ff.label || ff.field_id) + ' (' + esc(ff.field_id) + ')</option>';
+        }).join('');
+      return '<tr>' +
+        '<td class="py-1.5 pr-4 whitespace-nowrap">' +
+          '<span class="font-mono text-xs">' + esc(f.name) + '</span>' +
+          (f.required ? ' <span class="text-error text-xs">*</span>' : '') +
+        '</td>' +
+        '<td class="py-1">' +
+          '<select class="select select-bordered select-sm w-full text-xs" data-odoo-field="' + esc(f.name) + '">' +
+            opts +
+          '</select>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+
+    container.innerHTML =
+      '<table class="table table-xs w-full">' +
+        '<thead><tr>' +
+          '<th class="text-xs">Odoo-veld</th>' +
+          '<th class="text-xs">Formulierveld</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>';
+
+    container.querySelectorAll('select[data-odoo-field]').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        if (!S().wizard.fieldMappings) S().wizard.fieldMappings = {};
+        S().wizard.fieldMappings[sel.getAttribute('data-odoo-field')] = sel.value;
+      });
+    });
+  }
+
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // WIZARD ACTIONS
@@ -188,9 +252,10 @@
   }
 
   function wizardSelectForm(formId, formName, fields) {
-    S().wizard.form   = { form_id: formId, form_name: formName, fields: fields };
-    S().wizard.action = null;
-    S().wizard.step   = 3;
+    S().wizard.form         = { form_id: formId, form_name: formName, fields: fields };
+    S().wizard.action       = null;
+    S().wizard.fieldMappings = {};
+    S().wizard.step         = 3;
     var nameInput = document.getElementById('wizardName');
     if (nameInput) nameInput.value = '';
     renderWizard();
@@ -199,8 +264,9 @@
   }
 
   function wizardSelectAction(actionKey) {
-    S().wizard.action = actionKey;
-    S().wizard.step   = 3;
+    S().wizard.action        = actionKey;
+    S().wizard.fieldMappings = {};
+    S().wizard.step          = 3;
     renderWizard();
     // Show the name + submit section
     var mappingSec = document.getElementById('wizard-section-mapping');
@@ -267,16 +333,18 @@
       });
       var targetId = targetRes.data.id;
 
-      // Stap 4 — pas default_fields toe als startkoppelingen
+      // Stap 4 — pas default_fields toe als startkoppelingen (met wizard-geselecteerde form-velden)
       var defaultFields = cfg.default_fields || [];
+      var fieldMappings = S().wizard.fieldMappings || {};
       if (defaultFields.length > 0) {
         await Promise.all(defaultFields.map(function (f, i) {
+          var sv = fieldMappings[f.name] || '';
           return window.FSV2.api('/targets/' + targetId + '/mappings', {
             method: 'POST',
             body: JSON.stringify({
               odoo_field:      f.name,
-              source_type:     'static',
-              source_value:    '',
+              source_type:     sv ? 'forminator_field' : 'static',
+              source_value:    sv,
               is_required:     !!f.required,
               is_identifier:   false,
               is_update_field: true,
@@ -323,6 +391,7 @@
     renderWizardSteps:    renderWizardSteps,
     renderWizardSites:    renderWizardSites,
     renderWizardForms:    renderWizardForms,
+    renderWizardMapping:  renderWizardMapping,
     renderWizardActions:  renderWizardActions,
     wizardSelectSite:     wizardSelectSite,
     wizardSelectForm:     wizardSelectForm,
