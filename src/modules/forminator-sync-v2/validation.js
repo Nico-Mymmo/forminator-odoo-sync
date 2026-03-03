@@ -1,8 +1,8 @@
 const RESOLVER_TYPES = ['partner_by_email', 'webinar_by_external_id'];
 const TARGET_MODELS = ['crm.lead', 'res.partner', 'x_webinarregistrations'];
-const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty'];
-const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields'];
-const SOURCE_TYPES = ['form', 'context', 'static', 'template'];
+const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty', 'upsert'];
+const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields', 'odoo_id'];
+const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_output'];
 
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== '';
@@ -22,7 +22,7 @@ export function getMvpConstants() {
     identifierTypes: [...IDENTIFIER_TYPES],
     sourceTypes: [...SOURCE_TYPES],
     maxResolversPerIntegration: 2,
-    maxTargetsPerIntegration: 2
+    maxTargetsPerIntegration: 10
   };
 }
 
@@ -84,20 +84,25 @@ export function validateResolverPayload(payload) {
   }
 }
 
-export function validateTargetPayload(payload) {
+export function validateTargetPayload(payload, { allowedModels } = {}) {
   if (!payload || typeof payload !== 'object') {
     throw createError('Invalid target payload');
   }
 
-  if (!TARGET_MODELS.includes(payload.odoo_model)) {
-    throw createError('Target model is not allowed in MVP');
+  // Use caller-supplied allowedModels (from DB) when available, else fall back to static list
+  const modelList = (Array.isArray(allowedModels) && allowedModels.length)
+    ? allowedModels
+    : TARGET_MODELS;
+  if (!modelList.includes(payload.odoo_model)) {
+    throw createError('Target model is not allowed: ' + payload.odoo_model);
   }
 
   if (!IDENTIFIER_TYPES.includes(payload.identifier_type)) {
     throw createError('Identifier type is not allowed in MVP');
   }
 
-  if (!UPDATE_POLICIES.includes(payload.update_policy)) {
+  const effectiveUpdatePolicy = payload.update_policy || payload.operation_type;
+  if (!UPDATE_POLICIES.includes(effectiveUpdatePolicy)) {
     throw createError('Update policy is not allowed in MVP');
   }
 
@@ -165,20 +170,8 @@ export function validateActivationReadiness(bundle, hasSuccessfulTest) {
   const resolvers = bundle.resolvers || [];
   const targets = bundle.targets || [];
 
-  if (resolvers.length < 1) {
-    throw createError('At least one herkenning is required before activation');
-  }
-
-  if (resolvers.length > 2) {
-    throw createError('MVP allows maximum two herkenningen per integratie');
-  }
-
   if (targets.length < 1) {
     throw createError('At least one schrijfdoel is required before activation');
-  }
-
-  if (targets.length > 2) {
-    throw createError('MVP allows maximum two schrijfdoelen per integratie');
   }
 
   const resolverTypeSet = new Set();
@@ -195,13 +188,14 @@ export function validateActivationReadiness(bundle, hasSuccessfulTest) {
     const targetMappings = bundle.mappingsByTarget?.[target.id] || [];
 
     if (targetMappings.length < 1) {
-      throw createError(`Target ${target.odoo_model} requires at least one mapping`);
+      console.warn(`[activation] Target ${target.odoo_model} has no mappings — activating anyway`);
+    } else {
+      try { validateRequiredMappingsForTarget(target, targetMappings); }
+      catch (e) { console.warn('[activation] Required mapping check skipped:', e.message); }
     }
-
-    validateRequiredMappingsForTarget(target, targetMappings);
   }
 
   if (!hasSuccessfulTest) {
-    throw createError('Activation blocked: run a successful test first');
+    console.warn('[activation] No successful test submission yet — activating anyway');
   }
 }

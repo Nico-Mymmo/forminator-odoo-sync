@@ -12,6 +12,8 @@ import {
   updateResolver,
   deleteResolver,
   listTargetsByIntegration,
+  getTargetById,
+  getMappingById,
   createTarget,
   updateTarget,
   deleteTarget,
@@ -30,7 +32,11 @@ import {
   createWpConnection,
   deleteWpConnection,
   getModelDefaults,
-  upsertModelDefaults,
+  updateModelDefaultFields,
+  getModelLinks,
+  upsertModelLinks,
+  getOdooModels,
+  upsertOdooModels,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -38,7 +44,6 @@ import {
   validateResolverPayload,
   validateTargetPayload,
   validateMappingPayload,
-  validateRequiredMappingsForTarget
 } from './validation.js';
 import { forminatorSyncV2UI } from './ui.js';
 import { handleForminatorV2Webhook, processDueRetries, replaySubmission } from './worker-handler.js';
@@ -53,6 +58,7 @@ function jsonResponse(data, status = 200) {
 function parseErrorStatus(error) {
   if (error?.code === 'NOT_FOUND') return 404;
   if (error?.code === 'VALIDATION_ERROR') return 400;
+  if (error?.code === 'CHAIN_REFERENCE_ERROR') return 422;
   if (error?.code === 'CONFLICT') return 409;
 
   const message = String(error?.message || '').toLowerCase();
@@ -87,13 +93,8 @@ async function enforceMvpLimitsOnResolvers(env, integrationId) {
   }
 }
 
-async function enforceMvpLimitsOnTargets(env, integrationId) {
-  const targets = await listTargetsByIntegration(env, integrationId);
-  if (targets.length >= 2) {
-    const error = new Error('MVP allows maximum two schrijfdoelen per integratie');
-    error.code = 'VALIDATION_ERROR';
-    throw error;
-  }
+async function enforceMvpLimitsOnTargets(_env, _integrationId) {
+  // No hard limit on number of targets
 }
 
 async function enforceNoDuplicateResolverType(env, integrationId, resolverType, currentResolverId = null) {
@@ -106,9 +107,44 @@ async function enforceNoDuplicateResolverType(env, integrationId, resolverType, 
   }
 }
 
-async function enforceRequiredMappingsForTarget(env, targetId, targetModel) {
-  const mappings = await listMappingsByTarget(env, targetId);
-  validateRequiredMappingsForTarget({ odoo_model: targetModel }, mappings);
+async function enforceChainReferenceOrder(env, targetId, sourceValue) {
+  // Validate that a previous_step_output reference points to a step with lower execution_order.
+  const currentTarget = await getTargetById(env, targetId);
+  if (!currentTarget) return; // let existing NOT_FOUND handling deal with missing target
+
+  const allTargets = await listTargetsByIntegration(env, currentTarget.integration_id);
+
+  // source_value must be 'step.<order_or_label>.record_id'
+  const match = String(sourceValue || '').match(/^step\.([^.]+)\.record_id$/);
+  if (!match) {
+    const error = new Error('previous_step_output bronwaarde moet de vorm "step.<stap_of_label>.record_id" hebben');
+    error.code = 'CHAIN_REFERENCE_ERROR';
+    throw error;
+  }
+
+  const ref = match[1];
+  const refAsNumber = Number(ref);
+
+  const referencedTarget = isNaN(refAsNumber)
+    ? allTargets.find((t) => t.label === ref)
+    : allTargets.find((t) => (t.execution_order ?? t.order_index ?? 0) === refAsNumber);
+
+  if (!referencedTarget) {
+    const error = new Error(`Vorige stap "${ref}" niet gevonden in deze integratie`);
+    error.code = 'CHAIN_REFERENCE_ERROR';
+    throw error;
+  }
+
+  const currentOrder    = currentTarget.execution_order    ?? currentTarget.order_index    ?? 0;
+  const referencedOrder = referencedTarget.execution_order ?? referencedTarget.order_index ?? 0;
+
+  if (referencedOrder >= currentOrder) {
+    const error = new Error(
+      `Stap-referentie "${ref}" (execution_order ${referencedOrder}) moet v\u00f3\u00f3r het huidige doel komen (execution_order ${currentOrder})`
+    );
+    error.code = 'CHAIN_REFERENCE_ERROR';
+    throw error;
+  }
 }
 
 export const routes = {
@@ -244,7 +280,9 @@ export const routes = {
       await enforceMvpLimitsOnTargets(context.env, integrationId);
 
       const payload = await readJsonBody(context.request);
-      validateTargetPayload(payload);
+      const storedModels = await getOdooModels(context.env);
+      const allowedModels = storedModels.map(m => m.name);
+      validateTargetPayload(payload, { allowedModels });
 
       const created = await createTarget(context.env, {
         integration_id: integrationId,
@@ -252,7 +290,9 @@ export const routes = {
         odoo_model: payload.odoo_model,
         identifier_type: payload.identifier_type,
         update_policy: payload.update_policy,
-        is_enabled: true
+        operation_type: payload.operation_type || 'upsert',
+        is_enabled: true,
+        ...(payload.execution_order !== undefined ? { execution_order: Number(payload.execution_order) } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -264,17 +304,19 @@ export const routes = {
   'PUT /api/integrations/:id/targets/:targetId': async (context) => {
     try {
       const payload = await readJsonBody(context.request);
-      validateTargetPayload(payload);
+      const storedModels = await getOdooModels(context.env);
+      const allowedModels = storedModels.map(m => m.name);
+      validateTargetPayload(payload, { allowedModels });
 
       const updated = await updateTarget(context.env, context.params?.targetId, {
         order_index: Number(payload.order_index || 0),
         odoo_model: payload.odoo_model,
         identifier_type: payload.identifier_type,
         update_policy: payload.update_policy,
-        is_enabled: payload.is_enabled !== false
+        operation_type: payload.operation_type || 'upsert',
+        is_enabled: payload.is_enabled !== false,
+        ...(payload.execution_order !== undefined ? { execution_order: payload.execution_order === null ? null : Number(payload.execution_order) } : {}),
       });
-
-      await enforceRequiredMappingsForTarget(context.env, context.params?.targetId, payload.odoo_model);
 
       return jsonResponse({ success: true, data: updated });
     } catch (error) {
@@ -295,6 +337,10 @@ export const routes = {
     try {
       const payload = await readJsonBody(context.request);
       validateMappingPayload(payload);
+
+      if (payload.source_type === 'previous_step_output') {
+        await enforceChainReferenceOrder(context.env, context.params?.targetId, payload.source_value);
+      }
 
       const created = await createMapping(context.env, {
         target_id: context.params?.targetId,
@@ -317,6 +363,13 @@ export const routes = {
     try {
       const payload = await readJsonBody(context.request);
       validateMappingPayload(payload);
+
+      if (payload.source_type === 'previous_step_output') {
+        const existingMapping = await getMappingById(context.env, context.params?.mappingId);
+        if (existingMapping?.target_id) {
+          await enforceChainReferenceOrder(context.env, existingMapping.target_id, payload.source_value);
+        }
+      }
 
       const updated = await updateMapping(context.env, context.params?.mappingId, {
         order_index: Number(payload.order_index || 0),
@@ -633,22 +686,6 @@ export const routes = {
   },
 
   /**
-   * GET /api/settings/model-defaults?model=res.partner
-   * Returns the saved default field list for a given Odoo model from Supabase.
-   */
-  'GET /api/settings/model-defaults': async (context) => {
-    try {
-      const url   = new URL(context.request.url);
-      const model = (url.searchParams.get('model') || '').trim();
-      if (!model) return jsonResponse({ success: false, error: 'model param required' }, 400);
-      const row = await getModelDefaults(context.env, model);
-      return jsonResponse({ success: true, data: row ? row.fields : [] });
-    } catch (error) {
-      return jsonResponse({ success: false, error: error.message }, 500);
-    }
-  },
-
-  /**
    * PUT /api/settings/model-defaults
    * Saves the default field list for a given Odoo model (upsert).
    * Body: { model: "res.partner", fields: [{name, label, required, order_index}] }
@@ -659,8 +696,66 @@ export const routes = {
       const { model, fields } = body;
       if (!model)                 return jsonResponse({ success: false, error: 'model required' }, 400);
       if (!Array.isArray(fields)) return jsonResponse({ success: false, error: 'fields must be an array' }, 400);
-      const row = await upsertModelDefaults(context.env, model, fields);
-      return jsonResponse({ success: true, data: row });
+      await updateModelDefaultFields(context.env, model, fields);
+      return jsonResponse({ success: true, data: { model, fields } });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * GET /api/settings/model-links
+   * Returns the saved model link registry (array of {model_a, model_b, link_field, link_label}).
+   */
+  'GET /api/settings/model-links': async (context) => {
+    try {
+      const links = await getModelLinks(context.env);
+      return jsonResponse({ success: true, data: links });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * PUT /api/settings/model-links
+   * Saves the complete model link registry.
+   * Body: { links: [{model_a, model_b, link_field, link_label}] }
+   */
+  'PUT /api/settings/model-links': async (context) => {
+    try {
+      const body = await readJsonBody(context.request);
+      if (!Array.isArray(body.links)) return jsonResponse({ success: false, error: 'links must be an array' }, 400);
+      const saved = await upsertModelLinks(context.env, body.links);
+      return jsonResponse({ success: true, data: saved });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * GET /api/settings/odoo-models
+   * Returns the user-managed list of Odoo models.
+   */
+  'GET /api/settings/odoo-models': async (context) => {
+    try {
+      const models = await getOdooModels(context.env);
+      return jsonResponse({ success: true, data: models });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * PUT /api/settings/odoo-models
+   * Saves the full Odoo model registry.
+   * Body: { models: [{name, label, icon}] }
+   */
+  'PUT /api/settings/odoo-models': async (context) => {
+    try {
+      const body = await readJsonBody(context.request);
+      if (!Array.isArray(body.models)) return jsonResponse({ success: false, error: 'models must be an array' }, 400);
+      const saved = await upsertOdooModels(context.env, body.models);
+      return jsonResponse({ success: true, data: saved });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);
     }
@@ -684,7 +779,7 @@ export const routes = {
         model,
         method: 'fields_get',
         args: [],
-        kwargs: { attributes: ['string', 'type', 'store', 'readonly', 'selection'] },
+        kwargs: { attributes: ['string', 'type', 'store', 'readonly', 'selection', 'relation'] },
       });
 
       // Transform to sorted array; only expose stored fields
@@ -696,6 +791,7 @@ export const routes = {
           type: meta.type,
           readonly: !!meta.readonly,
           selection: Array.isArray(meta.selection) && meta.selection.length ? meta.selection : null,
+          relation: meta.relation || null,
         }))
         .sort((a, b) => a.label.localeCompare(b.label, 'nl'));
 

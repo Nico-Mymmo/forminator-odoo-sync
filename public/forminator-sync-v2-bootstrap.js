@@ -95,14 +95,196 @@
       if (action === 'goto-defaults') {
         window.FSV2.showView('defaults');
         window.FSV2.renderDefaults();
-        Object.keys(window.FSV2.ACTIONS).forEach(function (key) {
-          var m = window.FSV2.ACTIONS[key].odoo_model;
+        (S.odooModelsCache || []).forEach(function (model) {
+          var m = model.name;
           if (!S.odooFieldsCache[m] || !S.odooFieldsCache[m].length) {
             window.FSV2.loadOdooFieldsForModel(m).then(function () {
               if (S.view === 'defaults') window.FSV2.renderDefaults();
             });
           }
         });
+        return;
+      }
+      if (action === 'goto-links') {
+        window.FSV2.showView('links');
+        window.FSV2.renderLinks();
+        return;
+      }
+      // ── Link registry CRUD ────────────────────────────────────────────
+      if (action === 'discover-link-fields') {
+        var modelAEl = document.getElementById('linkModelA');
+        var modelBEl = document.getElementById('linkModelB');
+        var modelA   = modelAEl ? modelAEl.value : '';
+        var modelB   = modelBEl ? modelBEl.value : '';
+        if (!modelA || !modelB) { window.FSV2.showAlert('Kies beide modellen.', 'error'); return; }
+        if (modelA === modelB)  { window.FSV2.showAlert('Kies twee verschillende modellen.', 'error'); return; }
+        var resultEl = document.getElementById('linkFieldsResult');
+        if (resultEl) resultEl.innerHTML = '<span class="loading loading-spinner loading-xs"></span>';
+        // Fetch fields for model_b and filter for many2one pointing to model_a
+        var fieldsBody = await window.FSV2.api('/odoo/fields?model=' + encodeURIComponent(modelB));
+        var allFields  = fieldsBody.data || [];
+        var candidates = allFields.filter(function (f) { return f.type === 'many2one' && f.relation === modelA; });
+        window.FSV2.renderLinkFieldsResult(candidates, modelA, modelB);
+        return;
+      }
+      if (action === 'add-model-link') {
+        var newLink = {
+          model_a:    btn.dataset.modelA,
+          model_b:    btn.dataset.modelB,
+          link_field: btn.dataset.field,
+          link_label: btn.dataset.label || '',
+        };
+        var current = Array.isArray(S.modelLinksCache) ? S.modelLinksCache : [];
+        // Prevent duplicates
+        var exists = current.some(function (l) {
+          return l.model_a === newLink.model_a && l.model_b === newLink.model_b && l.link_field === newLink.link_field;
+        });
+        if (exists) { window.FSV2.showAlert('Koppeling bestaat al.', 'info'); return; }
+        var updated = current.concat([newLink]);
+        await window.FSV2.api('/settings/model-links', { method: 'PUT', body: JSON.stringify({ links: updated }) });
+        S.modelLinksCache = updated;
+        window.FSV2.showAlert('Koppeling opgeslagen.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'delete-model-link') {
+        var delIdx = parseInt(btn.dataset.idx, 10);
+        if (isNaN(delIdx)) return;
+        var withoutDel = (S.modelLinksCache || []).filter(function (_, i) { return i !== delIdx; });
+        await window.FSV2.api('/settings/model-links', { method: 'PUT', body: JSON.stringify({ links: withoutDel }) });
+        S.modelLinksCache = withoutDel;
+        window.FSV2.showAlert('Koppeling verwijderd.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      // ── Odoo model registry CRUD ──────────────────────────────────────
+      if (action === 'add-odoo-model') {
+        var nameEl  = document.getElementById('newModelName');
+        var labelEl = document.getElementById('newModelLabel');
+        var iconEl  = document.getElementById('newModelIcon');
+        var mName   = nameEl  ? nameEl.value.trim()  : '';
+        var mLabel  = labelEl ? labelEl.value.trim() : '';
+        var mIcon   = iconEl  ? iconEl.value.trim()  : 'box';
+        if (!mName)  { window.FSV2.showAlert('Technische naam is verplicht.', 'error'); return; }
+        if (!mLabel) { window.FSV2.showAlert('Label is verplicht.', 'error'); return; }
+        var currentModels = Array.isArray(S.odooModelsCache) ? S.odooModelsCache : [];
+        if (currentModels.some(function (m) { return m.name === mName; })) {
+          window.FSV2.showAlert('Model bestaat al.', 'info'); return;
+        }
+        var updatedModels = currentModels.concat([{ name: mName, label: mLabel, icon: mIcon }]);
+        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: updatedModels }) });
+        S.odooModelsCache = updatedModels;
+        if (nameEl)  nameEl.value  = '';
+        if (labelEl) labelEl.value = '';
+        window.FSV2.showAlert('Model opgeslagen.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'delete-odoo-model') {
+        var delModelIdx = parseInt(btn.dataset.idx, 10);
+        if (isNaN(delModelIdx)) return;
+        var withoutModel = (S.odooModelsCache || []).filter(function (_, i) { return i !== delModelIdx; });
+        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: withoutModel }) });
+        S.odooModelsCache = withoutModel;
+        window.FSV2.showAlert('Model verwijderd.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      // ── Odoo model inline edit ────────────────────────────────────────────
+      if (action === 'edit-odoo-model') {
+        var editModelIdx = parseInt(btn.dataset.idx, 10);
+        S.editingModelIdx = editModelIdx;
+        S.editingLinkIdx  = null;
+        var editModel = (S.odooModelsCache || [])[editModelIdx] || {};
+        S.editingDefaultFields = Array.isArray(editModel.default_fields)
+          ? editModel.default_fields.map(function (f) { return Object.assign({}, f); })
+          : [];
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'cancel-edit-model') {
+        S.editingModelIdx = null;
+        S.editingDefaultFields = null;
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'add-default-field') {
+        var nameInp  = document.getElementById('editNewFieldName');
+        var labelInp = document.getElementById('editNewFieldLabel');
+        var reqInp   = document.getElementById('editNewFieldRequired');
+        var fname  = nameInp  ? nameInp.value.trim()  : '';
+        var flabel = labelInp ? labelInp.value.trim() : '';
+        var freq   = reqInp   ? reqInp.checked : false;
+        if (!fname) { window.FSV2.showAlert('Technische naam is verplicht.', 'error'); return; }
+        if (!Array.isArray(S.editingDefaultFields)) S.editingDefaultFields = [];
+        if (S.editingDefaultFields.some(function (f) { return f.name === fname; })) {
+          window.FSV2.showAlert('Veld bestaat al.', 'info'); return;
+        }
+        S.editingDefaultFields.push({ name: fname, label: flabel || fname, required: freq });
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'toggle-default-field-required') {
+        var togIdx = parseInt(btn.dataset.idx, 10);
+        if (!isNaN(togIdx) && Array.isArray(S.editingDefaultFields) && S.editingDefaultFields[togIdx]) {
+          S.editingDefaultFields[togIdx].required = btn.checked;
+          window.FSV2.renderLinks();
+        }
+        return;
+      }
+      if (action === 'remove-default-field') {
+        var rmIdx = parseInt(btn.dataset.idx, 10);
+        if (!isNaN(rmIdx) && Array.isArray(S.editingDefaultFields)) {
+          S.editingDefaultFields.splice(rmIdx, 1);
+          window.FSV2.renderLinks();
+        }
+        return;
+      }
+      if (action === 'save-odoo-model') {
+        var saveIdx   = parseInt(btn.dataset.idx, 10);
+        var modelName = btn.dataset.name;
+        var labelEl   = document.getElementById('editModelLabel');
+        var iconEl    = document.getElementById('editModelIcon');
+        var newLabel  = labelEl ? labelEl.value.trim() : '';
+        var newIcon   = iconEl  ? iconEl.value.trim()  : 'box';
+        if (!newLabel) { window.FSV2.showAlert('Label is verplicht.', 'error'); return; }
+        var existingDefaultFields = ((S.odooModelsCache || [])[saveIdx] || {}).default_fields || [];
+        var newDefaultFields = Array.isArray(S.editingDefaultFields) ? S.editingDefaultFields : existingDefaultFields;
+        var updatedModels = (S.odooModelsCache || []).map(function (m, i) {
+          return i === saveIdx ? { name: m.name, label: newLabel, icon: newIcon, default_fields: newDefaultFields } : m;
+        });
+        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: updatedModels }) });
+        S.odooModelsCache = updatedModels;
+        S.editingModelIdx = null;
+        S.editingDefaultFields = null;
+        window.FSV2.showAlert('Model bijgewerkt.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      // ── Model link inline edit ────────────────────────────────────────────
+      if (action === 'edit-model-link') {
+        S.editingLinkIdx  = parseInt(btn.dataset.idx, 10);
+        S.editingModelIdx = null;
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'cancel-edit-link') {
+        S.editingLinkIdx = null;
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'save-model-link') {
+        var saveLinkIdx = parseInt(btn.dataset.idx, 10);
+        var linkLabelEl = document.getElementById('editLinkLabel');
+        var newLinkLabel = linkLabelEl ? linkLabelEl.value.trim() : '';
+        var updatedLinks = (S.modelLinksCache || []).map(function (l, i) {
+          return i === saveLinkIdx ? Object.assign({}, l, { link_label: newLinkLabel }) : l;
+        });
+        await window.FSV2.api('/settings/model-links', { method: 'PUT', body: JSON.stringify({ links: updatedLinks }) });
+        S.modelLinksCache = updatedLinks;
+        S.editingLinkIdx  = null;
+        window.FSV2.showAlert('Koppeling bijgewerkt.', 'success');
+        window.FSV2.renderLinks();
         return;
       }
       if (action === 'goto-list') {
@@ -155,25 +337,69 @@
         await window.FSV2.handleReplay(btn.dataset.id);
         return;
       }
+      if (action === 'add-target') {
+        await window.FSV2.handleAddTarget(btn.dataset.integrationid);
+        return;
+      }
+      if (action === 'delete-target') {
+        await window.FSV2.handleDeleteTarget(btn.dataset.targetId, btn.dataset.integrationId);
+        return;
+      }
+      if (action === 'toggle-step-open') {
+        window.FSV2.toggleStepOpen(btn.dataset.targetId);
+        return;
+      }
+      if (action === 'reorder-target-up') {
+        await window.FSV2.handleReorderTarget(btn.dataset.targetId, -1);
+        return;
+      }
+      if (action === 'reorder-target-down') {
+        await window.FSV2.handleReorderTarget(btn.dataset.targetId, 1);
+        return;
+      }
+      if (action === 'apply-chain-suggestion') {
+        window.FSV2.applyChainSuggestion(
+          btn.dataset.targetId,
+          btn.dataset.odooField,
+          btn.dataset.odooLabel,
+          btn.dataset.stepOrder,
+          btn.dataset.stepLabel
+        );
+        return;
+      }
+      if (action === 'save-step-mappings') {
+        await window.FSV2.handleSaveStepMappings(btn.dataset.targetId);
+        return;
+      }
       if (action === 'save-detail-mappings') {
         await window.FSV2.handleSaveMappings();
         return;
       }
       if (action === 'detail-add-extra-row') {
-        var detFieldInput  = document.getElementById('fsp-val-det-extra-add');
-        var detExtraStatic = document.getElementById('detExtraStaticValue');
+        var detWrapper     = btn.closest('[data-mt-target-id]');
+        var detTid         = detWrapper ? detWrapper.dataset.mtTargetId : null;
+        if (!detTid) { window.FSV2.showAlert('Doel niet gevonden.', 'error'); return; }
+        var detFieldInput  = document.getElementById('fsp-val-det-extra-' + detTid + '-add');
+        var detExtraStatic = document.getElementById('detExtraStaticValue-' + detTid);
         var detFieldName   = detFieldInput ? detFieldInput.value.trim() : '';
         if (!detFieldName) { window.FSV2.showAlert('Kies een Odoo veld uit de lijst.', 'error'); return; }
-        var detModel   = S.detail && S.detail.targets && S.detail.targets[0] ? S.detail.targets[0].odoo_model : '';
+        var detTarget  = S.detail && S.detail.targets && S.detail.targets.find(function (t) { return String(t.id) === detTid; });
+        var detModel   = detTarget ? detTarget.odoo_model : '';
         var detCached  = S.odooFieldsCache[detModel] || [];
         var detMatched = detCached.find(function (f) { return f.name === detFieldName; });
-        var detIsIdentifier  = !!(document.getElementById('detExtraIsIdentifier')  || {}).checked;
-        var detIsUpdateField = (document.getElementById('detExtraIsUpdateField') || { checked: true }).checked;
-        S.detail._extraRows = S.detail._extraRows || [];
-        S.detail._extraRows.push({
+        var detStaticVal = detExtraStatic ? detExtraStatic.value : '';
+        if (!detStaticVal) {
+          window.FSV2.showAlert('Voer eerst een waarde in (of kies Ja/Nee) voordat je het veld toevoegt.', 'warning');
+          return;
+        }
+        var detIsIdentifier  = !!(document.getElementById('detExtraIsIdentifier-' + detTid)  || {}).checked;
+        var detIsUpdateField = (document.getElementById('detExtraIsUpdateField-' + detTid) || { checked: true }).checked;
+        S.detail._extraRowsByTarget = S.detail._extraRowsByTarget || {};
+        S.detail._extraRowsByTarget[detTid] = S.detail._extraRowsByTarget[detTid] || [];
+        S.detail._extraRowsByTarget[detTid].push({
           odooField:     detFieldName,
           odooLabel:     detMatched ? detMatched.label : detFieldName,
-          staticValue:   detExtraStatic ? detExtraStatic.value.trim() : '',
+          staticValue:   detStaticVal.trim(),
           sourceType:    'static',
           isIdentifier:  detIsIdentifier,
           isUpdateField: detIsUpdateField,
@@ -182,11 +408,44 @@
         return;
       }
       if (action === 'detail-remove-extra-row') {
-        var detRemIdx = parseInt(btn.dataset.idx, 10);
-        if (!isNaN(detRemIdx) && S.detail && S.detail._extraRows) {
-          S.detail._extraRows.splice(detRemIdx, 1);
+        var remWrapper = btn.closest('[data-mt-target-id]');
+        var remTid     = remWrapper ? remWrapper.dataset.mtTargetId : null;
+        var detRemIdx  = parseInt(btn.dataset.idx, 10);
+        if (remTid && !isNaN(detRemIdx) && S.detail && S.detail._extraRowsByTarget && S.detail._extraRowsByTarget[remTid]) {
+          S.detail._extraRowsByTarget[remTid].splice(detRemIdx, 1);
           window.FSV2.renderDetailMappings();
         }
+        return;
+      }
+      if (action === 'detail-add-chain-row') {
+        // Adds a previous_step_output mapping row from the step-chain section.
+        var chainWrapper   = btn.closest('[data-mt-target-id]');
+        var chainTid       = chainWrapper ? chainWrapper.dataset.mtTargetId : null;
+        if (!chainTid) { window.FSV2.showAlert('Doel niet gevonden.', 'error'); return; }
+        var chainFspVal   = document.getElementById('fsp-val-det-chain-' + chainTid + '-add');
+        var chainStepSel  = document.getElementById('detChainStepSelect-' + chainTid);
+        var chainIsReqEl  = document.getElementById('detChainIsRequired-' + chainTid);
+        var chainField    = chainFspVal ? chainFspVal.value.trim() : '';
+        var chainStepVal  = chainStepSel ? chainStepSel.value.trim() : '';
+        if (!chainField)    { window.FSV2.showAlert('Kies een Odoo veld voor de koppeling.', 'error'); return; }
+        if (!chainStepVal)  { window.FSV2.showAlert('Kies een vorige stap om aan te koppelen.', 'error'); return; }
+        var chainIsRequired = chainIsReqEl ? chainIsReqEl.checked : true;
+        var chainTarget   = S.detail && S.detail.targets && S.detail.targets.find(function (t) { return String(t.id) === chainTid; });
+        var detChainModel = chainTarget ? chainTarget.odoo_model : '';
+        var detChainCache = S.odooFieldsCache[detChainModel] || [];
+        var detChainMeta  = detChainCache.find(function (f) { return f.name === chainField; });
+        S.detail._extraRowsByTarget = S.detail._extraRowsByTarget || {};
+        S.detail._extraRowsByTarget[chainTid] = S.detail._extraRowsByTarget[chainTid] || [];
+        S.detail._extraRowsByTarget[chainTid].push({
+          odooField:     chainField,
+          odooLabel:     detChainMeta ? detChainMeta.label : chainField,
+          staticValue:   chainStepVal,
+          sourceType:    'previous_step_output',
+          isRequired:    chainIsRequired,
+          isIdentifier:  false,
+          isUpdateField: true,
+        });
+        window.FSV2.renderDetailMappings();
         return;
       }
       if (action === 'fetch-form-fields') {
@@ -201,7 +460,8 @@
         var mdModel = btn.dataset.model;
         var mdEd    = S.modelDefaultsEditors[mdModel] || { open: false, pendingFields: [] };
         if (!mdEd.open) {
-          var saved2 = S.modelDefaultsCache[mdModel] || [];
+          var mdEntry = (S.odooModelsCache || []).find(function (m) { return m.name === mdModel; }) || {};
+          var saved2 = mdEntry.default_fields || [];
           mdEd.pendingFields = saved2.map(function (f) { return Object.assign({}, f); });
           mdEd.open = true;
           S.modelDefaultsEditors[mdModel] = mdEd;
@@ -263,39 +523,9 @@
           method: 'PUT',
           body: JSON.stringify({ model: saveModel, fields: saveFields }),
         });
-        S.modelDefaultsCache[saveModel]   = saveFields;
         S.modelDefaultsEditors[saveModel] = { open: false, pendingFields: [] };
         window.FSV2.showAlert('Standaard velden opgeslagen.', 'success');
         window.FSV2.renderDefaults();
-        return;
-      }
-      if (action === 'wizard-add-extra-row') {
-        var fieldInput  = document.getElementById('fsp-val-wizard-extra-add');
-        var extraStatic = document.getElementById('wizardExtraStaticValue');
-        var fieldName   = fieldInput ? fieldInput.value.trim() : '';
-        if (!fieldName) { window.FSV2.showAlert('Kies een Odoo veld uit de lijst.', 'error'); return; }
-        var actionCfg2 = window.FSV2.ACTIONS[S.wizard.action];
-        var cached2    = actionCfg2 ? (S.odooFieldsCache[actionCfg2.odoo_model] || []) : [];
-        var matched    = cached2.find(function (f) { return f.name === fieldName; });
-        S.wizard.extraMappings = S.wizard.extraMappings || [];
-        S.wizard.extraMappings.push({
-          odooField:   fieldName,
-          odooLabel:   matched ? matched.label : fieldName,
-          staticValue: extraStatic ? extraStatic.value.trim() : '',
-        });
-        window.FSV2.renderWizard();
-        return;
-      }
-      if (action === 'wizard-remove-extra-row') {
-        var removeIdx = parseInt(btn.dataset.idx, 10);
-        if (!isNaN(removeIdx) && S.wizard.extraMappings) {
-          S.wizard.extraMappings.forEach(function (em, i) {
-            var inpEl = document.getElementById('inp-extra-static-' + i);
-            if (inpEl) em.staticValue = (inpEl.value || '').trim();
-          });
-          S.wizard.extraMappings.splice(removeIdx, 1);
-          window.FSV2.renderWizard();
-        }
         return;
       }
     };
@@ -321,13 +551,12 @@
   // ═══════════════════════════════════════════════════════════════════════════
   async function bootstrap() {
     try {
-      await Promise.all(
-        [window.FSV2.loadSites(), window.FSV2.loadIntegrations()].concat(
-          Object.keys(window.FSV2.ACTIONS).map(function (key) {
-            return window.FSV2.loadModelDefaultsForModel(window.FSV2.ACTIONS[key].odoo_model);
-          })
-        )
-      );
+      await Promise.all([
+        window.FSV2.loadSites(),
+        window.FSV2.loadIntegrations(),
+        window.FSV2.loadModelLinks(),
+        window.FSV2.loadOdooModels(),
+      ]);
       window.FSV2.showView('list');
       window.FSV2.renderList();
     } catch (err) {
