@@ -170,59 +170,61 @@
     var action = S().wizard.action;
     if (!action) { container.innerHTML = ''; return; }
 
-    var cfg           = window.FSV2.getModelCfg(action);
-    var defaultFields = (cfg && Array.isArray(cfg.default_fields)) ? cfg.default_fields : [];
-    var formFields    = (S().wizard.form && Array.isArray(S().wizard.form.fields))
+    var cfg = window.FSV2.getModelCfg(action);
+    if (!cfg || !cfg.odoo_model) { container.innerHTML = ''; return; }
+
+    var formFields = (S().wizard.form && Array.isArray(S().wizard.form.fields))
       ? S().wizard.form.fields.filter(function (f) { return !window.FSV2.SKIP_TYPES.includes(f.type); })
       : [];
 
-    if (defaultFields.length === 0) {
-      container.innerHTML = '<p class="text-sm text-base-content/60 italic">Geen standaard velden voor dit model \u2014 stel koppelingen in na aanmaken.</p>';
+    var odooCache  = (S().odooFieldsCache || {})[cfg.odoo_model] || [];
+    var odooLoaded = odooCache.length > 0;
+
+    // If Odoo fields not yet loaded, show spinner and load, then re-render
+    if (!odooLoaded) {
+      container.innerHTML =
+        '<div class="flex items-center gap-2 py-3 text-sm text-base-content/60">' +
+        '<span class="loading loading-spinner loading-xs"></span> Odoo-velden worden geladen\u2026</div>';
+      window.FSV2.loadOdooFieldsForModel(cfg.odoo_model).then(function () {
+        renderWizardMapping();
+      });
       return;
     }
 
-    // Auto-suggest on first render per field
-    if (!S().wizard.fieldMappings) S().wizard.fieldMappings = {};
-    defaultFields.forEach(function (f) {
-      if (!(f.name in S().wizard.fieldMappings)) {
-        S().wizard.fieldMappings[f.name] = window.FSV2.suggestFormField(f.name, formFields);
-      }
-    });
-
-    var rows = defaultFields.map(function (f) {
-      var current = S().wizard.fieldMappings[f.name] || '';
-      var opts = '<option value="">\u2014 geen koppeling \u2014</option>' +
-        formFields.map(function (ff) {
-          return '<option value="' + esc(ff.field_id) + '"' + (current === ff.field_id ? ' selected' : '') + '>'
-            + esc(ff.label || ff.field_id) + ' (' + esc(ff.field_id) + ')</option>';
-        }).join('');
-      return '<tr>' +
-        '<td class="py-1.5 pr-4 whitespace-nowrap">' +
-          '<span class="font-mono text-xs">' + esc(f.name) + '</span>' +
-          (f.required ? ' <span class="text-error text-xs">*</span>' : '') +
-        '</td>' +
-        '<td class="py-1">' +
-          '<select class="select select-bordered select-sm w-full text-xs" data-odoo-field="' + esc(f.name) + '">' +
-            opts +
-          '</select>' +
-        '</td>' +
-      '</tr>';
-    }).join('');
-
-    container.innerHTML =
-      '<table class="table table-xs w-full">' +
-        '<thead><tr>' +
-          '<th class="text-xs">Odoo-veld</th>' +
-          '<th class="text-xs">Formulierveld</th>' +
-        '</tr></thead>' +
-        '<tbody>' + rows + '</tbody>' +
-      '</table>';
-
-    container.querySelectorAll('select[data-odoo-field]').forEach(function (sel) {
-      sel.addEventListener('change', function () {
-        if (!S().wizard.fieldMappings) S().wizard.fieldMappings = {};
-        S().wizard.fieldMappings[sel.getAttribute('data-odoo-field')] = sel.value;
+    // Pre-seed required fields from default_fields as extra rows the user must fill in
+    var preSeededExtras = [];
+    if (Array.isArray(cfg.default_fields)) {
+      cfg.default_fields.forEach(function (df) {
+        if (df.required) {
+          preSeededExtras.push({
+            odooField:    df.name,
+            odooLabel:    df.label || df.name,
+            sourceType:   'template',
+            staticValue:  '',
+            isRequired:   true,
+            isIdentifier: false,
+            isUpdateField: true,
+          });
+        }
       });
+    }
+    S().wizard._preSeededExtras = preSeededExtras;
+
+    // Use the exact same MappingTable component as the detail view
+    window.FSV2.MappingTable.render('wizardMappingTable', {
+      flatFields:      formFields,
+      topLevelFields:  formFields,
+      odooCache:       odooCache,
+      odooLoaded:      odooLoaded,
+      odooModel:       cfg.odoo_model,
+      existingFormMappings: {},
+      namePrefix:      'wiz-',
+      checkPrefix:     'wiz-',
+      idCheckClass:    'wiz-id-check',
+      updCheckClass:   'wiz-upd-check',
+      autoIdentifiers: ['email', 'email_from'],
+      extraRows:       preSeededExtras,
+      // No saveAction — wizard uses its own submit button
     });
   }
 
@@ -333,23 +335,54 @@
       });
       var targetId = targetRes.data.id;
 
-      // Stap 4 — pas default_fields toe als startkoppelingen (met wizard-geselecteerde form-velden)
-      var defaultFields = cfg.default_fields || [];
-      var fieldMappings = S().wizard.fieldMappings || {};
-      if (defaultFields.length > 0) {
-        await Promise.all(defaultFields.map(function (f, i) {
-          var sv = fieldMappings[f.name] || '';
+      // Stap 4 — lees veldkoppelingen uit MappingTable (zelfde manier als detail view)
+      var mcEl = document.getElementById('wizardMappingTable');
+      var formFieldList = (S().wizard.form && Array.isArray(S().wizard.form.fields))
+        ? S().wizard.form.fields.filter(function (f) { return !window.FSV2.SKIP_TYPES.includes(f.type); })
+        : [];
+      var newMappings = [];
+      var orderIdx    = 0;
+      formFieldList.forEach(function (ff) {
+        var fid      = String(ff.field_id);
+        var selEl    = mcEl && mcEl.querySelector('[name="wiz-odoo-' + fid + '"]');
+        var odooField = selEl ? (selEl.value || '') : '';
+        if (!odooField) return;
+        var idChk  = mcEl && mcEl.querySelector('[name="wiz-identifier-' + fid + '"]');
+        var updChk = mcEl && mcEl.querySelector('[name="wiz-update-' + fid + '"]');
+        newMappings.push({
+          odoo_field:      odooField,
+          source_type:     'form',
+          source_value:    fid,
+          is_required:     false,
+          is_identifier:   idChk  ? idChk.checked  : false,
+          is_update_field: updChk ? updChk.checked  : true,
+          order_index:     orderIdx++,
+        });
+      });
+      // Stap 4b — lees ook de verplichte extra rijen (template/static) uit MappingTable
+      var preSeeded = S().wizard._preSeededExtras || [];
+      preSeeded.forEach(function (em, idx) {
+        var tname = 'extra-' + idx;  // extraRowPrefix defaults to 'extra-'
+        var inpEl = mcEl && mcEl.querySelector('#inp-' + tname);
+        var val   = inpEl ? (inpEl.value || '').trim() : '';
+        if (!val) return;  // skip if user left it empty
+        var idChk  = mcEl && mcEl.querySelector('input[name="extra-identifier-' + idx + '"]');
+        var updChk = mcEl && mcEl.querySelector('input[name="extra-update-' + idx + '"]');
+        newMappings.push({
+          odoo_field:      em.odooField,
+          source_type:     em.sourceType || 'template',
+          source_value:    val,
+          is_required:     !!em.isRequired,
+          is_identifier:   idChk  ? idChk.checked  : false,
+          is_update_field: updChk ? updChk.checked  : true,
+          order_index:     orderIdx++,
+        });
+      });
+
+      if (newMappings.length > 0) {
+        await Promise.all(newMappings.map(function (m) {
           return window.FSV2.api('/targets/' + targetId + '/mappings', {
-            method: 'POST',
-            body: JSON.stringify({
-              odoo_field:      f.name,
-              source_type:     sv ? 'forminator_field' : 'static',
-              source_value:    sv,
-              is_required:     !!f.required,
-              is_identifier:   false,
-              is_update_field: true,
-              order_index:     i,
-            }),
+            method: 'POST', body: JSON.stringify(m),
           });
         }));
       }

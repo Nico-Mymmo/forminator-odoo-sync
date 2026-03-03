@@ -270,9 +270,12 @@
       var meta      = odooCache.find(function (f) { return f.name === em.odooField; }) || null;
       var ftype     = meta ? meta.type : '';
       var typeBadge = ftype ? ' <span class="badge badge-ghost badge-xs font-mono ml-1 align-middle">' + esc(ftype) + '</span>' : '';
+      var reqBadge = em.isRequired
+        ? '<span class="badge badge-xs text-error border border-error/30 bg-error/5 ml-1"><i data-lucide="asterisk" class="inline w-2.5 h-2.5 -mt-0.5"></i> verplicht</span>'
+        : '';
       return '<tr class="bg-warning/5">' +
         '<td class="align-middle py-2 whitespace-nowrap">' +
-          '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' + typeBadge +
+          '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' + typeBadge + reqBadge +
           '<br><span class="font-mono text-xs text-base-content/40">' + esc(em.odooField) + '</span>' +
         '</td>' +
         '<td class="py-1"><span class="badge badge-ghost badge-xs">vast/sjabloon</span></td>' +

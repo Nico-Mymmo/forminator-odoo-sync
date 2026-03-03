@@ -86,6 +86,41 @@
                                 (o.value === (m.icon || 'box') ? ' selected' : '') + '>' +
                                 esc(o.label) + '</option>';
                         }).join('');
+                        var editFields = Array.isArray(S().editingDefaultFields) ? S().editingDefaultFields : (m.default_fields || []);
+                        var fieldEditorRows = editFields.length
+                          ? editFields.map(function (f, fi) {
+                              return '<div class="flex items-center gap-2 py-1 border-b border-base-200 last:border-0">' +
+                                '<code class="text-xs font-mono w-32 shrink-0 text-base-content/60">' + esc(f.name) + '</code>' +
+                                '<span class="text-xs flex-1">' + esc(f.label || '') + '</span>' +
+                                (f.required
+                                  ? '<span class="badge badge-xs text-error border border-error/30 bg-error/5">verplicht</span>'
+                                  : '<span class="badge badge-xs badge-ghost">optioneel</span>') +
+                                '<button type="button" class="btn btn-ghost btn-xs text-error/60 hover:text-error" data-action="remove-default-field" data-idx="' + fi + '"><i data-lucide="x" class="w-3 h-3"></i></button>' +
+                              '</div>';
+                          }).join('')
+                          : '<p class="text-xs text-base-content/40 py-1 italic">Geen velden gedefinieerd.</p>';
+                        var fieldsEditorRow =
+                          '<tr class="bg-base-200/10">' +
+                            '<td colspan="4" class="pb-3 pt-0 px-4">' +
+                              '<div class="border border-base-200 rounded-lg p-3">' +
+                                '<p class="text-xs font-semibold text-base-content/60 mb-2 flex items-center gap-1.5">' +
+                                  '<i data-lucide="list-checks" class="w-3 h-3"></i> Standaard velden (rood = verplicht in Odoo)' +
+                                '</p>' +
+                                '<div class="mb-2">' + fieldEditorRows + '</div>' +
+                                '<div class="flex flex-wrap gap-2 items-end pt-2 border-t border-base-200">' +
+                                  '<input id="editNewFieldName" type="text" placeholder="technisch (bijv. name)" class="input input-xs input-bordered font-mono w-36">' +
+                                  '<input id="editNewFieldLabel" type="text" placeholder="label (bijv. Naam)" class="input input-xs input-bordered w-28">' +
+                                  '<label class="flex items-center gap-1.5 text-xs cursor-pointer">' +
+                                    '<input type="checkbox" id="editNewFieldRequired" class="checkbox checkbox-xs">' +
+                                    '<span>Verplicht</span>' +
+                                  '</label>' +
+                                  '<button type="button" class="btn btn-xs btn-outline" data-action="add-default-field">' +
+                                    '<i data-lucide="plus" class="w-3 h-3"></i> Veld toevoegen' +
+                                  '</button>' +
+                                '</div>' +
+                              '</div>' +
+                            '</td>' +
+                          '</tr>';
                         return '<tr class="bg-base-200/40">' +
                             '<td class="pr-0">' +
                             '<i data-lucide="pencil" class="w-4 h-4 text-primary/60"></i>' +
@@ -106,7 +141,17 @@
                             '<button type="button" class="btn btn-xs btn-ghost" data-action="cancel-edit-model">Annuleer</button>' +
                             '</div>' +
                             '</td>' +
-                            '</tr>';
+                            '</tr>' +
+                            fieldsEditorRow;
+                    }
+                    var fieldTagsHtml = '';
+                    if (Array.isArray(m.default_fields) && m.default_fields.length) {
+                        fieldTagsHtml = '<div class="flex flex-wrap gap-1 mt-1.5">' +
+                            m.default_fields.map(function (f) {
+                                return f.required
+                                    ? '<span class="badge badge-xs gap-0.5 text-error border border-error/30 bg-error/5"><i data-lucide="asterisk" class="w-2.5 h-2.5"></i>' + esc(f.label || f.name) + '</span>'
+                                    : '<span class="badge badge-xs badge-ghost">' + esc(f.label || f.name) + '</span>';
+                            }).join('') + '</div>';
                     }
                     return '<tr class="hover">' +
                         '<td class="pr-0">' +
@@ -114,7 +159,7 @@
                         '</td>' +
                         '<td>' +
                         '<span class="font-medium text-sm">' + esc(m.label || m.name) + '</span>' +
-                        '</td>' +
+                        fieldTagsHtml +
                         '<td>' +
                         '<code class="text-xs font-mono text-base-content/50 bg-base-200 px-1.5 py-0.5 rounded">' + esc(m.name) + '</code>' +
                         '</td>' +

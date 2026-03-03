@@ -192,14 +192,44 @@
       }
       // ── Odoo model inline edit ────────────────────────────────────────────
       if (action === 'edit-odoo-model') {
-        S.editingModelIdx = parseInt(btn.dataset.idx, 10);
+        var editModelIdx = parseInt(btn.dataset.idx, 10);
+        S.editingModelIdx = editModelIdx;
         S.editingLinkIdx  = null;
+        var editModel = (S.odooModelsCache || [])[editModelIdx] || {};
+        S.editingDefaultFields = Array.isArray(editModel.default_fields)
+          ? editModel.default_fields.map(function (f) { return Object.assign({}, f); })
+          : [];
         window.FSV2.renderLinks();
         return;
       }
       if (action === 'cancel-edit-model') {
         S.editingModelIdx = null;
+        S.editingDefaultFields = null;
         window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'add-default-field') {
+        var nameInp  = document.getElementById('editNewFieldName');
+        var labelInp = document.getElementById('editNewFieldLabel');
+        var reqInp   = document.getElementById('editNewFieldRequired');
+        var fname  = nameInp  ? nameInp.value.trim()  : '';
+        var flabel = labelInp ? labelInp.value.trim() : '';
+        var freq   = reqInp   ? reqInp.checked : false;
+        if (!fname) { window.FSV2.showAlert('Technische naam is verplicht.', 'error'); return; }
+        if (!Array.isArray(S.editingDefaultFields)) S.editingDefaultFields = [];
+        if (S.editingDefaultFields.some(function (f) { return f.name === fname; })) {
+          window.FSV2.showAlert('Veld bestaat al.', 'info'); return;
+        }
+        S.editingDefaultFields.push({ name: fname, label: flabel || fname, required: freq });
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'remove-default-field') {
+        var rmIdx = parseInt(btn.dataset.idx, 10);
+        if (!isNaN(rmIdx) && Array.isArray(S.editingDefaultFields)) {
+          S.editingDefaultFields.splice(rmIdx, 1);
+          window.FSV2.renderLinks();
+        }
         return;
       }
       if (action === 'save-odoo-model') {
@@ -210,12 +240,15 @@
         var newLabel  = labelEl ? labelEl.value.trim() : '';
         var newIcon   = iconEl  ? iconEl.value.trim()  : 'box';
         if (!newLabel) { window.FSV2.showAlert('Label is verplicht.', 'error'); return; }
+        var existingDefaultFields = ((S.odooModelsCache || [])[saveIdx] || {}).default_fields || [];
+        var newDefaultFields = Array.isArray(S.editingDefaultFields) ? S.editingDefaultFields : existingDefaultFields;
         var updatedModels = (S.odooModelsCache || []).map(function (m, i) {
-          return i === saveIdx ? { name: m.name, label: newLabel, icon: newIcon } : m;
+          return i === saveIdx ? { name: m.name, label: newLabel, icon: newIcon, default_fields: newDefaultFields } : m;
         });
         await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: updatedModels }) });
         S.odooModelsCache = updatedModels;
         S.editingModelIdx = null;
+        S.editingDefaultFields = null;
         window.FSV2.showAlert('Model bijgewerkt.', 'success');
         window.FSV2.renderLinks();
         return;
