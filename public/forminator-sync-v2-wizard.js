@@ -156,6 +156,10 @@
         '</div>' +
       '</button>';
     }).join('');
+
+    // Show/hide the name+submit section based on whether an action is selected
+    var mappingSec = document.getElementById('wizard-section-mapping');
+    if (mappingSec) mappingSec.style.display = S().wizard.action ? '' : 'none';
   }
 
 
@@ -198,6 +202,9 @@
     S().wizard.action = actionKey;
     S().wizard.step   = 3;
     renderWizard();
+    // Show the name + submit section
+    var mappingSec = document.getElementById('wizard-section-mapping');
+    if (mappingSec) mappingSec.style.display = '';
     var nameInput = document.getElementById('wizardName');
     if (nameInput && !nameInput.value) {
       var cfg      = window.FSV2.getModelCfg(actionKey);
@@ -207,6 +214,7 @@
         : (S().wizard.form ? String(S().wizard.form.form_id) : 'Formulier');
       nameInput.value = sitePart + ' \u2014 ' + formPart + ' \u2014 ' + cfg.label;
     }
+    if (mappingSec) mappingSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   async function submitWizard() {
@@ -278,7 +286,13 @@
         }));
       }
 
-      // Stap 5 — test-stub (niet-blokkend)
+      // Stap 5 — activeer de integratie direct (wizard = bewuste setup)
+      await window.FSV2.api('/integrations/' + integrationId, {
+        method: 'PUT',
+        body: JSON.stringify({ is_active: true }),
+      });
+
+      // Stap 6 — test-stub (niet-blokkend)
       try {
         await window.FSV2.api('/integrations/' + integrationId + '/test-stub', {
           method: 'POST', body: JSON.stringify({}),

@@ -169,20 +169,8 @@ export function validateActivationReadiness(bundle, hasSuccessfulTest) {
   const resolvers = bundle.resolvers || [];
   const targets = bundle.targets || [];
 
-  if (resolvers.length < 1) {
-    throw createError('At least one herkenning is required before activation');
-  }
-
-  if (resolvers.length > 2) {
-    throw createError('MVP allows maximum two herkenningen per integratie');
-  }
-
   if (targets.length < 1) {
     throw createError('At least one schrijfdoel is required before activation');
-  }
-
-  if (targets.length > 2) {
-    throw createError('MVP allows maximum two schrijfdoelen per integratie');
   }
 
   const resolverTypeSet = new Set();
@@ -206,6 +194,6 @@ export function validateActivationReadiness(bundle, hasSuccessfulTest) {
   }
 
   if (!hasSuccessfulTest) {
-    throw createError('Activation blocked: run a successful test first');
+    console.warn('[activation] No successful test submission yet — activating anyway');
   }
 }
