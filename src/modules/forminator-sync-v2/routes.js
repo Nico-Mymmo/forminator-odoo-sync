@@ -93,13 +93,8 @@ async function enforceMvpLimitsOnResolvers(env, integrationId) {
   }
 }
 
-async function enforceMvpLimitsOnTargets(env, integrationId) {
-  const targets = await listTargetsByIntegration(env, integrationId);
-  if (targets.length >= 2) {
-    const error = new Error('MVP allows maximum two schrijfdoelen per integratie');
-    error.code = 'VALIDATION_ERROR';
-    throw error;
-  }
+async function enforceMvpLimitsOnTargets(_env, _integrationId) {
+  // No hard limit on number of targets
 }
 
 async function enforceNoDuplicateResolverType(env, integrationId, resolverType, currentResolverId = null) {

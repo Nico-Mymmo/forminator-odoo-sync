@@ -22,7 +22,7 @@ export function getMvpConstants() {
     identifierTypes: [...IDENTIFIER_TYPES],
     sourceTypes: [...SOURCE_TYPES],
     maxResolversPerIntegration: 2,
-    maxTargetsPerIntegration: 2
+    maxTargetsPerIntegration: 10
   };
 }
 
