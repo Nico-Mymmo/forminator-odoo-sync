@@ -1,130 +1,139 @@
-# Forminator Sync V2 â€” Operational Behavior
-Datum: 2026-02-25
+# Forminator Sync V2 — Operational Behavior
 
-## Fase 3B status
-Webhook core flow uit Fase 2 + retry flow uit Fase 3A blijven actief. Fase 3B voegt replay en webhook security hardening toe, zonder nieuwe configuratiemogelijkheden.
+> Datum laatste update: 2026-03-03  
+> Status: Volledig live (alle fasen compleet)
 
-## Activatiegedrag
-- Integratie kan nog steeds niet actief gezet worden zonder geslaagde teststatus.
-- Geen extra configuratievelden toegevoegd.
+---
 
-## Idempotency (ongewijzigd + retry-aware)
+## Integratie-activatie
+
+- Een integratie kan enkel actief gezet worden (`is_active=true`) nadat er een geslaagde test-submission bestaat (`has_successful_test: true`).
+- De test-stub (`POST /api/integrations/:id/test-stub`) maakt handmatig een geslaagde submission aan voor activatie-unlock.
+
+---
+
+## Idempotency
+
 - Idempotency key: `integration_id + forminator_form_id + payload_hash`.
-- `payload_hash` blijft deterministisch:
-  - object keys alfabetisch gesorteerd
-  - whitespace genormaliseerd
-- DB-level guardrail:
-  - unieke index op `(integration_id, idempotency_key)` blokkeert duplicate submission rows bij race-condities
+- `payload_hash` is deterministisch:
+  - Object keys alfabetisch gesorteerd.
+  - Whitespace genormaliseerd.
+- DB-level guardrail: unieke index op `(integration_id, idempotency_key)` blokkeert duplicate submission-rows bij race conditions.
 - Duplicate handling:
-  - `running`, `retry_running`, `retry_scheduled` â‡’ `duplicate_inflight`
-  - terminal statussen (`success`, `partial_failed`, `permanent_failed`, `retry_exhausted`) â‡’ `duplicate_ignored`
-  - duplicate response verwijst naar bestaande submission-id (geen nieuwe duplicate submission)
+  - Status `running`, `retry_running`, `retry_scheduled` ? respons `duplicate_inflight`
+  - Terminale status (`success`, `partial_failed`, `permanent_failed`, `retry_exhausted`) ? respons `duplicate_ignored`
+  - Beide gevallen: response verwijst naar de bestaande submission-ID; geen nieuwe row.
 
-## Webhook security (Fase 3B)
-- Vereiste header: `X-Forminator-Secret`
-- Vereiste env var: `FORMINATOR_WEBHOOK_SECRET`
-- Zonder geldige secret:
-  - directe `401 Unauthorized`
-  - geen submission record aangemaakt
-- Met geldige secret:
-  - normale intake-flow
+---
 
-## Retry mechanisme (Fase 3A)
-- Retry geldt enkel voor recoverable fouten.
+## Webhook-authenticatie
+
+- Forminator stuurt `?token=<secret>` als query-parameter.
+- Worker valideert: `token === env.FORMINATOR_WEBHOOK_SECRET`.
+- Ontbrekend of ongeldig token ? `401 Unauthorized`, geen submission-record aangemaakt.
+- Configuratie: stel `FORMINATOR_WEBHOOK_SECRET` in als Cloudflare Worker secret.
+
+---
+
+## Runtime flow (webhookverwerking)
+
+1. Webhook ontvangen (`POST /api/webhook?token=...`)
+2. Authenticatiecheck op token
+3. Actieve integratie opzoeken op form-ID
+4. Idempotency key berekenen ? duplicate check
+5. Submission-record aanmaken met status `running`
+6. Resolvers uitvoeren ? context opbouwen (partner lookup, webinar lookup, …)
+7. Targets uitvoeren in execution_order volgorde
+8. Elke target: identifier ophalen ? record maken/bijwerken in Odoo
+9. Target-resultaten loggen
+10. Bij recoverable fout: status `retry_scheduled` + `next_retry_at`
+11. Eindstatus finaliseren
+
+---
+
+## Template-waarden (`source_type: template`)
+
+Waarden van de vorm `Syndicoach Aangevraagd: {name-1}` worden verwerkt door `lookupFormValue()`:
+- Placeholder `{fieldId}` ? opzoeken in genormaliseerde payload (streepjes worden underscores, lowercase).
+- `{name-1}` ? zoekt `name_1` in de payload.
+- Meerdere placeholders per waarde zijn toegestaan.
+
+---
+
+## Retry-mechanisme
+
+- Retry geldt enkel voor recoverable fouten (zie matrix hieronder).
 - Maximaal 3 pogingen totaal.
-- Schema:
-  - poging 1: direct (initiÃ«le run)
-  - poging 2: +1 minuut
-  - poging 3: +5 minuten
-- Daarna status `retry_exhausted`.
-- Retry gebruikt dezelfde submission en dezelfde idempotency key.
-- Tijdens wachttijd status `retry_scheduled` + `next_retry_at`.
-- Tijdens retry-uitvoering status `retry_running`.
 
-## Recoverable vs permanent failure
-Recoverable:
-- netwerkfout
-- timeout
-- Odoo 429
-- Odoo 5xx
+| Poging | Wanneer | Wachttijd |
+|---|---|---|
+| 1 | Direct (initiële run) | — |
+| 2 | Na recoverable fout op poging 1 | +1 minuut |
+| 3 | Na recoverable fout op poging 2 | +5 minuten |
+| — | Na recoverable fout op poging 3 | `retry_exhausted` |
 
-Permanent:
-- validatiefouten
-- ontbrekende required mappings
-- missing identifier
-- Odoo 4xx (behalve 429)
+- Retry gebruikt dezelfde submission-row en dezelfde idempotency key.
+- Tijdens wacht: status `retry_scheduled` + `next_retry_at` timestamp.
+- Tijdens uitvoering: status `retry_running`.
+- Retry runner claimt submissions atomisch (`retry_scheduled` ? `retry_running`), parallelle claims worden geweigerd.
 
-## Target uitvoering tijdens retry
-- Geen rollback.
-- Eerder geslaagde targets worden niet opnieuw uitgevoerd.
-- Die targets krijgen cumulatieve log-entry met `action_result = skipped` en `retry_skip_already_successful`.
-- Eerder gefaalde targets worden opnieuw geprobeerd, steeds identifier-based.
+---
 
-## Concurrency gedrag
-- Retry runner claimt submissions atomisch via status-transitie `retry_scheduled` â†’ `retry_running`.
-- Parallelle retry op dezelfde submission wordt hierdoor geweigerd (`skip_locked` resultaat).
-- Webhook duplicate checks blijven actief tijdens retry lifecycle.
-- Replay start wordt geweigerd als al een child replay met status `running` bestaat voor dezelfde `replay_of_submission_id`.
+## Recoverable vs. permanente fouten
 
-## Replay gedrag (Fase 3B)
-- Endpoint: `POST /forminator-v2/api/submissions/:submissionId/replay`
-- Replay maakt altijd een nieuwe submission row.
-- `replay_of_submission_id` verwijst naar originele submission.
-- `source_payload` wordt gekopieerd van origineel.
-- `payload_hash` wordt opnieuw berekend uit gekopieerde payload.
-- `idempotency_key` wordt geforceerd nieuw (`replay-<original>-<uuid>`) zodat replay geen duplicate_ignored wordt.
+| Type | Voorbeelden |
+|---|---|
+| **Recoverable** | Netwerkfout, timeout, Odoo 429, Odoo 5xx |
+| **Permanent** | Validatiefout, ontbrekende verplichte mapping, ontbrekende identifier, Odoo 4xx (behalve 429) |
+
+---
+
+## Target-uitvoering bij retry
+
+- Geen rollback van eerder geslaagde targets.
+- Eerder geslaagde targets: overgeslagen met log `action_result = skipped` + `retry_skip_already_successful`.
+- Eerder gefaalde targets: opnieuw uitgevoerd (identifier-based).
+
+---
+
+## Replay
+
+- Endpoint: `POST /api/submissions/:submissionId/replay`
+- Maakt altijd een **nieuwe** submission-row:
+  - `replay_of_submission_id` ? originele submission
+  - `source_payload` ? kopie van origineel
+  - `payload_hash` ? opnieuw berekend uit gekopieerd payload
+  - `idempotency_key` ? geforceerd nieuw (`replay-<orig>-<uuid>`)
+- Toegestane statussen om te replayen: `partial_failed`, `permanent_failed`, `retry_exhausted`.
+- Geweigerd als al een child replay met status `running` bestaat voor dezelfde originele submission.
+- Replay doorloopt de volledige runtimeflow: resolvers ? context ? targets.
 - Originele submission blijft ongewijzigd.
-- Replay doorloopt volledige runtimeflow: resolvers â†’ context â†’ targets.
-- Toegelaten originele statussen:
-  - `partial_failed`
-  - `permanent_failed`
-  - `retry_exhausted`
 
-## Finalisatie statuses
-- `success`
-- `partial_failed`
-- `permanent_failed`
-- `retry_scheduled`
-- `retry_running`
-- `retry_exhausted`
-- `duplicate_inflight`
-- `duplicate_ignored`
+---
 
-## Failure matrix (Fase 3A)
-- Recoverable fout tijdens poging 1 â†’ `retry_scheduled` (+1 minuut)
-- Recoverable fout tijdens poging 2 â†’ `retry_scheduled` (+5 minuten)
-- Recoverable fout tijdens poging 3 â†’ `retry_exhausted`
-- Permanent fout op eender welke poging â†’ `permanent_failed`
-- Minstens Ã©Ã©n target success en Ã©Ã©n target failed â†’ `partial_failed`
-- Alle targets success/skipped-success-path â†’ `success`
+## Submission-statussen
 
-## Eenvoudige flowdiagram-beschrijving (uitgebreid)
-1. Webhook binnenkomen
-2. Security check op `X-Forminator-Secret`
-3. Actieve integratie op form-id zoeken
-4. Idempotency key berekenen
-5. Duplicate check
-6. Submission starten (`running`)
-7. Resolvers uitvoeren en context opbouwen
-8. Targets uitvoeren (identifier-based)
-9. Targetresultaten loggen
-10. Bij recoverable fout: `retry_scheduled` met `next_retry_at`
-11. Retry runner claimt due submissions en zet `retry_running`
-12. Alleen nog niet-succesvolle targets opnieuw uitvoeren
-13. Eindstatus finaliseren (`success` / `partial_failed` / `permanent_failed` / `retry_exhausted`)
+| Status | Betekenis |
+|---|---|
+| `running` | Verwerking actief |
+| `success` | Alle targets geslaagd |
+| `partial_failed` | Minstens één target geslaagd, minstens één gefaald |
+| `permanent_failed` | Permanente fout (niet herstelbaar) |
+| `retry_scheduled` | Awaiting retry na recoverable fout |
+| `retry_running` | Retry actief |
+| `retry_exhausted` | Alle 3 pogingen verbruikt |
+| `duplicate_inflight` | Duplicate van een actieve/geplande submission |
+| `duplicate_ignored` | Duplicate van een reeds verwerkte submission |
 
-## Replay flow steps (simpel)
-1. Replay request met `submissionId`
-2. Originele submission ophalen
-3. Statuscheck (alleen `partial_failed` / `permanent_failed` / `retry_exhausted`)
-4. Concurrency check op bestaande `running` child replay
-5. Nieuwe replay submission aanmaken met nieuwe idempotency key
-6. Volledige runtimeflow uitvoeren
-7. Nieuwe replay submission status teruggeven
+---
 
-## Niet in Fase 3B
-- Geen nieuwe resolvertypes
-- Geen nieuwe targetmodellen
-- Geen branching/conditionele logica
-- Geen expression engine
-- Geen extra configuratievelden in blok 1â€“4
+## Failure matrix
+
+| Situatie | Eindstatus |
+|---|---|
+| Recoverable fout op poging 1 | `retry_scheduled` (+1 min) |
+| Recoverable fout op poging 2 | `retry_scheduled` (+5 min) |
+| Recoverable fout op poging 3 | `retry_exhausted` |
+| Permanente fout op eender welke poging | `permanent_failed` |
+| Minstens één target OK, één gefaald | `partial_failed` |
+| Alle targets OK of skipped-success | `success` |
