@@ -45,25 +45,51 @@
   }
 
   function computeChainSuggestions(currentTarget, precedingTargets) {
-    var model     = currentTarget.odoo_model;
-    var odooCache = (S().odooFieldsCache || {})[model] || [];
+    var model       = currentTarget.odoo_model;
     var suggestions = [];
-    odooCache.forEach(function (field) {
-      if (field.type !== 'many2one' || !field.relation) return;
-      precedingTargets.forEach(function (prevT, prevIdx) {
-        if (prevT.odoo_model === field.relation) {
+
+    // 1. Registry-based suggestions (highest priority — explicitly configured)
+    var links = (S().modelLinksCache) || [];
+    precedingTargets.forEach(function (prevT, prevIdx) {
+      links.forEach(function (link) {
+        // Forward: stap N = link.model_a, huidige stap = link.model_b, veld staat op model_b
+        if (link.model_a === prevT.odoo_model && link.model_b === model) {
           suggestions.push({
-            odooField:    field.name,
-            odooLabel:    field.label || field.name,
-            relation:     field.relation,
+            odooField:    link.link_field,
+            odooLabel:    link.link_label || link.link_field,
+            relation:     link.model_a,
             stepOrder:    getTargetOrder(prevT, prevIdx),
             stepLabel:    prevT.label || '',
             stepNum:      prevIdx + 1,
             prevTargetId: String(prevT.id),
+            fromRegistry: true,
           });
         }
       });
     });
+
+    // 2. Dynamic fallback: scan odooFieldsCache for many2one fields pointing to a preceding model
+    var odooCache = (S().odooFieldsCache || {})[model] || [];
+    odooCache.forEach(function (field) {
+      if (field.type !== 'many2one' || !field.relation) return;
+      precedingTargets.forEach(function (prevT, prevIdx) {
+        if (prevT.odoo_model !== field.relation) return;
+        // Skip if registry already covers this field
+        var alreadyCovered = suggestions.some(function (s) { return s.odooField === field.name; });
+        if (alreadyCovered) return;
+        suggestions.push({
+          odooField:    field.name,
+          odooLabel:    field.label || field.name,
+          relation:     field.relation,
+          stepOrder:    getTargetOrder(prevT, prevIdx),
+          stepLabel:    prevT.label || '',
+          stepNum:      prevIdx + 1,
+          prevTargetId: String(prevT.id),
+          fromRegistry: false,
+        });
+      });
+    });
+
     return suggestions;
   }
 

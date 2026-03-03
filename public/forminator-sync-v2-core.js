@@ -97,6 +97,7 @@
     odooFieldsCache: {},
     modelDefaultsCache: {},   // model → [{name, label, required, order_index}]
     modelDefaultsEditors: {}, // model → {open, pendingFields}
+    modelLinksCache: [],      // [{model_a, model_b, link_field, link_label}]
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -140,7 +141,7 @@
 
   function showView(name) {
     S.view = name;
-    ['list', 'connections', 'wizard', 'detail', 'defaults'].forEach(function (v) {
+    ['list', 'connections', 'wizard', 'detail', 'defaults', 'links'].forEach(function (v) {
       var el = document.getElementById('view-' + v);
       if (el) el.style.display = (v === name) ? '' : 'none';
     });
@@ -269,6 +270,15 @@
     S.integrations = body.data || [];
   }
 
+  async function loadModelLinks() {
+    try {
+      var body = await api('/settings/model-links');
+      S.modelLinksCache = Array.isArray(body.data) ? body.data : [];
+    } catch (_) {
+      S.modelLinksCache = [];
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER: LIST VIEW
   // ═══════════════════════════════════════════════════════════════════════════
@@ -293,31 +303,47 @@
       var isActive = row.is_active;
       var actionLabel = '';
       var actionBadgeClass = 'badge-ghost';
+      var actionIcon = 'box';
+      var actionModel = '';
       var actionKeys = Object.keys(ACTIONS);
       for (var i = 0; i < actionKeys.length; i++) {
         var cfg = ACTIONS[actionKeys[i]];
         if (cfg.resolver_type === row.resolver_type || cfg.odoo_model === row.odoo_model) {
           actionLabel = cfg.label;
           actionBadgeClass = cfg.badgeClass;
+          actionIcon = cfg.icon;
+          actionModel = cfg.odoo_model;
           break;
         }
       }
 
-      return '<div class="card bg-base-100 shadow hover:shadow-md transition-shadow">' +
+      // Flow preview (uses shared FlowBuilder if available)
+      var flowHtml = '';
+      if (window.FSV2.renderFlowPreview && actionModel) {
+        flowHtml = window.FSV2.renderFlowPreview([{ model: actionModel }]);
+      }
+
+      var updatedAt = row.updated_at ? fmt(row.updated_at) : null;
+
+      return '<div class="card bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-200">' +
         '<div class="card-body p-5">' +
-          '<div class="flex items-start justify-between gap-2 mb-2">' +
-            '<h3 class="font-bold text-base leading-tight">' + esc(row.name || 'Integratie') + '</h3>' +
+          '<div class="flex items-start justify-between gap-2 mb-3">' +
+            '<h3 class="font-bold text-sm leading-snug text-base-content">' + esc(row.name || 'Integratie') + '</h3>' +
             (isActive
-              ? '<span class="badge badge-success badge-sm shrink-0">Actief</span>'
-              : '<span class="badge badge-ghost badge-sm shrink-0">Inactief</span>') +
+              ? '<span class="badge badge-success badge-xs shrink-0 gap-1"><span class="w-1.5 h-1.5 rounded-full bg-current"></span>Actief</span>'
+              : '<span class="badge badge-ghost badge-xs shrink-0">Inactief</span>') +
           '</div>' +
-          '<p class="text-xs text-base-content/60 mb-1 font-mono">' + esc(row.forminator_form_id || '\u2014') + '</p>' +
-          (actionLabel
-            ? '<div class="mb-3"><span class="badge ' + actionBadgeClass + ' badge-sm">' + esc(actionLabel) + '</span></div>'
-            : '<div class="mb-3"></div>') +
-          '<div class="flex gap-2 pt-3 border-t border-base-200">' +
-            '<button class="btn btn-xs btn-primary flex-1" data-action="open-detail" data-id="' + esc(row.id) + '">Beheren</button>' +
-            '<button class="btn btn-xs btn-error btn-outline" data-action="delete-integration"' +
+          '<div class="flex items-center gap-1.5 mb-3">' +
+            '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i>' +
+            '<p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '\u2014') + '</p>' +
+          '</div>' +
+          (flowHtml ? '<div class="mb-3">' + flowHtml + '</div>' : '') +
+          (updatedAt ? '<p class="text-xs text-base-content/35 mb-3">Bijgewerkt ' + updatedAt + '</p>' : '') +
+          '<div class="flex gap-2 pt-3 border-t border-base-100">' +
+            '<button class="btn btn-xs btn-primary flex-1 gap-1" data-action="open-detail" data-id="' + esc(row.id) + '">' +
+              '<i data-lucide="settings-2" class="w-3 h-3"></i>Beheren' +
+            '</button>' +
+            '<button class="btn btn-xs btn-ghost border border-base-200 text-error hover:bg-error/10" data-action="delete-integration"' +
               ' data-id="' + esc(row.id) + '" data-name="' + esc(row.name || 'Integratie') + '" title="Verwijderen">' +
               '<i data-lucide="trash-2" class="w-3 h-3"></i>' +
             '</button>' +
@@ -539,6 +565,7 @@
     getDefaultFieldsForAction: getDefaultFieldsForAction,
     loadSites: loadSites,
     loadIntegrations: loadIntegrations,
+    loadModelLinks: loadModelLinks,
     // Renders
     renderList: renderList,
     renderConnections: renderConnections,

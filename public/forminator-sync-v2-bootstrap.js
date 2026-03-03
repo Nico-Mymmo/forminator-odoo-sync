@@ -105,6 +105,58 @@
         });
         return;
       }
+      if (action === 'goto-links') {
+        window.FSV2.showView('links');
+        window.FSV2.renderLinks();
+        return;
+      }
+      // ── Link registry CRUD ────────────────────────────────────────────
+      if (action === 'discover-link-fields') {
+        var modelAEl = document.getElementById('linkModelA');
+        var modelBEl = document.getElementById('linkModelB');
+        var modelA   = modelAEl ? modelAEl.value : '';
+        var modelB   = modelBEl ? modelBEl.value : '';
+        if (!modelA || !modelB) { window.FSV2.showAlert('Kies beide modellen.', 'error'); return; }
+        if (modelA === modelB)  { window.FSV2.showAlert('Kies twee verschillende modellen.', 'error'); return; }
+        var resultEl = document.getElementById('linkFieldsResult');
+        if (resultEl) resultEl.innerHTML = '<span class="loading loading-spinner loading-xs"></span>';
+        // Fetch fields for model_b and filter for many2one pointing to model_a
+        var fieldsBody = await window.FSV2.api('/odoo/fields?model=' + encodeURIComponent(modelB));
+        var allFields  = fieldsBody.data || [];
+        var candidates = allFields.filter(function (f) { return f.type === 'many2one' && f.relation === modelA; });
+        window.FSV2.renderLinkFieldsResult(candidates, modelA, modelB);
+        return;
+      }
+      if (action === 'add-model-link') {
+        var newLink = {
+          model_a:    btn.dataset.modelA,
+          model_b:    btn.dataset.modelB,
+          link_field: btn.dataset.field,
+          link_label: btn.dataset.label || '',
+        };
+        var current = Array.isArray(S.modelLinksCache) ? S.modelLinksCache : [];
+        // Prevent duplicates
+        var exists = current.some(function (l) {
+          return l.model_a === newLink.model_a && l.model_b === newLink.model_b && l.link_field === newLink.link_field;
+        });
+        if (exists) { window.FSV2.showAlert('Koppeling bestaat al.', 'info'); return; }
+        var updated = current.concat([newLink]);
+        await window.FSV2.api('/settings/model-links', { method: 'PUT', body: JSON.stringify({ links: updated }) });
+        S.modelLinksCache = updated;
+        window.FSV2.showAlert('Koppeling opgeslagen.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'delete-model-link') {
+        var delIdx = parseInt(btn.dataset.idx, 10);
+        if (isNaN(delIdx)) return;
+        var withoutDel = (S.modelLinksCache || []).filter(function (_, i) { return i !== delIdx; });
+        await window.FSV2.api('/settings/model-links', { method: 'PUT', body: JSON.stringify({ links: withoutDel }) });
+        S.modelLinksCache = withoutDel;
+        window.FSV2.showAlert('Koppeling verwijderd.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
       if (action === 'goto-list') {
         await window.FSV2.loadIntegrations();
         window.FSV2.showView('list');
@@ -390,7 +442,7 @@
   async function bootstrap() {
     try {
       await Promise.all(
-        [window.FSV2.loadSites(), window.FSV2.loadIntegrations()].concat(
+        [window.FSV2.loadSites(), window.FSV2.loadIntegrations(), window.FSV2.loadModelLinks()].concat(
           Object.keys(window.FSV2.ACTIONS).map(function (key) {
             return window.FSV2.loadModelDefaultsForModel(window.FSV2.ACTIONS[key].odoo_model);
           })

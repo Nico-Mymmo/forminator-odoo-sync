@@ -33,6 +33,8 @@ import {
   deleteWpConnection,
   getModelDefaults,
   upsertModelDefaults,
+  getModelLinks,
+  upsertModelLinks,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -717,6 +719,35 @@ export const routes = {
       if (!Array.isArray(fields)) return jsonResponse({ success: false, error: 'fields must be an array' }, 400);
       const row = await upsertModelDefaults(context.env, model, fields);
       return jsonResponse({ success: true, data: row });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * GET /api/settings/model-links
+   * Returns the saved model link registry (array of {model_a, model_b, link_field, link_label}).
+   */
+  'GET /api/settings/model-links': async (context) => {
+    try {
+      const links = await getModelLinks(context.env);
+      return jsonResponse({ success: true, data: links });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * PUT /api/settings/model-links
+   * Saves the complete model link registry.
+   * Body: { links: [{model_a, model_b, link_field, link_label}] }
+   */
+  'PUT /api/settings/model-links': async (context) => {
+    try {
+      const body = await readJsonBody(context.request);
+      if (!Array.isArray(body.links)) return jsonResponse({ success: false, error: 'links must be an array' }, 400);
+      const saved = await upsertModelLinks(context.env, body.links);
+      return jsonResponse({ success: true, data: saved });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);
     }

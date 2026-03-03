@@ -626,3 +626,32 @@ export async function upsertModelDefaults(env, model, fields) {
   if (error) throw new Error(`Failed to upsert model defaults: ${error.message}`);
   return data;
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// MODEL LINK REGISTRY
+// Stored as a JSON array under the sentinel key '__model_links__' in
+// fs_v2_model_defaults.  No schema change required.
+// ──────────────────────────────────────────────────────────────────────────
+export async function getModelLinks(env) {
+  const supabase = getSupabase(env);
+  const { data } = await supabase
+    .from(TABLES.modelDefaults)
+    .select('fields')
+    .eq('odoo_model', '__model_links__')
+    .maybeSingle();
+  return data ? (Array.isArray(data.fields) ? data.fields : []) : [];
+}
+
+export async function upsertModelLinks(env, links) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.modelDefaults)
+    .upsert(
+      { odoo_model: '__model_links__', fields: links, updated_at: new Date().toISOString() },
+      { onConflict: 'odoo_model' }
+    )
+    .select('fields')
+    .single();
+  if (error) throw new Error(`Failed to save model links: ${error.message}`);
+  return Array.isArray(data.fields) ? data.fields : [];
+}
