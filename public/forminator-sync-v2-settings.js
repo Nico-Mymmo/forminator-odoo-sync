@@ -140,7 +140,7 @@
             '</div>' +
             '<p class="text-xs text-base-content/55 mb-4">' +
             'Definieer welke Odoo-modellen beschikbaar zijn als doelmodel in de synchronisatie-pipelines.' +
-            ' De standaardmodellen zijn altijd aanwezig en kunnen niet worden verwijderd.' +
+            ' Alle modellen worden opgeslagen in de database en kunnen vrij worden toegevoegd of verwijderd.' +
             '</p>' +
             tableHtml +
             addForm +

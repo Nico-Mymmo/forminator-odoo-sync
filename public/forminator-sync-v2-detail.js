@@ -69,12 +69,21 @@
     });
 
     // 2. Dynamic fallback: scan odooFieldsCache for many2one fields pointing to a preceding model
+    //    Skip same-model suggestions (self-referential noise like res.partner.parent_id).
+    //    Also skip entirely if registry already has an entry for this model pair.
     var odooCache = (S().odooFieldsCache || {})[model] || [];
     odooCache.forEach(function (field) {
       if (field.type !== 'many2one' || !field.relation) return;
       precedingTargets.forEach(function (prevT, prevIdx) {
         if (prevT.odoo_model !== field.relation) return;
-        // Skip if registry already covers this field
+        // Never suggest self-referential (same model → same model) via dynamic scan
+        if (prevT.odoo_model === model) return;
+        // Skip if registry already covers this model pair (avoid duplicate cards)
+        var registryCoversPair = links.some(function (l) {
+          return l.model_a === prevT.odoo_model && l.model_b === model;
+        });
+        if (registryCoversPair) return;
+        // Skip if registry already covers this specific field
         var alreadyCovered = suggestions.some(function (s) { return s.odooField === field.name; });
         if (alreadyCovered) return;
         suggestions.push({
