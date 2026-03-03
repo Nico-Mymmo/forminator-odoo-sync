@@ -454,6 +454,18 @@
       });
       var stepBadge = sortedTargets.length >= 2 ? (idx + 1) : 0;
 
+      // Fields already mapped as 'form' source in OTHER targets (not this one)
+      var alreadyMappedInOtherSteps = [];
+      sortedTargets.forEach(function (otherT, otherIdx) {
+        if (otherIdx === idx) return;
+        var otherMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[otherT.id]) || [];
+        otherMappings.forEach(function (m) {
+          if (m.source_type === 'form' && !alreadyMappedInOtherSteps.includes(m.source_value)) {
+            alreadyMappedInOtherSteps.push(m.source_value);
+          }
+        });
+      });
+
       window.FSV2.MappingTable.render('det-mc-' + tid, {
         flatFields:           flatFields,
         topLevelFields:       rawFf,
@@ -480,6 +492,7 @@
         extraIsUpdateFieldId: 'detExtraIsUpdateField-' + tid,
         operationType: target.operation_type || 'upsert',
         opTypeRadioName:      'det-optype-radio-' + tid,
+        alreadyMappedInOtherSteps: alreadyMappedInOtherSteps,
         saveAction:           null,   // per-step save button injected below
         targetId:             tid,
         precedingSteps:       precedingSteps,
@@ -1048,11 +1061,15 @@
       if (!sourceValue) return;
       var extraIdChk  = mcEl.querySelector('input[name="det-extra-' + tid + '-identifier-' + i + '"]');
       var extraUpdChk = mcEl.querySelector('input[name="det-extra-' + tid + '-update-' + i + '"]');
+      var chainReqChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-req-' + i + '"]');
+      var isRequired  = em.sourceType === 'previous_step_output'
+        ? (chainReqChk ? chainReqChk.checked : (em.isRequired || false))
+        : false;
       newMappings.push({
         odoo_field: em.odooField, source_type: sourceType, source_value: sourceValue,
-        is_identifier: extraIdChk ? extraIdChk.checked : false,
-        is_update_field: extraUpdChk ? extraUpdChk.checked : true,
-        is_required: em.isRequired || false, order_index: orderIdx++,
+        is_identifier: em.sourceType === 'previous_step_output' ? false : (extraIdChk ? extraIdChk.checked : false),
+        is_update_field: em.sourceType === 'previous_step_output' ? true : (extraUpdChk ? extraUpdChk.checked : true),
+        is_required: isRequired, order_index: orderIdx++,
       });
     });
 
