@@ -220,6 +220,9 @@
       if (em.sourceType !== 'previous_step_output') return '';
       var inputId  = (cfg.extraInputPrefix || 'inp-') + (cfg.extraRowPrefix || 'extra-') + idx;
       var chainRef = em.staticValue || '';
+      // Normalize legacy format step_N_id → step.N.record_id
+      var legM = chainRef.match(/^step_(\d+)_id$/);
+      if (legM) chainRef = 'step.' + legM[1] + '.record_id';
       var chainMch = chainRef.match(/^step\.([^.]+)\.record_id$/);
       var chainLbl = '';
       if (chainMch) {

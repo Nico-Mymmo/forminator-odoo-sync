@@ -271,13 +271,20 @@
       var preceding  = sortedTargets.slice(0, idx);
       var suggestions = isSingle ? [] : computeChainSuggestions(target, preceding);
 
-      // Chain dependency badges from saved state
+      // Chain dependency badges from saved state (prefer in-memory edits, fall back to DB state)
       var chainDeps = [];
       if (!isSingle) {
-        var extraRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
-        extraRows.forEach(function (r) {
-          if (r.sourceType !== 'previous_step_output') return;
-          var m = (r.staticValue || '').match(/^step\.([^.]+)\.record_id$/);
+        var normalizeSv = function (sv) {
+          var leg = String(sv || '').match(/^step_(\d+)_id$/);
+          return leg ? 'step.' + leg[1] + '.record_id' : (sv || '');
+        };
+        var chainSourceRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid])
+          ? S().detail._extraRowsByTarget[tid].map(function (r) { return normalizeSv(r.staticValue); })
+          : ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [])
+              .filter(function (m) { return m.source_type === 'previous_step_output'; })
+              .map(function (m) { return normalizeSv(m.source_value); });
+        chainSourceRows.forEach(function (sourceVal) {
+          var m = sourceVal.match(/^step\.([^.]+)\.record_id$/);
           if (!m) return;
           var ref = m[1]; var refN = Number(ref);
           var prevT = isNaN(refN)
@@ -286,7 +293,7 @@
           if (prevT) {
             var pIdx = sortedTargets.indexOf(prevT);
             if (pIdx >= 0 && !chainDeps.find(function (d) { return d.stepNum === pIdx + 1; }))
-              chainDeps.push({ stepNum: pIdx + 1 });
+              chainDeps.push({ stepNum: pIdx + 1, stepName: prevT.label || modelLabel(prevT.odoo_model) });
           }
         });
       }
@@ -310,6 +317,15 @@
       html +=               '<span class="font-mono">' + esc(target.odoo_model) + '</span>';
       html +=               '<span>·</span>';
       html +=               '<span>' + esc(opTypeLbl) + '</span>';
+      if (chainDeps.length > 0) {
+        chainDeps.forEach(function (dep) {
+          html +=           '<span>·</span>' +
+            '<span class="inline-flex items-center gap-1 text-success font-medium">' +
+            '<i data-lucide="link-2" class="w-3 h-3"></i>' +
+            'Gekoppeld aan stap ' + dep.stepNum + (dep.stepName ? ' (' + esc(dep.stepName) + ')' : '') +
+            '</span>';
+        });
+      }
       html +=             '</div>';
       html +=           '</div>';
       html +=         '</div>';
@@ -371,16 +387,6 @@
           '</div>';
       });
 
-      // Dependency badges
-      if (chainDeps.length > 0) {
-        html += '<div class="flex flex-wrap gap-1.5 mt-2">';
-        chainDeps.forEach(function (dep) {
-          html += '<span class="badge badge-sm badge-info gap-1">' +
-            '<i data-lucide="link-2" class="w-3 h-3"></i> \u2190 Gebruikt uitvoer van Stap ' + dep.stepNum + '</span>';
-        });
-        html += '</div>';
-      }
-
       html +=     '</div>'; // px-5 py-4
 
       // Collapsible mapping section
@@ -392,8 +398,8 @@
       html += '</div>'; // card
     });
 
-    // Stap toevoegen (max 2 targets in MVP)
-    if (integrationId && sortedTargets.length < 2) {
+    // Stap toevoegen
+    if (integrationId) {
       var addModels = Array.isArray(window.FSV2.S.odooModelsCache) ? window.FSV2.S.odooModelsCache : window.FSV2.DEFAULT_ODOO_MODELS;
       var modelOpts = addModels.map(function (m) {
         return '<option value="' + esc(m.name) + '">' + esc(m.label || m.name) + ' (' + esc(m.name) + ')</option>';
@@ -437,10 +443,17 @@
       if (!S().detail._extraRowsByTarget[tid]) {
         S().detail._extraRowsByTarget[tid] = initialExtraRows.map(function (m) {
           var meta = odooCache.find(function (f) { return f.name === m.odoo_field; });
+          // Normalize legacy source_value formats for previous_step_output
+          var sv = m.source_value;
+          if (m.source_type === 'previous_step_output') {
+            // Old format: "step_N_id" → new format: "step.N.record_id"
+            var legacyMatch = String(sv || '').match(/^step_(\d+)_id$/);
+            if (legacyMatch) sv = 'step.' + legacyMatch[1] + '.record_id';
+          }
           return {
             odooField:     m.odoo_field,
             odooLabel:     (meta && meta.label) || m.odoo_field,
-            staticValue:   m.source_value,
+            staticValue:   sv,
             sourceType:    m.source_type,
             isRequired:    !!m.is_required,
             isIdentifier:  !!m.is_identifier,
