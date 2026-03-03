@@ -79,26 +79,54 @@
                 '</thead>' +
                 '<tbody>' +
                 models.map(function (m, idx) {
-                    var locked = isDefaultModel(m.name);
+                    var isEditing = (S().editingModelIdx === idx);
+                    if (isEditing) {
+                        var iconOpts = ICON_OPTIONS.map(function (o) {
+                            return '<option value="' + esc(o.value) + '"' +
+                                (o.value === (m.icon || 'box') ? ' selected' : '') + '>' +
+                                esc(o.label) + '</option>';
+                        }).join('');
+                        return '<tr class="bg-base-200/40">' +
+                            '<td class="pr-0">' +
+                            '<i data-lucide="pencil" class="w-4 h-4 text-primary/60"></i>' +
+                            '</td>' +
+                            '<td>' +
+                            '<input id="editModelLabel" type="text" value="' + esc(m.label || '') + '"' +
+                            ' class="input input-xs input-bordered w-40" placeholder="Label" />' +
+                            '</td>' +
+                            '<td>' +
+                            '<div class="flex items-center gap-2">' +
+                            '<code class="text-xs font-mono text-base-content/50 bg-base-200 px-1.5 py-0.5 rounded">' + esc(m.name) + '</code>' +
+                            '<select id="editModelIcon" class="select select-xs select-bordered w-44">' + iconOpts + '</select>' +
+                            '</div>' +
+                            '</td>' +
+                            '<td class="text-right">' +
+                            '<div class="flex gap-1 justify-end">' +
+                            '<button type="button" class="btn btn-xs btn-primary" data-action="save-odoo-model" data-idx="' + idx + '" data-name="' + esc(m.name) + '">Opslaan</button>' +
+                            '<button type="button" class="btn btn-xs btn-ghost" data-action="cancel-edit-model">Annuleer</button>' +
+                            '</div>' +
+                            '</td>' +
+                            '</tr>';
+                    }
                     return '<tr class="hover">' +
                         '<td class="pr-0">' +
                         '<i data-lucide="' + esc(m.icon || 'box') + '" class="w-4 h-4 text-base-content/40"></i>' +
                         '</td>' +
                         '<td>' +
                         '<span class="font-medium text-sm">' + esc(m.label || m.name) + '</span>' +
-                        (locked ? ' <span class="badge badge-xs badge-ghost ml-1">standaard</span>' : '') +
                         '</td>' +
                         '<td>' +
                         '<code class="text-xs font-mono text-base-content/50 bg-base-200 px-1.5 py-0.5 rounded">' + esc(m.name) + '</code>' +
                         '</td>' +
                         '<td class="text-right">' +
-                        (locked
-                            ? '<span class="text-xs text-base-content/30 pr-2">geblokkeerd</span>'
-                            : '<button type="button" class="btn btn-ghost btn-xs text-error hover:bg-error/10"' +
-                            ' data-action="delete-odoo-model" data-idx="' + idx + '" title="Verwijderen">' +
-                            '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>' +
-                            '</button>'
-                        ) +
+                        '<div class="flex gap-1 justify-end">' +
+                        '<button type="button" class="btn btn-ghost btn-xs text-base-content/50 hover:text-primary" data-action="edit-odoo-model" data-idx="' + idx + '" title="Bewerken">' +
+                        '<i data-lucide="pencil" class="w-3.5 h-3.5"></i>' +
+                        '</button>' +
+                        '<button type="button" class="btn btn-ghost btn-xs text-error hover:bg-error/10" data-action="delete-odoo-model" data-idx="' + idx + '" title="Verwijderen">' +
+                        '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>' +
+                        '</button>' +
+                        '</div>' +
                         '</td>' +
                         '</tr>';
                 }).join('') +
@@ -178,6 +206,37 @@
                 '</thead>' +
                 '<tbody>' +
                 links.map(function (link, idx) {
+                    var isEditing = (S().editingLinkIdx === idx);
+                    if (isEditing) {
+                        return '<tr class="bg-base-200/40">' +
+                            '<td>' +
+                            '<div class="flex items-center gap-1.5">' +
+                            '<i data-lucide="' + esc(modelIcon(link.model_a)) + '" class="w-3.5 h-3.5 text-base-content/40 shrink-0"></i>' +
+                            '<span class="text-sm">' + esc(modelLabel(link.model_a)) + '</span>' +
+                            '</div>' +
+                            '</td>' +
+                            '<td><i data-lucide="arrow-right" class="w-3.5 h-3.5 text-base-content/25"></i></td>' +
+                            '<td>' +
+                            '<div class="flex items-center gap-1.5">' +
+                            '<i data-lucide="' + esc(modelIcon(link.model_b)) + '" class="w-3.5 h-3.5 text-base-content/40 shrink-0"></i>' +
+                            '<span class="text-sm">' + esc(modelLabel(link.model_b)) + '</span>' +
+                            '</div>' +
+                            '</td>' +
+                            '<td>' +
+                            '<div class="flex items-center gap-2">' +
+                            '<code class="text-xs bg-base-200 px-1.5 py-0.5 rounded font-mono">' + esc(link.link_field) + '</code>' +
+                            '<input id="editLinkLabel" type="text" value="' + esc(link.link_label || '') + '"' +
+                            ' class="input input-xs input-bordered w-36" placeholder="Label (optioneel)" />' +
+                            '</div>' +
+                            '</td>' +
+                            '<td class="text-right">' +
+                            '<div class="flex gap-1 justify-end">' +
+                            '<button type="button" class="btn btn-xs btn-primary" data-action="save-model-link" data-idx="' + idx + '">Opslaan</button>' +
+                            '<button type="button" class="btn btn-xs btn-ghost" data-action="cancel-edit-link">Annuleer</button>' +
+                            '</div>' +
+                            '</td>' +
+                            '</tr>';
+                    }
                     return '<tr class="hover">' +
                         '<td>' +
                         '<div class="flex items-center gap-1.5">' +
@@ -203,10 +262,14 @@
                         '</div>' +
                         '</td>' +
                         '<td class="text-right">' +
-                        '<button type="button" class="btn btn-ghost btn-xs text-error hover:bg-error/10" title="Verwijderen"' +
-                        ' data-action="delete-model-link" data-idx="' + idx + '">' +
+                        '<div class="flex gap-1 justify-end">' +
+                        '<button type="button" class="btn btn-ghost btn-xs text-base-content/50 hover:text-primary" data-action="edit-model-link" data-idx="' + idx + '" title="Bewerken">' +
+                        '<i data-lucide="pencil" class="w-3.5 h-3.5"></i>' +
+                        '</button>' +
+                        '<button type="button" class="btn btn-ghost btn-xs text-error hover:bg-error/10" data-action="delete-model-link" data-idx="' + idx + '" title="Verwijderen">' +
                         '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>' +
                         '</button>' +
+                        '</div>' +
                         '</td>' +
                         '</tr>';
                 }).join('') +

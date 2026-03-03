@@ -99,6 +99,8 @@
     modelDefaultsEditors: {}, // model → {open, pendingFields}
     modelLinksCache: [],      // [{model_a, model_b, link_field, link_label}]
     odooModelsCache: [],      // [{name, label, icon}] — user-managed model registry
+    editingModelIdx: null,    // index of model row currently being edited (or null)
+    editingLinkIdx:  null,    // index of link row currently being edited (or null)
   };
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -172,10 +172,7 @@
           window.FSV2.showAlert('Model bestaat al.', 'info'); return;
         }
         var updatedModels = currentModels.concat([{ name: mName, label: mLabel, icon: mIcon }]);
-        var toSave = updatedModels.filter(function (m) {
-          return !(window.FSV2.DEFAULT_ODOO_MODELS || []).some(function (d) { return d.name === m.name; });
-        });
-        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: toSave }) });
+        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: updatedModels }) });
         S.odooModelsCache = updatedModels;
         if (nameEl)  nameEl.value  = '';
         if (labelEl) labelEl.value = '';
@@ -187,12 +184,65 @@
         var delModelIdx = parseInt(btn.dataset.idx, 10);
         if (isNaN(delModelIdx)) return;
         var withoutModel = (S.odooModelsCache || []).filter(function (_, i) { return i !== delModelIdx; });
-        var toSaveDel = withoutModel.filter(function (m) {
-          return !(window.FSV2.DEFAULT_ODOO_MODELS || []).some(function (d) { return d.name === m.name; });
-        });
-        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: toSaveDel }) });
+        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: withoutModel }) });
         S.odooModelsCache = withoutModel;
         window.FSV2.showAlert('Model verwijderd.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      // ── Odoo model inline edit ────────────────────────────────────────────
+      if (action === 'edit-odoo-model') {
+        S.editingModelIdx = parseInt(btn.dataset.idx, 10);
+        S.editingLinkIdx  = null;
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'cancel-edit-model') {
+        S.editingModelIdx = null;
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'save-odoo-model') {
+        var saveIdx   = parseInt(btn.dataset.idx, 10);
+        var modelName = btn.dataset.name;
+        var labelEl   = document.getElementById('editModelLabel');
+        var iconEl    = document.getElementById('editModelIcon');
+        var newLabel  = labelEl ? labelEl.value.trim() : '';
+        var newIcon   = iconEl  ? iconEl.value.trim()  : 'box';
+        if (!newLabel) { window.FSV2.showAlert('Label is verplicht.', 'error'); return; }
+        var updatedModels = (S.odooModelsCache || []).map(function (m, i) {
+          return i === saveIdx ? { name: m.name, label: newLabel, icon: newIcon } : m;
+        });
+        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: updatedModels }) });
+        S.odooModelsCache = updatedModels;
+        S.editingModelIdx = null;
+        window.FSV2.showAlert('Model bijgewerkt.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      // ── Model link inline edit ────────────────────────────────────────────
+      if (action === 'edit-model-link') {
+        S.editingLinkIdx  = parseInt(btn.dataset.idx, 10);
+        S.editingModelIdx = null;
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'cancel-edit-link') {
+        S.editingLinkIdx = null;
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'save-model-link') {
+        var saveLinkIdx = parseInt(btn.dataset.idx, 10);
+        var linkLabelEl = document.getElementById('editLinkLabel');
+        var newLinkLabel = linkLabelEl ? linkLabelEl.value.trim() : '';
+        var updatedLinks = (S.modelLinksCache || []).map(function (l, i) {
+          return i === saveLinkIdx ? Object.assign({}, l, { link_label: newLinkLabel }) : l;
+        });
+        await window.FSV2.api('/settings/model-links', { method: 'PUT', body: JSON.stringify({ links: updatedLinks }) });
+        S.modelLinksCache = updatedLinks;
+        S.editingLinkIdx  = null;
+        window.FSV2.showAlert('Koppeling bijgewerkt.', 'success');
         window.FSV2.renderLinks();
         return;
       }
