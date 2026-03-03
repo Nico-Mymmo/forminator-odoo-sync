@@ -228,10 +228,11 @@
     },
     { name: 'crm.lead', label: 'Lead', icon: 'trending-up',
       default_fields: [
-        { name: 'partner_name', label: 'Naam',         required: true  },
-        { name: 'email_from',   label: 'E-mailadres',  required: true  },
-        { name: 'phone',        label: 'Telefoon',     required: false },
-        { name: 'description',  label: 'Omschrijving', required: false },
+        { name: 'name',         label: 'Naam lead/kans',  required: true  },
+        { name: 'partner_name', label: 'Naam contact',    required: false },
+        { name: 'email_from',   label: 'E-mailadres',     required: true  },
+        { name: 'phone',        label: 'Telefoon',        required: false },
+        { name: 'description',  label: 'Omschrijving',    required: false },
       ]
     },
     { name: 'x_webinarregistrations', label: 'Webinaarinschrijving', icon: 'video',

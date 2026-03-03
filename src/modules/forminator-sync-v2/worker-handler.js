@@ -663,6 +663,24 @@ async function runSubmissionAttempt(env, {
       }
       const incomingValues = buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject);
       const updateValues   = buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject);
+
+      // ── Model-specific mandatory field fallbacks ───────────────────────────
+      // crm.lead requires 'name' (opportunity title). If not mapped, derive from
+      // partner_name, form name fields, or fall back to the form title.
+      if (target.odoo_model === 'crm.lead' && !incomingValues.name) {
+        const fallback =
+          incomingValues.partner_name ||
+          lookupFormValue(normalizedForm, 'name') ||
+          lookupFormValue(normalizedForm, 'name_1') ||
+          lookupFormValue(normalizedForm, 'full_name') ||
+          lookupFormValue(normalizedForm, 'full_name_1') ||
+          normalizedForm.form_title ||
+          'Lead';
+        incomingValues.name = fallback;
+        if (!updateValues.name) updateValues.name = fallback;
+        console.log(attemptTag, '[crm.lead] auto-filled name:', fallback);
+      }
+
       console.log(attemptTag, 'opType:', opType, '| identifierDomain:', JSON.stringify(identifierDomain));
       console.log(attemptTag, 'incomingValues:', JSON.stringify(incomingValues));
       console.log(attemptTag, 'updateValues:', JSON.stringify(updateValues));
