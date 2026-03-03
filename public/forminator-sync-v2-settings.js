@@ -92,9 +92,10 @@
                               return '<div class="flex items-center gap-2 py-1 border-b border-base-200 last:border-0">' +
                                 '<code class="text-xs font-mono w-32 shrink-0 text-base-content/60">' + esc(f.name) + '</code>' +
                                 '<span class="text-xs flex-1">' + esc(f.label || '') + '</span>' +
-                                (f.required
-                                  ? '<span class="badge badge-xs text-error border border-error/30 bg-error/5">verplicht</span>'
-                                  : '<span class="badge badge-xs badge-ghost">optioneel</span>') +
+                                '<label class="flex items-center gap-1.5 text-xs cursor-pointer select-none">' +
+                                  '<input type="checkbox" class="checkbox checkbox-xs" data-action="toggle-default-field-required" data-idx="' + fi + '"' + (f.required ? ' checked' : '') + '>' +
+                                  '<span class="' + (f.required ? 'text-error font-semibold' : 'text-base-content/50') + '">Verplicht</span>' +
+                                '</label>' +
                                 '<button type="button" class="btn btn-ghost btn-xs text-error/60 hover:text-error" data-action="remove-default-field" data-idx="' + fi + '"><i data-lucide="x" class="w-3 h-3"></i></button>' +
                               '</div>';
                           }).join('')

@@ -224,6 +224,14 @@
         window.FSV2.renderLinks();
         return;
       }
+      if (action === 'toggle-default-field-required') {
+        var togIdx = parseInt(btn.dataset.idx, 10);
+        if (!isNaN(togIdx) && Array.isArray(S.editingDefaultFields) && S.editingDefaultFields[togIdx]) {
+          S.editingDefaultFields[togIdx].required = btn.checked;
+          window.FSV2.renderLinks();
+        }
+        return;
+      }
       if (action === 'remove-default-field') {
         var rmIdx = parseInt(btn.dataset.idx, 10);
         if (!isNaN(rmIdx) && Array.isArray(S.editingDefaultFields)) {
