@@ -632,23 +632,63 @@
           '</div>'
         : '';
       var isReplaySub = !!sub.replay_of_submission_id;
-      var timelineHtml = actions.length
-        ? actions.map(function (a) {
-            var sl = (a.skipped_reason && skipLabels[a.skipped_reason]) || '';
+      var isFailed    = ['permanent_failed', 'retry_exhausted', 'partial_failed'].includes(String(sub.status || ''));
+
+      // Prefer target_actions from context; fall back to reconstructing from targets list + flat step.N.* keys.
+      var stepsToShow = actions;
+      if (!stepsToShow.length && targets.length) {
+        var sortedT = targets.slice().sort(function (a, b) {
+          var ao = a.execution_order != null ? a.execution_order : (a.order_index != null ? a.order_index : 0);
+          var bo = b.execution_order != null ? b.execution_order : (b.order_index != null ? b.order_index : 0);
+          return ao - bo;
+        });
+        stepsToShow = sortedT.map(function (t) {
+          var order = t.execution_order != null ? t.execution_order : (t.order_index != null ? t.order_index : 0);
+          return {
+            model:           t.odoo_model,
+            label:           t.label || null,
+            execution_order: order,
+            action:          ctx['step.' + order + '.action'] || null,
+            record_id:       ctx['step.' + order + '.record_id'] || null,
+            skipped_reason:  null,
+            error_detail:    null
+          };
+        });
+      }
+
+      var timelineHtml = stepsToShow.length
+        ? stepsToShow.map(function (a) {
+            var sl           = (a.skipped_reason && skipLabels[a.skipped_reason]) || '';
             var isReplaySkip = a.skipped_reason === 'retry_skip_already_successful';
-            var successLabel  = (isReplaySub && (a.action === 'created' || a.action === 'updated')) ? 'Geslaagd bij replay' : (actionLabels[a.action] || esc(a.action));
-            return '<div class="flex flex-wrap items-center gap-1.5 text-xs py-1 border-b border-base-100/50 last:border-0">' +
-              (a.execution_order != null ? '<span class="badge badge-outline badge-xs font-mono w-5 text-center shrink-0">' + esc(String(a.execution_order)) + '</span>' : '') +
-              (a.label ? '<span class="font-medium">' + esc(a.label) + '</span>' : '') +
-              '<span class="font-mono text-base-content/40">' + esc(a.model || '-') + '</span>' +
-              '<span class="badge badge-xs ' + (actionColors[a.action] || 'badge-ghost') + '">' + successLabel + '</span>' +
-              (a.record_id ? '<span class="font-mono text-base-content/30">#' + esc(String(a.record_id)) + '</span>' : '') +
-              (sl ? '<span class="text-xs ' + (isReplaySkip ? 'text-base-content/30 italic' : 'text-warning') + '">' + esc(sl) + '</span>' : '') +
+            var stepNum      = a.execution_order != null ? (Number(a.execution_order) + 1) : null;
+            var stepLabel    = (isReplaySub && (a.action === 'created' || a.action === 'updated'))
+              ? 'Geslaagd bij replay'
+              : (a.action ? (actionLabels[a.action] || esc(a.action)) : '<span class="italic opacity-50">niet uitgevoerd</span>');
+            var stepColor    = a.action ? (actionColors[a.action] || 'badge-ghost') : 'badge-neutral';
+            return '<div class="flex flex-wrap items-start gap-1.5 text-xs py-1.5 border-b border-base-100/50 last:border-0">' +
+              (stepNum != null ? '<span class="badge badge-outline badge-xs font-mono w-5 text-center shrink-0 mt-0.5">' + esc(String(stepNum)) + '</span>' : '') +
+              '<div class="flex flex-col gap-0.5 min-w-0">' +
+                '<div class="flex flex-wrap items-center gap-1.5">' +
+                  (a.label ? '<span class="font-medium">' + esc(a.label) + '</span>' : '') +
+                  '<span class="font-mono text-base-content/40">' + esc(a.model || '-') + '</span>' +
+                  '<span class="badge badge-xs ' + stepColor + '">' + stepLabel + '</span>' +
+                  (a.record_id ? '<span class="font-mono text-base-content/30">#' + esc(String(a.record_id)) + '</span>' : '') +
+                  (sl ? '<span class="text-xs ' + (isReplaySkip ? 'text-base-content/30 italic' : 'text-warning') + '">' + esc(sl) + '</span>' : '') +
+                '</div>' +
+                (a.error_detail ? '<span class="text-error/70 font-mono break-all">' + esc(a.error_detail) + '</span>' : '') +
+              '</div>' +
             '</div>';
           }).join('')
         : '<span class="text-xs text-base-content/40 italic">Geen stapdetails beschikbaar.</span>';
-      return '<tr class="sub-timeline-row" id="stl-' + esc(shortId) + '" style="display:none">' +
-        '<td colspan="' + colCount + '" class="bg-base-200/40 px-4 py-3">' + payloadHtml + timelineHtml + '</td>' +
+
+      var errorHtml = (isFailed && sub.last_error)
+        ? '<div class="mt-2 p-2 rounded bg-error/10 border border-error/20 text-xs text-error font-mono break-all">' +
+            '<span class="font-semibold mr-1">Fout:</span>' + esc(sub.last_error) +
+          '</div>'
+        : '';
+
+      return '<tr class="sub-timeline-row" id="stl-' + esc(shortId) + '"' + (isFailed ? '' : ' style="display:none"') + '>' +
+        '<td colspan="' + colCount + '" class="bg-base-200/40 px-4 py-3">' + payloadHtml + timelineHtml + errorHtml + '</td>' +
         '</tr>';
     }
 
@@ -1105,6 +1145,13 @@
     await Promise.all(newMappings.map(function (m) {
       return window.FSV2.api('/targets/' + tid + '/mappings', { method: 'POST', body: JSON.stringify(m) });
     }));
+
+    // Warn when upsert/update_only has no identifier — will cause permanent_failed at webhook time.
+    var needsId = newOpType === 'upsert' || newOpType === 'update_only';
+    var hasId   = newMappings.some(function (m) { return m.is_identifier; });
+    if (needsId && !hasId && newMappings.length > 0) {
+      window.FSV2.showAlert('Let op: geen veld als identifier gemarkeerd. Bij upsert/update is minstens één identifier verplicht.', 'warning');
+    }
 
     window.FSV2.showAlert('Stap opgeslagen.', 'success');
     // Clear only this target's extra-row cache; _pipelineOpenById is module-level → stays open

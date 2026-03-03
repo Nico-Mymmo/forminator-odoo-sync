@@ -779,6 +779,22 @@ async function runSubmissionAttempt(env, {
       status: finalStatus
     };
   } catch (error) {
+    // Attach any partial target results so the UI can show which steps completed before the error.
+    if (targetResults.length > 0 && !contextObject.target_actions) {
+      contextObject.target_actions = targetResults.map((r) => {
+        const t = sortedTargets.find((t) => t.id === r.target_id);
+        return {
+          model:           t?.odoo_model || r.target_id,
+          label:           t?.label || null,
+          execution_order: r.execution_order ?? t?.execution_order ?? null,
+          action:          r.action_result,
+          record_id:       r.odoo_record_id || null,
+          skipped_reason:  r.skipped_reason || null,
+          error_detail:    r.error_detail || null
+        };
+      });
+    }
+
     const failureType = classifyFailureType(error);
 
     if (failureType === 'recoverable') {
