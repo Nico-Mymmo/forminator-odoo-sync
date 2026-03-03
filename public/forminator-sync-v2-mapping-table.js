@@ -165,8 +165,8 @@
         var existing      = cfg.existingFormMappings ? (cfg.existingFormMappings[fid] || null) : null;
         var preselected   = existing ? existing.odoo_field : null;
         var suggested     = preselected || window.FSV2.suggestOdooField(fid, f.label || '', cfg.odooModel || '');
-        var isIdentifier  = existing ? !!existing.is_identifier          : autoIds.includes(suggested);
-        var isUpdateField = existing ? existing.is_update_field !== false : true;
+        var isIdentifier  = greyedOut ? false : (existing ? !!existing.is_identifier          : autoIds.includes(suggested));
+        var isUpdateField = greyedOut ? false : (existing ? existing.is_update_field !== false : true);
         var isSubField    = !topLevel.find(function (pf) { return String(pf.field_id) === fid; });
         var rowCls = greyedOut
           ? ' class="opacity-40"'
@@ -190,13 +190,13 @@
             '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.idCheckClass || '') + '"' +
             ' name="' + esc(cfg.checkPrefix || '') + 'identifier-' + esc(fid) + '"' +
             ' title="Zoekcriterium: vink aan als de worker dit veld gebruikt om te zoeken of het record al bestaat"' +
-            (isIdentifier ? ' checked' : '') + '>' +
+            (isIdentifier ? ' checked' : '') + (greyedOut ? ' disabled' : '') + '>' +
           '</td>' +
           '<td class="text-center py-2">' +
             '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.updCheckClass || '') + '"' +
             ' name="' + esc(cfg.checkPrefix || '') + 'update-' + esc(fid) + '"' +
             ' title="Bijwerken: vink aan als dit veld ook overschreven mag worden bij een update. Uitvinken = alleen invullen bij nieuw aanmaken."' +
-            (isUpdateField ? ' checked' : '') + '>' +
+            (isUpdateField ? ' checked' : '') + (greyedOut ? ' disabled' : '') + '>' +
           '</td>' +
         '</tr>';
       }
