@@ -12,7 +12,7 @@
 import { navbar } from '../../lib/components/navbar.js';
 
 /** Cache-busting version — bump whenever any of the 5 public FSV2 files change. */
-const FSV2_ASSET_VERSION = '20260303a';
+const FSV2_ASSET_VERSION = '20260303b';
 
 export function forminatorSyncV2UI(user) {
   return `<!DOCTYPE html>

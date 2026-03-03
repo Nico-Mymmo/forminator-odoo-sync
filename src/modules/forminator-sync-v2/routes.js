@@ -295,7 +295,8 @@ export const routes = {
         odoo_model: payload.odoo_model,
         identifier_type: payload.identifier_type,
         update_policy: payload.update_policy,
-        is_enabled: true
+        is_enabled: true,
+        ...(payload.execution_order !== undefined ? { execution_order: Number(payload.execution_order) } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -314,7 +315,8 @@ export const routes = {
         odoo_model: payload.odoo_model,
         identifier_type: payload.identifier_type,
         update_policy: payload.update_policy,
-        is_enabled: payload.is_enabled !== false
+        is_enabled: payload.is_enabled !== false,
+        ...(payload.execution_order !== undefined ? { execution_order: payload.execution_order === null ? null : Number(payload.execution_order) } : {}),
       });
 
       await enforceRequiredMappingsForTarget(context.env, context.params?.targetId, payload.odoo_model);
@@ -738,7 +740,7 @@ export const routes = {
         model,
         method: 'fields_get',
         args: [],
-        kwargs: { attributes: ['string', 'type', 'store', 'readonly', 'selection'] },
+        kwargs: { attributes: ['string', 'type', 'store', 'readonly', 'selection', 'relation'] },
       });
 
       // Transform to sorted array; only expose stored fields
@@ -750,6 +752,7 @@ export const routes = {
           type: meta.type,
           readonly: !!meta.readonly,
           selection: Array.isArray(meta.selection) && meta.selection.length ? meta.selection : null,
+          relation: meta.relation || null,
         }))
         .sort((a, b) => a.label.localeCompare(b.label, 'nl'));
 

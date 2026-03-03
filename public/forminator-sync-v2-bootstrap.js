@@ -159,6 +159,32 @@
         await window.FSV2.handleAddTarget(btn.dataset.integrationid);
         return;
       }
+      if (action === 'toggle-step-open') {
+        window.FSV2.toggleStepOpen(btn.dataset.targetId);
+        return;
+      }
+      if (action === 'reorder-target-up') {
+        await window.FSV2.handleReorderTarget(btn.dataset.targetId, -1);
+        return;
+      }
+      if (action === 'reorder-target-down') {
+        await window.FSV2.handleReorderTarget(btn.dataset.targetId, 1);
+        return;
+      }
+      if (action === 'apply-chain-suggestion') {
+        window.FSV2.applyChainSuggestion(
+          btn.dataset.targetId,
+          btn.dataset.odooField,
+          btn.dataset.odooLabel,
+          btn.dataset.stepOrder,
+          btn.dataset.stepLabel
+        );
+        return;
+      }
+      if (action === 'save-step-mappings') {
+        await window.FSV2.handleSaveStepMappings(btn.dataset.targetId);
+        return;
+      }
       if (action === 'save-detail-mappings') {
         await window.FSV2.handleSaveMappings();
         return;

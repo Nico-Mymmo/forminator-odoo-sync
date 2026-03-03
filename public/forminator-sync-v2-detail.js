@@ -18,8 +18,63 @@
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // RENDER: DETAIL VIEW
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════════════════════════
+  // PIPELINE STATE — module-level (survives openDetail reloads)
+  // Keyed by String(integrationId) → { [String(targetId)]: true/false }
+  var _pipelineOpenById = {};
+  function getPipelineOpen(integrationId) {
+    if (!_pipelineOpenById[String(integrationId)]) _pipelineOpenById[String(integrationId)] = {};
+    return _pipelineOpenById[String(integrationId)];
+  }
+
+  var MODEL_LABELS = {
+    'res.partner':            'Contact',
+    'crm.lead':               'Lead',
+    'x_webinarregistrations': 'Webinaarinschrijving',
+  };
+  var POLICY_LABELS = {
+    'always_overwrite': 'Bijwerken of aanmaken',
+    'upsert':           'Bijwerken of aanmaken',
+    'create_only':      'Alleen aanmaken',
+    'update_only':      'Alleen bijwerken',
+  };
+
+  function getTargetOrder(t, fallback) {
+    return t.execution_order != null ? t.execution_order
+         : (t.order_index    != null ? t.order_index : (fallback != null ? fallback : 0));
+  }
+
+  function computeChainSuggestions(currentTarget, precedingTargets) {
+    var model     = currentTarget.odoo_model;
+    var odooCache = (S().odooFieldsCache || {})[model] || [];
+    var suggestions = [];
+    odooCache.forEach(function (field) {
+      if (field.type !== 'many2one' || !field.relation) return;
+      precedingTargets.forEach(function (prevT, prevIdx) {
+        if (prevT.odoo_model === field.relation) {
+          suggestions.push({
+            odooField:    field.name,
+            odooLabel:    field.label || field.name,
+            relation:     field.relation,
+            stepOrder:    getTargetOrder(prevT, prevIdx),
+            stepLabel:    prevT.label || '',
+            stepNum:      prevIdx + 1,
+            prevTargetId: String(prevT.id),
+          });
+        }
+      });
+    });
+    return suggestions;
+  }
+
+  function isChainSuggestionApplied(tid, odooField) {
+    var rows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
+    return rows.some(function (r) {
+      return r.odooField === odooField && r.sourceType === 'previous_step_output';
+    });
+  }
+
   function renderDetail() {
-    if (!S().detail) return;
     var integration = S().detail.integration;
     var resolvers   = S().detail.resolvers || [];
     var targets     = S().detail.targets   || [];
@@ -140,77 +195,194 @@
       return;
     }
 
-    // Sort targets by execution_order for pipeline chaining metadata.
-    var sortedForChain = [...targets].sort(function (a, b) {
-      return ((a.execution_order != null ? a.execution_order : (a.order_index != null ? a.order_index : 0))) -
-             ((b.execution_order != null ? b.execution_order : (b.order_index != null ? b.order_index : 0)));
+    var sortedTargets = [...targets].sort(function (a, b) {
+      return getTargetOrder(a, 0) - getTargetOrder(b, 0);
     });
 
-    // Per-target extra-row state: keyed by String(target.id).
     if (!S().detail._extraRowsByTarget) S().detail._extraRowsByTarget = {};
+
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    var pipelineOpen  = getPipelineOpen(integrationId);
+    var isSingle      = sortedTargets.length === 1;
 
     var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
     var flatFields = [];
     rawFf.forEach(function (f) {
       if (!window.FSV2.SKIP_TYPES.includes(f.type)) flatFields.push(f);
-      if (Array.isArray(f.sub_fields)) {
-        f.sub_fields.forEach(function (sf) {
-          if (!window.FSV2.SKIP_TYPES.includes(sf.type)) flatFields.push(sf);
-        });
-      }
+      if (Array.isArray(f.sub_fields)) f.sub_fields.forEach(function (sf) {
+        if (!window.FSV2.SKIP_TYPES.includes(sf.type)) flatFields.push(sf);
+      });
     });
 
-    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    // ── Build card HTML ──────────────────────────────────────────────────────
+    var html = '';
 
-    // Build one wrapper div per target.
-    var outerHtml = sortedForChain.map(function (target, idx) {
-      var tid = String(target.id);
-      var dividerClass = idx > 0 ? ' mt-8 pt-8 border-t border-base-200' : '';
-      var header = '';
-      if (sortedForChain.length >= 2) {
-        header =
-          '<div class="flex items-center gap-2 mb-3">' +
-            '<span class="badge badge-outline badge-sm font-mono">[ ' + (idx + 1) + ' ]</span>' +
-            '<span class="text-sm font-medium">' + esc(target.label || target.odoo_model || 'Schrijfdoel') + '</span>' +
-            '<span class="text-xs text-base-content/40 font-mono">' + esc(target.odoo_model || '') + '</span>' +
+    sortedTargets.forEach(function (target, idx) {
+      var tid     = String(target.id);
+      var isOpen  = !!pipelineOpen[tid];
+      var isFirst = idx === 0;
+      var isLast  = idx === sortedTargets.length - 1;
+
+      // Connector between cards
+      if (idx > 0) {
+        html +=
+          '<div class="flex flex-col items-center my-2 select-none" aria-hidden="true">' +
+            '<div class="w-px h-5 bg-base-content/20"></div>' +
+            '<i data-lucide="chevron-down" class="w-4 h-4 text-base-content/30"></i>' +
           '</div>';
       }
-      return '<div class="' + dividerClass + '" data-mt-target-id="' + esc(tid) + '">' +
-               header +
-               '<div id="det-mc-' + esc(tid) + '"></div>' +
-             '</div>';
-    }).join('');
 
-    // "Add target" button when fewer than 2 targets.
-    var addTargetBtn = '';
-    if (integrationId && sortedForChain.length < 2) {
-      addTargetBtn =
-        '<div class="mt-6 flex justify-end">' +
-          '<button type="button" class="btn btn-outline btn-sm" data-action="add-target"' +
-          ' data-integrationid="' + esc(String(integrationId)) + '">' +
-            '<i data-lucide="plus" class="w-4 h-4 mr-1"></i> Voeg schrijfdoel toe' +
+      var stepName   = target.label || MODEL_LABELS[target.odoo_model] || target.odoo_model;
+      var policyLbl  = POLICY_LABELS[target.update_policy] || esc(target.update_policy || '');
+      var preceding  = sortedTargets.slice(0, idx);
+      var suggestions = isSingle ? [] : computeChainSuggestions(target, preceding);
+
+      // Chain dependency badges from saved state
+      var chainDeps = [];
+      if (!isSingle) {
+        var extraRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
+        extraRows.forEach(function (r) {
+          if (r.sourceType !== 'previous_step_output') return;
+          var m = (r.staticValue || '').match(/^step\.([^.]+)\.record_id$/);
+          if (!m) return;
+          var ref = m[1]; var refN = Number(ref);
+          var prevT = isNaN(refN)
+            ? sortedTargets.find(function (t) { return t.label === ref; })
+            : sortedTargets.find(function (t) { return getTargetOrder(t, 0) === refN; });
+          if (prevT) {
+            var pIdx = sortedTargets.indexOf(prevT);
+            if (pIdx >= 0 && !chainDeps.find(function (d) { return d.stepNum === pIdx + 1; }))
+              chainDeps.push({ stepNum: pIdx + 1 });
+          }
+        });
+      }
+
+      // ── Card ────────────────────────────────────────────────────────────
+      html += '<div class="card bg-base-100 border border-base-200 shadow-sm" data-mt-target-id="' + esc(tid) + '">';
+      html +=   '<div class="card-body p-0">';
+
+      // Header row
+      html +=     '<div class="px-5 py-4">';
+      html +=       '<div class="flex items-center justify-between gap-3 flex-wrap">';
+
+      // Left: badge + name + meta
+      html +=         '<div class="flex items-center gap-3 min-w-0">';
+      if (!isSingle) {
+        html +=           '<div class="badge badge-outline font-mono shrink-0 py-3 px-2.5 text-sm">[ ' + (idx + 1) + ' ]</div>';
+      }
+      html +=           '<div class="min-w-0">';
+      html +=             '<div class="font-bold text-base leading-snug">' + esc(stepName) + '</div>';
+      html +=             '<div class="flex flex-wrap items-center gap-x-2.5 gap-y-0 mt-0.5 text-xs text-base-content/50">';
+      html +=               '<span class="font-mono">' + esc(target.odoo_model) + '</span>';
+      html +=               '<span>·</span>';
+      html +=               '<span>' + esc(policyLbl) + '</span>';
+      html +=             '</div>';
+      html +=           '</div>';
+      html +=         '</div>';
+
+      // Right: reorder + toggle
+      html +=         '<div class="flex items-center gap-1 shrink-0">';
+      if (!isSingle) {
+        if (!isFirst) {
+          html += '<button type="button" class="btn btn-ghost btn-xs" title="Omhoog"' +
+            ' data-action="reorder-target-up" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+            '<i data-lucide="chevron-up" class="w-4 h-4"></i></button>';
+        }
+        if (!isLast) {
+          html += '<button type="button" class="btn btn-ghost btn-xs" title="Omlaag"' +
+            ' data-action="reorder-target-down" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+            '<i data-lucide="chevron-down" class="w-4 h-4"></i></button>';
+        }
+        html += '<div class="w-px h-4 bg-base-300 mx-0.5"></div>';
+      }
+      html += '<button type="button" class="btn btn-ghost btn-xs gap-1.5"' +
+        ' data-action="toggle-step-open" data-target-id="' + esc(tid) + '">';
+      if (isOpen) {
+        html += '<i data-lucide="chevron-up" class="w-3.5 h-3.5"></i><span class="text-xs">Inklappen</span>';
+      } else {
+        html += '<i data-lucide="settings-2" class="w-3.5 h-3.5"></i><span class="text-xs">Bewerken</span>';
+      }
+      html +=   '</button>';
+      html +=         '</div>'; // right
+
+      html +=       '</div>'; // flex row
+
+      // Suggestion banners (many2one chain auto-detect)
+      suggestions.forEach(function (sug) {
+        if (isChainSuggestionApplied(tid, sug.odooField)) return;
+        html +=
+          '<div class="mt-3 flex items-center gap-2 p-2.5 bg-info/10 rounded-lg border border-info/20 text-sm">' +
+            '<i data-lucide="link-2" class="w-4 h-4 text-info shrink-0"></i>' +
+            '<div class="flex-1 min-w-0">' +
+              '<span class="font-medium">Koppeling mogelijk: </span>' +
+              '<code class="text-xs bg-base-200 px-1 py-0.5 rounded">' + esc(sug.odooField) + '</code>' +
+              ' <span class="text-base-content/60">\u2192 ' + esc(MODEL_LABELS[sug.relation] || sug.relation) + ' (Stap ' + esc(String(sug.stepNum)) + ')</span>' +
+            '</div>' +
+            '<button type="button" class="btn btn-info btn-xs shrink-0"' +
+              ' data-action="apply-chain-suggestion"' +
+              ' data-target-id="' + esc(tid) + '"' +
+              ' data-odoo-field="' + esc(sug.odooField) + '"' +
+              ' data-odoo-label="' + esc(sug.odooLabel) + '"' +
+              ' data-step-order="' + esc(String(sug.stepOrder)) + '"' +
+              ' data-step-label="' + esc(sug.stepLabel || String(sug.stepOrder)) + '">' +
+              'Automatisch instellen' +
+            '</button>' +
+          '</div>';
+      });
+
+      // Dependency badges
+      if (chainDeps.length > 0) {
+        html += '<div class="flex flex-wrap gap-1.5 mt-2">';
+        chainDeps.forEach(function (dep) {
+          html += '<span class="badge badge-sm badge-info gap-1">' +
+            '<i data-lucide="link-2" class="w-3 h-3"></i> \u2190 Gebruikt uitvoer van Stap ' + dep.stepNum + '</span>';
+        });
+        html += '</div>';
+      }
+
+      html +=     '</div>'; // px-5 py-4
+
+      // Collapsible mapping section
+      html +=     '<div id="det-mc-' + esc(tid) + '" class="border-t border-base-200 px-5 pb-5 pt-4"' +
+                    ' style="display:' + (isOpen ? '' : 'none') + ';">' +
+                  '</div>';
+
+      html +=   '</div>'; // card-body
+      html += '</div>'; // card
+    });
+
+    // Stap toevoegen (max 2 targets in MVP)
+    if (integrationId && sortedTargets.length < 2) {
+      html +=
+        '<div class="flex flex-col items-center my-2 select-none" aria-hidden="true">' +
+          '<div class="w-px h-5 bg-base-content/20"></div>' +
+          '<i data-lucide="chevron-down" class="w-4 h-4 text-base-content/30"></i>' +
+        '</div>' +
+        '<div class="flex justify-center">' +
+          '<button type="button" class="btn btn-outline btn-sm gap-1.5"' +
+            ' data-action="add-target" data-integrationid="' + esc(String(integrationId)) + '">' +
+            '<i data-lucide="plus" class="w-4 h-4"></i> Stap toevoegen' +
           '</button>' +
         '</div>';
     }
 
-    container.innerHTML = outerHtml + addTargetBtn;
+    container.innerHTML = html;
 
-    // Render MappingTable into each per-target sub-container.
-    sortedForChain.forEach(function (target, idx) {
-      var tid        = String(target.id);
+    // ── Render MappingTable into each OPEN card ──────────────────────────────
+    sortedTargets.forEach(function (target, idx) {
+      var tid    = String(target.id);
+      if (!pipelineOpen[tid]) return;
+
       var model      = target.odoo_model;
-      var odooCache  = S().odooFieldsCache[model] || [];
+      var odooCache  = (S().odooFieldsCache || {})[model] || [];
       var odooLoaded = odooCache.length > 0;
 
-      var targetMappings     = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+      var targetMappings      = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
       var formMappingsByField = {};
       var initialExtraRows    = [];
       targetMappings.forEach(function (m) {
-        if (m.source_type === 'form') {
-          formMappingsByField[m.source_value] = m;
-        } else {
-          initialExtraRows.push(m);
-        }
+        if (m.source_type === 'form') { formMappingsByField[m.source_value] = m; }
+        else                          { initialExtraRows.push(m); }
       });
 
       if (!S().detail._extraRowsByTarget[tid]) {
@@ -228,48 +400,58 @@
         });
       }
 
-      var precedingSteps = sortedForChain.slice(0, idx).map(function (t) {
-        var ord = t.execution_order != null ? t.execution_order : (t.order_index != null ? t.order_index : 0);
-        return { order: ord, label: t.label || '' };
+      var precedingSteps = sortedTargets.slice(0, idx).map(function (t) {
+        return { order: getTargetOrder(t, 0), label: t.label || '' };
       });
-      var stepBadge = sortedForChain.length >= 2 ? (idx + 1) : 0;
-
-      // Only the last target gets the shared save button.
-      var isLast = idx === sortedForChain.length - 1;
+      var stepBadge = sortedTargets.length >= 2 ? (idx + 1) : 0;
 
       window.FSV2.MappingTable.render('det-mc-' + tid, {
-        flatFields:            flatFields,
-        topLevelFields:        rawFf,
-        odooCache:             odooCache,
-        odooLoaded:            odooLoaded,
-        odooModel:             model,
-        existingFormMappings:  formMappingsByField,
-        extraRows:             S().detail._extraRowsByTarget[tid],
-        selectClass:           'detail-ff-select',
-        idCheckClass:          'detail-ff-id-check',
-        updCheckClass:         'detail-ff-upd-check',
-        namePrefix:            'det-ff-' + tid + '-',
-        checkPrefix:           'det-' + tid + '-',
-        extraRowPrefix:        'det-extra-' + tid + '-',
-        extraInputPrefix:      'det-inp-',
-        extraIdCheckClass:     'detail-extra-id-check',
-        extraUpdCheckClass:    'detail-extra-upd-check',
-        addAction:             'detail-add-extra-row',
-        removeAction:          'detail-remove-extra-row',
-        fspId:                 'det-extra-' + tid + '-add',
-        extraValueWrapId:      'detExtraStaticWrap-' + tid,
-        extraValueInputId:     'detExtraStaticValue-' + tid,
-        extraIsIdentifierId:   'detExtraIsIdentifier-' + tid,
-        extraIsUpdateFieldId:  'detExtraIsUpdateField-' + tid,
-        saveAction:            isLast ? 'save-detail-mappings' : null,
-        targetId:              tid,
-        precedingSteps:        precedingSteps,
-        stepBadge:             stepBadge,
-        chainFspId:            'det-chain-' + tid + '-add',
-        chainStepSelectId:     'detChainStepSelect-' + tid,
-        chainIsRequiredId:     'detChainIsRequired-' + tid,
-        addChainAction:        'detail-add-chain-row',
+        flatFields:           flatFields,
+        topLevelFields:       rawFf,
+        odooCache:            odooCache,
+        odooLoaded:           odooLoaded,
+        odooModel:            model,
+        existingFormMappings: formMappingsByField,
+        extraRows:            S().detail._extraRowsByTarget[tid],
+        selectClass:          'detail-ff-select',
+        idCheckClass:         'detail-ff-id-check',
+        updCheckClass:        'detail-ff-upd-check',
+        namePrefix:           'det-ff-' + tid + '-',
+        checkPrefix:          'det-' + tid + '-',
+        extraRowPrefix:       'det-extra-' + tid + '-',
+        extraInputPrefix:     'det-inp-',
+        extraIdCheckClass:    'detail-extra-id-check',
+        extraUpdCheckClass:   'detail-extra-upd-check',
+        addAction:            'detail-add-extra-row',
+        removeAction:         'detail-remove-extra-row',
+        fspId:                'det-extra-' + tid + '-add',
+        extraValueWrapId:     'detExtraStaticWrap-' + tid,
+        extraValueInputId:    'detExtraStaticValue-' + tid,
+        extraIsIdentifierId:  'detExtraIsIdentifier-' + tid,
+        extraIsUpdateFieldId: 'detExtraIsUpdateField-' + tid,
+        saveAction:           null,   // per-step save button injected below
+        targetId:             tid,
+        precedingSteps:       precedingSteps,
+        stepBadge:            stepBadge,
+        chainFspId:           'det-chain-' + tid + '-add',
+        chainStepSelectId:    'detChainStepSelect-' + tid,
+        chainIsRequiredId:    'detChainIsRequired-' + tid,
+        addChainAction:       'detail-add-chain-row',
       });
+
+      // Per-step save button (appended after MappingTable content)
+      var mcEl = document.getElementById('det-mc-' + tid);
+      if (mcEl) {
+        var saveDiv = document.createElement('div');
+        saveDiv.className = 'mt-4 pt-4 border-t border-base-200 flex justify-end';
+        saveDiv.innerHTML =
+          '<button type="button" class="btn btn-primary btn-sm gap-1.5"' +
+          ' data-action="save-step-mappings" data-target-id="' + esc(tid) + '">' +
+          '<i data-lucide="save" class="w-4 h-4"></i>' +
+          (isSingle ? ' Koppelingen opslaan' : ' Stap ' + (idx + 1) + ' opslaan') +
+          '</button>';
+        mcEl.appendChild(saveDiv);
+      }
     });
   }
 
@@ -720,19 +902,126 @@
     var firstTarget = targets[0];
     if (!firstTarget) { window.FSV2.showAlert('Geen bestaand schrijfdoel gevonden als sjabloon.', 'error'); return; }
     var maxOrder = targets.reduce(function (max, t) {
-      var ord = t.execution_order != null ? t.execution_order : (t.order_index != null ? t.order_index : 0);
-      return Math.max(max, ord);
+      return Math.max(max, getTargetOrder(t, 0));
     }, 0);
     await window.FSV2.api('/integrations/' + integrationId + '/targets', {
       method: 'POST',
       body: JSON.stringify({
         odoo_model:      firstTarget.odoo_model,
-        identifier_type: firstTarget.identifier_type || 'odoo_id',
-        update_policy:   firstTarget.update_policy   || 'upsert',
+        identifier_type: firstTarget.identifier_type || 'mapped_fields',
+        update_policy:   firstTarget.update_policy   || 'always_overwrite',
         execution_order: maxOrder + 1,
       }),
     });
-    window.FSV2.showAlert('Schrijfdoel toegevoegd.', 'success');
+    window.FSV2.showAlert('Stap toegevoegd.', 'success');
+    await openDetail(S().activeId);
+  }
+
+  async function handleSaveStepMappings(tid) {
+    var mcEl = document.getElementById('det-mc-' + tid);
+    if (!mcEl) { window.FSV2.showAlert('Editor niet gevonden.', 'error'); return; }
+
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    var target  = targets.find(function (t) { return String(t.id) === tid; });
+    if (!target) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
+
+    var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
+    var flatFields = [];
+    rawFf.forEach(function (f) {
+      if (!window.FSV2.SKIP_TYPES.includes(f.type)) flatFields.push(f);
+      if (Array.isArray(f.sub_fields)) f.sub_fields.forEach(function (sf) {
+        if (!window.FSV2.SKIP_TYPES.includes(sf.type)) flatFields.push(sf);
+      });
+    });
+
+    var newMappings = [];
+    var orderIdx    = 0;
+
+    flatFields.forEach(function (ff) {
+      var fid       = String(ff.field_id);
+      var selEl     = mcEl.querySelector('[name="det-ff-' + tid + '-odoo-' + fid + '"]');
+      var odooField = selEl ? (selEl.value || '') : '';
+      if (!odooField) return;
+      var idChk  = Array.from(mcEl.querySelectorAll('input.detail-ff-id-check')).find(function (el) {
+        return el.getAttribute('name') === 'det-' + tid + '-identifier-' + fid;
+      });
+      var updChk = Array.from(mcEl.querySelectorAll('input.detail-ff-upd-check')).find(function (el) {
+        return el.getAttribute('name') === 'det-' + tid + '-update-' + fid;
+      });
+      newMappings.push({
+        odoo_field: odooField, source_type: 'form', source_value: fid,
+        is_identifier: idChk ? idChk.checked : false,
+        is_update_field: updChk ? updChk.checked : true,
+        is_required: false, order_index: orderIdx++,
+      });
+    });
+
+    var extraRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
+    extraRows.forEach(function (em, i) {
+      var tname = 'det-extra-' + tid + '-' + i;
+      var inpEl = document.getElementById('det-inp-' + tname);
+      var val   = inpEl ? (inpEl.value || '').trim() : (em.staticValue || '');
+      if (!val && em.sourceType !== 'previous_step_output') return;
+      var sourceType  = em.sourceType === 'previous_step_output' ? 'previous_step_output'
+                      : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
+      var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
+      if (!sourceValue) return;
+      var extraIdChk  = mcEl.querySelector('input[name="det-extra-' + tid + '-identifier-' + i + '"]');
+      var extraUpdChk = mcEl.querySelector('input[name="det-extra-' + tid + '-update-' + i + '"]');
+      newMappings.push({
+        odoo_field: em.odooField, source_type: sourceType, source_value: sourceValue,
+        is_identifier: extraIdChk ? extraIdChk.checked : false,
+        is_update_field: extraUpdChk ? extraUpdChk.checked : true,
+        is_required: em.isRequired || false, order_index: orderIdx++,
+      });
+    });
+
+    await window.FSV2.api('/targets/' + tid + '/mappings', { method: 'DELETE' });
+    await Promise.all(newMappings.map(function (m) {
+      return window.FSV2.api('/targets/' + tid + '/mappings', { method: 'POST', body: JSON.stringify(m) });
+    }));
+
+    window.FSV2.showAlert('Stap opgeslagen.', 'success');
+    // Clear only this target's extra-row cache; _pipelineOpenById is module-level → stays open
+    if (S().detail._extraRowsByTarget) delete S().detail._extraRowsByTarget[tid];
+    await openDetail(S().activeId);
+  }
+
+  async function handleReorderTarget(targetId, direction) {
+    var targets       = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    if (!integrationId) return;
+
+    var sorted  = [...targets].sort(function (a, b) { return getTargetOrder(a, 0) - getTargetOrder(b, 0); });
+    var idx     = sorted.findIndex(function (t) { return String(t.id) === String(targetId); });
+    if (idx < 0) return;
+    var swapIdx = idx + direction;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+
+    var tA = sorted[idx];  var tB = sorted[swapIdx];
+    var oA = getTargetOrder(tA, idx);  var oB = getTargetOrder(tB, swapIdx);
+    var temp = Math.max(oA, oB) + 100;  // safe temp (no unique constraint conflict)
+
+    function payload(t, execOrder) {
+      return JSON.stringify({
+        odoo_model:      t.odoo_model,
+        identifier_type: t.identifier_type || 'mapped_fields',
+        update_policy:   t.update_policy   || 'always_overwrite',
+        order_index:     Number(t.order_index || 0),
+        is_enabled:      t.is_enabled !== false,
+        execution_order: execOrder,
+      });
+    }
+
+    // 3-step swap avoids unique-index collision on (integration_id, execution_order)
+    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tA.id,
+      { method: 'PUT', body: payload(tA, temp) });
+    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tB.id,
+      { method: 'PUT', body: payload(tB, oA) });
+    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tA.id,
+      { method: 'PUT', body: payload(tA, oB) });
+
+    // _pipelineOpenById is module-level → open cards stay open through reload
     await openDetail(S().activeId);
   }
 
@@ -796,6 +1085,37 @@
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // EXPORT &mdash; extend FSV2
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  function toggleStepOpen(tid) {
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    if (!integrationId) return;
+    var po = getPipelineOpen(integrationId);
+    po[String(tid)] = !po[String(tid)];
+    renderDetailMappings();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  function applyChainSuggestion(tid, odooField, odooLabel, stepOrder, stepLabel) {
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    if (!S().detail._extraRowsByTarget)       S().detail._extraRowsByTarget = {};
+    if (!S().detail._extraRowsByTarget[tid])  S().detail._extraRowsByTarget[tid] = [];
+    var already = S().detail._extraRowsByTarget[tid].some(function (r) {
+      return r.odooField === odooField && r.sourceType === 'previous_step_output';
+    });
+    if (already) { window.FSV2.showAlert('Koppeling bestaat al.', 'info'); return; }
+    S().detail._extraRowsByTarget[tid].push({
+      odooField:   odooField,
+      odooLabel:   odooLabel || odooField,
+      sourceType:  'previous_step_output',
+      staticValue: 'step_' + stepOrder + '_id',
+      label:       '\u2190 Uitvoer van ' + (stepLabel || ('Stap ' + stepOrder)),
+      isRequired:  false,
+    });
+    if (integrationId) getPipelineOpen(integrationId)[String(tid)] = true;
+    renderDetailMappings();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    window.FSV2.showAlert('Koppeling toegevoegd. Sla de stap op om te bevestigen.', 'success');
+  }
+
   Object.assign(window.FSV2, {
     renderDetail:            renderDetail,
     updateDetailTestStatus:  updateDetailTestStatus,
@@ -809,6 +1129,10 @@
     handleDeleteMapping:     handleDeleteMapping,
     handleSaveMappings:      handleSaveMappings,
     handleAddTarget:         handleAddTarget,
+    handleSaveStepMappings:  handleSaveStepMappings,
+    handleReorderTarget:     handleReorderTarget,
+    toggleStepOpen:          toggleStepOpen,
+    applyChainSuggestion:    applyChainSuggestion,
     handleToggleIdentifier:  handleToggleIdentifier,
     fetchDetailFormFields:   fetchDetailFormFields,
     handleDeleteIntegration: handleDeleteIntegration,
