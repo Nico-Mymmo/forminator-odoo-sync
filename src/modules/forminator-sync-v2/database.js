@@ -710,10 +710,11 @@ export async function upsertOdooModels(env, models) {
   // Upsert all rows in the new list
   if (models.length > 0) {
     const rows = models.map((m, i) => ({
-      name:       m.name,
-      label:      m.label || m.name,
-      icon:       m.icon || 'box',
-      sort_order: i,
+      name:           m.name,
+      label:          m.label || m.name,
+      icon:           m.icon || 'box',
+      sort_order:     i,
+      default_fields: Array.isArray(m.default_fields) ? m.default_fields : undefined,
     }));
     const { error: upsErr } = await supabase
       .from(TABLES.odooModels)
