@@ -126,6 +126,22 @@
     var headerEl = document.getElementById('detailHeader');
     if (headerEl) {
       var wc = S().webhookConfig;
+
+      // Steps badges — all targets in order
+      var sortedForHeader = [...targets].sort(function (a, b) {
+        return getTargetOrder(a, 0) - getTargetOrder(b, 0);
+      });
+      var stepsHtml = '';
+      if (sortedForHeader.length > 0) {
+        stepsHtml = '<div class="flex flex-wrap items-center gap-1.5 mt-2">';
+        sortedForHeader.forEach(function (t, i) {
+          var cfg = window.FSV2.getModelCfg(t.odoo_model) || { label: t.odoo_model, badgeClass: 'badge-ghost' };
+          if (i > 0) stepsHtml += '<i data-lucide="arrow-right" class="w-3 h-3 text-base-content/40 shrink-0"></i>';
+          stepsHtml += '<span class="badge badge-sm ' + esc(cfg.badgeClass) + '">' + esc(cfg.label || t.odoo_model) + '</span>';
+        });
+        stepsHtml += '</div>';
+      }
+
       var webhookBlock = '';
       if (wc && wc.webhook_url) {
         webhookBlock =
@@ -152,20 +168,22 @@
         '<div class="card bg-base-100 shadow mb-6">' +
           '<div class="card-body p-6">' +
             '<div class="flex flex-wrap items-start justify-between gap-4">' +
-              '<div class="min-w-0">' +
-                '<h2 class="text-2xl font-bold mb-1 truncate">' + esc(integration.name || 'Integratie') + '</h2>' +
-                '<p class="text-sm text-base-content/60 mb-2">Formulier: <span class="font-mono">' + esc(integration.forminator_form_id || '\u2014') + '</span></p>' +
-                (actionCfg
-                  ? '<span class="badge ' + esc(actionCfg.badgeClass) + '">' + esc(actionCfg.label) + '</span>'
-                  : '') +
+              '<div class="min-w-0 flex-1">' +
+                '<div class="flex items-center gap-2 mb-1 min-w-0">' +
+                  '<h2 id="detailIntegrationTitle" class="text-2xl font-bold truncate">' + esc(integration.name || 'Integratie') + '</h2>' +
+                  '<button type="button" id="btnRenameIntegration" class="btn btn-xs btn-ghost shrink-0" title="Naam wijzigen">' +
+                    '<i data-lucide="pencil" class="w-3.5 h-3.5"></i>' +
+                  '</button>' +
+                '</div>' +
+                '<p class="text-sm text-base-content/60">Formulier: <span class="font-mono">' + esc(integration.forminator_form_id || '\u2014') + '</span></p>' +
+                stepsHtml +
               '</div>' +
-              '<label class="flex items-center gap-3 cursor-pointer">' +
+              '<label class="flex items-center gap-3 cursor-pointer shrink-0">' +
                 '<span class="font-semibold text-sm">' + (integration.is_active ? 'Actief' : 'Inactief') + '</span>' +
                 '<input id="detailActiveToggle" type="checkbox" class="toggle toggle-success"' + (integration.is_active ? ' checked' : '') + '>' +
               '</label>' +
             '</div>' +
             webhookBlock +
-            '<div id="detailTestStatus" class="mt-4 text-sm"></div>' +
           '</div>' +
         '</div>';
 
@@ -186,9 +204,42 @@
           handleToggleActive(e.target.checked).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
         });
       }
+
+      var renameBtn = document.getElementById('btnRenameIntegration');
+      if (renameBtn) {
+        renameBtn.addEventListener('click', function () {
+          var titleEl = document.getElementById('detailIntegrationTitle');
+          var currentName = titleEl ? titleEl.textContent : '';
+          var wrapper = titleEl ? titleEl.parentElement : null;
+          if (!wrapper) return;
+          wrapper.innerHTML =
+            '<input id="detailRenameInput" class="input input-bordered input-sm text-xl font-bold w-full max-w-sm" value="' + esc(currentName) + '">' +
+            '<button type="button" id="btnRenameConfirm" class="btn btn-xs btn-primary shrink-0" title="Opslaan"><i data-lucide="check" class="w-3.5 h-3.5"></i></button>' +
+            '<button type="button" id="btnRenameCancel" class="btn btn-xs btn-ghost shrink-0" title="Annuleren"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>';
+          var inp = document.getElementById('detailRenameInput');
+          if (inp) { inp.focus(); inp.select(); }
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+          function doSave() {
+            var val = ((document.getElementById('detailRenameInput') || {}).value || '').trim();
+            if (val && val !== currentName) {
+              handleRenameIntegration(val).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+            } else {
+              renderDetail();
+            }
+          }
+          function doCancel() { renderDetail(); }
+          var confirmBtn = document.getElementById('btnRenameConfirm');
+          var cancelBtn  = document.getElementById('btnRenameCancel');
+          if (confirmBtn) confirmBtn.addEventListener('click', doSave);
+          if (cancelBtn)  cancelBtn.addEventListener('click', doCancel);
+          if (inp) inp.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') doSave();
+            if (e.key === 'Escape') doCancel();
+          });
+        });
+      }
     }
 
-    updateDetailTestStatus();
     renderDetailMappings();
     renderDetailFormFields();
     renderDetailSubmissions();
@@ -196,27 +247,15 @@
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
-  function updateDetailTestStatus() {
-    var el = document.getElementById('detailTestStatus');
-    if (!el) return;
-    var tested = S().testStatus && S().testStatus.has_successful_test;
-    if (tested) {
-      el.innerHTML = '<span class="text-success flex items-center gap-1.5">' +
-        '<i data-lucide="check-circle" class="w-4 h-4"></i> Test geslaagd &mdash; integratie kan worden geactiveerd.' +
-      '</span>';
-    } else {
-      el.innerHTML = '<span class="text-warning flex items-center gap-1.5">' +
-        '<i data-lucide="alert-triangle" class="w-4 h-4"></i> Nog geen geslaagde test. Activatie is nog niet mogelijk.' +
-      '</span>' +
-      '<button class="btn btn-xs btn-outline mt-2" id="btnRunTest">Test uitvoeren</button>';
-      var testBtn = document.getElementById('btnRunTest');
-      if (testBtn) {
-        testBtn.addEventListener('click', function () {
-          handleRunTest().catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
-        });
-      }
-    }
-    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  function updateDetailTestStatus() { /* removed — test op integratieniveau vervangen door directe submit */ }
+
+  async function handleRenameIntegration(name) {
+    await window.FSV2.api('/integrations/' + S().activeId, {
+      method: 'PUT',
+      body: JSON.stringify({ name: name }),
+    });
+    window.FSV2.showAlert('Naam opgeslagen.', 'success');
+    await openDetail(S().activeId);
   }
 
   function renderDetailMappings() {
