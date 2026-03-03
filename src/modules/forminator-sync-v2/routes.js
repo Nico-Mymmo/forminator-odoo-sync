@@ -44,7 +44,6 @@ import {
   validateResolverPayload,
   validateTargetPayload,
   validateMappingPayload,
-  validateRequiredMappingsForTarget
 } from './validation.js';
 import { forminatorSyncV2UI } from './ui.js';
 import { handleForminatorV2Webhook, processDueRetries, replaySubmission } from './worker-handler.js';
@@ -111,11 +110,6 @@ async function enforceNoDuplicateResolverType(env, integrationId, resolverType, 
     error.code = 'VALIDATION_ERROR';
     throw error;
   }
-}
-
-async function enforceRequiredMappingsForTarget(env, targetId, targetModel) {
-  const mappings = await listMappingsByTarget(env, targetId);
-  validateRequiredMappingsForTarget({ odoo_model: targetModel }, mappings);
 }
 
 async function enforceChainReferenceOrder(env, targetId, sourceValue) {
@@ -328,8 +322,6 @@ export const routes = {
         is_enabled: payload.is_enabled !== false,
         ...(payload.execution_order !== undefined ? { execution_order: payload.execution_order === null ? null : Number(payload.execution_order) } : {}),
       });
-
-      await enforceRequiredMappingsForTarget(context.env, context.params?.targetId, payload.odoo_model);
 
       return jsonResponse({ success: true, data: updated });
     } catch (error) {
