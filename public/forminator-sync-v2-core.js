@@ -98,6 +98,7 @@
     modelDefaultsCache: {},   // model → [{name, label, required, order_index}]
     modelDefaultsEditors: {}, // model → {open, pendingFields}
     modelLinksCache: [],      // [{model_a, model_b, link_field, link_label}]
+    odooModelsCache: [],      // [{name, label, icon}] — user-managed model registry
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -276,6 +277,35 @@
       S.modelLinksCache = Array.isArray(body.data) ? body.data : [];
     } catch (_) {
       S.modelLinksCache = [];
+    }
+  }
+
+  // Default built-in models — shown when DB registry is empty
+  var DEFAULT_ODOO_MODELS = [
+    { name: 'res.partner',            label: 'Contact',               icon: 'user' },
+    { name: 'crm.lead',               label: 'Lead',                  icon: 'trending-up' },
+    { name: 'x_webinarregistrations', label: 'Webinaarinschrijving',  icon: 'video' },
+  ];
+
+  async function loadOdooModels() {
+    try {
+      var body = await api('/settings/odoo-models');
+      var stored = Array.isArray(body.data) ? body.data : [];
+      // Merge: start from stored list; seed defaults if empty
+      if (stored.length === 0) {
+        S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
+      } else {
+        // Ensure all defaults are present (merge without duplicates)
+        var merged = stored.slice();
+        DEFAULT_ODOO_MODELS.forEach(function (d) {
+          if (!merged.some(function (m) { return m.name === d.name; })) {
+            merged.push(d);
+          }
+        });
+        S.odooModelsCache = merged;
+      }
+    } catch (_) {
+      S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
     }
   }
 
@@ -566,6 +596,8 @@
     loadSites: loadSites,
     loadIntegrations: loadIntegrations,
     loadModelLinks: loadModelLinks,
+    loadOdooModels: loadOdooModels,
+    DEFAULT_ODOO_MODELS: DEFAULT_ODOO_MODELS,
     // Renders
     renderList: renderList,
     renderConnections: renderConnections,

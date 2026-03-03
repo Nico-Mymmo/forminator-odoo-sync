@@ -655,3 +655,32 @@ export async function upsertModelLinks(env, links) {
   if (error) throw new Error(`Failed to save model links: ${error.message}`);
   return Array.isArray(data.fields) ? data.fields : [];
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// ODOO MODEL REGISTRY
+// Stored as JSON array under sentinel key '__odoo_models__' in fs_v2_model_defaults.
+// Each entry: { name: 'res.partner', label: 'Contact', icon: 'user' }
+// ──────────────────────────────────────────────────────────────────────────
+export async function getOdooModels(env) {
+  const supabase = getSupabase(env);
+  const { data } = await supabase
+    .from(TABLES.modelDefaults)
+    .select('fields')
+    .eq('odoo_model', '__odoo_models__')
+    .maybeSingle();
+  return data ? (Array.isArray(data.fields) ? data.fields : []) : [];
+}
+
+export async function upsertOdooModels(env, models) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.modelDefaults)
+    .upsert(
+      { odoo_model: '__odoo_models__', fields: models, updated_at: new Date().toISOString() },
+      { onConflict: 'odoo_model' }
+    )
+    .select('fields')
+    .single();
+  if (error) throw new Error(`Failed to save odoo models: ${error.message}`);
+  return Array.isArray(data.fields) ? data.fields : [];
+}

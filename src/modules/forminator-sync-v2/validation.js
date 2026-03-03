@@ -84,13 +84,17 @@ export function validateResolverPayload(payload) {
   }
 }
 
-export function validateTargetPayload(payload) {
+export function validateTargetPayload(payload, { allowedModels } = {}) {
   if (!payload || typeof payload !== 'object') {
     throw createError('Invalid target payload');
   }
 
-  if (!TARGET_MODELS.includes(payload.odoo_model)) {
-    throw createError('Target model is not allowed in MVP');
+  // Use caller-supplied allowedModels (from DB) when available, else fall back to static list
+  const modelList = (Array.isArray(allowedModels) && allowedModels.length)
+    ? allowedModels
+    : TARGET_MODELS;
+  if (!modelList.includes(payload.odoo_model)) {
+    throw createError('Target model is not allowed: ' + payload.odoo_model);
   }
 
   if (!IDENTIFIER_TYPES.includes(payload.identifier_type)) {

@@ -35,6 +35,8 @@ import {
   upsertModelDefaults,
   getModelLinks,
   upsertModelLinks,
+  getOdooModels,
+  upsertOdooModels,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -289,7 +291,9 @@ export const routes = {
       await enforceMvpLimitsOnTargets(context.env, integrationId);
 
       const payload = await readJsonBody(context.request);
-      validateTargetPayload(payload);
+      const storedModels = await getOdooModels(context.env);
+      const allowedModels = storedModels.map(m => m.name);
+      validateTargetPayload(payload, { allowedModels });
 
       const created = await createTarget(context.env, {
         integration_id: integrationId,
@@ -310,7 +314,9 @@ export const routes = {
   'PUT /api/integrations/:id/targets/:targetId': async (context) => {
     try {
       const payload = await readJsonBody(context.request);
-      validateTargetPayload(payload);
+      const storedModels = await getOdooModels(context.env);
+      const allowedModels = storedModels.map(m => m.name);
+      validateTargetPayload(payload, { allowedModels });
 
       const updated = await updateTarget(context.env, context.params?.targetId, {
         order_index: Number(payload.order_index || 0),
@@ -747,6 +753,35 @@ export const routes = {
       const body = await readJsonBody(context.request);
       if (!Array.isArray(body.links)) return jsonResponse({ success: false, error: 'links must be an array' }, 400);
       const saved = await upsertModelLinks(context.env, body.links);
+      return jsonResponse({ success: true, data: saved });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * GET /api/settings/odoo-models
+   * Returns the user-managed list of Odoo models.
+   */
+  'GET /api/settings/odoo-models': async (context) => {
+    try {
+      const models = await getOdooModels(context.env);
+      return jsonResponse({ success: true, data: models });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * PUT /api/settings/odoo-models
+   * Saves the full Odoo model registry.
+   * Body: { models: [{name, label, icon}] }
+   */
+  'PUT /api/settings/odoo-models': async (context) => {
+    try {
+      const body = await readJsonBody(context.request);
+      if (!Array.isArray(body.models)) return jsonResponse({ success: false, error: 'models must be an array' }, 400);
+      const saved = await upsertOdooModels(context.env, body.models);
       return jsonResponse({ success: true, data: saved });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);

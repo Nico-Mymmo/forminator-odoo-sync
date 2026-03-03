@@ -157,6 +157,49 @@
         window.FSV2.renderLinks();
         return;
       }
+      // ── Odoo model registry CRUD ──────────────────────────────────────
+      if (action === 'add-odoo-model') {
+        var nameEl  = document.getElementById('newModelName');
+        var labelEl = document.getElementById('newModelLabel');
+        var iconEl  = document.getElementById('newModelIcon');
+        var mName   = nameEl  ? nameEl.value.trim()  : '';
+        var mLabel  = labelEl ? labelEl.value.trim() : '';
+        var mIcon   = iconEl  ? iconEl.value.trim()  : 'box';
+        if (!mName)  { window.FSV2.showAlert('Technische naam is verplicht.', 'error'); return; }
+        if (!mLabel) { window.FSV2.showAlert('Label is verplicht.', 'error'); return; }
+        var currentModels = Array.isArray(S.odooModelsCache) ? S.odooModelsCache : [];
+        if (currentModels.some(function (m) { return m.name === mName; })) {
+          window.FSV2.showAlert('Model bestaat al.', 'info'); return;
+        }
+        var updatedModels = currentModels.concat([{ name: mName, label: mLabel, icon: mIcon }]);
+        var toSave = updatedModels.filter(function (m) {
+          return !(window.FSV2.DEFAULT_ODOO_MODELS || []).some(function (d) { return d.name === m.name; });
+        });
+        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: toSave }) });
+        S.odooModelsCache = updatedModels;
+        if (nameEl)  nameEl.value  = '';
+        if (labelEl) labelEl.value = '';
+        window.FSV2.showAlert('Model opgeslagen.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
+      if (action === 'delete-odoo-model') {
+        var delModelIdx = parseInt(btn.dataset.idx, 10);
+        if (isNaN(delModelIdx)) return;
+        var modelToDelete = (S.odooModelsCache || [])[delModelIdx];
+        if (modelToDelete && (window.FSV2.DEFAULT_ODOO_MODELS || []).some(function (d) { return d.name === modelToDelete.name; })) {
+          window.FSV2.showAlert('Standaardmodellen kunnen niet worden verwijderd.', 'error'); return;
+        }
+        var withoutModel = (S.odooModelsCache || []).filter(function (_, i) { return i !== delModelIdx; });
+        var toSaveDel = withoutModel.filter(function (m) {
+          return !(window.FSV2.DEFAULT_ODOO_MODELS || []).some(function (d) { return d.name === m.name; });
+        });
+        await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: toSaveDel }) });
+        S.odooModelsCache = withoutModel;
+        window.FSV2.showAlert('Model verwijderd.', 'success');
+        window.FSV2.renderLinks();
+        return;
+      }
       if (action === 'goto-list') {
         await window.FSV2.loadIntegrations();
         window.FSV2.showView('list');
@@ -442,7 +485,7 @@
   async function bootstrap() {
     try {
       await Promise.all(
-        [window.FSV2.loadSites(), window.FSV2.loadIntegrations(), window.FSV2.loadModelLinks()].concat(
+        [window.FSV2.loadSites(), window.FSV2.loadIntegrations(), window.FSV2.loadModelLinks(), window.FSV2.loadOdooModels()].concat(
           Object.keys(window.FSV2.ACTIONS).map(function (key) {
             return window.FSV2.loadModelDefaultsForModel(window.FSV2.ACTIONS[key].odoo_model);
           })
