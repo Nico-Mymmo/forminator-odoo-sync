@@ -215,62 +215,49 @@
       formRowsHtml = rows.join('');
     }
 
-    // Section 2: existing extra rows
-    var extraRowsHtml = extraRows.map(function (em, idx) {
+    // Section 2a: chain cards (previous_step_output) — shown in dedicated section above extra fields
+    var chainCardsHtml = extraRows.map(function (em, idx) {
+      if (em.sourceType !== 'previous_step_output') return '';
+      var inputId  = (cfg.extraInputPrefix || 'inp-') + (cfg.extraRowPrefix || 'extra-') + idx;
+      var chainRef = em.staticValue || '';
+      var chainMch = chainRef.match(/^step\.([^.]+)\.record_id$/);
+      var chainLbl = '';
+      if (chainMch) {
+        var chainR     = chainMch[1];
+        var chainFound = precedingSteps.find(function (s) { return String(s.order) === chainR || s.label === chainR; });
+        chainLbl = chainFound
+          ? ('Stap ' + chainFound.order + (chainFound.label ? ' \u2014 ' + esc(chainFound.label) : ''))
+          : esc(chainRef);
+      } else { chainLbl = esc(chainRef); }
+      var reqName  = (cfg.extraRowPrefix || 'extra-') + 'chain-req-' + idx;
+      var warnText = (!em.isRequired)
+        ? '<p class="text-xs text-warning/80 mt-1.5 flex items-center gap-1 leading-snug"><i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i>\u00a0Niet verplicht: als de vorige stap niets aanmaakte, wordt dit veld leeg gelaten maar gaat de stap w\u00e9l door.</p>'
+        : '';
+      return '<div class="flex items-start gap-3 py-2.5 border-b border-info/15 last:border-0">' +
+        '<input type="hidden" id="' + esc(inputId) + '" value="' + esc(chainRef) + '">' +
+        '<i data-lucide="link-2" class="w-4 h-4 text-info mt-0.5 shrink-0"></i>' +
+        '<div class="flex-1 min-w-0">' +
+          '<p class="text-sm"><span class="font-semibold">' + esc(em.odooLabel || em.odooField) + '</span>' +
+          ' <span class="font-mono text-xs text-base-content/40">(' + esc(em.odooField) + ')</span>' +
+          ' \u2190 ID van <strong>' + chainLbl + '</strong></p>' +
+          '<label class="flex items-center gap-2 mt-1.5 cursor-pointer">' +
+            '<input type="checkbox" class="checkbox checkbox-xs" name="' + esc(reqName) + '"' + (em.isRequired ? ' checked' : '') + '>' +
+            '<span class="text-xs text-base-content/60">Verplicht \u2014 als de vorige stap mislukt of niets aanmaakte, wordt ook deze stap overgeslagen</span>' +
+          '</label>' +
+          warnText +
+        '</div>' +
+        '<button type="button" class="btn btn-ghost btn-xs text-error/60 hover:text-error shrink-0"' +
+        ' data-action="' + esc(cfg.removeAction || '') + '" data-idx="' + idx + '" title="Verwijder koppeling">' +
+        '<i data-lucide="x" class="w-3.5 h-3.5"></i></button>' +
+      '</div>';
+    }).join('');
+    var hasChainRows = extraRows.some(function (em) { return em.sourceType === 'previous_step_output'; });
+
+    // Section 2b: static/template extra rows (non-chain)
+    var staticRowsHtml = extraRows.map(function (em, idx) {
+      if (em.sourceType === 'previous_step_output') return '';
       var tname     = (cfg.extraRowPrefix || 'extra-') + idx;
       var inputId   = (cfg.extraInputPrefix || 'inp-') + tname;
-
-      // ── Chain row: previous_step_output ─────────────────────────────────
-      if (em.sourceType === 'previous_step_output') {
-        var chainRef = em.staticValue || '';
-        var chainMch = chainRef.match(/^step\.([^.]+)\.record_id$/);
-        var chainLbl = '';
-        if (chainMch) {
-          var chainR     = chainMch[1];
-          var chainFound = precedingSteps.find(function (s) { return String(s.order) === chainR || s.label === chainR; });
-          chainLbl = chainFound
-            ? ('Uitvoer van stap ' + chainFound.order + (chainFound.label ? ' \u2014 ' + esc(chainFound.label) : ''))
-            : esc(chainRef);
-        } else { chainLbl = esc(chainRef); }
-        var chainWarn = (!em.isRequired)
-          ? '<p class="text-xs text-warning/80 mt-1 flex items-center gap-1">' +
-              '<i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i>' +
-              'Niet verplicht: als de vorige stap niets aanmaakte, wordt dit veld leeggelaten.' +
-            '</p>'
-          : '<p class="text-xs text-success/80 mt-1 flex items-center gap-1">' +
-              '<i data-lucide="check-circle-2" class="w-3 h-3 shrink-0"></i>' +
-              'Verplicht: als de vorige stap niets aanmaakte, wordt deze hele stap overgeslagen.' +
-            '</p>';
-        var reqName = (cfg.extraRowPrefix || 'extra-') + 'chain-req-' + idx;
-        return '<tr class="bg-info/5">' +
-          '<td class="align-middle py-2 whitespace-nowrap">' +
-            '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' +
-            '<br><span class="font-mono text-xs text-base-content/40">' + esc(em.odooField) + '</span>' +
-          '</td>' +
-          '<td class="py-1"><span class="badge badge-info badge-xs">stap&#x2011;koppeling</span></td>' +
-          '<td class="py-1.5" colspan="2">' +
-            '<input type="hidden" id="' + esc(inputId) + '" value="' + esc(chainRef) + '">' +
-            '<span class="flex items-center gap-1.5 text-sm">' +
-              '<i data-lucide="link-2" class="w-3.5 h-3.5 text-info shrink-0"></i>' +
-              '<span>' + chainLbl + '</span>' +
-            '</span>' +
-            chainWarn +
-          '</td>' +
-          '<td class="text-center py-2">' +
-            '<label class="flex flex-col items-center gap-0.5 cursor-pointer" title="Verplicht: stoppen als vorig ID ontbreekt">' +
-              '<input type="checkbox" class="checkbox checkbox-xs"' +
-              ' name="' + esc(reqName) + '"' +
-              (em.isRequired ? ' checked' : '') + '>' +
-              '<span class="text-xs text-base-content/50 leading-none">Verplicht</span>' +
-            '</label>' +
-          '</td>' +
-          '<td class="text-center py-2">' +
-            '<button type="button" class="btn btn-ghost btn-xs text-error"' +
-            ' data-action="' + esc(cfg.removeAction || '') + '" data-idx="' + idx + '" title="Verwijder">' +
-            '<i data-lucide="x" class="w-3 h-3"></i></button>' +
-          '</td></tr>';
-      }
-
       var meta      = odooCache.find(function (f) { return f.name === em.odooField; }) || null;
       var ftype     = meta ? meta.type : '';
       var typeBadge = ftype ? ' <span class="badge badge-ghost badge-xs font-mono ml-1 align-middle">' + esc(ftype) + '</span>' : '';
@@ -324,42 +311,48 @@
         '</div>' +
       '</div>';
 
-    // Step-chain section: only rendered when there are preceding steps (multi-target integrations).
-    var stepChainDiv = '';
+    // Chain section: dedicated block between form-fields and extra-static sections
+    var chainSection = '';
     if (precedingSteps.length > 0) {
       var stepOptions = precedingSteps.map(function (s) {
         var val = 'step.' + (s.label || s.order) + '.record_id';
-        var lbl = 'Uitvoer van stap ' + s.order + (s.label ? ' \u2014 ' + s.label : '');
+        var lbl = 'Stap ' + s.order + (s.label ? ' \u2014 ' + s.label : '');
         return '<option value="' + esc(val) + '">' + esc(lbl) + '</option>';
       }).join('');
-      stepChainDiv =
-        '<div class="mt-4 pt-4 border-t border-base-300">' +
-          '<h4 class="font-medium text-sm mb-1.5 flex items-center gap-2">' +
-            '<i data-lucide="link-2" class="w-4 h-4 text-info"></i> Record koppelen aan vorige stap' +
+      var addChainForm =
+        '<div class="flex flex-wrap items-start gap-2 pt-3 mt-3 border-t border-info/20">' +
+          '<p class="w-full text-xs text-base-content/50 mb-0.5">' +
+            (hasChainRows ? 'Nog een veld koppelen aan een vorige stap:' : 'Stel in welk veld van dit record gevuld wordt met het ID van de vorige stap:') +
+          '</p>' +
+          '<div class="flex-1 min-w-48 max-w-64">' +
+            window.OpenVME.FieldPicker.render(cfg.chainFspId || (cfg.fspId + '-chain'), '--unused--', odooCache, '') +
+          '</div>' +
+          '<div class="flex-1 min-w-44">' +
+            '<select id="' + esc(cfg.chainStepSelectId || 'chainStepSelect') + '" class="select select-bordered select-sm w-full">' +
+              '<option value="">\u2014 kies stap \u2014</option>' +
+              stepOptions +
+            '</select>' +
+          '</div>' +
+          '<div class="flex items-center gap-3 pt-1">' +
+            '<label class="flex items-center gap-1.5 cursor-pointer" title="Verplicht: als vorige stap mislukt, wordt ook deze stap overgeslagen">' +
+              '<input type="checkbox" id="' + esc(cfg.chainIsRequiredId || 'chainIsRequired') + '" class="checkbox checkbox-xs" checked>' +
+              '<span class="text-xs text-base-content/50">Verplicht</span>' +
+            '</label>' +
+            '<button type="button" class="btn btn-outline btn-xs btn-info" data-action="' + esc(cfg.addChainAction || '') + '">+ Voeg toe</button>' +
+          '</div>' +
+        '</div>';
+      chainSection =
+        '<div class="mb-6 rounded-xl border border-info/25 bg-info/5 px-4 py-3.5">' +
+          '<h4 class="font-medium text-sm mb-1 flex items-center gap-2">' +
+            '<i data-lucide="link-2" class="w-4 h-4 text-info"></i> Koppeling met vorige stap' +
           '</h4>' +
           '<p class="text-xs text-base-content/50 mb-3">' +
-            'Gebruik dit als dit record automatisch gekoppeld moet worden aan het record dat de vorige stap aanmaakte.' +
-            ' Stel een veld in dit record in (bijv. <em>Customer</em>) en kies de stap waarvan het ID gebruikt wordt.' +
-            ' <strong>Verplicht</strong> betekent: als de vorige stap mislukte of niets aanmaakte, wordt ook deze stap overgeslagen.' +
+            'Hier geef je aan welk veld van d\u00edt record gevuld wordt met het Odoo-ID dat de vorige stap aanmaakte. ' +
+            'Zo worden de records in Odoo automatisch aan elkaar gekoppeld (bijv. de lead aan de contactpersoon). ' +
+            'Dit is g\u00e9\u00e9n zoekcriterium \u2014 het zoeken gebeurt op basis van de aangevinkte velden hierboven.' +
           '</p>' +
-          '<div class="flex flex-wrap items-start gap-2 pt-1">' +
-            '<div class="flex-1 min-w-48 max-w-64">' +
-              window.OpenVME.FieldPicker.render(cfg.chainFspId || (cfg.fspId + '-chain'), '--unused--', odooCache, '') +
-            '</div>' +
-            '<div class="flex-1 min-w-44">' +
-              '<select id="' + esc(cfg.chainStepSelectId || 'chainStepSelect') + '" class="select select-bordered select-sm w-full">' +
-                '<option value="">\u2014 kies stap \u2014</option>' +
-                stepOptions +
-              '</select>' +
-            '</div>' +
-            '<div class="flex items-center gap-3 pt-1">' +
-              '<label class="flex items-center gap-1 cursor-pointer" title="Verplicht: blokkeer uitvoering als stap-ID ontbreekt">' +
-                '<input type="checkbox" id="' + esc(cfg.chainIsRequiredId || 'chainIsRequired') + '" class="checkbox checkbox-xs" checked>' +
-                '<span class="text-xs text-base-content/50">Verplicht</span>' +
-              '</label>' +
-              '<button type="button" class="btn btn-outline btn-xs btn-info" data-action="' + esc(cfg.addChainAction || '') + '">+ Voeg stap-uitvoer toe</button>' +
-            '</div>' +
-          '</div>' +
+          (hasChainRows ? chainCardsHtml : '') +
+          addChainForm +
         '</div>';
     }
 
@@ -392,24 +385,25 @@
           '<strong>Bijwerken</strong>: uitvinken als je wil dat dit veld alleen wordt ingevuld bij nieuw aanmaken, niet bij bijwerken.' +
         '</p>' +
       '</div>' +
+      (chainSection || '') +
       '<div>' +
         '<h4 class="font-medium text-sm mb-2 flex items-center gap-2">' +
-          '<i data-lucide="tag" class="w-4 h-4 text-warning"></i> Extra Odoo-velden met vaste waarde' +
+          '<i data-lucide="tag" class="w-4 h-4 text-warning"></i> Extra velden met vaste waarde' +
         '</h4>' +
+        '<p class="text-xs text-base-content/50 mb-2">Vul hier Odoo-velden in met een vaste tekst of een waarde uit het formulier (bijv. een campagne-ID, bron of status).</p>' +
         '<div class="overflow-visible">' +
           '<table class="table table-sm w-full">' +
             '<thead><tr>' +
               '<th class="font-normal text-xs text-base-content/50" colspan="2">Odoo veld</th><th class="font-normal text-xs text-base-content/50">Waarde / sjabloon</th>' +
-              '<th class="text-center font-normal" title="Identifier"><i data-lucide="key" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
+              '<th class="text-center font-normal" title="Zoekcriterium"><i data-lucide="key" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
               '<th class="text-center font-normal" title="Bijwerken bij update"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
               '<th></th>' +
             '</tr></thead>' +
-            '<tbody>' + (extraRowsHtml || '<tr><td colspan="6" class="text-xs text-base-content/40 italic py-2">Nog geen extra velden toegevoegd.</td></tr>') + '</tbody>' +
+            '<tbody>' + (staticRowsHtml || '<tr><td colspan="6" class="text-xs text-base-content/40 italic py-2">Nog geen extra velden toegevoegd.</td></tr>') + '</tbody>' +
           '</table>' +
         '</div>' +
         addRowDiv +
       '</div>' +
-      (stepChainDiv ? stepChainDiv : '') +
       (cfg.saveAction
         ? '<div class="mt-6 flex justify-end">' +
             '<button type="button" class="btn btn-primary" data-action="' + esc(cfg.saveAction) + '">' +
