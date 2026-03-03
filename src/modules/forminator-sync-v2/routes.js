@@ -301,6 +301,7 @@ export const routes = {
         odoo_model: payload.odoo_model,
         identifier_type: payload.identifier_type,
         update_policy: payload.update_policy,
+        operation_type: payload.operation_type || 'upsert',
         is_enabled: true,
         ...(payload.execution_order !== undefined ? { execution_order: Number(payload.execution_order) } : {}),
       });
@@ -323,6 +324,7 @@ export const routes = {
         odoo_model: payload.odoo_model,
         identifier_type: payload.identifier_type,
         update_policy: payload.update_policy,
+        operation_type: payload.operation_type || 'upsert',
         is_enabled: payload.is_enabled !== false,
         ...(payload.execution_order !== undefined ? { execution_order: payload.execution_order === null ? null : Number(payload.execution_order) } : {}),
       });

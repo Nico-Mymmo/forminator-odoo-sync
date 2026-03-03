@@ -109,6 +109,41 @@
     var precedingSteps = cfg.precedingSteps || [];
     var stepBadge      = cfg.stepBadge || 0;
 
+    // ── Operation-type selector (only when opTypeRadioName is provided) ────
+    var opType = cfg.operationType || 'upsert';
+    var opTypeSection = '';
+    if (cfg.opTypeRadioName) {
+      var opOpts = [
+        { val: 'upsert',
+          label: 'Zoeken \u2014 bijwerken of aanmaken',
+          desc:  'Zoekt eerst via de identifier. Gevonden \u2192 bijwerken. Niet gevonden \u2192 nieuw aanmaken.' },
+        { val: 'update_only',
+          label: 'Alleen bijwerken (\u26a0\ufe0f nooit aanmaken)',
+          desc:  'Zoekt eerst via de identifier. Gevonden \u2192 bijwerken. Niet gevonden \u2192 stap wordt stilzwijgend overgeslagen.' },
+        { val: 'create',
+          label: 'Altijd nieuw aanmaken (nooit zoeken)',
+          desc:  'Maakt altijd een nieuw record aan. Er wordt nooit naar een bestaand record gezocht.' },
+      ];
+      opTypeSection =
+        '<div class="mb-5 p-3.5 rounded-xl border border-base-300 bg-base-200/40">' +
+          '<p class="text-xs font-semibold text-base-content/70 mb-2 flex items-center gap-1.5">' +
+            '<i data-lucide="settings-2" class="w-3.5 h-3.5"></i> Gedrag bij verwerking' +
+          '</p>' +
+          '<div class="flex flex-col gap-1">' +
+          opOpts.map(function (o) {
+            var chk = (opType === o.val) ? ' checked' : '';
+            return '<label class="flex items-start gap-2.5 cursor-pointer p-2 rounded-lg border border-transparent hover:border-base-300 hover:bg-base-100 transition-colors" style="outline-offset:0">' +
+              '<input type="radio" class="radio radio-xs radio-primary mt-0.5 shrink-0" name="' + esc(cfg.opTypeRadioName) + '" value="' + o.val + '"' + chk + '>' +
+              '<div>' +
+                '<p class="text-sm font-medium leading-snug">' + esc(o.label) + '</p>' +
+                '<p class="text-xs text-base-content/50 mt-0.5">' + o.desc + '</p>' +
+              '</div>' +
+            '</label>';
+          }).join('') +
+          '</div>' +
+        '</div>';
+    }
+
     // Section 1: form field rows
     var formRowsHtml = flatFields.length === 0
       ? '<tr><td colspan="5" class="text-sm text-base-content/40 italic py-3">Geen formuliervelden gevonden voor dit formulier.</td></tr>'
@@ -170,7 +205,7 @@
         var chainWarn = (!em.isRequired)
           ? '<p class="text-xs text-warning/80 mt-0.5 flex items-center gap-1">' +
               '<i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i>' +
-              'Als deze vorige stap geen Odoo-ID oplevert, wordt dit veld leeg gelaten.' +
+              'Niet verplicht \u2192 ontbreekt het vorige Odoo-ID, dan wordt dit veld leeggelaten. Vink \u201cVerplicht\u201d aan om de hele stap te blokkeren als het ID er niet is.' +
             '</p>'
           : '';
         return '<tr class="bg-info/5">' +
@@ -267,9 +302,14 @@
       }).join('');
       stepChainDiv =
         '<div class="mt-4 pt-4 border-t border-base-300">' +
-          '<h4 class="font-medium text-sm mb-2 flex items-center gap-2">' +
+          '<h4 class="font-medium text-sm mb-1.5 flex items-center gap-2">' +
             '<i data-lucide="link-2" class="w-4 h-4 text-info"></i> Koppelen aan uitvoer vorige stap' +
           '</h4>' +
+          '<p class="text-xs text-base-content/50 mb-3">' +
+            'Vul een veld in dit record met het Odoo-ID dat de vorige stap opleverde.' +
+            ' Voorbeeld: <code class="font-mono bg-base-200 px-1 rounded">partner_id</code> op een lead koppelen aan de contactpersoon die stap\u00a01 aanmaakte.' +
+            ' <strong>Verplicht</strong> = blokkeer deze stap als het vorige ID ontbreekt.' +
+          '</p>' +
           '<div class="flex flex-wrap items-start gap-2 pt-1">' +
             '<div class="flex-1 min-w-48 max-w-64">' +
               window.OpenVME.FieldPicker.render(cfg.chainFspId || (cfg.fspId + '-chain'), '--unused--', odooCache, '') +
@@ -297,6 +337,7 @@
 
     container.innerHTML =
       wrapOpen +
+      (opTypeSection || '') +
       '<div class="mb-6">' +
         '<h4 class="font-medium text-sm mb-3 flex items-center gap-2">' +
           '<i data-lucide="link" class="w-4 h-4 text-primary"></i>' +

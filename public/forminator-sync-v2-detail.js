@@ -265,6 +265,8 @@
       }
 
       var stepName   = target.label || modelLabel(target.odoo_model);
+      var opLabels  = { upsert: 'Zoeken \u2014 bijwerken of aanmaken', update_only: 'Alleen bijwerken', create: 'Altijd nieuw aanmaken' };
+      var opTypeLbl  = opLabels[target.operation_type] || opLabels.upsert;
       var policyLbl  = POLICY_LABELS[target.update_policy] || esc(target.update_policy || '');
       var preceding  = sortedTargets.slice(0, idx);
       var suggestions = isSingle ? [] : computeChainSuggestions(target, preceding);
@@ -307,7 +309,7 @@
       html +=             '<div class="flex flex-wrap items-center gap-x-2.5 gap-y-0 mt-0.5 text-xs text-base-content/50">';
       html +=               '<span class="font-mono">' + esc(target.odoo_model) + '</span>';
       html +=               '<span>·</span>';
-      html +=               '<span>' + esc(policyLbl) + '</span>';
+      html +=               '<span>' + esc(opTypeLbl) + '</span>';
       html +=             '</div>';
       html +=           '</div>';
       html +=         '</div>';
@@ -476,6 +478,8 @@
         extraValueInputId:    'detExtraStaticValue-' + tid,
         extraIsIdentifierId:  'detExtraIsIdentifier-' + tid,
         extraIsUpdateFieldId: 'detExtraIsUpdateField-' + tid,
+        operationType: target.operation_type || 'upsert',
+        opTypeRadioName:      'det-optype-radio-' + tid,
         saveAction:           null,   // per-step save button injected below
         targetId:             tid,
         precedingSteps:       precedingSteps,
@@ -982,6 +986,24 @@
     var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
     var target  = targets.find(function (t) { return String(t.id) === tid; });
     if (!target) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
+
+    // ─ Persist operation_type if the radio is present in the DOM ───────────────────
+    var opRadioEl  = document.querySelector('input[name="det-optype-radio-' + tid + '"]:checked');
+    var newOpType  = opRadioEl ? opRadioEl.value : (target.operation_type || 'upsert');
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    if (integrationId) {
+      await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+        method: 'PUT',
+        body: JSON.stringify({
+          odoo_model:      target.odoo_model,
+          identifier_type: target.identifier_type || 'mapped_fields',
+          update_policy:   target.update_policy   || 'always_overwrite',
+          operation_type:  newOpType,
+          execution_order: target.execution_order,
+          order_index:     Number(target.order_index || 0),
+        }),
+      });
+    }
 
     var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
     var flatFields = [];
