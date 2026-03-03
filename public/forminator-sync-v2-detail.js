@@ -134,29 +134,20 @@
     var container = document.getElementById('detailMappingsContainer');
     if (!container) return;
 
-    var targets     = (S().detail && S().detail.targets) ? S().detail.targets : [];
-    var firstTarget = targets[0];
-
-    // Sort targets by execution_order for pipeline chaining metadata (badges + precedingSteps).
-    var sortedForChain = [...targets].sort(function (a, b) {
-      return ((a.execution_order != null ? a.execution_order : (a.order_index != null ? a.order_index : 0))) -
-             ((b.execution_order != null ? b.execution_order : (b.order_index != null ? b.order_index : 0)));
-    });
-    var firstTargetChainIdx = sortedForChain.indexOf(firstTarget);
-    var precedingSteps = sortedForChain.slice(0, firstTargetChainIdx < 0 ? 0 : firstTargetChainIdx).map(function (t) {
-      var ord = t.execution_order != null ? t.execution_order : (t.order_index != null ? t.order_index : 0);
-      return { order: ord, label: t.label || '' };
-    });
-    var stepBadge = (sortedForChain.length >= 2 && firstTargetChainIdx >= 0) ? (firstTargetChainIdx + 1) : 0;
-
-    if (!firstTarget) {
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    if (!targets.length) {
       container.innerHTML = '<p class="text-sm text-base-content/60">Geen schrijfdoel gevonden voor deze integratie.</p>';
       return;
     }
 
-    var model      = firstTarget.odoo_model;
-    var odooCache  = S().odooFieldsCache[model] || [];
-    var odooLoaded = odooCache.length > 0;
+    // Sort targets by execution_order for pipeline chaining metadata.
+    var sortedForChain = [...targets].sort(function (a, b) {
+      return ((a.execution_order != null ? a.execution_order : (a.order_index != null ? a.order_index : 0))) -
+             ((b.execution_order != null ? b.execution_order : (b.order_index != null ? b.order_index : 0)));
+    });
+
+    // Per-target extra-row state: keyed by String(target.id).
+    if (!S().detail._extraRowsByTarget) S().detail._extraRowsByTarget = {};
 
     var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
     var flatFields = [];
@@ -169,69 +160,116 @@
       }
     });
 
-    var allMappings = [];
-    targets.forEach(function (t) {
-      var ms = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[t.id]) || [];
-      ms.forEach(function (m) { allMappings.push(Object.assign({}, m, { _targetId: t.id })); });
-    });
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
 
-    var formMappingsByField = {};
-    var initialExtraRows    = [];
-    allMappings.forEach(function (m) {
-      if (m.source_type === 'form') {
-        formMappingsByField[m.source_value] = m;
-      } else {
-        initialExtraRows.push(m);
+    // Build one wrapper div per target.
+    var outerHtml = sortedForChain.map(function (target, idx) {
+      var tid = String(target.id);
+      var dividerClass = idx > 0 ? ' mt-8 pt-8 border-t border-base-200' : '';
+      var header = '';
+      if (sortedForChain.length >= 2) {
+        header =
+          '<div class="flex items-center gap-2 mb-3">' +
+            '<span class="badge badge-outline badge-sm font-mono">[ ' + (idx + 1) + ' ]</span>' +
+            '<span class="text-sm font-medium">' + esc(target.label || target.odoo_model || 'Schrijfdoel') + '</span>' +
+            '<span class="text-xs text-base-content/40 font-mono">' + esc(target.odoo_model || '') + '</span>' +
+          '</div>';
       }
-    });
+      return '<div class="' + dividerClass + '" data-mt-target-id="' + esc(tid) + '">' +
+               header +
+               '<div id="det-mc-' + esc(tid) + '"></div>' +
+             '</div>';
+    }).join('');
 
-    if (!S().detail._extraRows) {
-      S().detail._extraRows = initialExtraRows.map(function (m) {
-        var meta = odooCache.find(function (f) { return f.name === m.odoo_field; });
-        return {
-          odooField:     m.odoo_field,
-          odooLabel:     (meta && meta.label) || m.odoo_field,
-          staticValue:   m.source_value,
-          sourceType:    m.source_type,
-          isRequired:    !!m.is_required,
-          isIdentifier:  !!m.is_identifier,
-          isUpdateField: m.is_update_field !== false,
-        };
-      });
+    // "Add target" button when fewer than 2 targets.
+    var addTargetBtn = '';
+    if (integrationId && sortedForChain.length < 2) {
+      addTargetBtn =
+        '<div class="mt-6 flex justify-end">' +
+          '<button type="button" class="btn btn-outline btn-sm" data-action="add-target"' +
+          ' data-integrationid="' + esc(String(integrationId)) + '">' +
+            '<i data-lucide="plus" class="w-4 h-4 mr-1"></i> Voeg schrijfdoel toe' +
+          '</button>' +
+        '</div>';
     }
 
-    window.FSV2.MappingTable.render('detailMappingsContainer', {
-      flatFields:            flatFields,
-      topLevelFields:        rawFf,
-      odooCache:             odooCache,
-      odooLoaded:            odooLoaded,
-      odooModel:             model,
-      existingFormMappings:  formMappingsByField,
-      extraRows:             S().detail._extraRows,
-      selectClass:           'detail-ff-select',
-      idCheckClass:          'detail-ff-id-check',
-      updCheckClass:         'detail-ff-upd-check',
-      namePrefix:            'det-ff-',
-      checkPrefix:           'det-',
-      extraRowPrefix:        'det-extra-',
-      extraInputPrefix:      'det-inp-',
-      extraIdCheckClass:     'detail-extra-id-check',
-      extraUpdCheckClass:    'detail-extra-upd-check',
-      addAction:             'detail-add-extra-row',
-      removeAction:          'detail-remove-extra-row',
-      fspId:                 'det-extra-add',
-      extraValueWrapId:      'detExtraStaticWrap',
-      extraValueInputId:     'detExtraStaticValue',
-      extraIsIdentifierId:   'detExtraIsIdentifier',
-      extraIsUpdateFieldId:  'detExtraIsUpdateField',
-      saveAction:            'save-detail-mappings',
-      targetId:              String(firstTarget.id),
-      precedingSteps:        precedingSteps,
-      stepBadge:             stepBadge,
-      chainFspId:            'det-chain-add',
-      chainStepSelectId:     'detChainStepSelect',
-      chainIsRequiredId:     'detChainIsRequired',
-      addChainAction:        'detail-add-chain-row',
+    container.innerHTML = outerHtml + addTargetBtn;
+
+    // Render MappingTable into each per-target sub-container.
+    sortedForChain.forEach(function (target, idx) {
+      var tid        = String(target.id);
+      var model      = target.odoo_model;
+      var odooCache  = S().odooFieldsCache[model] || [];
+      var odooLoaded = odooCache.length > 0;
+
+      var targetMappings     = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+      var formMappingsByField = {};
+      var initialExtraRows    = [];
+      targetMappings.forEach(function (m) {
+        if (m.source_type === 'form') {
+          formMappingsByField[m.source_value] = m;
+        } else {
+          initialExtraRows.push(m);
+        }
+      });
+
+      if (!S().detail._extraRowsByTarget[tid]) {
+        S().detail._extraRowsByTarget[tid] = initialExtraRows.map(function (m) {
+          var meta = odooCache.find(function (f) { return f.name === m.odoo_field; });
+          return {
+            odooField:     m.odoo_field,
+            odooLabel:     (meta && meta.label) || m.odoo_field,
+            staticValue:   m.source_value,
+            sourceType:    m.source_type,
+            isRequired:    !!m.is_required,
+            isIdentifier:  !!m.is_identifier,
+            isUpdateField: m.is_update_field !== false,
+          };
+        });
+      }
+
+      var precedingSteps = sortedForChain.slice(0, idx).map(function (t) {
+        var ord = t.execution_order != null ? t.execution_order : (t.order_index != null ? t.order_index : 0);
+        return { order: ord, label: t.label || '' };
+      });
+      var stepBadge = sortedForChain.length >= 2 ? (idx + 1) : 0;
+
+      // Only the last target gets the shared save button.
+      var isLast = idx === sortedForChain.length - 1;
+
+      window.FSV2.MappingTable.render('det-mc-' + tid, {
+        flatFields:            flatFields,
+        topLevelFields:        rawFf,
+        odooCache:             odooCache,
+        odooLoaded:            odooLoaded,
+        odooModel:             model,
+        existingFormMappings:  formMappingsByField,
+        extraRows:             S().detail._extraRowsByTarget[tid],
+        selectClass:           'detail-ff-select',
+        idCheckClass:          'detail-ff-id-check',
+        updCheckClass:         'detail-ff-upd-check',
+        namePrefix:            'det-ff-' + tid + '-',
+        checkPrefix:           'det-' + tid + '-',
+        extraRowPrefix:        'det-extra-' + tid + '-',
+        extraInputPrefix:      'det-inp-',
+        extraIdCheckClass:     'detail-extra-id-check',
+        extraUpdCheckClass:    'detail-extra-upd-check',
+        addAction:             'detail-add-extra-row',
+        removeAction:          'detail-remove-extra-row',
+        fspId:                 'det-extra-' + tid + '-add',
+        extraValueWrapId:      'detExtraStaticWrap-' + tid,
+        extraValueInputId:     'detExtraStaticValue-' + tid,
+        extraIsIdentifierId:   'detExtraIsIdentifier-' + tid,
+        extraIsUpdateFieldId:  'detExtraIsUpdateField-' + tid,
+        saveAction:            isLast ? 'save-detail-mappings' : null,
+        targetId:              tid,
+        precedingSteps:        precedingSteps,
+        stepBadge:             stepBadge,
+        chainFspId:            'det-chain-' + tid + '-add',
+        chainStepSelectId:     'detChainStepSelect-' + tid,
+        chainIsRequiredId:     'detChainIsRequired-' + tid,
+        addChainAction:        'detail-add-chain-row',
+      });
     });
   }
 
@@ -506,7 +544,7 @@
         window.FSV2.api('/integrations/' + id + '/submissions'),
       ]);
       S().detail      = results[0].data;
-      S().detail._extraRows = null;
+      S().detail._extraRowsByTarget = null;
       S().testStatus  = results[1].data;
       S().submissions = results[2].data || [];
       S().detailFormFields = null;
@@ -526,8 +564,11 @@
       }
 
       var detailTargets = (S().detail && S().detail.targets) ? S().detail.targets : [];
-      if (detailTargets.length > 0 && detailTargets[0].odoo_model) {
-        var detailModel = detailTargets[0].odoo_model;
+      var detailModels = [];
+      detailTargets.forEach(function (t) {
+        if (t.odoo_model && !detailModels.includes(t.odoo_model)) detailModels.push(t.odoo_model);
+      });
+      detailModels.forEach(function (detailModel) {
         if (!S().odooFieldsCache[detailModel] || !S().odooFieldsCache[detailModel].length) {
           window.FSV2.loadOdooFieldsForModel(detailModel).then(function () {
             if (S().activeId !== id) return;
@@ -535,7 +576,7 @@
             if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
           });
         }
-      }
+      });
       renderDetail();
     } catch (err) {
       window.FSV2.showAlert(err.message, 'error');
@@ -597,13 +638,15 @@
   }
 
   async function handleSaveMappings() {
-    var editor = document.getElementById('detailMappingsContainer');
-    if (!editor) { window.FSV2.showAlert('Editor niet gevonden.', 'error'); return; }
-    var targets     = (S().detail && S().detail.targets) ? S().detail.targets : [];
-    var firstTarget = targets[0];
-    if (!firstTarget) { window.FSV2.showAlert('Geen doel gevonden.', 'error'); return; }
-    var targetId = String(firstTarget.id);
-    var model    = firstTarget.odoo_model || '';
+    var container = document.getElementById('detailMappingsContainer');
+    if (!container) { window.FSV2.showAlert('Editor niet gevonden.', 'error'); return; }
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    if (!targets.length) { window.FSV2.showAlert('Geen doel gevonden.', 'error'); return; }
+
+    var sortedForChain = [...targets].sort(function (a, b) {
+      return ((a.execution_order != null ? a.execution_order : (a.order_index != null ? a.order_index : 0))) -
+             ((b.execution_order != null ? b.execution_order : (b.order_index != null ? b.order_index : 0)));
+    });
 
     var rawFf = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
     var flatFields = [];
@@ -616,50 +659,80 @@
       }
     });
 
-    var newMappings = [];
-    var orderIdx    = 0;
-    flatFields.forEach(function (ff) {
-      var fid    = String(ff.field_id);
-      var selEl    = editor.querySelector('[name="det-ff-odoo-' + fid + '"]');
-      var odooField = selEl ? (selEl.value || '') : '';
-      if (!odooField) return;
-      var idCheckEl  = Array.from(editor.querySelectorAll('input.detail-ff-id-check')).find(function (el) {
-        return el.getAttribute('name') === 'det-identifier-' + fid;
-      });
-      var updCheckEl = Array.from(editor.querySelectorAll('input.detail-ff-upd-check')).find(function (el) {
-        return el.getAttribute('name') === 'det-update-' + fid;
-      });
-      var isIdentifier  = idCheckEl  ? idCheckEl.checked  : false;
-      var isUpdateField = updCheckEl ? updCheckEl.checked : true;
-      newMappings.push({ odoo_field: odooField, source_type: 'form', source_value: fid, is_identifier: isIdentifier, is_update_field: isUpdateField, is_required: false, order_index: orderIdx++ });
-    });
+    for (var i = 0; i < sortedForChain.length; i++) {
+      var target   = sortedForChain[i];
+      var tid      = String(target.id);
+      var newMappings = [];
+      var orderIdx    = 0;
 
-    (S().detail._extraRows || []).forEach(function (em, idx) {
-      var inpEl = document.getElementById('det-inp-det-extra-' + idx);
-      var val   = inpEl ? (inpEl.value || '').trim() : (em.staticValue || '');
-      if (!val && em.sourceType !== 'previous_step_output') return;
-      // Preserve previous_step_output sourceType; detect template via {…}; otherwise static.
-      var sourceType  = em.sourceType === 'previous_step_output'
-        ? 'previous_step_output'
-        : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
-      // Chain rows store the step reference in staticValue; use that as the canonical value.
-      var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
-      var isRequired  = em.isRequired || false;
-      if (!sourceValue) return;
-      var extraIdChk    = editor.querySelector('input[name="det-extra-identifier-' + idx + '"]');
-      var extraUpdChk   = editor.querySelector('input[name="det-extra-update-' + idx + '"]');
-      var extraIsIdentifier  = extraIdChk  ? extraIdChk.checked  : false;
-      var extraIsUpdateField = extraUpdChk ? extraUpdChk.checked : true;
-      newMappings.push({ odoo_field: em.odooField, source_type: sourceType, source_value: sourceValue, is_identifier: extraIsIdentifier, is_update_field: extraIsUpdateField, is_required: isRequired, order_index: orderIdx++ });
-    });
+      // Form-field rows (select per field, namespaced by target id).
+      flatFields.forEach(function (ff) {
+        var fid      = String(ff.field_id);
+        var selEl    = container.querySelector('[name="det-ff-' + tid + '-odoo-' + fid + '"]');
+        var odooField = selEl ? (selEl.value || '') : '';
+        if (!odooField) return;
+        var idCheckEl  = Array.from(container.querySelectorAll('input.detail-ff-id-check')).find(function (el) {
+          return el.getAttribute('name') === 'det-' + tid + '-identifier-' + fid;
+        });
+        var updCheckEl = Array.from(container.querySelectorAll('input.detail-ff-upd-check')).find(function (el) {
+          return el.getAttribute('name') === 'det-' + tid + '-update-' + fid;
+        });
+        var isIdentifier  = idCheckEl  ? idCheckEl.checked  : false;
+        var isUpdateField = updCheckEl ? updCheckEl.checked : true;
+        newMappings.push({ odoo_field: odooField, source_type: 'form', source_value: fid,
+          is_identifier: isIdentifier, is_update_field: isUpdateField, is_required: false, order_index: orderIdx++ });
+      });
 
-    await window.FSV2.api('/targets/' + targetId + '/mappings', { method: 'DELETE' });
-    await Promise.all(newMappings.map(function (m) {
-      return window.FSV2.api('/targets/' + targetId + '/mappings', { method: 'POST', body: JSON.stringify(m) });
-    }));
+      // Extra / chain rows (keyed per target).
+      var extraRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
+      extraRows.forEach(function (em, idx) {
+        var tname = 'det-extra-' + tid + '-' + idx;
+        var inpEl = document.getElementById('det-inp-' + tname);
+        var val   = inpEl ? (inpEl.value || '').trim() : (em.staticValue || '');
+        if (!val && em.sourceType !== 'previous_step_output') return;
+        var sourceType  = em.sourceType === 'previous_step_output'
+          ? 'previous_step_output'
+          : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
+        var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
+        var isRequired  = em.isRequired || false;
+        if (!sourceValue) return;
+        var extraIdChk  = container.querySelector('input[name="det-extra-' + tid + '-identifier-' + idx + '"]');
+        var extraUpdChk = container.querySelector('input[name="det-extra-' + tid + '-update-' + idx + '"]');
+        newMappings.push({ odoo_field: em.odooField, source_type: sourceType, source_value: sourceValue,
+          is_identifier: extraIdChk ? extraIdChk.checked : false,
+          is_update_field: extraUpdChk ? extraUpdChk.checked : true,
+          is_required: isRequired, order_index: orderIdx++ });
+      });
+
+      await window.FSV2.api('/targets/' + tid + '/mappings', { method: 'DELETE' });
+      await Promise.all(newMappings.map(function (m) {
+        return window.FSV2.api('/targets/' + tid + '/mappings', { method: 'POST', body: JSON.stringify(m) });
+      }));
+    }
 
     window.FSV2.showAlert('Koppelingen opgeslagen.', 'success');
-    S().detail._extraRows = null;
+    S().detail._extraRowsByTarget = null;
+    await openDetail(S().activeId);
+  }
+
+  async function handleAddTarget(integrationId) {
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    var firstTarget = targets[0];
+    if (!firstTarget) { window.FSV2.showAlert('Geen bestaand schrijfdoel gevonden als sjabloon.', 'error'); return; }
+    var maxOrder = targets.reduce(function (max, t) {
+      var ord = t.execution_order != null ? t.execution_order : (t.order_index != null ? t.order_index : 0);
+      return Math.max(max, ord);
+    }, 0);
+    await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+      method: 'POST',
+      body: JSON.stringify({
+        odoo_model:      firstTarget.odoo_model,
+        identifier_type: firstTarget.identifier_type || 'odoo_id',
+        update_policy:   firstTarget.update_policy   || 'upsert',
+        execution_order: maxOrder + 1,
+      }),
+    });
+    window.FSV2.showAlert('Schrijfdoel toegevoegd.', 'success');
     await openDetail(S().activeId);
   }
 
@@ -735,6 +808,7 @@
     handleAddMapping:        handleAddMapping,
     handleDeleteMapping:     handleDeleteMapping,
     handleSaveMappings:      handleSaveMappings,
+    handleAddTarget:         handleAddTarget,
     handleToggleIdentifier:  handleToggleIdentifier,
     fetchDetailFormFields:   fetchDetailFormFields,
     handleDeleteIntegration: handleDeleteIntegration,

@@ -155,22 +155,31 @@
         await window.FSV2.handleReplay(btn.dataset.id);
         return;
       }
+      if (action === 'add-target') {
+        await window.FSV2.handleAddTarget(btn.dataset.integrationid);
+        return;
+      }
       if (action === 'save-detail-mappings') {
         await window.FSV2.handleSaveMappings();
         return;
       }
       if (action === 'detail-add-extra-row') {
-        var detFieldInput  = document.getElementById('fsp-val-det-extra-add');
-        var detExtraStatic = document.getElementById('detExtraStaticValue');
+        var detWrapper     = btn.closest('[data-mt-target-id]');
+        var detTid         = detWrapper ? detWrapper.dataset.mtTargetId : null;
+        if (!detTid) { window.FSV2.showAlert('Doel niet gevonden.', 'error'); return; }
+        var detFieldInput  = document.getElementById('fsp-val-det-extra-' + detTid + '-add');
+        var detExtraStatic = document.getElementById('detExtraStaticValue-' + detTid);
         var detFieldName   = detFieldInput ? detFieldInput.value.trim() : '';
         if (!detFieldName) { window.FSV2.showAlert('Kies een Odoo veld uit de lijst.', 'error'); return; }
-        var detModel   = S.detail && S.detail.targets && S.detail.targets[0] ? S.detail.targets[0].odoo_model : '';
+        var detTarget  = S.detail && S.detail.targets && S.detail.targets.find(function (t) { return String(t.id) === detTid; });
+        var detModel   = detTarget ? detTarget.odoo_model : '';
         var detCached  = S.odooFieldsCache[detModel] || [];
         var detMatched = detCached.find(function (f) { return f.name === detFieldName; });
-        var detIsIdentifier  = !!(document.getElementById('detExtraIsIdentifier')  || {}).checked;
-        var detIsUpdateField = (document.getElementById('detExtraIsUpdateField') || { checked: true }).checked;
-        S.detail._extraRows = S.detail._extraRows || [];
-        S.detail._extraRows.push({
+        var detIsIdentifier  = !!(document.getElementById('detExtraIsIdentifier-' + detTid)  || {}).checked;
+        var detIsUpdateField = (document.getElementById('detExtraIsUpdateField-' + detTid) || { checked: true }).checked;
+        S.detail._extraRowsByTarget = S.detail._extraRowsByTarget || {};
+        S.detail._extraRowsByTarget[detTid] = S.detail._extraRowsByTarget[detTid] || [];
+        S.detail._extraRowsByTarget[detTid].push({
           odooField:     detFieldName,
           odooLabel:     detMatched ? detMatched.label : detFieldName,
           staticValue:   detExtraStatic ? detExtraStatic.value.trim() : '',
@@ -182,28 +191,35 @@
         return;
       }
       if (action === 'detail-remove-extra-row') {
-        var detRemIdx = parseInt(btn.dataset.idx, 10);
-        if (!isNaN(detRemIdx) && S.detail && S.detail._extraRows) {
-          S.detail._extraRows.splice(detRemIdx, 1);
+        var remWrapper = btn.closest('[data-mt-target-id]');
+        var remTid     = remWrapper ? remWrapper.dataset.mtTargetId : null;
+        var detRemIdx  = parseInt(btn.dataset.idx, 10);
+        if (remTid && !isNaN(detRemIdx) && S.detail && S.detail._extraRowsByTarget && S.detail._extraRowsByTarget[remTid]) {
+          S.detail._extraRowsByTarget[remTid].splice(detRemIdx, 1);
           window.FSV2.renderDetailMappings();
         }
         return;
       }
       if (action === 'detail-add-chain-row') {
         // Adds a previous_step_output mapping row from the step-chain section.
-        var chainFspVal   = document.getElementById('fsp-val-det-chain-add');
-        var chainStepSel  = document.getElementById('detChainStepSelect');
-        var chainIsReqEl  = document.getElementById('detChainIsRequired');
+        var chainWrapper   = btn.closest('[data-mt-target-id]');
+        var chainTid       = chainWrapper ? chainWrapper.dataset.mtTargetId : null;
+        if (!chainTid) { window.FSV2.showAlert('Doel niet gevonden.', 'error'); return; }
+        var chainFspVal   = document.getElementById('fsp-val-det-chain-' + chainTid + '-add');
+        var chainStepSel  = document.getElementById('detChainStepSelect-' + chainTid);
+        var chainIsReqEl  = document.getElementById('detChainIsRequired-' + chainTid);
         var chainField    = chainFspVal ? chainFspVal.value.trim() : '';
         var chainStepVal  = chainStepSel ? chainStepSel.value.trim() : '';
         if (!chainField)    { window.FSV2.showAlert('Kies een Odoo veld voor de koppeling.', 'error'); return; }
         if (!chainStepVal)  { window.FSV2.showAlert('Kies een vorige stap om aan te koppelen.', 'error'); return; }
         var chainIsRequired = chainIsReqEl ? chainIsReqEl.checked : true;
-        var detChainModel   = S.detail && S.detail.targets && S.detail.targets[0] ? S.detail.targets[0].odoo_model : '';
-        var detChainCache   = S.odooFieldsCache[detChainModel] || [];
-        var detChainMeta    = detChainCache.find(function (f) { return f.name === chainField; });
-        S.detail._extraRows = S.detail._extraRows || [];
-        S.detail._extraRows.push({
+        var chainTarget   = S.detail && S.detail.targets && S.detail.targets.find(function (t) { return String(t.id) === chainTid; });
+        var detChainModel = chainTarget ? chainTarget.odoo_model : '';
+        var detChainCache = S.odooFieldsCache[detChainModel] || [];
+        var detChainMeta  = detChainCache.find(function (f) { return f.name === chainField; });
+        S.detail._extraRowsByTarget = S.detail._extraRowsByTarget || {};
+        S.detail._extraRowsByTarget[chainTid] = S.detail._extraRowsByTarget[chainTid] || [];
+        S.detail._extraRowsByTarget[chainTid].push({
           odooField:     chainField,
           odooLabel:     detChainMeta ? detChainMeta.label : chainField,
           staticValue:   chainStepVal,
