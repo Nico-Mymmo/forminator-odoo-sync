@@ -189,6 +189,32 @@
         }
         return;
       }
+      if (action === 'detail-add-chain-row') {
+        // Adds a previous_step_output mapping row from the step-chain section.
+        var chainFspVal   = document.getElementById('fsp-val-det-chain-add');
+        var chainStepSel  = document.getElementById('detChainStepSelect');
+        var chainIsReqEl  = document.getElementById('detChainIsRequired');
+        var chainField    = chainFspVal ? chainFspVal.value.trim() : '';
+        var chainStepVal  = chainStepSel ? chainStepSel.value.trim() : '';
+        if (!chainField)    { window.FSV2.showAlert('Kies een Odoo veld voor de koppeling.', 'error'); return; }
+        if (!chainStepVal)  { window.FSV2.showAlert('Kies een vorige stap om aan te koppelen.', 'error'); return; }
+        var chainIsRequired = chainIsReqEl ? chainIsReqEl.checked : true;
+        var detChainModel   = S.detail && S.detail.targets && S.detail.targets[0] ? S.detail.targets[0].odoo_model : '';
+        var detChainCache   = S.odooFieldsCache[detChainModel] || [];
+        var detChainMeta    = detChainCache.find(function (f) { return f.name === chainField; });
+        S.detail._extraRows = S.detail._extraRows || [];
+        S.detail._extraRows.push({
+          odooField:     chainField,
+          odooLabel:     detChainMeta ? detChainMeta.label : chainField,
+          staticValue:   chainStepVal,
+          sourceType:    'previous_step_output',
+          isRequired:    chainIsRequired,
+          isIdentifier:  false,
+          isUpdateField: true,
+        });
+        window.FSV2.renderDetailMappings();
+        return;
+      }
       if (action === 'fetch-form-fields') {
         var integration2 = S.detail && S.detail.integration;
         var sk2  = integration2 && integration2.site_key;

@@ -137,6 +137,18 @@
     var targets     = (S().detail && S().detail.targets) ? S().detail.targets : [];
     var firstTarget = targets[0];
 
+    // Sort targets by execution_order for pipeline chaining metadata (badges + precedingSteps).
+    var sortedForChain = [...targets].sort(function (a, b) {
+      return ((a.execution_order != null ? a.execution_order : (a.order_index != null ? a.order_index : 0))) -
+             ((b.execution_order != null ? b.execution_order : (b.order_index != null ? b.order_index : 0)));
+    });
+    var firstTargetChainIdx = sortedForChain.indexOf(firstTarget);
+    var precedingSteps = sortedForChain.slice(0, firstTargetChainIdx < 0 ? 0 : firstTargetChainIdx).map(function (t) {
+      var ord = t.execution_order != null ? t.execution_order : (t.order_index != null ? t.order_index : 0);
+      return { order: ord, label: t.label || '' };
+    });
+    var stepBadge = (sortedForChain.length >= 2 && firstTargetChainIdx >= 0) ? (firstTargetChainIdx + 1) : 0;
+
     if (!firstTarget) {
       container.innerHTML = '<p class="text-sm text-base-content/60">Geen schrijfdoel gevonden voor deze integratie.</p>';
       return;
@@ -181,6 +193,7 @@
           odooLabel:     (meta && meta.label) || m.odoo_field,
           staticValue:   m.source_value,
           sourceType:    m.source_type,
+          isRequired:    !!m.is_required,
           isIdentifier:  !!m.is_identifier,
           isUpdateField: m.is_update_field !== false,
         };
@@ -213,6 +226,12 @@
       extraIsUpdateFieldId:  'detExtraIsUpdateField',
       saveAction:            'save-detail-mappings',
       targetId:              String(firstTarget.id),
+      precedingSteps:        precedingSteps,
+      stepBadge:             stepBadge,
+      chainFspId:            'det-chain-add',
+      chainStepSelectId:     'detChainStepSelect',
+      chainIsRequiredId:     'detChainIsRequired',
+      addChainAction:        'detail-add-chain-row',
     });
   }
 
@@ -289,6 +308,51 @@
 
     var showIndiener = identifierFields.length > 0;
 
+    // Builds the expandable timeline row for a submission.
+    var skipLabels = {
+      pipeline_abort:                 'Overgeslagen \u2014 eerdere stap mislukt',
+      dependency_missing:             'Overgeslagen \u2014 vereiste uitvoer ontbreekt',
+      retry_skip_already_successful:  'Niet opnieuw uitgevoerd (replay)',
+    };
+    var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error' };
+    var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt' };
+    var colCount = showIndiener ? 6 : 5;
+
+    function buildTimelineRow(sub) {
+      var shortId = window.FSV2.shortId(sub.id);
+      var ctx;
+      try { ctx = JSON.parse(sub.resolved_context || '{}'); } catch (e2) { ctx = {}; }
+      var actions  = ctx.target_actions || [];
+      var payload  = parsePayload(sub);
+      var pKeys    = Object.keys(payload).filter(function (k) { return payload[k] && k !== 'nonce'; }).slice(0, 5);
+      var payloadHtml = pKeys.length
+        ? '<div class="flex flex-wrap gap-x-3 gap-y-0.5 mb-2 text-xs text-base-content/60">' +
+            pKeys.map(function (k) {
+              return '<span><span class="font-mono text-base-content/30">' + esc(k) + ':</span> ' + esc(String(payload[k]).slice(0, 60)) + '</span>';
+            }).join('') +
+          '</div>'
+        : '';
+      var isReplaySub = !!sub.replay_of_submission_id;
+      var timelineHtml = actions.length
+        ? actions.map(function (a) {
+            var sl = (a.skipped_reason && skipLabels[a.skipped_reason]) || '';
+            var isReplaySkip = a.skipped_reason === 'retry_skip_already_successful';
+            var successLabel  = (isReplaySub && (a.action === 'created' || a.action === 'updated')) ? 'Geslaagd bij replay' : (actionLabels[a.action] || esc(a.action));
+            return '<div class="flex flex-wrap items-center gap-1.5 text-xs py-1 border-b border-base-100/50 last:border-0">' +
+              (a.execution_order != null ? '<span class="badge badge-outline badge-xs font-mono w-5 text-center shrink-0">' + esc(String(a.execution_order)) + '</span>' : '') +
+              (a.label ? '<span class="font-medium">' + esc(a.label) + '</span>' : '') +
+              '<span class="font-mono text-base-content/40">' + esc(a.model || '-') + '</span>' +
+              '<span class="badge badge-xs ' + (actionColors[a.action] || 'badge-ghost') + '">' + successLabel + '</span>' +
+              (a.record_id ? '<span class="font-mono text-base-content/30">#' + esc(String(a.record_id)) + '</span>' : '') +
+              (sl ? '<span class="text-xs ' + (isReplaySkip ? 'text-base-content/30 italic' : 'text-warning') + '">' + esc(sl) + '</span>' : '') +
+            '</div>';
+          }).join('')
+        : '<span class="text-xs text-base-content/40 italic">Geen stapdetails beschikbaar.</span>';
+      return '<tr class="sub-timeline-row" id="stl-' + esc(shortId) + '" style="display:none">' +
+        '<td colspan="' + colCount + '" class="bg-base-200/40 px-4 py-3">' + payloadHtml + timelineHtml + '</td>' +
+        '</tr>';
+    }
+
     function actionBadge(sub) {
       try {
         var ctx     = JSON.parse(sub.resolved_context || '{}');
@@ -310,30 +374,40 @@
           ordered.map(function (item) {
             var sub         = item.sub;
             var isReplay    = item.isReplay;
+            var shortId     = window.FSV2.shortId(sub.id);
             var replayAllowed = !isReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
             var errorCell   = sub.last_error
               ? '<span class="text-xs text-error/80 font-mono" title="' + esc(sub.last_error) + '">' +
                   esc(sub.last_error.slice(0, 60)) + (sub.last_error.length > 60 ? '\u2026' : '') +
                 '</span>'
               : '<span class="text-base-content/30">&mdash;</span>';
-            return '<tr' + (isReplay ? ' class="bg-success/5"' : '') + '>' +
-              '<td class="font-mono text-xs">' +
-                (isReplay ? '<span class="text-base-content/40 mr-1">\u21b3</span>' : '') +
-                esc(window.FSV2.shortId(sub.id)) +
-              '</td>' +
-              (showIndiener ? '<td class="text-xs">' + submitterInfo(sub) + '</td>' : '') +
-              '<td>' + statusBadge(sub.status) + actionBadge(sub) + '</td>' +
-              '<td class="max-w-xs truncate">' + errorCell + '</td>' +
-              '<td class="text-xs whitespace-nowrap">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
-              '<td>' + (replayAllowed
-                ? '<button class="btn btn-xs btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '">Replay</button>'
-                : '') + '</td>' +
-            '</tr>';
+            var mainRow =
+              '<tr class="sub-row cursor-pointer' + (isReplay ? ' bg-success/5' : '') + '" data-sub-id="' + esc(shortId) + '">' +
+                '<td class="font-mono text-xs">' +
+                  (isReplay ? '<span class="badge badge-xs badge-accent mr-1">\u21b3 Replay</span>' : '') +
+                  esc(shortId) +
+                '</td>' +
+                (showIndiener ? '<td class="text-xs">' + submitterInfo(sub) + '</td>' : '') +
+                '<td>' + statusBadge(sub.status) + actionBadge(sub) + '</td>' +
+                '<td class="max-w-xs truncate">' + errorCell + '</td>' +
+                '<td class="text-xs whitespace-nowrap">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
+                '<td>' + (replayAllowed
+                  ? '<button class="btn btn-xs btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '">Replay</button>'
+                  : '') + '</td>' +
+              '</tr>';
+            return mainRow + buildTimelineRow(sub);
           }).join('') +
           '</tbody>' +
         '</table>' +
       '</div>';
-  }
+    // Click delegation: toggle timeline row on row click (skip clicks on action buttons).
+    el.querySelectorAll('.sub-row').forEach(function (tr) {
+      tr.addEventListener('click', function (e) {
+        if (e.target.closest('button, a')) return;
+        var timeline = document.getElementById('stl-' + tr.dataset.subId);
+        if (timeline) timeline.style.display = (timeline.style.display === 'none' ? '' : 'none');
+      });
+    });  }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // RENDER: FORM FIELDS TAB
@@ -563,13 +637,20 @@
     (S().detail._extraRows || []).forEach(function (em, idx) {
       var inpEl = document.getElementById('det-inp-det-extra-' + idx);
       var val   = inpEl ? (inpEl.value || '').trim() : (em.staticValue || '');
-      if (!val) return;
-      var sourceType    = /\{[^}]+\}/.test(val) ? 'template' : 'static';
+      if (!val && em.sourceType !== 'previous_step_output') return;
+      // Preserve previous_step_output sourceType; detect template via {…}; otherwise static.
+      var sourceType  = em.sourceType === 'previous_step_output'
+        ? 'previous_step_output'
+        : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
+      // Chain rows store the step reference in staticValue; use that as the canonical value.
+      var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
+      var isRequired  = em.isRequired || false;
+      if (!sourceValue) return;
       var extraIdChk    = editor.querySelector('input[name="det-extra-identifier-' + idx + '"]');
       var extraUpdChk   = editor.querySelector('input[name="det-extra-update-' + idx + '"]');
       var extraIsIdentifier  = extraIdChk  ? extraIdChk.checked  : false;
       var extraIsUpdateField = extraUpdChk ? extraUpdChk.checked : true;
-      newMappings.push({ odoo_field: em.odooField, source_type: sourceType, source_value: val, is_identifier: extraIsIdentifier, is_update_field: extraIsUpdateField, is_required: false, order_index: orderIdx++ });
+      newMappings.push({ odoo_field: em.odooField, source_type: sourceType, source_value: sourceValue, is_identifier: extraIsIdentifier, is_update_field: extraIsUpdateField, is_required: isRequired, order_index: orderIdx++ });
     });
 
     await window.FSV2.api('/targets/' + targetId + '/mappings', { method: 'DELETE' });

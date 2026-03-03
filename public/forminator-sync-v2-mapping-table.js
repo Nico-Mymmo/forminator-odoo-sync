@@ -104,7 +104,10 @@
     var odooCache  = cfg.odooCache      || [];
     var odooLoaded = !!cfg.odooLoaded;
     var extraRows  = cfg.extraRows      || [];
-    var autoIds    = cfg.autoIdentifiers || ['email', 'email_from', 'x_email', 'vat', 'ref'];
+    var autoIds       = cfg.autoIdentifiers || ['email', 'email_from', 'x_email', 'vat', 'ref'];
+    // Pipeline chaining: preceding steps passed from the detail view for multi-target integrations.
+    var precedingSteps = cfg.precedingSteps || [];
+    var stepBadge      = cfg.stepBadge || 0;
 
     // Section 1: form field rows
     var formRowsHtml = flatFields.length === 0
@@ -151,6 +154,56 @@
     var extraRowsHtml = extraRows.map(function (em, idx) {
       var tname     = (cfg.extraRowPrefix || 'extra-') + idx;
       var inputId   = (cfg.extraInputPrefix || 'inp-') + tname;
+
+      // ── Chain row: previous_step_output ─────────────────────────────────
+      if (em.sourceType === 'previous_step_output') {
+        var chainRef = em.staticValue || '';
+        var chainMch = chainRef.match(/^step\.([^.]+)\.record_id$/);
+        var chainLbl = '';
+        if (chainMch) {
+          var chainR     = chainMch[1];
+          var chainFound = precedingSteps.find(function (s) { return String(s.order) === chainR || s.label === chainR; });
+          chainLbl = chainFound
+            ? ('Uitvoer van stap ' + chainFound.order + (chainFound.label ? ' \u2014 ' + esc(chainFound.label) : ''))
+            : esc(chainRef);
+        } else { chainLbl = esc(chainRef); }
+        var chainWarn = (!em.isRequired)
+          ? '<p class="text-xs text-warning/80 mt-0.5 flex items-center gap-1">' +
+              '<i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i>' +
+              'Als deze vorige stap geen Odoo-ID oplevert, wordt dit veld leeg gelaten.' +
+            '</p>'
+          : '';
+        return '<tr class="bg-info/5">' +
+          '<td class="align-middle py-2 whitespace-nowrap">' +
+            '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' +
+            '<br><span class="font-mono text-xs text-base-content/40">' + esc(em.odooField) + '</span>' +
+          '</td>' +
+          '<td class="py-1"><span class="badge badge-info badge-xs">stap-uitvoer</span></td>' +
+          '<td class="py-1.5">' +
+            '<input type="hidden" id="' + esc(inputId) + '" value="' + esc(chainRef) + '">' +
+            '<span class="flex items-center gap-1.5 text-sm">' +
+              '<i data-lucide="link-2" class="w-3.5 h-3.5 text-info shrink-0"></i>' +
+              '<span>' + chainLbl + '</span>' +
+            '</span>' +
+            chainWarn +
+          '</td>' +
+          '<td class="text-center py-2">' +
+            '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.extraIdCheckClass || '') + '"' +
+            ' name="' + esc(cfg.extraRowPrefix || 'extra-') + 'identifier-' + idx + '"' +
+            ' title="Identifier"' + (em.isIdentifier ? ' checked' : '') + '>' +
+          '</td>' +
+          '<td class="text-center py-2">' +
+            '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.extraUpdCheckClass || '') + '"' +
+            ' name="' + esc(cfg.extraRowPrefix || 'extra-') + 'update-' + idx + '"' +
+            ' title="Bijwerken bij updates"' + (em.isUpdateField !== false ? ' checked' : '') + '>' +
+          '</td>' +
+          '<td class="text-center py-2">' +
+            '<button type="button" class="btn btn-ghost btn-xs text-error"' +
+            ' data-action="' + esc(cfg.removeAction || '') + '" data-idx="' + idx + '" title="Verwijder">' +
+            '<i data-lucide="x" class="w-3 h-3"></i></button>' +
+          '</td></tr>';
+      }
+
       var meta      = odooCache.find(function (f) { return f.name === em.odooField; }) || null;
       var ftype     = meta ? meta.type : '';
       var typeBadge = ftype ? ' <span class="badge badge-ghost badge-xs font-mono ml-1 align-middle">' + esc(ftype) + '</span>' : '';
@@ -204,6 +257,40 @@
         '</div>' +
       '</div>';
 
+    // Step-chain section: only rendered when there are preceding steps (multi-target integrations).
+    var stepChainDiv = '';
+    if (precedingSteps.length > 0) {
+      var stepOptions = precedingSteps.map(function (s) {
+        var val = 'step.' + (s.label || s.order) + '.record_id';
+        var lbl = 'Uitvoer van stap ' + s.order + (s.label ? ' \u2014 ' + s.label : '');
+        return '<option value="' + esc(val) + '">' + esc(lbl) + '</option>';
+      }).join('');
+      stepChainDiv =
+        '<div class="mt-4 pt-4 border-t border-base-300">' +
+          '<h4 class="font-medium text-sm mb-2 flex items-center gap-2">' +
+            '<i data-lucide="link-2" class="w-4 h-4 text-info"></i> Koppelen aan uitvoer vorige stap' +
+          '</h4>' +
+          '<div class="flex flex-wrap items-start gap-2 pt-1">' +
+            '<div class="flex-1 min-w-48 max-w-64">' +
+              window.OpenVME.FieldPicker.render(cfg.chainFspId || (cfg.fspId + '-chain'), '--unused--', odooCache, '') +
+            '</div>' +
+            '<div class="flex-1 min-w-44">' +
+              '<select id="' + esc(cfg.chainStepSelectId || 'chainStepSelect') + '" class="select select-bordered select-sm w-full">' +
+                '<option value="">\u2014 kies stap \u2014</option>' +
+                stepOptions +
+              '</select>' +
+            '</div>' +
+            '<div class="flex items-center gap-3 pt-1">' +
+              '<label class="flex items-center gap-1 cursor-pointer" title="Verplicht: blokkeer uitvoering als stap-ID ontbreekt">' +
+                '<input type="checkbox" id="' + esc(cfg.chainIsRequiredId || 'chainIsRequired') + '" class="checkbox checkbox-xs" checked>' +
+                '<span class="text-xs text-base-content/50">Verplicht</span>' +
+              '</label>' +
+              '<button type="button" class="btn btn-outline btn-xs btn-info" data-action="' + esc(cfg.addChainAction || '') + '">+ Voeg stap-uitvoer toe</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+
     var wrapOpen = cfg.targetId
       ? '<div id="mappingEditor" data-target-id="' + esc(String(cfg.targetId)) + '">'
       : '<div>';
@@ -212,7 +299,9 @@
       wrapOpen +
       '<div class="mb-6">' +
         '<h4 class="font-medium text-sm mb-3 flex items-center gap-2">' +
-          '<i data-lucide="link" class="w-4 h-4 text-primary"></i> Formuliervelden koppelen aan Odoo' +
+          '<i data-lucide="link" class="w-4 h-4 text-primary"></i>' +
+          (stepBadge > 0 ? ' <span class="badge badge-outline badge-sm font-mono mr-0.5">[ ' + stepBadge + ' ]</span>' : '') +
+          ' Formuliervelden koppelen aan Odoo' +
           (!odooLoaded ? ' <span class="loading loading-xs loading-spinner ml-1"></span>' : '') +
         '</h4>' +
         '<div>' +
@@ -247,6 +336,7 @@
         '</div>' +
         addRowDiv +
       '</div>' +
+      (stepChainDiv ? stepChainDiv : '') +
       (cfg.saveAction
         ? '<div class="mt-6 flex justify-end">' +
             '<button type="button" class="btn btn-primary" data-action="' + esc(cfg.saveAction) + '">' +
