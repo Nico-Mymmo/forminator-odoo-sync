@@ -1,6 +1,6 @@
 # Forminator Sync V2 — Codebase Reference
 
-> Datum: 2026-03-03  
+> Datum: 2026-03-04  
 > Basis voor nieuwe gesprekken. Beschrijft elk bronbestand, zijn verantwoordelijkheid, sleutelexports en aandachtspunten.
 
 ---
@@ -107,8 +107,24 @@ Bouwt rijen met `name`, `label`, `icon`, `sort_order` én `default_fields`. Tot 
 | `executeTarget(env, target, mappings, context, normalizedForm)` | Eén target uitvoeren: identifier ophalen, Odoo call, resultaat loggen |
 | `canReplaySubmissionStatus(status)` | Boolean check op herstelbare statussen |
 
-**`lookupFormValue` detail:**  
-Normaliseert de sleutel (lowercase, `-` → `_`, `{...}` stripped) en zoekt prefix+exacte match in de payload. Ondersteunt ook template-strings met meerdere placeholders.
+**`lookupFormValue` detail — 4 opzoekstappen:**
+
+| Stap | Beschrijving | Voorbeeld |
+|---|---|---|
+| 1 | Exacte match | `email-1` → `email-1` |
+| 2 | Genormaliseerde match (dashes ↔ underscores, lowercase) | `email-1` → `email_1` |
+| 3 | Prefix-match (zonder achtervoegsel-cijfer) | `email` → `email_1` |
+| 4 | Subsequentie-match voor dot-notatie subvelden | `name-1.fname` → `name-1.first-name` |
+
+Stap 4 vergelijkt het child-deel karakter-voor-karakter met `isSubsequence()`: elk karakter van de afkorting moet in volgorde voorkomen in de volledige sleutel. `fname` ⊂ `first_name` ✓ — `city` ⊄ `country` ✗ (geen `i`). Bidirectioneel: ook `first_name` ⊂ `fname` wordt gecheckt.
+
+**`isSubsequence(abbr, full)`:** hulpfunctie (bovenkant worker-handler.js), niet geëxporteerd.
+
+**`normalizeFormValues` composite-parsing:**  
+Forminator stuurt composite velden (bijv. `name-1`) als JSON-string `'{"first-name":"nico","last-name":"plinke"}'`. De functie:
+1. Probeert strings die beginnen met `{` of `[` te parsen via `JSON.parse`.
+2. Slaat de gecombineerde waarde op als `name-1 = 'nico plinke'` (spatie-join).
+3. Slaat elk subveld afzonderlijk op als `name-1.first-name = 'nico'`, `name-1.last-name = 'plinke'`.
 
 ---
 
@@ -118,7 +134,7 @@ Normaliseert de sleutel (lowercase, `-` → `_`, `{...}` stripped) en zoekt pref
 
 **Sleutelconstante:**
 ```javascript
-const FSV2_ASSET_VERSION = '20260303d';
+const FSV2_ASSET_VERSION = '20260303i';
 ```
 
 **Aandachtspunt:** Bij elke wijziging aan een `/public/` bestand moet `FSV2_ASSET_VERSION` worden verhoogd (formaat: `YYYYMMDD` of `YYYYMMDDx` voor meerdere deploys per dag).
@@ -207,23 +223,43 @@ renderFlowPreview(steps)  // steps: [{ model: 'res.partner' }, { model: 'crm.lea
 
 **Verantwoordelijkheid:** Herbruikbare mapping-tabelcomponent. Gebruikt in wizard én detail-view.
 
-**Exports (`window.MappingTable`):**
+**Exports (`window.FSV2.MappingTable`):**
 ```javascript
-MappingTable.render(containerId, {
-  model,           // string
-  formFields,      // [{field_id, label, type}]
-  odooFields,      // [{name, label, type, selection}]
-  mappings,        // bestaande DB-mappings
-  extraRows,       // ExtraRow[] (statische/template/chain/verplicht rijen)
-  targetId,        // voor data-attributes in HTML
-  chainSourceValues, // voor previous_step_output keuzelijst
-})
+MappingTable.render(containerId, cfg)  // cfg zie onder
+MappingTable.buildOdooOpts(suggested, preselected, odooCache, odooLoaded)
+MappingTable.placeholderChips(targetId, flatFields)
+MappingTable.valueInput(fieldName, value, nameAttr, idStr, odooCache, flatFields)
+MappingTable.buildVmapSectionContent(choices, odooMeta, existingVmap, inputPrefix)
 ```
 
-**Badges op rijen:**
-- Rood ✱ `verplicht` — bij `em.isRequired === true`
-- Paars `identifier`
-- Grijs `<veldtype>`
+**`render(containerId, cfg)` — sleutelparameters:**
+
+| Parameter | Type | Beschrijving |
+|---|---|---|
+| `flatFields` | array | Alle mappeerbare velden incl. composite-kinderen |
+| `topLevelFields` | array | Alleen ouder-velden (voor `isSubField` check) |
+| `odooCache` | array | `[{name, label, type, selection}]` |
+| `existingFormMappings` | object | `{ field_id: { odoo_field, is_identifier, is_update_field, value_map } }` |
+| `extraRows` | array | ExtraRow[] (statisch/template/chain/verplicht) |
+| `targetId` | string/number | Voor `data-mt-target-id` in DOM |
+| `precedingSteps` | array | Vorige stappen voor chain-sectie |
+
+**Badges op hoofdrijen:**
+- Grijs `<veldtype>` badge
+- Blauw `⇄` — keuzeveld (radio/checkbox/select) met keuzemogelijkheden
+- Geel `⋯ ▸` knop — samengesteld veld; klik opent/sluit subvelden inline
+
+**Composite subvelden:**
+- Kinderen hebben `data-composite-child="<parent-fid>"` en starten verborgen.
+- Klik op de `⋯`-knop toont/verbergt alle rijen met dat attribuut.
+- Partitionering (`groupMappedHere/groupNew/groupElsewhere`) slaat kinderen over; `buildRowWithChildren()` injecteert ze altijd direct ná de ouderrij.
+
+**Waarde-map sectie (`vmap-row`):**
+- Altijd zichtbaar onder keuzevelden (toon keuze-chips als preview).
+- Wordt bewerkbaar zodra gebruiker een Odoo `selection` of `many2one` veld kiest.
+- `buildVmapSectionContent(choices, odooMeta, existingVmap, inputPrefix)` genereert de invoer-rijen.
+- Voor `selection`: `<select>` met Odoo-opties; voor `many2one`: tekst-input.
+- Opgeslagen als `value_map JSONB` in `fs_v2_mappings`.
 
 ---
 
@@ -258,6 +294,16 @@ MappingTable.render(containerId, {
 | `renderDetailFormFields()` | Formuliervelden-tabel |
 | `handleRenameIntegration(name)` | PUT `/integrations/:id` met nieuwe naam; herlaadt detail |
 | `updateDetailTestStatus()` | No-op (test op integratieniveau verwijderd) |
+
+**`buildDetailFlatFields(rawInput)` (intern, niet geëxporteerd):**  
+Vervangt de vroegere inlijn `rawFf/flatFields`-constructie op 3 plaatsen. Accepteert ruwe WP API-velden (`S().detailFormFields`) — die kunnen `null`, `'loading'` (string) of een Array zijn; de functie gebruikt `Array.isArray()` als guard.
+
+Retourneert `{ topLevel, flatFields }`:
+- `topLevel` — composite ouders + gewone velden (gebruikt als `topLevelFields` in MappingTable)
+- `flatFields` — alles: ouders + kinderen + gewone velden
+
+Composite ouders krijgen `is_composite: true` en `composite_children: [field_id, ...]`.  
+Kinderen krijgen `parent_field_id: <ouder-field_id>`.
 
 **`_extraRowsByTarget` mechanisme:**
 - `S().detail._extraRowsByTarget` — geïnitialiseerd bij eerste `renderDetailMappings()`, per target-ID.
@@ -334,12 +380,16 @@ MappingTable.render(containerId, {
 | `fs_v2_integrations` | Integratie-configuratie |
 | `fs_v2_resolvers` | Resolver-configuratie per integratie |
 | `fs_v2_targets` | Schrijfdoelen per integratie |
-| `fs_v2_mappings` | Veldkoppelingen per target |
+| `fs_v2_mappings` | Veldkoppelingen per target — kolom `value_map JSONB` (sinds 2026-03-03) |
 | `fs_v2_submissions` | Webhook-submissions + status |
 | `fs_v2_submission_target_results` | Resultaat per target per submission |
 | `fs_v2_odoo_models` | Model-registry (name, label, icon, sort_order, default_fields JSONB, …) |
 | `fs_v2_model_links` | Many2one suggestion-links |
 | `fs_v2_wp_connections` | Legacy DB-backed WP-verbindingen |
+
+**`fs_v2_mappings.value_map`:**  
+Optionele JSONB-kolom `{ "formKeuzeWaarde": "odooWaarde" }`. Aanwezig als een radio/checkbox/select-veld gekoppeld is aan een Odoo `selection`- of `many2one`-veld en de gebruiker per keuze een vertaling heeft ingesteld. `null` = geen mapping, worker gebruikt ruwe formulierwaarde als fallback.  
+Migratie: `supabase/migrations/20260303210000_fsv2_add_value_map_to_mappings.sql`.
 
 ---
 
@@ -352,3 +402,7 @@ MappingTable.render(containerId, {
 | Verplichte velden niet zichtbaar in detail-view | `getModelCfg` koos DB OF builtin (nooit merged) | Merge builtin+DB | `cb47df4` |
 | Verplichte velden niet geïnjecteerd in detail | Injectiecode correct maar `getModelCfg` gaf lege lijst | Opgelost door merge-fix | `3443273` + `cb47df4` |
 | Geen toggle voor verplicht op bestaande velden | Alleen nieuwe velden hadden checkbox | `toggle-default-field-required` action + checkbox | `a227d2c` |
+| Composite waarde (`{"first-name":"nico",...}`) in Odoo als JSON-string | `normalizeFormValues` verwerkte alleen objecten, niet JSON-strings | `JSON.parse` + subvelden opslaan als `key.subkey` | `9c65989` |
+| Subvelden verschijnen onderaan de lijst i.p.v. onder hun ouder | Kinderen werden mee gepartitioneerd in `groupNew`/`groupMappedHere` | `childrenByParent` lookup + `buildRowWithChildren()` | `9c65989` |
+| `buildDetailFlatFields` crasht bij `'loading'` state | `rawInput \|\| []` houdt truthy string `'loading'` intact | `Array.isArray(rawInput)` guard | `9c65989` |
+| `{name-1.fname}` template leeg (fname ≠ first-name) | `lookupFormValue` deed geen abbreviation matching | `isSubsequence()` + stap 4 in lookup | `da0a310` |

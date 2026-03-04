@@ -1,5 +1,57 @@
 ﻿# Forminator Sync V2 â€” IMPLEMENTATION LOG
+---
 
+## 2026-03-04 â€" Subsequentie-matching voor composite subveld-templates
+
+### Commits
+- `da0a310` â€" fix(fsv2): resolve composite subfield templates via subsequence matching
+
+### Aanleiding
+Templates zoals `{name-1.fname}` gaven lege waarden omdat de WP-schema-API `fname`/`lname` gebruikt als subveld-ID, terwijl Forminator de webhook-payload stuurt met JSON-sleutels `first-name`/`last-name`. Stappen 1â€"3 van `lookupFormValue` matchen dit niet.
+
+### Oplossing
+- `isSubsequence(abbr, full)`: hulpfunctie die controleert of elk karakter van `abbr` in volgorde voorkomt in `full`. Generiek â€" geen hardcoding voor first/last name.
+- **Stap 4** toegevoegd aan `lookupFormValue`: voor dot-notatie keys wordt het child-deel bidirectioneel gecontroleerd op subsequentie met de child-sleutel in de payload.
+- Valse positieven voorkomen: `city` is geen subsequentie van `country` (geen `i`), `zip` is geen subsequentie van `state` (geen `z`).
+
+### Generieke werking
+
+| Schema-ID (uit MappingTable chip) | Webhook-sleutel (payload) | Match via |
+|---|---|---|
+| `name-1.fname` | `name-1.first-name` | stap 4: `fname` âŠ‚ `first_name` |
+| `name-1.lname` | `name-1.last-name` | stap 4: `lname` âŠ‚ `last_name` |
+| `address-1.street` | `address-1.street` | stap 2 |
+| `address-1.zip` | `address-1.zip-code` | stap 4: `zip` âŠ‚ `zip_code` |
+
+---
+
+## 2026-03-03 â€" Composite fields + keuze-waarde-mapping (value_map)
+
+### Commits
+- `9c65989` â€" feat(fsv2): composite fields + choice value-map
+
+### Functies
+
+**1. Samengestelde velden (composite)**
+- `src/modules/wp-form-schemas/flattening.js`: composite ouders worden nu ÃÂ³ÃÂ³k als mappeerbaar veld opgeslagen naast de kinderen. Ouder krijgt `is_composite: true` en `composite_children: [...]`. Kinderen krijgen `parent_field_id`.
+- `worker-handler.js` â€" `normalizeFormValues`: probeert JSON-strings te parsen (`JSON.parse`). Slaat de gecombineerde waarde (spatie-join) op onder de ouder-sleutel en elk subveld afzonderlijk onder `ouder.subsleutel`.
+- `mapping-table.js`: composite ouder toont gele `â‹¯ â–¸`-knop. Klik opent/sluit subvelden die direct na de ouderrij zijn ingevoegd via `buildRowWithChildren()`. Kinderen starten verborgen (`data-composite-child`).
+- `detail.js` â€" `buildDetailFlatFields()`: nieuwe hulpfunctie die de vroegere buggy `sub_fields`-logica op 3 plaatsen vervangt. Gebruikt `Array.isArray` als guard (state kan ook de string `'loading'` zijn).
+
+**2. Keuze-waarde-mapping (value_map)**
+- Nieuwe DB-kolom `value_map JSONB DEFAULT NULL` op `fs_v2_mappings`.
+- Migratie: `supabase/migrations/20260303210000_fsv2_add_value_map_to_mappings.sql` (toegepast).
+- Routes: `value_map` doorgegeven bij POST/PUT mapping als het een plain object is.
+- Worker â€" `resolveMappingValue()`: past `value_map` toe â€" lookup formulierwaarde in map, fallback naar ruwe waarde.
+- UI: vmap-rij altijd zichtbaar onder keuzevelden (keuze-chips als preview). Bewerkbaar zodra Odoo `selection`/`many2one` veld geselecteerd. `bootstrap.js` herbouwt vmap-inhoud bij veldwisseling.
+- `buildVmapSectionContent()`: nieuw geÃÂ«xporteerde functie van MappingTable.
+
+**3. Bugfixes in deze commit**
+- `buildDetailFlatFields` crashte bij `'loading'`-state: opgelost via `Array.isArray` guard.
+- Subvelden verschenen onderaan de lijst i.p.v. direct onder hun ouder: opgelost via `childrenByParent` lookup + `buildRowWithChildren()`.
+- Composite JSON-string werd niet geparsed: opgelost door `JSON.parse` try-catch in `normalizeFormValues`.
+
+---
 ## 2026-02-25 â€” Fase 1 (Foundation)
 
 ### Wat gebouwd is
