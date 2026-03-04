@@ -39,6 +39,17 @@ function normalizeFieldKey(key) {
   return String(key || '').toLowerCase().replace(/[-_\s]+/g, '_');
 }
 
+// Returns true when every character of abbr appears in order within full.
+// Used to match Forminator API field-ids (e.g. "fname") against webhook JSON
+// keys (e.g. "first_name"): f-n-a-m-e all appear left-to-right in f-i-r-s-t_n-a-m-e.
+function isSubsequence(abbr, full) {
+  var ai = 0;
+  for (var fi = 0; fi < full.length && ai < abbr.length; fi++) {
+    if (full[fi] === abbr[ai]) ai++;
+  }
+  return ai === abbr.length;
+}
+
 function lookupFormValue(normalizedForm, sourceValue) {
   if (!sourceValue) return '';
   // 1. Exact match
@@ -63,6 +74,29 @@ function lookupFormValue(normalizedForm, sourceValue) {
       if (resolved) {
         console.log(`[mapping] prefix match: source_value="${sourceValue}" → form key "${key}"`);
         return resolved;
+      }
+    }
+  }
+  // 4. Dot-notation abbreviation match for composite sub-fields.
+  //    Forminator API uses short ids like "fname"/"lname" but the webhook sends
+  //    the JSON object with keys like "first-name"/"last-name".
+  //    isSubsequence("fname", "first_name") → true (every char of abbr in order).
+  if (sourceValue.indexOf('.') !== -1) {
+    const dotIdx    = sourceValue.indexOf('.');
+    const parentPart = normalizeFieldKey(sourceValue.slice(0, dotIdx));
+    const childQuery = normalizeFieldKey(sourceValue.slice(dotIdx + 1));
+    for (const [key, val] of Object.entries(normalizedForm)) {
+      const normKey   = normalizeFieldKey(key);
+      const keyDot    = normKey.indexOf('.');
+      if (keyDot === -1) continue;
+      if (normKey.slice(0, keyDot) !== parentPart) continue;
+      const keyChild  = normKey.slice(keyDot + 1);
+      if (isSubsequence(childQuery, keyChild) || isSubsequence(keyChild, childQuery)) {
+        const resolved = normalizeString(val);
+        if (resolved) {
+          console.log(`[mapping] subsequence match: source_value="${sourceValue}" → form key "${key}"`);
+          return resolved;
+        }
       }
     }
   }
