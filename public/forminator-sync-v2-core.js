@@ -1,8 +1,8 @@
 /**
  * Forminator Sync V2 \u2014 Core
  *
- * Defines window.FSV2 with: ACTIONS, SKIP_TYPES, S (state), utilities,
- * auto-suggest logic, Odoo field cache loaders, model-defaults loader,
+ * Defines window.FSV2 with: SKIP_TYPES, S (state), utilities,
+ * auto-suggest logic, Odoo field/model cache loaders, getModelCfg,
  * renderList, renderConnections, renderDefaults, loadSites, loadIntegrations.
  *
  * Dependencies: field-picker-component.js (OpenVME.FieldPicker)
@@ -10,66 +10,6 @@
 (function () {
   'use strict';
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ACTION CONFIG \u2014 maps user-facing choices to internal V2 model config
-  // ═══════════════════════════════════════════════════════════════════════════
-  var ACTIONS = {
-    contact: {
-      label: 'Contact aanmaken / updaten',
-      description: 'Formuliergegevens opslaan of bijwerken als contact in Odoo.',
-      icon: 'user',
-      badge: 'res.partner',
-      badgeClass: 'badge-info',
-      odoo_model: 'res.partner',
-      identifier_type: 'mapped_fields',
-      update_policy: 'always_overwrite',
-      odooFields: [
-        { field: 'name',   label: 'Naam',     required: false },
-        { field: 'email',  label: 'E-mail',   required: false },
-        { field: 'phone',  label: 'Telefoon', required: false },
-        { field: 'mobile', label: 'Mobiel',   required: false },
-        { field: 'street', label: 'Straat',   required: false },
-        { field: 'city',   label: 'Stad',     required: false },
-        { field: 'zip',    label: 'Postcode', required: false },
-      ],
-    },
-    lead: {
-      label: 'Lead aanmaken',
-      description: 'Maak een nieuwe verkooplead aan in Odoo CRM.',
-      icon: 'trending-up',
-      badge: 'crm.lead',
-      badgeClass: 'badge-success',
-      odoo_model: 'crm.lead',
-      identifier_type: 'mapped_fields',
-      update_policy: 'always_overwrite',
-      odooFields: [
-        { field: 'partner_name', label: 'Naam',               required: false },
-        { field: 'email_from',   label: 'E-mail',             required: true  },
-        { field: 'phone',        label: 'Telefoon',           required: false },
-        { field: 'description',  label: 'Bericht / Notities', required: false },
-      ],
-    },
-    webinar: {
-      label: 'Webinaarinschrijving',
-      description: 'Registreer de contactpersoon voor een webinar in Odoo.',
-      icon: 'video',
-      badge: 'x_webinar',
-      badgeClass: 'badge-warning',
-      resolver_type: 'webinar_by_external_id',
-      input_source_field: 'webinar_id',
-      create_if_missing: false,
-      output_context_key: 'context.webinar_id',
-      odoo_model: 'x_webinarregistrations',
-      identifier_type: 'registration_composite',
-      update_policy: 'always_overwrite',
-      odooFields: [
-        { field: 'partner_id', label: 'Contact',          required: true  },
-        { field: 'webinar_id', label: 'Webinar',          required: true  },
-        { field: 'x_name',     label: 'Naam deelnemer',   required: false },
-        { field: 'x_email',    label: 'E-mail deelnemer', required: false },
-      ],
-    },
-  };
 
   var SKIP_TYPES = ['page-break', 'group', 'html', 'section', 'captcha'];
 
@@ -95,8 +35,11 @@
     detailFormFields: null,  // null=not fetched, 'loading'=busy, [{...}]=done
     webhookConfig: null,     // cached result of GET /api/webhook-config
     odooFieldsCache: {},
-    modelDefaultsCache: {},   // model → [{name, label, required, order_index}]
-    modelDefaultsEditors: {}, // model → {open, pendingFields}
+    modelDefaultsEditors: {}, // model \u2192 {open, pendingFields}
+    modelLinksCache: [],      // [{model_a, model_b, link_field, link_label}]
+    odooModelsCache: [],      // [{name, label, icon, default_fields, identifier_type, update_policy, resolver_type}]
+    editingModelIdx: null,    // index of model row currently being edited (or null)
+    editingLinkIdx:  null,    // index of link row currently being edited (or null)
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -140,7 +83,7 @@
 
   function showView(name) {
     S.view = name;
-    ['list', 'connections', 'wizard', 'detail', 'defaults'].forEach(function (v) {
+    ['list', 'connections', 'wizard', 'detail', 'defaults', 'links'].forEach(function (v) {
       var el = document.getElementById('view-' + v);
       if (el) el.style.display = (v === name) ? '' : 'none';
     });
@@ -163,7 +106,7 @@
   }
 
   function resetWizard() {
-    S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false, extraMappings: [] };
+    S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -232,28 +175,31 @@
     return S.odooFieldsCache[model];
   }
 
-  async function loadModelDefaultsForModel(model) {
-    if (S.modelDefaultsCache[model] !== undefined) return S.modelDefaultsCache[model];
-    try {
-      var body = await api('/settings/model-defaults?model=' + encodeURIComponent(model));
-      S.modelDefaultsCache[model] = body.data || [];
-    } catch (_) {
-      S.modelDefaultsCache[model] = [];
-    }
-    return S.modelDefaultsCache[model];
-  }
-
-  /** Returns saved DB defaults for an action's model, or falls back to hardcoded cfg.odooFields. */
-  function getDefaultFieldsForAction(actionKey) {
-    var cfg  = ACTIONS[actionKey];
-    if (!cfg) return [];
-    var saved = S.modelDefaultsCache[cfg.odoo_model];
-    if (saved && saved.length > 0) {
-      return saved.map(function (f) {
-        return { field: f.name, label: f.label || f.name, required: !!f.required };
-      });
-    }
-    return cfg.odooFields;
+  function getModelCfg(modelName) {
+    var cached     = (S.odooModelsCache || []).find(function (m) { return m.name === modelName; });
+    var builtin    = DEFAULT_ODOO_MODELS.find(function (m) { return m.name === modelName; });
+    // Merge: start from builtin, then apply DB overrides/additions.
+    // This ensures builtin required fields are never dropped by an older DB record.
+    var builtinFields = (builtin && Array.isArray(builtin.default_fields)) ? builtin.default_fields : [];
+    var dbFields      = (cached  && Array.isArray(cached.default_fields))  ? cached.default_fields  : [];
+    var merged = builtinFields.map(function (f) { return Object.assign({}, f); });
+    dbFields.forEach(function (df) {
+      var idx = merged.findIndex(function (f) { return f.name === df.name; });
+      if (idx >= 0) { merged[idx] = Object.assign({}, merged[idx], df); }
+      else          { merged.push(Object.assign({}, df)); }
+    });
+    var defFields = merged.length ? merged : [];
+    return {
+      label:           cached ? cached.label : (builtin ? builtin.label : modelName),
+      description:     'Gegevens synchroniseren naar ' + (cached ? cached.label : modelName) + ' in Odoo.',
+      icon:            cached ? (cached.icon || 'box') : (builtin ? builtin.icon : 'box'),
+      badgeClass:      'badge-ghost',
+      odoo_model:      modelName,
+      identifier_type: (cached && cached.identifier_type) ? cached.identifier_type : 'mapped_fields',
+      update_policy:   (cached && cached.update_policy)   ? cached.update_policy   : 'always_overwrite',
+      resolver_type:   (cached && cached.resolver_type)   ? cached.resolver_type   : null,
+      default_fields:  defFields,
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -267,6 +213,51 @@
   async function loadIntegrations() {
     var body = await api('/integrations');
     S.integrations = body.data || [];
+  }
+
+  async function loadModelLinks() {
+    try {
+      var body = await api('/settings/model-links');
+      S.modelLinksCache = Array.isArray(body.data) ? body.data : [];
+    } catch (_) {
+      S.modelLinksCache = [];
+    }
+  }
+
+  // Default built-in models — shown when DB registry is empty
+  var DEFAULT_ODOO_MODELS = [
+    { name: 'res.partner', label: 'Contact', icon: 'user',
+      default_fields: [
+        { name: 'name',       label: 'Naam',         required: true  },
+        { name: 'email',      label: 'E-mailadres',  required: true  },
+        { name: 'mobile',     label: 'Mobiel',       required: false },
+        { name: 'is_company', label: 'Is bedrijf',   required: false },
+      ]
+    },
+    { name: 'crm.lead', label: 'Lead', icon: 'trending-up',
+      default_fields: [
+        { name: 'name',         label: 'Naam lead/kans',  required: true  },
+        { name: 'partner_name', label: 'Naam contact',    required: false },
+        { name: 'email_from',   label: 'E-mailadres',     required: true  },
+        { name: 'phone',        label: 'Telefoon',        required: false },
+        { name: 'description',  label: 'Omschrijving',    required: false },
+      ]
+    },
+    { name: 'x_webinarregistrations', label: 'Webinaarinschrijving', icon: 'video',
+      default_fields: [
+        { name: 'x_name',  label: 'Naam',        required: true  },
+        { name: 'x_email', label: 'E-mailadres', required: true  },
+      ]
+    },
+  ];
+
+  async function loadOdooModels() {
+    try {
+      var body = await api('/settings/odoo-models');
+      S.odooModelsCache = Array.isArray(body.data) ? body.data : DEFAULT_ODOO_MODELS.slice();
+    } catch (_) {
+      if (!S.odooModelsCache.length) S.odooModelsCache = DEFAULT_ODOO_MODELS.slice();
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -291,33 +282,39 @@
 
     cards.innerHTML = S.integrations.map(function (row) {
       var isActive = row.is_active;
-      var actionLabel = '';
-      var actionBadgeClass = 'badge-ghost';
-      var actionKeys = Object.keys(ACTIONS);
-      for (var i = 0; i < actionKeys.length; i++) {
-        var cfg = ACTIONS[actionKeys[i]];
-        if (cfg.resolver_type === row.resolver_type || cfg.odoo_model === row.odoo_model) {
-          actionLabel = cfg.label;
-          actionBadgeClass = cfg.badgeClass;
-          break;
-        }
+      var cfg = getModelCfg(row.odoo_model);
+      var actionLabel = cfg.label;
+      var actionBadgeClass = cfg.badgeClass;
+      var actionIcon = cfg.icon;
+      var actionModel = cfg.odoo_model;
+
+      // Flow preview (uses shared FlowBuilder if available)
+      var flowHtml = '';
+      if (window.FSV2.renderFlowPreview && actionModel) {
+        flowHtml = window.FSV2.renderFlowPreview([{ model: actionModel }]);
       }
 
-      return '<div class="card bg-base-100 shadow hover:shadow-md transition-shadow">' +
+      var updatedAt = row.updated_at ? fmt(row.updated_at) : null;
+
+      return '<div class="card bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-200">' +
         '<div class="card-body p-5">' +
-          '<div class="flex items-start justify-between gap-2 mb-2">' +
-            '<h3 class="font-bold text-base leading-tight">' + esc(row.name || 'Integratie') + '</h3>' +
+          '<div class="flex items-start justify-between gap-2 mb-3">' +
+            '<h3 class="font-bold text-sm leading-snug text-base-content">' + esc(row.name || 'Integratie') + '</h3>' +
             (isActive
-              ? '<span class="badge badge-success badge-sm shrink-0">Actief</span>'
-              : '<span class="badge badge-ghost badge-sm shrink-0">Inactief</span>') +
+              ? '<span class="badge badge-success badge-xs shrink-0 gap-1"><span class="w-1.5 h-1.5 rounded-full bg-current"></span>Actief</span>'
+              : '<span class="badge badge-ghost badge-xs shrink-0">Inactief</span>') +
           '</div>' +
-          '<p class="text-xs text-base-content/60 mb-1 font-mono">' + esc(row.forminator_form_id || '\u2014') + '</p>' +
-          (actionLabel
-            ? '<div class="mb-3"><span class="badge ' + actionBadgeClass + ' badge-sm">' + esc(actionLabel) + '</span></div>'
-            : '<div class="mb-3"></div>') +
-          '<div class="flex gap-2 pt-3 border-t border-base-200">' +
-            '<button class="btn btn-xs btn-primary flex-1" data-action="open-detail" data-id="' + esc(row.id) + '">Beheren</button>' +
-            '<button class="btn btn-xs btn-error btn-outline" data-action="delete-integration"' +
+          '<div class="flex items-center gap-1.5 mb-3">' +
+            '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i>' +
+            '<p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '\u2014') + '</p>' +
+          '</div>' +
+          (flowHtml ? '<div class="mb-3">' + flowHtml + '</div>' : '') +
+          (updatedAt ? '<p class="text-xs text-base-content/35 mb-3">Bijgewerkt ' + updatedAt + '</p>' : '') +
+          '<div class="flex gap-2 pt-3 border-t border-base-100">' +
+            '<button class="btn btn-xs btn-primary flex-1 gap-1" data-action="open-detail" data-id="' + esc(row.id) + '">' +
+              '<i data-lucide="settings-2" class="w-3 h-3"></i>Beheren' +
+            '</button>' +
+            '<button class="btn btn-xs btn-ghost border border-base-200 text-error hover:bg-error/10" data-action="delete-integration"' +
               ' data-id="' + esc(row.id) + '" data-name="' + esc(row.name || 'Integratie') + '" title="Verwijderen">' +
               '<i data-lucide="trash-2" class="w-3 h-3"></i>' +
             '</button>' +
@@ -384,11 +381,10 @@
     var html =
       '<p class="text-sm text-base-content/60 mb-5">Stel per Odoo model in welke velden standaard als rijen verschijnen in de wizard.</p>' +
       '<div class="space-y-4">' +
-      Object.keys(ACTIONS).map(function (actionKey) {
-        var cfg      = ACTIONS[actionKey];
-        var model    = cfg.odoo_model;
+      (S.odooModelsCache || []).map(function (m) {
+        var model    = m.name;
         var editor   = S.modelDefaultsEditors[model] || {};
-        var saved    = S.modelDefaultsCache[model];
+        var saved    = Array.isArray(m.default_fields) ? m.default_fields : null;
         var modelKey = model.replace(/\./g, '_');
 
         // ── Closed state: summary ──
@@ -483,7 +479,7 @@
           '<div class="card-body p-4">' +
             '<div class="flex items-start justify-between gap-4">' +
               '<div>' +
-                '<p class="font-semibold">' + esc(cfg.label) + '</p>' +
+                '<p class="font-semibold">' + esc(m.label) + '</p>' +
                 '<p class="text-xs font-mono text-base-content/50">' + esc(model) + '</p>' +
               '</div>' +
               '<button type="button" class="btn btn-ghost btn-xs shrink-0"' +
@@ -516,12 +512,8 @@
   // EXPORT
   // ═══════════════════════════════════════════════════════════════════════════
   window.FSV2 = {
-    // Config
-    ACTIONS: ACTIONS,
     SKIP_TYPES: SKIP_TYPES,
-    // State (shared mutable reference)
     S: S,
-    // Utilities
     esc: esc,
     api: api,
     showAlert: showAlert,
@@ -529,17 +521,15 @@
     fmt: fmt,
     shortId: shortId,
     resetWizard: resetWizard,
-    // Auto-suggest
     FIELD_KEYWORDS: FIELD_KEYWORDS,
     suggestFormField: suggestFormField,
     suggestOdooField: suggestOdooField,
-    // Loaders
     loadOdooFieldsForModel: loadOdooFieldsForModel,
-    loadModelDefaultsForModel: loadModelDefaultsForModel,
-    getDefaultFieldsForAction: getDefaultFieldsForAction,
+    getModelCfg: getModelCfg,
     loadSites: loadSites,
     loadIntegrations: loadIntegrations,
-    // Renders
+    loadModelLinks: loadModelLinks,
+    loadOdooModels: loadOdooModels,
     renderList: renderList,
     renderConnections: renderConnections,
     renderDefaults: renderDefaults,

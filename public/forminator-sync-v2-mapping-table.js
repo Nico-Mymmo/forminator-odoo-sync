@@ -50,12 +50,12 @@
     var selCls   = 'select select-bordered select-sm w-full';
     var inpCls   = 'input input-bordered input-sm w-full';
     if (type === 'boolean') {
-      var ja  = (value === '1' || value === 'true')  ? ' selected' : '';
-      var nee = (value === '0' || value === 'false') ? ' selected' : '';
+      var ja  = (value === 'true'  || value === '1') ? ' selected' : '';
+      var nee = (value === 'false' || value === '0') ? ' selected' : '';
       return '<select class="' + selCls + '"' + nameAttr + extra + '>'
         + '<option value="">&mdash; geen &mdash;</option>'
-        + '<option value="1"' + ja  + '>Ja</option>'
-        + '<option value="0"' + nee + '>Nee</option>'
+        + '<option value="true"'  + ja  + '>Ja</option>'
+        + '<option value="false"' + nee + '>Nee</option>'
         + '</select>';
     }
     if (type === 'selection' && meta.selection && meta.selection.length) {
@@ -95,6 +95,59 @@
       (chipTarget ? placeholderChips(chipTarget, flatFields) : '') + '</div>';
   }
 
+  // ── Value-map section builder ─────────────────────────────────────────────
+  /**
+   * Bouw de inhoud van een waarde-mapping sectie.
+   *
+   * @param {Array}  choices       - [{value, label}] uit het flattened schema
+   * @param {Object} odooMeta      - Odoo veld metadata (type, selection, …) of null
+   * @param {Object} existingVmap  - Bestaande waarde-mapping { formValue: odooValue } of null
+   * @param {string} inputPrefix   - Naamprefix voor de inputs (bijv. 'det-ff-tid-vmapv-fid-')
+   * @returns {string} HTML
+   */
+  function buildVmapSectionContent(choices, odooMeta, existingVmap, inputPrefix) {
+    var odooType = (odooMeta && odooMeta.type) || '';
+    var selOpts  = (odooMeta && odooMeta.selection) || [];
+
+    var rows = choices.map(function (ch, idx) {
+      var existing  = (existingVmap && Object.prototype.hasOwnProperty.call(existingVmap, ch.value))
+        ? String(existingVmap[ch.value])
+        : '';
+      var inputName = esc(inputPrefix + idx);
+      var inputHtml;
+      if (odooType === 'selection' && selOpts.length > 0) {
+        inputHtml = '<select class="select select-bordered select-xs w-full"' +
+          ' name="' + inputName + '" data-choice-value="' + esc(ch.value) + '">' +
+          '<option value="">\u2014 leeg laten \u2014</option>' +
+          selOpts.map(function (opt) {
+            var k = String(opt[0]);
+            var l = String(opt[1]);
+            return '<option value="' + esc(k) + '"' + (existing === k ? ' selected' : '') + '>' + esc(l) + '</option>';
+          }).join('') +
+          '</select>';
+      } else {
+        var ph = odooType === 'many2one' ? 'Record ID\u2026' : 'Odoo-waarde\u2026';
+        inputHtml = '<input type="text" class="input input-bordered input-xs w-full"' +
+          ' name="' + inputName + '" data-choice-value="' + esc(ch.value) + '"' +
+          ' value="' + esc(existing) + '" placeholder="' + esc(ph) + '" />';
+      }
+      return '<div class="flex items-center gap-2">' +
+        '<span class="text-xs text-base-content/70 truncate shrink-0 max-w-[40%]"' +
+          ' title="' + esc(ch.value) + '">' + esc(ch.label || ch.value) + '</span>' +
+        '<span class="text-xs text-base-content/30 shrink-0">\u2192</span>' +
+        '<div class="flex-1 min-w-0">' + inputHtml + '</div>' +
+        '</div>';
+    });
+
+    var hint = '';
+    if (odooType === 'many2one') {
+      hint = '<p class="text-xs text-base-content/40 mt-1.5"><i data-lucide="info" class="inline w-3 h-3 -mt-0.5 mr-0.5"></i>' +
+        'Vul het numerieke Odoo record-ID in voor elke keuzoptie.</p>';
+    }
+
+    return '<div class="grid gap-1.5">' + rows.join('') + '</div>' + hint;
+  }
+
   function render(containerId, cfg) {
     var container = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
     if (!container) return;
@@ -104,80 +157,307 @@
     var odooCache  = cfg.odooCache      || [];
     var odooLoaded = !!cfg.odooLoaded;
     var extraRows  = cfg.extraRows      || [];
-    var autoIds    = cfg.autoIdentifiers || ['email', 'email_from', 'x_email', 'vat', 'ref'];
+    var autoIds       = cfg.autoIdentifiers || ['email', 'email_from', 'x_email', 'vat', 'ref'];
+    // Pipeline chaining: preceding steps passed from the detail view for multi-target integrations.
+    var precedingSteps = cfg.precedingSteps || [];
+    var stepBadge      = cfg.stepBadge || 0;
 
-    // Section 1: form field rows
-    var formRowsHtml = flatFields.length === 0
-      ? '<tr><td colspan="5" class="text-sm text-base-content/40 italic py-3">Geen formuliervelden gevonden voor dit formulier.</td></tr>'
-      : flatFields.map(function (f) {
-          var fid           = String(f.field_id);
-          var existing      = cfg.existingFormMappings ? (cfg.existingFormMappings[fid] || null) : null;
-          var preselected   = existing ? existing.odoo_field : null;
-          var suggested     = preselected || window.FSV2.suggestOdooField(fid, f.label || '', cfg.odooModel || '');
-          var isIdentifier  = existing ? !!existing.is_identifier          : autoIds.includes(suggested);
-          var isUpdateField = existing ? existing.is_update_field !== false : true;
-          var isSubField    = !topLevel.find(function (pf) { return String(pf.field_id) === fid; });
-          return '<tr' + (isSubField ? ' class="bg-base-200/30"' : '') + '>' +
-            '<td class="align-middle py-2">' +
-              (isSubField ? '<span class="text-base-content/40 mr-1">\u21b3</span>' : '') +
-              '<span class="font-medium text-sm">' + esc(f.label || fid) + '</span>' +
-              '<br><span class="font-mono text-xs text-base-content/40">' + esc(fid) + '</span>' +
-            '</td>' +
-            '<td class="py-1"><span class="badge badge-ghost badge-xs">' + esc(f.type || '') + '</span></td>' +
-            '<td class="py-1.5 min-w-52">' +
-              window.OpenVME.FieldPicker.render(
-                (cfg.namePrefix || 'ff-') + 'fsp-' + fid,
-                (cfg.namePrefix || '') + 'odoo-' + fid,
-                odooCache,
-                preselected || ''
-              ) +
-            '</td>' +
-            '<td class="text-center py-2">' +
+    // ── Operation-type selector (only when opTypeRadioName is provided) ────
+    var opType = cfg.operationType || 'upsert';
+    var opTypeSection = '';
+    if (cfg.opTypeRadioName) {
+      var opOpts = [
+        { val: 'upsert',
+          label: 'Zoeken \u2014 bijwerken of aanmaken',
+          desc:  'Zoekt eerst via de identifier. Gevonden \u2192 bijwerken. Niet gevonden \u2192 nieuw aanmaken.' },
+        { val: 'update_only',
+          label: 'Alleen bijwerken (\u26a0\ufe0f nooit aanmaken)',
+          desc:  'Zoekt eerst via de identifier. Gevonden \u2192 bijwerken. Niet gevonden \u2192 stap wordt stilzwijgend overgeslagen.' },
+        { val: 'create',
+          label: 'Altijd nieuw aanmaken (nooit zoeken)',
+          desc:  'Maakt altijd een nieuw record aan. Er wordt nooit naar een bestaand record gezocht.' },
+      ];
+      opTypeSection =
+        '<div class="mb-5 p-3.5 rounded-xl border border-base-300 bg-base-200/40">' +
+          '<p class="text-xs font-semibold text-base-content/70 mb-2 flex items-center gap-1.5">' +
+            '<i data-lucide="settings-2" class="w-3.5 h-3.5"></i> Gedrag bij verwerking' +
+          '</p>' +
+          '<div class="flex flex-col gap-1">' +
+          opOpts.map(function (o) {
+            var chk = (opType === o.val) ? ' checked' : '';
+            return '<label class="flex items-start gap-2.5 cursor-pointer p-2 rounded-lg border border-transparent hover:border-base-300 hover:bg-base-100 transition-colors" style="outline-offset:0">' +
+              '<input type="radio" class="radio radio-xs radio-primary mt-0.5 shrink-0" name="' + esc(cfg.opTypeRadioName) + '" value="' + o.val + '"' + chk + '>' +
+              '<div>' +
+                '<p class="text-sm font-medium leading-snug">' + esc(o.label) + '</p>' +
+                '<p class="text-xs text-base-content/50 mt-0.5">' + o.desc + '</p>' +
+              '</div>' +
+            '</label>';
+          }).join('') +
+          '</div>' +
+        '</div>';
+    }
+
+    // Section 1: form field rows — split into groups for clarity
+    var alreadyElsewhere = cfg.alreadyMappedInOtherSteps || [];
+    var formRowsHtml;
+    if (flatFields.length === 0) {
+      formRowsHtml = '<tr><td colspan="4" class="text-sm text-base-content/40 italic py-3">Geen formuliervelden gevonden voor dit formulier.</td></tr>';
+    } else {
+      // Partition top-level fields only (children are always rendered right after their parent).
+      var groupMappedHere = [], groupNew = [], groupElsewhere = [];
+      flatFields.forEach(function (f) {
+        if (f.parent_field_id) return; // skip children — injected after parent below
+        var fid = String(f.field_id);
+        var existing = cfg.existingFormMappings ? (cfg.existingFormMappings[fid] || null) : null;
+        if (existing && existing.odoo_field) { groupMappedHere.push(f); }
+        else if (alreadyElsewhere.includes(fid)) { groupElsewhere.push(f); }
+        else { groupNew.push(f); }
+      });
+      // Build child-lookup for O(1) access
+      var childrenByParent = {};
+      flatFields.forEach(function (f) {
+        if (!f.parent_field_id) return;
+        var pid = String(f.parent_field_id);
+        if (!childrenByParent[pid]) childrenByParent[pid] = [];
+        childrenByParent[pid].push(f);
+      });
+
+      function buildFormRow(f, greyedOut) {
+        var fid           = String(f.field_id);
+        var existing      = cfg.existingFormMappings ? (cfg.existingFormMappings[fid] || null) : null;
+        var preselected   = existing ? existing.odoo_field : null;
+        var suggested     = preselected || window.FSV2.suggestOdooField(fid, f.label || '', cfg.odooModel || '');
+        var isIdentifier  = greyedOut ? false : (existing ? !!existing.is_identifier          : autoIds.includes(suggested));
+        var isUpdateField = greyedOut ? false : (existing ? existing.is_update_field !== false : true);
+        var isSubField    = !topLevel.find(function (pf) { return String(pf.field_id) === fid; });
+        var parentFid     = f.parent_field_id ? String(f.parent_field_id) : null;
+        var rowCls = greyedOut
+          ? 'opacity-40 form-field-row'
+          : (isSubField ? 'bg-base-200/30 form-field-row' : 'form-field-row');
+        var trAttrs = parentFid ? ' data-composite-child="' + esc(parentFid) + '" style="display:none"' : '';
+
+        var mainRow = '<tr class="' + rowCls + '"' + trAttrs + '>' +
+          '<td class="align-middle py-2">' +
+            (isSubField ? '<span class="text-base-content/40 mr-1">\u21b3</span>' : '') +
+            '<span class="font-medium text-sm">' + esc(f.label || fid) + '</span>' +
+            (greyedOut ? '<br><span class="text-xs text-base-content/40 italic">Al gekoppeld in een andere stap</span>' : '<br><span class="font-mono text-xs text-base-content/40">' + esc(fid) + '</span>') +
+          '</td>' +
+          '<td class="py-1">' +
+            '<span class="badge badge-ghost badge-xs">' + esc(f.type || '') + '</span>' +
+            ((!greyedOut && f.choices && f.choices.length > 0) ? ' <span class="badge badge-info badge-xs opacity-70" title="Dit veld heeft keuzeopties. Koppel aan een Odoo selectieveld of koppelveld om de waarden te mappen.">\u21c4</span>' : '') +
+            (f.is_composite ? ' <button type="button" class="badge badge-warning badge-xs opacity-60 cursor-pointer hover:opacity-100 composite-toggle" data-composite-toggle="' + esc(fid) + '" title="Klik om individuele subvelden te tonen/verbergen">\u22ef\u00a0<span class="composite-arrow">\u25b8</span></button>' : '') +
+          '</td>' +
+          '<td class="py-1.5 min-w-52">' +
+            window.OpenVME.FieldPicker.render(
+              (cfg.namePrefix || 'ff-') + 'fsp-' + fid,
+              (cfg.namePrefix || '') + 'odoo-' + fid,
+              odooCache,
+              preselected || ''
+            ) +
+          '</td>' +
+          '<td class="align-middle py-1 pl-1">' +
+            '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 text-base-content/40 hover:text-base-content"' +
+            ' data-action="toggle-row-details" data-details-id="rd-' + esc(fid) + '"' +
+            ' title="Meer opties">⋯</button>' +
+          '</td>' +
+        '</tr>';
+
+        // ── Details row: identifier + update + optional vmap ─────────────────
+        var hasVmap = !greyedOut && f.choices && f.choices.length > 0;
+        var vmapInputPrefix = hasVmap ? ((cfg.namePrefix || '') + 'vmapv-' + fid + '-') : '';
+        var existingVmap    = hasVmap ? ((existing && existing.value_map) || null) : null;
+        var presMeta        = hasVmap && preselected ? (odooCache.find(function (fo) { return fo.name === preselected; }) || null) : null;
+        var presType        = (presMeta && presMeta.type) || '';
+        var choicesJson     = hasVmap ? JSON.stringify(f.choices) : '';
+
+        var detailsInner = '<div class="flex flex-wrap items-start gap-x-6 gap-y-2 px-4 py-3 bg-base-200/40 rounded-lg">';
+        if (!greyedOut) {
+          detailsInner +=
+            '<label class="flex items-center gap-2 cursor-pointer select-none">' +
               '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.idCheckClass || '') + '"' +
               ' name="' + esc(cfg.checkPrefix || '') + 'identifier-' + esc(fid) + '"' +
-              ' title="Identifier: gebruikt om bestaand record op te zoeken voor update"' +
+              ' title="Zoekcriterium"' +
               (isIdentifier ? ' checked' : '') + '>' +
-            '</td>' +
-            '<td class="text-center py-2">' +
+              '<span class="text-xs text-base-content/60">Zoekcriterium</span>' +
+            '</label>' +
+            '<label class="flex items-center gap-2 cursor-pointer select-none">' +
               '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.updCheckClass || '') + '"' +
               ' name="' + esc(cfg.checkPrefix || '') + 'update-' + esc(fid) + '"' +
-              ' title="Bijwerken: schrijf dit veld ook bij updates (uitvinken = alleen bij aanmaken)"' +
+              ' title="Bijwerken bij updates"' +
               (isUpdateField ? ' checked' : '') + '>' +
-            '</td>' +
-          '</tr>';
-        }).join('');
+              '<span class="text-xs text-base-content/60">Bijwerken bij updates</span>' +
+            '</label>';
+        } else {
+          detailsInner += '<span class="text-xs text-base-content/30 italic">Al gekoppeld in een andere stap</span>';
+        }
 
-    // Section 2: existing extra rows
-    var extraRowsHtml = extraRows.map(function (em, idx) {
+        if (hasVmap) {
+          var vmapInnerContent;
+          if (presType === 'selection' || presType === 'many2one') {
+            vmapInnerContent = buildVmapSectionContent(f.choices, presMeta, existingVmap, vmapInputPrefix);
+          } else if (existingVmap && Object.keys(existingVmap).length > 0) {
+            vmapInnerContent = buildVmapSectionContent(f.choices, null, existingVmap, vmapInputPrefix);
+          } else {
+            vmapInnerContent =
+              '<div class="flex flex-wrap gap-1 items-center mb-1.5">' +
+                '<span class="text-xs text-base-content/40 shrink-0 mr-0.5">Opties:</span>' +
+                f.choices.map(function (ch) {
+                  return '<span class="badge badge-ghost badge-xs" title="' + esc(String(ch.value || '')) + '">' +
+                    esc(String(ch.label || ch.value || '')) + '</span>';
+                }).join('') +
+              '</div>' +
+              '<p class="text-xs text-base-content/40 italic">Kies een Odoo <strong>selectie</strong>- of <strong>many2one</strong>-veld hierboven om de waarden te mappen.</p>';
+          }
+          detailsInner +=
+            '<div class="w-full mt-1 vmap-content rounded-lg bg-base-100 border border-base-300 p-3">' +
+              '<p class="text-xs font-semibold text-base-content/60 mb-2 flex items-center gap-1">' +
+                '<i data-lucide="arrow-right-left" class="w-3 h-3"></i> Waarde-mapping' +
+              '</p>' +
+              '<div class="vmap-inner">' + vmapInnerContent + '</div>' +
+            '</div>';
+        }
+        detailsInner += '</div>';
+
+        var detailsRow = '<tr class="row-details-row"' +
+          (parentFid ? ' data-composite-child="' + esc(parentFid) + '" style="display:none"' : ' style="display:none"') +
+          ' id="rd-' + esc(fid) + '"' +
+          (hasVmap
+            ? ' data-vmap-fid="' + esc(fid) + '" data-vmap-input-prefix="' + esc(vmapInputPrefix) + '" data-vmap-choices="' + esc(choicesJson) + '" data-vmap-model="' + esc(cfg.odooModel || '') + '"'
+            : '') +
+          '>' +
+          '<td colspan="4">' + detailsInner + '</td>' +
+          '</tr>';
+
+        return mainRow + detailsRow;
+      }
+
+      function buildRowWithChildren(f, greyedOut) {
+        var html = buildFormRow(f, greyedOut);
+        var kids = childrenByParent[String(f.field_id)];
+        if (kids) kids.forEach(function (child) { html += buildFormRow(child, greyedOut); });
+        return html;
+      }
+
+      var rows = [];
+      groupMappedHere.forEach(function (f) { rows.push(buildRowWithChildren(f, false)); });
+      groupNew.forEach(function (f) { rows.push(buildRowWithChildren(f, false)); });
+      if (groupElsewhere.length > 0) {
+        rows.push(
+          '<tr><td colspan="4" class="pt-3 pb-1">' +
+            '<p class="text-xs text-base-content/40 font-medium">Onderstaande velden zijn al gekoppeld in een andere stap</p>' +
+          '</td></tr>'
+        );
+        groupElsewhere.forEach(function (f) { rows.push(buildRowWithChildren(f, true)); });
+      }
+      formRowsHtml = rows.join('');
+    }
+
+    // Section 2a: chain cards (previous_step_output) — shown in dedicated section above extra fields
+    var chainCardsHtml = extraRows.map(function (em, idx) {
+      if (em.sourceType !== 'previous_step_output') return '';
+      var inputId  = (cfg.extraInputPrefix || 'inp-') + (cfg.extraRowPrefix || 'extra-') + idx;
+      var chainRef = em.staticValue || '';
+      // Normalize legacy format step_N_id → step.N.record_id
+      var legM = chainRef.match(/^step_(\d+)_id$/);
+      if (legM) chainRef = 'step.' + legM[1] + '.record_id';
+      var chainMch = chainRef.match(/^step\.([^.]+)\.record_id$/);
+      var chainLbl = '';
+      if (chainMch) {
+        var chainR     = chainMch[1];
+        var chainFoundIdx = precedingSteps.findIndex(function (s) { return String(s.order) === chainR || s.label === chainR; });
+        var chainFound = chainFoundIdx >= 0 ? precedingSteps[chainFoundIdx] : null;
+        chainLbl = chainFound
+          ? ('Stap ' + (chainFoundIdx + 1) + (chainFound.label ? ' \u2014 ' + esc(chainFound.label) : ''))
+          : esc(chainRef);
+      } else { chainLbl = esc(chainRef); }
+      var reqName  = (cfg.extraRowPrefix || 'extra-') + 'chain-req-' + idx;
+      var idName   = (cfg.extraRowPrefix || 'extra-') + 'chain-id-'  + idx;
+      var warnText = (!em.isRequired)
+        ? '<p class="text-xs text-warning/80 mt-1.5 flex items-center gap-1 leading-snug"><i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i>\u00a0Niet verplicht: als de vorige stap niets aanmaakte, wordt dit veld leeg gelaten maar gaat de stap w\u00e9l door.</p>'
+        : '';
+      return '<div class="flex items-start gap-3 py-2.5 border-b border-info/15 last:border-0">' +
+        '<input type="hidden" id="' + esc(inputId) + '" value="' + esc(chainRef) + '">' +
+        '<i data-lucide="link-2" class="w-4 h-4 text-info mt-0.5 shrink-0"></i>' +
+        '<div class="flex-1 min-w-0">' +
+          '<p class="text-sm"><span class="font-semibold">' + esc(em.odooLabel || em.odooField) + '</span>' +
+          ' <span class="font-mono text-xs text-base-content/40">(' + esc(em.odooField) + ')</span>' +
+          ' \u2190 ID van <strong>' + chainLbl + '</strong></p>' +
+          '<label class="flex items-center gap-2 mt-1.5 cursor-pointer">' +
+            '<input type="checkbox" class="checkbox checkbox-xs" name="' + esc(idName) + '"' + (em.isIdentifier !== false ? ' checked' : '') + '>' +
+            '<span class="text-xs text-base-content/60 font-medium">Zoekcriterium \u2014 gebruik deze ID om een bestaand record te zoeken (aanbevolen)</span>' +
+          '</label>' +
+          '<label class="flex items-center gap-2 mt-1 cursor-pointer">' +
+            '<input type="checkbox" class="checkbox checkbox-xs" name="' + esc(reqName) + '"' + (em.isRequired ? ' checked' : '') + '>' +
+            '<span class="text-xs text-base-content/60">Verplicht \u2014 als de vorige stap mislukt of niets aanmaakte, wordt ook deze stap overgeslagen</span>' +
+          '</label>' +
+          warnText +
+        '</div>' +
+        '<button type="button" class="btn btn-ghost btn-xs text-error/60 hover:text-error shrink-0"' +
+        ' data-action="' + esc(cfg.removeAction || '') + '" data-idx="' + idx + '" title="Verwijder koppeling">' +
+        '<i data-lucide="x" class="w-3.5 h-3.5"></i></button>' +
+      '</div>';
+    }).join('');
+    var hasChainRows = extraRows.some(function (em) { return em.sourceType === 'previous_step_output'; });
+
+    // Section 2b: static/template extra rows (non-chain)
+    var staticRowsHtml = extraRows.map(function (em, idx) {
+      if (em.sourceType === 'previous_step_output') return '';
       var tname     = (cfg.extraRowPrefix || 'extra-') + idx;
       var inputId   = (cfg.extraInputPrefix || 'inp-') + tname;
+      var detailsId = 'rd-extra-' + tname;
       var meta      = odooCache.find(function (f) { return f.name === em.odooField; }) || null;
       var ftype     = meta ? meta.type : '';
       var typeBadge = ftype ? ' <span class="badge badge-ghost badge-xs font-mono ml-1 align-middle">' + esc(ftype) + '</span>' : '';
-      return '<tr class="bg-warning/5">' +
-        '<td class="align-middle py-2 whitespace-nowrap">' +
-          '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' + typeBadge +
-          '<br><span class="font-mono text-xs text-base-content/40">' + esc(em.odooField) + '</span>' +
-        '</td>' +
-        '<td class="py-1"><span class="badge badge-ghost badge-xs">vast/sjabloon</span></td>' +
-        '<td class="py-1.5">' +
-          valueInput(em.odooField, em.staticValue || '', tname, ' id="' + esc(inputId) + '"', odooCache, flatFields) +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.extraIdCheckClass || '') + '"' +
-          ' name="' + esc(cfg.extraRowPrefix || 'extra-') + 'identifier-' + idx + '"' +
-          ' title="Identifier: gebruik als zoekcriterium"' + (em.isIdentifier ? ' checked' : '') + '>' +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.extraUpdCheckClass || '') + '"' +
-          ' name="' + esc(cfg.extraRowPrefix || 'extra-') + 'update-' + idx + '"' +
-          ' title="Bijwerken: schrijf dit veld ook bij updates"' + (em.isUpdateField !== false ? ' checked' : '') + '>' +
-        '</td>' +
-        '<td class="text-center py-2">' +
-          '<button type="button" class="btn btn-ghost btn-xs text-error"' +
-          ' data-action="' + esc(cfg.removeAction || '') + '" data-idx="' + idx + '" title="Verwijder">' +
-          '<i data-lucide="x" class="w-3 h-3"></i></button>' +
-        '</td></tr>';
+      var reqBadge = em.isRequired
+        ? '<span class="badge badge-xs text-error border border-error/30 bg-error/5 ml-1"><i data-lucide="asterisk" class="inline w-2.5 h-2.5 -mt-0.5"></i> verplicht</span>'
+        : '';
+      var mainRow =
+        '<tr class="bg-warning/5">' +
+          '<td class="align-middle py-2 whitespace-nowrap">' +
+            '<span class="font-medium text-sm">' + esc(em.odooLabel || em.odooField) + '</span>' + typeBadge + reqBadge +
+            '<br><span class="font-mono text-xs text-base-content/40">' + esc(em.odooField) + '</span>' +
+          '</td>' +
+          '<td class="py-1">' +
+            (em.sourceType === 'html_form_summary'
+              ? '<span class="badge badge-ghost badge-xs">📋 Samenvatting</span>'
+              : '<span class="badge badge-ghost badge-xs">vast/sjabloon</span>') +
+          '</td>' +
+          '<td class="py-1.5">' +
+            (em.sourceType === 'html_form_summary'
+              ? '<span class="text-xs text-base-content/60 italic">' + (em.staticValue ? 'Selectie: ' + esc(em.staticValue) : 'Alle velden') + '</span>'
+              : valueInput(em.odooField, em.staticValue || '', tname, ' id="' + esc(inputId) + '"', odooCache, flatFields)) +
+          '</td>' +
+          '<td class="align-middle py-1 pl-1">' +
+            '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 text-base-content/40 hover:text-base-content"' +
+            ' data-action="toggle-row-details" data-details-id="' + esc(detailsId) + '"' +
+            ' title="Meer opties">\u22ef</button>' +
+          '</td>' +
+          '<td class="text-center py-2">' +
+            '<button type="button" class="btn btn-ghost btn-xs text-error"' +
+            ' data-action="' + esc(cfg.removeAction || '') + '" data-idx="' + idx + '" title="Verwijder">' +
+            '<i data-lucide="x" class="w-3 h-3"></i></button>' +
+          '</td>' +
+        '</tr>';
+      var detailsRow =
+        '<tr class="row-details-row" id="' + esc(detailsId) + '" style="display:none">' +
+          '<td colspan="5">' +
+            '<div class="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 bg-base-200/40 rounded-lg">' +
+              '<label class="flex items-center gap-2 cursor-pointer select-none">' +
+                '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.extraIdCheckClass || '') + '"' +
+                ' name="' + esc(cfg.extraRowPrefix || 'extra-') + 'identifier-' + idx + '"' +
+                ' title="Identifier: gebruik als zoekcriterium"' + (em.isIdentifier ? ' checked' : '') + '>' +
+                '<span class="text-xs text-base-content/60">Zoekcriterium</span>' +
+              '</label>' +
+              '<label class="flex items-center gap-2 cursor-pointer select-none">' +
+                '<input type="checkbox" class="checkbox checkbox-xs ' + esc(cfg.extraUpdCheckClass || '') + '"' +
+                ' name="' + esc(cfg.extraRowPrefix || 'extra-') + 'update-' + idx + '"' +
+                ' title="Bijwerken bij update"' + (em.isUpdateField !== false ? ' checked' : '') + '>' +
+                '<span class="text-xs text-base-content/60">Bijwerken bij updates</span>' +
+              '</label>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      return mainRow + detailsRow;
     }).join('');
 
     // Add-extra row \u2014 rendered as a standalone div BELOW the table (not in tfoot)
@@ -201,48 +481,102 @@
             '<span class="text-xs text-base-content/50"><i data-lucide="pencil" class="w-3 h-3 inline-block"></i></span>' +
           '</label>' +
           '<button type="button" class="btn btn-outline btn-xs" data-action="' + esc(cfg.addAction || '') + '">+ Voeg toe</button>' +
+          '<button type="button" class="btn btn-ghost btn-xs gap-1.5 text-base-content/50"' +
+            ' data-action="open-html-summary-modal"' +
+            ' data-target-id="' + esc(String(cfg.targetId || '')) + '"' +
+            ' data-odoo-model="' + esc(cfg.odooModel || '') + '">' +
+            '<i data-lucide="table-2" class="w-3.5 h-3.5"></i> Formuliersamenvatting toevoegen' +
+          '</button>' +
         '</div>' +
       '</div>';
 
+    // Chain section: dedicated block between form-fields and extra-static sections
+    var chainSection = '';
+    if (precedingSteps.length > 0) {
+      var stepOptions = precedingSteps.map(function (s, si) {
+        var val = 'step.' + (s.label || s.order) + '.record_id';
+        var lbl = 'Stap ' + (si + 1) + (s.label ? ' \u2014 ' + s.label : '');
+        return '<option value="' + esc(val) + '">' + esc(lbl) + '</option>';
+      }).join('');
+      var addChainForm =
+        '<div class="flex flex-wrap items-start gap-2 pt-3 mt-3 border-t border-info/20">' +
+          '<p class="w-full text-xs text-base-content/50 mb-0.5">' +
+            (hasChainRows ? 'Nog een veld koppelen aan een vorige stap:' : 'Stel in welk veld van dit record gevuld wordt met het ID van de vorige stap:') +
+          '</p>' +
+          '<div class="flex-1 min-w-48 max-w-64">' +
+            window.OpenVME.FieldPicker.render(cfg.chainFspId || (cfg.fspId + '-chain'), '--unused--', odooCache, '') +
+          '</div>' +
+          '<div class="flex-1 min-w-44">' +
+            '<select id="' + esc(cfg.chainStepSelectId || 'chainStepSelect') + '" class="select select-bordered select-sm w-full">' +
+              '<option value="">\u2014 kies stap \u2014</option>' +
+              stepOptions +
+            '</select>' +
+          '</div>' +
+          '<div class="flex items-center gap-3 pt-1">' +
+            '<label class="flex items-center gap-1.5 cursor-pointer" title="Verplicht: als vorige stap mislukt, wordt ook deze stap overgeslagen">' +
+              '<input type="checkbox" id="' + esc(cfg.chainIsRequiredId || 'chainIsRequired') + '" class="checkbox checkbox-xs" checked>' +
+              '<span class="text-xs text-base-content/50">Verplicht</span>' +
+            '</label>' +
+            '<button type="button" class="btn btn-outline btn-xs btn-info" data-action="' + esc(cfg.addChainAction || '') + '">+ Voeg toe</button>' +
+          '</div>' +
+        '</div>';
+      chainSection =
+        '<div class="mb-6 rounded-xl border border-info/25 bg-info/5 px-4 py-3.5">' +
+          '<h4 class="font-medium text-sm mb-1 flex items-center gap-2">' +
+            '<i data-lucide="link-2" class="w-4 h-4 text-info"></i> Koppeling met vorige stap' +
+          '</h4>' +
+          '<p class="text-xs text-base-content/50 mb-3">' +
+            'Hier geef je aan welk veld van d\u00edt record gevuld wordt met het Odoo-ID dat de vorige stap aanmaakte. ' +
+            'Zo worden de records in Odoo automatisch aan elkaar gekoppeld (bijv. de lead aan de contactpersoon). ' +
+            'Dit is g\u00e9\u00e9n zoekcriterium \u2014 het zoeken gebeurt op basis van de aangevinkte velden hierboven.' +
+          '</p>' +
+          (hasChainRows ? chainCardsHtml : '') +
+          addChainForm +
+        '</div>';
+    }
+
     var wrapOpen = cfg.targetId
-      ? '<div id="mappingEditor" data-target-id="' + esc(String(cfg.targetId)) + '">'
+      ? '<div id="mappingEditor" data-mt-target-id="' + esc(String(cfg.targetId)) + '">'
       : '<div>';
 
     container.innerHTML =
       wrapOpen +
+      (opTypeSection || '') +
       '<div class="mb-6">' +
         '<h4 class="font-medium text-sm mb-3 flex items-center gap-2">' +
-          '<i data-lucide="link" class="w-4 h-4 text-primary"></i> Formuliervelden koppelen aan Odoo' +
+          '<i data-lucide="link" class="w-4 h-4 text-primary"></i>' +
+          (stepBadge > 0 ? ' <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-neutral text-neutral-content text-xs font-bold shrink-0 mr-1">' + stepBadge + '</span>' : '') +
+          ' Formuliervelden koppelen aan Odoo' +
           (!odooLoaded ? ' <span class="loading loading-xs loading-spinner ml-1"></span>' : '') +
         '</h4>' +
         '<div>' +
           '<table class="table table-sm">' +
             '<thead><tr>' +
               '<th class="font-normal text-xs text-base-content/50">Formulier veld</th><th class="font-normal text-xs text-base-content/50">Type</th><th class="font-normal text-xs text-base-content/50">Koppelen aan Odoo veld</th>' +
-              '<th class="text-center font-normal" title="Identifier: gebruik als zoekcriterium bij record matching"><i data-lucide="key" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
-              '<th class="text-center font-normal" title="Bijwerken: schrijf dit veld ook wanneer een bestaand record wordt bijgewerkt"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
+              '<th></th>' +
             '</tr></thead>' +
             '<tbody>' + formRowsHtml + '</tbody>' +
           '</table>' +
         '</div>' +
         '<p class="text-xs text-base-content/40 mt-2">' +
-          '<i data-lucide="key" class="w-3 h-3 inline -mt-0.5"></i> Identifier = record opzoeken. ' +
-          '<i data-lucide="pencil" class="w-3 h-3 inline -mt-0.5"></i> Bijwerken = ook schrijven bij update (uitvinken = alleen bij aanmaken).' +
+          '<strong>Zoekcriterium</strong>: vink aan bij het veld waarmee gezocht wordt naar een bestaand contact, lead of andere record (bijv. e-mailadres). ' +
+          '<strong>Bijwerken</strong>: uitvinken als je wil dat dit veld alleen wordt ingevuld bij nieuw aanmaken, niet bij bijwerken.' +
         '</p>' +
       '</div>' +
+      (chainSection || '') +
       '<div>' +
         '<h4 class="font-medium text-sm mb-2 flex items-center gap-2">' +
-          '<i data-lucide="tag" class="w-4 h-4 text-warning"></i> Extra Odoo-velden met vaste waarde' +
+          '<i data-lucide="tag" class="w-4 h-4 text-warning"></i> Extra velden met vaste waarde' +
         '</h4>' +
+        '<p class="text-xs text-base-content/50 mb-2">Vul hier Odoo-velden in met een vaste tekst of een waarde uit het formulier (bijv. een campagne-ID, bron of status).</p>' +
         '<div class="overflow-visible">' +
           '<table class="table table-sm w-full">' +
             '<thead><tr>' +
               '<th class="font-normal text-xs text-base-content/50" colspan="2">Odoo veld</th><th class="font-normal text-xs text-base-content/50">Waarde / sjabloon</th>' +
-              '<th class="text-center font-normal" title="Identifier"><i data-lucide="key" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
-              '<th class="text-center font-normal" title="Bijwerken bij update"><i data-lucide="pencil" class="w-3.5 h-3.5 inline-block opacity-50"></i></th>' +
+              '<th></th>' +
               '<th></th>' +
             '</tr></thead>' +
-            '<tbody>' + (extraRowsHtml || '<tr><td colspan="6" class="text-xs text-base-content/40 italic py-2">Nog geen extra velden toegevoegd.</td></tr>') + '</tbody>' +
+            '<tbody>' + (staticRowsHtml || '<tr><td colspan="5" class="text-xs text-base-content/40 italic py-2">Nog geen extra velden toegevoegd.</td></tr>') + '</tbody>' +
           '</table>' +
         '</div>' +
         addRowDiv +
@@ -256,6 +590,24 @@
         : '') +
       '</div>';
 
+    // ── Composite toggle ─────────────────────────────────────────────────────
+    container.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-composite-toggle]');
+      if (!btn) return;
+      var pfid     = btn.getAttribute('data-composite-toggle');
+      var table    = btn.closest('table');
+      if (!table) return;
+      var expanded = btn.getAttribute('data-expanded') === '1';
+      table.querySelectorAll('[data-composite-child="' + pfid + '"]').forEach(function (r) {
+        // Never auto-show details rows — those are toggled separately via the ⋯ button
+        if (r.classList.contains('row-details-row')) return;
+        r.style.display = expanded ? 'none' : '';
+      });
+      btn.setAttribute('data-expanded', expanded ? '0' : '1');
+      var arrow = btn.querySelector('.composite-arrow');
+      if (arrow) arrow.textContent = expanded ? '\u25b8' : '\u25be';
+    });
+
     var fspVal = document.getElementById('fsp-val-' + cfg.fspId);
     if (fspVal) {
       fspVal.addEventListener('change', function () {
@@ -268,6 +620,6 @@
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
-  window.FSV2.MappingTable = { render: render, buildOdooOpts: buildOdooOpts, placeholderChips: placeholderChips, valueInput: valueInput };
+  window.FSV2.MappingTable = { render: render, buildOdooOpts: buildOdooOpts, placeholderChips: placeholderChips, valueInput: valueInput, buildVmapSectionContent: buildVmapSectionContent };
 
 }());

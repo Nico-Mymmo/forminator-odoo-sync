@@ -1,14 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 
 const TABLES = {
-  integrations: 'fs_v2_integrations',
-  resolvers: 'fs_v2_resolvers',
-  targets: 'fs_v2_targets',
-  mappings: 'fs_v2_mappings',
-  submissions: 'fs_v2_submissions',
+  integrations:    'fs_v2_integrations',
+  resolvers:       'fs_v2_resolvers',
+  targets:         'fs_v2_targets',
+  mappings:        'fs_v2_mappings',
+  submissions:     'fs_v2_submissions',
   submissionTargets: 'fs_v2_submission_targets',
-  wpConnections: 'wp_connections',
-  modelDefaults: 'fs_v2_model_defaults',
+  wpConnections:   'wp_connections',
+  odooModels:      'fs_v2_odoo_models',
+  modelLinks:      'fs_v2_model_links',
 };
 
 function getSupabase(env) {
@@ -127,6 +128,28 @@ export async function deleteIntegration(env, integrationId) {
   return true;
 }
 
+export async function getTargetById(env, targetId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.targets)
+    .select('*')
+    .eq('id', targetId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to get target: ${error.message}`);
+  return data;
+}
+
+export async function getMappingById(env, mappingId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.mappings)
+    .select('*')
+    .eq('id', mappingId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to get mapping: ${error.message}`);
+  return data;
+}
+
 export async function listResolversByIntegration(env, integrationId) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
@@ -181,7 +204,7 @@ export async function listTargetsByIntegration(env, integrationId) {
     .from(TABLES.targets)
     .select('*')
     .eq('integration_id', integrationId)
-    .order('order_index', { ascending: true });
+    .order('execution_order', { ascending: true, nullsFirst: false });
 
   if (error) throw new Error(`Failed to list targets: ${error.message}`);
   return ensureArray(data);
@@ -576,31 +599,128 @@ export async function deleteWpConnection(env, id) {
   return { deleted: true };
 }
 
-// ─── Model defaults ─────────────────────────────────────────────────────────
-
+// ─── Model defaults (reads/writes default_fields on fs_v2_odoo_models) ────────
+//  getModelDefaults left as compatibility shim — reads default_fields column.
 export async function getModelDefaults(env, model) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
-    .from(TABLES.modelDefaults)
-    .select('*')
-    .eq('odoo_model', model)
+    .from(TABLES.odooModels)
+    .select('default_fields')
+    .eq('name', model)
     .maybeSingle();
-
   if (error) throw new Error(`Failed to get model defaults: ${error.message}`);
-  return data || null;
+  return data ? { fields: data.default_fields || [] } : null;
 }
 
-export async function upsertModelDefaults(env, model, fields) {
+// ──────────────────────────────────────────────────────────────────────────
+// MODEL LINK REGISTRY  (fs_v2_model_links)
+// Each row: model_a, model_b, link_field, link_label
+// ──────────────────────────────────────────────────────────────────────────
+export async function getModelLinks(env) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
-    .from(TABLES.modelDefaults)
-    .upsert(
-      { odoo_model: model, fields, updated_at: new Date().toISOString() },
-      { onConflict: 'odoo_model' }
-    )
-    .select('*')
-    .single();
+    .from(TABLES.modelLinks)
+    .select('model_a, model_b, link_field, link_label')
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`Failed to get model links: ${error.message}`);
+  return ensureArray(data);
+}
 
-  if (error) throw new Error(`Failed to upsert model defaults: ${error.message}`);
-  return data;
+export async function upsertModelLinks(env, links) {
+  // Full replace: compute delta then apply
+  const supabase  = getSupabase(env);
+  const { data: existing, error: fetchErr } = await supabase
+    .from(TABLES.modelLinks)
+    .select('id, model_a, model_b, link_field');
+  if (fetchErr) throw new Error(`Failed to fetch model links: ${fetchErr.message}`);
+
+  // Delete rows not present in the new list
+  const toDelete = ensureArray(existing).filter(
+    ex => !links.some(l => l.model_a === ex.model_a && l.model_b === ex.model_b && l.link_field === ex.link_field)
+  );
+  if (toDelete.length > 0) {
+    const { error: delErr } = await supabase
+      .from(TABLES.modelLinks)
+      .delete()
+      .in('id', toDelete.map(r => r.id));
+    if (delErr) throw new Error(`Failed to delete model links: ${delErr.message}`);
+  }
+
+  // Upsert all rows in the new list
+  if (links.length > 0) {
+    const rows = links.map(l => ({
+      model_a:    l.model_a,
+      model_b:    l.model_b,
+      link_field: l.link_field,
+      link_label: l.link_label || '',
+    }));
+    const { error: upsErr } = await supabase
+      .from(TABLES.modelLinks)
+      .upsert(rows, { onConflict: 'model_a,model_b,link_field' });
+    if (upsErr) throw new Error(`Failed to save model links: ${upsErr.message}`);
+  }
+
+  return getModelLinks(env);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ODOO MODEL REGISTRY  (fs_v2_odoo_models)
+// Each row: name (unique), label, icon, sort_order
+// ──────────────────────────────────────────────────────────────────────────
+export async function getOdooModels(env) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.odooModels)
+    .select('name, label, icon, sort_order, default_fields, identifier_type, update_policy, resolver_type')
+    .order('sort_order', { ascending: true });
+  if (error) throw new Error(`Failed to get odoo models: ${error.message}`);
+  return ensureArray(data);
+}
+
+export async function updateModelDefaultFields(env, model, fields) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.odooModels)
+    .update({ default_fields: fields })
+    .eq('name', model);
+  if (error) throw new Error(`Failed to update model default fields: ${error.message}`);
+  return true;
+}
+
+export async function upsertOdooModels(env, models) {
+  // Full replace: compute delta then apply
+  const supabase = getSupabase(env);
+  const { data: existing, error: fetchErr } = await supabase
+    .from(TABLES.odooModels)
+    .select('id, name');
+  if (fetchErr) throw new Error(`Failed to fetch odoo models: ${fetchErr.message}`);
+
+  const newNames = models.map(m => m.name);
+
+  // Delete rows not present in the new list
+  const toDelete = ensureArray(existing).filter(ex => !newNames.includes(ex.name));
+  if (toDelete.length > 0) {
+    const { error: delErr } = await supabase
+      .from(TABLES.odooModels)
+      .delete()
+      .in('id', toDelete.map(r => r.id));
+    if (delErr) throw new Error(`Failed to delete odoo models: ${delErr.message}`);
+  }
+
+  // Upsert all rows in the new list
+  if (models.length > 0) {
+    const rows = models.map((m, i) => ({
+      name:           m.name,
+      label:          m.label || m.name,
+      icon:           m.icon || 'box',
+      sort_order:     i,
+      default_fields: Array.isArray(m.default_fields) ? m.default_fields : undefined,
+    }));
+    const { error: upsErr } = await supabase
+      .from(TABLES.odooModels)
+      .upsert(rows, { onConflict: 'name' });
+    if (upsErr) throw new Error(`Failed to save odoo models: ${upsErr.message}`);
+  }
+
+  return getOdooModels(env);
 }

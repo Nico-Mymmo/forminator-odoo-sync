@@ -38,7 +38,7 @@
 
   function renderWizardSteps() {
     var step = S().wizard.step;
-    [1, 2, 3, 4].forEach(function (n) {
+    [1, 2, 3, 4, 5].forEach(function (n) {
       var el = document.getElementById('wizardStep' + n);
       if (!el) return;
       el.className = 'step' + (n <= step ? ' step-primary' : '');
@@ -131,12 +131,18 @@
     var grid = section.querySelector('.actions-grid');
     if (!grid) return;
 
-    grid.innerHTML = Object.keys(window.FSV2.ACTIONS).map(function (key) {
-      var cfg      = window.FSV2.ACTIONS[key];
-      var selected = S().wizard.action === key;
+    // Use the dynamic model registry as primary source.
+    // Fall back to the hardcoded ACTIONS list if the cache is empty (first load race).
+    var models = (S().odooModelsCache && S().odooModelsCache.length > 0)
+      ? S().odooModelsCache
+      : window.FSV2.DEFAULT_ODOO_MODELS || [];
+
+    grid.innerHTML = models.map(function (m) {
+      var cfg      = window.FSV2.getModelCfg(m.name);
+      var selected = S().wizard.action === m.name;
       return '<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ' +
         (selected ? 'border-primary bg-primary/5' : 'border-transparent hover:border-base-300') +
-        '" data-action="wizard-select-action" data-key="' + esc(key) + '">' +
+        '" data-action="wizard-select-action" data-key="' + esc(m.name) + '">' +
         '<div class="card-body p-5">' +
           '<div class="flex items-center gap-3 mb-3">' +
             (selected
@@ -147,82 +153,81 @@
             '<p class="font-bold">' + esc(cfg.label) + '</p>' +
           '</div>' +
           '<p class="text-sm text-base-content/60 mb-3">' + esc(cfg.description) + '</p>' +
-          '<span class="badge ' + esc(cfg.badgeClass) + ' badge-sm">' + esc(cfg.badge) + '</span>' +
+          '<span class="badge ' + esc(cfg.badgeClass) + ' badge-sm font-mono">' + esc(cfg.odoo_model) + '</span>' +
         '</div>' +
       '</button>';
     }).join('');
-  }
 
-  function buildFieldOptions(formFields) {
-    return '<option value="">&mdash; niet koppelen &mdash;</option>' +
-      formFields.map(function (f) {
-        var label = String(f.label || f.field_id);
-        var id    = String(f.field_id);
-        return '<option value="' + esc(id) + '">' + esc(label) + ' [' + esc(id) + ']</option>';
-      }).join('');
+    // Show/hide the name+submit section based on whether an action is selected
+    var mappingSec = document.getElementById('wizard-section-mapping');
+    if (mappingSec) mappingSec.style.display = S().wizard.action ? '' : 'none';
   }
 
   function renderWizardMapping() {
-    var section = document.getElementById('wizard-section-mapping');
-    if (!section) return;
+    var container = document.getElementById('wizardMappingTable');
+    if (!container) return;
 
-    if (!S().wizard.action) { section.style.display = 'none'; return; }
-    section.style.display = '';
+    var action = S().wizard.action;
+    if (!action) { container.innerHTML = ''; return; }
 
-    var actionCfg = window.FSV2.ACTIONS[S().wizard.action];
-    if (!actionCfg) return;
+    var cfg = window.FSV2.getModelCfg(action);
+    if (!cfg || !cfg.odoo_model) { container.innerHTML = ''; return; }
 
-    var allFields   = (S().wizard.form && S().wizard.form.fields) ? S().wizard.form.fields : [];
-    var formFields  = allFields.filter(function (f) { return !window.FSV2.SKIP_TYPES.includes(f.type); });
-    var flatFields  = [];
-    formFields.forEach(function (f) {
-      flatFields.push(f);
-      if (Array.isArray(f.sub_fields)) {
-        f.sub_fields.forEach(function (sf) {
-          if (!window.FSV2.SKIP_TYPES.includes(sf.type)) flatFields.push(sf);
-        });
-      }
-    });
+    var formFields = (S().wizard.form && Array.isArray(S().wizard.form.fields))
+      ? S().wizard.form.fields.filter(function (f) { return !window.FSV2.SKIP_TYPES.includes(f.type); })
+      : [];
 
-    // Auto-fill name input once
-    var nameInput = document.getElementById('wizardName');
-    if (nameInput && !nameInput.value) {
-      var sitePart = (S().wizard.site && S().wizard.site.label) ? S().wizard.site.label : 'Site';
-      var formPart = (S().wizard.form && S().wizard.form.form_name)
-        ? S().wizard.form.form_name
-        : (S().wizard.form ? String(S().wizard.form.form_id) : 'Formulier');
-      nameInput.value = sitePart + ' \u2014 ' + formPart + ' \u2014 ' + actionCfg.label;
+    var odooCache  = (S().odooFieldsCache || {})[cfg.odoo_model] || [];
+    var odooLoaded = odooCache.length > 0;
+
+    // If Odoo fields not yet loaded, show spinner and load, then re-render
+    if (!odooLoaded) {
+      container.innerHTML =
+        '<div class="flex items-center gap-2 py-3 text-sm text-base-content/60">' +
+        '<span class="loading loading-spinner loading-xs"></span> Odoo-velden worden geladen\u2026</div>';
+      window.FSV2.loadOdooFieldsForModel(cfg.odoo_model).then(function () {
+        renderWizardMapping();
+      });
+      return;
     }
 
-    var cachedFields = S().odooFieldsCache[actionCfg.odoo_model] || [];
-    window.FSV2.MappingTable.render('wizardMappingTable', {
-      flatFields:           flatFields,
-      topLevelFields:       formFields,
-      odooCache:            cachedFields,
-      odooLoaded:           cachedFields.length > 0,
-      odooModel:            actionCfg.odoo_model,
-      existingFormMappings: {},
-      extraRows:            S().wizard.extraMappings || [],
-      selectClass:          'wizard-ff-select',
-      idCheckClass:         'wizard-ff-id-check',
-      updCheckClass:        'wizard-ff-upd-check',
-      namePrefix:           'ff-',
-      checkPrefix:          'ff-',
-      extraRowPrefix:       'extra-static-',
-      extraInputPrefix:     'inp-',
-      extraIdCheckClass:    'wizard-extra-id-check',
-      extraUpdCheckClass:   'wizard-extra-upd-check',
-      addAction:            'wizard-add-extra-row',
-      removeAction:         'wizard-remove-extra-row',
-      fspId:                'wizard-extra-add',
-      extraValueWrapId:     'wizardExtraStaticWrap',
-      extraValueInputId:    'wizardExtraStaticValue',
-      extraIsIdentifierId:  'wizardExtraIsIdentifier',
-      extraIsUpdateFieldId: 'wizardExtraIsUpdateField',
-      saveAction:           null,
-    });
+    // Pre-seed required fields from default_fields as extra rows the user must fill in
+    var preSeededExtras = [];
+    if (Array.isArray(cfg.default_fields)) {
+      cfg.default_fields.forEach(function (df) {
+        if (df.required) {
+          preSeededExtras.push({
+            odooField:    df.name,
+            odooLabel:    df.label || df.name,
+            sourceType:   'template',
+            staticValue:  '',
+            isRequired:   true,
+            isIdentifier: false,
+            isUpdateField: true,
+          });
+        }
+      });
+    }
+    S().wizard._preSeededExtras = preSeededExtras;
 
+    // Use the exact same MappingTable component as the detail view
+    window.FSV2.MappingTable.render('wizardMappingTable', {
+      flatFields:      formFields,
+      topLevelFields:  formFields,
+      odooCache:       odooCache,
+      odooLoaded:      odooLoaded,
+      odooModel:       cfg.odoo_model,
+      existingFormMappings: {},
+      namePrefix:      'wiz-',
+      checkPrefix:     'wiz-',
+      idCheckClass:    'wiz-id-check',
+      updCheckClass:   'wiz-upd-check',
+      autoIdentifiers: ['email', 'email_from'],
+      extraRows:       preSeededExtras,
+      // No saveAction — wizard uses its own submit button
+    });
   }
+
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // WIZARD ACTIONS
@@ -249,9 +254,10 @@
   }
 
   function wizardSelectForm(formId, formName, fields) {
-    S().wizard.form   = { form_id: formId, form_name: formName, fields: fields };
-    S().wizard.action = null;
-    S().wizard.step   = 3;
+    S().wizard.form         = { form_id: formId, form_name: formName, fields: fields };
+    S().wizard.action       = null;
+    S().wizard.fieldMappings = {};
+    S().wizard.step         = 3;
     var nameInput = document.getElementById('wizardName');
     if (nameInput) nameInput.value = '';
     renderWizard();
@@ -260,20 +266,23 @@
   }
 
   function wizardSelectAction(actionKey) {
-    S().wizard.action = actionKey;
-    S().wizard.step   = 4;
-    S().wizard.extraMappings = S().wizard.extraMappings || [];
+    S().wizard.action        = actionKey;
+    S().wizard.fieldMappings = {};
+    S().wizard.step          = 3;
     renderWizard();
-    var sec = document.getElementById('wizard-section-mapping');
-    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    var actionCfg = window.FSV2.ACTIONS[actionKey];
-    if (actionCfg && (!S().odooFieldsCache[actionCfg.odoo_model] || !S().odooFieldsCache[actionCfg.odoo_model].length)) {
-      window.FSV2.loadOdooFieldsForModel(actionCfg.odoo_model).then(function () {
-        if (S().wizard.action !== actionKey) return;
-        renderWizardMapping();
-        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
-      });
+    // Show the name + submit section
+    var mappingSec = document.getElementById('wizard-section-mapping');
+    if (mappingSec) mappingSec.style.display = '';
+    var nameInput = document.getElementById('wizardName');
+    if (nameInput && !nameInput.value) {
+      var cfg      = window.FSV2.getModelCfg(actionKey);
+      var sitePart = (S().wizard.site && S().wizard.site.label) ? S().wizard.site.label : 'Site';
+      var formPart = (S().wizard.form && S().wizard.form.form_name)
+        ? S().wizard.form.form_name
+        : (S().wizard.form ? String(S().wizard.form.form_id) : 'Formulier');
+      nameInput.value = sitePart + ' \u2014 ' + formPart + ' \u2014 ' + cfg.label;
     }
+    if (mappingSec) mappingSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   async function submitWizard() {
@@ -284,11 +293,11 @@
       var name = ((document.getElementById('wizardName') || {}).value || '').trim();
       if (!name) throw new Error('Geef de integratie een naam.');
 
-      var cfg = window.FSV2.ACTIONS[S().wizard.action];
-      if (!cfg) throw new Error('Geen actie geselecteerd.');
+      var cfg = window.FSV2.getModelCfg(S().wizard.action);
+      if (!cfg || !cfg.odoo_model) throw new Error('Geen model geselecteerd.');
       if (!S().wizard.form) throw new Error('Geen formulier geselecteerd.');
 
-      // Step 1 &mdash; create integration
+      // Stap 1 — maak integratie aan
       var intRes = await window.FSV2.api('/integrations', {
         method: 'POST',
         body: JSON.stringify({
@@ -300,21 +309,21 @@
       });
       var integrationId = intRes.data.id;
 
-      // Step 2 &mdash; create resolver (only when the action requires one)
+      // Stap 2 — maak resolver aan indien model dat vereist
       if (cfg.resolver_type) {
         await window.FSV2.api('/integrations/' + integrationId + '/resolvers', {
           method: 'POST',
           body: JSON.stringify({
             resolver_type:      cfg.resolver_type,
-            input_source_field: cfg.input_source_field,
-            create_if_missing:  cfg.create_if_missing,
-            output_context_key: cfg.output_context_key,
+            input_source_field: 'webinar_id',
+            create_if_missing:  false,
+            output_context_key: 'context.webinar_id',
             order_index: 0,
           }),
         });
       }
 
-      // Step 3 &mdash; create target
+      // Stap 3 — maak eerste target aan
       var targetRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
         method: 'POST',
         body: JSON.stringify({
@@ -326,92 +335,88 @@
       });
       var targetId = targetRes.data.id;
 
-      // Step 4 &mdash; create mappings from form fields â†&rsquo; Odoo fields
-      var mappingSection = document.getElementById('wizard-section-mapping');
-      var mappingPromises = [];
-      var orderIdx = 0;
-
-      var allWizardFields = (S().wizard.form && S().wizard.form.fields) ? S().wizard.form.fields : [];
-      var flatWizardFields = [];
-      allWizardFields.forEach(function (f) {
-        if (!window.FSV2.SKIP_TYPES.includes(f.type)) flatWizardFields.push(f);
-        if (Array.isArray(f.sub_fields)) {
-          f.sub_fields.forEach(function (sf) {
-            if (!window.FSV2.SKIP_TYPES.includes(sf.type)) flatWizardFields.push(sf);
-          });
-        }
-      });
-
-      flatWizardFields.forEach(function (ff) {
-        if (!mappingSection) return;
-        var fid   = String(ff.field_id);
-        var selEl    = mappingSection.querySelector('[name="ff-odoo-' + fid + '"]');
+      // Stap 4 — lees veldkoppelingen uit MappingTable (zelfde manier als detail view)
+      var mcEl = document.getElementById('wizardMappingTable');
+      var formFieldList = (S().wizard.form && Array.isArray(S().wizard.form.fields))
+        ? S().wizard.form.fields.filter(function (f) { return !window.FSV2.SKIP_TYPES.includes(f.type); })
+        : [];
+      var newMappings = [];
+      var orderIdx    = 0;
+      formFieldList.forEach(function (ff) {
+        var fid      = String(ff.field_id);
+        var selEl    = mcEl && mcEl.querySelector('[name="wiz-odoo-' + fid + '"]');
         var odooField = selEl ? (selEl.value || '') : '';
         if (!odooField) return;
-
-        var idCheckEl  = Array.from(mappingSection.querySelectorAll('input.wizard-ff-id-check')).find(function (el) {
-          return el.getAttribute('name') === 'ff-identifier-' + fid;
+        var idChk  = mcEl && mcEl.querySelector('[name="wiz-identifier-' + fid + '"]');
+        var updChk = mcEl && mcEl.querySelector('[name="wiz-update-' + fid + '"]');
+        newMappings.push({
+          odoo_field:      odooField,
+          source_type:     'form',
+          source_value:    fid,
+          is_required:     false,
+          is_identifier:   idChk  ? idChk.checked  : false,
+          is_update_field: updChk ? updChk.checked  : true,
+          order_index:     orderIdx++,
         });
-        var updCheckEl = Array.from(mappingSection.querySelectorAll('input.wizard-ff-upd-check')).find(function (el) {
-          return el.getAttribute('name') === 'ff-update-' + fid;
+      });
+      // Stap 4b — lees ook de verplichte extra rijen (template/static) uit MappingTable
+      var preSeeded = S().wizard._preSeededExtras || [];
+      preSeeded.forEach(function (em, idx) {
+        var tname = 'extra-' + idx;  // extraRowPrefix defaults to 'extra-'
+        var inpEl = mcEl && mcEl.querySelector('#inp-' + tname);
+        var val   = inpEl ? (inpEl.value || '').trim() : '';
+        if (!val) return;  // skip if user left it empty
+        var idChk  = mcEl && mcEl.querySelector('input[name="extra-identifier-' + idx + '"]');
+        var updChk = mcEl && mcEl.querySelector('input[name="extra-update-' + idx + '"]');
+        newMappings.push({
+          odoo_field:      em.odooField,
+          source_type:     em.sourceType || 'template',
+          source_value:    val,
+          is_required:     !!em.isRequired,
+          is_identifier:   idChk  ? idChk.checked  : false,
+          is_update_field: updChk ? updChk.checked  : true,
+          order_index:     orderIdx++,
         });
-        var isIdentifier  = idCheckEl  ? idCheckEl.checked  : false;
-        var isUpdateField = updCheckEl ? updCheckEl.checked : true;
-
-        mappingPromises.push(window.FSV2.api('/targets/' + targetId + '/mappings', {
-          method: 'POST',
-          body: JSON.stringify({
-            odoo_field:      odooField,
-            source_type:     'form',
-            source_value:    fid,
-            is_required:     false,
-            is_identifier:   isIdentifier,
-            is_update_field: isUpdateField,
-            order_index:     orderIdx++,
-          }),
-        }));
       });
 
-      // Extra rows: static / template values
-      (S().wizard.extraMappings || []).forEach(function (em, idx) {
-        var targetName   = 'extra-static-' + idx;
-        var inpEl        = document.getElementById('inp-' + targetName);
-        var staticVal    = inpEl ? ((inpEl.value || '').trim()) : (em.staticValue || '');
-        if (!staticVal) return;
-        var sourceType   = /\{[^}]+\}/.test(staticVal) ? 'template' : 'static';
-        var idChkEl      = document.querySelector('input.wizard-extra-id-check[name="extra-static-identifier-' + idx + '"]');
-        var updChkEl     = document.querySelector('input.wizard-extra-upd-check[name="extra-static-update-' + idx + '"]');
-        var isIdentifier  = idChkEl  ? idChkEl.checked  : false;
-        var isUpdateField = updChkEl ? updChkEl.checked : true;
-        mappingPromises.push(window.FSV2.api('/targets/' + targetId + '/mappings', {
-          method: 'POST',
-          body: JSON.stringify({
-            odoo_field:      em.odooField,
-            source_type:     sourceType,
-            source_value:    staticVal,
-            is_required:     false,
-            is_identifier:   isIdentifier,
-            is_update_field: isUpdateField,
-            order_index:     orderIdx++,
-          }),
+      if (newMappings.length > 0) {
+        await Promise.all(newMappings.map(function (m) {
+          return window.FSV2.api('/targets/' + targetId + '/mappings', {
+            method: 'POST', body: JSON.stringify(m),
+          });
         }));
+      }
+
+      // Stap 5 — activeer de integratie direct (wizard = bewuste setup)
+      await window.FSV2.api('/integrations/' + integrationId, {
+        method: 'PUT',
+        body: JSON.stringify({ is_active: true }),
       });
 
-      await Promise.all(mappingPromises);
-
-      // Step 5 &mdash; run test stub (non-blocking)
+      // Stap 6 — test-stub (niet-blokkend)
       try {
         await window.FSV2.api('/integrations/' + integrationId + '/test-stub', {
-          method: 'POST',
-          body: JSON.stringify({}),
+          method: 'POST', body: JSON.stringify({}),
         });
-      } catch (_) { /* test stub failure is non-critical */ }
+      } catch (_) { /* non-critical */ }
 
-      window.FSV2.showAlert('Integratie "' + name + '" succesvol aangemaakt!', 'success');
-      await window.FSV2.loadIntegrations();
-      window.FSV2.resetWizard();
-      window.FSV2.showView('list');
-      window.FSV2.renderList();
+      window.FSV2.showAlert('Integratie "' + name + '" aangemaakt! Stel nu de veldkoppelingen in.', 'success');
+
+      // Stap 5 — optionele chatter-stap aanbieden
+      S().wizard.step = 5;
+      S().wizard.createdIntegrationId = integrationId;
+      S().wizard.createdTargetId      = targetId;
+      S().wizard._createdOdooModel    = cfg.odoo_model;
+      renderWizardSteps();
+      ['sites', 'forms', 'actions', 'mapping'].forEach(function (s) {
+        var el = document.getElementById('wizard-section-' + s);
+        if (el) el.style.display = 'none';
+      });
+      var chatterSection = document.getElementById('wizard-section-chatter');
+      if (chatterSection) {
+        chatterSection.style.display = '';
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: chatterSection });
+      }
 
     } catch (err) {
       window.FSV2.showAlert(err.message, 'error');
@@ -420,21 +425,77 @@
     }
   }
 
+
+
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // EXPORT &mdash; extend FSV2
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  async function wizardSkipChatter() {
+    var integrationId = S().wizard.createdIntegrationId;
+    await window.FSV2.loadIntegrations();
+    window.FSV2.resetWizard();
+    window.FSV2.showView('detail');
+    if (integrationId) await window.FSV2.openDetail(integrationId);
+  }
+
+  async function wizardAddChatter() {
+    var integrationId = S().wizard.createdIntegrationId;
+    var btn = document.querySelector('[data-action="wizard-add-chatter"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Toevoegen...'; }
+    try {
+      var chatterRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_model:      (S().wizard._createdOdooModel || 'crm.lead'),
+          operation_type:  'chatter_message',
+          order_index:     1,
+          execution_order: 1,
+          identifier_type: 'mapped_fields',
+          update_policy:   'always_overwrite',
+        }),
+      });
+      var chatterTargetId = chatterRes.data.id;
+      await window.FSV2.api('/targets/' + chatterTargetId + '/mappings', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_field:     '_chatter_record_id',
+          source_type:    'previous_step_output',
+          source_value:   'step.0.record_id',
+          is_identifier:  true,
+          is_required:    true,
+          is_update_field: false,
+          order_index:    0,
+        }),
+      });
+      await window.FSV2.loadIntegrations();
+      window.FSV2.resetWizard();
+      window.FSV2.showView('detail');
+      if (integrationId) {
+        await window.FSV2.openDetail(integrationId);
+        if (chatterTargetId && window.FSV2.toggleStepOpen) {
+          window.FSV2.toggleStepOpen(String(chatterTargetId), integrationId, true);
+        }
+      }
+    } catch (e) {
+      window.FSV2.showAlert('Fout bij aanmaken chatter-stap: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Ja, voeg chatter-notitie toe'; }
+    }
+  }
+
   Object.assign(window.FSV2, {
     renderWizard:         renderWizard,
     renderWizardSteps:    renderWizardSteps,
     renderWizardSites:    renderWizardSites,
     renderWizardForms:    renderWizardForms,
-    renderWizardActions:  renderWizardActions,
-    buildFieldOptions:    buildFieldOptions,
     renderWizardMapping:  renderWizardMapping,
+    renderWizardActions:  renderWizardActions,
     wizardSelectSite:     wizardSelectSite,
     wizardSelectForm:     wizardSelectForm,
     wizardSelectAction:   wizardSelectAction,
     submitWizard:         submitWizard,
+    wizardSkipChatter:    wizardSkipChatter,
+    wizardAddChatter:     wizardAddChatter,
   });
 
 }());

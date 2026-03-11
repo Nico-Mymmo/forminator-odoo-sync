@@ -12,7 +12,7 @@
 import { navbar } from '../../lib/components/navbar.js';
 
 /** Cache-busting version — bump whenever any of the 5 public FSV2 files change. */
-const FSV2_ASSET_VERSION = '20260227n';
+const FSV2_ASSET_VERSION = '20260304j';
 
 export function forminatorSyncV2UI(user) {
   return `<!DOCTYPE html>
@@ -58,27 +58,40 @@ export function forminatorSyncV2UI(user) {
       <!-- ─── PAGE HEADER ─────────────────────────────────────────────── -->
       <div class="flex items-center justify-between mb-8">
         <div>
-          <h1 class="text-4xl font-bold mb-2">Forminator Sync</h1>
-          <p class="text-base-content/60">Koppel WordPress-formulieren rechtstreeks aan Odoo</p>
+          <div class="flex items-center gap-2 mb-1">
+            <h1 class="text-3xl font-bold">Forminator Sync</h1>
+            <span class="badge badge-primary badge-sm font-mono">v2</span>
+          </div>
+          <p class="text-base-content/55 text-sm">WordPress formulieren &rarr; Odoo &mdash; automatisch gesynchroniseerd</p>
         </div>
         <div class="flex items-center gap-2">
 
           <!-- Settings dropdown (visible on list view only) -->
           <div class="dropdown dropdown-end" id="settingsDropdown">
-            <button class="btn btn-sm btn-outline btn-primary" tabindex="0" type="button">
-              <i data-lucide="settings" class="w-4 h-4"></i> Settings
+            <button class="btn btn-sm btn-ghost border border-base-300" tabindex="0" type="button">
+              <i data-lucide="settings-2" class="w-4 h-4"></i>
+              <span class="hidden sm:inline">Instellingen</span>
             </button>
-            <ul tabindex="0" class="dropdown-content z-[10] menu p-2 shadow bg-base-100 rounded-box w-52 mt-1">
+            <ul tabindex="0" class="dropdown-content z-[10] menu p-2 shadow-lg bg-base-100 rounded-xl w-56 mt-1 border border-base-200">
+              <li class="menu-title text-xs opacity-50">Configuratie</li>
               <li>
-                <a data-action="goto-connections">
-                  <i data-lucide="wifi" class="w-4 h-4"></i>
+                <a data-action="goto-connections" class="flex items-center gap-2.5 py-2">
+                  <i data-lucide="wifi" class="w-4 h-4 text-primary"></i>
                   Verbindingen
+                  <span class="text-xs text-base-content/40 ml-auto">Sites</span>
                 </a>
               </li>
               <li>
-                <a data-action="goto-defaults">
-                  <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+                <a data-action="goto-defaults" class="flex items-center gap-2.5 py-2">
+                  <i data-lucide="sliders-horizontal" class="w-4 h-4 text-primary"></i>
                   Standaard velden
+                </a>
+              </li>
+              <li>
+                <a data-action="goto-links" class="flex items-center gap-2.5 py-2">
+                  <i data-lucide="git-merge" class="w-4 h-4 text-primary"></i>
+                  Model-koppelingen
+                  <span class="badge badge-xs badge-primary ml-auto">Nieuw</span>
                 </a>
               </li>
             </ul>
@@ -87,7 +100,8 @@ export function forminatorSyncV2UI(user) {
           <!-- New integration CTA (visible on list view only) -->
           <button id="btnNewIntegration" class="btn btn-sm btn-primary" data-action="goto-wizard" type="button">
             <i data-lucide="plus" class="w-4 h-4"></i>
-            Nieuwe integratie
+            <span class="hidden sm:inline">Nieuwe integratie</span>
+            <span class="sm:hidden">Nieuw</span>
           </button>
         </div>
       </div>
@@ -170,7 +184,41 @@ export function forminatorSyncV2UI(user) {
 
 
       <!-- ═══════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: WIZARD (new integration — 3 steps)                        -->
+      <!-- VIEW: LINKS (model link registry)                               -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="view-links" style="display:none;">
+
+        <div class="flex items-center gap-2 mb-6">
+          <button class="btn btn-ghost btn-sm" data-action="goto-list" type="button">
+            <i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i>
+            Overzicht
+          </button>
+          <div class="divider divider-horizontal m-0"></div>
+          <nav class="flex items-center gap-1 text-sm text-base-content/60">
+            <a class="hover:text-base-content cursor-pointer" data-action="goto-connections">Verbindingen</a>
+            <span>/</span>
+            <a class="hover:text-base-content cursor-pointer" data-action="goto-defaults">Standaard velden</a>
+            <span>/</span>
+            <span class="font-semibold text-base-content">Model-koppelingen</span>
+          </nav>
+        </div>
+
+        <div class="mb-6">
+          <h2 class="text-2xl font-bold mb-1 flex items-center gap-2">
+            <i data-lucide="git-merge" class="w-6 h-6 text-primary"></i>
+            Model-koppelingen
+          </h2>
+          <p class="text-sm text-base-content/60 max-w-prose">
+            Definieer welke many2one-velden twee Odoo-modellen verbinden. De pipeline-assistent
+            gebruikt deze koppelingen om automatisch suggesties te geven wanneer je een
+            multi-stap integratie bouwt.
+          </p>
+        </div>
+
+        <!-- Populated by forminator-sync-v2-settings.js renderLinks() -->
+        <div id="linksList"></div>
+
+      </div><!-- /view-links -->
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <div id="view-wizard" style="display:none;">
 
@@ -190,6 +238,7 @@ export function forminatorSyncV2UI(user) {
           <li id="wizardStep2" class="step">Formulier</li>
           <li id="wizardStep3" class="step">Actie</li>
           <li id="wizardStep4" class="step">Koppeling</li>
+          <li id="wizardStep5" class="step">Notitie</li>
         </ul>
 
         <!-- ── Step 1: Choose site ──────────────────────────────────── -->
@@ -269,6 +318,26 @@ export function forminatorSyncV2UI(user) {
           </button>
         </div>
 
+        <!-- ── Step 5: Optional chatter step (shown after successful submit) ── -->
+        <div id="wizard-section-chatter" style="display:none;" class="mt-10">
+          <div class="divider mb-6"></div>
+          <div class="mb-6 text-center">
+            <div class="text-4xl mb-3">✉️</div>
+            <h3 class="text-lg font-semibold mb-1">Integratie aangemaakt!</h3>
+            <p class="text-sm text-base-content/60">Wil je ook een notitie in de Odoo-chatter plaatsen bij elke nieuwe indiening?</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <button type="button" class="btn btn-outline w-full gap-2" data-action="wizard-skip-chatter">
+              <i data-lucide="skip-forward" class="w-5 h-5"></i>
+              Overslaan — afronden
+            </button>
+            <button type="button" class="btn btn-primary w-full gap-2" data-action="wizard-add-chatter">
+              <i data-lucide="message-square-plus" class="w-5 h-5"></i>
+              Ja, voeg chatter-notitie toe
+            </button>
+          </div>
+        </div>
+
       </div><!-- /view-wizard -->
 
 
@@ -332,11 +401,75 @@ export function forminatorSyncV2UI(user) {
 
   <!-- ─── FSV2 public assets (load order is significant — no async/defer) ── -->
   <script src="/field-picker-component.js?v=${FSV2_ASSET_VERSION}"></script>
+  <script src="/forminator-sync-v2-html-utils.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-core.js?v=${FSV2_ASSET_VERSION}"></script>
+  <script src="/forminator-sync-v2-flow-builder.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-mapping-table.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-wizard.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-detail.js?v=${FSV2_ASSET_VERSION}"></script>
+  <script src="/forminator-sync-v2-settings.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-bootstrap.js?v=${FSV2_ASSET_VERSION}"></script>
+
+  <!-- ─── Dialogs ──────────────────────────────────────────────────────────── -->
+  <dialog id="addTargetDialog" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-1">Stap toevoegen</h3>
+      <p class="text-sm opacity-70 mb-4">Kies welk type stap je wilt toevoegen.</p>
+      <div id="addTargetTypeCards" class="grid gap-3">
+        <!-- 4 kaarten gegenereerd door renderAddTargetDialog() -->
+      </div>
+      <div id="addTargetModelRow" class="mt-4" style="display:none">
+        <label class="label label-text text-sm">Odoo-model</label>
+        <select id="addTargetModelPicker" class="select select-bordered w-full"></select>
+      </div>
+      <div class="modal-action">
+        <button class="btn" data-action="close-add-target-dialog">Annuleren</button>
+        <button class="btn btn-primary" id="confirmAddTargetBtn"
+                data-action="confirm-add-target" disabled>Toevoegen</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>Sluiten</button></form>
+  </dialog>
+
+  <dialog id="htmlSummaryModal" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-1">Formuliersamenvatting</h3>
+      <p class="text-sm text-base-content/60 mb-4">
+        Genereert een HTML-tabel van formuliervelden en schrijft die naar een Odoo-veld.
+      </p>
+      <div class="form-control mb-4">
+        <label class="label"><span class="label-text font-medium">Odoo-veld (type HTML of Text)</span></label>
+        <div id="htmlSummaryOdooFieldPicker"></div>
+      </div>
+      <div class="form-control mb-4">
+        <label class="label"><span class="label-text font-medium">Welke formuliervelden?</span></label>
+        <label class="flex items-center gap-2 cursor-pointer mb-1">
+          <input type="radio" name="htmlSummaryScope" value="all" class="radio radio-sm" checked>
+          <span class="text-sm">Alle velden</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="htmlSummaryScope" value="selected" class="radio radio-sm">
+          <span class="text-sm">Selecteer velden:</span>
+        </label>
+        <div id="htmlSummaryFieldChecks"
+             class="ml-6 mt-2 grid grid-cols-2 gap-x-4 gap-y-1"
+             style="display:none"></div>
+      </div>
+      <div class="form-control mb-4">
+        <label class="label"><span class="label-text font-medium">Voorvertoning</span></label>
+        <iframe id="htmlSummaryPreviewFrame"
+                sandbox="allow-same-origin"
+                style="width:100%;min-height:80px;border:1px solid hsl(var(--b3));border-radius:0.5rem;background:#fff"
+                scrolling="no"></iframe>
+      </div>
+      <div class="modal-action">
+        <button class="btn" data-action="close-html-summary-modal">Annuleren</button>
+        <button class="btn btn-primary" id="confirmHtmlSummaryBtn"
+                data-action="confirm-html-summary" disabled>Toevoegen</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>Sluiten</button></form>
+  </dialog>
 
 </body>
 </html>`;
