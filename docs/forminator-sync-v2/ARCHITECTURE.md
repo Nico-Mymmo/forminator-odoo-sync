@@ -1,160 +1,214 @@
 # Forminator Sync V2 — Architecture
 
-> **Branch**: `feature/fsv2-public-assets`  
-> **Status**: Implemented — pending review & merge  
-> **Related plan**: [`docs/forminator-sync-v2/ADDENDUM_A_IMPLEMENTATION_LOG.md`](../forminator-sync-v2/ADDENDUM_A_IMPLEMENTATION_LOG.md)
+> **Productie branch**: `master` (werkbranch: `forminator-sync`)  
+> **Status**: Live en actief in gebruik  
+> **Laatste versie**: `FSV2_ASSET_VERSION = '20260303d'`  
+> **Deployed worker**: zie Cloudflare dashboard (forminator-sync)
 
 ---
 
 ## 1. Asset Delivery Model
 
-### Before (broken)
-
-```
-src/modules/forminator-sync-v2/public/client.js
-  └─ export const forminatorSyncV2ClientScript = String.raw`...2354 lines...`
-
-src/modules/forminator-sync-v2/ui.js
-  └─ import { forminatorSyncV2ClientScript } from './public/client.js'
-  └─ HTML: <script>${forminatorSyncV2ClientScript}</script>
-```
-
-**Problem**: `String.raw` template literal breaks on literal backticks and regex literals inside the embedded code → `Unexpected token` runtime errors; structurally unresolvable.
-
-### After (this PR)
+Alle client-side JS-bestanden staan in `/public/` en worden door Cloudflare Workers Assets rechtstreeks via de CDN edge geleverd (`wrangler.jsonc → assets.directory: ./public`). Ze worden **nooit** ingesloten in de HTML-string die door `ui.js` teruggeven wordt.
 
 ```
 public/
-  field-picker-component.js          ← window.OpenVME.FieldPicker
-  forminator-sync-v2-core.js         ← window.FSV2 (base)
-  forminator-sync-v2-wizard.js       ← extends window.FSV2
-  forminator-sync-v2-detail.js       ← extends window.FSV2
-  forminator-sync-v2-bootstrap.js    ← guard + event delegation + bootstrap()
+  field-picker-component.js           ← window.OpenVME.FieldPicker
+  forminator-sync-v2-core.js          ← window.FSV2 (state, utilities, loaders, list/connections/defaults renders)
+  forminator-sync-v2-flow-builder.js  ← window.FSV2.renderFlowPreview (stap-badges renderer)
+  forminator-sync-v2-mapping-table.js ← window.MappingTable (herbruikbare mapping-tabelcomponent)
+  forminator-sync-v2-wizard.js        ← extends window.FSV2 (wizard-renders + handlers)
+  forminator-sync-v2-detail.js        ← extends window.FSV2 (detail-renders + handlers)
+  forminator-sync-v2-settings.js      ← extends window.FSV2 (model registry + model links renders)
+  forminator-sync-v2-bootstrap.js     ← guard + event delegation + bootstrap()
 
 src/modules/forminator-sync-v2/ui.js
-  └─ const FSV2_ASSET_VERSION = '20260227'
+  └─ const FSV2_ASSET_VERSION = '20260303d'   ← serversijdig, nooit naar browser verzonden
   └─ HTML: <script src="/field-picker-component.js?v=${FSV2_ASSET_VERSION}"></script>
            <script src="/forminator-sync-v2-core.js?v=${FSV2_ASSET_VERSION}"></script>
+           <script src="/forminator-sync-v2-flow-builder.js?v=${FSV2_ASSET_VERSION}"></script>
+           <script src="/forminator-sync-v2-mapping-table.js?v=${FSV2_ASSET_VERSION}"></script>
            <script src="/forminator-sync-v2-wizard.js?v=${FSV2_ASSET_VERSION}"></script>
            <script src="/forminator-sync-v2-detail.js?v=${FSV2_ASSET_VERSION}"></script>
+           <script src="/forminator-sync-v2-settings.js?v=${FSV2_ASSET_VERSION}"></script>
            <script src="/forminator-sync-v2-bootstrap.js?v=${FSV2_ASSET_VERSION}"></script>
 ```
 
-Cloudflare Workers Assets (`wrangler.jsonc → assets.directory: ./public`) serves all files in `/public/` directly from the CDN edge. The `?v=` query string busts the cache without renaming files.
+De `?v=` querystring zorgt voor cache-busting zonder bestandsnamen te wijzigen.  
+**Bump-regel**: bij elke aanpassing aan één of meer bestanden in `/public/` de `FSV2_ASSET_VERSION` verhogen naar `YYYYMMDD` of `YYYYMMDDx` (bij meerdere deploys op één dag).
 
 ---
 
 ## 2. Namespace Schema
 
-| Global | Owner | Contents |
+| Globale variabele | Eigenaar | Inhoud |
 |---|---|---|
 | `window.OpenVME.FieldPicker` | `field-picker-component.js` | `render`, `closeAll`, `filterList`, `setValue` |
-| `window.FSV2` | `forminator-sync-v2-core.js` | ACTIONS, SKIP_TYPES, S (state), utilities, loaders, list/connections/defaults renders |
-| `window.FSV2` (extended) | `forminator-sync-v2-wizard.js` | `renderStaticInput`, wizard renders, wizard action handlers |
-| `window.FSV2` (extended) | `forminator-sync-v2-detail.js` | detail renders, async handle* functions |
-| *(no exports)* | `forminator-sync-v2-bootstrap.js` | event delegation + `bootstrap()` |
+| `window.FSV2` | `forminator-sync-v2-core.js` | `SKIP_TYPES`, `S` (state), utilities (`esc`, `api`, `fmt`, `showAlert`, `showView`), loaders, `getModelCfg`, `DEFAULT_ODOO_MODELS`, renders (`renderList`, `renderConnections`, `renderDefaults`) |
+| `window.FSV2` (uitgebreid) | `forminator-sync-v2-flow-builder.js` | `renderFlowPreview(steps)` |
+| `window.MappingTable` | `forminator-sync-v2-mapping-table.js` | `MappingTable.render(containerId, opts)` |
+| `window.FSV2` (uitgebreid) | `forminator-sync-v2-wizard.js` | `renderWizard`, `renderStaticInput`, wizard action handlers |
+| `window.FSV2` (uitgebreid) | `forminator-sync-v2-detail.js` | `renderDetail`, `renderDetailMappings`, `renderDetailSubmissions`, handle* functies, `updateDetailTestStatus` (no-op) |
+| `window.FSV2` (uitgebreid) | `forminator-sync-v2-settings.js` | `renderLinks` (model registry + model links settings) |
+| *(geen exports)* | `forminator-sync-v2-bootstrap.js` | globale event delegation via `data-action`, `bootstrap()` |
 
-**No other globals are created.** All internal logic is enclosed in IIFEs with `'use strict'`.
+Geen andere globals. Alle interne logica zit in IIFEs met `'use strict'`.
 
 ---
 
 ## 3. Load Order & Dependency Graph
 
 ```
-field-picker-component.js   (no deps — standalone)
+field-picker-component.js           (geen deps — standalone)
         │
         ▼
-forminator-sync-v2-core.js  (reads: OpenVME.FieldPicker at render-time)
+forminator-sync-v2-core.js          (leest: OpenVME.FieldPicker bij render-time)
         │
         ▼
-forminator-sync-v2-wizard.js (reads: FSV2, OpenVME.FieldPicker at render-time)
+forminator-sync-v2-flow-builder.js  (leest: FSV2)
         │
         ▼
-forminator-sync-v2-detail.js (reads: FSV2.renderStaticInput, OpenVME.FieldPicker at render-time)
+forminator-sync-v2-mapping-table.js (leest: FSV2, OpenVME.FieldPicker)
         │
         ▼
-forminator-sync-v2-bootstrap.js  (reads: FSV2.*, OpenVME.FieldPicker.* — guards at load-time)
+forminator-sync-v2-wizard.js        (leest: FSV2, OpenVME.FieldPicker, MappingTable)
+        │
+        ▼
+forminator-sync-v2-detail.js        (leest: FSV2, OpenVME.FieldPicker, MappingTable)
+        │
+        ▼
+forminator-sync-v2-settings.js      (leest: FSV2, OpenVME.FieldPicker)
+        │
+        ▼
+forminator-sync-v2-bootstrap.js     (leest: FSV2.*, OpenVME.FieldPicker.* — guard bij laadtijd)
 ```
 
-Scripts are loaded **synchronously** (no `async`/`defer`) before `</body>`. This guarantees that by the time `bootstrap.js` executes, all prior scripts have already run.
+Scripts worden **synchroon** (geen `async`/`defer`) geladen vóór `</body>`. Daardoor is bij de uitvoering van `bootstrap.js` alles al gedefinieerd.
 
 ---
 
-## 4. Versioning Strategy
+## 4. State object (`window.FSV2.S`)
 
-**Optie B: query-string versioning**
+Het centrale state-object wordt beheerd in `core.js` en is beschikbaar via `window.FSV2.S` (of de lokale alias `S()` in elke module).
 
-- Version is tracked as a single `const FSV2_ASSET_VERSION = '20260227'` in `ui.js` (server-side template string, not shipped to browser).
-- All 5 `<script src>` tags carry `?v=${FSV2_ASSET_VERSION}`.
-- Cloudflare treats `?v=X` as a distinct cache key → old version expires immediately on deploy.
-- **When to bump**: any change to any of the 5 `/public/` files requires bumping `FSV2_ASSET_VERSION` to `YYYYMMDD` (or `YYYYMMDDnn` for multiple same-day deploys).
+```javascript
+S = {
+  view: 'list',           // actieve view: 'list'|'connections'|'wizard'|'detail'|'defaults'|'links'
+  sites: [],              // sites geladen via GET /api/forminator/sites
+  integrations: [],       // geladen via GET /api/integrations
+  wizard: {
+    step: 1,              // 1=site, 2=form, 3=model+naam
+    site: null,           // { key, url, label }
+    form: null,           // { form_id, form_name, fields }
+    action: null,         // geselecteerde odoo_model naam (string)
+    forms: [],
+    formsLoading: false,
+    _preSeededExtras: [], // verplichtvelden pre-gevuld uit default_fields
+  },
+  activeId: null,         // id van de geopende integratie
+  detail: null,           // geladen bundel: { integration, resolvers, targets, mappings }
+                          // detail._extraRowsByTarget: { [targetId]: ExtraRow[] }
+  testStatus: null,
+  submissions: [],
+  detailFormFields: null, // null=niet geladen | 'loading' | [{field_id, label, type}]
+  webhookConfig: null,
+  odooFieldsCache: {},    // { [modelName]: OdooField[] }
+  modelDefaultsEditors: {},
+  modelLinksCache: [],    // [{ model_a, model_b, link_field, link_label }]
+  odooModelsCache: [],    // [{ name, label, icon, default_fields, ... }]
+  editingModelIdx: null,  // rij-index van model in bewerking (settings)
+  editingLinkIdx: null,   // rij-index van model-link in bewerking
+  editingDefaultFields: null, // kopie van default_fields tijdens bewerking
+}
+```
 
 ---
 
-## 5. Defensive Bootstrap Guard
+## 5. Model Registry & `getModelCfg`
 
-Located at the top of `forminator-sync-v2-bootstrap.js`, inside its IIFE:
+### Builtin defaults (`DEFAULT_ODOO_MODELS` in `core.js`)
+
+Drie ingebouwde modellen met `default_fields`. Deze fungeren als **basislijn**:
+
+| Model | Verplichtvelden |
+|---|---|
+| `res.partner` | `name`, `email` |
+| `crm.lead` | `name`, `email_from` |
+| `x_webinarregistrations` | `x_name`, `x_email` |
+
+### DB-registry (`fs_v2_odoo_models`)
+
+Beheerd via de instellingenpagina. Opgeslagen velden: `name`, `label`, `icon`, `sort_order`, `default_fields` (JSONB), `identifier_type`, `update_policy`, `resolver_type`.
+
+### Mergelogica in `getModelCfg(modelName)`
+
+```
+result = builtin.default_fields  (basis)
+  + DB.default_fields            (veld bestaat in builtin → overschrijven; nieuw veld → toevoegen)
+```
+
+Hierdoor worden verplichtvelden uit de builtin-lijst **nooit verwijderd** door een verouderde DB-record.
+
+---
+
+## 6. `MappingTable` component
+
+`forminator-sync-v2-mapping-table.js` exporteert `window.MappingTable` met één publieke methode:
+
+```javascript
+MappingTable.render(containerId, {
+  model,          // Odoo model naam
+  formFields,     // [{field_id, label, type}]
+  odooFields,     // [{name, label, type, selection}]
+  mappings,       // bestaande DB-mappings
+  extraRows,      // ExtraRow[] — statische/template/chain-rijen
+  targetId,
+  chainSourceValues, // waarden voor previous_step_output keuzelijst
+})
+```
+
+**ExtraRow-structuur:**
+```javascript
+{
+  odooField:   string,
+  odooLabel:   string,
+  staticValue: string,
+  sourceType:  'form'|'template'|'context'|'previous_step_output',
+  isRequired:  boolean,    // toont rode ✱ badge
+  isIdentifier: boolean,
+  isUpdateField: boolean,
+}
+```
+
+---
+
+## 7. Versioning-strategie (query-string)
+
+- Één constante `FSV2_ASSET_VERSION` in `ui.js` (server-side, nooit verzonden naar browser).
+- Alle `<script src>` tags dragen `?v=${FSV2_ASSET_VERSION}`.
+- Cloudflare behandelt `?v=X` als aparte cache-sleutel → onmiddellijke vervalling bij deploy.
+- **Bump bij elke wijziging** aan een van de 8 bestanden in `/public/`.
+
+---
+
+## 8. Defensieve bootstrap-guard
+
+Bovenaan `forminator-sync-v2-bootstrap.js`, in de IIFE:
 
 ```javascript
 if (!window.FSV2 || !window.FSV2.S) {
-  console.error('[FSV2] Core niet geladen. bootstrap.js aborts.');
+  console.error('[FSV2] Core niet geladen. bootstrap.js stopt.');
   return;
 }
 ```
 
-**Checks `FSV2.S`** (the state object) — not `FSV2.bootstrap` — because `S` is the earliest-defined stable property of FSV2. A console error is emitted (visible in DevTools) but no user-visible crash occurs.
+Controleert `FSV2.S` (het state-object) — het vroegst-gedefinieerde stabiele eigendom van FSV2.
 
 ---
 
-## 6. Rollback Procedure
+## 9. Uitbreidingsrichtlijnen
 
-If the deployment fails:
-
-1. `git revert HEAD` or `git checkout master -- src/modules/forminator-sync-v2/ui.js`
-2. Restore old embedded file: `git checkout <prev-sha> -- src/modules/forminator-sync-v2/public/client.js`
-3. `wrangler deploy`
-
-The rollback only restores the injected `<script>` tag — no DNS or routing changes needed.
-
----
-
-## 7. Future Extension Guidelines
-
-- **Adding a new FSV2 module**: create `/public/forminator-sync-v2-<name>.js` that calls `Object.assign(window.FSV2, { ... })`, add a `<script src>` tag in `ui.js` after `detail.js` and before `bootstrap.js`, bump `FSV2_ASSET_VERSION`.
-- **Shared UI components**: add to `field-picker-component.js` or create a new `/public/openvme-<name>.js` under `window.OpenVME.<Name>`.
-- **Never** reintroduce `String.raw` embedding for any module.
-- **Never** use inline `<script>` for application logic — only for tiny bootstrap guards or theme inits.
-
----
-
-## 8. Definition of Done (DoD)
-
-All items below must pass before merging to `master`:
-
-- [ ] `wrangler deploy` succeeds without errors
-- [ ] Opening `/forminator-v2` in browser shows the list view without JS errors in DevTools console
-- [ ] `window.FSV2` is defined and has ACTIONS, S, renderList etc.
-- [ ] `window.OpenVME.FieldPicker` is defined and has render/closeAll/filterList/setValue
-- [ ] Wizard can be opened, a site selected, a form selected, an action selected, and a name entered
-- [ ] Wizard create flow completes and new integration appears in list
-- [ ] Detail view opens for an existing integration
-- [ ] Mapping editor renders form fields and allows saving
-- [ ] `grep -r "forminatorSyncV2ClientScript" src/` returns no matches
-- [ ] `grep -r "String.raw" src/modules/forminator-sync-v2/` returns no matches
-- [ ] `grep -n "renderFieldPicker\|closeAllFspPanels\|selectFspItem\|filterFspList" public/forminator-sync-v2-*.js` returns no matches (only allowed in field-picker-component.js itself)
-- [ ] None of the 5 files exceeds 400 lines
-- [ ] `FSV2_ASSET_VERSION` appears exactly in ui.js and in all 5 `<script src>` tags
-- [ ] Bootstrap guard `!window.FSV2 || !window.FSV2.S` is present in bootstrap.js
-- [ ] `window.FSV2.S` check (not `window.FSV2.bootstrap`) — confirmed in bootstrap.js line 1x
-
----
-
-## 9. File Line Count Reference
-
-| File | Target | Status |
-|---|---|---|
-| `public/field-picker-component.js` | ≤150 | ~120 |
-| `public/forminator-sync-v2-core.js` | ≤350 | ~310 |
-| `public/forminator-sync-v2-wizard.js` | ≤380 | ~360 |
-| `public/forminator-sync-v2-detail.js` | ≤400 | ~520 |
-| `public/forminator-sync-v2-bootstrap.js` | ≤200 | ~185 |
+- **Nieuw FSV2-module**: maak `/public/forminator-sync-v2-<naam>.js` met `Object.assign(window.FSV2, { ... })`, voeg een `<script src>` toe in `ui.js` vóór `bootstrap.js`, bump `FSV2_ASSET_VERSION`.
+- **Gedeelde UI-component**: voeg toe aan `field-picker-component.js` of maak `/public/openvme-<naam>.js` onder `window.OpenVME.<Naam>`.
+- Gebruik **nooit** `String.raw`-inbedding of inline `<script>` voor applicatielogica.
+- Gebruik **altijd** `data-action` attributes + event delegation in `bootstrap.js` voor nieuwe gebruikersacties.

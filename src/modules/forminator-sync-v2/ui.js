@@ -12,7 +12,7 @@
 import { navbar } from '../../lib/components/navbar.js';
 
 /** Cache-busting version — bump whenever any of the 5 public FSV2 files change. */
-const FSV2_ASSET_VERSION = '20260303d';
+const FSV2_ASSET_VERSION = '20260304j';
 
 export function forminatorSyncV2UI(user) {
   return `<!DOCTYPE html>
@@ -238,6 +238,7 @@ export function forminatorSyncV2UI(user) {
           <li id="wizardStep2" class="step">Formulier</li>
           <li id="wizardStep3" class="step">Actie</li>
           <li id="wizardStep4" class="step">Koppeling</li>
+          <li id="wizardStep5" class="step">Notitie</li>
         </ul>
 
         <!-- ── Step 1: Choose site ──────────────────────────────────── -->
@@ -317,6 +318,26 @@ export function forminatorSyncV2UI(user) {
           </button>
         </div>
 
+        <!-- ── Step 5: Optional chatter step (shown after successful submit) ── -->
+        <div id="wizard-section-chatter" style="display:none;" class="mt-10">
+          <div class="divider mb-6"></div>
+          <div class="mb-6 text-center">
+            <div class="text-4xl mb-3">✉️</div>
+            <h3 class="text-lg font-semibold mb-1">Integratie aangemaakt!</h3>
+            <p class="text-sm text-base-content/60">Wil je ook een notitie in de Odoo-chatter plaatsen bij elke nieuwe indiening?</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <button type="button" class="btn btn-outline w-full gap-2" data-action="wizard-skip-chatter">
+              <i data-lucide="skip-forward" class="w-5 h-5"></i>
+              Overslaan — afronden
+            </button>
+            <button type="button" class="btn btn-primary w-full gap-2" data-action="wizard-add-chatter">
+              <i data-lucide="message-square-plus" class="w-5 h-5"></i>
+              Ja, voeg chatter-notitie toe
+            </button>
+          </div>
+        </div>
+
       </div><!-- /view-wizard -->
 
 
@@ -380,6 +401,7 @@ export function forminatorSyncV2UI(user) {
 
   <!-- ─── FSV2 public assets (load order is significant — no async/defer) ── -->
   <script src="/field-picker-component.js?v=${FSV2_ASSET_VERSION}"></script>
+  <script src="/forminator-sync-v2-html-utils.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-core.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-flow-builder.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-mapping-table.js?v=${FSV2_ASSET_VERSION}"></script>
@@ -387,6 +409,67 @@ export function forminatorSyncV2UI(user) {
   <script src="/forminator-sync-v2-detail.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-settings.js?v=${FSV2_ASSET_VERSION}"></script>
   <script src="/forminator-sync-v2-bootstrap.js?v=${FSV2_ASSET_VERSION}"></script>
+
+  <!-- ─── Dialogs ──────────────────────────────────────────────────────────── -->
+  <dialog id="addTargetDialog" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-1">Stap toevoegen</h3>
+      <p class="text-sm opacity-70 mb-4">Kies welk type stap je wilt toevoegen.</p>
+      <div id="addTargetTypeCards" class="grid gap-3">
+        <!-- 4 kaarten gegenereerd door renderAddTargetDialog() -->
+      </div>
+      <div id="addTargetModelRow" class="mt-4" style="display:none">
+        <label class="label label-text text-sm">Odoo-model</label>
+        <select id="addTargetModelPicker" class="select select-bordered w-full"></select>
+      </div>
+      <div class="modal-action">
+        <button class="btn" data-action="close-add-target-dialog">Annuleren</button>
+        <button class="btn btn-primary" id="confirmAddTargetBtn"
+                data-action="confirm-add-target" disabled>Toevoegen</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>Sluiten</button></form>
+  </dialog>
+
+  <dialog id="htmlSummaryModal" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-1">Formuliersamenvatting</h3>
+      <p class="text-sm text-base-content/60 mb-4">
+        Genereert een HTML-tabel van formuliervelden en schrijft die naar een Odoo-veld.
+      </p>
+      <div class="form-control mb-4">
+        <label class="label"><span class="label-text font-medium">Odoo-veld (type HTML of Text)</span></label>
+        <div id="htmlSummaryOdooFieldPicker"></div>
+      </div>
+      <div class="form-control mb-4">
+        <label class="label"><span class="label-text font-medium">Welke formuliervelden?</span></label>
+        <label class="flex items-center gap-2 cursor-pointer mb-1">
+          <input type="radio" name="htmlSummaryScope" value="all" class="radio radio-sm" checked>
+          <span class="text-sm">Alle velden</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="htmlSummaryScope" value="selected" class="radio radio-sm">
+          <span class="text-sm">Selecteer velden:</span>
+        </label>
+        <div id="htmlSummaryFieldChecks"
+             class="ml-6 mt-2 grid grid-cols-2 gap-x-4 gap-y-1"
+             style="display:none"></div>
+      </div>
+      <div class="form-control mb-4">
+        <label class="label"><span class="label-text font-medium">Voorvertoning</span></label>
+        <iframe id="htmlSummaryPreviewFrame"
+                sandbox="allow-same-origin"
+                style="width:100%;min-height:80px;border:1px solid hsl(var(--b3));border-radius:0.5rem;background:#fff"
+                scrolling="no"></iframe>
+      </div>
+      <div class="modal-action">
+        <button class="btn" data-action="close-html-summary-modal">Annuleren</button>
+        <button class="btn btn-primary" id="confirmHtmlSummaryBtn"
+                data-action="confirm-html-summary" disabled>Toevoegen</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>Sluiten</button></form>
+  </dialog>
 
 </body>
 </html>`;

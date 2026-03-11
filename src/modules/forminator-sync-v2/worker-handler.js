@@ -20,7 +20,8 @@ import {
   computePayloadHash
 } from './idempotency.js';
 import { classifyFailureType, computeNextRetryAt, getMaxAttemptsTotal } from './retry.js';
-import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord } from './odoo-client.js';
+import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage } from './odoo-client.js';
+import { buildHtmlFormSummary } from './html-utils.js';
 
 function createPermanentError(message) {
   const error = new Error(message);
@@ -37,6 +38,17 @@ function normalizeString(value) {
 
 function normalizeFieldKey(key) {
   return String(key || '').toLowerCase().replace(/[-_\s]+/g, '_');
+}
+
+// Returns true when every character of abbr appears in order within full.
+// Used to match Forminator API field-ids (e.g. "fname") against webhook JSON
+// keys (e.g. "first_name"): f-n-a-m-e all appear left-to-right in f-i-r-s-t_n-a-m-e.
+function isSubsequence(abbr, full) {
+  var ai = 0;
+  for (var fi = 0; fi < full.length && ai < abbr.length; fi++) {
+    if (full[fi] === abbr[ai]) ai++;
+  }
+  return ai === abbr.length;
 }
 
 function lookupFormValue(normalizedForm, sourceValue) {
@@ -66,6 +78,29 @@ function lookupFormValue(normalizedForm, sourceValue) {
       }
     }
   }
+  // 4. Dot-notation abbreviation match for composite sub-fields.
+  //    Forminator API uses short ids like "fname"/"lname" but the webhook sends
+  //    the JSON object with keys like "first-name"/"last-name".
+  //    isSubsequence("fname", "first_name") → true (every char of abbr in order).
+  if (sourceValue.indexOf('.') !== -1) {
+    const dotIdx    = sourceValue.indexOf('.');
+    const parentPart = normalizeFieldKey(sourceValue.slice(0, dotIdx));
+    const childQuery = normalizeFieldKey(sourceValue.slice(dotIdx + 1));
+    for (const [key, val] of Object.entries(normalizedForm)) {
+      const normKey   = normalizeFieldKey(key);
+      const keyDot    = normKey.indexOf('.');
+      if (keyDot === -1) continue;
+      if (normKey.slice(0, keyDot) !== parentPart) continue;
+      const keyChild  = normKey.slice(keyDot + 1);
+      if (isSubsequence(childQuery, keyChild) || isSubsequence(keyChild, childQuery)) {
+        const resolved = normalizeString(val);
+        if (resolved) {
+          console.log(`[mapping] subsequence match: source_value="${sourceValue}" → form key "${key}"`);
+          return resolved;
+        }
+      }
+    }
+  }
   return '';
 }
 
@@ -81,14 +116,37 @@ function normalizeFormValues(payload) {
       continue;
     }
 
-    if (value && typeof value === 'object') {
-      if (Object.prototype.hasOwnProperty.call(value, 'value')) {
-        normalized[key] = normalizeString(value.value);
+    // Forminator stuurt soms composite velden als JSON-string: '{"first-name":"nico",...}'
+    // Probeer te parsen zodat de object-branch hieronder het correct afhandelt.
+    let parsedValue = value;
+    if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+      try { parsedValue = JSON.parse(value); } catch (_) { /* geen geldig JSON — gewoon als string behandelen */ }
+    }
+
+    if (parsedValue && typeof parsedValue === 'object') {
+      if (Object.prototype.hasOwnProperty.call(parsedValue, 'value')) {
+        normalized[key] = normalizeString(parsedValue.value);
+      } else if (Array.isArray(parsedValue)) {
+        normalized[key] = parsedValue.map((entry) => normalizeString(entry)).join(', ');
+      } else {
+        // Composite veld (bijv. name-1: {"first-name": "Nico", "last-name": "Plinke"})
+        // Samenvoegen van alle niet-lege waarden met een spatie.
+        // Subvelden (name-1.fname, name-1.lname) worden OOK afzonderlijk opgenomen.
+        const parts = Object.entries(parsedValue)
+          .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
+          .map(([subKey, v]) => {
+            const joined = normalizeString(String(v));
+            // Subveld opslaan als key.subKey (bijv. 'name-1.first-name')
+            if (joined.length > 0) normalized[key + '.' + subKey] = joined;
+            return joined;
+          })
+          .filter((s) => s.length > 0);
+        if (parts.length > 0) normalized[key] = parts.join(' ');
       }
       continue;
     }
 
-    normalized[key] = normalizeString(value);
+    normalized[key] = normalizeString(parsedValue ?? value);
   }
 
   return normalized;
@@ -316,7 +374,16 @@ async function runResolver(env, resolver, normalizedForm, contextObject, resolve
 
 function resolveMappingValue(mapping, normalizedForm, contextObject) {
   if (mapping.source_type === 'form') {
-    return lookupFormValue(normalizedForm, mapping.source_value);
+    const raw = lookupFormValue(normalizedForm, mapping.source_value);
+    // Pas value_map toe als aanwezig: formulierwaarde → Odoo-waarde.
+    // Handig voor keuzevelden (radio/checkbox/select) gekoppeld aan selection- of many2one-velden.
+    // Fallback: als de waarde niet in de map staat, wordt de ruwe formulierwaarde gebruikt.
+    if (raw && mapping.value_map && typeof mapping.value_map === 'object') {
+      if (Object.prototype.hasOwnProperty.call(mapping.value_map, raw)) {
+        return mapping.value_map[raw];
+      }
+    }
+    return raw;
   }
 
   if (mapping.source_type === 'context') {
@@ -344,6 +411,23 @@ function resolveMappingValue(mapping, normalizedForm, contextObject) {
   // Architecturally identical to 'context' — delegates to resolveContextValue.
   if (mapping.source_type === 'previous_step_output') {
     return resolveContextValue(contextObject, mapping.source_value);
+  }
+
+  // Feature A (Addendum F, Fase 2): generates an HTML table from submitted form fields.
+  // source_value = null / '' → all non-system fields; JSON array → specific field IDs.
+  if (mapping.source_type === 'html_form_summary') {
+    let fieldIds;
+    if (!mapping.source_value) {
+      fieldIds = null; // null = ALL fields
+    } else {
+      try {
+        const parsed = JSON.parse(mapping.source_value);
+        fieldIds = Array.isArray(parsed) ? parsed : null;
+      } catch (_) {
+        fieldIds = null; // parse error → all fields
+      }
+    }
+    return buildHtmlFormSummary(fieldIds, normalizedForm);
   }
 
   return null;
@@ -652,6 +736,172 @@ async function runSubmissionAttempt(env, {
         };
         await createSubmissionTargetResult(env, depResult);
         targetResults.push(depResult);
+        continue;
+      }
+
+      // ── chatter_message helpers ────────────────────────────────────────────
+      // Wrapper round buildHtmlFormSummary that resolves each field ID through
+      // lookupFormValue (fuzzy matching) so that e.g. 'text-1' matches 'text_1'
+      // in the normalizedForm, and the label map is preserved.
+      function buildChatterSummaryHtml(fieldIds, form, lblMap) {
+        if (fieldIds === null) {
+          // No specific selection: pass through as-is, filter system keys
+          return buildHtmlFormSummary(null, form, lblMap);
+        }
+        // Specific selection: resolve each ID via lookupFormValue (fuzzy)
+        const resolvedForm = {};
+        fieldIds.forEach(function(fid) {
+          const val = lookupFormValue(form, fid);
+          if (val) resolvedForm[fid] = val;
+        });
+        console.log('[chatter] buildChatterSummaryHtml fieldIds:', JSON.stringify(fieldIds));
+        console.log('[chatter] normalizedForm keys:', JSON.stringify(Object.keys(form)));
+        console.log('[chatter] resolved keys:', JSON.stringify(Object.keys(resolvedForm)));
+        if (!Object.keys(resolvedForm).length) {
+          // Fallback: geen enkele field ID matched → toon alles
+          console.log('[chatter] FALLBACK: geen matches, toon alle velden');
+          return buildHtmlFormSummary(null, form, lblMap);
+        }
+        return buildHtmlFormSummary(fieldIds, resolvedForm, lblMap);
+      }
+
+      // ── chatter_message: post HTML message to Odoo chatter ────────────────
+      if (opType === 'chatter_message') {
+        try {
+          const identifierMapping = mappings.find(function(m) { return m.is_identifier; });
+          if (!identifierMapping) {
+            throw createPermanentError('chatter_message target heeft geen identifier-mapping (is_identifier=true). Koppel het aan een vorig stap-record via previous_step_output.');
+          }
+          const rawRecordId = resolveMappingValue(identifierMapping, normalizedForm, contextObject);
+          const recordId = parsePositiveInteger(rawRecordId);
+          if (!recordId) {
+            throw createPermanentError('chatter_message: vorige stap heeft geen geldig record-ID opgeleverd (waarde: "' + String(rawRecordId) + '"). Zorg dat de gelinkte stap is uitgevoerd voor deze stap.');
+          }
+
+          const rawTemplate    = (target.chatter_template || '').trim();
+          const COMBINED_PREFIX = '__COMBINED__:';
+          const SUMMARY_PREFIX  = '__SUMMARY__:';
+          let body;
+          if (rawTemplate.startsWith(COMBINED_PREFIX)) {
+            // New combined format: { message, ids, labels }
+            let combinedMsg     = '';
+            let summaryFieldIds = null;
+            let summaryLabelMap = null;
+            try {
+              const parsed = JSON.parse(rawTemplate.slice(COMBINED_PREFIX.length));
+              combinedMsg     = String(parsed.message || '');
+              summaryFieldIds = Array.isArray(parsed.ids) && parsed.ids.length ? parsed.ids : null;
+              summaryLabelMap = (parsed.labels && typeof parsed.labels === 'object') ? parsed.labels : null;
+            } catch (_e) {}
+            const parts = [];
+            if (combinedMsg) {
+              // combinedMsg is HTML from Quill — substitute {field} placeholders with form values.
+              // Do NOT re-escape: Quill already produces safe HTML; only the placeholder
+              // substitution values need escaping.
+              const isHtml = combinedMsg.trimStart().startsWith('<');
+              if (isHtml) {
+                const msgHtml = combinedMsg.replace(/\{([^}]+)\}/g, function(_, key) {
+                  const v = String(lookupFormValue(normalizedForm, key) || '');
+                  return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                });
+                parts.push(msgHtml);
+              } else {
+                // Legacy plain-text fallback
+                const msgHtml = combinedMsg
+                  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                  .replace(/\{([^}]+)\}/g, function(_, key) {
+                    const v = String(lookupFormValue(normalizedForm, key) || '');
+                    return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                  })
+                  .replace(/\n/g, '<br>');
+                parts.push('<p>' + msgHtml + '</p>');
+              }
+            }
+            const summaryHtml = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap);
+            if (summaryHtml) parts.push(summaryHtml);
+            body = parts.join('');
+          } else if (rawTemplate.startsWith(SUMMARY_PREFIX)) {
+            let summaryFieldIds = null;
+            let summaryLabelMap = null;
+            try {
+              const parsed = JSON.parse(rawTemplate.slice(SUMMARY_PREFIX.length));
+              if (Array.isArray(parsed)) {
+                summaryFieldIds = parsed.length ? parsed : null;
+              } else if (parsed && typeof parsed === 'object') {
+                summaryFieldIds = Array.isArray(parsed.ids) && parsed.ids.length ? parsed.ids : null;
+                summaryLabelMap = (parsed.labels && typeof parsed.labels === 'object') ? parsed.labels : null;
+              }
+            } catch (_e) {}
+            body = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap);
+          } else if (rawTemplate) {
+            // Plain text template: escape everything, then substitute placeholders with escaped values
+            const escapedTpl = rawTemplate
+              .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              .replace(/\{([^}]+)\}/g, function(_, key) {
+                const v = String(lookupFormValue(normalizedForm, key) || '');
+                return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              })
+              .replace(/\n/g, '<br>');
+            body = '<p>' + escapedTpl + '</p>';
+          } else {
+            body = buildHtmlFormSummary(null, normalizedForm);
+          }
+
+          const result = await postChatterMessage(env, {
+            model: target.odoo_model,
+            recordId: recordId,
+            body: body,
+            subtypeXmlid: target.chatter_subtype_xmlid || 'mail.mt_note'
+          });
+
+          const targetResult = {
+            submission_id: submission.id,
+            target_id: target.id,
+            execution_order: executionOrder,
+            action_result: result.action,
+            skipped_reason: null,
+            odoo_record_id: result.recordId || null,
+            error_detail: null,
+            processed_at: new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          registerTargetOutput(contextObject, target, result);
+          console.log(attemptTag, 'chatter_message posted | msg_id:', result.recordId || null);
+        } catch (chatterError) {
+          const targetResult = {
+            submission_id: submission.id,
+            target_id: target.id,
+            execution_order: executionOrder,
+            action_result: 'failed',
+            skipped_reason: null,
+            odoo_record_id: null,
+            error_detail: chatterError.message,
+            processed_at: new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          console.log(attemptTag, 'chatter_message failed:', chatterError.message);
+          if (errStrategy === 'stop_on_error') {
+            for (let j = i + 1; j < sortedTargets.length; j++) {
+              const abortTarget = sortedTargets[j];
+              const abortOrder  = abortTarget.execution_order ?? abortTarget.order_index ?? j;
+              const abortResult = {
+                submission_id: submission.id,
+                target_id: abortTarget.id,
+                execution_order: abortOrder,
+                action_result: 'skipped',
+                skipped_reason: 'pipeline_abort',
+                odoo_record_id: null,
+                error_detail: 'Pipeline aborted by chatter step ' + executionOrder + ': ' + chatterError.message,
+                processed_at: new Date().toISOString()
+              };
+              await createSubmissionTargetResult(env, abortResult);
+              targetResults.push(abortResult);
+            }
+            break;
+          }
+        }
         continue;
       }
 

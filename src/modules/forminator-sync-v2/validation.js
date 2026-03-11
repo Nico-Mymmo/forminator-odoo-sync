@@ -2,7 +2,7 @@ const RESOLVER_TYPES = ['partner_by_email', 'webinar_by_external_id'];
 const TARGET_MODELS = ['crm.lead', 'res.partner', 'x_webinarregistrations'];
 const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty', 'upsert'];
 const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields', 'odoo_id'];
-const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_output'];
+const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_output', 'html_form_summary'];
 
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== '';
@@ -87,6 +87,14 @@ export function validateResolverPayload(payload) {
 export function validateTargetPayload(payload, { allowedModels } = {}) {
   if (!payload || typeof payload !== 'object') {
     throw createError('Invalid target payload');
+  }
+
+  // chatter_message targets only need an odoo_model — no whitelist, no identifier type, no update policy
+  if (payload.operation_type === 'chatter_message') {
+    if (!hasValue(payload.odoo_model)) {
+      throw createError('chatter_message target vereist een odoo_model.');
+    }
+    return;
   }
 
   // Use caller-supplied allowedModels (from DB) when available, else fall back to static list

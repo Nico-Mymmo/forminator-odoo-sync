@@ -38,7 +38,7 @@
 
   function renderWizardSteps() {
     var step = S().wizard.step;
-    [1, 2, 3].forEach(function (n) {
+    [1, 2, 3, 4, 5].forEach(function (n) {
       var el = document.getElementById('wizardStep' + n);
       if (!el) return;
       el.className = 'step' + (n <= step ? ' step-primary' : '');
@@ -401,11 +401,22 @@
       } catch (_) { /* non-critical */ }
 
       window.FSV2.showAlert('Integratie "' + name + '" aangemaakt! Stel nu de veldkoppelingen in.', 'success');
-      await window.FSV2.loadIntegrations();
-      window.FSV2.resetWizard();
-      // Direct naar detail view van de nieuwe integratie
-      window.FSV2.showView('detail');
-      await window.FSV2.openDetail(integrationId);
+
+      // Stap 5 — optionele chatter-stap aanbieden
+      S().wizard.step = 5;
+      S().wizard.createdIntegrationId = integrationId;
+      S().wizard.createdTargetId      = targetId;
+      S().wizard._createdOdooModel    = cfg.odoo_model;
+      renderWizardSteps();
+      ['sites', 'forms', 'actions', 'mapping'].forEach(function (s) {
+        var el = document.getElementById('wizard-section-' + s);
+        if (el) el.style.display = 'none';
+      });
+      var chatterSection = document.getElementById('wizard-section-chatter');
+      if (chatterSection) {
+        chatterSection.style.display = '';
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: chatterSection });
+      }
 
     } catch (err) {
       window.FSV2.showAlert(err.message, 'error');
@@ -419,6 +430,59 @@
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // EXPORT &mdash; extend FSV2
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  async function wizardSkipChatter() {
+    var integrationId = S().wizard.createdIntegrationId;
+    await window.FSV2.loadIntegrations();
+    window.FSV2.resetWizard();
+    window.FSV2.showView('detail');
+    if (integrationId) await window.FSV2.openDetail(integrationId);
+  }
+
+  async function wizardAddChatter() {
+    var integrationId = S().wizard.createdIntegrationId;
+    var btn = document.querySelector('[data-action="wizard-add-chatter"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Toevoegen...'; }
+    try {
+      var chatterRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_model:      (S().wizard._createdOdooModel || 'crm.lead'),
+          operation_type:  'chatter_message',
+          order_index:     1,
+          execution_order: 1,
+          identifier_type: 'mapped_fields',
+          update_policy:   'always_overwrite',
+        }),
+      });
+      var chatterTargetId = chatterRes.data.id;
+      await window.FSV2.api('/targets/' + chatterTargetId + '/mappings', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_field:     '_chatter_record_id',
+          source_type:    'previous_step_output',
+          source_value:   'step.0.record_id',
+          is_identifier:  true,
+          is_required:    true,
+          is_update_field: false,
+          order_index:    0,
+        }),
+      });
+      await window.FSV2.loadIntegrations();
+      window.FSV2.resetWizard();
+      window.FSV2.showView('detail');
+      if (integrationId) {
+        await window.FSV2.openDetail(integrationId);
+        if (chatterTargetId && window.FSV2.toggleStepOpen) {
+          window.FSV2.toggleStepOpen(String(chatterTargetId), integrationId, true);
+        }
+      }
+    } catch (e) {
+      window.FSV2.showAlert('Fout bij aanmaken chatter-stap: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Ja, voeg chatter-notitie toe'; }
+    }
+  }
+
   Object.assign(window.FSV2, {
     renderWizard:         renderWizard,
     renderWizardSteps:    renderWizardSteps,
@@ -430,6 +494,8 @@
     wizardSelectForm:     wizardSelectForm,
     wizardSelectAction:   wizardSelectAction,
     submitWizard:         submitWizard,
+    wizardSkipChatter:    wizardSkipChatter,
+    wizardAddChatter:     wizardAddChatter,
   });
 
 }());

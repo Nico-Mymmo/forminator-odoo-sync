@@ -1,4 +1,4 @@
-import { create, searchRead, write } from '../../lib/odoo.js';
+import { create, searchRead, write, executeKw } from '../../lib/odoo.js';
 
 function normalizeIncomingValue(value) {
   if (value === undefined || value === null) {
@@ -132,4 +132,25 @@ export async function updateOnlyRecord(env, { model, identifierDomain, values, u
 
   await updateRecord(env, { model, id: existing.id, values: valuesToWrite });
   return { action: 'updated', recordId: existing.id };
+}
+
+/**
+ * Plaatst een HTML-bericht in de Odoo-chatter via message_post.
+ * - Altijd method: 'message_post' — NOOIT mail.message.create
+ * - message_type is ALTIJD 'comment' — hardcoded
+ * - author_id wordt NOOIT meegegeven
+ */
+export async function postChatterMessage(env, { model, recordId, body, subtypeXmlid }) {
+  const msgId = await executeKw(env, {
+    model,
+    method:  'message_post',
+    args:    [[recordId]],
+    kwargs: {
+      body:          body || '',
+      body_is_html:  true,
+      message_type:  'comment',
+      subtype_xmlid: subtypeXmlid || 'mail.mt_note',
+    }
+  });
+  return { action: 'posted', recordId: msgId };
 }
