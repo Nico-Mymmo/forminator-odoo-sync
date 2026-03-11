@@ -12,6 +12,43 @@ let calendarInstance = null; // Global calendar instance
 let recapQuillEditor = null; // Global Quill instance for recap HTML editor
 let recapQuillController = null;
 
+// ══════════════════════════════════════════════════════════════════════════════
+// API FETCH HELPER
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Wrapper around fetch() that detects session-expiry redirects.
+ * When the server redirects (302 → login page), `res.redirected` is true and
+ * `res.json()` would throw "Unexpected token '<'" because the body is HTML.
+ * Instead we show a clear message and reload so the user can log in again.
+ *
+ * @param {string} url
+ * @param {RequestInit} [options]
+ * @returns {Promise<Response>}
+ */
+async function apiFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.redirected) {
+    // Redirect almost always means the session expired (worker redirects to /)
+    console.warn('[apiFetch] Redirect detected – session expired?', res.url);
+    setTimeout(() => { window.location.href = '/'; }, 1500);
+    throw new Error('Sessie verlopen – je wordt teruggestuurd naar de loginpagina');
+  }
+  if (!res.ok) {
+    // Try to parse JSON error; fall back to a status-based message
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const body = await res.clone().json();
+        errMsg = body?.error || body?.message || errMsg;
+      }
+    } catch (_) { /* ignore */ }
+    throw new Error(errMsg);
+  }
+  return res;
+}
+
 /**
  * Initialize FullCalendar with webinar data
  */
@@ -476,7 +513,7 @@ async function initRecapSection(webinarId, webinarHint) {
   if (loading) loading.classList.remove('hidden');
 
   try {
-    const res  = await fetch('/events/api/webinar/' + webinarId + '/recap');
+    const res  = await apiFetch('/events/api/webinar/' + webinarId + '/recap');
     const json = await res.json();
     if (!json.success) throw new Error(json.error || 'Laden mislukt');
 
@@ -637,7 +674,7 @@ async function recapHandleSetVideoUrl(webinarId) {
   if (alertEl) alertEl.classList.add('hidden');
 
   try {
-    const res  = await fetch('/events/api/webinar/' + webinarId + '/video-url', {
+    const res  = await apiFetch('/events/api/webinar/' + webinarId + '/video-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
@@ -669,7 +706,7 @@ async function recapHandleClearVideoUrl(webinarId) {
   if (loading) loading.classList.remove('hidden');
 
   try {
-    const res = await fetch('/events/api/webinar/' + webinarId + '/video-url', {
+    const res = await apiFetch('/events/api/webinar/' + webinarId + '/video-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: '' })
@@ -711,7 +748,7 @@ async function recapHandleThumbUpload(webinarId, fileInput) {
     const formData = new FormData();
     formData.append('thumbnail', file);
 
-    const res  = await fetch('/events/api/webinar/' + webinarId + '/thumbnail', {
+    const res  = await apiFetch('/events/api/webinar/' + webinarId + '/thumbnail', {
       method: 'POST',
       body: formData
     });
@@ -745,7 +782,7 @@ async function recapHandleSaveHtml(webinarId) {
   if (loading) loading.classList.remove('hidden');
 
   try {
-    const res  = await fetch('/events/api/webinar/' + webinarId + '/recap-html', {
+    const res  = await apiFetch('/events/api/webinar/' + webinarId + '/recap-html', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ html })
@@ -772,7 +809,7 @@ async function recapHandleSaveHtml(webinarId) {
  */
 async function recapRefreshReadyStatus(webinarId) {
   try {
-    const res  = await fetch('/events/api/webinar/' + webinarId + '/recap');
+    const res  = await apiFetch('/events/api/webinar/' + webinarId + '/recap');
     const json = await res.json();
     if (!json.success) return;
 
@@ -905,7 +942,7 @@ async function recapConfirmSend(webinarId) {
         : (recapQuillEditor ? recapQuillEditor.root.innerHTML : '')
     };
 
-    const res  = await fetch('/events/api/webinar/' + webinarId + '/send-recap', {
+    const res  = await apiFetch('/events/api/webinar/' + webinarId + '/send-recap', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(uiPayload)
@@ -966,7 +1003,7 @@ async function recapConfirmReset(webinarId) {
   if (loading)    loading.classList.remove('hidden');
 
   try {
-    const res  = await fetch('/events/api/webinar/' + webinarId + '/reset-recap', { method: 'POST' });
+    const res  = await apiFetch('/events/api/webinar/' + webinarId + '/reset-recap', { method: 'POST' });
     const json = await res.json();
 
     if (!json.success) throw new Error(json.error || 'Reset mislukt');
@@ -1241,7 +1278,7 @@ async function saveEventTypeMapping() {
   const calendarColor = colorSelect ? colorSelect.value : 'primary';
 
   try {
-    const res = await fetch('/events/api/event-type-tag-mappings', {
+    const res = await apiFetch('/events/api/event-type-tag-mappings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1278,7 +1315,7 @@ async function deleteEventTypeMapping(id) {
   if (!confirm('Delete this event type mapping?')) return;
 
   try {
-    const res = await fetch('/events/api/event-type-tag-mappings/' + id, {
+    const res = await apiFetch('/events/api/event-type-tag-mappings/' + id, {
       method: 'DELETE'
     });
 
@@ -1303,7 +1340,7 @@ async function deleteEventTypeMapping(id) {
 async function openEditorialEditor(webinarId) {
   try {
     // Fetch existing editorial content
-    const res = await fetch('/events/api/editorial/' + webinarId);
+    const res = await apiFetch('/events/api/editorial/' + webinarId);
     if (!res.ok) throw new Error(await res.text());
     
     const { data } = await res.json();
@@ -1685,7 +1722,7 @@ async function saveEditorialContent(webinarId) {
       ? { blocks, version: 1 }
       : null; // NULL = use Odoo description
     
-    const res = await fetch('/events/api/editorial/' + webinarId, {
+    const res = await apiFetch('/events/api/editorial/' + webinarId, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ editorialContent })
@@ -1736,7 +1773,7 @@ async function loadForminatorForms() {
   content.classList.add('hidden');
 
   try {
-    const response = await fetch('/events/api/forminator-forms', {
+    const response = await apiFetch('/events/api/forminator-forms', {
       credentials: 'include'
     });
     
