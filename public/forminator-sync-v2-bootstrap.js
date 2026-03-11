@@ -528,6 +528,150 @@
         window.FSV2.renderDefaults();
         return;
       }
+
+      // ── Fase 1: ⋯ accordion toggle ────────────────────────────────────────
+      if (action === 'toggle-row-details') {
+        var detailsId = btn.dataset.detailsId;
+        if (!detailsId) return;
+        var detailsRow = document.getElementById(detailsId);
+        if (!detailsRow) return;
+        var isOpen = detailsRow.style.display !== 'none';
+        detailsRow.style.display = isOpen ? 'none' : '';
+        btn.textContent = isOpen ? '⋯' : '✕';
+        if (!isOpen && typeof lucide !== 'undefined' && lucide.createIcons) {
+          lucide.createIcons({ nodes: [detailsRow] });
+        }
+        return;
+      }
+
+      // ── Fase 1: Intent-picker dialog ──────────────────────────────────────
+      if (action === 'open-add-target-dialog') {
+        var dialog = document.getElementById('addTargetDialog');
+        if (!dialog) return;
+        dialog.dataset.integrationId = btn.dataset.integrationId || btn.dataset.integrationid || '';
+        dialog.dataset.selectedType  = '';
+        // Populate model picker
+        var addModels2 = Array.isArray(S.odooModelsCache) ? S.odooModelsCache : (window.FSV2.DEFAULT_ODOO_MODELS || []);
+        var picker = document.getElementById('addTargetModelPicker');
+        if (picker) {
+          picker.innerHTML = '<option value="">\u2014 kies model \u2014</option>' +
+            addModels2.map(function (m) {
+              return '<option value="' + window.FSV2.esc(m.name) + '">' + window.FSV2.esc(m.label || m.name) + ' (' + window.FSV2.esc(m.name) + ')</option>';
+            }).join('');
+          picker.onchange = function () {
+            var confirmBtn = document.getElementById('confirmAddTargetBtn');
+            var st = dialog.dataset.selectedType;
+            if (confirmBtn) confirmBtn.disabled = !st || (st !== 'chatter_message' && !picker.value);
+          };
+        }
+        if (window.FSV2.renderAddTargetDialog) window.FSV2.renderAddTargetDialog();
+        dialog.showModal();
+        return;
+      }
+      if (action === 'close-add-target-dialog') {
+        var dlg2 = document.getElementById('addTargetDialog');
+        if (dlg2) dlg2.close();
+        return;
+      }
+      if (action === 'select-target-type') {
+        var dlgST = document.getElementById('addTargetDialog');
+        if (!dlgST) return;
+        dlgST.dataset.selectedType = btn.dataset.opType || '';
+        if (window.FSV2.renderAddTargetDialog) window.FSV2.renderAddTargetDialog();
+        return;
+      }
+      if (action === 'confirm-add-target') {
+        var dlg3 = document.getElementById('addTargetDialog');
+        if (!dlg3) return;
+        var selectedType3 = dlg3.dataset.selectedType;
+        var integId3 = dlg3.dataset.integrationId;
+        if (!selectedType3 || !integId3) { window.FSV2.showAlert('Kies een type stap.', 'error'); return; }
+        dlg3.close();
+        await window.FSV2.handleAddTargetWithType(integId3, selectedType3);
+        return;
+      }
+
+      // ── Fase 1: Open form-fields collapse ─────────────────────────────────
+      if (action === 'open-form-fields-drawer') {
+        var formFieldsEl = document.getElementById('detailFormFields');
+        if (!formFieldsEl) return;
+        var collapseEl = formFieldsEl.closest('.collapse');
+        if (!collapseEl) return;
+        var cbEl = collapseEl.querySelector('input[type="checkbox"]');
+        if (cbEl && !cbEl.checked) {
+          cbEl.checked = true;
+          cbEl.dispatchEvent(new Event('change'));
+        }
+        setTimeout(function () { collapseEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
+        return;
+      }
+
+      // ── Fase 2: html-summary modal ────────────────────────────────────────
+      if (action === 'open-html-summary-modal') {
+        var hsmTargetId  = btn.dataset.targetId || btn.dataset.targetid || '';
+        var hsmOdooModel = btn.dataset.odooModel || btn.dataset.odoomodel || '';
+        if (!hsmTargetId) { window.FSV2.showAlert('Doel niet gevonden.', 'error'); return; }
+        window.FSV2.openHtmlSummaryModal(hsmTargetId, hsmOdooModel);
+        return;
+      }
+      if (action === 'close-html-summary-modal') {
+        var hsmDlg = document.getElementById('htmlSummaryModal');
+        if (hsmDlg) hsmDlg.close();
+        return;
+      }
+      if (action === 'confirm-html-summary') {
+        window.FSV2.confirmHtmlSummary();
+        return;
+      }
+      if (action === 'chatter-field-up' || action === 'chatter-field-down') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        var fid = btn.dataset.fieldId || btn.dataset.fieldid;
+        if (tid && fid) {
+          var ul = document.getElementById('chatterFieldList-' + tid);
+          if (ul) {
+            var li = ul.querySelector('li[data-fid="' + fid + '"]');
+            if (li) {
+              if (action === 'chatter-field-up') {
+                var prev = li.previousElementSibling;
+                if (prev) ul.insertBefore(li, prev);
+              } else {
+                var next = li.nextElementSibling;
+                if (next) ul.insertBefore(next, li);
+              }
+              if (window.FSV2.scheduleChatterPreview) window.FSV2.scheduleChatterPreview(tid);
+            }
+          }
+        }
+        return;
+      }
+      if (action === 'insert-chatter-field') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        var fid = btn.dataset.fieldId || btn.dataset.fieldid;
+        if (tid && fid) {
+          var _qi = window.FSV2._chatterQuills && window.FSV2._chatterQuills[tid];
+          if (_qi) {
+            var range = _qi.quill.getSelection(true);
+            var idx   = range ? range.index : _qi.quill.getLength() - 1;
+            _qi.quill.insertText(idx, '{' + fid + '}', 'user');
+            _qi.quill.setSelection(idx + fid.length + 2);
+            if (window.FSV2.scheduleChatterPreview) window.FSV2.scheduleChatterPreview(tid);
+          }
+        }
+        return;
+      }
+      if (action === 'save-chatter-composer') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        if (tid) await window.FSV2.handleSaveChatterComposer(tid);
+        return;
+      }
+      if (action === 'wizard-skip-chatter') {
+        await window.FSV2.wizardSkipChatter();
+        return;
+      }
+      if (action === 'wizard-add-chatter') {
+        await window.FSV2.wizardAddChatter();
+        return;
+      }
     };
 
     run().catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
@@ -558,7 +702,8 @@
     var mainRow = inp.closest('tr.form-field-row');
     if (!mainRow) return;
     var vmapRow = mainRow.nextElementSibling;
-    if (!vmapRow || !vmapRow.classList.contains('vmap-row')) return;
+    if (!vmapRow || !vmapRow.classList.contains('row-details-row')) return;
+    if (!vmapRow.dataset.vmapChoices) return; // details row without vmap — skip
 
     var selectedField  = inp.value || '';
     var model          = vmapRow.dataset.vmapModel || '';
@@ -599,7 +744,7 @@
     vmapInner.innerHTML = window.FSV2.MappingTable.buildVmapSectionContent(
       choices, odooMeta, Object.keys(existingVmap).length > 0 ? existingVmap : null, inputPrefix
     );
-    vmapRow.style.display = '';
+    // Note: the details row visibility is controlled by the ⋯ button — don't auto-show here
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   });
 

@@ -376,9 +376,13 @@
       var stepName   = target.label || modelLabel(target.odoo_model);
       var opLabels  = { upsert: 'Zoeken \u2014 bijwerken of aanmaken', update_only: 'Alleen bijwerken', create: 'Altijd nieuw aanmaken' };
       var opTypeLbl  = opLabels[target.operation_type] || opLabels.upsert;
+      if (target.operation_type === 'chatter_message') {
+        opTypeLbl = 'Notitie in chatter';
+        if (!target.label) stepName = '\uD83D\uDCAC Notitie';
+      }
       var policyLbl  = POLICY_LABELS[target.update_policy] || esc(target.update_policy || '');
       var preceding  = sortedTargets.slice(0, idx);
-      var suggestions = isSingle ? [] : computeChainSuggestions(target, preceding);
+      var suggestions = (isSingle || target.operation_type === 'chatter_message') ? [] : computeChainSuggestions(target, preceding);
 
       // Chain dependency badges from saved state (prefer in-memory edits, fall back to DB state)
       var chainDeps = [];
@@ -423,8 +427,10 @@
       html +=           '<div class="min-w-0">';
       html +=             '<div class="font-bold text-base leading-snug">' + esc(stepName) + '</div>';
       html +=             '<div class="flex flex-wrap items-center gap-x-2.5 gap-y-0 mt-0.5 text-xs text-base-content/50">';
-      html +=               '<span class="font-mono">' + esc(target.odoo_model) + '</span>';
-      html +=               '<span>·</span>';
+      if (target.operation_type !== 'chatter_message') {
+        html +=               '<span class="font-mono">' + esc(target.odoo_model) + '</span>';
+        html +=               '<span>·</span>';
+      }
       html +=               '<span>' + esc(opTypeLbl) + '</span>';
       if (chainDeps.length > 0) {
         chainDeps.forEach(function (dep) {
@@ -507,24 +513,17 @@
       html += '</div>'; // card
     });
 
-    // Stap toevoegen
+    // Stap toevoegen — intent-picker dialog (Fase 1)
     if (integrationId) {
-      var addModels = Array.isArray(window.FSV2.S.odooModelsCache) ? window.FSV2.S.odooModelsCache : window.FSV2.DEFAULT_ODOO_MODELS;
-      var modelOpts = addModels.map(function (m) {
-        return '<option value="' + esc(m.name) + '">' + esc(m.label || m.name) + ' (' + esc(m.name) + ')</option>';
-      }).join('');
       html +=
         '<div class="flex flex-col items-center my-2 select-none" aria-hidden="true">' +
           '<div class="w-px h-5 bg-base-content/20"></div>' +
           '<i data-lucide="chevron-down" class="w-4 h-4 text-base-content/30"></i>' +
         '</div>' +
         '<div class="flex items-center justify-center gap-2">' +
-          '<select id="addTargetModelSelect-' + esc(String(integrationId)) + '"' +
-            ' class="select select-bordered select-sm text-sm">' +
-            modelOpts +
-          '</select>' +
           '<button type="button" class="btn btn-outline btn-sm gap-1.5"' +
-            ' data-action="add-target" data-integrationid="' + esc(String(integrationId)) + '">' +
+            ' data-action="open-add-target-dialog"' +
+            ' data-integration-id="' + esc(String(integrationId)) + '">' +
             '<i data-lucide="plus" class="w-4 h-4"></i> Stap toevoegen' +
           '</button>' +
         '</div>';
@@ -608,6 +607,12 @@
           }
         });
       });
+
+      // chatter_message: render composer instead of MappingTable
+      if (target.operation_type === 'chatter_message') {
+        renderChatterComposer(target, tid, sortedTargets);
+        return;
+      }
 
       window.FSV2.MappingTable.render('det-mc-' + tid, {
         flatFields:           flatFields,
@@ -741,8 +746,8 @@
       dependency_missing:             'Overgeslagen \u2014 vereiste uitvoer ontbreekt',
       retry_skip_already_successful:  'Niet opnieuw uitgevoerd (replay)',
     };
-    var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error' };
-    var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt' };
+    var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error', posted: 'badge-success' };
+    var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt', posted: '\uD83D\uDCAC notitie geplaatst' };
     var colCount = showIndiener ? 6 : 5;
 
     function buildTimelineRow(sub) {
@@ -1135,11 +1140,18 @@
         var tname = 'det-extra-' + tid + '-' + idx;
         var inpEl = document.getElementById('det-inp-' + tname);
         var val   = inpEl ? (inpEl.value || '').trim() : (em.staticValue || '');
-        if (!val && em.sourceType !== 'previous_step_output') return;
-        var sourceType  = em.sourceType === 'previous_step_output'
-          ? 'previous_step_output'
-          : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
-        var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
+        if (!val && em.sourceType !== 'previous_step_output' && em.sourceType !== 'html_form_summary') return;
+        var sourceType;
+        if (em.sourceType === 'previous_step_output') {
+          sourceType = 'previous_step_output';
+        } else if (em.sourceType === 'html_form_summary') {
+          sourceType = 'html_form_summary';
+        } else {
+          sourceType = /\{[^}]+\}/.test(val) ? 'template' : 'static';
+        }
+        var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val)
+          : em.sourceType === 'html_form_summary' ? (em.staticValue || null)
+          : val;
         var chainReqEl  = em.sourceType === 'previous_step_output'
           ? container.querySelector('input[name="det-extra-' + tid + '-chain-req-' + idx + '"]')
           : null;
@@ -1193,6 +1205,272 @@
     });
     window.FSV2.showAlert('Stap toegevoegd.', 'success');
     await openDetail(S().activeId);
+  }
+
+  // ── Fase 1: Render 4 intent-kaarten in #addTargetTypeCards ─────────────────
+  function renderAddTargetDialog() {
+    var container = document.getElementById('addTargetTypeCards');
+    if (!container) return;
+    var dlg = document.getElementById('addTargetDialog');
+    var sel = dlg ? dlg.dataset.selectedType : '';
+    var modelRow = document.getElementById('addTargetModelRow');
+
+    var TYPES = [
+      { opType: 'upsert',       icon: 'git-merge',   label: 'Upsert',       desc: 'Aanmaken of bijwerken' },
+      { opType: 'create',       icon: 'plus-circle',  label: 'Aanmaken',     desc: 'Altijd nieuw record aanmaken' },
+      { opType: 'update_only',  icon: 'pencil',       label: 'Bijwerken',    desc: 'Alleen bestaand record bijwerken' },
+      { opType: 'chatter_message', icon: 'message-square', label: 'Chatter-bericht', desc: 'Bericht in de chatter plaatsen' },
+    ];
+
+    container.innerHTML = TYPES.map(function (t) {
+      var isActive = sel === t.opType;
+      return (
+        '<button type="button"' +
+          ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + '"' +
+          ' data-action="select-target-type" data-op-type="' + t.opType + '">' +
+          '<i data-lucide="' + t.icon + '" class="w-5 h-5 shrink-0"></i>' +
+          '<span class="text-left"><span class="font-semibold">' + t.label + '</span>' +
+            '<span class="block text-xs font-normal opacity-70">' + t.desc + '</span></span>' +
+        '</button>'
+      );
+    }).join('');
+
+    // show/hide model picker
+    if (modelRow) {
+      modelRow.style.display = (sel && sel !== 'chatter_message') ? '' : 'none';
+    }
+
+    // unlock confirm button for chatter_message immediately
+    var confirmBtn = document.getElementById('confirmAddTargetBtn');
+    if (confirmBtn) {
+      var picker = document.getElementById('addTargetModelPicker');
+      confirmBtn.disabled = !sel || (sel !== 'chatter_message' && !(picker && picker.value));
+    }
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+      lucide.createIcons({ nodes: [container] });
+    }
+  }
+
+  // ── Fase 1: Handle confirmed "Stap toevoegen" from intent-picker ───────────
+  async function handleAddTargetWithType(integrationId, opType) {
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    var maxOrder = targets.reduce(function (max, t) {
+      return Math.max(max, getTargetOrder(t, 0));
+    }, 0);
+
+    if (opType === 'chatter_message') {
+      // Find the first compatible preceding target (non-chatter, has a model)
+      var compatibles = targets.filter(function (t) {
+        return t.operation_type !== 'chatter_message' && t.odoo_model;
+      }).sort(function (a, b) { return getTargetOrder(a, 0) - getTargetOrder(b, 0); });
+
+      if (!compatibles.length) {
+        window.FSV2.showAlert('Voeg eerst een schrijfdoel (upsert/aanmaken/bijwerken) toe voordat je een chatter-stap kunt koppelen.', 'error');
+        return;
+      }
+
+      var parentTarget = compatibles[0];
+      var parentOrder  = getTargetOrder(parentTarget, 0);
+      var newOrder     = maxOrder + 1;
+
+      var chatterRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_model:      parentTarget.odoo_model,
+          identifier_type: 'mapped_fields',
+          update_policy:   'always_overwrite',
+          operation_type:  'chatter_message',
+          execution_order: newOrder,
+          order_index:     newOrder,
+        }),
+      });
+      var chatterTargetId = chatterRes.data && chatterRes.data.id;
+
+      if (chatterTargetId) {
+        await window.FSV2.api('/targets/' + chatterTargetId + '/mappings', {
+          method: 'POST',
+          body: JSON.stringify({
+            odoo_field:      '_chatter_record_id',
+            source_type:     'previous_step_output',
+            source_value:    'step.' + parentOrder + '.record_id',
+            is_identifier:   true,
+            is_required:     true,
+            is_update_field: false,
+            order_index:     0,
+          }),
+        });
+      }
+
+      window.FSV2.showAlert('Chatter-stap toegevoegd.', 'success');
+      var integId = integrationId;
+      await openDetail(S().activeId);
+      // Open the new chatter card automatically
+      if (chatterTargetId) {
+        var po = getPipelineOpen(integId);
+        po[String(chatterTargetId)] = true;
+        renderDetailMappings();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      }
+      return;
+    }
+
+    var picker  = document.getElementById('addTargetModelPicker');
+    var chosenModel = picker ? picker.value : '';
+    if (!chosenModel) {
+      window.FSV2.showAlert('Kies een model voor de nieuwe stap.', 'error');
+      return;
+    }
+
+    var actionCfg = window.FSV2.getModelCfg ? (window.FSV2.getModelCfg(chosenModel) || {}) : {};
+
+    await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+      method: 'POST',
+      body: JSON.stringify({
+        odoo_model:      chosenModel,
+        identifier_type: actionCfg.identifier_type || 'mapped_fields',
+        update_policy:   actionCfg.update_policy   || 'always_overwrite',
+        operation_type:  opType,
+        execution_order: maxOrder + 1,
+      }),
+    });
+    window.FSV2.showAlert('Stap toegevoegd.', 'success');
+    await openDetail(S().activeId);
+  }
+
+  // ── Fase 2: HTML form-summary modal ─────────────────────────────────────────
+  var _htmlSummaryPreviewTimer = null;
+  var _htmlSummaryTargetId     = null;
+
+  function openHtmlSummaryModal(targetId, odooModel) {
+    _htmlSummaryTargetId = targetId;
+    var modal = document.getElementById('htmlSummaryModal');
+    if (!modal) { window.FSV2.showAlert('Dialog niet gevonden.', 'error'); return; }
+
+    // Render FieldPicker for Odoo-field selection
+    var fpContainer = document.getElementById('htmlSummaryOdooFieldPicker');
+    if (fpContainer) {
+      var odooCache = (S().odooFieldsCache && odooModel && S().odooFieldsCache[odooModel]) || [];
+      fpContainer.innerHTML = window.OpenVME.FieldPicker.render('hsm-fp', '--unused--', odooCache, '');
+      var fpInput = document.getElementById('fsp-val-hsm-fp');
+      if (fpInput) {
+        fpInput.addEventListener('change', function () {
+          var confirmBtn = document.getElementById('confirmHtmlSummaryBtn');
+          if (confirmBtn) confirmBtn.disabled = !fpInput.value.trim();
+          scheduleHtmlSummaryPreview();
+        });
+      }
+    }
+
+    // Populate field checkboxes
+    var checksContainer = document.getElementById('htmlSummaryFieldChecks');
+    if (checksContainer) {
+      var flatFields = (buildDetailFlatFields(S().detailFormFields || []).flatFields || []);
+      checksContainer.innerHTML = flatFields.map(function (f) {
+        var fid = f.name || f.id;
+        return '<label class="flex items-center gap-2 cursor-pointer">' +
+          '<input type="checkbox" class="checkbox checkbox-xs" value="' + esc(fid) + '" checked>' +
+          '<span class="text-xs">' + esc(f.label || fid) + '</span>' +
+        '</label>';
+      }).join('');
+      checksContainer.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+        cb.addEventListener('change', scheduleHtmlSummaryPreview);
+      });
+    }
+
+    // Radio handlers
+    modal.querySelectorAll('input[name="htmlSummaryScope"]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        var sel = document.getElementById('htmlSummaryFieldChecks');
+        if (sel) sel.style.display = r.value === 'selected' ? '' : 'none';
+        scheduleHtmlSummaryPreview();
+      });
+    });
+
+    // Reset scope to 'all'
+    var allRadio = modal.querySelector('input[name="htmlSummaryScope"][value="all"]');
+    if (allRadio) { allRadio.checked = true; allRadio.dispatchEvent(new Event('change')); }
+
+    var confirmBtn = document.getElementById('confirmHtmlSummaryBtn');
+    if (confirmBtn) confirmBtn.disabled = true;
+
+    scheduleHtmlSummaryPreview();
+    modal.showModal();
+  }
+
+  function scheduleHtmlSummaryPreview() {
+    clearTimeout(_htmlSummaryPreviewTimer);
+    _htmlSummaryPreviewTimer = setTimeout(updateHtmlSummaryPreview, 150);
+  }
+
+  function updateHtmlSummaryPreview() {
+    var iframe = document.getElementById('htmlSummaryPreviewFrame');
+    if (!iframe || !iframe.contentDocument) return;
+
+    var scopeEl  = document.querySelector('input[name="htmlSummaryScope"]:checked');
+    var isAll    = !scopeEl || scopeEl.value === 'all';
+    var fieldIds = null;
+
+    if (!isAll) {
+      fieldIds = Array.from(
+        document.querySelectorAll('#htmlSummaryFieldChecks input:checked')
+      ).map(function (cb) { return cb.value; });
+    }
+
+    var sampleForm = {};
+    var flatFields = (buildDetailFlatFields(S().detailFormFields || []).flatFields || []);
+    flatFields.forEach(function (f) { if (f.field_id) sampleForm[f.field_id] = _makeSampleValue(f); });
+
+    var html = window.FSV2.buildHtmlFormSummary
+      ? window.FSV2.buildHtmlFormSummary(fieldIds, sampleForm)
+      : '';
+    iframe.contentDocument.body.style.cssText = 'margin:8px;font-family:sans-serif;font-size:14px';
+    iframe.contentDocument.body.innerHTML = html
+      || '<p style="color:#9ca3af;font-size:13px">Geen velden geselecteerd.</p>';
+    iframe.style.height = (iframe.contentDocument.body.scrollHeight + 16) + 'px';
+  }
+
+  function confirmHtmlSummary() {
+    var tid    = _htmlSummaryTargetId;
+    if (!tid) { window.FSV2.showAlert('Geen doel geselecteerd.', 'error'); return; }
+
+    var fpInput = document.getElementById('fsp-val-hsm-fp');
+    var odooField = fpInput ? fpInput.value.trim() : '';
+    if (!odooField) { window.FSV2.showAlert('Kies een Odoo-veld.', 'error'); return; }
+
+    var scopeEl  = document.querySelector('input[name="htmlSummaryScope"]:checked');
+    var isAll    = !scopeEl || scopeEl.value === 'all';
+    var fieldIds = null;
+    if (!isAll) {
+      fieldIds = Array.from(
+        document.querySelectorAll('#htmlSummaryFieldChecks input:checked')
+      ).map(function (cb) { return cb.value; });
+      if (!fieldIds.length) {
+        window.FSV2.showAlert('Selecteer minimaal \u00e9\u00e9n veld.', 'error');
+        return;
+      }
+    }
+
+    var target = S().detail && S().detail.targets &&
+      S().detail.targets.find(function (t) { return String(t.id) === tid; });
+    var odooModel = target ? target.odoo_model : '';
+    var odooCache = S().odooFieldsCache && odooModel ? (S().odooFieldsCache[odooModel] || []) : [];
+    var odooMeta  = odooCache.find(function (f) { return f.name === odooField; });
+
+    S().detail._extraRowsByTarget = S().detail._extraRowsByTarget || {};
+    S().detail._extraRowsByTarget[tid] = S().detail._extraRowsByTarget[tid] || [];
+    S().detail._extraRowsByTarget[tid].push({
+      odooField:     odooField,
+      odooLabel:     odooMeta ? odooMeta.label : odooField,
+      staticValue:   fieldIds ? JSON.stringify(fieldIds) : null,
+      sourceType:    'html_form_summary',
+      isIdentifier:  false,
+      isUpdateField: true,
+    });
+
+    var modal = document.getElementById('htmlSummaryModal');
+    if (modal) modal.close();
+    window.FSV2.renderDetailMappings();
   }
 
   async function handleSaveStepMappings(tid) {
@@ -1462,6 +1740,427 @@
     window.FSV2.showAlert('Koppeling toegevoegd. Sla de stap op om te bevestigen.', 'success');
   }
 
+  // ── CHATTER COMPOSER (Fase 3) ────────────────────────────────────────────
+
+  var _chatterPreviewTimers = {};
+
+  function renderChatterComposer(target, tid, sortedTargets) {
+    var el = document.getElementById('det-mc-' + tid);
+    if (!el) return;
+
+    var myIdx = sortedTargets.findIndex(function (t) { return String(t.id) === tid; });
+    var compatibleSteps = sortedTargets.filter(function (t, idx) {
+      return idx < myIdx && t.operation_type !== 'chatter_message';
+    });
+
+    var existingIdentifier = null;
+    var targetMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+    var idMapping = targetMappings.find(function (m) { return m.is_identifier; });
+    if (idMapping) {
+      var svRaw = String(idMapping.source_value || '');
+      var newFmt = svRaw.match(/^step\.([^.]+)\.record_id$/);
+      if (newFmt) {
+        existingIdentifier = newFmt[1];
+      } else {
+        var legFmt = svRaw.match(/^step_(\d+)_id$/);
+        if (legFmt) existingIdentifier = legFmt[1];
+      }
+    }
+
+    var currentTemplate   = target.chatter_template || '';
+    var COMBINED_PREFIX   = '__COMBINED__:';
+    var SUMMARY_PREFIX    = '__SUMMARY__:';
+    var savedMessage      = '';
+    var summaryEnabled    = false;
+    var summaryOrderedIds = [];
+    var savedLabelMap     = {};
+
+    if (currentTemplate.startsWith(COMBINED_PREFIX)) {
+      try {
+        var cp = JSON.parse(currentTemplate.slice(COMBINED_PREFIX.length));
+        savedMessage      = String(cp.message || '');
+        summaryEnabled    = true;
+        summaryOrderedIds = Array.isArray(cp.ids)  ? cp.ids  : [];
+        savedLabelMap     = cp.labels || {};
+      } catch (_e) {}
+    } else if (currentTemplate.startsWith(SUMMARY_PREFIX)) {
+      try {
+        var sp = JSON.parse(currentTemplate.slice(SUMMARY_PREFIX.length));
+        summaryEnabled    = true;
+        summaryOrderedIds = Array.isArray(sp) ? sp : (Array.isArray(sp.ids) ? sp.ids : []);
+        savedLabelMap     = (sp && sp.labels) || {};
+      } catch (_e) {}
+    } else {
+      savedMessage = currentTemplate;
+    }
+
+    var _ffr       = buildDetailFlatFields(S().detailFormFields || []);
+    var flatFields = _ffr.flatFields || [];
+
+    // Build display order: saved order first, then remaining fields appended
+    var orderedFields;
+    if (summaryOrderedIds.length) {
+      var _seen = {};
+      orderedFields = [];
+      summaryOrderedIds.forEach(function (fid) {
+        var f = flatFields.find(function (ff) {
+          return (ff.field_id || ff.fieldId || ff.id || ff.name || '') === fid;
+        });
+        if (f) { orderedFields.push(f); _seen[fid] = true; }
+      });
+      flatFields.forEach(function (f) {
+        var fid = f.field_id || f.fieldId || f.id || f.name || '';
+        if (!_seen[fid]) orderedFields.push(f);
+      });
+    } else {
+      orderedFields = flatFields.slice();
+    }
+
+    var html = '';
+
+    // ── Step selector ─────────────────────────────────────────────────────────
+    if (!compatibleSteps.length) {
+      html += '<div class="alert alert-warning text-sm mb-4">' +
+        '<i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>' +
+        '<span>Let op: er is nog geen voorgaande stap beschikbaar. ' +
+        'Voeg eerst een stap toe die een record aanmaakt of bijwerkt.</span>' +
+        '</div>';
+    } else {
+      html += '<div class="form-control mb-3">' +
+        '<label class="label pb-1"><span class="label-text text-sm font-medium">Koppel aan stap</span></label>' +
+        '<select class="select select-bordered select-sm" id="chatterStepSelect-' + esc(tid) + '">';
+      compatibleSteps.forEach(function (t) {
+        var order = getTargetOrder(t, 0);
+        var lbl   = t.label || modelLabel(t.odoo_model);
+        var sel   = (existingIdentifier !== null && String(existingIdentifier) === String(order)) ? ' selected' : '';
+        html += '<option value="' + esc(String(order)) + '"' + sel + '>' + esc(lbl) + ' (stap ' + (order + 1) + ')</option>';
+      });
+      html += '</select>' +
+        '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Record-ID van deze stap wordt als ontvanger van de notitie gebruikt.</span></label>' +
+        '</div>';
+    }
+
+    // ── Vrij bericht (Quill) ────────────────────────────────────────────────────
+    html += '<div class="form-control mb-1">' +
+      '<label class="label pb-1">' +
+        '<span class="label-text text-sm font-medium">Vrij bericht <span class="font-normal text-base-content/50">(optioneel)</span></span>' +
+        '<span class="label-text-alt text-base-content/50">Klik op een veld om het in te voegen.</span>' +
+      '</label>' +
+      '<div id="chatterQuillEditor-' + esc(tid) + '"></div>' +
+      '</div>';
+
+    // Field insertion chips
+    if (flatFields.length) {
+      html += '<div class="flex flex-wrap gap-1 mb-3">';
+      flatFields.forEach(function (f) {
+        var fid = f.field_id || f.fieldId || f.id || f.name || '';
+        var lbl = f.label || fid;
+        html += '<button type="button"' +
+          ' class="badge badge-outline badge-sm cursor-pointer hover:badge-primary transition-colors"' +
+          ' data-action="insert-chatter-field" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
+          ' title="Invoegen: {' + esc(fid) + '}">' + esc(lbl) + '</button>';
+      });
+      html += '</div>';
+    }
+
+    // ── Formuliersamenvatting toggle ──────────────────────────────────────────
+    html += '<div class="divider text-xs my-2">OF COMBINEER MET</div>';
+    html += '<label class="flex items-center gap-3 cursor-pointer mb-2 select-none">' +
+      '<input type="checkbox" class="toggle toggle-sm toggle-primary" id="chatterSummaryToggle-' + esc(tid) + '"' +
+        (summaryEnabled ? ' checked' : '') +
+        ' onchange="var p=document.getElementById(\x27chatterSummaryPanel-' + esc(tid) + '\x27);if(p)p.classList.toggle(\x27hidden\x27,!this.checked);window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\'' + esc(tid) + '\')">' +
+      '<div>' +
+        '<div class="text-sm font-medium">Formuliersamenvatting</div>' +
+        '<div class="text-xs text-base-content/50">Selecteer en orden de velden die in de HTML-tabel verschijnen. Je kunt dit combineren met een vrij bericht.</div>' +
+      '</div>' +
+      '</label>';
+
+    // ── Summary field panel ───────────────────────────────────────────────────
+    html += '<div id="chatterSummaryPanel-' + esc(tid) + '"' + (!summaryEnabled ? ' class="hidden"' : '') + '>';
+    if (orderedFields.length) {
+      html += '<p class="text-xs text-base-content/50 mb-1.5">Vink aan + sleep met ▲▼ om de volgorde en selectie aan te passen. Niets aangevinkt = alle velden.</p>';
+      html += '<ul id="chatterFieldList-' + esc(tid) + '" class="border border-base-200 rounded-lg overflow-hidden mb-3">';
+      orderedFields.forEach(function (f) {
+        var fid = f.field_id || f.fieldId || f.id || f.name || '';
+        var lbl = f.label || fid;
+        var chk = (!summaryOrderedIds.length || summaryOrderedIds.indexOf(fid) !== -1) ? ' checked' : '';
+        html += '<li data-fid="' + esc(fid) + '" class="flex items-center gap-2 px-3 py-1.5 border-b border-base-200 last:border-0 bg-base-100 hover:bg-base-200/40">' +
+          '<input type="checkbox" class="checkbox checkbox-xs shrink-0" data-summary-field="' + esc(tid) + '" value="' + esc(fid) + '"' + chk +
+            ' onchange="window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\'' + esc(tid) + '\')">' +
+          '<span class="flex-1 text-sm truncate">' + esc(lbl) + '</span>' +
+          '<div class="flex flex-col shrink-0">' +
+            '<button type="button" data-action="chatter-field-up" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
+              ' class="h-4 w-5 flex items-center justify-center text-xs text-base-content/40 hover:text-base-content" title="Omhoog">▲</button>' +
+            '<button type="button" data-action="chatter-field-down" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
+              ' class="h-4 w-5 flex items-center justify-center text-xs text-base-content/40 hover:text-base-content" title="Omlaag">▼</button>' +
+          '</div>' +
+        '</li>';
+      });
+      html += '</ul>';
+    } else {
+      html += '<p class="text-sm text-base-content/50 italic mb-3">Geen formuliervelden beschikbaar.</p>';
+    }
+    html += '</div>'; // end #chatterSummaryPanel
+
+    // ── Preview ───────────────────────────────────────────────────────────────
+    html += '<div class="mb-3">' +
+      '<div class="text-xs font-semibold text-base-content/60 mb-1.5 uppercase tracking-wide">Voorbeeld in Odoo</div>' +
+      '<div class="border border-base-300 rounded-lg overflow-hidden shadow-sm">' +
+        '<div style="background:#875a7b;padding:6px 12px;display:flex;align-items:center;gap:8px">' +
+          '<div style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.3);display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:bold">FS</div>' +
+          '<div>' +
+            '<div style="color:#fff;font-size:12px;font-weight:600">Forminator Sync</div>' +
+            '<div style="color:rgba(255,255,255,0.7);font-size:10px">Interne notitie</div>' +
+          '</div>' +
+        '</div>' +
+        '<iframe sandbox="allow-same-origin" id="chatterPreviewFrame-' + esc(tid) + '"' +
+          ' class="w-full min-h-[180px]" style="background:#fff;display:block;"></iframe>' +
+      '</div>' +
+      '</div>';
+
+    // ── Save button ───────────────────────────────────────────────────────────
+    html += '<div class="flex justify-end">' +
+      '<button type="button" class="btn btn-primary btn-sm gap-1.5"' +
+        ' data-action="save-chatter-composer" data-target-id="' + esc(tid) + '">' +
+        '<i data-lucide="save" class="w-4 h-4"></i> Opslaan' +
+      '</button>' +
+      '</div>';
+
+    el.innerHTML = html;
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
+
+    // ── Init Quill editor ──────────────────────────────────────────────
+    if (!window.FSV2._chatterQuills) window.FSV2._chatterQuills = {};
+    var _quillEditorEl = document.getElementById('chatterQuillEditor-' + tid);
+    if (_quillEditorEl && window.EOQuill) {
+      var _qi = window.EOQuill.create({
+        target:      _quillEditorEl,
+        initialHtml: savedMessage || '',
+        placeholder: 'Bijv: Aanvraag van {email-1} ontvangen.',
+        toolbar: [
+          [{ header: [2, 3, false] }],
+          ['bold', 'italic', 'underline'],
+          [{ list: 'ordered' }, { list: 'bullet' }],
+          ['link', 'clean']
+        ]
+      });
+      if (_qi) {
+        window.FSV2._chatterQuills[tid] = _qi;
+        _qi.quill.on('text-change', function () {
+          if (window.FSV2.scheduleChatterPreview) window.FSV2.scheduleChatterPreview(tid);
+        });
+      }
+    }
+
+    scheduleChatterPreview(tid);
+  }
+
+  function scheduleChatterPreview(tid) {
+    if (_chatterPreviewTimers[tid]) clearTimeout(_chatterPreviewTimers[tid]);
+    _chatterPreviewTimers[tid] = setTimeout(function () { updateChatterPreview(tid); }, 150);
+  }
+
+  /* Genereer een generische voorbeeldwaarde op basis van veldtype + keuzes. */
+  function _makeSampleValue(field) {
+    var type = String(field.type || '').toLowerCase();
+    var loremWords = ['Lorem', 'ipsum', 'dolor', 'sit', 'amet', 'consectetur', 'adipiscing', 'elit'];
+    var loremPick  = function (n) { return loremWords.slice(0, n).join(' '); };
+    // Keuzevelden → pak de eerste optie (of willekeurige)
+    if (field.choices && field.choices.length) {
+      var idx = Math.floor(Math.random() * field.choices.length);
+      var c   = field.choices[idx];
+      return String(c.label || c.value || c);
+    }
+    if (type === 'email')                         return 'lorem@example.com';
+    if (type === 'tel'  || type === 'phone')      return '+32 499 12 34 56';
+    if (type === 'number' || type === 'currency') return '42';
+    if (type === 'date')                          return '2026-03-04';
+    if (type === 'time')                          return '09:00';
+    if (type === 'url')                           return 'https://example.com';
+    if (type === 'textarea')                      return loremPick(8) + '.';
+    if (type === 'checkbox')                      return 'Ja';
+    // Naam-achtige velden herkennen via label
+    var lbl = String(field.label || '').toLowerCase();
+    if (lbl.includes('naam') || lbl.includes('name')) return 'Lorem Ipsum';
+    // Standaard: 2-3 lorem-woorden
+    return loremPick(3);
+  }
+
+  function updateChatterPreview(tid) {
+    var frame = document.getElementById('chatterPreviewFrame-' + tid);
+    if (!frame) return;
+
+    var sampleForm = {};
+    var labelMap   = {};
+    var _ff = buildDetailFlatFields(S().detailFormFields || []).flatFields || [];
+    _ff.forEach(function (f) {
+      var k = f.field_id || f.fieldId || f.id || f.name || '';
+      if (k) { sampleForm[k] = _makeSampleValue(f); labelMap[k] = f.label || k; }
+    });
+
+    // Inline fallback when html-utils not yet loaded
+    var _buildInlineSummary = function (ids, form, lblMap) {
+      var keys = (ids && ids.length)
+        ? ids.filter(function (k) { return form[k] != null && form[k] !== ''; })
+        : Object.keys(form).filter(function (k) { return !['form_id','form_uid','ovme_forminator_id','nonce'].includes(k) && !k.includes('.'); });
+      if (!keys.length) return '';
+      var trs = keys.map(function (k) {
+        var lbl = (lblMap && lblMap[k]) || k.replace(/[-_]/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/\s+\d+$/, '');
+        var val = String(form[k] || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+        return '<tr><td style="padding-bottom:16px">' +
+          '<span style="font-weight:600;display:block;margin-bottom:4px;color:#374151">' + lbl + '</span>' +
+          '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;background:#fafafa;color:#111827">' + val + '</div>' +
+          '</td></tr>';
+      }).join('');
+      return '<div style="max-width:620px;font-family:Arial,sans-serif;font-size:14px;color:#374151">' +
+        '<table style="width:100%;border-collapse:collapse"><tbody>' + trs + '</tbody></table></div>';
+    };
+
+    var _buildHtml = window.FSV2.buildHtmlFormSummary || _buildInlineSummary;
+
+    var parts = [];
+
+    // Part 1: vrij bericht — lees HTML van Quill, vervang {veld} door vetgedrukte voorbeeldwaarden
+    var _qi    = window.FSV2._chatterQuills && window.FSV2._chatterQuills[tid];
+    var rawMsg = _qi ? _qi.getHTML() : '';
+    if (rawMsg) {
+      var msgHtml = rawMsg.replace(/\{([^}]+)\}/g, function (_, key) {
+        var v = sampleForm[key] !== undefined ? String(sampleForm[key]) : ('[' + key + ']');
+        return '<b>' + v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</b>';
+      });
+      parts.push(msgHtml);
+    }
+
+    // Part 2: formuliersamenvatting (alleen als toggle aan staat)
+    var toggle = document.getElementById('chatterSummaryToggle-' + tid);
+    if (toggle && toggle.checked) {
+      var fieldList  = document.getElementById('chatterFieldList-' + tid);
+      var orderedIds = [];
+      if (fieldList) {
+        fieldList.querySelectorAll('li[data-fid]').forEach(function (li) {
+          var cb = li.querySelector('input[type="checkbox"]');
+          if (cb && cb.checked) orderedIds.push(li.getAttribute('data-fid'));
+        });
+      }
+      var summaryHtml = _buildHtml(orderedIds.length ? orderedIds : null, sampleForm, labelMap);
+      if (summaryHtml) parts.push(summaryHtml);
+    }
+
+    var html;
+    if (parts.length) {
+      html = '<!DOCTYPE html><html><body style="margin:12px 16px;padding:0">' + parts.join('') + '</body></html>';
+    } else {
+      html = '<!DOCTYPE html><html><body style="margin:0;padding:16px"><p style="color:#9ca3af;font-family:Arial;font-size:13px;margin:0">Typ een bericht of schakel de samenvatting in om een voorbeeld te zien.</p></body></html>';
+    }
+
+    try {
+      var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+      if (doc) { doc.open(); doc.write(html); doc.close(); }
+    } catch (e) { /* ignore */ }
+  }
+
+  async function handleSaveChatterComposer(tid) {
+    var target = ((S().detail && S().detail.targets) || []).find(function (t) { return String(t.id) === tid; });
+    if (!target) { window.FSV2.showAlert('Target niet gevonden.', 'error'); return; }
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+
+    // Vrij bericht: lees HTML van Quill editor
+    var _qiSave = window.FSV2._chatterQuills && window.FSV2._chatterQuills[tid];
+    var rawMsg  = _qiSave ? _qiSave.getHTML() : '';
+
+    // Samenvatting toggle
+    var toggle         = document.getElementById('chatterSummaryToggle-' + tid);
+    var summaryEnabled = toggle && toggle.checked;
+
+    var template;
+    if (summaryEnabled) {
+      // Lees de geordende, aangevinkte velden uit de <ul>
+      var fieldList  = document.getElementById('chatterFieldList-' + tid);
+      var pickedIds  = [];
+      var labelMap   = {};
+      var _ffSave    = buildDetailFlatFields(S().detailFormFields || []).flatFields || [];
+      var _fidLblMap = {};
+      _ffSave.forEach(function (f) {
+        var k = f.field_id || f.fieldId || f.id || f.name || '';
+        if (k) _fidLblMap[k] = f.label || k;
+      });
+      if (fieldList) {
+        fieldList.querySelectorAll('li[data-fid]').forEach(function (li) {
+          var fid = li.getAttribute('data-fid');
+          var cb  = li.querySelector('input[type="checkbox"]');
+          if (cb && cb.checked && fid) {
+            pickedIds.push(fid);
+            if (_fidLblMap[fid]) labelMap[fid] = _fidLblMap[fid];
+          }
+        });
+      }
+      template = '__COMBINED__:' + JSON.stringify({ message: rawMsg, ids: pickedIds, labels: labelMap });
+    } else if (rawMsg) {
+      template = rawMsg;
+    } else {
+      template = null;
+    }
+
+    var stepSel = document.getElementById('chatterStepSelect-' + tid);
+    // Derive odoo_model from the selected preceding step, not from the chatter target itself.
+    // The chatter target's model must always match the model of the step it's posting on.
+    var linkedModel = target.odoo_model; // fallback
+    if (stepSel) {
+      var _selOrder = parseInt(stepSel.value, 10);
+      var _allTargets = (S().detail && S().detail.targets) || [];
+      var _linkedTarget = _allTargets.find(function (t) {
+        return getTargetOrder(t, 0) === _selOrder && t.operation_type !== 'chatter_message';
+      });
+      if (_linkedTarget && _linkedTarget.odoo_model) linkedModel = _linkedTarget.odoo_model;
+    }
+    try {
+      await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+        method: 'PUT',
+        body: JSON.stringify({
+          odoo_model:            linkedModel,
+          operation_type:        'chatter_message',
+          chatter_template:      template || null,
+          chatter_subtype_xmlid: 'mail.mt_note',
+        }),
+      });
+      if (stepSel) {
+        var stepOrder   = stepSel.value;
+        var sourceValue = 'step.' + stepOrder + '.record_id';
+        var existingMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+        var idMapping = existingMappings.find(function (m) { return m.is_identifier; });
+        if (idMapping) {
+          await window.FSV2.api('/mappings/' + idMapping.id, {
+            method: 'PUT',
+            body: JSON.stringify({
+              odoo_field:      '_chatter_record_id',
+              source_type:     'previous_step_output',
+              source_value:    sourceValue,
+              is_identifier:   true,
+              is_required:     true,
+              is_update_field: false,
+            }),
+          });
+        } else {
+          await window.FSV2.api('/targets/' + tid + '/mappings', {
+            method: 'POST',
+            body: JSON.stringify({
+              odoo_field:      '_chatter_record_id',
+              source_type:     'previous_step_output',
+              source_value:    sourceValue,
+              is_identifier:   true,
+              is_required:     true,
+              is_update_field: false,
+            }),
+          });
+        }
+      }
+      window.FSV2.showAlert('Chatter-stap opgeslagen.', 'success');
+      await window.FSV2.openDetail(S().activeId);
+    } catch (e) {
+      window.FSV2.showAlert('Fout bij opslaan: ' + e.message, 'error');
+    }
+  }
+
   Object.assign(window.FSV2, {
     renderDetail:            renderDetail,
     updateDetailTestStatus:  updateDetailTestStatus,
@@ -1475,6 +2174,16 @@
     handleDeleteMapping:     handleDeleteMapping,
     handleSaveMappings:      handleSaveMappings,
     handleAddTarget:         handleAddTarget,
+    handleAddTargetWithType: handleAddTargetWithType,
+    renderAddTargetDialog:   renderAddTargetDialog,
+    openHtmlSummaryModal:    openHtmlSummaryModal,
+    scheduleHtmlSummaryPreview: scheduleHtmlSummaryPreview,
+    updateHtmlSummaryPreview: updateHtmlSummaryPreview,
+    confirmHtmlSummary:      confirmHtmlSummary,
+    renderChatterComposer:   renderChatterComposer,
+    scheduleChatterPreview:  scheduleChatterPreview,
+    updateChatterPreview:    updateChatterPreview,
+    handleSaveChatterComposer: handleSaveChatterComposer,
     handleDeleteTarget:      handleDeleteTarget,
     handleSaveStepMappings:  handleSaveStepMappings,
     handleReorderTarget:     handleReorderTarget,

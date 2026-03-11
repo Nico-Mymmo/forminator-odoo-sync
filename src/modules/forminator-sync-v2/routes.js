@@ -293,6 +293,8 @@ export const routes = {
         operation_type: payload.operation_type || 'upsert',
         is_enabled: true,
         ...(payload.execution_order !== undefined ? { execution_order: Number(payload.execution_order) } : {}),
+        ...(payload.chatter_template !== undefined ? { chatter_template: payload.chatter_template || null } : {}),
+        ...(payload.chatter_subtype_xmlid !== undefined ? { chatter_subtype_xmlid: payload.chatter_subtype_xmlid || 'mail.mt_note' } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -316,6 +318,8 @@ export const routes = {
         operation_type: payload.operation_type || 'upsert',
         is_enabled: payload.is_enabled !== false,
         ...(payload.execution_order !== undefined ? { execution_order: payload.execution_order === null ? null : Number(payload.execution_order) } : {}),
+        ...(payload.chatter_template !== undefined ? { chatter_template: payload.chatter_template || null } : {}),
+        ...(payload.chatter_subtype_xmlid !== undefined ? { chatter_subtype_xmlid: payload.chatter_subtype_xmlid || 'mail.mt_note' } : {}),
       });
 
       return jsonResponse({ success: true, data: updated });
