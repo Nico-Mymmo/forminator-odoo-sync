@@ -285,8 +285,9 @@ export function compileSignature(config, userData) {
     const meetBg   = lightenHex(brandColor, 0.92);
     const meetEdge = lightenHex(brandColor, 0.72);
 
-    // Lucide "calendar" icon as inline SVG — works in Gmail web + modern clients.
-    const calSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${brandColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`;
+    // Hosted SVG icon — served as <img> so it works in Gmail (inline <svg> gets stripped,
+    // but external <img src> is always loaded). Neutral grey matches any brand colour.
+    const calIcon = `<img src="https://forminator-sync.openvme-odoo.workers.dev/icons/cal.svg" width="14" height="14" alt="" style="display:block;width:14px;height:14px;border:0;" />`;
 
     const headingLine = `<div style="font-family:${fontStack};font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${brandColor};line-height:1.3;white-space:nowrap;">${meetingLinkHeading}</div>`;
     const subtextLine = meetingLinkSubtext
@@ -301,19 +302,19 @@ export function compileSignature(config, userData) {
 
     meetingLinkRow = `<tr>
       ${cellStart}
-        <a href="${meetingLinkUrl}" style="text-decoration:none;display:inline-block;">
-          <table cellpadding="0" cellspacing="0" border="0"
-                 style="border-collapse:separate;border-spacing:0;">
-            <tr>
-              <td style="padding:4px 6px;vertical-align:middle;border:1px solid ${meetEdge};border-radius:5px;">
-                ${calSvg}
-              </td>
-              <td style="padding-left:8px;vertical-align:middle;">
+        <table cellpadding="0" cellspacing="0" border="0"
+               style="border-collapse:separate;border-spacing:0;">
+          <tr>
+            <td style="padding:4px 6px 4px 0;vertical-align:middle;border:none;">
+              <a href="${meetingLinkUrl}" style="text-decoration:none;display:block;">${calIcon}</a>
+            </td>
+            <td style="padding-left:8px;vertical-align:middle;">
+              <a href="${meetingLinkUrl}" style="text-decoration:none;display:block;">
                 ${headingLine}${subtextLine}
-              </td>
-            </tr>
-          </table>
-        </a>
+              </a>
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>`;
   }
