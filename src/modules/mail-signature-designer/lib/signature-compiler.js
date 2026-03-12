@@ -283,29 +283,33 @@ export function compileSignature(config, userData) {
 
   if (meetingLinkEnabled && meetingLinkUrl) {
     const meetBg   = lightenHex(brandColor, 0.92);
-    const meetEdge = lightenHex(brandColor, 0.70);
+    const meetEdge = lightenHex(brandColor, 0.72);
 
-    // Calendar emoji is the most reliable cross-client email icon approach
-    const calIcon = `<span style="display:inline-block;font-size:18px;line-height:1;vertical-align:middle;margin-right:10px;">&#128197;</span>`;
+    // Lucide "calendar" icon as inline SVG — works in Gmail web + modern clients.
+    const calSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${brandColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`;
 
-    const headingLine = `<span style="font-family:${fontStack};font-size:13px;font-weight:700;color:${brandColor};vertical-align:middle;">${meetingLinkHeading}</span>`;
+    const headingLine = `<div style="font-family:${fontStack};font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:${brandColor};line-height:1.3;white-space:nowrap;">${meetingLinkHeading}</div>`;
     const subtextLine = meetingLinkSubtext
-      ? `<div style="font-family:${fontStack};font-size:11px;color:${mutedColor};margin-top:3px;">${meetingLinkSubtext}</div>`
+      ? `<div style="font-family:${fontStack};font-size:11px;color:${mutedColor};margin-top:2px;line-height:1.4;white-space:nowrap;">${meetingLinkSubtext}</div>`
       : '';
 
+    // Align with the text column: when photo present add same left-padding as textCell
+    // Keep the vertical divider column visible by NOT using colspan — split into 3 cells.
     const cellStart = data.photoUrl
-      ? `<td></td><td colspan="2" style="padding-top:12px;padding-right:16px;">`
-      : `<td style="padding-top:12px;padding-right:16px;">`;
+      ? `<td style="vertical-align:top;"></td><td style="width:1px;background-color:${dividerColor};font-size:0;line-height:0;">&nbsp;</td><td style="padding-top:8px;padding-left:16px;vertical-align:top;">`
+      : `<td style="padding-top:8px;">`;
 
     meetingLinkRow = `<tr>
       ${cellStart}
-        <a href="${meetingLinkUrl}" style="text-decoration:none;display:block;">
+        <a href="${meetingLinkUrl}" style="text-decoration:none;display:inline-block;">
           <table cellpadding="0" cellspacing="0" border="0"
-                 style="width:100%;border-collapse:separate;border-spacing:0;background-color:${meetBg};border-radius:8px;border:1px solid ${meetEdge};">
+                 style="border-collapse:separate;border-spacing:0;">
             <tr>
-              <td style="padding:10px 14px;">
-                <div style="white-space:nowrap;">${calIcon}${headingLine}</div>
-                ${subtextLine}
+              <td style="padding:4px 6px;vertical-align:middle;border:1px solid ${meetEdge};border-radius:5px;">
+                ${calSvg}
+              </td>
+              <td style="padding-left:8px;vertical-align:middle;">
+                ${headingLine}${subtextLine}
               </td>
             </tr>
           </table>
