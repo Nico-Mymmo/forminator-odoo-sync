@@ -38,11 +38,12 @@
  *
  *  1. Greeting line
  *  2. Identity row (photo | divider | name + role + brand + contact)
- *  3. LinkedIn promo row  (user layer – only when linkedinPromoEnabled)
- *  4. Event promo row    (marketing layer – eventPromoEnabled + eventTitle)
+ *  3. Meeting link row  (user layer – only when meetingLinkEnabled)
+ *  4. LinkedIn promo row  (user layer – only when linkedinPromoEnabled)
+ *  5. Event promo row    (marketing layer – eventPromoEnabled + eventTitle)
  *     OR fallback banner (showBanner + bannerImageUrl)
- *  5. Quote row          (user layer – only when quoteEnabled)
- *  6. Disclaimer row     (merged layer – user text or marketing default)
+ *  6. Quote row          (user layer – only when quoteEnabled)
+ *  7. Disclaimer row     (merged layer – user text or marketing default)
  */
 
 const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl', 'brandName', 'websiteUrl'];
@@ -128,7 +129,12 @@ export function compileSignature(config, userData) {
     quoteEnabled  = false,
     quoteText     = '',
     quoteAuthor   = '',
-    quoteDate     = ''
+    quoteDate     = '',
+    // Meeting link
+    meetingLinkEnabled  = false,
+    meetingLinkUrl      = '',
+    meetingLinkHeading  = 'Even sparren?',
+    meetingLinkSubtext  = 'Boek gerust een online chat en stel je vragen.'
   } = config;
 
   const brandColor = resolvedBrandColor;
@@ -272,6 +278,42 @@ export function compileSignature(config, userData) {
     </tr>`;
   }
 
+  // ── MEETING LINK ──────────────────────────────────────────────────────────────
+  let meetingLinkRow = '';
+
+  if (meetingLinkEnabled && meetingLinkUrl) {
+    const meetBg   = lightenHex(brandColor, 0.92);
+    const meetEdge = lightenHex(brandColor, 0.70);
+
+    // Calendar emoji is the most reliable cross-client email icon approach
+    const calIcon = `<span style="display:inline-block;font-size:18px;line-height:1;vertical-align:middle;margin-right:10px;">&#128197;</span>`;
+
+    const headingLine = `<span style="font-family:${fontStack};font-size:13px;font-weight:700;color:${brandColor};vertical-align:middle;">${meetingLinkHeading}</span>`;
+    const subtextLine = meetingLinkSubtext
+      ? `<div style="font-family:${fontStack};font-size:11px;color:${mutedColor};margin-top:3px;">${meetingLinkSubtext}</div>`
+      : '';
+
+    const cellStart = data.photoUrl
+      ? `<td></td><td colspan="2" style="padding-top:12px;padding-right:16px;">`
+      : `<td style="padding-top:12px;padding-right:16px;">`;
+
+    meetingLinkRow = `<tr>
+      ${cellStart}
+        <a href="${meetingLinkUrl}" style="text-decoration:none;display:block;">
+          <table cellpadding="0" cellspacing="0" border="0"
+                 style="width:100%;border-collapse:separate;border-spacing:0;background-color:${meetBg};border-radius:8px;border:1px solid ${meetEdge};">
+            <tr>
+              <td style="padding:10px 14px;">
+                <div style="white-space:nowrap;">${calIcon}${headingLine}</div>
+                ${subtextLine}
+              </td>
+            </tr>
+          </table>
+        </a>
+      </td>
+    </tr>`;
+  }
+
   // ── LINKEDIN PROMO ────────────────────────────────────────────────────────────
   let linkedinRow = '';
 
@@ -393,6 +435,7 @@ export function compileSignature(config, userData) {
     ${dividerCell}
     ${textCell}
   </tr>
+  ${meetingLinkRow}
   ${linkedinRow}
   ${eventRow}
   ${quoteRow}

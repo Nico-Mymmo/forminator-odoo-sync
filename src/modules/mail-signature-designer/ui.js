@@ -240,6 +240,48 @@ export function mailSignatureDesignerUI(user) {
 
                 <div class="divider my-0"></div>
 
+                <!-- ══ Meeting link ══ -->
+                <details id="my-section-meeting">
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="calendar-clock" class="w-4 h-4 text-base-content/50"></i>
+                      <span class="text-sm font-semibold">Meeting link</span>
+                    </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+                  <div class="pt-3 space-y-3">
+                    <p class="text-xs text-base-content/50">Voeg een klein blokje toe onder je gegevens met een link naar jouw Calendly- of Google Meet-pagina.</p>
+                    <label class="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" name="meeting_link_enabled" id="my-meeting-toggle"
+                             class="checkbox checkbox-sm checkbox-primary"
+                             onchange="onMyMeetingToggle(this.checked)" />
+                      <span class="text-sm font-medium">Meeting link tonen in handtekening</span>
+                    </label>
+                    <div id="my-meeting-fields" class="cond-field space-y-3">
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Koptekst</span></div>
+                        <input type="text" name="meeting_link_heading" id="my-meeting-heading"
+                               value="Even sparren?"
+                               class="input input-bordered input-xs" />
+                      </label>
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Subtekst</span></div>
+                        <input type="text" name="meeting_link_subtext" id="my-meeting-subtext"
+                               value="Boek gerust een online chat en stel je vragen."
+                               class="input input-bordered input-xs" />
+                      </label>
+                      <label class="form-control">
+                        <div class="label py-0.5"><span class="label-text text-xs">Boekings-URL (Calendly, Google Meet, ...)</span></div>
+                        <input type="url" name="meeting_link_url" id="my-meeting-url"
+                               placeholder="https://calendly.com/jouw-naam"
+                               class="input input-bordered input-xs" />
+                      </label>
+                    </div>
+                  </div>
+                </details>
+
+                <div class="divider my-0"></div>
+
                 <!-- ══ Mijn LinkedIn post ══ -->
                 <details id="my-section-linkedin">
                   <summary class="flex items-center justify-between py-1.5 select-none">
