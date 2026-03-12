@@ -248,6 +248,7 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
     'linkedin_promo_enabled', 'linkedin_url', 'linkedin_eyebrow',
     'linkedin_text', 'linkedin_author_name', 'linkedin_author_img', 'linkedin_likes',
     'quote_enabled', 'quote_text', 'quote_author', 'quote_date',
+    'meeting_link_enabled', 'meeting_link_url', 'meeting_link_heading', 'meeting_link_subtext',
     'odoo_email_override', 'google_email_override'
   ];
   const sanitised = {};

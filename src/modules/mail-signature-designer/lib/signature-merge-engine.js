@@ -198,6 +198,10 @@ export function mergeSignatureLayers(
   const quoteEnabled = !!(u.quote_enabled && u.quote_text);
   mergedBy['quote'] = quoteEnabled ? 'user' : 'none';
 
+  // ── Meeting link (user-owned, marketing cannot override) ─────────────────
+  const meetingLinkEnabled = !!(u.meeting_link_enabled && u.meeting_link_url);
+  mergedBy['meetingLink'] = meetingLinkEnabled ? 'user' : 'none';
+
   // ── config object ──────────────────────────────────────────────────────────
   // Branding and events are always from the marketing layer.
   // The user layer does not touch these fields.
@@ -240,7 +244,13 @@ export function mergeSignatureLayers(
     quoteEnabled,
     quoteText:   quoteEnabled ? (u.quote_text   || '') : '',
     quoteAuthor: u.quote_author || '',
-    quoteDate:   u.quote_date   || ''
+    quoteDate:   u.quote_date   || '',
+
+    // ── Meeting link (user layer only)
+    meetingLinkEnabled,
+    meetingLinkUrl:     meetingLinkEnabled ? (u.meeting_link_url     || '') : '',
+    meetingLinkHeading: u.meeting_link_heading || 'Even sparren?',
+    meetingLinkSubtext: u.meeting_link_subtext || 'Boek gerust een online chat en stel je vragen.'
   };
 
   return { config, userData, mergedBy };

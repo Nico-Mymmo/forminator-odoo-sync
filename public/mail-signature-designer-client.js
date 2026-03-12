@@ -1224,7 +1224,11 @@ function getMySettingsForm() {
     quote_enabled: bool('quote_enabled'),
     quote_text:    str('quote_text')   || null,
     quote_author:  str('quote_author') || null,
-    quote_date:    str('quote_date')   || null
+    quote_date:    str('quote_date')   || null,
+    meeting_link_enabled: bool('meeting_link_enabled'),
+    meeting_link_url:     str('meeting_link_url')     || null,
+    meeting_link_heading: str('meeting_link_heading') || null,
+    meeting_link_subtext: str('meeting_link_subtext') || null
   };
 }
 
@@ -1303,6 +1307,11 @@ function applyMySettingsToForm(settings, odooProfile) {
   set('quote_author',  settings.quote_author ?? '');
   set('quote_date',    settings.quote_date   ?? '');
 
+  set('meeting_link_enabled', !!settings.meeting_link_enabled);
+  set('meeting_link_url',     settings.meeting_link_url     ?? '');
+  set('meeting_link_heading', settings.meeting_link_heading || 'Even sparren?');
+  set('meeting_link_subtext', settings.meeting_link_subtext || 'Boek gerust een online chat en stel je vragen.');
+
   // Dynamic placeholders: show Odoo value so user knows what will be used
   if (odooProfile) {
     setPlaceholder('full_name_override',  odooProfile.name,         'Laat leeg = Odoo naam');
@@ -1314,6 +1323,7 @@ function applyMySettingsToForm(settings, odooProfile) {
   toggleCond('my-disclaimer-fields', !!settings.show_disclaimer);
   toggleCond('my-linkedin-fields',   !!settings.linkedin_promo_enabled);
   toggleCond('my-quote-fields',      !!settings.quote_enabled);
+  toggleCond('my-meeting-fields',    !!settings.meeting_link_enabled);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1444,6 +1454,16 @@ function onMyQuoteToggle(checked) {
   debouncedMyPreview();
 }
 window.onMyQuoteToggle = onMyQuoteToggle;
+
+// ════════════════════════════════════════════════════════
+// My-signature Meeting link toggle
+// ════════════════════════════════════════════════════════
+function onMyMeetingToggle(checked) {
+  toggleCond('my-meeting-fields', checked);
+  markMyDirty();
+  debouncedMyPreview();
+}
+window.onMyMeetingToggle = onMyMeetingToggle;
 
 // ════════════════════════════════════════════════════════
 // My-signature LinkedIn meta fetch
