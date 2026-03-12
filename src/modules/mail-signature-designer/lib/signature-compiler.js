@@ -305,7 +305,7 @@ export function compileSignature(config, userData) {
         <table cellpadding="0" cellspacing="0" border="0"
                style="border-collapse:separate;border-spacing:0;">
           <tr>
-            <td style="padding:4px 6px 4px 0;vertical-align:middle;border:none;">
+            <td style="padding:4px 5px;vertical-align:middle;border:1.5px solid ${meetEdge};border-radius:4px;">
               <a href="${meetingLinkUrl}" style="text-decoration:none;display:block;">${calIcon}</a>
             </td>
             <td style="padding-left:8px;vertical-align:middle;">
