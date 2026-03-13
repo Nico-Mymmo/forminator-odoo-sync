@@ -185,10 +185,21 @@ function initColorSync() {
 // ════════════════════════════════════════════════════════
 let _allEvents = [];
 
+function parseOdooUtc(str) {
+  if (!str) return null;
+  // Odoo returns UTC timestamps without a timezone indicator (e.g. "2026-03-25 14:00:00").
+  // Append Z so JavaScript parses them as UTC instead of local time.
+  if (!str.includes('Z') && !str.includes('+') && !str.includes('-', 10)) {
+    return new Date(str.replace(' ', 'T') + 'Z');
+  }
+  return new Date(str);
+}
+
 function formatEventDate(isoStr) {
   if (!isoStr) return '';
   try {
-    return new Date(isoStr).toLocaleDateString('nl-BE', {
+    return parseOdooUtc(isoStr).toLocaleDateString('nl-BE', {
+      timeZone: 'Europe/Brussels',
       day: 'numeric', month: 'long', year: 'numeric',
       hour: '2-digit', minute: '2-digit'
     });
@@ -225,8 +236,8 @@ async function loadEvents() {
     // Upcoming AND published to WordPress only, sorted soonest first
     const now = Date.now();
     const upcoming = _allEvents
-      .filter(e => e.datetime && new Date(e.datetime).getTime() >= now && publishedIds.has(String(e.id)))
-      .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+      .filter(e => e.datetime && parseOdooUtc(e.datetime).getTime() >= now && publishedIds.has(String(e.id)))
+      .sort((a, b) => parseOdooUtc(a.datetime) - parseOdooUtc(b.datetime));
 
     if (upcoming.length === 0) {
       sel.innerHTML = '<option value="">\u2014 Geen aankomende events \u2014</option>';
