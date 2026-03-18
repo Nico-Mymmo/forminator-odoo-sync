@@ -129,6 +129,25 @@ export function mailSignatureDesignerUI(user) {
                 </div>
               </div>
 
+              <!-- ══ Variant selector bar ══ -->
+              <div class="flex items-center gap-2 mb-2">
+                <i data-lucide="layers" class="w-4 h-4 text-base-content/40 shrink-0"></i>
+                <select id="variant-selector"
+                        class="select select-bordered select-xs flex-1 min-w-0"
+                        onchange="onVariantSelectorChange(this.value)">
+                  <option value="">Standaard</option>
+                </select>
+                <button type="button" id="variant-delete-btn"
+                        class="btn btn-xs btn-ghost btn-circle hidden text-error"
+                        onclick="deleteCurrentVariant()" title="Variant verwijderen">
+                  <i data-lucide="trash-2" class="w-3 h-3"></i>
+                </button>
+              </div>
+              <div id="variant-mode-bar" class="hidden alert alert-info text-xs py-1.5 mb-2">
+                <i data-lucide="layers" class="w-3.5 h-3.5 shrink-0"></i>
+                <span id="variant-mode-label">Variant-modus &mdash; bewaar om de wijzigingen op te slaan in dit variant.</span>
+              </div>
+
               <form id="my-settings-form" class="space-y-4">
 
                 <!-- ══ Mijn gegevens + zichtbaarheid ══ -->
@@ -202,16 +221,27 @@ export function mailSignatureDesignerUI(user) {
                     </div>
 
                     <!-- E-mailadres -->
-                    <div class="flex items-center gap-2 pl-0.5">
-                      <label class="flex flex-col items-center gap-0.5" title="E-mailadres tonen">
+                    <div class="flex items-end gap-2">
+                      <label class="flex flex-col items-center gap-0.5 pb-1" title="E-mailadres tonen">
                         <span class="text-xs text-base-content/40">toon</span>
                         <input type="checkbox" name="show_email" id="my-show-email"
                                class="checkbox checkbox-xs checkbox-primary" checked />
                       </label>
-                      <div class="flex flex-col">
-                        <span class="label-text text-xs">E-mailadres</span>
-                        <span id="my-email-display" class="text-xs text-base-content/50 italic">wordt geladen&#8230;</span>
+                      <div class="flex-1">
+                        <div class="label py-0.5"><span class="label-text text-xs">E-mailadres</span></div>
+                        <input type="text" name="email_display_override" id="my-email-display-input"
+                               placeholder="Laat leeg = eigen e-mailadres"
+                               class="input input-bordered input-xs w-full" />
+                        <p class="text-xs text-base-content/40 mt-0.5">Laat leeg = eigen Google-email. Voor alias-varianten: vul het alias-emailadres in.</p>
                       </div>
+                    </div>
+
+                    <!-- Website URL -->
+                    <div>
+                      <div class="label py-0.5"><span class="label-text text-xs">Website URL</span></div>
+                      <input type="url" name="website_url_override" id="my-website-url"
+                             placeholder="Laat leeg = marketing URL"
+                             class="input input-bordered input-xs w-full" />
                     </div>
 
                     <!-- Profielfoto -->
@@ -434,6 +464,32 @@ export function mailSignatureDesignerUI(user) {
 
                 <div class="divider my-0"></div>
 
+                <!-- ══ Aliassen ══ -->
+                <details id="my-section-aliases" ontoggle="if(this.open) initAliasSection()">
+                  <summary class="flex items-center justify-between py-1.5 select-none">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="at-sign" class="w-4 h-4 text-base-content/50"></i>
+                      <span class="text-sm font-semibold">Aliassen</span>
+                    </div>
+                    <i data-lucide="chevron-right" class="w-4 h-4 summary-chevron text-base-content/40"></i>
+                  </summary>
+                  <div class="pt-3 space-y-3">
+                    <p class="text-xs text-base-content/50">Wijs per alias in welk variant wordt gepusht.</p>
+                    <div id="my-aliases-list">
+                      <span class="loading loading-spinner loading-xs"></span>
+                    </div>
+                    <div id="my-aliases-save-row" class="hidden flex gap-2 mt-2">
+                      <button type="button" class="btn btn-primary btn-xs"
+                              onclick="saveAliasAssignmentsUI()">
+                        <i data-lucide="save" class="w-3 h-3 mr-1"></i> Toewijzingen opslaan
+                      </button>
+                      <span id="my-aliases-save-status" class="text-xs self-center text-base-content/50"></span>
+                    </div>
+                  </div>
+                </details>
+
+                <div class="divider my-0"></div>
+
                 <!-- Actions -->
                 <div class="flex flex-wrap gap-2 pt-2">
                   <button type="button" onclick="pushSelf()"
@@ -452,19 +508,27 @@ export function mailSignatureDesignerUI(user) {
             <div class="card-body py-4 px-5 gap-3">
               <div class="flex items-center justify-between">
                 <h2 class="font-semibold text-base">Live preview</h2>
-                <div class="join">
-                  <button id="my-vp-desktop" class="join-item btn btn-xs btn-active"
-                          onclick="setMyViewport('desktop')" title="Desktop">
-                    <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
+                <div class="flex items-center gap-2">
+                  <button id="my-copy-btn"
+                          onclick="copyMySignature()"
+                          class="btn btn-xs btn-outline gap-1" title="Kopieer handtekening naar klembord (plakken in Gmail)">
+                    <i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i>
+                    Kopi&#235;ren
                   </button>
-                  <button id="my-vp-mobile" class="join-item btn btn-xs"
-                          onclick="setMyViewport('mobile')" title="Smal (360px)">
-                    <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
-                  </button>
-                  <button id="my-vp-dark" class="join-item btn btn-xs"
-                          onclick="toggleMyPreviewMode()" title="Dark/light achtergrond">
-                    <i data-lucide="moon" class="w-3.5 h-3.5"></i>
-                  </button>
+                  <div class="join">
+                    <button id="my-vp-desktop" class="join-item btn btn-xs btn-active"
+                            onclick="setMyViewport('desktop')" title="Desktop">
+                      <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <button id="my-vp-mobile" class="join-item btn btn-xs"
+                            onclick="setMyViewport('mobile')" title="Smal (360px)">
+                      <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <button id="my-vp-dark" class="join-item btn btn-xs"
+                            onclick="toggleMyPreviewMode()" title="Dark/light achtergrond">
+                      <i data-lucide="moon" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
 

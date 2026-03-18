@@ -9,7 +9,10 @@
  */
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const GMAIL_SCOPES = 'https://www.googleapis.com/auth/gmail.settings.basic';
+// gmail.settings.basic  – required for list/read/patch primary sendAs
+// gmail.settings.sharing – additionally required for PATCH on non-primary (alias) sendAs
+const GMAIL_SCOPES_BASIC   = 'https://www.googleapis.com/auth/gmail.settings.basic';
+const GMAIL_SCOPES_SHARING = 'https://www.googleapis.com/auth/gmail.settings.basic https://www.googleapis.com/auth/gmail.settings.sharing';
 
 /**
  * Base64url encode (no padding).
@@ -61,9 +64,12 @@ async function createJWT(serviceAccount, scopes, subject) {
 
 /**
  * Exchange signed JWT for an OAuth2 access token.
+ * @param {Object} serviceAccount
+ * @param {string} subject  - user to impersonate
+ * @param {string} [scopes] - space-separated scope string (defaults to BASIC)
  */
-async function getAccessToken(serviceAccount, subject) {
-  const jwt = await createJWT(serviceAccount, GMAIL_SCOPES, subject);
+async function getAccessToken(serviceAccount, subject, scopes = GMAIL_SCOPES_BASIC) {
+  const jwt = await createJWT(serviceAccount, scopes, subject);
 
   const resp = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -130,6 +136,70 @@ export async function getPrimarySendAs(env, userEmail) {
 }
 
 /**
+ * List all sendAs identities for a user (primary + aliases).
+ *
+ * @param {Object} env
+ * @param {string} userEmail
+ * @returns {Promise<Array<{ sendAsEmail, displayName, isPrimary, isDefault, signature }>>}
+ */
+export async function listSendAs(env, userEmail) {
+  const sa = getServiceAccount(env);
+  const token = await getAccessToken(sa, userEmail);
+
+  const resp = await fetch(
+    'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs',
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`sendAs.list failed for ${userEmail} (${resp.status}): ${text}`);
+  }
+
+  const data = await resp.json();
+  return (data.sendAs || []).map(s => ({
+    sendAsEmail: s.sendAsEmail,
+    displayName: s.displayName || '',
+    isPrimary:   !!s.isPrimary,
+    isDefault:   !!s.isDefault,
+    signature:   s.signature || ''
+  }));
+}
+
+/**
+ * Push a signature to a specific sendAs address without listing first.
+ * The caller is responsible for providing a valid sendAsEmail.
+ *
+ * @param {Object} env
+ * @param {string} userEmail    - Google Workspace user to impersonate
+ * @param {string} sendAsEmail  - The sendAs address to update
+ * @param {string} signatureHtml
+ * @returns {Promise<void>}
+ */
+export async function pushSignatureToAlias(env, userEmail, sendAsEmail, signatureHtml) {
+  const sa = getServiceAccount(env);
+  // Non-primary sendAs requires the additional gmail.settings.sharing scope
+  const token = await getAccessToken(sa, userEmail, GMAIL_SCOPES_SHARING);
+
+  const resp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/${encodeURIComponent(sendAsEmail)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ signature: signatureHtml })
+    }
+  );
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`sendAs.patch failed for ${sendAsEmail} on ${userEmail} (${resp.status}): ${text}`);
+  }
+}
+
+/**
  * Update the signature for the primary sendAs of a user.
  *
  * @param {Object} env
@@ -162,7 +232,7 @@ export async function updateSignature(env, userEmail, signatureHtml) {
   const resp = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/${encodeURIComponent(sendAsEmail)}`,
     {
-      method: 'PUT',
+      method: 'PATCH',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -173,7 +243,7 @@ export async function updateSignature(env, userEmail, signatureHtml) {
 
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`sendAs.update failed for ${userEmail} (${resp.status}): ${text}`);
+    throw new Error(`sendAs.patch failed for ${userEmail} (${resp.status}): ${text}`);
   }
 
   return { sendAsEmail, oldSignature };

@@ -150,8 +150,9 @@ export function mergeSignatureLayers(
     ? (u.company_override || m.brandName || 'OpenVME')
     : '';
 
-  // Email is always the authoritative target email; toggle controls visibility
-  const email = showEmail ? targetEmail : '';
+  // Email: user override wins (useful for aliases with a display address different from sendAs);
+  // otherwise falls back to the authoritative targetEmail.
+  const email = showEmail ? (u.email_display_override || targetEmail) : '';
 
   // Photo always comes from Google Directory (most up-to-date, matches Google Meet etc.)
   const photoUrl = resolve('photoUrl', [
@@ -207,10 +208,10 @@ export function mergeSignatureLayers(
   // The user layer does not touch these fields.
 
   const config = {
-    // ── Branding (marketing layer only)
+    // ── Branding (marketing layer only, but user may override website per variant)
     brandColor:  m.brandColor  || m.primaryColor || '#2563eb',
     brandName:   m.brandName   || '',
-    websiteUrl:  m.websiteUrl  || '',
+    websiteUrl:  u.website_url_override || m.websiteUrl || '',
 
     // ── Event promo (marketing layer only, gated by user opt-out)
     eventPromoEnabled: !!(m.eventPromoEnabled && m.eventTitle) && showEventPromo,
@@ -278,4 +279,41 @@ export function mergeForPreview(formUserSettings, marketingConfig, targetEmail) 
     {},          // no Directory data in preview
     targetEmail || 'preview@example.com'
   );
+}
+
+/**
+ * Apply variant config overrides on top of an already-merged config.
+ *
+ * Variant config_overrides is a flat JSONB object whose keys match the
+ * config fields produced by mergeSignatureLayers(), e.g.:
+ *   { meetingLinkEnabled: false, linkedinPromoEnabled: false, showGreeting: false }
+ *
+ * Overrides are applied as a shallow merge, so only the specified keys change.
+ * Use this immediately before compileSignature() when rendering an alias variant.
+ *
+ * @param {Object} config    - output of mergeSignatureLayers().config
+ * @param {Object} overrides - config_overrides from user_signature_variants row
+ * @returns {{ config: Object, userData: Object }} new objects (originals unchanged)
+ */
+
+// Keys that belong to the userData object passed to compileSignature().
+// All other override keys are applied to the config object.
+const _USER_DATA_KEYS = new Set([
+  'greetingText', 'showGreeting', 'fullName', 'roleTitle', 'phone', 'company'
+]);
+
+export function applyVariantOverrides(config, userData, overrides) {
+  if (!overrides || Object.keys(overrides).length === 0) {
+    return { config, userData };
+  }
+  const newConfig   = { ...config };
+  const newUserData = { ...userData };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (_USER_DATA_KEYS.has(key)) {
+      newUserData[key] = value;
+    } else {
+      newConfig[key] = value;
+    }
+  }
+  return { config: newConfig, userData: newUserData };
 }
