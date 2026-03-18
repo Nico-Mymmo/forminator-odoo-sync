@@ -34,5 +34,8 @@
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS"
+	},
+	"triggers": {
+		"crons": ["*/15 * * * *"]
 	}
 }

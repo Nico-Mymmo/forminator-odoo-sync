@@ -7,6 +7,7 @@ import { getForminatorForm, extractFieldsFromForm, generateFieldMapping } from "
 import { handleLogin, handleLogout, handleMe } from "./api/auth.js";
 import { validateKey } from "./modules/asset-manager/lib/path-utils.js";
 import { getMimeType } from "./modules/asset-manager/lib/mime-types.js";
+import { handleCxWinDetection } from "./modules/cx_powerboard/cron/win-detection.js";
 
 const ACTIONS = {
   test_connection: testConnection,
@@ -584,5 +585,9 @@ export default {
         headers: { "Content-Type": "application/json" }
       });
     }
+  },
+
+  async scheduled(event, env, ctx) {
+    await handleCxWinDetection(env);
   }
 };
