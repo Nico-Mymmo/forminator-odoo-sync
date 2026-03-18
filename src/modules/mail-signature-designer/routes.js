@@ -46,14 +46,18 @@ import {
   getMarketingSettings, upsertMarketingSettings,
   getUserSettings, upsertUserSettings, clearAllHiddenEventIds,
   logPush, getLogs,
-  getExcludedEmails, setExcludedEmails
+  getExcludedEmails, setExcludedEmails,
+  getVariants, getVariant, upsertVariant, deleteVariant,
+  getAliasAssignments, saveAliasAssignments
 } from './lib/signature-store.js';
 import { compileSignature } from './lib/signature-compiler.js';
 import { mergeSignatureLayers, mergeForPreview } from './lib/signature-merge-engine.js';
 import { listUsers, getUserByEmail } from './lib/directory-client.js';
-import { getPrimarySendAs, updateSignature } from './lib/gmail-signature-client.js';
+import { getPrimarySendAs, updateSignature, listSendAs, pushSignatureToAlias } from './lib/gmail-signature-client.js';
 import { mailSignatureDesignerUI } from './ui.js';
 import { searchRead } from '../../lib/odoo.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const LOG_PREFIX = '[mail-signature-designer]';
 const PUSH_CONCURRENCY = 5;
@@ -185,12 +189,103 @@ async function pushOneUser({
     // Push to Gmail — use google_email_override when the user's Google primary
     // address differs from their app login email
     const googleEmail = userSettings?.google_email_override?.toLowerCase().trim() || targetEmail;
-    const { sendAsEmail, oldSignature } = await updateSignature(env, googleEmail, html);
-    const newHash = quickHash(html);
+
+    // Always fetch all sendAs identities and all alias assignments so we can push
+    // a signature to every address the user can send from.
+    const [sendAsList, assignments] = await Promise.all([
+      listSendAs(env, googleEmail).catch(() => null),
+      getAliasAssignments(env, targetEmail).catch(() => [])
+    ]);
+
+    let sendAsEmail, oldSignature, finalHtml, finalWarnings;
+
+    if (!sendAsList || sendAsList.length <= 1) {
+      // ── Single-address / fallback path: update primary only ──────────────
+      const result = await updateSignature(env, googleEmail, html);
+      sendAsEmail    = result.sendAsEmail;
+      oldSignature   = result.oldSignature;
+      finalHtml      = html;
+      finalWarnings  = warnings;
+    } else {
+      // ── Multi-address path: push correct variant to every sendAs ──────────
+      const primarySendAs = sendAsList.find(s => s.isPrimary) || sendAsList[0];
+
+      // Build a map:  sendAsEmail (lowercase) → variantId (null = base)
+      const assignMap = new Map(assignments.map(a => [a.send_as_email.toLowerCase(), a.variant_id]));
+
+      // Load only the distinct variants we actually need
+      const variantIds = [...new Set(assignments.map(a => a.variant_id).filter(Boolean))];
+      const variantCache = {};
+      for (const vid of variantIds) {
+        try {
+          const v = await getVariant(env, vid);
+          if (v) variantCache[vid] = v.config_overrides || {};
+        } catch { /* variant deleted or inaccessible – skip */ }
+      }
+
+      // Helper: compile HTML for a sendAs address using its assigned variant (or base)
+      const compileSendAs = (sendAsEmailAddr) => {
+        const key = sendAsEmailAddr.toLowerCase();
+        const vid = assignMap.get(key);
+        if (vid && variantCache[vid] && Object.keys(variantCache[vid]).length > 0) {
+          const { config: vc, userData: vu } = mergeSignatureLayers(
+            { ...userSettings, ...variantCache[vid] }, marketingConfig, odooUser, dirUser, sendAsEmailAddr
+          );
+          return compileSignature(vc, vu);
+        }
+        // No assignment or empty overrides → base signature, but resolved against this address
+        const { config: bc, userData: bu } = mergeSignatureLayers(
+          userSettings, marketingConfig, odooUser, dirUser, sendAsEmailAddr
+        );
+        return compileSignature(bc, bu);
+      };
+
+      // Push to primary first (for audit log below)
+      const primaryResult = compileSendAs(primarySendAs.sendAsEmail);
+      await pushSignatureToAlias(env, googleEmail, primarySendAs.sendAsEmail, primaryResult.html);
+      sendAsEmail   = primarySendAs.sendAsEmail;
+      oldSignature  = primarySendAs.signature;
+      finalHtml     = primaryResult.html;
+      finalWarnings = primaryResult.warnings;
+
+      // Push to all non-primary sendAs addresses
+      for (const sa of sendAsList) {
+        if (sa.sendAsEmail.toLowerCase() === primarySendAs.sendAsEmail.toLowerCase()) continue;
+        try {
+          const { html: saHtml } = compileSendAs(sa.sendAsEmail);
+          await pushSignatureToAlias(env, googleEmail, sa.sendAsEmail, saHtml);
+          const assigned = assignMap.get(sa.sendAsEmail.toLowerCase());
+          await logPush(env, {
+            actor_email:       actorEmail,
+            target_user_email: targetEmail,
+            sendas_email:      sa.sendAsEmail,
+            success:           true,
+            html_hash:         quickHash(saHtml),
+            push_scope:        pushScope,
+            metadata:          { variant_id: assigned || null, is_alias: true }
+          });
+        } catch (aliasErr) {
+          console.warn(`${LOG_PREFIX} alias push failed for ${sa.sendAsEmail}:`, aliasErr.message);
+          const assigned2 = assignMap?.get(sa.sendAsEmail.toLowerCase());
+          await logPush(env, {
+            actor_email:       actorEmail,
+            target_user_email: targetEmail,
+            sendas_email:      sa.sendAsEmail,
+            success:           false,
+            error_message:     aliasErr.message,
+            html_hash:         null,
+            push_scope:        pushScope,
+            metadata:          { variant_id: assigned2 || null, is_alias: true }
+          }).catch(() => {});
+        }
+      }
+    }
+
+    const newHash = quickHash(finalHtml);
     const oldHash = quickHash(oldSignature || '');
     const changed = oldHash !== newHash;
 
-    // Audit log
+    // Audit log for primary
     await logPush(env, {
       actor_email:       actorEmail,
       target_user_email: targetEmail,
@@ -199,14 +294,14 @@ async function pushOneUser({
       html_hash:         newHash,
       push_scope:        pushScope,
       metadata: {
-        ...(warnings.length ? { warnings } : {}),
+        ...(finalWarnings.length ? { warnings: finalWarnings } : {}),
         old_hash: oldHash,
         new_hash: newHash,
         changed
       }
     });
 
-    return { email: targetEmail, success: true, warnings, changed, old_hash: oldHash, new_hash: newHash };
+    return { email: targetEmail, success: true, warnings: finalWarnings, changed, old_hash: oldHash, new_hash: newHash };
   } catch (err) {
     console.error(`${LOG_PREFIX} push failed for ${targetEmail}:`, err);
 
@@ -464,6 +559,175 @@ export const routes = {
   },
 
   // ===========================================================================
+  // ALIASES   (any authenticated user — own aliases only via Gmail API)
+  // ===========================================================================
+
+  /**
+   * GET /mail-signatures/api/my-aliases
+   * Returns the calling user's Gmail sendAs identities (primary + aliases).
+   */
+  'GET /api/my-aliases': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    try {
+      const userSettings = await getUserSettings(context.env, context.user.email);
+      const googleEmail  = userSettings?.google_email_override?.toLowerCase().trim() || context.user.email;
+      const sendAsList   = await listSendAs(context.env, googleEmail);
+      return jsonOk({ aliases: sendAsList });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} GET /api/my-aliases failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  // ===========================================================================
+  // SIGNATURE VARIANTS   (any authenticated user — own variants only)
+  // ===========================================================================
+
+  /**
+   * GET /mail-signatures/api/my-variants
+   * List all signature variants for the calling user.
+   */
+  'GET /api/my-variants': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    try {
+      const variants = await getVariants(context.env, context.user.email);
+      return jsonOk({ variants });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} GET /api/my-variants failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  /**
+   * POST /mail-signatures/api/my-variants
+   * Create a new signature variant.
+   * Body: { variantName: string, configOverrides: Object }
+   */
+  'POST /api/my-variants': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    try {
+      const body = await context.request.json();
+      if (!body?.variantName?.trim()) {
+        return jsonError('variantName is required', 400);
+      }
+      const variant = await upsertVariant(
+        context.env,
+        context.user.email,
+        null,
+        body.variantName,
+        body.configOverrides || {}
+      );
+      return jsonOk({ variant });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} POST /api/my-variants failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  /**
+   * PUT /mail-signatures/api/my-variants/:id
+   * Update an existing variant (ownership enforced).
+   * Body: { variantName: string, configOverrides: Object }
+   */
+  'PUT /api/my-variants/:id': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    try {
+      const variantId = context.params?.id;
+      if (!variantId || !UUID_RE.test(variantId)) {
+        return jsonError('Invalid variant ID', 400);
+      }
+      const body = await context.request.json();
+      if (!body?.variantName?.trim()) {
+        return jsonError('variantName is required', 400);
+      }
+      const variant = await upsertVariant(
+        context.env,
+        context.user.email,
+        variantId,
+        body.variantName,
+        body.configOverrides || {}
+      );
+      return jsonOk({ variant });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} PUT /api/my-variants/:id failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  /**
+   * DELETE /mail-signatures/api/my-variants/:id
+   * Delete a variant (ownership enforced).
+   */
+  'DELETE /api/my-variants/:id': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    try {
+      const variantId = context.params?.id;
+      if (!variantId || !UUID_RE.test(variantId)) {
+        return jsonError('Invalid variant ID', 400);
+      }
+      await deleteVariant(context.env, variantId, context.user.email);
+      return jsonOk({ deleted: true });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} DELETE /api/my-variants/:id failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  // ===========================================================================
+  // ALIAS ASSIGNMENTS   (any authenticated user — own assignments only)
+  // ===========================================================================
+
+  /**
+   * GET /mail-signatures/api/my-alias-assignments
+   * Return alias→variant assignments for the calling user.
+   */
+  'GET /api/my-alias-assignments': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    try {
+      const assignments = await getAliasAssignments(context.env, context.user.email);
+      return jsonOk({ assignments });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} GET /api/my-alias-assignments failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  /**
+   * PUT /mail-signatures/api/my-alias-assignments
+   * Save alias→variant assignments for the calling user (full replace).
+   * Body: { assignments: [{ sendAsEmail: string, variantId: string|null }] }
+   */
+  'PUT /api/my-alias-assignments': async (context) => {
+    const deny = guardAuth(context);
+    if (deny) return deny;
+    try {
+      const body = await context.request.json();
+      if (!Array.isArray(body?.assignments)) {
+        return jsonError('assignments must be an array', 400);
+      }
+      // Basic input sanitisation: only accept valid email-shaped strings
+      const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const cleaned = body.assignments
+        .filter(a => a?.sendAsEmail && EMAIL_RE.test(a.sendAsEmail))
+        .map(a => ({
+          sendAsEmail: a.sendAsEmail.toLowerCase().trim(),
+          variantId:   (a.variantId && UUID_RE.test(a.variantId)) ? a.variantId : null
+        }));
+      await saveAliasAssignments(context.env, context.user.email, cleaned);
+      return jsonOk({ saved: cleaned.length });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} PUT /api/my-alias-assignments failed:`, err);
+      return jsonError(err.message);
+    }
+  },
+
+  // ===========================================================================
   // PREVIEW
   // ===========================================================================
 
@@ -510,6 +774,29 @@ export const routes = {
             roleTitle: body.userData.roleTitle ?? userData.roleTitle,
             phone:     body.userData.phone     ?? userData.phone,
             photoUrl:  body.userData.photoUrl  ?? userData.photoUrl
+          });
+        }
+      } else if (scope === 'variant') {
+        // Variant preview: accept snake_case variantSettings (same shape as user_signature_settings)
+        // and do a full merge so all layers (Odoo fallbacks, marketing, etc.) are applied correctly.
+        const deny2 = guardAuth(context);
+        if (deny2) return deny2;
+        const marketingResult = await getMarketingSettings(context.env);
+        const variantSettings = body?.variantSettings || {};
+        const merged = mergeForPreview(variantSettings, marketingResult.config || {}, context.user.email);
+        config   = merged.config;
+        userData = merged.userData;
+        // Apply client-resolved userData (photo, Odoo fallbacks) — mirrors the 'user' scope path
+        if (body?.userData) {
+          Object.assign(userData, {
+            fullName:     body.userData.fullName     ?? userData.fullName,
+            roleTitle:    body.userData.roleTitle    ?? userData.roleTitle,
+            phone:        body.userData.phone        ?? userData.phone,
+            photoUrl:     body.userData.photoUrl     ?? userData.photoUrl,
+            email:        body.userData.email        ?? userData.email,
+            greetingText: body.userData.greetingText ?? userData.greetingText,
+            showGreeting: body.userData.showGreeting ?? userData.showGreeting,
+            company:      body.userData.company      ?? userData.company
           });
         }
       } else {

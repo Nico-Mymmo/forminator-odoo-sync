@@ -185,10 +185,21 @@ function initColorSync() {
 // ════════════════════════════════════════════════════════
 let _allEvents = [];
 
+function parseOdooUtc(str) {
+  if (!str) return null;
+  // Odoo returns UTC timestamps without a timezone indicator (e.g. "2026-03-25 14:00:00").
+  // Append Z so JavaScript parses them as UTC instead of local time.
+  if (!str.includes('Z') && !str.includes('+') && !str.includes('-', 10)) {
+    return new Date(str.replace(' ', 'T') + 'Z');
+  }
+  return new Date(str);
+}
+
 function formatEventDate(isoStr) {
   if (!isoStr) return '';
   try {
-    return new Date(isoStr).toLocaleDateString('nl-BE', {
+    return parseOdooUtc(isoStr).toLocaleDateString('nl-BE', {
+      timeZone: 'Europe/Brussels',
       day: 'numeric', month: 'long', year: 'numeric',
       hour: '2-digit', minute: '2-digit'
     });
@@ -225,8 +236,8 @@ async function loadEvents() {
     // Upcoming AND published to WordPress only, sorted soonest first
     const now = Date.now();
     const upcoming = _allEvents
-      .filter(e => e.datetime && new Date(e.datetime).getTime() >= now && publishedIds.has(String(e.id)))
-      .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+      .filter(e => e.datetime && parseOdooUtc(e.datetime).getTime() >= now && publishedIds.has(String(e.id)))
+      .sort((a, b) => parseOdooUtc(a.datetime) - parseOdooUtc(b.datetime));
 
     if (upcoming.length === 0) {
       sel.innerHTML = '<option value="">\u2014 Geen aankomende events \u2014</option>';
@@ -1153,9 +1164,10 @@ function setMyPreviewState(state) {
 // ════════════════════════════════════════════════════════
 // My-signature save indicator
 // ════════════════════════════════════════════════════════
-let _myIsDirty   = false;
-let _odooProfile = null;  // populated by loadMySettings(); used as preview fallback
-let _activeEvent = null;  // { title, date } of the current marketing event, or null
+let _myIsDirty    = false;
+let _odooProfile  = null;  // populated by loadMySettings(); used as preview fallback
+let _activeEvent  = null;  // { title, date } of the current marketing event, or null
+let _myBaseSettings = null; // raw user_signature_settings from DB (for resetting to Standaard)
 
 function setMySaveStatus(status) {
   const dot   = $('my-save-status-dot');
@@ -1199,6 +1211,8 @@ function getMySettingsForm() {
     full_name_override:     str('full_name_override')  || null,
     role_title_override:    str('role_title_override') || null,
     phone_override:         str('phone_override')      || null,
+    website_url_override:   str('website_url_override') || null,
+    email_display_override: str('email_display_override') || null,
     show_greeting:          bool('show_greeting'),
     greeting_text:          str('greeting_text')    || null,
     show_company:           bool('show_company'),
@@ -1260,6 +1274,13 @@ function applyMySettingsToForm(settings, odooProfile) {
   set('show_company',           settings.show_company    !== false);  // default true
   set('company_override',       settings.company_override ?? '');
   set('phone_override',         settings.phone_override      ?? '');
+  set('website_url_override',   settings.website_url_override ?? '');
+  set('email_display_override', settings.email_display_override ?? '');
+  // Update placeholder to show the actual email this will default to
+  const emailInput = f.querySelector('[name="email_display_override"]');
+  if (emailInput) emailInput.placeholder = _actorEmail
+    ? `${_actorEmail}  \u2014 laat leeg voor standaard`
+    : 'Laat leeg = eigen e-mailadres';
   set('show_email',             settings.show_email      !== false);   // default true
   set('show_phone',             settings.show_phone      !== false);   // default true
   set('show_photo',             settings.show_photo      !== false);   // default true
@@ -1280,9 +1301,7 @@ function applyMySettingsToForm(settings, odooProfile) {
     eventTitleEl.textContent = _activeEvent.title + (_activeEvent.date ? ` — ${_activeEvent.date}` : '');
   }
 
-  // Show the user's own email address in the read-only display span
-  const emailDisplayEl = document.getElementById('my-email-display');
-  if (emailDisplayEl) emailDisplayEl.textContent = _actorEmail || '';
+  // The email_display_override input placeholder is set in the field block above.
 
   // Show photo thumbnail or 'geen foto' message based on what odooProfile provided
   const hasPhoto     = !!(odooProfile?.photoUrl);
@@ -1334,12 +1353,15 @@ async function loadMySettings() {
     const res  = await fetch('/mail-signatures/api/my-settings', { credentials: 'include' });
     const json = await res.json();
     if (json.success && json.data) {
-      _odooProfile = json.data.odooProfile ?? null;
-      _activeEvent = json.data.activeEvent  ?? null;
-      applyMySettingsToForm(json.data.settings ?? {}, _odooProfile);
+      _odooProfile    = json.data.odooProfile ?? null;
+      _activeEvent    = json.data.activeEvent  ?? null;
+      _myBaseSettings = json.data.settings     ?? {};
+      applyMySettingsToForm(_myBaseSettings, _odooProfile);
     }
     setMySaveStatus('–');
     _myIsDirty = false;
+    // Load variants for the top selector (non-blocking)
+    _loadVariantsForSelector();
   } catch (e) {
     console.error('[sig] loadMySettings error:', e);
   }
@@ -1347,6 +1369,39 @@ async function loadMySettings() {
 
 async function saveMySettings() {
   const settings = getMySettingsForm();
+
+  // ── Variant mode: save to variant API ─────────────────────────────────
+  if (_selectedVariantId) {
+    const variant = _cachedVariants.find(v => v.id === _selectedVariantId);
+    const variantName = variant?.variant_name || 'Variant';
+    try {
+      const res = await fetch(`/mail-signatures/api/my-variants/${_selectedVariantId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variantName, configOverrides: settings }),
+        credentials: 'include'
+      });
+      const json = await res.json();
+      if (json.success) {
+        // Update cached variant overrides
+        const idx = _cachedVariants.findIndex(v => v.id === _selectedVariantId);
+        if (idx >= 0) _cachedVariants[idx].config_overrides = settings;
+        markMyClean();
+        setMyPreviewState('saved');
+        showToast('Variant opgeslagen', 'success');
+        updateMyPreview();
+      } else {
+        setMyPreviewState('error');
+        showToast('Opslaan mislukt: ' + json.error, 'error');
+      }
+    } catch (e) {
+      setMyPreviewState('error');
+      showToast('Netwerkfout: ' + e.message, 'error');
+    }
+    return;
+  }
+
+  // ── Standaard: save to user settings ──────────────────────────────────
   try {
     const res = await fetch('/mail-signatures/api/my-settings', {
       method: 'PUT',
@@ -1356,6 +1411,7 @@ async function saveMySettings() {
     });
     const json = await res.json();
     if (json.success) {
+      _myBaseSettings = settings;
       markMyClean();
       setMyPreviewState('saved');
       showToast('Instellingen opgeslagen', 'success');
@@ -1383,18 +1439,45 @@ async function pushSelf() {
 
   try {
     // Always save current form state first — the push reads from DB, so
-    // unsaved changes (e.g. toggling the event off) would be ignored otherwise.
-    const saveRes  = await fetch('/mail-signatures/api/my-settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings: getMySettingsForm() }),
-      credentials: 'include'
-    });
-    const saveJson = await saveRes.json();
-    if (!saveJson.success) {
-      if (resultDiv) resultDiv.innerHTML = `<div class="alert alert-error text-sm">Opslaan mislukt: ${saveJson.error || 'onbekende fout'}</div>`;
-      return;
+    // unsaved changes would be ignored otherwise.
+    // Route the save through saveMySettings() to respect variant mode.
+    const settings = getMySettingsForm();
+    let saveOk = false;
+
+    if (_selectedVariantId) {
+      // Variant mode: save the variant, not the base settings
+      const variant     = _cachedVariants.find(v => v.id === _selectedVariantId);
+      const variantName = variant?.variant_name || 'Variant';
+      const saveRes  = await fetch(`/mail-signatures/api/my-variants/${_selectedVariantId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variantName, configOverrides: settings }),
+        credentials: 'include'
+      });
+      const saveJson = await saveRes.json();
+      if (!saveJson.success) {
+        if (resultDiv) resultDiv.innerHTML = `<div class="alert alert-error text-sm">Opslaan mislukt: ${saveJson.error || 'onbekende fout'}</div>`;
+        return;
+      }
+      saveOk = true;
+    } else {
+      // Standaard mode: save base settings
+      const saveRes  = await fetch('/mail-signatures/api/my-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings }),
+        credentials: 'include'
+      });
+      const saveJson = await saveRes.json();
+      if (!saveJson.success) {
+        if (resultDiv) resultDiv.innerHTML = `<div class="alert alert-error text-sm">Opslaan mislukt: ${saveJson.error || 'onbekende fout'}</div>`;
+        return;
+      }
+      _myBaseSettings = settings;
+      saveOk = true;
     }
+
+    if (!saveOk) return;
     markMyClean();
 
     const res  = await fetch('/mail-signatures/api/push/self', {
@@ -1410,10 +1493,15 @@ async function pushSelf() {
         const badge = r.changed
           ? '<span class="badge badge-xs badge-warning">gewijzigd</span>'
           : '<span class="badge badge-xs badge-ghost">ongewijzigd</span>';
+        // Count alias results from metadata if present
+        const aliasPushes = json.data.results?.filter(x => x.success && x !== r).length || 0;
+        const aliasNote   = aliasPushes > 0
+          ? ` <span class="text-xs text-base-content/50">(+ ${aliasPushes} alias${aliasPushes > 1 ? 'sen' : ''})</span>`
+          : '';
         if (resultDiv) {
-          resultDiv.innerHTML = `<div class="alert alert-success text-sm">Handtekening gepusht naar jouw Gmail ${badge}</div>`;
+          resultDiv.innerHTML = `<div class="alert alert-success text-sm">Handtekening gepusht naar jouw Gmail ${badge}${aliasNote}</div>`;
         }
-        showToast('Handtekening gepusht', 'success');
+        showToast('Handtekening gepusht' + (aliasPushes > 0 ? ` + ${aliasPushes} alias(sen)` : ''), 'success');
       } else {
         if (resultDiv) {
           resultDiv.innerHTML = `<div class="alert alert-error text-sm">Push mislukt: ${r.error}</div>`;
@@ -1534,27 +1622,51 @@ async function updateMyPreview() {
   setMyPreviewState('loading');
 
   const userSettings = getMySettingsForm();
-  // Use actorEmail as the preview target (shows own email in signature)
   const previewEmail = _actorEmail || 'preview@example.com';
+
+  // Build the fetch body depending on variant mode
+  let previewBody;
+  if (_selectedVariantId) {
+    // Variant mode: send snake_case settings so the server does a full merge.
+    // Also pass resolved userData (photo, Odoo fallbacks) so the preview shows
+    // the photo and fills empty name/title from Odoo — same as standard mode.
+    previewBody = {
+      scope: 'variant',
+      variantSettings: userSettings,
+      userData: {
+        email:        (userSettings.show_email    !== false) ? (userSettings.email_display_override || previewEmail) : '',
+        fullName:     (userSettings.show_name     !== false) ? (userSettings.full_name_override  || _odooProfile?.name         || '') : '',
+        roleTitle:    (userSettings.show_role_title !== false) ? (userSettings.role_title_override || _odooProfile?.job_title    || '') : '',
+        phone:        (userSettings.show_phone    !== false) ? (userSettings.phone_override    || _odooProfile?.mobile_phone || '') : '',
+        photoUrl:     (userSettings.show_photo    !== false) ? (_odooProfile?.photoUrl         || '') : '',
+        greetingText: (userSettings.show_greeting !== false) ? (userSettings.greeting_text    || 'Met vriendelijke groet,') : '',
+        showGreeting: userSettings.show_greeting !== false,
+        company:      (userSettings.show_company  !== false) ? (userSettings.company_override || 'OpenVME') : ''
+      }
+    };
+  } else {
+    // Standaard mode: send form state + resolved userData for fast preview
+    previewBody = {
+      scope: 'user',
+      userSettings,
+      userData: {
+        email:        (userSettings.show_email    !== false) ? (userSettings.email_display_override || previewEmail) : '',
+        fullName:     (userSettings.show_name     !== false) ? (userSettings.full_name_override  || _odooProfile?.name         || '') : '',
+        roleTitle:    (userSettings.show_role_title !== false) ? (userSettings.role_title_override || _odooProfile?.job_title    || '') : '',
+        phone:        (userSettings.show_phone    !== false) ? (userSettings.phone_override    || _odooProfile?.mobile_phone || '') : '',
+        photoUrl:     (userSettings.show_photo    !== false) ? (_odooProfile?.photoUrl         || '') : '',
+        greetingText: (userSettings.show_greeting !== false) ? (userSettings.greeting_text    || 'Met vriendelijke groet,') : '',
+        showGreeting: userSettings.show_greeting !== false,
+        company:      (userSettings.show_company  !== false) ? (userSettings.company_override || 'OpenVME') : ''
+      }
+    };
+  }
 
   try {
     const res = await fetch('/mail-signatures/api/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        scope: 'user',
-        userSettings,
-        userData: {
-          email:        previewEmail,
-          fullName:     userSettings.full_name_override  || _odooProfile?.name         || '',
-          roleTitle:    userSettings.role_title_override || _odooProfile?.job_title    || '',
-          phone:        (userSettings.show_phone    !== false) ? (userSettings.phone_override    || _odooProfile?.mobile_phone || '') : '',
-          photoUrl:     (userSettings.show_photo    !== false) ? (_odooProfile?.photoUrl         || '') : '',
-          greetingText: (userSettings.show_greeting !== false) ? (userSettings.greeting_text    || 'Met vriendelijke groet,') : '',
-          showGreeting: userSettings.show_greeting !== false,
-          company:      (userSettings.show_company  !== false) ? (userSettings.company_override || 'OpenVME') : ''
-        }
-      })
+      body: JSON.stringify(previewBody)
     });
     const json = await res.json();
     if (json.success) {
@@ -1609,6 +1721,303 @@ function attachMyLivePreview() {
     }
   });
 }
+
+// ════════════════════════════════════════════════════════
+// Variants & Aliases
+// ════════════════════════════════════════════════════════
+
+let _cachedVariants     = [];   // [{ id, variant_name, config_overrides }]
+let _cachedAliases      = [];   // [{ sendAsEmail, displayName, isPrimary }]
+let _cachedAssignments  = {};   // { sendAsEmail (lowercase) → variantId|null }
+let _selectedVariantId  = null; // null/'' = standaard, UUID = named variant
+let _aliasInited        = false;
+
+function _esc(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Variant selector (top bar) ─────────────────────────
+
+async function _loadVariantsForSelector() {
+  try {
+    const res  = await fetch('/mail-signatures/api/my-variants', { credentials: 'include' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    _cachedVariants = json.data.variants || [];
+    _renderVariantSelector();
+    _renderAliasDropdowns(); // refresh alias table if open
+  } catch (err) {
+    console.warn('[sig] _loadVariantsForSelector error:', err.message);
+  }
+}
+
+function _renderVariantSelector() {
+  const sel = $('variant-selector');
+  if (!sel) return;
+  sel.innerHTML = [
+    '<option value="">Standaard</option>',
+    ..._cachedVariants.map(v => `<option value="${_esc(v.id)}">${_esc(v.variant_name)}</option>`),
+    '<option value="__new__">\uFF0B Nieuw variant\u2026</option>'
+  ].join('');
+  if (_selectedVariantId) sel.value = _selectedVariantId;
+}
+
+async function onVariantSelectorChange(val) {
+  const deleteBtn = $('variant-delete-btn');
+  const modebar   = $('variant-mode-bar');
+  const modeLabel = $('variant-mode-label');
+
+  if (!val || val === '') {
+    // ── Standaard selected ────────────────────────────────────────────────
+    _selectedVariantId = null;
+    if (deleteBtn) deleteBtn.classList.add('hidden');
+    if (modebar)   modebar.classList.add('hidden');
+    applyMySettingsToForm(_myBaseSettings || {}, _odooProfile);
+    updateMyPreview();
+
+  } else if (val === '__new__') {
+    // ── Create new variant ────────────────────────────────────────────────
+    const rawName = prompt('Naam voor dit variant (bv. "Compact voor reply"):');
+    if (!rawName?.trim()) {
+      // Cancelled — restore previous selection
+      const sel = $('variant-selector');
+      if (sel) sel.value = _selectedVariantId || '';
+      return;
+    }
+    // Pre-populate with current form state so the new variant starts identical
+    const initialSettings = getMySettingsForm();
+    try {
+      const res  = await fetch('/mail-signatures/api/my-variants', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variantName: rawName.trim(), configOverrides: initialSettings })
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      _selectedVariantId = json.data?.variant?.id || null;
+      showToast(`Variant "${rawName.trim()}" aangemaakt`, 'success');
+      await _loadVariantsForSelector();
+      const sel = $('variant-selector');
+      if (sel && _selectedVariantId) sel.value = _selectedVariantId;
+      if (deleteBtn) deleteBtn.classList.remove('hidden');
+      if (modebar)   modebar.classList.remove('hidden');
+      if (modeLabel) modeLabel.textContent = `Variant: ${rawName.trim()} \u2014 bewaar om wijzigingen op te slaan.`;
+      // Form already has the right values (just populated from getCurrentForm)
+      updateMyPreview();
+    } catch (err) {
+      showToast('Aanmaken mislukt: ' + err.message, 'error');
+      const sel = $('variant-selector');
+      if (sel) sel.value = _selectedVariantId || '';
+    }
+
+  } else {
+    // ── Existing variant selected ─────────────────────────────────────────
+    _selectedVariantId = val;
+    const variant = _cachedVariants.find(v => v.id === val);
+    if (variant) {
+      applyMySettingsToForm(variant.config_overrides || {}, _odooProfile);
+      if (modeLabel) modeLabel.textContent = `Variant: ${_esc(variant.variant_name)} \u2014 bewaar om wijzigingen op te slaan.`;
+    }
+    if (deleteBtn) deleteBtn.classList.remove('hidden');
+    if (modebar)   modebar.classList.remove('hidden');
+    updateMyPreview();
+  }
+}
+window.onVariantSelectorChange = onVariantSelectorChange;
+
+async function deleteCurrentVariant() {
+  const variant = _cachedVariants.find(v => v.id === _selectedVariantId);
+  if (!variant) return;
+  if (!confirm(`Variant "${variant.variant_name}" verwijderen?`)) return;
+  try {
+    const res  = await fetch(`/mail-signatures/api/my-variants/${_selectedVariantId}`, {
+      method: 'DELETE', credentials: 'include'
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    showToast('Variant verwijderd', 'success');
+    _selectedVariantId = null;
+    await _loadVariantsForSelector();
+    // Switch back to Standaard
+    const sel = $('variant-selector');
+    if (sel) sel.value = '';
+    onVariantSelectorChange('');
+  } catch (err) {
+    showToast('Verwijderen mislukt: ' + err.message, 'error');
+  }
+}
+window.deleteCurrentVariant = deleteCurrentVariant;
+
+// ── Aliases block (lazy init on details open) ──────────
+
+async function initAliasSection() {
+  if (_aliasInited) return;
+  _aliasInited = true;
+  await _loadAliasesWithAssignments();
+}
+window.initAliasSection = initAliasSection;
+
+async function _loadAliasesWithAssignments() {
+  const el = $('my-aliases-list');
+  if (!el) return;
+  el.innerHTML = '<span class="loading loading-spinner loading-xs"></span>';
+  try {
+    const [aliasRes, assignRes] = await Promise.all([
+      fetch('/mail-signatures/api/my-aliases',           { credentials: 'include' }),
+      fetch('/mail-signatures/api/my-alias-assignments', { credentials: 'include' })
+    ]);
+    const [aliasJson, assignJson] = await Promise.all([aliasRes.json(), assignRes.json()]);
+    if (!aliasJson.success)  throw new Error(aliasJson.error);
+    if (!assignJson.success) throw new Error(assignJson.error);
+    _cachedAliases     = aliasJson.data.aliases || [];
+    _cachedAssignments = {};
+    for (const a of (assignJson.data.assignments || [])) {
+      _cachedAssignments[a.send_as_email.toLowerCase()] = a.variant_id || null;
+    }
+    _renderAliasDropdowns();
+  } catch (err) {
+    if (el) el.innerHTML = `<p class="text-xs text-error">Laden mislukt: ${_esc(err.message)}</p>`;
+  }
+}
+
+function _renderAliasDropdowns() {
+  const el      = $('my-aliases-list');
+  const saveRow = $('my-aliases-save-row');
+  if (!el) return;
+  if (_cachedAliases.length === 0) {
+    el.innerHTML = '<p class="text-xs text-base-content/40 italic">Geen aliassen gevonden in Gmail.</p>';
+    if (saveRow) saveRow.classList.add('hidden');
+    return;
+  }
+  const variantOptions = [
+    '<option value="">\u2014 Standaard \u2014</option>',
+    ..._cachedVariants.map(v => `<option value="${v.id}">${_esc(v.variant_name)}</option>`)
+  ].join('');
+
+  el.innerHTML = `<table class="table table-xs w-full">
+    <thead><tr>
+      <th class="text-xs font-medium text-base-content/50 pb-1">Alias</th>
+      <th class="text-xs font-medium text-base-content/50 pb-1">Variant</th>
+    </tr></thead>
+    <tbody>${_cachedAliases.map(alias => {
+      const key   = alias.sendAsEmail.toLowerCase();
+      const cur   = _cachedAssignments[key] ?? '';
+      const badge = alias.isPrimary ? '<span class="badge badge-xs badge-neutral ml-1">primair</span>' : '';
+      const label = alias.displayName
+        ? `${_esc(alias.displayName)} &lt;${_esc(alias.sendAsEmail)}&gt;`
+        : _esc(alias.sendAsEmail);
+      return `<tr>
+        <td class="py-1 align-middle"><span class="text-xs">${label}${badge}</span></td>
+        <td class="py-1 align-middle">
+          <select class="select select-bordered select-xs w-full alias-variant-select"
+                  data-alias="${_esc(alias.sendAsEmail)}">
+            ${variantOptions}
+          </select>
+        </td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+
+  // Restore current selections
+  el.querySelectorAll('.alias-variant-select').forEach(sel => {
+    const key = sel.dataset.alias?.toLowerCase();
+    if (key && _cachedAssignments[key] != null) sel.value = _cachedAssignments[key] || '';
+  });
+
+  if (saveRow) saveRow.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+async function saveAliasAssignmentsUI() {
+  const statusEl = $('my-aliases-save-status');
+  const btn = document.querySelector('#my-aliases-save-row .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Opslaan\u2026'; }
+  try {
+    const assignments = [];
+    document.querySelectorAll('.alias-variant-select').forEach(sel => {
+      assignments.push({ sendAsEmail: sel.dataset.alias, variantId: sel.value || null });
+    });
+    const res  = await fetch('/mail-signatures/api/my-alias-assignments', {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignments })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    _cachedAssignments = {};
+    assignments.forEach(a => { _cachedAssignments[a.sendAsEmail.toLowerCase()] = a.variantId; });
+    showToast('Toewijzingen opgeslagen', 'success');
+    if (statusEl) { statusEl.textContent = 'Opgeslagen \u2713'; setTimeout(() => { if(statusEl) statusEl.textContent = ''; }, 3000); }
+  } catch (err) {
+    showToast('Opslaan mislukt: ' + err.message, 'error');
+    if (statusEl) statusEl.textContent = 'Mislukt';
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="save" class="w-3 h-3 mr-1"></i> Toewijzingen opslaan';
+      lucide.createIcons();
+    }
+  }
+}
+window.saveAliasAssignmentsUI = saveAliasAssignmentsUI;
+
+// ════════════════════════════════════════════════════════
+// Copy signature to clipboard
+// ════════════════════════════════════════════════════════
+
+/**
+ * Copy the current rendered signature from the preview iframe to the clipboard
+ * as rich HTML (so it can be pasted directly into Gmail compose/reply).
+ */
+async function copyMySignature() {
+  const frame = $('my-preview-frame');
+  const btn   = $('my-copy-btn');
+  if (!frame) return;
+
+  const html = frame.contentDocument?.body?.innerHTML || '';
+  if (!html.trim()) {
+    showToast('Geen preview beschikbaar om te kopi\u00ebren', 'warning');
+    return;
+  }
+
+  try {
+    // Clipboard API: write both text/html (rich) and text/plain (fallback)
+    const htmlBlob  = new Blob([html], { type: 'text/html' });
+    const textBlob  = new Blob([frame.contentDocument?.body?.innerText || ''], { type: 'text/plain' });
+    await navigator.clipboard.write([new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': textBlob })]);
+    showToast('Handtekening gekopie\u0308rd \u2014 plak in Gmail via Ctrl+V', 'success');
+    if (btn) {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i> Gekopi\u00ebrd';
+      btn.classList.add('btn-success');
+      btn.classList.remove('btn-outline');
+      lucide.createIcons();
+      setTimeout(() => {
+        btn.innerHTML = orig;
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-outline');
+        lucide.createIcons();
+      }, 2500);
+    }
+  } catch (err) {
+    // Fallback: execCommand (older browsers / non-secure context)
+    try {
+      const doc   = frame.contentDocument;
+      const range = doc.createRange();
+      range.selectNodeContents(doc.body);
+      const sel = doc.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      doc.execCommand('copy');
+      sel.removeAllRanges();
+      showToast('Handtekening gekopie\u0308rd \u2014 plak in Gmail via Ctrl+V', 'success');
+    } catch (e2) {
+      showToast('Kopi\u00ebren mislukt: ' + e2.message, 'error');
+    }
+  }
+}
+window.copyMySignature = copyMySignature;
 
 // ════════════════════════════════════════════════════════
 // Boot

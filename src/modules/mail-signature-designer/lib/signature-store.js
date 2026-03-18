@@ -249,7 +249,8 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
     'linkedin_text', 'linkedin_author_name', 'linkedin_author_img', 'linkedin_likes',
     'quote_enabled', 'quote_text', 'quote_author', 'quote_date',
     'meeting_link_enabled', 'meeting_link_url', 'meeting_link_heading', 'meeting_link_subtext',
-    'odoo_email_override', 'google_email_override'
+    'odoo_email_override', 'google_email_override',
+    'website_url_override', 'email_display_override'
   ];
   const sanitised = {};
   for (const key of ALLOWED_FIELDS) {
@@ -345,4 +346,174 @@ export async function setExcludedEmails(env, emails) {
     }
   }
   return normalised;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER SIGNATURE VARIANTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Get all variants for a user, ordered by creation date.
+ *
+ * @param {Object} env
+ * @param {string} userEmail
+ * @returns {Promise<Array>}
+ */
+export async function getVariants(env, userEmail) {
+  const supabase = getSupabaseAdminClient(env);
+  const { data, error } = await supabase
+    .from('user_signature_variants')
+    .select('id, user_email, variant_name, config_overrides, created_at, updated_at')
+    .eq('user_email', userEmail.toLowerCase())
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`[signature-store] getVariants: ${error.message}`);
+  return data || [];
+}
+
+/**
+ * Get a single variant by ID.
+ * Optionally enforces ownership: throws if the variant belongs to a different user.
+ *
+ * @param {Object} env
+ * @param {string} variantId
+ * @param {string|null} [userEmail] - When provided, ownership is verified
+ */
+export async function getVariant(env, variantId, userEmail = null) {
+  const supabase = getSupabaseAdminClient(env);
+  const { data, error } = await supabase
+    .from('user_signature_variants')
+    .select('id, user_email, variant_name, config_overrides')
+    .eq('id', variantId)
+    .maybeSingle();
+  if (error) throw new Error(`[signature-store] getVariant: ${error.message}`);
+  if (!data) return null;
+  if (userEmail && data.user_email !== userEmail.toLowerCase()) {
+    throw new Error('[signature-store] getVariant: forbidden — variant belongs to another user');
+  }
+  return data;
+}
+
+/**
+ * Create or update a variant.
+ * Pass variantId = null to create; pass an existing ID to update.
+ * Ownership is enforced: update only succeeds when user_email matches.
+ *
+ * @param {Object} env
+ * @param {string} userEmail
+ * @param {string|null} variantId  - null = create new
+ * @param {string} variantName
+ * @param {Object} configOverrides - config keys to override, e.g. { meetingLinkEnabled: false }
+ * @returns {Promise<Object>} saved row
+ */
+export async function upsertVariant(env, userEmail, variantId, variantName, configOverrides) {
+  if (!userEmail) throw new Error('[signature-store] upsertVariant: userEmail required');
+  if (!variantName?.trim()) throw new Error('[signature-store] upsertVariant: variantName required');
+
+  const supabase = getSupabaseAdminClient(env);
+  const email = userEmail.toLowerCase();
+
+  if (variantId) {
+    // Update — verify ownership first
+    const existing = await getVariant(env, variantId, email);
+    if (!existing) throw new Error('[signature-store] upsertVariant: variant not found');
+    const { data, error } = await supabase
+      .from('user_signature_variants')
+      .update({
+        variant_name:     variantName.trim(),
+        config_overrides: configOverrides || {},
+        updated_at:       new Date().toISOString()
+      })
+      .eq('id', variantId)
+      .eq('user_email', email)
+      .select()
+      .single();
+    if (error) throw new Error(`[signature-store] upsertVariant update: ${error.message}`);
+    return data;
+  } else {
+    // Insert new
+    const { data, error } = await supabase
+      .from('user_signature_variants')
+      .insert({ user_email: email, variant_name: variantName.trim(), config_overrides: configOverrides || {} })
+      .select()
+      .single();
+    if (error) throw new Error(`[signature-store] upsertVariant insert: ${error.message}`);
+    return data;
+  }
+}
+
+/**
+ * Delete a variant by ID (enforces ownership by user_email).
+ *
+ * @param {Object} env
+ * @param {string} variantId
+ * @param {string} userEmail
+ */
+export async function deleteVariant(env, variantId, userEmail) {
+  const supabase = getSupabaseAdminClient(env);
+  const { error } = await supabase
+    .from('user_signature_variants')
+    .delete()
+    .eq('id', variantId)
+    .eq('user_email', userEmail.toLowerCase());
+  if (error) throw new Error(`[signature-store] deleteVariant: ${error.message}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER ALIAS ASSIGNMENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Get all alias assignments for a user.
+ *
+ * @param {Object} env
+ * @param {string} userEmail
+ * @returns {Promise<Array<{ send_as_email, variant_id }>>}
+ */
+export async function getAliasAssignments(env, userEmail) {
+  const supabase = getSupabaseAdminClient(env);
+  const { data, error } = await supabase
+    .from('user_alias_assignments')
+    .select('send_as_email, variant_id, updated_at')
+    .eq('user_email', userEmail.toLowerCase());
+  if (error) throw new Error(`[signature-store] getAliasAssignments: ${error.message}`);
+  return data || [];
+}
+
+/**
+ * Bulk-save alias assignments for a user (full replace).
+ * Any existing assignment NOT in the provided array is removed.
+ *
+ * @param {Object} env
+ * @param {string} userEmail
+ * @param {Array<{ sendAsEmail: string, variantId: string|null }>} assignments
+ * @returns {Promise<Array>} saved rows
+ */
+export async function saveAliasAssignments(env, userEmail, assignments) {
+  if (!userEmail) throw new Error('[signature-store] saveAliasAssignments: userEmail required');
+  if (!Array.isArray(assignments)) throw new Error('[signature-store] saveAliasAssignments: assignments must be array');
+
+  const supabase = getSupabaseAdminClient(env);
+  const email = userEmail.toLowerCase();
+
+  // Delete all existing, then re-insert
+  const { error: delErr } = await supabase
+    .from('user_alias_assignments')
+    .delete()
+    .eq('user_email', email);
+  if (delErr) throw new Error(`[signature-store] saveAliasAssignments delete: ${delErr.message}`);
+
+  if (assignments.length === 0) return [];
+
+  const rows = assignments.map(a => ({
+    user_email:    email,
+    send_as_email: a.sendAsEmail.toLowerCase().trim(),
+    variant_id:    a.variantId || null
+  }));
+
+  const { data, error } = await supabase
+    .from('user_alias_assignments')
+    .insert(rows)
+    .select();
+  if (error) throw new Error(`[signature-store] saveAliasAssignments insert: ${error.message}`);
+  return data || [];
 }
