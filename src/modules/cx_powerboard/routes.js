@@ -191,7 +191,7 @@ async function handleGetActivities(context) {
     winsThisWeek: weekWins?.length ?? 0,
   };
 
-  return new Response(JSON.stringify({ activities: enriched, wins, stats, mappings }), {
+  return new Response(JSON.stringify({ activities: enriched, wins, stats, mappings, odooUid, odooBaseUrl: env.ODOO_URL || 'https://mymmo.odoo.com' }), {
     headers: { 'Content-Type': 'application/json' },
   });
 }

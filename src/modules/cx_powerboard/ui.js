@@ -415,6 +415,9 @@ export function cxPowerboardDashboardUI(user) {
     var dashboardRendered  = false;
     var dataReady          = false;
     var calendarPendingInit = false;
+    var odooUid            = null;
+    var odooBaseUrl        = 'https://mymmo.odoo.com';
+    var cardUrls           = {};
 
     // Restore model exclusions from localStorage
     try {
@@ -732,8 +735,16 @@ export function cxPowerboardDashboardUI(user) {
 
         var isSuccess = stats.overdue === 0 && stats.today === 0;
         var isDanger  = !isSuccess && (stats.overdue >= thOv || stats.today >= thTd);
+        var pct       = stats.total > 0 ? Math.round(100 * open / stats.total) : 100;
+        var typeIntId = mapping.odoo_activity_type_id;
+        cardUrls[cardCount] = {
+          all:     buildOdooUrl(typeIntId, 'all'),
+          overdue: buildOdooUrl(typeIntId, 'overdue'),
+          today:   buildOdooUrl(typeIntId, 'today'),
+          open:    buildOdooUrl(typeIntId, 'open'),
+        };
 
-        html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), stats, open, isSuccess, isDanger);
+        html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), stats, open, isSuccess, isDanger, pct, cardCount);
         cardCount++;
       }
 
@@ -751,50 +762,89 @@ export function cxPowerboardDashboardUI(user) {
       lucide.createIcons();
     }
 
-    function buildTypeCard(name, stats, open, isSuccess, isDanger) {
-      var cardBg, cardBorder, numCls, statusHtml;
+    function buildOdooUrl(typeId, filter) {
+      if (!odooUid || !odooBaseUrl) return '#';
+      var today  = new Date().toISOString().slice(0, 10);
+      var domain = [['activity_type_id', '=', typeId], ['user_id', '=', odooUid]];
+      if      (filter === 'overdue') domain.push(['date_deadline', '<', today]);
+      else if (filter === 'today')   domain.push(['date_deadline', '=', today]);
+      else if (filter === 'open')    domain.push(['date_deadline', '>', today]);
+      return odooBaseUrl + '/web#model=mail.activity&view_type=list&domain=' + encodeURIComponent(JSON.stringify(domain));
+    }
+
+    function openPbCard(idx, filter, evt) {
+      if (evt) evt.stopPropagation();
+      var urls = cardUrls[idx];
+      if (!urls) return;
+      var url = filter ? urls[filter] : urls.all;
+      if (url && url !== '#') window.open(url, '_blank');
+    }
+
+    function buildTypeCard(name, stats, open, isSuccess, isDanger, pct, cardIdx) {
+      var cardBg, cardBorder, numCls, barCls, statusHtml;
       if (isSuccess) {
         cardBg     = 'bg-success/10';
         cardBorder = 'border border-success/30';
         numCls     = 'text-success';
+        barCls     = 'bg-success';
         statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-success shrink-0">'
           + '<i data-lucide="check-circle-2" class="w-3 h-3 shrink-0"></i>Klaar</span>';
       } else if (isDanger) {
         cardBg     = 'bg-error/10';
         cardBorder = 'border border-error/25';
         numCls     = 'text-error';
+        barCls     = 'bg-error';
         statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-error shrink-0">'
           + '<i data-lucide="alert-circle" class="w-3 h-3 shrink-0"></i>Aandacht</span>';
       } else {
         cardBg     = 'bg-base-100';
         cardBorder = 'border border-base-200';
         numCls     = 'text-base-content';
+        barCls     = 'bg-primary';
         statusHtml = '';
       }
 
-      var ovPillCls = stats.overdue > 0
-        ? 'bg-error/15 text-error font-semibold'
-        : 'bg-base-200/60 text-base-content/25';
-      var tdPillCls = stats.today > 0
-        ? 'bg-warning/15 text-warning font-semibold'
-        : 'bg-base-200/60 text-base-content/25';
-      var opPillCls = open > 0
-        ? 'bg-base-200 text-base-content/60 font-medium'
-        : 'bg-base-200/60 text-base-content/25';
+      var progressLabel = isSuccess
+        ? 'Alles op schema'
+        : (open + ' van ' + stats.total + ' op schema');
 
-      return '<div class="rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 ' + cardBg + ' ' + cardBorder + '">'
-        + '<div class="flex items-start justify-between gap-2 mb-4">'
+      var ovPillBase = 'inline-flex items-center px-2.5 py-1 rounded-full text-[0.7rem] cursor-pointer transition-opacity hover:opacity-80';
+      var tdPillBase = ovPillBase;
+      var opPillBase = ovPillBase;
+      var ovPillCls  = stats.overdue > 0
+        ? ovPillBase + ' bg-error/15 text-error font-semibold'
+        : ovPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+      var tdPillCls  = stats.today > 0
+        ? tdPillBase + ' bg-warning/15 text-warning font-semibold'
+        : tdPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+      var opPillCls  = open > 0
+        ? opPillBase + ' bg-base-200 text-base-content/60 font-medium'
+        : opPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+
+      var idx = cardIdx;
+
+      return '<div class="rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer ' + cardBg + ' ' + cardBorder + '" onclick="openPbCard(' + idx + ')">'
+        + '<div class="flex items-start justify-between gap-2 mb-3">'
         + '<p class="font-semibold text-sm leading-snug text-base-content/80">' + name + '</p>'
         + statusHtml
         + '</div>'
-        + '<div class="mb-4">'
+        + '<div class="mb-3">'
         + '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + stats.total + '</span>'
         + '<p class="text-[0.6rem] font-medium uppercase tracking-widest text-base-content/40 mt-2">activiteiten</p>'
         + '</div>'
+        + '<div class="mb-3">'
+        + '<div class="flex items-center justify-between mb-1">'
+        + '<span class="text-[0.65rem] text-base-content/50">' + progressLabel + '</span>'
+        + '<span class="text-[0.65rem] font-semibold ' + numCls + '">' + pct + '%</span>'
+        + '</div>'
+        + '<div class="h-1.5 rounded-full bg-base-200 overflow-hidden">'
+        + '<div class="h-full rounded-full transition-all duration-500 ' + barCls + '" style="width:' + pct + '%"></div>'
+        + '</div>'
+        + '</div>'
         + '<div class="flex flex-wrap gap-1.5">'
-        + '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[0.7rem] ' + ovPillCls + '">' + stats.overdue + '\u00a0achterstallig</span>'
-        + '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[0.7rem] ' + tdPillCls + '">' + stats.today + '\u00a0vandaag</span>'
-        + '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[0.7rem] ' + opPillCls + '">' + open + '\u00a0open</span>'
+        + '<span class="' + ovPillCls + '" onclick="openPbCard(' + idx + ',\'overdue\',event)">' + stats.overdue + '\u00a0achterstallig</span>'
+        + '<span class="' + tdPillCls + '" onclick="openPbCard(' + idx + ',\'today\',event)">' + stats.today + '\u00a0vandaag</span>'
+        + '<span class="' + opPillCls + '" onclick="openPbCard(' + idx + ',\'open\',event)">' + open + '\u00a0open</span>'
         + '</div>'
         + '</div>';
     }
@@ -941,6 +991,8 @@ export function cxPowerboardDashboardUI(user) {
         allActivities = data.activities || [];
         winsData      = data.wins       || [];
         mappingsData  = data.mappings   || [];
+        if (data.odooUid)     odooUid     = data.odooUid;
+        if (data.odooBaseUrl) odooBaseUrl = data.odooBaseUrl;
         dataReady     = true;
 
         renderDashboard();
