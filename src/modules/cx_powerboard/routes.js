@@ -11,6 +11,12 @@ import { fetchActiveActivities, fetchActivityTypes } from './odoo-client.js';
 import { getMappings, createMapping, updateMapping, deleteMapping } from './services/mapping-service.js';
 import { getUserWins } from './services/win-service.js';
 
+// Strip HTML tags from Odoo note field (which is HTML)
+function stripHtml(html) {
+  if (!html) return null;
+  return html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim() || null;
+}
+
 // ---------------------------------------------------------------------------
 // Guards
 // ---------------------------------------------------------------------------
@@ -129,7 +135,7 @@ async function handleGetActivities(context) {
     typeMap[m.odoo_activity_type_id] = m;
   }
 
-  // Enrich activities with priority weight from mapping
+  // Enrich activities with priority weight, model context, and note
   const enriched = odooActivities.map(a => {
     const typeId   = Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id;
     const typeName = Array.isArray(a.activity_type_id) ? a.activity_type_id[1] : String(typeId);
@@ -142,18 +148,50 @@ async function handleGetActivities(context) {
       res_name:           a.res_name || null,
       date_deadline:      a.date_deadline || null,
       priority_weight:    mapping?.priority_weight ?? 0,
+      note:               stripHtml(a.note),
+      summary:            a.summary || null,
     };
   });
 
-  // Sort: priority_weight DESC, date_deadline ASC (nulls last)
+  // Sort: urgency first (overdue > today > upcoming > no due), then priority DESC, then deadline ASC
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today.getTime() + 86400000);
+  function urgencyRank(deadline) {
+    if (!deadline) return 3;
+    const d = new Date(deadline);
+    if (d < today) return 0;
+    if (d < tomorrow) return 1;
+    return 2;
+  }
   enriched.sort((a, b) => {
+    const ua = urgencyRank(a.date_deadline), ub = urgencyRank(b.date_deadline);
+    if (ua !== ub) return ua - ub;
     if (b.priority_weight !== a.priority_weight) return b.priority_weight - a.priority_weight;
     if (!a.date_deadline) return 1;
     if (!b.date_deadline) return -1;
     return new Date(a.date_deadline) - new Date(b.date_deadline);
   });
 
-  return new Response(JSON.stringify({ activities: enriched, wins }), {
+  // Compute stats
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  const { data: weekWins } = await supabase
+    .from('cx_processed_wins')
+    .select('id')
+    .eq('platform_user_id', user.id)
+    .gte('won_at', weekAgo);
+
+  const stats = {
+    total:        enriched.length,
+    overdue:      enriched.filter(a => a.date_deadline && new Date(a.date_deadline) < today).length,
+    dueToday:     enriched.filter(a => {
+      if (!a.date_deadline) return false;
+      const d = new Date(a.date_deadline);
+      return d >= today && d < tomorrow;
+    }).length,
+    winsThisWeek: weekWins?.length ?? 0,
+  };
+
+  return new Response(JSON.stringify({ activities: enriched, wins, stats }), {
     headers: { 'Content-Type': 'application/json' },
   });
 }
@@ -243,6 +281,52 @@ async function handleDeleteMapping(context) {
 }
 
 // ---------------------------------------------------------------------------
+// Team stats (manager / admin only)
+// ---------------------------------------------------------------------------
+
+async function handleGetTeamStats(context) {
+  const denied = requireCxManager(context);
+  if (denied) return denied;
+
+  const { env } = context;
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const weekAgo  = new Date(Date.now() - 7 * 86400000).toISOString();
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const [
+    { data: users },
+    { data: seenRows },
+    { data: overdueRows },
+    { data: winRows },
+  ] = await Promise.all([
+    supabase.from('users').select('id, email, full_name').not('odoo_uid', 'is', null),
+    supabase.from('cx_seen_activities').select('platform_user_id'),
+    supabase.from('cx_seen_activities').select('platform_user_id').lt('odoo_deadline', todayStr),
+    supabase.from('cx_processed_wins').select('platform_user_id').gte('won_at', weekAgo),
+  ]);
+
+  const openByUser = {}, overdueByUser = {}, winsByUser = {};
+  for (const row of seenRows    || []) if (row.platform_user_id) openByUser[row.platform_user_id]    = (openByUser[row.platform_user_id]    || 0) + 1;
+  for (const row of overdueRows || []) if (row.platform_user_id) overdueByUser[row.platform_user_id] = (overdueByUser[row.platform_user_id] || 0) + 1;
+  for (const row of winRows     || []) if (row.platform_user_id) winsByUser[row.platform_user_id]    = (winsByUser[row.platform_user_id]    || 0) + 1;
+
+  const team = (users || [])
+    .map(u => ({
+      id:             u.id,
+      name:           u.full_name || u.email,
+      email:          u.email,
+      openActivities: openByUser[u.id]    || 0,
+      overdue:        overdueByUser[u.id] || 0,
+      winsThisWeek:   winsByUser[u.id]    || 0,
+    }))
+    .sort((a, b) => b.winsThisWeek - a.winsThisWeek || b.openActivities - a.openActivities);
+
+  return new Response(JSON.stringify({ team }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Route map
 // ---------------------------------------------------------------------------
 
@@ -251,6 +335,7 @@ export const routes = {
   'GET /settings': handleSettings,
   'GET /api/activities': handleGetActivities,
   'GET /api/wins': handleGetWins,
+  'GET /api/team': handleGetTeamStats,
   'GET /api/mappings': handleGetMappings,
   'GET /api/activity-types': handleGetActivityTypes,
   'POST /api/mappings': handleCreateMapping,

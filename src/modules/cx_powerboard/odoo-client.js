@@ -19,7 +19,7 @@ export async function fetchActiveActivities(env, odooUids) {
   return searchRead(env, {
     model: 'mail.activity',
     domain: [['user_id', 'in', odooUids], ['active', '=', true]],
-    fields: ['id', 'activity_type_id', 'user_id', 'date_deadline', 'res_model', 'res_name'],
+    fields: ['id', 'activity_type_id', 'user_id', 'date_deadline', 'res_model', 'res_name', 'summary', 'note'],
     limit: 10000,
   });
 }

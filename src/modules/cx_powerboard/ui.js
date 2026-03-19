@@ -1,546 +1,1201 @@
 /**
  * CX Powerboard — UI
  *
- * SSR page skeletons. Dynamic data loaded client-side via fetch().
- * Follows platform conventions: DaisyUI 4.12.14, Tailwind CDN, Lucide,
- * navbar component, padding-top: 48px, theme init script.
+ * Rules (STRICT — do not violate):
+ *  1. Theme IIFE is the FIRST script in <head>
+ *  2. Tailwind CDN warning suppressor before Tailwind <script src>
+ *  3. ${navbar(user)} is the first child of <body>
+ *  4. ALL conditional / list HTML is precomputed as a JS variable BEFORE
+ *     the outer template literal begins.
+ *  5. Inside <script> blocks: ZERO backticks — only ' strings and + concat.
+ *  6. escHtml() on every dynamic value written to innerHTML.
+ *  7. initTheme(), changeTheme(), logout() at the bottom of the inline script.
+ *  8. lucide.createIcons() called after every innerHTML mutation.
  */
 
 import { navbar } from '../../lib/components/navbar.js';
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-const THEME_INIT = `(function initThemeEarly() {
-  try {
-    const localTheme = localStorage.getItem('selectedTheme');
-    const cookieMatch = document.cookie.match(/(?:^|; )selectedTheme=([^;]+)/);
-    const cookieTheme = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
-    const theme = localTheme || cookieTheme || 'light';
-    document.documentElement.setAttribute('data-theme', theme);
-  } catch (_) {
-    document.documentElement.setAttribute('data-theme', 'light');
-  }
-})();`;
-
-const COMMON_JS = `
-  function changeTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('selectedTheme', theme);
-  }
-  function initTheme() {
-    const saved = localStorage.getItem('selectedTheme') || 'light';
-    document.documentElement.setAttribute('data-theme', saved);
-    const sel = document.getElementById('themeSelector');
-    if (sel) sel.value = saved;
-  }
-  async function logout() {
-    try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); } catch (_) {}
-    window.location.href = '/';
-  }
-  function escHtml(s) {
-    if (!s) return '';
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-`;
-
 // ---------------------------------------------------------------------------
-// Dashboard page
+// Dashboard
 // ---------------------------------------------------------------------------
 
 export function cxPowerboardDashboardUI(user) {
   const isManager = user.role === 'admin' || user.role === 'cx_powerboard_manager';
 
+  // ── Precompute all conditional HTML blocks ────────────────────────────────
+
+  const settingsBtn = isManager
+    ? '<a href="/cx-powerboard/settings" class="btn btn-sm btn-ghost gap-1">'
+    + '<i data-lucide="settings" class="w-4 h-4"></i> Settings</a>'
+    : '';
+
+  const teamTab = isManager
+    ? '<button role="tab" class="tab" id="tabBtnTeam" onclick="switchTab(\'team\')">'
+    + '<i data-lucide="users" class="w-4 h-4 mr-1"></i> Team</button>'
+    : '';
+
+  const teamPanel = isManager
+    ? '<div id="tabTeam" style="display:none;"></div>'
+    : '';
+
+  // Scalar values passed to client JS — safe because isManager is server-determined
+  const isManagerJS = isManager ? 'true' : 'false';
+
+  // ── Template (ONE outer template literal, simple ${variable} injections only) ─
+
   return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="nl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CX Powerboard</title>
-    <script>${THEME_INIT}</script>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
-    <script>
-      (function suppressTailwindCdnWarning() {
-        const originalWarn = console.warn;
-        console.warn = function(...args) {
-          if (typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com should not be used in production')) return;
-          return originalWarn.apply(this, args);
-        };
-      })();
-    </script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CX Powerboard</title>
+
+  <script>
+    (function initThemeEarly() {
+      try {
+        var localTheme = localStorage.getItem('selectedTheme');
+        var cookieMatch = document.cookie.match(/(?:^|; )selectedTheme=([^;]+)/);
+        var cookieTheme = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
+        var theme = localTheme || cookieTheme || 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (_) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+
+  <script>
+    (function suppressTailwindCdnWarning() {
+      var _w = console.warn;
+      console.warn = function() {
+        if (arguments[0] && typeof arguments[0] === 'string' &&
+            arguments[0].indexOf('cdn.tailwindcss.com should not be used in production') !== -1) return;
+        return _w.apply(console, arguments);
+      };
+    })();
+  </script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+
+  <style>
+    /* Urgency borders */
+    .urgency-overdue  { border-left: 4px solid oklch(var(--er)); }
+    .urgency-today    { border-left: 4px solid oklch(var(--wa)); }
+    .urgency-upcoming { border-left: 4px solid oklch(var(--in)); }
+    .urgency-none     { border-left: 4px solid oklch(var(--bc) / 0.15); }
+
+    /* FullCalendar × DaisyUI */
+    .fc {
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: oklch(var(--b1));
+      --fc-border-color: oklch(var(--bc) / 0.06);
+      --fc-today-bg-color: oklch(var(--p) / 0.03);
+    }
+    .fc .fc-scrollgrid { border-color: oklch(var(--bc) / 0.08); }
+    .fc .fc-view-harness { min-height: 30rem; }
+    .fc .fc-toolbar { padding: 0.625rem 0; margin-bottom: 0.75rem; }
+    .fc-toolbar-title { font-size: 1rem; font-weight: 600; color: oklch(var(--bc)); }
+    .fc .fc-button {
+      background-color: oklch(var(--b1)) !important;
+      border: 1px solid oklch(var(--bc) / 0.2) !important;
+      color: oklch(var(--bc)) !important;
+      text-transform: none !important;
+      font-weight: 500 !important;
+      font-size: 0.8125rem !important;
+      padding: 0.3rem 0.6rem !important;
+      border-radius: var(--rounded-btn, 0.5rem) !important;
+      box-shadow: none !important;
+      transition: all 0.15s ease !important;
+      outline: none !important;
+      height: 1.875rem !important;
+      line-height: 1 !important;
+    }
+    .fc .fc-button:hover { background-color: oklch(var(--bc) / 0.08) !important; border-color: oklch(var(--bc) / 0.3) !important; }
+    .fc .fc-button:focus { outline: none !important; box-shadow: none !important; }
+    .fc .fc-button:disabled { opacity: 0.4 !important; cursor: not-allowed !important; }
+    .fc .fc-button-primary:not(:disabled).fc-button-active,
+    .fc .fc-button-primary:not(:disabled):active {
+      background-color: oklch(var(--p)) !important; border-color: oklch(var(--p)) !important;
+      color: oklch(var(--pc)) !important; font-weight: 600 !important;
+    }
+    .fc .fc-button-group { gap: 0 !important; }
+    .fc .fc-button-group > .fc-button { border-radius: 0 !important; }
+    .fc .fc-button-group > .fc-button:first-child {
+      border-top-left-radius: var(--rounded-btn, 0.5rem) !important;
+      border-bottom-left-radius: var(--rounded-btn, 0.5rem) !important;
+    }
+    .fc .fc-button-group > .fc-button:last-child {
+      border-top-right-radius: var(--rounded-btn, 0.5rem) !important;
+      border-bottom-right-radius: var(--rounded-btn, 0.5rem) !important;
+    }
+    .fc .fc-button-group > .fc-button:not(:last-child) { border-right-width: 0 !important; }
+    .fc .fc-today-button {
+      background-color: oklch(var(--p)) !important; border-color: oklch(var(--p)) !important;
+      color: oklch(var(--pc)) !important; font-weight: 600 !important;
+    }
+    .fc .fc-today-button:hover:not(:disabled) {
+      background-color: oklch(var(--p) / 0.85) !important; border-color: oklch(var(--p) / 0.85) !important;
+    }
+    .fc .fc-today-button:disabled {
+      background-color: oklch(var(--p) / 0.5) !important; border-color: oklch(var(--p) / 0.5) !important;
+      color: oklch(var(--pc)) !important; opacity: 0.5 !important;
+    }
+    .fc .fc-col-header { background-color: oklch(var(--b2)); }
+    .fc-col-header-cell {
+      border-bottom: 1px solid oklch(var(--bc) / 0.1);
+      font-weight: 600; text-transform: uppercase; font-size: 0.6875rem;
+      color: oklch(var(--bc) / 0.6); padding: 0.4rem 0.25rem; background-color: oklch(var(--b2));
+    }
+    .fc .fc-col-header-cell-cushion { color: oklch(var(--bc) / 0.72); }
+    .fc-daygrid-day-frame { padding: 0.25rem; min-height: 4.5rem; }
+    .fc .fc-daygrid-day-events { min-height: 2.25rem; margin-bottom: 0 !important; }
+    .fc .fc-day-other { background-color: oklch(var(--b2) / 0.5); }
+    .fc .fc-day-other .fc-daygrid-day-number { color: oklch(var(--bc) / 0.45); }
+    .fc .fc-day-past:not(.fc-day-today) { background-color: oklch(var(--bc) / 0.03); }
+    .fc .fc-day-past:not(.fc-day-today) .fc-daygrid-day-number { color: oklch(var(--bc) / 0.55); }
+    .fc-daygrid-day.fc-day-today { background-color: oklch(var(--p) / 0.03) !important; }
+    .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+      background-color: oklch(var(--p)); color: oklch(var(--pc));
+      border-radius: 0.375rem; font-weight: 600;
+    }
+    .fc .fc-daygrid-day-number { font-size: 0.75rem; padding: 0.25rem 0.375rem; color: oklch(var(--bc) / 0.7); }
+    .fc-event {
+      cursor: pointer;
+      border: none !important;
+      font-weight: 600;
+      font-size: 0.875rem;
+      padding: 0.25rem 0.375rem !important;
+      margin-bottom: 0.125rem !important;
+      border-radius: var(--rounded-btn, 0.5rem) !important;
+      box-shadow: 0 1px 3px oklch(var(--bc) / 0.1);
+      transition: all 0.15s ease;
+      text-align: center;
+    }
+    .fc-event:hover { transform: translateY(-1px); box-shadow: 0 3px 8px oklch(var(--bc) / 0.15); }
+    .fc-daygrid-event-dot { display: none !important; }
+    .fc-daygrid-block-event .fc-event-main { padding: 0 !important; }
+    .fc-day-selected { background-color: oklch(var(--p) / 0.08) !important; }
+    #panel-content { max-height: calc(100vh - 14rem); overflow-y: auto; }
+  </style>
 </head>
 <body class="bg-base-200">
-    ${navbar(user)}
+  ${navbar(user)}
 
-    <div style="padding-top: 48px;">
-      <div class="container mx-auto px-6 py-8 max-w-5xl">
+  <script>
+    window.__PB_IS_MANAGER__ = ${isManagerJS};
+  </script>
 
-        <!-- Header -->
-        <div class="flex justify-between items-center mb-8">
-          <div>
-            <h1 class="text-4xl font-bold mb-2">CX Powerboard</h1>
-            <p class="text-base-content/60">Your activity queue and wins</p>
-          </div>
-          ${isManager ? `
-          <a href="/cx-powerboard/settings" class="btn btn-sm btn-outline">
-            <i data-lucide="settings" class="w-4 h-4 mr-1"></i>
-            Settings
-          </a>` : ''}
+  <div style="padding-top: 48px;">
+    <div class="container mx-auto px-6 py-8 max-w-6xl">
+
+      <!-- Header -->
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h1 class="text-3xl font-bold">CX Powerboard</h1>
+          <p class="text-base-content/60 text-sm">Jouw prioriteitenlijst voor vandaag</p>
         </div>
+        ${settingsBtn}
+      </div>
 
-        <!-- Loading state -->
-        <div id="loadingState" class="flex justify-center items-center py-20">
-          <span class="loading loading-spinner loading-lg"></span>
-          <span class="ml-4 text-lg">Loading your activities…</span>
+      <!-- Stats bar -->
+      <div class="stats shadow w-full mb-6">
+        <div class="stat place-items-center">
+          <div class="stat-title">Open</div>
+          <div class="stat-value text-2xl" id="statTotal">—</div>
         </div>
-
-        <!-- Odoo UID not linked -->
-        <div id="linkError" class="alert alert-warning mb-6" style="display: none;">
-          <i data-lucide="alert-triangle" class="w-5 h-5 shrink-0"></i>
-          <span>Your Odoo account is not linked yet. Contact your administrator to connect your account.</span>
+        <div class="stat place-items-center">
+          <div class="stat-title">Achterstallig</div>
+          <div class="stat-value text-2xl text-error" id="statOverdue">—</div>
         </div>
+        <div class="stat place-items-center">
+          <div class="stat-title">Vandaag</div>
+          <div class="stat-value text-2xl text-warning" id="statToday">—</div>
+        </div>
+        <div class="stat place-items-center">
+          <div class="stat-title">Wins (week)</div>
+          <div class="stat-value text-2xl text-success" id="statWins">—</div>
+        </div>
+      </div>
 
-        <!-- Main content -->
-        <div id="mainContent" style="display: none;">
+      <!-- Odoo UID missing warning -->
+      <div id="uidMissingAlert" class="alert alert-warning mb-4" style="display:none;">
+        <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        <span>Jouw Odoo-account is niet gekoppeld. Vraag een beheerder om jouw Odoo UID in te stellen via het admin dashboard.</span>
+      </div>
 
-          <!-- Open Activities -->
-          <div class="card bg-base-100 shadow-xl mb-6">
-            <div class="card-body">
-              <h2 class="card-title mb-4">
-                <i data-lucide="list-checks" class="w-5 h-5"></i>
-                Open Activities
-                <span id="activityCount" class="badge badge-neutral ml-2">0</span>
-              </h2>
+      <!-- Tabs -->
+      <div role="tablist" class="tabs tabs-boxed mb-6 w-fit">
+        <button role="tab" class="tab tab-active" id="tabBtnCalendar" onclick="switchTab('calendar')">
+          <i data-lucide="calendar" class="w-4 h-4 mr-1"></i> Kalender
+        </button>
+        <button role="tab" class="tab" id="tabBtnWins" onclick="switchTab('wins')">
+          <i data-lucide="trophy" class="w-4 h-4 mr-1"></i> Wins
+        </button>
+        ${teamTab}
+      </div>
 
-              <div id="emptyActivities" class="text-center py-8 text-base-content/40" style="display: none;">
-                <i data-lucide="check-circle-2" class="w-12 h-12 mx-auto mb-3"></i>
-                <p>No open activities — all clear!</p>
+      <!-- ── Calendar tab ──────────────────────────────────────────────────── -->
+      <div id="tabCalendar">
+        <div class="grid grid-cols-12 gap-6">
+
+          <!-- Calendar column (left 7) -->
+          <div class="col-span-12 lg:col-span-7">
+            <div class="card bg-base-100 shadow-xl">
+              <div class="card-body p-4 relative min-h-[32rem]">
+
+                <!-- Loading skeleton -->
+                <div id="calendarLoadingState">
+                  <div class="flex items-center gap-2 mb-4">
+                    <span class="loading loading-dots loading-sm text-primary"></span>
+                    <span class="text-sm text-base-content/60">Kalender laden…</span>
+                  </div>
+                  <div class="grid grid-cols-7 gap-1 mb-1">
+                    <div class="skeleton h-5 rounded"></div><div class="skeleton h-5 rounded"></div><div class="skeleton h-5 rounded"></div><div class="skeleton h-5 rounded"></div><div class="skeleton h-5 rounded"></div><div class="skeleton h-5 rounded"></div><div class="skeleton h-5 rounded"></div>
+                  </div>
+                  <div class="grid grid-cols-7 gap-1 mb-1">
+                    <div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div>
+                  </div>
+                  <div class="grid grid-cols-7 gap-1 mb-1">
+                    <div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div>
+                  </div>
+                  <div class="grid grid-cols-7 gap-1 mb-1">
+                    <div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div>
+                  </div>
+                  <div class="grid grid-cols-7 gap-1">
+                    <div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div><div class="skeleton h-16 rounded"></div>
+                  </div>
+                </div>
+
+                <!-- Calendar mount point -->
+                <div id="fullcalendar" style="display:none;"></div>
               </div>
 
-              <div class="overflow-x-auto" id="activitiesWrap">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th class="w-20">Priority</th>
-                      <th>Activity Type</th>
-                      <th>Record</th>
-                      <th>Due</th>
-                    </tr>
-                  </thead>
-                  <tbody id="activitiesBody"></tbody>
-                </table>
+              <!-- Model filter chips -->
+              <div class="border-t border-base-300 px-4 py-3">
+                <div id="filterChipsWrap" class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs text-base-content/40">Laden…</span>
+                </div>
               </div>
+            </div>
+
+            <!-- No-deadline section (collapsible) -->
+            <div id="noDeadlineSection" class="mt-4" style="display:none;">
+              <details class="collapse collapse-arrow bg-base-100 shadow-sm">
+                <summary class="collapse-title text-xs font-bold uppercase tracking-wider text-base-content/50 min-h-10 py-3">
+                  <span class="flex items-center gap-2">
+                    <i data-lucide="clock" class="w-4 h-4"></i>
+                    Geen deadline
+                    <span id="noDeadlineBadge" class="badge badge-sm badge-ghost">0</span>
+                  </span>
+                </summary>
+                <div class="collapse-content pt-1">
+                  <div id="noDeadlineList"></div>
+                </div>
+              </details>
             </div>
           </div>
 
-          <!-- Recent Wins -->
-          <div class="card bg-base-100 shadow-xl">
-            <div class="card-body">
-              <h2 class="card-title mb-4">
-                <i data-lucide="trophy" class="w-5 h-5 text-warning"></i>
-                Recent Wins
-                <span id="winsCount" class="badge badge-neutral ml-2">0</span>
-              </h2>
-
-              <div id="emptyWins" class="text-center py-8 text-base-content/40" style="display: none;">
-                <i data-lucide="trophy" class="w-12 h-12 mx-auto mb-3"></i>
-                <p>No wins recorded yet — keep going!</p>
-              </div>
-
-              <div class="overflow-x-auto" id="winsWrap">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th class="w-20">Priority</th>
-                      <th>Activity Type</th>
-                      <th>Won</th>
-                    </tr>
-                  </thead>
-                  <tbody id="winsBody"></tbody>
-                </table>
+          <!-- Detail panel column (right 5) -->
+          <div class="col-span-12 lg:col-span-5">
+            <div class="card bg-base-100 shadow-xl sticky top-4">
+              <div class="card-body">
+                <!-- Empty state -->
+                <div id="panel-empty-state" class="text-center py-16">
+                  <i data-lucide="mouse-pointer-click" class="w-12 h-12 mx-auto text-base-content/20 mb-3"></i>
+                  <p class="text-base-content/50 text-sm">Klik op een dag om de taken te bekijken</p>
+                </div>
+                <!-- Content -->
+                <div id="panel-content" class="hidden"></div>
               </div>
             </div>
           </div>
 
         </div>
       </div>
+
+      <!-- ── Wins tab ─────────────────────────────────────────────────────── -->
+      <div id="tabWins" style="display:none;">
+        <div id="winsContent">
+          <div class="flex justify-center py-16">
+            <span class="loading loading-spinner loading-lg"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Team tab (manager only) ──────────────────────────────────────── -->
+      ${teamPanel}
+
     </div>
+  </div>
 
-    <script>
-      ${COMMON_JS}
+  <script>
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function escHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
-      function priorityBadge(w) {
-        if (w >= 8) return '<span class="badge badge-error">' + w + '</span>';
-        if (w >= 5) return '<span class="badge badge-warning">' + w + '</span>';
-        if (w > 0)  return '<span class="badge badge-neutral">' + w + '</span>';
-        return '<span class="badge badge-ghost text-base-content/30">—</span>';
+    function stripHtml(html) {
+      if (!html) return '';
+      return html
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function urgencyClass(deadline) {
+      if (!deadline) return 'urgency-none';
+      var today = new Date(); today.setHours(0, 0, 0, 0);
+      var tomorrow = new Date(today.getTime() + 86400000);
+      var d = new Date(deadline + 'T00:00:00');
+      if (d < today) return 'urgency-overdue';
+      if (d < tomorrow) return 'urgency-today';
+      return 'urgency-upcoming';
+    }
+
+    var MODEL_META = {
+      'crm.lead':        { label: 'CRM Lead',      badgeClass: 'badge-primary'   },
+      'sale.order':      { label: 'Verkooporder',  badgeClass: 'badge-secondary' },
+      'res.partner':     { label: 'Contact',        badgeClass: 'badge-accent'    },
+      'account.move':    { label: 'Factuur',        badgeClass: 'badge-warning'   },
+      'helpdesk.ticket': { label: 'Ticket',         badgeClass: 'badge-info'      },
+      'project.task':    { label: 'Taak',           badgeClass: 'badge-success'   }
+    };
+
+    function modelBadge(model) {
+      var meta  = MODEL_META[model];
+      var label = meta ? meta.label : escHtml(model || '—');
+      var cls   = meta ? meta.badgeClass : 'badge-neutral';
+      return '<span class="badge badge-sm ' + cls + '">' + label + '</span>';
+    }
+
+    function priorityBadge(w) {
+      if (!w || w <= 0) return '';
+      return '<span class="badge badge-xs badge-neutral ml-1">P' + escHtml(String(w)) + '</span>';
+    }
+
+    // ── App state ─────────────────────────────────────────────────────────────
+    var allActivities  = [];
+    var winsData       = [];
+    var excludedModels = [];
+    var selectedDate   = null;
+    var calInst        = null;
+    var winsRendered   = false;
+    var teamLoaded     = false;
+
+    // Restore model exclusions from localStorage
+    try {
+      var _pbSaved = localStorage.getItem('pb_excluded_models');
+      if (_pbSaved) excludedModels = JSON.parse(_pbSaved);
+    } catch (_) {}
+
+    // ── Tab switching ─────────────────────────────────────────────────────────
+    function switchTab(tab) {
+      var ids = ['calendar', 'wins', 'team'];
+      for (var i = 0; i < ids.length; i++) {
+        var t   = ids[i];
+        var cap = t.charAt(0).toUpperCase() + t.slice(1);
+        var panel = document.getElementById('tab' + cap);
+        var btn   = document.getElementById('tabBtn' + cap);
+        if (panel) panel.style.display = (t === tab) ? '' : 'none';
+        if (btn)   btn.classList[t === tab ? 'add' : 'remove']('tab-active');
+      }
+      if (tab === 'wins') renderWins();
+      if (tab === 'team') loadTeam();
+    }
+
+    // ── Calendar ──────────────────────────────────────────────────────────────
+    function getTodayStr() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    function getFilteredActivities() {
+      return allActivities.filter(function(a) {
+        return excludedModels.indexOf(a.res_model) === -1;
+      });
+    }
+
+    function buildCalendarEvents(activities) {
+      var td = getTodayStr();
+      var byDate = {};
+      for (var i = 0; i < activities.length; i++) {
+        var a = activities[i];
+        if (!a.date_deadline) continue;
+        byDate[a.date_deadline] = (byDate[a.date_deadline] || 0) + 1;
+      }
+      var events = [];
+      var dates = Object.keys(byDate);
+      for (var j = 0; j < dates.length; j++) {
+        var date  = dates[j];
+        var count = byDate[date];
+        var isOv  = date < td;
+        var isTd  = date === td;
+        var bg = isOv ? 'oklch(var(--er))' : isTd ? 'oklch(var(--wa))' : 'oklch(var(--in))';
+        events.push({
+          id: 'day-' + date,
+          title: String(count),
+          start: date,
+          allDay: true,
+          backgroundColor: bg,
+          textColor: 'oklch(var(--b1))',
+          borderColor: 'transparent',
+          extendedProps: { count: count }
+        });
+      }
+      return events;
+    }
+
+    function initCalendar() {
+      var el = document.getElementById('fullcalendar');
+      if (!el || !window.FullCalendar) return;
+
+      calInst = new FullCalendar.Calendar(el, {
+        initialView: 'dayGridMonth',
+        locale: 'nl',
+        firstDay: 1,
+        height: 'auto',
+        fixedWeekCount: false,
+        dayMaxEvents: 1,
+        headerToolbar: {
+          left: 'prev,next today',
+          center: 'title',
+          right: ''
+        },
+        buttonText: { today: 'Vandaag' },
+        eventContent: function(renderProps) {
+          var count = renderProps.event.extendedProps.count || 0;
+          var label = count === 1 ? 'taak' : 'taken';
+          return {
+            html: '<div style="text-align:center; line-height:1.2; padding:0.125rem 0;">'
+              + '<span style="font-size:1rem; font-weight:700; display:block;">' + count + '</span>'
+              + '<span style="font-size:0.5625rem; text-transform:uppercase; letter-spacing:0.04em; opacity:0.9; display:block;">' + label + '</span>'
+              + '</div>'
+          };
+        },
+        dateClick: function(info) {
+          highlightDay(info.dateStr);
+          showTasksForDate(info.dateStr);
+        },
+        eventClick: function(info) {
+          info.jsEvent.preventDefault();
+          highlightDay(info.event.startStr);
+          showTasksForDate(info.event.startStr);
+        }
+      });
+
+      calInst.render();
+
+      var loadEl = document.getElementById('calendarLoadingState');
+      if (loadEl) loadEl.style.display = 'none';
+      el.style.display = '';
+    }
+
+    function highlightDay(dateStr) {
+      var prev = document.querySelector('.fc-day-selected');
+      if (prev) prev.classList.remove('fc-day-selected');
+      var cell = document.querySelector('[data-date="' + dateStr + '"]');
+      if (cell) cell.classList.add('fc-day-selected');
+    }
+
+    function refreshCalendarEvents() {
+      if (!calInst) return;
+      var events = buildCalendarEvents(getFilteredActivities());
+      calInst.removeAllEvents();
+      calInst.addEventSource(events);
+    }
+
+    // ── Detail panel ──────────────────────────────────────────────────────────
+    function showTasksForDate(dateStr) {
+      selectedDate = dateStr;
+      var filtered  = getFilteredActivities();
+      var acts      = filtered.filter(function(a) { return a.date_deadline === dateStr; });
+      var emptyEl   = document.getElementById('panel-empty-state');
+      var contentEl = document.getElementById('panel-content');
+      if (!emptyEl || !contentEl) return;
+
+      var d         = new Date(dateStr + 'T00:00:00');
+      var dateLabel = d.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' });
+      var td        = getTodayStr();
+      var isOv      = dateStr < td;
+      var isTd      = dateStr === td;
+      var hdCls     = isOv ? 'text-error' : isTd ? 'text-warning' : 'text-info';
+
+      var html = '<div class="flex items-center justify-between mb-3">'
+        + '<h3 class="font-semibold capitalize ' + hdCls + '">' + escHtml(dateLabel) + '</h3>'
+        + '<span class="badge badge-sm badge-ghost">' + acts.length + (acts.length === 1 ? ' taak' : ' taken') + '</span>'
+        + '</div>';
+
+      if (acts.length === 0) {
+        html += '<div class="text-center py-10 text-base-content/50">'
+          + '<i data-lucide="check-circle-2" class="w-10 h-10 mx-auto mb-2 text-success"></i>'
+          + '<p class="text-sm">Geen taken op deze dag</p>'
+          + '</div>';
+      } else {
+        for (var i = 0; i < acts.length; i++) {
+          html += buildPanelCard(acts[i]);
+        }
       }
 
-      function formatDeadline(d) {
-        if (!d) return '<span class="text-base-content/30">—</span>';
-        const date = new Date(d);
-        const today = new Date(); today.setHours(0,0,0,0);
-        const diff = Math.round((date - today) / 86400000);
-        if (diff < 0)  return '<span class="text-error font-medium">Overdue (' + Math.abs(diff) + 'd)</span>';
-        if (diff === 0) return '<span class="text-warning font-medium">Today</span>';
-        if (diff === 1) return '<span class="text-warning">Tomorrow</span>';
-        return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      contentEl.innerHTML = html;
+      emptyEl.classList.add('hidden');
+      contentEl.classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function buildPanelCard(a) {
+      var recordName  = escHtml(a.res_name || '—');
+      var actType     = escHtml(a.activity_type_name || '');
+      var noteRaw     = stripHtml(a.note || '');
+      var summaryTxt  = escHtml(a.summary || '');
+      var pwHtml      = priorityBadge(a.priority_weight);
+      var uc          = urgencyClass(a.date_deadline);
+
+      var summaryHtml = summaryTxt
+        ? '<p class="text-xs font-medium text-base-content/80 mt-0.5">' + summaryTxt + '</p>'
+        : '';
+      var noteHtml = noteRaw
+        ? '<p class="text-xs text-base-content/55 mt-1 leading-relaxed">' + escHtml(noteRaw) + '</p>'
+        : '';
+      var excludeBtn = '<button class="btn btn-ghost btn-xs text-base-content/25 hover:text-error shrink-0 mt-0.5" '
+        + 'onclick="toggleExcludeModel(&quot;' + escHtml(a.res_model || '') + '&quot;)" '
+        + 'title="Model verbergen">'
+        + '<i data-lucide="eye-off" class="w-3 h-3"></i>'
+        + '</button>';
+
+      return '<div class="card bg-base-200 mb-2 ' + uc + '">'
+        + '<div class="card-body py-2.5 px-3">'
+        + '<div class="flex items-start gap-2">'
+        + '<div class="flex-1 min-w-0">'
+        + '<div class="flex flex-wrap items-center gap-1 mb-0.5">'
+        + modelBadge(a.res_model) + ' '
+        + '<span class="text-xs text-base-content/60">' + actType + '</span>'
+        + pwHtml
+        + '</div>'
+        + '<p class="font-semibold text-sm leading-snug">' + recordName + '</p>'
+        + summaryHtml
+        + noteHtml
+        + '</div>'
+        + excludeBtn
+        + '</div>'
+        + '</div></div>';
+    }
+
+    // ── Model exclusion ────────────────────────────────────────────────────────
+    function toggleExcludeModel(model) {
+      var idx = excludedModels.indexOf(model);
+      if (idx === -1) {
+        excludedModels.push(model);
+      } else {
+        excludedModels.splice(idx, 1);
+      }
+      try { localStorage.setItem('pb_excluded_models', JSON.stringify(excludedModels)); } catch (_) {}
+      buildFilterChips();
+      refreshCalendarEvents();
+      renderNoDeadline();
+      if (selectedDate) showTasksForDate(selectedDate);
+    }
+
+    function buildFilterChips() {
+      var wrap = document.getElementById('filterChipsWrap');
+      if (!wrap) return;
+
+      var seenModels = {};
+      for (var i = 0; i < allActivities.length; i++) {
+        if (allActivities[i].res_model) seenModels[allActivities[i].res_model] = true;
+      }
+      var models = Object.keys(seenModels);
+      if (!models.length) { wrap.innerHTML = ''; return; }
+
+      var html = '<span class="text-xs text-base-content/50 font-medium">Toon:</span>';
+      for (var j = 0; j < models.length; j++) {
+        var model  = models[j];
+        var meta   = MODEL_META[model];
+        var label  = meta ? meta.label : escHtml(model);
+        var isEx   = excludedModels.indexOf(model) !== -1;
+        var btnCls = isEx ? 'btn-ghost opacity-40' : 'btn-outline';
+        html += '<button class="btn btn-xs ' + btnCls + '" onclick="toggleExcludeModel(&quot;' + escHtml(model) + '&quot;)">'
+          + label + '</button>';
+      }
+      wrap.innerHTML = html;
+    }
+
+    // ── No-deadline section ────────────────────────────────────────────────────
+    function buildActivityCard(a) {
+      var uc         = urgencyClass(a.date_deadline);
+      var recordName = escHtml(a.res_name || '—');
+      var actType    = escHtml(a.activity_type_name || '');
+      var pwHtml     = priorityBadge(a.priority_weight);
+      return '<div class="card bg-base-100 shadow-sm mb-2 ' + uc + '">'
+        + '<div class="card-body py-2 px-3">'
+        + '<div class="flex flex-wrap items-center gap-1 mb-0.5">'
+        + modelBadge(a.res_model) + ' '
+        + '<span class="text-xs text-base-content/60">' + actType + '</span>'
+        + pwHtml
+        + '</div>'
+        + '<p class="text-sm font-medium leading-snug">' + recordName + '</p>'
+        + '</div></div>';
+    }
+
+    function renderNoDeadline() {
+      var noDate  = getFilteredActivities().filter(function(a) { return !a.date_deadline; });
+      var section = document.getElementById('noDeadlineSection');
+      var badgeEl = document.getElementById('noDeadlineBadge');
+      var listEl  = document.getElementById('noDeadlineList');
+      if (!section) return;
+
+      if (!noDate.length) { section.style.display = 'none'; return; }
+
+      if (badgeEl) badgeEl.textContent = String(noDate.length);
+      var html = '';
+      for (var i = 0; i < noDate.length; i++) html += buildActivityCard(noDate[i]);
+      if (listEl) { listEl.innerHTML = html; lucide.createIcons(); }
+      section.style.display = '';
+    }
+
+    // ── Wins ──────────────────────────────────────────────────────────────────
+    function renderWins() {
+      if (winsRendered) return;
+      winsRendered = true;
+      var container = document.getElementById('winsContent');
+      if (!container) return;
+
+      if (!winsData.length) {
+        container.innerHTML = '<div class="text-center py-16">'
+          + '<i data-lucide="trophy" class="w-12 h-12 text-base-content/30 mx-auto mb-3"></i>'
+          + '<h3 class="text-lg font-semibold mb-1">Nog geen wins</h3>'
+          + '<p class="text-base-content/60">Jouw eerste win komt eraan!</p>'
+          + '</div>';
+        lucide.createIcons();
+        return;
       }
 
-      function formatWonAt(ts) {
-        const d = new Date(ts), now = new Date(), ms = now - d;
-        if (ms < 3600000)    return Math.round(ms / 60000) + 'm ago';
-        if (ms < 86400000)   return Math.round(ms / 3600000) + 'h ago';
-        if (ms < 604800000)  return Math.round(ms / 86400000) + 'd ago';
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      var weekAgo  = Date.now() - 7 * 86400000;
+      var weekWins = 0;
+      for (var i = 0; i < winsData.length; i++) {
+        if (new Date(winsData[i].won_at).getTime() >= weekAgo) weekWins++;
       }
 
-      async function loadDashboard() {
-        try {
-          const res = await fetch('/cx-powerboard/api/activities', { credentials: 'include' });
-          const data = await res.json();
+      var heroHtml = '<div class="text-center mb-8">'
+        + '<div class="text-7xl font-black text-success mb-2">' + weekWins + '</div>'
+        + '<p class="text-base-content/60 text-sm font-medium">Wins deze week \uD83C\uDFC6</p>'
+        + '</div>';
 
-          document.getElementById('loadingState').style.display = 'none';
+      var cardsHtml = '';
+      for (var j = 0; j < winsData.length; j++) {
+        var w       = winsData[j];
+        var wonDate = new Date(w.won_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' });
+        var actType = escHtml(w.activity_type_name || '');
+        var pw      = w.priority_weight ? ' <span class="badge badge-xs badge-neutral">P' + escHtml(String(w.priority_weight)) + '</span>' : '';
+        cardsHtml += '<div class="card bg-base-100 shadow-sm mb-2">'
+          + '<div class="card-body py-3 px-4">'
+          + '<div class="flex items-center justify-between">'
+          + '<p class="font-semibold text-sm">' + actType + pw + '</p>'
+          + '<div class="flex items-center gap-2">'
+          + '<i data-lucide="trophy" class="w-4 h-4 text-success"></i>'
+          + '<span class="text-xs text-base-content/60">' + wonDate + '</span>'
+          + '</div></div></div></div>';
+      }
 
-          if (data.odooUidMissing) {
-            document.getElementById('linkError').style.display = 'flex';
+      container.innerHTML = heroHtml + cardsHtml;
+      lucide.createIcons();
+    }
+
+    // ── Team leaderboard ──────────────────────────────────────────────────────
+    function loadTeam() {
+      if (teamLoaded) return;
+      teamLoaded = true;
+      var container = document.getElementById('tabTeam');
+      if (!container) return;
+
+      container.innerHTML = '<div class="flex justify-center items-center py-16">'
+        + '<span class="loading loading-spinner loading-lg"></span></div>';
+
+      fetch('/cx-powerboard/api/team', { credentials: 'include' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var team = data.team || [];
+          if (!team.length) {
+            container.innerHTML = '<div class="text-center py-12">'
+              + '<p class="text-base-content/60">Geen teamdata beschikbaar.</p></div>';
             lucide.createIcons();
             return;
           }
-
-          document.getElementById('mainContent').style.display = 'block';
-
-          // Activities
-          const acts = data.activities || [];
-          document.getElementById('activityCount').textContent = acts.length;
-          if (acts.length === 0) {
-            document.getElementById('emptyActivities').style.display = 'block';
-            document.getElementById('activitiesWrap').style.display = 'none';
-          } else {
-            document.getElementById('activitiesBody').innerHTML = acts.map(a => \`
-              <tr>
-                <td>\${priorityBadge(a.priority_weight)}</td>
-                <td class="font-medium">\${escHtml(a.activity_type_name)}</td>
-                <td class="text-sm text-base-content/70">\${escHtml(a.res_name || a.res_model || '—')}</td>
-                <td>\${formatDeadline(a.date_deadline)}</td>
-              </tr>
-            \`).join('');
+          var medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
+          var rows = '';
+          for (var i = 0; i < team.length; i++) {
+            var m     = team[i];
+            var medal = medals[i] || '';
+            var name  = escHtml(m.name || m.email || '—');
+            rows += '<tr>'
+              + '<td class="text-lg">' + medal + '</td>'
+              + '<td class="font-medium">' + name + '</td>'
+              + '<td class="text-center text-success font-bold">' + (m.winsThisWeek || 0) + '</td>'
+              + '<td class="text-center">' + (m.openActivities || 0) + '</td>'
+              + '<td class="text-center text-error">' + (m.overdue || 0) + '</td>'
+              + '</tr>';
           }
+          container.innerHTML = '<div class="card bg-base-100 shadow-sm">'
+            + '<div class="card-body">'
+            + '<h2 class="card-title mb-4">Team Leaderboard</h2>'
+            + '<table class="table table-sm">'
+            + '<thead><tr>'
+            + '<th></th><th>Naam</th>'
+            + '<th class="text-center text-success">Wins/week</th>'
+            + '<th class="text-center">Open</th>'
+            + '<th class="text-center text-error">Achterstallig</th>'
+            + '</tr></thead>'
+            + '<tbody>' + rows + '</tbody>'
+            + '</table></div></div>';
+          lucide.createIcons();
+        })
+        .catch(function() {
+          container.innerHTML = '<div class="alert alert-error">Fout bij laden van teamdata.</div>';
+        });
+    }
 
-          // Wins
-          const wins = data.wins || [];
-          document.getElementById('winsCount').textContent = wins.length;
-          if (wins.length === 0) {
-            document.getElementById('emptyWins').style.display = 'block';
-            document.getElementById('winsWrap').style.display = 'none';
-          } else {
-            document.getElementById('winsBody').innerHTML = wins.map(w => \`
-              <tr>
-                <td>\${priorityBadge(w.priority_weight)}</td>
-                <td class="font-medium">\${escHtml(w.activity_type_name)}</td>
-                <td class="text-sm text-base-content/70">\${formatWonAt(w.won_at)}</td>
-              </tr>
-            \`).join('');
-          }
+    // ── Theme / auth ──────────────────────────────────────────────────────────
+    function initTheme() {
+      var saved = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', saved);
+      var sel = document.getElementById('themeSelector');
+      if (sel) sel.value = saved;
+    }
 
-        } catch (err) {
-          document.getElementById('loadingState').style.display = 'none';
-          document.getElementById('mainContent').innerHTML =
-            '<div class="alert alert-error"><span>Failed to load: ' + escHtml(err.message) + '</span></div>';
-          document.getElementById('mainContent').style.display = 'block';
+    function changeTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('selectedTheme', theme);
+    }
+
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch (_) {}
+      window.location.href = '/';
+    }
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    fetch('/cx-powerboard/api/activities', { credentials: 'include' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.odooUidMissing) {
+          document.getElementById('uidMissingAlert').style.display = '';
+          var loadEl = document.getElementById('calendarLoadingState');
+          if (loadEl) loadEl.style.display = 'none';
+          lucide.createIcons();
+          return;
         }
 
-        lucide.createIcons();
-      }
+        var s = data.stats || {};
+        document.getElementById('statTotal').textContent   = s.total        != null ? s.total        : 0;
+        document.getElementById('statOverdue').textContent = s.overdue      != null ? s.overdue      : 0;
+        document.getElementById('statToday').textContent   = s.dueToday     != null ? s.dueToday     : 0;
+        document.getElementById('statWins').textContent    = s.winsThisWeek != null ? s.winsThisWeek : 0;
 
-      initTheme();
-      lucide.createIcons();
-      loadDashboard();
-    </script>
+        allActivities = data.activities || [];
+        winsData      = data.wins       || [];
+
+        initCalendar();
+        refreshCalendarEvents();
+        buildFilterChips();
+        renderNoDeadline();
+      })
+      .catch(function(e) {
+        var loadEl = document.getElementById('calendarLoadingState');
+        if (loadEl) loadEl.innerHTML = '<div class="alert alert-error">Fout bij laden: ' + escHtml(e.message) + '</div>';
+        lucide.createIcons();
+      });
+
+    initTheme();
+    lucide.createIcons();
+  </script>
 </body>
 </html>`;
 }
 
 // ---------------------------------------------------------------------------
-// Settings page (manager / admin only)
+// Settings (manager / admin only)
 // ---------------------------------------------------------------------------
 
 export function cxPowerboardSettingsUI(user) {
   return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="nl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CX Powerboard — Settings</title>
-    <script>${THEME_INIT}</script>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
-    <script>
-      (function suppressTailwindCdnWarning() {
-        const originalWarn = console.warn;
-        console.warn = function(...args) {
-          if (typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com should not be used in production')) return;
-          return originalWarn.apply(this, args);
-        };
-      })();
-    </script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CX Powerboard – Settings</title>
+
+  <script>
+    (function initThemeEarly() {
+      try {
+        var localTheme = localStorage.getItem('selectedTheme');
+        var cookieMatch = document.cookie.match(/(?:^|; )selectedTheme=([^;]+)/);
+        var cookieTheme = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
+        var theme = localTheme || cookieTheme || 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (_) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+
+  <script>
+    (function suppressTailwindCdnWarning() {
+      var _w = console.warn;
+      console.warn = function() {
+        if (arguments[0] && typeof arguments[0] === 'string' &&
+            arguments[0].indexOf('cdn.tailwindcss.com should not be used in production') !== -1) return;
+        return _w.apply(console, arguments);
+      };
+    })();
+  </script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="bg-base-200">
-    ${navbar(user)}
+  ${navbar(user)}
 
-    <div style="padding-top: 48px;">
-      <div class="container mx-auto px-6 py-8 max-w-4xl">
+  <div style="padding-top: 48px;">
+    <div class="container mx-auto px-6 py-8 max-w-3xl">
 
-        <!-- Header -->
-        <div class="flex items-center gap-4 mb-8">
-          <a href="/cx-powerboard" class="btn btn-sm btn-ghost">
-            <i data-lucide="arrow-left" class="w-4 h-4"></i>
-          </a>
-          <div>
-            <h1 class="text-4xl font-bold mb-1">Activity Mapping</h1>
-            <p class="text-base-content/60">Configure which Odoo activity types are tracked and which count as wins</p>
-          </div>
+      <!-- Header -->
+      <div class="flex items-center gap-3 mb-8">
+        <a href="/cx-powerboard" class="btn btn-sm btn-ghost">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i>
+        </a>
+        <div>
+          <h1 class="text-2xl font-bold">Activiteitstype mapping</h1>
+          <p class="text-base-content/60 text-sm">Koppel Odoo activiteitstypes aan prioriteitgewichten</p>
         </div>
+      </div>
 
-        <!-- Loading -->
-        <div id="loadingState" class="flex justify-center items-center py-16">
-          <span class="loading loading-spinner loading-lg"></span>
-          <span class="ml-4 text-lg">Loading mappings…</span>
-        </div>
+      <!-- Add mapping form -->
+      <div class="card bg-base-100 shadow-sm mb-6">
+        <div class="card-body">
+          <h2 class="card-title text-base mb-3">Mapping toevoegen</h2>
 
-        <div id="mainContent" style="display: none;">
-
-          <div class="card bg-base-100 shadow-xl mb-6">
-            <div class="card-body">
-              <div class="flex justify-between items-center mb-4">
-                <h2 class="card-title">Activity Type Mappings</h2>
-                <button id="addBtn" class="btn btn-primary btn-sm">
-                  <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
-                  Add Mapping
-                </button>
-              </div>
-
-              <div id="emptyState" class="text-center py-8 text-base-content/40" style="display: none;">
-                <i data-lucide="inbox" class="w-12 h-12 mx-auto mb-3"></i>
-                <p>No mappings configured yet. Add your first activity type.</p>
-              </div>
-
-              <div class="overflow-x-auto" id="tableWrap">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Activity Type</th>
-                      <th class="text-center">Priority (1–10)</th>
-                      <th class="text-center">Is Win</th>
-                      <th class="text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="mappingsBody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        <!-- Add / Edit Modal -->
-        <dialog id="mappingModal" class="modal">
-          <div class="modal-box max-w-lg">
-            <h3 id="modalTitle" class="font-bold text-lg mb-4">Add Activity Mapping</h3>
-
-            <div id="typePickerWrap" class="form-control mb-4">
-              <label class="label"><span class="label-text">Odoo Activity Type</span></label>
-              <select id="odooTypeSelect" class="select select-bordered">
-                <option value="">Loading Odoo types…</option>
+          <div class="flex flex-wrap gap-3 mb-3">
+            <div class="form-control flex-1 min-w-48">
+              <label class="label pb-1"><span class="label-text text-xs">Activiteitstype (Odoo)</span></label>
+              <select id="typeSelect" class="select select-sm select-bordered">
+                <option value="">Laden…</option>
               </select>
             </div>
-
-            <div class="form-control mb-4">
-              <label class="label"><span class="label-text">Priority Weight</span><span class="label-text-alt text-base-content/50">1 = lowest · 10 = highest</span></label>
-              <input type="number" id="weightInput" class="input input-bordered" min="1" max="10" value="5" />
-            </div>
-
-            <div class="form-control mb-6">
-              <label class="label cursor-pointer justify-start gap-4">
-                <input type="checkbox" id="isWinCheck" class="checkbox checkbox-success" />
-                <span class="label-text">Count as Win when completed</span>
-              </label>
-            </div>
-
-            <div id="modalError" class="alert alert-error mb-4" style="display: none;"></div>
-
-            <div class="modal-action">
-              <button class="btn btn-ghost" onclick="document.getElementById('mappingModal').close()">Cancel</button>
-              <button id="saveBtn" class="btn btn-primary">Save</button>
+            <div class="form-control w-28">
+              <label class="label pb-1"><span class="label-text text-xs">Prioriteit (0–100)</span></label>
+              <input type="number" id="newWeight" min="0" max="100" value="10" class="input input-sm input-bordered" />
             </div>
           </div>
-        </dialog>
 
+          <div class="flex items-center gap-4 mb-3">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="newIsWin" class="checkbox checkbox-sm" />
+              <span class="text-sm">Telt als win</span>
+            </label>
+          </div>
+
+          <div class="form-control mb-3">
+            <label class="label pb-1"><span class="label-text text-xs">Notities (optioneel)</span></label>
+            <input type="text" id="newNotes" class="input input-sm input-bordered" placeholder="bijv. alleen voor priority accounts" />
+          </div>
+
+          <button class="btn btn-primary btn-sm" onclick="addMapping()">
+            <i data-lucide="plus" class="w-4 h-4"></i> Toevoegen
+          </button>
+          <div id="addError" class="text-error text-xs mt-2" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- Mappings table -->
+      <div class="card bg-base-100 shadow-sm">
+        <div class="card-body">
+          <h2 class="card-title text-base mb-3">Bestaande mappings</h2>
+          <div id="mappingsLoading" class="flex justify-center py-8">
+            <span class="loading loading-spinner loading-md"></span>
+          </div>
+          <div id="mappingsTableWrap" style="display:none;">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Activiteitstype</th>
+                  <th class="text-center">Prioriteit</th>
+                  <th class="text-center">Win</th>
+                  <th>Notities</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="mappingsTableBody"></tbody>
+            </table>
+            <div id="mappingsEmpty" class="text-base-content/50 text-sm py-4 text-center" style="display:none;">
+              Nog geen mappings.
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Edit modal -->
+  <dialog id="editModal" class="modal">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg mb-4">Mapping bewerken</h3>
+      <input type="hidden" id="editId" />
+      <div class="form-control mb-3">
+        <label class="label pb-1"><span class="label-text text-xs">Activiteitstype</span></label>
+        <input type="text" id="editTypeName" class="input input-sm input-bordered" readonly />
+      </div>
+      <div class="flex gap-3 mb-3">
+        <div class="form-control w-32">
+          <label class="label pb-1"><span class="label-text text-xs">Prioriteit (0–100)</span></label>
+          <input type="number" id="editWeight" min="0" max="100" class="input input-sm input-bordered" />
+        </div>
+        <div class="form-control flex-1 flex items-end pb-1">
+          <label class="flex items-center gap-2 cursor-pointer mb-1">
+            <input type="checkbox" id="editIsWin" class="checkbox checkbox-sm" />
+            <span class="text-sm">Telt als win</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-control mb-4">
+        <label class="label pb-1"><span class="label-text text-xs">Notities</span></label>
+        <input type="text" id="editNotes" class="input input-sm input-bordered" />
+      </div>
+      <div id="editError" class="text-error text-xs mb-2" style="display:none;"></div>
+      <div class="modal-action">
+        <button class="btn btn-sm" onclick="document.getElementById('editModal').close()">Annuleren</button>
+        <button class="btn btn-primary btn-sm" onclick="saveEdit()">Opslaan</button>
       </div>
     </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
 
-    <script>
-      ${COMMON_JS}
+  <script>
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function escHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
-      let odooTypes = [];
-      let mappings = [];
-      let editingId = null;
+    // ── State ────────────────────────────────────────────────────────────────
+    var activityTypes = [];
+    var mappings      = [];
 
-      async function loadAll() {
-        const [mRes, tRes] = await Promise.all([
-          fetch('/cx-powerboard/api/mappings', { credentials: 'include' }),
-          fetch('/cx-powerboard/api/activity-types', { credentials: 'include' }),
-        ]);
-        mappings = await mRes.json();
-        odooTypes = await tRes.json();
-        document.getElementById('loadingState').style.display = 'none';
-        document.getElementById('mainContent').style.display = 'block';
-        renderMappings();
-        lucide.createIcons();
-      }
-
-      function renderMappings() {
-        const body = document.getElementById('mappingsBody');
-        if (!mappings.length) {
-          document.getElementById('emptyState').style.display = 'block';
-          document.getElementById('tableWrap').style.display = 'none';
-          return;
-        }
-        document.getElementById('emptyState').style.display = 'none';
-        document.getElementById('tableWrap').style.display = 'block';
-        body.innerHTML = mappings.map(m => \`
-          <tr>
-            <td class="font-medium">\${escHtml(m.odoo_activity_type_name)}</td>
-            <td class="text-center">\${m.priority_weight}</td>
-            <td class="text-center">\${m.is_win
-              ? '<span class="badge badge-success gap-1"><i data-lucide="trophy" class="w-3 h-3"></i>Win</span>'
-              : '<span class="badge badge-ghost">—</span>'
-            }</td>
-            <td class="text-right">
-              <button class="btn btn-ghost btn-xs mr-1" onclick="openEdit('\${escHtml(m.id)}')">
-                <i data-lucide="pencil" class="w-3 h-3"></i>
-              </button>
-              <button class="btn btn-ghost btn-xs text-error" onclick="confirmDelete('\${escHtml(m.id)}')">
-                <i data-lucide="trash-2" class="w-3 h-3"></i>
-              </button>
-            </td>
-          </tr>
-        \`).join('');
-        lucide.createIcons();
-      }
-
-      function openAdd() {
-        editingId = null;
-        document.getElementById('modalTitle').textContent = 'Add Activity Mapping';
-        document.getElementById('weightInput').value = 5;
-        document.getElementById('isWinCheck').checked = false;
-        document.getElementById('modalError').style.display = 'none';
-
-        // Populate type select (exclude already-mapped types)
-        const usedIds = new Set(mappings.map(m => m.odoo_activity_type_id));
-        const tw = document.getElementById('typePickerWrap');
-        tw.innerHTML = '<label class="label"><span class="label-text">Odoo Activity Type</span></label>' +
-          '<select id="odooTypeSelect" class="select select-bordered">' +
-          odooTypes.filter(t => !usedIds.has(t.id))
-            .map(t => \`<option value="\${t.id}" data-name="\${escHtml(t.name)}">\${escHtml(t.name)}</option>\`)
-            .join('') +
-          '</select>';
-
-        document.getElementById('mappingModal').showModal();
-      }
-
-      function openEdit(id) {
-        const m = mappings.find(x => x.id === id);
-        if (!m) return;
-        editingId = id;
-        document.getElementById('modalTitle').textContent = 'Edit Mapping';
-        document.getElementById('weightInput').value = m.priority_weight;
-        document.getElementById('isWinCheck').checked = m.is_win;
-        document.getElementById('modalError').style.display = 'none';
-
-        // Show type name read-only (type cannot be changed after creation)
-        document.getElementById('typePickerWrap').innerHTML =
-          '<label class="label"><span class="label-text">Odoo Activity Type</span></label>' +
-          '<input class="input input-bordered bg-base-200" value="' + escHtml(m.odoo_activity_type_name) + '" disabled />';
-
-        document.getElementById('mappingModal').showModal();
-      }
-
-      document.getElementById('addBtn').addEventListener('click', openAdd);
-
-      document.getElementById('saveBtn').addEventListener('click', async () => {
-        const errEl = document.getElementById('modalError');
-        errEl.style.display = 'none';
-
-        const weight = parseInt(document.getElementById('weightInput').value, 10);
-        const isWin  = document.getElementById('isWinCheck').checked;
-
-        if (!weight || weight < 1 || weight > 10) {
-          errEl.textContent = 'Priority weight must be between 1 and 10.';
-          errEl.style.display = 'flex';
-          return;
-        }
-
-        let url, method, body;
-        if (editingId) {
-          url = '/cx-powerboard/api/mappings/' + editingId;
-          method = 'PUT';
-          body = { priority_weight: weight, is_win: isWin };
-        } else {
-          const sel = document.getElementById('odooTypeSelect');
-          const typeId = parseInt(sel?.value, 10);
-          const typeName = sel?.options[sel.selectedIndex]?.dataset?.name || '';
-          if (!typeId) {
-            errEl.textContent = 'Please select an activity type.';
-            errEl.style.display = 'flex';
-            return;
-          }
-          url = '/cx-powerboard/api/mappings';
-          method = 'POST';
-          body = { odoo_activity_type_id: typeId, odoo_activity_type_name: typeName, priority_weight: weight, is_win: isWin };
-        }
-
-        const saveBtn = document.getElementById('saveBtn');
-        saveBtn.disabled = true;
-        try {
-          const res = await fetch(url, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(body),
-          });
-          const result = await res.json();
-          if (!res.ok) throw new Error(result.error || 'Save failed');
-          document.getElementById('mappingModal').close();
-          await loadAll();
-        } catch (e) {
-          errEl.textContent = e.message;
-          errEl.style.display = 'flex';
-        } finally {
-          saveBtn.disabled = false;
-        }
+    // ── Load data ────────────────────────────────────────────────────────────
+    function loadAll() {
+      Promise.all([
+        fetch('/cx-powerboard/api/activity-types', { credentials: 'include' }).then(function(r) { return r.json(); }),
+        fetch('/cx-powerboard/api/mappings',        { credentials: 'include' }).then(function(r) { return r.json(); })
+      ]).then(function(results) {
+        activityTypes = results[0] || [];
+        mappings      = results[1] || [];
+        renderTypeSelect();
+        renderMappingsTable();
+      }).catch(function(e) {
+        document.getElementById('mappingsLoading').innerHTML =
+          '<div class="alert alert-error">' + escHtml(e.message) + '</div>';
       });
+    }
 
-      async function confirmDelete(id) {
-        if (!confirm('Delete this mapping?')) return;
-        const res = await fetch('/cx-powerboard/api/mappings/' + id, { method: 'DELETE', credentials: 'include' });
-        if (res.ok) await loadAll();
+    function renderTypeSelect() {
+      var sel  = document.getElementById('typeSelect');
+      var html = '<option value="">Kies een type…</option>';
+      // Only show types not yet mapped
+      var mappedIds = {};
+      for (var i = 0; i < mappings.length; i++) {
+        mappedIds[mappings[i].odoo_activity_type_id] = true;
+      }
+      for (var j = 0; j < activityTypes.length; j++) {
+        var t = activityTypes[j];
+        if (!mappedIds[t.id]) {
+          html += '<option value="' + escHtml(String(t.id)) + '" data-name="' + escHtml(t.name) + '">'
+               + escHtml(t.name) + '</option>';
+        }
+      }
+      sel.innerHTML = html;
+    }
+
+    function renderMappingsTable() {
+      var loadingEl = document.getElementById('mappingsLoading');
+      var wrapEl    = document.getElementById('mappingsTableWrap');
+      var tbody     = document.getElementById('mappingsTableBody');
+      var emptyEl   = document.getElementById('mappingsEmpty');
+
+      loadingEl.style.display = 'none';
+      wrapEl.style.display    = '';
+
+      if (!mappings.length) {
+        tbody.innerHTML    = '';
+        emptyEl.style.display = '';
+        return;
       }
 
-      initTheme();
+      emptyEl.style.display = 'none';
+      var rows = '';
+      for (var i = 0; i < mappings.length; i++) {
+        var m      = mappings[i];
+        var winBadge = m.is_win
+          ? '<span class="badge badge-success badge-sm">Win</span>'
+          : '<span class="text-base-content/30">—</span>';
+        rows += '<tr>'
+          + '<td class="font-medium">' + escHtml(m.odoo_activity_type_name) + '</td>'
+          + '<td class="text-center">' + escHtml(String(m.priority_weight)) + '</td>'
+          + '<td class="text-center">' + winBadge + '</td>'
+          + '<td class="text-xs text-base-content/60">' + escHtml(m.notes || '') + '</td>'
+          + '<td class="text-right">'
+          + '<button class="btn btn-xs btn-ghost mr-1" onclick="openEdit(&quot;' + escHtml(String(m.id)) + '&quot;)">'
+          + '<i data-lucide="pencil" class="w-3 h-3"></i></button>'
+          + '<button class="btn btn-xs btn-ghost text-error" onclick="deleteMapping(&quot;' + escHtml(String(m.id)) + '&quot;)">'
+          + '<i data-lucide="trash-2" class="w-3 h-3"></i></button>'
+          + '</td>'
+          + '</tr>';
+      }
+      tbody.innerHTML = rows;
       lucide.createIcons();
-      loadAll();
-    </script>
+    }
+
+    // ── Add mapping ──────────────────────────────────────────────────────────
+    function addMapping() {
+      var sel      = document.getElementById('typeSelect');
+      var typeId   = parseInt(sel.value, 10);
+      var typeName = sel.options[sel.selectedIndex] ? (sel.options[sel.selectedIndex].getAttribute('data-name') || '') : '';
+      var weight   = parseInt(document.getElementById('newWeight').value, 10);
+      var isWin    = document.getElementById('newIsWin').checked;
+      var notes    = document.getElementById('newNotes').value.trim();
+      var errEl    = document.getElementById('addError');
+
+      errEl.style.display = 'none';
+
+      if (!typeId || !typeName) { errEl.textContent = 'Kies een activiteitstype.'; errEl.style.display = ''; return; }
+      if (isNaN(weight) || weight < 0 || weight > 100) { errEl.textContent = 'Prioriteit moet tussen 0 en 100 liggen.'; errEl.style.display = ''; return; }
+
+      fetch('/cx-powerboard/api/mappings', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ odoo_activity_type_id: typeId, odoo_activity_type_name: typeName, priority_weight: weight, is_win: isWin, notes: notes || null })
+      })
+        .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); }); })
+        .then(function(record) {
+          mappings.push(record);
+          document.getElementById('newWeight').value = '10';
+          document.getElementById('newIsWin').checked = false;
+          document.getElementById('newNotes').value = '';
+          renderTypeSelect();
+          renderMappingsTable();
+        })
+        .catch(function(e) { errEl.textContent = escHtml(e.message); errEl.style.display = ''; });
+    }
+
+    // ── Edit mapping ─────────────────────────────────────────────────────────
+    function openEdit(id) {
+      var m = null;
+      for (var i = 0; i < mappings.length; i++) {
+        if (String(mappings[i].id) === id) { m = mappings[i]; break; }
+      }
+      if (!m) return;
+      document.getElementById('editId').value       = id;
+      document.getElementById('editTypeName').value = m.odoo_activity_type_name;
+      document.getElementById('editWeight').value   = m.priority_weight;
+      document.getElementById('editIsWin').checked  = !!m.is_win;
+      document.getElementById('editNotes').value    = m.notes || '';
+      document.getElementById('editError').style.display = 'none';
+      document.getElementById('editModal').showModal();
+    }
+
+    function saveEdit() {
+      var id     = document.getElementById('editId').value;
+      var weight = parseInt(document.getElementById('editWeight').value, 10);
+      var isWin  = document.getElementById('editIsWin').checked;
+      var notes  = document.getElementById('editNotes').value.trim();
+      var errEl  = document.getElementById('editError');
+
+      errEl.style.display = 'none';
+      if (isNaN(weight) || weight < 0 || weight > 100) {
+        errEl.textContent = 'Prioriteit moet tussen 0 en 100 liggen.';
+        errEl.style.display = '';
+        return;
+      }
+
+      fetch('/cx-powerboard/api/mappings/' + encodeURIComponent(id), {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority_weight: weight, is_win: isWin, notes: notes || null })
+      })
+        .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); }); })
+        .then(function(record) {
+          for (var i = 0; i < mappings.length; i++) {
+            if (String(mappings[i].id) === id) { mappings[i] = record; break; }
+          }
+          document.getElementById('editModal').close();
+          renderMappingsTable();
+        })
+        .catch(function(e) { errEl.textContent = escHtml(e.message); errEl.style.display = ''; });
+    }
+
+    // ── Delete mapping ───────────────────────────────────────────────────────
+    function deleteMapping(id) {
+      if (!confirm('Weet je zeker dat je deze mapping wilt verwijderen?')) return;
+      fetch('/cx-powerboard/api/mappings/' + encodeURIComponent(id), {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+        .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Verwijderen mislukt'); }); })
+        .then(function() {
+          mappings = mappings.filter(function(m) { return String(m.id) !== id; });
+          renderTypeSelect();
+          renderMappingsTable();
+        })
+        .catch(function(e) { alert('Fout: ' + e.message); });
+    }
+
+    // ── Theme / auth ─────────────────────────────────────────────────────────
+    function initTheme() {
+      var saved = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', saved);
+      var sel = document.getElementById('themeSelector');
+      if (sel) sel.value = saved;
+    }
+
+    function changeTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('selectedTheme', theme);
+    }
+
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch (_) {}
+      window.location.href = '/';
+    }
+
+    // ── Boot ─────────────────────────────────────────────────────────────────
+    initTheme();
+    lucide.createIcons();
+    loadAll();
+  </script>
 </body>
 </html>`;
 }
