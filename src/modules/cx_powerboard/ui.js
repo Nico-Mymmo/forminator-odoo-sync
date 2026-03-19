@@ -752,49 +752,51 @@ export function cxPowerboardDashboardUI(user) {
     }
 
     function buildTypeCard(name, stats, open, isSuccess, isDanger) {
-      var cardCls, numCls;
+      var cardBg, cardBorder, numCls, statusHtml;
       if (isSuccess) {
-        cardCls = 'border-success/30 bg-success/5';
-        numCls  = 'text-success';
+        cardBg     = 'bg-success/10';
+        cardBorder = 'border border-success/30';
+        numCls     = 'text-success';
+        statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-success shrink-0">'
+          + '<i data-lucide="check-circle-2" class="w-3 h-3 shrink-0"></i>Klaar</span>';
       } else if (isDanger) {
-        cardCls = 'border-error/30 bg-error/5';
-        numCls  = 'text-error';
+        cardBg     = 'bg-error/10';
+        cardBorder = 'border border-error/25';
+        numCls     = 'text-error';
+        statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-error shrink-0">'
+          + '<i data-lucide="alert-circle" class="w-3 h-3 shrink-0"></i>Aandacht</span>';
       } else {
-        cardCls = 'border-base-300';
-        numCls  = 'text-base-content';
+        cardBg     = 'bg-base-100';
+        cardBorder = 'border border-base-200';
+        numCls     = 'text-base-content';
+        statusHtml = '';
       }
 
-      var successMark = isSuccess
-        ? '<span class="badge badge-xs badge-success badge-outline ml-1">'
-          + '<i data-lucide="check" class="w-2.5 h-2.5"></i></span>'
-        : '';
+      var ovPillCls = stats.overdue > 0
+        ? 'bg-error/15 text-error font-semibold'
+        : 'bg-base-200/60 text-base-content/25';
+      var tdPillCls = stats.today > 0
+        ? 'bg-warning/15 text-warning font-semibold'
+        : 'bg-base-200/60 text-base-content/25';
+      var opPillCls = open > 0
+        ? 'bg-base-200 text-base-content/60 font-medium'
+        : 'bg-base-200/60 text-base-content/25';
 
-      var ovCls = stats.overdue > 0 ? 'text-error'         : 'text-base-content/30';
-      var tdCls = stats.today   > 0 ? 'text-warning'       : 'text-base-content/30';
-      var opCls = open          > 0 ? 'text-base-content/70' : 'text-base-content/30';
-
-      return '<div class="card bg-base-100 border ' + cardCls + '">'
-        + '<div class="card-body p-4">'
-        + '<div class="flex items-start justify-between mb-2">'
+      return '<div class="rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 ' + cardBg + ' ' + cardBorder + '">'
+        + '<div class="flex items-start justify-between gap-2 mb-4">'
         + '<p class="font-semibold text-sm leading-snug text-base-content/80">' + name + '</p>'
-        + successMark
+        + statusHtml
         + '</div>'
-        + '<div class="text-4xl font-black ' + numCls + ' mb-3 leading-none tabular-nums">' + stats.total + '</div>'
-        + '<div class="flex gap-4">'
-        + '<div class="flex flex-col items-center">'
-        + '<span class="font-bold text-sm ' + ovCls + '">' + stats.overdue + '</span>'
-        + '<span class="text-base-content/50 text-[0.625rem] uppercase tracking-wide">Achterstallig</span>'
+        + '<div class="mb-4">'
+        + '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + stats.total + '</span>'
+        + '<p class="text-[0.6rem] font-medium uppercase tracking-widest text-base-content/40 mt-2">activiteiten</p>'
         + '</div>'
-        + '<div class="flex flex-col items-center">'
-        + '<span class="font-bold text-sm ' + tdCls + '">' + stats.today + '</span>'
-        + '<span class="text-base-content/50 text-[0.625rem] uppercase tracking-wide">Vandaag</span>'
+        + '<div class="flex flex-wrap gap-1.5">'
+        + '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[0.7rem] ' + ovPillCls + '">' + stats.overdue + '\u00a0achterstallig</span>'
+        + '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[0.7rem] ' + tdPillCls + '">' + stats.today + '\u00a0vandaag</span>'
+        + '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[0.7rem] ' + opPillCls + '">' + open + '\u00a0open</span>'
         + '</div>'
-        + '<div class="flex flex-col items-center">'
-        + '<span class="font-bold text-sm ' + opCls + '">' + open + '</span>'
-        + '<span class="text-base-content/50 text-[0.625rem] uppercase tracking-wide">Open</span>'
-        + '</div>'
-        + '</div>'
-        + '</div></div>';
+        + '</div>';
     }
 
     // ── Wins ──────────────────────────────────────────────────────────────────
