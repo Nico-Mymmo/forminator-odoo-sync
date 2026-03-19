@@ -842,9 +842,9 @@ export function cxPowerboardDashboardUI(user) {
         + '</div>'
         + '</div>'
         + '<div class="flex flex-wrap gap-1.5">'
-        + '<span class="' + ovPillCls + '" onclick="openPbCard(' + idx + ',\'overdue\',event)">' + stats.overdue + '\u00a0achterstallig</span>'
-        + '<span class="' + tdPillCls + '" onclick="openPbCard(' + idx + ',\'today\',event)">' + stats.today + '\u00a0vandaag</span>'
-        + '<span class="' + opPillCls + '" onclick="openPbCard(' + idx + ',\'open\',event)">' + open + '\u00a0open</span>'
+        + '<span class="' + ovPillCls + '" onclick="openPbCard(' + idx + ',&quot;overdue&quot;,event)">' + stats.overdue + '\u00a0achterstallig</span>'
+        + '<span class="' + tdPillCls + '" onclick="openPbCard(' + idx + ',&quot;today&quot;,event)">' + stats.today + '\u00a0vandaag</span>'
+        + '<span class="' + opPillCls + '" onclick="openPbCard(' + idx + ',&quot;open&quot;,event)">' + open + '\u00a0open</span>'
         + '</div>'
         + '</div>';
     }
