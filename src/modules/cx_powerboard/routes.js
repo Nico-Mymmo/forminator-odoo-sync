@@ -191,7 +191,7 @@ async function handleGetActivities(context) {
     winsThisWeek: weekWins?.length ?? 0,
   };
 
-  return new Response(JSON.stringify({ activities: enriched, wins, stats }), {
+  return new Response(JSON.stringify({ activities: enriched, wins, stats, mappings }), {
     headers: { 'Content-Type': 'application/json' },
   });
 }
@@ -222,7 +222,7 @@ async function handleCreateMapping(context) {
   if (denied) return denied;
   try {
     const body = await context.request.json();
-    const { odoo_activity_type_id, odoo_activity_type_name, priority_weight, is_win = false, notes } = body;
+    const { odoo_activity_type_id, odoo_activity_type_name, priority_weight, is_win = false, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today } = body;
     if (!odoo_activity_type_id || !odoo_activity_type_name || priority_weight === undefined) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
         status: 400, headers: { 'Content-Type': 'application/json' },
@@ -234,6 +234,9 @@ async function handleCreateMapping(context) {
       priority_weight,
       is_win,
       notes,
+      show_on_dashboard,
+      danger_threshold_overdue,
+      danger_threshold_today,
     });
     return new Response(JSON.stringify(record), {
       status: 201, headers: { 'Content-Type': 'application/json' },
@@ -251,13 +254,13 @@ async function handleUpdateMapping(context) {
   try {
     const { id } = context.params;
     const body = await context.request.json();
-    const { priority_weight, is_win, notes } = body;
+    const { priority_weight, is_win, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today } = body;
     if (priority_weight === undefined) {
       return new Response(JSON.stringify({ error: 'priority_weight is required' }), {
         status: 400, headers: { 'Content-Type': 'application/json' },
       });
     }
-    const record = await updateMapping(context.env, id, { priority_weight, is_win, notes });
+    const record = await updateMapping(context.env, id, { priority_weight, is_win, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today });
     return new Response(JSON.stringify(record), { headers: { 'Content-Type': 'application/json' } });
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {

@@ -202,26 +202,6 @@ export function cxPowerboardDashboardUI(user) {
         ${settingsBtn}
       </div>
 
-      <!-- Stats bar -->
-      <div class="stats shadow w-full mb-6">
-        <div class="stat place-items-center">
-          <div class="stat-title">Open</div>
-          <div class="stat-value text-2xl" id="statTotal">—</div>
-        </div>
-        <div class="stat place-items-center">
-          <div class="stat-title">Achterstallig</div>
-          <div class="stat-value text-2xl text-error" id="statOverdue">—</div>
-        </div>
-        <div class="stat place-items-center">
-          <div class="stat-title">Vandaag</div>
-          <div class="stat-value text-2xl text-warning" id="statToday">—</div>
-        </div>
-        <div class="stat place-items-center">
-          <div class="stat-title">Wins (week)</div>
-          <div class="stat-value text-2xl text-success" id="statWins">—</div>
-        </div>
-      </div>
-
       <!-- Odoo UID missing warning -->
       <div id="uidMissingAlert" class="alert alert-warning mb-4" style="display:none;">
         <i data-lucide="alert-triangle" class="w-5 h-5"></i>
@@ -230,7 +210,10 @@ export function cxPowerboardDashboardUI(user) {
 
       <!-- Tabs -->
       <div role="tablist" class="tabs tabs-boxed mb-6 w-fit">
-        <button role="tab" class="tab tab-active" id="tabBtnCalendar" onclick="switchTab('calendar')">
+        <button role="tab" class="tab tab-active" id="tabBtnDashboard" onclick="switchTab('dashboard')">
+          <i data-lucide="layout-dashboard" class="w-4 h-4 mr-1"></i> Dashboard
+        </button>
+        <button role="tab" class="tab" id="tabBtnCalendar" onclick="switchTab('calendar')">
           <i data-lucide="calendar" class="w-4 h-4 mr-1"></i> Kalender
         </button>
         <button role="tab" class="tab" id="tabBtnWins" onclick="switchTab('wins')">
@@ -239,8 +222,40 @@ export function cxPowerboardDashboardUI(user) {
         ${teamTab}
       </div>
 
+      <!-- ── Dashboard tab ─────────────────────────────────────────────────── -->
+      <div id="tabDashboard">
+
+        <!-- Stats bar -->
+        <div class="stats shadow w-full mb-6">
+          <div class="stat place-items-center">
+            <div class="stat-title">Open</div>
+            <div class="stat-value text-2xl" id="statTotal">—</div>
+          </div>
+          <div class="stat place-items-center">
+            <div class="stat-title">Achterstallig</div>
+            <div class="stat-value text-2xl text-error" id="statOverdue">—</div>
+          </div>
+          <div class="stat place-items-center">
+            <div class="stat-title">Vandaag</div>
+            <div class="stat-value text-2xl text-warning" id="statToday">—</div>
+          </div>
+          <div class="stat place-items-center">
+            <div class="stat-title">Wins (week)</div>
+            <div class="stat-value text-2xl text-success" id="statWins">—</div>
+          </div>
+        </div>
+
+        <!-- Activity type cards -->
+        <div id="dashboardCards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="flex justify-center items-center py-16 col-span-full">
+            <span class="loading loading-spinner loading-lg"></span>
+          </div>
+        </div>
+
+      </div>
+
       <!-- ── Calendar tab ──────────────────────────────────────────────────── -->
-      <div id="tabCalendar">
+      <div id="tabCalendar" style="display:none;">
         <div class="grid grid-cols-12 gap-6">
 
           <!-- Calendar column (left 7) -->
@@ -389,13 +404,17 @@ export function cxPowerboardDashboardUI(user) {
     }
 
     // ── App state ─────────────────────────────────────────────────────────────
-    var allActivities  = [];
-    var winsData       = [];
-    var excludedModels = [];
-    var selectedDate   = null;
-    var calInst        = null;
-    var winsRendered   = false;
-    var teamLoaded     = false;
+    var allActivities      = [];
+    var winsData           = [];
+    var mappingsData       = [];
+    var excludedModels     = [];
+    var selectedDate       = null;
+    var calInst            = null;
+    var winsRendered       = false;
+    var teamLoaded         = false;
+    var dashboardRendered  = false;
+    var dataReady          = false;
+    var calendarPendingInit = false;
 
     // Restore model exclusions from localStorage
     try {
@@ -405,7 +424,7 @@ export function cxPowerboardDashboardUI(user) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function switchTab(tab) {
-      var ids = ['calendar', 'wins', 'team'];
+      var ids = ['dashboard', 'calendar', 'wins', 'team'];
       for (var i = 0; i < ids.length; i++) {
         var t   = ids[i];
         var cap = t.charAt(0).toUpperCase() + t.slice(1);
@@ -413,6 +432,17 @@ export function cxPowerboardDashboardUI(user) {
         var btn   = document.getElementById('tabBtn' + cap);
         if (panel) panel.style.display = (t === tab) ? '' : 'none';
         if (btn)   btn.classList[t === tab ? 'add' : 'remove']('tab-active');
+      }
+      if (tab === 'dashboard') renderDashboard();
+      if (tab === 'calendar') {
+        if (dataReady && !calInst) {
+          initCalendar();
+          refreshCalendarEvents();
+          buildFilterChips();
+          renderNoDeadline();
+        } else if (!dataReady) {
+          calendarPendingInit = true;
+        }
       }
       if (tab === 'wins') renderWins();
       if (tab === 'team') loadTeam();
@@ -666,6 +696,107 @@ export function cxPowerboardDashboardUI(user) {
       section.style.display = '';
     }
 
+    // ── Dashboard cards ───────────────────────────────────────────────────────
+    function renderDashboard() {
+      if (dashboardRendered) return;
+      dashboardRendered = true;
+
+      var container = document.getElementById('dashboardCards');
+      if (!container) return;
+
+      // Group activities by activity_type_id
+      var byType = {};
+      for (var i = 0; i < allActivities.length; i++) {
+        var a   = allActivities[i];
+        var tid = String(a.activity_type_id);
+        if (!byType[tid]) byType[tid] = { name: a.activity_type_name, total: 0, overdue: 0, today: 0 };
+        byType[tid].total++;
+        var uc = urgencyClass(a.date_deadline);
+        if (uc === 'urgency-overdue')    byType[tid].overdue++;
+        else if (uc === 'urgency-today') byType[tid].today++;
+      }
+
+      var html      = '';
+      var cardCount = 0;
+      for (var m = 0; m < mappingsData.length; m++) {
+        var mapping = mappingsData[m];
+        if (!mapping.show_on_dashboard) continue;
+
+        var tid2  = String(mapping.odoo_activity_type_id);
+        var stats = byType[tid2] || { total: 0, overdue: 0, today: 0 };
+        var open  = stats.total - stats.overdue - stats.today;
+        if (open < 0) open = 0;
+
+        var thOv = mapping.danger_threshold_overdue != null ? mapping.danger_threshold_overdue : 1;
+        var thTd = mapping.danger_threshold_today   != null ? mapping.danger_threshold_today   : 3;
+
+        var isSuccess = stats.overdue === 0 && stats.today === 0;
+        var isDanger  = !isSuccess && (stats.overdue >= thOv || stats.today >= thTd);
+
+        html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), stats, open, isSuccess, isDanger);
+        cardCount++;
+      }
+
+      if (!cardCount) {
+        container.innerHTML = '<div class="text-center py-16 col-span-full text-base-content/50">'
+          + '<i data-lucide="layout-dashboard" class="w-10 h-10 mx-auto mb-2"></i>'
+          + '<p class="text-sm">Geen dashboard kaarten geconfigureerd.</p>'
+          + '<p class="text-xs mt-1">Zet &quot;Dashboard kaart&quot; aan in de instellingen.</p>'
+          + '</div>';
+        lucide.createIcons();
+        return;
+      }
+
+      container.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    function buildTypeCard(name, stats, open, isSuccess, isDanger) {
+      var cardCls, numCls;
+      if (isSuccess) {
+        cardCls = 'border-success/30 bg-success/5';
+        numCls  = 'text-success';
+      } else if (isDanger) {
+        cardCls = 'border-error/30 bg-error/5';
+        numCls  = 'text-error';
+      } else {
+        cardCls = 'border-base-300';
+        numCls  = 'text-base-content';
+      }
+
+      var successMark = isSuccess
+        ? '<span class="badge badge-xs badge-success badge-outline ml-1">'
+          + '<i data-lucide="check" class="w-2.5 h-2.5"></i></span>'
+        : '';
+
+      var ovCls = stats.overdue > 0 ? 'text-error'         : 'text-base-content/30';
+      var tdCls = stats.today   > 0 ? 'text-warning'       : 'text-base-content/30';
+      var opCls = open          > 0 ? 'text-base-content/70' : 'text-base-content/30';
+
+      return '<div class="card bg-base-100 border ' + cardCls + '">'
+        + '<div class="card-body p-4">'
+        + '<div class="flex items-start justify-between mb-2">'
+        + '<p class="font-semibold text-sm leading-snug text-base-content/80">' + name + '</p>'
+        + successMark
+        + '</div>'
+        + '<div class="text-4xl font-black ' + numCls + ' mb-3 leading-none tabular-nums">' + stats.total + '</div>'
+        + '<div class="flex gap-4">'
+        + '<div class="flex flex-col items-center">'
+        + '<span class="font-bold text-sm ' + ovCls + '">' + stats.overdue + '</span>'
+        + '<span class="text-base-content/50 text-[0.625rem] uppercase tracking-wide">Achterstallig</span>'
+        + '</div>'
+        + '<div class="flex flex-col items-center">'
+        + '<span class="font-bold text-sm ' + tdCls + '">' + stats.today + '</span>'
+        + '<span class="text-base-content/50 text-[0.625rem] uppercase tracking-wide">Vandaag</span>'
+        + '</div>'
+        + '<div class="flex flex-col items-center">'
+        + '<span class="font-bold text-sm ' + opCls + '">' + open + '</span>'
+        + '<span class="text-base-content/50 text-[0.625rem] uppercase tracking-wide">Open</span>'
+        + '</div>'
+        + '</div>'
+        + '</div></div>';
+    }
+
     // ── Wins ──────────────────────────────────────────────────────────────────
     function renderWins() {
       if (winsRendered) return;
@@ -793,8 +924,8 @@ export function cxPowerboardDashboardUI(user) {
       .then(function(data) {
         if (data.odooUidMissing) {
           document.getElementById('uidMissingAlert').style.display = '';
-          var loadEl = document.getElementById('calendarLoadingState');
-          if (loadEl) loadEl.style.display = 'none';
+          var cardsEl = document.getElementById('dashboardCards');
+          if (cardsEl) cardsEl.innerHTML = '';
           lucide.createIcons();
           return;
         }
@@ -807,15 +938,23 @@ export function cxPowerboardDashboardUI(user) {
 
         allActivities = data.activities || [];
         winsData      = data.wins       || [];
+        mappingsData  = data.mappings   || [];
+        dataReady     = true;
 
-        initCalendar();
-        refreshCalendarEvents();
-        buildFilterChips();
-        renderNoDeadline();
+        renderDashboard();
+
+        // init calendar now if user already navigated to that tab
+        if (calendarPendingInit) {
+          calendarPendingInit = false;
+          initCalendar();
+          refreshCalendarEvents();
+          buildFilterChips();
+          renderNoDeadline();
+        }
       })
       .catch(function(e) {
-        var loadEl = document.getElementById('calendarLoadingState');
-        if (loadEl) loadEl.innerHTML = '<div class="alert alert-error">Fout bij laden: ' + escHtml(e.message) + '</div>';
+        var cardsEl = document.getElementById('dashboardCards');
+        if (cardsEl) cardsEl.innerHTML = '<div class="alert alert-error col-span-full">Fout bij laden: ' + escHtml(e.message) + '</div>';
         lucide.createIcons();
       });
 
@@ -903,11 +1042,26 @@ export function cxPowerboardSettingsUI(user) {
             </div>
           </div>
 
-          <div class="flex items-center gap-4 mb-3">
+          <div class="flex flex-wrap items-center gap-4 mb-3">
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" id="newIsWin" class="checkbox checkbox-sm" />
               <span class="text-sm">Telt als win</span>
             </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="newShowDashboard" class="checkbox checkbox-sm" checked />
+              <span class="text-sm">Dashboard kaart</span>
+            </label>
+          </div>
+
+          <div class="flex gap-3 mb-3">
+            <div class="form-control flex-1">
+              <label class="label pb-1"><span class="label-text text-xs">Drempel achterstallig</span></label>
+              <input type="number" id="newThreshOv" min="0" value="1" class="input input-sm input-bordered" />
+            </div>
+            <div class="form-control flex-1">
+              <label class="label pb-1"><span class="label-text text-xs">Drempel vandaag</span></label>
+              <input type="number" id="newThreshTd" min="0" value="3" class="input input-sm input-bordered" />
+            </div>
           </div>
 
           <div class="form-control mb-3">
@@ -936,6 +1090,7 @@ export function cxPowerboardSettingsUI(user) {
                   <th>Activiteitstype</th>
                   <th class="text-center">Prioriteit</th>
                   <th class="text-center">Win</th>
+                  <th class="text-center">Dashboard</th>
                   <th>Notities</th>
                   <th></th>
                 </tr>
@@ -973,9 +1128,25 @@ export function cxPowerboardSettingsUI(user) {
           </label>
         </div>
       </div>
-      <div class="form-control mb-4">
+      <div class="form-control mb-3">
         <label class="label pb-1"><span class="label-text text-xs">Notities</span></label>
         <input type="text" id="editNotes" class="input input-sm input-bordered" />
+      </div>
+      <div class="flex flex-wrap items-center gap-4 mb-3">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" id="editShowDashboard" class="checkbox checkbox-sm" />
+          <span class="text-sm">Dashboard kaart</span>
+        </label>
+      </div>
+      <div class="flex gap-3 mb-4">
+        <div class="form-control flex-1">
+          <label class="label pb-1"><span class="label-text text-xs">Drempel achterstallig</span></label>
+          <input type="number" id="editThreshOv" min="0" class="input input-sm input-bordered" />
+        </div>
+        <div class="form-control flex-1">
+          <label class="label pb-1"><span class="label-text text-xs">Drempel vandaag</span></label>
+          <input type="number" id="editThreshTd" min="0" class="input input-sm input-bordered" />
+        </div>
       </div>
       <div id="editError" class="text-error text-xs mb-2" style="display:none;"></div>
       <div class="modal-action">
@@ -1062,6 +1233,7 @@ export function cxPowerboardSettingsUI(user) {
           + '<td class="font-medium">' + escHtml(m.odoo_activity_type_name) + '</td>'
           + '<td class="text-center">' + escHtml(String(m.priority_weight)) + '</td>'
           + '<td class="text-center">' + winBadge + '</td>'
+          + '<td class="text-center">' + (m.show_on_dashboard !== false ? '<span class="badge badge-sm badge-primary badge-outline">Ja</span>' : '<span class="text-base-content/30">—</span>') + '</td>'
           + '<td class="text-xs text-base-content/60">' + escHtml(m.notes || '') + '</td>'
           + '<td class="text-right">'
           + '<button class="btn btn-xs btn-ghost mr-1" onclick="openEdit(&quot;' + escHtml(String(m.id)) + '&quot;)">'
@@ -1082,6 +1254,9 @@ export function cxPowerboardSettingsUI(user) {
       var typeName = sel.options[sel.selectedIndex] ? (sel.options[sel.selectedIndex].getAttribute('data-name') || '') : '';
       var weight   = parseInt(document.getElementById('newWeight').value, 10);
       var isWin    = document.getElementById('newIsWin').checked;
+      var showDash  = document.getElementById('newShowDashboard').checked;
+      var threshOv  = parseInt(document.getElementById('newThreshOv').value, 10);
+      var threshTd  = parseInt(document.getElementById('newThreshTd').value, 10);
       var notes    = document.getElementById('newNotes').value.trim();
       var errEl    = document.getElementById('addError');
 
@@ -1094,13 +1269,16 @@ export function cxPowerboardSettingsUI(user) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ odoo_activity_type_id: typeId, odoo_activity_type_name: typeName, priority_weight: weight, is_win: isWin, notes: notes || null })
+        body: JSON.stringify({ odoo_activity_type_id: typeId, odoo_activity_type_name: typeName, priority_weight: weight, is_win: isWin, notes: notes || null, show_on_dashboard: showDash, danger_threshold_overdue: isNaN(threshOv) ? 1 : threshOv, danger_threshold_today: isNaN(threshTd) ? 3 : threshTd })
       })
         .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); }); })
         .then(function(record) {
           mappings.push(record);
           document.getElementById('newWeight').value = '10';
           document.getElementById('newIsWin').checked = false;
+          document.getElementById('newShowDashboard').checked = true;
+          document.getElementById('newThreshOv').value = '1';
+          document.getElementById('newThreshTd').value = '3';
           document.getElementById('newNotes').value = '';
           renderTypeSelect();
           renderMappingsTable();
@@ -1120,15 +1298,21 @@ export function cxPowerboardSettingsUI(user) {
       document.getElementById('editWeight').value   = m.priority_weight;
       document.getElementById('editIsWin').checked  = !!m.is_win;
       document.getElementById('editNotes').value    = m.notes || '';
+      document.getElementById('editShowDashboard').checked = m.show_on_dashboard !== false;
+      document.getElementById('editThreshOv').value = m.danger_threshold_overdue != null ? m.danger_threshold_overdue : 1;
+      document.getElementById('editThreshTd').value = m.danger_threshold_today   != null ? m.danger_threshold_today   : 3;
       document.getElementById('editError').style.display = 'none';
       document.getElementById('editModal').showModal();
     }
 
     function saveEdit() {
-      var id     = document.getElementById('editId').value;
-      var weight = parseInt(document.getElementById('editWeight').value, 10);
-      var isWin  = document.getElementById('editIsWin').checked;
-      var notes  = document.getElementById('editNotes').value.trim();
+      var id        = document.getElementById('editId').value;
+      var weight    = parseInt(document.getElementById('editWeight').value, 10);
+      var isWin     = document.getElementById('editIsWin').checked;
+      var notes     = document.getElementById('editNotes').value.trim();
+      var showDash  = document.getElementById('editShowDashboard').checked;
+      var threshOv  = parseInt(document.getElementById('editThreshOv').value, 10);
+      var threshTd  = parseInt(document.getElementById('editThreshTd').value, 10);
       var errEl  = document.getElementById('editError');
 
       errEl.style.display = 'none';
@@ -1142,7 +1326,7 @@ export function cxPowerboardSettingsUI(user) {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority_weight: weight, is_win: isWin, notes: notes || null })
+        body: JSON.stringify({ priority_weight: weight, is_win: isWin, notes: notes || null, show_on_dashboard: showDash, danger_threshold_overdue: isNaN(threshOv) ? 1 : threshOv, danger_threshold_today: isNaN(threshTd) ? 3 : threshTd })
       })
         .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); }); })
         .then(function(record) {

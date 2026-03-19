@@ -38,11 +38,11 @@ export async function bustMappingCache(env) {
   } catch (_) {}
 }
 
-export async function createMapping(env, { odoo_activity_type_id, odoo_activity_type_name, priority_weight, is_win = false, notes = null }) {
+export async function createMapping(env, { odoo_activity_type_id, odoo_activity_type_name, priority_weight, is_win = false, notes = null, show_on_dashboard = true, danger_threshold_overdue = 1, danger_threshold_today = 3 }) {
   const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   const { data, error } = await supabase
     .from('cx_activity_mapping')
-    .insert({ odoo_activity_type_id, odoo_activity_type_name, priority_weight, is_win, notes })
+    .insert({ odoo_activity_type_id, odoo_activity_type_name, priority_weight, is_win, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today })
     .select()
     .single();
 
@@ -51,11 +51,11 @@ export async function createMapping(env, { odoo_activity_type_id, odoo_activity_
   return data;
 }
 
-export async function updateMapping(env, id, { priority_weight, is_win, notes }) {
+export async function updateMapping(env, id, { priority_weight, is_win, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today }) {
   const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   const { data, error } = await supabase
     .from('cx_activity_mapping')
-    .update({ priority_weight, is_win, notes })
+    .update({ priority_weight, is_win, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today })
     .eq('id', id)
     .select()
     .single();
