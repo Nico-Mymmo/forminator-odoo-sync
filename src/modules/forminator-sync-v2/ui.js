@@ -365,10 +365,13 @@ export function forminatorSyncV2UI(user) {
 
         <!-- Form fields overview (collapsible) -->
         <div class="collapse collapse-arrow bg-base-100 shadow mb-6">
-          <input type="checkbox" />
-          <div class="collapse-title font-semibold">
-            <i data-lucide="layout-list" class="w-4 h-4 inline mr-2 -mt-0.5"></i>
-            Formulier velden
+          <input type="checkbox" checked />
+          <div class="collapse-title font-semibold flex items-center justify-between pr-8">
+            <span><i data-lucide="layout-list" class="w-4 h-4 inline mr-2 -mt-0.5"></i>Formulier velden</span>
+            <button class="btn btn-xs btn-ghost gap-1" data-action="refresh-form-fields"
+              onclick="event.stopPropagation()" title="Velden opnieuw ophalen van WordPress">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Verversen
+            </button>
           </div>
           <div class="collapse-content">
             <div id="detailFormFields" class="pt-2"></div>

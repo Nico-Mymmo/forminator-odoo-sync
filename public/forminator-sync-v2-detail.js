@@ -945,19 +945,14 @@
     });
 
     var fields = S().detailFormFields;
-    var refreshBtn = '<button class="btn btn-xs btn-outline gap-1" data-action="refresh-form-fields" title="Velden opnieuw ophalen van WordPress">' +
-      '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Velden verversen</button>';
 
     if (!fields.length) {
-      el.innerHTML = '<div class="flex items-center gap-3 py-2">' +
-        '<p class="text-sm text-base-content/60 flex-1">Geen velden gevonden voor dit formulier.</p>' +
-        refreshBtn + '</div>';
+      el.innerHTML = '<p class="text-sm text-base-content/60 py-2">Geen velden gevonden voor dit formulier. Klik “Verversen” in de sectieheader om opnieuw te laden.</p>';
       if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       return;
     }
 
     el.innerHTML =
-      '<div class="flex items-center justify-end mb-1">' + refreshBtn + '</div>' +
       '<div class="overflow-x-auto">' +
         '<table class="table table-xs">' +
           '<thead><tr>' +
