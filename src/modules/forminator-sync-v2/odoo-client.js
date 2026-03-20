@@ -154,3 +154,34 @@ export async function postChatterMessage(env, { model, recordId, body, subtypeXm
   });
   return { action: 'posted', recordId: msgId };
 }
+
+/**
+ * Maakt een nieuwe mail.activity aan op het opgegeven record.
+ * - Fout in activity-stap mag de pipeline niet breken; de caller handelt dit af.
+ */
+export async function createActivity(env, { resModel, resId, activityTypeId, dateDeadline, summary, userId }) {
+  const values = {
+    res_model:          resModel,
+    res_id:             resId,
+    activity_type_id:   activityTypeId,
+    date_deadline:      dateDeadline,
+  };
+  if (summary)  values.summary  = String(summary).slice(0, 255); // Odoo summary field limit
+  if (userId)   values.user_id  = userId;
+
+  const activityId = await create(env, { model: 'mail.activity', values });
+  return { action: 'activity_created', recordId: activityId };
+}
+
+/**
+ * Haalt alle beschikbare mail.activity.type records op.
+ * Bedoeld voor de UI-dropdown in FSV2-stap configuratie.
+ */
+export async function fetchFsv2ActivityTypes(env) {
+  return searchRead(env, {
+    model:  'mail.activity.type',
+    domain: [],
+    fields: ['id', 'name'],
+    order:  'name asc',
+  });
+}

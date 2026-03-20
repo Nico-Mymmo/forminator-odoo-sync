@@ -380,9 +380,13 @@
         opTypeLbl = 'Notitie in chatter';
         if (!target.label) stepName = '\uD83D\uDCAC Notitie';
       }
+      if (target.operation_type === 'create_activity') {
+        opTypeLbl = 'Activiteit aanmaken';
+        if (!target.label) stepName = '\uD83D\uDCC5 Activiteit';
+      }
       var policyLbl  = POLICY_LABELS[target.update_policy] || esc(target.update_policy || '');
       var preceding  = sortedTargets.slice(0, idx);
-      var suggestions = (isSingle || target.operation_type === 'chatter_message') ? [] : computeChainSuggestions(target, preceding);
+      var suggestions = (isSingle || target.operation_type === 'chatter_message' || target.operation_type === 'create_activity') ? [] : computeChainSuggestions(target, preceding);
 
       // Chain dependency badges from saved state (prefer in-memory edits, fall back to DB state)
       var chainDeps = [];
@@ -611,6 +615,11 @@
       // chatter_message: render composer instead of MappingTable
       if (target.operation_type === 'chatter_message') {
         renderChatterComposer(target, tid, sortedTargets);
+        return;
+      }
+      // create_activity: render activity composer instead of MappingTable
+      if (target.operation_type === 'create_activity') {
+        renderActivityComposer(target, tid, sortedTargets);
         return;
       }
 
@@ -1216,10 +1225,11 @@
     var modelRow = document.getElementById('addTargetModelRow');
 
     var TYPES = [
-      { opType: 'upsert',       icon: 'git-merge',   label: 'Upsert',       desc: 'Aanmaken of bijwerken' },
-      { opType: 'create',       icon: 'plus-circle',  label: 'Aanmaken',     desc: 'Altijd nieuw record aanmaken' },
-      { opType: 'update_only',  icon: 'pencil',       label: 'Bijwerken',    desc: 'Alleen bestaand record bijwerken' },
-      { opType: 'chatter_message', icon: 'message-square', label: 'Chatter-bericht', desc: 'Bericht in de chatter plaatsen' },
+      { opType: 'upsert',          icon: 'git-merge',      label: 'Upsert',             desc: 'Aanmaken of bijwerken' },
+      { opType: 'create',          icon: 'plus-circle',    label: 'Aanmaken',           desc: 'Altijd nieuw record aanmaken' },
+      { opType: 'update_only',     icon: 'pencil',         label: 'Bijwerken',          desc: 'Alleen bestaand record bijwerken' },
+      { opType: 'chatter_message', icon: 'message-square', label: 'Chatter-bericht',    desc: 'Bericht in de chatter plaatsen' },
+      { opType: 'create_activity', icon: 'calendar-check', label: 'Activiteit',         desc: 'Taak inplannen op een record' },
     ];
 
     container.innerHTML = TYPES.map(function (t) {
@@ -1237,14 +1247,14 @@
 
     // show/hide model picker
     if (modelRow) {
-      modelRow.style.display = (sel && sel !== 'chatter_message') ? '' : 'none';
+      modelRow.style.display = (sel && sel !== 'chatter_message' && sel !== 'create_activity') ? '' : 'none';
     }
 
-    // unlock confirm button for chatter_message immediately
+    // unlock confirm button for chatter_message and create_activity immediately
     var confirmBtn = document.getElementById('confirmAddTargetBtn');
     if (confirmBtn) {
       var picker = document.getElementById('addTargetModelPicker');
-      confirmBtn.disabled = !sel || (sel !== 'chatter_message' && !(picker && picker.value));
+      confirmBtn.disabled = !sel || (sel !== 'chatter_message' && sel !== 'create_activity' && !(picker && picker.value));
     }
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) {
@@ -1258,6 +1268,46 @@
     var maxOrder = targets.reduce(function (max, t) {
       return Math.max(max, getTargetOrder(t, 0));
     }, 0);
+
+    if (opType === 'create_activity') {
+      var actCompatibles = targets.filter(function (t) {
+        return t.operation_type !== 'chatter_message' && t.operation_type !== 'create_activity' && t.odoo_model;
+      }).sort(function (a, b) { return getTargetOrder(a, 0) - getTargetOrder(b, 0); });
+
+      if (!actCompatibles.length) {
+        window.FSV2.showAlert('Voeg eerst een stap toe die een record aanmaakt voordat je een activiteit-stap kunt koppelen.', 'error');
+        return;
+      }
+
+      var actParent     = actCompatibles[0];
+      var actParentOrd  = getTargetOrder(actParent, 0);
+      var actNewOrder   = maxOrder + 1;
+
+      var actRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_model:              actParent.odoo_model,
+          identifier_type:         'mapped_fields',
+          update_policy:           'always_overwrite',
+          operation_type:          'create_activity',
+          execution_order:         actNewOrder,
+          order_index:             actNewOrder,
+          activity_res_id_source:  'step.' + actParentOrd + '.record_id',
+          activity_deadline_offset: 1,
+        }),
+      });
+
+      var actNewId = actRes.data && actRes.data.id;
+      window.FSV2.showAlert('Activiteit-stap toegevoegd.', 'success');
+      await openDetail(S().activeId);
+      if (actNewId) {
+        var poAct = getPipelineOpen(integrationId);
+        poAct[String(actNewId)] = true;
+        renderDetailMappings();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      }
+      return;
+    }
 
     if (opType === 'chatter_message') {
       // Find the first compatible preceding target (non-chatter, has a model)
@@ -2161,6 +2211,158 @@
     }
   }
 
+  // ── ACTIVITY COMPOSER ────────────────────────────────────────────────────
+
+  function renderActivityComposer(target, tid, sortedTargets) {
+    var el = document.getElementById('det-mc-' + tid);
+    if (!el) return;
+
+    var myIdx = sortedTargets.findIndex(function (t) { return String(t.id) === tid; });
+    var compatibleSteps = sortedTargets.filter(function (t, idx) {
+      return idx < myIdx && t.operation_type !== 'chatter_message' && t.operation_type !== 'create_activity';
+    });
+
+    // Derive current linked step from activity_res_id_source
+    var currentResIdSource = target.activity_res_id_source || '';
+    var currentStepOrder   = null;
+    var srcMatch = currentResIdSource.match(/^step\.([^.]+)\.record_id$/);
+    if (srcMatch) currentStepOrder = srcMatch[1];
+
+    var html = '';
+
+    // Step selector
+    if (!compatibleSteps.length) {
+      html += '<div class="alert alert-warning text-sm mb-4">' +
+        '<i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>' +
+        '<span>Let op: er is nog geen voorgaande stap beschikbaar. ' +
+        'Voeg eerst een stap toe die een record aanmaakt of bijwerkt.</span>' +
+        '</div>';
+    } else {
+      html += '<div class="form-control mb-3">' +
+        '<label class="label pb-1"><span class="label-text text-sm font-medium">Koppel aan stap</span></label>' +
+        '<select class="select select-bordered select-sm" id="activityStepSelect-' + esc(tid) + '">';
+      compatibleSteps.forEach(function (t) {
+        var order = getTargetOrder(t, 0);
+        var lbl   = t.label || modelLabel(t.odoo_model);
+        var sel   = (currentStepOrder !== null && String(currentStepOrder) === String(order)) ? ' selected' : '';
+        html += '<option value="' + esc(String(order)) + '"' + sel + '>' + esc(lbl) + ' (stap ' + (order + 1) + ')</option>';
+      });
+      html += '</select>' +
+        '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Record-ID van deze stap wordt als ontvanger van de activiteit gebruikt.</span></label>' +
+        '</div>';
+    }
+
+    // Activity type dropdown (populated async)
+    html += '<div class="form-control mb-3">' +
+      '<label class="label pb-1"><span class="label-text text-sm font-medium">Activiteitstype</span></label>' +
+      '<select class="select select-bordered select-sm" id="activityTypeSelect-' + esc(tid) + '">' +
+        '<option value="">Laden\u2026</option>' +
+      '</select>' +
+      '</div>';
+
+    // Deadline offset
+    html += '<div class="form-control mb-3">' +
+      '<label class="label pb-1"><span class="label-text text-sm font-medium">Deadline (dagen vanaf vandaag)</span></label>' +
+      '<input type="number" min="0" class="input input-bordered input-sm w-32"' +
+        ' id="activityDeadlineOffset-' + esc(tid) + '"' +
+        ' value="' + esc(String(target.activity_deadline_offset != null ? target.activity_deadline_offset : 1)) + '">' +
+      '</div>';
+
+    // Summary template
+    html += '<div class="form-control mb-3">' +
+      '<label class="label pb-1">' +
+        '<span class="label-text text-sm font-medium">Samenvatting template</span>' +
+        '<span class="label-text-alt text-base-content/50">Gebruik {{veldnaam}} voor formulierwaarden</span>' +
+      '</label>' +
+      '<input type="text" class="input input-bordered input-sm"' +
+        ' id="activitySummaryTemplate-' + esc(tid) + '"' +
+        ' value="' + esc(target.activity_summary_template || '') + '"' +
+        ' placeholder="Nieuwe aanvraag van {{name}}">' +
+      '</div>';
+
+    // User ID
+    html += '<div class="form-control mb-3">' +
+      '<label class="label pb-1">' +
+        '<span class="label-text text-sm font-medium">Toegewezen gebruiker ID <span class="font-normal text-base-content/50">(optioneel)</span></span>' +
+      '</label>' +
+      '<input type="number" class="input input-bordered input-sm w-40"' +
+        ' id="activityUserId-' + esc(tid) + '"' +
+        ' value="' + esc(String(target.activity_user_id || '')) + '"' +
+        ' placeholder="Odoo user ID">' +
+      '</div>';
+
+    // Save button
+    html += '<div class="mt-4 flex justify-end">' +
+      '<button type="button" class="btn btn-primary btn-sm"' +
+        ' data-action="save-activity-composer" data-target-id="' + esc(tid) + '">' +
+        '<i data-lucide="save" class="w-4 h-4 mr-1"></i>Opslaan' +
+      '</button>' +
+      '</div>';
+
+    el.innerHTML = html;
+
+    // Async: load activity types and populate dropdown
+    window.FSV2.api('/activity-types').then(function (res) {
+      var sel = document.getElementById('activityTypeSelect-' + tid);
+      if (!sel) return;
+      sel.innerHTML = '<option value="">\u2014 Geen type \u2014</option>' +
+        (res.data || []).map(function (t) {
+          return '<option value="' + esc(String(t.id)) + '"' +
+            (target.activity_type_id == t.id ? ' selected' : '') + '>' +
+            esc(t.name) + '</option>';
+        }).join('');
+    }).catch(function () {});
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ nodes: [el] });
+  }
+
+  async function handleSaveActivityComposer(tid) {
+    var target = ((S().detail && S().detail.targets) || []).find(function (t) { return String(t.id) === tid; });
+    if (!target) { window.FSV2.showAlert('Target niet gevonden.', 'error'); return; }
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+
+    var stepSel      = document.getElementById('activityStepSelect-' + tid);
+    var typeSel      = document.getElementById('activityTypeSelect-' + tid);
+    var offsetInput  = document.getElementById('activityDeadlineOffset-' + tid);
+    var summaryInput = document.getElementById('activitySummaryTemplate-' + tid);
+    var userInput    = document.getElementById('activityUserId-' + tid);
+
+    var stepOrder   = stepSel ? stepSel.value : null;
+    var resIdSource = stepOrder ? ('step.' + stepOrder + '.record_id') : (target.activity_res_id_source || null);
+
+    // Derive model from the linked step
+    var linkedModel = target.odoo_model;
+    if (stepSel) {
+      var _selOrd = parseInt(stepSel.value, 10);
+      var _allTargets = (S().detail && S().detail.targets) || [];
+      var _linked = _allTargets.find(function (t) {
+        return getTargetOrder(t, 0) === _selOrd &&
+          t.operation_type !== 'chatter_message' &&
+          t.operation_type !== 'create_activity';
+      });
+      if (_linked && _linked.odoo_model) linkedModel = _linked.odoo_model;
+    }
+
+    try {
+      await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+        method: 'PUT',
+        body: JSON.stringify({
+          odoo_model:                linkedModel,
+          operation_type:            'create_activity',
+          activity_type_id:          typeSel && typeSel.value ? parseInt(typeSel.value, 10) : null,
+          activity_deadline_offset:  offsetInput ? (parseInt(offsetInput.value, 10) || 1) : 1,
+          activity_summary_template: summaryInput ? (summaryInput.value.trim() || null) : null,
+          activity_user_id:          userInput && userInput.value ? parseInt(userInput.value, 10) : null,
+          activity_res_id_source:    resIdSource || null,
+        }),
+      });
+      window.FSV2.showAlert('Activiteit-stap opgeslagen.', 'success');
+      await window.FSV2.openDetail(S().activeId);
+    } catch (e) {
+      window.FSV2.showAlert('Fout bij opslaan: ' + e.message, 'error');
+    }
+  }
+
   Object.assign(window.FSV2, {
     renderDetail:            renderDetail,
     updateDetailTestStatus:  updateDetailTestStatus,
@@ -2184,6 +2386,8 @@
     scheduleChatterPreview:  scheduleChatterPreview,
     updateChatterPreview:    updateChatterPreview,
     handleSaveChatterComposer: handleSaveChatterComposer,
+    renderActivityComposer:  renderActivityComposer,
+    handleSaveActivityComposer: handleSaveActivityComposer,
     handleDeleteTarget:      handleDeleteTarget,
     handleSaveStepMappings:  handleSaveStepMappings,
     handleReorderTarget:     handleReorderTarget,

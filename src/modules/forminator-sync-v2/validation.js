@@ -97,6 +97,14 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     return;
   }
 
+  // create_activity targets only need an odoo_model (the res_model to attach the activity to)
+  if (payload.operation_type === 'create_activity') {
+    if (!hasValue(payload.odoo_model)) {
+      throw createError('create_activity target vereist een odoo_model (het model waarop de activiteit wordt aangemaakt).');
+    }
+    return;
+  }
+
   // Use caller-supplied allowedModels (from DB) when available, else fall back to static list
   const modelList = (Array.isArray(allowedModels) && allowedModels.length)
     ? allowedModels

@@ -561,7 +561,7 @@
           picker.onchange = function () {
             var confirmBtn = document.getElementById('confirmAddTargetBtn');
             var st = dialog.dataset.selectedType;
-            if (confirmBtn) confirmBtn.disabled = !st || (st !== 'chatter_message' && !picker.value);
+            if (confirmBtn) confirmBtn.disabled = !st || (st !== 'chatter_message' && st !== 'create_activity' && !picker.value);
           };
         }
         if (window.FSV2.renderAddTargetDialog) window.FSV2.renderAddTargetDialog();
@@ -662,6 +662,11 @@
       if (action === 'save-chatter-composer') {
         var tid = btn.dataset.targetId || btn.dataset.targetid;
         if (tid) await window.FSV2.handleSaveChatterComposer(tid);
+        return;
+      }
+      if (action === 'save-activity-composer') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        if (tid) await window.FSV2.handleSaveActivityComposer(tid);
         return;
       }
       if (action === 'wizard-skip-chatter') {

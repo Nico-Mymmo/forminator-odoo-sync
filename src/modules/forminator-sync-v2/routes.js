@@ -1,4 +1,5 @@
 import { executeKw } from '../../lib/odoo.js';
+import { fetchFsv2ActivityTypes } from './odoo-client.js';
 import {
   listIntegrationSummaries,
   createIntegrationRecord,
@@ -295,6 +296,11 @@ export const routes = {
         ...(payload.execution_order !== undefined ? { execution_order: Number(payload.execution_order) } : {}),
         ...(payload.chatter_template !== undefined ? { chatter_template: payload.chatter_template || null } : {}),
         ...(payload.chatter_subtype_xmlid !== undefined ? { chatter_subtype_xmlid: payload.chatter_subtype_xmlid || 'mail.mt_note' } : {}),
+        ...(payload.activity_type_id         !== undefined ? { activity_type_id:         payload.activity_type_id         || null  } : {}),
+        ...(payload.activity_deadline_offset !== undefined ? { activity_deadline_offset: Number(payload.activity_deadline_offset) || 1 } : {}),
+        ...(payload.activity_summary_template !== undefined ? { activity_summary_template: payload.activity_summary_template || null } : {}),
+        ...(payload.activity_user_id         !== undefined ? { activity_user_id:         payload.activity_user_id         || null  } : {}),
+        ...(payload.activity_res_id_source   !== undefined ? { activity_res_id_source:   payload.activity_res_id_source   || null  } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -320,6 +326,11 @@ export const routes = {
         ...(payload.execution_order !== undefined ? { execution_order: payload.execution_order === null ? null : Number(payload.execution_order) } : {}),
         ...(payload.chatter_template !== undefined ? { chatter_template: payload.chatter_template || null } : {}),
         ...(payload.chatter_subtype_xmlid !== undefined ? { chatter_subtype_xmlid: payload.chatter_subtype_xmlid || 'mail.mt_note' } : {}),
+        ...(payload.activity_type_id         !== undefined ? { activity_type_id:         payload.activity_type_id         || null  } : {}),
+        ...(payload.activity_deadline_offset !== undefined ? { activity_deadline_offset: Number(payload.activity_deadline_offset) || 1 } : {}),
+        ...(payload.activity_summary_template !== undefined ? { activity_summary_template: payload.activity_summary_template || null } : {}),
+        ...(payload.activity_user_id         !== undefined ? { activity_user_id:         payload.activity_user_id         || null  } : {}),
+        ...(payload.activity_res_id_source   !== undefined ? { activity_res_id_source:   payload.activity_res_id_source   || null  } : {}),
       });
 
       return jsonResponse({ success: true, data: updated });
@@ -565,6 +576,19 @@ export const routes = {
       return jsonResponse({ success: true, data: result });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Odoo activity types — for create_activity step configuration
+  // ─────────────────────────────────────────────────────────────────────────
+
+  'GET /api/activity-types': async (context) => {
+    try {
+      const types = await fetchFsv2ActivityTypes(context.env);
+      return jsonResponse({ success: true, data: types });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
     }
   },
 

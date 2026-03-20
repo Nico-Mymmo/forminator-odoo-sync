@@ -20,7 +20,7 @@ import {
   computePayloadHash
 } from './idempotency.js';
 import { classifyFailureType, computeNextRetryAt, getMaxAttemptsTotal } from './retry.js';
-import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage } from './odoo-client.js';
+import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage, createActivity } from './odoo-client.js';
 import { buildHtmlFormSummary } from './html-utils.js';
 
 function createPermanentError(message) {
@@ -736,6 +736,73 @@ async function runSubmissionAttempt(env, {
         };
         await createSubmissionTargetResult(env, depResult);
         targetResults.push(depResult);
+        continue;
+      }
+
+      // ── create_activity: schedule an Odoo activity on a record from a prior step ─
+      if (opType === 'create_activity') {
+        try {
+          const resIdSource = target.activity_res_id_source;
+          if (!resIdSource) {
+            throw createPermanentError('create_activity target heeft geen activity_res_id_source. Koppel het aan een vorig stap-record (bijv. \'step.1.record_id\').');
+          }
+          const rawResId = contextObject[resIdSource];
+          const resId = parsePositiveInteger(rawResId);
+          if (!resId) {
+            throw createPermanentError('create_activity: vorige stap heeft geen geldig record-ID opgeleverd (bron: "' + resIdSource + '", waarde: "' + String(rawResId) + '").');
+          }
+
+          const offset = target.activity_deadline_offset != null ? Number(target.activity_deadline_offset) : 1;
+          const deadlineDate = new Date();
+          deadlineDate.setDate(deadlineDate.getDate() + offset);
+          const dateDeadline = deadlineDate.toISOString().slice(0, 10);
+
+          const rawTemplate = (target.activity_summary_template || '').trim();
+          const summary = rawTemplate
+            ? rawTemplate.replace(/\{\{([^}]+)\}\}/g, function(_, key) {
+                return String(lookupFormValue(normalizedForm, key.trim()) || '');
+              })
+            : null;
+
+          const result = await createActivity(env, {
+            resModel:       target.odoo_model,
+            resId:          resId,
+            activityTypeId: target.activity_type_id || null,
+            dateDeadline:   dateDeadline,
+            summary:        summary || null,
+            userId:         target.activity_user_id || null,
+          });
+
+          const targetResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   result.action,
+            skipped_reason:  null,
+            odoo_record_id:  result.recordId || null,
+            error_detail:    null,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          registerTargetOutput(contextObject, target, result);
+          console.log(attemptTag, 'create_activity done | activity_id:', result.recordId || null);
+        } catch (activityError) {
+          // Activity failures are non-fatal — they warn but never abort the pipeline.
+          const targetResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   'activity_failed',
+            skipped_reason:  null,
+            odoo_record_id:  null,
+            error_detail:    activityError.message,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          console.warn(attemptTag, 'create_activity failed (non-fatal):', activityError.message);
+        }
         continue;
       }
 
