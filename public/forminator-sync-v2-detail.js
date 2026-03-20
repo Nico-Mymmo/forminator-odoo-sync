@@ -906,28 +906,9 @@
     var el = document.getElementById('detailFormFields');
     if (!el) return;
 
-    var integration = S().detail && S().detail.integration;
-    var siteKey     = integration && integration.site_key;
-
-    if (!siteKey) {
-      el.innerHTML =
-        '<p class="text-sm text-base-content/60 py-2">' +
-          '<i data-lucide="info" class="w-4 h-4 inline mr-1 -mt-0.5"></i>' +
-          'Site-sleutel niet opgeslagen voor deze integratie &mdash; veldoverzicht niet beschikbaar. ' +
-          'Nieuwe integraties bewaren de site-sleutel automatisch.' +
-        '</p>';
-      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
-      return;
-    }
-
-    if (S().detailFormFields === null) {
+    if (S().detailFormFields === null || S().detailFormFields === 'loading') {
       el.innerHTML = '<div class="flex items-center gap-2 py-2 text-sm text-base-content/60">' +
         '<span class="loading loading-spinner loading-xs"></span> Formuliervelden worden opgehaald\u2026</div>';
-      return;
-    }
-    if (S().detailFormFields === 'loading') {
-      el.innerHTML = '<div class="flex items-center gap-2 py-2 text-sm text-base-content/60">' +
-        '<span class="loading loading-spinner loading-xs"></span> Bezig met ophalen\u2026</div>';
       return;
     }
 
@@ -1013,8 +994,8 @@
       var detailIntegration = S().detail && S().detail.integration;
       var detailSiteKey     = detailIntegration && detailIntegration.site_key;
       var detailFormId      = detailIntegration && detailIntegration.forminator_form_id;
-      if (detailSiteKey && detailFormId) {
-        fetchDetailFormFields(detailSiteKey, detailFormId).catch(function () {});
+      if (detailFormId) {
+        fetchDetailFormFields(detailSiteKey || null, detailFormId).catch(function () {});
       }
 
       var detailTargets = (S().detail && S().detail.targets) ? S().detail.targets : [];
@@ -1713,8 +1694,8 @@
     var integration = S().detail && S().detail.integration;
     var sk  = integration && integration.site_key;
     var fid = integration && integration.forminator_form_id;
-    if (!sk || !fid) return;
-    await fetchDetailFormFields(sk, fid);
+    if (!fid) return;
+    await fetchDetailFormFields(sk || null, fid);
   }
 
   async function fetchDetailFormFields(sk, fid) {
@@ -1722,10 +1703,36 @@
     renderDetailFormFields();
     renderDetailMappings();
     try {
-      var ffBody  = await window.FSV2.api('/forminator/forms?site=' + encodeURIComponent(sk));
-      var ffForms = ffBody.data || [];
-      var ffMatch = ffForms.find(function (f) { return String(f.form_id) === String(fid); });
+      var sitesToTry = [];
+      if (sk) {
+        sitesToTry = [sk];
+      } else {
+        // Geen site_key bekend — ontdek automatisch via alle geconfigureerde sites
+        var sitesBody = await window.FSV2.api('/forminator/sites');
+        sitesToTry = (sitesBody.data || []).map(function (s) { return s.key; });
+      }
+
+      var ffMatch = null;
+      var foundKey = null;
+      for (var i = 0; i < sitesToTry.length; i++) {
+        try {
+          var ffBody = await window.FSV2.api('/forminator/forms?site=' + encodeURIComponent(sitesToTry[i]));
+          var found = (ffBody.data || []).find(function (f) { return String(f.form_id) === String(fid); });
+          if (found) { ffMatch = found; foundKey = sitesToTry[i]; break; }
+        } catch (e) { /* site not reachable, try next */ }
+      }
+
       S().detailFormFields = ffMatch && ffMatch.fields ? ffMatch.fields : [];
+
+      // Sla de ontdekte site_key terug op de integratie zodat volgende keer direct werkt
+      if (foundKey && !sk && S().detail && S().detail.integration) {
+        window.FSV2.api('/integrations/' + S().activeId, {
+          method: 'PUT',
+          body: JSON.stringify({ site_key: foundKey }),
+        }).then(function () {
+          if (S().detail && S().detail.integration) S().detail.integration.site_key = foundKey;
+        }).catch(function () {});
+      }
     } catch (e) {
       S().detailFormFields = [];
       window.FSV2.showAlert('Formuliervelden ophalen mislukt: ' + e.message, 'error');
