@@ -25,7 +25,7 @@ export async function handleGetUsers(context) {
     // Get all users
     const { data: users, error } = await supabase
       .from('users')
-      .select('id, email, role, is_active, created_at')
+      .select('id, email, role, is_active, created_at, odoo_uid')
       .order('created_at', { ascending: false });
     
     if (error) {
@@ -68,6 +68,7 @@ export async function handleGetUsers(context) {
       role: u.role,
       isActive: u.is_active,
       createdAt: u.created_at,
+      odooUid: u.odoo_uid ?? null,
       modules: userModuleMap[u.id] || []
     }));
     
@@ -111,7 +112,7 @@ export async function handleCreateUser(context) {
       });
     }
     
-    if (!['admin', 'manager', 'user', 'marketing_signature'].includes(role)) {
+    if (!['admin', 'manager', 'user', 'marketing_signature', 'cx_powerboard_manager'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Invalid role' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
@@ -208,7 +209,7 @@ export async function handleUpdateUserRole(context) {
     const body = await context.request.json();
     const { role } = body;
 
-    if (!['admin', 'manager', 'user', 'marketing_signature'].includes(role)) {
+    if (!['admin', 'manager', 'user', 'marketing_signature', 'cx_powerboard_manager'].includes(role)) {
       return new Response(JSON.stringify({ error: 'Invalid role' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
@@ -247,6 +248,24 @@ export async function handleUpdateUserRole(context) {
           .from('user_modules')
           .upsert(
             { user_id: userId, module_id: module.id, is_enabled: true, granted_by: userId },
+            { onConflict: 'user_id,module_id' }
+          );
+      }
+    }
+
+    // Auto-grant cx_powerboard to cx_powerboard_manager users
+    if (role === 'cx_powerboard_manager') {
+      const { data: cxModule } = await supabase
+        .from('modules')
+        .select('id')
+        .eq('code', 'cx_powerboard')
+        .single();
+
+      if (cxModule?.id) {
+        await supabase
+          .from('user_modules')
+          .upsert(
+            { user_id: userId, module_id: cxModule.id, is_enabled: true, granted_by: userId },
             { onConflict: 'user_id,module_id' }
           );
       }
@@ -441,7 +460,7 @@ export async function handleCreateInvite(context) {
     });
   }
   
-  if (!['admin', 'manager', 'user', 'marketing_signature'].includes(role)) {
+  if (!['admin', 'manager', 'user', 'marketing_signature', 'cx_powerboard_manager'].includes(role)) {
     return new Response(JSON.stringify({ error: 'Invalid role' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
@@ -549,6 +568,59 @@ export async function handleDeleteInvite(context) {
   }
   
   return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
+ * Set / clear odoo_uid for a user (admin only, useful for testing)
+ */
+export async function handleUpdateUserOdooUid(context) {
+  const { env, user, params } = context;
+
+  if (user?.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const userId = params?.id;
+  if (!userId) {
+    return new Response(JSON.stringify({ error: 'User ID required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const body = await context.request.json();
+  // Accept null to clear, or a positive integer
+  const rawUid = body.odoo_uid;
+  const odooUid = rawUid === null || rawUid === '' ? null : parseInt(rawUid, 10);
+
+  if (odooUid !== null && (!Number.isFinite(odooUid) || odooUid <= 0)) {
+    return new Response(JSON.stringify({ error: 'odoo_uid must be a positive integer or null' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const { data, error } = await supabase
+    .from('users')
+    .update({ odoo_uid: odooUid })
+    .eq('id', userId)
+    .select('id, email, odoo_uid')
+    .single();
+
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true, user: data }), {
     headers: { 'Content-Type': 'application/json' }
   });
 }

@@ -225,8 +225,9 @@ function renderUsersTable() {
           '</button>' +
           '<button class="btn btn-xs btn-ghost join-item" onclick="editUserOdooEmail(\'' + user.email + '\')" title="Odoo e-mail override">' +
             '<i data-lucide="at-sign" class="w-3 h-3"></i>' +
-          '</button>' +
-          '<button class="btn btn-xs btn-ghost join-item" onclick="toggleUserStatus(\'' + user.id + '\')" title="Toggle Status">' +
+          '</button>' +          '<button class="btn btn-xs btn-ghost join-item" onclick="editUserOdooUid(\'' + user.id + '\', ' + (user.odooUid ?? 'null') + ')" title="Odoo UID">' +
+            '<i data-lucide="hash" class="w-3 h-3"></i>' +
+          '</button>' +          '<button class="btn btn-xs btn-ghost join-item" onclick="toggleUserStatus(\'' + user.id + '\')" title="Toggle Status">' +
             '<i data-lucide="' + (user.isActive ? 'user-x' : 'user-check') + '" class="w-3 h-3"></i>' +
           '</button>' +
         '</div>' +
@@ -364,6 +365,49 @@ async function editUserOdooEmail(userEmail) {
     '</div>';
   document.body.appendChild(modal);
   lucide.createIcons();
+}
+
+function editUserOdooUid(userId, currentUid) {
+  const modal = document.createElement('div');
+  modal.className = 'modal modal-open';
+  modal.innerHTML =
+    '<div class="modal-box max-w-sm">' +
+      '<h3 class="font-bold text-lg mb-1">Odoo UID</h3>' +
+      '<p class="text-sm text-base-content/60 mb-4">Direct Odoo <code>res.users.id</code> koppelen. Leeg laten om te wissen (volgende login wordt opnieuw opgezocht).</p>' +
+      '<div class="form-control">' +
+        '<label class="label"><span class="label-text text-xs font-semibold">Odoo UID</span></label>' +
+        '<input id="adminOdooUidInput" type="number" min="1" class="input input-bordered input-sm" placeholder="bijv. 42" value="' + (currentUid ?? '') + '">' +
+      '</div>' +
+      '<div class="modal-action">' +
+        '<button class="btn btn-sm" onclick="this.closest(\'.modal\').remove()">Annuleren</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="saveUserOdooUid(\'' + userId + '\', this)">Opslaan</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+}
+
+async function saveUserOdooUid(userId, btn) {
+  const modal = btn.closest('.modal');
+  const raw   = modal.querySelector('#adminOdooUidInput').value.trim();
+  const uid   = raw === '' ? null : parseInt(raw, 10);
+  btn.disabled    = true;
+  btn.textContent = 'Opslaan…';
+  try {
+    const res = await fetch('/admin/api/users/' + userId + '/odoo-uid', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ odoo_uid: uid })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+    modal.remove();
+    await loadUsers();
+  } catch (err) {
+    alert('Fout: ' + err.message);
+    btn.disabled    = false;
+    btn.textContent = 'Opslaan';
+  }
 }
 
 async function saveUserEmailOverrides(userEmail, btn) {

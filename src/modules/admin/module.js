@@ -9,6 +9,7 @@ import {
   handleCreateUser,
   handleUpdateUserRole, 
   handleUpdateUserModules,
+  handleUpdateUserOdooUid,
   handleToggleUserStatus,
   handleGetInvites,
   handleCreateInvite,
@@ -55,6 +56,7 @@ export default {
     'POST /api/users': handleCreateUser,
     'PUT /api/users/:id/role': handleUpdateUserRole,
     'PUT /api/users/:id/modules': handleUpdateUserModules,
+    'PUT /api/users/:id/odoo-uid': handleUpdateUserOdooUid,
     'PUT /api/users/:id/toggle': handleToggleUserStatus,
     
     // Invites API
