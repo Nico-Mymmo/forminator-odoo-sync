@@ -973,9 +973,9 @@ async function runSubmissionAttempt(env, {
       }
 
       // ── Build values ───────────────────────────────────────────────────────
-      // 'create' op type never needs an identifier domain.
+      // 'create' and 'create_activity' op types never need an identifier domain.
       let identifierDomain = null;
-      if (opType !== 'create') {
+      if (opType !== 'create' && opType !== 'create_activity') {
         identifierDomain = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
       }
       const incomingValues = buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject);
