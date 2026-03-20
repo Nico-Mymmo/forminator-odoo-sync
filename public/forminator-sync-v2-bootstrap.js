@@ -675,6 +675,10 @@
         if (tid && mode && window.FSV2.handleActivityUserMode) window.FSV2.handleActivityUserMode(tid, mode);
         return;
       }
+      if (action === 'refresh-form-fields') {
+        if (window.FSV2.handleRefreshFormFields) await window.FSV2.handleRefreshFormFields();
+        return;
+      }
       if (action === 'wizard-skip-chatter') {
         await window.FSV2.wizardSkipChatter();
         return;
