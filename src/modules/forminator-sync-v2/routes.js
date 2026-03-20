@@ -1,5 +1,5 @@
 import { executeKw } from '../../lib/odoo.js';
-import { fetchFsv2ActivityTypes } from './odoo-client.js';
+import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers } from './odoo-client.js';
 import {
   listIntegrationSummaries,
   createIntegrationRecord,
@@ -301,6 +301,8 @@ export const routes = {
         ...(payload.activity_summary_template !== undefined ? { activity_summary_template: payload.activity_summary_template || null } : {}),
         ...(payload.activity_user_id         !== undefined ? { activity_user_id:         payload.activity_user_id         || null  } : {}),
         ...(payload.activity_res_id_source   !== undefined ? { activity_res_id_source:   payload.activity_res_id_source   || null  } : {}),
+        ...(payload.activity_user_mode       !== undefined ? { activity_user_mode:       payload.activity_user_mode       || 'fixed' } : {}),
+        ...(payload.activity_user_pool       !== undefined ? { activity_user_pool:       Array.isArray(payload.activity_user_pool) ? payload.activity_user_pool : null } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -331,6 +333,8 @@ export const routes = {
         ...(payload.activity_summary_template !== undefined ? { activity_summary_template: payload.activity_summary_template || null } : {}),
         ...(payload.activity_user_id         !== undefined ? { activity_user_id:         payload.activity_user_id         || null  } : {}),
         ...(payload.activity_res_id_source   !== undefined ? { activity_res_id_source:   payload.activity_res_id_source   || null  } : {}),
+        ...(payload.activity_user_mode       !== undefined ? { activity_user_mode:       payload.activity_user_mode       || 'fixed' } : {}),
+        ...(payload.activity_user_pool       !== undefined ? { activity_user_pool:       Array.isArray(payload.activity_user_pool) ? payload.activity_user_pool : null } : {}),
       });
 
       return jsonResponse({ success: true, data: updated });
@@ -587,6 +591,15 @@ export const routes = {
     try {
       const types = await fetchFsv2ActivityTypes(context.env);
       return jsonResponse({ success: true, data: types });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  'GET /api/odoo-users': async (context) => {
+    try {
+      const users = await fetchFsv2OdooUsers(context.env);
+      return jsonResponse({ success: true, data: users });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);
     }

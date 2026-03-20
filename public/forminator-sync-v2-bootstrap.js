@@ -669,6 +669,12 @@
         if (tid) await window.FSV2.handleSaveActivityComposer(tid);
         return;
       }
+      if (action === 'act-user-mode') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        var mode = btn.dataset.mode;
+        if (tid && mode && window.FSV2.handleActivityUserMode) window.FSV2.handleActivityUserMode(tid, mode);
+        return;
+      }
       if (action === 'wizard-skip-chatter') {
         await window.FSV2.wizardSkipChatter();
         return;

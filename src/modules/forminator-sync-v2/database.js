@@ -724,3 +724,16 @@ export async function upsertOdooModels(env, models) {
 
   return getOdooModels(env);
 }
+
+/**
+ * Atomisch ophalen van de volgende gebruiker in de round-robin pool voor een activity-stap.
+ * Roept de Supabase RPC-functie fs_v2_rr_next_user aan die de index atoomgewijs ophoogt.
+ * Geeft null terug als de pool leeg is of de target niet bestaat.
+ */
+export async function rrNextUser(env, targetId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .rpc('fs_v2_rr_next_user', { p_target_id: targetId });
+  if (error) throw new Error(`Failed to get round-robin user: ${error.message}`);
+  return data != null ? Number(data) : null;
+}

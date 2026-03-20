@@ -11,6 +11,7 @@ import {
   listDueRetrySubmissions,
   listMappingsByTarget,
   listSubmissionTargetResults,
+  rrNextUser,
   transitionSubmissionStatus,
   updateSubmission
 } from './database.js';
@@ -20,7 +21,7 @@ import {
   computePayloadHash
 } from './idempotency.js';
 import { classifyFailureType, computeNextRetryAt, getMaxAttemptsTotal } from './retry.js';
-import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage, createActivity } from './odoo-client.js';
+import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage, createActivity, readRecordField } from './odoo-client.js';
 import { buildHtmlFormSummary } from './html-utils.js';
 
 function createPermanentError(message) {
@@ -211,6 +212,22 @@ function parsePositiveInteger(value) {
     return null;
   }
   return parsed;
+}
+
+/**
+ * Voeg `days` werkdagen toe aan `startDate` (sla zaterdag en zondag over).
+ * Voorbeeld: vrijdag + 1 werkdag = maandag.
+ */
+function addWorkingDays(startDate, days) {
+  const d = new Date(startDate);
+  if (days <= 0) return d;
+  let added = 0;
+  while (added < days) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay(); // 0=zondag, 6=zaterdag
+    if (dow !== 0 && dow !== 6) added++;
+  }
+  return d;
 }
 
 function getWebinarExternalField(env) {
@@ -753,8 +770,7 @@ async function runSubmissionAttempt(env, {
           }
 
           const offset = target.activity_deadline_offset != null ? Number(target.activity_deadline_offset) : 1;
-          const deadlineDate = new Date();
-          deadlineDate.setDate(deadlineDate.getDate() + offset);
+          const deadlineDate = addWorkingDays(new Date(), offset);
           const dateDeadline = deadlineDate.toISOString().slice(0, 10);
 
           const rawTemplate = (target.activity_summary_template || '').trim();
@@ -764,13 +780,30 @@ async function runSubmissionAttempt(env, {
               })
             : null;
 
+          // ── User-toewijzing: fixed / round_robin / record_owner ──────────
+          const userMode = target.activity_user_mode || 'fixed';
+          let assignedUserId = null;
+          if (userMode === 'fixed') {
+            assignedUserId = target.activity_user_id || null;
+          } else if (userMode === 'round_robin') {
+            assignedUserId = await rrNextUser(env, target.id);
+            console.log(attemptTag, 'round_robin user:', assignedUserId);
+          } else if (userMode === 'record_owner') {
+            assignedUserId = await readRecordField(env, {
+              model:    target.odoo_model,
+              recordId: resId,
+              field:    'user_id',
+            });
+            console.log(attemptTag, 'record_owner user:', assignedUserId);
+          }
+
           const result = await createActivity(env, {
             resModel:       target.odoo_model,
             resId:          resId,
             activityTypeId: target.activity_type_id || null,
             dateDeadline:   dateDeadline,
             summary:        summary || null,
-            userId:         target.activity_user_id || null,
+            userId:         assignedUserId,
           });
 
           const targetResult = {

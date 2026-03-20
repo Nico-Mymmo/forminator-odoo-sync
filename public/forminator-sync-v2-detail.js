@@ -2228,6 +2228,9 @@
     var srcMatch = currentResIdSource.match(/^step\.([^.]+)\.record_id$/);
     if (srcMatch) currentStepOrder = srcMatch[1];
 
+    var userMode = target.activity_user_mode || 'fixed';
+    var userPool = Array.isArray(target.activity_user_pool) ? target.activity_user_pool : [];
+
     var html = '';
 
     // Step selector
@@ -2248,7 +2251,7 @@
         html += '<option value="' + esc(String(order)) + '"' + sel + '>' + esc(lbl) + ' (stap ' + (order + 1) + ')</option>';
       });
       html += '</select>' +
-        '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Record-ID van deze stap wordt als ontvanger van de activiteit gebruikt.</span></label>' +
+        '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Record-ID van deze stap wordt als activiteitsontvanger gebruikt.</span></label>' +
         '</div>';
     }
 
@@ -2260,9 +2263,12 @@
       '</select>' +
       '</div>';
 
-    // Deadline offset
+    // Deadline in working days
     html += '<div class="form-control mb-3">' +
-      '<label class="label pb-1"><span class="label-text text-sm font-medium">Deadline (dagen vanaf vandaag)</span></label>' +
+      '<label class="label pb-1">' +
+        '<span class="label-text text-sm font-medium">Deadline (werkdagen vanaf vandaag)</span>' +
+        '<span class="label-text-alt text-base-content/50">Zaterdag &amp; zondag worden overgeslagen</span>' +
+      '</label>' +
       '<input type="number" min="0" class="input input-bordered input-sm w-32"' +
         ' id="activityDeadlineOffset-' + esc(tid) + '"' +
         ' value="' + esc(String(target.activity_deadline_offset != null ? target.activity_deadline_offset : 1)) + '">' +
@@ -2280,16 +2286,46 @@
         ' placeholder="Nieuwe aanvraag van {{name}}">' +
       '</div>';
 
-    // User ID
+    // ── User assignment ──────────────────────────────────────────────────────
     html += '<div class="form-control mb-3">' +
-      '<label class="label pb-1">' +
-        '<span class="label-text text-sm font-medium">Toegewezen gebruiker ID <span class="font-normal text-base-content/50">(optioneel)</span></span>' +
-      '</label>' +
-      '<input type="number" class="input input-bordered input-sm w-40"' +
-        ' id="activityUserId-' + esc(tid) + '"' +
-        ' value="' + esc(String(target.activity_user_id || '')) + '"' +
-        ' placeholder="Odoo user ID">' +
+      '<label class="label pb-1"><span class="label-text text-sm font-medium">Toegewezen gebruiker</span></label>' +
+      '<div class="flex flex-wrap gap-2 mb-2">';
+    [
+      { val: 'fixed',        icon: 'user',       lbl: 'Vaste gebruiker' },
+      { val: 'round_robin',  icon: 'refresh-cw', lbl: 'Round robin' },
+      { val: 'record_owner', icon: 'link',        lbl: 'Verantwoordelijke van record' },
+    ].forEach(function (opt) {
+      var active = userMode === opt.val;
+      html += '<button type="button"' +
+        ' class="btn btn-sm btn-outline' + (active ? ' btn-primary' : '') + '"' +
+        ' data-action="act-user-mode" data-target-id="' + esc(tid) + '" data-mode="' + opt.val + '">' +
+        '<i data-lucide="' + opt.icon + '" class="w-4 h-4 mr-1"></i>' + opt.lbl +
+        '</button>';
+    });
+    html += '</div>';
+
+    // Fixed: single user dropdown
+    html += '<div id="activityUserFixed-' + esc(tid) + '"' + (userMode !== 'fixed' ? ' class="hidden"' : '') + '>' +
+      '<select class="select select-bordered select-sm w-full" id="activityUserSelect-' + esc(tid) + '">' +
+        '<option value="">Laden\u2026</option>' +
+      '</select>' +
+      '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Leeg = Odoo kiest automatisch (gebruiker gekoppeld aan het activiteitstype).</span></label>' +
       '</div>';
+
+    // Round-robin: pool checkboxes (populated async)
+    html += '<div id="activityUserRR-' + esc(tid) + '"' + (userMode !== 'round_robin' ? ' class="hidden"' : '') + '>' +
+      '<p class="text-xs text-base-content/50 mb-1.5">Vink de gebruikers aan die in de pool zitten. De activiteiten worden om beurten toegewezen.</p>' +
+      '<div id="activityUserPoolList-' + esc(tid) + '" class="border border-base-200 rounded-lg divide-y divide-base-200 max-h-48 overflow-y-auto">' +
+        '<div class="px-3 py-2 text-xs text-base-content/40">Laden\u2026</div>' +
+      '</div>' +
+      '</div>';
+
+    // Record owner: informational
+    html += '<div id="activityUserOwner-' + esc(tid) + '"' + (userMode !== 'record_owner' ? ' class="hidden"' : '') + '>' +
+      '<p class="text-xs text-base-content/50">De activiteit wordt toegewezen aan de verantwoordelijke gebruiker (user_id) van het gekoppelde record, zoals ingesteld op het moment van indiening.</p>' +
+      '</div>';
+
+    html += '</div>'; // end form-control
 
     // Save button
     html += '<div class="mt-4 flex justify-end">' +
@@ -2301,8 +2337,8 @@
 
     el.innerHTML = html;
 
-    // Async: load activity types and populate dropdown
-    window.FSV2.api('/activity-types').then(function (res) {
+    // Async: load activity types + odoo users
+    var loadTypes = window.FSV2.api('/activity-types').then(function (res) {
       var sel = document.getElementById('activityTypeSelect-' + tid);
       if (!sel) return;
       sel.innerHTML = '<option value="">\u2014 Geen type \u2014</option>' +
@@ -2311,9 +2347,62 @@
             (target.activity_type_id == t.id ? ' selected' : '') + '>' +
             esc(t.name) + '</option>';
         }).join('');
-    }).catch(function () {});
+    });
+
+    var loadUsers = window.FSV2.api('/odoo-users').then(function (res) {
+      var users = res.data || [];
+
+      // Fixed dropdown
+      var fixedSel = document.getElementById('activityUserSelect-' + tid);
+      if (fixedSel) {
+        fixedSel.innerHTML = '<option value="">\u2014 Automatisch \u2014</option>' +
+          users.map(function (u) {
+            return '<option value="' + esc(String(u.id)) + '"' +
+              (target.activity_user_id == u.id ? ' selected' : '') + '>' +
+              esc(u.name) + '</option>';
+          }).join('');
+      }
+
+      // Round-robin pool checkboxes
+      var poolList = document.getElementById('activityUserPoolList-' + tid);
+      if (poolList) {
+        if (!users.length) {
+          poolList.innerHTML = '<div class="px-3 py-2 text-xs text-base-content/40">Geen interne gebruikers gevonden.</div>';
+        } else {
+          poolList.innerHTML = users.map(function (u) {
+            var inPool = userPool.indexOf(u.id) !== -1;
+            return '<label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-200/40">' +
+              '<input type="checkbox" class="checkbox checkbox-xs act-rr-pool-' + esc(tid) + '"' +
+                ' value="' + esc(String(u.id)) + '"' + (inPool ? ' checked' : '') + '>' +
+              '<span class="text-sm">' + esc(u.name) + '</span>' +
+              '</label>';
+          }).join('');
+        }
+      }
+    });
+
+    Promise.all([loadTypes, loadUsers]).catch(function () {});
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ nodes: [el] });
+  }
+
+  // Toggle visibility of user-mode panels when mode buttons are clicked
+  // (called from bootstrap event delegation for data-action="act-user-mode")
+  function handleActivityUserMode(tid, mode) {
+    var modes = ['fixed', 'round_robin', 'record_owner'];
+    var panelIds = { fixed: 'activityUserFixed-', round_robin: 'activityUserRR-', record_owner: 'activityUserOwner-' };
+    modes.forEach(function (m) {
+      var panel = document.getElementById(panelIds[m] + tid);
+      if (panel) panel.classList.toggle('hidden', m !== mode);
+    });
+    // Update active state on buttons
+    var el = document.getElementById('det-mc-' + tid);
+    if (!el) return;
+    el.querySelectorAll('[data-action="act-user-mode"]').forEach(function (btn) {
+      var active = btn.dataset.mode === mode;
+      btn.classList.toggle('btn-primary', active);
+      btn.classList.toggle('btn-outline', true);
+    });
   }
 
   async function handleSaveActivityComposer(tid) {
@@ -2325,7 +2414,22 @@
     var typeSel      = document.getElementById('activityTypeSelect-' + tid);
     var offsetInput  = document.getElementById('activityDeadlineOffset-' + tid);
     var summaryInput = document.getElementById('activitySummaryTemplate-' + tid);
-    var userInput    = document.getElementById('activityUserId-' + tid);
+
+    // User mode is determined by which mode button is active (has btn-primary)
+    var el = document.getElementById('det-mc-' + tid);
+    var activeModeBtn = el ? el.querySelector('[data-action="act-user-mode"].btn-primary') : null;
+    var userMode = activeModeBtn ? activeModeBtn.dataset.mode : (target.activity_user_mode || 'fixed');
+
+    var fixedUserId = null;
+    var userPool = null;
+    if (userMode === 'fixed') {
+      var fixedSel = document.getElementById('activityUserSelect-' + tid);
+      fixedUserId = fixedSel && fixedSel.value ? parseInt(fixedSel.value, 10) : null;
+    } else if (userMode === 'round_robin') {
+      var poolCheckboxes = el ? el.querySelectorAll('.act-rr-pool-' + tid + ':checked') : [];
+      userPool = [];
+      poolCheckboxes.forEach(function (cb) { userPool.push(parseInt(cb.value, 10)); });
+    }
 
     var stepOrder   = stepSel ? stepSel.value : null;
     var resIdSource = stepOrder ? ('step.' + stepOrder + '.record_id') : (target.activity_res_id_source || null);
@@ -2352,7 +2456,9 @@
           activity_type_id:          typeSel && typeSel.value ? parseInt(typeSel.value, 10) : null,
           activity_deadline_offset:  offsetInput ? (parseInt(offsetInput.value, 10) || 1) : 1,
           activity_summary_template: summaryInput ? (summaryInput.value.trim() || null) : null,
-          activity_user_id:          userInput && userInput.value ? parseInt(userInput.value, 10) : null,
+          activity_user_mode:        userMode,
+          activity_user_id:          fixedUserId,
+          activity_user_pool:        userPool,
           activity_res_id_source:    resIdSource || null,
         }),
       });
@@ -2387,6 +2493,7 @@
     updateChatterPreview:    updateChatterPreview,
     handleSaveChatterComposer: handleSaveChatterComposer,
     renderActivityComposer:  renderActivityComposer,
+    handleActivityUserMode:  handleActivityUserMode,
     handleSaveActivityComposer: handleSaveActivityComposer,
     handleDeleteTarget:      handleDeleteTarget,
     handleSaveStepMappings:  handleSaveStepMappings,

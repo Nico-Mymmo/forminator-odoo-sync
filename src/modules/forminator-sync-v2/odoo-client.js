@@ -200,3 +200,34 @@ export async function fetchFsv2ActivityTypes(env) {
     order:  'name asc',
   });
 }
+
+/**
+ * Haalt actieve interne Odoo-gebruikers op voor de activiteit-toewijzing dropdown.
+ * Filtert op share=false (interne gebruikers, geen portaalgebruikers) en active=true.
+ */
+export async function fetchFsv2OdooUsers(env) {
+  return searchRead(env, {
+    model:  'res.users',
+    domain: [['share', '=', false], ['active', '=', true]],
+    fields: ['id', 'name'],
+    order:  'name asc',
+  });
+}
+
+/**
+ * Leest één veld van een Odoo-record (bijv. user_id van crm.lead).
+ * Geeft null terug als het record niet bestaat of het veld leeg is.
+ */
+export async function readRecordField(env, { model, recordId, field }) {
+  const rows = await searchRead(env, {
+    model,
+    domain: [['id', '=', recordId]],
+    fields: [field],
+    limit:  1,
+  });
+  if (!rows.length) return null;
+  const val = rows[0][field];
+  // Many2one returns [id, name] — return only the id
+  if (Array.isArray(val)) return val[0] || null;
+  return val != null ? val : null;
+}
