@@ -158,10 +158,25 @@ export async function postChatterMessage(env, { model, recordId, body, subtypeXm
 /**
  * Maakt een nieuwe mail.activity aan op het opgegeven record.
  * - Fout in activity-stap mag de pipeline niet breken; de caller handelt dit af.
+ * - Odoo vereist zowel res_model (char) als res_model_id (ir.model FK) bij create via RPC.
+ *   We zoeken res_model_id op via ir.model zodat de NOT NULL constraint nooit faalt.
  */
 export async function createActivity(env, { resModel, resId, activityTypeId, dateDeadline, summary, userId }) {
+  // Look up ir.model id for the given model name — required alongside res_model string.
+  const irModels = await searchRead(env, {
+    model:  'ir.model',
+    domain: [['model', '=', resModel]],
+    fields: ['id'],
+    limit:  1,
+  });
+  if (!irModels.length) {
+    throw new Error(`createActivity: model "${resModel}" niet gevonden in ir.model`);
+  }
+  const resModelId = irModels[0].id;
+
   const values = {
     res_model:          resModel,
+    res_model_id:       resModelId,
     res_id:             resId,
     activity_type_id:   activityTypeId,
     date_deadline:      dateDeadline,
