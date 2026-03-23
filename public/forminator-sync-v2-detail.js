@@ -738,6 +738,11 @@
 
     var originals = S().submissions.filter(function (s) { return !s.replay_of_submission_id; });
     var replays   = S().submissions.filter(function (s) { return !!s.replay_of_submission_id; });
+    var replaysByOrigId = {};
+    replays.forEach(function (r) {
+      if (!replaysByOrigId[r.replay_of_submission_id]) replaysByOrigId[r.replay_of_submission_id] = [];
+      replaysByOrigId[r.replay_of_submission_id].push(r);
+    });
     var ordered   = [];
     originals.forEach(function (orig) {
       ordered.push({ sub: orig, isReplay: false });
@@ -838,8 +843,30 @@
           '</div>'
         : '';
 
-      return '<tr class="sub-timeline-row" id="stl-' + esc(shortId) + '"' + (isFailed ? '' : ' style="display:none"') + '>' +
-        '<td colspan="' + colCount + '" class="bg-base-200/40 px-4 py-3">' + payloadHtml + timelineHtml + errorHtml + '</td>' +
+      function safeJsonPretty(raw) {
+        try {
+          var obj = (raw && typeof raw === 'object') ? raw : JSON.parse(raw || '{}');
+          return JSON.stringify(obj, null, 2);
+        } catch (e_) { return String(raw || ''); }
+      }
+      var payloadDetailHtml =
+        '<div class="mt-3 space-y-2">' +
+          '<details>' +
+            '<summary class="text-xs font-semibold cursor-pointer select-none text-base-content/60 hover:text-base-content py-1">' +
+              '&#x25B6; Inkomende payload</summary>' +
+            '<pre class="text-xs font-mono bg-base-300 rounded p-2 mt-1 overflow-auto max-h-64 whitespace-pre-wrap break-all">' +
+              esc(safeJsonPretty(sub.source_payload)) + '</pre>' +
+          '</details>' +
+          '<details>' +
+            '<summary class="text-xs font-semibold cursor-pointer select-none text-base-content/60 hover:text-base-content py-1">' +
+              '&#x25B6; Verwerkte context (uitgaand naar Odoo)</summary>' +
+            '<pre class="text-xs font-mono bg-base-300 rounded p-2 mt-1 overflow-auto max-h-64 whitespace-pre-wrap break-all">' +
+              esc(safeJsonPretty(sub.resolved_context)) + '</pre>' +
+          '</details>' +
+        '</div>';
+
+      return '<tr class="sub-timeline-row" id="stl-' + esc(shortId) + '" style="display:none">' +
+        '<td colspan="' + colCount + '" class="bg-base-200/40 px-4 py-3">' + payloadHtml + timelineHtml + errorHtml + payloadDetailHtml + '</td>' +
         '</tr>';
     }
 
@@ -866,6 +893,9 @@
             var isReplay    = item.isReplay;
             var shortId     = window.FSV2.shortId(sub.id);
             var replayAllowed = !isReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
+            var successfulReplay = !isReplay && (replaysByOrigId[sub.id] || []).some(function (r) {
+              return ['success', 'processed'].includes(String(r.status || ''));
+            });
             var errorCell   = sub.last_error
               ? '<span class="text-xs text-error/80 font-mono" title="' + esc(sub.last_error) + '">' +
                   esc(sub.last_error.slice(0, 60)) + (sub.last_error.length > 60 ? '\u2026' : '') +
@@ -878,7 +908,9 @@
                   esc(shortId) +
                 '</td>' +
                 (showIndiener ? '<td class="text-xs">' + submitterInfo(sub) + '</td>' : '') +
-                '<td>' + statusBadge(sub.status) + actionBadge(sub) + '</td>' +
+                '<td>' + statusBadge(sub.status) +
+                  (successfulReplay ? '<span class="badge badge-xs badge-success ml-1">✓ opgelost via replay</span>' : '') +
+                  actionBadge(sub) + '</td>' +
                 '<td class="max-w-xs truncate">' + errorCell + '</td>' +
                 '<td class="text-xs whitespace-nowrap">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
                 '<td>' + (replayAllowed

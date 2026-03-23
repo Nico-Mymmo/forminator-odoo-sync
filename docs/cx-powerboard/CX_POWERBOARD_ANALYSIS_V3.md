@@ -14,7 +14,257 @@
 | Date          | 2026-03                                        |
 | Module code   | `cx_powerboard`                                |
 
-### What Changed from v2
+### What Changed from v2You are now moving from analysis to **implementation** of the module:
+
+**CX Powerboard (MVP)**
+
+This module is part of the **Operations Manager ecosystem**.
+
+You MUST strictly follow the validated architecture.
+
+Reference document:
+
+
+---
+
+# IMPORTANT RULES
+
+* DO NOT redesign anything
+* DO NOT introduce new patterns
+* DO NOT skip steps
+* DO NOT “improve” architecture
+* FOLLOW the document exactly
+
+If something is unclear → choose the safest interpretation aligned with existing modules
+
+---
+
+# IMPLEMENTATION PHASES
+
+You MUST work in **strict phases**
+
+---
+
+# PHASE 1 — PLATFORM BLOCKERS
+
+Implement ONLY these changes first.
+
+## 1. Supabase Migration
+
+Create:
+
+```
+supabase/migrations/YYYYMMDDHHMMSS_cx_powerboard_init.sql
+```
+
+Include:
+
+* add `odoo_uid INTEGER UNIQUE` to `users`
+* update role CHECK constraint to include:
+
+  * `cx_powerboard_manager`
+* create:
+
+  * `cx_activity_mapping`
+  * `cx_seen_activities`
+  * `cx_processed_wins`
+* add indexes
+* enable RLS + policies (as defined in doc)
+* insert module into `modules` table
+
+---
+
+## 2. Admin Role Integration
+
+File:
+
+```
+src/modules/admin/routes.js
+```
+
+Do ALL of the following:
+
+### A. Extend role validation (3 places)
+
+Add:
+
+```
+'cx_powerboard_manager'
+```
+
+### B. Add auto-grant logic
+
+When role = `cx_powerboard_manager`:
+
+* fetch module `cx_powerboard`
+* upsert into `user_modules`
+
+Follow EXACT pattern of `marketing_signature`
+
+---
+
+## 3. Register Module
+
+File:
+
+```
+src/modules/registry.js
+```
+
+Add:
+
+```
+import cxPowerboard from './cx_powerboard/module.js'
+```
+
+Register it in module list
+
+---
+
+## 4. Add Cron Trigger
+
+File:
+
+```
+wrangler.jsonc
+```
+
+Add:
+
+```
+"triggers": {
+  "crons": ["*/15 * * * *"]
+}
+```
+
+---
+
+## 5. Register Scheduled Handler
+
+File:
+
+```
+src/index.js
+```
+
+Add `scheduled` export:
+
+* call `handleCxWinDetection(env)`
+* import from module
+
+---
+
+# STOP AFTER PHASE 1
+
+After completing Phase 1:
+
+OUTPUT:
+
+* list of changed files
+* short validation checklist
+
+Then STOP.
+
+Do NOT start building the module yet.
+
+---
+
+# PHASE 2 — MODULE STRUCTURE
+
+(Only after approval)
+
+Create:
+
+```
+src/modules/cx_powerboard/
+```
+
+Files:
+
+* module.js
+* routes.js
+* ui.js
+* odoo-client.js
+* services/
+
+  * mapping-service.js
+  * win-service.js
+* cron/
+
+  * win-detection.js
+
+Follow EXACT patterns from:
+
+* event-operations
+* sales-insight-explorer
+
+---
+
+# PHASE 3 — CORE FEATURES
+
+Implement:
+
+## Dashboard
+
+* fetch Odoo activities (filtered by odoo_uid)
+* join mapping
+* sort by priority
+* render SSR
+
+## Win detection
+
+* poll-and-diff logic
+* idempotent insert
+* cleanup rules
+
+## Mapping config
+
+* CRUD API
+* KV cache + invalidation
+
+## Team view
+
+* manager-only
+* aggregated users
+
+---
+
+# PHASE 4 — UX
+
+* DaisyUI only
+* reuse layout
+* navbar integration automatic
+* include theme script
+* include padding-top 48px
+
+---
+
+# FINAL RULE
+
+Every file must:
+
+* match naming conventions
+* match structure of existing modules
+* be minimal
+* be readable
+
+---
+
+# OUTPUT FORMAT
+
+For each phase:
+
+1. Files created/modified
+2. Code (clean, complete)
+3. No explanations unless necessary
+
+---
+
+# START
+
+Begin with:
+
+**PHASE 1 — PLATFORM BLOCKERS**
 
 | # | Area | v2 Position | v3 Correction | Severity |
 |---|------|-------------|---------------|----------|
