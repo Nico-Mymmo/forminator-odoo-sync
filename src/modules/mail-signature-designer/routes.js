@@ -44,7 +44,7 @@
 import {
   getConfig, upsertConfig,
   getMarketingSettings, upsertMarketingSettings,
-  getUserSettings, upsertUserSettings, clearAllHiddenEventIds,
+  getUserSettings, getAllUserSettings, upsertUserSettings, clearAllHiddenEventIds,
   logPush, getLogs,
   getExcludedEmails, setExcludedEmails,
   getVariants, getVariant, upsertVariant, deleteVariant,
@@ -325,7 +325,7 @@ async function pushOneUser({
  * Returns { marketingConfig, directoryUsers, directoryMap, odooEmployees, odooMap }
  */
 async function fetchPushDataSources(env) {
-  const [marketingResult, directoryUsers, odooEmployees] = await Promise.all([
+  const [marketingResult, directoryUsers, odooEmployees, userSettingsMap] = await Promise.all([
     getMarketingSettings(env),
     listUsers(env).catch(e => {
       console.warn(`${LOG_PREFIX} directory fetch failed:`, e.message);
@@ -339,6 +339,10 @@ async function fetchPushDataSources(env) {
     }).catch(e => {
       console.warn(`${LOG_PREFIX} Odoo employee fetch failed:`, e.message);
       return [];
+    }),
+    getAllUserSettings(env).catch(e => {
+      console.warn(`${LOG_PREFIX} user settings bulk fetch failed:`, e.message);
+      return new Map();
     })
   ]);
 
@@ -352,7 +356,8 @@ async function fetchPushDataSources(env) {
     directoryUsers,
     directoryMap,
     odooEmployees,
-    odooMap
+    odooMap,
+    userSettingsMap
   };
 }
 
@@ -362,7 +367,7 @@ async function fetchPushDataSources(env) {
  */
 async function triggerPushAllBackground({ env, actorEmail }) {
   try {
-    const [{ marketingConfig, directoryUsers, directoryMap, odooMap }, excluded] =
+    const [{ marketingConfig, directoryUsers, directoryMap, odooMap, userSettingsMap }, excluded] =
       await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
     if (directoryUsers.length === 0) return;
     const excludedSet = new Set(excluded);
@@ -373,7 +378,8 @@ async function triggerPushAllBackground({ env, actorEmail }) {
       await Promise.all(
         batch.map(email => pushOneUser({
           env, targetEmail: email, marketingConfig, directoryMap, odooMap,
-          actorEmail, pushScope: 'all'
+          actorEmail, pushScope: 'all',
+          userSettingsOverride: userSettingsMap.get(email.toLowerCase()) ?? null
         }))
       );
     }
@@ -918,7 +924,7 @@ export const routes = {
       const { env, user } = context;
       const actorEmail = user.email || 'unknown';
 
-      const [{ marketingConfig, directoryUsers, directoryMap, odooMap }, excluded] =
+      const [{ marketingConfig, directoryUsers, directoryMap, odooMap, userSettingsMap }, excluded] =
         await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
 
       if (directoryUsers.length === 0) {
@@ -934,7 +940,8 @@ export const routes = {
         const batchResults = await Promise.all(
           batch.map(email => pushOneUser({
             env, targetEmail: email, marketingConfig, directoryMap, odooMap,
-            actorEmail, pushScope: 'all'
+            actorEmail, pushScope: 'all',
+            userSettingsOverride: userSettingsMap.get(email.toLowerCase()) ?? null
           }))
         );
         results.push(...batchResults);
@@ -1190,7 +1197,7 @@ export const routes = {
         const denyMarketing = guardMarketingRole(context);
         if (denyMarketing) return denyMarketing;
         pushScope = 'all';
-        const [{ directoryUsers, marketingConfig, directoryMap, odooMap }, excluded] =
+        const [{ directoryUsers, marketingConfig, directoryMap, odooMap, userSettingsMap: allUsersMap }, excluded] =
           await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
         if (directoryUsers.length === 0) return jsonError('No users found in directory', 500);
         const excludedSetLegacy = new Set(excluded);
@@ -1203,7 +1210,8 @@ export const routes = {
           const batchResults = await Promise.all(
             batch.map(email => pushOneUser({
               env, targetEmail: email, marketingConfig, directoryMap, odooMap,
-              actorEmail, pushScope
+              actorEmail, pushScope,
+              userSettingsOverride: allUsersMap.get(email.toLowerCase()) ?? null
             }))
           );
           results.push(...batchResults);

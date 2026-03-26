@@ -217,6 +217,31 @@ export async function getUserSettings(env, userEmail) {
 }
 
 /**
+ * Fetch all user_signature_settings rows in a single query.
+ * Returns a Map keyed by lower-cased user_email for O(1) lookup.
+ *
+ * @param {Object} env
+ * @returns {Map<string, Object>}
+ */
+export async function getAllUserSettings(env) {
+  const supabase = getSupabaseAdminClient(env);
+
+  const { data, error } = await supabase
+    .from('user_signature_settings')
+    .select('*');
+
+  if (error) {
+    throw new Error(`[signature-store] getAllUserSettings failed: ${error.message}`);
+  }
+
+  const map = new Map();
+  for (const row of (data ?? [])) {
+    map.set(row.user_email.toLowerCase(), row);
+  }
+  return map;
+}
+
+/**
  * Upsert the signature settings for one user.
  *
  * Accepted fields (all optional; omit to leave existing value unchanged):
