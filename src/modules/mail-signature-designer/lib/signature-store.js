@@ -107,6 +107,34 @@ export async function logPush(env, entry) {
 }
 
 /**
+ * Bulk-insert multiple push log entries in a single Supabase call.
+ * Non-fatal: logs errors but does not throw.
+ *
+ * @param {Object} env
+ * @param {Array<Object>} entries
+ */
+export async function bulkLogPush(env, entries) {
+  if (!entries || entries.length === 0) return;
+  const supabase = getSupabaseAdminClient(env);
+
+  const rows = entries.map(e => ({
+    actor_email:       e.actor_email,
+    target_user_email: e.target_user_email,
+    sendas_email:      e.sendas_email,
+    success:           e.success,
+    error_message:     e.error_message ?? null,
+    html_hash:         e.html_hash ?? null,
+    push_scope:        e.push_scope ?? 'single',
+    metadata:          e.metadata ?? {}
+  }));
+
+  const { error } = await supabase.from('signature_push_log').insert(rows);
+  if (error) {
+    console.error(`[signature-store] bulkLogPush failed: ${error.message}`);
+  }
+}
+
+/**
  * Get push logs, newest first.
  *
  * @param {Object} env
@@ -502,6 +530,46 @@ export async function getAliasAssignments(env, userEmail) {
     .eq('user_email', userEmail.toLowerCase());
   if (error) throw new Error(`[signature-store] getAliasAssignments: ${error.message}`);
   return data || [];
+}
+
+/**
+ * Fetch all alias assignments in a single query.
+ * Returns a Map keyed by lower-cased user_email → assignments[].
+ *
+ * @param {Object} env
+ * @returns {Promise<Map<string, Array>>}
+ */
+export async function getAllAliasAssignments(env) {
+  const supabase = getSupabaseAdminClient(env);
+  const { data, error } = await supabase
+    .from('user_alias_assignments')
+    .select('user_email, send_as_email, variant_id');
+  if (error) throw new Error(`[signature-store] getAllAliasAssignments: ${error.message}`);
+  const map = new Map();
+  for (const row of (data ?? [])) {
+    const key = row.user_email.toLowerCase();
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push({ send_as_email: row.send_as_email, variant_id: row.variant_id });
+  }
+  return map;
+}
+
+/**
+ * Fetch all signature variants in a single query.
+ * Returns a Map keyed by variant UUID → variant row.
+ *
+ * @param {Object} env
+ * @returns {Promise<Map<string, Object>>}
+ */
+export async function getAllVariants(env) {
+  const supabase = getSupabaseAdminClient(env);
+  const { data, error } = await supabase
+    .from('user_signature_variants')
+    .select('id, config_overrides');
+  if (error) throw new Error(`[signature-store] getAllVariants: ${error.message}`);
+  const map = new Map();
+  for (const row of (data ?? [])) map.set(row.id, row);
+  return map;
 }
 
 /**

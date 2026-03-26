@@ -45,10 +45,10 @@ import {
   getConfig, upsertConfig,
   getMarketingSettings, upsertMarketingSettings,
   getUserSettings, getAllUserSettings, upsertUserSettings, clearAllHiddenEventIds,
-  logPush, getLogs,
+  logPush, bulkLogPush, getLogs,
   getExcludedEmails, setExcludedEmails,
-  getVariants, getVariant, upsertVariant, deleteVariant,
-  getAliasAssignments, saveAliasAssignments
+  getVariants, getVariant, upsertVariant, deleteVariant, getAllVariants,
+  getAliasAssignments, getAllAliasAssignments, saveAliasAssignments
 } from './lib/signature-store.js';
 import { compileSignature } from './lib/signature-compiler.js';
 import { mergeSignatureLayers, mergeForPreview } from './lib/signature-merge-engine.js';
@@ -161,8 +161,12 @@ async function pushOneUser({
   odooMap,
   actorEmail,
   pushScope = 'single',
-  userSettingsOverride = null
+  userSettingsOverride = null,
+  aliasAssignmentsOverride = null, // pre-fetched assignments array (null = fetch live)
+  variantMapOverride = null        // pre-fetched Map<variantId, variant> (null = fetch live)
 }) {
+  const pendingLogs = [];
+
   try {
     // Load user-layer settings (allow caller to pass pre-fetched value)
     const userSettings = userSettingsOverride !== null
@@ -190,12 +194,16 @@ async function pushOneUser({
     // address differs from their app login email
     const googleEmail = userSettings?.google_email_override?.toLowerCase().trim() || targetEmail;
 
-    // Always fetch all sendAs identities and all alias assignments so we can push
-    // a signature to every address the user can send from.
-    const [sendAsList, assignments] = await Promise.all([
-      listSendAs(env, googleEmail).catch(() => null),
-      getAliasAssignments(env, targetEmail).catch(() => [])
-    ]);
+    // Use pre-fetched alias assignments when available — avoids one Supabase round-trip per user.
+    const assignments = aliasAssignmentsOverride !== null
+      ? aliasAssignmentsOverride
+      : await getAliasAssignments(env, targetEmail).catch(() => []);
+
+    // Only call listSendAs (Gmail API) when the user actually has alias assignments.
+    // If there are no assignments, there's no point fetching all sendAs addresses.
+    const sendAsList = assignments.length > 0
+      ? await listSendAs(env, googleEmail).catch(() => null)
+      : null;
 
     let sendAsEmail, oldSignature, finalHtml, finalWarnings;
 
@@ -213,12 +221,14 @@ async function pushOneUser({
       // Build a map:  sendAsEmail (lowercase) → variantId (null = base)
       const assignMap = new Map(assignments.map(a => [a.send_as_email.toLowerCase(), a.variant_id]));
 
-      // Load only the distinct variants we actually need
+      // Load only the distinct variants we actually need, using pre-fetched map when available
       const variantIds = [...new Set(assignments.map(a => a.variant_id).filter(Boolean))];
       const variantCache = {};
       for (const vid of variantIds) {
         try {
-          const v = await getVariant(env, vid);
+          const v = variantMapOverride
+            ? (variantMapOverride.get(vid) ?? null)
+            : await getVariant(env, vid);
           if (v) variantCache[vid] = v.config_overrides || {};
         } catch { /* variant deleted or inaccessible – skip */ }
       }
@@ -251,11 +261,11 @@ async function pushOneUser({
       // Push to all non-primary sendAs addresses
       for (const sa of sendAsList) {
         if (sa.sendAsEmail.toLowerCase() === primarySendAs.sendAsEmail.toLowerCase()) continue;
+        const assigned = assignMap.get(sa.sendAsEmail.toLowerCase());
         try {
           const { html: saHtml } = compileSendAs(sa.sendAsEmail);
           await pushSignatureToAlias(env, googleEmail, sa.sendAsEmail, saHtml);
-          const assigned = assignMap.get(sa.sendAsEmail.toLowerCase());
-          await logPush(env, {
+          pendingLogs.push({
             actor_email:       actorEmail,
             target_user_email: targetEmail,
             sendas_email:      sa.sendAsEmail,
@@ -266,8 +276,7 @@ async function pushOneUser({
           });
         } catch (aliasErr) {
           console.warn(`${LOG_PREFIX} alias push failed for ${sa.sendAsEmail}:`, aliasErr.message);
-          const assigned2 = assignMap?.get(sa.sendAsEmail.toLowerCase());
-          await logPush(env, {
+          pendingLogs.push({
             actor_email:       actorEmail,
             target_user_email: targetEmail,
             sendas_email:      sa.sendAsEmail,
@@ -275,8 +284,8 @@ async function pushOneUser({
             error_message:     aliasErr.message,
             html_hash:         null,
             push_scope:        pushScope,
-            metadata:          { variant_id: assigned2 || null, is_alias: true }
-          }).catch(() => {});
+            metadata:          { variant_id: assigned || null, is_alias: true }
+          });
         }
       }
     }
@@ -285,8 +294,8 @@ async function pushOneUser({
     const oldHash = quickHash(oldSignature || '');
     const changed = oldHash !== newHash;
 
-    // Audit log for primary
-    await logPush(env, {
+    // Collect primary audit log entry (caller will bulk-insert)
+    pendingLogs.push({
       actor_email:       actorEmail,
       target_user_email: targetEmail,
       sendas_email:      sendAsEmail,
@@ -301,11 +310,11 @@ async function pushOneUser({
       }
     });
 
-    return { email: targetEmail, success: true, warnings: finalWarnings, changed, old_hash: oldHash, new_hash: newHash };
+    return { email: targetEmail, success: true, warnings: finalWarnings, changed, old_hash: oldHash, new_hash: newHash, pendingLogs };
   } catch (err) {
     console.error(`${LOG_PREFIX} push failed for ${targetEmail}:`, err);
 
-    await logPush(env, {
+    pendingLogs.push({
       actor_email:       actorEmail,
       target_user_email: targetEmail,
       sendas_email:      null,
@@ -316,16 +325,17 @@ async function pushOneUser({
       metadata:          {}
     });
 
-    return { email: targetEmail, success: false, error: err.message };
+    return { email: targetEmail, success: false, error: err.message, pendingLogs };
   }
 }
 
 /**
- * Fetch the three data sources needed for push in parallel.
- * Returns { marketingConfig, directoryUsers, directoryMap, odooEmployees, odooMap }
+ * Fetch all data sources needed for push in parallel.
+ * Returns { marketingConfig, directoryUsers, directoryMap, odooEmployees, odooMap,
+ *           userSettingsMap, aliasAssignmentsMap, variantMap }
  */
 async function fetchPushDataSources(env) {
-  const [marketingResult, directoryUsers, odooEmployees, userSettingsMap] = await Promise.all([
+  const [marketingResult, directoryUsers, odooEmployees, userSettingsMap, aliasAssignmentsMap, variantMap] = await Promise.all([
     getMarketingSettings(env),
     listUsers(env).catch(e => {
       console.warn(`${LOG_PREFIX} directory fetch failed:`, e.message);
@@ -343,6 +353,14 @@ async function fetchPushDataSources(env) {
     getAllUserSettings(env).catch(e => {
       console.warn(`${LOG_PREFIX} user settings bulk fetch failed:`, e.message);
       return new Map();
+    }),
+    getAllAliasAssignments(env).catch(e => {
+      console.warn(`${LOG_PREFIX} alias assignments bulk fetch failed:`, e.message);
+      return new Map();
+    }),
+    getAllVariants(env).catch(e => {
+      console.warn(`${LOG_PREFIX} variants bulk fetch failed:`, e.message);
+      return new Map();
     })
   ]);
 
@@ -357,7 +375,9 @@ async function fetchPushDataSources(env) {
     directoryMap,
     odooEmployees,
     odooMap,
-    userSettingsMap
+    userSettingsMap,
+    aliasAssignmentsMap,
+    variantMap
   };
 }
 
@@ -367,22 +387,27 @@ async function fetchPushDataSources(env) {
  */
 async function triggerPushAllBackground({ env, actorEmail }) {
   try {
-    const [{ marketingConfig, directoryUsers, directoryMap, odooMap, userSettingsMap }, excluded] =
+    const [{ marketingConfig, directoryUsers, directoryMap, odooMap, userSettingsMap, aliasAssignmentsMap, variantMap }, excluded] =
       await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
     if (directoryUsers.length === 0) return;
     const excludedSet = new Set(excluded);
     const targetEmails = directoryUsers
       .map(u => u.email)
       .filter(e => !excludedSet.has((e || '').toLowerCase()));
+    const allPendingLogs = [];
     for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
-      await Promise.all(
+      const batchResults = await Promise.all(
         batch.map(email => pushOneUser({
           env, targetEmail: email, marketingConfig, directoryMap, odooMap,
           actorEmail, pushScope: 'all',
-          userSettingsOverride: userSettingsMap.get(email.toLowerCase()) ?? null
+          userSettingsOverride:     userSettingsMap.get(email.toLowerCase()) ?? null,
+          aliasAssignmentsOverride: aliasAssignmentsMap.get(email.toLowerCase()) ?? [],
+          variantMapOverride:       variantMap
         }))
       );
+      for (const r of batchResults) allPendingLogs.push(...(r.pendingLogs || []));
     }
+    await bulkLogPush(env, allPendingLogs);
     console.log(`${LOG_PREFIX} background push (event change): ${targetEmails.length} users processed`);
   } catch (err) {
     console.error(`${LOG_PREFIX} background push failed:`, err.message);
@@ -836,7 +861,7 @@ export const routes = {
       const { env, user } = context;
       const targetEmail = user.email;
 
-      const { marketingConfig, directoryMap, odooMap } = await fetchPushDataSources(env);
+      const { marketingConfig, directoryMap, odooMap, userSettingsMap: selfSettingsMap, aliasAssignmentsMap: selfAliasMap, variantMap: selfVariantMap } = await fetchPushDataSources(env);
 
       const result = await pushOneUser({
         env,
@@ -845,9 +870,12 @@ export const routes = {
         directoryMap,
         odooMap,
         actorEmail: targetEmail,
-        pushScope: 'self'
+        pushScope: 'self',
+        userSettingsOverride:     selfSettingsMap.get(targetEmail.toLowerCase()) ?? null,
+        aliasAssignmentsOverride: selfAliasMap.get(targetEmail.toLowerCase()) ?? [],
+        variantMapOverride:       selfVariantMap
       });
-
+      await bulkLogPush(env, result.pendingLogs || []);
       return jsonOk({
         results: [result],
         successCount: result.success ? 1 : 0,
@@ -883,19 +911,24 @@ export const routes = {
       const targetEmails = body.targetUserEmails;
       const actorEmail   = user.email || 'unknown';
 
-      const { marketingConfig, directoryMap, odooMap, userSettingsMap } = await fetchPushDataSources(env);
+      const { marketingConfig, directoryMap, odooMap, userSettingsMap, aliasAssignmentsMap, variantMap } = await fetchPushDataSources(env);
 
       const results = [];
+      const allPendingLogs = [];
       for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
         const batchResults = await Promise.all(
           batch.map(email => pushOneUser({
             env, targetEmail: email, marketingConfig, directoryMap, odooMap,
             actorEmail, pushScope: 'multi',
-            userSettingsOverride: userSettingsMap.get(email.toLowerCase()) ?? null
+            userSettingsOverride:     userSettingsMap.get(email.toLowerCase()) ?? null,
+            aliasAssignmentsOverride: aliasAssignmentsMap.get(email.toLowerCase()) ?? [],
+            variantMapOverride:       variantMap
           }))
         );
+        for (const r of batchResults) allPendingLogs.push(...(r.pendingLogs || []));
         results.push(...batchResults);
       }
+      await bulkLogPush(env, allPendingLogs);
 
       const successCount = results.filter(r => r.success).length;
       const failCount    = results.filter(r => !r.success).length;
@@ -925,7 +958,7 @@ export const routes = {
       const { env, user } = context;
       const actorEmail = user.email || 'unknown';
 
-      const [{ marketingConfig, directoryUsers, directoryMap, odooMap, userSettingsMap }, excluded] =
+      const [{ marketingConfig, directoryUsers, directoryMap, odooMap, userSettingsMap, aliasAssignmentsMap, variantMap }, excluded] =
         await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
 
       if (directoryUsers.length === 0) {
@@ -937,16 +970,21 @@ export const routes = {
         .map(u => u.email)
         .filter(e => !excludedSet.has((e || '').toLowerCase()));
       const results = [];
+      const allPendingLogs = [];
       for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
         const batchResults = await Promise.all(
           batch.map(email => pushOneUser({
             env, targetEmail: email, marketingConfig, directoryMap, odooMap,
             actorEmail, pushScope: 'all',
-            userSettingsOverride: userSettingsMap.get(email.toLowerCase()) ?? null
+            userSettingsOverride:     userSettingsMap.get(email.toLowerCase()) ?? null,
+            aliasAssignmentsOverride: aliasAssignmentsMap.get(email.toLowerCase()) ?? [],
+            variantMapOverride:       variantMap
           }))
         );
+        for (const r of batchResults) allPendingLogs.push(...(r.pendingLogs || []));
         results.push(...batchResults);
       }
+      await bulkLogPush(env, allPendingLogs);
 
       const successCount = results.filter(r => r.success).length;
       const failCount    = results.filter(r => !r.success).length;
@@ -1198,7 +1236,7 @@ export const routes = {
         const denyMarketing = guardMarketingRole(context);
         if (denyMarketing) return denyMarketing;
         pushScope = 'all';
-        const [{ directoryUsers, marketingConfig, directoryMap, odooMap, userSettingsMap: allUsersMap }, excluded] =
+        const [{ directoryUsers, marketingConfig, directoryMap, odooMap, userSettingsMap: allUsersMap, aliasAssignmentsMap: allAliasMap, variantMap: allVariantMap }, excluded] =
           await Promise.all([fetchPushDataSources(env), getExcludedEmails(env)]);
         if (directoryUsers.length === 0) return jsonError('No users found in directory', 500);
         const excludedSetLegacy = new Set(excluded);
@@ -1207,16 +1245,21 @@ export const routes = {
           .filter(e => !excludedSetLegacy.has((e || '').toLowerCase()));
 
         const results = [];
+        const allPendingLogs = [];
         for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
           const batchResults = await Promise.all(
             batch.map(email => pushOneUser({
               env, targetEmail: email, marketingConfig, directoryMap, odooMap,
               actorEmail, pushScope,
-              userSettingsOverride: allUsersMap.get(email.toLowerCase()) ?? null
+              userSettingsOverride:     allUsersMap.get(email.toLowerCase()) ?? null,
+              aliasAssignmentsOverride: allAliasMap.get(email.toLowerCase()) ?? [],
+              variantMapOverride:       allVariantMap
             }))
           );
+          for (const r of batchResults) allPendingLogs.push(...(r.pendingLogs || []));
           results.push(...batchResults);
         }
+        await bulkLogPush(env, allPendingLogs);
         const successCount = results.filter(r => r.success).length;
         const failCount    = results.filter(r => !r.success).length;
         return jsonOk({ results, successCount, failCount });
@@ -1236,18 +1279,23 @@ export const routes = {
         return jsonError('targetUserEmails must be an array of emails or "all"', 400);
       }
 
-      const { marketingConfig, directoryMap, odooMap, userSettingsMap: legacySettingsMap } = await fetchPushDataSources(env);
+      const { marketingConfig, directoryMap, odooMap, userSettingsMap: legacySettingsMap, aliasAssignmentsMap: legacyAliasMap, variantMap: legacyVariantMap } = await fetchPushDataSources(env);
       const results = [];
+      const allPendingLogs = [];
       for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
         const batchResults = await Promise.all(
           batch.map(email => pushOneUser({
             env, targetEmail: email, marketingConfig, directoryMap, odooMap,
             actorEmail, pushScope,
-            userSettingsOverride: legacySettingsMap.get(email.toLowerCase()) ?? null
+            userSettingsOverride:     legacySettingsMap.get(email.toLowerCase()) ?? null,
+            aliasAssignmentsOverride: legacyAliasMap.get(email.toLowerCase()) ?? [],
+            variantMapOverride:       legacyVariantMap
           }))
         );
+        for (const r of batchResults) allPendingLogs.push(...(r.pendingLogs || []));
         results.push(...batchResults);
       }
+      await bulkLogPush(env, allPendingLogs);
 
       const successCount = results.filter(r => r.success).length;
       const failCount    = results.filter(r => !r.success).length;
