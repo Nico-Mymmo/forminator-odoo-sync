@@ -195,9 +195,14 @@ async function pushOneUser({
     const googleEmail = userSettings?.google_email_override?.toLowerCase().trim() || targetEmail;
 
     // Use pre-fetched alias assignments when available — avoids one Supabase round-trip per user.
-    const assignments = aliasAssignmentsOverride !== null
-      ? aliasAssignmentsOverride
-      : await getAliasAssignments(env, targetEmail).catch(() => []);
+    // For marketing push-all (pushScope='all'), skip aliases entirely: marketing settings only
+    // affect the base/primary signature. Aliases with no variant override are unaffected, and
+    // aliases with variants that don't show marketing content (events, banners) should not be touched.
+    const assignments = (pushScope === 'all')
+      ? []
+      : aliasAssignmentsOverride !== null
+        ? aliasAssignmentsOverride
+        : await getAliasAssignments(env, targetEmail).catch(() => []);
 
     // Only call listSendAs (Gmail API) when the user actually has alias assignments.
     // If there are no assignments, there's no point fetching all sendAs addresses.
