@@ -119,6 +119,16 @@ async function getEffectiveMappings(supabase, userId) {
 
   const teamIds = (memberships || []).map(m => m.team_id);
 
+  // ── Team names ────────────────────────────────────────────────────────────
+  const teamNameMap = {};
+  if (teamIds.length > 0) {
+    const { data: teamRows } = await supabase
+      .from('cx_teams')
+      .select('id, name')
+      .in('id', teamIds);
+    for (const t of (teamRows || [])) teamNameMap[t.id] = t.name;
+  }
+
   // ── Team activity configs ─────────────────────────────────────────────────
   let teamConfigs = [];
   if (teamIds.length > 0) {
@@ -128,7 +138,7 @@ async function getEffectiveMappings(supabase, userId) {
         team_id, mapping_id, priority_weight, show_on_dashboard,
         danger_threshold_overdue, danger_threshold_today, include_in_streak,
         cx_activity_mapping (
-          id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at
+          id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes
         )
       `)
       .in('team_id', teamIds);
@@ -142,7 +152,7 @@ async function getEffectiveMappings(supabase, userId) {
       mapping_id, priority_weight, show_on_dashboard,
       danger_threshold_overdue, danger_threshold_today, include_in_streak,
       cx_activity_mapping (
-        id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at
+        id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes
       )
     `)
     .eq('user_id', userId);
@@ -166,6 +176,8 @@ async function getEffectiveMappings(supabase, userId) {
       danger_threshold_today:   pc.danger_threshold_today,
       include_in_streak:        pc.include_in_streak,
       keep_done_confirmed_at:   m.keep_done_confirmed_at,
+      _source:                  'personal',
+      _team_name:               null,
     });
   }
 
@@ -184,6 +196,8 @@ async function getEffectiveMappings(supabase, userId) {
       danger_threshold_today:   tc.danger_threshold_today,
       include_in_streak:        tc.include_in_streak,
       keep_done_confirmed_at:   m.keep_done_confirmed_at,
+      _source:                  'team',
+      _team_name:               teamNameMap[tc.team_id] || null,
     });
   }
 
@@ -452,7 +466,7 @@ async function handleGetActivities(context) {
   const dueToday = enriched.filter(a => urgencyRank(a.date_deadline) === 1).length;
   const remainingToday   = overdue + dueToday;
   const completedTodayCount = completedToday.length;
-  const isDoneForToday   = remainingToday === 0;
+  const isDoneForToday   = remainingToday === 0 && completedTodayCount > 0;
 
   // ── Per-type breakdown (for cards) ────────────────────────────────────────
   const perType = {};
@@ -510,6 +524,7 @@ async function handleGetActivities(context) {
     odooBaseUrl:    env.ODOO_URL || 'https://mymmo.odoo.com',
     viewingUserId:  targetUserId,
     isViewingOther,
+    isTeamView,
   }), {
     headers: { 'Content-Type': 'application/json' },
   });
@@ -553,6 +568,8 @@ async function handleAddActivityByOdooType(context, isTeam) {
     danger_threshold_overdue = 1,
     danger_threshold_today   = 3,
     include_in_streak        = true,
+    is_win                   = false,
+    notes                    = null,
   } = body;
   if (!odoo_activity_type_id || !odoo_activity_type_name) {
     return new Response(JSON.stringify({ error: 'odoo_activity_type_id and odoo_activity_type_name are required' }), {
@@ -571,12 +588,16 @@ async function handleAddActivityByOdooType(context, isTeam) {
   let mappingId;
   if (existingMapping) {
     mappingId = existingMapping.id;
+    // Update is_win and notes on the global mapping if provided
+    await supabase.from('cx_activity_mapping')
+      .update({ is_win, notes })
+      .eq('id', mappingId);
   } else {
     const newMapping = await createMapping(context.env, {
       odoo_activity_type_id, odoo_activity_type_name,
-      priority_weight, is_win: false,
+      priority_weight, is_win,
       show_on_dashboard, danger_threshold_overdue,
-      danger_threshold_today, include_in_streak,
+      danger_threshold_today, include_in_streak, notes,
     });
     try {
       await setKeepDone(context.env, odoo_activity_type_id);
@@ -595,7 +616,7 @@ async function handleAddActivityByOdooType(context, isTeam) {
     .insert({ [fkCol]: fkVal, mapping_id: mappingId, priority_weight,
               show_on_dashboard, danger_threshold_overdue,
               danger_threshold_today, include_in_streak })
-    .select('id, mapping_id, priority_weight, show_on_dashboard, danger_threshold_overdue, danger_threshold_today, include_in_streak, cx_activity_mapping (id, odoo_activity_type_id, odoo_activity_type_name, is_win)')
+    .select('id, mapping_id, priority_weight, show_on_dashboard, danger_threshold_overdue, danger_threshold_today, include_in_streak, cx_activity_mapping (id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes)')
     .single();
 
   if (error) {

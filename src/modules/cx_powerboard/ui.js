@@ -458,6 +458,7 @@ export function cxPowerboardDashboardUI(user) {
     var odooBaseUrl        = 'https://mymmo.odoo.com';
     var cardUrls           = {};
     var perTypeData        = {};
+    var isTeamViewData     = false;
 
     // Restore model exclusions from localStorage
     try {
@@ -784,18 +785,66 @@ export function cxPowerboardDashboardUI(user) {
       }
 
       var html = '';
-      for (var ci = 0; ci < visibleMappings.length; ci++) {
-        var mapping   = visibleMappings[ci];
-        var tid       = String(mapping.odoo_activity_type_id);
-        var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
-        var typeIntId = mapping.odoo_activity_type_id;
-        cardUrls[ci] = {
-          all:       buildOdooUrl(typeIntId, 'all'),
-          overdue:   buildOdooUrl(typeIntId, 'overdue'),
-          today:     buildOdooUrl(typeIntId, 'today'),
-          completed: buildOdooUrl(typeIntId, 'completed'),
-        };
-        html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, ci);
+
+      if (!isTeamViewData) {
+        // Individual view: group cards by section (team name vs personal)
+        // Build ordered section list preserving sort order within each section
+        var sectionOrder = [];
+        var sectionMap   = {};
+        for (var ci = 0; ci < visibleMappings.length; ci++) {
+          var m   = visibleMappings[ci];
+          var key = m._source === 'personal' ? '__personal__' : ('team:' + (m._team_name || ''));
+          if (!sectionMap[key]) {
+            sectionMap[key] = [];
+            sectionOrder.push(key);
+          }
+          sectionMap[key].push(ci);
+        }
+
+        var globalIdx = 0; // track cardUrls index across sections
+        for (var si = 0; si < sectionOrder.length; si++) {
+          var skey     = sectionOrder[si];
+          var isPersonalSection = skey === '__personal__';
+          var sLabel   = isPersonalSection ? 'Persoonlijk' : skey.slice(5); // remove 'team:'
+          html += '<div class="col-span-full ' + (si > 0 ? 'mt-4' : '') + '">'
+            + '<p class="text-xs font-semibold uppercase tracking-widest text-base-content/40 flex items-center gap-1.5">'
+            + (isPersonalSection
+                ? '<i data-lucide="user" class="w-3 h-3"></i>'
+                : '<i data-lucide="users" class="w-3 h-3"></i>')
+            + escHtml(sLabel)
+            + '</p>'
+            + '</div>';
+          var indices = sectionMap[skey];
+          for (var ii = 0; ii < indices.length; ii++) {
+            var mapping   = visibleMappings[indices[ii]];
+            var tid       = String(mapping.odoo_activity_type_id);
+            var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+            var typeIntId = mapping.odoo_activity_type_id;
+            cardUrls[globalIdx] = {
+              all:       buildOdooUrl(typeIntId, 'all'),
+              overdue:   buildOdooUrl(typeIntId, 'overdue'),
+              today:     buildOdooUrl(typeIntId, 'today'),
+              completed: buildOdooUrl(typeIntId, 'completed'),
+            };
+            html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, globalIdx);
+            globalIdx++;
+          }
+        }
+      } else {
+        // Team view: flat grid (cumulative)
+        for (var ci = 0; ci < visibleMappings.length; ci++) {
+          var mapping   = visibleMappings[ci];
+          var tid       = String(mapping.odoo_activity_type_id);
+          var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+          var typeIntId = mapping.odoo_activity_type_id;
+          cardUrls[ci] = {
+            all:       buildOdooUrl(typeIntId, 'all'),
+            overdue:   buildOdooUrl(typeIntId, 'overdue'),
+            today:     buildOdooUrl(typeIntId, 'today'),
+            completed: buildOdooUrl(typeIntId, 'completed'),
+          };
+          html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, ci);
+        }
       }
 
       container.innerHTML = html;
@@ -888,7 +937,7 @@ export function cxPowerboardDashboardUI(user) {
         heroSublabel = completedCnt + ' afgerond vandaag';
       } else if (isIdle) {
         bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">\u2014</span>';
-        heroSublabel = futureCnt > 0 ? 'Niets voor vandaag gepland' : 'Geen taken geconfigureerd';
+        heroSublabel = futureCnt > 0 ? 'Niets voor vandaag gepland' : 'Geen open taken';
       } else if (progressPct >= 50 && completedCnt > 0) {
         // Near the finish line — remaining is the motivator
         bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + remaining + '</span>';
@@ -1279,6 +1328,7 @@ export function cxPowerboardDashboardUI(user) {
         winsData      = data.wins       || [];
         mappingsData  = data.mappings   || [];
         perTypeData   = data.perType    || {};
+        isTeamViewData = !!data.isTeamView;
         if (data.odooUid)     odooUid     = data.odooUid;
         if (data.odooBaseUrl) odooBaseUrl = data.odooBaseUrl;
         dataReady     = true;
@@ -1413,10 +1463,13 @@ export function cxPowerboardSettingsUI(user) {
         <a href="/cx-powerboard" class="btn btn-sm btn-ghost">
           <i data-lucide="arrow-left" class="w-4 h-4"></i>
         </a>
-        <div>
+        <div class="flex-1">
           <h1 class="text-2xl font-bold">Instellingen</h1>
           <p class="text-base-content/60 text-sm">Stel teams samen en koppel activiteitstypen aan teamleden.</p>
         </div>
+        <button class="btn btn-sm btn-ghost btn-circle" onclick="document.getElementById('helpModal').showModal()" title="Uitleg">
+          <i data-lucide="info" class="w-4.5 h-4.5"></i>
+        </button>
       </div>
 
       <!-- ── Teams & Activiteiten ───────────────────────────────────────────── -->
@@ -1481,6 +1534,13 @@ export function cxPowerboardSettingsUI(user) {
               </div>
               <div class="flex flex-wrap gap-4 mb-2">
                 <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="checkbox" id="addActivityIsWin" class="checkbox checkbox-xs" />
+                  Telt als win
+                  <span class="tooltip tooltip-right" data-tip="Voltooide activiteiten gaan naar het winslogboek en de weekteller op de Wins-tab.">
+                    <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+                  </span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
                   <input type="checkbox" id="addActivityDashboard" class="checkbox checkbox-xs" checked />
                   Dashboard kaart
                   <span class="tooltip tooltip-right" data-tip="Toont een kaart op het dashboard.">
@@ -1515,6 +1575,10 @@ export function cxPowerboardSettingsUI(user) {
                   <input type="number" id="addActivityThreshTd" min="0" value="3" class="input input-xs input-bordered" />
                 </div>
               </div>
+              <div class="form-control mb-3">
+                <label class="label pb-1"><span class="label-text text-xs">Notities (optioneel)</span></label>
+                <input type="text" id="addActivityNotes" class="input input-xs input-bordered" placeholder="bijv. alleen voor priority accounts" />
+              </div>
               <div class="flex gap-2">
                 <button class="btn btn-xs btn-primary" onclick="saveNewEntityActivity()">
                   <i data-lucide="plus" class="w-3.5 h-3.5"></i> Toevoegen
@@ -1543,127 +1607,6 @@ export function cxPowerboardSettingsUI(user) {
           Geavanceerde instellingen
         </div>
         <div class="collapse-content pt-4">
-
-          <!-- Help card (nested) -->
-          <div class="collapse collapse-arrow bg-base-200/50 shadow-none mb-4 border border-base-300 rounded-xl">
-            <input type="checkbox" class="peer" />
-            <div class="collapse-title text-sm font-semibold flex items-center gap-2 min-h-0 py-3">
-              <i data-lucide="help-circle" class="w-4 h-4 text-base-content/40 shrink-0"></i>
-              Hoe werkt mapping? — klik voor uitleg
-            </div>
-            <div class="collapse-content">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 pb-2">
-                <div class="bg-base-100 rounded-lg p-3">
-                  <p class="font-semibold text-xs text-base-content mb-1">Wat is een mapping?</p>
-                  <p class="text-xs text-base-content/70">Alleen gemapte activiteitstypes worden getrackt. Alle andere types in Odoo worden volledig genegeerd — ze tellen niet mee in statistieken, streak of wins.</p>
-                </div>
-                <div class="bg-base-100 rounded-lg p-3">
-                  <p class="font-semibold text-xs text-base-content mb-1">Prioriteit (0–100)</p>
-                  <p class="text-xs text-base-content/70">Sorteervolgorde in de takenlijst. Hoger getal = eerder weergegeven. Heeft geen effect op streaks, drempels of wins.</p>
-                </div>
-                <div class="bg-base-100 rounded-lg p-3">
-                  <p class="font-semibold text-xs text-base-content mb-1">Telt als win</p>
-                  <p class="text-xs text-base-content/70">Elke voltooide activiteit van dit type wordt opgeslagen in het winslogboek en telt mee in de weekteller op de Wins-tab.</p>
-                </div>
-                <div class="bg-base-100 rounded-lg p-3">
-                  <p class="font-semibold text-xs text-base-content mb-1">Dashboard kaart</p>
-                  <p class="text-xs text-base-content/70">Toont een kaart op het hoofddashboard. Uit = type wordt wel getrackt (voor streak/wins) maar zonder zichtbare kaart.</p>
-                </div>
-                <div class="bg-base-100 rounded-lg p-3">
-                  <p class="font-semibold text-xs text-base-content mb-1">Telt mee voor streak</p>
-                  <p class="text-xs text-base-content/70">Aan = type blokkeert je dagstreak zolang er openstaande items zijn. Uit = opportunistisch type: ontbrekende activiteiten breken je streak niet.</p>
-                </div>
-                <div class="bg-base-100 rounded-lg p-3">
-                  <p class="font-semibold text-xs text-base-content mb-1">Drempels achterstallig / vandaag</p>
-                  <p class="text-xs text-base-content/70">Bepalen wanneer de dashboardkaart rood wordt (dangerstatus). Standaard: rood bij 1 achterstallig of 3 gepland voor vandaag.</p>
-                </div>
-                <div class="bg-base-100 rounded-lg p-3 sm:col-span-2">
-                  <p class="font-semibold text-xs text-base-content mb-1">keep_done — wat is dat?</p>
-                  <p class="text-xs text-base-content/70">Bij het toevoegen van een mapping wordt automatisch <code class="bg-base-200 px-1 rounded">keep_done = true</code> ingesteld in Odoo. Dit zorgt ervoor dat voltooide activiteiten bewaard blijven (anders worden ze verwijderd en zijn ze onzichtbaar voor het dashboard). <strong>✔</strong> = correct ingesteld. <strong>⚠</strong> = mislukt — verwijder de mapping en voeg opnieuw toe. Zonder ✔ kloppen de afgerond-tellingen en streaks niet.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-      <!-- Add mapping form -->
-      <div class="card bg-base-100 shadow-sm mb-6">
-        <div class="card-body">
-          <h2 class="card-title text-base mb-3">Mapping toevoegen</h2>
-
-          <div class="flex flex-wrap gap-3 mb-3">
-            <div class="form-control flex-1 min-w-48">
-              <label class="label pb-1"><span class="label-text text-xs">Activiteitstype (Odoo)</span></label>
-              <select id="typeSelect" class="select select-sm select-bordered">
-                <option value="">Laden…</option>
-              </select>
-            </div>
-            <div class="form-control w-28">
-              <label class="label pb-1">
-                <span class="label-text text-xs">Prioriteit (0–100)</span>
-                <span class="label-text-alt tooltip tooltip-left" data-tip="Sorteervolgorde in de wachtrij. Hoger getal = eerder in de lijst. Heeft geen effect op streaks of drempels.">
-                  <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
-                </span>
-              </label>
-              <input type="number" id="newWeight" min="0" max="100" value="10" class="input input-sm input-bordered" />
-            </div>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-4 mb-3">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" id="newIsWin" class="checkbox checkbox-sm" />
-              <span class="text-sm">Telt als win</span>
-              <span class="tooltip tooltip-right" data-tip="Voltooide activiteiten gaan naar het winslogboek en de weekteller op de Wins-tab.">
-                <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
-              </span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" id="newShowDashboard" class="checkbox checkbox-sm" checked />
-              <span class="text-sm">Dashboard kaart</span>
-              <span class="tooltip tooltip-right" data-tip="Toont een kaart op het dashboard. Uit = type wordt wel getrackt maar zonder kaart.">
-                <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
-              </span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" id="newIncludeInStreak" class="checkbox checkbox-sm" checked />
-              <span class="text-sm">Telt mee voor streak</span>
-              <span class="tooltip tooltip-right" data-tip="Uit = opportunistisch type. Ontbrekende activiteiten breken dan je dagstreak niet.">
-                <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
-              </span>
-            </label>
-          </div>
-
-          <div class="flex gap-3 mb-3">
-            <div class="form-control flex-1">
-              <label class="label pb-1">
-                <span class="label-text text-xs">Drempel achterstallig</span>
-                <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items de deadline heeft overschreden.">
-                  <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
-                </span>
-              </label>
-              <input type="number" id="newThreshOv" min="0" value="1" class="input input-sm input-bordered" />
-            </div>
-            <div class="form-control flex-1">
-              <label class="label pb-1">
-                <span class="label-text text-xs">Drempel vandaag</span>
-                <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items vandaag op de planning staan.">
-                  <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
-                </span>
-              </label>
-              <input type="number" id="newThreshTd" min="0" value="3" class="input input-sm input-bordered" />
-            </div>
-          </div>
-
-          <div class="form-control mb-3">
-            <label class="label pb-1"><span class="label-text text-xs">Notities (optioneel)</span></label>
-            <input type="text" id="newNotes" class="input input-sm input-bordered" placeholder="bijv. alleen voor priority accounts" />
-          </div>
-
-          <button class="btn btn-primary btn-sm" onclick="addMapping()">
-            <i data-lucide="plus" class="w-4 h-4"></i> Toevoegen
-          </button>
-          <div id="addError" class="text-error text-xs mt-2" style="display:none;"></div>
-        </div>
-      </div>
 
       <!-- Mappings table -->
       <div class="card bg-base-100 shadow-sm">
@@ -1708,6 +1651,50 @@ export function cxPowerboardSettingsUI(user) {
 
     </div>
   </div>
+
+  <!-- Help / info modal -->
+  <dialog id="helpModal" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+        <i data-lucide="info" class="w-5 h-5 text-primary"></i>
+        Uitleg &mdash; hoe werkt de configuratie?
+      </h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <div class="bg-base-200 rounded-lg p-3">
+          <p class="font-semibold text-xs mb-1">Wat is een activiteitstype?</p>
+          <p class="text-xs text-base-content/70">Alleen geconfigureerde types worden getrackt. Alle andere types in Odoo worden genegeerd &mdash; ze tellen niet mee in statistieken, streak of wins.</p>
+        </div>
+        <div class="bg-base-200 rounded-lg p-3">
+          <p class="font-semibold text-xs mb-1">Prioriteit (0&ndash;100)</p>
+          <p class="text-xs text-base-content/70">Sorteervolgorde in de takenlijst. Hoger getal = eerder weergegeven. Heeft geen effect op streaks, drempels of wins.</p>
+        </div>
+        <div class="bg-base-200 rounded-lg p-3">
+          <p class="font-semibold text-xs mb-1">Telt als win</p>
+          <p class="text-xs text-base-content/70">Elke voltooide activiteit van dit type wordt opgeslagen in het winslogboek en telt mee in de weekteller op de Wins-tab.</p>
+        </div>
+        <div class="bg-base-200 rounded-lg p-3">
+          <p class="font-semibold text-xs mb-1">Dashboard kaart</p>
+          <p class="text-xs text-base-content/70">Toont een kaart op het hoofddashboard. Uit = type wordt wel getrackt (voor streak/wins) maar zonder zichtbare kaart.</p>
+        </div>
+        <div class="bg-base-200 rounded-lg p-3">
+          <p class="font-semibold text-xs mb-1">Telt mee voor streak</p>
+          <p class="text-xs text-base-content/70">Aan = type blokkeert je dagstreak zolang er openstaande items zijn. Uit = opportunistisch type: ontbrekende activiteiten breken je streak niet.</p>
+        </div>
+        <div class="bg-base-200 rounded-lg p-3">
+          <p class="font-semibold text-xs mb-1">Drempels achterstallig / vandaag</p>
+          <p class="text-xs text-base-content/70">Bepalen wanneer de dashboardkaart rood wordt. Standaard: rood bij &ge;1 achterstallig of &ge;3 gepland voor vandaag.</p>
+        </div>
+        <div class="bg-base-200 rounded-lg p-3 sm:col-span-2">
+          <p class="font-semibold text-xs mb-1">keep_done &mdash; wat is dat?</p>
+          <p class="text-xs text-base-content/70">Bij het toevoegen van een type wordt automatisch <code class="bg-base-300 px-1 rounded">keep_done = true</code> ingesteld in Odoo. Dit zorgt ervoor dat voltooide activiteiten bewaard blijven. <strong>&#x2714;</strong> = correct ingesteld. <strong>&#x26A0;</strong> = mislukt &mdash; verwijder het type en voeg opnieuw toe. Zonder &#x2714; kloppen de afgerond-tellingen en streaks niet.</p>
+        </div>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-sm" onclick="document.getElementById('helpModal').close()">Sluiten</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
 
   <!-- New team modal -->
   <dialog id="newTeamModal" class="modal">
@@ -1968,12 +1955,18 @@ export function cxPowerboardSettingsUI(user) {
         var streak   = a.include_in_streak !== false;
         var threshOv = a.danger_threshold_overdue !== undefined ? a.danger_threshold_overdue : 1;
         var threshTd = a.danger_threshold_today   !== undefined ? a.danger_threshold_today   : 3;
+        var isWin    = a.cx_activity_mapping ? !!a.cx_activity_mapping.is_win : false;
+        var keepDone = a.cx_activity_mapping ? !!a.cx_activity_mapping.keep_done_confirmed_at : false;
+        var notes    = (a.cx_activity_mapping && a.cx_activity_mapping.notes) ? a.cx_activity_mapping.notes : '';
         html += '<div class="border border-base-300 rounded-lg p-3 mb-2">'
           + '<div class="flex items-center gap-2">'
           + '<span class="font-medium text-sm flex-1">' + escHtml(lbl) + '</span>'
           + '<span class="text-xs text-base-content/50">Prio:&nbsp;' + escHtml(prio) + '</span>'
           + (dash   ? '<span class="badge badge-xs badge-ghost">Dashboard</span>' : '')
           + (streak ? '<span class="badge badge-xs badge-ghost">Streak</span>' : '')
+          + (isWin  ? '<span class="badge badge-xs badge-success text-success-content">Win</span>' : '')
+          + (keepDone ? '<span class="badge badge-xs badge-ghost text-success" title="keep_done ingesteld in Odoo">✔ keep_done</span>'
+                      : '<span class="badge badge-xs badge-ghost text-warning" title="keep_done niet bevestigd — verwijder en voeg opnieuw toe">⚠️ keep_done</span>')
           + '<button class="btn btn-xs btn-ghost" data-id="' + escHtml(mid) + '" onclick="editEntityActivity(this.dataset.id)" title="Bewerken">'
           +   '<i data-lucide="pencil" class="w-3 h-3"></i>'
           + '</button>'
@@ -1981,12 +1974,16 @@ export function cxPowerboardSettingsUI(user) {
           +   '<i data-lucide="x" class="w-3 h-3"></i>'
           + '</button>'
           + '</div>'
+          + (notes ? '<p class="text-xs text-base-content/50 mt-1 pl-0">' + escHtml(notes) + '</p>' : '')
           + '<div id="edit-act-' + escHtml(mid) + '" class="mt-3 pt-3 border-t border-base-300" style="display:none;">'
           +   '<div class="flex flex-wrap gap-3 mb-2">'
           +     '<div class="form-control w-24"><label class="label pb-1"><span class="label-text text-xs">Prioriteit</span></label>'
           +     '<input type="number" id="ep-' + escHtml(mid) + '" min="0" max="100" value="' + escHtml(prio) + '" class="input input-xs input-bordered" /></div>'
           +   '</div>'
           +   '<div class="flex flex-wrap gap-4 mb-2">'
+          +     '<label class="flex items-center gap-2 cursor-pointer text-sm">'
+          +       '<input type="checkbox" id="ew-' + escHtml(mid) + '" class="checkbox checkbox-xs"' + (isWin ? ' checked' : '') + ' /> Telt als win'
+          +     '</label>'
           +     '<label class="flex items-center gap-2 cursor-pointer text-sm">'
           +       '<input type="checkbox" id="ed-' + escHtml(mid) + '" class="checkbox checkbox-xs"' + (dash ? ' checked' : '') + ' /> Dashboard kaart'
           +     '</label>'
@@ -2000,6 +1997,8 @@ export function cxPowerboardSettingsUI(user) {
           +     '<div class="form-control flex-1"><label class="label pb-1"><span class="label-text text-xs">Drempel vandaag</span></label>'
           +     '<input type="number" id="et-' + escHtml(mid) + '" min="0" value="' + escHtml(threshTd) + '" class="input input-xs input-bordered" /></div>'
           +   '</div>'
+          +   '<div class="form-control mb-2"><label class="label pb-1"><span class="label-text text-xs">Notities</span></label>'
+          +   '<input type="text" id="en-' + escHtml(mid) + '" value="' + escHtml(notes) + '" class="input input-xs input-bordered" /></div>'
           +   '<div class="flex gap-2">'
           +     '<button class="btn btn-xs btn-primary" data-id="' + escHtml(mid) + '" onclick="saveEntityActivityEdit(this.dataset.id)">Opslaan</button>'
           +     '<button class="btn btn-xs btn-ghost" data-id="' + escHtml(mid) + '" onclick="cancelEntityActivityEdit(this.dataset.id)">Annuleren</button>'
@@ -2133,10 +2132,12 @@ export function cxPowerboardSettingsUI(user) {
       var selOpt   = sel.options[sel.selectedIndex];
       var odooName = selOpt ? (selOpt.dataset.name || selOpt.textContent) : odooTypeId;
       var prio     = parseInt(document.getElementById('addActivityWeight').value || '10', 10);
+      var isWin    = document.getElementById('addActivityIsWin').checked;
       var dash     = document.getElementById('addActivityDashboard').checked;
       var streak   = document.getElementById('addActivityStreak').checked;
       var threshOv = parseInt(document.getElementById('addActivityThreshOv').value || '1', 10);
       var threshTd = parseInt(document.getElementById('addActivityThreshTd').value || '3', 10);
+      var notes    = document.getElementById('addActivityNotes').value.trim();
       var url = activeEntity.type === 'team'
         ? '/cx-powerboard/api/teams/' + activeEntity.id + '/activities/by-odoo-type'
         : '/cx-powerboard/api/personal-activities/by-odoo-type';
@@ -2145,8 +2146,8 @@ export function cxPowerboardSettingsUI(user) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           odoo_activity_type_id: parseInt(odooTypeId, 10), odoo_activity_type_name: odooName,
-          priority_weight: prio, show_on_dashboard: dash, include_in_streak: streak,
-          danger_threshold_overdue: threshOv, danger_threshold_today: threshTd
+          priority_weight: prio, is_win: isWin, show_on_dashboard: dash, include_in_streak: streak,
+          danger_threshold_overdue: threshOv, danger_threshold_today: threshTd, notes: notes
         })
       }).then(function(r) { return r.json(); }).then(function(a) {
         if (a.error) { errEl.textContent = a.error; errEl.style.display = ''; return; }
@@ -2172,20 +2173,28 @@ export function cxPowerboardSettingsUI(user) {
     function saveEntityActivityEdit(mappingId) {
       if (!activeEntity) return;
       var prio     = parseInt(document.getElementById('ep-' + mappingId).value, 10);
+      var isWin    = document.getElementById('ew-' + mappingId).checked;
       var dash     = document.getElementById('ed-' + mappingId).checked;
       var streak   = document.getElementById('es-' + mappingId).checked;
       var threshOv = parseInt(document.getElementById('eo-' + mappingId).value, 10);
       var threshTd = parseInt(document.getElementById('et-' + mappingId).value, 10);
+      var notes    = document.getElementById('en-' + mappingId).value.trim();
       var url = activeEntity.type === 'team'
         ? '/cx-powerboard/api/teams/' + activeEntity.id + '/activities/' + mappingId
         : '/cx-powerboard/api/personal-activities/' + mappingId;
-      fetch(url, {
+      var p1 = fetch(url, {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ priority_weight: prio, show_on_dashboard: dash,
           include_in_streak: streak, danger_threshold_overdue: threshOv, danger_threshold_today: threshTd })
-      }).then(function(r) { return r.json(); }).then(function(updated) {
-        if (updated.error) { alert(updated.error); return; }
+      }).then(function(r) { return r.json(); });
+      var p2 = fetch('/cx-powerboard/api/mappings/' + mappingId, {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_win: isWin, notes: notes })
+      }).then(function(r) { return r.json(); });
+      Promise.all([p1, p2]).then(function(results) {
+        if (results[0].error) { alert(results[0].error); return; }
         for (var i = 0; i < entityActivities.length; i++) {
           if ((entityActivities[i].mapping_id || entityActivities[i].id) === mappingId) {
             entityActivities[i].priority_weight          = prio;
@@ -2193,6 +2202,10 @@ export function cxPowerboardSettingsUI(user) {
             entityActivities[i].include_in_streak        = streak;
             entityActivities[i].danger_threshold_overdue = threshOv;
             entityActivities[i].danger_threshold_today   = threshTd;
+            if (entityActivities[i].cx_activity_mapping) {
+              entityActivities[i].cx_activity_mapping.is_win = isWin;
+              entityActivities[i].cx_activity_mapping.notes  = notes;
+            }
             break;
           }
         }
