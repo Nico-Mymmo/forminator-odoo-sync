@@ -24,10 +24,12 @@ export function cxPowerboardDashboardUI(user) {
 
   // ── Precompute all conditional HTML blocks ────────────────────────────────
 
-  const settingsBtn = isManager
-    ? '<a href="/cx-powerboard/settings" class="btn btn-sm btn-ghost gap-1">'
-    + '<i data-lucide="settings" class="w-4 h-4"></i> Settings</a>'
-    : '';
+  const settingsBtn = '<a href="/cx-powerboard/settings" class="btn btn-sm btn-ghost gap-1">'
+    + '<i data-lucide="settings" class="w-4 h-4"></i> Instellingen</a>';
+
+  // First name for greeting (server-side, safe)
+  const rawName = (user.full_name || user.name || user.email || '');
+  const firstName = rawName.split(' ')[0].replace(/[<>&"']/g, '') || 'je';
 
   const teamTab = isManager
     ? '<button role="tab" class="tab" id="tabBtnTeam" onclick="switchTab(\'team\')">'
@@ -181,6 +183,18 @@ export function cxPowerboardDashboardUI(user) {
     .fc-daygrid-block-event .fc-event-main { padding: 0 !important; }
     .fc-day-selected { background-color: oklch(var(--p) / 0.08) !important; }
     #panel-content { max-height: calc(100vh - 14rem); overflow-y: auto; }
+
+    /* CX Powerboard V6 animations */
+    @keyframes cx-pop {
+      0%   { transform: scale(1); }
+      50%  { transform: scale(1.08); }
+      100% { transform: scale(1); }
+    }
+    .cx-stat-complete { animation: cx-pop 0.4s ease; }
+    .cx-stats-done { background-color: oklch(var(--su) / 0.08) !important; }
+    @keyframes cx-card-in {
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body class="bg-base-200">
@@ -194,19 +208,30 @@ export function cxPowerboardDashboardUI(user) {
     <div class="container mx-auto px-6 py-8 max-w-6xl">
 
       <!-- Header -->
-      <div class="flex items-center justify-between mb-6">
+      <div class="flex items-start justify-between mb-5">
         <div>
-          <h1 class="text-3xl font-bold">CX Powerboard</h1>
-          <p class="text-base-content/60 text-sm">Jouw prioriteitenlijst voor vandaag</p>
+          <p class="text-xs font-semibold uppercase tracking-widest text-base-content/35 mb-0.5">CX Powerboard</p>
+          <h1 class="text-2xl font-bold leading-tight">Goedemorgen, ${firstName}.</h1>
+          <div class="flex items-center gap-3 mt-1.5">
+            <span id="streakChip" style="display:none;"
+                  class="inline-flex items-center gap-1 text-xs font-semibold text-warning bg-warning/10 px-2.5 py-0.5 rounded-full"></span>
+            <span id="refreshedAt" class="text-xs text-base-content/30"></span>
+          </div>
+          <div id="viewAsSwitcher" class="mt-2 flex items-center gap-2" style="display:none;">
+            <span class="text-xs text-base-content/40">Bekijk als:</span>
+            <select id="viewAsSelect" class="select select-xs select-bordered text-sm max-w-52"
+                    onchange="switchViewAs(this.value)"></select>
+          </div>
         </div>
         ${settingsBtn}
       </div>
 
-      <!-- Odoo UID missing warning -->
-      <div id="uidMissingAlert" class="alert alert-warning mb-4" style="display:none;">
-        <i data-lucide="alert-triangle" class="w-5 h-5"></i>
-        <span>Jouw Odoo-account is niet gekoppeld. Vraag een beheerder om jouw Odoo UID in te stellen via het admin dashboard.</span>
+      <!-- Focus signal -->
+      <div id="focusSignalBar" style="display:none;" class="mb-5">
+        <p id="focusSignalText"
+           class="text-sm text-base-content/55 border-l-2 border-primary/30 pl-3 py-0.5 italic"></p>
       </div>
+
 
       <!-- Tabs -->
       <div role="tablist" class="tabs tabs-boxed mb-6 w-fit">
@@ -225,23 +250,37 @@ export function cxPowerboardDashboardUI(user) {
       <!-- ── Dashboard tab ─────────────────────────────────────────────────── -->
       <div id="tabDashboard">
 
-        <!-- Stats bar -->
-        <div class="stats shadow w-full mb-6">
+        <!-- Done banner (shown only when isDoneForToday) -->
+        <div id="doneBanner" style="display:none;"
+             class="alert bg-success/10 border border-success/20 text-success mb-4 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i data-lucide="check-circle-2" class="w-5 h-5 shrink-0"></i>
+            <span id="doneBannerText" class="text-sm font-medium"></span>
+          </div>
+          <button onclick="document.getElementById('doneBanner').style.display='none'"
+                  class="btn btn-xs btn-ghost btn-circle ml-2 shrink-0">
+            <i data-lucide="x" class="w-3 h-3"></i>
+          </button>
+        </div>
+
+        <!-- Stats bar: Gedaan first, Achterstallig last -->
+        <div id="statsBar" class="stats shadow w-full mb-5">
           <div class="stat place-items-center">
-            <div class="stat-title">Open</div>
-            <div class="stat-value text-2xl" id="statTotal">—</div>
+            <div class="stat-title">Gedaan vandaag</div>
+            <div class="stat-value text-2xl text-success" id="statCompletedToday">—</div>
+            <div class="stat-desc" id="volumeBadge" style="display:none;"></div>
           </div>
           <div class="stat place-items-center">
-            <div class="stat-title">Achterstallig</div>
-            <div class="stat-value text-2xl text-error" id="statOverdue">—</div>
-          </div>
-          <div class="stat place-items-center">
-            <div class="stat-title">Vandaag</div>
-            <div class="stat-value text-2xl text-warning" id="statToday">—</div>
+            <div class="stat-title">Te doen</div>
+            <div class="stat-value text-2xl" id="statRemainingToday">—</div>
           </div>
           <div class="stat place-items-center">
             <div class="stat-title">Wins (week)</div>
             <div class="stat-value text-2xl text-success" id="statWins">—</div>
+          </div>
+          <div class="stat place-items-center">
+            <div class="stat-title">Achterstallig</div>
+            <div class="stat-value text-2xl" id="statOverdue">—</div>
           </div>
         </div>
 
@@ -418,6 +457,7 @@ export function cxPowerboardDashboardUI(user) {
     var odooUid            = null;
     var odooBaseUrl        = 'https://mymmo.odoo.com';
     var cardUrls           = {};
+    var perTypeData        = {};
 
     // Restore model exclusions from localStorage
     try {
@@ -707,48 +747,33 @@ export function cxPowerboardDashboardUI(user) {
       var container = document.getElementById('dashboardCards');
       if (!container) return;
 
-      // Group activities by activity_type_id
-      var byType = {};
-      for (var i = 0; i < allActivities.length; i++) {
-        var a   = allActivities[i];
-        var tid = String(a.activity_type_id);
-        if (!byType[tid]) byType[tid] = { name: a.activity_type_name, total: 0, overdue: 0, today: 0 };
-        byType[tid].total++;
-        var uc = urgencyClass(a.date_deadline);
-        if (uc === 'urgency-overdue')    byType[tid].overdue++;
-        else if (uc === 'urgency-today') byType[tid].today++;
+      // Only cards with show_on_dashboard
+      var visibleMappings = mappingsData.filter(function(m) { return m.show_on_dashboard; });
+
+      // Sort: danger(0) → normal(1) → done(2) → idle(3); within group: most remaining first
+      function cardPriority(m) {
+        var tid = String(m.odoo_activity_type_id);
+        var pt  = perTypeData[tid] || {};
+        var ov  = pt.overdue    || 0;
+        var td  = pt.dueToday   || 0;
+        var co  = pt.completedToday || 0;
+        var rem = ov + td;
+        var thOv = m.danger_threshold_overdue != null ? m.danger_threshold_overdue : 1;
+        var thTd = m.danger_threshold_today   != null ? m.danger_threshold_today   : 3;
+        if (rem === 0 && co === 0)              return 3; // idle
+        if (rem === 0 && co > 0)               return 2; // done
+        if (ov >= thOv || td >= thTd)          return 0; // danger
+        return 1;                                         // normal
       }
+      visibleMappings.sort(function(a, b) {
+        var pa = cardPriority(a), pb = cardPriority(b);
+        if (pa !== pb) return pa - pb;
+        var remA = (perTypeData[String(a.odoo_activity_type_id)] || {});
+        var remB = (perTypeData[String(b.odoo_activity_type_id)] || {});
+        return ((remB.overdue || 0) + (remB.dueToday || 0)) - ((remA.overdue || 0) + (remA.dueToday || 0));
+      });
 
-      var html      = '';
-      var cardCount = 0;
-      for (var m = 0; m < mappingsData.length; m++) {
-        var mapping = mappingsData[m];
-        if (!mapping.show_on_dashboard) continue;
-
-        var tid2  = String(mapping.odoo_activity_type_id);
-        var stats = byType[tid2] || { total: 0, overdue: 0, today: 0 };
-        var open  = stats.total - stats.overdue - stats.today;
-        if (open < 0) open = 0;
-
-        var thOv = mapping.danger_threshold_overdue != null ? mapping.danger_threshold_overdue : 1;
-        var thTd = mapping.danger_threshold_today   != null ? mapping.danger_threshold_today   : 3;
-
-        var isSuccess = stats.overdue === 0 && stats.today === 0;
-        var isDanger  = !isSuccess && (stats.overdue >= thOv || stats.today >= thTd);
-        var pct       = stats.total > 0 ? Math.round(100 * open / stats.total) : 100;
-        var typeIntId = mapping.odoo_activity_type_id;
-        cardUrls[cardCount] = {
-          all:     buildOdooUrl(typeIntId, 'all'),
-          overdue: buildOdooUrl(typeIntId, 'overdue'),
-          today:   buildOdooUrl(typeIntId, 'today'),
-          open:    buildOdooUrl(typeIntId, 'open'),
-        };
-
-        html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), stats, open, isSuccess, isDanger, pct, cardCount);
-        cardCount++;
-      }
-
-      if (!cardCount) {
+      if (!visibleMappings.length) {
         container.innerHTML = '<div class="text-center py-16 col-span-full text-base-content/50">'
           + '<i data-lucide="layout-dashboard" class="w-10 h-10 mx-auto mb-2"></i>'
           + '<p class="text-sm">Geen dashboard kaarten geconfigureerd.</p>'
@@ -758,17 +783,34 @@ export function cxPowerboardDashboardUI(user) {
         return;
       }
 
+      var html = '';
+      for (var ci = 0; ci < visibleMappings.length; ci++) {
+        var mapping   = visibleMappings[ci];
+        var tid       = String(mapping.odoo_activity_type_id);
+        var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+        var typeIntId = mapping.odoo_activity_type_id;
+        cardUrls[ci] = {
+          all:       buildOdooUrl(typeIntId, 'all'),
+          overdue:   buildOdooUrl(typeIntId, 'overdue'),
+          today:     buildOdooUrl(typeIntId, 'today'),
+          completed: buildOdooUrl(typeIntId, 'completed'),
+        };
+        html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, ci);
+      }
+
       container.innerHTML = html;
       lucide.createIcons();
+      animateBars();
     }
 
     function buildOdooUrl(typeId, filter) {
       if (!odooUid || !odooBaseUrl) return '#';
       var today  = new Date().toISOString().slice(0, 10);
       var domain = [['activity_type_id', '=', typeId], ['user_id', '=', odooUid]];
-      if      (filter === 'overdue') domain.push(['date_deadline', '<', today]);
-      else if (filter === 'today')   domain.push(['date_deadline', '=', today]);
-      else if (filter === 'open')    domain.push(['date_deadline', '>', today]);
+      if      (filter === 'overdue')   domain.push(['date_deadline', '<', today]);
+      else if (filter === 'today')     domain.push(['date_deadline', '=', today]);
+      else if (filter === 'open')      domain.push(['date_deadline', '>', today]);
+      else if (filter === 'completed') domain.push(['active', '=', false], ['date_done', '=', today]);
       return odooBaseUrl + '/web#model=mail.activity&view_type=list&domain=' + encodeURIComponent(JSON.stringify(domain));
     }
 
@@ -780,9 +822,40 @@ export function cxPowerboardDashboardUI(user) {
       if (url && url !== '#') window.open(url, '_blank');
     }
 
-    function buildTypeCard(name, stats, open, isSuccess, isDanger, pct, cardIdx) {
+    function buildTypeCard(name, pt, mapping, cardIdx) {
+      // ── Data ────────────────────────────────────────────────────────────────
+      var overdueCnt   = pt.overdue        || 0;
+      var dueTodayCnt  = pt.dueToday       || 0;
+      var futureCnt    = pt.future         || 0;
+      var completedCnt = pt.completedToday || 0;
+      // routes sends overdue+dueToday (no remainingToday field)
+      var remaining    = overdueCnt + dueTodayCnt;
+      var total        = remaining + completedCnt;
+
+      // ── Thresholds ──────────────────────────────────────────────────────────
+      var thOv = mapping.danger_threshold_overdue != null ? mapping.danger_threshold_overdue : 1;
+      var thTd = mapping.danger_threshold_today   != null ? mapping.danger_threshold_today   : 3;
+
+      // ── State (mutually exclusive) ─────────────────────────────────────────
+      var isIdle   = remaining === 0 && completedCnt === 0;
+      var isDone   = remaining === 0 && completedCnt > 0;
+      var isDanger = !isIdle && !isDone && (overdueCnt >= thOv || dueTodayCnt >= thTd);
+      var isNormal = !isIdle && !isDone && !isDanger;
+
+      // ── Progress (only meaningful when total > 0) ──────────────────────────
+      var progressPct  = total > 0 ? Math.round(100 * completedCnt / total) : 0;
+      var targetWidth  = progressPct + '%';
+      var showProgress = total > 0;
+
+      // ── Theming ────────────────────────────────────────────────────────────
       var cardBg, cardBorder, numCls, barCls, statusHtml;
-      if (isSuccess) {
+      if (isIdle) {
+        cardBg     = 'bg-base-100';
+        cardBorder = 'border border-base-200';
+        numCls     = 'text-base-content/25';
+        barCls     = 'bg-base-300';
+        statusHtml = '';
+      } else if (isDone) {
         cardBg     = 'bg-success/10';
         cardBorder = 'border border-success/30';
         numCls     = 'text-success';
@@ -791,7 +864,7 @@ export function cxPowerboardDashboardUI(user) {
           + '<i data-lucide="check-circle-2" class="w-3 h-3 shrink-0"></i>Klaar</span>';
       } else if (isDanger) {
         cardBg     = 'bg-error/10';
-        cardBorder = 'border border-error/25';
+        cardBorder = 'border border-error/30';
         numCls     = 'text-error';
         barCls     = 'bg-error';
         statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-error shrink-0">'
@@ -804,49 +877,108 @@ export function cxPowerboardDashboardUI(user) {
         statusHtml = '';
       }
 
-      var progressLabel = isSuccess
-        ? 'Alles op schema'
-        : (open + ' van ' + stats.total + ' op schema');
+      // ── Hero metric: what to lead with ───────────────────────────────────
+      // < 50% done with traction → show completions (traction signal)
+      // ≥ 50% done             → show remaining   (finish-line pull)
+      // isDone                 → check icon
+      // isIdle                 → em-dash
+      var bigEl, heroSublabel;
+      if (isDone) {
+        bigEl        = '<i data-lucide="check-circle-2" class="w-10 h-10 ' + numCls + ' mb-0.5"></i>';
+        heroSublabel = completedCnt + ' afgerond vandaag';
+      } else if (isIdle) {
+        bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">\u2014</span>';
+        heroSublabel = futureCnt > 0 ? 'Niets voor vandaag gepland' : 'Geen taken geconfigureerd';
+      } else if (progressPct >= 50 && completedCnt > 0) {
+        // Near the finish line — remaining is the motivator
+        bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + remaining + '</span>';
+        heroSublabel = 'nog te gaan';
+      } else if (completedCnt > 0) {
+        // Building momentum — show traction
+        bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + completedCnt + '</span>';
+        heroSublabel = 'afgerond vandaag';
+      } else {
+        // Nothing done yet — lead with pending, add context
+        bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + remaining + '</span>';
+        heroSublabel = overdueCnt > 0 && dueTodayCnt > 0
+          ? 'waarvan ' + overdueCnt + ' achterstallig'
+          : overdueCnt > 0 ? 'achterstallig' : 'te doen vandaag';
+      }
 
-      var ovPillBase = 'inline-flex items-center px-2.5 py-1 rounded-full text-[0.7rem] cursor-pointer transition-opacity hover:opacity-80';
-      var tdPillBase = ovPillBase;
-      var opPillBase = ovPillBase;
-      var ovPillCls  = stats.overdue > 0
-        ? ovPillBase + ' bg-error/15 text-error font-semibold'
-        : ovPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
-      var tdPillCls  = stats.today > 0
-        ? tdPillBase + ' bg-warning/15 text-warning font-semibold'
-        : tdPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
-      var opPillCls  = open > 0
-        ? opPillBase + ' bg-base-200 text-base-content/60 font-medium'
-        : opPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+      // ── Guidance line ────────────────────────────────────────────────────
+      var guidanceLine = computeCardGuidance(overdueCnt, dueTodayCnt, completedCnt, progressPct, isDone, isIdle);
 
-      var idx = cardIdx;
+      // ── Pills (hidden entirely for isIdle) ────────────────────────────────
+      var pillsHtml = '';
+      if (!isIdle) {
+        var ovPillBase = 'inline-flex items-center px-2.5 py-1 rounded-full text-[0.7rem] cursor-pointer transition-opacity hover:opacity-80';
+        var ovPillCls  = overdueCnt > 0
+          ? ovPillBase + ' bg-error/15 text-error font-semibold'
+          : ovPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+        var tdPillCls  = dueTodayCnt > 0
+          ? ovPillBase + ' bg-warning/15 text-warning font-semibold'
+          : ovPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+        var doCls      = completedCnt > 0
+          ? ovPillBase + ' bg-success/15 text-success font-medium'
+          : ovPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+        pillsHtml = '<div class="flex flex-wrap gap-1.5 mt-3">'
+          + '<span class="' + ovPillCls + '" onclick="openPbCard(' + cardIdx + ',&quot;overdue&quot;,event)">' + overdueCnt + '\u00a0achterstallig</span>'
+          + '<span class="' + tdPillCls + '" onclick="openPbCard(' + cardIdx + ',&quot;today&quot;,event)">'   + dueTodayCnt + '\u00a0vandaag</span>'
+          + '<span class="' + doCls     + '" onclick="openPbCard(' + cardIdx + ',&quot;completed&quot;,event)">' + completedCnt + '\u00a0gedaan</span>'
+          + '</div>';
+      }
 
-      return '<div class="rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer ' + cardBg + ' ' + cardBorder + '" onclick="openPbCard(' + idx + ')">'
+      // ── Future tasks line (normal + idle only) ─────────────────────────────
+      var futureLine = (!isDone && !isDanger && futureCnt > 0)
+        ? '<p class="text-[0.65rem] text-base-content/35 mt-2">Komende: ' + futureCnt + ' gepland</p>'
+        : '';
+
+      // ── Stagger entry animation ──────────────────────────────────────────
+      var delay = (cardIdx * 50) + 'ms';
+
+      return '<div class="rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer min-h-44 flex flex-col justify-between ' + cardBg + ' ' + cardBorder + '" '
+          + 'style="opacity:0;transform:translateY(6px);animation:cx-card-in 0.25s ease forwards;animation-delay:' + delay + ';" '
+          + 'onclick="openPbCard(' + cardIdx + ')">'
+        // Top block: type header + hero metric + progress bar
+        + '<div>'
         + '<div class="flex items-start justify-between gap-2 mb-3">'
         + '<p class="font-semibold text-sm leading-snug text-base-content/80">' + name + '</p>'
         + statusHtml
         + '</div>'
-        + '<div class="mb-3">'
-        + '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + stats.total + '</span>'
-        + '<p class="text-[0.6rem] font-medium uppercase tracking-widest text-base-content/40 mt-2">activiteiten</p>'
+        + '<div class="mb-1">'
+        + bigEl
+        + '<p class="text-[0.6rem] font-medium uppercase tracking-widest text-base-content/40 mt-1.5">' + escHtml(heroSublabel) + '</p>'
         + '</div>'
-        + '<div class="mb-3">'
-        + '<div class="flex items-center justify-between mb-1">'
-        + '<span class="text-[0.65rem] text-base-content/50">' + progressLabel + '</span>'
-        + '<span class="text-[0.65rem] font-semibold ' + numCls + '">' + pct + '%</span>'
+        + (showProgress
+            ? '<div class="mt-3 mb-1">'
+              + '<div class="flex items-center justify-between mb-1">'
+              + '<span class="text-[0.65rem] text-base-content/45">' + completedCnt + ' van ' + total + ' afgerond</span>'
+              + '<span class="text-[0.65rem] font-semibold ' + numCls + '">' + progressPct + '%</span>'
+              + '</div>'
+              + '<div class="h-1.5 rounded-full bg-base-200 overflow-hidden">'
+              + '<div class="h-full rounded-full transition-all duration-500 ' + barCls + '" style="width:0%" data-target-width="' + targetWidth + '"></div>'
+              + '</div>'
+              + '</div>'
+            : '')
         + '</div>'
-        + '<div class="h-1.5 rounded-full bg-base-200 overflow-hidden">'
-        + '<div class="h-full rounded-full transition-all duration-500 ' + barCls + '" style="width:' + pct + '%"></div>'
-        + '</div>'
-        + '</div>'
-        + '<div class="flex flex-wrap gap-1.5">'
-        + '<span class="' + ovPillCls + '" onclick="openPbCard(' + idx + ',&quot;overdue&quot;,event)">' + stats.overdue + '\u00a0achterstallig</span>'
-        + '<span class="' + tdPillCls + '" onclick="openPbCard(' + idx + ',&quot;today&quot;,event)">' + stats.today + '\u00a0vandaag</span>'
-        + '<span class="' + opPillCls + '" onclick="openPbCard(' + idx + ',&quot;open&quot;,event)">' + open + '\u00a0open</span>'
+        // Bottom block: pills + future + guidance
+        + '<div>'
+        + pillsHtml
+        + futureLine
+        + (guidanceLine ? '<p class="text-[0.65rem] text-base-content/40 italic mt-2 leading-snug">' + escHtml(guidanceLine) + '</p>' : '')
         + '</div>'
         + '</div>';
+    }
+
+    function animateBars() {
+      requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+          var bars = document.querySelectorAll('[data-target-width]');
+          for (var i = 0; i < bars.length; i++) {
+            bars[i].style.width = bars[i].getAttribute('data-target-width');
+          }
+        });
+      });
     }
 
     // ── Wins ──────────────────────────────────────────────────────────────────
@@ -857,12 +989,11 @@ export function cxPowerboardDashboardUI(user) {
       if (!container) return;
 
       if (!winsData.length) {
-        container.innerHTML = '<div class="text-center py-16">'
-          + '<i data-lucide="trophy" class="w-12 h-12 text-base-content/30 mx-auto mb-3"></i>'
-          + '<h3 class="text-lg font-semibold mb-1">Nog geen wins</h3>'
-          + '<p class="text-base-content/60">Jouw eerste win komt eraan!</p>'
+        container.innerHTML = '<div class="text-center py-16 text-base-content/40">'
+          + '<p class="text-4xl mb-3" aria-hidden="true">\uD83C\uDFC6</p>'
+          + '<p class="text-sm font-medium">Nog geen wins deze week.</p>'
+          + '<p class="text-xs mt-1">Rond je eerste activiteit af om te starten.</p>'
           + '</div>';
-        lucide.createIcons();
         return;
       }
 
@@ -917,29 +1048,30 @@ export function cxPowerboardDashboardUI(user) {
             lucide.createIcons();
             return;
           }
-          var medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49'];
           var rows = '';
           for (var i = 0; i < team.length; i++) {
-            var m     = team[i];
-            var medal = medals[i] || '';
-            var name  = escHtml(m.name || m.email || '—');
+            var m          = team[i];
+            var name       = escHtml(m.name || m.email || '\u2014');
+            var status     = m.clearedToday ? '\u2705' : '\u23F3';
+            var streak     = (m.streak || m.currentStreak || 0);
+            var streakCell = streak >= 2 ? '\uD83D\uDD25\u00A0' + streak : '\u2014';
             rows += '<tr>'
-              + '<td class="text-lg">' + medal + '</td>'
               + '<td class="font-medium">' + name + '</td>'
               + '<td class="text-center text-success font-bold">' + (m.winsThisWeek || 0) + '</td>'
-              + '<td class="text-center">' + (m.openActivities || 0) + '</td>'
-              + '<td class="text-center text-error">' + (m.overdue || 0) + '</td>'
+              + '<td class="text-center text-lg leading-none">' + status + '</td>'
+              + '<td class="text-center text-sm">' + streakCell + '</td>'
               + '</tr>';
           }
           container.innerHTML = '<div class="card bg-base-100 shadow-sm">'
             + '<div class="card-body">'
-            + '<h2 class="card-title mb-4">Team Leaderboard</h2>'
+            + '<h2 class="card-title">Je team vandaag</h2>'
+            + '<p class="text-sm text-base-content/50 mb-4">Wie heeft zijn dag afgerond, wie is nog bezig.</p>'
             + '<table class="table table-sm">'
             + '<thead><tr>'
-            + '<th></th><th>Naam</th>'
+            + '<th>Naam</th>'
             + '<th class="text-center text-success">Wins/week</th>'
-            + '<th class="text-center">Open</th>'
-            + '<th class="text-center text-error">Achterstallig</th>'
+            + '<th class="text-center">Status</th>'
+            + '<th class="text-center">Streak</th>'
             + '</tr></thead>'
             + '<tbody>' + rows + '</tbody>'
             + '</table></div></div>';
@@ -970,34 +1102,240 @@ export function cxPowerboardDashboardUI(user) {
       window.location.href = '/';
     }
 
+    // ── Focus signal (Phase 1 — rule-based) ──────────────────────────────────
+
+    function computeFocusSignal(s, ptData, mappings) {
+      if (s.isDoneForToday) return null;
+      var totalOverdue   = s.overdue        || 0;
+      var totalRemaining = s.remainingToday || 0;
+      var totalCompleted = s.completedToday || 0;
+
+      if (totalOverdue > 0) {
+        // Find the type with the most overdue
+        var topName = null, topCount = 0;
+        for (var i = 0; i < mappings.length; i++) {
+          var pt = ptData[String(mappings[i].odoo_activity_type_id)] || {};
+          if ((pt.overdue || 0) > topCount) {
+            topCount = pt.overdue;
+            topName  = mappings[i].odoo_activity_type_name;
+          }
+        }
+        if (topName) {
+          return totalOverdue === 1
+            ? 'Begin met ' + topName + ' \u2014 die taak is achterstallig.'
+            : totalOverdue + ' taken vragen aandacht. Begin met ' + topName + '.';
+        }
+        return 'Begin met de oudste taak \u2014 ' + totalOverdue + ' achterstallig.';
+      }
+      if (totalRemaining > 0 && totalCompleted > 0) {
+        var pct = Math.round(100 * totalCompleted / (totalCompleted + totalRemaining));
+        if (pct >= 50) return 'Je bent al verder dan halverwege. Nog ' + totalRemaining + ' te gaan.';
+        return totalCompleted + ' gedaan, nog ' + totalRemaining + ' te gaan.';
+      }
+      if (totalRemaining > 0) {
+        return 'Je hebt ' + totalRemaining + ' ' + (totalRemaining === 1 ? 'taak' : 'taken') + ' klaarstaan voor vandaag.';
+      }
+      return null;
+    }
+
+    // ── Card guidance (Phase 1 — rule-based) ─────────────────────────────────
+    // AI hook (Phase 2): replace body with fetch('/cx-powerboard/api/ai/card-guidance?typeId=X')
+    function computeCardGuidance(overdueCnt, dueTodayCnt, completedCnt, pct, isDone, isIdle) {
+      if (isDone || isIdle) return null;
+      if (overdueCnt >= 1 && completedCnt === 0) return 'Pak de oudste taak als eerste aan.';
+      if (overdueCnt >= 1 && completedCnt > 0)   return 'Nog ' + overdueCnt + ' achterstallig \u2014 pak die eerst.';
+      if ((overdueCnt + dueTodayCnt) === 1)        return 'Nog \u00e9\u00e9n \u2014 bijna klaar!';
+      if (pct >= 50 && pct < 100)                  return 'Je bent al meer dan halverwege. Doorzetten.';
+      if (dueTodayCnt > 0 && completedCnt === 0)   return 'Begin wanneer je klaar bent \u2014 ' + dueTodayCnt + ' staan klaar.';
+      return null;
+    }
+
+    // ── Done banner ───────────────────────────────────────────────────────────
+    function showDoneBanner(s) {
+      var bannerEl = document.getElementById('doneBanner');
+      var textEl   = document.getElementById('doneBannerText');
+      if (!bannerEl || !textEl) return;
+      var now = new Date();
+      var t   = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      var msg;
+      if (s.streak >= 20) msg = 'Dag afgerond. Al ' + s.streak + ' dagen op rij \u2014 dat is discipline.';
+      else if (s.streak >= 5) msg = 'Dag afgerond om ' + t + ' \u2014 al ' + s.streak + ' dagen op rij.';
+      else if (s.streak >= 2) msg = 'Dag afgerond om ' + t + ' \u2014 ' + s.streak + ' dagen op rij.';
+      else msg = 'Dag afgerond om ' + t + ' \u2014 goed gewerkt.';
+      textEl.textContent = msg;
+      bannerEl.style.display = '';
+      lucide.createIcons();
+    }
+
     // ── Boot ──────────────────────────────────────────────────────────────────
-    fetch('/cx-powerboard/api/activities', { credentials: 'include' })
+    // Read viewAs from URL
+    var viewAsParam = new URLSearchParams(window.location.search).get('viewAs') || '';
+
+    // Load users + teams for context-switcher
+    Promise.all([
+      fetch('/cx-powerboard/api/users',  { credentials: 'include' }).then(function(r) { return r.json(); }),
+      fetch('/cx-powerboard/api/teams',  { credentials: 'include' }).then(function(r) { return r.json(); })
+    ]).then(function(results) {
+      var users      = results[0] || [];
+      var teamsList  = results[1] || [];
+      var sel        = document.getElementById('viewAsSelect');
+      if (!sel) return;
+      sel.innerHTML  = '';
+      // Optgroup: Teams
+      if (teamsList.length) {
+        var grpT = document.createElement('optgroup');
+        grpT.label = 'Teams';
+        for (var t = 0; t < teamsList.length; t++) {
+          var topt       = document.createElement('option');
+          topt.value     = 'team:' + teamsList[t].id;
+          topt.textContent = teamsList[t].name;
+          if (viewAsParam === 'team:' + teamsList[t].id) topt.selected = true;
+          grpT.appendChild(topt);
+        }
+        sel.appendChild(grpT);
+      }
+      // Optgroup: Personen
+      if (users.length) {
+        var grpU = document.createElement('optgroup');
+        grpU.label = 'Personen';
+        for (var i = 0; i < users.length; i++) {
+          var u   = users[i];
+          var opt = document.createElement('option');
+          opt.value       = u.id;
+          opt.textContent = u.full_name || u.email;
+          if (u.id === viewAsParam) opt.selected = true;
+          grpU.appendChild(opt);
+        }
+        sel.appendChild(grpU);
+      }
+      // Pre-select first option if no param
+      if (!viewAsParam && sel.options.length) sel.selectedIndex = 0;
+      if (users.length > 1 || teamsList.length) {
+        document.getElementById('viewAsSwitcher').style.display = 'flex';
+      }
+    }).catch(function() {}); // non-fatal
+
+    function switchViewAs(value) {
+      var url = new URL(window.location.href);
+      if (value) { url.searchParams.set('viewAs', value); }
+      else { url.searchParams.delete('viewAs'); }
+      window.location.href = url.toString();
+    }
+
+    var activitiesUrl = '/cx-powerboard/api/activities';
+    if (viewAsParam) activitiesUrl += '?viewAs=' + encodeURIComponent(viewAsParam);
+
+    fetch(activitiesUrl, { credentials: 'include' })
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (data.odooUidMissing) {
-          document.getElementById('uidMissingAlert').style.display = '';
+        // ── No team / no personal configs ───────────────────────────────────
+        if (data.noTeamAssigned) {
           var cardsEl = document.getElementById('dashboardCards');
-          if (cardsEl) cardsEl.innerHTML = '';
-          lucide.createIcons();
+          if (cardsEl) {
+            cardsEl.innerHTML = '<div class="col-span-full flex flex-col items-center py-16 text-base-content/40">'
+              + '<p class="text-4xl mb-3" aria-hidden="true">\uD83D\uDCCB</p>'
+              + '<p class="text-sm font-medium">Geen activiteiten geconfigureerd.</p>'
+              + '<p class="text-xs mt-1">Ga naar <a href="/cx-powerboard/settings" class="link">Instellingen</a> om teams en activiteiten in te stellen.</p>'
+              + '</div>';
+          }
           return;
         }
 
         var s = data.stats || {};
-        document.getElementById('statTotal').textContent   = s.total        != null ? s.total        : 0;
-        document.getElementById('statOverdue').textContent = s.overdue      != null ? s.overdue      : 0;
-        document.getElementById('statToday').textContent   = s.dueToday     != null ? s.dueToday     : 0;
-        document.getElementById('statWins').textContent    = s.winsThisWeek != null ? s.winsThisWeek : 0;
+
+        // ── Stats: Gedaan first, Achterstallig conditionally red ─────────────
+        var compEl = document.getElementById('statCompletedToday');
+        if (compEl) compEl.textContent = s.completedToday != null ? s.completedToday : 0;
+
+        var VOLUME_THRESHOLD = 10;
+        var volEl = document.getElementById('volumeBadge');
+        if (volEl && s.completedToday >= VOLUME_THRESHOLD) {
+          volEl.textContent = '\u26A1 ' + s.completedToday + ' vandaag';
+          volEl.style.display = '';
+        }
+
+        var remEl = document.getElementById('statRemainingToday');
+        if (remEl) {
+          var newRemVal = s.remainingToday != null ? s.remainingToday : 0;
+          var oldRemVal = parseInt(remEl.textContent, 10);
+          remEl.textContent = newRemVal;
+          if (!isNaN(oldRemVal) && oldRemVal > 0 && newRemVal === 0) {
+            remEl.classList.add('cx-stat-complete');
+            setTimeout(function() { remEl.classList.remove('cx-stat-complete'); }, 500);
+          }
+        }
+
+        var winsEl = document.getElementById('statWins');
+        if (winsEl) winsEl.textContent = s.winsThisWeek != null ? s.winsThisWeek : 0;
+
+        var ovEl = document.getElementById('statOverdue');
+        if (ovEl) {
+          ovEl.textContent = s.overdue != null ? s.overdue : 0;
+          if (s.overdue > 0) ovEl.classList.add('text-error');
+          else               ovEl.classList.remove('text-error');
+        }
 
         allActivities = data.activities || [];
         winsData      = data.wins       || [];
         mappingsData  = data.mappings   || [];
+        perTypeData   = data.perType    || {};
         if (data.odooUid)     odooUid     = data.odooUid;
         if (data.odooBaseUrl) odooBaseUrl = data.odooBaseUrl;
         dataReady     = true;
 
-        renderDashboard();
+        // ── isDoneForToday: banner + stats tint ──────────────────────────────
+        if (s.isDoneForToday) {
+          var statsBarEl = document.getElementById('statsBar');
+          if (statsBarEl) statsBarEl.classList.add('cx-stats-done');
+          showDoneBanner(s);
+        }
 
-        // init calendar now if user already navigated to that tab
+        // ── Streak chip (now prominent next to name) ──────────────────────────
+        if (s.streak >= 2) {
+          var chipEl = document.getElementById('streakChip');
+          if (chipEl) {
+            var slabel = s.streak >= 20
+              ? '\uD83D\uDD25 ' + s.streak + ' dagen op rij \u2014 discipline!'
+              : '\uD83D\uDD25 ' + s.streak + ' dagen op rij';
+            chipEl.textContent = slabel;
+            chipEl.style.display = 'inline-flex';
+            // One-time milestone animation via localStorage
+            var milestones = [5, 10, 20];
+            var lastMs = parseInt(localStorage.getItem('pb_streak_milestone') || '0', 10);
+            for (var mi = milestones.length - 1; mi >= 0; mi--) {
+              if (s.streak >= milestones[mi] && lastMs < milestones[mi]) {
+                localStorage.setItem('pb_streak_milestone', String(milestones[mi]));
+                chipEl.style.animation = 'cx-pop 0.5s ease';
+                setTimeout(function() {
+                  var c = document.getElementById('streakChip');
+                  if (c) c.style.animation = '';
+                }, 500);
+                break;
+              }
+            }
+          }
+        }
+
+        // ── Refreshed timestamp ──────────────────────────────────────────────
+        var rAt = document.getElementById('refreshedAt');
+        if (rAt) {
+          var now2 = new Date();
+          rAt.textContent = 'Vernieuwd om '
+            + String(now2.getHours()).padStart(2, '0') + ':'
+            + String(now2.getMinutes()).padStart(2, '0');
+        }
+
+        // ── Focus signal ─────────────────────────────────────────────────────
+        var fsText = computeFocusSignal(s, perTypeData, mappingsData);
+        if (fsText) {
+          var fsEl  = document.getElementById('focusSignalText');
+          var fsBar = document.getElementById('focusSignalBar');
+          if (fsEl)  fsEl.textContent = fsText;
+          if (fsBar) fsBar.style.display = '';
+        }
+
+        dashboardRendered = false;
+        renderDashboard();
         if (calendarPendingInit) {
           calendarPendingInit = false;
           initCalendar();
@@ -1024,6 +1362,9 @@ export function cxPowerboardDashboardUI(user) {
 // ---------------------------------------------------------------------------
 
 export function cxPowerboardSettingsUI(user) {
+  const isManager = user.role === 'admin' || user.role === 'cx_powerboard_manager';
+  const isManagerJS = isManager ? 'true' : 'false';
+
   return `<!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -1073,10 +1414,176 @@ export function cxPowerboardSettingsUI(user) {
           <i data-lucide="arrow-left" class="w-4 h-4"></i>
         </a>
         <div>
-          <h1 class="text-2xl font-bold">Activiteitstype mapping</h1>
-          <p class="text-base-content/60 text-sm">Koppel Odoo activiteitstypes aan prioriteitgewichten</p>
+          <h1 class="text-2xl font-bold">Instellingen</h1>
+          <p class="text-base-content/60 text-sm">Stel teams samen en koppel activiteitstypen aan teamleden.</p>
         </div>
       </div>
+
+      <!-- ── Teams & Activiteiten ───────────────────────────────────────────── -->
+      <div class="card bg-base-100 shadow-sm">
+        <div class="card-body">
+
+          <!-- Header row -->
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="card-title text-base">Teams &amp; activiteiten</h2>
+              <p class="text-xs text-base-content/50">Kies een team of persoon, beheer dan de leden en activiteitstypen.</p>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="openNewTeam()">
+              <i data-lucide="plus" class="w-4 h-4"></i> Nieuw team
+            </button>
+          </div>
+
+          <!-- Entity tabs (teams + Persoonlijk) -->
+          <div id="entityTabsLoading" class="flex justify-center py-4">
+            <span class="loading loading-spinner loading-sm"></span>
+          </div>
+          <div id="entityTabs" class="flex flex-wrap gap-2 mb-5" style="display:none !important;"></div>
+
+          <!-- Entity detail panel (shown when a tab is selected) -->
+          <div id="entityPanel" style="display:none;">
+
+            <!-- Members section (teams only) -->
+            <div id="membersSection">
+              <p class="text-sm font-semibold mb-2">Leden</p>
+              <div id="membersList" class="flex flex-wrap gap-2 mb-2 min-h-6"></div>
+              <div class="flex gap-2 mt-2">
+                <select id="addMemberSelect" class="select select-xs select-bordered flex-1">
+                  <option value="">Gebruiker toevoegen\u2026</option>
+                </select>
+                <button class="btn btn-xs btn-primary" onclick="addMember()">Toevoegen</button>
+              </div>
+              <div class="divider my-4"></div>
+            </div>
+
+            <!-- Activities section -->
+            <div class="flex items-center justify-between mb-3">
+              <p class="text-sm font-semibold">Activiteitstypen</p>
+              <button class="btn btn-xs btn-outline" onclick="toggleAddActivityForm()">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Type toevoegen
+              </button>
+            </div>
+
+            <!-- Inline add form (hidden by default) -->
+            <div id="addActivityForm" class="bg-base-200/60 rounded-xl p-3 mb-3" style="display:none;">
+              <p class="text-xs font-semibold text-base-content/60 mb-2">Nieuw activiteitstype toevoegen</p>
+              <div class="flex flex-wrap gap-3 mb-2">
+                <div class="form-control flex-1 min-w-40">
+                  <label class="label pb-1"><span class="label-text text-xs">Activiteitstype</span></label>
+                  <select id="addEntityActivitySelect" class="select select-xs select-bordered">
+                    <option value="">Kies een type\u2026</option>
+                  </select>
+                </div>
+                <div class="form-control w-24">
+                  <label class="label pb-1"><span class="label-text text-xs">Prioriteit (0\u2013100)</span></label>
+                  <input type="number" id="addActivityWeight" min="0" max="100" value="10" class="input input-xs input-bordered" />
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-4 mb-2">
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="checkbox" id="addActivityDashboard" class="checkbox checkbox-xs" checked />
+                  Dashboard kaart
+                  <span class="tooltip tooltip-right" data-tip="Toont een kaart op het dashboard.">
+                    <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+                  </span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                  <input type="checkbox" id="addActivityStreak" class="checkbox checkbox-xs" checked />
+                  Telt mee voor streak
+                  <span class="tooltip tooltip-right" data-tip="Uit = opportunistisch type. Ontbrekende activiteiten breken dan je dagstreak niet.">
+                    <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+                  </span>
+                </label>
+              </div>
+              <div class="flex gap-3 mb-3">
+                <div class="form-control flex-1">
+                  <label class="label pb-1">
+                    <span class="label-text text-xs">Drempel achterstallig</span>
+                    <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items de deadline heeft overschreden.">
+                      <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
+                    </span>
+                  </label>
+                  <input type="number" id="addActivityThreshOv" min="0" value="1" class="input input-xs input-bordered" />
+                </div>
+                <div class="form-control flex-1">
+                  <label class="label pb-1">
+                    <span class="label-text text-xs">Drempel vandaag</span>
+                    <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items vandaag op de planning staan.">
+                      <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
+                    </span>
+                  </label>
+                  <input type="number" id="addActivityThreshTd" min="0" value="3" class="input input-xs input-bordered" />
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <button class="btn btn-xs btn-primary" onclick="saveNewEntityActivity()">
+                  <i data-lucide="plus" class="w-3.5 h-3.5"></i> Toevoegen
+                </button>
+                <button class="btn btn-xs btn-ghost" onclick="toggleAddActivityForm()">Annuleren</button>
+              </div>
+              <div id="addActivityError" class="text-error text-xs mt-2" style="display:none;"></div>
+            </div>
+
+            <!-- Activity list -->
+            <div id="entityActivitiesList"></div>
+          </div>
+
+          <!-- No teams empty state -->
+          <div id="entityEmpty" class="text-base-content/50 text-sm py-4 text-center" style="display:none;">
+            Nog geen teams. Maak een team aan of gebruik &ldquo;Persoonlijk&rdquo;.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Geavanceerde instellingen (manager only) ──────────────────────── -->
+      <div class="collapse collapse-arrow bg-base-100 shadow-sm mt-6 border border-base-200" ${isManagerJS === 'true' ? '' : 'style="display:none"'}>
+        <input type="checkbox" class="peer" />
+        <div class="collapse-title text-sm font-semibold flex items-center gap-2 min-h-0 py-3">
+          <i data-lucide="settings-2" class="w-4 h-4 text-base-content/40 shrink-0"></i>
+          Geavanceerde instellingen
+        </div>
+        <div class="collapse-content pt-4">
+
+          <!-- Help card (nested) -->
+          <div class="collapse collapse-arrow bg-base-200/50 shadow-none mb-4 border border-base-300 rounded-xl">
+            <input type="checkbox" class="peer" />
+            <div class="collapse-title text-sm font-semibold flex items-center gap-2 min-h-0 py-3">
+              <i data-lucide="help-circle" class="w-4 h-4 text-base-content/40 shrink-0"></i>
+              Hoe werkt mapping? — klik voor uitleg
+            </div>
+            <div class="collapse-content">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 pb-2">
+                <div class="bg-base-100 rounded-lg p-3">
+                  <p class="font-semibold text-xs text-base-content mb-1">Wat is een mapping?</p>
+                  <p class="text-xs text-base-content/70">Alleen gemapte activiteitstypes worden getrackt. Alle andere types in Odoo worden volledig genegeerd — ze tellen niet mee in statistieken, streak of wins.</p>
+                </div>
+                <div class="bg-base-100 rounded-lg p-3">
+                  <p class="font-semibold text-xs text-base-content mb-1">Prioriteit (0–100)</p>
+                  <p class="text-xs text-base-content/70">Sorteervolgorde in de takenlijst. Hoger getal = eerder weergegeven. Heeft geen effect op streaks, drempels of wins.</p>
+                </div>
+                <div class="bg-base-100 rounded-lg p-3">
+                  <p class="font-semibold text-xs text-base-content mb-1">Telt als win</p>
+                  <p class="text-xs text-base-content/70">Elke voltooide activiteit van dit type wordt opgeslagen in het winslogboek en telt mee in de weekteller op de Wins-tab.</p>
+                </div>
+                <div class="bg-base-100 rounded-lg p-3">
+                  <p class="font-semibold text-xs text-base-content mb-1">Dashboard kaart</p>
+                  <p class="text-xs text-base-content/70">Toont een kaart op het hoofddashboard. Uit = type wordt wel getrackt (voor streak/wins) maar zonder zichtbare kaart.</p>
+                </div>
+                <div class="bg-base-100 rounded-lg p-3">
+                  <p class="font-semibold text-xs text-base-content mb-1">Telt mee voor streak</p>
+                  <p class="text-xs text-base-content/70">Aan = type blokkeert je dagstreak zolang er openstaande items zijn. Uit = opportunistisch type: ontbrekende activiteiten breken je streak niet.</p>
+                </div>
+                <div class="bg-base-100 rounded-lg p-3">
+                  <p class="font-semibold text-xs text-base-content mb-1">Drempels achterstallig / vandaag</p>
+                  <p class="text-xs text-base-content/70">Bepalen wanneer de dashboardkaart rood wordt (dangerstatus). Standaard: rood bij 1 achterstallig of 3 gepland voor vandaag.</p>
+                </div>
+                <div class="bg-base-100 rounded-lg p-3 sm:col-span-2">
+                  <p class="font-semibold text-xs text-base-content mb-1">keep_done — wat is dat?</p>
+                  <p class="text-xs text-base-content/70">Bij het toevoegen van een mapping wordt automatisch <code class="bg-base-200 px-1 rounded">keep_done = true</code> ingesteld in Odoo. Dit zorgt ervoor dat voltooide activiteiten bewaard blijven (anders worden ze verwijderd en zijn ze onzichtbaar voor het dashboard). <strong>✔</strong> = correct ingesteld. <strong>⚠</strong> = mislukt — verwijder de mapping en voeg opnieuw toe. Zonder ✔ kloppen de afgerond-tellingen en streaks niet.</p>
+                </div>
+              </div>
+            </div>
+          </div>
 
       <!-- Add mapping form -->
       <div class="card bg-base-100 shadow-sm mb-6">
@@ -1091,7 +1598,12 @@ export function cxPowerboardSettingsUI(user) {
               </select>
             </div>
             <div class="form-control w-28">
-              <label class="label pb-1"><span class="label-text text-xs">Prioriteit (0–100)</span></label>
+              <label class="label pb-1">
+                <span class="label-text text-xs">Prioriteit (0–100)</span>
+                <span class="label-text-alt tooltip tooltip-left" data-tip="Sorteervolgorde in de wachtrij. Hoger getal = eerder in de lijst. Heeft geen effect op streaks of drempels.">
+                  <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
+                </span>
+              </label>
               <input type="number" id="newWeight" min="0" max="100" value="10" class="input input-sm input-bordered" />
             </div>
           </div>
@@ -1100,20 +1612,43 @@ export function cxPowerboardSettingsUI(user) {
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" id="newIsWin" class="checkbox checkbox-sm" />
               <span class="text-sm">Telt als win</span>
+              <span class="tooltip tooltip-right" data-tip="Voltooide activiteiten gaan naar het winslogboek en de weekteller op de Wins-tab.">
+                <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+              </span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" id="newShowDashboard" class="checkbox checkbox-sm" checked />
               <span class="text-sm">Dashboard kaart</span>
+              <span class="tooltip tooltip-right" data-tip="Toont een kaart op het dashboard. Uit = type wordt wel getrackt maar zonder kaart.">
+                <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+              </span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="newIncludeInStreak" class="checkbox checkbox-sm" checked />
+              <span class="text-sm">Telt mee voor streak</span>
+              <span class="tooltip tooltip-right" data-tip="Uit = opportunistisch type. Ontbrekende activiteiten breken dan je dagstreak niet.">
+                <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+              </span>
             </label>
           </div>
 
           <div class="flex gap-3 mb-3">
             <div class="form-control flex-1">
-              <label class="label pb-1"><span class="label-text text-xs">Drempel achterstallig</span></label>
+              <label class="label pb-1">
+                <span class="label-text text-xs">Drempel achterstallig</span>
+                <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items de deadline heeft overschreden.">
+                  <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
+                </span>
+              </label>
               <input type="number" id="newThreshOv" min="0" value="1" class="input input-sm input-bordered" />
             </div>
             <div class="form-control flex-1">
-              <label class="label pb-1"><span class="label-text text-xs">Drempel vandaag</span></label>
+              <label class="label pb-1">
+                <span class="label-text text-xs">Drempel vandaag</span>
+                <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items vandaag op de planning staan.">
+                  <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
+                </span>
+              </label>
               <input type="number" id="newThreshTd" min="0" value="3" class="input input-sm input-bordered" />
             </div>
           </div>
@@ -1145,6 +1680,16 @@ export function cxPowerboardSettingsUI(user) {
                   <th class="text-center">Prioriteit</th>
                   <th class="text-center">Win</th>
                   <th class="text-center">Dashboard</th>
+                  <th class="text-center">
+                    <span class="tooltip tooltip-bottom" data-tip="Aan = type blokkeert dagstreak. Uit = opportunistisch type.">
+                      Streak <i data-lucide="help-circle" class="w-3 h-3 inline-block align-middle text-base-content/30"></i>
+                    </span>
+                  </th>
+                  <th class="text-center">
+                    <span class="tooltip tooltip-bottom" data-tip="Bevestigt dat Odoo voltooide activiteiten bewaart. Vereist voor correcte tellingen. ✔ = ok, ⚠ = herconfigueer.">
+                      keep_done <i data-lucide="help-circle" class="w-3 h-3 inline-block align-middle text-base-content/30"></i>
+                    </span>
+                  </th>
                   <th>Notities</th>
                   <th></th>
                 </tr>
@@ -1158,8 +1703,32 @@ export function cxPowerboardSettingsUI(user) {
         </div>
       </div>
 
+        </div>
+      </div>
+
     </div>
   </div>
+
+  <!-- New team modal -->
+  <dialog id="newTeamModal" class="modal">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg mb-4">Nieuw team</h3>
+      <div class="form-control mb-3">
+        <label class="label pb-1"><span class="label-text text-xs">Naam</span></label>
+        <input type="text" id="newTeamName" class="input input-sm input-bordered" placeholder="bijv. CX Team" />
+      </div>
+      <div class="form-control mb-4">
+        <label class="label pb-1"><span class="label-text text-xs">Omschrijving (optioneel)</span></label>
+        <input type="text" id="newTeamDesc" class="input input-sm input-bordered" />
+      </div>
+      <div id="newTeamError" class="text-error text-xs mb-2" style="display:none;"></div>
+      <div class="modal-action">
+        <button class="btn btn-sm" onclick="document.getElementById('newTeamModal').close()">Annuleren</button>
+        <button class="btn btn-primary btn-sm" onclick="saveNewTeam()">Aanmaken</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
 
   <!-- Edit modal -->
   <dialog id="editModal" class="modal">
@@ -1172,13 +1741,21 @@ export function cxPowerboardSettingsUI(user) {
       </div>
       <div class="flex gap-3 mb-3">
         <div class="form-control w-32">
-          <label class="label pb-1"><span class="label-text text-xs">Prioriteit (0–100)</span></label>
+          <label class="label pb-1">
+            <span class="label-text text-xs">Prioriteit (0–100)</span>
+            <span class="label-text-alt tooltip tooltip-left" data-tip="Sorteervolgorde in de wachtrij. Hoger getal = eerder in de lijst.">
+              <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
+            </span>
+          </label>
           <input type="number" id="editWeight" min="0" max="100" class="input input-sm input-bordered" />
         </div>
         <div class="form-control flex-1 flex items-end pb-1">
           <label class="flex items-center gap-2 cursor-pointer mb-1">
             <input type="checkbox" id="editIsWin" class="checkbox checkbox-sm" />
             <span class="text-sm">Telt als win</span>
+            <span class="tooltip tooltip-right" data-tip="Voltooide activiteiten gaan naar het winslogboek en de weekteller.">
+              <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+            </span>
           </label>
         </div>
       </div>
@@ -1190,15 +1767,35 @@ export function cxPowerboardSettingsUI(user) {
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" id="editShowDashboard" class="checkbox checkbox-sm" />
           <span class="text-sm">Dashboard kaart</span>
+          <span class="tooltip tooltip-right" data-tip="Toont een kaart op het dashboard. Uit = type wordt getrackt maar zonder kaart.">
+            <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+          </span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" id="editIncludeInStreak" class="checkbox checkbox-sm" />
+          <span class="text-sm">Telt mee voor streak</span>
+          <span class="tooltip tooltip-right" data-tip="Uit = opportunistisch type. Ontbrekende activiteiten breken dan je dagstreak niet.">
+            <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
+          </span>
         </label>
       </div>
       <div class="flex gap-3 mb-4">
         <div class="form-control flex-1">
-          <label class="label pb-1"><span class="label-text text-xs">Drempel achterstallig</span></label>
+          <label class="label pb-1">
+            <span class="label-text text-xs">Drempel achterstallig</span>
+            <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items de deadline heeft overschreden.">
+              <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
+            </span>
+          </label>
           <input type="number" id="editThreshOv" min="0" class="input input-sm input-bordered" />
         </div>
         <div class="form-control flex-1">
-          <label class="label pb-1"><span class="label-text text-xs">Drempel vandaag</span></label>
+          <label class="label pb-1">
+            <span class="label-text text-xs">Drempel vandaag</span>
+            <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items vandaag op de planning staan.">
+              <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
+            </span>
+          </label>
           <input type="number" id="editThreshTd" min="0" class="input input-sm input-bordered" />
         </div>
       </div>
@@ -1223,24 +1820,419 @@ export function cxPowerboardSettingsUI(user) {
         .replace(/'/g, '&#39;');
     }
 
+    window.__PB_IS_MANAGER__ = ${isManagerJS};
+
     // ── State ────────────────────────────────────────────────────────────────
     var activityTypes = [];
     var mappings      = [];
+    var allUsers      = [];
+    var allMappings   = [];
+    var teams         = [];
+    var activeTeamId  = null;
 
     // ── Load data ────────────────────────────────────────────────────────────
     function loadAll() {
       Promise.all([
         fetch('/cx-powerboard/api/activity-types', { credentials: 'include' }).then(function(r) { return r.json(); }),
-        fetch('/cx-powerboard/api/mappings',        { credentials: 'include' }).then(function(r) { return r.json(); })
+        fetch('/cx-powerboard/api/mappings',        { credentials: 'include' }).then(function(r) { return r.json(); }),
+        fetch('/cx-powerboard/api/users',           { credentials: 'include' }).then(function(r) { return r.json(); }),
+        fetch('/cx-powerboard/api/teams',           { credentials: 'include' }).then(function(r) { return r.json(); })
       ]).then(function(results) {
         activityTypes = results[0] || [];
-        mappings      = results[1] || [];
-        renderTypeSelect();
+        allMappings   = results[1] || [];
+        mappings      = allMappings;
+        allUsers      = results[2] || [];
+        teams         = results[3] || [];
+        if (window.__PB_IS_MANAGER__) renderTypeSelect();
         renderMappingsTable();
+        renderEntityTabs();
       }).catch(function(e) {
         document.getElementById('mappingsLoading').innerHTML =
           '<div class="alert alert-error">' + escHtml(e.message) + '</div>';
       });
+    }
+
+    // ── Teams ────────────────────────────────────────────────────────────────
+    // activeEntity: { type: 'team'|'personal', id: teamId|null, name: string }
+    var activeEntity     = null;
+    var entityActivities = [];  // current activities for the selected entity
+    var entityMembers    = [];  // current members (teams only)
+
+    // Build entity tab bar from loaded teams + Personal tab
+    function renderEntityTabs() {
+      var loading = document.getElementById('entityTabsLoading');
+      var tabsEl  = document.getElementById('entityTabs');
+      var emptyEl = document.getElementById('entityEmpty');
+      if (loading) loading.style.display = 'none';
+
+      var tabs = [];
+      for (var i = 0; i < teams.length; i++) tabs.push(teams[i]);
+
+      if (!tabs.length && false) { // keep Personal always visible, never show empty state
+        if (emptyEl) emptyEl.style.display = '';
+        if (tabsEl)  { tabsEl.style.display = 'none'; tabsEl.style.removeProperty('display'); tabsEl.style.display = 'none'; }
+        return;
+      }
+
+      if (emptyEl) emptyEl.style.display = 'none';
+      tabsEl.style.cssText = 'display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:1.25rem;';
+
+      var html = '';
+      for (var j = 0; j < tabs.length; j++) {
+        var t = tabs[j];
+        var isActive = activeEntity && activeEntity.type === 'team' && activeEntity.id === t.id;
+        html += '<button class="btn btn-sm ' + (isActive ? 'btn-primary' : 'btn-outline') + '"'
+          + ' data-type="team" data-id="' + escHtml(t.id) + '" data-name="' + escHtml(t.name) + '"'
+          + ' onclick="selectEntity(this.dataset.type, this.dataset.id, this.dataset.name)">'
+          + escHtml(t.name)
+          + '</button>';
+      }
+      // Personal tab
+      var isPersonal = activeEntity && activeEntity.type === 'personal';
+      html += '<button class="btn btn-sm ' + (isPersonal ? 'btn-primary' : 'btn-ghost') + '"'
+        + ' data-type="personal" data-id="" data-name="Persoonlijk"'
+        + ' onclick="selectEntity(this.dataset.type, this.dataset.id, this.dataset.name)">'
+        + 'Persoonlijk</button>';
+
+      // Delete-team button (shown next to active team tab, not for personal)
+      if (activeEntity && activeEntity.type === 'team') {
+        html += '<button class="btn btn-xs btn-ghost text-error self-center ml-1"'
+          + ' data-id="' + escHtml(activeEntity.id) + '" data-name="' + escHtml(activeEntity.name) + '"'
+          + ' onclick="deleteTeam(this.dataset.id, this.dataset.name)" title="Team verwijderen">'
+          + '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
+      }
+
+      tabsEl.innerHTML = html;
+      lucide.createIcons();
+
+      // Show or hide panel
+      var panel = document.getElementById('entityPanel');
+      if (panel) panel.style.display = activeEntity ? '' : 'none';
+
+      // Show or hide members section
+      var membersSection = document.getElementById('membersSection');
+      if (membersSection) membersSection.style.display = (activeEntity && activeEntity.type === 'team') ? '' : 'none';
+    }
+
+    function selectEntity(type, id, name) {
+      activeEntity = { type: type, id: id || null, name: name };
+      renderEntityTabs();
+      loadEntityDetails();
+    }
+
+    function loadEntityDetails() {
+      if (!activeEntity) return;
+      entityActivities = [];
+      entityMembers    = [];
+      renderEntityActivities();
+      renderEntityMembers();
+
+      if (activeEntity.type === 'team') {
+        // Load activities + members in parallel
+        Promise.all([
+          fetch('/cx-powerboard/api/teams/' + activeEntity.id + '/activities', { credentials: 'include' }).then(function(r) { return r.json(); }),
+          fetch('/cx-powerboard/api/teams/' + activeEntity.id + '/members',    { credentials: 'include' }).then(function(r) { return r.json(); })
+        ]).then(function(results) {
+          entityActivities = results[0] || [];
+          entityMembers    = results[1] || [];
+          renderEntityActivities();
+          renderEntityMembers();
+          populateAddMemberSelect();
+        });
+      } else {
+        // Personal
+        fetch('/cx-powerboard/api/personal-activities', { credentials: 'include' })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            entityActivities = data || [];
+            renderEntityActivities();
+          });
+      }
+      populateAddActivitySelect();
+    }
+
+    function renderEntityActivities() {
+      var el = document.getElementById('entityActivitiesList');
+      if (!el) return;
+      if (!entityActivities.length) {
+        el.innerHTML = '<div class="text-xs text-base-content/40 py-2">Nog geen activiteitstypen. Klik op &lsquo;Type toevoegen&rsquo; om te starten.</div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < entityActivities.length; i++) {
+        var a        = entityActivities[i];
+        var lbl      = a.cx_activity_mapping ? a.cx_activity_mapping.odoo_activity_type_name : a.mapping_id;
+        var mid      = a.mapping_id || a.id;
+        var prio     = a.priority_weight !== undefined ? a.priority_weight : 10;
+        var dash     = a.show_on_dashboard !== false;
+        var streak   = a.include_in_streak !== false;
+        var threshOv = a.danger_threshold_overdue !== undefined ? a.danger_threshold_overdue : 1;
+        var threshTd = a.danger_threshold_today   !== undefined ? a.danger_threshold_today   : 3;
+        html += '<div class="border border-base-300 rounded-lg p-3 mb-2">'
+          + '<div class="flex items-center gap-2">'
+          + '<span class="font-medium text-sm flex-1">' + escHtml(lbl) + '</span>'
+          + '<span class="text-xs text-base-content/50">Prio:&nbsp;' + escHtml(prio) + '</span>'
+          + (dash   ? '<span class="badge badge-xs badge-ghost">Dashboard</span>' : '')
+          + (streak ? '<span class="badge badge-xs badge-ghost">Streak</span>' : '')
+          + '<button class="btn btn-xs btn-ghost" data-id="' + escHtml(mid) + '" onclick="editEntityActivity(this.dataset.id)" title="Bewerken">'
+          +   '<i data-lucide="pencil" class="w-3 h-3"></i>'
+          + '</button>'
+          + '<button class="btn btn-xs btn-ghost text-error" data-id="' + escHtml(mid) + '" onclick="removeEntityActivity(this.dataset.id)" title="Verwijderen">'
+          +   '<i data-lucide="x" class="w-3 h-3"></i>'
+          + '</button>'
+          + '</div>'
+          + '<div id="edit-act-' + escHtml(mid) + '" class="mt-3 pt-3 border-t border-base-300" style="display:none;">'
+          +   '<div class="flex flex-wrap gap-3 mb-2">'
+          +     '<div class="form-control w-24"><label class="label pb-1"><span class="label-text text-xs">Prioriteit</span></label>'
+          +     '<input type="number" id="ep-' + escHtml(mid) + '" min="0" max="100" value="' + escHtml(prio) + '" class="input input-xs input-bordered" /></div>'
+          +   '</div>'
+          +   '<div class="flex flex-wrap gap-4 mb-2">'
+          +     '<label class="flex items-center gap-2 cursor-pointer text-sm">'
+          +       '<input type="checkbox" id="ed-' + escHtml(mid) + '" class="checkbox checkbox-xs"' + (dash ? ' checked' : '') + ' /> Dashboard kaart'
+          +     '</label>'
+          +     '<label class="flex items-center gap-2 cursor-pointer text-sm">'
+          +       '<input type="checkbox" id="es-' + escHtml(mid) + '" class="checkbox checkbox-xs"' + (streak ? ' checked' : '') + ' /> Telt mee voor streak'
+          +     '</label>'
+          +   '</div>'
+          +   '<div class="flex gap-3 mb-2">'
+          +     '<div class="form-control flex-1"><label class="label pb-1"><span class="label-text text-xs">Drempel achterstallig</span></label>'
+          +     '<input type="number" id="eo-' + escHtml(mid) + '" min="0" value="' + escHtml(threshOv) + '" class="input input-xs input-bordered" /></div>'
+          +     '<div class="form-control flex-1"><label class="label pb-1"><span class="label-text text-xs">Drempel vandaag</span></label>'
+          +     '<input type="number" id="et-' + escHtml(mid) + '" min="0" value="' + escHtml(threshTd) + '" class="input input-xs input-bordered" /></div>'
+          +   '</div>'
+          +   '<div class="flex gap-2">'
+          +     '<button class="btn btn-xs btn-primary" data-id="' + escHtml(mid) + '" onclick="saveEntityActivityEdit(this.dataset.id)">Opslaan</button>'
+          +     '<button class="btn btn-xs btn-ghost" data-id="' + escHtml(mid) + '" onclick="cancelEntityActivityEdit(this.dataset.id)">Annuleren</button>'
+          +   '</div>'
+          + '</div>'
+          + '</div>';
+      }
+      el.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    function renderEntityMembers() {
+      var el = document.getElementById('membersList');
+      if (!el) return;
+      if (!entityMembers.length) {
+        el.innerHTML = '<span class="text-xs text-base-content/40">Nog geen leden.</span>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < entityMembers.length; i++) {
+        var u = entityMembers[i];
+        var lbl = u.full_name || u.email;
+        html += '<span class="badge badge-outline gap-1 py-3 px-2">'
+          + escHtml(lbl)
+          + ' <button class="ml-1 opacity-50 hover:opacity-100 text-base leading-none"'
+          + ' data-id="' + escHtml(u.id) + '" onclick="removeMember(this.dataset.id)">&times;</button>'
+          + '</span>';
+      }
+      el.innerHTML = html;
+    }
+
+    function populateAddMemberSelect() {
+      var sel = document.getElementById('addMemberSelect');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">Gebruiker toevoegen\u2026</option>';
+      var memberIds = {};
+      for (var i = 0; i < entityMembers.length; i++) memberIds[entityMembers[i].id] = true;
+      for (var j = 0; j < allUsers.length; j++) {
+        var u = allUsers[j];
+        if (memberIds[u.id]) continue;
+        var opt = document.createElement('option');
+        opt.value       = u.id;
+        opt.textContent = u.full_name || u.email;
+        sel.appendChild(opt);
+      }
+    }
+
+    function populateAddActivitySelect() {
+      var sel = document.getElementById('addEntityActivitySelect');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">Kies een type\u2026</option>';
+      // Build set of already-configured Odoo type IDs for this entity
+      var existOdooIds = {};
+      for (var i = 0; i < entityActivities.length; i++) {
+        var ea = entityActivities[i];
+        var oId = ea.cx_activity_mapping ? ea.cx_activity_mapping.odoo_activity_type_id
+                : (ea.odoo_activity_type_id || null);
+        if (oId) existOdooIds[oId] = true;
+      }
+      // Prefer live Odoo types; fall back to registered mappings
+      var useOdoo  = activityTypes.length > 0;
+      var source   = useOdoo ? activityTypes : allMappings;
+      for (var j = 0; j < source.length; j++) {
+        var item    = source[j];
+        var odooId  = useOdoo ? item.id : item.odoo_activity_type_id;
+        var label   = useOdoo ? item.name : item.odoo_activity_type_name;
+        if (existOdooIds[odooId]) continue;
+        var opt = document.createElement('option');
+        opt.value          = odooId;
+        opt.dataset.name   = label;
+        opt.textContent    = label;
+        sel.appendChild(opt);
+      }
+    }
+
+    function addMember() {
+      var userId = document.getElementById('addMemberSelect').value;
+      if (!userId || !activeEntity || activeEntity.type !== 'team') return;
+      fetch('/cx-powerboard/api/teams/' + activeEntity.id + '/members', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId })
+      }).then(function() { return fetch('/cx-powerboard/api/teams/' + activeEntity.id + '/members', { credentials: 'include' }).then(function(r) { return r.json(); }); })
+        .then(function(data) {
+          entityMembers = data || [];
+          renderEntityMembers();
+          populateAddMemberSelect();
+          document.getElementById('addMemberSelect').value = '';
+        });
+    }
+
+    function removeMember(userId) {
+      if (!activeEntity || activeEntity.type !== 'team') return;
+      fetch('/cx-powerboard/api/teams/' + activeEntity.id + '/members/' + userId, {
+        method: 'DELETE', credentials: 'include'
+      }).then(function() {
+        entityMembers = entityMembers.filter(function(u) { return u.id !== userId; });
+        renderEntityMembers();
+        populateAddMemberSelect();
+      });
+    }
+
+    function toggleAddActivityForm() {
+      var form   = document.getElementById('addActivityForm');
+      if (!form) return;
+      var hidden = form.style.display === 'none' || form.style.display === '';
+      form.style.display = hidden ? '' : 'none';
+      if (hidden) { populateAddActivitySelect(); lucide.createIcons(); }
+    }
+
+    function removeEntityActivity(mappingId) {
+      if (!activeEntity) return;
+      var url = activeEntity.type === 'team'
+        ? '/cx-powerboard/api/teams/' + activeEntity.id + '/activities/' + mappingId
+        : '/cx-powerboard/api/personal-activities/' + mappingId;
+      fetch(url, { method: 'DELETE', credentials: 'include' }).then(function() {
+        entityActivities = entityActivities.filter(function(a) {
+          return (a.mapping_id || a.id) !== mappingId;
+        });
+        renderEntityActivities();
+        populateAddActivitySelect();
+      });
+    }
+
+    function saveNewEntityActivity() {
+      var sel        = document.getElementById('addEntityActivitySelect');
+      var odooTypeId = sel ? sel.value : '';
+      if (!odooTypeId || !activeEntity) return;
+      var errEl    = document.getElementById('addActivityError');
+      errEl.style.display = 'none';
+      var selOpt   = sel.options[sel.selectedIndex];
+      var odooName = selOpt ? (selOpt.dataset.name || selOpt.textContent) : odooTypeId;
+      var prio     = parseInt(document.getElementById('addActivityWeight').value || '10', 10);
+      var dash     = document.getElementById('addActivityDashboard').checked;
+      var streak   = document.getElementById('addActivityStreak').checked;
+      var threshOv = parseInt(document.getElementById('addActivityThreshOv').value || '1', 10);
+      var threshTd = parseInt(document.getElementById('addActivityThreshTd').value || '3', 10);
+      var url = activeEntity.type === 'team'
+        ? '/cx-powerboard/api/teams/' + activeEntity.id + '/activities/by-odoo-type'
+        : '/cx-powerboard/api/personal-activities/by-odoo-type';
+      fetch(url, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          odoo_activity_type_id: parseInt(odooTypeId, 10), odoo_activity_type_name: odooName,
+          priority_weight: prio, show_on_dashboard: dash, include_in_streak: streak,
+          danger_threshold_overdue: threshOv, danger_threshold_today: threshTd
+        })
+      }).then(function(r) { return r.json(); }).then(function(a) {
+        if (a.error) { errEl.textContent = a.error; errEl.style.display = ''; return; }
+        entityActivities.push(a);
+        renderEntityActivities();
+        populateAddActivitySelect();
+        document.getElementById('addActivityForm').style.display = 'none';
+        sel.value = '';
+      }).catch(function(e) { errEl.textContent = e.message; errEl.style.display = ''; });
+    }
+
+    function editEntityActivity(mappingId) {
+      var el = document.getElementById('edit-act-' + mappingId);
+      if (el) el.style.display = '';
+      lucide.createIcons();
+    }
+
+    function cancelEntityActivityEdit(mappingId) {
+      var el = document.getElementById('edit-act-' + mappingId);
+      if (el) el.style.display = 'none';
+    }
+
+    function saveEntityActivityEdit(mappingId) {
+      if (!activeEntity) return;
+      var prio     = parseInt(document.getElementById('ep-' + mappingId).value, 10);
+      var dash     = document.getElementById('ed-' + mappingId).checked;
+      var streak   = document.getElementById('es-' + mappingId).checked;
+      var threshOv = parseInt(document.getElementById('eo-' + mappingId).value, 10);
+      var threshTd = parseInt(document.getElementById('et-' + mappingId).value, 10);
+      var url = activeEntity.type === 'team'
+        ? '/cx-powerboard/api/teams/' + activeEntity.id + '/activities/' + mappingId
+        : '/cx-powerboard/api/personal-activities/' + mappingId;
+      fetch(url, {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority_weight: prio, show_on_dashboard: dash,
+          include_in_streak: streak, danger_threshold_overdue: threshOv, danger_threshold_today: threshTd })
+      }).then(function(r) { return r.json(); }).then(function(updated) {
+        if (updated.error) { alert(updated.error); return; }
+        for (var i = 0; i < entityActivities.length; i++) {
+          if ((entityActivities[i].mapping_id || entityActivities[i].id) === mappingId) {
+            entityActivities[i].priority_weight          = prio;
+            entityActivities[i].show_on_dashboard        = dash;
+            entityActivities[i].include_in_streak        = streak;
+            entityActivities[i].danger_threshold_overdue = threshOv;
+            entityActivities[i].danger_threshold_today   = threshTd;
+            break;
+          }
+        }
+        renderEntityActivities();
+      });
+    }
+
+    function openNewTeam() {
+      document.getElementById('newTeamName').value = '';
+      document.getElementById('newTeamDesc').value = '';
+      document.getElementById('newTeamError').style.display = 'none';
+      document.getElementById('newTeamModal').showModal();
+    }
+
+    function saveNewTeam() {
+      var name  = document.getElementById('newTeamName').value.trim();
+      var desc  = document.getElementById('newTeamDesc').value.trim();
+      var errEl = document.getElementById('newTeamError');
+      if (!name) { errEl.textContent = 'Naam is verplicht.'; errEl.style.display = ''; return; }
+      errEl.style.display = 'none';
+      fetch('/cx-powerboard/api/teams', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, description: desc || null })
+      }).then(function(r) { return r.json(); }).then(function(t) {
+        if (t.error) { errEl.textContent = t.error; errEl.style.display = ''; return; }
+        teams.push(t);
+        document.getElementById('newTeamModal').close();
+        selectEntity('team', t.id, t.name);
+      }).catch(function(e) { errEl.textContent = e.message; errEl.style.display = ''; });
+    }
+
+    function deleteTeam(teamId, teamName) {
+      if (!confirm('Team "' + teamName + '" verwijderen?')) return;
+      fetch('/cx-powerboard/api/teams/' + teamId, { method: 'DELETE', credentials: 'include' })
+        .then(function() {
+          teams = teams.filter(function(t) { return t.id !== teamId; });
+          if (activeEntity && activeEntity.id === teamId) activeEntity = null;
+          renderEntityTabs();
+        });
     }
 
     function renderTypeSelect() {
@@ -1283,11 +2275,19 @@ export function cxPowerboardSettingsUI(user) {
         var winBadge = m.is_win
           ? '<span class="badge badge-success badge-sm">Win</span>'
           : '<span class="text-base-content/30">—</span>';
+        var streakBadge = m.include_in_streak !== false
+          ? '<span class="badge badge-sm badge-outline">Ja</span>'
+          : '<span class="text-base-content/30">—</span>';
+        var kdStatus = m.keep_done_confirmed_at
+          ? '<span class="text-success" title="Bevestigd op ' + escHtml(m.keep_done_confirmed_at) + '">✔</span>'
+          : '<span class="text-warning" title="Nog niet bevestigd">⚠</span>';
         rows += '<tr>'
           + '<td class="font-medium">' + escHtml(m.odoo_activity_type_name) + '</td>'
           + '<td class="text-center">' + escHtml(String(m.priority_weight)) + '</td>'
           + '<td class="text-center">' + winBadge + '</td>'
           + '<td class="text-center">' + (m.show_on_dashboard !== false ? '<span class="badge badge-sm badge-primary badge-outline">Ja</span>' : '<span class="text-base-content/30">—</span>') + '</td>'
+          + '<td class="text-center">' + streakBadge + '</td>'
+          + '<td class="text-center">' + kdStatus + '</td>'
           + '<td class="text-xs text-base-content/60">' + escHtml(m.notes || '') + '</td>'
           + '<td class="text-right">'
           + '<button class="btn btn-xs btn-ghost mr-1" onclick="openEdit(&quot;' + escHtml(String(m.id)) + '&quot;)">'
@@ -1319,18 +2319,31 @@ export function cxPowerboardSettingsUI(user) {
       if (!typeId || !typeName) { errEl.textContent = 'Kies een activiteitstype.'; errEl.style.display = ''; return; }
       if (isNaN(weight) || weight < 0 || weight > 100) { errEl.textContent = 'Prioriteit moet tussen 0 en 100 liggen.'; errEl.style.display = ''; return; }
 
+      var includeInStreak = document.getElementById('newIncludeInStreak').checked;
+
       fetch('/cx-powerboard/api/mappings', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ odoo_activity_type_id: typeId, odoo_activity_type_name: typeName, priority_weight: weight, is_win: isWin, notes: notes || null, show_on_dashboard: showDash, danger_threshold_overdue: isNaN(threshOv) ? 1 : threshOv, danger_threshold_today: isNaN(threshTd) ? 3 : threshTd })
+        body: JSON.stringify({ odoo_activity_type_id: typeId, odoo_activity_type_name: typeName, priority_weight: weight, is_win: isWin, include_in_streak: includeInStreak, notes: notes || null, show_on_dashboard: showDash, danger_threshold_overdue: isNaN(threshOv) ? 1 : threshOv, danger_threshold_today: isNaN(threshTd) ? 3 : threshTd })
       })
-        .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); }); })
+        .then(function(r) {
+          if (r.status === 422) {
+            return r.json().then(function(d) {
+              if (d.keepDoneFailed) {
+                throw new Error('keep_done kon niet worden ingesteld voor dit activiteitstype. Controleer de Odoo-permissies.');
+              }
+              throw new Error(d.error || 'Opslaan mislukt (422)');
+            });
+          }
+          return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); });
+        })
         .then(function(record) {
           mappings.push(record);
           document.getElementById('newWeight').value = '10';
           document.getElementById('newIsWin').checked = false;
           document.getElementById('newShowDashboard').checked = true;
+          document.getElementById('newIncludeInStreak').checked = true;
           document.getElementById('newThreshOv').value = '1';
           document.getElementById('newThreshTd').value = '3';
           document.getElementById('newNotes').value = '';
@@ -1352,7 +2365,8 @@ export function cxPowerboardSettingsUI(user) {
       document.getElementById('editWeight').value   = m.priority_weight;
       document.getElementById('editIsWin').checked  = !!m.is_win;
       document.getElementById('editNotes').value    = m.notes || '';
-      document.getElementById('editShowDashboard').checked = m.show_on_dashboard !== false;
+      document.getElementById('editShowDashboard').checked    = m.show_on_dashboard !== false;
+      document.getElementById('editIncludeInStreak').checked  = m.include_in_streak !== false;
       document.getElementById('editThreshOv').value = m.danger_threshold_overdue != null ? m.danger_threshold_overdue : 1;
       document.getElementById('editThreshTd').value = m.danger_threshold_today   != null ? m.danger_threshold_today   : 3;
       document.getElementById('editError').style.display = 'none';
@@ -1360,13 +2374,14 @@ export function cxPowerboardSettingsUI(user) {
     }
 
     function saveEdit() {
-      var id        = document.getElementById('editId').value;
-      var weight    = parseInt(document.getElementById('editWeight').value, 10);
-      var isWin     = document.getElementById('editIsWin').checked;
-      var notes     = document.getElementById('editNotes').value.trim();
-      var showDash  = document.getElementById('editShowDashboard').checked;
-      var threshOv  = parseInt(document.getElementById('editThreshOv').value, 10);
-      var threshTd  = parseInt(document.getElementById('editThreshTd').value, 10);
+      var id            = document.getElementById('editId').value;
+      var weight        = parseInt(document.getElementById('editWeight').value, 10);
+      var isWin         = document.getElementById('editIsWin').checked;
+      var notes         = document.getElementById('editNotes').value.trim();
+      var showDash      = document.getElementById('editShowDashboard').checked;
+      var includeStreak = document.getElementById('editIncludeInStreak').checked;
+      var threshOv      = parseInt(document.getElementById('editThreshOv').value, 10);
+      var threshTd      = parseInt(document.getElementById('editThreshTd').value, 10);
       var errEl  = document.getElementById('editError');
 
       errEl.style.display = 'none';
@@ -1380,7 +2395,7 @@ export function cxPowerboardSettingsUI(user) {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority_weight: weight, is_win: isWin, notes: notes || null, show_on_dashboard: showDash, danger_threshold_overdue: isNaN(threshOv) ? 1 : threshOv, danger_threshold_today: isNaN(threshTd) ? 3 : threshTd })
+        body: JSON.stringify({ priority_weight: weight, is_win: isWin, include_in_streak: includeStreak, notes: notes || null, show_on_dashboard: showDash, danger_threshold_overdue: isNaN(threshOv) ? 1 : threshOv, danger_threshold_today: isNaN(threshTd) ? 3 : threshTd })
       })
         .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); }); })
         .then(function(record) {
