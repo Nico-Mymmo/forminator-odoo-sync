@@ -37,5 +37,8 @@
 	},
 	"triggers": {
 		"crons": ["*/15 * * * *"]
+	},
+	"limits": {
+		"subrequests": 1000
 	}
 }

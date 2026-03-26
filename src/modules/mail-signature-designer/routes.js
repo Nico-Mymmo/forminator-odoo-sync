@@ -883,14 +883,15 @@ export const routes = {
       const targetEmails = body.targetUserEmails;
       const actorEmail   = user.email || 'unknown';
 
-      const { marketingConfig, directoryMap, odooMap } = await fetchPushDataSources(env);
+      const { marketingConfig, directoryMap, odooMap, userSettingsMap } = await fetchPushDataSources(env);
 
       const results = [];
       for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
         const batchResults = await Promise.all(
           batch.map(email => pushOneUser({
             env, targetEmail: email, marketingConfig, directoryMap, odooMap,
-            actorEmail, pushScope: 'multi'
+            actorEmail, pushScope: 'multi',
+            userSettingsOverride: userSettingsMap.get(email.toLowerCase()) ?? null
           }))
         );
         results.push(...batchResults);
@@ -1235,13 +1236,14 @@ export const routes = {
         return jsonError('targetUserEmails must be an array of emails or "all"', 400);
       }
 
-      const { marketingConfig, directoryMap, odooMap } = await fetchPushDataSources(env);
+      const { marketingConfig, directoryMap, odooMap, userSettingsMap: legacySettingsMap } = await fetchPushDataSources(env);
       const results = [];
       for (const batch of chunkArray(targetEmails, PUSH_CONCURRENCY)) {
         const batchResults = await Promise.all(
           batch.map(email => pushOneUser({
             env, targetEmail: email, marketingConfig, directoryMap, odooMap,
-            actorEmail, pushScope
+            actorEmail, pushScope,
+            userSettingsOverride: legacySettingsMap.get(email.toLowerCase()) ?? null
           }))
         );
         results.push(...batchResults);
