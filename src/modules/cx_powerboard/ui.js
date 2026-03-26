@@ -1840,8 +1840,14 @@ export function cxPowerboardSettingsUI(user) {
         el.innerHTML = '<div class="text-xs text-base-content/40 py-2">Nog geen activiteitstypen. Klik op &lsquo;Type toevoegen&rsquo; om te starten.</div>';
         return;
       }
+      // Sort descending by priority_weight so display order matches dashboard order
+      entityActivities.sort(function(a, b) {
+        return ((b.priority_weight !== undefined ? b.priority_weight : 10) -
+                (a.priority_weight !== undefined ? a.priority_weight : 10));
+      });
+      var n    = entityActivities.length;
       var html = '';
-      for (var i = 0; i < entityActivities.length; i++) {
+      for (var i = 0; i < n; i++) {
         var a        = entityActivities[i];
         var lbl      = a.cx_activity_mapping ? a.cx_activity_mapping.odoo_activity_type_name : a.mapping_id;
         var mid      = a.mapping_id || a.id;
@@ -1855,8 +1861,11 @@ export function cxPowerboardSettingsUI(user) {
         var notes    = (a.cx_activity_mapping && a.cx_activity_mapping.notes) ? a.cx_activity_mapping.notes : '';
         html += '<div class="border border-base-300 rounded-lg p-3 mb-2">'
           + '<div class="flex items-center gap-2">'
+          + '<div class="flex flex-col shrink-0 -ml-1 mr-0.5">'
+          +   '<button class="btn btn-xs btn-ghost px-1 py-0 h-5 min-h-0" ' + (i === 0 ? 'disabled' : '') + ' onclick="moveEntityActivity(' + i + ', \'up\')" title="Omhoog"><i data-lucide="chevron-up" class="w-3 h-3"></i></button>'
+          +   '<button class="btn btn-xs btn-ghost px-1 py-0 h-5 min-h-0" ' + (i === n - 1 ? 'disabled' : '') + ' onclick="moveEntityActivity(' + i + ', \'down\')" title="Omlaag"><i data-lucide="chevron-down" class="w-3 h-3"></i></button>'
+          + '</div>'
           + '<span class="font-medium text-sm flex-1">' + escHtml(lbl) + '</span>'
-          + '<span class="text-xs text-base-content/50">Prio:&nbsp;' + escHtml(prio) + '</span>'
           + (dash   ? '<span class="badge badge-xs badge-ghost">Dashboard</span>' : '')
           + (streak ? '<span class="badge badge-xs badge-ghost">Streak</span>' : '')
           + (isWin  ? '<span class="badge badge-xs badge-success text-success-content">Win</span>' : '')
@@ -2052,6 +2061,37 @@ export function cxPowerboardSettingsUI(user) {
         document.getElementById('addActivityForm').style.display = 'none';
         sel.value = '';
       }).catch(function(e) { errEl.textContent = e.message; errEl.style.display = ''; });
+    }
+
+    function moveEntityActivity(idx, dir) {
+      var newIdx = dir === 'up' ? idx - 1 : idx + 1;
+      if (newIdx < 0 || newIdx >= entityActivities.length) return;
+      var tmp = entityActivities[idx];
+      entityActivities[idx]    = entityActivities[newIdx];
+      entityActivities[newIdx] = tmp;
+      // Redistribute priority_weight: index 0 gets highest (n*10), descending
+      var n = entityActivities.length;
+      var toSave = [];
+      for (var i = 0; i < n; i++) {
+        var newW = (n - i) * 10;
+        if (entityActivities[i].priority_weight !== newW) {
+          entityActivities[i].priority_weight = newW;
+          toSave.push(entityActivities[i]);
+        }
+      }
+      renderEntityActivities(); // instant feedback
+      // Persist changed weights
+      Promise.all(toSave.map(function(a) {
+        var mid = a.mapping_id || a.id;
+        var url = activeEntity.type === 'team'
+          ? '/cx-powerboard/api/teams/' + activeEntity.id + '/activities/' + mid
+          : '/cx-powerboard/api/personal-activities/' + mid;
+        return fetch(url, {
+          method: 'PUT', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priority_weight: a.priority_weight })
+        });
+      })).catch(function(e) { console.warn('Volgorde opslaan mislukt:', e.message); });
     }
 
     function editEntityActivity(mappingId) {
