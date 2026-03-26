@@ -787,47 +787,68 @@ export function cxPowerboardDashboardUI(user) {
       var html = '';
 
       if (!isTeamViewData) {
-        // Individual view: group cards by section (team name vs personal)
-        // Build ordered section list preserving sort order within each section
-        var sectionOrder = [];
-        var sectionMap   = {};
-        for (var ci = 0; ci < visibleMappings.length; ci++) {
-          var m   = visibleMappings[ci];
-          var key = m._source === 'personal' ? '__personal__' : ('team:' + (m._team_name || ''));
-          if (!sectionMap[key]) {
-            sectionMap[key] = [];
-            sectionOrder.push(key);
-          }
-          sectionMap[key].push(ci);
-        }
+        // Individual view: group by section only when both personal AND team sources exist
+        var hasPersonalSrc = visibleMappings.some(function(m) { return m._source === 'personal'; });
+        var hasTeamSrc     = visibleMappings.some(function(m) { return m._source === 'team'; });
+        var showSections   = hasPersonalSrc && hasTeamSrc;
 
-        var globalIdx = 0; // track cardUrls index across sections
-        for (var si = 0; si < sectionOrder.length; si++) {
-          var skey     = sectionOrder[si];
-          var isPersonalSection = skey === '__personal__';
-          var sLabel   = isPersonalSection ? 'Persoonlijk' : skey.slice(5); // remove 'team:'
-          html += '<div class="col-span-full ' + (si > 0 ? 'mt-4' : '') + '">'
-            + '<p class="text-xs font-semibold uppercase tracking-widest text-base-content/40 flex items-center gap-1.5">'
-            + (isPersonalSection
-                ? '<i data-lucide="user" class="w-3 h-3"></i>'
-                : '<i data-lucide="users" class="w-3 h-3"></i>')
-            + escHtml(sLabel)
-            + '</p>'
-            + '</div>';
-          var indices = sectionMap[skey];
-          for (var ii = 0; ii < indices.length; ii++) {
-            var mapping   = visibleMappings[indices[ii]];
+        if (showSections) {
+          // Build ordered section list preserving sort order within each section
+          var sectionOrder = [];
+          var sectionMap   = {};
+          for (var ci = 0; ci < visibleMappings.length; ci++) {
+            var m   = visibleMappings[ci];
+            var key = m._source === 'personal' ? '__personal__' : ('team:' + (m._team_name || ''));
+            if (!sectionMap[key]) {
+              sectionMap[key] = [];
+              sectionOrder.push(key);
+            }
+            sectionMap[key].push(ci);
+          }
+
+          var globalIdx = 0; // track cardUrls index across sections
+          for (var si = 0; si < sectionOrder.length; si++) {
+            var skey     = sectionOrder[si];
+            var isPersonalSection = skey === '__personal__';
+            var sLabel   = isPersonalSection ? 'Persoonlijk' : skey.slice(5); // remove 'team:'
+            html += '<div class="col-span-full ' + (si > 0 ? 'mt-4' : '') + '">'
+              + '<p class="text-xs font-semibold uppercase tracking-widest text-base-content/40 flex items-center gap-1.5">'
+              + (isPersonalSection
+                  ? '<i data-lucide="user" class="w-3 h-3"></i>'
+                  : '<i data-lucide="users" class="w-3 h-3"></i>')
+              + escHtml(sLabel)
+              + '</p>'
+              + '</div>';
+            var indices = sectionMap[skey];
+            for (var ii = 0; ii < indices.length; ii++) {
+              var mapping   = visibleMappings[indices[ii]];
+              var tid       = String(mapping.odoo_activity_type_id);
+              var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+              var typeIntId = mapping.odoo_activity_type_id;
+              cardUrls[globalIdx] = {
+                all:       buildOdooUrl(typeIntId, 'all'),
+                overdue:   buildOdooUrl(typeIntId, 'overdue'),
+                today:     buildOdooUrl(typeIntId, 'today'),
+                completed: buildOdooUrl(typeIntId, 'completed'),
+              };
+              html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, globalIdx);
+              globalIdx++;
+            }
+          }
+        } else {
+          // Single source (team-only or global fallback): flat grid, same as team view
+          for (var ci = 0; ci < visibleMappings.length; ci++) {
+            var mapping   = visibleMappings[ci];
             var tid       = String(mapping.odoo_activity_type_id);
             var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
             var typeIntId = mapping.odoo_activity_type_id;
-            cardUrls[globalIdx] = {
+            cardUrls[ci] = {
               all:       buildOdooUrl(typeIntId, 'all'),
               overdue:   buildOdooUrl(typeIntId, 'overdue'),
               today:     buildOdooUrl(typeIntId, 'today'),
               completed: buildOdooUrl(typeIntId, 'completed'),
             };
-            html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, globalIdx);
-            globalIdx++;
+            html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, ci);
           }
         }
       } else {
@@ -1599,55 +1620,7 @@ export function cxPowerboardSettingsUI(user) {
         </div>
       </div>
 
-      <!-- ── Geavanceerde instellingen (manager only) ──────────────────────── -->
-      <div class="collapse collapse-arrow bg-base-100 shadow-sm mt-6 border border-base-200" ${isManagerJS === 'true' ? '' : 'style="display:none"'}>
-        <input type="checkbox" class="peer" />
-        <div class="collapse-title text-sm font-semibold flex items-center gap-2 min-h-0 py-3">
-          <i data-lucide="settings-2" class="w-4 h-4 text-base-content/40 shrink-0"></i>
-          Geavanceerde instellingen
-        </div>
-        <div class="collapse-content pt-4">
 
-      <!-- Mappings table -->
-      <div class="card bg-base-100 shadow-sm">
-        <div class="card-body">
-          <h2 class="card-title text-base mb-3">Bestaande mappings</h2>
-          <div id="mappingsLoading" class="flex justify-center py-8">
-            <span class="loading loading-spinner loading-md"></span>
-          </div>
-          <div id="mappingsTableWrap" style="display:none;">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th>Activiteitstype</th>
-                  <th class="text-center">Prioriteit</th>
-                  <th class="text-center">Win</th>
-                  <th class="text-center">Dashboard</th>
-                  <th class="text-center">
-                    <span class="tooltip tooltip-bottom" data-tip="Aan = type blokkeert dagstreak. Uit = opportunistisch type.">
-                      Streak <i data-lucide="help-circle" class="w-3 h-3 inline-block align-middle text-base-content/30"></i>
-                    </span>
-                  </th>
-                  <th class="text-center">
-                    <span class="tooltip tooltip-bottom" data-tip="Bevestigt dat Odoo voltooide activiteiten bewaart. Vereist voor correcte tellingen. ✔ = ok, ⚠ = herconfigueer.">
-                      keep_done <i data-lucide="help-circle" class="w-3 h-3 inline-block align-middle text-base-content/30"></i>
-                    </span>
-                  </th>
-                  <th>Notities</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="mappingsTableBody"></tbody>
-            </table>
-            <div id="mappingsEmpty" class="text-base-content/50 text-sm py-4 text-center" style="display:none;">
-              Nog geen mappings.
-            </div>
-          </div>
-        </div>
-      </div>
-
-        </div>
-      </div>
 
     </div>
   </div>
@@ -1717,83 +1690,7 @@ export function cxPowerboardSettingsUI(user) {
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
   </dialog>
 
-  <!-- Edit modal -->
-  <dialog id="editModal" class="modal">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">Mapping bewerken</h3>
-      <input type="hidden" id="editId" />
-      <div class="form-control mb-3">
-        <label class="label pb-1"><span class="label-text text-xs">Activiteitstype</span></label>
-        <input type="text" id="editTypeName" class="input input-sm input-bordered" readonly />
-      </div>
-      <div class="flex gap-3 mb-3">
-        <div class="form-control w-32">
-          <label class="label pb-1">
-            <span class="label-text text-xs">Prioriteit (0–100)</span>
-            <span class="label-text-alt tooltip tooltip-left" data-tip="Sorteervolgorde in de wachtrij. Hoger getal = eerder in de lijst.">
-              <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
-            </span>
-          </label>
-          <input type="number" id="editWeight" min="0" max="100" class="input input-sm input-bordered" />
-        </div>
-        <div class="form-control flex-1 flex items-end pb-1">
-          <label class="flex items-center gap-2 cursor-pointer mb-1">
-            <input type="checkbox" id="editIsWin" class="checkbox checkbox-sm" />
-            <span class="text-sm">Telt als win</span>
-            <span class="tooltip tooltip-right" data-tip="Voltooide activiteiten gaan naar het winslogboek en de weekteller.">
-              <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
-            </span>
-          </label>
-        </div>
-      </div>
-      <div class="form-control mb-3">
-        <label class="label pb-1"><span class="label-text text-xs">Notities</span></label>
-        <input type="text" id="editNotes" class="input input-sm input-bordered" />
-      </div>
-      <div class="flex flex-wrap items-center gap-4 mb-3">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" id="editShowDashboard" class="checkbox checkbox-sm" />
-          <span class="text-sm">Dashboard kaart</span>
-          <span class="tooltip tooltip-right" data-tip="Toont een kaart op het dashboard. Uit = type wordt getrackt maar zonder kaart.">
-            <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
-          </span>
-        </label>
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" id="editIncludeInStreak" class="checkbox checkbox-sm" />
-          <span class="text-sm">Telt mee voor streak</span>
-          <span class="tooltip tooltip-right" data-tip="Uit = opportunistisch type. Ontbrekende activiteiten breken dan je dagstreak niet.">
-            <i data-lucide="help-circle" class="w-3 h-3 text-base-content/25 cursor-help"></i>
-          </span>
-        </label>
-      </div>
-      <div class="flex gap-3 mb-4">
-        <div class="form-control flex-1">
-          <label class="label pb-1">
-            <span class="label-text text-xs">Drempel achterstallig</span>
-            <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items de deadline heeft overschreden.">
-              <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
-            </span>
-          </label>
-          <input type="number" id="editThreshOv" min="0" class="input input-sm input-bordered" />
-        </div>
-        <div class="form-control flex-1">
-          <label class="label pb-1">
-            <span class="label-text text-xs">Drempel vandaag</span>
-            <span class="label-text-alt tooltip tooltip-left" data-tip="Kaart wordt rood zodra dit aantal (of meer) items vandaag op de planning staan.">
-              <i data-lucide="help-circle" class="w-3 h-3 text-base-content/30 cursor-help"></i>
-            </span>
-          </label>
-          <input type="number" id="editThreshTd" min="0" class="input input-sm input-bordered" />
-        </div>
-      </div>
-      <div id="editError" class="text-error text-xs mb-2" style="display:none;"></div>
-      <div class="modal-action">
-        <button class="btn btn-sm" onclick="document.getElementById('editModal').close()">Annuleren</button>
-        <button class="btn btn-primary btn-sm" onclick="saveEdit()">Opslaan</button>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop"><button>close</button></form>
-  </dialog>
+
 
   <script>
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1830,12 +1727,10 @@ export function cxPowerboardSettingsUI(user) {
         mappings      = allMappings;
         allUsers      = results[2] || [];
         teams         = results[3] || [];
-        if (window.__PB_IS_MANAGER__) renderTypeSelect();
-        renderMappingsTable();
         renderEntityTabs();
       }).catch(function(e) {
-        document.getElementById('mappingsLoading').innerHTML =
-          '<div class="alert alert-error">' + escHtml(e.message) + '</div>';
+        var ta = document.getElementById('entityTabsLoading');
+        if (ta) ta.innerHTML = '<div class="alert alert-error">' + escHtml(e.message) + '</div>';
       });
     }
 
@@ -2246,195 +2141,6 @@ export function cxPowerboardSettingsUI(user) {
           if (activeEntity && activeEntity.id === teamId) activeEntity = null;
           renderEntityTabs();
         });
-    }
-
-    function renderTypeSelect() {
-      var sel  = document.getElementById('typeSelect');
-      var html = '<option value="">Kies een type…</option>';
-      // Only show types not yet mapped
-      var mappedIds = {};
-      for (var i = 0; i < mappings.length; i++) {
-        mappedIds[mappings[i].odoo_activity_type_id] = true;
-      }
-      for (var j = 0; j < activityTypes.length; j++) {
-        var t = activityTypes[j];
-        if (!mappedIds[t.id]) {
-          html += '<option value="' + escHtml(String(t.id)) + '" data-name="' + escHtml(t.name) + '">'
-               + escHtml(t.name) + '</option>';
-        }
-      }
-      sel.innerHTML = html;
-    }
-
-    function renderMappingsTable() {
-      var loadingEl = document.getElementById('mappingsLoading');
-      var wrapEl    = document.getElementById('mappingsTableWrap');
-      var tbody     = document.getElementById('mappingsTableBody');
-      var emptyEl   = document.getElementById('mappingsEmpty');
-
-      loadingEl.style.display = 'none';
-      wrapEl.style.display    = '';
-
-      if (!mappings.length) {
-        tbody.innerHTML    = '';
-        emptyEl.style.display = '';
-        return;
-      }
-
-      emptyEl.style.display = 'none';
-      var rows = '';
-      for (var i = 0; i < mappings.length; i++) {
-        var m      = mappings[i];
-        var winBadge = m.is_win
-          ? '<span class="badge badge-success badge-sm">Win</span>'
-          : '<span class="text-base-content/30">—</span>';
-        var streakBadge = m.include_in_streak !== false
-          ? '<span class="badge badge-sm badge-outline">Ja</span>'
-          : '<span class="text-base-content/30">—</span>';
-        var kdStatus = m.keep_done_confirmed_at
-          ? '<span class="text-success" title="Bevestigd op ' + escHtml(m.keep_done_confirmed_at) + '">✔</span>'
-          : '<span class="text-warning" title="Nog niet bevestigd">⚠</span>';
-        rows += '<tr>'
-          + '<td class="font-medium">' + escHtml(m.odoo_activity_type_name) + '</td>'
-          + '<td class="text-center">' + escHtml(String(m.priority_weight)) + '</td>'
-          + '<td class="text-center">' + winBadge + '</td>'
-          + '<td class="text-center">' + (m.show_on_dashboard !== false ? '<span class="badge badge-sm badge-primary badge-outline">Ja</span>' : '<span class="text-base-content/30">—</span>') + '</td>'
-          + '<td class="text-center">' + streakBadge + '</td>'
-          + '<td class="text-center">' + kdStatus + '</td>'
-          + '<td class="text-xs text-base-content/60">' + escHtml(m.notes || '') + '</td>'
-          + '<td class="text-right">'
-          + '<button class="btn btn-xs btn-ghost mr-1" onclick="openEdit(&quot;' + escHtml(String(m.id)) + '&quot;)">'
-          + '<i data-lucide="pencil" class="w-3 h-3"></i></button>'
-          + '<button class="btn btn-xs btn-ghost text-error" onclick="deleteMapping(&quot;' + escHtml(String(m.id)) + '&quot;)">'
-          + '<i data-lucide="trash-2" class="w-3 h-3"></i></button>'
-          + '</td>'
-          + '</tr>';
-      }
-      tbody.innerHTML = rows;
-      lucide.createIcons();
-    }
-
-    // ── Add mapping ──────────────────────────────────────────────────────────
-    function addMapping() {
-      var sel      = document.getElementById('typeSelect');
-      var typeId   = parseInt(sel.value, 10);
-      var typeName = sel.options[sel.selectedIndex] ? (sel.options[sel.selectedIndex].getAttribute('data-name') || '') : '';
-      var weight   = parseInt(document.getElementById('newWeight').value, 10);
-      var isWin    = document.getElementById('newIsWin').checked;
-      var showDash  = document.getElementById('newShowDashboard').checked;
-      var threshOv  = parseInt(document.getElementById('newThreshOv').value, 10);
-      var threshTd  = parseInt(document.getElementById('newThreshTd').value, 10);
-      var notes    = document.getElementById('newNotes').value.trim();
-      var errEl    = document.getElementById('addError');
-
-      errEl.style.display = 'none';
-
-      if (!typeId || !typeName) { errEl.textContent = 'Kies een activiteitstype.'; errEl.style.display = ''; return; }
-      if (isNaN(weight) || weight < 0 || weight > 100) { errEl.textContent = 'Prioriteit moet tussen 0 en 100 liggen.'; errEl.style.display = ''; return; }
-
-      var includeInStreak = document.getElementById('newIncludeInStreak').checked;
-
-      fetch('/cx-powerboard/api/mappings', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ odoo_activity_type_id: typeId, odoo_activity_type_name: typeName, priority_weight: weight, is_win: isWin, include_in_streak: includeInStreak, notes: notes || null, show_on_dashboard: showDash, danger_threshold_overdue: isNaN(threshOv) ? 1 : threshOv, danger_threshold_today: isNaN(threshTd) ? 3 : threshTd })
-      })
-        .then(function(r) {
-          if (r.status === 422) {
-            return r.json().then(function(d) {
-              if (d.keepDoneFailed) {
-                throw new Error('keep_done kon niet worden ingesteld voor dit activiteitstype. Controleer de Odoo-permissies.');
-              }
-              throw new Error(d.error || 'Opslaan mislukt (422)');
-            });
-          }
-          return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); });
-        })
-        .then(function(record) {
-          mappings.push(record);
-          document.getElementById('newWeight').value = '10';
-          document.getElementById('newIsWin').checked = false;
-          document.getElementById('newShowDashboard').checked = true;
-          document.getElementById('newIncludeInStreak').checked = true;
-          document.getElementById('newThreshOv').value = '1';
-          document.getElementById('newThreshTd').value = '3';
-          document.getElementById('newNotes').value = '';
-          renderTypeSelect();
-          renderMappingsTable();
-        })
-        .catch(function(e) { errEl.textContent = escHtml(e.message); errEl.style.display = ''; });
-    }
-
-    // ── Edit mapping ─────────────────────────────────────────────────────────
-    function openEdit(id) {
-      var m = null;
-      for (var i = 0; i < mappings.length; i++) {
-        if (String(mappings[i].id) === id) { m = mappings[i]; break; }
-      }
-      if (!m) return;
-      document.getElementById('editId').value       = id;
-      document.getElementById('editTypeName').value = m.odoo_activity_type_name;
-      document.getElementById('editWeight').value   = m.priority_weight;
-      document.getElementById('editIsWin').checked  = !!m.is_win;
-      document.getElementById('editNotes').value    = m.notes || '';
-      document.getElementById('editShowDashboard').checked    = m.show_on_dashboard !== false;
-      document.getElementById('editIncludeInStreak').checked  = m.include_in_streak !== false;
-      document.getElementById('editThreshOv').value = m.danger_threshold_overdue != null ? m.danger_threshold_overdue : 1;
-      document.getElementById('editThreshTd').value = m.danger_threshold_today   != null ? m.danger_threshold_today   : 3;
-      document.getElementById('editError').style.display = 'none';
-      document.getElementById('editModal').showModal();
-    }
-
-    function saveEdit() {
-      var id            = document.getElementById('editId').value;
-      var weight        = parseInt(document.getElementById('editWeight').value, 10);
-      var isWin         = document.getElementById('editIsWin').checked;
-      var notes         = document.getElementById('editNotes').value.trim();
-      var showDash      = document.getElementById('editShowDashboard').checked;
-      var includeStreak = document.getElementById('editIncludeInStreak').checked;
-      var threshOv      = parseInt(document.getElementById('editThreshOv').value, 10);
-      var threshTd      = parseInt(document.getElementById('editThreshTd').value, 10);
-      var errEl  = document.getElementById('editError');
-
-      errEl.style.display = 'none';
-      if (isNaN(weight) || weight < 0 || weight > 100) {
-        errEl.textContent = 'Prioriteit moet tussen 0 en 100 liggen.';
-        errEl.style.display = '';
-        return;
-      }
-
-      fetch('/cx-powerboard/api/mappings/' + encodeURIComponent(id), {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority_weight: weight, is_win: isWin, include_in_streak: includeStreak, notes: notes || null, show_on_dashboard: showDash, danger_threshold_overdue: isNaN(threshOv) ? 1 : threshOv, danger_threshold_today: isNaN(threshTd) ? 3 : threshTd })
-      })
-        .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Opslaan mislukt'); }); })
-        .then(function(record) {
-          for (var i = 0; i < mappings.length; i++) {
-            if (String(mappings[i].id) === id) { mappings[i] = record; break; }
-          }
-          document.getElementById('editModal').close();
-          renderMappingsTable();
-        })
-        .catch(function(e) { errEl.textContent = escHtml(e.message); errEl.style.display = ''; });
-    }
-
-    // ── Delete mapping ───────────────────────────────────────────────────────
-    function deleteMapping(id) {
-      if (!confirm('Weet je zeker dat je deze mapping wilt verwijderen?')) return;
-      fetch('/cx-powerboard/api/mappings/' + encodeURIComponent(id), {
-        method: 'DELETE',
-        credentials: 'include'
-      })
-        .then(function(r) { return r.ok ? r.json() : r.json().then(function(d) { throw new Error(d.error || 'Verwijderen mislukt'); }); })
-        .then(function() {
-          mappings = mappings.filter(function(m) { return String(m.id) !== id; });
-          renderTypeSelect();
-          renderMappingsTable();
-        })
-        .catch(function(e) { alert('Fout: ' + e.message); });
     }
 
     // ── Theme / auth ─────────────────────────────────────────────────────────

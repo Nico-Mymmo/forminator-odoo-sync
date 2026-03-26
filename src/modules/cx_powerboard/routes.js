@@ -375,6 +375,7 @@ async function handleGetActivities(context) {
         danger_threshold_today:   m.danger_threshold_today   ?? 3,
         include_in_streak:        m.include_in_streak !== false,
         keep_done_confirmed_at:   m.keep_done_confirmed_at,
+        _source:                  'global',
       }));
     }
   }
