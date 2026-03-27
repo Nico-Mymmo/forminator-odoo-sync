@@ -202,6 +202,7 @@ export function cxPowerboardDashboardUI(user) {
 
   <script>
     window.__PB_IS_MANAGER__ = ${isManagerJS};
+    window.__CX_USER_ID__    = '${user.id}';
   </script>
 
   <div style="padding-top: 48px;">
@@ -1238,8 +1239,14 @@ export function cxPowerboardDashboardUI(user) {
     }
 
     // ── Boot ──────────────────────────────────────────────────────────────────
-    // Read viewAs from URL
+    // viewAs in the URL is the single source of truth.
+    // If it is missing, redirect to ?viewAs={self} so the dropdown always matches.
     var viewAsParam = new URLSearchParams(window.location.search).get('viewAs') || '';
+    if (!viewAsParam) {
+      var _u = new URL(window.location.href);
+      _u.searchParams.set('viewAs', window.__CX_USER_ID__);
+      window.location.replace(_u.toString());
+    }
 
     // Load users + teams for context-switcher
     Promise.all([
@@ -1272,14 +1279,13 @@ export function cxPowerboardDashboardUI(user) {
           var u   = users[i];
           var opt = document.createElement('option');
           opt.value       = u.id;
-          opt.textContent = u.full_name || u.email;
+          opt.textContent = (u.full_name || u.email) + (u.id === window.__CX_USER_ID__ ? ' (jij)' : '');
           if (u.id === viewAsParam) opt.selected = true;
           grpU.appendChild(opt);
         }
         sel.appendChild(grpU);
       }
-      // Pre-select first option if no param
-      if (!viewAsParam && sel.options.length) sel.selectedIndex = 0;
+      // viewAsParam is always set (redirect above), so no fallback needed.
       if (users.length > 1 || teamsList.length) {
         document.getElementById('viewAsSwitcher').style.display = 'flex';
       }
@@ -1287,8 +1293,7 @@ export function cxPowerboardDashboardUI(user) {
 
     function switchViewAs(value) {
       var url = new URL(window.location.href);
-      if (value) { url.searchParams.set('viewAs', value); }
-      else { url.searchParams.delete('viewAs'); }
+      url.searchParams.set('viewAs', value);
       window.location.href = url.toString();
     }
 

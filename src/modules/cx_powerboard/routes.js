@@ -244,7 +244,7 @@ async function handleGetActivities(context) {
   const isViewingOther = isTeamView || (targetUserId !== user.id);
 
   const _ts = () => new Date().toISOString().substring(11, 19);
-  const _viewLabel = isTeamView ? `team:${teamViewId}` : (isViewingOther ? `user:${targetUserId}` : 'zelf');
+  const _viewLabel = isTeamView ? `team:${teamViewId}` : targetUserId;
   console.log(`[CX ${_ts()}] activities  ${user.email}  viewAs=${_viewLabel}`);
 
   // ── For team view: resolve all member odoo_uids to fetch aggregate data ───
