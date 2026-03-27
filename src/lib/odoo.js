@@ -36,13 +36,6 @@ export async function executeKw(env, { model, method, args = [], kwargs = {}, st
   
   const dbName = typeof odooDb === "string" && odooDb.trim() || staging === true && ODOO_DB_STAGING || (env.DB_NAME || '').trim();
   
-  // DEBUG: Log exact values
-  console.log('🔍 DEBUG executeKw:');
-  console.log('  env.DB_NAME:', JSON.stringify(env.DB_NAME));
-  console.log('  dbName (final):', JSON.stringify(dbName));
-  console.log('  odooDb param:', JSON.stringify(odooDb));
-  console.log('  staging:', staging);
-  
   const uid = Number.parseInt(env.UID, 10);
   if (!Number.isFinite(uid)) {
     throw new Error(`Env UID must be numeric, got: ${env.UID}`);
@@ -58,15 +51,7 @@ export async function executeKw(env, { model, method, args = [], kwargs = {}, st
     }
   };
   const url = getOdooUrl({ staging, odooUrl });
-  
-  // Helper function for timestamp
-  const timestamp = () => new Date().toISOString().substring(11, 19);
-  
-  // Helper function for args preview
-  const argsPreview = JSON.stringify(args).substring(0, 100);
-  
-  // Log request
-  console.log(`🔵 ${timestamp()} | ${dbName} | ${model}.${method} | args: ${argsPreview}`);
+  const ts = () => new Date().toISOString().substring(11, 19);
   
   const res = await fetch(url, {
     method: "POST",
@@ -78,25 +63,16 @@ export async function executeKw(env, { model, method, args = [], kwargs = {}, st
   try {
     json = JSON.parse(raw);
   } catch (e) {
-    const errorMsg = `JSON parse failed: ${e?.message}`;
-    console.log(`❌ ${timestamp()} | ${dbName} | ${model}.${method} | ERROR: ${errorMsg}`);
+    console.log(`[Odoo ${ts()}] ❌ ${model}.${method} — parse error: ${e?.message}`);
     throw new Error(`Odoo JSON parse failed: ${e?.message}. Raw: ${raw.slice(0, 500)}`);
   }
   if (json.error) {
     const errorMsg = json.error.data?.message || json.error.message || JSON.stringify(json.error);
-    console.log(`❌ ${timestamp()} | ${dbName} | ${model}.${method} | ERROR: ${errorMsg}`);
+    console.log(`[Odoo ${ts()}] ❌ ${model}.${method} — ${errorMsg}`);
     throw new Error(`Odoo RPC error: ${JSON.stringify(json.error)}`);
   }
-  
-  // Helper function for result info
-  const getResultInfo = (result) => {
-    if (Array.isArray(result)) return `${result.length} items`;
-    if (typeof result === 'object' && result !== null) return JSON.stringify(result).substring(0, 50);
-    return String(result);
-  };
-  
-  // Log success
-  console.log(`✅ ${timestamp()} | ${dbName} | ${model}.${method} | ${res.status} | ${getResultInfo(json.result)}`);
+  const resultInfo = Array.isArray(json.result) ? `${json.result.length} items` : String(json.result).substring(0, 60);
+  console.log(`[Odoo ${ts()}] ${model}.${method} → ${resultInfo}`);
   
   return json.result;
 }

@@ -748,8 +748,8 @@ export function cxPowerboardDashboardUI(user) {
       var container = document.getElementById('dashboardCards');
       if (!container) return;
 
-      // Only cards with show_on_dashboard
-      var visibleMappings = mappingsData.filter(function(m) { return m.show_on_dashboard; });
+      // Only cards with show_on_dashboard (treat null/undefined as true — same as settings badge behaviour)
+      var visibleMappings = mappingsData.filter(function(m) { return m.show_on_dashboard !== false; });
 
       // Sort: danger(0) → normal(1) → done(2) → idle(3); within group: most remaining first
       function cardPriority(m) {
@@ -1311,6 +1311,19 @@ export function cxPowerboardDashboardUI(user) {
           return;
         }
 
+        // ── Team view with no Odoo-linked members ────────────────────────────
+        if (data.noTeamOdooMembers) {
+          var cardsEl = document.getElementById('dashboardCards');
+          if (cardsEl) {
+            cardsEl.innerHTML = '<div class="col-span-full flex flex-col items-center py-16 text-base-content/40">'
+              + '<p class="text-4xl mb-3" aria-hidden="true">\uD83D\uDD17</p>'
+              + '<p class="text-sm font-medium">Geen teamleden gekoppeld aan Odoo.</p>'
+              + '<p class="text-xs mt-1">Teamleden moeten \xe9\xe9n keer inloggen zodat hun Odoo-account automatisch wordt gekoppeld.</p>'
+              + '</div>';
+          }
+          return;
+        }
+
         var s = data.stats || {};
 
         // ── Stats: Gedaan first, Achterstallig conditionally red ─────────────
@@ -1862,8 +1875,8 @@ export function cxPowerboardSettingsUI(user) {
         html += '<div class="border border-base-300 rounded-lg p-3 mb-2">'
           + '<div class="flex items-center gap-2">'
           + '<div class="flex flex-col shrink-0 -ml-1 mr-0.5">'
-          +   '<button class="btn btn-xs btn-ghost px-1 py-0 h-5 min-h-0" ' + (i === 0 ? 'disabled' : '') + ' onclick="moveEntityActivity(' + i + ', \'up\')" title="Omhoog"><i data-lucide="chevron-up" class="w-3 h-3"></i></button>'
-          +   '<button class="btn btn-xs btn-ghost px-1 py-0 h-5 min-h-0" ' + (i === n - 1 ? 'disabled' : '') + ' onclick="moveEntityActivity(' + i + ', \'down\')" title="Omlaag"><i data-lucide="chevron-down" class="w-3 h-3"></i></button>'
+          +   '<button class="btn btn-xs btn-ghost px-1 py-0 h-5 min-h-0" ' + (i === 0 ? 'disabled' : '') + ' data-idx="' + i + '" data-dir="up" onclick="moveEntityActivity(+this.dataset.idx, this.dataset.dir)" title="Omhoog"><i data-lucide="chevron-up" class="w-3 h-3"></i></button>'
+          +   '<button class="btn btn-xs btn-ghost px-1 py-0 h-5 min-h-0" ' + (i === n - 1 ? 'disabled' : '') + ' data-idx="' + i + '" data-dir="down" onclick="moveEntityActivity(+this.dataset.idx, this.dataset.dir)" title="Omlaag"><i data-lucide="chevron-down" class="w-3 h-3"></i></button>'
           + '</div>'
           + '<span class="font-medium text-sm flex-1">' + escHtml(lbl) + '</span>'
           + (dash   ? '<span class="badge badge-xs badge-ghost">Dashboard</span>' : '')

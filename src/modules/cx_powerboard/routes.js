@@ -243,6 +243,10 @@ async function handleGetActivities(context) {
   const targetUserId   = (!isTeamView && viewAsRaw && viewAsRaw !== user.id) ? viewAsRaw : user.id;
   const isViewingOther = isTeamView || (targetUserId !== user.id);
 
+  const _ts = () => new Date().toISOString().substring(11, 19);
+  const _viewLabel = isTeamView ? `team:${teamViewId}` : (isViewingOther ? `user:${targetUserId}` : 'zelf');
+  console.log(`[CX ${_ts()}] activities  ${user.email}  viewAs=${_viewLabel}`);
+
   // ── For team view: resolve all member odoo_uids to fetch aggregate data ───
   let teamMemberOdooUids = null;
   if (isTeamView && teamViewId) {
@@ -252,18 +256,55 @@ async function handleGetActivities(context) {
       .eq('team_id', teamViewId);
     if (members && members.length) {
       const memberIds = members.map(m => m.user_id);
+      // Fetch id + email + odoo_uid for ALL members (not just those with odoo_uid)
       const { data: memberRows } = await supabase
         .from('users')
-        .select('odoo_uid')
-        .in('id', memberIds)
-        .not('odoo_uid', 'is', null);
-      teamMemberOdooUids = (memberRows || []).map(r => r.odoo_uid);
+        .select('id, email, odoo_uid')
+        .in('id', memberIds);
+
+      // Auto-resolve missing odoo_uids via batch email lookup in Odoo
+      const needsResolve = (memberRows || []).filter(r => !r.odoo_uid && r.email);
+      if (needsResolve.length) {
+        console.log(`[CX ${_ts()}] auto-resolve ${needsResolve.length} team-emails → Odoo res.users...`);
+        try {
+          const emails = needsResolve.map(r => r.email);
+          const odooUsers = await searchRead(env, {
+            model: 'res.users',
+            domain: [['login', 'in', emails]],
+            fields: ['id', 'login'],
+            limit: 500,
+          });
+          if (odooUsers?.length) {
+            const emailToUid = {};
+            for (const u of odooUsers) emailToUid[u.login.toLowerCase()] = u.id;
+            for (const r of needsResolve) {
+              const uid = emailToUid[r.email.toLowerCase()];
+              if (uid) {
+                r.odoo_uid = uid;
+                await supabase.from('users').update({ odoo_uid: uid }).eq('id', r.id);
+                console.log(`[CX ${_ts()}] auto-resolved: ${r.email} → uid=${uid}`);
+              } else {
+                console.log(`[CX ${_ts()}] ❌ niet gevonden in Odoo: ${r.email}`);
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`[CX ${_ts()}] ❌ auto-resolve fout: ${e.message}`);
+        }
+      }
+
+      teamMemberOdooUids = (memberRows || []).filter(r => r.odoo_uid).map(r => r.odoo_uid);
+      console.log(`[CX ${_ts()}] team-leden: ${memberIds.length}x  odoo_uid: ${teamMemberOdooUids.length}x [${teamMemberOdooUids.join(',')}]`);
     } else {
       teamMemberOdooUids = [];
+      console.log(`[CX ${_ts()}] ❌ geen leden in team ${teamViewId}`);
     }
   }
 
-  // ── Resolve odoo_uid for single-user view ─────────────────────────────────
+  // Flag: team view with no linked Odoo members — will return empty data
+  const noTeamOdooMembers = isTeamView && Array.isArray(teamMemberOdooUids) && teamMemberOdooUids.length === 0;
+  if (noTeamOdooMembers) console.log(`[CX ${_ts()}] ⚠️  team heeft geen Odoo-uids — dashboard toont melding`);
+
   let odooUid = null;
   if (!isTeamView) {
     let { data: targetUserRow } = await supabase
@@ -272,6 +313,7 @@ async function handleGetActivities(context) {
       .eq('id', targetUserId)
       .single();
     odooUid = targetUserRow?.odoo_uid;
+    console.log(`[CX ${_ts()}] odoo_uid: ${odooUid ?? '⚠️ niet gevonden in DB'}`);
 
     // Auto-resolve via email only for the requesting user (not for viewAs targets)
     if (!odooUid && !isViewingOther) {
@@ -291,7 +333,10 @@ async function handleGetActivities(context) {
       });
       if (odooUsers?.length) {
         odooUid = odooUsers[0].id;
+        console.log(`[CX ${_ts()}] auto-resolved: ${user.email} → uid=${odooUid} (opgeslagen)`);
         await supabase.from('users').update({ odoo_uid: odooUid }).eq('id', user.id);
+      } else {
+        console.log(`[CX ${_ts()}] ❌ email "${user.email}" niet gevonden in Odoo res.users`);
       }
     }
 
@@ -326,9 +371,6 @@ async function handleGetActivities(context) {
       });
     }
   }
-
-  // For team view, use all member uids (may be empty if no members with odoo_uid)
-  const odooUids = isTeamView ? (teamMemberOdooUids || []) : [odooUid];
 
   // ── Effective mappings ────────────────────────────────────────────────────
   // For team view: use team's activity configs directly
@@ -370,7 +412,7 @@ async function handleGetActivities(context) {
         odoo_activity_type_name:  m.odoo_activity_type_name,
         priority_weight:          m.priority_weight,
         is_win:                   m.is_win,
-        show_on_dashboard:        m.show_on_dashboard !== false,
+        show_on_dashboard:        true, // global registry ≠ user preference; always show in fallback
         danger_threshold_overdue: m.danger_threshold_overdue ?? 1,
         danger_threshold_today:   m.danger_threshold_today   ?? 3,
         include_in_streak:        m.include_in_streak !== false,
@@ -390,6 +432,8 @@ async function handleGetActivities(context) {
     }), { headers: { 'Content-Type': 'application/json' } });
   }
   const trackedTypeIds = mappings.map(m => m.odoo_activity_type_id);
+  const _mapLabels = mappings.map(m => `[${m.odoo_activity_type_id}]${m.odoo_activity_type_name}(dash=${m.show_on_dashboard},kd=${m.keep_done_confirmed_at ? '✓' : '⚠️'},src=${m._source ?? '?'})`).join('  ');
+  console.log(`[CX ${_ts()}] mappings ${mappings.length}x: ${_mapLabels}`);
 
   // ── Today in Odoo timezone ────────────────────────────────────────────────
   const todayStr    = getTodayStr(env);
@@ -397,6 +441,9 @@ async function handleGetActivities(context) {
   const tomorrowLocal = new Date(todayLocal.getTime() + 86400000);
 
   // ── Parallel Odoo + Supabase fetches ──────────────────────────────────────
+  const odooUids = isTeamView ? (teamMemberOdooUids || []) : [odooUid];
+  console.log(`[CX ${_ts()}] Odoo fetch  uids=[${odooUids.join(',')}]  types=[${trackedTypeIds.join(',')}]  today=${todayStr}${odooUids.length === 0 ? '  ⚠️ SKIP (geen uids)' : ''}`);
+
   const [openActivities, completedTodayList, wins, weekWinResult] = await Promise.all([
     odooUids.length ? fetchTrackedOpenActivities(env, odooUids, trackedTypeIds) : Promise.resolve([]),
     odooUids.length ? fetchCompletedToday(env, odooUids, trackedTypeIds)        : Promise.resolve([]),
@@ -407,6 +454,8 @@ async function handleGetActivities(context) {
       .eq('platform_user_id', targetUserId)
       .gte('won_at', new Date(Date.now() - 7 * 86400000).toISOString()),
   ]);
+
+  console.log(`[CX ${_ts()}] Odoo result open=${openActivities.length}  done=${completedTodayList.length}  weekWins=${weekWinResult?.data?.length ?? 0}`);
 
   // ── Build mapping lookup ──────────────────────────────────────────────────
   const typeMap = {};
@@ -486,6 +535,10 @@ async function handleGetActivities(context) {
     if (perType[a.activity_type_id]) perType[a.activity_type_id].completedToday++;
   }
 
+  // ── Per-type summary ──────────────────────────────────────────────────────
+  const _perTypeSummary = Object.entries(perType).map(([tid, c]) => `[${tid}]od=${c.overdue}/td=${c.dueToday}/fu=${c.future}/dn=${c.completedToday}`).join('  ');
+  console.log(`[CX ${_ts()}] perType: ${_perTypeSummary}`);
+
   // ── Streak (only meaningful for single-user view) ─────────────────────────
   const streak = isTeamView ? 0 : await getStreak(supabase, targetUserId, todayStr);
 
@@ -514,6 +567,8 @@ async function handleGetActivities(context) {
     streak,
   };
 
+  console.log(`[CX ${_ts()}] → overdue=${stats.overdue} today=${stats.dueToday} remaining=${stats.remainingToday} done=${stats.completedToday} isDone=${stats.isDoneForToday} streak=${stats.streak}`);
+
   return new Response(JSON.stringify({
     activities:     enriched,
     completedToday,
@@ -526,6 +581,7 @@ async function handleGetActivities(context) {
     viewingUserId:  targetUserId,
     isViewingOther,
     isTeamView,
+    noTeamOdooMembers: noTeamOdooMembers || false,
   }), {
     headers: { 'Content-Type': 'application/json' },
   });
@@ -978,9 +1034,12 @@ async function handleGetTeamActivities(context) {
     .select(`
       id, mapping_id, priority_weight, show_on_dashboard,
       danger_threshold_overdue, danger_threshold_today, include_in_streak,
-      cx_activity_mapping (id, odoo_activity_type_id, odoo_activity_type_name, is_win)
+      cx_activity_mapping (id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes)
     `)
     .eq('team_id', teamId);
+  const ts = new Date().toISOString().substring(11, 19);
+  const summary = (data || []).map(r => `[${r.cx_activity_mapping?.odoo_activity_type_id}]${r.cx_activity_mapping?.odoo_activity_type_name}(dash=${r.show_on_dashboard},kd=${r.cx_activity_mapping?.keep_done_confirmed_at ? '✓' : '⚠️'})`).join('  ');
+  console.log(`[CX ${ts}] settings team:${teamId}  ${(data||[]).length}x activiteiten: ${summary || '(leeg)'}`);
   return new Response(JSON.stringify(data || []), { headers: { 'Content-Type': 'application/json' } });
 }
 
@@ -1067,9 +1126,12 @@ async function handleGetPersonalActivities(context) {
     .select(`
       id, mapping_id, priority_weight, show_on_dashboard,
       danger_threshold_overdue, danger_threshold_today, include_in_streak,
-      cx_activity_mapping (id, odoo_activity_type_id, odoo_activity_type_name)
+      cx_activity_mapping (id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes)
     `)
     .eq('user_id', context.user.id);
+  const ts = new Date().toISOString().substring(11, 19);
+  const summary = (data || []).map(r => `[${r.cx_activity_mapping?.odoo_activity_type_id}]${r.cx_activity_mapping?.odoo_activity_type_name}(dash=${r.show_on_dashboard},kd=${r.cx_activity_mapping?.keep_done_confirmed_at ? '✓' : '⚠️'})`).join('  ');
+  console.log(`[CX ${ts}] settings personal  ${context.user.email}  ${(data||[]).length}x activiteiten: ${summary || '(leeg)'}`);
   return new Response(JSON.stringify(data || []), { headers: { 'Content-Type': 'application/json' } });
 }
 
