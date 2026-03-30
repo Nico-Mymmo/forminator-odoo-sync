@@ -105,23 +105,56 @@ export async function fetchCompletedToday(env, odooUids, trackedTypeIds) {
   if (!trackedTypeIds.length) return [];
   const todayStr     = getTodayStr(env);
   const yesterdayStr = getYesterdayStr(env);
+  console.log(`[fetchCompletedToday] uids=[${odooUids.join(',')}] types=[${trackedTypeIds.join(',')}] range=${yesterdayStr}..${todayStr}`);
   const raw = await searchRead(env, {
     model: 'mail.activity',
     domain: [
       ['user_id', 'in', odooUids],
-      ['active', '=', false],
       ['date_done', '!=', false],
       ['date_done', '>=', yesterdayStr],
       ['date_done', '<=', todayStr],
       ['activity_type_id', 'in', trackedTypeIds],
     ],
-    fields: ['id', 'activity_type_id', 'user_id', 'date_done', 'res_model', 'res_name'],
+    fields: ['id', 'activity_type_id', 'user_id', 'active', 'date_done', 'res_model', 'res_name'],
     limit: 5000,
     context: { active_test: false },
   });
+  const filtered = (raw || []).filter(a => a.active === false && a.date_done === todayStr);
+  console.log(`[fetchCompletedToday] raw=${(raw||[]).length} → after JS filter=${filtered.length}  (active=false + date_done=${todayStr})`);
+  console.log(`[fetchCompletedToday] active-breakdown: ${JSON.stringify((raw||[]).map(a => ({ id: a.id, active: a.active, date_done: a.date_done })))}`);
+  return filtered;
+}
 
-  // Post-filter: keep only records where date_done exactly matches today in local tz
-  return (raw || []).filter(a => a.date_done === todayStr);
+/**
+ * Fetch all completed activities in a date range — used for sparkline history.
+ * Returns minimal fields; caller groups by date_done + activity_type_id.
+ *
+ * @param {Object} env
+ * @param {number[]} odooUids
+ * @param {number[]} trackedTypeIds
+ * @param {string} fromDate  YYYY-MM-DD inclusive
+ * @param {string} toDate    YYYY-MM-DD inclusive
+ * @returns {Promise<Array>}
+ */
+export async function fetchCompletedInRange(env, odooUids, trackedTypeIds, fromDate, toDate) {
+  if (!trackedTypeIds.length || !odooUids.length) return [];
+  console.log(`[fetchCompletedInRange] uids=[${odooUids.join(',')}] types=[${trackedTypeIds.join(',')}] range=${fromDate}..${toDate}`);
+  const raw = await searchRead(env, {
+    model: 'mail.activity',
+    domain: [
+      ['user_id', 'in', odooUids],
+      ['date_done', '!=', false],
+      ['date_done', '>=', fromDate],
+      ['date_done', '<=', toDate],
+      ['activity_type_id', 'in', trackedTypeIds],
+    ],
+    fields: ['id', 'activity_type_id', 'active', 'date_done'],
+    limit: 10000,
+    context: { active_test: false },
+  });
+  const filtered = (raw || []).filter(a => a.active === false);
+  console.log(`[fetchCompletedInRange] raw=${(raw||[]).length} → after JS filter=${filtered.length}`);
+  return filtered;
 }
 
 // ---------------------------------------------------------------------------
