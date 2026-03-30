@@ -43,3 +43,5 @@ workflow-debug-snapshot.*
 # Temporary documentation
 *-modal.txt
 *INSTRUCTION*.txt
+
+dist/
