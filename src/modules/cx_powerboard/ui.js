@@ -294,7 +294,24 @@ export function cxPowerboardDashboardUI(user) {
 
       </div>
 
-      <!-- ── Calendar tab ──────────────────────────────────────────────────── -->
+      <!-- ── Card detail modal ────────────────────────────────────────────── -->
+      <dialog id="cardDetailModal" class="modal">
+        <div class="modal-box max-w-2xl">
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="font-bold text-lg" id="cardDetailTitle"></h3>
+            <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost"><i data-lucide="x" class="w-4 h-4"></i></button></form>
+          </div>
+          <div id="cardDetailCounts" class="flex flex-wrap gap-1.5 mb-4"></div>
+          <div id="cardDetailContent" class="max-h-[32rem] overflow-y-auto space-y-1 pr-1"></div>
+          <div class="modal-action border-t border-base-300 pt-3 mt-4">
+            <button id="cardDetailExportBtn" type="button"
+               class="btn btn-sm btn-ghost gap-1.5 text-base-content/60 hover:text-base-content">
+              <i data-lucide="sheet" class="w-3.5 h-3.5"></i>Exporteer naar Sheets
+            </button>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button></button></form>
+      </dialog>
       <div id="tabCalendar" style="display:none;">
         <div class="grid grid-cols-12 gap-6">
 
@@ -445,6 +462,7 @@ export function cxPowerboardDashboardUI(user) {
 
     // ── App state ─────────────────────────────────────────────────────────────
     var allActivities      = [];
+    var completedTodayData = [];
     var winsData           = [];
     var mappingsData       = [];
     var excludedModels     = [];
@@ -458,8 +476,11 @@ export function cxPowerboardDashboardUI(user) {
     var odooUid            = null;
     var odooBaseUrl        = 'https://mymmo.odoo.com';
     var cardUrls           = {};
+    var cardMappings       = {};
     var perTypeData        = {};
     var isTeamViewData     = false;
+    var sparklineData      = {}; // keyed by odoo_activity_type_id string → [{date, completed, remaining}]
+    var _modalExportData   = { typeName: '', rows: [] }; // for CSV export from modal
 
     // Restore model exclusions from localStorage
     try {
@@ -824,7 +845,7 @@ export function cxPowerboardDashboardUI(user) {
             for (var ii = 0; ii < indices.length; ii++) {
               var mapping   = visibleMappings[indices[ii]];
               var tid       = String(mapping.odoo_activity_type_id);
-              var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+              var pt        = computePtForMapping(mapping);
               var typeIntId = mapping.odoo_activity_type_id;
               cardUrls[globalIdx] = {
                 all:       buildOdooUrl(typeIntId, 'all'),
@@ -832,7 +853,8 @@ export function cxPowerboardDashboardUI(user) {
                 today:     buildOdooUrl(typeIntId, 'today'),
                 completed: buildOdooUrl(typeIntId, 'completed'),
               };
-              html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, globalIdx);
+              cardMappings[globalIdx] = mapping;
+              html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, globalIdx, computeLeaderboard(mapping));
               globalIdx++;
             }
           }
@@ -841,7 +863,7 @@ export function cxPowerboardDashboardUI(user) {
           for (var ci = 0; ci < visibleMappings.length; ci++) {
             var mapping   = visibleMappings[ci];
             var tid       = String(mapping.odoo_activity_type_id);
-            var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+            var pt        = computePtForMapping(mapping);
             var typeIntId = mapping.odoo_activity_type_id;
             cardUrls[ci] = {
               all:       buildOdooUrl(typeIntId, 'all'),
@@ -849,7 +871,8 @@ export function cxPowerboardDashboardUI(user) {
               today:     buildOdooUrl(typeIntId, 'today'),
               completed: buildOdooUrl(typeIntId, 'completed'),
             };
-            html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, ci);
+            cardMappings[ci] = mapping;
+            html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, ci, computeLeaderboard(mapping));
           }
         }
       } else {
@@ -857,7 +880,7 @@ export function cxPowerboardDashboardUI(user) {
         for (var ci = 0; ci < visibleMappings.length; ci++) {
           var mapping   = visibleMappings[ci];
           var tid       = String(mapping.odoo_activity_type_id);
-          var pt        = perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+          var pt        = computePtForMapping(mapping);
           var typeIntId = mapping.odoo_activity_type_id;
           cardUrls[ci] = {
             all:       buildOdooUrl(typeIntId, 'all'),
@@ -865,7 +888,8 @@ export function cxPowerboardDashboardUI(user) {
             today:     buildOdooUrl(typeIntId, 'today'),
             completed: buildOdooUrl(typeIntId, 'completed'),
           };
-          html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, ci);
+          cardMappings[ci] = mapping;
+          html += buildTypeCard(escHtml(mapping.odoo_activity_type_name), pt, mapping, ci, computeLeaderboard(mapping));
         }
       }
 
@@ -885,135 +909,501 @@ export function cxPowerboardDashboardUI(user) {
       return odooBaseUrl + '/web#model=mail.activity&view_type=list&domain=' + encodeURIComponent(JSON.stringify(domain));
     }
 
-    function openPbCard(idx, filter, evt) {
-      if (evt) evt.stopPropagation();
-      var urls = cardUrls[idx];
-      if (!urls) return;
-      var url = filter ? urls[filter] : urls.all;
-      if (url && url !== '#') window.open(url, '_blank');
+    // Pretty-print Odoo model names
+    function _fmtModel(m) {
+      var map = {
+        'crm.lead': 'Lead', 'sale.order': 'Offerte', 'sale.order.line': 'Offerteregel',
+        'account.move': 'Factuur', 'project.task': 'Taak', 'project.project': 'Project',
+        'res.partner': 'Contact', 'helpdesk.ticket': 'Ticket', 'purchase.order': 'Inkoop',
+        'stock.picking': 'Levering', 'mrp.production': 'Productie',
+      };
+      return map[m] || m;
     }
 
-    function buildTypeCard(name, pt, mapping, cardIdx) {
+    function openPbCard(idx, filter, evt) {
+      if (evt) evt.stopPropagation();
+      var mapping = cardMappings[idx];
+      if (!mapping) return;
+
+      var typeId   = mapping.odoo_activity_type_id;
+      var typeName = mapping.odoo_activity_type_name;
+      var _mf      = mapping.card_model_filter;
+
+      // Fix: activity_type_id from Odoo is [id, name] array; also apply card_model_filter
+      function matchType(a) {
+        var tid = Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id;
+        if (tid !== typeId) return false;
+        if (_mf && _mf.length && _mf.indexOf(a.res_model) === -1) return false;
+        return true;
+      }
+
+      // Bucket by a.state (fetched from Odoo, no date math)
+      var openForType = allActivities.filter(matchType);
+      var doneForType = completedTodayData.filter(matchType);
+      var overdue     = openForType.filter(function(a) { return a.state === 'overdue'; });
+      var dueToday    = openForType.filter(function(a) { return a.state === 'today'; });
+      var future      = openForType.filter(function(a) { return a.state === 'planned' || (!a.state && a.state !== 'overdue' && a.state !== 'today'); });
+
+      // Determine which sections to show
+      var showOverdue   = !filter || filter === 'all' || filter === 'overdue';
+      var showToday     = !filter || filter === 'all' || filter === 'today';
+      var showFuture    = !filter || filter === 'all';
+      var showCompleted = !filter || filter === 'all' || filter === 'completed';
+
+      // Count badges
+      var _pb = 'inline-flex items-center px-2.5 py-1 rounded-full text-[0.7rem] font-semibold';
+      var countHtml = '';
+      if (overdue.length)     countHtml += '<span class="' + _pb + ' bg-error/15 text-error">'     + overdue.length     + '\u00a0achterstallig</span>';
+      if (dueToday.length)    countHtml += '<span class="' + _pb + ' bg-warning/15 text-warning">'  + dueToday.length    + '\u00a0vandaag</span>';
+      if (future.length)      countHtml += '<span class="' + _pb + ' bg-info/15 text-info">'        + future.length      + '\u00a0gepland</span>';
+      if (doneForType.length) countHtml += '<span class="' + _pb + ' bg-success/15 text-success">'  + doneForType.length + '\u00a0gedaan</span>';
+      if (!countHtml) countHtml = '<span class="text-xs text-base-content/40">Geen taken gevonden</span>';
+
+      function buildRow(a, rowType) {
+        var stateColor = rowType === 'done' ? 'border-success/50'
+          : a.state === 'overdue'  ? 'border-error'
+          : a.state === 'today'    ? 'border-warning'
+          : 'border-info';
+        var userName = Array.isArray(a.user_id) ? a.user_id[1] : '';
+        var dateStr  = rowType === 'done'
+          ? (a.date_done     ? new Date(a.date_done     + 'T00:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : '')
+          : (a.date_deadline ? new Date(a.date_deadline + 'T00:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : '\u2014');
+        var modelBadge = a.res_model
+          ? '<span class="text-[0.6rem] px-1.5 py-0.5 rounded bg-base-300 text-base-content/50 shrink-0">' + escHtml(_fmtModel(a.res_model)) + '</span>'
+          : '';
+        return '<div class="rounded-lg bg-base-200/60 px-3 py-2 border-l-2 ' + stateColor + '">' +
+          '<div class="flex items-start justify-between gap-2">' +
+            '<div class="flex-1 min-w-0">' +
+              '<p class="text-sm font-medium leading-snug truncate">' + escHtml(a.res_name || '\u2014') + '</p>' +
+              (a.summary ? '<p class="text-xs text-base-content/55 mt-0.5 truncate">' + escHtml(a.summary) + '</p>' : '') +
+            '</div>' +
+            '<div class="flex flex-col items-end gap-0.5 shrink-0">' +
+              '<span class="text-xs text-base-content/40">' + escHtml(dateStr) + '</span>' +
+              (userName ? '<span class="text-[0.65rem] text-base-content/35 leading-none">' + escHtml(userName) + '</span>' : '') +
+            '</div>' +
+          '</div>' +
+          (modelBadge ? '<div class="mt-1">' + modelBadge + '</div>' : '') +
+          '</div>';
+      }
+
+      var html = '';
+      function section(label, items, type) {
+        if (!items.length) return '';
+        return '<p class="text-[0.6rem] font-bold uppercase tracking-widest text-base-content/40 mt-3 mb-1.5">' + label + '</p>' +
+          items.map(function(a) { return buildRow(a, type); }).join('');
+      }
+
+      if (showOverdue)   html += section('Achterstallig (' + overdue.length   + ')', overdue,   'open');
+      if (showToday)     html += section('Vandaag ('      + dueToday.length   + ')', dueToday,  'open');
+      if (showFuture)    html += section('Gepland ('      + future.length     + ')', future,    'open');
+      if (showCompleted) html += section('Gedaan vandaag (' + doneForType.length + ')', doneForType, 'done');
+      if (!html) html = '<div class="text-center py-8 text-base-content/40 text-sm">Geen taken in deze categorie</div>';
+
+      // Collect all currently visible activities for export
+      var _exportRows = [];
+      function collectForExport(items, statusLabel) {
+        items.forEach(function(a) {
+          _exportRows.push([
+            typeName,
+            a.res_name   || '',
+            _fmtModel(a.res_model || ''),
+            a.summary    || '',
+            statusLabel,
+            a.date_deadline || '',
+            a.date_done     || '',
+            Array.isArray(a.user_id) ? a.user_id[1] : '',
+          ]);
+        });
+      }
+      if (showOverdue)   collectForExport(overdue,   'Achterstallig');
+      if (showToday)     collectForExport(dueToday,  'Vandaag');
+      if (showFuture)    collectForExport(future,    'Gepland');
+      if (showCompleted) collectForExport(doneForType, 'Gedaan vandaag');
+      _modalExportData = { typeName: typeName, rows: _exportRows };
+
+      // Populate modal
+      var titleEl   = document.getElementById('cardDetailTitle');
+      var countsEl  = document.getElementById('cardDetailCounts');
+      var contentEl = document.getElementById('cardDetailContent');
+      if (!titleEl || !countsEl || !contentEl) return;
+
+      titleEl.textContent = typeName;
+      countsEl.innerHTML  = countHtml;
+      contentEl.innerHTML = html;
+
+      // Wire export button
+      var exportBtn = document.getElementById('cardDetailExportBtn');
+      if (exportBtn) {
+        exportBtn.onclick = function() {
+          var header = ['Type', 'Record', 'Model', 'Samenvatting', 'Status', 'Deadline', 'Gedaan op', 'Medewerker'];
+          var csvRows = [header].concat(_modalExportData.rows);
+          var _nl = String.fromCharCode(10);
+          var csv = csvRows.map(function(row) {
+            return row.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+          }).join(_nl);
+          var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+          var url  = URL.createObjectURL(blob);
+          var link = document.createElement('a');
+          link.href     = url;
+          link.download = 'activiteiten-' + _modalExportData.typeName.replace(/[^a-z0-9]/gi, '-').toLowerCase() + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+          link.click();
+          URL.revokeObjectURL(url);
+        };
+      }
+
+      var dlg = document.getElementById('cardDetailModal');
+      if (dlg) { dlg.showModal(); lucide.createIcons(); }
+    }
+
+    // ── Sparkline (SVG area chart — no library needed) ────────────────────────
+    function buildSparklineSvg(odooTypeId, colorName) {
+      var W = 200, H = 42, pad = 2;
+      var history = sparklineData[String(odooTypeId)] || [];
+      if (history.length === 0) {
+        return '<div class="mt-2 h-10 flex items-center">'
+          + '<span class="text-[0.6rem] text-base-content/20 italic">Nog geen historische data</span>'
+          + '</div>';
+      }
+      var colorCls = 'text-' + (colorName || 'primary');
+      if (history.length === 1) {
+        var v1 = history[0].completed || 0;
+        var barH = Math.max(6, Math.min(H - 4, v1 * 5));
+        return '<div class="mt-2 flex items-end h-10 ' + colorCls + '" title="' + v1 + ' voltooid">'
+          + '<div class="w-full rounded-sm" style="background:currentColor;opacity:0.5;height:' + barH + 'px"></div>'
+          + '</div>';
+      }
+      var values = history.map(function(h) { return h.completed || 0; });
+      var maxV = Math.max.apply(null, values);
+      if (maxV === 0) maxV = 1;
+      var points = values.map(function(v, i) {
+        var x = pad + (i / (values.length - 1)) * (W - 2 * pad);
+        var y = (H - pad) - (v / maxV) * (H - 2 * pad - 2);
+        return [x, y];
+      });
+      var linePath = points.map(function(p, i) {
+        return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
+      }).join(' ');
+      var areaPath = linePath
+        + ' L' + points[points.length - 1][0].toFixed(1) + ',' + (H - pad).toFixed(1)
+        + ' L' + points[0][0].toFixed(1) + ',' + (H - pad).toFixed(1)
+        + ' Z';
+      return '<div class="mt-2 -mx-1 ' + colorCls + '" onclick="event.stopPropagation()" title="Voltooide taken afgelopen 14 dagen">'
+        + '<svg viewBox="0 0 ' + W + ' ' + H + '" class="w-full h-10" preserveAspectRatio="none">'
+        + '<path d="' + areaPath + '" fill="currentColor" opacity="0.15" />'
+        + '<path d="' + linePath + '" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />'
+        + '</svg></div>';
+    }
+
+    function computePtForMapping(mapping) {
+      var tid = String(mapping.odoo_activity_type_id);
+      var mf  = mapping.card_model_filter;
+      if (!mf || !mf.length) {
+        return perTypeData[tid] || { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+      }
+      var pt = { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+      for (var i = 0; i < allActivities.length; i++) {
+        var a = allActivities[i];
+        var atid = Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id;
+        if (String(atid) !== tid || mf.indexOf(a.res_model) === -1) continue;
+        if      (a.state === 'overdue') pt.overdue++;
+        else if (a.state === 'today')   pt.dueToday++;
+        else                            pt.future++;
+      }
+      for (var j = 0; j < completedTodayData.length; j++) {
+        var ca = completedTodayData[j];
+        var catid = Array.isArray(ca.activity_type_id) ? ca.activity_type_id[0] : ca.activity_type_id;
+        if (String(catid) === tid && mf.indexOf(ca.res_model) !== -1) pt.completedToday++;
+      }
+      return pt;
+    }
+
+    function computeLeaderboard(mapping) {
+      var tid = String(mapping.odoo_activity_type_id);
+      var mf  = mapping.card_model_filter;
+      var users = {};
+      for (var i = 0; i < allActivities.length; i++) {
+        var a = allActivities[i];
+        var atid = Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id;
+        if (String(atid) !== tid) continue;
+        if (mf && mf.length && mf.indexOf(a.res_model) === -1) continue;
+        var uid   = Array.isArray(a.user_id) ? a.user_id[0] : a.user_id;
+        var uname = Array.isArray(a.user_id) ? a.user_id[1] : String(uid);
+        if (!users[uid]) users[uid] = { id: uid, name: uname, open: 0, done: 0 };
+        users[uid].open++;
+      }
+      for (var j = 0; j < completedTodayData.length; j++) {
+        var ca = completedTodayData[j];
+        var catid = Array.isArray(ca.activity_type_id) ? ca.activity_type_id[0] : ca.activity_type_id;
+        if (String(catid) !== tid) continue;
+        if (mf && mf.length && mf.indexOf(ca.res_model) === -1) continue;
+        var cuid   = Array.isArray(ca.user_id) ? ca.user_id[0] : ca.user_id;
+        var cuname = Array.isArray(ca.user_id) ? ca.user_id[1] : String(cuid);
+        if (!users[cuid]) users[cuid] = { id: cuid, name: cuname, open: 0, done: 0 };
+        users[cuid].done++;
+      }
+      var result = [];
+      var ukeys = Object.keys(users);
+      for (var k = 0; k < ukeys.length; k++) {
+        var u = users[ukeys[k]];
+        var total = u.open + u.done;
+        var pct   = total > 0 ? Math.round(100 * u.done / total) : 0;
+        var badge = (u.open === 0 && u.done > 0) ? '\uD83C\uDFC6'
+                  : (pct >= 50 && u.done > 0)    ? '\u26A1'
+                  : (u.done >= 1)                 ? '\uD83C\uDF31'
+                  : '';
+        result.push({ id: ukeys[k], name: u.name, open: u.open, done: u.done, total: total, pct: pct, badge: badge });
+      }
+      result.sort(function(a, b) { return b.pct - a.pct || b.done - a.done; });
+      return result;
+    }
+
+    function buildTypeCard(name, pt, mapping, cardIdx, leaderboard) {
       // ── Data ────────────────────────────────────────────────────────────────
       var overdueCnt   = pt.overdue        || 0;
       var dueTodayCnt  = pt.dueToday       || 0;
       var futureCnt    = pt.future         || 0;
       var completedCnt = pt.completedToday || 0;
-      // routes sends overdue+dueToday (no remainingToday field)
       var remaining    = overdueCnt + dueTodayCnt;
       var total        = remaining + completedCnt;
+      var cardTitle    = (mapping.card_title_override ? escHtml(mapping.card_title_override) : name);
 
-      // ── Thresholds ──────────────────────────────────────────────────────────
+      // ── Legacy thresholds (used as fallback when card_threshold_steps is absent) ──
       var thOv = mapping.danger_threshold_overdue != null ? mapping.danger_threshold_overdue : 1;
       var thTd = mapping.danger_threshold_today   != null ? mapping.danger_threshold_today   : 3;
 
-      // ── State (mutually exclusive) ─────────────────────────────────────────
-      var isIdle   = remaining === 0 && completedCnt === 0;
-      var isDone   = remaining === 0 && completedCnt > 0;
-      var isDanger = !isIdle && !isDone && (overdueCnt >= thOv || dueTodayCnt >= thTd);
-      var isNormal = !isIdle && !isDone && !isDanger;
+      // ── Base state ─────────────────────────────────────────────────────────
+      var isIdle = remaining === 0 && completedCnt === 0;
+      var isDone = remaining === 0 && completedCnt > 0;
 
-      // ── Progress (only meaningful when total > 0) ──────────────────────────
+      // ── Resolve color ──────────────────────────────────────────────────────
+      // idle → no tint | done → always success | active → use card_color_mode
+      var resolvedColor; // DaisyUI color name or null
+      if (isIdle) {
+        resolvedColor = null;
+      } else if (isDone) {
+        resolvedColor = 'success';
+      } else {
+        var colorMode  = mapping.card_color_mode  || 'auto';
+        var fixedColor = mapping.card_fixed_color || null;
+        if (colorMode === 'fixed') {
+          resolvedColor = fixedColor; // may be null → neutral/no tint
+        } else {
+          // auto: use threshold steps if present, else legacy thresholds
+          var steps = mapping.card_threshold_steps;
+          if (steps && steps.length > 0) {
+            // sort steps highest-value-first; first match wins
+            var sortedSteps = steps.slice().sort(function(a, b) { return b.value - a.value; });
+            resolvedColor = null;
+            for (var si = 0; si < sortedSteps.length; si++) {
+              var step = sortedSteps[si];
+              var fieldVal = step.field === 'overdue' ? overdueCnt
+                           : step.field === 'today'   ? dueTodayCnt
+                           : remaining; // 'remaining'
+              if (fieldVal >= step.value) { resolvedColor = step.color; break; }
+            }
+          } else {
+            // legacy fallback
+            resolvedColor = (overdueCnt >= thOv || dueTodayCnt >= thTd) ? 'error' : null;
+          }
+        }
+      }
+
+      // ── Theme map ─────────────────────────────────────────────────────────
+      var cardBg, cardBorder, numCls, barCls, statusHtml;
+      if (isIdle) {
+        cardBg = 'bg-base-100'; cardBorder = 'border border-base-200';
+        numCls = 'text-base-content/25'; barCls = 'bg-base-300'; statusHtml = '';
+      } else {
+        var _cmap = {
+          success:   ['bg-success/10',   'border border-success/30',   'text-success',   'bg-success'],
+          error:     ['bg-error/10',     'border border-error/30',     'text-error',     'bg-error'],
+          warning:   ['bg-warning/10',   'border border-warning/30',   'text-warning',   'bg-warning'],
+          primary:   ['bg-primary/10',   'border border-primary/30',   'text-primary',   'bg-primary'],
+          secondary: ['bg-secondary/10', 'border border-secondary/30', 'text-secondary', 'bg-secondary'],
+          info:      ['bg-info/10',      'border border-info/30',      'text-info',      'bg-info'],
+          accent:    ['bg-accent/10',    'border border-accent/30',    'text-accent',    'bg-accent'],
+          neutral:   ['bg-neutral/10',   'border border-neutral/30',   'text-neutral',   'bg-neutral'],
+        };
+        var cv = (resolvedColor && _cmap[resolvedColor]) ? _cmap[resolvedColor] : null;
+        if (cv) {
+          cardBg = cv[0]; cardBorder = cv[1]; numCls = cv[2]; barCls = cv[3];
+          if (resolvedColor === 'success') {
+            statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-success shrink-0"><i data-lucide="check-circle-2" class="w-3 h-3 shrink-0"></i>Klaar</span>';
+          } else if (resolvedColor === 'error') {
+            statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-error shrink-0"><i data-lucide="alert-circle" class="w-3 h-3 shrink-0"></i>Aandacht</span>';
+          } else if (resolvedColor === 'warning') {
+            statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-warning shrink-0"><i data-lucide="alert-triangle" class="w-3 h-3 shrink-0"></i>Opgelet</span>';
+          } else {
+            statusHtml = '';
+          }
+        } else {
+          cardBg = 'bg-base-100'; cardBorder = 'border border-base-200';
+          numCls = 'text-base-content'; barCls = 'bg-primary'; statusHtml = '';
+        }
+      }
+
+      // ── Progress ──────────────────────────────────────────────────────────
       var progressPct  = total > 0 ? Math.round(100 * completedCnt / total) : 0;
       var targetWidth  = progressPct + '%';
       var showProgress = total > 0;
 
-      // ── Theming ────────────────────────────────────────────────────────────
-      var cardBg, cardBorder, numCls, barCls, statusHtml;
-      if (isIdle) {
-        cardBg     = 'bg-base-100';
-        cardBorder = 'border border-base-200';
-        numCls     = 'text-base-content/25';
-        barCls     = 'bg-base-300';
-        statusHtml = '';
-      } else if (isDone) {
-        cardBg     = 'bg-success/10';
-        cardBorder = 'border border-success/30';
-        numCls     = 'text-success';
-        barCls     = 'bg-success';
-        statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-success shrink-0">'
-          + '<i data-lucide="check-circle-2" class="w-3 h-3 shrink-0"></i>Klaar</span>';
-      } else if (isDanger) {
-        cardBg     = 'bg-error/10';
-        cardBorder = 'border border-error/30';
-        numCls     = 'text-error';
-        barCls     = 'bg-error';
-        statusHtml = '<span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider text-error shrink-0">'
-          + '<i data-lucide="alert-circle" class="w-3 h-3 shrink-0"></i>Aandacht</span>';
-      } else {
-        cardBg     = 'bg-base-100';
-        cardBorder = 'border border-base-200';
-        numCls     = 'text-base-content';
-        barCls     = 'bg-primary';
-        statusHtml = '';
-      }
-
-      // ── Hero metric: what to lead with ───────────────────────────────────
-      // < 50% done with traction → show completions (traction signal)
-      // ≥ 50% done             → show remaining   (finish-line pull)
-      // isDone                 → check icon
-      // isIdle                 → em-dash
+      // ── Hero metric ───────────────────────────────────────────────────────
+      var heroMode = mapping.card_hero_metric || 'auto';
       var bigEl, heroSublabel;
-      if (isDone) {
-        bigEl        = '<i data-lucide="check-circle-2" class="w-10 h-10 ' + numCls + ' mb-0.5"></i>';
-        heroSublabel = completedCnt + ' afgerond vandaag';
-      } else if (isIdle) {
+      if (isIdle) {
+        // Idle always shows an em-dash regardless of setting
         bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">\u2014</span>';
         heroSublabel = futureCnt > 0 ? 'Niets voor vandaag gepland' : 'Geen open taken';
-      } else if (progressPct >= 50 && completedCnt > 0) {
-        // Near the finish line — remaining is the motivator
-        bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + remaining + '</span>';
-        heroSublabel = 'nog te gaan';
-      } else if (completedCnt > 0) {
-        // Building momentum — show traction
-        bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + completedCnt + '</span>';
-        heroSublabel = 'afgerond vandaag';
-      } else {
-        // Nothing done yet — lead with pending, add context
+      } else if (heroMode === 'completed') {
+        if (isDone) {
+          bigEl        = '<i data-lucide="check-circle-2" class="w-10 h-10 ' + numCls + ' mb-0.5"></i>';
+          heroSublabel = completedCnt + ' afgerond vandaag';
+        } else {
+          bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + completedCnt + '</span>';
+          heroSublabel = 'afgerond vandaag';
+        }
+      } else if (heroMode === 'remaining') {
         bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + remaining + '</span>';
         heroSublabel = overdueCnt > 0 && dueTodayCnt > 0
-          ? 'waarvan ' + overdueCnt + ' achterstallig'
-          : overdueCnt > 0 ? 'achterstallig' : 'te doen vandaag';
+          ? 'nog te gaan (w.v. ' + overdueCnt + ' ach.)'
+          : 'nog te gaan';
+      } else if (heroMode === 'overdue') {
+        bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + overdueCnt + '</span>';
+        heroSublabel = 'achterstallig';
+      } else if (heroMode === 'today') {
+        bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + dueTodayCnt + '</span>';
+        heroSublabel = 'te doen vandaag';
+      } else {
+        // 'auto' — smart branch based on progress state
+        if (isDone) {
+          bigEl        = '<i data-lucide="check-circle-2" class="w-10 h-10 ' + numCls + ' mb-0.5"></i>';
+          heroSublabel = completedCnt + ' afgerond vandaag';
+        } else if (progressPct >= 50 && completedCnt > 0) {
+          bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + remaining + '</span>';
+          heroSublabel = 'nog te gaan';
+        } else if (completedCnt > 0) {
+          bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + completedCnt + '</span>';
+          heroSublabel = 'afgerond vandaag';
+        } else {
+          bigEl        = '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + remaining + '</span>';
+          heroSublabel = overdueCnt > 0 && dueTodayCnt > 0
+            ? 'waarvan ' + overdueCnt + ' achterstallig'
+            : overdueCnt > 0 ? 'achterstallig' : 'te doen vandaag';
+        }
       }
 
-      // ── Guidance line ────────────────────────────────────────────────────
+      // ── Guidance ──────────────────────────────────────────────────────────
       var guidanceLine = computeCardGuidance(overdueCnt, dueTodayCnt, completedCnt, progressPct, isDone, isIdle);
 
-      // ── Pills (hidden entirely for isIdle) ────────────────────────────────
+      // ── Pills ─────────────────────────────────────────────────────────────
       var pillsHtml = '';
+      var compactPills = !!mapping.card_compact_pills;
       if (!isIdle) {
-        var ovPillBase = 'inline-flex items-center px-2.5 py-1 rounded-full text-[0.7rem] cursor-pointer transition-opacity hover:opacity-80';
-        var ovPillCls  = overdueCnt > 0
-          ? ovPillBase + ' bg-error/15 text-error font-semibold'
-          : ovPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
-        var tdPillCls  = dueTodayCnt > 0
-          ? ovPillBase + ' bg-warning/15 text-warning font-semibold'
-          : ovPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
-        var doCls      = completedCnt > 0
-          ? ovPillBase + ' bg-success/15 text-success font-medium'
-          : ovPillBase + ' bg-base-200/60 text-base-content/25 pointer-events-none';
-        pillsHtml = '<div class="flex flex-wrap gap-1.5 mt-3">'
-          + '<span class="' + ovPillCls + '" onclick="openPbCard(' + cardIdx + ',&quot;overdue&quot;,event)">' + overdueCnt + '\u00a0achterstallig</span>'
-          + '<span class="' + tdPillCls + '" onclick="openPbCard(' + cardIdx + ',&quot;today&quot;,event)">'   + dueTodayCnt + '\u00a0vandaag</span>'
-          + '<span class="' + doCls     + '" onclick="openPbCard(' + cardIdx + ',&quot;completed&quot;,event)">' + completedCnt + '\u00a0gedaan</span>'
-          + '</div>';
+        var _pb = 'inline-flex items-center px-2.5 py-1 rounded-full text-[0.7rem] cursor-pointer transition-opacity hover:opacity-80';
+        if (compactPills) {
+          // Compact: single "actief" pill (remaining) + gedaan pill
+          var urgentPillCls = overdueCnt > 0
+            ? _pb + ' bg-error/15 text-error font-semibold'
+            : remaining > 0
+              ? _pb + ' bg-warning/15 text-warning font-semibold'
+              : _pb + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+          var donePillCls = completedCnt > 0
+            ? _pb + ' bg-success/15 text-success font-medium'
+            : _pb + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+          pillsHtml = '<div class="flex flex-wrap gap-1.5 mt-3">'
+            + '<span class="' + urgentPillCls + '" onclick="openPbCard(' + cardIdx + ',&quot;overdue&quot;,event)">'
+            + remaining + '\u00a0actief'
+            + (overdueCnt > 0 ? '\u00a0<span class="opacity-60 text-[0.6rem]">(' + overdueCnt + '\u00a0ach.)</span>' : '')
+            + '</span>'
+            + '<span class="' + donePillCls + '" onclick="openPbCard(' + cardIdx + ',&quot;completed&quot;,event)">'
+            + completedCnt + '\u00a0gedaan</span>'
+            + '</div>';
+        } else {
+          // Standard: 3 separate pills
+          var ovPillCls = overdueCnt > 0
+            ? _pb + ' bg-error/15 text-error font-semibold'
+            : _pb + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+          var tdPillCls = dueTodayCnt > 0
+            ? _pb + ' bg-warning/15 text-warning font-semibold'
+            : _pb + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+          var doCls = completedCnt > 0
+            ? _pb + ' bg-success/15 text-success font-medium'
+            : _pb + ' bg-base-200/60 text-base-content/25 pointer-events-none';
+          pillsHtml = '<div class="flex flex-wrap gap-1.5 mt-3">'
+            + '<span class="' + ovPillCls + '" onclick="openPbCard(' + cardIdx + ',&quot;overdue&quot;,event)">' + overdueCnt + '\u00a0achterstallig</span>'
+            + '<span class="' + tdPillCls + '" onclick="openPbCard(' + cardIdx + ',&quot;today&quot;,event)">'   + dueTodayCnt + '\u00a0vandaag</span>'
+            + '<span class="' + doCls     + '" onclick="openPbCard(' + cardIdx + ',&quot;completed&quot;,event)">' + completedCnt + '\u00a0gedaan</span>'
+            + '</div>';
+        }
       }
 
-      // ── Future tasks line (normal + idle only) ─────────────────────────────
-      var futureLine = (!isDone && !isDanger && futureCnt > 0)
+      // ── Future tasks line ─────────────────────────────────────────────────
+      var futureLine = (!isDone && resolvedColor !== 'error' && futureCnt > 0)
         ? '<p class="text-[0.65rem] text-base-content/35 mt-2">Komende: ' + futureCnt + ' gepland</p>'
         : '';
 
-      // ── Stagger entry animation ──────────────────────────────────────────
+      // ── Sparkline ─────────────────────────────────────────────────────────
+      var sparkHtml = mapping.card_show_sparkline
+        ? buildSparklineSvg(mapping.odoo_activity_type_id, resolvedColor || 'primary')
+        : '';
+
+      // ── Stagger animation ─────────────────────────────────────────────────
       var delay = (cardIdx * 50) + 'ms';
+
+      // ── Leaderboard view ─────────────────────────────────────────────────
+      if (mapping.card_view_mode === 'leaderboard') {
+        var lb     = leaderboard || [];
+        var lbRows = '';
+        for (var li = 0; li < lb.length; li++) {
+          var lu         = lb[li];
+          var lbInitial  = lu.name ? lu.name.slice(0, 1).toUpperCase() : '?';
+          var lbAvatarBg = lu.open === 0 && lu.done > 0
+            ? 'bg-success/25 text-success'
+            : lu.done > 0 ? 'bg-primary/25 text-primary' : 'bg-base-300 text-base-content/40';
+          lbRows += '<div class="flex items-center gap-2.5 py-1.5">'
+            + '<div class="w-7 h-7 rounded-full ' + lbAvatarBg + ' text-xs font-bold flex items-center justify-center shrink-0 select-none">'
+            + escHtml(lbInitial) + '</div>'
+            + '<div class="flex-1 min-w-0">'
+              + '<div class="flex items-center gap-1 mb-0.5">'
+                + '<span class="text-xs font-medium truncate leading-tight">' + escHtml(lu.name) + '</span>'
+                + (lu.badge ? '<span class="text-sm leading-none">' + lu.badge + '</span>' : '')
+              + '</div>'
+              + '<div class="flex items-center gap-1.5">'
+                + '<div class="flex-1 h-1.5 rounded-full bg-base-200 overflow-hidden">'
+                  + '<div class="h-full rounded-full bg-success transition-all duration-700" data-target-width="' + lu.pct + '%" style="width:0%"></div>'
+                + '</div>'
+                + '<span class="text-[0.6rem] text-base-content/40 shrink-0 tabular-nums">' + lu.done + '/' + lu.total + '</span>'
+              + '</div>'
+            + '</div>'
+          + '</div>';
+        }
+        var lbDoneP = 0;
+        for (var li2 = 0; li2 < lb.length; li2++) {
+          if (lb[li2].open === 0 && lb[li2].done > 0) lbDoneP++;
+        }
+        var lbBadgeHtml = lbDoneP > 0
+          ? '<span class="text-[0.625rem] font-bold uppercase tracking-wider text-success">\uD83C\uDFC6 ' + lbDoneP + '/' + lb.length + '</span>'
+          : statusHtml;
+        return '<div class="rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer min-h-44 flex flex-col ' + cardBg + ' ' + cardBorder + '" '
+          + 'style="opacity:0;transform:translateY(6px);animation:cx-card-in 0.25s ease forwards;animation-delay:' + delay + ';" '
+          + 'onclick="openPbCard(' + cardIdx + ')">'
+          + '<div class="flex items-start justify-between gap-2 mb-2">'
+          + '<p class="font-semibold text-sm leading-snug text-base-content/80">' + cardTitle + '</p>'
+          + lbBadgeHtml
+          + '</div>'
+          + (lb.length > 0
+              ? '<div class="divide-y divide-base-200/60">' + lbRows + '</div>'
+              : '<p class="text-sm text-base-content/40 italic mt-2">Geen actieve activiteiten</p>')
+          + sparkHtml
+          + '</div>';
+      }
 
       return '<div class="rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer min-h-44 flex flex-col justify-between ' + cardBg + ' ' + cardBorder + '" '
           + 'style="opacity:0;transform:translateY(6px);animation:cx-card-in 0.25s ease forwards;animation-delay:' + delay + ';" '
           + 'onclick="openPbCard(' + cardIdx + ')">'
-        // Top block: type header + hero metric + progress bar
         + '<div>'
         + '<div class="flex items-start justify-between gap-2 mb-3">'
-        + '<p class="font-semibold text-sm leading-snug text-base-content/80">' + name + '</p>'
+        + '<p class="font-semibold text-sm leading-snug text-base-content/80">' + cardTitle + '</p>'
         + statusHtml
         + '</div>'
         + '<div class="mb-1">'
@@ -1032,11 +1422,11 @@ export function cxPowerboardDashboardUI(user) {
               + '</div>'
             : '')
         + '</div>'
-        // Bottom block: pills + future + guidance
         + '<div>'
         + pillsHtml
         + futureLine
         + (guidanceLine ? '<p class="text-[0.65rem] text-base-content/40 italic mt-2 leading-snug">' + escHtml(guidanceLine) + '</p>' : '')
+        + sparkHtml
         + '</div>'
         + '</div>';
     }
@@ -1297,14 +1687,97 @@ export function cxPowerboardDashboardUI(user) {
       window.location.href = url.toString();
     }
 
-    var activitiesUrl = '/cx-powerboard/api/activities';
+    var activitiesUrl = '/cx-powerboard/api/activities-raw';
     if (viewAsParam) activitiesUrl += '?viewAs=' + encodeURIComponent(viewAsParam);
 
     fetch(activitiesUrl, { credentials: 'include' })
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        // ── No team / no personal configs ───────────────────────────────────
-        if (data.noTeamAssigned) {
+        var openActivities      = data.openActivities      || [];
+        var completedActivities = data.completedActivities || [];
+
+        // ── Debug breakdown helpers ───────────────────────────────────────
+        function buildOpenBreakdown(activities) {
+          var result = {};
+          activities.forEach(function(a) {
+            var typeId   = Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id;
+            var typeName = Array.isArray(a.activity_type_id) ? a.activity_type_id[1] : String(typeId);
+            var model    = a.res_model || '(unknown)';
+            if (!result[typeId]) result[typeId] = { name: typeName, total: 0, models: {} };
+            result[typeId].total += 1;
+            result[typeId].models[model] = (result[typeId].models[model] || 0) + 1;
+          });
+          return result;
+        }
+        function buildCompletedBreakdown(activities) {
+          var result = {};
+          activities.forEach(function(a) {
+            var typeId   = Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id;
+            var typeName = Array.isArray(a.activity_type_id) ? a.activity_type_id[1] : String(typeId);
+            var model    = a.res_model || '(unknown)';
+            var day      = a.date_done ? a.date_done.slice(0, 10) : 'unknown';
+            if (!result[typeId]) result[typeId] = { name: typeName, total: 0, models: {}, perDay: {} };
+            result[typeId].total += 1;
+            result[typeId].models[model] = (result[typeId].models[model] || 0) + 1;
+            result[typeId].perDay[day]   = (result[typeId].perDay[day]   || 0) + 1;
+          });
+          return result;
+        }
+        function logBreakdown(title, breakdown) {
+          console.group('%c' + title, 'color:#2563eb;font-weight:bold;');
+          Object.keys(breakdown).forEach(function(typeId) {
+            var d = breakdown[typeId];
+            console.group('%c' + d.name + ' (type ' + typeId + ') • total ' + d.total, 'color:#059669;font-weight:bold;');
+            if (d.models) console.log('%cPer model', 'color:#d97706;font-weight:bold;', d.models);
+            if (d.perDay)  console.log('%cPer day',   'color:#7c3aed;font-weight:bold;', d.perDay);
+            console.groupEnd();
+          });
+          console.groupEnd();
+        }
+
+        var _qc = data.queryConfig || {};
+        console.log('%c[CX QUERY]', 'color:#111827;font-weight:bold;', _qc);
+        console.log('%c[CX INIT] openActivities',      'color:#2563eb;font-weight:bold;', openActivities.length);
+        console.log('%c[CX INIT] completedActivities', 'color:#2563eb;font-weight:bold;', completedActivities.length);
+        function buildOpenBreakdownWithState(activities) {
+          var result = {};
+          activities.forEach(function(a) {
+            var typeId   = Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id;
+            var typeName = Array.isArray(a.activity_type_id) ? a.activity_type_id[1] : String(typeId);
+            var state    = a.state || 'unknown';
+            var userName = Array.isArray(a.user_id) ? a.user_id[1] : String(a.user_id || '?');
+            if (!result[typeId]) result[typeId] = { name: typeName, total: 0, states: {} };
+            result[typeId].total += 1;
+            if (!result[typeId].states[state]) result[typeId].states[state] = { total: 0, users: {} };
+            result[typeId].states[state].total += 1;
+            result[typeId].states[state].users[userName] = (result[typeId].states[state].users[userName] || 0) + 1;
+          });
+          return result;
+        }
+        function logOpenStateBreakdown(breakdown) {
+          console.group('%c[CX OPEN STATE]', 'color:#2563eb;font-weight:bold;');
+          Object.keys(breakdown).forEach(function(typeId) {
+            var d = breakdown[typeId];
+            console.group('%c' + d.name + ' (type ' + typeId + ') → ' + d.total, 'color:#059669;font-weight:bold;');
+            Object.keys(d.states).forEach(function(state) {
+              var s = d.states[state];
+              console.group('%c' + state + ' → ' + s.total, 'color:#d97706;font-weight:bold;');
+              Object.keys(s.users).forEach(function(user) {
+                console.log(user + ': ' + s.users[user]);
+              });
+              console.groupEnd();
+            });
+            console.groupEnd();
+          });
+          console.groupEnd();
+        }
+
+        logBreakdown('[CX OPEN]',      buildOpenBreakdown(openActivities));
+        logOpenStateBreakdown(buildOpenBreakdownWithState(openActivities));
+        logBreakdown('[CX COMPLETED]', buildCompletedBreakdown(completedActivities));
+
+        // No mappings = nothing configured
+        if (!data.mappings || data.mappings.length === 0) {
           var cardsEl = document.getElementById('dashboardCards');
           if (cardsEl) {
             cardsEl.innerHTML = '<div class="col-span-full flex flex-col items-center py-16 text-base-content/40">'
@@ -1316,24 +1789,91 @@ export function cxPowerboardDashboardUI(user) {
           return;
         }
 
-        // ── Team view with no Odoo-linked members ────────────────────────────
-        if (data.noTeamOdooMembers) {
+        // No Odoo UIDs found
+        if (data.error) {
           var cardsEl = document.getElementById('dashboardCards');
           if (cardsEl) {
             cardsEl.innerHTML = '<div class="col-span-full flex flex-col items-center py-16 text-base-content/40">'
               + '<p class="text-4xl mb-3" aria-hidden="true">\uD83D\uDD17</p>'
-              + '<p class="text-sm font-medium">Geen teamleden gekoppeld aan Odoo.</p>'
-              + '<p class="text-xs mt-1">Teamleden moeten \xe9\xe9n keer inloggen zodat hun Odoo-account automatisch wordt gekoppeld.</p>'
+              + '<p class="text-sm font-medium">Geen Odoo-koppeling gevonden.</p>'
               + '</div>';
           }
           return;
         }
 
-        var s = data.stats || {};
+        // ── Derive todayStr from server or local fallback ───────────────────
+        var todayStr   = data.today || new Date().toLocaleDateString('en-CA');
+        var todayLocal = new Date(todayStr + 'T00:00:00');
 
-        // ── Stats: Gedaan first, Achterstallig conditionally red ─────────────
+        // ── Derive perTypeData from raw arrays ──────────────────────────────
+        var _pt = {};
+        for (var mi = 0; mi < data.mappings.length; mi++) {
+          _pt[String(data.mappings[mi].odoo_activity_type_id)] = { overdue: 0, dueToday: 0, future: 0, completedToday: 0 };
+        }
+        openActivities.forEach(function(a) {
+          var tid = String(Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id);
+          if (!_pt[tid]) return;
+          var dl = a.date_deadline ? new Date(a.date_deadline + 'T00:00:00') : null;
+          if (!dl)                                              _pt[tid].future++;
+          else if (dl < todayLocal)                             _pt[tid].overdue++;
+          else if (dl.getTime() === todayLocal.getTime())       _pt[tid].dueToday++;
+          else                                                  _pt[tid].future++;
+        });
+        completedActivities.forEach(function(a) {
+          if (!a.date_done || a.date_done.slice(0, 10) !== todayStr) return;
+          var tid = String(Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id);
+          if (_pt[tid]) _pt[tid].completedToday++;
+        });
+
+        // ── Derive stats ────────────────────────────────────────────────────
+        var _overdue = 0, _dueToday = 0, _completedToday = 0;
+        Object.keys(_pt).forEach(function(k) {
+          _overdue        += _pt[k].overdue;
+          _dueToday       += _pt[k].dueToday;
+          _completedToday += _pt[k].completedToday;
+        });
+        var _remainingToday = _overdue + _dueToday;
+        var _isDoneForToday = _remainingToday === 0 && _completedToday > 0;
+        var _winsThisWeek   = (data.wins || []).length;
+        var s = {
+          overdue: _overdue, dueToday: _dueToday,
+          remainingToday: _remainingToday, completedToday: _completedToday,
+          isDoneForToday: _isDoneForToday, winsThisWeek: _winsThisWeek, streak: 0,
+        };
+
+        // ── Derive sparkline data from completedActivities ──────────────────
+        var _sd = {};
+        completedActivities.forEach(function(a) {
+          var d   = a.date_done ? a.date_done.slice(0, 10) : null;
+          if (!d) return;
+          var tid = String(Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id);
+          if (!_sd[tid]) _sd[tid] = [];
+          var existing = null;
+          for (var si = 0; si < _sd[tid].length; si++) { if (_sd[tid][si].date === d) { existing = _sd[tid][si]; break; } }
+          if (existing) existing.completed++;
+          else _sd[tid].push({ date: d, completed: 1, remaining: 0 });
+        });
+
+        // ── Set app state ───────────────────────────────────────────────────
+        allActivities      = openActivities;
+        completedTodayData = completedActivities.filter(function(a) { return a.date_done && a.date_done.slice(0, 10) === todayStr; });
+        winsData           = data.wins     || [];
+        mappingsData       = data.mappings || [];
+        perTypeData        = _pt;
+        sparklineData      = _sd;
+        isTeamViewData     = !!data.isTeamView;
+        if (data.odooUid)     odooUid     = data.odooUid;
+        if (data.odooBaseUrl) odooBaseUrl = data.odooBaseUrl;
+        dataReady = true;
+
+        console.group('%c[CX UI DATA]', 'color:#dc2626;font-weight:bold;');
+        logBreakdown('[CX UI OPEN]',      buildOpenBreakdown(openActivities));
+        logBreakdown('[CX UI COMPLETED]', buildCompletedBreakdown(completedActivities));
+        console.groupEnd();
+
+        // ── Stats bar ───────────────────────────────────────────────────────
         var compEl = document.getElementById('statCompletedToday');
-        if (compEl) compEl.textContent = s.completedToday != null ? s.completedToday : 0;
+        if (compEl) compEl.textContent = s.completedToday;
 
         var VOLUME_THRESHOLD = 10;
         var volEl = document.getElementById('volumeBadge');
@@ -1344,7 +1884,7 @@ export function cxPowerboardDashboardUI(user) {
 
         var remEl = document.getElementById('statRemainingToday');
         if (remEl) {
-          var newRemVal = s.remainingToday != null ? s.remainingToday : 0;
+          var newRemVal = s.remainingToday;
           var oldRemVal = parseInt(remEl.textContent, 10);
           remEl.textContent = newRemVal;
           if (!isNaN(oldRemVal) && oldRemVal > 0 && newRemVal === 0) {
@@ -1354,73 +1894,38 @@ export function cxPowerboardDashboardUI(user) {
         }
 
         var winsEl = document.getElementById('statWins');
-        if (winsEl) winsEl.textContent = s.winsThisWeek != null ? s.winsThisWeek : 0;
+        if (winsEl) winsEl.textContent = s.winsThisWeek;
 
         var ovEl = document.getElementById('statOverdue');
         if (ovEl) {
-          ovEl.textContent = s.overdue != null ? s.overdue : 0;
+          ovEl.textContent = s.overdue;
           if (s.overdue > 0) ovEl.classList.add('text-error');
           else               ovEl.classList.remove('text-error');
         }
 
-        allActivities = data.activities || [];
-        winsData      = data.wins       || [];
-        mappingsData  = data.mappings   || [];
-        perTypeData   = data.perType    || {};
-        isTeamViewData = !!data.isTeamView;
-        if (data.odooUid)     odooUid     = data.odooUid;
-        if (data.odooBaseUrl) odooBaseUrl = data.odooBaseUrl;
-        dataReady     = true;
-
-        // ── isDoneForToday: banner + stats tint ──────────────────────────────
+        // ── isDoneForToday banner ───────────────────────────────────────────
         if (s.isDoneForToday) {
           var statsBarEl = document.getElementById('statsBar');
           if (statsBarEl) statsBarEl.classList.add('cx-stats-done');
           showDoneBanner(s);
         }
 
-        // ── Streak chip (now prominent next to name) ──────────────────────────
-        if (s.streak >= 2) {
-          var chipEl = document.getElementById('streakChip');
-          if (chipEl) {
-            var slabel = s.streak >= 20
-              ? '\uD83D\uDD25 ' + s.streak + ' dagen op rij \u2014 discipline!'
-              : '\uD83D\uDD25 ' + s.streak + ' dagen op rij';
-            chipEl.textContent = slabel;
-            chipEl.style.display = 'inline-flex';
-            // One-time milestone animation via localStorage
-            var milestones = [5, 10, 20];
-            var lastMs = parseInt(localStorage.getItem('pb_streak_milestone') || '0', 10);
-            for (var mi = milestones.length - 1; mi >= 0; mi--) {
-              if (s.streak >= milestones[mi] && lastMs < milestones[mi]) {
-                localStorage.setItem('pb_streak_milestone', String(milestones[mi]));
-                chipEl.style.animation = 'cx-pop 0.5s ease';
-                setTimeout(function() {
-                  var c = document.getElementById('streakChip');
-                  if (c) c.style.animation = '';
-                }, 500);
-                break;
-              }
-            }
-          }
-        }
-
-        // ── Refreshed timestamp ──────────────────────────────────────────────
-        var rAt = document.getElementById('refreshedAt');
-        if (rAt) {
-          var now2 = new Date();
-          rAt.textContent = 'Vernieuwd om '
-            + String(now2.getHours()).padStart(2, '0') + ':'
-            + String(now2.getMinutes()).padStart(2, '0');
-        }
-
-        // ── Focus signal ─────────────────────────────────────────────────────
+        // ── Focus signal ────────────────────────────────────────────────────
         var fsText = computeFocusSignal(s, perTypeData, mappingsData);
         if (fsText) {
           var fsEl  = document.getElementById('focusSignalText');
           var fsBar = document.getElementById('focusSignalBar');
           if (fsEl)  fsEl.textContent = fsText;
           if (fsBar) fsBar.style.display = '';
+        }
+
+        // ── Refreshed timestamp ─────────────────────────────────────────────
+        var rAt = document.getElementById('refreshedAt');
+        if (rAt) {
+          var now2 = new Date();
+          rAt.textContent = 'Vernieuwd om '
+            + String(now2.getHours()).padStart(2, '0') + ':'
+            + String(now2.getMinutes()).padStart(2, '0');
         }
 
         dashboardRendered = false;
@@ -1758,6 +2263,193 @@ export function cxPowerboardSettingsUI(user) {
     var entityActivities = [];  // current activities for the selected entity
     var entityMembers    = [];  // current members (teams only)
 
+    // ── Threshold-steps editor state ─────────────────────────────────────────
+    var _editSteps = {}; // { [mappingId]: [{field, value, color}] }
+
+    function renderStepsEditor(mid) {
+      var container = document.getElementById('steps-' + mid);
+      if (!container) return;
+      var steps = _editSteps[mid] || [];
+      var colorOptions = [
+        {v:'error',     l:'Rood (fout)'},
+        {v:'warning',   l:'Oranje (waarschuwing)'},
+        {v:'info',      l:'Blauw (info)'},
+        {v:'success',   l:'Groen'},
+        {v:'primary',   l:'Primair'},
+        {v:'secondary', l:'Secundair'},
+        {v:'accent',    l:'Accent'},
+        {v:'neutral',   l:'Grijs'},
+      ];
+      var fieldOptions = [
+        {v:'remaining', l:'Totaal actief'},
+        {v:'overdue',   l:'Achterstallig'},
+        {v:'today',     l:'Vandaag'},
+      ];
+      var html = '';
+      if (!steps.length) {
+        html += '<p class="text-[0.65rem] text-base-content/40 italic mb-1">Geen stappen \u2014 eenvoudige drempel hieronder wordt gebruikt.</p>';
+      }
+      for (var i = 0; i < steps.length; i++) {
+        var s = steps[i];
+        var fOpts = fieldOptions.map(function(o) {
+          return '<option value="' + o.v + '"' + (s.field === o.v ? ' selected' : '') + '>' + o.l + '</option>';
+        }).join('');
+        var cOpts = colorOptions.map(function(o) {
+          return '<option value="' + o.v + '"' + (s.color === o.v ? ' selected' : '') + '>' + o.l + '</option>';
+        }).join('');
+        var qMid = mid.replace(/"/g, '\\"');
+        html += '<div class="flex items-center gap-1 mb-1">'
+          + '<select class="select select-xs select-bordered flex-1" onchange="_editSteps[&quot;' + qMid + '&quot;][' + i + '].field=this.value">' + fOpts + '</select>'
+          + '<span class="text-[0.7rem] text-base-content/50 shrink-0">&ge;</span>'
+          + '<input type="number" min="0" value="' + s.value + '" class="input input-xs input-bordered w-14 shrink-0" onchange="_editSteps[&quot;' + qMid + '&quot;][' + i + '].value=+this.value" />'
+          + '<select class="select select-xs select-bordered w-28 shrink-0" onchange="_editSteps[&quot;' + qMid + '&quot;][' + i + '].color=this.value">' + cOpts + '</select>'
+          + '<button class="btn btn-xs btn-ghost text-error px-1 shrink-0" onclick="_removeStep(&quot;' + qMid + '&quot;,' + i + ')" title="Verwijder stap"><i data-lucide="x" class="w-3 h-3"></i></button>'
+          + '</div>';
+      }
+      html += '<button class="btn btn-xs btn-outline mt-0.5" onclick="_addStep(&quot;' + mid.replace(/"/g, '\\"') + '&quot;)">'
+        + '<i data-lucide="plus" class="w-3 h-3 mr-1"></i>Stap toevoegen</button>';
+      container.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    function _addStep(mid) {
+      if (!_editSteps[mid]) _editSteps[mid] = [];
+      _editSteps[mid].push({ field: 'overdue', value: 1, color: 'error' });
+      renderStepsEditor(mid);
+      updateCardPreview(mid);
+    }
+
+    function _removeStep(mid, idx) {
+      if (!_editSteps[mid]) return;
+      _editSteps[mid].splice(idx, 1);
+      renderStepsEditor(mid);
+      updateCardPreview(mid);
+    }
+
+    function _toggleColorMode(mid, mode) {
+      var autoSec  = document.getElementById('ecm-auto-section-' + mid);
+      var fixedSec = document.getElementById('ecm-fixed-section-' + mid);
+      if (autoSec)  autoSec.style.display  = mode === 'auto'  ? '' : 'none';
+      if (fixedSec) fixedSec.style.display = mode === 'fixed' ? '' : 'none';
+      updateCardPreview(mid);
+    }
+
+    // ── Card preview (settings) ───────────────────────────────────────────────
+    function buildCardPreviewHtml(mid) {
+      // Read current form values
+      var colorModeEl = document.querySelector('input[name="ecm-' + mid + '"]:checked');
+      var colorMode   = colorModeEl ? colorModeEl.value : 'auto';
+      var fcEl        = document.getElementById('efc-' + mid);
+      var fixedColor  = (fcEl && fcEl.value) ? fcEl.value : null;
+      var cpEl        = document.getElementById('ecp-' + mid);
+      var compPills   = cpEl ? cpEl.checked : false;
+      var hmEl        = document.getElementById('ehm-' + mid);
+      var heroMetric  = hmEl ? hmEl.value : 'auto';
+      var thOvEl      = document.getElementById('eo-' + mid);
+      var thTdEl      = document.getElementById('et-' + mid);
+      var thOv        = thOvEl ? parseInt(thOvEl.value, 10) || 1 : 1;
+      var thTd        = thTdEl ? parseInt(thTdEl.value, 10) || 3 : 3;
+
+      // Activity name from entity state
+      var name = 'Activiteitstype';
+      for (var i = 0; i < entityActivities.length; i++) {
+        var a = entityActivities[i];
+        if ((a.mapping_id || a.id) === mid) {
+          name = (a.cx_activity_mapping && a.cx_activity_mapping.odoo_activity_type_name) || name;
+          break;
+        }
+      }
+
+      // Sample data — representative but non-trivial
+      var overdueCnt   = 3;
+      var dueTodayCnt  = 5;
+      var completedCnt = 2;
+      var remaining    = overdueCnt + dueTodayCnt;
+      var total        = remaining + completedCnt;
+      var progressPct  = Math.round(100 * completedCnt / total);
+
+      // Resolve color
+      var resolvedColor = null;
+      if (colorMode === 'fixed') {
+        resolvedColor = fixedColor || null;
+      } else {
+        var rawSteps = _editSteps[mid];
+        if (rawSteps && rawSteps.length) {
+          var sorted = rawSteps.slice().sort(function(a, b) { return b.value - a.value; });
+          for (var si = 0; si < sorted.length; si++) {
+            var step = sorted[si];
+            var val  = step.field === 'overdue' ? overdueCnt : step.field === 'today' ? dueTodayCnt : remaining;
+            if (val >= step.value) { resolvedColor = step.color; break; }
+          }
+        } else {
+          if (overdueCnt >= thOv)        resolvedColor = 'error';
+          else if (dueTodayCnt >= thTd)  resolvedColor = 'warning';
+        }
+      }
+
+      // Card styling
+      var cardBg = 'bg-base-100'; var cardBorder = 'border border-base-300'; var numCls = 'text-base-content'; var barCls = 'bg-primary';
+      if (resolvedColor === 'error')   { cardBg = 'bg-error/5';   cardBorder = 'border border-error/20';   numCls = 'text-error';   barCls = 'bg-error'; }
+      else if (resolvedColor === 'warning') { cardBg = 'bg-warning/5'; cardBorder = 'border border-warning/20'; numCls = 'text-warning'; barCls = 'bg-warning'; }
+      else if (resolvedColor === 'success') { cardBg = 'bg-success/5'; cardBorder = 'border border-success/20'; numCls = 'text-success'; barCls = 'bg-success'; }
+      else if (resolvedColor && resolvedColor !== '') { cardBg = 'bg-' + resolvedColor + '/5'; cardBorder = 'border border-' + resolvedColor + '/20'; numCls = 'text-' + resolvedColor; barCls = 'bg-' + resolvedColor; }
+
+      // Hero metric
+      var bigVal, heroLabel;
+      if      (heroMetric === 'completed') { bigVal = completedCnt; heroLabel = 'afgerond vandaag'; }
+      else if (heroMetric === 'remaining') { bigVal = remaining;    heroLabel = 'nog te gaan'; }
+      else if (heroMetric === 'overdue')   { bigVal = overdueCnt;   heroLabel = 'achterstallig'; }
+      else if (heroMetric === 'today')     { bigVal = dueTodayCnt;  heroLabel = 'te doen vandaag'; }
+      else { // auto
+        if (progressPct >= 50 && completedCnt > 0) { bigVal = remaining;    heroLabel = 'nog te gaan'; }
+        else if (completedCnt > 0)                  { bigVal = completedCnt; heroLabel = 'afgerond vandaag'; }
+        else                                        { bigVal = remaining;    heroLabel = 'waarvan ' + overdueCnt + ' achterstallig'; }
+      }
+
+      // Pills
+      var _pb = 'inline-flex items-center px-2.5 py-1 rounded-full text-[0.7rem]';
+      var pillsHtml;
+      if (compPills) {
+        pillsHtml = '<div class="flex flex-wrap gap-1.5 mt-3">'
+          + '<span class="' + _pb + ' bg-error/15 text-error font-semibold">' + remaining + '\u00a0actief</span>'
+          + '<span class="' + _pb + ' bg-success/15 text-success font-medium">' + completedCnt + '\u00a0gedaan</span>'
+          + '</div>';
+      } else {
+        pillsHtml = '<div class="flex flex-wrap gap-1.5 mt-3">'
+          + '<span class="' + _pb + ' bg-error/15 text-error font-semibold">'   + overdueCnt   + '\u00a0achterstallig</span>'
+          + '<span class="' + _pb + ' bg-warning/15 text-warning font-semibold">' + dueTodayCnt   + '\u00a0vandaag</span>'
+          + '<span class="' + _pb + ' bg-success/15 text-success font-medium">' + completedCnt + '\u00a0gedaan</span>'
+          + '</div>';
+      }
+
+      return '<div class="rounded-xl p-4 shadow-sm ' + cardBg + ' ' + cardBorder + ' pointer-events-none select-none">'
+        + '<div class="flex items-start justify-between gap-2 mb-3">'
+        + '<p class="font-semibold text-sm leading-snug text-base-content/80">' + escHtml(name) + '</p>'
+        + '<span class="badge badge-xs badge-ghost opacity-60">voorbeeld</span>'
+        + '</div>'
+        + '<div class="mb-1">'
+        + '<span class="text-5xl font-black leading-none tabular-nums ' + numCls + '">' + bigVal + '</span>'
+        + '<p class="text-[0.6rem] font-medium uppercase tracking-widest text-base-content/40 mt-1.5">' + heroLabel + '</p>'
+        + '</div>'
+        + '<div class="mt-3 mb-1">'
+        + '<div class="flex items-center justify-between mb-1">'
+        + '<span class="text-[0.65rem] text-base-content/45">' + completedCnt + ' van ' + total + ' afgerond</span>'
+        + '<span class="text-[0.65rem] font-semibold ' + numCls + '">' + progressPct + '%</span>'
+        + '</div>'
+        + '<div class="h-1.5 rounded-full bg-base-200 overflow-hidden">'
+        + '<div class="h-full rounded-full ' + barCls + '" style="width:' + progressPct + '%"></div>'
+        + '</div>'
+        + '</div>'
+        + pillsHtml
+        + '</div>';
+    }
+
+    function updateCardPreview(mid) {
+      var el = document.getElementById('card-preview-' + mid);
+      if (!el) return;
+      el.innerHTML = buildCardPreviewHtml(mid);
+    }
+
     // Build entity tab bar from loaded teams + Personal tab
     function renderEntityTabs() {
       var loading = document.getElementById('entityTabsLoading');
@@ -1877,6 +2569,29 @@ export function cxPowerboardSettingsUI(user) {
         var isWin    = a.cx_activity_mapping ? !!a.cx_activity_mapping.is_win : false;
         var keepDone = a.cx_activity_mapping ? !!a.cx_activity_mapping.keep_done_confirmed_at : false;
         var notes    = (a.cx_activity_mapping && a.cx_activity_mapping.notes) ? a.cx_activity_mapping.notes : '';
+        var colorMode  = a.card_color_mode   || 'auto';
+        var fixedColor = a.card_fixed_color  || '';
+        var compPills  = !!a.card_compact_pills;
+        var showSpark  = !!a.card_show_sparkline;
+        var heroMetric = a.card_hero_metric  || 'auto';
+        var titleOver  = a.card_title_override || '';
+        var modelFilt  = (a.card_model_filter || []).join(', ');
+        var pillsMode  = a.card_pills_mode || (a.card_compact_pills ? 'compact' : 'standard');
+        var viewMode   = a.card_view_mode   || 'stats';
+        var colorOpts  = [
+          {v:'',          l:'Geen (neutraal)'},
+          {v:'error',     l:'Rood'},
+          {v:'warning',   l:'Oranje'},
+          {v:'success',   l:'Groen'},
+          {v:'info',      l:'Blauw'},
+          {v:'primary',   l:'Primair'},
+          {v:'secondary', l:'Secundair'},
+          {v:'accent',    l:'Accent'},
+          {v:'neutral',   l:'Grijs'},
+        ];
+        var colorOptsHtml = colorOpts.map(function(o) {
+          return '<option value="' + o.v + '"' + (fixedColor === o.v ? ' selected' : '') + '>' + escHtml(o.l) + '</option>';
+        }).join('');
         html += '<div class="border border-base-300 rounded-lg p-3 mb-2">'
           + '<div class="flex items-center gap-2">'
           + '<div class="flex flex-col shrink-0 -ml-1 mr-0.5">'
@@ -1913,12 +2628,56 @@ export function cxPowerboardSettingsUI(user) {
           +       '<input type="checkbox" id="es-' + escHtml(mid) + '" class="checkbox checkbox-xs"' + (streak ? ' checked' : '') + ' /> Telt mee voor streak'
           +     '</label>'
           +   '</div>'
-          +   '<div class="flex gap-3 mb-2">'
-          +     '<div class="form-control flex-1"><label class="label pb-1"><span class="label-text text-xs">Drempel achterstallig</span></label>'
-          +     '<input type="number" id="eo-' + escHtml(mid) + '" min="0" value="' + escHtml(threshOv) + '" class="input input-xs input-bordered" /></div>'
-          +     '<div class="form-control flex-1"><label class="label pb-1"><span class="label-text text-xs">Drempel vandaag</span></label>'
-          +     '<input type="number" id="et-' + escHtml(mid) + '" min="0" value="' + escHtml(threshTd) + '" class="input input-xs input-bordered" /></div>'
+          // ── Kaart weergave ────────────────────────────────────────────────
+          +   '<div class="divider text-xs my-2">Kaartkleur</div>'
+          +   '<div class="flex gap-4 mb-2 flex-wrap">'
+          +     '<label class="flex items-center gap-1.5 cursor-pointer text-sm"><input type="radio" name="ecm-' + escHtml(mid) + '" value="auto" class="radio radio-xs"' + (colorMode === 'auto' ? ' checked' : '') + ' onchange="_toggleColorMode(&quot;' + escHtml(mid) + '&quot;,&quot;auto&quot;)" /> Auto (drempelwaarden)</label>'
+          +     '<label class="flex items-center gap-1.5 cursor-pointer text-sm"><input type="radio" name="ecm-' + escHtml(mid) + '" value="fixed" class="radio radio-xs"' + (colorMode === 'fixed' ? ' checked' : '') + ' onchange="_toggleColorMode(&quot;' + escHtml(mid) + '&quot;,&quot;fixed&quot;)" /> Vaste kleur</label>'
           +   '</div>'
+          +   '<div id="ecm-auto-section-' + escHtml(mid) + '"' + (colorMode !== 'auto' ? ' style="display:none"' : '') + '>'
+          +     '<p class="text-xs font-medium mb-1">Kleurstappen <span class="text-base-content/40 font-normal">(hoogste drempel eerst geëvalueerd)</span></p>'
+          +     '<div id="steps-' + escHtml(mid) + '"></div>'
+          +     '<div class="mt-2 flex gap-3">'
+          +       '<div class="form-control flex-1"><label class="label pb-1"><span class="label-text text-xs">Fallback: drempel achterstallig</span></label>'
+          +       '<input type="number" id="eo-' + escHtml(mid) + '" min="0" value="' + escHtml(threshOv) + '" class="input input-xs input-bordered" onchange="updateCardPreview(&quot;' + escHtml(mid) + '&quot;)" /></div>'
+          +       '<div class="form-control flex-1"><label class="label pb-1"><span class="label-text text-xs">Fallback: drempel vandaag</span></label>'
+          +       '<input type="number" id="et-' + escHtml(mid) + '" min="0" value="' + escHtml(threshTd) + '" class="input input-xs input-bordered" onchange="updateCardPreview(&quot;' + escHtml(mid) + '&quot;)" /></div>'
+          +     '</div>'
+          +   '</div>'
+          +   '<div id="ecm-fixed-section-' + escHtml(mid) + '"' + (colorMode !== 'fixed' ? ' style="display:none"' : '') + '>'
+          +     '<div class="form-control mb-2"><label class="label pb-1"><span class="label-text text-xs">Vaste kleur</span></label>'
+          +     '<select id="efc-' + escHtml(mid) + '" class="select select-xs select-bordered" onchange="updateCardPreview(&quot;' + escHtml(mid) + '&quot;)">' + colorOptsHtml + '</select></div>'
+          +   '</div>'
+          +   '<div class="divider text-xs my-2">Kaartweergave</div>'
+          +   '<div class="form-control mb-2"><label class="label pb-1"><span class="label-text text-xs">Groot getal (hero metric)</span></label>'
+          +   '<select id="ehm-' + escHtml(mid) + '" class="select select-xs select-bordered" onchange="updateCardPreview(&quot;' + escHtml(mid) + '&quot;)">'
+          +     '<option value="auto"'      + (heroMetric === 'auto'      ? ' selected' : '') + '>Auto (slim – op basis van voortgang)</option>'
+          +     '<option value="remaining"' + (heroMetric === 'remaining' ? ' selected' : '') + '>Totaal actief (achterstallig + vandaag)</option>'
+          +     '<option value="overdue"'   + (heroMetric === 'overdue'   ? ' selected' : '') + '>Alleen achterstallig</option>'
+          +     '<option value="today"'     + (heroMetric === 'today'     ? ' selected' : '') + '>Alleen vandaag</option>'
+          +     '<option value="completed"' + (heroMetric === 'completed' ? ' selected' : '') + '>Afgerond vandaag</option>'
+          +   '</select></div>'
+          +   '<div class="flex flex-wrap gap-4 mb-3">'  
+          +     '<label class="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" id="esk-' + escHtml(mid) + '" class="checkbox checkbox-xs"' + (showSpark ? ' checked' : '') + ' /> Toon historiegrafiek</label>'
+          +   '</div>'
+          +   '<div class="divider text-xs my-2">Kaartpersonalisatie</div>'
+          +   '<div class="form-control mb-2"><label class="label pb-1"><span class="label-text text-xs">Kaarttitel (laat leeg voor standaard)</span></label>'
+          +   '<input type="text" id="etl-' + escHtml(mid) + '" value="' + escHtml(titleOver) + '" placeholder="' + escHtml(lbl) + '" class="input input-xs input-bordered" /></div>'
+          +   '<div class="form-control mb-2"><label class="label pb-1"><span class="label-text text-xs">Model filter <span class="text-base-content/40 font-normal">(komma-gescheiden, bijv. crm.lead, sale.order — leeg = alles)</span></span></label>'
+          +   '<input type="text" id="emf-' + escHtml(mid) + '" value="' + escHtml(modelFilt) + '" placeholder="crm.lead" class="input input-xs input-bordered font-mono" /></div>'
+          +   '<div class="form-control mb-2"><label class="label pb-1"><span class="label-text text-xs">Pills weergave</span></label>'
+          +   '<div class="flex gap-3">'
+          +     '<label class="flex items-center gap-1.5 cursor-pointer text-sm"><input type="radio" name="epm-' + escHtml(mid) + '" value="standard" class="radio radio-xs"' + (pillsMode === 'standard' ? ' checked' : '') + ' /> Standaard</label>'
+          +     '<label class="flex items-center gap-1.5 cursor-pointer text-sm"><input type="radio" name="epm-' + escHtml(mid) + '" value="compact"  class="radio radio-xs"' + (pillsMode === 'compact'  ? ' checked' : '') + ' /> Compact</label>'
+          +     '<label class="flex items-center gap-1.5 cursor-pointer text-sm"><input type="radio" name="epm-' + escHtml(mid) + '" value="hidden"  class="radio radio-xs"' + (pillsMode === 'hidden'  ? ' checked' : '') + ' /> Verborgen</label>'
+          +   '</div></div>'
+          +   '<div class="form-control mb-2"><label class="label pb-1"><span class="label-text text-xs">Kaartmodus</span></label>'
+          +   '<div class="flex gap-3">'
+          +     '<label class="flex items-center gap-1.5 cursor-pointer text-sm"><input type="radio" name="evm-' + escHtml(mid) + '" value="stats"       class="radio radio-xs"' + (viewMode === 'stats'       ? ' checked' : '') + ' /> \uD83D\uDCCA Stats</label>'
+          +     '<label class="flex items-center gap-1.5 cursor-pointer text-sm"><input type="radio" name="evm-' + escHtml(mid) + '" value="leaderboard" class="radio radio-xs"' + (viewMode === 'leaderboard' ? ' checked' : '') + ' /> \uD83C\uDFC6 Leaderboard</label>'
+          +   '</div></div>'
+          +   '<div class="divider text-xs my-2">Kaartvoorbeeld</div>'
+          +   '<div id="card-preview-' + escHtml(mid) + '" class="mb-3"></div>'
           +   '<div class="form-control mb-2"><label class="label pb-1"><span class="label-text text-xs">Notities</span></label>'
           +   '<input type="text" id="en-' + escHtml(mid) + '" value="' + escHtml(notes) + '" class="input input-xs input-bordered" /></div>'
           +   '<div class="flex gap-2">'
@@ -2114,7 +2873,20 @@ export function cxPowerboardSettingsUI(user) {
 
     function editEntityActivity(mappingId) {
       var el = document.getElementById('edit-act-' + mappingId);
-      if (el) el.style.display = '';
+      if (!el) return;
+      // Initialise threshold-steps edit state from activity data
+      var activity = null;
+      for (var i = 0; i < entityActivities.length; i++) {
+        var a2 = entityActivities[i];
+        if ((a2.mapping_id || a2.id) === mappingId) { activity = a2; break; }
+      }
+      var existingSteps = (activity && activity.card_threshold_steps) ? activity.card_threshold_steps : [];
+      _editSteps[mappingId] = existingSteps.map(function(s) {
+        return { field: s.field || 'overdue', value: +(s.value || 0), color: s.color || 'error' };
+      });
+      el.style.display = '';
+      renderStepsEditor(mappingId);
+      updateCardPreview(mappingId);
       lucide.createIcons();
     }
 
@@ -2132,19 +2904,58 @@ export function cxPowerboardSettingsUI(user) {
       var threshOv = parseInt(document.getElementById('eo-' + mappingId).value, 10);
       var threshTd = parseInt(document.getElementById('et-' + mappingId).value, 10);
       var notes    = document.getElementById('en-' + mappingId).value.trim();
+      // Card display settings
+      var colorModeEl      = document.querySelector('input[name="ecm-' + mappingId + '"]:checked');
+      var cardColorMode    = colorModeEl ? colorModeEl.value : 'auto';
+      var fcEl             = document.getElementById('efc-' + mappingId);
+      var cardFixedColor   = (fcEl && fcEl.value) ? fcEl.value : null;
+      var rawSteps         = _editSteps[mappingId];
+      var cardThreshSteps  = (rawSteps && rawSteps.length > 0) ? rawSteps : null;
+      var cpEl             = document.getElementById('ecp-' + mappingId);
+      var skEl             = document.getElementById('esk-' + mappingId);
+      var hmEl             = document.getElementById('ehm-' + mappingId);
+      var tlEl             = document.getElementById('etl-' + mappingId);
+      var mfEl             = document.getElementById('emf-' + mappingId);
+      var pmEl             = document.querySelector('input[name="epm-' + mappingId + '"]:checked');
+      var vmEl             = document.querySelector('input[name="evm-' + mappingId + '"]:checked');
+      var cardCompactPills = cpEl ? cpEl.checked : false;
+      var cardShowSpark    = skEl ? skEl.checked  : false;
+      var cardHeroMetric   = hmEl ? hmEl.value    : 'auto';
+      var cardTitleOver    = tlEl ? tlEl.value.trim() : null;
+      var cardModelFilter  = mfEl && mfEl.value.trim()
+        ? mfEl.value.split(',').map(function(s) { return s.trim(); }).filter(Boolean)
+        : null;
+      var cardPillsMode    = pmEl ? pmEl.value : 'standard';
+      var cardViewMode     = vmEl ? vmEl.value : 'stats';
+
       var url = activeEntity.type === 'team'
         ? '/cx-powerboard/api/teams/' + activeEntity.id + '/activities/' + mappingId
         : '/cx-powerboard/api/personal-activities/' + mappingId;
       var p1 = fetch(url, {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority_weight: prio, show_on_dashboard: dash,
-          include_in_streak: streak, danger_threshold_overdue: threshOv, danger_threshold_today: threshTd })
+        body: JSON.stringify({
+          priority_weight:          prio,
+          show_on_dashboard:        dash,
+          include_in_streak:        streak,
+          danger_threshold_overdue: threshOv,
+          danger_threshold_today:   threshTd,
+          card_color_mode:          cardColorMode,
+          card_fixed_color:         cardFixedColor,
+          card_threshold_steps:     cardThreshSteps,
+          card_compact_pills:       cardCompactPills,
+          card_show_sparkline:      cardShowSpark,
+          card_hero_metric:         cardHeroMetric,
+          card_title_override:      cardTitleOver  || null,
+          card_model_filter:        cardModelFilter || null,
+          card_pills_mode:          cardPillsMode,
+          card_view_mode:           cardViewMode,
+        })
       }).then(function(r) { return r.json(); });
       var p2 = fetch('/cx-powerboard/api/mappings/' + mappingId, {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_win: isWin, notes: notes })
+        body: JSON.stringify({ priority_weight: prio, is_win: isWin, notes: notes })
       }).then(function(r) { return r.json(); });
       Promise.all([p1, p2]).then(function(results) {
         if (results[0].error) { alert(results[0].error); return; }
@@ -2155,6 +2966,16 @@ export function cxPowerboardSettingsUI(user) {
             entityActivities[i].include_in_streak        = streak;
             entityActivities[i].danger_threshold_overdue = threshOv;
             entityActivities[i].danger_threshold_today   = threshTd;
+            entityActivities[i].card_color_mode          = cardColorMode;
+            entityActivities[i].card_fixed_color         = cardFixedColor;
+            entityActivities[i].card_threshold_steps     = cardThreshSteps;
+            entityActivities[i].card_compact_pills       = cardCompactPills;
+            entityActivities[i].card_show_sparkline      = cardShowSpark;
+            entityActivities[i].card_hero_metric         = cardHeroMetric;
+            entityActivities[i].card_title_override      = cardTitleOver  || null;
+            entityActivities[i].card_model_filter        = cardModelFilter || null;
+            entityActivities[i].card_pills_mode          = cardPillsMode;
+            entityActivities[i].card_view_mode           = cardViewMode;
             if (entityActivities[i].cx_activity_mapping) {
               entityActivities[i].cx_activity_mapping.is_win = isWin;
               entityActivities[i].cx_activity_mapping.notes  = notes;

@@ -16,6 +16,7 @@ import { cxPowerboardDashboardUI, cxPowerboardSettingsUI } from './ui.js';
 import {
   fetchTrackedOpenActivities,
   fetchCompletedToday,
+  fetchCompletedInRange,
   fetchActivityTypes,
   setKeepDone,
   verifyKeepDone,
@@ -137,6 +138,8 @@ async function getEffectiveMappings(supabase, userId) {
       .select(`
         team_id, mapping_id, priority_weight, show_on_dashboard,
         danger_threshold_overdue, danger_threshold_today, include_in_streak,
+        card_color_mode, card_fixed_color, card_threshold_steps,
+        card_compact_pills, card_show_sparkline, card_hero_metric,
         cx_activity_mapping (
           id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes
         )
@@ -151,6 +154,8 @@ async function getEffectiveMappings(supabase, userId) {
     .select(`
       mapping_id, priority_weight, show_on_dashboard,
       danger_threshold_overdue, danger_threshold_today, include_in_streak,
+      card_color_mode, card_fixed_color, card_threshold_steps,
+      card_compact_pills, card_show_sparkline, card_hero_metric,
       cx_activity_mapping (
         id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes
       )
@@ -175,6 +180,16 @@ async function getEffectiveMappings(supabase, userId) {
       danger_threshold_overdue: pc.danger_threshold_overdue,
       danger_threshold_today:   pc.danger_threshold_today,
       include_in_streak:        pc.include_in_streak,
+      card_color_mode:          pc.card_color_mode      || 'auto',
+      card_fixed_color:         pc.card_fixed_color     || null,
+      card_threshold_steps:     pc.card_threshold_steps || null,
+      card_compact_pills:       !!pc.card_compact_pills,
+      card_show_sparkline:      !!pc.card_show_sparkline,
+      card_hero_metric:         pc.card_hero_metric      || 'auto',
+      card_title_override:      pc.card_title_override   || null,
+      card_model_filter:        pc.card_model_filter     || null,
+      card_pills_mode:          pc.card_pills_mode       || 'standard',
+      card_view_mode:           pc.card_view_mode        || 'stats',
       keep_done_confirmed_at:   m.keep_done_confirmed_at,
       _source:                  'personal',
       _team_name:               null,
@@ -195,6 +210,16 @@ async function getEffectiveMappings(supabase, userId) {
       danger_threshold_overdue: tc.danger_threshold_overdue,
       danger_threshold_today:   tc.danger_threshold_today,
       include_in_streak:        tc.include_in_streak,
+      card_color_mode:          tc.card_color_mode      || 'auto',
+      card_fixed_color:         tc.card_fixed_color     || null,
+      card_threshold_steps:     tc.card_threshold_steps || null,
+      card_compact_pills:       !!tc.card_compact_pills,
+      card_show_sparkline:      !!tc.card_show_sparkline,
+      card_hero_metric:         tc.card_hero_metric      || 'auto',
+      card_title_override:      tc.card_title_override   || null,
+      card_model_filter:        tc.card_model_filter     || null,
+      card_pills_mode:          tc.card_pills_mode       || 'standard',
+      card_view_mode:           tc.card_view_mode        || 'stats',
       keep_done_confirmed_at:   m.keep_done_confirmed_at,
       _source:                  'team',
       _team_name:               teamNameMap[tc.team_id] || null,
@@ -354,6 +379,9 @@ async function handleGetActivities(context) {
               danger_threshold_overdue: m.danger_threshold_overdue ?? 1,
               danger_threshold_today: m.danger_threshold_today ?? 3,
               include_in_streak: m.include_in_streak !== false,
+              card_color_mode: 'auto', card_fixed_color: null,
+              card_threshold_steps: null, card_compact_pills: false, card_show_sparkline: false,
+              card_hero_metric: 'auto',
               keep_done_confirmed_at: m.keep_done_confirmed_at,
             }));
         const emptyPerType = {};
@@ -363,7 +391,7 @@ async function handleGetActivities(context) {
           mappings: fallbackMappings, odooUid: null,
           odooBaseUrl: env.ODOO_URL || 'https://mymmo.odoo.com',
           stats: { overdue: 0, dueToday: 0, remainingToday: 0, completedToday: 0, isDoneForToday: false, winsThisWeek: 0, streak: 0 },
-          viewingUserId: targetUserId, isViewingOther: true,
+          viewingUserId: targetUserId, isViewingOther: true, isTeamView: false, noTeamOdooMembers: false,
         }), { headers: { 'Content-Type': 'application/json' } });
       }
       return new Response(JSON.stringify({ odooUidMissing: true, activities: [], wins: [] }), {
@@ -381,6 +409,8 @@ async function handleGetActivities(context) {
       .select(`
         mapping_id, priority_weight, show_on_dashboard,
         danger_threshold_overdue, danger_threshold_today, include_in_streak,
+        card_color_mode, card_fixed_color, card_threshold_steps,
+        card_compact_pills, card_show_sparkline, card_hero_metric,
         cx_activity_mapping (
           id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at
         )
@@ -398,6 +428,12 @@ async function handleGetActivities(context) {
         danger_threshold_overdue: tc.danger_threshold_overdue,
         danger_threshold_today:   tc.danger_threshold_today,
         include_in_streak:        tc.include_in_streak,
+        card_color_mode:          tc.card_color_mode      || 'auto',
+        card_fixed_color:         tc.card_fixed_color     || null,
+        card_threshold_steps:     tc.card_threshold_steps || null,
+        card_compact_pills:       !!tc.card_compact_pills,
+        card_show_sparkline:      !!tc.card_show_sparkline,
+        card_hero_metric:         tc.card_hero_metric      || 'auto',
         keep_done_confirmed_at:   m.keep_done_confirmed_at,
       };
     });
@@ -412,10 +448,16 @@ async function handleGetActivities(context) {
         odoo_activity_type_name:  m.odoo_activity_type_name,
         priority_weight:          m.priority_weight,
         is_win:                   m.is_win,
-        show_on_dashboard:        true, // global registry ≠ user preference; always show in fallback
+        show_on_dashboard:        true,
         danger_threshold_overdue: m.danger_threshold_overdue ?? 1,
         danger_threshold_today:   m.danger_threshold_today   ?? 3,
         include_in_streak:        m.include_in_streak !== false,
+        card_color_mode:          'auto',
+        card_fixed_color:         null,
+        card_threshold_steps:     null,
+        card_compact_pills:       false,
+        card_show_sparkline:      false,
+        card_hero_metric:         'auto',
         keep_done_confirmed_at:   m.keep_done_confirmed_at,
         _source:                  'global',
       }));
@@ -429,6 +471,8 @@ async function handleGetActivities(context) {
         overdue: 0, dueToday: 0, remainingToday: 0, completedToday: 0,
         isDoneForToday: false, winsThisWeek: 0, streak: 0,
       },
+      isTeamView, isViewingOther, noTeamOdooMembers: false,
+      odooBaseUrl: env.ODOO_URL || 'https://mymmo.odoo.com',
     }), { headers: { 'Content-Type': 'application/json' } });
   }
   const trackedTypeIds = mappings.map(m => m.odoo_activity_type_id);
@@ -444,14 +488,19 @@ async function handleGetActivities(context) {
   const odooUids = isTeamView ? (teamMemberOdooUids || []) : [odooUid];
   console.log(`[CX ${_ts()}] Odoo fetch  uids=[${odooUids.join(',')}]  types=[${trackedTypeIds.join(',')}]  today=${todayStr}${odooUids.length === 0 ? '  ⚠️ SKIP (geen uids)' : ''}`);
 
+  // Wins: aggregate for all team members, or just the target user
+  const winUserIds = isTeamView
+    ? (await supabase.from('cx_team_members').select('user_id').eq('team_id', teamViewId)).data?.map(m => m.user_id) || []
+    : [targetUserId];
+
   const [openActivities, completedTodayList, wins, weekWinResult] = await Promise.all([
     odooUids.length ? fetchTrackedOpenActivities(env, odooUids, trackedTypeIds) : Promise.resolve([]),
-    odooUids.length ? fetchCompletedToday(env, odooUids, trackedTypeIds)        : Promise.resolve([]),
-    getUserWins(env, targetUserId),
+    odooUids.length ? fetchCompletedToday(env, odooUids, trackedTypeIds) : Promise.resolve([]),
+    getUserWins(env, isTeamView ? (winUserIds[0] || targetUserId) : targetUserId),
     supabase
       .from('cx_processed_wins')
       .select('id')
-      .eq('platform_user_id', targetUserId)
+      .in('platform_user_id', winUserIds)
       .gte('won_at', new Date(Date.now() - 7 * 86400000).toISOString()),
   ]);
 
@@ -554,6 +603,24 @@ async function handleGetActivities(context) {
       },
       { onConflict: 'platform_user_id,day' }
     );
+  }
+
+  // ── Daily per-type snapshots (for sparklines) — own view only ─────────────
+  if (!isViewingOther && !isTeamView) {
+    const snapshots = Object.entries(perType)
+      .map(([typeId, s]) => ({
+        user_id:          user.id,
+        activity_type_id: parseInt(typeId, 10),
+        snapshot_date:    todayStr,
+        completed_count:  s.completedToday,
+        remaining_count:  s.overdue + s.dueToday,
+      }));
+    if (snapshots.length > 0) {
+      // fire-and-forget: non-critical
+      supabase.from('cx_activity_daily_snapshot')
+        .upsert(snapshots, { onConflict: 'user_id,activity_type_id,snapshot_date' })
+        .then(() => {}).catch(() => {});
+    }
   }
 
   // ── Response ──────────────────────────────────────────────────────────────
@@ -1034,6 +1101,9 @@ async function handleGetTeamActivities(context) {
     .select(`
       id, mapping_id, priority_weight, show_on_dashboard,
       danger_threshold_overdue, danger_threshold_today, include_in_streak,
+      card_color_mode, card_fixed_color, card_threshold_steps,
+      card_compact_pills, card_show_sparkline, card_hero_metric,
+      card_title_override, card_model_filter, card_pills_mode, card_view_mode,
       cx_activity_mapping (id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes)
     `)
     .eq('team_id', teamId);
@@ -1081,7 +1151,10 @@ async function handleUpdateTeamActivity(context) {
   const { id: teamId, mappingId } = context.params;
   const body    = await context.request.json();
   const allowed = ['priority_weight', 'show_on_dashboard', 'danger_threshold_overdue',
-                   'danger_threshold_today', 'include_in_streak'];
+                   'danger_threshold_today', 'include_in_streak',
+                   'card_color_mode', 'card_fixed_color', 'card_threshold_steps',
+                   'card_compact_pills', 'card_show_sparkline', 'card_hero_metric',
+                   'card_title_override', 'card_model_filter', 'card_pills_mode', 'card_view_mode'];
   const update  = {};
   for (const k of allowed) if (body[k] !== undefined) update[k] = body[k];
   const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -1126,6 +1199,9 @@ async function handleGetPersonalActivities(context) {
     .select(`
       id, mapping_id, priority_weight, show_on_dashboard,
       danger_threshold_overdue, danger_threshold_today, include_in_streak,
+      card_color_mode, card_fixed_color, card_threshold_steps,
+      card_compact_pills, card_show_sparkline, card_hero_metric,
+      card_title_override, card_model_filter, card_pills_mode, card_view_mode,
       cx_activity_mapping (id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at, notes)
     `)
     .eq('user_id', context.user.id);
@@ -1172,7 +1248,10 @@ async function handleUpdatePersonalActivity(context) {
   const { mappingId } = context.params;
   const body    = await context.request.json();
   const allowed = ['priority_weight', 'show_on_dashboard', 'danger_threshold_overdue',
-                   'danger_threshold_today', 'include_in_streak'];
+                   'danger_threshold_today', 'include_in_streak',
+                   'card_color_mode', 'card_fixed_color', 'card_threshold_steps',
+                   'card_compact_pills', 'card_show_sparkline', 'card_hero_metric',
+                   'card_title_override', 'card_model_filter', 'card_pills_mode', 'card_view_mode'];
   const update  = {};
   for (const k of allowed) if (body[k] !== undefined) update[k] = body[k];
   const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -1206,6 +1285,218 @@ async function handleRemovePersonalActivity(context) {
 }
 
 // ---------------------------------------------------------------------------
+// API: Activity history (sparkline data — last 14 days)
+// ---------------------------------------------------------------------------
+
+async function handleGetActivityHistory(context) {
+  const denied = requireCxAccess(context);
+  if (denied) return denied;
+  const { env, user } = context;
+  const url      = new URL(context.request.url);
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+
+  const todayStr = getTodayStr(env);
+  const cutoff = (() => {
+    const tz = env.ODOO_TIMEZONE || 'Europe/Amsterdam';
+    return new Date(Date.now() - 13 * 86400000).toLocaleDateString('en-CA', { timeZone: tz });
+  })();
+
+  // Resolve which Odoo UIDs to use (same viewAs logic as handleGetActivities)
+  const viewAsRaw  = url.searchParams.get('viewAs') || '';
+  const isTeamView = viewAsRaw.startsWith('team:');
+  const teamViewId = isTeamView ? viewAsRaw.slice(5) : null;
+
+  let odooUids = [];
+  let trackedTypeIds = [];
+
+  if (isTeamView && teamViewId) {
+    // Resolve team member UIDs and team activity type config in parallel
+    const [{ data: members }, { data: teamConfigs }] = await Promise.all([
+      supabase.from('cx_team_members').select('user_id').eq('team_id', teamViewId),
+      supabase.from('cx_team_activity_configs')
+        .select('cx_activity_mapping(odoo_activity_type_id)')
+        .eq('team_id', teamViewId),
+    ]);
+    if (members?.length) {
+      const { data: memberRows } = await supabase
+        .from('users').select('id, odoo_uid').in('id', members.map(m => m.user_id));
+      odooUids = (memberRows || []).filter(r => r.odoo_uid).map(r => r.odoo_uid);
+    }
+    trackedTypeIds = (teamConfigs || []).map(tc => tc.cx_activity_mapping?.odoo_activity_type_id).filter(Boolean);
+  } else {
+    const targetUserId = (!isTeamView && viewAsRaw && viewAsRaw !== user.id) ? viewAsRaw : user.id;
+    const [{ data: userRow }, mappings] = await Promise.all([
+      supabase.from('users').select('odoo_uid').eq('id', targetUserId).single(),
+      getEffectiveMappings(supabase, targetUserId),
+    ]);
+    if (userRow?.odoo_uid) odooUids = [userRow.odoo_uid];
+    trackedTypeIds = mappings.map(m => m.odoo_activity_type_id);
+  }
+
+  console.log(`[CX history] ${user.email}  viewAs=${viewAsRaw||'self'}  odooUids=[${odooUids.join(',')}]  types=[${trackedTypeIds.join(',')}]  range=${cutoff}..${todayStr}`);
+
+  // Fetch completed activities directly from Odoo
+  const odooCompleted = odooUids.length && trackedTypeIds.length
+    ? await fetchCompletedInRange(env, odooUids, trackedTypeIds, cutoff, todayStr)
+    : [];
+
+  // Group Odoo completions by type + date
+  const completedMap = {};
+  for (const a of odooCompleted) {
+    const typeId = Array.isArray(a.activity_type_id) ? a.activity_type_id[0] : a.activity_type_id;
+    const key    = `${typeId}|${a.date_done}`;
+    completedMap[key] = (completedMap[key] || 0) + 1;
+  }
+
+  const result = [];
+  for (const [key, count] of Object.entries(completedMap)) {
+    const sep    = key.indexOf('|');
+    const typeId = parseInt(key.substring(0, sep), 10);
+    const date   = key.substring(sep + 1);
+    result.push({
+      activity_type_id: typeId,
+      snapshot_date:    date,
+      completed_count:  count,
+      remaining_count:  0,
+    });
+  }
+  result.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+
+  console.log(`[CX history] → ${result.length} datapunten  (odoo=${odooCompleted.length})`);
+
+  return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
+// DEBUG: raw Odoo fetch — two unmodified queries, zero transformation
+// ---------------------------------------------------------------------------
+
+async function handleGetRawActivities(context) {
+  const denied = requireCxAccess(context);
+  if (denied) return denied;
+  const { env, user } = context;
+  const url      = new URL(context.request.url);
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+
+  const viewAsRaw    = url.searchParams.get('viewAs') || '';
+  const isTeamView   = viewAsRaw.startsWith('team:');
+  const teamViewId   = isTeamView ? viewAsRaw.slice(5) : null;
+  const targetUserId = (!isTeamView && viewAsRaw && viewAsRaw !== user.id) ? viewAsRaw : user.id;
+
+  // Resolve userIds + mappings + odooUid in parallel
+  let odooUids = [];
+  let mappings = [];
+  let odooUid  = null;
+
+  if (isTeamView && teamViewId) {
+    const [{ data: members }, { data: teamConfigs }] = await Promise.all([
+      supabase.from('cx_team_members').select('user_id').eq('team_id', teamViewId),
+      supabase.from('cx_team_activity_configs')
+        .select(`
+          mapping_id, priority_weight, show_on_dashboard,
+          danger_threshold_overdue, danger_threshold_today, include_in_streak,
+          card_color_mode, card_fixed_color, card_threshold_steps,
+          card_compact_pills, card_show_sparkline, card_hero_metric,
+          card_title_override, card_model_filter, card_pills_mode, card_view_mode,
+          cx_activity_mapping(id, odoo_activity_type_id, odoo_activity_type_name, is_win, keep_done_confirmed_at)
+        `)
+        .eq('team_id', teamViewId),
+    ]);
+    if (members?.length) {
+      const { data: memberRows } = await supabase
+        .from('users').select('odoo_uid').in('id', members.map(m => m.user_id));
+      odooUids = (memberRows || []).filter(r => r.odoo_uid).map(r => r.odoo_uid);
+    }
+    mappings = (teamConfigs || []).map(tc => {
+      const m = tc.cx_activity_mapping;
+      return {
+        id: m.id, odoo_activity_type_id: m.odoo_activity_type_id,
+        odoo_activity_type_name: m.odoo_activity_type_name,
+        priority_weight: tc.priority_weight, is_win: m.is_win,
+        show_on_dashboard: tc.show_on_dashboard,
+        danger_threshold_overdue: tc.danger_threshold_overdue,
+        danger_threshold_today: tc.danger_threshold_today,
+        include_in_streak: tc.include_in_streak,
+        card_color_mode: tc.card_color_mode || 'auto',
+        card_fixed_color: tc.card_fixed_color || null,
+        card_threshold_steps: tc.card_threshold_steps || null,
+        card_compact_pills: !!tc.card_compact_pills,
+        card_show_sparkline: !!tc.card_show_sparkline,
+        card_hero_metric: tc.card_hero_metric || 'auto',
+        card_title_override: tc.card_title_override || null,
+        card_model_filter: tc.card_model_filter || null,
+        card_pills_mode: tc.card_pills_mode || 'standard',
+        card_view_mode: tc.card_view_mode || 'stats',
+        keep_done_confirmed_at: m.keep_done_confirmed_at,
+      };
+    });
+  } else {
+    const [{ data: row }, effectiveMappings] = await Promise.all([
+      supabase.from('users').select('odoo_uid').eq('id', targetUserId).single(),
+      getEffectiveMappings(supabase, targetUserId),
+    ]);
+    if (row?.odoo_uid) { odooUids = [row.odoo_uid]; odooUid = row.odoo_uid; }
+    mappings = effectiveMappings;
+  }
+
+  if (!odooUids.length) {
+    return new Response(JSON.stringify({
+      error: 'geen odoo_uid gevonden',
+      openActivities: [], completedActivities: [], mappings, isTeamView,
+    }), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  const activityTypeIds = mappings.map(m => m.odoo_activity_type_id);
+  const timeframeDays = 30;
+  const tz = env.ODOO_TIMEZONE || 'Europe/Amsterdam';
+  const today    = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+  const dateFrom = new Date(Date.now() - (timeframeDays - 1) * 86400000).toLocaleDateString('en-CA', { timeZone: tz });
+
+  const queryConfig = { userIds: odooUids, activityTypeIds, timeframeDays, dateFrom, dateTo: today };
+  console.log('[CX QUERY]', JSON.stringify(queryConfig));
+
+  const fields = ['id', 'activity_type_id', 'user_id', 'res_model', 'res_id', 'res_name', 'date_deadline', 'date_done', 'summary', 'note', 'state'];
+
+  // QUERY 1: open activities
+  const openDomain = [['user_id', 'in', odooUids], ['active', '=', true]];
+  if (activityTypeIds.length) openDomain.push(['activity_type_id', 'in', activityTypeIds]);
+
+  // QUERY 2: completed activities
+  const completedDomain = [
+    ['user_id', 'in', odooUids],
+    ['date_done', '!=', false],
+    ['date_done', '>=', dateFrom],
+  ];
+  if (activityTypeIds.length) completedDomain.push(['activity_type_id', 'in', activityTypeIds]);
+
+  const [rawOpen, rawCompleted] = await Promise.all([
+    searchRead(env, { model: 'mail.activity', domain: openDomain, fields, limit: false }),
+    searchRead(env, { model: 'mail.activity', domain: completedDomain, fields, limit: false, context: { active_test: false } }),
+  ]);
+
+  const openActivities      = rawOpen      || [];
+  const completedActivities = rawCompleted || [];
+
+  console.log('[CX INIT] openActivities:', openActivities.length);
+  console.log('[CX INIT] completedActivities:', completedActivities.length);
+
+  // Wins for the week
+  const wins = await getUserWins(env, targetUserId);
+
+  return new Response(JSON.stringify({
+    openActivities,
+    completedActivities,
+    mappings,
+    wins,
+    odooUid,
+    odooBaseUrl: env.ODOO_URL || 'https://mymmo.odoo.com',
+    isTeamView,
+    today,
+    queryConfig,
+  }), { headers: { 'Content-Type': 'application/json' } });
+}
+
+// ---------------------------------------------------------------------------
 // Route map
 // ---------------------------------------------------------------------------
 
@@ -1218,6 +1509,8 @@ export const routes = {
   'GET /api/users':                              handleGetUsers,
   'GET /api/mappings':                           handleGetMappings,
   'GET /api/activity-types':                     handleGetActivityTypes,
+  'GET /api/activity-history':                   handleGetActivityHistory,
+  'GET /api/activities-raw':                     handleGetRawActivities,
   'POST /api/mappings':                          handleCreateMapping,
   'PUT /api/mappings/:id':                       handleUpdateMapping,
   'DELETE /api/mappings/:id':                    handleDeleteMapping,
