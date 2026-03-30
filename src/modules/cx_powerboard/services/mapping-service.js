@@ -3,6 +3,8 @@
  *
  * CRUD for cx_activity_mapping table with KV cache (5-min TTL).
  * Cache is busted on every write.
+ *
+ * V6: Adds include_in_streak, keep_done_confirmed_at support.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -38,11 +40,31 @@ export async function bustMappingCache(env) {
   } catch (_) {}
 }
 
-export async function createMapping(env, { odoo_activity_type_id, odoo_activity_type_name, priority_weight, is_win = false, notes = null, show_on_dashboard = true, danger_threshold_overdue = 1, danger_threshold_today = 3 }) {
+export async function createMapping(env, {
+  odoo_activity_type_id,
+  odoo_activity_type_name,
+  priority_weight,
+  is_win = false,
+  notes = null,
+  show_on_dashboard = true,
+  danger_threshold_overdue = 1,
+  danger_threshold_today = 3,
+  include_in_streak = true,
+}) {
   const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   const { data, error } = await supabase
     .from('cx_activity_mapping')
-    .insert({ odoo_activity_type_id, odoo_activity_type_name, priority_weight, is_win, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today })
+    .insert({
+      odoo_activity_type_id,
+      odoo_activity_type_name,
+      priority_weight,
+      is_win,
+      notes,
+      show_on_dashboard,
+      danger_threshold_overdue,
+      danger_threshold_today,
+      include_in_streak,
+    })
     .select()
     .single();
 
@@ -51,12 +73,48 @@ export async function createMapping(env, { odoo_activity_type_id, odoo_activity_
   return data;
 }
 
-export async function updateMapping(env, id, { priority_weight, is_win, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today }) {
+export async function updateMapping(env, id, {
+  priority_weight,
+  is_win,
+  notes,
+  show_on_dashboard,
+  danger_threshold_overdue,
+  danger_threshold_today,
+  include_in_streak,
+}) {
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const updateData = {
+    priority_weight,
+    is_win,
+    notes,
+    show_on_dashboard,
+    danger_threshold_overdue,
+    danger_threshold_today,
+  };
+  if (include_in_streak !== undefined) updateData.include_in_streak = include_in_streak;
+
+  const { data, error } = await supabase
+    .from('cx_activity_mapping')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  await bustMappingCache(env);
+  return data;
+}
+
+/**
+ * Stamp keep_done_confirmed_at = now() on a mapping row.
+ * Called after successful setKeepDone + verifyKeepDone in Odoo.
+ */
+export async function confirmKeepDone(env, mappingId) {
   const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   const { data, error } = await supabase
     .from('cx_activity_mapping')
-    .update({ priority_weight, is_win, notes, show_on_dashboard, danger_threshold_overdue, danger_threshold_today })
-    .eq('id', id)
+    .update({ keep_done_confirmed_at: new Date().toISOString() })
+    .eq('id', mappingId)
     .select()
     .single();
 
