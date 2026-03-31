@@ -311,8 +311,8 @@
       </h3>
       <ul class="steps steps-horizontal w-full mb-6 text-xs">
         <li class="step" id="wstep0">Basisinfo</li>
-        <li class="step" id="wstep1">Model</li>
-        <li class="step" id="wstep2">Velden</li>
+        <li class="step" id="wstep1">Velden</li>
+        <li class="step" id="wstep2">Categoriseren</li>
       </ul>
       <div id="wizardStep0">
         <div class="form-control mb-4">
@@ -330,16 +330,8 @@
           <label class="label"><span class="label-text-alt text-base-content/50">Technische modelnaam, bijv. crm.lead of x_sales_action_sheet</span></label>
         </div>
       </div>
-      <div id="wizardStep1" class="hidden">
-        <p class="text-sm mb-3">Model: <code id="wizardModelPreview" class="font-mono bg-base-200 px-1.5 py-0.5 rounded"></code></p>
-        <div id="wizardFieldsLoader" class="flex justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      </div>
-      <div id="wizardStep2" class="hidden">
-        <p class="text-sm text-base-content/60 mb-3">Selecteer de velden die Claude mag zien en geef optioneel een alias of instructie op.</p>
-        <div id="wizardFieldList" class="space-y-1 max-h-96 overflow-y-auto pr-1"></div>
-      </div>
+      <div id="wizardStep1" class="hidden overflow-y-auto" style="max-height:420px"></div>
+      <div id="wizardStep2" class="hidden overflow-y-auto" style="max-height:420px"></div>
       <div id="wizardError" class="alert alert-error text-sm mt-3 hidden"></div>
       <div class="modal-action">
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('datasetWizardModal').close()">Annuleren</button>
@@ -368,7 +360,6 @@
     let lastCreatedClientId = null;
     let lastCreatedSecret = null;
     let wizardStep = 0;
-    let wizardOdooFields = {};
     const editorState = { template: null, fieldCache: {}, expandedModels: new Set() };
     let autosaveTimer = null;
     let instrEditModelKey = null;
@@ -419,7 +410,7 @@
 
     // ── Templates ─────────────────────────────────────────────────────────────
     async function loadTemplates() {
-      const res = await apiFetch('/insights/api/sales-insights/dataset-templates');
+      const res = await apiFetch('/api/claude/dataset-templates');
       if (res.success) templates = res.data || [];
       renderTemplateSelector();
     }
@@ -729,7 +720,7 @@
       const el = document.getElementById('datasetTemplateList');
       if (!el) return;
       el.innerHTML = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>';
-      const res = await apiFetch('/insights/api/sales-insights/dataset-templates');
+      const res = await apiFetch('/api/claude/dataset-templates?all=true');
       if (!res.success) {
         el.innerHTML = `<div class="alert alert-error text-sm">${res.error?.message || 'Laden mislukt'}</div>`;
         return;
@@ -774,14 +765,14 @@
     }
 
     async function setDefaultTemplate(id) {
-      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + id + '/set-default', { method: 'POST' });
+      const res = await apiFetch('/api/claude/dataset-templates/' + id + '/set-default', { method: 'POST' });
       if (res.success) { showAlert('<span>Standaard template ingesteld</span>', 'success'); loadDatasetTemplates(); }
       else showAlert(`<span>${res.error?.message || 'Mislukt'}</span>`, 'error');
     }
 
     async function deactivateTemplate(id) {
       if (!confirm('Template deactiveren? Bestaande koppelingen met dit template blijven werken tot ze opnieuw worden aangemaakt.')) return;
-      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + id, { method: 'DELETE' });
+      const res = await apiFetch('/api/claude/dataset-templates/' + id, { method: 'DELETE' });
       if (res.success) { showAlert('<span>Template gedeactiveerd</span>', 'success'); loadDatasetTemplates(); }
       else showAlert(`<span>${res.error?.message || 'Mislukt'}</span>`, 'error');
     }
@@ -789,14 +780,14 @@
     // ── Admin: Dataset Editor ─────────────────────────────────────────────────
     async function fetchModelFields(odooModel) {
       if (editorState.fieldCache[odooModel]) return editorState.fieldCache[odooModel];
-      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/model-fields?model=' + encodeURIComponent(odooModel));
+      const res = await apiFetch('/api/claude/odoo/fields?model=' + encodeURIComponent(odooModel));
       if (!res.success) throw new Error('Kon velden niet laden voor ' + odooModel);
       editorState.fieldCache[odooModel] = res.data || {};
       return editorState.fieldCache[odooModel];
     }
 
     async function openDatasetEditor(templateId) {
-      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + templateId);
+      const res = await apiFetch('/api/claude/dataset-templates/' + templateId);
       if (!res.success) {
         showAlert(`<span>${res.error?.message || 'Template laden mislukt'}</span>`, 'error');
         return;
@@ -951,8 +942,14 @@
         </div>`;
       cats.forEach(cat => {
         if (!grouped[cat]?.length) return;
+        const catEnabled = grouped[cat].filter(f => f.enabled).length;
         html += `<div class="mb-2">
-          <p class="text-xs font-medium text-base-content/50 mb-1 px-1">${cat}</p>
+          <div class="flex items-center gap-1 mb-1 px-1">
+            <span class="text-xs font-medium text-base-content/50">${cat}</span>
+            <span class="badge badge-ghost badge-xs">${catEnabled}/${grouped[cat].length}</span>
+            <button class="btn btn-ghost btn-xs ml-auto" data-action="toggleCategory" data-key="${mc.key}" data-cat="${cat}" data-val="1">Aan</button>
+            <button class="btn btn-ghost btn-xs" data-action="toggleCategory" data-key="${mc.key}" data-cat="${cat}" data-val="0">Uit</button>
+          </div>
           <div class="space-y-0.5">${grouped[cat].map(f => renderFieldRow(mc, f, cachedFields[f.odoo_name])).join('')}</div>
         </div>`;
       });
@@ -1195,7 +1192,7 @@
       if (!t || !t.id) return;
       const statusEl = document.getElementById('editorAutosaveStatus');
       if (statusEl) statusEl.textContent = 'Opslaan...';
-      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + t.id, {
+      const res = await apiFetch('/api/claude/dataset-templates/' + t.id, {
         method: 'PUT',
         body: JSON.stringify({ name: t.name, description: t.description, model_config: t.model_config, field_categories: t.field_categories })
       });
@@ -1211,9 +1208,26 @@
     }
 
     // ── Admin: Dataset Wizard ─────────────────────────────────────────────────
+    const wzState = { name: '', description: '', categories: [], models: [] };
+    const wzFieldCache = {};
+    function wzGetModel(key) { return wzState.models.find(m => m.key === key) || null; }
+    function wzMakeFields(cached) {
+      return Object.entries(cached).map(([n, m]) => ({
+        odoo_name: n, alias: m.string || n, enabled: false,
+        type: m.type || '', relation: m.relation || null, category: null, child_key: null
+      }));
+    }
+    async function wzFetchFields(odooModel) {
+      if (wzFieldCache[odooModel]) return wzFieldCache[odooModel];
+      const res = await apiFetch('/api/claude/odoo/fields?model=' + encodeURIComponent(odooModel));
+      if (!res.success) throw new Error(res.error?.message || 'Velden laden mislukt voor ' + odooModel);
+      wzFieldCache[odooModel] = res.data || {};
+      return wzFieldCache[odooModel];
+    }
+
     function openDatasetWizard() {
       wizardStep = 0;
-      wizardOdooFields = {};
+      wzState.name = ''; wzState.description = ''; wzState.categories = []; wzState.models = [];
       document.getElementById('wizardName').value = '';
       document.getElementById('wizardDesc').value = '';
       document.getElementById('wizardModel').value = 'x_sales_action_sheet';
@@ -1232,6 +1246,8 @@
       document.getElementById('wizardPrevBtn').classList.toggle('hidden', step === 0);
       document.getElementById('wizardNextBtn').classList.toggle('hidden', step === 2);
       document.getElementById('wizardSaveBtn').classList.toggle('hidden', step !== 2);
+      if (step === 1) renderWizardModelTree();
+      if (step === 2) renderWizardCategoryStep();
       lucide.createIcons();
     }
 
@@ -1242,70 +1258,226 @@
       if (wizardStep === 0) {
         const name = document.getElementById('wizardName').value.trim();
         const model = document.getElementById('wizardModel').value.trim();
-        if (!name) { showWizardError('Voer een naam in'); return; }
-        if (!model) { showWizardError('Voer een modelnaam in'); return; }
-        document.getElementById('wizardModelPreview').textContent = model;
-        document.getElementById('wizardFieldsLoader').classList.remove('hidden');
-        document.getElementById('wizardStep2').classList.add('hidden');
-        showWizardStep(1);
-        const res = await apiFetch('/insights/api/sales-insights/dataset-templates/model-fields?model=' + encodeURIComponent(model));
-        document.getElementById('wizardFieldsLoader').classList.add('hidden');
-        if (!res.success) { showWizardError(res.error?.message || 'Velden laden mislukt'); return; }
-        wizardOdooFields = res.data || {};
-        renderWizardFields();
-        showWizardStep(2);
-      }
+        if (!name) return showWizardError('Voer een naam in');
+        if (!model) return showWizardError('Voer een Odoo-modelnaam in');
+        wzState.name = name;
+        wzState.description = document.getElementById('wizardDesc').value.trim();
+        const btn = document.getElementById('wizardNextBtn');
+        btn.disabled = true; btn.textContent = 'Laden...';
+        try { await wzFetchFields(model); }
+        catch (e) {
+          showWizardError(e.message || 'Velden laden mislukt');
+          btn.disabled = false; btn.innerHTML = 'Volgende <i data-lucide="arrow-right" class="w-4 h-4"></i>';
+          lucide.createIcons(); return;
+        }
+        if (!wzState.models.find(m => m.key === 'primary')) {
+          wzState.models = [{ key: 'primary', odoo_model: model, label: name,
+            parent_key: null, via_field: null, depth: 0, fields: wzMakeFields(wzFieldCache[model]) }];
+        }
+        btn.disabled = false; btn.innerHTML = 'Volgende <i data-lucide="arrow-right" class="w-4 h-4"></i>';
+        lucide.createIcons(); showWizardStep(1);
+      } else if (wizardStep === 1) { showWizardStep(2); }
     }
 
     function showWizardError(msg) {
-      const el = document.getElementById('wizardError');
-      el.textContent = msg;
-      el.classList.remove('hidden');
+      const el = document.getElementById('wizardError'); el.textContent = msg; el.classList.remove('hidden');
     }
 
-    function renderWizardFields() {
-      const container = document.getElementById('wizardFieldList');
-      const entries = Object.entries(wizardOdooFields).slice(0, 200);
-      if (!entries.length) {
-        container.innerHTML = '<p class="text-sm text-base-content/40">Geen velden gevonden.</p>';
+    function renderWizardModelTree() {
+      const container = document.getElementById('wizardStep1');
+      if (!container) return;
+      if (!wzState.models.length) {
+        container.innerHTML = '<p class="text-sm text-base-content/40 text-center py-8">Geen modellen geladen.</p>';
         return;
       }
-      container.innerHTML = entries.map(([fname, fmeta]) =>
-        `<label class="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-base-200 cursor-pointer group">
-          <input type="checkbox" class="checkbox checkbox-xs" data-field="${fname}" />
-          <div class="flex-1 min-w-0">
-            <span class="text-sm font-medium mr-1">${fmeta.string || fname}</span>
-            <code class="text-xs text-base-content/40 font-mono">${fname}</code>
-            <span class="badge badge-ghost badge-xs ml-1">${fmeta.type || ''}</span>
-          </div>
-          <input type="text" class="input input-xs input-ghost w-28 hidden group-has-[:checked]:block"
-            placeholder="alias" data-alias="${fname}" />
-        </label>`
-      ).join('');
+      const sorted = wzState.models.slice().sort((a, b) => a.depth - b.depth || a.key.localeCompare(b.key));
+      let html = '';
+      sorted.forEach(m => {
+        const ms = m.depth > 0 ? ' style="margin-left:' + (m.depth * 1.5) + 'rem"' : '';
+        const en = (m.fields || []).filter(f => f.enabled).length;
+        const tot = (m.fields || []).length;
+        html += '<div class="card border border-base-300 mb-2 bg-base-100"' + ms + '>'
+          + '<div class="card-body p-3">'
+          + '<div class="flex items-center gap-2 flex-wrap mb-2">'
+          + '<span class="font-semibold text-sm">' + (m.label || m.key) + '</span>'
+          + '<code class="text-xs text-base-content/40 font-mono">' + m.odoo_model + '</code>'
+          + (m.depth === 0 ? '<span class="badge badge-primary badge-xs">primair</span>' : '<span class="badge badge-ghost badge-xs">via ' + m.via_field + '</span>')
+          + '<div class="ml-auto flex items-center gap-1">'
+          + '<span class="text-xs text-base-content/40 mr-1">' + en + '/' + tot + '</span>'
+          + '<button class="btn btn-ghost btn-xs" data-action="wzToggleAll" data-key="' + m.key + '" data-val="1">Aan</button>'
+          + '<button class="btn btn-ghost btn-xs" data-action="wzToggleAll" data-key="' + m.key + '" data-val="0">Uit</button>'
+          + (m.depth > 0 ? '<button class="btn btn-ghost btn-xs text-error" data-action="wzRemoveModel" data-key="' + m.key + '"><i data-lucide="trash-2" class="w-3 h-3"></i></button>' : '')
+          + '</div></div>'
+          + '<div class="space-y-0.5 max-h-56 overflow-y-auto pr-1">'
+          + (m.fields || []).map(f => renderWizardFieldRow(m, f)).join('')
+          + '</div></div></div>';
+      });
+      container.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    function renderWizardFieldRow(model, f) {
+      const tc = TYPE_COLORS[f.type] || 'badge-ghost';
+      const isRel = (f.type === 'many2one' || f.type === 'many2many') && f.relation;
+      const hasChild = !!f.child_key;
+      let extra = '';
+      if (isRel && !hasChild) {
+        extra = '<button class="btn btn-xs btn-outline gap-1 ml-auto shrink-0 opacity-0 group-hover:opacity-100"'
+          + ' data-action="wzAddModel" data-key="' + model.key + '" data-field="' + f.odoo_name + '" data-relation="' + (f.relation || '') + '">'
+          + '<i data-lucide="git-branch" class="w-3 h-3"></i> Toevoegen</button>';
+      } else if (isRel && hasChild) {
+        extra = '<span class="badge badge-success badge-xs ml-auto shrink-0">→ submodel</span>';
+      }
+      return '<div class="flex items-center gap-2 py-1 px-2 rounded hover:bg-base-200 group">'
+        + '<input type="checkbox" class="checkbox checkbox-xs shrink-0"' + (f.enabled ? ' checked' : '')
+        + ' data-change-action="wzToggleField" data-key="' + model.key + '" data-field="' + f.odoo_name + '" />'
+        + '<span class="text-sm truncate flex-1 min-w-0" title="' + f.odoo_name + '">' + (f.alias || f.odoo_name) + '</span>'
+        + '<code class="text-xs text-base-content/30 font-mono shrink-0 hidden group-hover:inline-block">' + f.odoo_name + '</code>'
+        + '<span class="badge ' + tc + ' badge-xs shrink-0">' + f.type + '</span>'
+        + extra + '</div>';
+    }
+
+    async function wzAddModel(parentKey, fieldName, relationModel) {
+      const childKey = parentKey + '__' + fieldName;
+      if (wzState.models.find(m => m.key === childKey)) { showAlert('<span>Dit submodel is al toegevoegd</span>', 'info'); return; }
+      const pm = wzGetModel(parentKey);
+      const pf = pm ? (pm.fields || []).find(f => f.odoo_name === fieldName) : null;
+      let fields;
+      try { fields = await wzFetchFields(relationModel); }
+      catch (e) { showAlert('<span>' + (e.message || 'Laden mislukt') + '</span>', 'error'); return; }
+      const newModel = {
+        key: childKey, odoo_model: relationModel, label: pf ? (pf.alias || fieldName) : fieldName,
+        parent_key: parentKey, via_field: fieldName, depth: (pm ? pm.depth : 0) + 1,
+        fields: wzMakeFields(fields)
+      };
+      if (pf) pf.child_key = childKey;
+      wzState.models.push(newModel);
+      renderWizardModelTree();
+    }
+
+    function wzRemoveModel(key) {
+      const rm = new Set();
+      const collect = k => { rm.add(k); wzState.models.forEach(m => { if (m.parent_key === k) collect(m.key); }); };
+      collect(key);
+      wzState.models.forEach(m => { (m.fields || []).forEach(f => { if (rm.has(f.child_key)) f.child_key = null; }); });
+      wzState.models = wzState.models.filter(m => !rm.has(m.key));
+      renderWizardModelTree();
+    }
+
+    function wzToggleAll(modelKey, enabled) {
+      const m = wzGetModel(modelKey);
+      if (m) { (m.fields || []).forEach(f => { f.enabled = enabled; }); renderWizardModelTree(); }
+    }
+
+    function renderWizardCategoryStep() {
+      const container = document.getElementById('wizardStep2');
+      if (!container) return;
+      const cats = wzState.categories;
+      let html = '<div class="flex items-center gap-2 flex-wrap p-3 bg-base-200 rounded-box mb-4">'
+        + '<span class="text-xs font-medium text-base-content/60 shrink-0">Categorieën:</span>'
+        + cats.map(c => '<span class="badge badge-outline gap-1 text-xs">' + c
+          + ' <button class="hover:text-error" data-action="wzRemoveCategory" data-cat="' + c + '">×</button></span>').join('')
+        + '<input type="text" id="wzNewCatInput" class="input input-xs input-bordered w-32" placeholder="+ Nieuwe..." />'
+        + '<button class="btn btn-ghost btn-xs" data-action="wzAddCategoryBtn"><i data-lucide="plus" class="w-3 h-3"></i></button>'
+        + '</div>';
+      const sorted = wzState.models.slice().sort((a, b) => a.depth - b.depth);
+      let anyEnabled = false;
+      sorted.forEach(m => {
+        const ef = (m.fields || []).filter(f => f.enabled);
+        if (!ef.length) return;
+        anyEnabled = true;
+        const ms = m.depth > 0 ? ' style="margin-left:' + (m.depth * 1.5) + 'rem"' : '';
+        html += '<div class="card border border-base-300 mb-2 bg-base-100"' + ms + '>'
+          + '<div class="card-body p-3">'
+          + '<p class="font-semibold text-sm mb-2">' + (m.label || m.key)
+          + ' <code class="text-xs text-base-content/40 font-mono">' + m.odoo_model + '</code></p>';
+        if (!cats.length) {
+          html += '<p class="text-xs text-base-content/40 italic mb-2">Voeg categorieën toe bovenaan om velden te groeperen.</p>'
+            + '<div class="space-y-0.5">' + ef.map(f => renderWizardCatRow(m, f)).join('') + '</div>';
+        } else {
+          const grouped = {}; const uncat = [];
+          ef.forEach(f => {
+            const c = f.category && cats.includes(f.category) ? f.category : null;
+            if (c) { if (!grouped[c]) grouped[c] = []; grouped[c].push(f); } else uncat.push(f);
+          });
+          cats.forEach(cat => {
+            const cfs = grouped[cat] || [];
+            html += '<div class="mb-2">'
+              + '<div class="flex items-center gap-1 mb-1 px-1">'
+              + '<span class="text-xs font-medium text-base-content/50">' + cat + '</span>'
+              + '<span class="badge badge-ghost badge-xs">' + cfs.length + '</span>'
+              + '</div>'
+              + (cfs.length ? '<div class="space-y-0.5">' + cfs.map(f => renderWizardCatRow(m, f)).join('') + '</div>'
+                : '<p class="text-xs text-base-content/30 italic px-2">Geen velden.</p>')
+              + '</div>';
+          });
+          if (uncat.length) {
+            html += '<div class="mb-2">'
+              + '<div class="flex items-center gap-1 mb-1 px-1">'
+              + '<span class="text-xs font-medium text-base-content/50">Geen categorie</span>'
+              + '<span class="badge badge-ghost badge-xs">' + uncat.length + '</span>'
+              + '</div>'
+              + '<div class="space-y-0.5">' + uncat.map(f => renderWizardCatRow(m, f)).join('') + '</div>'
+              + '</div>';
+          }
+        }
+        html += '</div></div>';
+      });
+      if (!anyEnabled) {
+        html += '<div class="alert text-sm mt-2"><span>Geen velden geselecteerd — ga terug naar stap 2 om velden aan te zetten.</span></div>';
+      }
+      container.innerHTML = html;
+      const inp = document.getElementById('wzNewCatInput');
+      if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') { wzAddCategory(inp.value); inp.value = ''; } });
+      lucide.createIcons();
+    }
+
+    function renderWizardCatRow(model, f) {
+      const cats = wzState.categories;
+      const opts = cats.map(c => '<option value="' + c + '"' + (f.category === c ? ' selected' : '') + '>' + c + '</option>').join('');
+      return '<div class="flex items-center gap-2 py-1 px-2 rounded hover:bg-base-200">'
+        + '<span class="flex-1 text-sm truncate">' + (f.alias || f.odoo_name) + '</span>'
+        + '<code class="text-xs text-base-content/30 font-mono shrink-0">' + f.odoo_name + '</code>'
+        + (cats.length
+          ? '<select class="select select-xs select-bordered w-28 shrink-0"'
+            + ' data-change-action="wzSetCategory" data-key="' + model.key + '" data-field="' + f.odoo_name + '">'
+            + '<option value="">— geen —</option>' + opts + '</select>'
+          : '')
+        + '</div>';
+    }
+
+    function wzAddCategory(name) {
+      name = (name || '').trim().replace(/['"<>&]/g, '');
+      if (!name || wzState.categories.includes(name)) return;
+      wzState.categories.push(name);
+      renderWizardCategoryStep();
+    }
+
+    function wzRemoveCategory(name) {
+      wzState.categories = wzState.categories.filter(c => c !== name);
+      wzState.models.forEach(m => { (m.fields || []).forEach(f => { if (f.category === name) f.category = null; }); });
+      renderWizardCategoryStep();
     }
 
     async function wizardSave() {
-      const name = document.getElementById('wizardName').value.trim();
-      const description = document.getElementById('wizardDesc').value.trim() || null;
-      const model = document.getElementById('wizardModel').value.trim();
-      const checked = Array.from(document.querySelectorAll('#wizardFieldList input[type=checkbox]:checked'));
-      const fields = checked.map(cb => {
-        const fname = cb.dataset.field;
-        const aliasEl = document.querySelector(`input[data-alias="${fname}"]`);
-        const alias = (aliasEl?.value?.trim()) || wizardOdooFields[fname]?.string || fname;
-        return { odoo_name: fname, alias, enabled: true };
-      });
-      const model_config = [{ key: 'primary', odoo_model: model, is_primary: true, fields }];
+      if (!wzState.name.trim()) return showWizardError('Naam ontbreekt');
+      if (!wzState.models.length) return showWizardError('Geen modellen geconfigureerd');
+      const model_config = wzState.models.map(m => ({
+        key: m.key, odoo_model: m.odoo_model, label: m.label,
+        parent_key: m.parent_key || null, via_field: m.via_field || null,
+        depth: m.depth || 0, is_primary: m.depth === 0, fields: m.fields
+      }));
       const btn = document.getElementById('wizardSaveBtn');
       btn.disabled = true;
-      const res = await apiFetch('/insights/api/sales-insights/dataset-templates', {
+      const res = await apiFetch('/api/claude/dataset-templates', {
         method: 'POST',
-        body: JSON.stringify({ name, description, model_config })
+        body: JSON.stringify({ name: wzState.name, description: wzState.description || null,
+          model_config, field_categories: wzState.categories })
       });
       btn.disabled = false;
       if (res.success) {
         document.getElementById('datasetWizardModal').close();
-        showAlert('<span>Template aangemaakt — je kunt hem nu meteen bewerken.</span>', 'success');
+        showAlert('<span>✅ Template aangemaakt — je kunt hem meteen bewerken.</span>', 'success');
         loadDatasetTemplates();
         openDatasetEditor(res.data.id);
       } else {
@@ -1344,6 +1516,22 @@
       else if (action === 'wizardNext')              wizardNext();
       else if (action === 'wizardPrev')              wizardPrev();
       else if (action === 'wizardSave')              wizardSave();
+      else if (action === 'wzAddModel')              wzAddModel(key, field, el.dataset.relation);
+      else if (action === 'wzRemoveModel')           wzRemoveModel(key);
+      else if (action === 'wzToggleAll')             wzToggleAll(key, el.dataset.val === '1');
+      else if (action === 'wzRemoveCategory')        wzRemoveCategory(cat);
+      else if (action === 'wzAddCategoryBtn') {
+        const inp = document.getElementById('wzNewCatInput');
+        if (inp && inp.value.trim()) { wzAddCategory(inp.value.trim()); inp.value = ''; }
+      }
+      else if (action === 'toggleCategory') {
+        const enabled = el.dataset.val === '1';
+        const mc = (editorState.template?.model_config || []).find(m => m.key === key);
+        if (mc) {
+          (mc.fields || []).forEach(f => { if (f.category === cat) f.enabled = enabled; });
+          scheduleAutosave(); renderModelTree(); renderSummary();
+        }
+      }
       else if (action === 'copyVal')                 copyVal(target);
     });
 
@@ -1357,7 +1545,7 @@
         if (change === 'category') mutateField(key, field, f => { f.category = el2.value || null; });
         return;
       }
-      // data-change-action handler — legacy + toggleAllFields
+      // data-change-action handler — legacy + wizard + toggleAllFields
       const el = e.target.closest('[data-change-action]');
       if (!el) return;
       const { changeAction, key, field } = el.dataset;
@@ -1365,6 +1553,16 @@
       else if (changeAction === 'updateFieldCategory') updateFieldCategory(key, field, el.value);
       else if (changeAction === 'toggleField')         toggleField(key, field, el.checked);
       else if (changeAction === 'toggleAllFields')     toggleAllFields(key, el.checked);
+      else if (changeAction === 'wzToggleField') {
+        const wzm = wzState.models.find(m => m.key === key);
+        const wzf = wzm ? wzm.fields.find(f => f.odoo_name === field) : null;
+        if (wzf) { wzf.enabled = el.checked; renderWizardModelTree(); }
+      }
+      else if (changeAction === 'wzSetCategory') {
+        const wzm = wzState.models.find(m => m.key === key);
+        const wzf = wzm ? wzm.fields.find(f => f.odoo_name === field) : null;
+        if (wzf) wzf.category = el.value || null;
+      }
     });
 
     // ── Navbar ────────────────────────────────────────────────────────────────

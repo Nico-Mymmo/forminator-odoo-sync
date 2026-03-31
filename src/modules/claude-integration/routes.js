@@ -31,7 +31,13 @@ import { createChallenge, validateAndConsumeChallenge } from './lib/challenge-se
 import { createToken, validateToken, revokeAllTokensForIntegration } from './lib/token-service.js';
 import { buildContext } from './lib/context-builder.js';
 import { logContextCall, getAuditLog } from './lib/audit-service.js';
-import { getDefaultTemplate } from './lib/dataset-service.js';
+import {
+  getDefaultTemplate, listActiveTemplates, listAllTemplates, getTemplate,
+  createTemplate, updateTemplate,
+  setDefaultTemplate as setDefaultTemplateInDb,
+  deactivateTemplate as deactivateTemplateInDb,
+  getOdooModelFields
+} from './lib/dataset-service.js';
 
 // ─── KV rate limiter ─────────────────────────────────────────────────────────
 
@@ -424,18 +430,93 @@ const getAuditHandler = requireAdmin(async function getAuditHandler(context) {
   }
 });
 
+// ─── Dataset template management (admin) ─────────────────────────────────────
+
+const listDatasetTemplatesHandler = requireAuth(async function listDatasetTemplatesHandler(context) {
+  const { env, user, request } = context;
+  const all = new URL(request.url).searchParams.get('all') === 'true';
+  try {
+    const data = (user.role === 'admin' && all) ? await listAllTemplates(env) : await listActiveTemplates(env);
+    return ok(data);
+  } catch (e) { return err(e.message, 'LIST_FAILED', 500); }
+});
+
+const createDatasetTemplateHandler = requireAdmin(async function createDatasetTemplateHandler(context) {
+  const { request, env, user } = context;
+  let body;
+  try { body = await request.json(); } catch (_) { return err('Invalid JSON', 'INVALID_BODY'); }
+  const { name, description, model_config, field_categories } = body ?? {};
+  if (!name || typeof name !== 'string' || !name.trim()) return err('name is required', 'VALIDATION_FAILED');
+  if (!Array.isArray(model_config)) return err('model_config must be an array', 'VALIDATION_FAILED');
+  try {
+    const template = await createTemplate(env, user.id, { name, description, model_config, field_categories });
+    return ok(template, 201);
+  } catch (e) { return err(e.message, 'CREATE_FAILED', 500); }
+});
+
+const getDatasetTemplateHandler = requireAuth(async function getDatasetTemplateHandler(context) {
+  const { env, params } = context;
+  const template = await getTemplate(env, params.id);
+  if (!template) return err('Template not found', 'NOT_FOUND', 404);
+  return ok(template);
+});
+
+const updateDatasetTemplateHandler = requireAdmin(async function updateDatasetTemplateHandler(context) {
+  const { request, env, params } = context;
+  let body;
+  try { body = await request.json(); } catch (_) { return err('Invalid JSON', 'INVALID_BODY'); }
+  try {
+    const template = await updateTemplate(env, params.id, body);
+    return ok(template);
+  } catch (e) { return err(e.message, 'UPDATE_FAILED', 500); }
+});
+
+const setDefaultDatasetTemplateHandler = requireAdmin(async function setDefaultDatasetTemplateHandler(context) {
+  const { env, params } = context;
+  try {
+    const template = await setDefaultTemplateInDb(env, params.id);
+    return ok(template);
+  } catch (e) { return err(e.message, 'SET_DEFAULT_FAILED', 500); }
+});
+
+const deactivateDatasetTemplateHandler = requireAdmin(async function deactivateDatasetTemplateHandler(context) {
+  const { env, params } = context;
+  try {
+    await deactivateTemplateInDb(env, params.id);
+    return ok({ deactivated: true });
+  } catch (e) { return err(e.message, 'DEACTIVATE_FAILED', 500); }
+});
+
+const getOdooFieldsHandler = requireAdmin(async function getOdooFieldsHandler(context) {
+  const { request, env } = context;
+  const model = new URL(request.url).searchParams.get('model');
+  if (!model || typeof model !== 'string' || !model.trim()) return err('model required', 'VALIDATION_FAILED');
+  try {
+    const fields = await getOdooModelFields(env, model.trim());
+    return ok(fields);
+  } catch (e) { return err(e.message, 'FIELDS_FAILED', 500); }
+});
+
 // ─── Route map ────────────────────────────────────────────────────────────────
 // Keys are subpaths relative to module.route ('/api/claude').
 // resolveModuleRoute strips the prefix before matching.
 
 export const routes = {
   'GET /': async () => Response.redirect('/insights/claude', 302),
-  'GET /integrations':             listIntegrationsHandler,
-  'POST /integrations':            createIntegrationHandler,
-  'DELETE /integrations/:id':      revokeIntegrationHandler,
-  'POST /integrations/:id/rotate': rotateSecretHandler,
-  'POST /session/request':         requestChallenge,
-  'POST /session/authorize':       authorizeSession,
-  'GET /context/full':             getContext,
-  'GET /audit':                    getAuditHandler
+  'GET /integrations':                           listIntegrationsHandler,
+  'POST /integrations':                          createIntegrationHandler,
+  'DELETE /integrations/:id':                    revokeIntegrationHandler,
+  'POST /integrations/:id/rotate':               rotateSecretHandler,
+  'POST /session/request':                       requestChallenge,
+  'POST /session/authorize':                     authorizeSession,
+  'GET /context/full':                           getContext,
+  'GET /audit':                                  getAuditHandler,
+  // Dataset template management
+  'GET /dataset-templates':                      listDatasetTemplatesHandler,
+  'POST /dataset-templates':                     createDatasetTemplateHandler,
+  'GET /dataset-templates/:id':                  getDatasetTemplateHandler,
+  'PUT /dataset-templates/:id':                  updateDatasetTemplateHandler,
+  'POST /dataset-templates/:id/set-default':     setDefaultDatasetTemplateHandler,
+  'DELETE /dataset-templates/:id':               deactivateDatasetTemplateHandler,
+  'GET /odoo/fields':                            getOdooFieldsHandler
 };
