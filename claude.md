@@ -3,6 +3,174 @@
 ## Stack
 
 - **Backend:** Cloudflare Worker (`src/`) — enkel API routes en server-logica
+- **Frontend:** Statische bestanden in `public/` — HTML + JS
+- **Database:** Supabase (PostgreSQL) via `src/lib/database.js`
+- **UI framework:** daisyUI 4 + Tailwind (via CDN in HTML bestanden)
+- **Icons:** Lucide (via CDN)
+- **Auth:** Sessie-cookie (`session=`) via `src/lib/auth/session.js`
+
+---
+
+## REGEL 1 — UI hoort in `/public`, niet in de Worker
+
+Elke module-UI is een statisch HTML bestand in `public/`.
+
+**Worker route serveert via ASSETS:**
+```js
+'GET /': async (context) => {
+  return context.env.ASSETS.fetch(
+    new Request(new URL('/{module-naam}.html', context.request.url))
+  );
+}
+```
+
+**NOOIT** HTML strings genereren in de Worker. NOOIT `new Response('<html>...')` voor een volledige pagina. NOOIT `ui.js` bestanden met HTML strings aanmaken.
+
+**Referentie:** `src/modules/admin/module.js` doet dit correct met `admin-dashboard.html`.
+
+---
+
+## REGEL 2 — HTML in `/public` gebruikt DOM-manipulatie of innerHTML met data-attributen
+
+```js
+// ✅ DOM manipulatie
+const btn = document.createElement('button');
+btn.className = 'btn btn-primary';
+btn.dataset.action = 'openItem';
+btn.dataset.id = item.id;
+container.appendChild(btn);
+
+// ✅ Template literals zijn OK in .html bestanden — geen build stap, geen esbuild
+container.innerHTML = items.map(item =>
+  `<div data-action="openItem" data-id="${item.id}">${item.name}</div>`
+).join('');
+
+// ❌ NOOIT — variabelen in inline event handlers
+container.innerHTML = '<button onclick="openItem(\'' + item.id + '\')">...</button>';
+```
+
+---
+
+## REGEL 3 — Event handlers via data-attributen + centrale listener
+
+```js
+// ✅ In HTML
+`<button data-action="deleteItem" data-id="${item.id}">Verwijder</button>`
+
+// ✅ Centrale listener
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const { action, id } = el.dataset;
+  if (action === 'deleteItem') deleteItem(id);
+});
+
+// ❌ NOOIT
+`<button onclick="deleteItem('${item.id}')">Verwijder</button>`
+```
+
+---
+
+## REGEL 4 — Worker routes retourneren altijd JSON (behalve GET /)
+
+```js
+// ✅ API route
+return new Response(JSON.stringify({ success: true, data }), {
+  headers: { 'Content-Type': 'application/json' }
+});
+
+// ✅ UI route — enige uitzondering
+'GET /': async (context) => {
+  return context.env.ASSETS.fetch(
+    new Request(new URL('/mijn-module.html', context.request.url))
+  );
+}
+```
+
+---
+
+## REGEL 5 — Auth in `/public` HTML bestanden
+
+```js
+// Elke API call met credentials
+const res = await fetch('/api/...', {
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' }
+});
+
+// 401 → redirect naar login
+if (res.status === 401) { window.location.href = '/'; return; }
+```
+
+De navbar zit in elke HTML pagina als plain HTML — niet als server-rendered component.
+
+---
+
+## Bestaande modules — UI status
+
+| Module | Route | UI bestand | Status |
+|---|---|---|---|
+| home | `/` | `src/modules/home/ui.js` | ⚠️ Legacy — niet herschrijven tenzij gevraagd |
+| admin | `/admin` | `public/admin-dashboard.html` | ✅ Correct |
+| profile | `/profile` | `src/modules/profile/ui.js` | ⚠️ Legacy |
+| forminator-sync | `/forminator` | `src/modules/forminator-sync/ui.js` | ⚠️ Legacy |
+| forminator-sync-v2 | `/forminator-v2` | in `routes.js` | ⚠️ Legacy |
+| project-generator | `/projects` | `src/modules/project-generator/ui.js` | ⚠️ Legacy |
+| sales-insight-explorer | `/insights` | `src/modules/sales-insight-explorer/ui-*.js` | ⚠️ Legacy — migratie bezig |
+| event-operations | `/events` | in `routes.js` | ⚠️ Legacy |
+| mail-signature-designer | `/mail-signatures` | in `routes.js` | ⚠️ Legacy |
+| asset-manager | `/assets` | in `routes.js` | ⚠️ Legacy |
+| cx-powerboard | `/cx-powerboard` | in `routes.js` | ⚠️ Legacy |
+| wp-form-schemas | `/wp-sites` | in `routes.js` | ⚠️ Legacy |
+| claude-integration | `/api/claude` | onderdeel van `/insights` | ⚠️ Legacy |
+
+**Legacy modules worden NIET aangeraakt tenzij expliciet gevraagd.** Bij aanpassingen aan legacy UI: gebruik string concatenatie (+), nooit geneste template literals, nooit variabelen in inline event handlers.
+
+---
+
+## Nieuwe module checklist
+
+Bij elke nieuwe module:
+- [ ] `public/{module-naam}.html` aangemaakt
+- [ ] Worker `GET /` serveert via `context.env.ASSETS.fetch()`
+- [ ] Geen `ui.js` bestand aangemaakt in de module map
+- [ ] Geen HTML strings in de Worker
+- [ ] Client-side JS gebruikt data-attributen voor event handlers
+- [ ] API routes retourneren JSON
+- [ ] Auth via `credentials: 'include'` + 401 redirect
+
+---
+
+## Bestandsstructuur referentie
+
+```
+src/
+  index.js              — Worker entry point, module router
+  lib/
+    database.js         — getSupabaseClient(env)
+    odoo.js             — searchRead(), executeKw()
+    auth/
+      middleware.js     — requireAuth(), requireAdmin()
+      session.js        — validateSession()
+    components/
+      navbar.js         — LEGACY: server-rendered navbar string
+  modules/
+    {module}/
+      module.js         — module definitie + routes
+      routes.js         — route handlers (alleen JSON responses)
+      (geen ui.js meer voor nieuwe modules)
+
+public/
+  {module-naam}.html    — volledige UI voor elke module
+  {module-naam}.js      — optionele client-side logica (als het groot wordt)
+
+supabase/
+  migrations/           — SQL migraties, timestamp prefix: YYYYMMDDHHMMSS_naam.sql
+```
+
+## Stack
+
+- **Backend:** Cloudflare Worker (`src/`) — enkel API routes en server-logica
 - **Frontend:** Statische bestanden in `public/` — HTML, CSS, JavaScript
 - **Database:** Supabase (PostgreSQL)
 - **UI framework:** daisyUI 4 + Tailwind (via CDN in HTML bestanden)

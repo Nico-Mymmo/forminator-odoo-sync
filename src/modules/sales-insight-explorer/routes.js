@@ -37,7 +37,7 @@ import { normalizeToExportResult } from './lib/export/export-normalizer.js';
 import exportRegistry from './lib/export/export-registry.js';
 import jsonExporter from './lib/export/export-json.js';
 import xlsxExporter from './lib/export/export-xlsx.js';
-import { queryBuilderUI, claudeSettingsUI } from './ui.js';
+import { queryBuilderUI } from './ui.js';
 import { runPhase0Validation } from './tests/phase0-validation.js';
 import { searchRead } from '../../lib/odoo.js';
 import { enrichWithLeads } from './lib/lead-enrichment.js';
@@ -1352,18 +1352,9 @@ async function claudeSettingsPage(context) {
   if (!context.user) {
     return Response.redirect(new URL('/', context.request.url), 302);
   }
-
-  // Always use the configured production URL so that Claude project instructions
-  // generated from a local dev environment still point to the live API.
-  const reqUrl = new URL(context.request.url);
-  const isLocal = reqUrl.hostname === 'localhost' || reqUrl.hostname === '127.0.0.1';
-  const baseUrl = isLocal
-    ? (context.env.APP_BASE_URL ?? reqUrl.origin)
-    : reqUrl.origin;
-
-  return new Response(claudeSettingsUI(context.user, baseUrl), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' }
-  });
+  return context.env.ASSETS.fetch(
+    new Request(new URL('/claude-settings.html', context.request.url))
+  );
 }
 
 /**
