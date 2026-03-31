@@ -399,6 +399,12 @@ export function claudeSettingsUI(user, baseUrl = '') {
           <code id="newSecretVal" class="font-mono text-sm break-all flex-1 select-all"></code>
           <button class="btn btn-ghost btn-xs" onclick="copyVal('newSecretVal')"><i data-lucide="copy" class="w-3 h-3"></i></button>
         </div>
+        <div class="pt-2">
+          <button class="btn btn-outline btn-sm w-full gap-2" onclick="openInstructionsAfterRotate()">
+            <i data-lucide="clipboard-copy" class="w-4 h-4"></i>
+            Kopieer Project Instructies
+          </button>
+        </div>
       </div>
       <div class="modal-action">
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('rotateModal').close()">Sluiten</button>
@@ -418,7 +424,8 @@ export function claudeSettingsUI(user, baseUrl = '') {
       </h3>
       <p class="text-sm text-base-content/60 mb-3">
         Kopieer dit naar <strong>Project Instructions</strong> in je Claude-project.<br/>
-        De placeholders <code class="font-mono text-xs">{{CLIENT_ID}}</code> en <code class="font-mono text-xs">{{CLIENT_SECRET}}</code> zijn al ingevuld als je hier vanuit het secret-panel klikt.
+        Na aanmaken of regenereren worden Client ID en Secret automatisch ingevuld.
+        Voor bestaande koppelingen zonder bekend secret: regenereer het secret om volledige instructies te krijgen.
       </p>
       <div class="relative">
         <textarea id="instructionsText" class="textarea textarea-bordered font-mono text-xs w-full" rows="20" readonly></textarea>
@@ -438,6 +445,8 @@ export function claudeSettingsUI(user, baseUrl = '') {
     let integrations = [];
     let testClientId = null;
     let rotateIntegrationId = null;
+    let rotateClientId = null;
+    let rotateSecret = null;
     let lastCreatedClientId = null;
     let lastCreatedSecret = null;
 
@@ -598,6 +607,8 @@ export function claudeSettingsUI(user, baseUrl = '') {
     // ── Rotate ─────────────────────────────────────────────────────────────
     function openRotate(id) {
       rotateIntegrationId = id;
+      rotateClientId = null;
+      rotateSecret = null;
       document.getElementById('rotateNewSecret').classList.add('hidden');
       document.getElementById('newSecretVal').textContent = '';
       const btn = document.getElementById('rotateBtn');
@@ -613,8 +624,11 @@ export function claudeSettingsUI(user, baseUrl = '') {
       const res = await apiFetch('/api/claude/integrations/' + rotateIntegrationId + '/rotate', { method: 'POST' });
       btn.disabled = false;
       if (res.success) {
-        document.getElementById('newSecretVal').textContent = res.data.client_secret;
+        rotateClientId = res.data.integration?.client_id ?? null;
+        rotateSecret = res.data.client_secret;
+        document.getElementById('newSecretVal').textContent = rotateSecret;
         document.getElementById('rotateNewSecret').classList.remove('hidden');
+        lucide.createIcons();
         loadIntegrations();
       } else {
         showAlert('<span>' + (res.error?.message ?? 'Regenereren mislukt') + '</span>', 'error');
@@ -696,34 +710,17 @@ export function claudeSettingsUI(user, baseUrl = '') {
     // ── Instructions ───────────────────────────────────────────────────────
     function buildInstructionsText(clientId, secret) {
       const base = INSTRUCTIONS_BASE_URL || window.location.origin;
-      const cid = clientId ?? '{{ CLIENT_ID }}';
-      const sec = secret ?? '{{ CLIENT_SECRET }}';
+      const cid = clientId ?? '{CLIENT_ID}';
+      const sec = secret ?? '{YOUR_CLIENT_SECRET}';
       const fetchUrl = \`\${base}/api/claude/context/full?client_id=\${cid}&client_secret=\${sec}&timeframe=month&limit=50\`;
-      return \`## Sales Context Gateway — OpenVME
+      return \`## Salesdata ophalen — OpenVME
 
-Je hebt toegang tot real-time salesdata via een beveiligde context API.
-
-### Verplichte regels
-1. Verzin NOOIT leads, kansen of activiteiten. Gebruik ALTIJD de context API.
-2. Verwerk de JSON altijd tot een leesbaar antwoord — dump nooit rauwe JSON.
-3. Toon nooit het client_secret aan de gebruiker.
-
-### Data ophalen — BELANGRIJK: vereiste werkwijze
-
-De web_fetch-tool kan alleen URLs ophalen die de gebruiker zelf in de chat plaatst.
-Volg altijd deze twee stappen:
-
-**Stap 1 — toon de gebruiker de volgende URL en vraag hen die in de chat te plakken:**
-
-\${fetchUrl}
-
-(Je mag timeframe aanpassen naar week/month/quarter/year en limit naar eigen inzicht.)
-
-**Stap 2 — zodra de gebruiker de URL in de chat plakt:** gebruik web_fetch (GET) op die URL en verwerk de response.
-
-Doe dit bij ELKE data-aanvraag. Probeer nooit rechtstreeks de URL uit de instructies op te halen.
-
-Bij een 401-fout: meld dit aan de gebruiker. Probeer niet automatisch opnieuw.
+Bij elke vraag over salesdata, pipeline of leads:
+1. Gebruik web_fetch (GET) op deze URL:
+   \${fetchUrl}
+2. Verwerk de JSON response — dump nooit ruwe JSON.
+3. Verzin nooit leads, kansen of activiteiten. Gebruik altijd de live data.
+4. Toon nooit client_id of client_secret aan de gebruiker.
 
 ### Structuur van de context
 {
@@ -736,15 +733,47 @@ Bij een 401-fout: meld dit aan de gebruiker. Probeer niet automatisch opnieuw.
 }\`;
     }
 
-    function openInstructions() {
-      document.getElementById('instructionsText').value =
-        buildInstructionsText(lastCreatedClientId, lastCreatedSecret);
+    async function openInstructions() {
+      let text;
+      if (lastCreatedClientId) {
+        const res = await apiFetch('/insights/api/sales-insights/claude-instructions?client_id=' + lastCreatedClientId);
+        if (res.success) {
+          text = lastCreatedSecret
+            ? res.data.instructions.replace('{YOUR_CLIENT_SECRET}', lastCreatedSecret)
+            : res.data.instructions;
+        } else {
+          text = buildInstructionsText(lastCreatedClientId, lastCreatedSecret);
+        }
+      } else {
+        text = buildInstructionsText(null, null);
+      }
+      document.getElementById('instructionsText').value = text;
       document.getElementById('instructionsModal').showModal();
     }
 
-    function openInstructionsFor(clientId) {
-      document.getElementById('instructionsText').value =
-        buildInstructionsText(clientId, null);
+    async function openInstructionsFor(clientId) {
+      const res = await apiFetch('/insights/api/sales-insights/claude-instructions?client_id=' + clientId);
+      if (!res.success) {
+        showAlert('<span>' + (res.error?.message ?? 'Instructies ophalen mislukt') + '</span>', 'error');
+        return;
+      }
+      document.getElementById('instructionsText').value = res.data.instructions;
+      document.getElementById('instructionsModal').showModal();
+    }
+
+    async function openInstructionsAfterRotate() {
+      if (!rotateClientId) return;
+      document.getElementById('rotateModal').close();
+      const res = await apiFetch('/insights/api/sales-insights/claude-instructions?client_id=' + rotateClientId);
+      let text;
+      if (res.success) {
+        text = rotateSecret
+          ? res.data.instructions.replace('{YOUR_CLIENT_SECRET}', rotateSecret)
+          : res.data.instructions;
+      } else {
+        text = buildInstructionsText(rotateClientId, rotateSecret);
+      }
+      document.getElementById('instructionsText').value = text;
       document.getElementById('instructionsModal').showModal();
     }
 

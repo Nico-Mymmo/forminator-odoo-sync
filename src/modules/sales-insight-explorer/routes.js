@@ -41,6 +41,8 @@ import { queryBuilderUI, claudeSettingsUI } from './ui.js';
 import { runPhase0Validation } from './tests/phase0-validation.js';
 import { searchRead } from '../../lib/odoo.js';
 import { enrichWithLeads } from './lib/lead-enrichment.js';
+import { requireAuth } from '../../lib/auth/middleware.js';
+import { listIntegrations } from '../claude-integration/lib/integration-service.js';
 
 // Register export formats
 exportRegistry.register('json', jsonExporter);
@@ -1095,6 +1097,82 @@ async function queryBuilderPage(context) {
 }
 
 /**
+ * GET /api/sales-insights/claude-instructions
+ *
+ * Returns generated Claude project instructions for the current user's
+ * active integration. client_id and base_url are pre-filled; the client_secret
+ * placeholder must be replaced client-side when the secret is available.
+ *
+ * The instructions string contains the secret placeholder — the raw secret is
+ * NEVER returned as a top-level field in the response body.
+ *
+ * Query params:
+ *   client_id (optional) — use a specific integration; defaults to first active one
+ */
+const claudeInstructionsHandler = requireAuth(async function claudeInstructionsHandler(context) {
+  const { env, request, user } = context;
+
+  let integrationList;
+  try {
+    integrationList = await listIntegrations(env, user.id);
+  } catch (e) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: { message: 'Kon koppelingen niet ophalen' }
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  const active = integrationList.filter(i => i.is_active);
+  if (!active.length) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: { message: 'Geen actieve koppeling gevonden. Maak eerst een koppeling aan via \'Nieuwe Koppeling\'.' }
+    }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  const url = new URL(request.url);
+  const requestedClientId = url.searchParams.get('client_id');
+  const integration = (requestedClientId && active.find(i => i.client_id === requestedClientId))
+    ?? active[0];
+
+  const reqUrl = new URL(request.url);
+  const isLocal = reqUrl.hostname === 'localhost' || reqUrl.hostname === '127.0.0.1';
+  const baseUrl = isLocal
+    ? (env.APP_BASE_URL ?? reqUrl.origin)
+    : reqUrl.origin;
+
+  const fetchUrl = `${baseUrl}/api/claude/context/full?client_id=${integration.client_id}&client_secret={YOUR_CLIENT_SECRET}&timeframe=month&limit=50`;
+
+  const instructions = `## Salesdata ophalen — OpenVME
+
+Bij elke vraag over salesdata, pipeline of leads:
+1. Gebruik web_fetch (GET) op deze URL:
+   ${fetchUrl}
+2. Verwerk de JSON response — dump nooit ruwe JSON.
+3. Verzin nooit leads, kansen of activiteiten. Gebruik altijd de live data.
+4. Toon nooit client_id of client_secret aan de gebruiker.
+
+### Structuur van de context
+{
+  "meta": { "generated_at", "scope", "timeframe", "lead_count" },
+  "pipeline_summary": [ { "stage", "count", "total_revenue" } ],
+  "leads": [ { "name", "stage_id", "planned_revenue", ... } ],
+  "activities": [ { "type", "lead_name", "date_deadline", "state" } ],
+  "risks": [ { "name", "reason", "date_deadline" } ],
+  "opportunities": [ { "name", "probability", "planned_revenue" } ]
+}`;
+
+  return new Response(JSON.stringify({
+    success: true,
+    data: {
+      instructions,
+      client_id: integration.client_id,
+      base_url:  baseUrl
+    }
+  }), { headers: { 'Content-Type': 'application/json' } });
+});
+
+/**
  * GET /claude
  *
  * Claude integration settings page, embedded in the Sales Insight module.
@@ -1888,6 +1966,7 @@ export const routes = {
   'GET /components/:filename': serveComponent,
   'GET /lib/:filename': serveLib,
   'GET /config/:filename': serveConfig,
+  'GET /api/sales-insights/claude-instructions': claudeInstructionsHandler,
   'GET /api/sales-insights/test/phase0': runPhase0Tests,
   'GET /api/sales-insights/schema': getSchema,
   'GET /api/sales-insights/stages': getCrmStages,
