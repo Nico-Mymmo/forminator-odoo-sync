@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sales Insight Explorer - Query Builder UI
  * 
  * Schema-driven query builder interface.
@@ -135,58 +135,19 @@ export function queryBuilderUI(user) {
 </html>`;
 }
 
-// ─── Claude Integration Settings UI ─────────────────────────────────────────
+// â”€â”€â”€ Claude Integration Settings UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Embedded inside the sales-insight module so users don't need a separate page.
 // All API calls go to /api/claude/... (claude-integration module).
 
-const SCOPE_META = {
-  own_leads:    { label: 'Eigen leads',       desc: 'Alleen jouw leads, minimale velden (geen contactinfo)', color: 'badge-info' },
-  team_view:    { label: 'Team overzicht',    desc: 'Alle teamleads + eigenaar/team-ID',                     color: 'badge-accent' },
-  full_context: { label: 'Volledige context', desc: 'Volledige pipeline incl. relaties en prioriteit',        color: 'badge-primary' }
-};
-
-const SCOPE_ALLOWLIST = {
-  own_leads:    ['id','name','stage_id','planned_revenue','create_date','date_deadline','kanban_state','probability','active'],
-  team_view:    ['id','name','stage_id','planned_revenue','create_date','date_deadline','kanban_state','probability','active','user_id','team_id'],
-  full_context: ['id','name','stage_id','planned_revenue','create_date','date_deadline','kanban_state','probability','active','user_id','team_id','tag_ids','partner_id','priority','type','write_date']
-};
-
-function renderScopePreviews() {
-  return Object.entries(SCOPE_META).map(([scope, meta]) => `
-    <div class="collapse collapse-arrow bg-base-200 mb-1">
-      <input type="checkbox" />
-      <div class="collapse-title font-medium flex items-center gap-2 text-sm">
-        <span class="badge badge-sm ${meta.color}">${scope}</span>
-        ${meta.label}
-      </div>
-      <div class="collapse-content">
-        <p class="text-xs text-base-content/60 mb-2">${meta.desc}</p>
-        <div class="flex flex-wrap gap-1">
-          ${SCOPE_ALLOWLIST[scope].map(f => `<span class="badge badge-ghost badge-xs font-mono">${f}</span>`).join('')}
-        </div>
-      </div>
-    </div>`).join('');
-}
-
 export function claudeSettingsUI(user, baseUrl = '') {
-  const scopeCheckboxes = Object.entries(SCOPE_META).map(([scope, meta]) => `
-    <label class="label cursor-pointer gap-3 justify-start py-2 border-b border-base-200 last:border-0">
-      <input type="checkbox" class="checkbox checkbox-sm" name="scopes" value="${scope}" />
-      <span class="label-text flex flex-col gap-0.5">
-        <span class="font-medium flex items-center gap-1">
-          <span class="badge badge-xs ${meta.color}">${scope}</span>
-          ${meta.label}
-        </span>
-        <span class="text-xs text-base-content/50">${meta.desc}</span>
-      </span>
-    </label>`).join('');
+  const isAdmin = user?.role === 'admin';
 
   return `<!DOCTYPE html>
 <html lang="nl" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Claude Koppeling – Sales Insight Explorer</title>
+  <title>Claude Koppeling â€“ Sales Insight Explorer</title>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -222,7 +183,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
       <!-- Main tabs -->
       <div role="tablist" class="tabs tabs-lifted tabs-lg mb-4">
 
-        <!-- ── Tab 1: Mijn koppelingen ── -->
+        <!-- â”€â”€ Tab 1: Mijn koppelingen â”€â”€ -->
         <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Mijn Koppelingen" checked />
         <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
 
@@ -234,15 +195,14 @@ export function claudeSettingsUI(user, baseUrl = '') {
             </button>
           </div>
 
-          <!-- How it works callout -->
           <div class="alert bg-base-200 border border-base-300 mb-6 text-sm">
             <i data-lucide="info" class="w-5 h-5 shrink-0 text-info"></i>
             <div>
               <p class="font-medium mb-1">Hoe werkt het?</p>
               <ol class="list-decimal list-inside space-y-0.5 text-base-content/70">
-                <li>Maak hier een koppeling aan — je krijgt een <code class="font-mono">client_id</code> en <code class="font-mono">client_secret</code></li>
+                <li>Maak hier een koppeling aan â€” je krijgt een <code class="font-mono">client_id</code> en <code class="font-mono">client_secret</code></li>
                 <li>Plak beide in de <strong>Project Instructions</strong> van je Claude-project (via de knop onderaan)</li>
-                <li>Claude authenticeert zichzelf automatisch en haalt data op — max 5 min per sessie</li>
+                <li>Claude authenticeert zichzelf automatisch en haalt data op â€” max 5 min per sessie</li>
               </ol>
             </div>
           </div>
@@ -252,12 +212,12 @@ export function claudeSettingsUI(user, baseUrl = '') {
           </div>
         </div>
 
-        <!-- ── Tab 2: Nieuwe koppeling ── -->
+        <!-- â”€â”€ Tab 2: Nieuwe koppeling â”€â”€ -->
         <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Nieuwe Koppeling" />
         <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
           <h2 class="text-xl font-bold mb-6">Nieuwe Koppeling Aanmaken</h2>
 
-          <form id="createForm" class="max-w-md" onsubmit="handleCreate(event)">
+          <form id="createForm" class="max-w-lg" onsubmit="handleCreate(event)">
             <div class="form-control mb-4">
               <label class="label"><span class="label-text font-medium">Naam</span></label>
               <input type="text" name="name" placeholder="bv. Mijn Claude Sales Assistent"
@@ -266,12 +226,12 @@ export function claudeSettingsUI(user, baseUrl = '') {
             </div>
 
             <div class="form-control mb-6">
-              <label class="label"><span class="label-text font-medium">Welke data mag Claude zien?</span></label>
-              <div class="border border-base-300 rounded-box bg-base-50">
-                ${scopeCheckboxes}
+              <label class="label"><span class="label-text font-medium">Dataset</span></label>
+              <div id="templateSelector" class="space-y-2">
+                <div class="flex justify-center py-4"><span class="loading loading-spinner loading-sm"></span></div>
               </div>
               <label class="label">
-                <span class="label-text-alt text-warning">Selecteer minstens één scope. Twijfel? Kies 'Eigen leads'.</span>
+                <span class="label-text-alt text-base-content/50">Selecteer welke data Claude mag zien. Twijfel? Kies de standaard.</span>
               </label>
             </div>
 
@@ -286,7 +246,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
               <i data-lucide="check-circle" class="w-5 h-5"></i>
               <div>
                 <p class="font-medium">Koppeling aangemaakt!</p>
-                <p>Bewaar het secret <strong>nu direct</strong> — het is daarna niet meer te zien.</p>
+                <p>Bewaar het secret <strong>nu direct</strong> â€” het is daarna niet meer te zien.</p>
               </div>
             </div>
 
@@ -323,19 +283,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
           </div>
         </div>
 
-        <!-- ── Tab 3: Welke data ziet Claude ── -->
-        <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Wat ziet Claude" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
-          <h2 class="text-xl font-bold mb-2">Welke data ziet Claude?</h2>
-          <p class="text-base-content/60 text-sm mb-4">
-            Velden worden gefilterd via een allowlist per scope.
-            Nieuwe Odoo-velden zijn standaard <strong>uitgesloten</strong> totdat ze expliciet worden toegevoegd.
-            Contactgegevens (email, telefoon, notities) zitten <strong>nooit</strong> in de context.
-          </p>
-          ${renderScopePreviews()}
-        </div>
-
-        <!-- ── Tab 4: Audit Log ── -->
+        <!-- â”€â”€ Tab 3: Gebruik Log â”€â”€ -->
         <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Gebruik Log" />
         <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
           <div class="flex justify-between items-center mb-4">
@@ -352,12 +300,31 @@ export function claudeSettingsUI(user, baseUrl = '') {
           </div>
         </div>
 
+        ${isAdmin ? `
+        <!-- â”€â”€ Tab 4: Datasets (admin only) â”€â”€ -->
+        <input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Datasets" />
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+          <div class="flex justify-between items-center mb-6">
+            <div>
+              <h2 class="text-xl font-bold">Dataset Templates</h2>
+              <p class="text-sm text-base-content/50">Bepaal welke Odoo-data Claude per model ontvangt.</p>
+            </div>
+            <button class="btn btn-primary btn-sm gap-1" onclick="openDatasetWizard()">
+              <i data-lucide="plus" class="w-4 h-4"></i> Nieuw template
+            </button>
+          </div>
+          <div id="datasetTemplateList">
+            <div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>
+          </div>
+        </div>
+        ` : ''}
+
       </div><!-- /tabs -->
 
     </div>
   </div>
 
-  <!-- ── Test modal ─────────────────────────────────────────────────────── -->
+  <!-- â”€â”€ Test modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <dialog id="testModal" class="modal">
     <div class="modal-box max-w-sm">
       <h3 class="font-bold text-lg mb-1">Koppeling Testen</h3>
@@ -385,7 +352,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
   </dialog>
 
-  <!-- ── Rotate modal ───────────────────────────────────────────────────── -->
+  <!-- â”€â”€ Rotate modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <dialog id="rotateModal" class="modal">
     <div class="modal-box max-w-sm">
       <h3 class="font-bold text-lg mb-1">Secret Regenereren</h3>
@@ -416,7 +383,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
   </dialog>
 
-  <!-- ── Instructions modal (copy to Claude) ───────────────────────────── -->
+  <!-- â”€â”€ Instructions modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <dialog id="instructionsModal" class="modal">
     <div class="modal-box max-w-2xl">
       <h3 class="font-bold text-lg mb-1 flex items-center gap-2">
@@ -425,12 +392,11 @@ export function claudeSettingsUI(user, baseUrl = '') {
       <p class="text-sm text-base-content/60 mb-3">
         Kopieer dit naar <strong>Project Instructions</strong> in je Claude-project.<br/>
         Na aanmaken of regenereren worden Client ID en Secret automatisch ingevuld.
-        Voor bestaande koppelingen zonder bekend secret: regenereer het secret om volledige instructies te krijgen.
       </p>
       <div class="relative">
         <textarea id="instructionsText" class="textarea textarea-bordered font-mono text-xs w-full" rows="20" readonly></textarea>
         <button class="btn btn-ghost btn-xs absolute top-2 right-2 gap-1" onclick="copyVal('instructionsText')">
-          <i data-lucide="copy" class="w-3 h-3"></i> Kopiëren
+          <i data-lucide="copy" class="w-3 h-3"></i> KopiÃ«ren
         </button>
       </div>
       <div class="modal-action">
@@ -440,17 +406,88 @@ export function claudeSettingsUI(user, baseUrl = '') {
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
   </dialog>
 
+  ${isAdmin ? `
+  <!-- â”€â”€ Dataset wizard modal (admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+  <dialog id="datasetWizardModal" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+        <i data-lucide="database" class="w-5 h-5"></i>
+        <span id="wizardTitle">Nieuw Dataset Template</span>
+      </h3>
+
+      <!-- Step indicator -->
+      <ul class="steps steps-horizontal w-full mb-6 text-xs">
+        <li class="step" id="wstep0">Basisinfo</li>
+        <li class="step" id="wstep1">Model</li>
+        <li class="step" id="wstep2">Velden</li>
+      </ul>
+
+      <!-- Step 0: name + description -->
+      <div id="wizardStep0">
+        <div class="form-control mb-4">
+          <label class="label"><span class="label-text font-medium">Naam *</span></label>
+          <input type="text" id="wizardName" class="input input-bordered" placeholder="bv. Actiebladen 2025" maxlength="100" />
+        </div>
+        <div class="form-control mb-4">
+          <label class="label"><span class="label-text font-medium">Omschrijving</span></label>
+          <textarea id="wizardDesc" class="textarea textarea-bordered" rows="2"
+            placeholder="Optionele toelichting voor gebruikers"></textarea>
+        </div>
+        <div class="form-control mb-4">
+          <label class="label"><span class="label-text font-medium">Primair Odoo-model</span></label>
+          <input type="text" id="wizardModel" class="input input-bordered font-mono" placeholder="x_sales_action_sheet" value="x_sales_action_sheet" />
+          <label class="label"><span class="label-text-alt text-base-content/50">Technische modelnaam, bijv. crm.lead of x_sales_action_sheet</span></label>
+        </div>
+      </div>
+
+      <!-- Step 1: model confirmation + field loader -->
+      <div id="wizardStep1" class="hidden">
+        <p class="text-sm mb-3">Model: <code id="wizardModelPreview" class="font-mono bg-base-200 px-1.5 py-0.5 rounded"></code></p>
+        <div id="wizardFieldsLoader" class="flex justify-center py-8">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      </div>
+
+      <!-- Step 2: field picker -->
+      <div id="wizardStep2" class="hidden">
+        <p class="text-sm text-base-content/60 mb-3">Selecteer de velden die Claude mag zien en geef optioneel een alias of instructie op.</p>
+        <div id="wizardFieldList" class="space-y-1 max-h-96 overflow-y-auto pr-1"></div>
+      </div>
+
+      <div id="wizardError" class="alert alert-error text-sm mt-3 hidden"></div>
+
+      <div class="modal-action">
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('datasetWizardModal').close()">Annuleren</button>
+        <button id="wizardPrevBtn" class="btn btn-ghost btn-sm hidden" onclick="wizardPrev()">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i> Vorige
+        </button>
+        <button id="wizardNextBtn" class="btn btn-primary btn-sm" onclick="wizardNext()">
+          Volgende <i data-lucide="arrow-right" class="w-4 h-4"></i>
+        </button>
+        <button id="wizardSaveBtn" class="btn btn-success btn-sm hidden" onclick="wizardSave()">
+          <i data-lucide="save" class="w-4 h-4"></i> Opslaan
+        </button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+  ` : ''}
+
   <script>
-    // ── State ──────────────────────────────────────────────────────────────
+    // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let integrations = [];
+    let templates = [];
     let testClientId = null;
     let rotateIntegrationId = null;
     let rotateClientId = null;
     let rotateSecret = null;
     let lastCreatedClientId = null;
     let lastCreatedSecret = null;
+    // wizard state
+    let wizardStep = 0;
+    let wizardOdooFields = {};
 
-    // ── Helpers ────────────────────────────────────────────────────────────
+    // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function showAlert(msg, type = 'info') {
       const z = document.getElementById('alertZone');
       const c = document.getElementById('alertContent');
@@ -477,16 +514,41 @@ export function claudeSettingsUI(user, baseUrl = '') {
     }
 
     function fmtDate(iso) {
-      if (!iso) return '–';
+      if (!iso) return 'â€“';
       return new Date(iso).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
     }
 
-    function scopeBadge(scope) {
-      const colors = { own_leads: 'badge-info', team_view: 'badge-accent', full_context: 'badge-primary' };
-      return '<span class="badge badge-xs ' + (colors[scope] ?? 'badge-ghost') + '">' + scope + '</span>';
+    // â”€â”€ Load templates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    async function loadTemplates() {
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates');
+      if (res.success) {
+        templates = res.data ?? [];
+      }
+      renderTemplateSelector();
     }
 
-    // ── Load integrations ──────────────────────────────────────────────────
+    function renderTemplateSelector() {
+      const el = document.getElementById('templateSelector');
+      if (!el) return;
+      if (!templates.length) {
+        el.innerHTML = '<p class="text-sm text-base-content/40">Geen templates beschikbaar. Vraag een admin om een template aan te maken.</p>';
+        return;
+      }
+      el.innerHTML = templates.map(t => \`
+        <label class="flex items-start gap-3 p-3 border border-base-300 rounded-box cursor-pointer hover:bg-base-200 has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-colors">
+          <input type="radio" name="dataset_template_id" value="\${t.id}" class="radio radio-sm radio-primary mt-0.5"
+            \${t.is_default ? 'checked' : ''} required />
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 font-medium text-sm">
+              \${t.name}
+              \${t.is_default ? '<span class="badge badge-primary badge-xs">standaard</span>' : ''}
+            </div>
+            \${t.description ? '<p class="text-xs text-base-content/50 mt-0.5">' + t.description + '</p>' : ''}
+          </div>
+        </label>\`).join('');
+    }
+
+    // â”€â”€ Load integrations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async function loadIntegrations() {
       const el = document.getElementById('integrationsList');
       el.innerHTML = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>';
@@ -497,6 +559,12 @@ export function claudeSettingsUI(user, baseUrl = '') {
       }
       integrations = res.data ?? [];
       renderIntegrations();
+    }
+
+    function templateName(templateId) {
+      if (!templateId) return null;
+      const t = templates.find(t => t.id === templateId);
+      return t?.name ?? null;
     }
 
     function renderIntegrations() {
@@ -513,6 +581,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
 
       const rows = integrations.map(i => {
         const active = i.is_active;
+        const tName = templateName(i.dataset_template_id);
         return \`<div class="card bg-base-50 border border-base-300 mb-3">
           <div class="card-body p-4">
             <div class="flex items-start justify-between gap-3 flex-wrap">
@@ -523,13 +592,11 @@ export function claudeSettingsUI(user, baseUrl = '') {
                 </div>
                 <div class="flex flex-wrap items-center gap-2 text-xs text-base-content/50">
                   <code class="font-mono bg-base-200 px-1.5 py-0.5 rounded">\${i.client_id ?? ''}</code>
-                  <span>·</span>
+                  <span>Â·</span>
                   <span>Aangemaakt: \${fmtDate(i.created_at)}</span>
-                  \${i.revoked_at ? '<span>· Ingetrokken: ' + fmtDate(i.revoked_at) + '</span>' : ''}
+                  \${i.revoked_at ? '<span>Â· Ingetrokken: ' + fmtDate(i.revoked_at) + '</span>' : ''}
                 </div>
-                <div class="flex flex-wrap gap-1 mt-2">
-                  \${(i.scopes ?? []).map(scopeBadge).join('')}
-                </div>
+                \${tName ? '<div class="mt-1"><span class="badge badge-ghost badge-xs font-mono">' + tName + '</span></div>' : ''}
               </div>
               \${active ? \`<div class="flex gap-1 shrink-0">
                 <button class="btn btn-ghost btn-xs gap-1" onclick="openTest('\${i.client_id}')" title="Test koppeling">
@@ -554,14 +621,15 @@ export function claudeSettingsUI(user, baseUrl = '') {
       lucide.createIcons();
     }
 
-    // ── Create ─────────────────────────────────────────────────────────────
+    // â”€â”€ Create â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async function handleCreate(e) {
       e.preventDefault();
       const form = e.target;
       const name = form.name.value.trim();
-      const scopes = [...form.querySelectorAll('input[name=scopes]:checked')].map(c => c.value);
+      const templateRadio = form.querySelector('input[name=dataset_template_id]:checked');
+      const dataset_template_id = templateRadio?.value ?? null;
+
       if (!name) return showAlert('<span>Voer een naam in</span>', 'warning');
-      if (!scopes.length) return showAlert('<span>Kies minstens één scope</span>', 'warning');
 
       const btn = document.getElementById('createBtn');
       btn.disabled = true;
@@ -569,7 +637,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
 
       const res = await apiFetch('/api/claude/integrations', {
         method: 'POST',
-        body: JSON.stringify({ name, scopes })
+        body: JSON.stringify({ name, dataset_template_id })
       });
 
       btn.disabled = false;
@@ -588,11 +656,12 @@ export function claudeSettingsUI(user, baseUrl = '') {
       document.getElementById('revealSecret').textContent   = lastCreatedSecret;
       document.getElementById('secretPanel').classList.remove('hidden');
       form.reset();
-      showAlert('<span>✅ Koppeling aangemaakt — bewaar het secret hieronder!</span>', 'success');
+      renderTemplateSelector(); // re-render to restore default selection
+      showAlert('<span>âœ… Koppeling aangemaakt â€” bewaar het secret hieronder!</span>', 'success');
       loadIntegrations();
     }
 
-    // ── Revoke ─────────────────────────────────────────────────────────────
+    // â”€â”€ Revoke â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async function revokeIntegration(id) {
       if (!confirm('Koppeling intrekken? Alle actieve Claude-sessies stoppen direct.')) return;
       const res = await apiFetch('/api/claude/integrations/' + id, { method: 'DELETE' });
@@ -604,7 +673,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
       }
     }
 
-    // ── Rotate ─────────────────────────────────────────────────────────────
+    // â”€â”€ Rotate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function openRotate(id) {
       rotateIntegrationId = id;
       rotateClientId = null;
@@ -636,7 +705,7 @@ export function claudeSettingsUI(user, baseUrl = '') {
       }
     }
 
-    // ── Test ───────────────────────────────────────────────────────────────
+    // â”€â”€ Test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function openTest(clientId) {
       testClientId = clientId;
       document.getElementById('testSecret').value = '';
@@ -659,14 +728,12 @@ export function claudeSettingsUI(user, baseUrl = '') {
       document.getElementById('testResult').classList.add('hidden');
 
       try {
-        // Step 1
         const r1 = await apiFetch('/api/claude/session/request', {
           method: 'POST', body: JSON.stringify({ client_id: testClientId })
         });
         if (!r1.success) throw new Error(r1.error?.message ?? 'Stap 1 mislukt');
         setStep('tstep1', 'done');
 
-        // Step 2
         const r2 = await apiFetch('/api/claude/session/authorize', {
           method: 'POST',
           body: JSON.stringify({ client_id: testClientId, client_secret: secret, challenge_id: r1.data.challenge_id })
@@ -674,7 +741,6 @@ export function claudeSettingsUI(user, baseUrl = '') {
         if (!r2.success) throw new Error(r2.error?.message ?? 'Stap 2 mislukt');
         setStep('tstep2', 'done');
 
-        // Step 3
         const r3 = await fetch('/api/claude/context/full?limit=3', {
           headers: { 'Authorization': 'Bearer ' + r2.data.access_token }
         });
@@ -683,13 +749,14 @@ export function claudeSettingsUI(user, baseUrl = '') {
         setStep('tstep3', 'done');
 
         const m = ctx.data?.meta ?? {};
-        const first = ctx.data?.leads?.[0]?.name;
+        const firstKey = Object.keys(ctx.data ?? {}).find(k => k !== 'meta' && k !== 'schema');
+        const firstRecord = firstKey ? ctx.data[firstKey]?.[0] : null;
         document.getElementById('testResult').innerHTML =
           '<div class="alert alert-success text-sm">' +
           '<i data-lucide="check-circle" class="w-4 h-4"></i>' +
-          '<div><p class="font-medium">✅ Koppeling werkt correct</p>' +
-          '<p>Scope: <code class="font-mono">' + (m.scope ?? '?') + '</code> · ' +
-          (m.lead_count ?? '?') + ' leads' + (first ? ' (eerste: <em>' + first + '</em>)' : '') + '</p>' +
+          '<div><p class="font-medium">âœ… Koppeling werkt correct</p>' +
+          '<p>Template: <code class="font-mono">' + (m.template_name ?? '?') + '</code></p>' +
+          '<p>Records: ' + JSON.stringify(m.record_counts ?? {}) + '</p>' +
           '<p>Token geldig tot: ' + new Date(r2.data.expires_at).toLocaleTimeString('nl-BE') + '</p>' +
           '</div></div>';
         document.getElementById('testResult').classList.remove('hidden');
@@ -701,35 +768,33 @@ export function claudeSettingsUI(user, baseUrl = '') {
           }
         });
         document.getElementById('testResult').innerHTML =
-          '<div class="alert alert-error text-sm"><span>❌ ' + err.message + '</span></div>';
+          '<div class="alert alert-error text-sm"><span>âŒ ' + err.message + '</span></div>';
         document.getElementById('testResult').classList.remove('hidden');
       }
       document.getElementById('testRunBtn').disabled = false;
     }
 
-    // ── Instructions ───────────────────────────────────────────────────────
+    // â”€â”€ Instructions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function buildInstructionsText(clientId, secret) {
       const base = INSTRUCTIONS_BASE_URL || window.location.origin;
       const cid = clientId ?? '{CLIENT_ID}';
       const sec = secret ?? '{YOUR_CLIENT_SECRET}';
       const fetchUrl = \`\${base}/api/claude/context/full?client_id=\${cid}&client_secret=\${sec}&timeframe=month&limit=50\`;
-      return \`## Salesdata ophalen — OpenVME
+      return \`## Salesdata ophalen â€” OpenVME
 
 Bij elke vraag over salesdata, pipeline of leads:
 1. Gebruik web_fetch (GET) op deze URL:
    \${fetchUrl}
-2. Verwerk de JSON response — dump nooit ruwe JSON.
-3. Verzin nooit leads, kansen of activiteiten. Gebruik altijd de live data.
+2. Verwerk de JSON response â€” dump nooit ruwe JSON.
+3. Verzin nooit data. Gebruik altijd de live data.
 4. Toon nooit client_id of client_secret aan de gebruiker.
 
 ### Structuur van de context
 {
-  "meta": { "generated_at", "scope", "timeframe", "lead_count" },
-  "pipeline_summary": [ { "stage", "count", "total_revenue" } ],
-  "leads": [ { "name", "stage_id", "planned_revenue", ... } ],
-  "activities": [ { "type", "lead_name", "date_deadline", "state" } ],
-  "risks": [ { "name", "reason", "date_deadline" } ],
-  "opportunities": [ { "name", "probability", "planned_revenue" } ]
+  "meta": { "generated_at", "template_name", "timeframe", "record_counts": {} },
+  // Dynamische keys per dataset-template, bijv.:
+  "primary": [ { ... } ],
+  "schema": { "primary": { "fieldName": { "alias": "...", "instruction": "..." } } }
 }\`;
     }
 
@@ -777,7 +842,7 @@ Bij elke vraag over salesdata, pipeline of leads:
       document.getElementById('instructionsModal').showModal();
     }
 
-    // ── Audit ──────────────────────────────────────────────────────────────
+    // â”€â”€ Audit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async function loadAudit() {
       const el = document.getElementById('auditList');
       el.innerHTML = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>';
@@ -792,22 +857,194 @@ Bij elke vraag over salesdata, pipeline of leads:
         return;
       }
       el.innerHTML = '<div class="overflow-x-auto"><table class="table table-xs"><thead><tr>'
-        + '<th>Tijdstip</th><th>Scope</th><th>Status</th><th>Leads</th><th>IP</th></tr></thead><tbody>'
+        + '<th>Tijdstip</th><th>Template</th><th>Status</th><th>Grootte</th><th>IP</th></tr></thead><tbody>'
         + entries.map(e => '<tr>'
           + '<td class="font-mono text-xs">' + fmtDate(e.timestamp) + '</td>'
-          + '<td><span class="badge badge-ghost badge-xs font-mono">' + (e.scope ?? '–') + '</span></td>'
+          + '<td><span class="badge badge-ghost badge-xs font-mono">' + (e.scope ?? 'â€“') + '</span></td>'
           + '<td>' + (e.success ? '<span class="badge badge-success badge-xs">OK</span>' : '<span class="badge badge-error badge-xs" title="' + (e.failure_reason ?? '') + '">FOUT</span>') + '</td>'
-          + '<td class="text-xs">' + (e.payload_size ? Math.round(e.payload_size / 1024) + ' KB' : '–') + '</td>'
-          + '<td class="text-xs text-base-content/40">' + (e.ip_address ?? '–') + '</td>'
+          + '<td class="text-xs">' + (e.payload_size ? Math.round(e.payload_size / 1024) + ' KB' : 'â€“') + '</td>'
+          + '<td class="text-xs text-base-content/40">' + (e.ip_address ?? 'â€“') + '</td>'
           + '</tr>').join('')
         + '</tbody></table></div>'
         + '<p class="text-xs text-base-content/40 mt-2">Totaal: ' + (res.data?.total ?? entries.length) + ' entries</p>';
     }
 
-    // ── Init ───────────────────────────────────────────────────────────────
+    ${isAdmin ? `
+    // â”€â”€ Dataset template management (admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    async function loadDatasetTemplates() {
+      const el = document.getElementById('datasetTemplateList');
+      if (!el) return;
+      el.innerHTML = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>';
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates');
+      if (!res.success) {
+        el.innerHTML = '<div class="alert alert-error text-sm">' + (res.error?.message ?? 'Laden mislukt') + '</div>';
+        return;
+      }
+      const list = res.data ?? [];
+      // Also refresh templates for the selector
+      templates = list.filter(t => t.is_active);
+      renderTemplateSelector();
+
+      if (!list.length) {
+        el.innerHTML = '<div class="text-center py-8 text-base-content/40 text-sm">Nog geen templates. Maak er een aan.</div>';
+        return;
+      }
+      el.innerHTML = list.map(t => \`
+        <div class="card bg-base-50 border border-base-300 mb-3">
+          <div class="card-body p-4">
+            <div class="flex items-start justify-between gap-3 flex-wrap">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="font-semibold">\${t.name}</span>
+                  \${t.is_default ? '<span class="badge badge-primary badge-xs">standaard</span>' : ''}
+                  \${t.is_active ? '<span class="badge badge-success badge-xs">Actief</span>' : '<span class="badge badge-warning badge-xs">Inactief</span>'}
+                </div>
+                \${t.description ? '<p class="text-xs text-base-content/50">' + t.description + '</p>' : ''}
+                <p class="text-xs text-base-content/40 mt-1">
+                  \${(t.model_config ?? []).length} model(len) Â·
+                  Aangemaakt: \${fmtDate(t.created_at)}
+                </p>
+              </div>
+              <div class="flex gap-1 shrink-0">
+                \${t.is_active && !t.is_default ? '<button class="btn btn-ghost btn-xs" onclick="setDefaultTemplate(\\''+t.id+'\\')"><i data-lucide=\\"star\\" class=\\"w-3 h-3\\"></i> Standaard</button>' : ''}
+                \${t.is_active ? '<button class="btn btn-ghost btn-xs text-error" onclick="deactivateTemplate(\\''+t.id+'\\')"><i data-lucide=\\"trash-2\\" class=\\"w-3 h-3\\"></i></button>' : ''}
+              </div>
+            </div>
+          </div>
+        </div>\`).join('');
+      lucide.createIcons();
+    }
+
+    async function setDefaultTemplate(id) {
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + id + '/set-default', { method: 'POST' });
+      if (res.success) { showAlert('<span>Standaard template ingesteld</span>', 'success'); loadDatasetTemplates(); }
+      else showAlert('<span>' + (res.error?.message ?? 'Mislukt') + '</span>', 'error');
+    }
+
+    async function deactivateTemplate(id) {
+      if (!confirm('Template deactiveren? Bestaande koppelingen met dit template blijven werken tot ze opnieuw worden aangemaakt.')) return;
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + id, { method: 'DELETE' });
+      if (res.success) { showAlert('<span>Template gedeactiveerd</span>', 'success'); loadDatasetTemplates(); }
+      else showAlert('<span>' + (res.error?.message ?? 'Mislukt') + '</span>', 'error');
+    }
+
+    // â”€â”€ Dataset wizard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    function openDatasetWizard() {
+      wizardStep = 0;
+      wizardOdooFields = {};
+      document.getElementById('wizardName').value = '';
+      document.getElementById('wizardDesc').value = '';
+      document.getElementById('wizardModel').value = 'x_sales_action_sheet';
+      document.getElementById('wizardError').classList.add('hidden');
+      showWizardStep(0);
+      document.getElementById('datasetWizardModal').showModal();
+    }
+
+    function showWizardStep(step) {
+      wizardStep = step;
+      [0,1,2].forEach(i => {
+        document.getElementById('wizardStep'+i)?.classList.toggle('hidden', i !== step);
+        document.getElementById('wstep'+i).className = 'step' + (i <= step ? ' step-primary' : '');
+      });
+      document.getElementById('wizardPrevBtn').classList.toggle('hidden', step === 0);
+      document.getElementById('wizardNextBtn').classList.toggle('hidden', step === 2);
+      document.getElementById('wizardSaveBtn').classList.toggle('hidden', step !== 2);
+      lucide.createIcons();
+    }
+
+    function wizardPrev() { if (wizardStep > 0) showWizardStep(wizardStep - 1); }
+
+    async function wizardNext() {
+      document.getElementById('wizardError').classList.add('hidden');
+      if (wizardStep === 0) {
+        const name = document.getElementById('wizardName').value.trim();
+        const model = document.getElementById('wizardModel').value.trim();
+        if (!name) { showWizardError('Voer een naam in'); return; }
+        if (!model) { showWizardError('Voer een modelnaam in'); return; }
+        // Load fields for step 1
+        document.getElementById('wizardModelPreview').textContent = model;
+        document.getElementById('wizardFieldsLoader').classList.remove('hidden');
+        document.getElementById('wizardStep2').classList.add('hidden');
+        showWizardStep(1);
+        const res = await apiFetch('/insights/api/sales-insights/dataset-templates/model-fields?model=' + encodeURIComponent(model));
+        document.getElementById('wizardFieldsLoader').classList.add('hidden');
+        if (!res.success) { showWizardError(res.error?.message ?? 'Velden laden mislukt'); return; }
+        wizardOdooFields = res.data ?? {};
+        renderWizardFields();
+        showWizardStep(2);
+      }
+    }
+
+    function showWizardError(msg) {
+      const el = document.getElementById('wizardError');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function renderWizardFields() {
+      const container = document.getElementById('wizardFieldList');
+      const entries = Object.entries(wizardOdooFields).slice(0, 200);
+      if (!entries.length) { container.innerHTML = '<p class="text-sm text-base-content/40">Geen velden gevonden.</p>'; return; }
+      container.innerHTML = entries.map(([fname, fmeta]) => \`
+        <label class="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-base-200 cursor-pointer group">
+          <input type="checkbox" class="checkbox checkbox-xs" data-field="\${fname}" />
+          <div class="flex-1 min-w-0">
+            <span class="text-sm font-medium mr-1">\${fmeta.string ?? fname}</span>
+            <code class="text-xs text-base-content/40 font-mono">\${fname}</code>
+            <span class="badge badge-ghost badge-xs ml-1">\${fmeta.type ?? ''}</span>
+          </div>
+          <input type="text" class="input input-xs input-ghost w-28 hidden group-has-[:checked]:block"
+            placeholder="alias" data-alias="\${fname}" />
+        </label>\`).join('');
+    }
+
+    async function wizardSave() {
+      const name = document.getElementById('wizardName').value.trim();
+      const description = document.getElementById('wizardDesc').value.trim() || null;
+      const model = document.getElementById('wizardModel').value.trim();
+
+      const checked = [...document.querySelectorAll('#wizardFieldList input[type=checkbox]:checked')];
+      const fields = checked.map(cb => {
+        const fname = cb.dataset.field;
+        const aliasEl = document.querySelector('input[data-alias="' + fname + '"]');
+        const alias = aliasEl?.value?.trim() || (wizardOdooFields[fname]?.string ?? fname);
+        return { name: fname, alias, include_in_output: true };
+      });
+
+      const model_config = [{
+        key: 'primary',
+        model,
+        is_primary: true,
+        fields,
+        domain: [],
+        order: 'id desc',
+        limit: 50
+      }];
+
+      const btn = document.getElementById('wizardSaveBtn');
+      btn.disabled = true;
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates', {
+        method: 'POST',
+        body: JSON.stringify({ name, description, model_config })
+      });
+      btn.disabled = false;
+      if (res.success) {
+        document.getElementById('datasetWizardModal').close();
+        showAlert('<span>âœ… Template aangemaakt</span>', 'success');
+        loadDatasetTemplates();
+      } else {
+        showWizardError(res.error?.message ?? 'Opslaan mislukt');
+      }
+    }
+    ` : ''}
+
+    // â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
+      loadTemplates();
       loadIntegrations();
+      ${isAdmin ? 'loadDatasetTemplates();' : ''}
     });
   </script>
 </body>

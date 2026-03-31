@@ -24,13 +24,14 @@ import {
   regenerateSecret,
   listIntegrations,
   getIntegrationByClientId,
+  getIntegrationById,
   validateClientSecret
 } from './lib/integration-service.js';
 import { createChallenge, validateAndConsumeChallenge } from './lib/challenge-service.js';
 import { createToken, validateToken, revokeAllTokensForIntegration } from './lib/token-service.js';
 import { buildContext } from './lib/context-builder.js';
 import { logContextCall, getAuditLog } from './lib/audit-service.js';
-import { validateScopes } from './lib/scope-filter.js';
+import { getDefaultTemplate } from './lib/dataset-service.js';
 
 // ─── KV rate limiter ─────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ const listIntegrationsHandler = requireAuth(async function listIntegrationsHandl
 
 /**
  * POST /api/claude/integrations
- * Body: { name: string, scopes: string[] }
+ * Body: { name: string, dataset_template_id?: string }
  * Returns the new integration + plain-text secret (once only).
  */
 const createIntegrationHandler = requireAuth(async function createIntegrationHandler(context) {
@@ -132,21 +133,13 @@ const createIntegrationHandler = requireAuth(async function createIntegrationHan
     return err('Invalid JSON body', 'INVALID_BODY');
   }
 
-  const { name, scopes } = body;
+  const { name, dataset_template_id = null } = body;
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return err('name is required', 'VALIDATION_FAILED');
   }
-  if (!Array.isArray(scopes) || scopes.length === 0) {
-    return err('scopes must be a non-empty array', 'VALIDATION_FAILED');
-  }
-
-  const { valid, unknown } = validateScopes(scopes);
-  if (!valid) {
-    return err(`Unknown scopes: ${unknown.join(', ')}`, 'VALIDATION_FAILED');
-  }
 
   try {
-    const result = await createIntegration(env, user.id, name, scopes);
+    const result = await createIntegration(env, user.id, name, dataset_template_id);
     return ok(result, 201);
   } catch (e) {
     console.error('❌ create integration:', e.message);
@@ -227,7 +220,7 @@ async function requestChallenge(context) {
 
     const { challenge_id, expires_at } = await createChallenge(env, integration.id);
 
-    return ok({ challenge_id, expires_at, scope_preview: integration.scopes ?? [] });
+    return ok({ challenge_id, expires_at });
   } catch (e) {
     console.error('❌ request challenge:', e.message);
     return err(e.message, 'CHALLENGE_FAILED', 500);
@@ -318,9 +311,9 @@ async function getContext(context) {
     if (!secretOk) return err('Invalid credentials', 'AUTH_FAILED', 401);
 
     tokenMeta = {
-      integrationId: integration.id,
-      userId:        integration.user_id,
-      scopes:        integration.scopes ?? []
+      integrationId:     integration.id,
+      userId:            integration.user_id,
+      datasetTemplateId: integration.dataset_template_id ?? null
     };
   } else {
     // ── Standard Bearer token path ──
@@ -339,8 +332,9 @@ async function getContext(context) {
     const rl = await checkRateLimit(env, 'context_fetch', tokenPrefix, 60, 60);
     if (!rl.allowed) return rateLimited();
 
+    let rawTokenMeta;
     try {
-      tokenMeta = await validateToken(env, rawToken);
+      rawTokenMeta = await validateToken(env, rawToken);
     } catch (e) {
       logContextCall(env, ctx, {
         integration_id: null,
@@ -354,22 +348,24 @@ async function getContext(context) {
       });
       return err('Token is invalid or expired', 'TOKEN_INVALID', 401);
     }
+
+    // Load the full integration to get dataset_template_id
+    const bearerIntegration = await getIntegrationById(env, rawTokenMeta.integrationId);
+    tokenMeta = {
+      integrationId:     rawTokenMeta.integrationId,
+      userId:            rawTokenMeta.userId,
+      datasetTemplateId: bearerIntegration?.dataset_template_id ?? null
+    };
   }
 
-  const timeframe  = url.searchParams.get('timeframe')  ?? null;
-  const ownerId    = url.searchParams.get('owner_id')   ?? null;
-  const pipelineId = url.searchParams.get('pipeline_id') ?? null;
-  const limit      = parseInt(url.searchParams.get('limit') ?? '50', 10);
+  const timeframe = url.searchParams.get('timeframe') ?? null;
+  const limit     = parseInt(url.searchParams.get('limit') ?? '50', 10);
 
   let contextPayload;
   try {
     contextPayload = await buildContext(env, {
-      scopes:     tokenMeta.scopes,
-      userId:     tokenMeta.userId,
-      odooUserId: env.UID,
+      templateId: tokenMeta.datasetTemplateId,
       timeframe,
-      ownerId,
-      pipelineId,
       limit
     });
   } catch (e) {
@@ -377,7 +373,7 @@ async function getContext(context) {
     logContextCall(env, ctx, {
       integration_id: tokenMeta.integrationId,
       user_id:        tokenMeta.userId,
-      scope:          tokenMeta.scopes?.join(',') ?? null,
+      scope:          tokenMeta.datasetTemplateId ?? null,
       endpoint:       '/api/claude/context/full',
       success:        false,
       failure_reason: e.message,
@@ -392,7 +388,7 @@ async function getContext(context) {
   logContextCall(env, ctx, {
     integration_id: tokenMeta.integrationId,
     user_id:        tokenMeta.userId,
-    scope:          contextPayload.meta?.scope ?? null,
+    scope:          contextPayload.meta?.template_name ?? contextPayload.meta?.template_id ?? null,
     endpoint:       '/api/claude/context/full',
     success:        true,
     failure_reason: null,

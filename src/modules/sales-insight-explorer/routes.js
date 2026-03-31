@@ -43,6 +43,16 @@ import { searchRead } from '../../lib/odoo.js';
 import { enrichWithLeads } from './lib/lead-enrichment.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
 import { listIntegrations } from '../claude-integration/lib/integration-service.js';
+import {
+  listActiveTemplates,
+  listAllTemplates,
+  getTemplate,
+  createTemplate,
+  updateTemplate,
+  setDefaultTemplate,
+  deactivateTemplate,
+  getOdooModelFields
+} from '../claude-integration/lib/dataset-service.js';
 
 // Register export formats
 exportRegistry.register('json', jsonExporter);
@@ -1172,6 +1182,166 @@ Bij elke vraag over salesdata, pipeline of leads:
   }), { headers: { 'Content-Type': 'application/json' } });
 });
 
+// ─── Dataset template endpoints ───────────────────────────────────────────────
+
+function siJson(data, status = 200) {
+  return new Response(JSON.stringify({ success: true, data }), {
+    status, headers: { 'Content-Type': 'application/json' }
+  });
+}
+function siErr(message, code, status = 400) {
+  return new Response(JSON.stringify({ success: false, error: { message, code } }), {
+    status, headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
+ * GET /api/sales-insights/dataset-templates
+ * Admins see all (active + inactive); regular users see only active.
+ */
+const listDatasetTemplatesHandler = requireAuth(async function listDatasetTemplatesHandler(context) {
+  const { env, user } = context;
+  try {
+    const data = user.role === 'admin'
+      ? await listAllTemplates(env)
+      : await listActiveTemplates(env);
+    return siJson(data);
+  } catch (e) {
+    console.error('❌ list dataset templates:', e.message);
+    return siErr(e.message, 'LIST_FAILED', 500);
+  }
+});
+
+/**
+ * POST /api/sales-insights/dataset-templates
+ * Admin only.
+ * Body: { name, description?, model_config }
+ */
+const createDatasetTemplateHandler = requireAuth(async function createDatasetTemplateHandler(context) {
+  const { request, env, user } = context;
+  if (user.role !== 'admin') return siErr('Admin required', 'FORBIDDEN', 403);
+
+  let body;
+  try { body = await request.json(); } catch (_) { return siErr('Invalid JSON', 'INVALID_BODY'); }
+
+  const { name, description, model_config } = body ?? {};
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return siErr('name is required', 'VALIDATION_FAILED');
+  }
+  if (!Array.isArray(model_config)) {
+    return siErr('model_config must be an array', 'VALIDATION_FAILED');
+  }
+
+  try {
+    const template = await createTemplate(env, user.id, { name, description, model_config });
+    return siJson(template, 201);
+  } catch (e) {
+    console.error('❌ create dataset template:', e.message);
+    return siErr(e.message, 'CREATE_FAILED', 500);
+  }
+});
+
+/**
+ * GET /api/sales-insights/dataset-templates/:id
+ */
+const getDatasetTemplateHandler = requireAuth(async function getDatasetTemplateHandler(context) {
+  const { env, params } = context;
+  const { id } = params;
+  if (!id) return siErr('ID required', 'VALIDATION_FAILED');
+
+  const template = await getTemplate(env, id);
+  if (!template) return siErr('Template not found', 'NOT_FOUND', 404);
+  return siJson(template);
+});
+
+/**
+ * PUT /api/sales-insights/dataset-templates/:id
+ * Admin only.
+ * Body: { name?, description?, model_config?, is_active? }
+ */
+const updateDatasetTemplateHandler = requireAuth(async function updateDatasetTemplateHandler(context) {
+  const { request, env, user, params } = context;
+  if (user.role !== 'admin') return siErr('Admin required', 'FORBIDDEN', 403);
+
+  const { id } = params;
+  if (!id) return siErr('ID required', 'VALIDATION_FAILED');
+
+  let body;
+  try { body = await request.json(); } catch (_) { return siErr('Invalid JSON', 'INVALID_BODY'); }
+
+  try {
+    const template = await updateTemplate(env, id, body ?? {});
+    return siJson(template);
+  } catch (e) {
+    console.error('❌ update dataset template:', e.message);
+    return siErr(e.message, 'UPDATE_FAILED', 500);
+  }
+});
+
+/**
+ * POST /api/sales-insights/dataset-templates/:id/set-default
+ * Admin only. Promotes this template to default.
+ */
+const setDefaultDatasetTemplateHandler = requireAuth(async function setDefaultDatasetTemplateHandler(context) {
+  const { env, user, params } = context;
+  if (user.role !== 'admin') return siErr('Admin required', 'FORBIDDEN', 403);
+
+  const { id } = params;
+  if (!id) return siErr('ID required', 'VALIDATION_FAILED');
+
+  try {
+    const template = await setDefaultTemplate(env, id);
+    return siJson(template);
+  } catch (e) {
+    console.error('❌ set default template:', e.message);
+    return siErr(e.message, 'SET_DEFAULT_FAILED', 500);
+  }
+});
+
+/**
+ * DELETE /api/sales-insights/dataset-templates/:id
+ * Admin only. Soft-deletes (sets is_active = false).
+ */
+const deactivateDatasetTemplateHandler = requireAuth(async function deactivateDatasetTemplateHandler(context) {
+  const { env, user, params } = context;
+  if (user.role !== 'admin') return siErr('Admin required', 'FORBIDDEN', 403);
+
+  const { id } = params;
+  if (!id) return siErr('ID required', 'VALIDATION_FAILED');
+
+  try {
+    await deactivateTemplate(env, id);
+    return siJson({ deactivated: true });
+  } catch (e) {
+    console.error('❌ deactivate template:', e.message);
+    return siErr(e.message, 'DEACTIVATE_FAILED', 500);
+  }
+});
+
+/**
+ * GET /api/sales-insights/dataset-templates/model-fields
+ * Query param: model (required) — e.g. ?model=x_sales_action_sheet
+ * Returns { fieldName: { string, type, relation } } from Odoo fields_get.
+ */
+const getModelFieldsHandler = requireAuth(async function getModelFieldsHandler(context) {
+  const { request, env, user } = context;
+  if (user.role !== 'admin') return siErr('Admin required', 'FORBIDDEN', 403);
+
+  const url = new URL(request.url);
+  const model = url.searchParams.get('model');
+  if (!model || typeof model !== 'string' || !model.trim()) {
+    return siErr('model query param is required', 'VALIDATION_FAILED');
+  }
+
+  try {
+    const fields = await getOdooModelFields(env, model.trim());
+    return siJson(fields);
+  } catch (e) {
+    console.error('❌ get model fields:', e.message);
+    return siErr(e.message, 'FIELDS_FAILED', 500);
+  }
+});
+
 /**
  * GET /claude
  *
@@ -1967,6 +2137,13 @@ export const routes = {
   'GET /lib/:filename': serveLib,
   'GET /config/:filename': serveConfig,
   'GET /api/sales-insights/claude-instructions': claudeInstructionsHandler,
+  'GET /api/sales-insights/dataset-templates': listDatasetTemplatesHandler,
+  'POST /api/sales-insights/dataset-templates': createDatasetTemplateHandler,
+  'GET /api/sales-insights/dataset-templates/model-fields': getModelFieldsHandler,
+  'GET /api/sales-insights/dataset-templates/:id': getDatasetTemplateHandler,
+  'PUT /api/sales-insights/dataset-templates/:id': updateDatasetTemplateHandler,
+  'POST /api/sales-insights/dataset-templates/:id/set-default': setDefaultDatasetTemplateHandler,
+  'DELETE /api/sales-insights/dataset-templates/:id': deactivateDatasetTemplateHandler,
   'GET /api/sales-insights/test/phase0': runPhase0Tests,
   'GET /api/sales-insights/schema': getSchema,
   'GET /api/sales-insights/stages': getCrmStages,

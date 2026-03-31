@@ -38,10 +38,10 @@ function sanitize(integration) {
  * @param {Object} env
  * @param {string} userId
  * @param {string} name
- * @param {string[]} scopes  e.g. ['own_leads', 'team_view']
+ * @param {string|null} datasetTemplateId  UUID of claude_dataset_templates row (optional — falls back to default template at context-fetch time)
  * @returns {Promise<{ integration: Object, client_secret: string }>}
  */
-export async function createIntegration(env, userId, name, scopes) {
+export async function createIntegration(env, userId, name, datasetTemplateId = null) {
   const db = getSupabaseClient(env);
   const client_id = generateClientId();
   const client_secret = generateSecret();
@@ -50,14 +50,14 @@ export async function createIntegration(env, userId, name, scopes) {
   const { data, error } = await db
     .from('claude_integrations')
     .insert({
-      user_id:            userId,
-      name:               name.trim(),
+      user_id:             userId,
+      name:                name.trim(),
       client_id,
       client_secret_hash,
-      scopes:             scopes ?? [],
-      is_active:          true
+      dataset_template_id: datasetTemplateId ?? null,
+      is_active:           true
     })
-    .select('id, user_id, name, client_id, scopes, is_active, created_at')
+    .select('id, user_id, name, client_id, dataset_template_id, is_active, created_at')
     .single();
 
   if (error) throw new Error(`Failed to create integration: ${error.message}`);
@@ -111,7 +111,7 @@ export async function regenerateSecret(env, integrationId, userId) {
     .eq('id', integrationId)
     .eq('user_id', userId)
     .eq('is_active', true)
-    .select('id, user_id, name, client_id, scopes, is_active, created_at')
+    .select('id, user_id, name, client_id, dataset_template_id, is_active, created_at')
     .single();
 
   if (error || !data) {
@@ -134,7 +134,7 @@ export async function listIntegrations(env, userId) {
 
   const { data, error } = await db
     .from('claude_integrations')
-    .select('id, user_id, name, client_id, scopes, is_active, created_at, revoked_at')
+    .select('id, user_id, name, client_id, dataset_template_id, is_active, created_at, revoked_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
@@ -156,8 +156,29 @@ export async function getIntegrationByClientId(env, clientId) {
 
   const { data, error } = await db
     .from('claude_integrations')
-    .select('id, user_id, name, client_id, client_secret_hash, scopes, is_active, created_at')
+    .select('id, user_id, name, client_id, client_secret_hash, dataset_template_id, is_active, created_at')
     .eq('client_id', clientId)
+    .eq('is_active', true)
+    .single();
+
+  if (error) return null;
+  return data;
+}
+
+/**
+ * Fetch a single active integration by its internal UUID.
+ * Used by the Bearer-token context path to retrieve dataset_template_id.
+ *
+ * @param {Object} env
+ * @param {string} integrationId  UUID
+ * @returns {Promise<Object|null>}
+ */
+export async function getIntegrationById(env, integrationId) {
+  const db = getSupabaseClient(env);
+  const { data, error } = await db
+    .from('claude_integrations')
+    .select('id, user_id, name, client_id, dataset_template_id, is_active, created_at')
+    .eq('id', integrationId)
     .eq('is_active', true)
     .single();
 
