@@ -1224,7 +1224,7 @@ const createDatasetTemplateHandler = requireAuth(async function createDatasetTem
   let body;
   try { body = await request.json(); } catch (_) { return siErr('Invalid JSON', 'INVALID_BODY'); }
 
-  const { name, description, model_config } = body ?? {};
+  const { name, description, model_config, field_categories } = body ?? {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return siErr('name is required', 'VALIDATION_FAILED');
   }
@@ -1233,7 +1233,7 @@ const createDatasetTemplateHandler = requireAuth(async function createDatasetTem
   }
 
   try {
-    const template = await createTemplate(env, user.id, { name, description, model_config });
+    const template = await createTemplate(env, user.id, { name, description, model_config, field_categories });
     return siJson(template, 201);
   } catch (e) {
     console.error('❌ create dataset template:', e.message);

@@ -1,0 +1,1202 @@
+import { navbar } from '../../lib/components/navbar.js';
+
+// ── HTML section helpers ──────────────────────────────────────────────────────
+// Each returns a plain string; template literals here are top-level (not nested).
+
+function myIntegrationsTabHtml() {
+  return '<input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Mijn Koppelingen" checked />'
+    + '<div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">'
+    + '<div class="flex justify-between items-center mb-6">'
+    + '<h2 class="text-xl font-bold">Mijn Koppelingen</h2>'
+    + '<button class="btn btn-primary btn-sm gap-1"'
+    + ' onclick="document.querySelector(\'[aria-label=\\\'Nieuwe Koppeling\\\']\').click()">'
+    + '<i data-lucide="plus" class="w-4 h-4"></i> Nieuw'
+    + '</button>'
+    + '</div>'
+    + '<div class="alert bg-base-200 border border-base-300 mb-6 text-sm">'
+    + '<i data-lucide="info" class="w-5 h-5 shrink-0 text-info"></i>'
+    + '<div>'
+    + '<p class="font-medium mb-1">Hoe werkt het?</p>'
+    + '<ol class="list-decimal list-inside space-y-0.5 text-base-content/70">'
+    + '<li>Maak hier een koppeling aan &mdash; je krijgt een <code class="font-mono">client_id</code> en <code class="font-mono">client_secret</code></li>'
+    + '<li>Plak beide in de <strong>Project Instructions</strong> van je Claude-project (via de knop onderaan)</li>'
+    + '<li>Claude authenticeert zichzelf automatisch en haalt data op &mdash; max 5 min per sessie</li>'
+    + '</ol>'
+    + '</div>'
+    + '</div>'
+    + '<div id="integrationsList">'
+    + '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>'
+    + '</div>'
+    + '</div>';
+}
+
+function newIntegrationTabHtml() {
+  return '<input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Nieuwe Koppeling" />'
+    + '<div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">'
+    + '<h2 class="text-xl font-bold mb-6">Nieuwe Koppeling Aanmaken</h2>'
+    + '<form id="createForm" class="max-w-lg" onsubmit="handleCreate(event)">'
+    + '<div class="form-control mb-4">'
+    + '<label class="label"><span class="label-text font-medium">Naam</span></label>'
+    + '<input type="text" name="name" placeholder="bv. Mijn Claude Sales Assistent"'
+    + ' class="input input-bordered" required maxlength="100" />'
+    + '<label class="label"><span class="label-text-alt text-base-content/50">Herkenbare naam voor jouw eigen overzicht</span></label>'
+    + '</div>'
+    + '<div class="form-control mb-6">'
+    + '<label class="label"><span class="label-text font-medium">Dataset</span></label>'
+    + '<div id="templateSelector" class="space-y-2">'
+    + '<div class="flex justify-center py-4"><span class="loading loading-spinner loading-sm"></span></div>'
+    + '</div>'
+    + '<label class="label">'
+    + '<span class="label-text-alt text-base-content/50">Selecteer welke data Claude mag zien. Twijfel? Kies de standaard.</span>'
+    + '</label>'
+    + '</div>'
+    + '<button type="submit" id="createBtn" class="btn btn-primary w-full gap-2">'
+    + '<i data-lucide="key" class="w-4 h-4"></i> Koppeling aanmaken'
+    + '</button>'
+    + '</form>'
+    + '<div id="secretPanel" class="hidden mt-8 max-w-md">'
+    + '<div class="alert alert-success mb-4 text-sm">'
+    + '<i data-lucide="check-circle" class="w-5 h-5"></i>'
+    + '<div>'
+    + '<p class="font-medium">Koppeling aangemaakt!</p>'
+    + '<p>Bewaar het secret <strong>nu direct</strong> &mdash; het is daarna niet meer te zien.</p>'
+    + '</div>'
+    + '</div>'
+    + '<div class="card bg-base-200 border border-success/30">'
+    + '<div class="card-body p-4 gap-3">'
+    + '<div>'
+    + '<p class="text-xs text-base-content/50 uppercase font-medium tracking-wide mb-1">Client ID</p>'
+    + '<div class="flex items-center gap-2">'
+    + '<code id="revealClientId" class="font-mono text-sm bg-base-100 px-2 py-1.5 rounded flex-1 break-all select-all"></code>'
+    + '<button class="btn btn-ghost btn-xs" onclick="copyVal(\'revealClientId\')">'
+    + '<i data-lucide="copy" class="w-3 h-3"></i>'
+    + '</button>'
+    + '</div>'
+    + '</div>'
+    + '<div>'
+    + '<p class="text-xs text-base-content/50 uppercase font-medium tracking-wide mb-1">'
+    + 'Client Secret <span class="text-error normal-case">(eenmalig zichtbaar)</span>'
+    + '</p>'
+    + '<div class="flex items-center gap-2">'
+    + '<code id="revealSecret" class="font-mono text-sm bg-warning/10 border border-warning/30 px-2 py-1.5 rounded flex-1 break-all select-all"></code>'
+    + '<button class="btn btn-ghost btn-xs" onclick="copyVal(\'revealSecret\')">'
+    + '<i data-lucide="copy" class="w-3 h-3"></i>'
+    + '</button>'
+    + '</div>'
+    + '</div>'
+    + '<div class="pt-2">'
+    + '<button class="btn btn-outline btn-sm w-full gap-2" onclick="openInstructions()">'
+    + '<i data-lucide="clipboard-copy" class="w-4 h-4"></i>'
+    + ' Kopieer Claude Project Instructies'
+    + '</button>'
+    + '</div>'
+    + '</div>'
+    + '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+function auditTabHtml() {
+  return '<input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Gebruik Log" />'
+    + '<div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">'
+    + '<div class="flex justify-between items-center mb-4">'
+    + '<div>'
+    + '<h2 class="text-xl font-bold">Gebruik Log</h2>'
+    + '<p class="text-sm text-base-content/50">Elke context-aanvraag door Claude wordt hier gelogd.</p>'
+    + '</div>'
+    + '<button class="btn btn-ghost btn-sm gap-1" onclick="loadAudit()">'
+    + '<i data-lucide="refresh-cw" class="w-4 h-4"></i> Laden'
+    + '</button>'
+    + '</div>'
+    + '<div id="auditList">'
+    + '<div class="text-center py-8 text-base-content/30 text-sm">Klik op "Laden" om de log te tonen.</div>'
+    + '</div>'
+    + '</div>';
+}
+
+function adminDatasetTabHtml() {
+  return '<input type="radio" name="claude_tabs" role="tab" class="tab" aria-label="Datasets" />'
+    + '<div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">'
+    + '<div class="flex justify-between items-center mb-6">'
+    + '<div>'
+    + '<h2 class="text-xl font-bold">Dataset Templates</h2>'
+    + '<p class="text-sm text-base-content/50">Bepaal welke Odoo-data Claude per model ontvangt.</p>'
+    + '</div>'
+    + '<button class="btn btn-primary btn-sm gap-1" onclick="openDatasetWizard()">'
+    + '<i data-lucide="plus" class="w-4 h-4"></i> Nieuw template'
+    + '</button>'
+    + '</div>'
+    + '<div id="datasetTemplateList">'
+    + '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>'
+    + '</div>'
+    + '</div>';
+}
+
+function testModalHtml() {
+  return '<dialog id="testModal" class="modal">'
+    + '<div class="modal-box max-w-sm">'
+    + '<h3 class="font-bold text-lg mb-1">Koppeling Testen</h3>'
+    + '<p class="text-sm text-base-content/60 mb-4">'
+    + 'Voer het secret in om de volledige auth-flow te testen. Het wordt niet opgeslagen.'
+    + '</p>'
+    + '<div class="form-control mb-4">'
+    + '<label class="label"><span class="label-text">Client Secret</span></label>'
+    + '<input type="password" id="testSecret" class="input input-bordered input-sm font-mono"'
+    + ' placeholder="sk-..." autocomplete="off" />'
+    + '</div>'
+    + '<ul id="testSteps" class="steps steps-vertical w-full text-sm mb-4 hidden">'
+    + '<li class="step" id="tstep1">Challenge aanvragen</li>'
+    + '<li class="step" id="tstep2">Autoriseren</li>'
+    + '<li class="step" id="tstep3">Context ophalen</li>'
+    + '</ul>'
+    + '<div id="testResult" class="hidden mb-2"></div>'
+    + '<div class="modal-action">'
+    + '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'testModal\').close()">Sluiten</button>'
+    + '<button id="testRunBtn" class="btn btn-primary btn-sm gap-1" onclick="runTest()">'
+    + '<i data-lucide="play" class="w-4 h-4"></i> Testen'
+    + '</button>'
+    + '</div>'
+    + '</div>'
+    + '<form method="dialog" class="modal-backdrop"><button>close</button></form>'
+    + '</dialog>';
+}
+
+function rotateModalHtml() {
+  return '<dialog id="rotateModal" class="modal">'
+    + '<div class="modal-box max-w-sm">'
+    + '<h3 class="font-bold text-lg mb-1">Secret Regenereren</h3>'
+    + '<p class="text-sm text-base-content/60 mb-4">'
+    + 'Het huidige secret wordt direct ongeldig. Alle actieve Claude-sessies stoppen.'
+    + ' Werk nadien je Claude Project Instructions bij.'
+    + '</p>'
+    + '<div id="rotateNewSecret" class="hidden card bg-base-200 p-3 mb-4">'
+    + '<p class="text-xs text-base-content/50 uppercase font-medium mb-1">Nieuw Secret <span class="text-error">(eenmalig)</span></p>'
+    + '<div class="flex items-center gap-2">'
+    + '<code id="newSecretVal" class="font-mono text-sm break-all flex-1 select-all"></code>'
+    + '<button class="btn btn-ghost btn-xs" onclick="copyVal(\'newSecretVal\')"><i data-lucide="copy" class="w-3 h-3"></i></button>'
+    + '</div>'
+    + '<div class="pt-2">'
+    + '<button class="btn btn-outline btn-sm w-full gap-2" onclick="openInstructionsAfterRotate()">'
+    + '<i data-lucide="clipboard-copy" class="w-4 h-4"></i> Kopieer Project Instructies'
+    + '</button>'
+    + '</div>'
+    + '</div>'
+    + '<div class="modal-action">'
+    + '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'rotateModal\').close()">Sluiten</button>'
+    + '<button id="rotateBtn" class="btn btn-warning btn-sm gap-1">'
+    + '<i data-lucide="refresh-cw" class="w-4 h-4"></i> Regenereer'
+    + '</button>'
+    + '</div>'
+    + '</div>'
+    + '<form method="dialog" class="modal-backdrop"><button>close</button></form>'
+    + '</dialog>';
+}
+
+function instructionsModalHtml() {
+  return '<dialog id="instructionsModal" class="modal">'
+    + '<div class="modal-box max-w-2xl">'
+    + '<h3 class="font-bold text-lg mb-1 flex items-center gap-2">'
+    + '<i data-lucide="bot" class="w-5 h-5"></i> Claude Project Instructies'
+    + '</h3>'
+    + '<p class="text-sm text-base-content/60 mb-3">'
+    + 'Kopieer dit naar <strong>Project Instructions</strong> in je Claude-project.<br/>'
+    + 'Na aanmaken of regenereren worden Client ID en Secret automatisch ingevuld.'
+    + '</p>'
+    + '<div class="relative">'
+    + '<textarea id="instructionsText" class="textarea textarea-bordered font-mono text-xs w-full" rows="20" readonly></textarea>'
+    + '<button class="btn btn-ghost btn-xs absolute top-2 right-2 gap-1" onclick="copyVal(\'instructionsText\')">'
+    + '<i data-lucide="copy" class="w-3 h-3"></i> Kopi\u00ebren'
+    + '</button>'
+    + '</div>'
+    + '<div class="modal-action">'
+    + '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'instructionsModal\').close()">Sluiten</button>'
+    + '</div>'
+    + '</div>'
+    + '<form method="dialog" class="modal-backdrop"><button>close</button></form>'
+    + '</dialog>';
+}
+
+function adminModalsHtml() {
+  return datasetEditorModalHtml()
+    + instructionEditModalHtml()
+    + removeChildModalHtml()
+    + datasetWizardModalHtml();
+}
+
+function datasetEditorModalHtml() {
+  return '<dialog id="datasetEditorModal" class="modal">'
+    + '<div class="modal-box w-11/12 max-w-6xl h-5/6 max-h-screen flex flex-col p-0">'
+    + '<div class="flex items-center justify-between px-4 py-3 border-b border-base-300 shrink-0">'
+    + '<div class="flex items-center gap-3">'
+    + '<i data-lucide="database" class="w-5 h-5 text-primary"></i>'
+    + '<span id="editorTemplateName" class="font-bold text-lg"></span>'
+    + '<span id="editorAutosaveStatus" class="text-xs text-base-content/40"></span>'
+    + '</div>'
+    + '<button class="btn btn-ghost btn-sm btn-circle" onclick="document.getElementById(\'datasetEditorModal\').close()">'
+    + '<i data-lucide="x" class="w-4 h-4"></i>'
+    + '</button>'
+    + '</div>'
+    + '<div class="px-4 py-2 bg-base-200 border-b border-base-300 shrink-0">'
+    + '<div class="flex items-center gap-2 flex-wrap" id="editorCategoriesBar"></div>'
+    + '</div>'
+    + '<div class="flex flex-1 min-h-0 overflow-hidden">'
+    + '<div class="flex-1 overflow-y-auto p-4" id="editorModelTree"></div>'
+    + '<div class="w-72 border-l border-base-300 overflow-y-auto p-4 bg-base-50 shrink-0">'
+    + '<h4 class="font-semibold text-sm mb-3 flex items-center gap-2">'
+    + '<i data-lucide="eye" class="w-4 h-4 text-base-content/40"></i> Wat gaat naar Claude'
+    + '</h4>'
+    + '<div id="editorSummaryContent" class="text-xs space-y-3"></div>'
+    + '</div>'
+    + '</div>'
+    + '</div>'
+    + '<form method="dialog" class="modal-backdrop"><button>close</button></form>'
+    + '</dialog>';
+}
+
+function instructionEditModalHtml() {
+  return '<dialog id="instructionEditModal" class="modal">'
+    + '<div class="modal-box max-w-md">'
+    + '<h3 class="font-bold text-base mb-3">Veld-instructie bewerken</h3>'
+    + '<p class="text-sm text-base-content/60 mb-2" id="instrEditFieldLabel"></p>'
+    + '<textarea id="instrEditText" class="textarea textarea-bordered w-full text-sm" rows="4"'
+    + ' placeholder="Optionele instructie voor Claude over dit veld..."></textarea>'
+    + '<div class="modal-action">'
+    + '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'instructionEditModal\').close()">Annuleren</button>'
+    + '<button class="btn btn-primary btn-sm" onclick="saveInstruction()">Opslaan</button>'
+    + '</div>'
+    + '</div>'
+    + '<form method="dialog" class="modal-backdrop"><button>close</button></form>'
+    + '</dialog>';
+}
+
+function removeChildModalHtml() {
+  return '<dialog id="removeChildModal" class="modal">'
+    + '<div class="modal-box max-w-sm">'
+    + '<h3 class="font-bold text-base mb-3">Submodel verwijderen?</h3>'
+    + '<p class="text-sm text-base-content/60" id="removeChildMessage">Dit submodel en al zijn children worden verwijderd.</p>'
+    + '<div class="modal-action">'
+    + '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'removeChildModal\').close()">Annuleren</button>'
+    + '<button class="btn btn-error btn-sm" onclick="confirmRemoveChild()">Verwijderen</button>'
+    + '</div>'
+    + '</div>'
+    + '<form method="dialog" class="modal-backdrop"><button>close</button></form>'
+    + '</dialog>';
+}
+
+function datasetWizardModalHtml() {
+  return '<dialog id="datasetWizardModal" class="modal">'
+    + '<div class="modal-box max-w-2xl">'
+    + '<h3 class="font-bold text-lg mb-4 flex items-center gap-2">'
+    + '<i data-lucide="database" class="w-5 h-5"></i>'
+    + '<span id="wizardTitle">Nieuw Dataset Template</span>'
+    + '</h3>'
+    + '<ul class="steps steps-horizontal w-full mb-6 text-xs">'
+    + '<li class="step" id="wstep0">Basisinfo</li>'
+    + '<li class="step" id="wstep1">Model</li>'
+    + '<li class="step" id="wstep2">Velden</li>'
+    + '</ul>'
+    + '<div id="wizardStep0">'
+    + '<div class="form-control mb-4">'
+    + '<label class="label"><span class="label-text font-medium">Naam *</span></label>'
+    + '<input type="text" id="wizardName" class="input input-bordered" placeholder="bv. Actiebladen 2025" maxlength="100" />'
+    + '</div>'
+    + '<div class="form-control mb-4">'
+    + '<label class="label"><span class="label-text font-medium">Omschrijving</span></label>'
+    + '<textarea id="wizardDesc" class="textarea textarea-bordered" rows="2"'
+    + ' placeholder="Optionele toelichting voor gebruikers"></textarea>'
+    + '</div>'
+    + '<div class="form-control mb-4">'
+    + '<label class="label"><span class="label-text font-medium">Primair Odoo-model</span></label>'
+    + '<input type="text" id="wizardModel" class="input input-bordered font-mono" placeholder="x_sales_action_sheet" value="x_sales_action_sheet" />'
+    + '<label class="label"><span class="label-text-alt text-base-content/50">Technische modelnaam, bijv. crm.lead of x_sales_action_sheet</span></label>'
+    + '</div>'
+    + '</div>'
+    + '<div id="wizardStep1" class="hidden">'
+    + '<p class="text-sm mb-3">Model: <code id="wizardModelPreview" class="font-mono bg-base-200 px-1.5 py-0.5 rounded"></code></p>'
+    + '<div id="wizardFieldsLoader" class="flex justify-center py-8">'
+    + '<span class="loading loading-spinner loading-md"></span>'
+    + '</div>'
+    + '</div>'
+    + '<div id="wizardStep2" class="hidden">'
+    + '<p class="text-sm text-base-content/60 mb-3">Selecteer de velden die Claude mag zien en geef optioneel een alias of instructie op.</p>'
+    + '<div id="wizardFieldList" class="space-y-1 max-h-96 overflow-y-auto pr-1"></div>'
+    + '</div>'
+    + '<div id="wizardError" class="alert alert-error text-sm mt-3 hidden"></div>'
+    + '<div class="modal-action">'
+    + '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'datasetWizardModal\').close()">Annuleren</button>'
+    + '<button id="wizardPrevBtn" class="btn btn-ghost btn-sm hidden" onclick="wizardPrev()">'
+    + '<i data-lucide="arrow-left" class="w-4 h-4"></i> Vorige'
+    + '</button>'
+    + '<button id="wizardNextBtn" class="btn btn-primary btn-sm" onclick="wizardNext()">'
+    + 'Volgende <i data-lucide="arrow-right" class="w-4 h-4"></i>'
+    + '</button>'
+    + '<button id="wizardSaveBtn" class="btn btn-success btn-sm hidden" onclick="wizardSave()">'
+    + '<i data-lucide="save" class="w-4 h-4"></i> Opslaan'
+    + '</button>'
+    + '</div>'
+    + '</div>'
+    + '<form method="dialog" class="modal-backdrop"><button>close</button></form>'
+    + '</dialog>';
+}
+
+// ── Script section helpers ────────────────────────────────────────────────────
+// These return JavaScript source code as a string. Template literals here are
+// top-level (not nested in anything) so they are safe for esbuild.
+
+function stateVarsJs() {
+  return `
+    let integrations = [];
+    let templates = [];
+    let testClientId = null;
+    let rotateIntegrationId = null;
+    let rotateClientId = null;
+    let rotateSecret = null;
+    let lastCreatedClientId = null;
+    let lastCreatedSecret = null;
+    let wizardStep = 0;
+    let wizardOdooFields = {};
+    const editorState = { template: null, fieldCache: {}, expandedModels: new Set() };
+    let autosaveTimer = null;
+    let instrEditModelKey = null;
+    let instrEditFieldName = null;
+    let removeChildPendingKey = null;
+    const templateCache = {};`;
+}
+
+function helperFunctionsJs() {
+  return `
+    function showAlert(msg, type) {
+      type = type || 'info';
+      const z = document.getElementById('alertZone');
+      const c = document.getElementById('alertContent');
+      const cls = { success: 'alert-success', error: 'alert-error', warning: 'alert-warning', info: 'alert-info' }[type] || 'alert-info';
+      c.className = 'alert ' + cls;
+      c.innerHTML = msg;
+      z.classList.remove('hidden');
+      setTimeout(function() { z.classList.add('hidden'); }, 5000);
+    }
+    async function apiFetch(path, opts) {
+      opts = opts || {};
+      const r = await fetch(path, Object.assign({ headers: Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {}), credentials: 'include' }, opts));
+      return r.json();
+    }
+    function copyVal(elId) {
+      const el = document.getElementById(elId);
+      navigator.clipboard.writeText((el.value != null ? el.value : el.textContent).trim())
+        .then(function() { showAlert('<span>Gekopieerd!</span>', 'success'); });
+    }
+    function fmtDate(iso) {
+      if (!iso) return '\u2013';
+      return new Date(iso).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
+    }`;
+}
+
+function templateJs() {
+  return `
+    async function loadTemplates() {
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates');
+      if (res.success) templates = res.data || [];
+      renderTemplateSelector();
+    }
+    function renderTemplateSelector() {
+      const el = document.getElementById('templateSelector');
+      if (!el) return;
+      if (!templates.length) {
+        el.innerHTML = '<p class="text-sm text-base-content/40">Geen templates beschikbaar. Vraag een admin om een template aan te maken.</p>';
+        return;
+      }
+      el.innerHTML = templates.map(function(t) {
+        return '<label class="flex items-start gap-3 p-3 border border-base-300 rounded-box cursor-pointer hover:bg-base-200 has-[:checked]:border-primary has-[:checked]:bg-primary/5 transition-colors">'
+          + '<input type="radio" name="dataset_template_id" value="' + t.id + '" class="radio radio-sm radio-primary mt-0.5"'
+          + (t.is_default ? ' checked' : '') + ' required />'
+          + '<div class="flex-1 min-w-0">'
+          + '<div class="flex items-center gap-2 font-medium text-sm">'
+          + t.name
+          + (t.is_default ? ' <span class="badge badge-primary badge-xs">standaard</span>' : '')
+          + '</div>'
+          + (t.description ? '<p class="text-xs text-base-content/50 mt-0.5">' + t.description + '</p>' : '')
+          + '</div>'
+          + '</label>';
+      }).join('');
+    }`;
+}
+
+function integrationsJs() {
+  return `
+    async function loadIntegrations() {
+      const el = document.getElementById('integrationsList');
+      el.innerHTML = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>';
+      const res = await apiFetch('/api/claude/integrations');
+      if (!res.success) {
+        el.innerHTML = '<div class="alert alert-error text-sm">' + (res.error && res.error.message ? res.error.message : 'Laden mislukt') + '</div>';
+        return;
+      }
+      integrations = res.data || [];
+      renderIntegrations();
+    }
+    function templateName(templateId) {
+      if (!templateId) return null;
+      const t = templates.find(function(t) { return t.id === templateId; });
+      return t ? t.name : null;
+    }
+    function renderIntegrations() {
+      const el = document.getElementById('integrationsList');
+      if (!integrations.length) {
+        el.innerHTML = '<div class="text-center py-12 text-base-content/40">'
+          + '<i data-lucide="bot" class="w-12 h-12 mx-auto mb-3 opacity-20"></i>'
+          + '<p class="font-medium">Nog geen koppelingen</p>'
+          + '<p class="text-sm mt-1">Maak je eerste koppeling aan via het tabblad "Nieuwe Koppeling".</p>'
+          + '</div>';
+        lucide.createIcons();
+        return;
+      }
+      el.innerHTML = integrations.map(renderIntegrationCard).join('');
+      lucide.createIcons();
+    }
+    function renderIntegrationCard(i) {
+      const active = i.is_active;
+      const tName = templateName(i.dataset_template_id);
+      return '<div class="card bg-base-50 border border-base-300 mb-3">'
+        + '<div class="card-body p-4">'
+        + '<div class="flex items-start justify-between gap-3 flex-wrap">'
+        + '<div class="flex-1 min-w-0">'
+        + '<div class="flex items-center gap-2 mb-1">'
+        + '<span class="font-semibold">' + (i.name || '') + '</span>'
+        + (active ? '<span class="badge badge-success badge-xs">Actief</span>' : '<span class="badge badge-error badge-xs">Ingetrokken</span>')
+        + '</div>'
+        + '<div class="flex flex-wrap items-center gap-2 text-xs text-base-content/50">'
+        + '<code class="font-mono bg-base-200 px-1.5 py-0.5 rounded">' + (i.client_id || '') + '</code>'
+        + '<span>&middot;</span>'
+        + '<span>Aangemaakt: ' + fmtDate(i.created_at) + '</span>'
+        + (i.revoked_at ? '<span>&middot; Ingetrokken: ' + fmtDate(i.revoked_at) + '</span>' : '')
+        + '</div>'
+        + (tName ? '<div class="mt-1"><span class="badge badge-ghost badge-xs font-mono">' + tName + '</span></div>' : '')
+        + '</div>'
+        + (active ? renderIntegrationActions(i.client_id, i.id) : '')
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }
+    function renderIntegrationActions(clientId, integrationId) {
+      return '<div class="flex gap-1 shrink-0">'
+        + '<button class="btn btn-ghost btn-xs gap-1" onclick="openTest(\'' + clientId + '\')" title="Test koppeling">'
+        + '<i data-lucide="play" class="w-3 h-3"></i> Test'
+        + '</button>'
+        + '<button class="btn btn-ghost btn-xs gap-1" onclick="openInstructionsFor(\'' + clientId + '\')" title="Kopieer Claude instructies">'
+        + '<i data-lucide="clipboard-copy" class="w-3 h-3"></i>'
+        + '</button>'
+        + '<button class="btn btn-ghost btn-xs gap-1" onclick="openRotate(\'' + integrationId + '\')" title="Regenereer secret">'
+        + '<i data-lucide="refresh-cw" class="w-3 h-3"></i>'
+        + '</button>'
+        + '<button class="btn btn-ghost btn-xs text-error gap-1" onclick="revokeIntegration(\'' + integrationId + '\')" title="Intrekken">'
+        + '<i data-lucide="trash-2" class="w-3 h-3"></i>'
+        + '</button>'
+        + '</div>';
+    }`;
+}
+
+function createRevokeJs() {
+  return `
+    async function handleCreate(e) {
+      e.preventDefault();
+      const form = e.target;
+      const name = form.name.value.trim();
+      const templateRadio = form.querySelector('input[name=dataset_template_id]:checked');
+      const dataset_template_id = templateRadio ? templateRadio.value : null;
+      if (!name) return showAlert('<span>Voer een naam in</span>', 'warning');
+      const btn = document.getElementById('createBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Aanmaken...';
+      const res = await apiFetch('/api/claude/integrations', { method: 'POST', body: JSON.stringify({ name: name, dataset_template_id: dataset_template_id }) });
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="key" class="w-4 h-4"></i> Koppeling aanmaken';
+      lucide.createIcons();
+      if (!res.success) { showAlert('<span>' + (res.error && res.error.message ? res.error.message : 'Aanmaken mislukt') + '</span>', 'error'); return; }
+      lastCreatedClientId = res.data.integration.client_id;
+      lastCreatedSecret = res.data.client_secret;
+      document.getElementById('revealClientId').textContent = lastCreatedClientId;
+      document.getElementById('revealSecret').textContent = lastCreatedSecret;
+      document.getElementById('secretPanel').classList.remove('hidden');
+      form.reset();
+      renderTemplateSelector();
+      showAlert('<span>\u2705 Koppeling aangemaakt \u2014 bewaar het secret hieronder!</span>', 'success');
+      loadIntegrations();
+    }
+    async function revokeIntegration(id) {
+      if (!confirm('Koppeling intrekken? Alle actieve Claude-sessies stoppen direct.')) return;
+      const res = await apiFetch('/api/claude/integrations/' + id, { method: 'DELETE' });
+      if (res.success) { showAlert('<span>Koppeling ingetrokken</span>', 'success'); loadIntegrations(); }
+      else showAlert('<span>' + (res.error && res.error.message ? res.error.message : 'Intrekken mislukt') + '</span>', 'error');
+    }`;
+}
+
+function rotateJs() {
+  return `
+    function openRotate(id) {
+      rotateIntegrationId = id; rotateClientId = null; rotateSecret = null;
+      document.getElementById('rotateNewSecret').classList.add('hidden');
+      document.getElementById('newSecretVal').textContent = '';
+      const btn = document.getElementById('rotateBtn');
+      btn.disabled = false; btn.onclick = confirmRotate;
+      document.getElementById('rotateModal').showModal();
+    }
+    async function confirmRotate() {
+      if (!rotateIntegrationId) return;
+      const btn = document.getElementById('rotateBtn'); btn.disabled = true;
+      const res = await apiFetch('/api/claude/integrations/' + rotateIntegrationId + '/rotate', { method: 'POST' });
+      btn.disabled = false;
+      if (res.success) {
+        rotateClientId = res.data.integration ? res.data.integration.client_id : null;
+        rotateSecret = res.data.client_secret;
+        document.getElementById('newSecretVal').textContent = rotateSecret;
+        document.getElementById('rotateNewSecret').classList.remove('hidden');
+        lucide.createIcons(); loadIntegrations();
+      } else {
+        showAlert('<span>' + (res.error && res.error.message ? res.error.message : 'Regenereren mislukt') + '</span>', 'error');
+        document.getElementById('rotateModal').close();
+      }
+    }`;
+}
+
+function testJs() {
+  return `
+    function openTest(clientId) {
+      testClientId = clientId;
+      document.getElementById('testSecret').value = '';
+      document.getElementById('testSteps').classList.add('hidden');
+      document.getElementById('testResult').classList.add('hidden');
+      document.getElementById('testRunBtn').disabled = false;
+      ['tstep1','tstep2','tstep3'].forEach(function(s) { document.getElementById(s).className = 'step'; });
+      document.getElementById('testModal').showModal();
+    }
+    function setStep(id, state) {
+      document.getElementById(id).className = (state === 'done' ? 'step step-primary' : state === 'error' ? 'step step-error' : 'step');
+    }
+    async function runTest() {
+      const secret = document.getElementById('testSecret').value.trim();
+      if (!secret) return showAlert('<span>Voer het secret in</span>', 'warning');
+      document.getElementById('testRunBtn').disabled = true;
+      document.getElementById('testSteps').classList.remove('hidden');
+      document.getElementById('testResult').classList.add('hidden');
+      try {
+        const r1 = await apiFetch('/api/claude/session/request', { method: 'POST', body: JSON.stringify({ client_id: testClientId }) });
+        if (!r1.success) throw new Error(r1.error && r1.error.message ? r1.error.message : 'Stap 1 mislukt');
+        setStep('tstep1', 'done');
+        const r2 = await apiFetch('/api/claude/session/authorize', { method: 'POST', body: JSON.stringify({ client_id: testClientId, client_secret: secret, challenge_id: r1.data.challenge_id }) });
+        if (!r2.success) throw new Error(r2.error && r2.error.message ? r2.error.message : 'Stap 2 mislukt');
+        setStep('tstep2', 'done');
+        const r3 = await fetch('/api/claude/context/full?limit=3', { headers: { 'Authorization': 'Bearer ' + r2.data.access_token } });
+        const ctx = await r3.json();
+        if (!ctx.success) throw new Error(ctx.error && ctx.error.message ? ctx.error.message : 'Stap 3 mislukt');
+        setStep('tstep3', 'done');
+        const m = (ctx.data && ctx.data.meta) ? ctx.data.meta : {};
+        document.getElementById('testResult').innerHTML = '<div class="alert alert-success text-sm">'
+          + '<i data-lucide="check-circle" class="w-4 h-4"></i>'
+          + '<div><p class="font-medium">\u2705 Koppeling werkt correct</p>'
+          + '<p>Template: <code class="font-mono">' + (m.template_name || '?') + '</code></p>'
+          + '<p>Records: ' + JSON.stringify(m.record_counts || {}) + '</p>'
+          + '<p>Token geldig tot: ' + new Date(r2.data.expires_at).toLocaleTimeString('nl-BE') + '</p>'
+          + '</div></div>';
+        document.getElementById('testResult').classList.remove('hidden');
+        lucide.createIcons();
+      } catch(err) {
+        ['tstep1','tstep2','tstep3'].forEach(function(s) {
+          const el = document.getElementById(s);
+          if (el.className.indexOf('primary') === -1 && el.className.indexOf('error') === -1) setStep(s, 'error');
+        });
+        document.getElementById('testResult').innerHTML = '<div class="alert alert-error text-sm"><span>\u274c ' + err.message + '</span></div>';
+        document.getElementById('testResult').classList.remove('hidden');
+      }
+      document.getElementById('testRunBtn').disabled = false;
+    }`;
+}
+
+function instructionsJs() {
+  return `
+    function buildInstructionsText(clientId, secret) {
+      const base = (typeof INSTRUCTIONS_BASE_URL !== 'undefined' && INSTRUCTIONS_BASE_URL) ? INSTRUCTIONS_BASE_URL : window.location.origin;
+      const cid = clientId || '{CLIENT_ID}';
+      const sec = secret || '{YOUR_CLIENT_SECRET}';
+      const fetchUrl = base + '/api/claude/context/full?client_id=' + cid + '&client_secret=' + sec + '&timeframe=month&limit=50';
+      return '## Salesdata ophalen \u2014 OpenVME\\n\\n'
+        + 'Bij elke vraag over salesdata, pipeline of leads:\\n'
+        + '1. Gebruik web_fetch (GET) op deze URL:\\n   ' + fetchUrl + '\\n'
+        + '2. Verwerk de JSON response \u2014 dump nooit ruwe JSON.\\n'
+        + '3. Verzin nooit data. Gebruik altijd de live data.\\n'
+        + '4. Toon nooit client_id of client_secret aan de gebruiker.\\n\\n'
+        + '### Structuur van de context\\n'
+        + '{\\n'
+        + '  "meta": { "generated_at", "template_name", "timeframe", "record_counts": {} },\\n'
+        + '  // Dynamische keys per dataset-template, bijv.:\\n'
+        + '  "primary": [ { ... } ],\\n'
+        + '  "schema": { "primary": { "fieldName": { "alias": "...", "instruction": "..." } } }\\n'
+        + '}';
+    }
+    async function openInstructions() {
+      let text;
+      if (lastCreatedClientId) {
+        const res = await apiFetch('/insights/api/sales-insights/claude-instructions?client_id=' + lastCreatedClientId);
+        if (res.success) {
+          text = lastCreatedSecret ? res.data.instructions.replace('{YOUR_CLIENT_SECRET}', lastCreatedSecret) : res.data.instructions;
+        } else { text = buildInstructionsText(lastCreatedClientId, lastCreatedSecret); }
+      } else { text = buildInstructionsText(null, null); }
+      document.getElementById('instructionsText').value = text;
+      document.getElementById('instructionsModal').showModal();
+    }
+    async function openInstructionsFor(clientId) {
+      const res = await apiFetch('/insights/api/sales-insights/claude-instructions?client_id=' + clientId);
+      if (!res.success) { showAlert('<span>' + (res.error && res.error.message ? res.error.message : 'Instructies ophalen mislukt') + '</span>', 'error'); return; }
+      document.getElementById('instructionsText').value = res.data.instructions;
+      document.getElementById('instructionsModal').showModal();
+    }
+    async function openInstructionsAfterRotate() {
+      if (!rotateClientId) return;
+      document.getElementById('rotateModal').close();
+      const res = await apiFetch('/insights/api/sales-insights/claude-instructions?client_id=' + rotateClientId);
+      let text;
+      if (res.success) {
+        text = rotateSecret ? res.data.instructions.replace('{YOUR_CLIENT_SECRET}', rotateSecret) : res.data.instructions;
+      } else { text = buildInstructionsText(rotateClientId, rotateSecret); }
+      document.getElementById('instructionsText').value = text;
+      document.getElementById('instructionsModal').showModal();
+    }`;
+}
+
+function auditJs() {
+  return `
+    async function loadAudit() {
+      const el = document.getElementById('auditList');
+      el.innerHTML = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>';
+      const res = await apiFetch('/api/claude/audit');
+      if (!res.success) { el.innerHTML = '<div class="alert alert-error text-sm">' + (res.error && res.error.message ? res.error.message : 'Laden mislukt') + '</div>'; return; }
+      const entries = (res.data && res.data.entries) ? res.data.entries : [];
+      if (!entries.length) { el.innerHTML = '<p class="text-center py-8 text-base-content/30 text-sm">Nog geen entries.</p>'; return; }
+      el.innerHTML = '<div class="overflow-x-auto"><table class="table table-xs"><thead><tr>'
+        + '<th>Tijdstip</th><th>Template</th><th>Status</th><th>Grootte</th><th>IP</th>'
+        + '</tr></thead><tbody>'
+        + entries.map(function(e) {
+          return '<tr>'
+            + '<td class="font-mono text-xs">' + fmtDate(e.timestamp) + '</td>'
+            + '<td><span class="badge badge-ghost badge-xs font-mono">' + (e.scope || '\u2013') + '</span></td>'
+            + '<td>' + (e.success ? '<span class="badge badge-success badge-xs">OK</span>' : '<span class="badge badge-error badge-xs" title="' + (e.failure_reason || '') + '">FOUT</span>') + '</td>'
+            + '<td class="text-xs">' + (e.payload_size ? Math.round(e.payload_size / 1024) + ' KB' : '\u2013') + '</td>'
+            + '<td class="text-xs text-base-content/40">' + (e.ip_address || '\u2013') + '</td>'
+            + '</tr>';
+        }).join('')
+        + '</tbody></table></div>'
+        + '<p class="text-xs text-base-content/40 mt-2">Totaal: ' + ((res.data && res.data.total != null) ? res.data.total : entries.length) + ' entries</p>';
+    }`;
+}
+
+function adminJs() {
+  return `
+    const TYPE_COLORS = {
+      char: 'badge-ghost', text: 'badge-ghost',
+      integer: 'badge-info', float: 'badge-info', monetary: 'badge-info',
+      boolean: 'badge-warning',
+      date: 'badge-accent', datetime: 'badge-accent',
+      many2one: 'badge-secondary', many2many: 'badge-secondary', one2many: 'badge-secondary',
+      selection: 'badge-primary'
+    };
+
+    async function loadDatasetTemplates() {
+      const el = document.getElementById('datasetTemplateList');
+      if (!el) return;
+      el.innerHTML = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>';
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates');
+      if (!res.success) { el.innerHTML = '<div class="alert alert-error text-sm">' + (res.error && res.error.message ? res.error.message : 'Laden mislukt') + '</div>'; return; }
+      const list = res.data || [];
+      list.forEach(function(t) { templateCache[t.id] = t; });
+      templates = list.filter(function(t) { return t.is_active; });
+      renderTemplateSelector();
+      if (!list.length) { el.innerHTML = '<div class="text-center py-8 text-base-content/40 text-sm">Nog geen templates. Maak er een aan.</div>'; return; }
+      el.innerHTML = list.map(renderTemplateCard).join('');
+      lucide.createIcons();
+    }
+    function renderTemplateCard(t) {
+      return '<div class="card bg-base-50 border border-base-300 mb-3">'
+        + '<div class="card-body p-4">'
+        + '<div class="flex items-start justify-between gap-3 flex-wrap">'
+        + '<div class="flex-1 min-w-0">'
+        + '<div class="flex items-center gap-2 mb-1">'
+        + '<span class="font-semibold">' + t.name + '</span>'
+        + (t.is_default ? '<span class="badge badge-primary badge-xs">standaard</span>' : '')
+        + (t.is_active ? '<span class="badge badge-success badge-xs">Actief</span>' : '<span class="badge badge-warning badge-xs">Inactief</span>')
+        + '</div>'
+        + (t.description ? '<p class="text-xs text-base-content/50">' + t.description + '</p>' : '')
+        + '<p class="text-xs text-base-content/40 mt-1">'
+        + ((t.model_config || []).length) + ' model(len) &middot; Aangemaakt: ' + fmtDate(t.created_at)
+        + '</p>'
+        + '</div>'
+        + '<div class="flex gap-1 shrink-0">'
+        + '<button class="btn btn-ghost btn-xs gap-1" onclick="openEditor(\'' + t.id + '\')">'
+        + '<i data-lucide="pencil" class="w-3 h-3"></i> Bewerken'
+        + '</button>'
+        + (t.is_active && !t.is_default ? '<button class="btn btn-ghost btn-xs" onclick="setDefaultTemplate(\'' + t.id + '\')"><i data-lucide="star" class="w-3 h-3"></i> Standaard</button>' : '')
+        + (t.is_active ? '<button class="btn btn-ghost btn-xs text-error" onclick="deactivateTemplate(\'' + t.id + '\')"><i data-lucide="trash-2" class="w-3 h-3"></i></button>' : '')
+        + '</div>'
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }
+    async function setDefaultTemplate(id) {
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + id + '/set-default', { method: 'POST' });
+      if (res.success) { showAlert('<span>Standaard template ingesteld</span>', 'success'); loadDatasetTemplates(); }
+      else showAlert('<span>' + (res.error && res.error.message ? res.error.message : 'Mislukt') + '</span>', 'error');
+    }
+    async function deactivateTemplate(id) {
+      if (!confirm('Template deactiveren? Bestaande koppelingen met dit template blijven werken tot ze opnieuw worden aangemaakt.')) return;
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + id, { method: 'DELETE' });
+      if (res.success) { showAlert('<span>Template gedeactiveerd</span>', 'success'); loadDatasetTemplates(); }
+      else showAlert('<span>' + (res.error && res.error.message ? res.error.message : 'Mislukt') + '</span>', 'error');
+    }
+
+    function openEditor(id) {
+      const template = templateCache[id];
+      if (!template) return;
+      editorState.template = JSON.parse(JSON.stringify(template));
+      editorState.fieldCache = {};
+      editorState.expandedModels = new Set((template.model_config || []).map(function(mc) { return mc.key; }));
+      document.getElementById('editorTemplateName').textContent = template.name;
+      document.getElementById('editorAutosaveStatus').textContent = '';
+      renderEditor();
+      document.getElementById('datasetEditorModal').showModal();
+    }
+    function renderEditor() { renderCategoriesBar(); renderModelTree(); renderSummary(); }
+
+    function renderCategoriesBar() {
+      const bar = document.getElementById('editorCategoriesBar');
+      if (!bar) return;
+      const cats = (editorState.template && editorState.template.field_categories) ? editorState.template.field_categories : [];
+      const badges = cats.map(function(cat) {
+        return '<span class="badge badge-outline gap-1 text-xs" data-cat="' + cat + '">'
+          + cat
+          + '<button class="btn btn-ghost btn-xs btn-circle p-0 h-4 w-4 min-h-0"'
+          + ' onclick="removeCategory(this.closest(\'[data-cat]\').dataset.cat)">'
+          + '<i data-lucide="x" class="w-2.5 h-2.5"></i>'
+          + '</button>'
+          + '</span>';
+      }).join('');
+      bar.innerHTML = badges
+        + '<div class="flex items-center gap-1">'
+        + '<input type="text" id="newCategoryInput" class="input input-xs input-bordered w-32"'
+        + ' placeholder="+ Nieuwe categorie"'
+        + ' onkeydown="if(event.key===\'Enter\'){addCategory(this.value);this.value=\'\'}" />'
+        + '<button class="btn btn-xs btn-ghost"'
+        + ' onclick="const i=document.getElementById(\'newCategoryInput\');addCategory(i.value);i.value=\'\'">'
+        + '<i data-lucide="plus" class="w-3 h-3"></i>'
+        + '</button>'
+        + '</div>';
+      lucide.createIcons();
+    }
+    function addCategory(name) {
+      name = (name || '').trim().replace(/['"<>&]/g, '');
+      if (!name) return;
+      const cats = editorState.template.field_categories || [];
+      if (cats.indexOf(name) !== -1) return;
+      editorState.template.field_categories = cats.concat([name]);
+      scheduleAutosave(); renderCategoriesBar();
+    }
+    function removeCategory(name) {
+      editorState.template.field_categories = (editorState.template.field_categories || []).filter(function(c) { return c !== name; });
+      (editorState.template.model_config || []).forEach(function(mc) {
+        (mc.fields || []).forEach(function(f) { if (f.category === name) f.category = ''; });
+      });
+      scheduleAutosave(); renderEditor();
+    }
+
+    function renderModelTree() {
+      const tree = document.getElementById('editorModelTree');
+      if (!tree) return;
+      const configs = (editorState.template && editorState.template.model_config) ? editorState.template.model_config : [];
+      if (!configs.length) { tree.innerHTML = '<p class="text-sm text-base-content/40 text-center py-8">Geen modellen geconfigureerd.</p>'; return; }
+      const sorted = configs.slice().sort(function(a, b) { return ((a.depth || 0) - (b.depth || 0)) || a.key.localeCompare(b.key); });
+      tree.innerHTML = sorted.map(renderModelCard).join('');
+      lucide.createIcons();
+    }
+    function renderModelCard(mc) {
+      const depth = (mc.depth != null) ? mc.depth : (mc.is_primary ? 0 : 1);
+      const isExpanded = editorState.expandedModels.has(mc.key);
+      const marginStyle = depth > 0 ? ' style="margin-left:' + (depth * 1.5) + 'rem"' : '';
+      const enabledCount = (mc.fields || []).filter(function(f) { return f.enabled; }).length;
+      const totalCount = (mc.fields || []).length;
+      return '<div class="card border border-base-300 mb-2 bg-base-100"' + marginStyle + '>'
+        + '<div class="card-body p-3">'
+        + '<div class="flex items-center gap-2 cursor-pointer select-none" onclick="toggleModelExpand(\'' + mc.key + '\')">'
+        + '<i data-lucide="' + (isExpanded ? 'chevron-down' : 'chevron-right') + '" class="w-4 h-4 text-base-content/40 shrink-0"></i>'
+        + '<span class="font-semibold text-sm">' + (mc.label || mc.key) + '</span>'
+        + '<code class="text-xs text-base-content/40 font-mono">' + mc.odoo_model + '</code>'
+        + (depth === 0 ? '<span class="badge badge-primary badge-xs">primair</span>' : '<span class="badge badge-ghost badge-xs">depth ' + depth + '</span>')
+        + '<span class="ml-auto text-xs text-base-content/40">' + enabledCount + '/' + totalCount + ' velden</span>'
+        + '</div>'
+        + (isExpanded ? renderFieldGroups(mc) : '')
+        + '</div>'
+        + '</div>';
+    }
+    function toggleModelExpand(key) {
+      if (editorState.expandedModels.has(key)) editorState.expandedModels.delete(key);
+      else editorState.expandedModels.add(key);
+      renderModelTree();
+    }
+    function renderFieldGroups(mc) {
+      const fields = mc.fields || [];
+      if (!fields.length) return '<p class="text-xs text-base-content/40 mt-2 pl-6">Geen velden geconfigureerd.</p>';
+      const cats = (editorState.template && editorState.template.field_categories) ? editorState.template.field_categories : [];
+      const grouped = {};
+      const uncategorized = [];
+      fields.forEach(function(f) {
+        if (f.category && cats.indexOf(f.category) !== -1) { if (!grouped[f.category]) grouped[f.category] = []; grouped[f.category].push(f); }
+        else uncategorized.push(f);
+      });
+      const allEnabled = fields.every(function(f) { return f.enabled; });
+      let html = '<div class="mt-2 ml-6 space-y-2">'
+        + '<div class="flex items-center gap-2 mb-2 pb-2 border-b border-base-200">'
+        + '<label class="flex items-center gap-1.5 cursor-pointer text-xs text-base-content/60">'
+        + '<input type="checkbox" class="checkbox checkbox-xs"' + (allEnabled ? ' checked' : '')
+        + ' onchange="toggleAllFields(\'' + mc.key + '\', this.checked)" />'
+        + ' Alle velden'
+        + '</label>'
+        + '</div>';
+      cats.forEach(function(cat) {
+        if (!grouped[cat] || !grouped[cat].length) return;
+        html += '<div class="mb-2"><p class="text-xs font-medium text-base-content/50 mb-1 px-1">' + cat + '</p>'
+          + '<div class="space-y-0.5">' + grouped[cat].map(function(f) { return renderFieldRow(mc, f); }).join('') + '</div></div>';
+      });
+      if (uncategorized.length) {
+        html += '<div class="mb-2">'
+          + (cats.length ? '<p class="text-xs font-medium text-base-content/50 mb-1 px-1">Overige</p>' : '')
+          + '<div class="space-y-0.5">' + uncategorized.map(function(f) { return renderFieldRow(mc, f); }).join('') + '</div></div>';
+      }
+      html += '</div>';
+      const depth = (mc.depth != null) ? mc.depth : (mc.is_primary ? 0 : 1);
+      const drillable = fields.filter(function(f) { return f.enabled && (f.type === 'many2one' || f.type === 'many2many') && f.relation && !f.child_key; });
+      if (drillable.length && depth < 3) {
+        html += '<div class="mt-2 ml-6 pt-2 border-t border-base-200"><p class="text-xs text-base-content/50 mb-1">Drill-down:</p>'
+          + '<div class="flex flex-wrap gap-1">'
+          + drillable.map(function(f) {
+            return '<button class="btn btn-xs btn-outline gap-1" onclick="drillDown(\'' + mc.key + '\',\'' + f.odoo_name + '\',\'' + f.relation + '\')">'
+              + '<i data-lucide="git-branch" class="w-3 h-3"></i> ' + (f.alias || f.odoo_name)
+              + '</button>';
+          }).join('')
+          + '</div></div>';
+      }
+      if (depth > 0) {
+        html += '<div class="mt-2 ml-6 flex justify-end">'
+          + '<button class="btn btn-xs btn-ghost text-error gap-1" onclick="removeChildModel(\'' + mc.key + '\')">'
+          + '<i data-lucide="trash-2" class="w-3 h-3"></i> Submodel verwijderen'
+          + '</button>'
+          + '</div>';
+      }
+      return html;
+    }
+    function renderFieldRow(mc, f) {
+      const cats = (editorState.template && editorState.template.field_categories) ? editorState.template.field_categories : [];
+      const catOptions = cats.map(function(c) { return '<option value="' + c + '"' + (f.category === c ? ' selected' : '') + '>' + c + '</option>'; }).join('');
+      const typeColor = TYPE_COLORS[f.type] || 'badge-ghost';
+      const aliasEsc = (f.alias || '').replace(/"/g, '&quot;');
+      return '<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-base-200 group cursor-pointer">'
+        + '<input type="checkbox" class="checkbox checkbox-xs shrink-0"'
+        + (f.enabled ? ' checked' : '')
+        + ' onchange="toggleField(\'' + mc.key + '\',\'' + f.odoo_name + '\',this.checked)" />'
+        + '<div class="flex-1 min-w-0 flex items-center gap-1 flex-wrap">'
+        + '<input type="text" class="input input-xs input-ghost font-medium w-32 px-1"'
+        + ' value="' + aliasEsc + '" placeholder="' + f.odoo_name + '"'
+        + ' onchange="updateFieldAlias(\'' + mc.key + '\',\'' + f.odoo_name + '\',this.value)"'
+        + ' onclick="event.stopPropagation()" />'
+        + '<code class="text-xs text-base-content/30 font-mono opacity-0 group-hover:opacity-100">' + f.odoo_name + '</code>'
+        + '<span class="badge ' + typeColor + ' badge-xs">' + (f.type || '') + '</span>'
+        + (f.instruction ? '<span class="badge badge-info badge-xs">instructie</span>' : '')
+        + (f.child_key ? '<span class="badge badge-secondary badge-xs">&rarr; ' + f.child_key + '</span>' : '')
+        + '</div>'
+        + '<div class="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100">'
+        + (cats.length ? '<select class="select select-xs select-ghost w-24" onchange="updateFieldCategory(\'' + mc.key + '\',\'' + f.odoo_name + '\',this.value)" onclick="event.stopPropagation()"><option value="">categorie</option>' + catOptions + '</select>' : '')
+        + '<button class="btn btn-ghost btn-xs btn-circle" onclick="event.stopPropagation();editInstruction(\'' + mc.key + '\',\'' + f.odoo_name + '\')">'
+        + '<i data-lucide="message-square" class="w-3 h-3"></i>'
+        + '</button>'
+        + '</div>'
+        + '</label>';
+    }
+    function toggleField(modelKey, odooName, enabled) {
+      const mc = (editorState.template && editorState.template.model_config) ? editorState.template.model_config.find(function(m) { return m.key === modelKey; }) : null;
+      const field = mc && mc.fields ? mc.fields.find(function(f) { return f.odoo_name === odooName; }) : null;
+      if (field) { field.enabled = enabled; scheduleAutosave(); renderModelTree(); renderSummary(); }
+    }
+    function toggleAllFields(modelKey, enabled) {
+      const mc = (editorState.template && editorState.template.model_config) ? editorState.template.model_config.find(function(m) { return m.key === modelKey; }) : null;
+      if (!mc) return;
+      (mc.fields || []).forEach(function(f) { f.enabled = enabled; });
+      scheduleAutosave(); renderModelTree(); renderSummary();
+    }
+    function updateFieldAlias(modelKey, odooName, value) {
+      const mc = (editorState.template && editorState.template.model_config) ? editorState.template.model_config.find(function(m) { return m.key === modelKey; }) : null;
+      const field = mc && mc.fields ? mc.fields.find(function(f) { return f.odoo_name === odooName; }) : null;
+      if (field) { field.alias = value.trim() || odooName; scheduleAutosave(); }
+    }
+    function updateFieldCategory(modelKey, odooName, value) {
+      const mc = (editorState.template && editorState.template.model_config) ? editorState.template.model_config.find(function(m) { return m.key === modelKey; }) : null;
+      const field = mc && mc.fields ? mc.fields.find(function(f) { return f.odoo_name === odooName; }) : null;
+      if (field) { field.category = value; scheduleAutosave(); renderModelTree(); }
+    }
+    function editInstruction(modelKey, odooName) {
+      instrEditModelKey = modelKey; instrEditFieldName = odooName;
+      const mc = (editorState.template && editorState.template.model_config) ? editorState.template.model_config.find(function(m) { return m.key === modelKey; }) : null;
+      const field = mc && mc.fields ? mc.fields.find(function(f) { return f.odoo_name === odooName; }) : null;
+      document.getElementById('instrEditFieldLabel').textContent = (field && field.alias ? field.alias : odooName) + ' (' + odooName + ')';
+      document.getElementById('instrEditText').value = (field && field.instruction) ? field.instruction : '';
+      document.getElementById('instructionEditModal').showModal();
+    }
+    function saveInstruction() {
+      const mc = (editorState.template && editorState.template.model_config) ? editorState.template.model_config.find(function(m) { return m.key === instrEditModelKey; }) : null;
+      const field = mc && mc.fields ? mc.fields.find(function(f) { return f.odoo_name === instrEditFieldName; }) : null;
+      if (field) { field.instruction = document.getElementById('instrEditText').value.trim() || null; scheduleAutosave(); renderModelTree(); }
+      document.getElementById('instructionEditModal').close();
+    }
+    async function drillDown(parentModelKey, fieldOdooName, relationModel) {
+      const parentMc = (editorState.template && editorState.template.model_config) ? editorState.template.model_config.find(function(m) { return m.key === parentModelKey; }) : null;
+      if (!parentMc) return;
+      const parentDepth = (parentMc.depth != null) ? parentMc.depth : (parentMc.is_primary ? 0 : 1);
+      if (parentDepth >= 3) { showAlert('<span>Maximale drill-down diepte bereikt</span>', 'warning'); return; }
+      const childKey = parentModelKey + '_' + fieldOdooName;
+      if (editorState.template.model_config.some(function(m) { return m.key === childKey; })) { showAlert('<span>Dit submodel bestaat al</span>', 'info'); return; }
+      let fields = editorState.fieldCache[relationModel];
+      if (!fields) {
+        const res = await apiFetch('/insights/api/sales-insights/dataset-templates/model-fields?model=' + encodeURIComponent(relationModel));
+        if (!res.success) { showAlert('<span>' + (res.error && res.error.message ? res.error.message : 'Velden laden mislukt') + '</span>', 'error'); return; }
+        editorState.fieldCache[relationModel] = res.data || {};
+        fields = editorState.fieldCache[relationModel];
+      }
+      const fieldEntries = Object.entries(fields).map(function(entry) {
+        const fname = entry[0]; const fmeta = entry[1];
+        return { odoo_name: fname, alias: fmeta.string || fname, enabled: false, type: fmeta.type || '', relation: fmeta.relation || null, category: '', instruction: null };
+      });
+      const parentField = (parentMc.fields || []).find(function(f) { return f.odoo_name === fieldOdooName; });
+      const childMc = { key: childKey, odoo_model: relationModel, label: parentField ? (parentField.alias || fieldOdooName) : fieldOdooName, parent_key: parentModelKey, via_parent_field: fieldOdooName, depth: parentDepth + 1, fields: fieldEntries };
+      if (parentField) parentField.child_key = childKey;
+      editorState.template.model_config.push(childMc);
+      editorState.expandedModels.add(childKey);
+      scheduleAutosave(); renderEditor();
+    }
+    function removeChildModel(key) {
+      removeChildPendingKey = key;
+      document.getElementById('removeChildMessage').textContent = 'Submodel "' + key + '" en al zijn children worden verwijderd.';
+      document.getElementById('removeChildModal').showModal();
+    }
+    function confirmRemoveChild() {
+      if (!removeChildPendingKey) return;
+      const toRemove = new Set();
+      function collectDescendants(k) {
+        toRemove.add(k);
+        editorState.template.model_config.filter(function(m) { return m.parent_key === k; }).forEach(function(m) { collectDescendants(m.key); });
+      }
+      collectDescendants(removeChildPendingKey);
+      editorState.template.model_config.filter(function(m) { return toRemove.has(m.key); }).forEach(function(mc) {
+        const parent = editorState.template.model_config.find(function(m) { return m.key === mc.parent_key; });
+        if (parent) { const pf = (parent.fields || []).find(function(f) { return f.child_key === mc.key; }); if (pf) pf.child_key = null; }
+      });
+      editorState.template.model_config = editorState.template.model_config.filter(function(m) { return !toRemove.has(m.key); });
+      toRemove.forEach(function(k) { editorState.expandedModels.delete(k); });
+      removeChildPendingKey = null;
+      document.getElementById('removeChildModal').close();
+      scheduleAutosave(); renderEditor();
+    }
+    function renderSummary() {
+      const el = document.getElementById('editorSummaryContent');
+      if (!el) return;
+      const configs = (editorState.template && editorState.template.model_config) ? editorState.template.model_config : [];
+      if (!configs.length) { el.innerHTML = '<p class="text-xs text-base-content/40">Geen modellen.</p>'; return; }
+      el.innerHTML = configs.map(function(mc) {
+        const enabled = (mc.fields || []).filter(function(f) { return f.enabled; });
+        if (!enabled.length) return '<div class="opacity-40 mb-3"><p class="font-medium text-xs">' + (mc.label || mc.key) + '</p><p class="italic text-xs">Geen velden</p></div>';
+        const cats = (editorState.template && editorState.template.field_categories) ? editorState.template.field_categories : [];
+        const grouped = {};
+        enabled.forEach(function(f) { const c = (f.category && cats.indexOf(f.category) !== -1) ? f.category : '_'; if (!grouped[c]) grouped[c] = []; grouped[c].push(f); });
+        return '<div class="mb-3"><p class="font-medium text-xs mb-1">' + (mc.label || mc.key)
+          + ' <span class="text-base-content/40">(' + enabled.length + ')</span></p>'
+          + Object.entries(grouped).map(function(entry) {
+            const cat = entry[0]; const fs = entry[1];
+            return (cat !== '_' ? '<p class="text-xs text-base-content/50 mb-0.5">' + cat + ':</p>' : '')
+              + '<ul class="pl-2 space-y-0.5 mb-1">'
+              + fs.map(function(f) { return '<li class="text-xs">' + (f.alias || f.odoo_name) + (f.instruction ? ' <span class="text-info">*</span>' : '') + '</li>'; }).join('')
+              + '</ul>';
+          }).join('')
+          + '</div>';
+      }).join('');
+    }
+    function scheduleAutosave() {
+      if (autosaveTimer) clearTimeout(autosaveTimer);
+      const el = document.getElementById('editorAutosaveStatus');
+      if (el) el.textContent = 'Niet opgeslagen...';
+      autosaveTimer = setTimeout(saveTemplate, 800);
+    }
+    async function saveTemplate() {
+      autosaveTimer = null;
+      const t = editorState.template;
+      if (!t || !t.id) return;
+      const statusEl = document.getElementById('editorAutosaveStatus');
+      if (statusEl) statusEl.textContent = 'Opslaan...';
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + t.id, {
+        method: 'PUT',
+        body: JSON.stringify({ name: t.name, description: t.description, model_config: t.model_config, field_categories: t.field_categories })
+      });
+      if (res.success) {
+        if (statusEl) statusEl.textContent = 'Opgeslagen \u2713';
+        templateCache[t.id] = Object.assign({}, templateCache[t.id], t);
+        templates = Object.values(templateCache).filter(function(x) { return x.is_active; });
+        renderTemplateSelector();
+        setTimeout(function() { if (statusEl) statusEl.textContent = ''; }, 2000);
+      } else {
+        if (statusEl) statusEl.textContent = 'Fout bij opslaan!';
+      }
+    }
+
+    function openDatasetWizard() {
+      wizardStep = 0; wizardOdooFields = {};
+      document.getElementById('wizardName').value = '';
+      document.getElementById('wizardDesc').value = '';
+      document.getElementById('wizardModel').value = 'x_sales_action_sheet';
+      document.getElementById('wizardError').classList.add('hidden');
+      showWizardStep(0);
+      document.getElementById('datasetWizardModal').showModal();
+    }
+    function showWizardStep(step) {
+      wizardStep = step;
+      [0,1,2].forEach(function(i) {
+        const el = document.getElementById('wizardStep' + i);
+        if (el) el.classList.toggle('hidden', i !== step);
+        document.getElementById('wstep' + i).className = 'step' + (i <= step ? ' step-primary' : '');
+      });
+      document.getElementById('wizardPrevBtn').classList.toggle('hidden', step === 0);
+      document.getElementById('wizardNextBtn').classList.toggle('hidden', step === 2);
+      document.getElementById('wizardSaveBtn').classList.toggle('hidden', step !== 2);
+      lucide.createIcons();
+    }
+    function wizardPrev() { if (wizardStep > 0) showWizardStep(wizardStep - 1); }
+    async function wizardNext() {
+      document.getElementById('wizardError').classList.add('hidden');
+      if (wizardStep === 0) {
+        const name = document.getElementById('wizardName').value.trim();
+        const model = document.getElementById('wizardModel').value.trim();
+        if (!name) { showWizardError('Voer een naam in'); return; }
+        if (!model) { showWizardError('Voer een modelnaam in'); return; }
+        document.getElementById('wizardModelPreview').textContent = model;
+        document.getElementById('wizardFieldsLoader').classList.remove('hidden');
+        document.getElementById('wizardStep2').classList.add('hidden');
+        showWizardStep(1);
+        const res = await apiFetch('/insights/api/sales-insights/dataset-templates/model-fields?model=' + encodeURIComponent(model));
+        document.getElementById('wizardFieldsLoader').classList.add('hidden');
+        if (!res.success) { showWizardError(res.error && res.error.message ? res.error.message : 'Velden laden mislukt'); return; }
+        wizardOdooFields = res.data || {};
+        renderWizardFields();
+        showWizardStep(2);
+      }
+    }
+    function showWizardError(msg) {
+      const el = document.getElementById('wizardError'); el.textContent = msg; el.classList.remove('hidden');
+    }
+    function renderWizardFields() {
+      const container = document.getElementById('wizardFieldList');
+      const entries = Object.entries(wizardOdooFields).slice(0, 200);
+      if (!entries.length) { container.innerHTML = '<p class="text-sm text-base-content/40">Geen velden gevonden.</p>'; return; }
+      container.innerHTML = entries.map(function(entry) {
+        const fname = entry[0]; const fmeta = entry[1];
+        return '<label class="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-base-200 cursor-pointer group">'
+          + '<input type="checkbox" class="checkbox checkbox-xs" data-field="' + fname + '" />'
+          + '<div class="flex-1 min-w-0">'
+          + '<span class="text-sm font-medium mr-1">' + (fmeta.string || fname) + '</span>'
+          + '<code class="text-xs text-base-content/40 font-mono">' + fname + '</code>'
+          + '<span class="badge badge-ghost badge-xs ml-1">' + (fmeta.type || '') + '</span>'
+          + '</div>'
+          + '<input type="text" class="input input-xs input-ghost w-28 hidden group-has-[:checked]:block"'
+          + ' placeholder="alias" data-alias="' + fname + '" />'
+          + '</label>';
+      }).join('');
+    }
+    async function wizardSave() {
+      const name = document.getElementById('wizardName').value.trim();
+      const description = document.getElementById('wizardDesc').value.trim() || null;
+      const model = document.getElementById('wizardModel').value.trim();
+      const checked = Array.from(document.querySelectorAll('#wizardFieldList input[type=checkbox]:checked'));
+      const fields = checked.map(function(cb) {
+        const fname = cb.dataset.field;
+        const aliasEl = document.querySelector('input[data-alias="' + fname + '"]');
+        const alias = (aliasEl && aliasEl.value && aliasEl.value.trim()) ? aliasEl.value.trim() : ((wizardOdooFields[fname] && wizardOdooFields[fname].string) ? wizardOdooFields[fname].string : fname);
+        return { odoo_name: fname, alias: alias, enabled: true };
+      });
+      const model_config = [{ key: 'primary', odoo_model: model, is_primary: true, fields: fields }];
+      const btn = document.getElementById('wizardSaveBtn'); btn.disabled = true;
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates', { method: 'POST', body: JSON.stringify({ name: name, description: description, model_config: model_config }) });
+      btn.disabled = false;
+      if (res.success) {
+        document.getElementById('datasetWizardModal').close();
+        showAlert('<span>Template aangemaakt</span>', 'success');
+        loadDatasetTemplates();
+      } else { showWizardError(res.error && res.error.message ? res.error.message : 'Opslaan mislukt'); }
+    }`;
+}
+
+function buildScript(isAdmin) {
+  return '\n  <script>'
+    + stateVarsJs()
+    + helperFunctionsJs()
+    + templateJs()
+    + integrationsJs()
+    + createRevokeJs()
+    + rotateJs()
+    + testJs()
+    + instructionsJs()
+    + auditJs()
+    + (isAdmin ? adminJs() : '')
+    + '\n    document.addEventListener(\'DOMContentLoaded\', function() {'
+    + '\n      lucide.createIcons();'
+    + '\n      loadTemplates();'
+    + '\n      loadIntegrations();'
+    + (isAdmin ? '\n      loadDatasetTemplates();' : '')
+    + '\n    });'
+    + '\n  </script>';
+}
+
+// ── Main export ───────────────────────────────────────────────────────────────
+
+export function claudeSettingsUI(user, baseUrl) {
+  baseUrl = baseUrl || '';
+  const isAdmin = user && user.role === 'admin';
+
+  return '<!DOCTYPE html>'
+    + '\n<html lang="nl" data-theme="light">'
+    + '\n<head>'
+    + '\n  <meta charset="UTF-8" />'
+    + '\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />'
+    + '\n  <title>Claude Koppeling \u2013 Sales Insight Explorer</title>'
+    + '\n  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />'
+    + '\n  <script src="https://cdn.tailwindcss.com"></script>'
+    + '\n  <script src="https://unpkg.com/lucide@latest"></script>'
+    + '\n</head>'
+    + '\n<body class="bg-base-200">'
+    + '\n  <script>const INSTRUCTIONS_BASE_URL = ' + JSON.stringify(baseUrl) + ';</script>'
+    + '\n  ' + navbar(user)
+    + '\n  <div style="padding-top:48px;">'
+    + '\n    <div class="container mx-auto px-6 py-8 max-w-5xl">'
+    + '\n      <div class="mb-8 flex items-center gap-4">'
+    + '\n        <a href="/insights" class="btn btn-ghost btn-sm gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i> Terug</a>'
+    + '\n        <div>'
+    + '\n          <h1 class="text-3xl font-bold flex items-center gap-2"><i data-lucide="bot" class="w-8 h-8 text-primary"></i> Claude Koppeling</h1>'
+    + '\n          <p class="text-base-content/60 text-sm mt-0.5">Verbind Claude AI met jouw salesdata via een beveiligde short-lived token koppeling.</p>'
+    + '\n        </div>'
+    + '\n      </div>'
+    + '\n      <div id="alertZone" class="mb-4 hidden"><div class="alert" id="alertContent"></div></div>'
+    + '\n      <div role="tablist" class="tabs tabs-lifted tabs-lg mb-4">'
+    + '\n        ' + myIntegrationsTabHtml()
+    + '\n        ' + newIntegrationTabHtml()
+    + '\n        ' + auditTabHtml()
+    + (isAdmin ? '\n        ' + adminDatasetTabHtml() : '')
+    + '\n      </div>'
+    + '\n    </div>'
+    + '\n  </div>'
+    + '\n  ' + testModalHtml()
+    + '\n  ' + rotateModalHtml()
+    + '\n  ' + instructionsModalHtml()
+    + (isAdmin ? '\n  ' + adminModalsHtml() : '')
+    + buildScript(isAdmin)
+    + '\n</body>'
+    + '\n</html>';
+}

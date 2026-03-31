@@ -2,15 +2,29 @@
  * Claude Context Builder — v2 (template-driven)
  *
  * Data shape is fully determined by a `claude_dataset_templates` row.
- * model_config is a JSONB array of model entries:
+ * model_config is a JSONB array of model entries with two supported shapes:
+ *
+ * Shape A — legacy primary/related (depth 1):
  *   {
- *     key:               string,    // output key, e.g. "primary"
- *     odoo_model:        string,    // Odoo model, e.g. "x_sales_action_sheet"
- *     is_primary:        boolean,   // primary model receives timeframe domain filter
- *     via_primary_field: string?,   // field on primary record (many2one) pointing to this model
+ *     key:               string,    // e.g. "primary"
+ *     odoo_model:        string,
+ *     is_primary:        boolean,   // true = receives timeframe filter
+ *     via_primary_field: string?,   // field on primary record pointing to this model (depth-1 compat)
  *     fields:            [{ odoo_name, alias, instruction?, enabled }]
  *   }
  *
+ * Shape B — new multi-depth (wizard generates this):
+ *   {
+ *     key:              string,    // unique, e.g. "primary__stage_id"
+ *     odoo_model:       string,
+ *     label:            string?,
+ *     parent_key:       string?,   // null for primary; key of parent model otherwise
+ *     via_parent_field: string?,   // field on parent record pointing to this model
+ *     depth:            number,    // 0 = primary, 1 = direct child, 2 = grandchild, …
+ *     fields:           [{ odoo_name, alias, instruction?, enabled, type?, relation?, category?, child_key? }]
+ *   }
+ *
+ * Both shapes are handled in a unified pass sorted by depth.
  * NOT responsible for: auth, token validation, audit logging, UI logic.
  *
  * @module modules/claude-integration/lib/context-builder
@@ -30,6 +44,27 @@ function getTimeframeStart(timeframe) {
     case 'year':    { const d = new Date(now); d.setFullYear(d.getFullYear() - 1); return d.toISOString(); }
     default: return null;
   }
+}
+
+/**
+ * Normalise a model_config entry so downstream code can use a single interface.
+ * Converts Shape A (is_primary / via_primary_field) to Shape B (parent_key / via_parent_field / depth).
+ */
+function normalise(mc, allConfigs) {
+  if (mc.parent_key !== undefined || mc.depth !== undefined) return mc; // already Shape B
+
+  if (mc.is_primary) {
+    return { ...mc, parent_key: null, via_parent_field: null, depth: 0 };
+  }
+
+  // Shape A non-primary: parent is the primary model
+  const primary = allConfigs.find(m => m.is_primary || m.key === 'primary');
+  return {
+    ...mc,
+    parent_key:       primary?.key ?? null,
+    via_parent_field: mc.via_primary_field ?? null,
+    depth:            1,
+  };
 }
 
 // ─── public API ──────────────────────────────────────────────────────────────
@@ -55,70 +90,86 @@ export async function buildContext(env, { templateId = null, timeframe = null, l
     throw new Error('Geen actieve dataset template geconfigureerd. Vraag een admin.');
   }
 
-  // 2. Find primary model config
-  const primary = template.model_config.find(m => m.key === 'primary');
-  if (!primary) {
+  const rawConfigs = Array.isArray(template.model_config) ? template.model_config : [];
+
+  // 2. Normalise + sort by depth so parents are always fetched before children
+  const configs = rawConfigs
+    .map(mc => normalise(mc, rawConfigs))
+    .sort((a, b) => (a.depth ?? 0) - (b.depth ?? 0));
+
+  if (!configs.length || !configs.find(m => m.depth === 0)) {
     throw new Error('Dataset template heeft geen primair model.');
   }
 
-  // 3. Enabled fields for primary
-  const primaryFields = primary.fields
-    .filter(f => f.enabled)
-    .map(f => f.odoo_name);
-  if (!primaryFields.includes('id')) primaryFields.unshift('id');
+  const result       = {};
+  const recordCounts = {};
 
-  // 4. Build domain for primary
-  // x_sales_action_sheet has no 'active' field — no ['active','=',true] filter
-  const domain = [];
-  if (timeframe) {
-    const ts = getTimeframeStart(timeframe);
-    if (ts) domain.push(['create_date', '>=', ts]);
+  for (const mc of configs) {
+    const enabledFields = (mc.fields ?? [])
+      .filter(f => f.enabled)
+      .map(f => f.odoo_name)
+      .filter(Boolean);
+    if (!enabledFields.includes('id')) enabledFields.unshift('id');
+
+    if (mc.depth === 0) {
+      // ── Primary model ───────────────────────────────────────────────────
+      const domain = [];
+      if (timeframe) {
+        const ts = getTimeframeStart(timeframe);
+        if (ts) domain.push(['create_date', '>=', ts]);
+      }
+
+      const records = await searchRead(env, {
+        model:  mc.odoo_model,
+        domain,
+        fields: enabledFields,
+        limit:  Math.min(Number(limit) || 50, 50),
+        order:  'id desc'
+      });
+
+      result[mc.key]       = records;
+      recordCounts[mc.key] = records.length;
+
+    } else {
+      // ── Child model (depth >= 1) ────────────────────────────────────────
+      const parentRecords = result[mc.parent_key] ?? [];
+      if (!parentRecords.length) {
+        result[mc.key]       = [];
+        recordCounts[mc.key] = 0;
+        continue;
+      }
+
+      const ids = parentRecords
+        .map(r => {
+          const v = r[mc.via_parent_field];
+          // Odoo many2one returns [id, name] or just a number
+          return Array.isArray(v) ? v[0] : v;
+        })
+        .filter(id => id && id !== false);
+
+      if (!ids.length) {
+        result[mc.key]       = [];
+        recordCounts[mc.key] = 0;
+        continue;
+      }
+
+      const records = await searchRead(env, {
+        model:  mc.odoo_model,
+        domain: [['id', 'in', [...new Set(ids)]]],
+        fields: enabledFields,
+        limit:  false  // fetch all — primary limit already applied
+      });
+
+      result[mc.key]       = records;
+      recordCounts[mc.key] = records.length;
+    }
   }
 
-  // 5. Fetch primary records
-  const primaryRecords = await searchRead(env, {
-    model:  primary.odoo_model,
-    domain,
-    fields: primaryFields,
-    limit:  Math.min(Number(limit) || 50, 50),
-    order:  'id desc'
-  });
-
-  // 6. Fetch related models
-  const result       = { [primary.key]: primaryRecords };
-  const recordCounts = { [primary.key]: primaryRecords.length };
-
-  for (const rel of template.model_config.filter(m => m.key !== 'primary')) {
-    // Extract IDs from primary records via the many2one field
-    const relIds = primaryRecords
-      .map(r => {
-        const val = r[rel.via_primary_field];
-        // Odoo many2one returns [id, name] or just an id
-        return Array.isArray(val) ? val[0] : val;
-      })
-      .filter(id => id && id !== false);
-
-    if (!relIds.length) continue;
-
-    const relFields = rel.fields.filter(f => f.enabled).map(f => f.odoo_name);
-    if (!relFields.includes('id')) relFields.unshift('id');
-
-    const relRecords = await searchRead(env, {
-      model:  rel.odoo_model,
-      domain: [['id', 'in', [...new Set(relIds)]]],
-      fields: relFields,
-      limit:  false  // fetch all — primary limit already applied
-    });
-
-    result[rel.key]       = relRecords;
-    recordCounts[rel.key] = relRecords.length;
-  }
-
-  // 7. Build schema object
+  // 3. Build schema object
   const schema = {};
-  for (const mc of template.model_config) {
+  for (const mc of configs) {
     schema[mc.key] = {};
-    for (const f of mc.fields.filter(f => f.enabled)) {
+    for (const f of (mc.fields ?? []).filter(f => f.enabled)) {
       schema[mc.key][f.odoo_name] = {
         alias: f.alias || f.odoo_name,
         ...(f.instruction ? { instruction: f.instruction } : {})
@@ -126,7 +177,7 @@ export async function buildContext(env, { templateId = null, timeframe = null, l
     }
   }
 
-  // 8. Assemble
+  // 4. Assemble
   return {
     meta: {
       generated_at:  new Date().toISOString(),

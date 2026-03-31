@@ -31,7 +31,7 @@ export async function listActiveTemplates(env) {
   const db = getSupabaseClient(env);
   const { data, error } = await db
     .from('claude_dataset_templates')
-    .select('id, name, description, is_default, model_config, created_at, updated_at')
+    .select('id, name, description, is_default, model_config, field_categories, created_at, updated_at')
     .eq('is_active', true)
     .order('is_default', { ascending: false })
     .order('created_at', { ascending: true });
@@ -49,7 +49,7 @@ export async function listAllTemplates(env) {
   const db = getSupabaseClient(env);
   const { data, error } = await db
     .from('claude_dataset_templates')
-    .select('id, name, description, is_active, is_default, model_config, created_by, created_at, updated_at')
+    .select('id, name, description, is_active, is_default, model_config, field_categories, created_by, created_at, updated_at')
     .order('is_default', { ascending: false })
     .order('created_at', { ascending: true });
 
@@ -67,7 +67,7 @@ export async function getTemplate(env, templateId) {
   const db = getSupabaseClient(env);
   const { data, error } = await db
     .from('claude_dataset_templates')
-    .select('id, name, description, is_active, is_default, model_config, created_by, created_at, updated_at')
+    .select('id, name, description, is_active, is_default, model_config, field_categories, created_by, created_at, updated_at')
     .eq('id', templateId)
     .single();
 
@@ -84,7 +84,7 @@ export async function getDefaultTemplate(env) {
   const db = getSupabaseClient(env);
   const { data, error } = await db
     .from('claude_dataset_templates')
-    .select('id, name, description, is_active, is_default, model_config, created_at, updated_at')
+    .select('id, name, description, is_active, is_default, model_config, field_categories, created_at, updated_at')
     .eq('is_default', true)
     .eq('is_active', true)
     .single();
@@ -100,19 +100,20 @@ export async function getDefaultTemplate(env) {
  * @param {{ name: string, description?: string, model_config: Object[] }} fields
  * @returns {Promise<Object>}
  */
-export async function createTemplate(env, userId, { name, description, model_config }) {
+export async function createTemplate(env, userId, { name, description, model_config, field_categories }) {
   const db = getSupabaseClient(env);
   const { data, error } = await db
     .from('claude_dataset_templates')
     .insert({
-      name:         name.trim(),
-      description:  description?.trim() ?? null,
-      model_config: model_config ?? [],
-      created_by:   userId,
-      is_active:    true,
-      is_default:   false
+      name:             name.trim(),
+      description:      description?.trim() ?? null,
+      model_config:     model_config ?? [],
+      field_categories: Array.isArray(field_categories) ? field_categories : [],
+      created_by:       userId,
+      is_active:        true,
+      is_default:       false
     })
-    .select('id, name, description, is_active, is_default, model_config, created_at, updated_at')
+    .select('id, name, description, is_active, is_default, model_config, field_categories, created_at, updated_at')
     .single();
 
   if (error) throw new Error(`Failed to create template: ${error.message}`);
@@ -132,16 +133,17 @@ export async function createTemplate(env, userId, { name, description, model_con
 export async function updateTemplate(env, templateId, updates) {
   const db = getSupabaseClient(env);
   const allowed = {};
-  if (updates.name        !== undefined) allowed.name         = updates.name.trim();
-  if (updates.description !== undefined) allowed.description  = updates.description?.trim() ?? null;
-  if (updates.model_config !== undefined) allowed.model_config = updates.model_config;
-  if (updates.is_active   !== undefined) allowed.is_active    = updates.is_active;
+  if (updates.name             !== undefined) allowed.name             = updates.name.trim();
+  if (updates.description      !== undefined) allowed.description      = updates.description?.trim() ?? null;
+  if (updates.model_config     !== undefined) allowed.model_config     = updates.model_config;
+  if (updates.field_categories !== undefined) allowed.field_categories = Array.isArray(updates.field_categories) ? updates.field_categories : [];
+  if (updates.is_active        !== undefined) allowed.is_active        = updates.is_active;
 
   const { data, error } = await db
     .from('claude_dataset_templates')
     .update(allowed)
     .eq('id', templateId)
-    .select('id, name, description, is_active, is_default, model_config, created_at, updated_at')
+    .select('id, name, description, is_active, is_default, model_config, field_categories, created_at, updated_at')
     .single();
 
   if (error || !data) throw new Error('Template not found or update failed');
@@ -170,7 +172,7 @@ export async function setDefaultTemplate(env, templateId) {
     .from('claude_dataset_templates')
     .update({ is_default: true, is_active: true })
     .eq('id', templateId)
-    .select('id, name, description, is_active, is_default, model_config, created_at, updated_at')
+    .select('id, name, description, is_active, is_default, model_config, field_categories, created_at, updated_at')
     .single();
 
   if (error || !data) throw new Error('Template not found');
