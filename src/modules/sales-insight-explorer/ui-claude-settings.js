@@ -479,16 +479,16 @@ function integrationsJs() {
     }
     function renderIntegrationActions(clientId, integrationId) {
       return '<div class="flex gap-1 shrink-0">'
-        + '<button class="btn btn-ghost btn-xs gap-1" onclick="openTest(\'' + clientId + '\')" title="Test koppeling">'
+        + '<button class="btn btn-ghost btn-xs gap-1" data-action="openTest" data-id="' + clientId + '" title="Test koppeling">'
         + '<i data-lucide="play" class="w-3 h-3"></i> Test'
         + '</button>'
-        + '<button class="btn btn-ghost btn-xs gap-1" onclick="openInstructionsFor(\'' + clientId + '\')" title="Kopieer Claude instructies">'
+        + '<button class="btn btn-ghost btn-xs gap-1" data-action="openInstructionsFor" data-id="' + clientId + '" title="Kopieer Claude instructies">'
         + '<i data-lucide="clipboard-copy" class="w-3 h-3"></i>'
         + '</button>'
-        + '<button class="btn btn-ghost btn-xs gap-1" onclick="openRotate(\'' + integrationId + '\')" title="Regenereer secret">'
+        + '<button class="btn btn-ghost btn-xs gap-1" data-action="openRotate" data-id="' + integrationId + '" title="Regenereer secret">'
         + '<i data-lucide="refresh-cw" class="w-3 h-3"></i>'
         + '</button>'
-        + '<button class="btn btn-ghost btn-xs text-error gap-1" onclick="revokeIntegration(\'' + integrationId + '\')" title="Intrekken">'
+        + '<button class="btn btn-ghost btn-xs text-error gap-1" data-action="revokeIntegration" data-id="' + integrationId + '" title="Intrekken">'
         + '<i data-lucide="trash-2" class="w-3 h-3"></i>'
         + '</button>'
         + '</div>';
@@ -729,11 +729,11 @@ function adminJs() {
         + '</p>'
         + '</div>'
         + '<div class="flex gap-1 shrink-0">'
-        + '<button class="btn btn-ghost btn-xs gap-1" onclick="openEditor(\'' + t.id + '\')">'
+        + '<button class="btn btn-ghost btn-xs gap-1" data-action="openDatasetEditor" data-id="' + t.id + '">'
         + '<i data-lucide="pencil" class="w-3 h-3"></i> Bewerken'
         + '</button>'
-        + (t.is_active && !t.is_default ? '<button class="btn btn-ghost btn-xs" onclick="setDefaultTemplate(\'' + t.id + '\')"><i data-lucide="star" class="w-3 h-3"></i> Standaard</button>' : '')
-        + (t.is_active ? '<button class="btn btn-ghost btn-xs text-error" onclick="deactivateTemplate(\'' + t.id + '\')"><i data-lucide="trash-2" class="w-3 h-3"></i></button>' : '')
+        + (t.is_active && !t.is_default ? '<button class="btn btn-ghost btn-xs" data-action="setDefaultTemplate" data-id="' + t.id + '"><i data-lucide="star" class="w-3 h-3"></i> Standaard</button>' : '')
+        + (t.is_active ? '<button class="btn btn-ghost btn-xs text-error" data-action="deactivateTemplate" data-id="' + t.id + '"><i data-lucide="trash-2" class="w-3 h-3"></i></button>' : '')
         + '</div>'
         + '</div>'
         + '</div>'
@@ -822,7 +822,7 @@ function adminJs() {
       const totalCount = (mc.fields || []).length;
       return '<div class="card border border-base-300 mb-2 bg-base-100"' + marginStyle + '>'
         + '<div class="card-body p-3">'
-        + '<div class="flex items-center gap-2 cursor-pointer select-none" onclick="toggleModelExpand(\'' + mc.key + '\')">'
+        + '<div class="flex items-center gap-2 cursor-pointer select-none" data-action="toggleModelExpand" data-key="' + mc.key + '">'
         + '<i data-lucide="' + (isExpanded ? 'chevron-down' : 'chevron-right') + '" class="w-4 h-4 text-base-content/40 shrink-0"></i>'
         + '<span class="font-semibold text-sm">' + (mc.label || mc.key) + '</span>'
         + '<code class="text-xs text-base-content/40 font-mono">' + mc.odoo_model + '</code>'
@@ -853,7 +853,7 @@ function adminJs() {
         + '<div class="flex items-center gap-2 mb-2 pb-2 border-b border-base-200">'
         + '<label class="flex items-center gap-1.5 cursor-pointer text-xs text-base-content/60">'
         + '<input type="checkbox" class="checkbox checkbox-xs"' + (allEnabled ? ' checked' : '')
-        + ' onchange="toggleAllFields(\'' + mc.key + '\', this.checked)" />'
+        + ' data-change-action="toggleAllFields" data-key="' + mc.key + '" />'
         + ' Alle velden'
         + '</label>'
         + '</div>';
@@ -874,7 +874,7 @@ function adminJs() {
         html += '<div class="mt-2 ml-6 pt-2 border-t border-base-200"><p class="text-xs text-base-content/50 mb-1">Drill-down:</p>'
           + '<div class="flex flex-wrap gap-1">'
           + drillable.map(function(f) {
-            return '<button class="btn btn-xs btn-outline gap-1" onclick="drillDown(\'' + mc.key + '\',\'' + f.odoo_name + '\',\'' + f.relation + '\')">'
+            return '<button class="btn btn-xs btn-outline gap-1" data-action="drillDown" data-key="' + mc.key + '" data-field="' + f.odoo_name + '" data-relation="' + f.relation + '">'
               + '<i data-lucide="git-branch" class="w-3 h-3"></i> ' + (f.alias || f.odoo_name)
               + '</button>';
           }).join('')
@@ -882,7 +882,7 @@ function adminJs() {
       }
       if (depth > 0) {
         html += '<div class="mt-2 ml-6 flex justify-end">'
-          + '<button class="btn btn-xs btn-ghost text-error gap-1" onclick="removeChildModel(\'' + mc.key + '\')">'
+          + '<button class="btn btn-xs btn-ghost text-error gap-1" data-action="openRemoveChild" data-key="' + mc.key + '">'
           + '<i data-lucide="trash-2" class="w-3 h-3"></i> Submodel verwijderen'
           + '</button>'
           + '</div>';
@@ -897,11 +897,11 @@ function adminJs() {
       return '<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-base-200 group cursor-pointer">'
         + '<input type="checkbox" class="checkbox checkbox-xs shrink-0"'
         + (f.enabled ? ' checked' : '')
-        + ' onchange="toggleField(\'' + mc.key + '\',\'' + f.odoo_name + '\',this.checked)" />'
+        + ' data-change-action="toggleField" data-key="' + mc.key + '" data-field="' + f.odoo_name + '" />'
         + '<div class="flex-1 min-w-0 flex items-center gap-1 flex-wrap">'
         + '<input type="text" class="input input-xs input-ghost font-medium w-32 px-1"'
         + ' value="' + aliasEsc + '" placeholder="' + f.odoo_name + '"'
-        + ' onchange="updateFieldAlias(\'' + mc.key + '\',\'' + f.odoo_name + '\',this.value)"'
+        + ' data-change-action="updateFieldAlias" data-key="' + mc.key + '" data-field="' + f.odoo_name + '"'
         + ' onclick="event.stopPropagation()" />'
         + '<code class="text-xs text-base-content/30 font-mono opacity-0 group-hover:opacity-100">' + f.odoo_name + '</code>'
         + '<span class="badge ' + typeColor + ' badge-xs">' + (f.type || '') + '</span>'
@@ -909,8 +909,8 @@ function adminJs() {
         + (f.child_key ? '<span class="badge badge-secondary badge-xs">&rarr; ' + f.child_key + '</span>' : '')
         + '</div>'
         + '<div class="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100">'
-        + (cats.length ? '<select class="select select-xs select-ghost w-24" onchange="updateFieldCategory(\'' + mc.key + '\',\'' + f.odoo_name + '\',this.value)" onclick="event.stopPropagation()"><option value="">categorie</option>' + catOptions + '</select>' : '')
-        + '<button class="btn btn-ghost btn-xs btn-circle" onclick="event.stopPropagation();editInstruction(\'' + mc.key + '\',\'' + f.odoo_name + '\')">'
+        + (cats.length ? '<select class="select select-xs select-ghost w-24" data-change-action="updateFieldCategory" data-key="' + mc.key + '" data-field="' + f.odoo_name + '" onclick="event.stopPropagation()"><option value="">categorie</option>' + catOptions + '</select>' : '')
+        + '<button class="btn btn-ghost btn-xs btn-circle" data-action="editInstruction" data-key="' + mc.key + '" data-field="' + f.odoo_name + '">'
         + '<i data-lucide="message-square" class="w-3 h-3"></i>'
         + '</button>'
         + '</div>'
@@ -1134,6 +1134,103 @@ function adminJs() {
     }`;
 }
 
+function datasetEditorJs() {
+  return `
+    // ── Additive helpers (extend adminJs without overwriting) ──────────────────
+
+    function mutateField(modelKey, fieldName, mutateFn) {
+      const model = editorState.template.model_config.find(function(m) { return m.key === modelKey; });
+      if (!model) return;
+      const field = model.fields.find(function(f) { return f.odoo_name === fieldName; });
+      if (!field) return;
+      mutateFn(field);
+      renderSummary();
+      scheduleAutosave();
+    }
+
+    function updateAllCategoryDropdowns() {
+      const cats = (editorState.template && editorState.template.field_categories) ? editorState.template.field_categories : [];
+      document.querySelectorAll('[data-category-select]').forEach(function(sel) {
+        const current = sel.value;
+        const base = '<option value="">— cat —</option>';
+        const opts = cats.map(function(c) {
+          return '<option value="' + c + '"' + (c === current ? ' selected' : '') + '>' + c + '</option>';
+        }).join('');
+        sel.innerHTML = base + opts;
+      });
+    }
+
+    function depthBorderClass(depth) {
+      return ['border-primary', 'border-secondary', 'border-accent'][depth] || 'border-base-300';
+    }
+
+    async function openDatasetEditor(templateId) {
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + templateId);
+      if (!res.success) { showAlert('<span>' + (res.error && res.error.message ? res.error.message : 'Template laden mislukt') + '</span>', 'error'); return; }
+      const template = res.data;
+      templateCache[template.id] = template;
+      editorState.template = JSON.parse(JSON.stringify(template));
+      editorState.fieldCache = {};
+      editorState.expandedModels = new Set((template.model_config || []).map(function(mc) { return mc.key; }));
+      document.getElementById('editorTemplateName').textContent = template.name;
+      document.getElementById('editorAutosaveStatus').textContent = '';
+      renderEditor();
+      document.getElementById('datasetEditorModal').showModal();
+    }
+
+    function openRemoveChild(modelKey) {
+      removeChildPendingKey = modelKey;
+      const model = editorState.template.model_config.find(function(m) { return m.key === modelKey; });
+      document.getElementById('removeChildMessage').textContent =
+        '"' + (model ? (model.label || modelKey) : modelKey) + '" en alle submodellen worden verwijderd.';
+      document.getElementById('removeChildModal').showModal();
+    }
+
+    function saveEditorTemplate() {
+      return saveTemplate();
+    }
+
+    function updateWizardStepUI() {
+      showWizardStep(wizardStep);
+    }`;
+}
+
+function eventDelegationJs() {
+  return `
+    document.addEventListener('click', function(e) {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const id     = btn.dataset.id;
+      const key    = btn.dataset.key;
+      const field  = btn.dataset.field;
+      const relation = btn.dataset.relation;
+      const name   = btn.dataset.name;
+      if      (action === 'openTest')            openTest(id);
+      else if (action === 'openRotate')          openRotate(id);
+      else if (action === 'openInstructionsFor') openInstructionsFor(id);
+      else if (action === 'revokeIntegration')   revokeIntegration(id);
+      else if (action === 'openDatasetEditor')   openDatasetEditor(id);
+      else if (action === 'setDefaultTemplate')  setDefaultTemplate(id);
+      else if (action === 'deactivateTemplate')  deactivateTemplate(id, name);
+      else if (action === 'toggleModelExpand')   toggleModelExpand(key);
+      else if (action === 'openRemoveChild')     openRemoveChild(key);
+      else if (action === 'drillDown')           drillDown(key, field, relation);
+      else if (action === 'editInstruction')     editInstruction(key, field);
+    });
+    document.addEventListener('change', function(e) {
+      const el = e.target.closest('[data-change-action]');
+      if (!el) return;
+      const action = el.dataset.changeAction;
+      const key   = el.dataset.key;
+      const field = el.dataset.field;
+      if      (action === 'updateFieldAlias')    updateFieldAlias(key, field, el.value);
+      else if (action === 'updateFieldCategory') updateFieldCategory(key, field, el.value);
+      else if (action === 'toggleField')         toggleField(key, field, el.checked);
+      else if (action === 'toggleAllFields')     toggleAllFields(key, el.checked);
+    });`;
+}
+
 function buildScript(isAdmin) {
   return '\n  <script>'
     + stateVarsJs()
@@ -1146,6 +1243,8 @@ function buildScript(isAdmin) {
     + instructionsJs()
     + auditJs()
     + (isAdmin ? adminJs() : '')
+    + (isAdmin ? datasetEditorJs() : '')
+    + eventDelegationJs()
     + '\n    document.addEventListener(\'DOMContentLoaded\', function() {'
     + '\n      lucide.createIcons();'
     + '\n      loadTemplates();'
