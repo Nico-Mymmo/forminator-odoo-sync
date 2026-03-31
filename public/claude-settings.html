@@ -787,6 +787,14 @@
     }
 
     // ── Admin: Dataset Editor ─────────────────────────────────────────────────
+    async function fetchModelFields(odooModel) {
+      if (editorState.fieldCache[odooModel]) return editorState.fieldCache[odooModel];
+      const res = await apiFetch('/insights/api/sales-insights/dataset-templates/model-fields?model=' + encodeURIComponent(odooModel));
+      if (!res.success) throw new Error('Kon velden niet laden voor ' + odooModel);
+      editorState.fieldCache[odooModel] = res.data || {};
+      return editorState.fieldCache[odooModel];
+    }
+
     async function openDatasetEditor(templateId) {
       const res = await apiFetch('/insights/api/sales-insights/dataset-templates/' + templateId);
       if (!res.success) {
@@ -796,9 +804,17 @@
       const template = res.data;
       templateCache[template.id] = template;
       editorState.template = JSON.parse(JSON.stringify(template));
+      if (!Array.isArray(editorState.template.field_categories)) {
+        editorState.template.field_categories = [];
+      }
       editorState.fieldCache = {};
       editorState.expandedModels = new Set((template.model_config || []).map(mc => mc.key));
       document.getElementById('editorTemplateName').textContent = template.name;
+      document.getElementById('editorAutosaveStatus').textContent = 'Velden laden...';
+      // Prefetch fields for ALL models in parallel
+      await Promise.all(
+        (template.model_config || []).map(mc => fetchModelFields(mc.odoo_model).catch(() => {}))
+      );
       document.getElementById('editorAutosaveStatus').textContent = '';
       renderEditor();
       document.getElementById('datasetEditorModal').showModal();
@@ -893,49 +909,60 @@
     }
 
     function renderFieldGroups(mc) {
-      const fields = mc.fields || [];
-      if (!fields.length) return '<p class="text-xs text-base-content/40 mt-2 pl-6">Geen velden geconfigureerd.</p>';
+      const storedFields = mc.fields || [];
+      const cachedFields = editorState.fieldCache[mc.odoo_model] || {};
       const cats = editorState.template?.field_categories || [];
+      const depth = mc.depth != null ? mc.depth : (mc.is_primary ? 0 : 1);
+
+      // Merge: stored fields first, then cache-only fields (with enabled:false)
+      const storedNames = new Set(storedFields.map(f => f.odoo_name));
+      const mergedFields = [
+        ...storedFields,
+        ...Object.entries(cachedFields)
+          .filter(([name]) => !storedNames.has(name))
+          .map(([name, meta]) => ({
+            odoo_name: name, alias: meta.string || name, instruction: null,
+            enabled: false, type: meta.type || 'char', relation: meta.relation || null,
+            category: null, child_key: null
+          }))
+      ];
+
+      if (!mergedFields.length) return '<p class="text-xs text-base-content/40 mt-2 pl-6">Geen velden beschikbaar.</p>';
+
       const grouped = {};
       const uncategorized = [];
-      fields.forEach(f => {
+      mergedFields.forEach(f => {
         if (f.category && cats.includes(f.category)) {
           if (!grouped[f.category]) grouped[f.category] = [];
           grouped[f.category].push(f);
         } else uncategorized.push(f);
       });
-      const allEnabled = fields.every(f => f.enabled);
+
+      const enabledCount = mergedFields.filter(f => f.enabled).length;
+      const allEnabled = mergedFields.length > 0 && mergedFields.every(f => f.enabled);
+
       let html = `<div class="mt-2 ml-6 space-y-2">
         <div class="flex items-center gap-2 mb-2 pb-2 border-b border-base-200">
           <label class="flex items-center gap-1.5 cursor-pointer text-xs text-base-content/60">
             <input type="checkbox" class="checkbox checkbox-xs"${allEnabled ? ' checked' : ''}
               data-change-action="toggleAllFields" data-key="${mc.key}" />
-            Alle velden
+            Alle velden (${enabledCount}/${mergedFields.length})
           </label>
         </div>`;
       cats.forEach(cat => {
         if (!grouped[cat]?.length) return;
-        html += `<div class="mb-2"><p class="text-xs font-medium text-base-content/50 mb-1 px-1">${cat}</p>
-          <div class="space-y-0.5">${grouped[cat].map(f => renderFieldRow(mc, f)).join('')}</div></div>`;
+        html += `<div class="mb-2">
+          <p class="text-xs font-medium text-base-content/50 mb-1 px-1">${cat}</p>
+          <div class="space-y-0.5">${grouped[cat].map(f => renderFieldRow(mc, f, cachedFields[f.odoo_name])).join('')}</div>
+        </div>`;
       });
       if (uncategorized.length) {
         html += `<div class="mb-2">
-          ${cats.length ? '<p class="text-xs font-medium text-base-content/50 mb-1 px-1">Overige</p>' : ''}
-          <div class="space-y-0.5">${uncategorized.map(f => renderFieldRow(mc, f)).join('')}</div></div>`;
+          ${cats.length ? '<p class="text-xs font-medium text-base-content/50 mb-1 px-1">Geen categorie</p>' : ''}
+          <div class="space-y-0.5">${uncategorized.map(f => renderFieldRow(mc, f, cachedFields[f.odoo_name])).join('')}</div>
+        </div>`;
       }
       html += '</div>';
-      const depth = mc.depth != null ? mc.depth : (mc.is_primary ? 0 : 1);
-      const drillable = fields.filter(f => f.enabled && (f.type === 'many2one' || f.type === 'many2many') && f.relation && !f.child_key);
-      if (drillable.length && depth < 3) {
-        html += `<div class="mt-2 ml-6 pt-2 border-t border-base-200"><p class="text-xs text-base-content/50 mb-1">Drill-down:</p>
-          <div class="flex flex-wrap gap-1">
-            ${drillable.map(f =>
-              `<button class="btn btn-xs btn-outline gap-1" data-action="drillDown" data-key="${mc.key}" data-field="${f.odoo_name}" data-relation="${f.relation}">
-                <i data-lucide="git-branch" class="w-3 h-3"></i> ${f.alias || f.odoo_name}
-              </button>`
-            ).join('')}
-          </div></div>`;
-      }
       if (depth > 0) {
         html += `<div class="mt-2 ml-6 flex justify-end">
           <button class="btn btn-xs btn-ghost text-error gap-1" data-action="openRemoveChild" data-key="${mc.key}">
@@ -946,29 +973,45 @@
       return html;
     }
 
-    function renderFieldRow(mc, f) {
+    function renderFieldRow(mc, f, fieldMeta) {
+      fieldMeta = fieldMeta || {};
       const cats = editorState.template?.field_categories || [];
       const catOptions = cats.map(c => `<option value="${c}"${f.category === c ? ' selected' : ''}>${c}</option>`).join('');
       const typeColor = TYPE_COLORS[f.type] || 'badge-ghost';
       const aliasEsc = (f.alias || '').replace(/"/g, '&quot;');
+      const depth = mc.depth != null ? mc.depth : (mc.is_primary ? 0 : 1);
+      const isRelational = (f.type === 'many2one' || f.type === 'many2many') && f.relation;
+      const hasChild = !!f.child_key;
+      const canDrill = isRelational && depth < 3;
+      let expandHtml = '';
+      if (isRelational && depth >= 3) {
+        expandHtml = '<span class="badge badge-ghost badge-xs shrink-0">max</span>';
+      } else if (canDrill && hasChild) {
+        expandHtml = '<span class="badge badge-success badge-xs shrink-0">uitgebreid</span>';
+      } else if (canDrill && !hasChild) {
+        expandHtml = `<button class="btn btn-ghost btn-xs gap-1 opacity-0 group-hover:opacity-100 shrink-0"
+          data-action="drillDown" data-key="${mc.key}" data-field="${f.odoo_name}" data-relation="${f.relation}">
+          <i data-lucide="git-branch" class="w-3 h-3"></i> Uitbreiden
+        </button>`;
+      }
       return `<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-base-200 group cursor-pointer">
         <input type="checkbox" class="checkbox checkbox-xs shrink-0"
           ${f.enabled ? 'checked' : ''}
-          data-change-action="toggleField" data-key="${mc.key}" data-field="${f.odoo_name}" />
+          data-change="toggle" data-key="${mc.key}" data-field="${f.odoo_name}" />
         <div class="flex-1 min-w-0 flex items-center gap-1 flex-wrap">
           <input type="text" class="input input-xs input-ghost font-medium w-32 px-1"
             value="${aliasEsc}" placeholder="${f.odoo_name}"
-            data-change-action="updateFieldAlias" data-key="${mc.key}" data-field="${f.odoo_name}"
+            data-change="alias" data-key="${mc.key}" data-field="${f.odoo_name}"
             onclick="event.stopPropagation()" />
           <code class="text-xs text-base-content/30 font-mono opacity-0 group-hover:opacity-100">${f.odoo_name}</code>
           <span class="badge ${typeColor} badge-xs">${f.type || ''}</span>
           ${f.instruction ? '<span class="badge badge-info badge-xs">instructie</span>' : ''}
-          ${f.child_key ? `<span class="badge badge-secondary badge-xs">&rarr; ${f.child_key}</span>` : ''}
+          ${expandHtml}
         </div>
         <div class="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100">
-          ${cats.length ? `<select class="select select-xs select-ghost w-24" data-change-action="updateFieldCategory" data-key="${mc.key}" data-field="${f.odoo_name}" onclick="event.stopPropagation()"><option value="">categorie</option>${catOptions}</select>` : ''}
+          ${cats.length ? `<select class="select select-xs select-ghost w-24" data-change="category" data-key="${mc.key}" data-field="${f.odoo_name}" onclick="event.stopPropagation()"><option value="">— cat —</option>${catOptions}</select>` : ''}
           <button class="btn btn-ghost btn-xs btn-circle" data-action="editInstruction" data-key="${mc.key}" data-field="${f.odoo_name}">
-            <i data-lucide="message-square" class="w-3 h-3"></i>
+            <i data-lucide="message-square" class="w-3 h-3${f.instruction ? ' text-primary' : ''}"></i>
           </button>
         </div>
       </label>`;
@@ -981,9 +1024,22 @@
     }
 
     function toggleAllFields(modelKey, enabled) {
-      const mc = editorState.template?.model_config?.find(m => m.key === modelKey);
+      const mc = (editorState.template?.model_config || []).find(m => m.key === modelKey);
       if (!mc) return;
-      (mc.fields || []).forEach(f => { f.enabled = enabled; });
+      if (!mc.fields) mc.fields = [];
+      // Include cache-only fields so "alle velden" actually toggles everything visible
+      const cachedFields = editorState.fieldCache[mc.odoo_model] || {};
+      const storedNames = new Set(mc.fields.map(f => f.odoo_name));
+      Object.entries(cachedFields).forEach(([name, meta]) => {
+        if (!storedNames.has(name)) {
+          mc.fields.push({
+            odoo_name: name, alias: meta.string || name, instruction: null,
+            enabled: false, type: meta.type || 'char', relation: meta.relation || null,
+            category: null, child_key: null
+          });
+        }
+      });
+      mc.fields.forEach(f => { f.enabled = enabled; });
       scheduleAutosave(); renderModelTree(); renderSummary();
     }
 
@@ -999,43 +1055,66 @@
       if (field) { field.category = value; scheduleAutosave(); renderModelTree(); }
     }
 
+    // Central field mutation — creates field in model.fields if it only exists in cache
+    function mutateField(modelKey, fieldName, mutateFn) {
+      const model = (editorState.template?.model_config || []).find(m => m.key === modelKey);
+      if (!model) return;
+      if (!model.fields) model.fields = [];
+      let field = model.fields.find(f => f.odoo_name === fieldName);
+      if (!field) {
+        const meta = (editorState.fieldCache[model.odoo_model] || {})[fieldName] || {};
+        field = {
+          odoo_name: fieldName, alias: meta.string || fieldName, instruction: null,
+          enabled: false, type: meta.type || 'char', relation: meta.relation || null,
+          category: null, child_key: null
+        };
+        model.fields.push(field);
+      }
+      mutateFn(field);
+      renderSummary();
+      scheduleAutosave();
+    }
+
     function editInstruction(modelKey, odooName) {
       instrEditModelKey = modelKey;
       instrEditFieldName = odooName;
-      const mc = editorState.template?.model_config?.find(m => m.key === modelKey);
-      const field = mc?.fields?.find(f => f.odoo_name === odooName);
-      document.getElementById('instrEditFieldLabel').textContent = `${field?.alias || odooName} (${odooName})`;
+      const mc = (editorState.template?.model_config || []).find(m => m.key === modelKey);
+      const field = (mc?.fields || []).find(f => f.odoo_name === odooName);
+      const meta = (editorState.fieldCache[mc?.odoo_model] || {})[odooName] || {};
+      const displayAlias = field?.alias || meta.string || odooName;
+      document.getElementById('instrEditFieldLabel').textContent = `${displayAlias} (${odooName})`;
       document.getElementById('instrEditText').value = field?.instruction || '';
       document.getElementById('instructionEditModal').showModal();
     }
 
     function saveInstruction() {
-      const mc = editorState.template?.model_config?.find(m => m.key === instrEditModelKey);
-      const field = mc?.fields?.find(f => f.odoo_name === instrEditFieldName);
-      if (field) { field.instruction = document.getElementById('instrEditText').value.trim() || null; scheduleAutosave(); renderModelTree(); }
+      const instrText = document.getElementById('instrEditText').value.trim() || null;
+      mutateField(instrEditModelKey, instrEditFieldName, f => { f.instruction = instrText; });
+      renderModelTree();
       document.getElementById('instructionEditModal').close();
     }
 
     async function drillDown(parentModelKey, fieldOdooName, relationModel) {
-      const parentMc = editorState.template?.model_config?.find(m => m.key === parentModelKey);
+      const parentMc = (editorState.template?.model_config || []).find(m => m.key === parentModelKey);
       if (!parentMc) return;
       const parentDepth = parentMc.depth != null ? parentMc.depth : (parentMc.is_primary ? 0 : 1);
       if (parentDepth >= 3) { showAlert('<span>Maximale drill-down diepte bereikt</span>', 'warning'); return; }
-      const childKey = parentModelKey + '_' + fieldOdooName;
-      if (editorState.template.model_config.some(m => m.key === childKey)) {
+      const childKey = parentModelKey + '__' + fieldOdooName;
+      if ((editorState.template?.model_config || []).some(m => m.key === childKey)) {
         showAlert('<span>Dit submodel bestaat al</span>', 'info');
         return;
       }
-      let fields = editorState.fieldCache[relationModel];
-      if (!fields) {
-        const res = await apiFetch('/insights/api/sales-insights/dataset-templates/model-fields?model=' + encodeURIComponent(relationModel));
-        if (!res.success) { showAlert(`<span>${res.error?.message || 'Velden laden mislukt'}</span>`, 'error'); return; }
-        editorState.fieldCache[relationModel] = res.data || {};
-        fields = editorState.fieldCache[relationModel];
+      let fields;
+      try {
+        fields = await fetchModelFields(relationModel);
+      } catch (e) {
+        showAlert(`<span>${e.message || 'Velden laden mislukt'}</span>`, 'error');
+        return;
       }
       const fieldEntries = Object.entries(fields).map(([fname, fmeta]) => ({
         odoo_name: fname, alias: fmeta.string || fname, enabled: false,
-        type: fmeta.type || '', relation: fmeta.relation || null, category: '', instruction: null
+        type: fmeta.type || '', relation: fmeta.relation || null, category: null,
+        instruction: null, child_key: null
       }));
       const parentField = (parentMc.fields || []).find(f => f.odoo_name === fieldOdooName);
       const childMc = {
@@ -1226,8 +1305,9 @@
       btn.disabled = false;
       if (res.success) {
         document.getElementById('datasetWizardModal').close();
-        showAlert('<span>Template aangemaakt</span>', 'success');
+        showAlert('<span>Template aangemaakt — je kunt hem nu meteen bewerken.</span>', 'success');
         loadDatasetTemplates();
+        openDatasetEditor(res.data.id);
       } else {
         showWizardError(res.error?.message || 'Opslaan mislukt');
       }
@@ -1268,6 +1348,16 @@
     });
 
     document.addEventListener('change', e => {
+      // data-change handler — uses central mutateField
+      const el2 = e.target.closest('[data-change]');
+      if (el2) {
+        const { change, key, field } = el2.dataset;
+        if (change === 'toggle')   mutateField(key, field, f => { f.enabled = el2.checked; });
+        if (change === 'alias')    mutateField(key, field, f => { f.alias = el2.value.trim() || null; });
+        if (change === 'category') mutateField(key, field, f => { f.category = el2.value || null; });
+        return;
+      }
+      // data-change-action handler — legacy + toggleAllFields
       const el = e.target.closest('[data-change-action]');
       if (!el) return;
       const { changeAction, key, field } = el.dataset;
