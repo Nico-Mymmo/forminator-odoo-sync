@@ -37,5 +37,10 @@
 	},
 	"triggers": {
 		"crons": ["*/15 * * * *"]
+	},
+	"vars": {
+		// Public-facing base URL — used when generating Claude project instructions
+		// from a local dev environment so that the instructions always point to production.
+		"APP_BASE_URL": "https://forminator-sync.openvme-odoo.workers.dev"
 	}
 }

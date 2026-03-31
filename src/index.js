@@ -458,7 +458,7 @@ export default {
       if (result) {
         // Add params to context
         context.params = result.params;
-        return await result.handler(context);
+        return addCorsHeaders(await result.handler(context));
       }
     }
 

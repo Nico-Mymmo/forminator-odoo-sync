@@ -14,16 +14,28 @@ import { validateSession } from './session.js';
  */
 function extractToken(request) {
   const authHeader = request.headers.get('Authorization');
-  
-  if (!authHeader) return null;
-  
-  // Support "Bearer TOKEN" format
-  if (authHeader.startsWith('Bearer ')) {
-    return authHeader.substring(7);
+
+  if (authHeader) {
+    // Support "Bearer TOKEN" format
+    if (authHeader.startsWith('Bearer ')) {
+      return authHeader.substring(7);
+    }
+    // Support plain token
+    return authHeader;
   }
-  
-  // Support plain token
-  return authHeader;
+
+  // Fall back to session cookie (browser UI requests)
+  const cookieHeader = request.headers.get('Cookie');
+  if (cookieHeader) {
+    for (const part of cookieHeader.split(';')) {
+      const trimmed = part.trim();
+      if (trimmed.startsWith('session=')) {
+        return trimmed.slice('session='.length);
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
