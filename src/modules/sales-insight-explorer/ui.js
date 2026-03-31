@@ -1009,17 +1009,14 @@ Bij elke vraag over salesdata, pipeline of leads:
         const fname = cb.dataset.field;
         const aliasEl = document.querySelector('input[data-alias="' + fname + '"]');
         const alias = aliasEl?.value?.trim() || (wizardOdooFields[fname]?.string ?? fname);
-        return { name: fname, alias, include_in_output: true };
+        return { odoo_name: fname, alias, enabled: true };
       });
 
       const model_config = [{
         key: 'primary',
-        model,
+        odoo_model: model,
         is_primary: true,
-        fields,
-        domain: [],
-        order: 'id desc',
-        limit: 50
+        fields
       }];
 
       const btn = document.getElementById('wizardSaveBtn');

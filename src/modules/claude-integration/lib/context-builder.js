@@ -4,14 +4,11 @@
  * Data shape is fully determined by a `claude_dataset_templates` row.
  * model_config is a JSONB array of model entries:
  *   {
- *     key:               string,   // output key, e.g. "primary" or "leads"
- *     model:             string,   // Odoo model, e.g. "x_sales_action_sheet"
- *     is_primary:        boolean,  // if true: receives timeframe domain filter
- *     via_primary_field: string?,  // if set: filter [via_primary_field, 'in', primaryIds]
- *     fields:            [{ name, alias, instruction?, include_in_output? }]
- *     domain:            OdooDomain[],
- *     order:             string,
- *     limit:             number
+ *     key:               string,    // output key, e.g. "primary"
+ *     odoo_model:        string,    // Odoo model, e.g. "x_sales_action_sheet"
+ *     is_primary:        boolean,   // primary model receives timeframe domain filter
+ *     via_primary_field: string?,   // field on primary record (many2one) pointing to this model
+ *     fields:            [{ odoo_name, alias, instruction?, enabled }]
  *   }
  *
  * NOT responsible for: auth, token validation, audit logging, UI logic.
@@ -48,99 +45,96 @@ function getTimeframeStart(timeframe) {
  * @param {number} [options.limit=50]    Max records for the primary model
  * @returns {Promise<Object>}
  */
-export async function buildContext(env, {
-  templateId = null,
-  timeframe  = null,
-  limit      = 50
-}) {
-  // ── Load template ─────────────────────────────────────────────────────────
+export async function buildContext(env, { templateId = null, timeframe = null, limit = 50 }) {
+  // 1. Load template
   const template = templateId
     ? await getTemplate(env, templateId)
     : await getDefaultTemplate(env);
 
   if (!template) {
-    throw new Error('No dataset template found. An admin must create at least one active template.');
+    throw new Error('Geen actieve dataset template geconfigureerd. Vraag een admin.');
   }
 
-  const modelConfigs   = Array.isArray(template.model_config) ? template.model_config : [];
-  const effectiveLimit = Math.min(Number(limit) || 50, 200);
-  const timeframeStart = timeframe ? getTimeframeStart(timeframe) : null;
+  // 2. Find primary model config
+  const primary = template.model_config.find(m => m.key === 'primary');
+  if (!primary) {
+    throw new Error('Dataset template heeft geen primair model.');
+  }
 
-  // ── Fetch per model ───────────────────────────────────────────────────────
-  const result     = {};
-  const schemaMeta = {};
-  let   primaryIds = null; // collected ID list from the primary model
+  // 3. Enabled fields for primary
+  const primaryFields = primary.fields
+    .filter(f => f.enabled)
+    .map(f => f.odoo_name);
+  if (!primaryFields.includes('id')) primaryFields.unshift('id');
 
-  for (const config of modelConfigs) {
-    const {
-      key,
-      model,
-      is_primary         = false,
-      via_primary_field  = null,
-      fields: fieldDefs  = [],
-      domain: baseDomain = [],
-      order              = 'id desc',
-      limit:  modelLimit
-    } = config;
+  // 4. Build domain for primary
+  // x_sales_action_sheet has no 'active' field — no ['active','=',true] filter
+  const domain = [];
+  if (timeframe) {
+    const ts = getTimeframeStart(timeframe);
+    if (ts) domain.push(['create_date', '>=', ts]);
+  }
 
-    if (!key || !model) continue;
+  // 5. Fetch primary records
+  const primaryRecords = await searchRead(env, {
+    model:  primary.odoo_model,
+    domain,
+    fields: primaryFields,
+    limit:  Math.min(Number(limit) || 50, 50),
+    order:  'id desc'
+  });
 
-    // Build Odoo domain
-    const domain = [...baseDomain];
-    if (is_primary && timeframeStart) {
-      domain.push(['create_date', '>=', timeframeStart]);
-    }
-    if (!is_primary && via_primary_field && Array.isArray(primaryIds)) {
-      domain.push([via_primary_field, 'in', primaryIds]);
-    }
+  // 6. Fetch related models
+  const result       = { [primary.key]: primaryRecords };
+  const recordCounts = { [primary.key]: primaryRecords.length };
 
-    // Only fetch fields marked include_in_output (default: true)
-    const activeFieldDefs = fieldDefs.filter(f => f.include_in_output !== false);
-    const fieldNames      = activeFieldDefs.map(f => f.name).filter(Boolean);
-    if (!fieldNames.includes('id')) fieldNames.unshift('id');
+  for (const rel of template.model_config.filter(m => m.key !== 'primary')) {
+    // Extract IDs from primary records via the many2one field
+    const relIds = primaryRecords
+      .map(r => {
+        const val = r[rel.via_primary_field];
+        // Odoo many2one returns [id, name] or just an id
+        return Array.isArray(val) ? val[0] : val;
+      })
+      .filter(id => id && id !== false);
 
-    const fetchLimit = is_primary ? effectiveLimit : (modelLimit ?? 100);
+    if (!relIds.length) continue;
 
-    let records = [];
-    try {
-      records = await searchRead(env, { model, domain, fields: fieldNames, limit: fetchLimit, order });
-    } catch (err) {
-      console.warn(`\u26a0\ufe0f Claude context: ${model} (${key}) fetch failed:`, err.message);
-    }
+    const relFields = rel.fields.filter(f => f.enabled).map(f => f.odoo_name);
+    if (!relFields.includes('id')) relFields.unshift('id');
 
-    result[key] = records;
+    const relRecords = await searchRead(env, {
+      model:  rel.odoo_model,
+      domain: [['id', 'in', [...new Set(relIds)]]],
+      fields: relFields,
+      limit:  false  // fetch all — primary limit already applied
+    });
 
-    // Capture primary IDs for subsequent relation queries
-    if (is_primary) {
-      primaryIds = records.map(r => r.id);
-    }
+    result[rel.key]       = relRecords;
+    recordCounts[rel.key] = relRecords.length;
+  }
 
-    // Schema metadata: fieldName -> { alias, instruction? }
-    const fieldSchema = {};
-    for (const fd of activeFieldDefs) {
-      if (!fd.name) continue;
-      fieldSchema[fd.name] = {
-        alias: fd.alias ?? fd.name,
-        ...(fd.instruction ? { instruction: fd.instruction } : {})
+  // 7. Build schema object
+  const schema = {};
+  for (const mc of template.model_config) {
+    schema[mc.key] = {};
+    for (const f of mc.fields.filter(f => f.enabled)) {
+      schema[mc.key][f.odoo_name] = {
+        alias: f.alias || f.odoo_name,
+        ...(f.instruction ? { instruction: f.instruction } : {})
       };
     }
-    schemaMeta[key] = fieldSchema;
   }
 
-  // ── Assemble ──────────────────────────────────────────────────────────────
-  const recordCounts = Object.fromEntries(
-    Object.entries(result).map(([k, v]) => [k, v.length])
-  );
-
+  // 8. Assemble
   return {
     meta: {
       generated_at:  new Date().toISOString(),
-      template_id:   template.id,
       template_name: template.name,
       timeframe:     timeframe ?? 'all',
       record_counts: recordCounts
     },
     ...result,
-    schema: schemaMeta
+    schema
   };
 }
