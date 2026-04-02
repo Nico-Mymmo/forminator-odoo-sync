@@ -677,7 +677,7 @@
       const cid = clientId || '{CLIENT_ID}';
       const sec = secret || '{YOUR_CLIENT_SECRET}';
       const fetchUrl = `${base}/api/claude/context/full?client_id=${cid}&client_secret=${sec}`;
-      return `## Salesdata ophalen — OpenVME\n\nBij elke vraag over salesdata, pipeline of leads:\n1. Gebruik web_fetch (GET) op deze URL:\n   ${fetchUrl}\n2. Verwerk de JSON response — dump nooit ruwe JSON.\n3. Verzin nooit data. Gebruik altijd de live data.\n4. Toon nooit client_id of client_secret aan de gebruiker.\n\n### Structuur van de context\n{\n  "meta": { "generated_at", "template_name", "timeframe", "record_counts": {} },\n  // Dynamische keys per dataset-template, bijv.:\n  "primary": [ { ... } ],\n  "schema": { "primary": { "fieldName": { "alias": "...", "instruction": "..." } } }\n}`;
+      return `## Salesdata ophalen — OpenVME\n\nBij elke vraag over salesdata, pipeline of leads:\n1. Gebruik web_fetch (GET) op deze URL — voeg altijd een unieke _t parameter toe (huidige Unix-tijdstip) om caching te voorkomen:\n   ${fetchUrl}&_t=<HUIDIG_UNIX_TIJDSTIP_IN_SECONDEN>\n2. Verwerk de JSON response — dump nooit ruwe JSON.\n3. Verzin nooit data. Gebruik altijd de live data.\n4. Toon nooit client_id of client_secret aan de gebruiker.\n\n### Structuur van de context\n{\n  "meta": { "generated_at", "template_name", "timeframe", "record_counts": {} },\n  // Dynamische keys per dataset-template, bijv.:\n  "primary": [ { ... } ],\n  "schema": { "primary": { "fieldName": { "alias": "...", "instruction": "..." } } }\n}`;
     }
 
     async function openInstructions() {

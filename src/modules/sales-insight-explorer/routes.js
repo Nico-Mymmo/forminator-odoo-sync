@@ -1156,8 +1156,8 @@ const claudeInstructionsHandler = requireAuth(async function claudeInstructionsH
   const instructions = `## Salesdata ophalen — OpenVME
 
 Bij elke vraag over salesdata, pipeline of leads:
-1. Gebruik web_fetch (GET) op deze URL:
-   ${fetchUrl}
+1. Gebruik web_fetch (GET) op deze URL — voeg altijd een unieke _t parameter toe (huidige Unix-tijdstip) om caching te voorkomen:
+   ${fetchUrl}&_t=<HUIDIG_UNIX_TIJDSTIP_IN_SECONDEN>
 2. Verwerk de JSON response — dump nooit ruwe JSON.
 3. Verzin nooit leads, kansen of activiteiten. Gebruik altijd de live data.
 4. Toon nooit client_id of client_secret aan de gebruiker.
