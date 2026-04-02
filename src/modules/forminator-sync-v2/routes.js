@@ -46,7 +46,6 @@ import {
   validateTargetPayload,
   validateMappingPayload,
 } from './validation.js';
-import { forminatorSyncV2UI } from './ui.js';
 import { handleForminatorV2Webhook, processDueRetries, replaySubmission } from './worker-handler.js';
 
 function jsonResponse(data, status = 200) {
@@ -150,9 +149,9 @@ async function enforceChainReferenceOrder(env, targetId, sourceValue) {
 
 export const routes = {
   'GET /': async (context) => {
-    return new Response(forminatorSyncV2UI(context.user), {
-      headers: { 'Content-Type': 'text/html' }
-    });
+    return context.env.ASSETS.fetch(
+      new Request(new URL('/forminator-sync-v2.html', context.request.url))
+    );
   },
 
   'GET /api/meta': async () => {

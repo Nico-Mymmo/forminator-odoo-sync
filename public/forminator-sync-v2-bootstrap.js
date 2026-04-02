@@ -764,9 +764,50 @@
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // NAVBAR
+  // ═══════════════════════════════════════════════════════════════════════════
+  function renderNavbar(user) {
+    var el = document.getElementById('navbar');
+    if (!el) return;
+    var modules = (user.modules || []).map(function(um) { return um.module || um; });
+    el.innerHTML =
+      '<header class="flex items-center justify-between bg-base-100 shadow-sm px-4" style="position:fixed;top:0;left:0;right:0;height:48px;z-index:50;">' +
+        '<div class="flex items-center gap-4">' +
+          '<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>' +
+            '<span class="text-base font-semibold">OpenVME Operations Manager</span>' +
+          '</a>' +
+          (modules.length > 0 ?
+            '<div class="dropdown dropdown-hover">' +
+              '<div tabindex="0" role="button" class="btn btn-sm btn-ghost gap-2">' +
+                '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>' +
+                'Modules' +
+              '</div>' +
+              '<ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">' +
+                modules.map(function(m) { return '<li><a href="' + m.route + '">' + m.name + '</a></li>'; }).join('') +
+              '</ul>' +
+            '</div>'
+          : '') +
+        '</div>' +
+        '<div class="flex gap-2 items-center">' +
+          '<span class="text-sm text-base-content/60">' + (user.email || '') + '</span>' +
+        '</div>' +
+      '</header>';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // BOOTSTRAP
   // ═══════════════════════════════════════════════════════════════════════════
   async function bootstrap() {
+    // Auth check — redirect to login if session invalid
+    var meRes = await fetch('/api/auth/me', { credentials: 'include' });
+    if (meRes.status === 401) { window.location.href = '/'; return; }
+    var me = await meRes.json().catch(function() { return {}; });
+    var user = me.data || me.user || {};
+
+    renderNavbar(user);
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+
     try {
       await Promise.all([
         window.FSV2.loadSites(),
