@@ -643,7 +643,7 @@
       const base = window.location.origin;
       const cid = clientId || '{CLIENT_ID}';
       const sec = secret || '{YOUR_CLIENT_SECRET}';
-      const fetchUrl = `${base}/api/claude/context/full?client_id=${cid}&client_secret=${sec}&timeframe=month&limit=50`;
+      const fetchUrl = `${base}/api/claude/context/full?client_id=${cid}&client_secret=${sec}`;
       return `## Salesdata ophalen — OpenVME\n\nBij elke vraag over salesdata, pipeline of leads:\n1. Gebruik web_fetch (GET) op deze URL:\n   ${fetchUrl}\n2. Verwerk de JSON response — dump nooit ruwe JSON.\n3. Verzin nooit data. Gebruik altijd de live data.\n4. Toon nooit client_id of client_secret aan de gebruiker.\n\n### Structuur van de context\n{\n  "meta": { "generated_at", "template_name", "timeframe", "record_counts": {} },\n  // Dynamische keys per dataset-template, bijv.:\n  "primary": [ { ... } ],\n  "schema": { "primary": { "fieldName": { "alias": "...", "instruction": "..." } } }\n}`;
     }
 
@@ -888,9 +888,30 @@
             ${depth === 0 ? '<span class="badge badge-primary badge-xs">primair</span>' : `<span class="badge badge-ghost badge-xs">depth ${depth}</span>`}
             <span class="ml-auto text-xs text-base-content/40">${enabledCount}/${totalCount} velden</span>
           </div>
-          ${isExpanded ? renderFieldGroups(mc) : ''}
+          ${isExpanded ? renderPrimaryModelSettings(mc) + renderFieldGroups(mc) : ''}
         </div>
       </div>`;
+    }
+
+    function renderPrimaryModelSettings(mc) {
+      if ((mc.depth != null ? mc.depth : (mc.is_primary ? 0 : 1)) !== 0) return '';
+      const tfOptions = [
+        ['', '— alles (geen filter) —'],
+        ['week', 'Afgelopen week'],
+        ['month', 'Afgelopen maand'],
+        ['quarter', 'Afgelopen kwartaal'],
+        ['year', 'Afgelopen jaar']
+      ].map(([v, l]) => '<option value="' + v + '"' + (mc.timeframe === v ? ' selected' : '') + '>' + l + '</option>').join('');
+      return '<div class="flex items-center gap-3 flex-wrap mt-2 ml-6 mb-2 p-2 bg-base-200 rounded-box text-sm">'
+        + '<span class="text-xs font-medium text-base-content/50 shrink-0">Ophaalinstellingen:</span>'
+        + '<label class="flex items-center gap-1.5"><span class="text-xs text-base-content/50">Tijdsfilter:</span>'
+        + '<select class="select select-xs select-bordered" data-change-action="setModelTimeframe" data-key="' + mc.key + '">'
+        + tfOptions + '</select></label>'
+        + '<label class="flex items-center gap-1.5"><span class="text-xs text-base-content/50">Max records:</span>'
+        + '<input type="number" min="0" placeholder="geen limiet" class="input input-xs input-bordered w-24"'
+        + ' data-change-action="setModelLimit" data-key="' + mc.key + '" value="' + (mc.limit != null ? mc.limit : '') + '" /></label>'
+        + '<span class="text-xs text-base-content/30">(leeg = alles ophalen)</span>'
+        + '</div>';
     }
 
     function toggleModelExpand(key) {
@@ -1563,6 +1584,18 @@
         const wzf = wzm ? wzm.fields.find(f => f.odoo_name === field) : null;
         if (wzf) wzf.category = el.value || null;
       }
+      else if (changeAction === 'setModelTimeframe') {
+        const mc = (editorState.template?.model_config || []).find(m => m.key === key);
+        if (mc) { mc.timeframe = el.value || undefined; scheduleAutosave(); }
+      }
+      else if (changeAction === 'setModelLimit') {
+        const mc = (editorState.template?.model_config || []).find(m => m.key === key);
+        if (mc) {
+          const v = parseInt(el.value, 10);
+          mc.limit = (!el.value.trim() || isNaN(v) || v <= 0) ? undefined : v;
+          scheduleAutosave();
+        }
+      }
     });
 
     // ── Navbar ────────────────────────────────────────────────────────────────
@@ -1620,6 +1653,8 @@
 
       await Promise.all([loadIntegrations(), loadTemplates()]);
       if (user.role === 'admin') loadDatasetTemplates();
+
+      document.getElementById('createForm').addEventListener('submit', handleCreate);
     }
 
     document.addEventListener('DOMContentLoaded', init);

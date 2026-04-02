@@ -365,7 +365,8 @@ async function getContext(context) {
   }
 
   const timeframe = url.searchParams.get('timeframe') ?? null;
-  const limit     = parseInt(url.searchParams.get('limit') ?? '50', 10);
+  // null = not provided → context-builder uses template default or no limit
+  const limit     = url.searchParams.has('limit') ? parseInt(url.searchParams.get('limit'), 10) : null;
 
   let contextPayload;
   try {

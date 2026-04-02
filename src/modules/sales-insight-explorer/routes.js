@@ -1151,7 +1151,7 @@ const claudeInstructionsHandler = requireAuth(async function claudeInstructionsH
     ? (env.APP_BASE_URL ?? reqUrl.origin)
     : reqUrl.origin;
 
-  const fetchUrl = `${baseUrl}/api/claude/context/full?client_id=${integration.client_id}&client_secret={YOUR_CLIENT_SECRET}&timeframe=month&limit=50`;
+  const fetchUrl = `${baseUrl}/api/claude/context/full?client_id=${integration.client_id}&client_secret={YOUR_CLIENT_SECRET}`;
 
   const instructions = `## Salesdata ophalen — OpenVME
 

@@ -77,10 +77,10 @@ function normalise(mc, allConfigs) {
  * @param {string} [options.templateId]  UUID of claude_dataset_templates row.
  *                                       Falls back to the default template when omitted.
  * @param {string} [options.timeframe]   'week'|'month'|'quarter'|'year'
- * @param {number} [options.limit=50]    Max records for the primary model
+ * @param {number|null} [options.limit]   Max records for the primary model (null = use template default or no limit)
  * @returns {Promise<Object>}
  */
-export async function buildContext(env, { templateId = null, timeframe = null, limit = 50 }) {
+export async function buildContext(env, { templateId = null, timeframe = null, limit = null }) {
   // 1. Load template
   const template = templateId
     ? await getTemplate(env, templateId)
@@ -113,9 +113,15 @@ export async function buildContext(env, { templateId = null, timeframe = null, l
 
     if (mc.depth === 0) {
       // ── Primary model ───────────────────────────────────────────────────
+      // Request param overrides template default; template default overrides "no filter"
+      const effectiveTimeframe = timeframe ?? mc.timeframe ?? null;
+      const rawLimit = limit !== null ? limit : (mc.limit ?? null);
+      // false = omit limit entirely → Odoo returns all records
+      const effectiveLimit = rawLimit !== null && Number(rawLimit) > 0 ? Number(rawLimit) : false;
+
       const domain = [];
-      if (timeframe) {
-        const ts = getTimeframeStart(timeframe);
+      if (effectiveTimeframe) {
+        const ts = getTimeframeStart(effectiveTimeframe);
         if (ts) domain.push(['create_date', '>=', ts]);
       }
 
@@ -123,7 +129,7 @@ export async function buildContext(env, { templateId = null, timeframe = null, l
         model:  mc.odoo_model,
         domain,
         fields: enabledFields,
-        limit:  Math.min(Number(limit) || 50, 50),
+        limit:  effectiveLimit,
         order:  'id desc'
       });
 

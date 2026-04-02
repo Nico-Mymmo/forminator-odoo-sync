@@ -11,7 +11,7 @@
 import { hashPassword } from '../../../lib/auth/password.js';
 import { getSupabaseClient } from '../../../lib/database.js';
 
-const TOKEN_TTL_SECONDS = 5 * 60; // 5 minutes
+const TOKEN_TTL_SECONDS = 24 * 60 * 60; // 1 day
 
 /**
  * Create a new access token for an integration.

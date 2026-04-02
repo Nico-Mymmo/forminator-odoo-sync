@@ -103,7 +103,8 @@ export async function read(env, { model, ids, fields = [], staging = false, odoo
 
 export async function searchRead(env, { model, domain = [], fields = [], limit, offset = 0, order, context, staging = false, odooUrl, odooDb }) {
   const kwargs = { fields, offset, order, context };
-  if (limit !== false && limit !== undefined) kwargs.limit = limit;
+  // false = explicitly tell Odoo "no limit"; undefined = omit the key (Odoo uses server default)
+  if (limit !== undefined) kwargs.limit = limit;
   return executeKw(env, {
     model,
     method: "search_read",
