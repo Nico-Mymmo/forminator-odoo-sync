@@ -14,7 +14,9 @@ import { navbar } from '../../lib/components/navbar.js';
 /** Cache-busting version — bump whenever any of the 5 public FSV2 files change. */
 const FSV2_ASSET_VERSION = '20260304j';
 
-export function forminatorSyncV2UI(user) {
+// DISABLED: migratie naar public/forminator-sync-v2.html voltooid — routes.js gebruikt nu ASSETS.fetch()
+// export function forminatorSyncV2UI(user) {
+export function forminatorSyncV2UI_DISABLED(user) {
   return `<!DOCTYPE html>
 <html lang="nl">
 <head>
