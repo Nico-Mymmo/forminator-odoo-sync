@@ -473,23 +473,41 @@
     function renderIntegrationCard(i) {
       const active = i.is_active;
       const tName = templateName(i.dataset_template_id);
+      const now = Date.now();
+      const expiresAt = i.expires_at ? new Date(i.expires_at) : null;
+      const msLeft = expiresAt ? expiresAt - now : null;
+      const isExpired = msLeft !== null && msLeft <= 0;
+      const expiresSOon = msLeft !== null && msLeft > 0 && msLeft < 24 * 60 * 60 * 1000;
+
+      let expiryBadge = '';
+      if (active && isExpired) {
+        expiryBadge = '<span class="badge badge-error badge-xs">Verlopen</span>';
+      } else if (active && expiresSOon) {
+        expiryBadge = `<span class="badge badge-warning badge-xs" title="Vervalt ${fmtDate(i.expires_at)}">Vervalt binnenkort</span>`;
+      }
+
       return `<div class="card bg-base-50 border border-base-300 mb-3">
         <div class="card-body p-4">
           <div class="flex items-start justify-between gap-3 flex-wrap">
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-1">
+              <div class="flex items-center gap-2 mb-1 flex-wrap">
                 <span class="font-semibold">${i.name || ''}</span>
-                ${active ? '<span class="badge badge-success badge-xs">Actief</span>' : '<span class="badge badge-error badge-xs">Ingetrokken</span>'}
+                ${active && !isExpired ? '<span class="badge badge-success badge-xs">Actief</span>' : ''}
+                ${active && isExpired  ? '<span class="badge badge-error badge-xs">Verlopen</span>' : ''}
+                ${!active             ? '<span class="badge badge-ghost badge-xs">Ingetrokken</span>' : ''}
+                ${active && expiresSOon ? expiryBadge : ''}
               </div>
               <div class="flex flex-wrap items-center gap-2 text-xs text-base-content/50">
                 <code class="font-mono bg-base-200 px-1.5 py-0.5 rounded">${i.client_id || ''}</code>
                 <span>&middot;</span>
                 <span>Aangemaakt: ${fmtDate(i.created_at)}</span>
+                ${i.last_used_at ? `<span>&middot; Laatste gebruik: ${fmtDate(i.last_used_at)}</span>` : '<span>&middot; Nog niet gebruikt</span>'}
+                ${active && expiresAt ? `<span>&middot; Vervalt: ${fmtDate(i.expires_at)}</span>` : ''}
                 ${i.revoked_at ? `<span>&middot; Ingetrokken: ${fmtDate(i.revoked_at)}</span>` : ''}
               </div>
               ${tName ? `<div class="mt-1"><span class="badge badge-ghost badge-xs font-mono">${tName}</span></div>` : ''}
             </div>
-            ${active ? renderIntegrationActions(i.client_id, i.id) : ''}
+            ${active && !isExpired ? renderIntegrationActions(i.client_id, i.id) : renderRevokedIntegrationActions(i.id)}
           </div>
         </div>
       </div>`;
@@ -508,6 +526,14 @@
         </button>
         <button class="btn btn-ghost btn-xs text-error gap-1" data-action="revokeIntegration" data-id="${integrationId}" title="Intrekken">
           <i data-lucide="trash-2" class="w-3 h-3"></i>
+        </button>
+      </div>`;
+    }
+
+    function renderRevokedIntegrationActions(integrationId) {
+      return `<div class="flex gap-1 shrink-0">
+        <button class="btn btn-ghost btn-xs text-error gap-1" data-action="deleteIntegrationPermanently" data-id="${integrationId}" title="Permanent verwijderen">
+          <i data-lucide="trash-2" class="w-3 h-3"></i> Permanent
         </button>
       </div>`;
     }
@@ -550,6 +576,13 @@
       const res = await apiFetch('/api/claude/integrations/' + id, { method: 'DELETE' });
       if (res.success) { showAlert('<span>Koppeling ingetrokken</span>', 'success'); loadIntegrations(); }
       else showAlert(`<span>${res.error?.message || 'Intrekken mislukt'}</span>`, 'error');
+    }
+
+    async function deleteIntegrationPermanently(id) {
+      if (!confirm('Koppeling permanent verwijderen? Dit kan niet ongedaan gemaakt worden.')) return;
+      const res = await apiFetch('/api/claude/integrations/' + id + '/permanent', { method: 'DELETE' });
+      if (res.success) { showAlert('<span>Koppeling permanent verwijderd</span>', 'success'); loadIntegrations(); }
+      else showAlert(`<span>${res.error?.message || 'Mislukt'}</span>`, 'error');
     }
 
     // ── Rotate ────────────────────────────────────────────────────────────────
@@ -757,7 +790,7 @@
                 <i data-lucide="pencil" class="w-3 h-3"></i> Bewerken
               </button>
               ${t.is_active && !t.is_default ? `<button class="btn btn-ghost btn-xs" data-action="setDefaultTemplate" data-id="${t.id}"><i data-lucide="star" class="w-3 h-3"></i> Standaard</button>` : ''}
-              ${t.is_active ? `<button class="btn btn-ghost btn-xs text-error" data-action="deactivateTemplate" data-id="${t.id}"><i data-lucide="trash-2" class="w-3 h-3"></i></button>` : ''}
+              ${t.is_active ? `<button class="btn btn-ghost btn-xs text-error" data-action="deactivateTemplate" data-id="${t.id}"><i data-lucide="trash-2" class="w-3 h-3"></i></button>` : `<button class="btn btn-ghost btn-xs text-error" data-action="deleteTemplatePermanently" data-id="${t.id}" title="Permanent verwijderen"><i data-lucide="trash-2" class="w-3 h-3"></i> Permanent</button>`}
             </div>
           </div>
         </div>
@@ -774,6 +807,13 @@
       if (!confirm('Template deactiveren? Bestaande koppelingen met dit template blijven werken tot ze opnieuw worden aangemaakt.')) return;
       const res = await apiFetch('/api/claude/dataset-templates/' + id, { method: 'DELETE' });
       if (res.success) { showAlert('<span>Template gedeactiveerd</span>', 'success'); loadDatasetTemplates(); }
+      else showAlert(`<span>${res.error?.message || 'Mislukt'}</span>`, 'error');
+    }
+
+    async function deleteTemplatePermanently(id) {
+      if (!confirm('Template permanent verwijderen? Dit kan niet ongedaan gemaakt worden.')) return;
+      const res = await apiFetch('/api/claude/dataset-templates/' + id + '/permanent', { method: 'DELETE' });
+      if (res.success) { showAlert('<span>Template permanent verwijderd</span>', 'success'); loadDatasetTemplates(); }
       else showAlert(`<span>${res.error?.message || 'Mislukt'}</span>`, 'error');
     }
 
@@ -1518,10 +1558,12 @@
       else if (action === 'openInstructions')        openInstructions();
       else if (action === 'openInstructionsAfterRotate') openInstructionsAfterRotate();
       else if (action === 'revokeIntegration')       revokeIntegration(id);
+      else if (action === 'deleteIntegrationPermanently') deleteIntegrationPermanently(id);
       else if (action === 'openDatasetEditor')       openDatasetEditor(id);
       else if (action === 'openDatasetWizard')       openDatasetWizard();
       else if (action === 'setDefaultTemplate')      setDefaultTemplate(id);
       else if (action === 'deactivateTemplate')      deactivateTemplate(id);
+      else if (action === 'deleteTemplatePermanently') deleteTemplatePermanently(id);
       else if (action === 'toggleModelExpand')       toggleModelExpand(key);
       else if (action === 'openRemoveChild')         openRemoveChild(key);
       else if (action === 'drillDown')               drillDown(key, field, relation);

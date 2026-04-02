@@ -92,6 +92,19 @@ export async function revokeIntegration(env, integrationId, userId) {
 }
 
 /**
+ * Permanently delete an integration and all associated tokens.
+ * Admin only — caller must enforce admin check.
+ */
+export async function deleteIntegrationPermanently(env, integrationId) {
+  const db = getSupabaseClient(env);
+  const { error } = await db
+    .from('claude_integrations')
+    .delete()
+    .eq('id', integrationId);
+  if (error) throw new Error('Permanent delete failed: ' + error.message);
+}
+
+/**
  * Regenerate the client secret for an integration.
  * Returns the new plain-text secret (visible once only).
  *
@@ -134,7 +147,7 @@ export async function listIntegrations(env, userId) {
 
   const { data, error } = await db
     .from('claude_integrations')
-    .select('id, user_id, name, client_id, dataset_template_id, is_active, created_at, revoked_at')
+    .select('id, user_id, name, client_id, dataset_template_id, is_active, created_at, revoked_at, last_used_at, expires_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
@@ -156,12 +169,14 @@ export async function getIntegrationByClientId(env, clientId) {
 
   const { data, error } = await db
     .from('claude_integrations')
-    .select('id, user_id, name, client_id, client_secret_hash, dataset_template_id, is_active, created_at')
+    .select('id, user_id, name, client_id, client_secret_hash, dataset_template_id, is_active, created_at, expires_at')
     .eq('client_id', clientId)
     .eq('is_active', true)
     .single();
 
   if (error) return null;
+  // Treat expired integrations as inactive
+  if (data?.expires_at && new Date(data.expires_at) < new Date()) return null;
   return data;
 }
 
@@ -197,4 +212,23 @@ export async function getIntegrationById(env, integrationId) {
 export async function validateClientSecret(integration, rawSecret) {
   if (!integration?.client_secret_hash || !rawSecret) return false;
   return verifyPassword(rawSecret, integration.client_secret_hash);
+}
+
+/**
+ * Reset the expiry timer on an integration (called on each successful use).
+ * Non-throwing: errors are swallowed so they never block a context response.
+ *
+ * @param {Object} env
+ * @param {string} integrationId
+ */
+export async function touchIntegration(env, integrationId) {
+  try {
+    const db = getSupabaseClient(env);
+    const expiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    await db
+      .from('claude_integrations')
+      .update({ last_used_at: new Date().toISOString(), expires_at: expiresAt })
+      .eq('id', integrationId)
+      .eq('is_active', true);
+  } catch (_) { /* non-blocking */ }
 }

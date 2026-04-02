@@ -25,7 +25,9 @@ import {
   listIntegrations,
   getIntegrationByClientId,
   getIntegrationById,
-  validateClientSecret
+  validateClientSecret,
+  deleteIntegrationPermanently,
+  touchIntegration
 } from './lib/integration-service.js';
 import { createChallenge, validateAndConsumeChallenge } from './lib/challenge-service.js';
 import { createToken, validateToken, revokeAllTokensForIntegration } from './lib/token-service.js';
@@ -36,6 +38,7 @@ import {
   createTemplate, updateTemplate,
   setDefaultTemplate as setDefaultTemplateInDb,
   deactivateTemplate as deactivateTemplateInDb,
+  deleteTemplatePermanently,
   getOdooModelFields
 } from './lib/dataset-service.js';
 
@@ -392,6 +395,9 @@ async function getContext(context) {
 
   const responseBody = JSON.stringify({ success: true, data: contextPayload });
 
+  // Reset expiry timer non-blocking — active integrations stay alive
+  ctx.waitUntil(touchIntegration(env, tokenMeta.integrationId));
+
   logContextCall(env, ctx, {
     integration_id: tokenMeta.integrationId,
     user_id:        tokenMeta.userId,
@@ -488,6 +494,23 @@ const deactivateDatasetTemplateHandler = requireAdmin(async function deactivateD
   } catch (e) { return err(e.message, 'DEACTIVATE_FAILED', 500); }
 });
 
+const deleteDatasetTemplatePermanentlyHandler = requireAdmin(async function deleteDatasetTemplatePermanentlyHandler(context) {
+  const { env, params } = context;
+  try {
+    await deleteTemplatePermanently(env, params.id);
+    return ok({ deleted: true });
+  } catch (e) { return err(e.message, 'DELETE_FAILED', 500); }
+});
+
+const deleteIntegrationPermanentlyHandler = requireAdmin(async function deleteIntegrationPermanentlyHandler(context) {
+  const { env, params } = context;
+  try {
+    await revokeAllTokensForIntegration(env, params.id);
+    await deleteIntegrationPermanently(env, params.id);
+    return ok({ deleted: true });
+  } catch (e) { return err(e.message, 'DELETE_FAILED', 500); }
+});
+
 const getOdooFieldsHandler = requireAdmin(async function getOdooFieldsHandler(context) {
   const { request, env } = context;
   const model = new URL(request.url).searchParams.get('model');
@@ -507,7 +530,8 @@ export const routes = {
   'GET /integrations':                           listIntegrationsHandler,
   'POST /integrations':                          createIntegrationHandler,
   'DELETE /integrations/:id':                    revokeIntegrationHandler,
-  'POST /integrations/:id/rotate':               rotateSecretHandler,
+  'DELETE /integrations/:id/permanent':           deleteIntegrationPermanentlyHandler,
+  'POST /integrations/:id/rotate':                rotateSecretHandler,
   'POST /session/request':                       requestChallenge,
   'POST /session/authorize':                     authorizeSession,
   'GET /context/full':                           getContext,
@@ -519,5 +543,6 @@ export const routes = {
   'PUT /dataset-templates/:id':                  updateDatasetTemplateHandler,
   'POST /dataset-templates/:id/set-default':     setDefaultDatasetTemplateHandler,
   'DELETE /dataset-templates/:id':               deactivateDatasetTemplateHandler,
-  'GET /odoo/fields':                            getOdooFieldsHandler
+  'DELETE /dataset-templates/:id/permanent':      deleteDatasetTemplatePermanentlyHandler,
+  'GET /odoo/fields':                             getOdooFieldsHandler
 };

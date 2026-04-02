@@ -200,6 +200,19 @@ export async function deactivateTemplate(env, templateId) {
 }
 
 /**
+ * Permanently delete a template from the database.
+ * Admin only — caller must enforce admin check.
+ */
+export async function deleteTemplatePermanently(env, templateId) {
+  const db = getSupabaseClient(env);
+  const { error } = await db
+    .from('claude_dataset_templates')
+    .delete()
+    .eq('id', templateId);
+  if (error) throw new Error('Permanent delete failed: ' + error.message);
+}
+
+/**
  * Fetch field metadata for an Odoo model.
  * Uses fields_get to retrieve name, string, type, relation for each field.
  *
