@@ -409,7 +409,13 @@ async function getContext(context) {
     ip_address:     ip
   });
 
-  return new Response(responseBody, { headers: { 'Content-Type': 'application/json' } });
+  return new Response(responseBody, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache'
+    }
+  });
 }
 
 // ─── Audit endpoint ───────────────────────────────────────────────────────────
