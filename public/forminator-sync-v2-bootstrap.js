@@ -349,6 +349,10 @@
         await window.FSV2.handleAddTarget(btn.dataset.integrationid);
         return;
       }
+      if (action === 'duplicate-target') {
+        await window.FSV2.handleDuplicateTarget(btn.dataset.targetId, btn.dataset.integrationId);
+        return;
+      }
       if (action === 'delete-target') {
         await window.FSV2.handleDeleteTarget(btn.dataset.targetId, btn.dataset.integrationId);
         return;
@@ -377,6 +381,20 @@
       }
       if (action === 'save-step-mappings') {
         await window.FSV2.handleSaveStepMappings(btn.dataset.targetId);
+        return;
+      }
+      if (action === 'save-step-condition') {
+        var condTid = btn.dataset.targetId;
+        if (condTid) await window.FSV2.handleSaveStepCondition(condTid);
+        return;
+      }
+      if (action === 'clear-step-condition') {
+        var clearTid = btn.dataset.targetId;
+        if (!clearTid) return;
+        var clrSel = document.getElementById('stepCondField-' + clearTid);
+        if (clrSel) clrSel.value = '';
+        window.FSV2.handleCondFieldChanged(clearTid, '');
+        await window.FSV2.handleSaveStepCondition(clearTid);
         return;
       }
       if (action === 'save-detail-mappings') {
@@ -687,6 +705,27 @@
         if (window.FSV2.handleRefreshFormFields) await window.FSV2.handleRefreshFormFields();
         return;
       }
+      if (action === 'toggle-field-hidden') {
+        var thfFid = btn.dataset.fieldId || '';
+        if (thfFid && window.FSV2.handleToggleFieldHidden) window.FSV2.handleToggleFieldHidden(thfFid);
+        return;
+      }
+      if (action === 'toggle-show-hidden') {
+        if (window.FSV2.handleToggleShowHidden) window.FSV2.handleToggleShowHidden();
+        return;
+      }
+      if (action === 'save-field-alias') {
+        var safFid = btn.dataset.fieldId || '';
+        if (!safFid) return;
+        var safInput = document.getElementById('alias-inp-' + safFid);
+        if (window.FSV2.handleSaveFieldAlias) window.FSV2.handleSaveFieldAlias(safFid, safInput ? safInput.value : '');
+        return;
+      }
+      if (action === 'clear-field-alias') {
+        var cafFid = btn.dataset.fieldId || '';
+        if (cafFid && window.FSV2.handleSaveFieldAlias) window.FSV2.handleSaveFieldAlias(cafFid, '');
+        return;
+      }
       if (action === 'toggle-valuemap') {
         var tvFieldId = btn.dataset.fieldId || '';
         if (window.FSV2.S._expandedValueMapField === tvFieldId) {
@@ -809,6 +848,14 @@
         if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       }).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+      return;
+    }
+    // Condition field selector change — refresh value suggestions dynamically
+    if (inp && inp.tagName === 'SELECT' && inp.dataset.changeAction === 'cond-field-changed') {
+      var condChangeTid = inp.dataset.targetId || '';
+      if (condChangeTid && window.FSV2.handleCondFieldChanged) {
+        window.FSV2.handleCondFieldChanged(condChangeTid, inp.value);
+      }
       return;
     }
     if (!inp || inp.tagName !== 'INPUT' || inp.type !== 'hidden') return;

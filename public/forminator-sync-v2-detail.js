@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Forminator Sync V2 &mdash; Detail
  *
  * Extends window.FSV2 with: renderDetail, updateDetailTestStatus,
@@ -47,38 +47,48 @@
          : (t.order_index    != null ? t.order_index : (fallback != null ? fallback : 0));
   }
 
+  // ── Field metadata: per-integration hide/alias, persisted in localStorage ──────────────
+  function _fieldMetaKey(integId) { return 'fsv2_fieldmeta_' + String(integId); }
+  function _loadFieldMeta(integId) {
+    try {
+      var raw = localStorage.getItem(_fieldMetaKey(integId));
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  }
+  function _saveFieldMeta(integId, meta) {
+    try {
+      if (!meta || !Object.keys(meta).length) localStorage.removeItem(_fieldMetaKey(integId));
+      else localStorage.setItem(_fieldMetaKey(integId), JSON.stringify(meta));
+    } catch (e) {}
+  }
+
   /**
    * Bouw { topLevel, flatFields } vanuit de ruwe WP-velden (S().detailFormFields).
-   *
-   * topLevel   = ouder-velden + gewone velden (geen composite-kinderen)
-   * flatFields = alle mappable velden: ouders + kinderen + gewone velden
-   *
-   * Composite ouders (is_composite: true) worden opgenomen met:
-   *   is_composite: true, composite_children: [field_id, ...]
-   * Composite kinderen worden opgenomen met:
-   *   parent_field_id: ouder-field_id
-   *
-   * In de MappingTable: kinderen (parent_field_id aanwezig) worden als inspringende
-   * sub-rijen getoond. De ouder wordt als top-rij getoond en samenvoegt bij gebruik
-   * alle kinderwaarden met een spatie (afgehandeld in de worker).
+   * Verborgen velden (S()._fieldMeta[fid].hidden) worden overgeslagen.
+   * Alias (S()._fieldMeta[fid].alias) vervangt het label.
    */
   function buildDetailFlatFields(rawInput) {
-    var SKIP = window.FSV2.SKIP_TYPES;
+    var SKIP      = window.FSV2.SKIP_TYPES;
+    var fieldMeta = (S() && S()._fieldMeta) || {};
     var topLevel   = [];
     var flatFields = [];
 
     (Array.isArray(rawInput) ? rawInput : []).forEach(function (f) {
       var type = String(f.type || '');
       if (SKIP.includes(type)) return;
+      var fid = String(f.field_id || '');
+      if (fieldMeta[fid] && fieldMeta[fid].hidden) return;
+      var displayLabel = (fieldMeta[fid] && fieldMeta[fid].alias)
+        ? fieldMeta[fid].alias
+        : String(f.label || fid);
 
       if (f.is_composite === true) {
         var children = Array.isArray(f.children) ? f.children : [];
         if (children.length === 0) return;
 
-        // Composite ouder: mappable als gecombineerde waarde (worker voegt samen met spatie)
         var parentEntry = {
-          field_id:           String(f.field_id),
-          label:              String(f.label || f.field_id),
+          field_id:           fid,
+          label:              displayLabel,
           type:               type,
           required:           !!f.required,
           is_composite:       true,
@@ -87,30 +97,32 @@
         topLevel.push(parentEntry);
         flatFields.push(parentEntry);
 
-        // Kinderen: individueel mappable als sub-veld (inspringend in de tabel)
         children.forEach(function (child) {
+          var childFid  = String(child.field_id || '');
+          if (fieldMeta[childFid] && fieldMeta[childFid].hidden) return;
           var childType = String(child.type || type);
           if (SKIP.includes(childType)) return;
+          var childLabel = (fieldMeta[childFid] && fieldMeta[childFid].alias)
+            ? fieldMeta[childFid].alias
+            : String(child.label || childFid);
           var childEntry = {
-            field_id:        String(child.field_id),
-            label:           String(child.label || child.field_id),
+            field_id:        childFid,
+            label:           childLabel,
             type:            childType,
             required:        !!child.required,
-            parent_field_id: String(f.field_id),
+            parent_field_id: fid,
           };
-          // Keuzemogelijkheden doorgeven als aanwezig
           if (Array.isArray(child.choices) && child.choices.length > 0) childEntry.choices = child.choices;
           flatFields.push(childEntry);
         });
 
       } else {
         var plain = {
-          field_id: String(f.field_id),
-          label:    String(f.label || f.field_id),
+          field_id: fid,
+          label:    displayLabel,
           type:     type,
           required: !!f.required,
         };
-        // Keuzemogelijkheden doorgeven voor radio/checkbox/select
         if (Array.isArray(f.choices) && f.choices.length > 0) plain.choices = f.choices;
         topLevel.push(plain);
         flatFields.push(plain);
@@ -486,6 +498,14 @@
             '</span>';
         });
       }
+      if (target.condition_field) {
+        var condValsHdr = Array.isArray(target.condition_values) ? target.condition_values : [];
+        html +=           '<span>·</span>' +
+          '<span class="inline-flex items-center gap-1 text-warning font-medium">' +
+          '<i data-lucide="filter" class="w-3 h-3"></i>' +
+          'Als ' + esc(target.condition_field) + ' = ' + esc(condValsHdr.length ? condValsHdr.join(' / ') : '?') +
+          '</span>';
+      }
       html +=             '</div>';
       html +=           '</div>';
       html +=         '</div>';
@@ -515,6 +535,11 @@
           '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
         html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
       }
+      // Duplicate step button (always visible)
+      html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="Stap dupliceren"' +
+        ' data-action="duplicate-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+        '<i data-lucide="copy" class="w-3.5 h-3.5"></i></button>';
+      html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
       // Expand/collapse — pure chevron icon, no text label
       html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="' + (isOpen ? 'Inklappen' : 'Uitklappen') + '"' +
         ' data-action="toggle-step-open" data-target-id="' + esc(tid) + '">' +
@@ -548,6 +573,11 @@
       });
 
       html +=     '</div>'; // px-5 py-4
+
+      // Condition section (prominent, at top — populated by renderStepConditionSection)
+      html +=     '<div id="det-cond-' + esc(tid) + '"' +
+                    ' style="display:' + (isOpen ? '' : 'none') + ';">' +
+                  '</div>';
 
       // Collapsible mapping section
       html +=     '<div id="det-mc-' + esc(tid) + '" class="border-t border-base-200 px-5 pb-5 pt-4"' +
@@ -656,11 +686,13 @@
       // chatter_message: render composer instead of MappingTable
       if (target.operation_type === 'chatter_message') {
         renderChatterComposer(target, tid, sortedTargets);
+        renderStepConditionSection(target, tid, flatFields);
         return;
       }
       // create_activity: render activity composer instead of MappingTable
       if (target.operation_type === 'create_activity') {
         renderActivityComposer(target, tid, sortedTargets);
+        renderStepConditionSection(target, tid, flatFields);
         return;
       }
 
@@ -714,7 +746,193 @@
           '</button>';
         mcEl.appendChild(saveDiv);
       }
+
+      renderStepConditionSection(target, tid, flatFields);
     });
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // CONDITION CONFIGURATOR — visible at the top of each open step card
+  // ────────────────────────────────────────────────────────────────────────────
+
+  // Builds the HTML for the values area based on field type, value_map, and choices.
+  // Returns raw HTML string (checkboxes when options available, text input otherwise).
+  function buildCondValuesHtml(tid, fieldId, flatFields, fieldTransforms, condValues) {
+    if (!fieldId) {
+      return '<p class="text-xs text-base-content/40 italic py-1">Geen voorwaarde ingesteld — stap wordt altijd uitgevoerd.</p>';
+    }
+    var ff = (flatFields || []).find(function (f) { return f.field_id === String(fieldId); });
+    var ft = (fieldTransforms || {})[String(fieldId)];
+    var selectedSet = (condValues || []).map(function (v) { return String(v).trim().toLowerCase(); });
+
+    function isChecked(val) { return selectedSet.indexOf(String(val).trim().toLowerCase()) >= 0; }
+    function cbxRow(val, label) {
+      return '<label class="flex items-center gap-2 cursor-pointer py-0.5">' +
+        '<input type="checkbox" class="checkbox checkbox-xs checkbox-warning"' +
+          ' name="stepCondCbx-' + esc(tid) + '"' +
+          ' value="' + esc(String(val)) + '"' +
+          (isChecked(val) ? ' checked' : '') + '>' +
+        '<span class="text-sm">' + esc(String(label)) + '</span>' +
+      '</label>';
+    }
+
+    var optHtml = '';
+    var hint    = '';
+
+    // Priority 1: value_map keys (from field transforms / waardemap)
+    var vmapKeys = (ft && ft.value_map && typeof ft.value_map === 'object')
+      ? Object.keys(ft.value_map).filter(function (k) { return k !== '__catchall__'; })
+      : null;
+    if (vmapKeys && vmapKeys.length > 0) {
+      optHtml = '<div class="flex flex-wrap gap-x-6 gap-y-0">' +
+        vmapKeys.map(function (k) { return cbxRow(k, k); }).join('') +
+        '</div>';
+      hint = 'Waarden overgenomen uit waardemap';
+
+    } else {
+      // Priority 2: choices from field definition
+      var choices = ff && Array.isArray(ff.choices) ? ff.choices : null;
+      if (choices && choices.length > 0) {
+        optHtml = '<div class="flex flex-wrap gap-x-6 gap-y-0">' +
+          choices.map(function (c) {
+            var val = (c && typeof c.value !== 'undefined') ? String(c.value) : String(c);
+            var lbl = (c && typeof c.label !== 'undefined') ? String(c.label) : val;
+            return cbxRow(val, lbl);
+          }).join('') +
+          '</div>';
+        hint = 'Keuzes uit formulierveld';
+
+      } else {
+        // Priority 3: boolean/checkbox type
+        var ftype = (ff && ff.type) ? String(ff.type).toLowerCase() : '';
+        if (ftype === 'checkbox' || ftype === 'bool' || ftype === 'boolean' || ftype === 'toggle') {
+          optHtml = '<div class="flex flex-wrap gap-x-6 gap-y-0">' +
+            cbxRow('1', 'Aangevinkt / Ja (1)') +
+            cbxRow('0', 'Niet aangevinkt / Nee (0)') +
+            '</div>';
+          hint = 'Boolean veld';
+
+        } else {
+          // Default: free-text comma-separated input
+          optHtml = '<input id="stepCondValues-' + esc(tid) + '" type="text"' +
+            ' class="input input-bordered input-xs w-72"' +
+            ' placeholder="bijv. ja, yes, 1 (kommagescheiden)"' +
+            ' value="' + esc((condValues || []).join(', ')) + '">';
+        }
+      }
+    }
+
+    return optHtml +
+      (hint ? '<p class="text-xs text-base-content/40 mt-1 italic">' + esc(hint) + '</p>' : '');
+  }
+
+  function renderStepConditionSection(target, tid, flatFields) {
+    var condEl = document.getElementById('det-cond-' + tid);
+    if (!condEl) return;
+
+    var condVals      = Array.isArray(target.condition_values) ? target.condition_values : [];
+    var currentField  = target.condition_field || '';
+    var fieldTransforms = S().fieldTransforms || {};
+
+    var fieldOpts = '<option value="">' + esc('\u2014 Geen voorwaarde \u2014') + '</option>';
+    (flatFields || []).forEach(function (ff) {
+      var fid = String(ff.field_id || '');
+      var lbl = ff.label || fid;
+      var sel = fid === currentField ? ' selected' : '';
+      fieldOpts += '<option value="' + esc(fid) + '"' + sel + '>' + esc(lbl) + '</option>';
+    });
+
+    var valuesHtml = buildCondValuesHtml(tid, currentField, flatFields, fieldTransforms, condVals);
+
+    condEl.innerHTML =
+      '<div class="px-5 py-3 border-t border-b border-warning/30 bg-warning/5">' +
+        '<div class="flex items-start gap-3 flex-wrap">' +
+          '<div class="flex items-center gap-1.5 pt-1.5 shrink-0">' +
+            '<i data-lucide="filter" class="w-3.5 h-3.5 text-warning"></i>' +
+            '<span class="text-xs font-bold tracking-wide text-warning">VOORWAARDE</span>' +
+          '</div>' +
+          '<div class="flex flex-col gap-2 flex-1 min-w-0">' +
+            '<div class="flex items-center gap-2 flex-wrap">' +
+              '<span class="text-xs text-base-content/60">Voer deze stap alleen uit als veld</span>' +
+              '<select id="stepCondField-' + esc(tid) + '" class="select select-bordered select-xs"' +
+                ' data-change-action="cond-field-changed" data-target-id="' + esc(tid) + '">' +
+                fieldOpts +
+              '</select>' +
+              (currentField ? '<span class="text-xs text-base-content/60">gelijk is aan:</span>' : '') +
+            '</div>' +
+            '<div id="stepCondValuesArea-' + esc(tid) + '">' +
+              valuesHtml +
+            '</div>' +
+            '<div class="flex items-center gap-2">' +
+              '<button type="button" class="btn btn-xs btn-warning gap-1"' +
+                ' data-action="save-step-condition" data-target-id="' + esc(tid) + '">' +
+                '<i data-lucide="save" class="w-3.5 h-3.5"></i> Voorwaarde opslaan' +
+              '</button>' +
+              (currentField ?
+                '<button type="button" class="btn btn-xs btn-ghost text-base-content/40 gap-1"' +
+                  ' data-action="clear-step-condition" data-target-id="' + esc(tid) + '">' +
+                  '<i data-lucide="x" class="w-3 h-3"></i> Wissen' +
+                '</button>'
+              : '') +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: condEl });
+  }
+
+  function handleCondFieldChanged(tid, fieldId) {
+    var area = document.getElementById('stepCondValuesArea-' + tid);
+    if (!area) return;
+    var flatFields = buildDetailFlatFields(S().detailFormFields).flatFields;
+    var fieldTransforms = S().fieldTransforms || {};
+    area.innerHTML = buildCondValuesHtml(tid, fieldId || '', flatFields, fieldTransforms, []);
+    // Show/hide the "gelijk is aan" label dynamically
+    var lbl = area.previousElementSibling;
+    if (lbl) {
+      var gelijkSpan = lbl.querySelector('span:last-child');
+      if (gelijkSpan) gelijkSpan.style.display = fieldId ? '' : 'none';
+    }
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: area });
+  }
+
+  async function handleSaveStepCondition(tid) {
+    var target = S().detail && S().detail.targets && S().detail.targets.find(function (t) { return String(t.id) === String(tid); });
+    if (!target) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    if (!integrationId) { window.FSV2.showAlert('Integratie niet gevonden.', 'error'); return; }
+
+    var fieldSel  = document.getElementById('stepCondField-' + tid);
+    var condField = fieldSel ? (fieldSel.value || null) : null;
+
+    // Read checked checkboxes if available, otherwise fall back to text input
+    var condValues;
+    var cbxInputs = document.querySelectorAll('[name="stepCondCbx-' + tid + '"]');
+    if (cbxInputs.length > 0) {
+      condValues = Array.from(cbxInputs)
+        .filter(function (cb) { return cb.checked; })
+        .map(function (cb) { return cb.value; });
+    } else {
+      var textInput = document.getElementById('stepCondValues-' + tid);
+      var raw = textInput ? textInput.value : '';
+      condValues = raw.split(',').map(function (v) { return v.trim(); }).filter(Boolean);
+    }
+
+    // Validate: field geselecteerd maar geen waarden → stop en waarschuw
+    if (condField && !condValues.length) {
+      window.FSV2.showAlert('Selecteer minimaal één toegestane waarde voor de voorwaarde, of kies "— Geen voorwaarde —" om te wissen.', 'warning');
+      return;
+    }
+
+    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+      method: 'PUT',
+      body: JSON.stringify(Object.assign({}, target, {
+        condition_field:  condField,
+        condition_values: condValues.length ? condValues : null,
+      })),
+    });
+    window.FSV2.showAlert('Voorwaarde opgeslagen.', 'success');
+    await window.FSV2.openDetail(integrationId);
   }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -800,6 +1018,7 @@
       pipeline_abort:                 'Overgeslagen \u2014 eerdere stap mislukt',
       dependency_missing:             'Overgeslagen \u2014 vereiste uitvoer ontbreekt',
       retry_skip_already_successful:  'Niet opnieuw uitgevoerd (replay)',
+      condition_not_met:              'Stap overgeslagen (conditie niet voldaan)',
     };
     var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error', posted: 'badge-success' };
     var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt', posted: '\uD83D\uDCAC notitie geplaatst' };
@@ -855,13 +1074,18 @@
 
       var timelineHtml = stepsToShow.length
         ? stepsToShow.map(function (a) {
-            var sl           = (a.skipped_reason && skipLabels[a.skipped_reason]) || '';
-            var isReplaySkip = a.skipped_reason === 'retry_skip_already_successful';
-            var stepNum      = a.execution_order != null ? (Number(a.execution_order) + 1) : null;
-            var stepLabel    = (isReplaySub && (a.action === 'created' || a.action === 'updated'))
-              ? 'Geslaagd bij replay'
-              : (a.action ? (actionLabels[a.action] || esc(a.action)) : '<span class="italic opacity-50">niet uitgevoerd</span>');
-            var stepColor    = a.action ? (actionColors[a.action] || 'badge-ghost') : 'badge-neutral';
+            var sl              = (a.skipped_reason && skipLabels[a.skipped_reason]) || '';
+            var isReplaySkip    = a.skipped_reason === 'retry_skip_already_successful';
+            var isConditionSkip = a.skipped_reason === 'condition_not_met';
+            var stepNum         = a.execution_order != null ? (Number(a.execution_order) + 1) : null;
+            var stepLabel       = isConditionSkip
+              ? 'overgeslagen (conditie)'
+              : (isReplaySub && (a.action === 'created' || a.action === 'updated'))
+                ? 'Geslaagd bij replay'
+                : (a.action ? (actionLabels[a.action] || esc(a.action)) : '<span class="italic opacity-50">niet uitgevoerd</span>');
+            var stepColor       = isConditionSkip
+              ? 'badge-warning'
+              : (a.action ? (actionColors[a.action] || 'badge-ghost') : 'badge-neutral');
             return '<div class="flex flex-wrap items-start gap-1.5 text-xs py-1.5 border-b border-base-100/50 last:border-0">' +
               (stepNum != null ? '<span class="badge badge-outline badge-xs font-mono w-5 text-center shrink-0 mt-0.5">' + esc(String(stepNum)) + '</span>' : '') +
               '<div class="flex flex-col gap-0.5 min-w-0">' +
@@ -870,9 +1094,14 @@
                   '<span class="font-mono text-base-content/40">' + esc(a.model || '-') + '</span>' +
                   '<span class="badge badge-xs ' + stepColor + '">' + stepLabel + '</span>' +
                   (a.record_id ? '<span class="font-mono text-base-content/30">#' + esc(String(a.record_id)) + '</span>' : '') +
-                  (sl ? '<span class="text-xs ' + (isReplaySkip ? 'text-base-content/30 italic' : 'text-warning') + '">' + esc(sl) + '</span>' : '') +
+                  (sl && !isConditionSkip ? '<span class="text-xs ' + (isReplaySkip ? 'text-base-content/30 italic' : 'text-warning') + '">' + esc(sl) + '</span>' : '') +
                 '</div>' +
-                (a.error_detail ? '<span class="text-error/70 font-mono break-all">' + esc(a.error_detail) + '</span>' : '') +
+                (isConditionSkip && a.error_detail
+                  ? '<div class="mt-1 flex items-start gap-1.5 p-1.5 rounded bg-warning/10 border border-warning/20 text-warning/90 font-mono break-all">' +
+                      '<i data-lucide="filter" class="w-3 h-3 shrink-0 mt-0.5"></i>' +
+                      '<span>' + esc(a.error_detail) + '</span>' +
+                    '</div>'
+                  : (a.error_detail ? '<span class="text-error/70 font-mono break-all">' + esc(a.error_detail) + '</span>' : '')) +
               '</div>' +
             '</div>';
           }).join('')
@@ -998,7 +1227,9 @@
       });
     });
 
-    var fields = S().detailFormFields;
+    var fields     = S().detailFormFields;
+    var fieldMeta  = S()._fieldMeta  || {};
+    var showHidden = S()._showHiddenFields || false;
 
     if (!fields.length) {
       var integration = S().detail && S().detail.integration;
@@ -1028,10 +1259,37 @@
     var pendingRows = S()._pendingValueMapRows || [];
     var pendingCatchall = S()._pendingCatchall !== undefined ? S()._pendingCatchall : '';
 
-    var bodyRows = fields.map(function (f) {
-      var fid     = String(f.field_id || '');
-      var label   = f.label && f.label !== fid ? f.label : null;
-      var coupled = mappedLookup[fid];
+    // Compute hidden count + toolbar
+    var hiddenCount = fields.filter(function (f) {
+      var fid = String(f.field_id || '');
+      return !!(fieldMeta[fid] && fieldMeta[fid].hidden);
+    }).length;
+    var toolbarHtml = (hiddenCount > 0 || showHidden)
+      ? '<div class="flex items-center justify-between mb-2 px-1">' +
+          '<span class="text-xs text-base-content/40 italic">' +
+            esc(String(hiddenCount)) + ' ' + (hiddenCount === 1 ? 'veld verborgen' : 'velden verborgen') +
+          '</span>' +
+          '<button class="btn btn-xs btn-ghost gap-1" data-action="toggle-show-hidden">' +
+            '<i data-lucide="' + (showHidden ? 'eye-off' : 'eye') + '" class="w-3 h-3"></i>' +
+            esc(showHidden ? 'Verbergen' : 'Toon verborgen') +
+          '</button>' +
+        '</div>'
+      : '';
+
+    var fieldsToShow = showHidden
+      ? fields
+      : fields.filter(function (f) {
+          var fid = String(f.field_id || '');
+          return !(fieldMeta[fid] && fieldMeta[fid].hidden);
+        });
+
+    var bodyRows = fieldsToShow.map(function (f) {
+      var fid      = String(f.field_id || '');
+      var rawLabel = f.label && f.label !== fid ? f.label : null;
+      var meta     = fieldMeta[fid] || {};
+      var alias    = meta.alias  || '';
+      var hidden   = !!meta.hidden;
+      var coupled  = mappedLookup[fid];
       var coupledHtml = coupled && coupled.length
         ? coupled.map(function (of_) {
             return '<span class="badge badge-success badge-xs font-mono gap-1">' + esc(of_) + '</span>';
@@ -1056,13 +1314,50 @@
           '</button>'
         : '';
 
+      // ── Col 1: field_id + alias/label + type badge + hide toggle + alias input ──
+      var col1 =
+        '<td class="py-2 align-top">' +
+          '<div class="flex items-start justify-between gap-1">' +
+            '<div class="min-w-0">' +
+              '<div class="font-mono text-xs font-medium ' + (hidden ? 'text-base-content/30' : 'text-primary') + '">' + esc(fid) + '</div>' +
+              (alias
+                ? '<div class="text-xs font-medium text-warning mt-0.5" title="' + esc('Alias voor: ' + (rawLabel || fid)) + '">' + esc(alias) + '</div>'
+                : (rawLabel ? '<div class="text-xs text-base-content/50 mt-0.5">' + esc(rawLabel) + '</div>' : '')) +
+              '<div class="flex items-center gap-1 mt-1">' +
+                '<span class="badge badge-ghost badge-xs">' + esc(f.type || '-') + '</span>' +
+                (hidden ? '<span class="badge badge-xs badge-warning">verborgen</span>' : '') +
+              '</div>' +
+            '</div>' +
+            '<button class="btn btn-xs btn-ghost btn-square shrink-0"' +
+              ' data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '"' +
+              ' title="' + (hidden ? 'Zichtbaar maken' : 'Verbergen') + '">' +
+              '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5 ' + (hidden ? 'text-base-content/30' : 'text-base-content/40') + '"></i>' +
+            '</button>' +
+          '</div>' +
+          '<div class="flex items-center gap-0.5 mt-1.5">' +
+            '<input type="text" id="alias-inp-' + esc(fid) + '"' +
+              ' class="input input-xs input-bordered w-full font-mono"' +
+              ' placeholder="Alias…"' +
+              ' value="' + esc(alias) + '"' +
+              ' maxlength="60">' +
+            '<button class="btn btn-xs btn-ghost btn-square shrink-0"' +
+              ' data-action="save-field-alias" data-field-id="' + esc(fid) + '"' +
+              ' title="Alias opslaan">' +
+              '<i data-lucide="check" class="w-3 h-3"></i>' +
+            '</button>' +
+            (alias
+              ? '<button class="btn btn-xs btn-ghost btn-square shrink-0 text-base-content/30"' +
+                  ' data-action="clear-field-alias" data-field-id="' + esc(fid) + '"' +
+                  ' title="Alias wissen">' +
+                  '<i data-lucide="x" class="w-3 h-3"></i>' +
+                '</button>'
+              : '') +
+          '</div>' +
+        '</td>';
+
       var mainRow =
-        '<tr class="border-b border-base-200">' +
-          '<td class="py-2 align-top">' +
-            '<div class="font-mono text-xs font-medium text-primary">' + esc(fid) + '</div>' +
-            (label ? '<div class="text-xs text-base-content/50 mt-0.5">' + esc(label) + '</div>' : '') +
-            '<span class="badge badge-ghost badge-xs mt-1">' + esc(f.type || '-') + '</span>' +
-          '</td>' +
+        '<tr class="border-b border-base-200' + (hidden ? ' opacity-50' : '') + '">' +
+          col1 +
           '<td class="py-2 align-top">' + coupledHtml + '</td>' +
           '<td class="py-2 align-top">' +
             '<div class="flex flex-col gap-0.5">' +
@@ -1119,6 +1414,7 @@
     }).join('');
 
     el.innerHTML =
+      toolbarHtml +
       '<table class="table table-xs w-full">' +
         '<thead><tr>' +
           '<th>Veld</th>' +
@@ -1127,6 +1423,7 @@
         '</tr></thead>' +
         '<tbody>' + bodyRows + '</tbody>' +
       '</table>';
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
   }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1156,6 +1453,8 @@
       S()._expandedValueMapField  = null;
       S()._pendingValueMapRows    = [];
       S()._pendingCatchall        = '';
+      S()._fieldMeta        = _loadFieldMeta(id);
+      S()._showHiddenFields = false;
       window.FSV2.api('/integrations/' + id + '/field-transforms').then(function (r) {
         S().fieldTransforms = {};
         (r.data || []).forEach(function (t) { S().fieldTransforms[t.field_name] = t; });
@@ -1878,6 +2177,44 @@
     await openDetail(S().activeId);
   }
 
+  // ── Field visibility/alias handlers ────────────────────────────────────────
+  function handleToggleFieldHidden(fid) {
+    var integId = String(S().activeId || '');
+    var meta    = S()._fieldMeta || {};
+    if (!meta[fid]) meta[fid] = {};
+    meta[fid].hidden = !meta[fid].hidden;
+    if (!meta[fid].hidden && !meta[fid].alias) delete meta[fid];
+    S()._fieldMeta = meta;
+    _saveFieldMeta(integId, meta);
+    renderDetailFormFields();
+    renderDetailMappings();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  function handleSaveFieldAlias(fid, alias) {
+    var integId = String(S().activeId || '');
+    var meta    = S()._fieldMeta || {};
+    if (!meta[fid]) meta[fid] = {};
+    var trimmed = (alias || '').trim();
+    if (trimmed) {
+      meta[fid].alias = trimmed;
+    } else {
+      delete meta[fid].alias;
+    }
+    if (!meta[fid].alias && !meta[fid].hidden) delete meta[fid];
+    S()._fieldMeta = meta;
+    _saveFieldMeta(integId, meta);
+    renderDetailFormFields();
+    renderDetailMappings();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  function handleToggleShowHidden() {
+    S()._showHiddenFields = !S()._showHiddenFields;
+    renderDetailFormFields();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
   async function handleRefreshFormFields() {
     var integration = S().detail && S().detail.integration;
     if (integration && integration.source_type === 'generic_webhook') {
@@ -1995,6 +2332,74 @@
     po[String(tid)] = !po[String(tid)];
     renderDetailMappings();
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  async function handleDuplicateTarget(targetId, integrationId) {
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    var source  = targets.find(function (t) { return String(t.id) === targetId; });
+    if (!source) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
+
+    var maxOrder = targets.reduce(function (max, t) {
+      return Math.max(max, getTargetOrder(t, 0));
+    }, 0);
+
+    var newTargetPayload = {
+      odoo_model:       source.odoo_model,
+      identifier_type:  source.identifier_type  || 'mapped_fields',
+      update_policy:    source.update_policy    || 'always_overwrite',
+      operation_type:   source.operation_type   || 'upsert',
+      execution_order:  maxOrder + 1,
+      order_index:      maxOrder + 1,
+      label:            source.label ? source.label + ' (kopie)' : null,
+      condition_field:  source.condition_field  || null,
+      condition_values: source.condition_values || null,
+    };
+    var extraFields = [
+      'chatter_template', 'chatter_subtype_xmlid',
+      'activity_type_id', 'activity_deadline_offset', 'activity_summary_template',
+      'activity_user_id', 'activity_res_id_source', 'activity_user_mode', 'activity_user_pool',
+    ];
+    extraFields.forEach(function (k) {
+      if (source[k] !== undefined && source[k] !== null) newTargetPayload[k] = source[k];
+    });
+
+    var newTargetRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+      method: 'POST',
+      body: JSON.stringify(newTargetPayload),
+    });
+    var newTargetId = newTargetRes.data && newTargetRes.data.id;
+    if (!newTargetId) { window.FSV2.showAlert('Dupliceren mislukt.', 'error'); return; }
+
+    // Copy all mappings sequentially
+    var sourceMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[source.id]) || [];
+    for (var i = 0; i < sourceMappings.length; i++) {
+      var m = sourceMappings[i];
+      await window.FSV2.api('/targets/' + newTargetId + '/mappings', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_field:      m.odoo_field,
+          source_type:     m.source_type,
+          source_value:    m.source_value,
+          is_identifier:   !!m.is_identifier,
+          is_required:     !!m.is_required,
+          is_update_field: m.is_update_field !== false,
+          order_index:     i,
+          value_map:       m.value_map || null,
+        }),
+      });
+    }
+
+    var n = sourceMappings.length;
+    window.FSV2.showAlert(
+      'Stap gedupliceerd \u2014 ' + n + ' koppeling' + (n !== 1 ? 'en' : '') + ' meegekopieerd.',
+      'success'
+    );
+
+    // Open the new card if the original was open
+    var po = getPipelineOpen(integrationId);
+    if (po[String(targetId)]) po[String(newTargetId)] = true;
+
+    await openDetail(S().activeId);
   }
 
   async function handleDeleteTarget(targetId, integrationId) {
@@ -2754,14 +3159,20 @@
     renderActivityComposer:  renderActivityComposer,
     handleActivityUserMode:  handleActivityUserMode,
     handleSaveActivityComposer: handleSaveActivityComposer,
+    handleDuplicateTarget:   handleDuplicateTarget,
     handleDeleteTarget:      handleDeleteTarget,
     handleSaveStepMappings:  handleSaveStepMappings,
-    handleReorderTarget:     handleReorderTarget,
+    handleSaveStepCondition:  handleSaveStepCondition,
+    handleCondFieldChanged:   handleCondFieldChanged,
+    handleReorderTarget:      handleReorderTarget,
     toggleStepOpen:          toggleStepOpen,
     applyChainSuggestion:    applyChainSuggestion,
     handleToggleIdentifier:  handleToggleIdentifier,
-    fetchDetailFormFields:   fetchDetailFormFields,
-    handleRefreshFormFields: handleRefreshFormFields,
+    fetchDetailFormFields:    fetchDetailFormFields,
+    handleRefreshFormFields:  handleRefreshFormFields,
+    handleToggleFieldHidden:  handleToggleFieldHidden,
+    handleSaveFieldAlias:     handleSaveFieldAlias,
+    handleToggleShowHidden:   handleToggleShowHidden,
     handleDeleteIntegration: handleDeleteIntegration,
     handleReplay:            handleReplay,
   });

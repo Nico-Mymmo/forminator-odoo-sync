@@ -316,6 +316,9 @@ export const routes = {
         ...(payload.activity_res_id_source   !== undefined ? { activity_res_id_source:   payload.activity_res_id_source   || null  } : {}),
         ...(payload.activity_user_mode       !== undefined ? { activity_user_mode:       payload.activity_user_mode       || 'fixed' } : {}),
         ...(payload.activity_user_pool       !== undefined ? { activity_user_pool:       Array.isArray(payload.activity_user_pool) ? payload.activity_user_pool : null } : {}),
+        ...(payload.label            !== undefined ? { label:            payload.label            || null } : {}),
+        ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
+        ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -348,6 +351,8 @@ export const routes = {
         ...(payload.activity_res_id_source   !== undefined ? { activity_res_id_source:   payload.activity_res_id_source   || null  } : {}),
         ...(payload.activity_user_mode       !== undefined ? { activity_user_mode:       payload.activity_user_mode       || 'fixed' } : {}),
         ...(payload.activity_user_pool       !== undefined ? { activity_user_pool:       Array.isArray(payload.activity_user_pool) ? payload.activity_user_pool : null } : {}),
+        ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
+        ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
       });
 
       return jsonResponse({ success: true, data: updated });

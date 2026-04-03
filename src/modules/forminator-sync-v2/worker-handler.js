@@ -285,6 +285,7 @@ async function restoreStepOutputsFromDB(env, submissionId, sortedTargets, contex
     if (!['created', 'updated', 'skipped'].includes(row.action_result)) continue;
     if (row.skipped_reason === 'pipeline_abort') continue;
     if (row.skipped_reason === 'dependency_missing') continue;
+    if (row.skipped_reason === 'condition_not_met') continue;
     const target = sortedTargets.find((t) => t.id === row.target_id);
     if (!target) continue;
     const order = row.execution_order ?? target.execution_order ?? target.order_index ?? 0;
@@ -789,6 +790,50 @@ async function runSubmissionAttempt(env, {
         await createSubmissionTargetResult(env, depResult);
         targetResults.push(depResult);
         continue;
+      }
+
+      // ── Condition check: optionele veldconditie per stap ──────────────────
+      if (target.condition_field) {
+        const condRaw     = String(lookupFormValue(normalizedForm, target.condition_field) ?? '').trim().toLowerCase();
+        const condAllowed = Array.isArray(target.condition_values) ? target.condition_values : [];
+
+        if (condAllowed.length === 0) {
+          // Veld geconfigureerd maar geen toegestane waarden → stap ALTIJD overslaan
+          console.warn(attemptTag, `condition_field "${target.condition_field}" is ingesteld maar condition_values is leeg — stap overgeslagen.`);
+          const condResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   'skipped',
+            skipped_reason:  'condition_not_met',
+            odoo_record_id:  null,
+            error_detail:    `Conditie niet voldaan: veld "${target.condition_field}" = "${condRaw}", maar geen toegestane waarden geconfigureerd.`,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, condResult);
+          targetResults.push(condResult);
+          continue;
+        }
+
+        const condMatch = condAllowed.some((v) => String(v).trim().toLowerCase() === condRaw);
+        if (!condMatch) {
+          console.log(attemptTag, `condition_not_met on target: ${target.id} | field: ${target.condition_field} | value: "${condRaw}" | allowed: ${JSON.stringify(condAllowed)}`);
+          const condResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   'skipped',
+            skipped_reason:  'condition_not_met',
+            odoo_record_id:  null,
+            error_detail:    `Conditie niet voldaan: veld "${target.condition_field}" = "${condRaw || '(leeg)'}", verwacht: ${JSON.stringify(condAllowed)}`,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, condResult);
+          targetResults.push(condResult);
+          continue;
+        }
+
+        console.log(attemptTag, `condition_met on target: ${target.id} | field: ${target.condition_field} | value: "${condRaw}"`);
       }
 
       // ── create_activity: schedule an Odoo activity on a record from a prior step ─

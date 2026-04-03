@@ -34,11 +34,12 @@
     return '<div class="flex flex-wrap gap-1 mt-1.5 items-center">' +
       '<span class="text-xs text-base-content/40 shrink-0 mr-0.5">Invoegen:</span>' +
       flatFields.map(function (f) {
-        var fid = String(f.field_id);
+        var fid   = String(f.field_id);
+        var label = f.label && f.label !== fid ? f.label : fid;
         return '<button type="button"' +
           ' class="badge badge-outline badge-xs cursor-pointer hover:badge-primary insert-placeholder font-mono"' +
           ' data-field="' + esc(fid) + '" data-target="' + esc(targetId) + '"' +
-          ' title="' + esc(f.label || fid) + '">' + esc(fid) + '</button>';
+          ' title="' + esc(fid) + '">' + esc(label) + '</button>';
       }).join('') + '</div>';
   }
 
