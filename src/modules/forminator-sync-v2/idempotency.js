@@ -46,7 +46,7 @@ export function buildIdempotencyKey({ integrationId, forminatorFormId, payloadHa
 }
 
 export function isTerminalSubmissionStatus(status) {
-  return ['success', 'partial_failed', 'permanent_failed', 'retry_exhausted', 'duplicate_ignored', 'duplicate_inflight', 'processed'].includes(String(status || '').trim());
+  return ['success', 'partial_failed', 'permanent_failed', 'retry_exhausted', 'duplicate_ignored', 'duplicate_inflight', 'processed', 'received'].includes(String(status || '').trim());
 }
 
 export function classifyDuplicateStatus(existingStatus) {

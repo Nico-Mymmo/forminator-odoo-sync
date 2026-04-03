@@ -20,11 +20,15 @@ export async function listIntegrationSummaries(env) {
 export async function createIntegrationRecord(env, payload) {
   validateIntegrationCreatePayload(payload);
 
+  const sourceType = payload.source_type || 'forminator';
+
   return createIntegration(env, {
     name: payload.name.trim(),
-    forminator_form_id: String(payload.forminator_form_id).trim(),
+    forminator_form_id: String(payload.forminator_form_id || '').trim(),
     odoo_connection_id: String(payload.odoo_connection_id).trim(),
     site_key: payload.site_key || null,
+    source_type: sourceType,
+    webhook_token: payload.webhook_token || null,
     is_active: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()

@@ -307,6 +307,36 @@
           </button>
         </div>
 
+        <!-- ── Step 5 (Zapier): Webhook URL ────────────────────── -->
+        <div id="wizard-section-webhook-url" style="display:none;" class="mt-10">
+          <div class="divider mb-6"></div>
+          <div class="mb-6 text-center">
+            <div class="text-4xl mb-3">⚡</div>
+            <h3 class="text-lg font-semibold mb-1">Integratie aangemaakt!</h3>
+            <p class="text-sm text-base-content/60">Gebruik deze webhook URL in Zapier of een ander systeem.</p>
+          </div>
+          <div class="card bg-base-100 shadow mb-6">
+            <div class="card-body p-5">
+              <p class="text-xs font-semibold text-base-content/60 mb-1.5 flex items-center gap-1.5">
+                <i data-lucide="link" class="w-3.5 h-3.5"></i> Webhook URL
+              </p>
+              <div class="flex items-center gap-2">
+                <code id="wizardWebhookUrl" class="flex-1 text-xs bg-base-200 rounded px-2 py-1.5 break-all select-all"></code>
+                <button type="button" class="btn btn-xs btn-ghost shrink-0" data-action="wizard-copy-webhook-url" title="Kopiëren">
+                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+              <p class="text-xs text-base-content/60 mt-3">
+                Stuur een HTTP POST naar deze URL met de payload als JSON. De token staat al in de URL — zet <code>Content-Type: application/json</code> als header.
+              </p>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary w-full gap-2" data-action="wizard-skip-chatter">
+            <i data-lucide="check" class="w-5 h-5"></i>
+            Naar integratiedetails
+          </button>
+        </div>
+
         <!-- ── Step 5: Optional chatter step (shown after successful submit) ── -->
         <div id="wizard-section-chatter" style="display:none;" class="mt-10">
           <div class="divider mb-6"></div>

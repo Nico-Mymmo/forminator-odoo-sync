@@ -106,7 +106,7 @@
   }
 
   function resetWizard() {
-    S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false };
+    S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false, isZapier: false };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -305,8 +305,11 @@
               : '<span class="badge badge-ghost badge-xs shrink-0">Inactief</span>') +
           '</div>' +
           '<div class="flex items-center gap-1.5 mb-3">' +
-            '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i>' +
-            '<p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '\u2014') + '</p>' +
+            (row.source_type === 'generic_webhook'
+              ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i>' +
+                '<p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>'
+              : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i>' +
+                '<p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '\u2014') + '</p>') +
           '</div>' +
           (flowHtml ? '<div class="mb-3">' + flowHtml + '</div>' : '') +
           (updatedAt ? '<p class="text-xs text-base-content/35 mb-3">Bijgewerkt ' + updatedAt + '</p>' : '') +

@@ -311,6 +311,10 @@
         await window.FSV2.wizardSelectSite(btn.dataset.key, btn.dataset.url, btn.dataset.label);
         return;
       }
+      if (action === 'wizard-select-zapier') {
+        await window.FSV2.wizardSelectZapier();
+        return;
+      }
       if (action === 'wizard-select-form') {
         var fields = [];
         try { fields = JSON.parse(btn.dataset.fields || '[]'); } catch (_) {}
@@ -319,6 +323,10 @@
       }
       if (action === 'wizard-select-action') {
         window.FSV2.wizardSelectAction(btn.dataset.key);
+        return;
+      }
+      if (action === 'wizard-skip-action') {
+        window.FSV2.wizardSkipAction();
         return;
       }
       if (action === 'submit-wizard') {
@@ -679,12 +687,86 @@
         if (window.FSV2.handleRefreshFormFields) await window.FSV2.handleRefreshFormFields();
         return;
       }
+      if (action === 'toggle-valuemap') {
+        var tvFieldId = btn.dataset.fieldId || '';
+        if (window.FSV2.S._expandedValueMapField === tvFieldId) {
+          window.FSV2.S._expandedValueMapField = null;
+          window.FSV2.S._pendingValueMapRows = [];
+          window.FSV2.S._pendingCatchall = '';
+        } else {
+          window.FSV2.S._expandedValueMapField = tvFieldId;
+          var tvFt    = (window.FSV2.S.fieldTransforms && window.FSV2.S.fieldTransforms[tvFieldId]) || null;
+          var tvVmap  = (tvFt && tvFt.value_map && typeof tvFt.value_map === 'object') ? tvFt.value_map : {};
+          window.FSV2.S._pendingCatchall     = tvVmap['__catchall__'] !== undefined ? String(tvVmap['__catchall__']) : '';
+          window.FSV2.S._pendingValueMapRows = Object.keys(tvVmap)
+            .filter(function (k) { return k !== '__catchall__'; })
+            .map(function (k) { return { from: k, to: String(tvVmap[k]) }; });
+        }
+        if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        return;
+      }
+      if (action === 'add-valuemap-row') {
+        if (window.FSV2.syncPendingValueMapFromDom) window.FSV2.syncPendingValueMapFromDom();
+        if (!Array.isArray(window.FSV2.S._pendingValueMapRows)) window.FSV2.S._pendingValueMapRows = [];
+        window.FSV2.S._pendingValueMapRows.push({ from: '', to: '' });
+        if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        return;
+      }
+      if (action === 'remove-valuemap-row') {
+        if (window.FSV2.syncPendingValueMapFromDom) window.FSV2.syncPendingValueMapFromDom();
+        var rmRowIdx = parseInt(btn.dataset.rowIdx, 10);
+        if (!isNaN(rmRowIdx) && Array.isArray(window.FSV2.S._pendingValueMapRows)) {
+          window.FSV2.S._pendingValueMapRows.splice(rmRowIdx, 1);
+        }
+        if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        return;
+      }
+      if (action === 'save-field-valuemap') {
+        var svFieldId = btn.dataset.fieldId || '';
+        var svIntegId = btn.dataset.integrationId || '';
+        if (!svFieldId || !svIntegId) return;
+        if (window.FSV2.syncPendingValueMapFromDom) window.FSV2.syncPendingValueMapFromDom();
+        var svRows = window.FSV2.S._pendingValueMapRows || [];
+        var valueMap = {};
+        svRows.forEach(function (row) {
+          var k = (row.from || '').trim();
+          if (k) valueMap[k] = row.to || '';
+        });
+        var catchall = (window.FSV2.S._pendingCatchall || '').trim();
+        if (catchall) valueMap['__catchall__'] = catchall;
+        var existingFt = (window.FSV2.S.fieldTransforms && window.FSV2.S.fieldTransforms[svFieldId]) || {};
+        await window.FSV2.api('/integrations/' + svIntegId + '/field-transforms/' + encodeURIComponent(svFieldId), {
+          method: 'PUT',
+          body: JSON.stringify({ field_type: 'selection', value_map: Object.keys(valueMap).length ? valueMap : null }),
+        });
+        window.FSV2.S.fieldTransforms = window.FSV2.S.fieldTransforms || {};
+        window.FSV2.S.fieldTransforms[svFieldId] = Object.assign({}, existingFt, { field_type: 'selection', value_map: Object.keys(valueMap).length ? valueMap : null });
+        window.FSV2.showAlert('Waardemap opgeslagen.', 'success');
+        if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        return;
+      }
       if (action === 'wizard-skip-chatter') {
         await window.FSV2.wizardSkipChatter();
         return;
       }
       if (action === 'wizard-add-chatter') {
         await window.FSV2.wizardAddChatter();
+        return;
+      }
+      if (action === 'wizard-copy-webhook-url') {
+        var urlEl = document.getElementById('wizardWebhookUrl');
+        var urlText = (urlEl && urlEl.textContent) ? urlEl.textContent.trim() : '';
+        if (urlText) {
+          navigator.clipboard.writeText(urlText).then(function () {
+            window.FSV2.showAlert('Webhook URL gekopieerd.', 'success');
+          }).catch(function () {
+            window.FSV2.showAlert('Kopiëren mislukt — selecteer de URL handmatig.', 'warning');
+          });
+        }
         return;
       }
     };
@@ -710,6 +792,25 @@
   // tonen we automatisch de waarde-mapping sectie als het een selection- of many2one-veld is.
   document.addEventListener('change', function (event) {
     var inp = event.target;
+    // ── Field transform type select ────────────────────────────────────────
+    if (inp && inp.tagName === 'SELECT' && inp.dataset.action === 'save-field-transform') {
+      var ftFieldId  = inp.dataset.fieldId  || '';
+      var ftIntegId  = inp.dataset.integrationId || '';
+      var ftNewType  = inp.value || 'text';
+      if (!ftFieldId || !ftIntegId) return;
+      var ftExisting = (window.FSV2.S.fieldTransforms && window.FSV2.S.fieldTransforms[ftFieldId]) || {};
+      window.FSV2.api('/integrations/' + ftIntegId + '/field-transforms/' + encodeURIComponent(ftFieldId), {
+        method: 'PUT',
+        body: JSON.stringify({ field_type: ftNewType, value_map: ftExisting.value_map || null }),
+      }).then(function () {
+        window.FSV2.S.fieldTransforms = window.FSV2.S.fieldTransforms || {};
+        window.FSV2.S.fieldTransforms[ftFieldId] = Object.assign({}, ftExisting, { field_type: ftNewType });
+        window.FSV2.showAlert('Type opgeslagen.', 'success');
+        if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      }).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+      return;
+    }
     if (!inp || inp.tagName !== 'INPUT' || inp.type !== 'hidden') return;
     if (!inp.id || inp.id.indexOf('fsp-val-') !== 0) return;
 

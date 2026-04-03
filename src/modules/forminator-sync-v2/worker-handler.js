@@ -389,12 +389,47 @@ async function runResolver(env, resolver, normalizedForm, contextObject, resolve
   throw createPermanentError(`Unsupported resolver type in MVP: ${resolverType}`);
 }
 
-function resolveMappingValue(mapping, normalizedForm, contextObject) {
+function coerceFieldValue(raw, fieldType) {
+  if (raw === null || raw === undefined || raw === '') {
+    if (fieldType === 'boolean') return false;
+    return null;
+  }
+  const str = String(raw).trim();
+  switch (fieldType) {
+    case 'boolean':
+      return ['true', '1', 'yes', 'ja', 'on', 'checked'].includes(str.toLowerCase());
+    case 'integer':
+    case 'many2one': {
+      const i = parseInt(str, 10);
+      return isNaN(i) ? null : i;
+    }
+    case 'float': {
+      const f = parseFloat(str.replace(',', '.'));
+      return isNaN(f) ? null : f;
+    }
+    default: // text, selection (value already remapped above)
+      return raw;
+  }
+}
+
+function resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransforms = {}) {
   if (mapping.source_type === 'form') {
-    const raw = lookupFormValue(normalizedForm, mapping.source_value);
-    // Pas value_map toe als aanwezig: formulierwaarde → Odoo-waarde.
-    // Handig voor keuzevelden (radio/checkbox/select) gekoppeld aan selection- of many2one-velden.
-    // Fallback: als de waarde niet in de map staat, wordt de ruwe formulierwaarde gebruikt.
+    let raw = lookupFormValue(normalizedForm, mapping.source_value);
+    const transform = fieldTransforms[mapping.source_value];
+    if (transform) {
+      // Apply field-level value_map for selection remapping
+      if (transform.value_map && typeof transform.value_map === 'object' && raw !== null && raw !== undefined && raw !== '') {
+        if (Object.prototype.hasOwnProperty.call(transform.value_map, raw)) {
+          raw = transform.value_map[raw];
+        } else if (Object.prototype.hasOwnProperty.call(transform.value_map, '__catchall__')) {
+          // Catchall: unknown incoming value → fallback Odoo value
+          raw = transform.value_map['__catchall__'];
+        }
+      }
+      // Apply type coercion
+      return coerceFieldValue(raw, transform.field_type || 'text');
+    }
+    // Legacy: mapping-level value_map (no field transform configured)
     if (raw && mapping.value_map && typeof mapping.value_map === 'object') {
       if (Object.prototype.hasOwnProperty.call(mapping.value_map, raw)) {
         return mapping.value_map[raw];
@@ -507,10 +542,10 @@ function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contex
   throw createPermanentError(`Unsupported identifier type: ${target.identifier_type}`);
 }
 
-function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject) {
+function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject, fieldTransforms = {}) {
   const values = {};
   for (const mapping of mappings) {
-    const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject);
+    const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransforms);
     if (resolvedValue !== null && resolvedValue !== undefined) {
       values[mapping.odoo_field] = resolvedValue;
     }
@@ -519,11 +554,11 @@ function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject
 }
 
 // Only include fields that are allowed to be written on update (is_update_field !== false)
-function buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject) {
+function buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, fieldTransforms = {}) {
   const values = {};
   for (const mapping of mappings) {
     if (mapping.is_update_field === false) continue;
-    const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject);
+    const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransforms);
     if (resolvedValue !== null && resolvedValue !== undefined) {
       values[mapping.odoo_field] = resolvedValue;
     }
@@ -1011,8 +1046,8 @@ async function runSubmissionAttempt(env, {
       if (opType !== 'create' && opType !== 'create_activity') {
         identifierDomain = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
       }
-      const incomingValues = buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject);
-      const updateValues   = buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject);
+      const incomingValues = buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject, integrationBundle.fieldTransforms || {});
+      const updateValues   = buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, integrationBundle.fieldTransforms || {});
 
       // ── Model-specific mandatory field fallbacks ───────────────────────────
       // crm.lead requires 'name' (opportunity title). If not mapped, derive from
@@ -1350,6 +1385,112 @@ export async function handleForminatorV2Webhook({ env, request, payload: payload
         status: result.status
       }
     });
+  }
+
+  return toHttpResponse({
+    success: false,
+    error: result.message || 'Submission failed',
+    data: {
+      submission_id: submission.id,
+      status: result.finalStatus || result.status,
+      next_retry_at: result.nextRetryAt || null
+    }
+  }, result.httpStatus || 500);
+}
+
+export async function handleGenericWebhook({ env, integration, request, skipPipeline = false }) {
+  // Token auth is handled by the caller (route layer) — this function trusts the integration object.
+  const now = new Date().toISOString();
+
+  let rawPayload;
+  try {
+    rawPayload = await request.json();
+  } catch (_) {
+    rawPayload = {};
+  }
+
+  const formId = integration.forminator_form_id; // synthetic ID set during creation
+
+  console.log('[generic-webhook] integration:', integration.id, '| keys:', Object.keys(rawPayload || {}).join(', ') || '(empty)');
+
+  const normalizedForm = normalizeFormValues(rawPayload);
+  // Use a stable key derived from the integration's synthetic form id + payload hash
+  const payloadHash = await computePayloadHash(rawPayload);
+  const idempotencyKey = buildIdempotencyKey({
+    integrationId: integration.id,
+    forminatorFormId: formId,
+    payloadHash
+  });
+
+  const existing = await getLatestSubmissionByIdempotencyKey(env, integration.id, idempotencyKey);
+  const duplicateStatus = classifyDuplicateStatus(existing?.status);
+  if (duplicateStatus) {
+    return toHttpResponse({ success: true, data: { submission_id: existing?.id || null, status: duplicateStatus } });
+  }
+
+  let submission;
+  try {
+    submission = await createSubmission(env, {
+      integration_id: integration.id,
+      idempotency_key: idempotencyKey,
+      payload_hash: payloadHash,
+      source_payload: rawPayload,
+      resolved_context: {},
+      status: 'running',
+      retry_count: 0,
+      retry_status: null,
+      next_retry_at: null,
+      replay_of_submission_id: null,
+      started_at: now,
+      finished_at: null,
+      created_at: now
+    });
+  } catch (insertError) {
+    if (!isUniqueViolationError(insertError)) throw insertError;
+    const current = await getLatestSubmissionByIdempotencyKey(env, integration.id, idempotencyKey);
+    const conflictStatus = classifyDuplicateStatus(current?.status) || 'duplicate_ignored';
+    return toHttpResponse({ success: true, data: { submission_id: current?.id || null, status: conflictStatus } });
+  }
+
+  const firstRunning = await getFirstRunningSubmissionByIdempotencyKey(env, integration.id, idempotencyKey);
+  if (firstRunning && firstRunning.id !== submission.id) {
+    submission = await updateSubmission(env, submission.id, {
+      status: 'duplicate_inflight',
+      retry_status: null,
+      finished_at: new Date().toISOString(),
+      last_error: 'Duplicate inflight request detected'
+    });
+    return toHttpResponse({ success: true, data: { submission_id: submission.id, status: 'duplicate_inflight' } });
+  }
+
+  // Integration inactive: payload stored for field discovery, but skip Odoo pipeline
+  if (skipPipeline) {
+    submission = await updateSubmission(env, submission.id, {
+      status: 'received',
+      retry_status: null,
+      finished_at: new Date().toISOString(),
+      last_error: null,
+    });
+    console.log('[generic-webhook] skipPipeline=true — payload stored, Odoo pipeline skipped | submission:', submission.id);
+    return toHttpResponse({ success: true, data: { submission_id: submission.id, status: 'received' } });
+  }
+
+  const integrationBundle = await getIntegrationBundle(env, integration.id);
+  if (!integrationBundle) {
+    throw createPermanentError('Integration bundle not found for active integration');
+  }
+
+  console.log('[generic-webhook] starting runSubmissionAttempt | submission:', submission.id);
+
+  const result = await runSubmissionAttempt(env, {
+    submission,
+    integrationBundle,
+    rawPayload,
+    mode: 'initial'
+  });
+
+  if (result.success) {
+    return toHttpResponse({ success: true, data: { submission_id: submission.id, status: result.status } });
   }
 
   return toHttpResponse({

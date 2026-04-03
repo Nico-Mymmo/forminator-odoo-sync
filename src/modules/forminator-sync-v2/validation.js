@@ -35,8 +35,11 @@ export function validateIntegrationCreatePayload(payload) {
     throw createError('Integration name is required');
   }
 
-  if (!hasValue(payload.forminator_form_id)) {
-    throw createError('Forminator form is required');
+  // generic_webhook integrations get a synthetic forminator_form_id generated server-side
+  if (payload.source_type !== 'generic_webhook') {
+    if (!hasValue(payload.forminator_form_id)) {
+      throw createError('Forminator form is required');
+    }
   }
 
   if (!hasValue(payload.odoo_connection_id)) {

@@ -49,13 +49,30 @@
     var grid = document.getElementById('wizardSitesGrid');
     if (!grid) return;
 
+    // Always show the Zapier option first
+    var zapierSelected = !!S().wizard.isZapier;
+    var zapierCard =
+      '<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ' +
+      (zapierSelected ? 'border-primary bg-primary/5' : 'border-transparent hover:border-base-300') +
+      '" data-action="wizard-select-zapier">' +
+        '<div class="card-body p-4">' +
+          '<div class="flex items-center gap-2 mb-1">' +
+            (zapierSelected
+              ? '<i data-lucide="check-circle" class="w-4 h-4 text-primary shrink-0"></i>'
+              : '<i data-lucide="zap" class="w-4 h-4 text-warning shrink-0"></i>') +
+            '<p class="font-semibold text-sm">Zapier / Generiek webhook</p>' +
+          '</div>' +
+          '<p class="text-xs text-base-content/60">Stuur data vanuit Zapier, n8n of een eigen systeem via HTTP POST.</p>' +
+        '</div>' +
+      '</button>';
+
     if (S().sites.length === 0) {
-      grid.innerHTML = '<div class="alert alert-warning col-span-full"><span>Geen WordPress sites gevonden in Cloudflare secrets.</span></div>';
+      grid.innerHTML = zapierCard;
       return;
     }
 
-    grid.innerHTML = S().sites.map(function (s) {
-      var selected = S().wizard.site && S().wizard.site.key === s.key;
+    grid.innerHTML = zapierCard + S().sites.map(function (s) {
+      var selected = !zapierSelected && S().wizard.site && S().wizard.site.key === s.key;
       return '<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ' +
         (selected ? 'border-primary bg-primary/5' : 'border-transparent hover:border-base-300') +
         '" data-action="wizard-select-site"' +
@@ -137,7 +154,29 @@
       ? S().odooModelsCache
       : window.FSV2.DEFAULT_ODOO_MODELS || [];
 
-    grid.innerHTML = models.map(function (m) {
+    // For Zapier: prepend a "skip" card (no Odoo target yet)
+    var skipCard = '';
+    if (S().wizard.isZapier) {
+      var skipSelected = !S().wizard.action;
+      skipCard = '<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ' +
+        (skipSelected ? 'border-primary bg-primary/5' : 'border-transparent hover:border-base-300') +
+        '" data-action="wizard-skip-action">' +
+        '<div class="card-body p-5">' +
+          '<div class="flex items-center gap-3 mb-3">' +
+            (skipSelected
+              ? '<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">' +
+                '<i data-lucide="check" class="w-5 h-5 text-primary-content"></i></div>'
+              : '<div class="w-10 h-10 rounded-full bg-base-200 flex items-center justify-center shrink-0">' +
+                '<i data-lucide="zap" class="w-5 h-5 text-base-content/60"></i></div>') +
+            '<p class="font-bold">Alleen webhook (voorlopig)</p>' +
+          '</div>' +
+          '<p class="text-sm text-base-content/60 mb-3">Sla Odoo-koppeling over. Stuur eerst een test via Zapier en stel de koppeling daarna in via de integratiedetails.</p>' +
+          '<span class="badge badge-ghost badge-sm">inactief tot geconfigureerd</span>' +
+        '</div>' +
+      '</button>';
+    }
+
+    grid.innerHTML = skipCard + models.map(function (m) {
       var cfg      = window.FSV2.getModelCfg(m.name);
       var selected = S().wizard.action === m.name;
       return '<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ' +
@@ -158,9 +197,10 @@
       '</button>';
     }).join('');
 
-    // Show/hide the name+submit section based on whether an action is selected
+    // For Zapier: always show the name+submit section (skip is the default)
+    // For Forminator: only show after action is selected
     var mappingSec = document.getElementById('wizard-section-mapping');
-    if (mappingSec) mappingSec.style.display = S().wizard.action ? '' : 'none';
+    if (mappingSec) mappingSec.style.display = (S().wizard.isZapier || S().wizard.action) ? '' : 'none';
   }
 
   function renderWizardMapping() {
@@ -168,7 +208,13 @@
     if (!container) return;
 
     var action = S().wizard.action;
-    if (!action) { container.innerHTML = ''; return; }
+    // For Zapier without an action selected: hide the mapping table, only show name + submit
+    if (!action) {
+      container.innerHTML = S().wizard.isZapier
+        ? '<p class="text-sm text-base-content/60 py-2">Geen Odoo-koppeling geselecteerd. Je kunt de koppeling later instellen via de integratiedetails, nadat je een test hebt gestuurd.</p>'
+        : '';
+      return;
+    }
 
     var cfg = window.FSV2.getModelCfg(action);
     if (!cfg || !cfg.odoo_model) { container.innerHTML = ''; return; }
@@ -232,6 +278,19 @@
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // WIZARD ACTIONS
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  function wizardSelectZapier() {
+    S().wizard.isZapier = true;
+    S().wizard.site     = null;
+    S().wizard.action   = null;
+    S().wizard.forms    = [];
+    S().wizard.step     = 2;
+    // Give wizard a minimal form object so the actions section becomes visible
+    S().wizard.form = { form_id: 'zapier', form_name: 'Zapier webhook', fields: [] };
+    renderWizard();
+    var actionsSec = document.getElementById('wizard-section-actions');
+    if (actionsSec) actionsSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   async function wizardSelectSite(siteKey, siteUrl, siteLabel) {
     S().wizard.site = { key: siteKey, url: siteUrl, label: siteLabel };
     S().wizard.form = null;
@@ -265,6 +324,20 @@
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function wizardSkipAction() {
+    S().wizard.action = null;
+    S().wizard.fieldMappings = {};
+    S().wizard.step = 3;
+    renderWizard();
+    var mappingSec = document.getElementById('wizard-section-mapping');
+    if (mappingSec) {
+      mappingSec.style.display = '';
+      mappingSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    var nameInput = document.getElementById('wizardName');
+    if (nameInput && !nameInput.value) nameInput.value = 'Zapier webhook';
+  }
+
   function wizardSelectAction(actionKey) {
     S().wizard.action        = actionKey;
     S().wizard.fieldMappings = {};
@@ -276,7 +349,8 @@
     var nameInput = document.getElementById('wizardName');
     if (nameInput && !nameInput.value) {
       var cfg      = window.FSV2.getModelCfg(actionKey);
-      var sitePart = (S().wizard.site && S().wizard.site.label) ? S().wizard.site.label : 'Site';
+      var sitePart = S().wizard.isZapier ? 'Zapier'
+        : (S().wizard.site && S().wizard.site.label) ? S().wizard.site.label : 'Site';
       var formPart = (S().wizard.form && S().wizard.form.form_name)
         ? S().wizard.form.form_name
         : (S().wizard.form ? String(S().wizard.form.form_id) : 'Formulier');
@@ -293,21 +367,59 @@
       var name = ((document.getElementById('wizardName') || {}).value || '').trim();
       if (!name) throw new Error('Geef de integratie een naam.');
 
+      var isZapierNoAction = S().wizard.isZapier && !S().wizard.action;
+
       var cfg = window.FSV2.getModelCfg(S().wizard.action);
-      if (!cfg || !cfg.odoo_model) throw new Error('Geen model geselecteerd.');
+      if (!isZapierNoAction && (!cfg || !cfg.odoo_model)) throw new Error('Geen model geselecteerd.');
       if (!S().wizard.form) throw new Error('Geen formulier geselecteerd.');
 
       // Stap 1 — maak integratie aan
+      var intPayload = {
+        name: name,
+        odoo_connection_id: 'default',
+      };
+      if (S().wizard.isZapier) {
+        intPayload.source_type = 'generic_webhook';
+      } else {
+        intPayload.forminator_form_id = String(S().wizard.form.form_id);
+        intPayload.site_key = S().wizard.site ? S().wizard.site.key : null;
+      }
       var intRes = await window.FSV2.api('/integrations', {
         method: 'POST',
-        body: JSON.stringify({
-          name: name,
-          forminator_form_id: String(S().wizard.form.form_id),
-          odoo_connection_id: 'default',
-          site_key: S().wizard.site ? S().wizard.site.key : null,
-        }),
+        body: JSON.stringify(intPayload),
       });
-      var integrationId = intRes.data.id;
+      var integrationId   = intRes.data.id;
+      var webhookToken    = intRes.data.webhook_token || null;
+
+      // Voor Zapier zonder Odoo-koppeling: stop hier, toon webhook URL (integratie blijft inactief)
+      if (isZapierNoAction) {
+        window.FSV2.showAlert('Integratie "' + name + '" aangemaakt! Stuur een test via Zapier om velden te herkennen.', 'success');
+        S().wizard.step = 5;
+        S().wizard.createdIntegrationId = integrationId;
+        S().wizard.createdTargetId = null;
+        S().wizard._createdOdooModel = null;
+        renderWizardSteps();
+        ['sites', 'forms', 'actions', 'mapping'].forEach(function (s) {
+          var el = document.getElementById('wizard-section-' + s);
+          if (el) el.style.display = 'none';
+        });
+        var webhookUrlSection = document.getElementById('wizard-section-webhook-url');
+        var webhookUrlEl = document.getElementById('wizardWebhookUrl');
+        try {
+          var wuRes = await window.FSV2.api('/integrations/' + integrationId + '/webhook-url');
+          if (webhookUrlEl) webhookUrlEl.textContent = wuRes.data.webhook_url || '';
+          S().wizard._webhookUrl = wuRes.data.webhook_url || '';
+        } catch (_) {
+          if (webhookUrlEl) webhookUrlEl.textContent = '(kon URL niet ophalen)';
+        }
+        if (webhookUrlSection) {
+          webhookUrlSection.style.display = '';
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: webhookUrlSection });
+        }
+        await window.FSV2.loadIntegrations();
+        window.FSV2.renderList();
+        return;
+      }
 
       // Stap 2 — maak resolver aan indien model dat vereist
       if (cfg.resolver_type) {
@@ -402,20 +514,38 @@
 
       window.FSV2.showAlert('Integratie "' + name + '" aangemaakt! Stel nu de veldkoppelingen in.', 'success');
 
-      // Stap 5 — optionele chatter-stap aanbieden
+      // Stap 5 — toon afronding
       S().wizard.step = 5;
       S().wizard.createdIntegrationId = integrationId;
       S().wizard.createdTargetId      = targetId;
       S().wizard._createdOdooModel    = cfg.odoo_model;
       renderWizardSteps();
-      ['sites', 'forms', 'actions', 'mapping'].forEach(function (s) {
+      ['sites', 'zapier', 'forms', 'actions', 'mapping'].forEach(function (s) {
         var el = document.getElementById('wizard-section-' + s);
         if (el) el.style.display = 'none';
       });
-      var chatterSection = document.getElementById('wizard-section-chatter');
-      if (chatterSection) {
-        chatterSection.style.display = '';
-        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: chatterSection });
+
+      if (S().wizard.isZapier && webhookToken) {
+        // Fetch the full webhook URL for display
+        var webhookUrlSection = document.getElementById('wizard-section-webhook-url');
+        var webhookUrlEl = document.getElementById('wizardWebhookUrl');
+        try {
+          var wuRes = await window.FSV2.api('/integrations/' + integrationId + '/webhook-url');
+          if (webhookUrlEl) webhookUrlEl.textContent = wuRes.data.webhook_url || '';
+          S().wizard._webhookUrl = wuRes.data.webhook_url || '';
+        } catch (_) {
+          if (webhookUrlEl) webhookUrlEl.textContent = '(kon URL niet ophalen)';
+        }
+        if (webhookUrlSection) {
+          webhookUrlSection.style.display = '';
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: webhookUrlSection });
+        }
+      } else {
+        var chatterSection = document.getElementById('wizard-section-chatter');
+        if (chatterSection) {
+          chatterSection.style.display = '';
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: chatterSection });
+        }
       }
 
     } catch (err) {
@@ -491,8 +621,10 @@
     renderWizardMapping:  renderWizardMapping,
     renderWizardActions:  renderWizardActions,
     wizardSelectSite:     wizardSelectSite,
+    wizardSelectZapier:   wizardSelectZapier,
     wizardSelectForm:     wizardSelectForm,
     wizardSelectAction:   wizardSelectAction,
+    wizardSkipAction:     wizardSkipAction,
     submitWizard:         submitWizard,
     wizardSkipChatter:    wizardSkipChatter,
     wizardAddChatter:     wizardAddChatter,

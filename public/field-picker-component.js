@@ -38,10 +38,17 @@
     });
   }
 
+  // ── CSS selector escaping (for IDs containing special chars) ───────────
+  function escapeSel(str) {
+    // Escape any character that is not alphanumeric, hyphen, or underscore
+    return String(str).replace(/([^\w-])/g, '\\$1');
+  }
+
   // ── setValue ─────────────────────────────────────────────────────────────
   function setValue(fspId, name, label) {
     var valEl  = document.getElementById('fsp-val-' + fspId);
-    var dispEl = document.querySelector('#fsp-' + fspId + ' .fsp-display');
+    var wrap   = document.getElementById('fsp-' + fspId);
+    var dispEl = wrap ? wrap.querySelector('.fsp-display') : null;
     var panel  = document.getElementById('fsp-panel-' + fspId);
     if (valEl) {
       valEl.value = name;

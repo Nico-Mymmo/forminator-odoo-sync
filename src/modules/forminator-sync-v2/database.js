@@ -10,6 +10,7 @@ const TABLES = {
   wpConnections:   'wp_connections',
   odooModels:      'fs_v2_odoo_models',
   modelLinks:      'fs_v2_model_links',
+  fieldTransforms: 'fs_v2_field_transforms',
 };
 
 function getSupabase(env) {
@@ -523,6 +524,44 @@ export async function getLatestSubmissionTargetResultByTarget(env, submissionId,
   return data || null;
 }
 
+export async function listFieldTransforms(env, integrationId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.fieldTransforms)
+    .select('*')
+    .eq('integration_id', integrationId)
+    .order('field_name');
+  if (error) throw new Error(`Failed to list field_transforms: ${error.message}`);
+  return ensureArray(data);
+}
+
+export async function upsertFieldTransform(env, integrationId, fieldName, payload) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.fieldTransforms)
+    .upsert({
+      integration_id: integrationId,
+      field_name:     fieldName,
+      field_type:     payload.field_type || 'text',
+      value_map:      payload.value_map  || null,
+      updated_at:     new Date().toISOString(),
+    }, { onConflict: 'integration_id,field_name' })
+    .select('*')
+    .single();
+  if (error) throw new Error(`Failed to upsert field_transform: ${error.message}`);
+  return data;
+}
+
+export async function deleteFieldTransform(env, integrationId, fieldName) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.fieldTransforms)
+    .delete()
+    .eq('integration_id', integrationId)
+    .eq('field_name', fieldName);
+  if (error) throw new Error(`Failed to delete field_transform: ${error.message}`);
+}
+
 export async function getIntegrationBundle(env, integrationId) {
   const integration = await getIntegrationById(env, integrationId);
   if (!integration) return null;
@@ -535,11 +574,19 @@ export async function getIntegrationBundle(env, integrationId) {
     mappingsByTarget[target.id] = await listMappingsByTarget(env, target.id);
   }
 
+  const fieldTransformsList = await listFieldTransforms(env, integrationId);
+  // Index by field_name for O(1) lookup during value resolution
+  const fieldTransforms = {};
+  for (const t of fieldTransformsList) {
+    fieldTransforms[t.field_name] = t;
+  }
+
   return {
     integration,
     resolvers,
     targets,
-    mappingsByTarget
+    mappingsByTarget,
+    fieldTransforms,
   };
 }
 

@@ -322,6 +322,30 @@ export default {
       context.params = resolved.params;
       return await resolved.handler(context);
     }
+
+    // Per-integration generic/Zapier webhook (token-auth per integration, no session required)
+    const genericWebhookMatch = pathname.match(/^\/forminator-v2\/api\/integrations\/([^/]+)\/webhook$/);
+    if (genericWebhookMatch && request.method === 'POST') {
+      const v2Module = getModuleByCode('forminator_sync_v2');
+      if (!v2Module) {
+        return new Response(JSON.stringify({ success: false, error: 'Forminator Sync V2 module unavailable' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const context = { request, env, ctx, user: null };
+      const resolved = resolveModuleRoute(v2Module, request.method, pathname);
+      if (!resolved) {
+        return new Response(JSON.stringify({ success: false, error: 'Webhook route not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      context.params = resolved.params;
+      return await resolved.handler(context);
+    }
     
     // Special handling for legacy /api/ routes -> redirect to forminator module
     if (pathname.startsWith('/api/mappings') || pathname.startsWith('/api/history') || pathname === '/api/test-connection') {

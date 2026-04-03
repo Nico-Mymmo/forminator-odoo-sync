@@ -38,6 +38,10 @@ import {
   upsertModelLinks,
   getOdooModels,
   upsertOdooModels,
+  getIntegrationById,
+  listFieldTransforms,
+  upsertFieldTransform,
+  deleteFieldTransform,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -46,7 +50,7 @@ import {
   validateTargetPayload,
   validateMappingPayload,
 } from './validation.js';
-import { handleForminatorV2Webhook, processDueRetries, replaySubmission } from './worker-handler.js';
+import { handleForminatorV2Webhook, handleGenericWebhook, processDueRetries, replaySubmission } from './worker-handler.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -170,6 +174,16 @@ export const routes = {
   'POST /api/integrations': async (context) => {
     try {
       const payload = await readJsonBody(context.request);
+
+      // For generic/Zapier webhook integrations: generate unique token + synthetic form ID
+      if (payload.source_type === 'generic_webhook') {
+        const tokenBytes = new Uint8Array(24);
+        crypto.getRandomValues(tokenBytes);
+        payload.webhook_token = btoa(String.fromCharCode(...tokenBytes))
+          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        payload.forminator_form_id = 'generic-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      }
+
       const created = await createIntegrationRecord(context.env, payload);
       return jsonResponse({ success: true, data: created }, 201);
     } catch (error) {
@@ -495,6 +509,110 @@ export const routes = {
       });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  // Per-integration generic/Zapier webhook (token validated here, no session required)
+  'POST /api/integrations/:id/webhook': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const integration = await getIntegrationById(context.env, integrationId);
+      if (!integration) {
+        return jsonResponse({ success: false, error: 'Integration not found' }, 404);
+      }
+      if (integration.source_type !== 'generic_webhook') {
+        return jsonResponse({ success: false, error: 'This integration does not accept generic webhooks' }, 400);
+      }
+
+      // Timing-safe token validation (always validate, even when inactive)
+      const url = new URL(context.request.url);
+      const submittedToken = url.searchParams.get('token') || '';
+      const expectedToken  = integration.webhook_token || '';
+      if (!expectedToken || submittedToken.length !== expectedToken.length) {
+        return jsonResponse({ success: false, error: 'Unauthorized' }, 401);
+      }
+      // Constant-time compare using TextEncoder
+      const enc = new TextEncoder();
+      const a = enc.encode(submittedToken);
+      const b = enc.encode(expectedToken);
+      let mismatch = 0;
+      for (let i = 0; i < a.length; i++) mismatch |= a[i] ^ b[i];
+      if (mismatch !== 0) {
+        return jsonResponse({ success: false, error: 'Unauthorized' }, 401);
+      }
+
+      // For inactive integrations: store the payload (so fields can be discovered) but skip Odoo pipeline
+      return await handleGenericWebhook({ env: context.env, integration, request: context.request, skipPipeline: !integration.is_active });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/integrations/:id/field-transforms': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+      const transforms = await listFieldTransforms(context.env, integrationId);
+      return jsonResponse({ success: true, data: transforms });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'PUT /api/integrations/:id/field-transforms/:fieldName': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      const fieldName     = decodeURIComponent(context.params?.fieldName || '');
+      assertIntegrationSelected(integrationId);
+      if (!fieldName) return jsonResponse({ success: false, error: 'fieldName required' }, 400);
+      const body = await context.request.json();
+      const transform = await upsertFieldTransform(context.env, integrationId, fieldName, {
+        field_type: body.field_type || 'text',
+        value_map:  body.value_map  ?? null,
+      });
+      return jsonResponse({ success: true, data: transform });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/integrations/:id/field-transforms/:fieldName': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      const fieldName     = decodeURIComponent(context.params?.fieldName || '');
+      assertIntegrationSelected(integrationId);
+      if (!fieldName) return jsonResponse({ success: false, error: 'fieldName required' }, 400);
+      await deleteFieldTransform(context.env, integrationId, fieldName);
+      return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // Returns the webhook URL + token for a generic_webhook integration (requires auth)
+  'GET /api/integrations/:id/webhook-url': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const integration = await getIntegrationById(context.env, integrationId);
+      if (!integration) {
+        return jsonResponse({ success: false, error: 'Integration not found' }, 404);
+      }
+      if (integration.source_type !== 'generic_webhook' || !integration.webhook_token) {
+        return jsonResponse({ success: false, error: 'Not a generic webhook integration' }, 400);
+      }
+
+      const reqUrl  = new URL(context.request.url);
+      const base    = `${reqUrl.protocol}//${reqUrl.host}`;
+      const path    = `/forminator-v2/api/integrations/${integrationId}/webhook`;
+      const webhookUrl = `${base}${path}?token=${encodeURIComponent(integration.webhook_token)}`;
+
+      return jsonResponse({ success: true, data: { webhook_url: webhookUrl, webhook_token: integration.webhook_token } });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
   },
 

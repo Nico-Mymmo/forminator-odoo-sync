@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Forminator Sync V2 &mdash; Detail
  *
  * Extends window.FSV2 with: renderDetail, updateDetailTestStatus,
@@ -216,7 +216,31 @@
       }
 
       var webhookBlock = '';
-      if (wc && wc.webhook_url) {
+      if (integration.source_type === 'generic_webhook') {
+        // Per-integration webhook URL (Zapier / generic)
+        var gwUrl = S()._genericWebhookUrl || null;
+        if (gwUrl) {
+          webhookBlock =
+            '<div class="mt-4 pt-4 border-t border-base-200">' +
+              '<p class="text-xs font-semibold text-base-content/60 mb-1.5 flex items-center gap-1.5">' +
+                '<i data-lucide="zap" class="w-3.5 h-3.5 text-warning"></i> Webhook URL (Zapier / Generic)' +
+              '</p>' +
+              '<div class="flex items-center gap-2">' +
+                '<code class="flex-1 text-xs bg-base-200 rounded px-2 py-1.5 break-all select-all">' + esc(gwUrl) + '</code>' +
+                '<button type="button" class="btn btn-xs btn-ghost shrink-0" id="btnCopyWebhook" title="Kopi\u00ebren">' +
+                  '<i data-lucide="copy" class="w-3.5 h-3.5"></i>' +
+                '</button>' +
+              '</div>' +
+              '<p class="text-xs text-base-content/60 mt-2">Stuur een HTTP POST met <code>Content-Type: application/json</code>. De token staat in de URL.</p>' +
+            '</div>';
+        } else {
+          webhookBlock =
+            '<div class="mt-4 pt-4 border-t border-base-200">' +
+              '<span class="loading loading-spinner loading-xs"></span>' +
+              '<span class="text-xs text-base-content/60 ml-2">Webhook URL laden\u2026</span>' +
+            '</div>';
+        }
+      } else if (wc && wc.webhook_url) {
         webhookBlock =
           '<div class="mt-4 pt-4 border-t border-base-200">' +
             '<p class="text-xs font-semibold text-base-content/60 mb-1.5 flex items-center gap-1.5">' +
@@ -248,7 +272,11 @@
                     '<i data-lucide="pencil" class="w-3.5 h-3.5"></i>' +
                   '</button>' +
                 '</div>' +
-                '<p class="text-sm text-base-content/60">Formulier: <span class="font-mono">' + esc(integration.forminator_form_id || '\u2014') + '</span></p>' +
+                '<p class="text-sm text-base-content/60">' +
+                (integration.source_type === 'generic_webhook'
+                  ? '<span class="badge badge-warning badge-sm mr-1">Zapier / Generic</span>Webhook-integratie'
+                  : 'Formulier: <span class="font-mono">' + esc(integration.forminator_form_id || '\u2014') + '</span>') +
+                '</p>' +
                 stepsHtml +
               '</div>' +
               '<label class="flex items-center gap-3 cursor-pointer shrink-0">' +
@@ -261,14 +289,19 @@
         '</div>';
 
       var copyBtn = document.getElementById('btnCopyWebhook');
-      if (copyBtn && wc && wc.webhook_url) {
-        copyBtn.addEventListener('click', function () {
-          navigator.clipboard.writeText(wc.webhook_url).then(function () {
-            window.FSV2.showAlert('Webhook URL gekopi\u00eberd.', 'success');
-          }).catch(function () {
-            window.FSV2.showAlert('Kopi\u00ebren mislukt \u2014 selecteer de URL handmatig.', 'warning');
+      if (copyBtn) {
+        var urlToCopy = integration.source_type === 'generic_webhook'
+          ? (S()._genericWebhookUrl || '')
+          : (wc && wc.webhook_url ? wc.webhook_url : '');
+        if (urlToCopy) {
+          copyBtn.addEventListener('click', function () {
+            navigator.clipboard.writeText(urlToCopy).then(function () {
+              window.FSV2.showAlert('Webhook URL gekopi\u00eberd.', 'success');
+            }).catch(function () {
+              window.FSV2.showAlert('Kopi\u00ebren mislukt \u2014 selecteer de URL handmatig.', 'warning');
+            });
           });
-        });
+        }
       }
 
       var toggle = document.getElementById('detailActiveToggle');
@@ -337,7 +370,15 @@
 
     var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
     if (!targets.length) {
-      container.innerHTML = '<p class="text-sm text-base-content/60">Geen schrijfdoel gevonden voor deze integratie.</p>';
+      var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+      container.innerHTML =
+        '<div class="text-center py-8">' +
+          '<p class="text-base-content/60 mb-4">Nog geen Odoo-schrijfdoel geconfigureerd voor deze integratie.</p>' +
+          '<button type="button" class="btn btn-primary gap-2" data-action="open-add-target-dialog" data-integration-id="' + esc(integrationId) + '">' +
+            '<i data-lucide="plus" class="w-4 h-4"></i> Odoo-doel toevoegen' +
+          '</button>' +
+        '</div>';
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: container });
       return;
     }
 
@@ -960,36 +1001,132 @@
     var fields = S().detailFormFields;
 
     if (!fields.length) {
-      el.innerHTML = '<p class="text-sm text-base-content/60 py-2">Geen velden gevonden voor dit formulier. Klik “Verversen” in de sectieheader om opnieuw te laden.</p>';
+      var integration = S().detail && S().detail.integration;
+      var isWebhook = integration && integration.source_type === 'generic_webhook';
+      if (isWebhook) {
+        el.innerHTML = '<div class="alert alert-info text-sm">' +
+          '<i data-lucide="info" class="w-4 h-4 shrink-0"></i>' +
+          '<span>Nog geen payload ontvangen. Stuur een test naar de webhook URL en klik daarna “Verversen” om de veldnamen automatisch te herkennen.</span>' +
+          '</div>';
+      } else {
+        el.innerHTML = '<p class="text-sm text-base-content/60 py-2">Geen velden gevonden voor dit formulier. Klik “Verversen” in de sectieheader om opnieuw te laden.</p>';
+      }
       if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       return;
     }
 
-    el.innerHTML =
-      '<div class="overflow-x-auto">' +
-        '<table class="table table-xs">' +
-          '<thead><tr>' +
-            '<th>Veld-ID</th><th>Label</th><th>Type</th><th>Gekoppeld aan Odoo</th>' +
-          '</tr></thead>' +
-          '<tbody>' +
-          fields.map(function (f) {
-            var fid     = String(f.field_id || '');
-            var coupled = mappedLookup[fid];
-            var badge   = coupled && coupled.length
-              ? coupled.map(function (of_) {
-                  return '<span class="badge badge-success badge-xs font-mono">' + esc(of_) + '</span>';
-                }).join(' ')
-              : '<span class="text-base-content/30 text-xs">&mdash;</span>';
-            return '<tr>' +
-              '<td class="font-mono text-xs">' + esc(fid) + '</td>' +
-              '<td class="text-sm">' + esc(f.label || f.field_id || '-') + '</td>' +
-              '<td><span class="badge badge-outline badge-xs">' + esc(f.type || '-') + '</span></td>' +
-              '<td>' + badge + '</td>' +
-            '</tr>';
+    var TYPE_OPTIONS = [
+      ['text',      'Tekst'],
+      ['boolean',   'Boolean (ja/nee)'],
+      ['integer',   'Integer'],
+      ['float',     'Decimaal'],
+      ['selection', 'Selectie (waardemap)'],
+      ['many2one',  'Many2one (ID)'],
+    ];
+    var integId     = esc(String(S().activeId || ''));
+    var expandedFid = S()._expandedValueMapField || null;
+    var pendingRows = S()._pendingValueMapRows || [];
+    var pendingCatchall = S()._pendingCatchall !== undefined ? S()._pendingCatchall : '';
+
+    var bodyRows = fields.map(function (f) {
+      var fid     = String(f.field_id || '');
+      var label   = f.label && f.label !== fid ? f.label : null;
+      var coupled = mappedLookup[fid];
+      var coupledHtml = coupled && coupled.length
+        ? coupled.map(function (of_) {
+            return '<span class="badge badge-success badge-xs font-mono gap-1">' + esc(of_) + '</span>';
+          }).join(' ')
+        : '<span class="text-base-content/30 text-xs">&mdash;</span>';
+
+      var ft          = (S().fieldTransforms && S().fieldTransforms[fid]) || null;
+      var currentType = ft ? (ft.field_type || 'text') : 'text';
+      var expanded    = expandedFid === fid;
+
+      var typeSelect =
+        '<select class="select select-xs w-full" data-action="save-field-transform" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
+          TYPE_OPTIONS.map(function (opt) {
+            return '<option value="' + opt[0] + '"' + (currentType === opt[0] ? ' selected' : '') + '>' + opt[1] + '</option>';
           }).join('') +
-          '</tbody>' +
-        '</table>' +
-      '</div>';
+        '</select>';
+
+      var vmapToggle = currentType === 'selection'
+        ? '<button class="btn btn-xs ' + (expanded ? 'btn-primary' : 'btn-ghost') + ' mt-1 gap-1" data-action="toggle-valuemap" data-field-id="' + esc(fid) + '">' +
+            '<i data-lucide="list" class="w-3 h-3"></i>' +
+            (expanded ? 'Verbergen' : 'Waardemap') +
+          '</button>'
+        : '';
+
+      var mainRow =
+        '<tr class="border-b border-base-200">' +
+          '<td class="py-2 align-top">' +
+            '<div class="font-mono text-xs font-medium text-primary">' + esc(fid) + '</div>' +
+            (label ? '<div class="text-xs text-base-content/50 mt-0.5">' + esc(label) + '</div>' : '') +
+            '<span class="badge badge-ghost badge-xs mt-1">' + esc(f.type || '-') + '</span>' +
+          '</td>' +
+          '<td class="py-2 align-top">' + coupledHtml + '</td>' +
+          '<td class="py-2 align-top">' +
+            '<div class="flex flex-col gap-0.5">' +
+              typeSelect +
+              vmapToggle +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+
+      if (!expanded || currentType !== 'selection') return mainRow;
+
+      var rowsHtml = pendingRows.length === 0
+        ? '<p class="text-xs text-base-content/40 italic mb-2">Nog geen regels — klik "+ Rij toevoegen" om te beginnen.</p>'
+        : pendingRows.map(function (row, idx) {
+            return '<div class="flex items-center gap-2 mb-1.5">' +
+              '<input class="input input-xs input-bordered font-mono" style="flex:1" placeholder="Bronwaarde (komt binnen)" value="' + esc(row.from || '') + '" data-vmap-from="' + idx + '">' +
+              '<i data-lucide="arrow-right" class="w-4 h-4 shrink-0 text-base-content/30"></i>' +
+              '<input class="input input-xs input-bordered font-mono" style="flex:1" placeholder="Odoo-waarde" value="' + esc(row.to || '') + '" data-vmap-to="' + idx + '">' +
+              '<button class="btn btn-xs btn-ghost btn-square text-error" data-action="remove-valuemap-row" data-row-idx="' + idx + '" title="Rij verwijderen">' +
+                '<i data-lucide="x" class="w-3.5 h-3.5"></i>' +
+              '</button>' +
+            '</div>';
+          }).join('');
+
+      var subRow =
+        '<tr class="bg-base-200/40">' +
+          '<td colspan="3" class="pt-0 pb-3 px-4">' +
+            '<div class="bg-base-100 border border-base-300 rounded-box p-3">' +
+              '<div class="text-xs font-semibold text-base-content/60 mb-2 flex items-center gap-1.5">' +
+                '<i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>' +
+                'Waardemap — bronwaarde → Odoo-waarde' +
+              '</div>' +
+              rowsHtml +
+              '<div class="flex gap-2 mt-2">' +
+                '<button class="btn btn-xs btn-ghost gap-1" data-action="add-valuemap-row">' +
+                  '<i data-lucide="plus" class="w-3 h-3"></i> Rij toevoegen' +
+                '</button>' +
+              '</div>' +
+              '<div class="divider text-xs mt-3 mb-2">Catchall (onbekende waarden)</div>' +
+              '<div class="flex items-center gap-2">' +
+                '<span class="text-xs text-base-content/50 shrink-0 w-40">Alles wat niet gevonden is →</span>' +
+                '<input class="input input-xs input-bordered font-mono flex-1" placeholder="Leeg = niet omzetten" value="' + esc(pendingCatchall) + '" data-vmap-catchall>' +
+              '</div>' +
+              '<div class="flex justify-end mt-3">' +
+                '<button class="btn btn-sm btn-primary" data-action="save-field-valuemap" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
+                  '<i data-lucide="save" class="w-4 h-4"></i> Waardemap opslaan' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+
+      return mainRow + subRow;
+    }).join('');
+
+    el.innerHTML =
+      '<table class="table table-xs w-full">' +
+        '<thead><tr>' +
+          '<th>Veld</th>' +
+          '<th>Gekoppeld aan Odoo</th>' +
+          '<th class="w-52">Transform</th>' +
+        '</tr></thead>' +
+        '<tbody>' + bodyRows + '</tbody>' +
+      '</table>';
   }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1015,6 +1152,15 @@
       S().testStatus  = results[1].data;
       S().submissions = results[2].data || [];
       S().detailFormFields = null;
+      S().fieldTransforms         = {};
+      S()._expandedValueMapField  = null;
+      S()._pendingValueMapRows    = [];
+      S()._pendingCatchall        = '';
+      window.FSV2.api('/integrations/' + id + '/field-transforms').then(function (r) {
+        S().fieldTransforms = {};
+        (r.data || []).forEach(function (t) { S().fieldTransforms[t.field_name] = t; });
+        if (S().activeId === id) renderDetailFormFields();
+      }).catch(function () {});
 
       if (!S().webhookConfig) {
         window.FSV2.api('/webhook-config').then(function (r) {
@@ -1026,7 +1172,17 @@
       var detailIntegration = S().detail && S().detail.integration;
       var detailSiteKey     = detailIntegration && detailIntegration.site_key;
       var detailFormId      = detailIntegration && detailIntegration.forminator_form_id;
-      if (detailFormId) {
+
+      // For generic_webhook integrations: fetch per-integration webhook URL
+      S()._genericWebhookUrl = null;
+      if (detailIntegration && detailIntegration.source_type === 'generic_webhook') {
+        window.FSV2.api('/integrations/' + id + '/webhook-url').then(function (r) {
+          S()._genericWebhookUrl = (r.data && r.data.webhook_url) ? r.data.webhook_url : null;
+          if (S().activeId === id) renderDetail();
+        }).catch(function () {});
+        // Extract form fields from the source_payload of the most recent submission
+        extractGenericWebhookFields();
+      } else if (detailFormId) {
         fetchDetailFormFields(detailSiteKey || null, detailFormId).catch(function () {});
       }
 
@@ -1724,10 +1880,48 @@
 
   async function handleRefreshFormFields() {
     var integration = S().detail && S().detail.integration;
+    if (integration && integration.source_type === 'generic_webhook') {
+      // Re-load submissions and re-extract field names from the latest payload
+      var id = S().activeId;
+      if (!id) return;
+      S().detailFormFields = 'loading';
+      renderDetailFormFields();
+      try {
+        var subBody = await window.FSV2.api('/integrations/' + id + '/submissions');
+        S().submissions = subBody.data || [];
+        extractGenericWebhookFields();
+      } catch (e) {
+        S().detailFormFields = [];
+        window.FSV2.showAlert('Vernieuwen mislukt: ' + e.message, 'error');
+      }
+      renderDetailFormFields();
+      renderDetailMappings();
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      return;
+    }
     var sk  = integration && integration.site_key;
     var fid = integration && integration.forminator_form_id;
     if (!fid) return;
     await fetchDetailFormFields(sk || null, fid);
+  }
+
+  function extractGenericWebhookFields() {
+    var submissions = S().submissions || [];
+    var lastWithPayload = null;
+    for (var i = 0; i < submissions.length; i++) {
+      var p = submissions[i].source_payload;
+      if (p && typeof p === 'object' && !Array.isArray(p) && Object.keys(p).length > 0) {
+        lastWithPayload = p;
+        break;
+      }
+    }
+    if (lastWithPayload) {
+      S().detailFormFields = Object.keys(lastWithPayload).map(function (key) {
+        return { field_id: key, label: key, type: 'text' };
+      });
+    } else {
+      S().detailFormFields = [];
+    }
   }
 
   async function fetchDetailFormFields(sk, fid) {
@@ -2518,8 +2712,24 @@
     }
   }
 
+  function syncPendingValueMapFromDom() {
+    var rows = window.FSV2.S._pendingValueMapRows;
+    if (Array.isArray(rows)) {
+      rows.forEach(function (row, idx) {
+        var fromEl = document.querySelector('[data-vmap-from="' + idx + '"]');
+        var toEl   = document.querySelector('[data-vmap-to="'   + idx + '"]');
+        if (fromEl) row.from = fromEl.value;
+        if (toEl)   row.to   = toEl.value;
+      });
+    }
+    // Sync catchall
+    var catchallEl = document.querySelector('[data-vmap-catchall]');
+    if (catchallEl) window.FSV2.S._pendingCatchall = catchallEl.value;
+  }
+
   Object.assign(window.FSV2, {
     renderDetail:            renderDetail,
+    syncPendingValueMapFromDom: syncPendingValueMapFromDom,
     updateDetailTestStatus:  updateDetailTestStatus,
     renderDetailMappings:    renderDetailMappings,
     renderDetailSubmissions: renderDetailSubmissions,
