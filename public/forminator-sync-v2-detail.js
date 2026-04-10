@@ -474,10 +474,10 @@
 
       // Header row
       html +=     '<div class="px-5 py-4">';
-      html +=       '<div class="flex items-center justify-between gap-3 flex-wrap">';
+      html +=       '<div class="flex items-start justify-between gap-2">';
 
       // Left: badge + name + meta
-      html +=         '<div class="flex items-center gap-3 min-w-0">';
+      html +=         '<div class="flex items-start gap-3 min-w-0 flex-1">';
       if (!isSingle) {
         html +=           '<span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral text-neutral-content text-sm font-bold shrink-0">' + (idx + 1) + '</span>';
       }
@@ -511,7 +511,7 @@
       html +=         '</div>';
 
       // Right: reorder + delete + expand toggle
-      html +=         '<div class="flex items-center gap-0.5 shrink-0">';
+      html +=         '<div class="flex items-center gap-0.5 shrink-0 ml-1">';
       if (!isSingle) {
         // Reorder: arrow-up/arrow-down (distinct from chevron expand)
         if (!isFirst) {
@@ -1162,10 +1162,10 @@
             var sub         = item.sub;
             var isReplay    = item.isReplay;
             var shortId     = window.FSV2.shortId(sub.id);
-            var replayAllowed = !isReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
             var successfulReplay = !isReplay && (replaysByOrigId[sub.id] || []).some(function (r) {
               return ['success', 'processed'].includes(String(r.status || ''));
             });
+            var replayAllowed = !isReplay && !successfulReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
             var errorCell   = sub.last_error
               ? '<span class="text-xs text-error/80 font-mono" title="' + esc(sub.last_error) + '">' +
                   esc(sub.last_error.slice(0, 60)) + (sub.last_error.length > 60 ? '\u2026' : '') +
@@ -1253,6 +1253,8 @@
       ['float',     'Decimaal'],
       ['selection', 'Selectie (waardemap)'],
       ['many2one',  'Many2one (ID)'],
+      ['datetime',  'Datum/tijd'],
+      ['date',      'Datum'],
     ];
     var integId     = esc(String(S().activeId || ''));
     var expandedFid = S()._expandedValueMapField || null;

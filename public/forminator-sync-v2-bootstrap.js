@@ -208,7 +208,7 @@
         window.FSV2.renderLinks();
         return;
       }
-      if (action === 'add-default-field') {
+      if (action === 'add-default-field' && !btn.dataset.model) {
         var nameInp  = document.getElementById('editNewFieldName');
         var labelInp = document.getElementById('editNewFieldLabel');
         var reqInp   = document.getElementById('editNewFieldRequired');
@@ -232,7 +232,7 @@
         }
         return;
       }
-      if (action === 'remove-default-field') {
+      if (action === 'remove-default-field' && !btn.dataset.model) {
         var rmIdx = parseInt(btn.dataset.idx, 10);
         if (!isNaN(rmIdx) && Array.isArray(S.editingDefaultFields)) {
           S.editingDefaultFields.splice(rmIdx, 1);

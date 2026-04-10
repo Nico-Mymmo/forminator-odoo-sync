@@ -408,6 +408,21 @@ function coerceFieldValue(raw, fieldType) {
       const f = parseFloat(str.replace(',', '.'));
       return isNaN(f) ? null : f;
     }
+    case 'datetime': {
+      // Odoo expects "YYYY-MM-DD HH:MM:SS" (UTC, no timezone suffix).
+      // Handles: ISO-8601 with Z / +0000 / +00:00, space-separated, or already correct.
+      const normalized = str
+        .replace('T', ' ')
+        .replace(/([+-]\d{2}:?\d{2}|Z)(\.\d+)?$/, '')
+        .trim()
+        .substring(0, 19);
+      return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(normalized) ? normalized : str;
+    }
+    case 'date': {
+      // Accept "YYYY-MM-DD", extract from ISO/datetime if needed.
+      const d = str.split(/[T ]/)[0];
+      return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : str;
+    }
     default: // text, selection (value already remapped above)
       return raw;
   }
