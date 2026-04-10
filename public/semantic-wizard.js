@@ -27,7 +27,8 @@ const INFORMATION_SETS = {
       'x_studio_open_question_current_situation',
       'x_studio_open_question_expected_solution',
       'x_studio_open_question_running_costs',
-      'x_studio_open_question_self_management'
+      'x_studio_open_question_self_management',
+      'x_studio_open_question_technical_management'
     ]
   },
   communicatie: {
