@@ -460,8 +460,8 @@ export default {
         
         // Profile module is always accessible to all authenticated users
         // Admins have access to ALL modules
-        // Other users need module access (unless it's home or profile)
-        if (user.role !== 'admin' && !module.requiresAdmin && module.code !== 'home' && module.code !== 'profile') {
+        // Other users need module access (unless it's home, profile, or a module that handles its own auth)
+        if (user.role !== 'admin' && !module.requiresAdmin && module.requiresAuth !== false && module.code !== 'home' && module.code !== 'profile') {
           const userModules = getUserModules(user);
           const hasAccess = userModules.some(m => m.code === module.code);
           
