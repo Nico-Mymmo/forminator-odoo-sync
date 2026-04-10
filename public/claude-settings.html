@@ -167,17 +167,10 @@
     <div class="modal-box max-w-sm">
       <h3 class="font-bold text-lg mb-1">Koppeling Testen</h3>
       <p class="text-sm text-base-content/60 mb-4">
-        Voer het secret in om de volledige auth-flow te testen. Het wordt niet opgeslagen.
+        Test de dataset-inhoud van deze koppeling. Je bent al ingelogd, geen secret nodig.
       </p>
-      <div class="form-control mb-4">
-        <label class="label"><span class="label-text">Client Secret</span></label>
-        <input type="password" id="testSecret" class="input input-bordered input-sm font-mono"
-          placeholder="sk-..." autocomplete="off" />
-      </div>
       <ul id="testSteps" class="steps steps-vertical w-full text-sm mb-4 hidden">
-        <li class="step" id="tstep1">Challenge aanvragen</li>
-        <li class="step" id="tstep2">Autoriseren</li>
-        <li class="step" id="tstep3">Context ophalen</li>
+        <li class="step" id="tstep1">Context ophalen</li>
       </ul>
       <div id="testResult" class="hidden mb-2"></div>
       <div class="modal-action">
@@ -515,7 +508,7 @@
 
     function renderIntegrationActions(clientId, integrationId) {
       return `<div class="flex gap-1 shrink-0">
-        <button class="btn btn-ghost btn-xs gap-1" data-action="openTest" data-id="${clientId}" title="Test koppeling">
+        <button class="btn btn-ghost btn-xs gap-1" data-action="openTest" data-id="${integrationId}" title="Test koppeling">
           <i data-lucide="play" class="w-3 h-3"></i> Test
         </button>
         <button class="btn btn-ghost btn-xs gap-1" data-action="openInstructionsFor" data-id="${clientId}" title="Kopieer Claude instructies">
@@ -616,13 +609,12 @@
     }
 
     // ── Test ──────────────────────────────────────────────────────────────────
-    function openTest(clientId) {
-      testClientId = clientId;
-      document.getElementById('testSecret').value = '';
+    function openTest(integrationId) {
+      testClientId = integrationId;
       document.getElementById('testSteps').classList.add('hidden');
       document.getElementById('testResult').classList.add('hidden');
       document.getElementById('testRunBtn').disabled = false;
-      ['tstep1','tstep2','tstep3'].forEach(s => { document.getElementById(s).className = 'step'; });
+      document.getElementById('tstep1').className = 'step';
       document.getElementById('testModal').showModal();
     }
 
@@ -631,40 +623,27 @@
     }
 
     async function runTest() {
-      const secret = document.getElementById('testSecret').value.trim();
-      if (!secret) return showAlert('<span>Voer het secret in</span>', 'warning');
       document.getElementById('testRunBtn').disabled = true;
       document.getElementById('testSteps').classList.remove('hidden');
       document.getElementById('testResult').classList.add('hidden');
       try {
-        const r1 = await apiFetch('/api/claude/session/request', { method: 'POST', body: JSON.stringify({ client_id: testClientId }) });
-        if (!r1.success) throw new Error(r1.error?.message || 'Stap 1 mislukt');
+        const res = await apiFetch('/api/claude/integrations/' + testClientId + '/preview?limit=3', { credentials: 'include' });
+        if (!res.success) throw new Error(res.error?.message || 'Preview mislukt');
         setStep('tstep1', 'done');
-        const r2 = await apiFetch('/api/claude/session/authorize', { method: 'POST', body: JSON.stringify({ client_id: testClientId, client_secret: secret, challenge_id: r1.data.challenge_id }) });
-        if (!r2.success) throw new Error(r2.error?.message || 'Stap 2 mislukt');
-        setStep('tstep2', 'done');
-        const r3 = await fetch('/api/claude/context/full?limit=3', { headers: { 'Authorization': 'Bearer ' + r2.data.access_token } });
-        const ctx = await r3.json();
-        if (!ctx.success) throw new Error(ctx.error?.message || 'Stap 3 mislukt');
-        setStep('tstep3', 'done');
-        const m = ctx.data?.meta || {};
+        const m = res.data?.meta || {};
         document.getElementById('testResult').innerHTML = `
           <div class="alert alert-success text-sm">
             <i data-lucide="check-circle" class="w-4 h-4"></i>
             <div>
-              <p class="font-medium">✅ Koppeling werkt correct</p>
+              <p class="font-medium">✅ Dataset werkt correct</p>
               <p>Template: <code class="font-mono">${m.template_name || '?'}</code></p>
               <p>Records: ${JSON.stringify(m.record_counts || {})}</p>
-              <p>Token geldig tot: ${new Date(r2.data.expires_at).toLocaleTimeString('nl-BE')}</p>
             </div>
           </div>`;
         document.getElementById('testResult').classList.remove('hidden');
         lucide.createIcons();
       } catch (err) {
-        ['tstep1','tstep2','tstep3'].forEach(s => {
-          const el = document.getElementById(s);
-          if (!el.className.includes('primary') && !el.className.includes('error')) setStep(s, 'error');
-        });
+        setStep('tstep1', 'error');
         document.getElementById('testResult').innerHTML = `<div class="alert alert-error text-sm"><span>❌ ${err.message}</span></div>`;
         document.getElementById('testResult').classList.remove('hidden');
       }

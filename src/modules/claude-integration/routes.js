@@ -527,6 +527,49 @@ const getOdooFieldsHandler = requireAdmin(async function getOdooFieldsHandler(co
   } catch (e) { return err(e.message, 'FIELDS_FAILED', 500); }
 });
 
+// ─── Preview context (session-authenticated, no secret needed) ───────────────
+
+/**
+ * GET /api/claude/integrations/:id/preview
+ *
+ * Builds the dataset context for the given integration using the caller's
+ * session cookie — no client_secret required. The caller must own the
+ * integration (or be admin).
+ *
+ * Query params: timeframe, limit (same as /context/full)
+ * Returns the same contextPayload structure as /context/full.
+ */
+const previewContextHandler = requireAuth(async function previewContextHandler(context) {
+  const { request, env, user, params } = context;
+  const { id } = params;
+
+  if (!id) return err('Integration ID required', 'VALIDATION_FAILED');
+
+  const integration = await getIntegrationById(env, id);
+  if (!integration) return err('Integration not found', 'NOT_FOUND', 404);
+
+  // Only the owner or an admin may preview
+  if (integration.user_id !== user.id && user.role !== 'admin') {
+    return err('Forbidden', 'FORBIDDEN', 403);
+  }
+
+  const url = new URL(request.url);
+  const timeframe = url.searchParams.get('timeframe') ?? null;
+  const limit     = url.searchParams.has('limit') ? parseInt(url.searchParams.get('limit'), 10) : 3;
+
+  try {
+    const contextPayload = await buildContext(env, {
+      templateId: integration.dataset_template_id ?? null,
+      timeframe,
+      limit
+    });
+    return ok(contextPayload);
+  } catch (e) {
+    console.error('❌ preview context:', e.message);
+    return err(e.message, 'PREVIEW_FAILED', 500);
+  }
+});
+
 // ─── Route map ────────────────────────────────────────────────────────────────
 // Keys are subpaths relative to module.route ('/api/claude').
 // resolveModuleRoute strips the prefix before matching.
@@ -538,6 +581,7 @@ export const routes = {
   'DELETE /integrations/:id':                    revokeIntegrationHandler,
   'DELETE /integrations/:id/permanent':           deleteIntegrationPermanentlyHandler,
   'POST /integrations/:id/rotate':                rotateSecretHandler,
+  'GET /integrations/:id/preview':               previewContextHandler,
   'POST /session/request':                       requestChallenge,
   'POST /session/authorize':                     authorizeSession,
   'GET /context/full':                           getContext,
