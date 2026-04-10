@@ -31,7 +31,7 @@ import {
 } from './lib/integration-service.js';
 import { createChallenge, validateAndConsumeChallenge } from './lib/challenge-service.js';
 import { createToken, validateToken, revokeAllTokensForIntegration } from './lib/token-service.js';
-import { buildContext } from './lib/context-builder.js';
+import { buildContext, buildQueryPlan } from './lib/context-builder.js';
 import { logContextCall, getAuditLog } from './lib/audit-service.js';
 import {
   getDefaultTemplate, listActiveTemplates, listAllTemplates, getTemplate,
@@ -555,7 +555,7 @@ const previewContextHandler = requireAuth(async function previewContextHandler(c
 
   const url = new URL(request.url);
   const timeframe = url.searchParams.get('timeframe') ?? null;
-  const limit     = url.searchParams.has('limit') ? parseInt(url.searchParams.get('limit'), 10) : 3;
+  const limit     = url.searchParams.has('limit') ? parseInt(url.searchParams.get('limit'), 10) : null;
 
   try {
     const contextPayload = await buildContext(env, {
@@ -567,6 +567,44 @@ const previewContextHandler = requireAuth(async function previewContextHandler(c
   } catch (e) {
     console.error('❌ preview context:', e.message);
     return err(e.message, 'PREVIEW_FAILED', 500);
+  }
+});
+
+// ─── Query plan (session-authenticated) ─────────────────────────────────────
+
+/**
+ * GET /api/claude/integrations/:id/query-plan
+ *
+ * Returns the Odoo queries that would be executed for this integration's
+ * dataset, without actually running them. Useful for debugging templates.
+ */
+const queryPlanHandler = requireAuth(async function queryPlanHandler(context) {
+  const { request, env, user, params } = context;
+  const { id } = params;
+
+  if (!id) return err('Integration ID required', 'VALIDATION_FAILED');
+
+  const integration = await getIntegrationById(env, id);
+  if (!integration) return err('Integration not found', 'NOT_FOUND', 404);
+
+  if (integration.user_id !== user.id && user.role !== 'admin') {
+    return err('Forbidden', 'FORBIDDEN', 403);
+  }
+
+  const url = new URL(request.url);
+  const timeframe = url.searchParams.get('timeframe') ?? null;
+  const limit     = url.searchParams.has('limit') ? parseInt(url.searchParams.get('limit'), 10) : null;
+
+  try {
+    const plan = await buildQueryPlan(env, {
+      templateId: integration.dataset_template_id ?? null,
+      timeframe,
+      limit
+    });
+    return ok(plan);
+  } catch (e) {
+    console.error('❌ query plan:', e.message);
+    return err(e.message, 'QUERY_PLAN_FAILED', 500);
   }
 });
 
@@ -582,6 +620,7 @@ export const routes = {
   'DELETE /integrations/:id/permanent':           deleteIntegrationPermanentlyHandler,
   'POST /integrations/:id/rotate':                rotateSecretHandler,
   'GET /integrations/:id/preview':               previewContextHandler,
+  'GET /integrations/:id/query-plan':             queryPlanHandler,
   'POST /session/request':                       requestChallenge,
   'POST /session/authorize':                     authorizeSession,
   'GET /context/full':                           getContext,

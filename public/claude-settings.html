@@ -183,6 +183,23 @@
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
   </dialog>
 
+  <!-- Modal: Query Plan -->
+  <dialog id="queryPlanModal" class="modal">
+    <div class="modal-box w-11/12 max-w-3xl">
+      <h3 class="font-bold text-lg mb-1 flex items-center gap-2">
+        <i data-lucide="search-code" class="w-5 h-5"></i> Odoo Query Plan
+      </h3>
+      <p class="text-sm text-base-content/60 mb-4" id="queryPlanTemplateName"></p>
+      <div id="queryPlanContent" class="space-y-4 overflow-y-auto max-h-[60vh]">
+        <div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('queryPlanModal').close()">Sluiten</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
   <!-- Modal: Secret Regenereren -->
   <dialog id="rotateModal" class="modal">
     <div class="modal-box max-w-sm">
@@ -507,9 +524,15 @@
     }
 
     function renderIntegrationActions(clientId, integrationId) {
-      return `<div class="flex gap-1 shrink-0">
-        <button class="btn btn-ghost btn-xs gap-1" data-action="openTest" data-id="${integrationId}" title="Test koppeling">
+      return `<div class="flex gap-1 shrink-0 flex-wrap">
+        <button class="btn btn-ghost btn-xs gap-1" data-action="openTest" data-id="${integrationId}" title="Test dataset">
           <i data-lucide="play" class="w-3 h-3"></i> Test
+        </button>
+        <button class="btn btn-ghost btn-xs gap-1" data-action="downloadJson" data-id="${integrationId}" title="Download volledige dataset als JSON">
+          <i data-lucide="download" class="w-3 h-3"></i> JSON
+        </button>
+        <button class="btn btn-ghost btn-xs gap-1" data-action="openQueryPlan" data-id="${integrationId}" title="Bekijk Odoo-queries">
+          <i data-lucide="search-code" class="w-3 h-3"></i> Query
         </button>
         <button class="btn btn-ghost btn-xs gap-1" data-action="openInstructionsFor" data-id="${clientId}" title="Kopieer Claude instructies">
           <i data-lucide="clipboard-copy" class="w-3 h-3"></i>
@@ -648,6 +671,76 @@
         document.getElementById('testResult').classList.remove('hidden');
       }
       document.getElementById('testRunBtn').disabled = false;
+    }
+
+    // ── Download JSON ─────────────────────────────────────────────────────────
+    async function downloadJson(integrationId) {
+      showAlert('<span>Dataset ophalen...</span>', 'info');
+      try {
+        const res = await apiFetch('/api/claude/integrations/' + integrationId + '/preview', { credentials: 'include' });
+        if (!res.success) throw new Error(res.error?.message || 'Ophalen mislukt');
+        const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        const name = (res.data?.meta?.template_name || 'dataset').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+        a.href     = url;
+        a.download = name + '_' + new Date().toISOString().slice(0,10) + '.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        showAlert('<span>✅ Download gestart</span>', 'success');
+      } catch (e) {
+        showAlert('<span>❌ ' + e.message + '</span>', 'error');
+      }
+    }
+
+    // ── Query Plan ────────────────────────────────────────────────────────────
+    async function openQueryPlan(integrationId) {
+      document.getElementById('queryPlanTemplateName').textContent = '';
+      document.getElementById('queryPlanContent').innerHTML =
+        '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-lg"></span></div>';
+      document.getElementById('queryPlanModal').showModal();
+
+      try {
+        const res = await apiFetch('/api/claude/integrations/' + integrationId + '/query-plan', { credentials: 'include' });
+        if (!res.success) throw new Error(res.error?.message || 'Ophalen mislukt');
+        const plan = res.data;
+        document.getElementById('queryPlanTemplateName').textContent = 'Template: ' + (plan.template_name || '?');
+        document.getElementById('queryPlanContent').innerHTML = plan.queries.map(q => {
+          const depthLabel = q.depth === 0
+            ? '<span class="badge badge-primary badge-sm">primair</span>'
+            : '<span class="badge badge-ghost badge-sm">depth ' + q.depth + '</span>';
+          const parentInfo = q.parent_key
+            ? '<p class="text-xs text-base-content/50 mt-1">Via <code class="font-mono">' + q.parent_key + '.' + q.via_parent_field + '</code></p>'
+            : '';
+          return '<div class="card bg-base-200 p-4">' +
+            '<div class="flex items-center gap-2 mb-2">' +
+              '<span class="font-mono text-xs text-base-content/40">Stap ' + q.step + '</span>' +
+              depthLabel +
+              '<span class="font-bold">' + (q.label || q.key) + '</span>' +
+              '<code class="font-mono text-xs text-base-content/50">' + q.model + '</code>' +
+            '</div>' +
+            '<div class="grid grid-cols-2 gap-2 text-xs">' +
+              '<div>' +
+                '<p class="text-base-content/50 uppercase font-medium mb-1">Domain</p>' +
+                '<pre class="bg-base-300 rounded p-2 overflow-x-auto text-xs">' + JSON.stringify(q.domain, null, 2) + '</pre>' +
+              '</div>' +
+              '<div>' +
+                '<p class="text-base-content/50 uppercase font-medium mb-1">Fields (' + q.fields.length + ')</p>' +
+                '<div class="bg-base-300 rounded p-2 flex flex-wrap gap-1">' +
+                  q.fields.map(f => '<code class="font-mono text-xs">' + f + '</code>').join(' ') +
+                '</div>' +
+                '<p class="mt-2 text-base-content/50">Limit: <strong>' + q.limit + '</strong>' +
+                  (q.order ? ' &nbsp;·&nbsp; Order: <strong>' + q.order + '</strong>' : '') + '</p>' +
+              '</div>' +
+            '</div>' +
+            parentInfo +
+          '</div>';
+        }).join('');
+        lucide.createIcons();
+      } catch (e) {
+        document.getElementById('queryPlanContent').innerHTML =
+          '<div class="alert alert-error text-sm"><span>❌ ' + e.message + '</span></div>';
+      }
     }
 
     // ── Instructions ──────────────────────────────────────────────────────────
@@ -1532,6 +1625,8 @@
       const { action, id, key, field, relation, cat, target } = el.dataset;
 
       if      (action === 'openTest')                openTest(id);
+      else if (action === 'downloadJson')            downloadJson(id);
+      else if (action === 'openQueryPlan')           openQueryPlan(id);
       else if (action === 'openRotate')              openRotate(id);
       else if (action === 'openInstructionsFor')     openInstructionsFor(id);
       else if (action === 'openInstructions')        openInstructions();

@@ -195,3 +195,79 @@ export async function buildContext(env, { templateId = null, timeframe = null, l
     schema
   };
 }
+
+/**
+ * Build the Odoo query plan for a template without executing the queries.
+ * Returns an array of query descriptors sorted by depth.
+ *
+ * @param {Object} env
+ * @param {Object} options
+ * @param {string} [options.templateId]
+ * @param {string} [options.timeframe]
+ * @param {number|null} [options.limit]
+ * @returns {Promise<Object>}
+ */
+export async function buildQueryPlan(env, { templateId = null, timeframe = null, limit = null }) {
+  const template = templateId
+    ? await getTemplate(env, templateId)
+    : await getDefaultTemplate(env);
+
+  if (!template) throw new Error('Geen actieve dataset template geconfigureerd.');
+
+  const rawConfigs = Array.isArray(template.model_config) ? template.model_config : [];
+  const configs = rawConfigs
+    .map(mc => normalise(mc, rawConfigs))
+    .sort((a, b) => (a.depth ?? 0) - (b.depth ?? 0));
+
+  const queries = configs.map((mc, i) => {
+    const enabledFields = (mc.fields ?? [])
+      .filter(f => f.enabled)
+      .map(f => f.odoo_name)
+      .filter(Boolean);
+    if (!enabledFields.includes('id')) enabledFields.unshift('id');
+
+    if (mc.depth === 0) {
+      const effectiveTimeframe = timeframe ?? mc.timeframe ?? null;
+      const rawLimit = limit !== null ? limit : (mc.limit ?? null);
+      const effectiveLimit = rawLimit !== null && Number(rawLimit) > 0 ? Number(rawLimit) : null;
+
+      const domain = [];
+      if (effectiveTimeframe) {
+        const ts = getTimeframeStart(effectiveTimeframe);
+        if (ts) domain.push(['create_date', '>=', ts]);
+      }
+
+      return {
+        step:   i + 1,
+        key:    mc.key,
+        label:  mc.label || mc.key,
+        model:  mc.odoo_model,
+        domain,
+        fields: enabledFields,
+        limit:  effectiveLimit ?? 'all',
+        order:  'id desc',
+        depth:  0
+      };
+    }
+
+    return {
+      step:             i + 1,
+      key:              mc.key,
+      label:            mc.label || mc.key,
+      model:            mc.odoo_model,
+      domain:           [['id', 'in', `<ids from ${mc.parent_key}.${mc.via_parent_field}>`]],
+      fields:           enabledFields,
+      limit:            'all',
+      order:            null,
+      depth:            mc.depth ?? 1,
+      parent_key:       mc.parent_key,
+      via_parent_field: mc.via_parent_field
+    };
+  });
+
+  return {
+    template_name: template.name,
+    template_id:   template.id,
+    queries
+  };
+}
