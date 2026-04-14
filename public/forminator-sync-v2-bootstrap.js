@@ -345,6 +345,10 @@
         await window.FSV2.handleReplay(btn.dataset.id);
         return;
       }
+      if (action === 'delete-submission') {
+        await window.FSV2.handleDeleteSubmission(btn.dataset.id);
+        return;
+      }
       if (action === 'add-target') {
         await window.FSV2.handleAddTarget(btn.dataset.integrationid);
         return;

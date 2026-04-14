@@ -1185,7 +1185,9 @@
                 '<td class="text-xs whitespace-nowrap">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
                 '<td>' + (replayAllowed
                   ? '<button class="btn btn-xs btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '">Replay</button>'
-                  : '') + '</td>' +
+                  : '') +
+                  '<button class="btn btn-xs btn-ghost btn-square text-error ml-1" data-action="delete-submission" data-id="' + esc(sub.id) + '" title="Verwijder indienen"><i data-lucide="trash-2" class="w-3 h-3"></i></button>' +
+                '</td>' +
               '</tr>';
             return mainRow + buildTimelineRow(sub);
           }).join('') +
@@ -2324,6 +2326,13 @@
     await openDetail(S().activeId);
   }
 
+  async function handleDeleteSubmission(submissionId) {
+    if (!confirm('Indienen ' + window.FSV2.shortId(submissionId) + ' verwijderen? Dit kan niet ongedaan worden gemaakt.')) return;
+    await window.FSV2.api('/submissions/' + submissionId, { method: 'DELETE' });
+    window.FSV2.showAlert('Indienen verwijderd.', 'success');
+    await openDetail(S().activeId);
+  }
+
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // EXPORT &mdash; extend FSV2
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -3177,6 +3186,7 @@
     handleToggleShowHidden:   handleToggleShowHidden,
     handleDeleteIntegration: handleDeleteIntegration,
     handleReplay:            handleReplay,
+    handleDeleteSubmission:  handleDeleteSubmission,
   });
 
 }());

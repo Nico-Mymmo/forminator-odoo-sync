@@ -28,6 +28,7 @@ import {
   listSubmissionsByIntegration,
   getSubmissionById,
   listSubmissionTargetResults,
+  deleteSubmission,
   listWpConnections,
   getWpConnectionById,
   createWpConnection,
@@ -687,6 +688,19 @@ export const routes = {
 
       const result = await replaySubmission(context.env, submissionId);
       return jsonResponse({ success: true, data: result }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/submissions/:submissionId': async (context) => {
+    try {
+      const submissionId = context.params?.submissionId;
+      if (!submissionId) {
+        return jsonResponse({ success: false, error: 'Submission id is required' }, 400);
+      }
+      await deleteSubmission(context.env, submissionId);
+      return jsonResponse({ success: true });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
