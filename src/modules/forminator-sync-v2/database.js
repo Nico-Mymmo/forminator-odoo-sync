@@ -72,6 +72,16 @@ export async function updateIntegration(env, integrationId, updates) {
   return data;
 }
 
+export async function upsertFieldMeta(env, integrationId, meta) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.integrations)
+    .update({ field_meta: meta, updated_at: new Date().toISOString() })
+    .eq('id', integrationId);
+  if (error) throw new Error(`Failed to save field_meta: ${error.message}`);
+  return meta;
+}
+
 export async function deleteIntegration(env, integrationId) {
   const supabase = getSupabase(env);
 
@@ -132,6 +142,42 @@ export async function deleteIntegration(env, integrationId) {
 export async function deleteSubmission(env, submissionId) {
   const supabase = getSupabase(env);
 
+  // Find all replays of this submission
+  const { data: replays, error: replaysError } = await supabase
+    .from(TABLES.submissions)
+    .select('id, status')
+    .eq('replay_of_submission_id', submissionId);
+  if (replaysError) throw new Error(`Failed to fetch replays: ${replaysError.message}`);
+
+  const successStatuses = ['success', 'processed'];
+  const successfulReplays = (replays || []).filter(r => successStatuses.includes(r.status));
+  const failedReplays     = (replays || []).filter(r => !successStatuses.includes(r.status));
+
+  // Promote successful replays to standalone (clear the reference before deleting the original)
+  if (successfulReplays.length > 0) {
+    const { error: promoteError } = await supabase
+      .from(TABLES.submissions)
+      .update({ replay_of_submission_id: null })
+      .in('id', successfulReplays.map(r => r.id));
+    if (promoteError) throw new Error(`Failed to promote successful replays: ${promoteError.message}`);
+  }
+
+  // Delete targets + submissions for failed replays
+  if (failedReplays.length > 0) {
+    const failedIds = failedReplays.map(r => r.id);
+    const { error: replayTargetsError } = await supabase
+      .from(TABLES.submissionTargets)
+      .delete()
+      .in('submission_id', failedIds);
+    if (replayTargetsError) throw new Error(`Failed to delete replay targets: ${replayTargetsError.message}`);
+
+    const { error: replayDeleteError } = await supabase
+      .from(TABLES.submissions)
+      .delete()
+      .in('id', failedIds);
+    if (replayDeleteError) throw new Error(`Failed to delete failed replays: ${replayDeleteError.message}`);
+  }
+
   // Delete child target rows first (FK constraint)
   const { error: targetsError } = await supabase
     .from(TABLES.submissionTargets)
@@ -146,6 +192,69 @@ export async function deleteSubmission(env, submissionId) {
   if (error) throw new Error(`Failed to delete submission: ${error.message}`);
 
   return true;
+}
+
+/**
+ * For a given integration: find all original submissions that have at least one
+ * successful replay, then delete the failed originals + all failed replays while
+ * keeping (and promoting) the successful replay.
+ * Returns { deleted, promoted } counts.
+ */
+export async function cleanupFailedReplays(env, integrationId) {
+  const supabase = getSupabase(env);
+  const successStatuses = ['success', 'processed'];
+
+  // Fetch all submissions for this integration
+  const { data: subs, error: subsError } = await supabase
+    .from(TABLES.submissions)
+    .select('id, status, replay_of_submission_id')
+    .eq('integration_id', integrationId);
+  if (subsError) throw new Error(`Failed to fetch submissions: ${subsError.message}`);
+
+  // Group replays by their original
+  const replaysByOrigId = {};
+  subs.filter(s => s.replay_of_submission_id).forEach(r => {
+    if (!replaysByOrigId[r.replay_of_submission_id]) replaysByOrigId[r.replay_of_submission_id] = [];
+    replaysByOrigId[r.replay_of_submission_id].push(r);
+  });
+
+  const toPromote   = []; // successful replay ids to clear replay_of_submission_id
+  const toDeleteIds = []; // failed original + failed replay ids to delete
+
+  for (const [origId, replays] of Object.entries(replaysByOrigId)) {
+    const successfulReplays = replays.filter(r => successStatuses.includes(r.status));
+    if (successfulReplays.length === 0) continue; // no successful replay — skip
+
+    successfulReplays.forEach(r => toPromote.push(r.id));
+    replays.filter(r => !successStatuses.includes(r.status)).forEach(r => toDeleteIds.push(r.id));
+    toDeleteIds.push(origId);
+  }
+
+  if (toPromote.length > 0) {
+    const { error } = await supabase
+      .from(TABLES.submissions)
+      .update({ replay_of_submission_id: null })
+      .in('id', toPromote);
+    if (error) throw new Error(`Failed to promote replays: ${error.message}`);
+  }
+
+  let deleted = 0;
+  if (toDeleteIds.length > 0) {
+    const { error: tErr } = await supabase
+      .from(TABLES.submissionTargets)
+      .delete()
+      .in('submission_id', toDeleteIds);
+    if (tErr) throw new Error(`Failed to delete targets: ${tErr.message}`);
+
+    const { error: sErr } = await supabase
+      .from(TABLES.submissions)
+      .delete()
+      .in('id', toDeleteIds);
+    if (sErr) throw new Error(`Failed to delete submissions: ${sErr.message}`);
+    deleted = toDeleteIds.length;
+  }
+
+  return { deleted, promoted: toPromote.length };
 }
 
 export async function getTargetById(env, targetId) {
