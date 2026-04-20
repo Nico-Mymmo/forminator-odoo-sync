@@ -47,19 +47,31 @@
          : (t.order_index    != null ? t.order_index : (fallback != null ? fallback : 0));
   }
 
-  // ── Field metadata: per-integration hide/alias, persisted in localStorage ──────────────
-  function _fieldMetaKey(integId) { return 'fsv2_fieldmeta_' + String(integId); }
+  // ── Field metadata: per-integration hide/alias/show_in_list, persisted in DB ──────────
+  var _saveFieldMetaTimer = null;
   function _loadFieldMeta(integId) {
-    try {
-      var raw = localStorage.getItem(_fieldMetaKey(integId));
-      return raw ? JSON.parse(raw) : {};
-    } catch (e) { return {}; }
+    // Read from the already-loaded integration bundle (field_meta column)
+    var integ = S().detail && S().detail.integration;
+    if (integ && integ.id === integId && integ.field_meta && typeof integ.field_meta === 'object') {
+      return integ.field_meta;
+    }
+    return {};
   }
   function _saveFieldMeta(integId, meta) {
-    try {
-      if (!meta || !Object.keys(meta).length) localStorage.removeItem(_fieldMetaKey(integId));
-      else localStorage.setItem(_fieldMetaKey(integId), JSON.stringify(meta));
-    } catch (e) {}
+    // Update local state immediately so re-renders pick it up
+    if (S().detail && S().detail.integration && S().detail.integration.id === integId) {
+      S().detail.integration.field_meta = meta;
+    }
+    // Debounced write to DB (fire-and-forget)
+    if (_saveFieldMetaTimer) clearTimeout(_saveFieldMetaTimer);
+    _saveFieldMetaTimer = setTimeout(function () {
+      window.FSV2.api('/integrations/' + integId + '/field-meta', {
+        method: 'PUT',
+        body: JSON.stringify(meta),
+      }).catch(function (e) {
+        console.error('field_meta save failed:', e);
+      });
+    }, 400);
   }
 
   /**
@@ -947,17 +959,33 @@
       return;
     }
 
-    var identifierFields = [];
-    var targets = (S().detail && S().detail.targets) || [];
-    targets.forEach(function (t) {
-      var mappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[t.id]) || [];
-      mappings.forEach(function (m) {
-        if (m.is_identifier && m.source_type === 'form') {
-          var alreadyAdded = identifierFields.some(function (f) { return f.source_value === m.source_value; });
-          if (!alreadyAdded) identifierFields.push({ source_value: String(m.source_value), odoo_field: m.odoo_field });
-        }
-      });
+    var deleteUnlocked = !!S()._deleteUnlocked;
+    var integId = String(S().activeId || '');
+
+    // ── Toolbar ──────────────────────────────────────────────────────────
+    var toolbar =
+      '<div class="flex flex-wrap items-center gap-2 mb-3">' +
+        '<button class="btn btn-xs btn-ghost gap-1' + (deleteUnlocked ? ' btn-warning text-warning-content' : '') + '"' +
+          ' data-action="toggle-delete-unlock" title="' + (deleteUnlocked ? 'Vergrendel verwijderen' : 'Schakel verwijderen in') + '">' +
+          '<i data-lucide="' + (deleteUnlocked ? 'lock-open' : 'lock') + '" class="w-3.5 h-3.5"></i>' +
+          (deleteUnlocked ? 'Vergrendelen' : 'Ontgrendelen') +
+        '</button>' +
+        '<button class="btn btn-xs btn-ghost gap-1" data-action="cleanup-replays" title="Verwijder mislukte pogingen die later geslaagd zijn via replay">' +
+          '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i>Replay opkuis' +
+        '</button>' +
+        '<button class="btn btn-xs btn-ghost gap-1 ml-auto" data-action="open-export-modal" title="Exporteer indieningen">' +
+          '<i data-lucide="download" class="w-3.5 h-3.5"></i>Exporteren' +
+        '</button>' +
+      '</div>';
+    var fieldMeta    = S()._fieldMeta || {};
+    var allFormFields = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
+    var listFieldIds = Object.keys(fieldMeta).filter(function (k) { return fieldMeta[k] && fieldMeta[k].show_in_list; });
+    var listColumns  = listFieldIds.map(function (fid) {
+      var ff    = allFormFields.find(function (f) { return String(f.field_id || '') === fid; });
+      var label = fieldMeta[fid].alias || (ff && ff.label) || fid;
+      return { fid: fid, label: label };
     });
+    var targets = (S().detail && S().detail.targets) || [];
 
     function normalizeKey(k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); }
     function lookupPayloadValue(payload, sourceValue) {
@@ -972,16 +1000,17 @@
       return '';
     }
     function parsePayload(sub) {
-      try { return JSON.parse(sub.source_payload || '{}'); } catch (e) { return {}; }
+      var raw = sub.source_payload;
+      if (!raw) return {};
+      if (typeof raw === 'object') return raw;
+      try { return JSON.parse(raw); } catch (e) { return {}; }
     }
-    function submitterInfo(sub) {
-      if (!identifierFields.length) return '';
+    function listColumnValue(sub, fid) {
       var payload = parsePayload(sub);
-      var parts = identifierFields.map(function (f) {
-        var val = lookupPayloadValue(payload, f.source_value);
-        return val ? '<span class="font-medium">' + esc(val) + '</span>' : '';
-      }).filter(Boolean);
-      return parts.length ? parts.join(' &middot; ') : '<span class="text-base-content/30">onbekend</span>';
+      var val     = lookupPayloadValue(payload, fid);
+      return val
+        ? '<span class="font-medium">' + esc(String(val).slice(0, 80)) + '</span>'
+        : '<span class="text-base-content/30">&mdash;</span>';
     }
 
     var statusBadge = function (status) {
@@ -1011,7 +1040,7 @@
     replays.filter(function (r) { return !originals.find(function (o) { return o.id === r.replay_of_submission_id; }); })
       .forEach(function (r) { ordered.push({ sub: r, isReplay: true }); });
 
-    var showIndiener = identifierFields.length > 0;
+    // (showIndiener removed — listColumns drives the dynamic columns)
 
     // Builds the expandable timeline row for a submission.
     var skipLabels = {
@@ -1022,7 +1051,7 @@
     };
     var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error', posted: 'badge-success' };
     var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt', posted: '\uD83D\uDCAC notitie geplaatst' };
-    var colCount = showIndiener ? 6 : 5;
+    var colCount = 5 + listColumns.length;
 
     function buildTimelineRow(sub) {
       var shortId = window.FSV2.shortId(sub.id);
@@ -1154,9 +1183,10 @@
     }
 
     el.innerHTML =
+      toolbar +
       '<div class="overflow-x-auto">' +
         '<table class="table table-xs">' +
-          '<thead><tr><th>ID</th>' + (showIndiener ? '<th>Indiener</th>' : '') + '<th>Status</th><th>Fout</th><th>Aangemaakt</th><th>Actie</th></tr></thead>' +
+          '<thead><tr><th>ID</th>' + listColumns.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '<th>Status</th><th>Fout</th><th>Aangemaakt</th><th>Actie</th></tr></thead>' +
           '<tbody>' +
           ordered.map(function (item) {
             var sub         = item.sub;
@@ -1177,7 +1207,7 @@
                   (isReplay ? '<span class="badge badge-xs badge-accent mr-1">\u21b3 Replay</span>' : '') +
                   esc(shortId) +
                 '</td>' +
-                (showIndiener ? '<td class="text-xs">' + submitterInfo(sub) + '</td>' : '') +
+                listColumns.map(function (c) { return '<td class="text-xs">' + listColumnValue(sub, c.fid) + '</td>'; }).join('') +
                 '<td>' + statusBadge(sub.status) +
                   (successfulReplay ? '<span class="badge badge-xs badge-success ml-1">✓ opgelost via replay</span>' : '') +
                   actionBadge(sub) + '</td>' +
@@ -1186,7 +1216,9 @@
                 '<td>' + (replayAllowed
                   ? '<button class="btn btn-xs btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '">Replay</button>'
                   : '') +
-                  '<button class="btn btn-xs btn-ghost btn-square text-error ml-1" data-action="delete-submission" data-id="' + esc(sub.id) + '" title="Verwijder indienen"><i data-lucide="trash-2" class="w-3 h-3"></i></button>' +
+                  (deleteUnlocked
+                    ? '<button class="btn btn-xs btn-ghost btn-square text-error ml-1" data-action="delete-submission" data-id="' + esc(sub.id) + '" title="Verwijder indienen"><i data-lucide="trash-2" class="w-3 h-3"></i></button>'
+                    : '') +
                 '</td>' +
               '</tr>';
             return mainRow + buildTimelineRow(sub);
@@ -1290,9 +1322,10 @@
     var bodyRows = fieldsToShow.map(function (f) {
       var fid      = String(f.field_id || '');
       var rawLabel = f.label && f.label !== fid ? f.label : null;
-      var meta     = fieldMeta[fid] || {};
-      var alias    = meta.alias  || '';
-      var hidden   = !!meta.hidden;
+      var meta        = fieldMeta[fid] || {};
+      var alias       = meta.alias  || '';
+      var hidden      = !!meta.hidden;
+      var showInList  = !!meta.show_in_list;
       var coupled  = mappedLookup[fid];
       var coupledHtml = coupled && coupled.length
         ? coupled.map(function (of_) {
@@ -1330,13 +1363,21 @@
               '<div class="flex items-center gap-1 mt-1">' +
                 '<span class="badge badge-ghost badge-xs">' + esc(f.type || '-') + '</span>' +
                 (hidden ? '<span class="badge badge-xs badge-warning">verborgen</span>' : '') +
+                (showInList ? '<span class="badge badge-xs badge-info">lijst</span>' : '') +
               '</div>' +
             '</div>' +
-            '<button class="btn btn-xs btn-ghost btn-square shrink-0"' +
-              ' data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '"' +
-              ' title="' + (hidden ? 'Zichtbaar maken' : 'Verbergen') + '">' +
-              '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5 ' + (hidden ? 'text-base-content/30' : 'text-base-content/40') + '"></i>' +
-            '</button>' +
+            '<div class="flex flex-col gap-0.5">' +
+              '<button class="btn btn-xs btn-ghost btn-square shrink-0"' +
+                ' data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '"' +
+                ' title="' + (hidden ? 'Zichtbaar maken' : 'Verbergen') + '">' +
+                '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5 ' + (hidden ? 'text-base-content/30' : 'text-base-content/40') + '"></i>' +
+              '</button>' +
+              '<button class="btn btn-xs btn-square shrink-0 ' + (showInList ? 'btn-info' : 'btn-ghost') + '"' +
+                ' data-action="toggle-field-show-in-list" data-field-id="' + esc(fid) + '"' +
+                ' title="' + (showInList ? 'Verwijder uit lijst' : 'Toon in indieningen-lijst') + '">' +
+                '<i data-lucide="table-2" class="w-3.5 h-3.5"></i>' +
+              '</button>' +
+            '</div>' +
           '</div>' +
           '<div class="flex items-center gap-0.5 mt-1.5">' +
             '<input type="text" id="alias-inp-' + esc(fid) + '"' +
@@ -1457,7 +1498,7 @@
       S()._expandedValueMapField  = null;
       S()._pendingValueMapRows    = [];
       S()._pendingCatchall        = '';
-      S()._fieldMeta        = _loadFieldMeta(id);
+      S()._fieldMeta        = _loadFieldMeta(id);  // reads from integration.field_meta
       S()._showHiddenFields = false;
       window.FSV2.api('/integrations/' + id + '/field-transforms').then(function (r) {
         S().fieldTransforms = {};
@@ -1510,6 +1551,14 @@
   }
 
   async function handleToggleActive(checked) {
+    if (!checked) {
+      var integName = (S().detail && S().detail.integration && S().detail.integration.name) || 'deze integratie';
+      if (!confirm('Integratie "' + integName + '" deactiveren?\n\nNieuwe formulierinzendingen worden niet meer verwerkt zolang de integratie inactief is.')) {
+        var toggle = document.getElementById('detailActiveToggle');
+        if (toggle) toggle.checked = true;
+        return;
+      }
+    }
     try {
       await window.FSV2.api('/integrations/' + S().activeId, {
         method: 'PUT',
@@ -2187,11 +2236,24 @@
     var meta    = S()._fieldMeta || {};
     if (!meta[fid]) meta[fid] = {};
     meta[fid].hidden = !meta[fid].hidden;
-    if (!meta[fid].hidden && !meta[fid].alias) delete meta[fid];
+    if (!meta[fid].hidden && !meta[fid].alias && !meta[fid].show_in_list) delete meta[fid];
     S()._fieldMeta = meta;
     _saveFieldMeta(integId, meta);
     renderDetailFormFields();
     renderDetailMappings();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  function handleToggleShowInList(fid) {
+    var integId = String(S().activeId || '');
+    var meta    = S()._fieldMeta || {};
+    if (!meta[fid]) meta[fid] = {};
+    meta[fid].show_in_list = !meta[fid].show_in_list;
+    if (!meta[fid].show_in_list && !meta[fid].hidden && !meta[fid].alias) delete meta[fid];
+    S()._fieldMeta = meta;
+    _saveFieldMeta(integId, meta);
+    renderDetailFormFields();
+    renderDetailSubmissions();
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
@@ -2333,6 +2395,113 @@
     await openDetail(S().activeId);
   }
 
+  function handleToggleDeleteUnlock() {
+    S()._deleteUnlocked = !S()._deleteUnlocked;
+    renderDetailSubmissions();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  async function handleCleanupReplays() {
+    var integId = String(S().activeId || '');
+    if (!integId) return;
+    if (!confirm('Verwijder alle mislukte originele indieningen en replay-pogingen waarvoor een geslaagde replay bestaat? Dit kan niet ongedaan worden gemaakt.')) return;
+    try {
+      var res = await window.FSV2.api('/integrations/' + integId + '/cleanup-replays', { method: 'POST' });
+      window.FSV2.showAlert('Opgekuist: ' + res.data.deleted + ' verwijderd, ' + res.data.promoted + ' gepromoveerd.', 'success');
+      await openDetail(integId);
+    } catch (e) {
+      window.FSV2.showAlert('Opkuis mislukt: ' + e.message, 'error');
+    }
+  }
+
+  function handleOpenExportModal() {
+    var dlg = document.getElementById('exportSubmissionsDialog');
+    if (dlg) dlg.showModal();
+  }
+
+  function handleExportSubmissions(format) {
+    var dlg = document.getElementById('exportSubmissionsDialog');
+    var fromVal = document.getElementById('exportDateFrom') && document.getElementById('exportDateFrom').value;
+    var toVal   = document.getElementById('exportDateTo')   && document.getElementById('exportDateTo').value;
+
+    var subs = (S().submissions || []).filter(function (s) {
+      if (fromVal && s.created_at < fromVal) return false;
+      // to-date: include the whole day (compare up to T23:59:59)
+      if (toVal   && s.created_at.slice(0, 10) > toVal) return false;
+      return true;
+    });
+
+    var fieldMeta    = S()._fieldMeta || {};
+    var allFormFields = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
+    var listFieldIds = Object.keys(fieldMeta).filter(function (k) { return fieldMeta[k] && fieldMeta[k].show_in_list; });
+    var listColumns  = listFieldIds.map(function (fid) {
+      var ff    = allFormFields.find(function (f) { return String(f.field_id || '') === fid; });
+      var label = fieldMeta[fid].alias || (ff && ff.label) || fid;
+      return { fid: fid, label: label };
+    });
+
+    function getPayloadVal(sub, fid) {
+      var raw = sub.source_payload;
+      var payload = (raw && typeof raw === 'object') ? raw : (function () { try { return JSON.parse(raw || '{}'); } catch (e) { return {}; } }());
+      // normalised lookup (same as lookupPayloadValue)
+      var norm = function (k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); };
+      var normFid = norm(fid);
+      if (payload[fid] !== undefined && payload[fid] !== '') return payload[fid];
+      var keys = Object.keys(payload);
+      var m = keys.find(function (k) { return norm(k) === normFid && payload[k]; });
+      if (m) return payload[m];
+      var p = keys.find(function (k) { return norm(k).startsWith(normFid + '_') && payload[k]; });
+      return p ? payload[p] : '';
+    }
+
+    var fixedHeaders = ['id', 'status', 'aangemaakt', 'fout'];
+    var headers = fixedHeaders.concat(listColumns.map(function (c) { return c.label; }));
+
+    var rows = subs.map(function (s) {
+      var row = {
+        id: window.FSV2.shortId(s.id),
+        status: s.status || '',
+        aangemaakt: window.FSV2.fmt(s.created_at),
+        fout: s.last_error || '',
+      };
+      listColumns.forEach(function (c) { row[c.label] = getPayloadVal(s, c.fid); });
+      return row;
+    });
+
+    var filename = 'indieningen-' + (S().detail && S().detail.integration && S().detail.integration.name
+      ? S().detail.integration.name.replace(/[^a-zA-Z0-9_-]/g, '_')
+      : 'export');
+
+    if (format === 'json') {
+      var blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' });
+      _downloadBlob(blob, filename + '.json');
+    } else if (format === 'csv') {
+      var csv = [headers.join(',')].concat(rows.map(function (r) {
+        return headers.map(function (h) {
+          var v = String(r[h] !== undefined ? r[h] : '').replace(/"/g, '""');
+          return '"' + v + '"';
+        }).join(',');
+      })).join('\r\n');
+      var blob2 = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      _downloadBlob(blob2, filename + '.csv');
+    } else if (format === 'xlsx') {
+      if (typeof XLSX === 'undefined') { window.FSV2.showAlert('XLSX-bibliotheek niet geladen.', 'error'); return; }
+      var ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Indieningen');
+      XLSX.writeFile(wb, filename + '.xlsx');
+    }
+
+    if (dlg) dlg.close();
+  }
+
+  function _downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // EXPORT &mdash; extend FSV2
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -2419,7 +2588,9 @@
       window.FSV2.showAlert('Kan de enige stap niet verwijderen. Verwijder de volledige integratie als je deze wilt wissen.', 'warning');
       return;
     }
-    if (!confirm('Weet je zeker dat je deze stap wilt verwijderen? Alle veldkoppelingen van deze stap gaan ook verloren.')) return;
+    var target = targets.find(function (t) { return String(t.id) === String(targetId); });
+    var stepLabel = (target && (target.label || target.odoo_model)) || 'deze stap';
+    if (!confirm('Stap "' + stepLabel + '" verwijderen?\n\nAlle veldkoppelingen van deze stap gaan ook permanent verloren. Dit kan niet ongedaan worden gemaakt.')) return;
     await window.FSV2.api('/integrations/' + integrationId + '/targets/' + targetId, { method: 'DELETE' });
     window.FSV2.showAlert('Stap verwijderd.', 'success');
     var po = getPipelineOpen(integrationId);
@@ -3182,11 +3353,16 @@
     fetchDetailFormFields:    fetchDetailFormFields,
     handleRefreshFormFields:  handleRefreshFormFields,
     handleToggleFieldHidden:  handleToggleFieldHidden,
+    handleToggleShowInList:   handleToggleShowInList,
     handleSaveFieldAlias:     handleSaveFieldAlias,
     handleToggleShowHidden:   handleToggleShowHidden,
     handleDeleteIntegration: handleDeleteIntegration,
     handleReplay:            handleReplay,
     handleDeleteSubmission:  handleDeleteSubmission,
+    handleToggleDeleteUnlock: handleToggleDeleteUnlock,
+    handleCleanupReplays:    handleCleanupReplays,
+    handleOpenExportModal:   handleOpenExportModal,
+    handleExportSubmissions: handleExportSubmissions,
   });
 
 }());

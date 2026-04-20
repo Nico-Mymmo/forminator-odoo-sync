@@ -29,6 +29,8 @@ import {
   getSubmissionById,
   listSubmissionTargetResults,
   deleteSubmission,
+  cleanupFailedReplays,
+  upsertFieldMeta,
   listWpConnections,
   getWpConnectionById,
   createWpConnection,
@@ -700,6 +702,34 @@ export const routes = {
         return jsonResponse({ success: false, error: 'Submission id is required' }, 400);
       }
       await deleteSubmission(context.env, submissionId);
+      return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/integrations/:integrationId/cleanup-replays': async (context) => {
+    try {
+      const integrationId = context.params?.integrationId;
+      if (!integrationId) {
+        return jsonResponse({ success: false, error: 'Integration id is required' }, 400);
+      }
+      const result = await cleanupFailedReplays(context.env, integrationId);
+      return jsonResponse({ success: true, data: result });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'PUT /api/integrations/:integrationId/field-meta': async (context) => {
+    try {
+      const integrationId = context.params?.integrationId;
+      if (!integrationId) {
+        return jsonResponse({ success: false, error: 'Integration id is required' }, 400);
+      }
+      const body = await readJsonBody(context.request);
+      const meta = (body && typeof body === 'object' && !Array.isArray(body)) ? body : {};
+      await upsertFieldMeta(context.env, integrationId, meta);
       return jsonResponse({ success: true });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));

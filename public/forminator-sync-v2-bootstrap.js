@@ -349,6 +349,22 @@
         await window.FSV2.handleDeleteSubmission(btn.dataset.id);
         return;
       }
+      if (action === 'toggle-delete-unlock') {
+        window.FSV2.handleToggleDeleteUnlock();
+        return;
+      }
+      if (action === 'cleanup-replays') {
+        await window.FSV2.handleCleanupReplays();
+        return;
+      }
+      if (action === 'open-export-modal') {
+        window.FSV2.handleOpenExportModal();
+        return;
+      }
+      if (action === 'export-submissions') {
+        window.FSV2.handleExportSubmissions(btn.dataset.format);
+        return;
+      }
       if (action === 'add-target') {
         await window.FSV2.handleAddTarget(btn.dataset.integrationid);
         return;
@@ -712,6 +728,11 @@
       if (action === 'toggle-field-hidden') {
         var thfFid = btn.dataset.fieldId || '';
         if (thfFid && window.FSV2.handleToggleFieldHidden) window.FSV2.handleToggleFieldHidden(thfFid);
+        return;
+      }
+      if (action === 'toggle-field-show-in-list') {
+        var tsilFid = btn.dataset.fieldId || '';
+        if (tsilFid && window.FSV2.handleToggleShowInList) window.FSV2.handleToggleShowInList(tsilFid);
         return;
       }
       if (action === 'toggle-show-hidden') {
