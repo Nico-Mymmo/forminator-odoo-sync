@@ -129,6 +129,25 @@ export async function deleteIntegration(env, integrationId) {
   return true;
 }
 
+export async function deleteSubmission(env, submissionId) {
+  const supabase = getSupabase(env);
+
+  // Delete child target rows first (FK constraint)
+  const { error: targetsError } = await supabase
+    .from(TABLES.submissionTargets)
+    .delete()
+    .eq('submission_id', submissionId);
+  if (targetsError) throw new Error(`Failed to delete submission targets: ${targetsError.message}`);
+
+  const { error } = await supabase
+    .from(TABLES.submissions)
+    .delete()
+    .eq('id', submissionId);
+  if (error) throw new Error(`Failed to delete submission: ${error.message}`);
+
+  return true;
+}
+
 export async function getTargetById(env, targetId) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase

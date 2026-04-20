@@ -1350,13 +1350,18 @@ export const routes = {
         .single();
       
       if (!existingSnapshot) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: 'Webinar must be published before adding editorial content'
-        }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
+        // Create a minimal placeholder snapshot so editorial metadata can be stored before first publish
+        const { error: insertError } = await supabase
+          .from('webinar_snapshots')
+          .insert({
+            odoo_webinar_id: odooWebinarId,
+            odoo_snapshot: {},
+            computed_state: SYNC_STATUS.NOT_PUBLISHED,
+            last_synced_at: new Date().toISOString()
+          });
+        if (insertError) {
+          throw insertError;
+        }
       }
       
       // Build update data (only include provided fields)
