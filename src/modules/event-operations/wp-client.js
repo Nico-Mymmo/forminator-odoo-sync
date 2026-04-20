@@ -234,9 +234,13 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   }
 
   // Append form shortcode if selected (decoupled from editorial content)
+  console.log(`${LOG_PREFIX} 📋 Form: selected_form_id=${selectedFormIdToSave}, editorial_mode=${editorialModeToSave}, desc_len=${descriptionHtml.length}`);
   if (selectedFormIdToSave) {
     const formShortcode = `\n\n[forminator_form id="${selectedFormIdToSave}"]`;
     descriptionHtml += formShortcode;
+    console.log(`${LOG_PREFIX} 📋 Form shortcode appended: [forminator_form id="${selectedFormIdToSave}"]`);
+  } else {
+    console.log(`${LOG_PREFIX} 📋 No form shortcode (selected_form_id is null/empty)`);
   }
 
   // Title override from snapshot (if configured)
