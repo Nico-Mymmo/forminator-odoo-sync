@@ -973,18 +973,26 @@
         '<button class="btn btn-xs btn-ghost gap-1" data-action="cleanup-replays" title="Verwijder mislukte pogingen die later geslaagd zijn via replay">' +
           '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i>Replay opkuis' +
         '</button>' +
-        '<button class="btn btn-xs btn-ghost gap-1 ml-auto" data-action="open-export-modal" title="Exporteer indieningen">' +
+        '<button class="btn btn-xs btn-ghost gap-1 ml-auto" data-action="refresh-submissions" title="Indieningen verversen">' +
+          '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Verversen' +
+        '</button>' +
+        '<button class="btn btn-xs btn-ghost gap-1" data-action="open-export-modal" title="Exporteer indieningen">' +
           '<i data-lucide="download" class="w-3.5 h-3.5"></i>Exporteren' +
         '</button>' +
       '</div>';
     var fieldMeta    = S()._fieldMeta || {};
     var allFormFields = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
-    var listFieldIds = Object.keys(fieldMeta).filter(function (k) { return fieldMeta[k] && fieldMeta[k].show_in_list; });
-    var listColumns  = listFieldIds.map(function (fid) {
+    var listFieldIds = Object.keys(fieldMeta).filter(function (k) { return fieldMeta[k] && fieldMeta[k].show_in_list && !fieldMeta[k].hidden; });
+    // Deduplicate columns by label — if the form was renamed, old and new field_ids may share
+    // the same alias/label. Merge into one column so both old and new submissions show data.
+    var listColumnsMap = {};
+    listFieldIds.forEach(function (fid) {
       var ff    = allFormFields.find(function (f) { return String(f.field_id || '') === fid; });
       var label = fieldMeta[fid].alias || (ff && ff.label) || fid;
-      return { fid: fid, label: label };
+      if (!listColumnsMap[label]) { listColumnsMap[label] = { fids: [], label: label }; }
+      listColumnsMap[label].fids.push(fid);
     });
+    var listColumns = Object.values(listColumnsMap);
     var targets = (S().detail && S().detail.targets) || [];
 
     function normalizeKey(k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); }
@@ -1005,9 +1013,15 @@
       if (typeof raw === 'object') return raw;
       try { return JSON.parse(raw); } catch (e) { return {}; }
     }
-    function listColumnValue(sub, fid) {
+    function listColumnValue(sub, col) {
       var payload = parsePayload(sub);
-      var val     = lookupPayloadValue(payload, fid);
+      // col can be { fids, label } (new) or a bare fid string (safety)
+      var fids = (col && col.fids) ? col.fids : [col];
+      var val  = '';
+      for (var fi = 0; fi < fids.length; fi++) {
+        val = lookupPayloadValue(payload, fids[fi]);
+        if (val) break;
+      }
       return val
         ? '<span class="font-medium">' + esc(String(val).slice(0, 80)) + '</span>'
         : '<span class="text-base-content/30">&mdash;</span>';
@@ -1186,7 +1200,7 @@
       toolbar +
       '<div class="overflow-x-auto">' +
         '<table class="table table-xs">' +
-          '<thead><tr><th>ID</th>' + listColumns.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '<th>Status</th><th>Fout</th><th>Aangemaakt</th><th>Actie</th></tr></thead>' +
+          '<thead><tr><th>ID</th>' + listColumns.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '<th>Status</th><th>Fout</th><th>Aangemaakt</th><th class="sticky right-0 bg-base-100 z-10">Actie</th></tr></thead>' +
           '<tbody>' +
           ordered.map(function (item) {
             var sub         = item.sub;
@@ -1196,9 +1210,12 @@
               return ['success', 'processed'].includes(String(r.status || ''));
             });
             var replayAllowed = !isReplay && !successfulReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
+            // Force-replay: allow replaying any submission (incl. success) when delete is unlocked.
+            // Useful to retroactively fix submissions that were processed with broken mappings.
+            var forceReplayAllowed = deleteUnlocked && !replayAllowed && ['success', 'processed', 'partial_failed'].includes(String(sub.status || ''));
             var errorCell   = sub.last_error
               ? '<span class="text-xs text-error/80 font-mono" title="' + esc(sub.last_error) + '">' +
-                  esc(sub.last_error.slice(0, 60)) + (sub.last_error.length > 60 ? '\u2026' : '') +
+                  esc(sub.last_error.slice(0, 40)) + (sub.last_error.length > 40 ? '\u2026' : '') +
                 '</span>'
               : '<span class="text-base-content/30">&mdash;</span>';
             var mainRow =
@@ -1207,15 +1224,18 @@
                   (isReplay ? '<span class="badge badge-xs badge-accent mr-1">\u21b3 Replay</span>' : '') +
                   esc(shortId) +
                 '</td>' +
-                listColumns.map(function (c) { return '<td class="text-xs">' + listColumnValue(sub, c.fid) + '</td>'; }).join('') +
+                listColumns.map(function (c) { return '<td class="text-xs">' + listColumnValue(sub, c) + '</td>'; }).join('') +
                 '<td>' + statusBadge(sub.status) +
                   (successfulReplay ? '<span class="badge badge-xs badge-success ml-1">✓ opgelost via replay</span>' : '') +
                   actionBadge(sub) + '</td>' +
-                '<td class="max-w-xs truncate">' + errorCell + '</td>' +
+                '<td class="max-w-[10rem] truncate overflow-hidden">' + errorCell + '</td>' +
                 '<td class="text-xs whitespace-nowrap">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
-                '<td>' + (replayAllowed
+                '<td class="sticky right-0 bg-base-100">' + (replayAllowed
                   ? '<button class="btn btn-xs btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '">Replay</button>'
                   : '') +
+                  (forceReplayAllowed
+                    ? '<button class="btn btn-xs btn-outline btn-warning" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Opnieuw verwerken (forceren)"><i data-lucide="refresh-cw" class="w-3 h-3 mr-1"></i>Herverwerk</button>'
+                    : '') +
                   (deleteUnlocked
                     ? '<button class="btn btn-xs btn-ghost btn-square text-error ml-1" data-action="delete-submission" data-id="' + esc(sub.id) + '" title="Verwijder indienen"><i data-lucide="trash-2" class="w-3 h-3"></i></button>'
                     : '') +
@@ -2434,24 +2454,33 @@
     var fieldMeta    = S()._fieldMeta || {};
     var allFormFields = Array.isArray(S().detailFormFields) ? S().detailFormFields : [];
     var listFieldIds = Object.keys(fieldMeta).filter(function (k) { return fieldMeta[k] && fieldMeta[k].show_in_list; });
-    var listColumns  = listFieldIds.map(function (fid) {
+    var listColumnsMap2 = {};
+    listFieldIds.forEach(function (fid) {
       var ff    = allFormFields.find(function (f) { return String(f.field_id || '') === fid; });
       var label = fieldMeta[fid].alias || (ff && ff.label) || fid;
-      return { fid: fid, label: label };
+      if (!listColumnsMap2[label]) { listColumnsMap2[label] = { fids: [], label: label }; }
+      listColumnsMap2[label].fids.push(fid);
     });
+    var listColumns  = Object.values(listColumnsMap2);
 
-    function getPayloadVal(sub, fid) {
+    function getPayloadVal(sub, fids) {
+      if (!Array.isArray(fids)) fids = [fids];
       var raw = sub.source_payload;
       var payload = (raw && typeof raw === 'object') ? raw : (function () { try { return JSON.parse(raw || '{}'); } catch (e) { return {}; } }());
       // normalised lookup (same as lookupPayloadValue)
       var norm = function (k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); };
-      var normFid = norm(fid);
-      if (payload[fid] !== undefined && payload[fid] !== '') return payload[fid];
-      var keys = Object.keys(payload);
-      var m = keys.find(function (k) { return norm(k) === normFid && payload[k]; });
-      if (m) return payload[m];
-      var p = keys.find(function (k) { return norm(k).startsWith(normFid + '_') && payload[k]; });
-      return p ? payload[p] : '';
+      var result = '';
+      for (var i = 0; i < fids.length; i++) {
+        var fid    = fids[i];
+        var normFid = norm(fid);
+        if (payload[fid] !== undefined && payload[fid] !== '') { result = payload[fid]; break; }
+        var keys = Object.keys(payload);
+        var m = keys.find(function (k) { return norm(k) === normFid && payload[k]; });
+        if (m) { result = payload[m]; break; }
+        var p = keys.find(function (k) { return norm(k).startsWith(normFid + '_') && payload[k]; });
+        if (p) { result = payload[p]; break; }
+      }
+      return result;
     }
 
     var fixedHeaders = ['id', 'status', 'aangemaakt', 'fout'];
@@ -2464,7 +2493,7 @@
         aangemaakt: window.FSV2.fmt(s.created_at),
         fout: s.last_error || '',
       };
-      listColumns.forEach(function (c) { row[c.label] = getPayloadVal(s, c.fid); });
+      listColumns.forEach(function (c) { row[c.label] = getPayloadVal(s, c.fids); });
       return row;
     });
 

@@ -56,6 +56,12 @@ export function classifyDuplicateStatus(existingStatus) {
     return 'duplicate_inflight';
   }
 
+  // permanent_failed and retry_exhausted are not blocked as duplicates —
+  // re-sending the same payload from the source (e.g. Zapier) should be allowed.
+  if (['permanent_failed', 'retry_exhausted'].includes(normalizedStatus)) {
+    return null;
+  }
+
   if (isTerminalSubmissionStatus(normalizedStatus)) {
     return 'duplicate_ignored';
   }
