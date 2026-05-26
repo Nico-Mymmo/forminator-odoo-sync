@@ -214,6 +214,15 @@ function convertFieldType(value, type) {
   if (type === 'auto') {
     // Auto mode: keep original type or try to parse
     if (typeof value === 'string') {
+      // Auto-convert ISO 8601 datetime strings to Odoo format (YYYY-MM-DD HH:MM:SS)
+      // Matches: 2026-05-04T22:45:47Z, 2026-05-04T22:45:47+0000, 2026-05-04T22:45:47.000Z etc.
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+        const d = new Date(value);
+        if (!isNaN(d.getTime())) {
+          const pad = n => String(n).padStart(2, '0');
+          return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+        }
+      }
       // Try to parse JSON-like values
       try {
         if (value === 'true') return true;
@@ -244,6 +253,20 @@ function convertFieldType(value, type) {
         return value.toLowerCase() === 'true' || value === '1';
       }
       return Boolean(value);
+    case 'datetime': {
+      // Odoo expects 'YYYY-MM-DD HH:MM:SS' (UTC, no T, no timezone)
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return value;
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+    }
+    case 'date': {
+      // Odoo expects 'YYYY-MM-DD'
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return value;
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    }
     default:
       return value;
   }
