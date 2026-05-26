@@ -1384,6 +1384,7 @@
                 '<span class="badge badge-ghost badge-xs">' + esc(f.type || '-') + '</span>' +
                 (hidden ? '<span class="badge badge-xs badge-warning">verborgen</span>' : '') +
                 (showInList ? '<span class="badge badge-xs badge-info">lijst</span>' : '') +
+                (f.from_payload ? '<span class="badge badge-xs badge-secondary" title="Extra veld herkend uit inzending-payload — staat niet in de formulierdefinitie">payload</span>' : '') +
               '</div>' +
             '</div>' +
             '<div class="flex flex-col gap-0.5">' +
@@ -2347,6 +2348,63 @@
     }
   }
 
+  /**
+   * Scant bestaande inzendingen op payload-sleutels die niet in de form-definitie staan
+   * (bv. referer, ovme-uuid). Voegt deze toe als extra velden met from_payload: true.
+   */
+  function mergePayloadExtraFields(knownFields) {
+    var submissions = S().submissions || [];
+    if (!submissions.length) return knownFields || [];
+
+    // Normaliseer een field key: lowercase, koppeltekens/underscores/spaties → underscore
+    // Zelfde logica als normalizeFieldKey in de worker, zodat "text-1" === "text_1"
+    function normKey(k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); }
+
+    // Bouw een set van bekende genormaliseerde field_ids (inclusief composite children)
+    var knownNorm = {};
+    (knownFields || []).forEach(function (f) {
+      knownNorm[normKey(f.field_id)] = true;
+      // kinderen als objecten (raw WP-schema heeft f.children)
+      if (Array.isArray(f.children)) {
+        f.children.forEach(function (c) { knownNorm[normKey(c.field_id)] = true; });
+      }
+      // kinderen als strings (na flattening: f.composite_children)
+      if (Array.isArray(f.composite_children)) {
+        f.composite_children.forEach(function (cid) { knownNorm[normKey(cid)] = true; });
+      }
+    });
+
+    // Container-sleutels die zelf geen bruikbare veldwaarden zijn
+    var CONTAINER_NORM = { form_fields: 1, form_data: 1, data: 1, submission: 1 };
+
+    var extraKeys = {};
+    submissions.forEach(function (sub) {
+      var raw = sub.source_payload;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+
+      function scanKeys(obj) {
+        Object.keys(obj).forEach(function (key) {
+          var n = normKey(key);
+          if (!knownNorm[n] && !CONTAINER_NORM[n]) extraKeys[key] = true;
+        });
+      }
+
+      // Scan root-level sleutels (referer, ovme-uuid etc. zitten hier typisch)
+      scanKeys(raw);
+      // Scan ook geneste form_fields / form_data als dat een object is
+      var nested = raw.form_fields || raw.form_data;
+      if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        scanKeys(nested);
+      }
+    });
+
+    var extras = Object.keys(extraKeys).map(function (key) {
+      return { field_id: key, label: key, type: 'text', from_payload: true };
+    });
+
+    return (knownFields || []).concat(extras);
+  }
+
   async function fetchDetailFormFields(sk, fid) {
     S().detailFormFields = 'loading';
     renderDetailFormFields();
@@ -2372,6 +2430,8 @@
       }
 
       S().detailFormFields = ffMatch && ffMatch.fields ? ffMatch.fields : [];
+      // Voeg extra velden toe die in payload-inzendingen voorkomen maar niet in de form-definitie staan
+      S().detailFormFields = mergePayloadExtraFields(S().detailFormFields);
 
       // Sla de ontdekte site_key terug op de integratie zodat volgende keer direct werkt
       if (foundKey && !sk && S().detail && S().detail.integration) {
