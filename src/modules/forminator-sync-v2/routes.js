@@ -91,6 +91,522 @@ function assertIntegrationSelected(integrationId) {
   }
 }
 
+function normalizeImportText(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).replace(/\s+/g, ' ').trim();
+}
+
+function normalizeImportPhone(value) {
+  const raw = normalizeImportText(value);
+  if (!raw) return '';
+  return raw.replace(/[^\d+]/g, '');
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  value.forEach((item) => {
+    const key = normalizeImportText(item);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(key);
+  });
+  return out;
+}
+
+function getOrderedValueMapKeys(transform) {
+  const valueMap = transform && transform.value_map && typeof transform.value_map === 'object'
+    ? transform.value_map
+    : null;
+  if (!valueMap) return [];
+
+  const storedOrder = normalizeStringArray(transform && transform.value_map_order);
+  const mapKeys = Object.keys(valueMap).filter((key) => key !== '__catchall__');
+  if (!storedOrder.length) return mapKeys;
+
+  const keySet = new Set(mapKeys);
+  const ordered = [];
+  storedOrder.forEach((key) => {
+    if (!keySet.has(key)) return;
+    ordered.push(key);
+    keySet.delete(key);
+  });
+  mapKeys.forEach((key) => {
+    if (keySet.has(key)) ordered.push(key);
+  });
+  return ordered;
+}
+
+function normalizeImportChannel(value) {
+  const channel = normalizeImportText(value).toLowerCase();
+  if (!channel) return 'mail';
+  if (channel.includes('mail')) return 'mail';
+  if (channel.includes('phone') || channel.includes('telefoon') || channel.includes('call')) return 'phone';
+  if (channel.includes('whatsapp') || channel.includes('whats app')) return 'whatsapp';
+  return channel;
+}
+
+function parseExcelSerialDate(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  // Excel serial epoch handling (with 1900 leap-year bug adjustment via 25569 offset)
+  const millis = Math.round((num - 25569) * 86400 * 1000);
+  const d = new Date(millis);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function parseFlexibleDateToIso(value) {
+  if (value === undefined || value === null || value === '') return '';
+
+  // Numeric Excel serial
+  if (typeof value === 'number') {
+    const excelIso = parseExcelSerialDate(value);
+    if (excelIso) return excelIso;
+  }
+
+  const raw = normalizeImportText(value);
+  if (!raw) return '';
+
+  // Numeric string Excel serial
+  if (/^\d+(\.\d+)?$/.test(raw)) {
+    const excelIso = parseExcelSerialDate(Number(raw));
+    if (excelIso) return excelIso;
+  }
+
+  // Existing legacy parser first (supports MM/DD/YYYY h:mmam)
+  const legacyIso = parseMetaCreatedAt(raw);
+  if (legacyIso) return legacyIso;
+
+  // DD/MM/YYYY [HH:mm]
+  let m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/);
+  if (m) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    const year = Number(m[3]);
+    const hour = Number(m[4] || 0);
+    const minute = Number(m[5] || 0);
+    const d = new Date(year, month - 1, day, hour, minute, 0);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+
+  // YYYY-MM-DD [HH:mm[:ss]]
+  m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (m) {
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    const day = Number(m[3]);
+    const hour = Number(m[4] || 0);
+    const minute = Number(m[5] || 0);
+    const second = Number(m[6] || 0);
+    const d = new Date(year, month - 1, day, hour, minute, second);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+
+  const fallback = new Date(raw);
+  if (!Number.isNaN(fallback.getTime())) return fallback.toISOString();
+
+  return null;
+}
+
+function isLikelyDateField(fieldName) {
+  const k = String(fieldName || '').toLowerCase();
+  return k.includes('date') || k.includes('datum') || k.includes('time') || k.includes('tijd') || k.includes('created_at') || k.includes('created_time') || k === 'gemaakt op';
+}
+
+function isLikelyEmailField(fieldName) {
+  const k = String(fieldName || '').toLowerCase();
+  return k.includes('email') || k.includes('mail');
+}
+
+function isLikelyPhoneField(fieldName) {
+  const k = String(fieldName || '').toLowerCase();
+  return k.includes('phone') || k.includes('telefoon') || k.includes('gsm') || k.includes('mobile') || k.includes('whatsapp');
+}
+
+function isLikelyContactField(fieldName) {
+  const k = String(fieldName || '').toLowerCase();
+  return k === 'contact' || k === 'raw_contact' || k === 'kanaal';
+}
+
+function isLikelyPlatformField(fieldName) {
+  const k = String(fieldName || '').toLowerCase();
+  return k === 'platform' || k === 'raw_platform' || k === 'bron';
+}
+
+function normalizePlatformValue(value) {
+  const raw = normalizeImportText(value).toLowerCase();
+  if (!raw) return '';
+  if (raw === 'betaald' || raw === 'paid') return 'fb';
+  if (raw === 'organisch' || raw === 'organic') return 'fb';
+  if (raw === 'facebook' || raw === 'fb') return 'fb';
+  if (raw === 'instagram' || raw === 'ig') return 'ig';
+  if (raw === 'linkedin' || raw === 'li') return 'li';
+  if (raw === 'google') return 'google';
+  return raw;
+}
+
+function normalizeFieldValueByType(fieldName, value) {
+  if (value === undefined || value === null || value === '') return '';
+
+  if (isLikelyDateField(fieldName)) {
+    const iso = parseFlexibleDateToIso(value);
+    if (iso === null) {
+      const err = new Error('Ongeldige datum/tijd voor veld "' + fieldName + '". Gebruik bv. 2026-05-22 07:46, 22/05/2026 07:46 of Excel datum.');
+      err.code = 'VALIDATION_ERROR';
+      throw err;
+    }
+    return iso;
+  }
+
+  if (isLikelyEmailField(fieldName)) {
+    return normalizeImportText(value).toLowerCase();
+  }
+
+  if (isLikelyPhoneField(fieldName)) {
+    return normalizeImportPhone(value);
+  }
+
+  if (isLikelyContactField(fieldName)) {
+    return normalizeImportChannel(value);
+  }
+
+  if (isLikelyPlatformField(fieldName)) {
+    return normalizePlatformValue(value);
+  }
+
+  return normalizeImportText(value);
+}
+
+function parseMetaCreatedAt(value) {
+  const raw = normalizeImportText(value);
+  if (!raw) return null;
+
+  // Meta export uses format like "05/31/2026 9:58am"
+  const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+  if (match) {
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const year = Number(match[3]);
+    let hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const ampm = String(match[6]).toLowerCase();
+
+    if (ampm === 'pm' && hour < 12) hour += 12;
+    if (ampm === 'am' && hour === 12) hour = 0;
+
+    const dt = new Date(year, month - 1, day, hour, minute, 0);
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toISOString();
+    }
+  }
+
+  const fallback = new Date(raw);
+  if (!Number.isNaN(fallback.getTime())) {
+    return fallback.toISOString();
+  }
+
+  return null;
+}
+
+function buildMetaLeadPayload(row, integration) {
+  const name = normalizeImportText(row['Naam'] || row.name || row.full_name);
+  const email = normalizeImportText(row['E-mailadres'] || row.email || row.raw_email).toLowerCase();
+  const phone = normalizeImportPhone(
+    row['Telefoonnummer'] || row['WhatsApp-nummer'] || row['Secundair telefoonnummer'] || row.phone_number || row.raw_phone_number
+  );
+  const channel = normalizeImportChannel(row['Kanaal'] || row.contact || row.raw_contact || 'mail');
+  const formName = normalizeImportText(row['Formulier'] || row.form_name);
+  const createdAtIso = parseMetaCreatedAt(row['Gemaakt op'] || row.created_time);
+  const sourceLabel = normalizeImportText(row['Bron'] || row.source || '').toLowerCase();
+  const platform = sourceLabel.includes('betaald') ? 'fb' : normalizeImportText(row.platform || row.raw_platform || 'fb').toLowerCase();
+
+  // Deterministic fingerprint used for repeated CSV imports.
+  const importFingerprint = [
+    integration.id,
+    email || '-',
+    phone || '-',
+    normalizeImportText(formName).toLowerCase() || '-',
+    createdAtIso ? createdAtIso.slice(0, 16) : '-'
+  ].join('|');
+
+  return {
+    full_name: name,
+    raw_full_name: name,
+    email,
+    raw_email: email,
+    phone_number: phone,
+    raw_phone_number: phone,
+    contact: channel,
+    raw_contact: channel,
+    form_id: integration.forminator_form_id,
+    form_name: formName,
+    platform,
+    raw_platform: platform,
+    created_time: createdAtIso || new Date().toISOString(),
+    imported_from: 'meta_leads_csv',
+    import_fingerprint: importFingerprint,
+    meta_export_row: row,
+  };
+}
+
+function parseJsonObject(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractExpectedImportFields(bundle) {
+  const fields = [];
+  const seen = new Set();
+
+  function addField(field) {
+    const key = normalizeImportText(field);
+    if (!key) return;
+    if (seen.has(key)) return;
+    seen.add(key);
+    fields.push(key);
+  }
+
+  const resolvers = Array.isArray(bundle?.resolvers) ? bundle.resolvers : [];
+  resolvers.forEach((resolver) => {
+    addField(resolver?.input_source_field);
+  });
+
+  const targets = Array.isArray(bundle?.targets) ? bundle.targets : [];
+  const mappingsByTarget = bundle?.mappingsByTarget || {};
+  targets.forEach((target) => {
+    const targetMappings = Array.isArray(mappingsByTarget[target.id]) ? mappingsByTarget[target.id] : [];
+    targetMappings.forEach((mapping) => {
+      if (mapping?.source_type === 'form') addField(mapping?.source_value);
+    });
+    addField(target?.condition_field);
+  });
+
+  // Always allow common webhook keys as fallback for all integrations.
+  ['full_name', 'email', 'phone_number', 'contact', 'form_name', 'created_time'].forEach(addField);
+
+  return fields;
+}
+
+function buildPayloadFromConnectionTemplateRow(row, integration, expectedFields) {
+  const source = (row && typeof row === 'object') ? row : {};
+  const payload = {};
+  let hasExpectedValue = false;
+
+  expectedFields.forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(source, field)) return;
+    const value = source[field];
+    const normalized = normalizeFieldValueByType(field, value);
+    if (normalized) hasExpectedValue = true;
+    payload[field] = normalized;
+  });
+
+  if (!hasExpectedValue) {
+    // No integration-specific fields provided: treat as Meta export row.
+    return buildMetaLeadPayload(source, integration);
+  }
+
+  if (!payload.form_id) payload.form_id = integration.forminator_form_id;
+  if (!payload.form_name) payload.form_name = normalizeImportText(source.form_name || integration.name || '');
+  if (!payload.created_time) {
+    const createdValue = source['Gemaakt op'] || source.created_time;
+    const createdIso = parseFlexibleDateToIso(createdValue);
+    payload.created_time = createdIso || new Date().toISOString();
+  }
+  if (!payload.raw_email && payload.email) payload.raw_email = payload.email;
+  if (!payload.raw_full_name && payload.full_name) payload.raw_full_name = payload.full_name;
+  if (!payload.raw_phone_number && payload.phone_number) payload.raw_phone_number = payload.phone_number;
+  if (!payload.raw_contact && payload.contact) payload.raw_contact = payload.contact;
+
+  return payload;
+}
+
+function buildImportSignature(payload) {
+  var source = payload;
+  if (!source) return '';
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source);
+    } catch {
+      return '';
+    }
+  }
+  if (typeof source !== 'object') return '';
+
+  const email = normalizeImportText(source.email || source.raw_email).toLowerCase();
+  const phone = normalizeImportPhone(source.phone_number || source.raw_phone_number);
+  const formName = normalizeImportText(source.form_name || source.Formulier).toLowerCase();
+  const created = normalizeImportText(source.created_time || source['Gemaakt op']);
+  const createdMinute = created ? created.slice(0, 16) : '';
+  const fingerprint = normalizeImportText(source.import_fingerprint);
+  const baseSignature = [email || '-', phone || '-', formName || '-', createdMinute || '-', fingerprint || '-'].join('|');
+  if (baseSignature !== '-|-|-|-|-') return baseSignature;
+
+  const keys = Object.keys(source).sort((a, b) => a.localeCompare(b));
+  return keys.map((k) => k + '=' + normalizeImportText(source[k])).join('|');
+}
+
+const META_TEMPLATE_COLUMNS = [
+  'Gemaakt op',
+  'Naam',
+  'E-mailadres',
+  'Bron',
+  'Formulier',
+  'Kanaal',
+  'Fase',
+  'Eigenaar',
+  'Labels',
+  'Telefoonnummer',
+  'Secundair telefoonnummer',
+  'WhatsApp-nummer'
+];
+
+const META_TEMPLATE_DROPDOWNS = {
+  'Bron': ['Betaald', 'Organisch'],
+  'Kanaal': ['E-mail', 'Telefoon', 'WhatsApp'],
+  'Fase': ['Instroom', 'Nieuw', 'Contact gelegd', 'Gekwalificeerd'],
+  'Eigenaar': ['Unassigned']
+};
+
+function toTemplateRowFromPayload(payload, integration, expectedFields) {
+  var source = payload;
+  if (!source) source = {};
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source);
+    } catch {
+      source = {};
+    }
+  }
+
+  const createdIso = normalizeImportText(source.created_time);
+  let createdFormatted = '';
+  if (createdIso) {
+    const d = new Date(createdIso);
+    if (!Number.isNaN(d.getTime())) {
+      createdFormatted = d.toLocaleString('en-US', {
+        month: '2-digit',
+        day: '2-digit',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      }).toLowerCase().replace(' ', '');
+    }
+  }
+
+  const normalizedRow = {};
+  expectedFields.forEach((col) => {
+    normalizedRow[col] = normalizeImportText(source[col]);
+  });
+
+  // Backfill common aliases when expected keys are present.
+  if (Object.prototype.hasOwnProperty.call(normalizedRow, 'full_name') && !normalizedRow.full_name) {
+    normalizedRow.full_name = normalizeImportText(source.full_name || source.raw_full_name);
+  }
+  if (Object.prototype.hasOwnProperty.call(normalizedRow, 'email') && !normalizedRow.email) {
+    normalizedRow.email = normalizeImportText(source.email || source.raw_email);
+  }
+  if (Object.prototype.hasOwnProperty.call(normalizedRow, 'phone_number') && !normalizedRow.phone_number) {
+    normalizedRow.phone_number = normalizeImportText(source.phone_number || source.raw_phone_number);
+  }
+  if (Object.prototype.hasOwnProperty.call(normalizedRow, 'form_name') && !normalizedRow.form_name) {
+    normalizedRow.form_name = normalizeImportText(source.form_name || integration?.name || '');
+  }
+  if (Object.prototype.hasOwnProperty.call(normalizedRow, 'created_time') && !normalizedRow.created_time) {
+    normalizedRow.created_time = createdFormatted || normalizeImportText(source.created_time);
+  }
+
+  return normalizedRow;
+}
+
+function buildTemplateDropdowns(expectedFields, fieldTransforms = {}) {
+  const result = {};
+
+  function addOption(field, value, label) {
+    if (!result[field]) result[field] = [];
+    const list = result[field];
+    const valueKey = String(value);
+    const exists = list.some((item) => {
+      if (item && typeof item === 'object') return String(item.value || '') === valueKey;
+      return String(item) === valueKey;
+    });
+    if (exists) return;
+    list.push({ value: valueKey, label: label || valueKey });
+  }
+
+  expectedFields.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(META_TEMPLATE_DROPDOWNS, field)) {
+      META_TEMPLATE_DROPDOWNS[field].forEach((opt) => addOption(field, opt, opt));
+    }
+  });
+
+  expectedFields.forEach((field) => {
+    const transform = fieldTransforms[field];
+    const valueMap = transform && transform.value_map && typeof transform.value_map === 'object'
+      ? transform.value_map
+      : null;
+    if (!valueMap) return;
+
+    getOrderedValueMapKeys(transform).forEach((key) => {
+      addOption(field, key, key + ' -> ' + String(valueMap[key]));
+    });
+  });
+
+  if (expectedFields.includes('contact') && !result.contact) {
+    ['mail', 'phone', 'whatsapp'].forEach((opt) => addOption('contact', opt, opt));
+  }
+  if (expectedFields.includes('platform') && !result.platform) {
+    ['fb', 'ig', 'li', 'google'].forEach((opt) => addOption('platform', opt, opt));
+  }
+  if (expectedFields.includes('raw_platform') && !result.raw_platform) {
+    ['fb', 'ig', 'li', 'google', 'facebook', 'instagram'].forEach((opt) => addOption('raw_platform', opt, opt));
+  }
+  return result;
+}
+
+function buildTemplateInputRules(expectedFields) {
+  const rules = {};
+  expectedFields.forEach((field) => {
+    if (isLikelyDateField(field)) {
+      rules[field] = {
+        type: 'datetime',
+        accepted: [
+          '2026-05-22 07:46',
+          '22/05/2026 07:46',
+          '05/22/2026 7:46am',
+          'Excel datum/tijd cel'
+        ]
+      };
+      return;
+    }
+    if (isLikelyEmailField(field)) {
+      rules[field] = { type: 'email' };
+      return;
+    }
+    if (isLikelyPhoneField(field)) {
+      rules[field] = { type: 'phone' };
+      return;
+    }
+    if (isLikelyContactField(field)) {
+      rules[field] = { type: 'enum', accepted: ['mail', 'phone', 'whatsapp'] };
+      return;
+    }
+    if (isLikelyPlatformField(field)) {
+      rules[field] = { type: 'enum', accepted: ['fb', 'ig', 'li', 'google'] };
+      return;
+    }
+    rules[field] = { type: 'text' };
+  });
+  return rules;
+}
+
 async function enforceMvpLimitsOnResolvers(env, integrationId) {
   const resolvers = await listResolversByIntegration(env, integrationId);
   if (resolvers.length >= 2) {
@@ -478,6 +994,176 @@ export const routes = {
     }
   },
 
+  'POST /api/integrations/:id/import-meta-leads': async (context) => {
+    try {
+      const MAX_ROWS_PER_INVOCATION = 5;
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const integration = await getIntegrationById(context.env, integrationId);
+      if (!integration) {
+        return jsonResponse({ success: false, error: 'Integration not found' }, 404);
+      }
+
+      const payload = await readJsonBody(context.request);
+      const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+      const maxRows = Math.min(Math.max(Number(payload?.max_rows || MAX_ROWS_PER_INVOCATION), 1), MAX_ROWS_PER_INVOCATION);
+      const boundedRows = rows.slice(0, maxRows);
+      if (boundedRows.length === 0) {
+        return jsonResponse({ success: false, error: 'rows array is required' }, 400);
+      }
+
+      const runWhenInactive = payload?.run_when_inactive === true;
+      const skipPipeline = !integration.is_active && !runWhenInactive;
+      const integrationBundle = await getIntegrationDetails(context.env, integrationId);
+      const expectedFields = extractExpectedImportFields(integrationBundle || {});
+
+      const existingSubmissions = await listSubmissionsByIntegration(context.env, integrationId, 5000);
+      const existingSignatures = new Set();
+      for (const sub of existingSubmissions) {
+        const sig = buildImportSignature(sub.source_payload || {});
+        if (sig) existingSignatures.add(sig);
+      }
+
+      const stats = {
+        total_rows: boundedRows.length,
+        imported: 0,
+        skipped_existing: 0,
+        duplicate_ignored: 0,
+        failed: 0,
+        skipped_inactive: 0,
+      };
+      const results = [];
+
+      for (let index = 0; index < boundedRows.length; index++) {
+        const row = boundedRows[index] || {};
+        let transformed;
+        try {
+          transformed = buildPayloadFromConnectionTemplateRow(row, integration, expectedFields);
+        } catch (mapError) {
+          stats.failed += 1;
+          results.push({
+            row_index: index + 1,
+            status: 'failed',
+            error: 'Rijvalidatie: ' + (mapError?.message || 'ongeldige invoer')
+          });
+          continue;
+        }
+        const signature = buildImportSignature(transformed);
+
+        if (signature && existingSignatures.has(signature)) {
+          stats.skipped_existing += 1;
+          results.push({ row_index: index + 1, status: 'skipped_existing' });
+          continue;
+        }
+
+        if (skipPipeline) {
+          stats.skipped_inactive += 1;
+          results.push({ row_index: index + 1, status: 'skipped_inactive' });
+          continue;
+        }
+
+        const syntheticRequest = new Request('https://internal/forminator-v2/import-meta-leads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(transformed),
+        });
+
+        const webhookResponse = await handleGenericWebhook({
+          env: context.env,
+          integration,
+          request: syntheticRequest,
+          skipPipeline: false,
+        });
+
+        const body = await webhookResponse.json().catch(() => ({}));
+        const status = body?.data?.status || (webhookResponse.ok ? 'processed' : 'failed');
+
+        if (!webhookResponse.ok) {
+          stats.failed += 1;
+          results.push({ row_index: index + 1, status: 'failed', error: body?.error || 'Import failed' });
+          continue;
+        }
+
+        if (status === 'duplicate_ignored' || status === 'duplicate_inflight') {
+          stats.duplicate_ignored += 1;
+          results.push({ row_index: index + 1, status, submission_id: body?.data?.submission_id || null });
+          continue;
+        }
+
+        stats.imported += 1;
+        if (signature) existingSignatures.add(signature);
+        results.push({ row_index: index + 1, status, submission_id: body?.data?.submission_id || null });
+      }
+
+      return jsonResponse({
+        success: true,
+        data: {
+          integration_id: integrationId,
+          stats,
+          results,
+        },
+      });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/integrations/:id/import-meta-leads/template': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const integration = await getIntegrationById(context.env, integrationId);
+      if (!integration) {
+        return jsonResponse({ success: false, error: 'Integration not found' }, 404);
+      }
+
+      const integrationBundle = await getIntegrationDetails(context.env, integrationId);
+      const expectedFields = extractExpectedImportFields(integrationBundle || {});
+
+      const recentSubmissions = await listSubmissionsByIntegration(context.env, integrationId, 200);
+      const sampleSubmission = recentSubmissions.find((s) => {
+        const raw = s.source_payload;
+        if (!raw) return false;
+        if (typeof raw === 'object') {
+          const hasEmail = normalizeImportText(raw.email || raw.raw_email);
+          const hasName = normalizeImportText(raw.full_name || raw.raw_full_name);
+          return !!(hasEmail || hasName);
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          const hasEmail = normalizeImportText(parsed.email || parsed.raw_email);
+          const hasName = normalizeImportText(parsed.full_name || parsed.raw_full_name);
+          return !!(hasEmail || hasName);
+        } catch {
+          return false;
+        }
+      });
+
+      const samplePayload = parseJsonObject(sampleSubmission?.source_payload || {});
+      const sampleRow = toTemplateRowFromPayload(samplePayload, integration, expectedFields);
+      const fieldTransforms = (integrationBundle && integrationBundle.fieldTransforms) || {};
+      const dropdowns = buildTemplateDropdowns(expectedFields, fieldTransforms);
+      const inputRules = buildTemplateInputRules(expectedFields);
+
+      return jsonResponse({
+        success: true,
+        data: {
+          columns: expectedFields,
+          sample_row: sampleRow,
+          dropdowns,
+          input_rules: inputRules,
+          field_transforms: fieldTransforms,
+          field_meta: integration.field_meta || {},
+          hint: 'Vul nieuwe leads aan volgens deze kolommen en upload daarna het bestand via Importeren.'
+        }
+      });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
   'GET /api/integrations/:id/test-status': async (context) => {
     try {
       const integrationId = context.params?.id;
@@ -579,6 +1265,7 @@ export const routes = {
       const transform = await upsertFieldTransform(context.env, integrationId, fieldName, {
         field_type: body.field_type || 'text',
         value_map:  body.value_map  ?? null,
+        value_map_order: normalizeStringArray(body.value_map_order),
       });
       return jsonResponse({ success: true, data: transform });
     } catch (error) {

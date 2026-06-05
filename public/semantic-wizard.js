@@ -105,8 +105,13 @@ class WizardState {
         won_status: [],        // Array of selected values: 'won', 'lost', 'pending'
         stage_ids: []          // Array of selected stage IDs
       },
-      property_groups: []      // Array of enabled property groups: 'time_flow', 'origin_marketing', 'business_signals'
+      property_groups: [],     // Array of enabled property groups: 'time_flow', 'origin_marketing', 'business_signals'
+      webActivity: false        // Fetch merged web activity (brand_origin + kpi + timeline) for each lead
     };
+  }
+
+  toggleWebActivity(enabled) {
+    this.leadEnrichment.webActivity = enabled;
   }
 
   toggleInformationSet(key, value) {
@@ -248,6 +253,11 @@ class WizardState {
       if (this.leadEnrichment.property_groups.length > 0) {
         payload.lead_enrichment.property_groups = this.leadEnrichment.property_groups;
       }
+
+      // Web activity enrichment
+      if (this.leadEnrichment.webActivity) {
+        payload.lead_enrichment.web_activity = true;
+      }
     }
 
     return payload;
@@ -278,7 +288,8 @@ class WizardState {
         won_status: [],
         stage_ids: []
       },
-      property_groups: []
+      property_groups: [],
+      webActivity: false
     };
   }
 }
@@ -457,6 +468,33 @@ function renderStep1() {
               </svg>
               <span class="text-xs">Status velden (id, name, stage_id, active, won_status) worden altijd opgehaald.</span>
             </div>
+
+            <div class="divider my-2"></div>
+
+            <label class="label cursor-pointer justify-start gap-3">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm checkbox-primary"
+                ${wizardState.leadEnrichment.webActivity ? 'checked' : ''}
+                onchange="wizardState.toggleWebActivity(this.checked); renderWizard();"
+              />
+              <div class="flex-1">
+                <div class="label-text font-semibold">🌐 Web activiteit</div>
+                <div class="label-text-alt text-base-content/50">Voegt merkherkomst, KPI samenvatting en bezoekers-timeline toe aan elke lead</div>
+              </div>
+            </label>
+
+            ${wizardState.leadEnrichment.webActivity ? `
+              <div class="ml-8 mt-1 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                <div class="text-xs text-base-content/70 space-y-1">
+                  <div>✅ <strong>x_studio_brand_origin</strong> — altijd inbegrepen</div>
+                  <div>✅ <strong>x_studio_merged_kpi_html</strong> — KPI samenvatting (HTML)</div>
+                  <div>✅ <strong>x_studio_merged_timeline_html</strong> — volledige timeline (HTML)</div>
+                </div>
+                <div class="text-xs text-base-content/50 mt-2">⚡ Wordt opgehaald via een tweede API call na de hoofdquery.</div>
+              </div>
+            ` : ''}
+
           </div>
         ` : ''}
 
@@ -809,12 +847,95 @@ async function executeQuery() {
       return;
     }
 
-    showResults(result.data, false);
+    let data = result.data;
+
+    // Web activity enrichment: second call if requested
+    if (wizardState.leadEnrichment.enabled && wizardState.leadEnrichment.webActivity) {
+      data = await enrichWithWebActivity(data);
+    }
+
+    showResults(data, false);
 
   } catch (error) {
     showError({ message: error.message, stack: error.stack });
   } finally {
     hideLoading();
+  }
+}
+
+/**
+ * Fetch web activity for each lead in the result set and merge into records.
+ * brand_origin is always included; kpi and timeline html too.
+ */
+async function enrichWithWebActivity(data) {
+  // Support both 'records' and 'rows' (JSON export format uses 'rows')
+  const rowKey = data.records ? 'records' : data.rows ? 'rows' : null;
+  if (!rowKey || !data[rowKey].length) return data;
+
+  const rows = data[rowKey];
+
+  // Extract unique lead IDs from __leads arrays on each row
+  const leadIds = [...new Set(
+    rows.flatMap(r => {
+      const leads = r.__leads || [];
+      return leads.map(l => l.id).filter(id => id && typeof id === 'number');
+    })
+  )];
+
+  if (!leadIds.length) {
+    console.log('Web activity: geen lead IDs gevonden in __leads');
+    return data;
+  }
+
+  showLoading(`Web activiteit ophalen voor ${leadIds.length} leads...`);
+
+  try {
+    const res = await fetch('/insights/api/sales-insights/leads/web-activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lead_ids: leadIds,
+        include_brand: true,
+        include_kpi: true,
+        include_timeline: true,
+      }),
+    });
+
+    const waResult = await res.json();
+    if (!waResult.success) {
+      console.warn('Web activity fetch failed:', waResult.error);
+      return data; // non-fatal: return original data
+    }
+
+    // Build map: lead_id -> web activity
+    const waMap = new Map(
+      waResult.data.results.map(r => [r.lead_id, r])
+    );
+
+    // Merge web activity into each row via its __leads
+    const enrichedRows = rows.map(row => {
+      const leads = row.__leads || [];
+      if (!leads.length) return row;
+
+      // Use the first lead's web activity (primary lead)
+      const primaryLeadId = leads[0].id;
+      const wa = waMap.get(primaryLeadId);
+      if (!wa) return row;
+
+      return {
+        ...row,
+        x_has_web_activity:            wa.x_has_web_activity || false,
+        x_studio_brand_origin:         wa.x_studio_brand_origin || null,
+        x_studio_merged_kpi_html:      wa.x_studio_merged_kpi_html || null,
+        x_studio_merged_timeline_html: wa.x_studio_merged_timeline_html || null,
+      };
+    });
+
+    return { ...data, [rowKey]: enrichedRows };
+
+  } catch (e) {
+    console.warn('Web activity enrichment error:', e.message);
+    return data; // non-fatal
   }
 }
 
@@ -831,7 +952,10 @@ function showLoading(message) {
 }
 
 function hideLoading() {
-  // Handled by showResults/showError
+  const container = document.getElementById('results-container');
+  if (container && container.querySelector('.loading')) {
+    container.innerHTML = '';
+  }
 }
 
 function showError(error) {
@@ -928,12 +1052,54 @@ async function exportSemanticQuery(format) {
   }
 
   try {
-    // Build payload with export format
     const payload = wizardState.buildPayload();
-    payload.export = format;
+    const needsWebActivity = wizardState.leadEnrichment.enabled && wizardState.leadEnrichment.webActivity;
 
+    // JSON export: fetch data via normal API response (no payload.export),
+    // enrich with web activity if needed, then download client-side.
+    // This avoids the server-side export format (rows/fields) and gives us
+    // a clean records array that enrichWithWebActivity can work with.
+    if (format === 'json') {
+      showLoading('Bezig met exporteren...');
+
+      // Do NOT set payload.export — we want the normal JSON API response
+      const response = await fetch('/insights/api/sales-insights/semantic/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error(`Export failed: ${response.status} ${response.statusText}`);
+
+      const result = await response.json();
+      if (!result.success) throw new Error(result.error?.message || 'Query failed');
+
+      let data = result.data;
+
+      // Enrich with web activity if requested
+      if (needsWebActivity) {
+        data = await enrichWithWebActivity(data);
+      }
+
+      const filename = `semantic_query_${payload.base_model}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      hideLoading();
+      console.log('✅ JSON export downloaded:', filename);
+      return;
+    }
+
+    // XLSX export: server-side blob download (web activity not included)
+    payload.export = format;
     console.log('📤 Exporting as', format);
-    console.log('📦 Payload:', payload);
 
     const response = await fetch('/insights/api/sales-insights/semantic/run', {
       method: 'POST',
@@ -945,16 +1111,13 @@ async function exportSemanticQuery(format) {
       throw new Error(`Export failed: ${response.status} ${response.statusText}`);
     }
 
-    // Get filename from Content-Disposition header or use default
     const contentDisposition = response.headers.get('Content-Disposition');
     let filename = `export_${format}_${Date.now()}.${format}`;
-    
     if (contentDisposition) {
       const match = contentDisposition.match(/filename="?(.+?)"?$/);
       if (match) filename = match[1];
     }
 
-    // Download file
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');

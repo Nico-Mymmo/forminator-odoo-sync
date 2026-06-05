@@ -711,21 +711,6 @@ async function runSubmissionAttempt(env, {
   const now = new Date().toISOString();
   const normalizedForm = normalizeFormValues(rawPayload);
 
-  // Inject reverse-alias entries so mappings that stored an alias as source_value still resolve.
-  // Example: field_meta = { email: { alias: 'e-mailadres' } } → normalizedForm['e-mailadres'] = normalizedForm['email']
-  // This makes the system resilient to form-field alias renames without breaking existing mappings.
-  const fieldMeta = (integrationBundle.integration && integrationBundle.integration.field_meta) || {};
-  for (const [fieldId, meta] of Object.entries(fieldMeta)) {
-    if (meta && meta.alias) {
-      const alias = String(meta.alias);
-      const actualValue = normalizedForm[fieldId];
-      if (actualValue !== undefined && actualValue !== '' && !normalizedForm[alias]) {
-        normalizedForm[alias] = actualValue;
-        console.log(`[alias] mapped '${alias}' → '${fieldId}' (value: ${actualValue})`);
-      }
-    }
-  }
-
   const contextObject = {};
   const resolverLogs = [];
   const targetResults = [];
@@ -1125,24 +1110,6 @@ async function runSubmissionAttempt(env, {
       const updateValues   = buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, integrationBundle.fieldTransforms || {});
 
       // ── Model-specific mandatory field fallbacks ───────────────────────────
-      // res.partner requires 'name'. If the mapping source_value was renamed in the UI
-      // and no longer matches the actual form field, derive from common name fields.
-      if (target.odoo_model === 'res.partner' && !incomingValues.name) {
-        const fallback =
-          lookupFormValue(normalizedForm, 'full_name') ||
-          lookupFormValue(normalizedForm, 'full_name_1') ||
-          lookupFormValue(normalizedForm, 'name') ||
-          lookupFormValue(normalizedForm, 'name_1') ||
-          lookupFormValue(normalizedForm, 'naam') ||
-          lookupFormValue(normalizedForm, 'voornaam') ||
-          lookupFormValue(normalizedForm, 'email');
-        if (fallback) {
-          incomingValues.name = fallback;
-          if (!updateValues.name) updateValues.name = fallback;
-          console.log(attemptTag, '[res.partner] auto-filled name:', fallback);
-        }
-      }
-
       // crm.lead requires 'name' (opportunity title). If not mapped, derive from
       // partner_name, form name fields, or fall back to the form title.
       if (target.odoo_model === 'crm.lead' && !incomingValues.name) {

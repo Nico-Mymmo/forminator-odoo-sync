@@ -42,6 +42,7 @@ import { runPhase0Validation } from './tests/phase0-validation.js';
 import { searchRead } from '../../lib/odoo.js';
 import { enrichWithLeads } from './lib/lead-enrichment.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
+import { leadWebActivity, listWebVisitors } from './web-activity-routes.js';
 import { listIntegrations } from '../claude-integration/lib/integration-service.js';
 import {
   listActiveTemplates,
@@ -2138,6 +2139,8 @@ export const routes = {
   'GET /api/sales-insights/test/phase0': runPhase0Tests,
   'GET /api/sales-insights/schema': getSchema,
   'GET /api/sales-insights/stages': getCrmStages,
+  'GET /api/sales-insights/web-visitors': listWebVisitors,
+  'POST /api/sales-insights/leads/web-activity': leadWebActivity,
   'POST /api/sales-insights/schema/refresh': refreshSchema,
   'POST /api/sales-insights/query/validate': validateQueryEndpoint,
   'POST /api/sales-insights/query/run': runQuery,

@@ -21,6 +21,40 @@
   // Convenience alias to shared state object
   var S = window.FSV2.S;
 
+  function normalizeValueMapOrder(order) {
+    if (!Array.isArray(order)) return [];
+    var seen = {};
+    var out = [];
+    order.forEach(function (item) {
+      var key = String(item || '').trim();
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      out.push(key);
+    });
+    return out;
+  }
+
+  function buildOrderedValueMapRows(valueMap, valueMapOrder) {
+    var map = (valueMap && typeof valueMap === 'object') ? valueMap : {};
+    var order = normalizeValueMapOrder(valueMapOrder);
+    var mapKeys = Object.keys(map).filter(function (k) { return k !== '__catchall__'; });
+    if (!order.length) {
+      return mapKeys.map(function (k) { return { from: k, to: String(map[k]) }; });
+    }
+    var used = {};
+    var rows = [];
+    order.forEach(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(map, k) || k === '__catchall__') return;
+      used[k] = true;
+      rows.push({ from: k, to: String(map[k]) });
+    });
+    mapKeys.forEach(function (k) {
+      if (used[k]) return;
+      rows.push({ from: k, to: String(map[k]) });
+    });
+    return rows;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // EVENT DELEGATION \u2014 click
   // ═══════════════════════════════════════════════════════════════════════════
@@ -135,7 +169,6 @@
           link_label: btn.dataset.label || '',
         };
         var current = Array.isArray(S.modelLinksCache) ? S.modelLinksCache : [];
-        // Prevent duplicates
         var exists = current.some(function (l) {
           return l.model_a === newLink.model_a && l.model_b === newLink.model_b && l.link_field === newLink.link_field;
         });
@@ -357,12 +390,36 @@
         await window.FSV2.handleCleanupReplays();
         return;
       }
+      if (action === 'refresh-submissions') {
+        if (window.FSV2.handleRefreshSubmissions) await window.FSV2.handleRefreshSubmissions();
+        return;
+      }
       if (action === 'open-export-modal') {
         window.FSV2.handleOpenExportModal();
         return;
       }
       if (action === 'export-submissions') {
         window.FSV2.handleExportSubmissions(btn.dataset.format);
+        return;
+      }
+      if (action === 'open-import-modal') {
+        if (window.FSV2.handleOpenImportModal) window.FSV2.handleOpenImportModal();
+        return;
+      }
+      if (action === 'run-import-meta-leads') {
+        if (window.FSV2.handleImportMetaLeads) await window.FSV2.handleImportMetaLeads();
+        return;
+      }
+      if (action === 'validate-bulk-import') {
+        if (window.FSV2.handleValidateBulkImportRows) await window.FSV2.handleValidateBulkImportRows();
+        return;
+      }
+      if (action === 'add-bulk-import-row') {
+        if (window.FSV2.handleAddBulkImportRow) window.FSV2.handleAddBulkImportRow();
+        return;
+      }
+      if (action === 'remove-bulk-import-row') {
+        if (window.FSV2.handleRemoveBulkImportRow) window.FSV2.handleRemoveBulkImportRow(btn.dataset.rowIndex);
         return;
       }
       if (action === 'add-target') {
@@ -735,6 +792,41 @@
         if (tsilFid && window.FSV2.handleToggleShowInList) window.FSV2.handleToggleShowInList(tsilFid);
         return;
       }
+      if (action === 'toggle-field-config') {
+        var fieldId = btn.dataset.fieldId || '';
+        if (!fieldId) return;
+        var panel = document.querySelector('.field-config-panel[data-field-id="' + fieldId + '"]');
+        if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+        return;
+      }
+      if (action === 'toggle-bulk-import-show') {
+        var tbisFid = btn.dataset.fieldId || '';
+        if (tbisFid && window.FSV2.handleToggleBulkImportShow) window.FSV2.handleToggleBulkImportShow(tbisFid);
+        return;
+      }
+
+      // Voeg toe DIRECT NA de handler voor 'toggle-show-hidden' (rond regel 803)
+      // Vervangt de eerder toegevoegde open-field-config / close-field-config-modal handlers
+
+      if (action === 'toggle-field-panel') {
+        var tfpFid = btn.dataset.fieldId || '';
+        if (!tfpFid) return;
+        if (window.FSV2.S._openFieldConfigPanel === tfpFid) {
+          window.FSV2.S._openFieldConfigPanel = null;
+          window.FSV2.S._expandedValueMapField = null;
+          window.FSV2.S._pendingValueMapRows = [];
+          window.FSV2.S._pendingCatchall = '';
+        } else {
+          window.FSV2.S._openFieldConfigPanel = tfpFid;
+          window.FSV2.S._expandedValueMapField = null;
+          window.FSV2.S._pendingValueMapRows = [];
+          window.FSV2.S._pendingCatchall = '';
+        }
+        if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        return;
+      }
+     
       if (action === 'toggle-show-hidden') {
         if (window.FSV2.handleToggleShowHidden) window.FSV2.handleToggleShowHidden();
         return;
@@ -751,6 +843,13 @@
         if (cafFid && window.FSV2.handleSaveFieldAlias) window.FSV2.handleSaveFieldAlias(cafFid, '');
         return;
       }
+      if (action === 'save-bulk-import-default') {
+        var sbidFid = btn.dataset.fieldId || '';
+        if (!sbidFid || !window.FSV2.handleSaveBulkImportDefault) return;
+        var sbidInput = document.getElementById('bulk-inp-' + sbidFid);
+        window.FSV2.handleSaveBulkImportDefault(sbidFid, sbidInput ? sbidInput.value : '');
+        return;
+      }
       if (action === 'toggle-valuemap') {
         var tvFieldId = btn.dataset.fieldId || '';
         if (window.FSV2.S._expandedValueMapField === tvFieldId) {
@@ -762,9 +861,7 @@
           var tvFt    = (window.FSV2.S.fieldTransforms && window.FSV2.S.fieldTransforms[tvFieldId]) || null;
           var tvVmap  = (tvFt && tvFt.value_map && typeof tvFt.value_map === 'object') ? tvFt.value_map : {};
           window.FSV2.S._pendingCatchall     = tvVmap['__catchall__'] !== undefined ? String(tvVmap['__catchall__']) : '';
-          window.FSV2.S._pendingValueMapRows = Object.keys(tvVmap)
-            .filter(function (k) { return k !== '__catchall__'; })
-            .map(function (k) { return { from: k, to: String(tvVmap[k]) }; });
+          window.FSV2.S._pendingValueMapRows = buildOrderedValueMapRows(tvVmap, tvFt && tvFt.value_map_order);
         }
         if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
@@ -788,6 +885,22 @@
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
         return;
       }
+      if (action === 'move-valuemap-row-up' || action === 'move-valuemap-row-down') {
+        if (window.FSV2.syncPendingValueMapFromDom) window.FSV2.syncPendingValueMapFromDom();
+        var mvRowIdx = parseInt(btn.dataset.rowIdx, 10);
+        if (!isNaN(mvRowIdx) && Array.isArray(window.FSV2.S._pendingValueMapRows)) {
+          var rows = window.FSV2.S._pendingValueMapRows;
+          var swapIdx = action === 'move-valuemap-row-up' ? mvRowIdx - 1 : mvRowIdx + 1;
+          if (swapIdx >= 0 && swapIdx < rows.length) {
+            var current = rows[mvRowIdx];
+            rows[mvRowIdx] = rows[swapIdx];
+            rows[swapIdx] = current;
+          }
+        }
+        if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+        return;
+      }
       if (action === 'save-field-valuemap') {
         var svFieldId = btn.dataset.fieldId || '';
         var svIntegId = btn.dataset.integrationId || '';
@@ -795,19 +908,31 @@
         if (window.FSV2.syncPendingValueMapFromDom) window.FSV2.syncPendingValueMapFromDom();
         var svRows = window.FSV2.S._pendingValueMapRows || [];
         var valueMap = {};
+        var valueMapOrder = [];
         svRows.forEach(function (row) {
           var k = (row.from || '').trim();
-          if (k) valueMap[k] = row.to || '';
+          if (!k) return;
+          valueMap[k] = row.to || '';
+          valueMapOrder.push(k);
         });
         var catchall = (window.FSV2.S._pendingCatchall || '').trim();
         if (catchall) valueMap['__catchall__'] = catchall;
         var existingFt = (window.FSV2.S.fieldTransforms && window.FSV2.S.fieldTransforms[svFieldId]) || {};
+        var normalizedOrder = normalizeValueMapOrder(valueMapOrder);
         await window.FSV2.api('/integrations/' + svIntegId + '/field-transforms/' + encodeURIComponent(svFieldId), {
           method: 'PUT',
-          body: JSON.stringify({ field_type: 'selection', value_map: Object.keys(valueMap).length ? valueMap : null }),
+          body: JSON.stringify({
+            field_type: 'selection',
+            value_map: Object.keys(valueMap).length ? valueMap : null,
+            value_map_order: normalizedOrder,
+          }),
         });
         window.FSV2.S.fieldTransforms = window.FSV2.S.fieldTransforms || {};
-        window.FSV2.S.fieldTransforms[svFieldId] = Object.assign({}, existingFt, { field_type: 'selection', value_map: Object.keys(valueMap).length ? valueMap : null });
+        window.FSV2.S.fieldTransforms[svFieldId] = Object.assign({}, existingFt, {
+          field_type: 'selection',
+          value_map: Object.keys(valueMap).length ? valueMap : null,
+          value_map_order: normalizedOrder,
+        });
         window.FSV2.showAlert('Waardemap opgeslagen.', 'success');
         if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
@@ -865,10 +990,17 @@
       var ftExisting = (window.FSV2.S.fieldTransforms && window.FSV2.S.fieldTransforms[ftFieldId]) || {};
       window.FSV2.api('/integrations/' + ftIntegId + '/field-transforms/' + encodeURIComponent(ftFieldId), {
         method: 'PUT',
-        body: JSON.stringify({ field_type: ftNewType, value_map: ftExisting.value_map || null }),
+        body: JSON.stringify({
+          field_type: ftNewType,
+          value_map: ftExisting.value_map || null,
+          value_map_order: normalizeValueMapOrder(ftExisting.value_map_order || []),
+        }),
       }).then(function () {
         window.FSV2.S.fieldTransforms = window.FSV2.S.fieldTransforms || {};
-        window.FSV2.S.fieldTransforms[ftFieldId] = Object.assign({}, ftExisting, { field_type: ftNewType });
+        window.FSV2.S.fieldTransforms[ftFieldId] = Object.assign({}, ftExisting, {
+          field_type: ftNewType,
+          value_map_order: normalizeValueMapOrder(ftExisting.value_map_order || []),
+        });
         window.FSV2.showAlert('Type opgeslagen.', 'success');
         if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();

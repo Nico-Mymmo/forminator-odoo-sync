@@ -441,6 +441,47 @@
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
   </dialog>
 
+  <dialog id="importMetaLeadsDialog" class="modal">
+    <div class="modal-box max-w-6xl">
+      <h3 class="font-bold text-lg mb-2">Bulk invoer (in app)</h3>
+      <p class="text-sm text-base-content/60 mb-4">
+        Voeg leads handmatig in per rij. Velden, dropdowns en validatieregels worden automatisch geladen
+        op basis van de instellingen van deze connectie.
+      </p>
+
+      <div class="alert alert-info text-xs mb-3">
+        <i data-lucide="info" class="w-4 h-4 shrink-0"></i>
+        <span>Gebruik de knop "Valideer" om invoer eerst te controleren voordat je importeert.</span>
+      </div>
+
+      <div class="flex items-center gap-2 mb-3">
+        <button id="btnAddBulkImportRow" class="btn btn-sm btn-outline" data-action="add-bulk-import-row">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+          Rij toevoegen
+        </button>
+        <button id="btnValidateBulkImport" class="btn btn-sm btn-outline" data-action="validate-bulk-import">
+          <i data-lucide="check-circle" class="w-4 h-4"></i>
+          Valideer
+        </button>
+      </div>
+
+      <div id="bulkImportEditor" class="rounded-box border border-base-300 bg-base-100 p-3 mb-3 overflow-y-auto overflow-x-hidden max-h-[60vh]"></div>
+
+      <label class="flex items-center gap-2 cursor-pointer mb-3">
+        <input id="bulkImportRunWhenInactive" type="checkbox" class="checkbox checkbox-sm" />
+        <span class="text-sm">Toch uitvoeren als integratie inactief is</span>
+      </label>
+
+      <div id="importMetaLeadsSummary" class="rounded-box bg-base-200 p-3 text-sm min-h-10"></div>
+
+      <div class="modal-action mt-4">
+        <form method="dialog"><button class="btn btn-sm btn-ghost">Annuleren</button></form>
+        <button id="btnImportMetaLeads" class="btn btn-sm btn-primary" data-action="run-import-meta-leads">Bulk importeren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
   <dialog id="addTargetDialog" class="modal">
     <div class="modal-box max-w-lg">
       <h3 class="font-bold text-lg mb-1">Stap toevoegen</h3>

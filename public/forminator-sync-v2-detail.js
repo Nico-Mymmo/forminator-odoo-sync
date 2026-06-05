@@ -769,6 +769,32 @@
 
   // Builds the HTML for the values area based on field type, value_map, and choices.
   // Returns raw HTML string (checkboxes when options available, text input otherwise).
+  function getOrderedValueMapKeys(transform) {
+    var valueMap = transform && transform.value_map && typeof transform.value_map === 'object'
+      ? transform.value_map
+      : null;
+    if (!valueMap) return [];
+
+    var fromMap = Object.keys(valueMap).filter(function (k) { return k !== '__catchall__'; });
+    var stored = Array.isArray(transform.value_map_order) ? transform.value_map_order : [];
+    if (!stored.length) return fromMap;
+
+    var used = {};
+    var ordered = [];
+    stored.forEach(function (k) {
+      var key = String(k || '').trim();
+      if (!key || used[key]) return;
+      if (!Object.prototype.hasOwnProperty.call(valueMap, key) || key === '__catchall__') return;
+      used[key] = true;
+      ordered.push(key);
+    });
+    fromMap.forEach(function (k) {
+      if (used[k]) return;
+      ordered.push(k);
+    });
+    return ordered;
+  }
+
   function buildCondValuesHtml(tid, fieldId, flatFields, fieldTransforms, condValues) {
     if (!fieldId) {
       return '<p class="text-xs text-base-content/40 italic py-1">Geen voorwaarde ingesteld — stap wordt altijd uitgevoerd.</p>';
@@ -792,9 +818,7 @@
     var hint    = '';
 
     // Priority 1: value_map keys (from field transforms / waardemap)
-    var vmapKeys = (ft && ft.value_map && typeof ft.value_map === 'object')
-      ? Object.keys(ft.value_map).filter(function (k) { return k !== '__catchall__'; })
-      : null;
+    var vmapKeys = getOrderedValueMapKeys(ft);
     if (vmapKeys && vmapKeys.length > 0) {
       optHtml = '<div class="flex flex-wrap gap-x-6 gap-y-0">' +
         vmapKeys.map(function (k) { return cbxRow(k, k); }).join('') +
@@ -975,6 +999,9 @@
         '</button>' +
         '<button class="btn btn-xs btn-ghost gap-1 ml-auto" data-action="refresh-submissions" title="Indieningen verversen">' +
           '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>Verversen' +
+        '</button>' +
+        '<button class="btn btn-xs btn-ghost gap-1" data-action="open-import-modal" title="Bulk invoer openen">' +
+          '<i data-lucide="upload" class="w-3.5 h-3.5"></i>Importeren' +
         '</button>' +
         '<button class="btn btn-xs btn-ghost gap-1" data-action="open-export-modal" title="Exporteer indieningen">' +
           '<i data-lucide="download" class="w-3.5 h-3.5"></i>Exporteren' +
@@ -1258,7 +1285,7 @@
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // RENDER: FORM FIELDS TAB
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  function renderDetailFormFields() {
+function renderDetailFormFields() {
     var el = document.getElementById('detailFormFields');
     if (!el) return;
 
@@ -1291,10 +1318,10 @@
       if (isWebhook) {
         el.innerHTML = '<div class="alert alert-info text-sm">' +
           '<i data-lucide="info" class="w-4 h-4 shrink-0"></i>' +
-          '<span>Nog geen payload ontvangen. Stuur een test naar de webhook URL en klik daarna “Verversen” om de veldnamen automatisch te herkennen.</span>' +
+          '<span>Nog geen payload ontvangen. Stuur een test naar de webhook URL en klik daarna \u201cVerversen\u201d om de veldnamen automatisch te herkennen.</span>' +
           '</div>';
       } else {
-        el.innerHTML = '<p class="text-sm text-base-content/60 py-2">Geen velden gevonden voor dit formulier. Klik “Verversen” in de sectieheader om opnieuw te laden.</p>';
+        el.innerHTML = '<p class="text-sm text-base-content/60 py-2">Geen velden gevonden voor dit formulier. Klik \u201cVerversen\u201d in de sectieheader om opnieuw te laden.</p>';
       }
       if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       return;
@@ -1310,21 +1337,19 @@
       ['datetime',  'Datum/tijd'],
       ['date',      'Datum'],
     ];
-    var integId     = esc(String(S().activeId || ''));
-    var expandedFid = S()._expandedValueMapField || null;
-    var pendingRows = S()._pendingValueMapRows || [];
+    var integId         = esc(String(S().activeId || ''));
+    var expandedFid     = S()._expandedValueMapField || null;
+    var openFid         = S()._openFieldConfigPanel  || null;
+    var pendingRows     = S()._pendingValueMapRows   || [];
     var pendingCatchall = S()._pendingCatchall !== undefined ? S()._pendingCatchall : '';
 
-    // Compute hidden count + toolbar
+    // ── Toolbar ───────────────────────────────────────────────────────────────
     var hiddenCount = fields.filter(function (f) {
-      var fid = String(f.field_id || '');
-      return !!(fieldMeta[fid] && fieldMeta[fid].hidden);
+      return !!(fieldMeta[String(f.field_id || '')] && fieldMeta[String(f.field_id || '')].hidden);
     }).length;
     var toolbarHtml = (hiddenCount > 0 || showHidden)
       ? '<div class="flex items-center justify-between mb-2 px-1">' +
-          '<span class="text-xs text-base-content/40 italic">' +
-            esc(String(hiddenCount)) + ' ' + (hiddenCount === 1 ? 'veld verborgen' : 'velden verborgen') +
-          '</span>' +
+          '<span class="text-xs text-base-content/40 italic">' + esc(String(hiddenCount)) + ' ' + (hiddenCount === 1 ? 'veld verborgen' : 'velden verborgen') + '</span>' +
           '<button class="btn btn-xs btn-ghost gap-1" data-action="toggle-show-hidden">' +
             '<i data-lucide="' + (showHidden ? 'eye-off' : 'eye') + '" class="w-3 h-3"></i>' +
             esc(showHidden ? 'Verbergen' : 'Toon verborgen') +
@@ -1339,156 +1364,223 @@
           return !(fieldMeta[fid] && fieldMeta[fid].hidden);
         });
 
-    var bodyRows = fieldsToShow.map(function (f) {
-      var fid      = String(f.field_id || '');
-      var rawLabel = f.label && f.label !== fid ? f.label : null;
-      var meta        = fieldMeta[fid] || {};
-      var alias       = meta.alias  || '';
-      var hidden      = !!meta.hidden;
-      var showInList  = !!meta.show_in_list;
-      var coupled  = mappedLookup[fid];
-      var coupledHtml = coupled && coupled.length
-        ? coupled.map(function (of_) {
-            return '<span class="badge badge-success badge-xs font-mono gap-1">' + esc(of_) + '</span>';
-          }).join(' ')
-        : '<span class="text-base-content/30 text-xs">&mdash;</span>';
+    // ── List items ────────────────────────────────────────────────────────────
+    var itemsHtml = fieldsToShow.map(function (f) {
+      var fid          = String(f.field_id || '');
+      var rawLabel     = f.label && f.label !== fid ? f.label : null;
+      var meta         = fieldMeta[fid] || {};
+      var alias        = meta.alias || '';
+      var hidden       = !!meta.hidden;
+      var showInList   = !!meta.show_in_list;
+      var showInBulk   = meta.bulk_import_show !== false;
+      var bulkDefault  = meta.bulk_import_default != null ? String(meta.bulk_import_default) : '';
+      if (!bulkDefault && S().detail && S().detail.integration) {
+        if (fid === 'form_id'   && S().detail.integration.forminator_form_id) bulkDefault = String(S().detail.integration.forminator_form_id);
+        if (fid === 'form_name' && S().detail.integration.name)               bulkDefault = String(S().detail.integration.name);
+      }
+      var coupled      = mappedLookup[fid];
+      var ft           = (S().fieldTransforms && S().fieldTransforms[fid]) || null;
+      var currentType  = ft ? (ft.field_type || 'text') : 'text';
+      var isOpen       = openFid === fid;
+      var vmExpanded   = expandedFid === fid;
+      var typeLabel    = (TYPE_OPTIONS.find(function (o) { return o[0] === currentType; }) || ['', currentType])[1];
 
-      var ft          = (S().fieldTransforms && S().fieldTransforms[fid]) || null;
-      var currentType = ft ? (ft.field_type || 'text') : 'text';
-      var expanded    = expandedFid === fid;
+      // ── Summary line (always visible) ──────────────────────────────────────
+      var coupledSummary = coupled && coupled.length
+        ? coupled.slice(0, 2).map(function (of_) {
+            return '<span class="badge badge-success badge-xs font-mono">' + esc(of_) + '</span>';
+          }).join('') + (coupled.length > 2 ? '<span class="badge badge-ghost badge-xs">+' + (coupled.length - 2) + '</span>' : '')
+        : '<span class="text-base-content/25 text-xs">\u2014</span>';
 
+      var summaryRow =
+        '<div class="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none hover:bg-base-200/60 transition-colors" data-action="toggle-field-panel" data-field-id="' + esc(fid) + '">' +
+          // Chevron
+          '<i data-lucide="' + (isOpen ? 'chevron-down' : 'chevron-right') + '" class="w-3.5 h-3.5 shrink-0 text-base-content/30"></i>' +
+          // Field name
+          '<div class="w-36 shrink-0">' +
+            '<div class="font-mono text-xs font-semibold ' + (hidden ? 'text-base-content/25' : 'text-primary') + '">' + esc(fid) + '</div>' +
+            (alias
+              ? '<div class="text-[11px] text-warning truncate">' + esc(alias) + '</div>'
+              : (rawLabel ? '<div class="text-[11px] text-base-content/40 truncate">' + esc(rawLabel) + '</div>' : '')) +
+          '</div>' +
+          // Badges
+          '<div class="flex items-center gap-1 flex-1 flex-wrap">' +
+            '<span class="badge badge-ghost badge-xs">' + esc(f.type || '-') + '</span>' +
+            '<span class="badge badge-outline badge-xs text-base-content/40">' + esc(typeLabel) + '</span>' +
+            (hidden      ? '<span class="badge badge-warning badge-xs">verborgen</span>' : '') +
+            (showInList  ? '<span class="badge badge-info badge-xs">lijst</span>'        : '') +
+            (f.from_payload ? '<span class="badge badge-secondary badge-xs">payload</span>' : '') +
+          '</div>' +
+          // Odoo coupling (right side)
+          '<div class="flex items-center gap-1 shrink-0">' + coupledSummary + '</div>' +
+          // Quick action buttons (stop propagation — don't toggle panel)
+          '<div class="flex items-center gap-0.5 shrink-0 ml-1" onclick="event.stopPropagation()">' +
+            '<button class="btn btn-xs btn-ghost btn-square" data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '" title="' + (hidden ? 'Zichtbaar maken' : 'Verbergen') + '">' +
+              '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5 text-base-content/35"></i>' +
+            '</button>' +
+            '<button class="btn btn-xs btn-square ' + (showInList ? 'btn-info' : 'btn-ghost') + '" data-action="toggle-field-show-in-list" data-field-id="' + esc(fid) + '" title="' + (showInList ? 'Verwijder uit lijst' : 'Toon in indieningen-lijst') + '">' +
+              '<i data-lucide="table-2" class="w-3.5 h-3.5"></i>' +
+            '</button>' +
+          '</div>' +
+        '</div>';
+
+      if (!isOpen) {
+        return '<div class="border-b border-base-200 last:border-b-0' + (hidden ? ' opacity-40' : '') + '">' + summaryRow + '</div>';
+      }
+
+      // ── Detail panel (only when open) ──────────────────────────────────────
+
+      // Type select
       var typeSelect =
-        '<select class="select select-xs w-full" data-action="save-field-transform" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
+        '<select class="select select-sm w-full max-w-xs" data-action="save-field-transform" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
           TYPE_OPTIONS.map(function (opt) {
             return '<option value="' + opt[0] + '"' + (currentType === opt[0] ? ' selected' : '') + '>' + opt[1] + '</option>';
           }).join('') +
         '</select>';
 
       var vmapToggle = currentType === 'selection'
-        ? '<button class="btn btn-xs ' + (expanded ? 'btn-primary' : 'btn-ghost') + ' mt-1 gap-1" data-action="toggle-valuemap" data-field-id="' + esc(fid) + '">' +
-            '<i data-lucide="list" class="w-3 h-3"></i>' +
-            (expanded ? 'Verbergen' : 'Waardemap') +
+        ? '<button class="btn btn-sm ' + (vmExpanded ? 'btn-primary' : 'btn-outline') + ' gap-1.5 mt-2" data-action="toggle-valuemap" data-field-id="' + esc(fid) + '">' +
+            '<i data-lucide="list" class="w-4 h-4"></i>' +
+            (vmExpanded ? 'Waardemap verbergen' : 'Waardemap bewerken') +
           '</button>'
         : '';
 
-      // ── Col 1: field_id + alias/label + type badge + hide toggle + alias input ──
-      var col1 =
-        '<td class="py-2 align-top">' +
-          '<div class="flex items-start justify-between gap-1">' +
-            '<div class="min-w-0">' +
-              '<div class="font-mono text-xs font-medium ' + (hidden ? 'text-base-content/30' : 'text-primary') + '">' + esc(fid) + '</div>' +
-              (alias
-                ? '<div class="text-xs font-medium text-warning mt-0.5" title="' + esc('Alias voor: ' + (rawLabel || fid)) + '">' + esc(alias) + '</div>'
-                : (rawLabel ? '<div class="text-xs text-base-content/50 mt-0.5">' + esc(rawLabel) + '</div>' : '')) +
-              '<div class="flex items-center gap-1 mt-1">' +
-                '<span class="badge badge-ghost badge-xs">' + esc(f.type || '-') + '</span>' +
-                (hidden ? '<span class="badge badge-xs badge-warning">verborgen</span>' : '') +
-                (showInList ? '<span class="badge badge-xs badge-info">lijst</span>' : '') +
-                (f.from_payload ? '<span class="badge badge-xs badge-secondary" title="Extra veld herkend uit inzending-payload — staat niet in de formulierdefinitie">payload</span>' : '') +
-              '</div>' +
+      // Value map editor
+      var vmapEditorHtml = '';
+      if (vmExpanded && currentType === 'selection') {
+        var rowsHtml = pendingRows.length === 0
+          ? '<p class="text-xs text-base-content/40 italic mb-2">Nog geen regels \u2014 klik \u201c+ Rij toevoegen\u201d om te beginnen.</p>'
+          : pendingRows.map(function (row, idx) {
+              return '<div class="flex items-center gap-2 mb-1.5">' +
+                '<div class="badge badge-ghost badge-xs w-6 justify-center">' + esc(String(idx + 1)) + '</div>' +
+                '<input class="input input-xs input-bordered font-mono" style="flex:1" placeholder="Bronwaarde" value="' + esc(row.from || '') + '" data-vmap-from="' + idx + '">' +
+                '<i data-lucide="arrow-right" class="w-4 h-4 shrink-0 text-base-content/30"></i>' +
+                '<input class="input input-xs input-bordered font-mono" style="flex:1" placeholder="Odoo-waarde" value="' + esc(row.to || '') + '" data-vmap-to="' + idx + '">' +
+                '<div class="flex gap-0.5">' +
+                  '<button class="btn btn-xs btn-ghost btn-square" data-action="move-valuemap-row-up"   data-row-idx="' + idx + '" title="Omhoog"><i data-lucide="chevron-up"   class="w-3.5 h-3.5"></i></button>' +
+                  '<button class="btn btn-xs btn-ghost btn-square" data-action="move-valuemap-row-down" data-row-idx="' + idx + '" title="Omlaag"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></button>' +
+                  '<button class="btn btn-xs btn-ghost btn-square text-error" data-action="remove-valuemap-row" data-row-idx="' + idx + '" title="Verwijderen"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>' +
+                '</div>' +
+              '</div>';
+            }).join('');
+
+        vmapEditorHtml =
+          '<div class="mt-3 bg-base-200/50 border border-base-300 rounded-lg p-3">' +
+            '<div class="text-xs font-semibold text-base-content/50 mb-2 flex items-center gap-1.5">' +
+              '<i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i> Waardemap' +
             '</div>' +
-            '<div class="flex flex-col gap-0.5">' +
-              '<button class="btn btn-xs btn-ghost btn-square shrink-0"' +
-                ' data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '"' +
-                ' title="' + (hidden ? 'Zichtbaar maken' : 'Verbergen') + '">' +
-                '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5 ' + (hidden ? 'text-base-content/30' : 'text-base-content/40') + '"></i>' +
+            rowsHtml +
+            '<button class="btn btn-xs btn-ghost gap-1 mt-1" data-action="add-valuemap-row"><i data-lucide="plus" class="w-3 h-3"></i> Rij toevoegen</button>' +
+            '<div class="divider text-xs my-2">Catchall (onbekende waarden)</div>' +
+            '<div class="flex items-center gap-2">' +
+              '<span class="text-xs text-base-content/50 shrink-0">Alles wat niet gevonden is \u2192</span>' +
+              '<input class="input input-xs input-bordered font-mono flex-1" placeholder="Leeg = niet omzetten" value="' + esc(pendingCatchall) + '" data-vmap-catchall>' +
+            '</div>' +
+            '<div class="flex justify-end mt-3">' +
+              '<button class="btn btn-sm btn-primary" data-action="save-field-valuemap" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
+                '<i data-lucide="save" class="w-4 h-4"></i> Waardemap opslaan' +
               '</button>' +
-              '<button class="btn btn-xs btn-square shrink-0 ' + (showInList ? 'btn-info' : 'btn-ghost') + '"' +
-                ' data-action="toggle-field-show-in-list" data-field-id="' + esc(fid) + '"' +
-                ' title="' + (showInList ? 'Verwijder uit lijst' : 'Toon in indieningen-lijst') + '">' +
-                '<i data-lucide="table-2" class="w-3.5 h-3.5"></i>' +
-              '</button>' +
             '</div>' +
-          '</div>' +
-          '<div class="flex items-center gap-0.5 mt-1.5">' +
-            '<input type="text" id="alias-inp-' + esc(fid) + '"' +
-              ' class="input input-xs input-bordered w-full font-mono"' +
-              ' placeholder="Alias…"' +
-              ' value="' + esc(alias) + '"' +
-              ' maxlength="60">' +
-            '<button class="btn btn-xs btn-ghost btn-square shrink-0"' +
-              ' data-action="save-field-alias" data-field-id="' + esc(fid) + '"' +
-              ' title="Alias opslaan">' +
-              '<i data-lucide="check" class="w-3 h-3"></i>' +
-            '</button>' +
-            (alias
-              ? '<button class="btn btn-xs btn-ghost btn-square shrink-0 text-base-content/30"' +
-                  ' data-action="clear-field-alias" data-field-id="' + esc(fid) + '"' +
-                  ' title="Alias wissen">' +
-                  '<i data-lucide="x" class="w-3 h-3"></i>' +
-                '</button>'
-              : '') +
-          '</div>' +
-        '</td>';
+          '</div>';
+      }
 
-      var mainRow =
-        '<tr class="border-b border-base-200' + (hidden ? ' opacity-50' : '') + '">' +
-          col1 +
-          '<td class="py-2 align-top">' + coupledHtml + '</td>' +
-          '<td class="py-2 align-top">' +
-            '<div class="flex flex-col gap-0.5">' +
-              typeSelect +
-              vmapToggle +
+      // Odoo coupled full list
+      var coupledFullHtml = coupled && coupled.length
+        ? '<div class="flex flex-wrap gap-1">' + coupled.map(function (of_) {
+            return '<span class="badge badge-success badge-sm font-mono">' + esc(of_) + '</span>';
+          }).join('') + '</div>'
+        : '<span class="text-sm text-base-content/35">Nog niet gekoppeld</span>';
+
+      var detailPanel =
+        '<div class="bg-base-50 border-t border-base-200 px-4 py-4">' +
+          '<div class="grid grid-cols-1 gap-5 sm:grid-cols-2">' +
+
+            // Col A: Alias + Odoo koppeling
+            '<div class="space-y-4">' +
+
+              // Alias
+              '<div>' +
+                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Alias</div>' +
+                '<div class="flex items-center gap-1">' +
+                  '<input type="text" id="alias-inp-' + esc(fid) + '" class="input input-sm input-bordered flex-1 font-mono" placeholder="Alias\u2026" value="' + esc(alias) + '" maxlength="60">' +
+                  '<button class="btn btn-sm btn-primary btn-square" data-action="save-field-alias" data-field-id="' + esc(fid) + '" title="Opslaan"><i data-lucide="check" class="w-4 h-4"></i></button>' +
+                  (alias ? '<button class="btn btn-sm btn-ghost btn-square text-base-content/30" data-action="clear-field-alias" data-field-id="' + esc(fid) + '" title="Wissen"><i data-lucide="x" class="w-4 h-4"></i></button>' : '') +
+                '</div>' +
+              '</div>' +
+
+              // Odoo koppeling
+              '<div>' +
+                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Gekoppeld aan Odoo</div>' +
+                coupledFullHtml +
+              '</div>' +
+
             '</div>' +
-          '</td>' +
-        '</tr>';
 
-      if (!expanded || currentType !== 'selection') return mainRow;
+            // Col B: Type + Zichtbaarheid + Bulk
+            '<div class="space-y-4">' +
 
-      var rowsHtml = pendingRows.length === 0
-        ? '<p class="text-xs text-base-content/40 italic mb-2">Nog geen regels — klik "+ Rij toevoegen" om te beginnen.</p>'
-        : pendingRows.map(function (row, idx) {
-            return '<div class="flex items-center gap-2 mb-1.5">' +
-              '<input class="input input-xs input-bordered font-mono" style="flex:1" placeholder="Bronwaarde (komt binnen)" value="' + esc(row.from || '') + '" data-vmap-from="' + idx + '">' +
-              '<i data-lucide="arrow-right" class="w-4 h-4 shrink-0 text-base-content/30"></i>' +
-              '<input class="input input-xs input-bordered font-mono" style="flex:1" placeholder="Odoo-waarde" value="' + esc(row.to || '') + '" data-vmap-to="' + idx + '">' +
-              '<button class="btn btn-xs btn-ghost btn-square text-error" data-action="remove-valuemap-row" data-row-idx="' + idx + '" title="Rij verwijderen">' +
-                '<i data-lucide="x" class="w-3.5 h-3.5"></i>' +
-              '</button>' +
-            '</div>';
-          }).join('');
+              // Type
+              '<div>' +
+                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Type (Transform)</div>' +
+                typeSelect +
+                vmapToggle +
+                vmapEditorHtml +
+              '</div>' +
 
-      var subRow =
-        '<tr class="bg-base-200/40">' +
-          '<td colspan="3" class="pt-0 pb-3 px-4">' +
-            '<div class="bg-base-100 border border-base-300 rounded-box p-3">' +
-              '<div class="text-xs font-semibold text-base-content/60 mb-2 flex items-center gap-1.5">' +
-                '<i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>' +
-                'Waardemap — bronwaarde → Odoo-waarde' +
+              // Zichtbaarheid
+              '<div>' +
+                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Zichtbaarheid</div>' +
+                '<div class="flex flex-col gap-1.5">' +
+                  '<div class="flex items-center justify-between">' +
+                    '<span class="text-sm">Verborgen in overzicht</span>' +
+                    '<button class="btn btn-xs ' + (hidden ? 'btn-warning' : 'btn-ghost') + ' gap-1" data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '">' +
+                      '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5"></i>' + (hidden ? 'Ja' : 'Nee') +
+                    '</button>' +
+                  '</div>' +
+                  '<div class="flex items-center justify-between">' +
+                    '<span class="text-sm">Tonen in indieningen-lijst</span>' +
+                    '<button class="btn btn-xs ' + (showInList ? 'btn-info' : 'btn-ghost') + ' gap-1" data-action="toggle-field-show-in-list" data-field-id="' + esc(fid) + '">' +
+                      '<i data-lucide="table-2" class="w-3.5 h-3.5"></i>' + (showInList ? 'Ja' : 'Nee') +
+                    '</button>' +
+                  '</div>' +
+                '</div>' +
               '</div>' +
-              rowsHtml +
-              '<div class="flex gap-2 mt-2">' +
-                '<button class="btn btn-xs btn-ghost gap-1" data-action="add-valuemap-row">' +
-                  '<i data-lucide="plus" class="w-3 h-3"></i> Rij toevoegen' +
-                '</button>' +
+
+              // Bulkimport
+              '<div>' +
+                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Bulkimport</div>' +
+                '<div class="flex flex-col gap-2">' +
+                  '<div class="flex items-center justify-between">' +
+                    '<span class="text-sm">Tonen in bulkimport</span>' +
+                    '<button class="btn btn-xs ' + (showInBulk ? 'btn-success' : 'btn-ghost') + ' gap-1" data-action="toggle-bulk-import-show" data-field-id="' + esc(fid) + '">' +
+                      '<i data-lucide="' + (showInBulk ? 'eye' : 'eye-off') + '" class="w-3.5 h-3.5"></i>' + (showInBulk ? 'Ja' : 'Nee') +
+                    '</button>' +
+                  '</div>' +
+                  '<div>' +
+                    '<div class="text-xs text-base-content/40 mb-1">Standaardwaarde</div>' +
+                    '<div class="flex items-center gap-1">' +
+                      '<input type="text" id="bulk-inp-' + esc(fid) + '" class="input input-xs input-bordered flex-1 font-mono" placeholder="Standaardwaarde\u2026" value="' + esc(bulkDefault) + '">' +
+                      '<button class="btn btn-xs btn-primary btn-square" data-action="save-bulk-import-default" data-field-id="' + esc(fid) + '" title="Opslaan"><i data-lucide="save" class="w-3.5 h-3.5"></i></button>' +
+                    '</div>' +
+                  '</div>' +
+                '</div>' +
               '</div>' +
-              '<div class="divider text-xs mt-3 mb-2">Catchall (onbekende waarden)</div>' +
-              '<div class="flex items-center gap-2">' +
-                '<span class="text-xs text-base-content/50 shrink-0 w-40">Alles wat niet gevonden is →</span>' +
-                '<input class="input input-xs input-bordered font-mono flex-1" placeholder="Leeg = niet omzetten" value="' + esc(pendingCatchall) + '" data-vmap-catchall>' +
-              '</div>' +
-              '<div class="flex justify-end mt-3">' +
-                '<button class="btn btn-sm btn-primary" data-action="save-field-valuemap" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
-                  '<i data-lucide="save" class="w-4 h-4"></i> Waardemap opslaan' +
-                '</button>' +
-              '</div>' +
+
             '</div>' +
-          '</td>' +
-        '</tr>';
+          '</div>' + // end grid
+        '</div>'; // end detail panel
 
-      return mainRow + subRow;
+      return '<div class="border-b border-base-200 last:border-b-0' + (hidden ? ' opacity-40' : '') + '">' + summaryRow + detailPanel + '</div>';
+
     }).join('');
 
+    // ── Assemble ──────────────────────────────────────────────────────────────
     el.innerHTML =
       toolbarHtml +
-      '<table class="table table-xs w-full">' +
-        '<thead><tr>' +
-          '<th>Veld</th>' +
-          '<th>Gekoppeld aan Odoo</th>' +
-          '<th class="w-52">Transform</th>' +
-        '</tr></thead>' +
-        '<tbody>' + bodyRows + '</tbody>' +
-      '</table>';
+      '<div class="rounded-box border border-base-300 bg-base-100 divide-y divide-base-200 overflow-hidden">' +
+        itemsHtml +
+      '</div>';
+
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
   }
 
@@ -2252,12 +2344,23 @@
   }
 
   // ── Field visibility/alias handlers ────────────────────────────────────────
+  function hasAnyFieldMetaOverrides(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    return !!(
+      entry.hidden ||
+      entry.show_in_list ||
+      entry.alias ||
+      entry.bulk_import_show === false ||
+      (entry.bulk_import_default != null && String(entry.bulk_import_default).trim() !== '')
+    );
+  }
+
   function handleToggleFieldHidden(fid) {
     var integId = String(S().activeId || '');
     var meta    = S()._fieldMeta || {};
     if (!meta[fid]) meta[fid] = {};
     meta[fid].hidden = !meta[fid].hidden;
-    if (!meta[fid].hidden && !meta[fid].alias && !meta[fid].show_in_list) delete meta[fid];
+    if (!hasAnyFieldMetaOverrides(meta[fid])) delete meta[fid];
     S()._fieldMeta = meta;
     _saveFieldMeta(integId, meta);
     renderDetailFormFields();
@@ -2270,11 +2373,40 @@
     var meta    = S()._fieldMeta || {};
     if (!meta[fid]) meta[fid] = {};
     meta[fid].show_in_list = !meta[fid].show_in_list;
-    if (!meta[fid].show_in_list && !meta[fid].hidden && !meta[fid].alias) delete meta[fid];
+    if (!hasAnyFieldMetaOverrides(meta[fid])) delete meta[fid];
     S()._fieldMeta = meta;
     _saveFieldMeta(integId, meta);
     renderDetailFormFields();
     renderDetailSubmissions();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  function handleToggleBulkImportShow(fid) {
+    var integId = String(S().activeId || '');
+    var meta = S()._fieldMeta || {};
+    if (!meta[fid]) meta[fid] = {};
+    meta[fid].bulk_import_show = meta[fid].bulk_import_show === false;
+    if (!hasAnyFieldMetaOverrides(meta[fid])) delete meta[fid];
+    S()._fieldMeta = meta;
+    _saveFieldMeta(integId, meta);
+    renderDetailFormFields();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  function handleSaveBulkImportDefault(fid, value) {
+    var integId = String(S().activeId || '');
+    var meta = S()._fieldMeta || {};
+    if (!meta[fid]) meta[fid] = {};
+    var trimmed = (value || '').trim();
+    if (trimmed) {
+      meta[fid].bulk_import_default = trimmed;
+    } else {
+      delete meta[fid].bulk_import_default;
+    }
+    if (!hasAnyFieldMetaOverrides(meta[fid])) delete meta[fid];
+    S()._fieldMeta = meta;
+    _saveFieldMeta(integId, meta);
+    renderDetailFormFields();
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
@@ -2288,7 +2420,7 @@
     } else {
       delete meta[fid].alias;
     }
-    if (!meta[fid].alias && !meta[fid].hidden) delete meta[fid];
+    if (!hasAnyFieldMetaOverrides(meta[fid])) delete meta[fid];
     S()._fieldMeta = meta;
     _saveFieldMeta(integId, meta);
     renderDetailFormFields();
@@ -2491,6 +2623,503 @@
       await openDetail(integId);
     } catch (e) {
       window.FSV2.showAlert('Opkuis mislukt: ' + e.message, 'error');
+    }
+  }
+
+  function normalizeBulkText(v) {
+    if (v === undefined || v === null) return '';
+    return String(v).replace(/\s+/g, ' ').trim();
+  }
+
+  function normalizeBulkPhone(v) {
+    return normalizeBulkText(v).replace(/[^\d+]/g, '');
+  }
+
+  function parseBulkDateToIso(v) {
+    if (v === undefined || v === null || v === '') return '';
+    if (typeof v === 'number') {
+      var epoch = Date.UTC(1899, 11, 30);
+      var excelDate = new Date(epoch + Math.round(v * 24 * 60 * 60 * 1000));
+      if (!isNaN(excelDate.getTime())) return excelDate.toISOString();
+    }
+
+    var raw = normalizeBulkText(v);
+    if (!raw) return '';
+
+    var direct = new Date(raw);
+    if (!isNaN(direct.getTime())) return direct.toISOString();
+
+    var m = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?:\s*(am|pm))?)?$/i);
+    if (m) {
+      var a = Number(m[1]);
+      var b = Number(m[2]);
+      var y = Number(m[3]);
+      var hh = Number(m[4] || 0);
+      var mm = Number(m[5] || 0);
+      var ampm = normalizeBulkText(m[6]).toLowerCase();
+      if (y < 100) y += 2000;
+      var day = a > 12 ? a : b;
+      var month = a > 12 ? b : a;
+      if (ampm === 'pm' && hh < 12) hh += 12;
+      if (ampm === 'am' && hh === 12) hh = 0;
+      var parsed = new Date(y, month - 1, day, hh, mm, 0);
+      if (!isNaN(parsed.getTime())) return parsed.toISOString();
+    }
+
+    return null;
+  }
+
+  function normalizeBulkEnum(field, value, dropdowns) {
+    var raw = normalizeBulkText(value);
+    if (!raw) return '';
+    var options = Array.isArray(dropdowns[field]) ? dropdowns[field] : [];
+    if (!options.length) return raw;
+    var match = options.find(function (opt) {
+      var optValue = (opt && typeof opt === 'object') ? (opt.value != null ? String(opt.value) : '') : String(opt || '');
+      return normalizeBulkText(optValue).toLowerCase() === raw.toLowerCase();
+    });
+    if (!match) return raw;
+    return (match && typeof match === 'object') ? (match.value != null ? String(match.value) : raw) : String(match);
+  }
+
+  async function loadBulkImportConfig() {
+    var summaryEl = document.getElementById('importMetaLeadsSummary');
+    if (summaryEl) {
+      summaryEl.innerHTML = '<span class="loading loading-spinner loading-xs"></span><span class="ml-2">Connectievelden laden...</span>';
+    }
+
+    var res = await window.FSV2.api('/integrations/' + S().activeId + '/import-meta-leads/template');
+    var data = (res && res.data) || {};
+    var columns = Array.isArray(data.columns) ? data.columns : [];
+    var dropdowns = data.dropdowns && typeof data.dropdowns === 'object' ? data.dropdowns : {};
+    var inputRules = data.input_rules && typeof data.input_rules === 'object' ? data.input_rules : {};
+    var sampleRow = data.sample_row && typeof data.sample_row === 'object' ? data.sample_row : {};
+    var fieldTransforms = data.field_transforms && typeof data.field_transforms === 'object' ? data.field_transforms : {};
+    var fieldMeta = Object.assign(
+      {},
+      (data.field_meta && typeof data.field_meta === 'object' ? data.field_meta : {}),
+      (S()._fieldMeta || {})
+    );
+    var bulkDefaults = {};
+    var bulkVisible = {};
+
+    columns.forEach(function (field) {
+      var transform = fieldTransforms[field];
+      var valueMap = transform && transform.value_map && typeof transform.value_map === 'object' ? transform.value_map : null;
+      if (!valueMap) return;
+      var keys = getOrderedValueMapKeys(transform);
+      if (!keys.length) return;
+      var merged = Array.isArray(dropdowns[field]) ? dropdowns[field].slice() : [];
+      keys.forEach(function (key) {
+        var exists = merged.some(function (opt) {
+          if (opt && typeof opt === 'object') return String(opt.value || '') === key;
+          return String(opt) === key;
+        });
+        if (!exists) merged.push({ value: key, label: key + ' -> ' + String(valueMap[key]) });
+      });
+      dropdowns[field] = merged;
+    });
+
+    columns.forEach(function (field) {
+      var meta = fieldMeta[field] || {};
+      bulkVisible[field] = meta.bulk_import_show !== false;
+      var defaultValue = meta.bulk_import_default != null ? String(meta.bulk_import_default) : '';
+      if (!defaultValue && S().detail && S().detail.integration) {
+        if (field === 'form_id' && S().detail.integration.forminator_form_id) defaultValue = String(S().detail.integration.forminator_form_id);
+        if (field === 'form_name' && S().detail.integration.name) defaultValue = String(S().detail.integration.name);
+      }
+      if (defaultValue) bulkDefaults[field] = defaultValue;
+    });
+
+    var detailFields = S().detailFormFields || [];
+    detailFields.forEach(function (f) {
+      var fid = String(f.field_id || '');
+      if (!fid) return;
+      var meta = fieldMeta[fid] || {};
+      if (meta.bulk_import_show === false) return;
+      if (columns.indexOf(fid) !== -1) return;
+      columns.push(fid);
+      bulkVisible[fid] = true;
+      var defaultValue = meta.bulk_import_default != null
+        ? String(meta.bulk_import_default) : '';
+      if (!defaultValue && S().detail && S().detail.integration) {
+        if (fid === 'form_id' && S().detail.integration.forminator_form_id)
+          defaultValue = String(S().detail.integration.forminator_form_id);
+        if (fid === 'form_name' && S().detail.integration.name)
+          defaultValue = String(S().detail.integration.name);
+      }
+      if (defaultValue) bulkDefaults[fid] = defaultValue;
+    });
+
+    S()._bulkImportConfig = {
+      columns: columns,
+      dropdowns: dropdowns,
+      inputRules: inputRules,
+      sampleRow: sampleRow,
+      fieldMeta: fieldMeta,
+      bulkDefaults: bulkDefaults,
+      bulkVisible: bulkVisible,
+    };
+
+    var rows = [];
+    S()._bulkImportRows = rows;
+    renderBulkImportEditor();
+
+    if (summaryEl) {
+      summaryEl.innerHTML = '<div class="text-sm text-success">Velden geladen. Vul de rijen in en valideer.</div>';
+    }
+  }
+
+  function renderBulkImportEditor() {
+    var editor = document.getElementById('bulkImportEditor');
+    if (!editor) return;
+
+    var cfg = S()._bulkImportConfig || {};
+    var columns = Array.isArray(cfg.columns) ? cfg.columns : [];
+    var dropdowns = cfg.dropdowns || {};
+    var inputRules = cfg.inputRules || {};
+    var bulkVisible = cfg.bulkVisible || {};
+    var rows = Array.isArray(S()._bulkImportRows) ? S()._bulkImportRows : [];
+
+    if (!columns.length) {
+      editor.innerHTML = '<div class="text-sm text-base-content/60">Geen velden beschikbaar voor deze connectie.</div>';
+      return;
+    }
+
+    var composer = S()._bulkImportComposer || {};
+    var visibleColumns = columns.filter(function (field) { return bulkVisible[field] !== false; });
+    var hiddenCount = columns.length - visibleColumns.length;
+    var html = '<div class="space-y-3">' +
+      '<div class="rounded-box border border-base-300 bg-base-100 p-3">' +
+        '<div class="flex items-center justify-between gap-2 mb-3">' +
+          '<div class="font-semibold text-sm">Nieuwe rij</div>' +
+          '<button class="btn btn-xs btn-outline" type="button" data-action="add-bulk-import-row">Rij toevoegen</button>' +
+        '</div>' +
+        '<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">';
+
+    visibleColumns.forEach(function (field) {
+      var value = composer[field] !== undefined ? composer[field] : (cfg.bulkDefaults && cfg.bulkDefaults[field] !== undefined ? cfg.bulkDefaults[field] : '');
+      var options = Array.isArray(dropdowns[field]) ? dropdowns[field] : [];
+      var rule = inputRules[field] || {};
+      var label = String(field).replace(/_/g, ' ');
+
+      html += '<div class="min-w-0">' +
+        '<label class="label pb-1"><span class="label-text text-xs font-medium truncate">' + window.FSV2.esc(label) + '</span></label>';
+
+      if (options.length) {
+        html += '<select class="select select-bordered select-sm w-full" data-bulk-composer-field="' + window.FSV2.esc(field) + '">';
+        html += '<option value=""></option>';
+        options.forEach(function (opt) {
+          var optValue = (opt && typeof opt === 'object') ? (opt.value != null ? String(opt.value) : '') : String(opt || '');
+          var optLabel = (opt && typeof opt === 'object') ? (opt.label != null ? String(opt.label) : optValue) : String(opt || '');
+          var selected = String(value) === String(optValue) ? ' selected' : '';
+          html += '<option value="' + window.FSV2.esc(optValue) + '"' + selected + '>' + window.FSV2.esc(optLabel) + '</option>';
+        });
+        html += '</select>';
+      } else {
+        var inputType = rule.type === 'datetime' ? 'datetime-local' : 'text';
+        var inputValue = String(value || '');
+        if (rule.type === 'datetime' && inputValue) {
+          var pickedDate = parseBulkDateToIso(inputValue);
+          if (pickedDate) inputValue = pickedDate.slice(0, 16);
+        }
+        var placeholder = rule.type === 'datetime' ? 'YYYY-MM-DDTHH:MM' : '';
+        html += '<input type="' + inputType + '" class="input input-bordered input-sm w-full" data-bulk-composer-field="' + window.FSV2.esc(field) + '" value="' + window.FSV2.esc(inputValue) + '" placeholder="' + window.FSV2.esc(placeholder) + '">';
+      }
+
+      html += '</div>';
+    });
+
+    html += '</div>' +
+      '<div class="mt-3 text-xs text-base-content/50">Vul een rij in en druk op Rij toevoegen.' +
+        (hiddenCount > 0 ? (' <span class="text-base-content/60">' + window.FSV2.esc(String(hiddenCount)) + ' veld(en) worden automatisch toegevoegd.</span>') : '') +
+      '</div>' +
+    '</div>';
+
+    if (rows.length) {
+      html += '<div class="space-y-2">';
+      rows.forEach(function (row, rowIndex) {
+        var parts = [];
+        visibleColumns.forEach(function (field) {
+          var value = row && row[field] !== undefined ? String(row[field]).trim() : '';
+          if (!value) return;
+          parts.push('<span class="badge badge-ghost badge-sm whitespace-normal break-words">' + window.FSV2.esc(String(field).replace(/_/g, ' ') + ': ' + value) + '</span>');
+        });
+        if (!parts.length) parts.push('<span class="text-base-content/40">Lege rij</span>');
+        html += '<div class="rounded-box border border-base-200 bg-base-50 px-3 py-2">' +
+          '<div class="flex items-start justify-between gap-2">' +
+            '<div class="flex flex-wrap gap-1 min-w-0">' +
+              '<span class="badge badge-outline badge-sm">Rij ' + window.FSV2.esc(String(rowIndex + 1)) + '</span>' +
+              parts.join('') +
+            '</div>' +
+            '<button class="btn btn-ghost btn-xs text-error shrink-0" data-action="remove-bulk-import-row" data-row-index="' + rowIndex + '"><i data-lucide="trash-2" class="w-3 h-3"></i></button>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div class="text-sm text-base-content/50 italic">Nog geen rijen toegevoegd.</div>';
+    }
+
+    html += '</div>';
+    editor.innerHTML = html;
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ nodes: [editor] });
+  }
+
+  function readBulkComposerValues() {
+    var editor = document.getElementById('bulkImportEditor');
+    var values = {};
+    if (!editor) return values;
+
+    editor.querySelectorAll('[data-bulk-composer-field]').forEach(function (el) {
+      var field = el.getAttribute('data-bulk-composer-field');
+      if (!field) return;
+      values[field] = el.value;
+    });
+    return values;
+  }
+
+  function hasAnyBulkComposerValue(values) {
+    return Object.keys(values || {}).some(function (key) {
+      return normalizeBulkText(values[key]) !== '';
+    });
+  }
+
+  function validateBulkComposerRow(values) {
+    var cfg = S()._bulkImportConfig || {};
+    var columns = Array.isArray(cfg.columns) ? cfg.columns : [];
+    var normalized = {};
+    var hasAny = false;
+
+    columns.forEach(function (field) {
+      var raw = Object.prototype.hasOwnProperty.call(values, field) ? values[field] : '';
+      if ((raw === undefined || raw === null || normalizeBulkText(raw) === '') && cfg.bulkDefaults && Object.prototype.hasOwnProperty.call(cfg.bulkDefaults, field)) {
+        raw = cfg.bulkDefaults[field];
+      }
+      var rule = (cfg.inputRules || {})[field] || {};
+      var value = raw;
+
+      if (rule.type === 'datetime') {
+        var parsed = parseBulkDateToIso(raw);
+        if (parsed === null) {
+          var err = new Error('Rijvalidatie: veld "' + field + '" heeft een ongeldige datum/tijd.');
+          err.code = 'VALIDATION_ERROR';
+          throw err;
+        }
+        value = parsed;
+      } else if (rule.type === 'enum') {
+        value = normalizeBulkEnum(field, raw, cfg.dropdowns || {});
+      } else if (rule.type === 'email') {
+        value = normalizeBulkText(raw).toLowerCase();
+      } else if (rule.type === 'phone') {
+        value = normalizeBulkPhone(raw);
+      } else {
+        value = normalizeBulkText(raw);
+      }
+
+      if (normalizeBulkText(value)) hasAny = true;
+      normalized[field] = value;
+    });
+
+    return { normalized: normalized, hasAny: hasAny };
+  }
+
+  function readBulkRowsFromEditor() {
+    return Array.isArray(S()._bulkImportRows) ? S()._bulkImportRows : [];
+  }
+
+  function validateAndNormalizeBulkRows(rows) {
+    var cfg = S()._bulkImportConfig || {};
+    var columns = Array.isArray(cfg.columns) ? cfg.columns : [];
+    var dropdowns = cfg.dropdowns || {};
+    var inputRules = cfg.inputRules || {};
+
+    var errors = [];
+    var normalizedRows = [];
+
+    rows.forEach(function (row, rowIndex) {
+      var normalized = {};
+      var hasAny = false;
+
+      columns.forEach(function (field) {
+        var raw = row && Object.prototype.hasOwnProperty.call(row, field) ? row[field] : '';
+        var rule = inputRules[field] || {};
+        var value = raw;
+
+        if (rule.type === 'datetime') {
+          var parsed = parseBulkDateToIso(raw);
+          if (parsed === null) {
+            errors.push('Rij ' + (rowIndex + 1) + ', veld "' + field + '": ongeldige datum/tijd');
+            value = raw;
+          } else {
+            value = parsed;
+          }
+        } else if (rule.type === 'enum') {
+          value = normalizeBulkEnum(field, raw, dropdowns);
+        } else if (rule.type === 'email') {
+          value = normalizeBulkText(raw).toLowerCase();
+        } else if (rule.type === 'phone') {
+          value = normalizeBulkPhone(raw);
+        } else {
+          value = normalizeBulkText(raw);
+        }
+
+        if (normalizeBulkText(value)) hasAny = true;
+        normalized[field] = value;
+      });
+
+      if (hasAny) normalizedRows.push(normalized);
+    });
+
+    return { normalizedRows: normalizedRows, errors: errors };
+  }
+
+  function handleOpenImportModal() {
+    var dlg = document.getElementById('importMetaLeadsDialog');
+    var summaryEl = document.getElementById('importMetaLeadsSummary');
+    var submitBtn = document.getElementById('btnImportMetaLeads');
+    var validateBtn = document.getElementById('btnValidateBulkImport');
+    var addBtn = document.getElementById('btnAddBulkImportRow');
+    var runInactiveEl = document.getElementById('bulkImportRunWhenInactive');
+
+    if (summaryEl) summaryEl.innerHTML = '';
+    if (submitBtn) submitBtn.disabled = false;
+    if (validateBtn) validateBtn.disabled = false;
+    if (addBtn) addBtn.disabled = false;
+    if (runInactiveEl) runInactiveEl.checked = false;
+
+    S()._bulkImportConfig = null;
+    S()._bulkImportRows = [];
+    S()._bulkImportComposer = {};
+
+    if (dlg) dlg.showModal();
+    loadBulkImportConfig().catch(function (err) {
+      window.FSV2.showAlert('Bulk configuratie laden mislukt: ' + err.message, 'error');
+    });
+  }
+
+  function handleAddBulkImportRow() {
+    var composerValues = readBulkComposerValues();
+    var normalized;
+    var checked;
+    try {
+      checked = validateBulkComposerRow(composerValues);
+      normalized = checked.normalized;
+    } catch (err) {
+      window.FSV2.showAlert(err.message || 'Rijvalidatie mislukt.', 'error');
+      return;
+    }
+
+    if (!checked.hasAny) {
+      window.FSV2.showAlert('Vul eerst minstens één veld in.', 'warning');
+      return;
+    }
+
+    var rows = Array.isArray(S()._bulkImportRows) ? S()._bulkImportRows.slice() : [];
+    rows.push(normalized);
+    S()._bulkImportRows = rows;
+    S()._bulkImportComposer = {};
+    renderBulkImportEditor();
+  }
+
+  function handleRemoveBulkImportRow(rowIndexRaw) {
+    var rowIndex = Number(rowIndexRaw);
+    if (!Number.isInteger(rowIndex)) return;
+    var rows = readBulkRowsFromEditor();
+    if (rowIndex < 0 || rowIndex >= rows.length) return;
+    rows.splice(rowIndex, 1);
+    if (!rows.length) rows.push({});
+    S()._bulkImportRows = rows;
+    renderBulkImportEditor();
+  }
+
+  async function handleValidateBulkImportRows() {
+    var summaryEl = document.getElementById('importMetaLeadsSummary');
+    var rows = readBulkRowsFromEditor();
+    var checked = validateAndNormalizeBulkRows(rows);
+
+    if (summaryEl) {
+      summaryEl.innerHTML = '<div class="text-sm space-y-1">' +
+        '<div><span class="font-semibold">Ingevulde rijen:</span> ' + window.FSV2.esc(String(checked.normalizedRows.length)) + '</div>' +
+        '<div><span class="font-semibold">Validatiefouten:</span> ' + window.FSV2.esc(String(checked.errors.length)) + '</div>' +
+        (checked.errors.length
+          ? '<div class="text-error">' + window.FSV2.esc(checked.errors.slice(0, 8).join(' | ')) + (checked.errors.length > 8 ? ' ...' : '') + '</div>'
+          : '<div class="text-success">Validatie geslaagd. Klaar om te importeren.</div>') +
+      '</div>';
+    }
+
+    if (checked.errors.length) {
+      window.FSV2.showAlert('Validatie klaar: corrigeer de fouten.', 'warning');
+    } else {
+      window.FSV2.showAlert('Validatie geslaagd.', 'success');
+    }
+  }
+
+  async function handleImportMetaLeads() {
+    var submitBtn = document.getElementById('btnImportMetaLeads');
+    var validateBtn = document.getElementById('btnValidateBulkImport');
+    var addBtn = document.getElementById('btnAddBulkImportRow');
+    var runInactiveEl = document.getElementById('bulkImportRunWhenInactive');
+    var summaryEl = document.getElementById('importMetaLeadsSummary');
+    var dlg = document.getElementById('importMetaLeadsDialog');
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (validateBtn) validateBtn.disabled = true;
+    if (addBtn) addBtn.disabled = true;
+
+    if (summaryEl) summaryEl.innerHTML = '<span class="loading loading-spinner loading-xs"></span><span class="ml-2">Import wordt verwerkt...</span>';
+
+    try {
+      var rows = readBulkRowsFromEditor();
+      var checked = validateAndNormalizeBulkRows(rows);
+      if (checked.errors.length) {
+        var errs = checked.errors.slice(0, 8);
+        throw new Error('Validatiefouten in invoer:\n' + errs.join('\n') + (checked.errors.length > 8 ? '\n...' : ''));
+      }
+
+      var normalizedRows = checked.normalizedRows || [];
+      if (!normalizedRows.length) {
+        throw new Error('Geen ingevulde rijen om te importeren.');
+      }
+
+      var total = normalizedRows.length;
+      var chunkSize = 5;
+      var imported = 0;
+      var allResults = [];
+
+      for (var start = 0; start < normalizedRows.length; start += chunkSize) {
+        var chunk = normalizedRows.slice(start, start + chunkSize);
+        var res = await window.FSV2.api('/integrations/' + S().activeId + '/import-meta-leads', {
+          method: 'POST',
+          body: JSON.stringify({
+            rows: chunk,
+            max_rows: chunk.length,
+            run_when_inactive: !!(runInactiveEl && runInactiveEl.checked),
+          }),
+        });
+        var payload = (res && res.data) || {};
+        imported += Array.isArray(payload.results) ? payload.results.length : chunk.length;
+        if (Array.isArray(payload.results)) allResults = allResults.concat(payload.results);
+      }
+
+      if (summaryEl) {
+        summaryEl.innerHTML = '<div class="text-sm space-y-1">' +
+          '<div><span class="font-semibold">Rijen geïmporteerd:</span> ' + window.FSV2.esc(String(imported)) + '</div>' +
+          '<div><span class="font-semibold">Totaal verwerkt:</span> ' + window.FSV2.esc(String(total)) + '</div>' +
+          (allResults.length ? '<div class="text-success">Import voltooid.</div>' : '') +
+        '</div>';
+      }
+
+      window.FSV2.showAlert('Import voltooid: ' + imported + ' rij(en).', 'success');
+      if (dlg) dlg.close();
+      await openDetail(S().activeId);
+    } catch (e) {
+      if (summaryEl) summaryEl.innerHTML = '<div class="text-sm text-error">' + window.FSV2.esc(e.message || 'Import mislukt') + '</div>';
+      window.FSV2.showAlert('Import mislukt: ' + e.message, 'error');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+      if (validateBtn) validateBtn.disabled = false;
+      if (addBtn) addBtn.disabled = false;
     }
   }
 
@@ -3443,6 +4072,8 @@
     handleRefreshFormFields:  handleRefreshFormFields,
     handleToggleFieldHidden:  handleToggleFieldHidden,
     handleToggleShowInList:   handleToggleShowInList,
+    handleToggleBulkImportShow: handleToggleBulkImportShow,
+    handleSaveBulkImportDefault: handleSaveBulkImportDefault,
     handleSaveFieldAlias:     handleSaveFieldAlias,
     handleToggleShowHidden:   handleToggleShowHidden,
     handleDeleteIntegration: handleDeleteIntegration,
@@ -3452,6 +4083,11 @@
     handleCleanupReplays:    handleCleanupReplays,
     handleOpenExportModal:   handleOpenExportModal,
     handleExportSubmissions: handleExportSubmissions,
+    handleOpenImportModal:   handleOpenImportModal,
+    handleImportMetaLeads:   handleImportMetaLeads,
+    handleValidateBulkImportRows: handleValidateBulkImportRows,
+    handleAddBulkImportRow:  handleAddBulkImportRow,
+    handleRemoveBulkImportRow: handleRemoveBulkImportRow,
   });
 
 }());

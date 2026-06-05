@@ -672,6 +672,9 @@ export async function upsertFieldTransform(env, integrationId, fieldName, payloa
       field_name:     fieldName,
       field_type:     payload.field_type || 'text',
       value_map:      payload.value_map  || null,
+      value_map_order: Array.isArray(payload.value_map_order) && payload.value_map_order.length
+        ? payload.value_map_order
+        : null,
       updated_at:     new Date().toISOString(),
     }, { onConflict: 'integration_id,field_name' })
     .select('*')
