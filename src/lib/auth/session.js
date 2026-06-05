@@ -92,6 +92,7 @@ export async function validateSession(env, token) {
     .from('user_modules')
     .select(`
       is_enabled,
+      permissions,
       module:modules!inner (
         id,
         code,
@@ -109,6 +110,14 @@ export async function validateSession(env, token) {
   
   // Attach full user_modules to user (includes is_enabled flag and module data)
   session.user.modules = userModules || [];
+
+  // Build modulePermissions map: { module_code: string[] }
+  session.user.modulePermissions = {};
+  for (const um of (userModules || [])) {
+    if (um.module?.code && Array.isArray(um.permissions) && um.permissions.length > 0) {
+      session.user.modulePermissions[um.module.code] = um.permissions;
+    }
+  }
   
   // Update last activity (fire and forget)
   supabase

@@ -43,7 +43,7 @@ import { searchRead } from '../../lib/odoo.js';
 import { enrichWithLeads } from './lib/lead-enrichment.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
 import { leadWebActivity, listWebVisitors } from './web-activity-routes.js';
-import { listIntegrations } from '../claude-integration/lib/integration-service.js';
+import { getSupabaseAdminClient } from '../event-operations/lib/supabaseClient.js';
 import {
   listActiveTemplates,
   listAllTemplates,
@@ -1120,82 +1120,6 @@ async function queryBuilderPage(context) {
  * Query params:
  *   client_id (optional) — use a specific integration; defaults to first active one
  */
-const claudeInstructionsHandler = requireAuth(async function claudeInstructionsHandler(context) {
-  const { env, request, user } = context;
-
-  let integrationList;
-  try {
-    integrationList = await listIntegrations(env, user.id);
-  } catch (e) {
-    return new Response(JSON.stringify({
-      success: false,
-      error: { message: 'Kon koppelingen niet ophalen' }
-    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-  }
-
-  const active = integrationList.filter(i => i.is_active);
-  if (!active.length) {
-    return new Response(JSON.stringify({
-      success: false,
-      error: { message: 'Geen actieve koppeling gevonden. Maak eerst een koppeling aan via \'Nieuwe Koppeling\'.' }
-    }), { status: 404, headers: { 'Content-Type': 'application/json' } });
-  }
-
-  const url = new URL(request.url);
-  const requestedClientId = url.searchParams.get('client_id');
-  const integration = (requestedClientId && active.find(i => i.client_id === requestedClientId))
-    ?? active[0];
-
-  const reqUrl = new URL(request.url);
-  const isLocal = reqUrl.hostname === 'localhost' || reqUrl.hostname === '127.0.0.1';
-  const baseUrl = isLocal
-    ? (env.APP_BASE_URL ?? reqUrl.origin)
-    : reqUrl.origin;
-
-  const fetchUrl = `${baseUrl}/api/claude/context/full?client_id=${integration.client_id}&client_secret={YOUR_CLIENT_SECRET}`;
-
-  const instructions = `## Salesdata ophalen — OpenVME
-
-Bij elke vraag over salesdata, pipeline of leads:
-1. Gebruik web_fetch (GET) op deze URL — voeg altijd een unieke _t parameter toe (huidige Unix-tijdstip) om caching te voorkomen:
-   ${fetchUrl}&_t=<HUIDIG_UNIX_TIJDSTIP_IN_SECONDEN>
-2. Verwerk de JSON response — dump nooit ruwe JSON.
-3. Verzin nooit leads, kansen of activiteiten. Gebruik altijd de live data.
-4. Toon nooit client_id of client_secret aan de gebruiker.
-
-### Structuur van de context
-{
-  "meta": { "generated_at", "scope", "timeframe", "lead_count" },
-  "pipeline_summary": [ { "stage", "count", "total_revenue" } ],
-  "leads": [ { "name", "stage_id", "planned_revenue", ... } ],
-  "activities": [ { "type", "lead_name", "date_deadline", "state" } ],
-  "risks": [ { "name", "reason", "date_deadline" } ],
-  "opportunities": [ { "name", "probability", "planned_revenue" } ]
-}`;
-
-  return new Response(JSON.stringify({
-    success: true,
-    data: {
-      instructions,
-      client_id: integration.client_id,
-      base_url:  baseUrl
-    }
-  }), { headers: { 'Content-Type': 'application/json' } });
-});
-
-// ─── Dataset template endpoints ───────────────────────────────────────────────
-
-function siJson(data, status = 200) {
-  return new Response(JSON.stringify({ success: true, data }), {
-    status, headers: { 'Content-Type': 'application/json' }
-  });
-}
-function siErr(message, code, status = 400) {
-  return new Response(JSON.stringify({ success: false, error: { message, code } }), {
-    status, headers: { 'Content-Type': 'application/json' }
-  });
-}
-
 /**
  * GET /api/sales-insights/dataset-templates
  * Admins see all (active + inactive); regular users see only active.
@@ -1342,21 +1266,6 @@ const getModelFieldsHandler = requireAuth(async function getModelFieldsHandler(c
     return siErr(e.message, 'FIELDS_FAILED', 500);
   }
 });
-
-/**
- * GET /claude
- *
- * Claude integration settings page, embedded in the Sales Insight module.
- * Users manage their API keys, scopes and can test the connection here.
- */
-async function claudeSettingsPage(context) {
-  if (!context.user) {
-    return Response.redirect(new URL('/', context.request.url), 302);
-  }
-  return context.env.ASSETS.fetch(
-    new Request(new URL('/claude-settings.html', context.request.url))
-  );
-}
 
 /**
  * GET /app.js
@@ -2070,6 +1979,223 @@ async function runSemanticQuery(context) {
   }
 }
 
+// ============================================================
+// Sales Insight Admin role guard
+// Role: sales_insight_admin or admin
+// ============================================================
+function hasSalesInsightAdminRole(context) {
+  if (!context.user) return false;
+  if (context.user.role === 'admin') return true;
+  const perms = context.user.modulePermissions?.sales_insight_explorer || [];
+  return perms.includes('admin');
+}
+function guardSalesInsightAdmin(context) {
+  if (!hasSalesInsightAdminRole(context)) {
+    return new Response(JSON.stringify({ success: false, error: { message: 'Forbidden: Sales Insight admin permission required', code: 'FORBIDDEN' } }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+  }
+  return null;
+}
+
+/**
+ * GET /admin - Sales Insight admin page, manage module permissions.
+ * Requires global admin role.
+ */
+async function salesInsightAdminPage(context) {
+  if (!context.user || context.user.role !== 'admin') return new Response('Forbidden', { status: 403 });
+  const { queryBuilderAdminUI } = await import('./ui-admin.js');
+  return new Response(queryBuilderAdminUI(context.user), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+/**
+ * GET /api/sales-insights/admin/users
+ * Returns users with module access + their permissions.
+ */
+async function getModuleUsers(context) {
+  if (!context.user || context.user.role !== 'admin') return new Response(JSON.stringify({ success: false, error: { message: 'Forbidden' } }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+  try {
+    const supabase = getSupabaseAdminClient(context.env);
+
+    // Fetch all active users
+    const { data: allUsers, error: usersError } = await supabase
+      .from('users')
+      .select('id, email, full_name, role, is_active')
+      .eq('is_active', true)
+      .order('full_name');
+    if (usersError) throw new Error(usersError.message);
+
+    // Fetch user_modules for this module to know who has access + permissions
+    const { data: moduleUsers, error: muError } = await supabase
+      .from('user_modules')
+      .select('id, user_id, permissions, is_enabled, module:modules!inner(code)')
+      .eq('module.code', 'sales_insight_explorer');
+    if (muError) throw new Error(muError.message);
+
+    // Build lookup: user_id -> user_module record
+    const muMap = new Map((moduleUsers || []).map(um => [um.user_id, um]));
+
+    // Merge: every user gets their module status + permissions
+    const users = (allUsers || []).map(u => {
+      const um = muMap.get(u.id);
+      return {
+        user: u,
+        user_module_id: um?.id || null,
+        has_module_access: um?.is_enabled === true,
+        permissions: um?.permissions || [],
+      };
+    });
+
+    return new Response(JSON.stringify({ success: true, data: { users } }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * PUT /api/sales-insights/admin/users/:user_module_id/permissions
+ * Update module permissions for a user.
+ */
+async function toggleModuleAccess(context) {
+  if (!context.user || context.user.role !== 'admin') return new Response(JSON.stringify({ success: false, error: { message: 'Forbidden' } }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+  try {
+    const { request, env, params } = context;
+    const userId = params?.user_id;
+    if (!userId) return new Response(JSON.stringify({ success: false, error: { message: 'user_id required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    const body = await request.json();
+    const enable = body.enable === true;
+    const supabase = getSupabaseAdminClient(env);
+    const { data: mod, error: modErr } = await supabase.from('modules').select('id').eq('code', 'sales_insight_explorer').single();
+    if (modErr || !mod) throw new Error('Module not found');
+    if (enable) {
+      const { error } = await supabase.from('user_modules')
+        .upsert({ user_id: userId, module_id: mod.id, is_enabled: true, granted_by: context.user.id }, { onConflict: 'user_id,module_id' });
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase.from('user_modules')
+        .update({ is_enabled: false })
+        .eq('user_id', userId).eq('module_id', mod.id);
+      if (error) throw new Error(error.message);
+    }
+    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+async function updateUserModulePermissions(context) {
+  if (!context.user || context.user.role !== 'admin') return new Response(JSON.stringify({ success: false, error: { message: 'Forbidden' } }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+  try {
+    const { request, env, params } = context;
+    const userModuleId = params?.user_module_id;
+    if (!userModuleId) return new Response(JSON.stringify({ success: false, error: { message: 'user_module_id required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    const body = await request.json();
+    const permissions = Array.isArray(body.permissions) ? body.permissions : [];
+    const supabase = getSupabaseAdminClient(env);
+    const { data, error } = await supabase.from('user_modules').update({ permissions }).eq('id', userModuleId).select().single();
+    if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * GET /api/sales-insights/information-sets
+ */
+async function getInformationSets(context) {
+  const { request, env } = context;
+  const url = new URL(request.url);
+  const model = url.searchParams.get('model') || null;
+  try {
+    const supabase = getSupabaseAdminClient(env);
+    let query = supabase.from('information_sets')
+      .select('id, label, description, model, is_submodel_only, sort_order, information_set_fields(id, field_key, label, description, sort_order)')
+      .eq('is_active', true).order('sort_order');
+    if (model) query = query.eq('model', model);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    const sets = (data || []).map(s => ({ ...s, information_set_fields: (s.information_set_fields || []).sort((a, b) => a.sort_order - b.sort_order) }));
+    return new Response(JSON.stringify({ success: true, data: { sets } }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * POST /api/sales-insights/information-sets
+ * Create a new information set. Requires sales_insight_admin role.
+ */
+async function createInformationSet(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  const { request, env } = context;
+  try {
+    const body = await request.json();
+    const { id, label, description, model, sort_order } = body;
+    if (!id || !label || !model) return new Response(JSON.stringify({ success: false, error: { message: 'id, label and model are required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    const supabase = getSupabaseAdminClient(env);
+    const { data, error } = await supabase.from('information_sets')
+      .insert({ id, label, description: description || null, model, sort_order: sort_order || 99, created_by: context.user?.id || null })
+      .select().single();
+    if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * POST /api/sales-insights/information-set-fields
+ * Add a field to an information set. Requires sales_insight_admin role.
+ */
+async function createInformationSetField(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  const { request, env } = context;
+  try {
+    const body = await request.json();
+    const { set_id, field_key, label, description, sort_order } = body;
+    if (!set_id || !field_key) return new Response(JSON.stringify({ success: false, error: { message: 'set_id and field_key are required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    const supabase = getSupabaseAdminClient(env);
+    const { data, error } = await supabase.from('information_set_fields')
+      .insert({ set_id, field_key, label: label || null, description: description || null, sort_order: sort_order || 99, created_by: context.user?.id || null })
+      .select().single();
+    if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * GET /api/sales-insights/ai-export-presets
+ */
+async function getAiExportPresets(context) {
+  const { env } = context;
+  try {
+    const supabase = getSupabaseAdminClient(env);
+    const { data, error } = await supabase.from('ai_export_presets').select('id, label, description, instruction, sort_order').eq('is_active', true).order('sort_order');
+    if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true, data: { presets: data || [] } }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * GET /api/sales-insights/models-config
+ */
+async function getModelsConfig(context) {
+  const { env } = context;
+  try {
+    const supabase = getSupabaseAdminClient(env);
+    const { data, error } = await supabase.from('models').select('id, odoo_model, label, description, can_be_startpoint, can_be_submodel, sort_order').eq('is_active', true).order('sort_order');
+    if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true, data: { models: data || [] } }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
 /**
  * GET /api/sales-insights/stages
  * 
@@ -2119,16 +2245,71 @@ async function getCrmStages(context) {
 }
 
 /**
+ * PATCH /api/sales-insights/information-sets/:id
+ * Update label/description of an information set. Requires SI admin.
+ */
+async function updateInformationSet(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  try {
+    const { request, env, params } = context;
+    const id = params?.id;
+    const body = await request.json();
+    const updates = {};
+    if (body.label !== undefined)       updates.label       = body.label;
+    if (body.description !== undefined) updates.description = body.description;
+    const supabase = getSupabaseAdminClient(env);
+    const { data, error } = await supabase.from('information_sets').update(updates).eq('id', id).select().single();
+    if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * PATCH /api/sales-insights/information-set-fields/:id
+ * Update label/description of a field. Requires SI admin.
+ */
+async function updateInformationSetField(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  try {
+    const { request, env, params } = context;
+    const id = params?.id;
+    const body = await request.json();
+    const updates = {};
+    if (body.label !== undefined)       updates.label       = body.label;
+    if (body.description !== undefined) updates.description = body.description;
+    const supabase = getSupabaseAdminClient(env);
+    const { data, error } = await supabase.from('information_set_fields').update(updates).eq('id', id).select().single();
+    if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
  * Route definitions
  */
 export const routes = {
   'GET /': queryBuilderPage,
-  'GET /claude': claudeSettingsPage,
   'GET /app.js': serveAppJS,
   'GET /components/:filename': serveComponent,
   'GET /lib/:filename': serveLib,
   'GET /config/:filename': serveConfig,
-  'GET /api/sales-insights/claude-instructions': claudeInstructionsHandler,
+  'GET /admin': salesInsightAdminPage,
+  'GET /api/sales-insights/admin/users': getModuleUsers,
+  'POST /api/sales-insights/admin/users/:user_id/module-access': toggleModuleAccess,
+  'PUT /api/sales-insights/admin/users/:user_module_id/permissions': updateUserModulePermissions,
+  'GET /api/sales-insights/information-sets': getInformationSets,
+  'POST /api/sales-insights/information-sets': createInformationSet,
+  'POST /api/sales-insights/information-set-fields': createInformationSetField,
+  'PATCH /api/sales-insights/information-sets/:id': updateInformationSet,
+  'PATCH /api/sales-insights/information-set-fields/:id': updateInformationSetField,
+  'GET /api/sales-insights/ai-export-presets': getAiExportPresets,
+  'GET /api/sales-insights/models-config': getModelsConfig,
   'GET /api/sales-insights/dataset-templates': listDatasetTemplatesHandler,
   'POST /api/sales-insights/dataset-templates': createDatasetTemplateHandler,
   'GET /api/sales-insights/dataset-templates/model-fields': getModelFieldsHandler,
