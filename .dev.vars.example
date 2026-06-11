@@ -17,3 +17,7 @@ ADMIN_TOKEN=your_admin_password_here
 # WordPress (optional - for WordPress API access)
 WP_USERNAME=your_wp_username
 WP_PASSWORD=your_wp_app_password
+
+# Google Workspace (mail-signature-designer)
+# Volledige service account JSON op één regel — roteer via Google Cloud Console
+GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account","project_id":"...","private_key":"...","client_email":"..."}

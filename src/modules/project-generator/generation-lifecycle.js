@@ -16,20 +16,8 @@
  * - Allow retry if failed
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../lib/database.js';
 
-/**
- * Initialize Supabase client
- * 
- * Uses SERVICE_ROLE_KEY to enable RLS policies.
- */
-function getSupabaseClient(env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
-  }
-  
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-}
 
 /**
  * Check for existing generation attempts

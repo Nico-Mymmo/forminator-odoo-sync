@@ -10,7 +10,7 @@
  * - No business logic here (pure data access)
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../../lib/database.js';
 
 /**
  * @typedef {Object} SavedQuery
@@ -25,16 +25,6 @@ import { createClient } from '@supabase/supabase-js';
  * @property {string} updated_at
  */
 
-/**
- * Initialize Supabase client
- */
-function getSupabaseClient(env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables');
-  }
-  
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-}
 
 /**
  * Save a validated query to database

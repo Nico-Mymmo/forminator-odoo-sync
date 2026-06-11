@@ -7,7 +7,7 @@
  * V6: Adds include_in_streak, keep_done_confirmed_at support.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../../lib/database.js';
 
 const CACHE_KEY = 'cx_activity_mapping_cache';
 const CACHE_TTL_SEC = 300; // 5 minutes
@@ -19,7 +19,7 @@ export async function getMappings(env) {
     if (cached) return cached;
   } catch (_) {}
 
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('cx_activity_mapping')
     .select('*')
@@ -51,7 +51,7 @@ export async function createMapping(env, {
   danger_threshold_today = 3,
   include_in_streak = true,
 }) {
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('cx_activity_mapping')
     .insert({
@@ -82,7 +82,7 @@ export async function updateMapping(env, id, {
   danger_threshold_today,
   include_in_streak,
 }) {
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   const updateData = {
     priority_weight,
     is_win,
@@ -110,7 +110,7 @@ export async function updateMapping(env, id, {
  * Called after successful setKeepDone + verifyKeepDone in Odoo.
  */
 export async function confirmKeepDone(env, mappingId) {
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('cx_activity_mapping')
     .update({ keep_done_confirmed_at: new Date().toISOString() })
@@ -124,7 +124,7 @@ export async function confirmKeepDone(env, mappingId) {
 }
 
 export async function deleteMapping(env, id) {
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   const { error } = await supabase
     .from('cx_activity_mapping')
     .delete()

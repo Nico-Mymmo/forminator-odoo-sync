@@ -5,7 +5,7 @@
 import { LOG_PREFIX, EMOJI, SYNC_STATUS, WP_META_KEYS } from './constants.js';
 import { getOdooWebinars, getRegistrationCountsByWebinar, getWebinarRegistrations, getAllOdooEventTypes, updateOdooWebinar, getWebinarRecapFields, getWebinarRecapSentStatus, updateWebinarRecapFields, sendWebinarRecap, resetWebinarRecapStatus, ensureWebinarRecapTemplate } from './odoo-client.js';
 import { getWordPressEvents, getWordPressEventsWithMeta, getWordPressEvent, publishToWordPress, getWordPressEventCategories } from './wp-client.js';
-import { getSupabaseAdminClient } from './lib/supabaseClient.js';
+import { getSupabaseClient } from '../../lib/database.js';
 import { computeEventState } from './state-engine.js';
 import { extractOdooWebinarId } from './mapping.js';
 import { eventOperationsUI } from './ui.js';
@@ -318,7 +318,7 @@ export const routes = {
   'GET /api/published-webinar-ids': async (context) => {
     const { env } = context;
     try {
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       const { data, error } = await supabase
         .from('webinar_snapshots')
         .select('odoo_webinar_id')
@@ -347,7 +347,7 @@ export const routes = {
     const { env } = context;
     
     try {
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       const { data, error } = await supabase
         .from('webinar_snapshots')
@@ -444,7 +444,7 @@ export const routes = {
     const { env } = context;
     
     try {
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       const { data, error } = await supabase
         .from('webinar_snapshots')
@@ -520,7 +520,7 @@ export const routes = {
       const [odooWebinars, wpEvents, supabase, eventTypeMappings] = await Promise.all([
         odooFetchPromise,
         wpCoreFetchPromise,
-        getSupabaseAdminClient(env),
+        getSupabaseClient(env),
         getEventTypeTagMappings(env)
       ]);
 
@@ -990,7 +990,7 @@ export const routes = {
       
       console.log(`${LOG_PREFIX} 📝 Fetching editorial content for webinar ${odooWebinarId}...`);
       
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       const { data: snapshot, error } = await supabase
         .from('webinar_snapshots')
@@ -1042,7 +1042,7 @@ export const routes = {
     try {
       console.log(`${LOG_PREFIX} 📝 Fetching Forminator forms from database...`);
       
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       const { data: forms, error } = await supabase
         .from('forminator_forms')
@@ -1091,7 +1091,7 @@ export const routes = {
     const { env } = context;
     
     try {
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       const { data: forms, error } = await supabase
         .from('forminator_forms')
@@ -1143,7 +1143,7 @@ export const routes = {
         });
       }
       
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       const { data, error } = await supabase
         .from('forminator_forms')
@@ -1207,7 +1207,7 @@ export const routes = {
       const body = await request.json();
       const { form_id, form_name, description, is_active, display_order } = body;
       
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       const updateData = {};
       if (form_id !== undefined) updateData.form_id = form_id;
@@ -1270,7 +1270,7 @@ export const routes = {
         });
       }
       
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       const { error } = await supabase
         .from('forminator_forms')
@@ -1340,7 +1340,7 @@ export const routes = {
       
       console.log(`${LOG_PREFIX} 📝 Saving editorial for webinar ${odooWebinarId}, mode=${editorialMode}, formId=${selectedFormId}...`);
       
-      const supabase = await getSupabaseAdminClient(env);
+      const supabase = await getSupabaseClient(env);
       
       // Check if snapshot exists
       const { data: existingSnapshot } = await supabase

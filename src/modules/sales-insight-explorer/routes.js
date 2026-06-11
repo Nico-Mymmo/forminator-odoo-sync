@@ -43,7 +43,7 @@ import { searchRead } from '../../lib/odoo.js';
 import { enrichWithLeads } from './lib/lead-enrichment.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
 import { leadWebActivity, listWebVisitors } from './web-activity-routes.js';
-import { getSupabaseAdminClient } from '../event-operations/lib/supabaseClient.js';
+import { getSupabaseClient } from '../../lib/database.js';
 // Register export formats
 exportRegistry.register('json', jsonExporter);
 exportRegistry.register('xlsx', xlsxExporter);
@@ -1848,7 +1848,7 @@ async function salesInsightAdminPage(context) {
 async function getModuleUsers(context) {
   if (!context.user || context.user.role !== 'admin') return new Response(JSON.stringify({ success: false, error: { message: 'Forbidden' } }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   try {
-    const supabase = getSupabaseAdminClient(context.env);
+    const supabase = getSupabaseClient(context.env);
 
     // Fetch all active users
     const { data: allUsers, error: usersError } = await supabase
@@ -1897,7 +1897,7 @@ async function toggleModuleAccess(context) {
     if (!userId) return new Response(JSON.stringify({ success: false, error: { message: 'user_id required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     const body = await request.json();
     const enable = body.enable === true;
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data: mod, error: modErr } = await supabase.from('modules').select('id').eq('code', 'sales_insight_explorer').single();
     if (modErr || !mod) throw new Error('Module not found');
     if (enable) {
@@ -1924,7 +1924,7 @@ async function updateUserModulePermissions(context) {
     if (!userModuleId) return new Response(JSON.stringify({ success: false, error: { message: 'user_module_id required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     const body = await request.json();
     const permissions = Array.isArray(body.permissions) ? body.permissions : [];
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('user_modules').update({ permissions }).eq('id', userModuleId).select().single();
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
@@ -1941,7 +1941,7 @@ async function getInformationSets(context) {
   const url = new URL(request.url);
   const model = url.searchParams.get('model') || null;
   try {
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     let query = supabase.from('information_sets')
       .select('id, label, description, model, is_submodel_only, sort_order, information_set_fields(id, field_key, label, description, sort_order)')
       .eq('is_active', true).order('sort_order');
@@ -1967,7 +1967,7 @@ async function createInformationSet(context) {
     const body = await request.json();
     const { id, label, description, model, sort_order } = body;
     if (!id || !label || !model) return new Response(JSON.stringify({ success: false, error: { message: 'id, label and model are required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_sets')
       .insert({ id, label, description: description || null, model, sort_order: sort_order || 99, created_by: context.user?.id || null })
       .select().single();
@@ -1990,7 +1990,7 @@ async function createInformationSetField(context) {
     const body = await request.json();
     const { set_id, field_key, label, description, sort_order } = body;
     if (!set_id || !field_key) return new Response(JSON.stringify({ success: false, error: { message: 'set_id and field_key are required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_set_fields')
       .insert({ set_id, field_key, label: label || null, description: description || null, sort_order: sort_order || 99, created_by: context.user?.id || null })
       .select().single();
@@ -2007,7 +2007,7 @@ async function createInformationSetField(context) {
 async function getAiExportPresets(context) {
   const { env } = context;
   try {
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('ai_export_presets').select('id, label, description, instruction, sort_order').eq('is_active', true).order('sort_order');
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data: { presets: data || [] } }), { headers: { 'Content-Type': 'application/json' } });
@@ -2031,7 +2031,7 @@ async function createModel(context) {
     if (!id || !odoo_model || !label) {
       return new Response(JSON.stringify({ success: false, error: { message: 'id, odoo_model en label zijn verplicht' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('models').insert({
       id: id.trim(),
       odoo_model: odoo_model.trim(),
@@ -2069,7 +2069,7 @@ async function updateModel(context) {
     if (body.can_be_submodel   !== undefined) updates.can_be_submodel   = body.can_be_submodel;
     if (body.is_active   !== undefined) updates.is_active         = body.is_active;
     if (body.base_fields !== undefined) updates.base_fields       = Array.isArray(body.base_fields) ? body.base_fields : [];
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('models').update(updates).eq('id', id).select().single();
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
@@ -2088,7 +2088,7 @@ async function deactivateModel(context) {
   try {
     const { env, params } = context;
     const id = params?.id;
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { error } = await supabase.from('models').update({ is_active: false }).eq('id', id);
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, deactivated: true }), { headers: { 'Content-Type': 'application/json' } });
@@ -2103,7 +2103,7 @@ async function deactivateModel(context) {
 async function getModelsConfig(context) {
   const { env } = context;
   try {
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('models').select('id, odoo_model, label, description, can_be_startpoint, can_be_submodel, sort_order, base_fields').eq('is_active', true).order('sort_order');
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data: { models: data || [] } }), { headers: { 'Content-Type': 'application/json' } });
@@ -2174,7 +2174,7 @@ async function updateInformationSet(context) {
     const updates = {};
     if (body.label !== undefined)       updates.label       = body.label;
     if (body.description !== undefined) updates.description = body.description;
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_sets').update(updates).eq('id', id).select().single();
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
@@ -2197,7 +2197,7 @@ async function updateInformationSetField(context) {
     const updates = {};
     if (body.label !== undefined)       updates.label       = body.label;
     if (body.description !== undefined) updates.description = body.description;
-    const supabase = getSupabaseAdminClient(env);
+    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_set_fields').update(updates).eq('id', id).select().single();
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });

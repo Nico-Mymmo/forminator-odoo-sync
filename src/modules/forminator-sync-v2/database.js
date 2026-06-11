@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../lib/database.js';
 
 const TABLES = {
   integrations:    'fs_v2_integrations',
@@ -17,7 +17,7 @@ function getSupabase(env) {
   if (!env?.SUPABASE_URL || !env?.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error('Missing Supabase configuration');
   }
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  return getSupabaseClient(env);
 }
 
 function ensureArray(value) {

@@ -3,7 +3,7 @@
  * Handles user management, invites, and role assignments
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../lib/database.js';
 
 /**
  * Get all users with their modules
@@ -20,7 +20,7 @@ export async function handleGetUsers(context) {
   
   try {
     // Simple test - just return basic user info
-    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabase = getSupabaseClient(env);
     
     // Get all users
     const { data: users, error } = await supabase
@@ -119,7 +119,7 @@ export async function handleCreateUser(context) {
       });
     }
     
-    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabase = getSupabaseClient(env);
     
     // Hash password
     const encoder = new TextEncoder();
@@ -216,7 +216,7 @@ export async function handleUpdateUserRole(context) {
       });
     }
 
-    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabase = getSupabaseClient(env);
 
     // Update the user's role
     const { data, error } = await supabase
@@ -300,7 +300,7 @@ export async function handleUpdateUserModules(context) {
   const body = await context.request.json();
   const { modules } = body; // Array of module codes
   
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   
   // Get module IDs from codes
   const { data: moduleData, error: moduleError } = await supabase
@@ -369,7 +369,7 @@ export async function handleToggleUserStatus(context) {
   }
   
   const userId = params.id;
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   
   // Get current status
   const { data: currentUser, error: fetchError } = await supabase
@@ -418,7 +418,7 @@ export async function handleGetInvites(context) {
     });
   }
   
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   
   const { data: invites, error } = await supabase
     .from('invites')
@@ -467,7 +467,7 @@ export async function handleCreateInvite(context) {
     });
   }
   
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   
   // Check if user already exists
   const { data: existingUser } = await supabase
@@ -553,7 +553,7 @@ export async function handleDeleteInvite(context) {
   }
   
   const inviteId = params.id;
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   
   const { error } = await supabase
     .from('invites')
@@ -605,7 +605,7 @@ export async function handleUpdateUserOdooUid(context) {
     });
   }
 
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('users')
     .update({ odoo_uid: odooUid })
@@ -638,7 +638,7 @@ export async function handleGetModules(context) {
     });
   }
   
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   
   const { data: modules, error } = await supabase
     .from('modules')

@@ -8,7 +8,7 @@
  * - keep_done enforced on mapping create/update
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../lib/database.js';
 import { searchRead } from '../../lib/odoo.js';
 import { hasModuleSubRoleAccess } from '../registry.js';
 import { getUserSettings } from '../mail-signature-designer/lib/signature-store.js';
@@ -259,7 +259,7 @@ async function handleGetActivities(context) {
 
   const { env, user } = context;
   const url          = new URL(context.request.url);
-  const supabase     = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase     = getSupabaseClient(env);
 
   // ── Target: self, ?viewAs=userId, or ?viewAs=team:teamId ─────────────────
   const viewAsRaw      = url.searchParams.get('viewAs') || '';
@@ -700,7 +700,7 @@ async function handleAddActivityByOdooType(context, isTeam) {
       status: 400, headers: { 'Content-Type': 'application/json' },
     });
   }
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
 
   // Find or auto-create the global mapping entry
   let { data: existingMapping } = await supabase
@@ -904,7 +904,7 @@ async function handleGetTeamStats(context) {
   if (denied) return denied;
 
   const { env } = context;
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   const weekAgo  = new Date(Date.now() - 7 * 86400000).toISOString();
   const todayStr = getTodayStr(env);
 
@@ -952,7 +952,7 @@ async function handleGetTeamStats(context) {
 async function handleGetUsers(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data } = await supabase
     .from('users')
     .select('id, email, full_name')
@@ -967,7 +967,7 @@ async function handleGetUsers(context) {
 async function handleGetTeams(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data } = await supabase
     .from('cx_teams')
     .select('id, name, description, created_at')
@@ -984,7 +984,7 @@ async function handleCreateTeam(context) {
       status: 400, headers: { 'Content-Type': 'application/json' },
     });
   }
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data, error } = await supabase
     .from('cx_teams')
     .insert({ name: name.trim(), description: description?.trim() || null })
@@ -1005,7 +1005,7 @@ async function handleUpdateTeam(context) {
   const update = {};
   if (body.name        !== undefined) update.name        = body.name.trim();
   if (body.description !== undefined) update.description = body.description?.trim() || null;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data, error } = await supabase.from('cx_teams').update(update).eq('id', id).select().single();
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
@@ -1019,7 +1019,7 @@ async function handleDeleteTeam(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
   const { id } = context.params;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { error } = await supabase.from('cx_teams').delete().eq('id', id);
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
@@ -1037,7 +1037,7 @@ async function handleGetTeamMembers(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
   const { id: teamId } = context.params;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data } = await supabase
     .from('cx_team_members')
     .select('user_id, users (id, email, full_name)')
@@ -1057,7 +1057,7 @@ async function handleAddTeamMember(context) {
       status: 400, headers: { 'Content-Type': 'application/json' },
     });
   }
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data, error } = await supabase
     .from('cx_team_members')
     .insert({ team_id: teamId, user_id })
@@ -1075,7 +1075,7 @@ async function handleRemoveTeamMember(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
   const { id: teamId, userId } = context.params;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { error } = await supabase
     .from('cx_team_members').delete()
     .eq('team_id', teamId).eq('user_id', userId);
@@ -1095,7 +1095,7 @@ async function handleGetTeamActivities(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
   const { id: teamId } = context.params;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data } = await supabase
     .from('cx_team_activity_configs')
     .select(`
@@ -1130,7 +1130,7 @@ async function handleAddTeamActivity(context) {
       status: 400, headers: { 'Content-Type': 'application/json' },
     });
   }
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data, error } = await supabase
     .from('cx_team_activity_configs')
     .insert({ team_id: teamId, mapping_id, priority_weight, show_on_dashboard,
@@ -1157,7 +1157,7 @@ async function handleUpdateTeamActivity(context) {
                    'card_title_override', 'card_model_filter', 'card_pills_mode', 'card_view_mode'];
   const update  = {};
   for (const k of allowed) if (body[k] !== undefined) update[k] = body[k];
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data, error } = await supabase
     .from('cx_team_activity_configs').update(update)
     .eq('team_id', teamId).eq('mapping_id', mappingId)
@@ -1174,7 +1174,7 @@ async function handleRemoveTeamActivity(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
   const { id: teamId, mappingId } = context.params;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { error } = await supabase
     .from('cx_team_activity_configs').delete()
     .eq('team_id', teamId).eq('mapping_id', mappingId);
@@ -1193,7 +1193,7 @@ async function handleRemoveTeamActivity(context) {
 async function handleGetPersonalActivities(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data } = await supabase
     .from('cx_user_personal_configs')
     .select(`
@@ -1227,7 +1227,7 @@ async function handleAddPersonalActivity(context) {
       status: 400, headers: { 'Content-Type': 'application/json' },
     });
   }
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data, error } = await supabase
     .from('cx_user_personal_configs')
     .insert({ user_id: context.user.id, mapping_id, priority_weight, show_on_dashboard,
@@ -1254,7 +1254,7 @@ async function handleUpdatePersonalActivity(context) {
                    'card_title_override', 'card_model_filter', 'card_pills_mode', 'card_view_mode'];
   const update  = {};
   for (const k of allowed) if (body[k] !== undefined) update[k] = body[k];
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { data, error } = await supabase
     .from('cx_user_personal_configs').update(update)
     .eq('user_id', context.user.id).eq('mapping_id', mappingId)
@@ -1271,7 +1271,7 @@ async function handleRemovePersonalActivity(context) {
   const denied = requireCxAccess(context);
   if (denied) return denied;
   const { mappingId } = context.params;
-  const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(context.env);
   const { error } = await supabase
     .from('cx_user_personal_configs').delete()
     .eq('user_id', context.user.id)
@@ -1293,7 +1293,7 @@ async function handleGetActivityHistory(context) {
   if (denied) return denied;
   const { env, user } = context;
   const url      = new URL(context.request.url);
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
 
   const todayStr = getTodayStr(env);
   const cutoff = (() => {
@@ -1376,7 +1376,7 @@ async function handleGetRawActivities(context) {
   if (denied) return denied;
   const { env, user } = context;
   const url      = new URL(context.request.url);
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
 
   const viewAsRaw    = url.searchParams.get('viewAs') || '';
   const isTeamView   = viewAsRaw.startsWith('team:');

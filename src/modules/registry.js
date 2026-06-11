@@ -120,7 +120,7 @@ export function resolveModuleRoute(module, method, pathname) {
   // Look for exact match first
   const routeKey = `${method} ${subPath}`;
   if (module.routes[routeKey]) {
-    return { handler: module.routes[routeKey], params: {} };
+    return { handler: module.routes[routeKey], params: {}, routePath: subPath };
   }
   
   // Try parameter routes (e.g., /api/users/:id/role)
@@ -140,14 +140,14 @@ export function resolveModuleRoute(module, method, pathname) {
       paramNames.forEach((name, i) => {
         params[name] = match[i + 1];
       });
-      return { handler, params };
+      return { handler, params, routePath };
     }
   }
-  
+
   // Look for wildcard match
   const wildcardKey = `${method} *`;
   if (module.routes[wildcardKey]) {
-    return { handler: module.routes[wildcardKey], params: {} };
+    return { handler: module.routes[wildcardKey], params: {}, routePath: '*' };
   }
   
   return null;

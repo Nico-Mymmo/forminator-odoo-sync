@@ -7,7 +7,7 @@
 import { WP_ENDPOINTS, WP_META_KEYS, LOG_PREFIX, EMOJI } from './constants.js';
 import { getOdooWebinar } from './odoo-client.js';
 import { mapOdooToWordPress } from './mapping.js';
-import { getSupabaseAdminClient } from './lib/supabaseClient.js';
+import { getSupabaseClient } from '../../lib/database.js';
 import { getEventTypeTagMappingByEventTypeId } from './tag-mapping.js';
 import { buildEditorialDescription } from './editorial.js';
 
@@ -166,7 +166,7 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
   const odooWebinar = await getOdooWebinar(env, odooWebinarId);
   
   // 2. Check if snapshot exists (to determine create vs update)
-  const supabase = await getSupabaseAdminClient(env);
+  const supabase = await getSupabaseClient(env);
   
   const { data: existingSnapshot } = await supabase
     .from('webinar_snapshots')
@@ -440,7 +440,7 @@ export async function publishToWordPress(env, userId, odooWebinarId, status = 'p
  * @param {string} computedState - Computed sync state ('published', 'draft', etc.)
  */
 async function saveSnapshot(env, odooWebinar, wpEventData, wpEventId, editorialMode, selectedFormId, computedState = 'published') {
-  const supabase = await getSupabaseAdminClient(env);
+  const supabase = await getSupabaseClient(env);
   
   const snapshotData = {
     odoo_webinar_id: odooWebinar.id,

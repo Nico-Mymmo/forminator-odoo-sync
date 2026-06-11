@@ -11,7 +11,7 @@
  *   user_signature_settings  >  marketing_signature_settings  >  Odoo  >  Google Directory
  */
 
-import { getSupabaseAdminClient } from './supabaseClient.js';
+import { getSupabaseClient } from '../../../lib/database.js';
 
 /**
  * Fixed UUID for the legacy global singleton config row.
@@ -33,7 +33,7 @@ export const MARKETING_SETTINGS_ID = '00000000-0000-0000-0000-000000000002';
  * @returns {Object} config JSONB object
  */
 export async function getConfig(env) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('signature_config')
@@ -58,7 +58,7 @@ export async function getConfig(env) {
  * @returns {Object} updated row
  */
 export async function upsertConfig(env, config, updatedBy) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('signature_config')
@@ -85,7 +85,7 @@ export async function upsertConfig(env, config, updatedBy) {
  * @param {Object} entry - Log fields
  */
 export async function logPush(env, entry) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { error } = await supabase
     .from('signature_push_log')
@@ -115,7 +115,7 @@ export async function logPush(env, entry) {
  */
 export async function bulkLogPush(env, entries) {
   if (!entries || entries.length === 0) return;
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const rows = entries.map(e => ({
     actor_email:       e.actor_email,
@@ -142,7 +142,7 @@ export async function bulkLogPush(env, entries) {
  * @returns {Array} push log rows
  */
 export async function getLogs(env, limit = 100) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('signature_push_log')
@@ -169,7 +169,7 @@ export async function getLogs(env, limit = 100) {
  * @returns {{ config: Object, updated_at: string|null, updated_by: string|null }}
  */
 export async function getMarketingSettings(env) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('marketing_signature_settings')
@@ -194,7 +194,7 @@ export async function getMarketingSettings(env) {
  * @returns {Object} updated row
  */
 export async function upsertMarketingSettings(env, config, updatedBy) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('marketing_signature_settings')
@@ -229,7 +229,7 @@ export async function upsertMarketingSettings(env, config, updatedBy) {
 export async function getUserSettings(env, userEmail) {
   if (!userEmail) return null;
 
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('user_signature_settings')
@@ -252,7 +252,7 @@ export async function getUserSettings(env, userEmail) {
  * @returns {Map<string, Object>}
  */
 export async function getAllUserSettings(env) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('user_signature_settings')
@@ -288,7 +288,7 @@ export async function getAllUserSettings(env) {
 export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
   if (!userEmail) throw new Error('[signature-store] upsertUserSettings: userEmail required');
 
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   // Sanitise: only allow known columns to prevent injection via arbitrary keys
   const ALLOWED_FIELDS = [
@@ -339,7 +339,7 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
  * @returns {number} count of rows affected
  */
 export async function clearAllHiddenEventIds(env) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('user_signature_settings')
@@ -361,7 +361,7 @@ export async function clearAllHiddenEventIds(env) {
  * @returns {string[]} array of lowercase email strings
  */
 export async function getExcludedEmails(env) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('signature_push_excluded')
     .select('email')
@@ -380,7 +380,7 @@ export async function getExcludedEmails(env) {
  * @returns {string[]} normalised list that was saved
  */
 export async function setExcludedEmails(env, emails) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const normalised = [...new Set(emails.map(e => e.toLowerCase().trim()).filter(Boolean))];
   // Full replace: delete everything then re-insert
   const { error: delError } = await supabase
@@ -413,7 +413,7 @@ export async function setExcludedEmails(env, emails) {
  * @returns {Promise<Array>}
  */
 export async function getVariants(env, userEmail) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('user_signature_variants')
     .select('id, user_email, variant_name, config_overrides, created_at, updated_at')
@@ -432,7 +432,7 @@ export async function getVariants(env, userEmail) {
  * @param {string|null} [userEmail] - When provided, ownership is verified
  */
 export async function getVariant(env, variantId, userEmail = null) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('user_signature_variants')
     .select('id, user_email, variant_name, config_overrides')
@@ -462,7 +462,7 @@ export async function upsertVariant(env, userEmail, variantId, variantName, conf
   if (!userEmail) throw new Error('[signature-store] upsertVariant: userEmail required');
   if (!variantName?.trim()) throw new Error('[signature-store] upsertVariant: variantName required');
 
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const email = userEmail.toLowerCase();
 
   if (variantId) {
@@ -502,7 +502,7 @@ export async function upsertVariant(env, userEmail, variantId, variantName, conf
  * @param {string} userEmail
  */
 export async function deleteVariant(env, variantId, userEmail) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const { error } = await supabase
     .from('user_signature_variants')
     .delete()
@@ -523,7 +523,7 @@ export async function deleteVariant(env, variantId, userEmail) {
  * @returns {Promise<Array<{ send_as_email, variant_id }>>}
  */
 export async function getAliasAssignments(env, userEmail) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('user_alias_assignments')
     .select('send_as_email, variant_id, updated_at')
@@ -540,7 +540,7 @@ export async function getAliasAssignments(env, userEmail) {
  * @returns {Promise<Map<string, Array>>}
  */
 export async function getAllAliasAssignments(env) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('user_alias_assignments')
     .select('user_email, send_as_email, variant_id');
@@ -562,7 +562,7 @@ export async function getAllAliasAssignments(env) {
  * @returns {Promise<Map<string, Object>>}
  */
 export async function getAllVariants(env) {
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('user_signature_variants')
     .select('id, config_overrides');
@@ -585,7 +585,7 @@ export async function saveAliasAssignments(env, userEmail, assignments) {
   if (!userEmail) throw new Error('[signature-store] saveAliasAssignments: userEmail required');
   if (!Array.isArray(assignments)) throw new Error('[signature-store] saveAliasAssignments: assignments must be array');
 
-  const supabase = getSupabaseAdminClient(env);
+  const supabase = getSupabaseClient(env);
   const email = userEmail.toLowerCase();
 
   // Delete all existing, then re-insert

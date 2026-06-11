@@ -12,22 +12,9 @@
  * - Addendum N: Permission enforcement on all operations
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../lib/database.js';
 import { canSeeTemplateInList, canRead, canEdit, canDelete } from './permissions.js';
 
-/**
- * Initialize Supabase client
- * 
- * IMPORTANT: Uses SERVICE_ROLE_KEY to enable RLS policies.
- * Do NOT use getSupabaseClient from lib/database.js (bypasses RLS).
- */
-function getSupabaseClient(env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
-  }
-  
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-}
 
 /**
  * Get all templates for a user

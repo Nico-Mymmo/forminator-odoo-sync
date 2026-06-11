@@ -12,7 +12,7 @@
  *     (cleared_queue never downgrades: existing true stays true)
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../../lib/database.js';
 import { fetchTrackedOpenActivities, fetchCompletedToday, getTodayStr } from '../odoo-client.js';
 import { getMappings } from '../services/mapping-service.js';
 
@@ -22,7 +22,7 @@ export async function handleCxWinDetection(env) {
 
   log('Win detection cron started (V6)');
 
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseClient(env);
   const todayStr = getTodayStr(env);
 
   // ── 1. Load tracked users ──────────────────────────────────────────────────

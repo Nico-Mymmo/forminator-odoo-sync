@@ -5,7 +5,7 @@
  * Works in Cloudflare Workers without googleapis SDK.
  *
  * Env requirements:
- *   GOOGLE_SERVICE_ACCOUNT_JSON  (Cloudflare secret, stringified JSON)
+ *   GOOGLE_SERVICE_ACCOUNT_KEY  (Cloudflare secret, stringified JSON)
  */
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -93,10 +93,10 @@ async function getAccessToken(serviceAccount, subject, scopes = GMAIL_SCOPES_BAS
  * Parse service account from env.
  */
 function getServiceAccount(env) {
-  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    throw new Error('Missing env: GOOGLE_SERVICE_ACCOUNT_JSON');
+  if (!env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+    throw new Error('Missing env: GOOGLE_SERVICE_ACCOUNT_KEY');
   }
-  return JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  return JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_KEY);
 }
 
 /**

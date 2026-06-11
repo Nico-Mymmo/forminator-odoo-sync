@@ -2,7 +2,7 @@
  * Event Type → WP Tag Mapping Helpers (Addendum C)
  */
 
-import { getSupabaseAdminClient } from './lib/supabaseClient.js';
+import { getSupabaseClient } from '../../lib/database.js';
 
 /**
  * Get all event type mappings
@@ -11,7 +11,7 @@ import { getSupabaseAdminClient } from './lib/supabaseClient.js';
  * @returns {Promise<Array>}
  */
 export async function getEventTypeTagMappings(env) {
-  const supabase = await getSupabaseAdminClient(env);
+  const supabase = await getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('event_type_wp_tag_mapping')
@@ -33,7 +33,7 @@ export async function getEventTypeTagMappings(env) {
  * @returns {Promise<Object|null>}
  */
 export async function getEventTypeTagMappingByEventTypeId(env, odooEventTypeId) {
-  const supabase = await getSupabaseAdminClient(env);
+  const supabase = await getSupabaseClient(env);
 
   const { data, error } = await supabase
     .from('event_type_wp_tag_mapping')
@@ -56,7 +56,7 @@ export async function getEventTypeTagMappingByEventTypeId(env, odooEventTypeId) 
  * @returns {Promise<Object>}
  */
 export async function upsertEventTypeTagMapping(env, mapping) {
-  const supabase = await getSupabaseAdminClient(env);
+  const supabase = await getSupabaseClient(env);
 
   const payload = {
     odoo_event_type_id: mapping.odoo_event_type_id,
@@ -89,7 +89,7 @@ export async function upsertEventTypeTagMapping(env, mapping) {
  * @returns {Promise<void>}
  */
 export async function deleteEventTypeTagMapping(env, mappingId) {
-  const supabase = await getSupabaseAdminClient(env);
+  const supabase = await getSupabaseClient(env);
 
   const { error } = await supabase
     .from('event_type_wp_tag_mapping')

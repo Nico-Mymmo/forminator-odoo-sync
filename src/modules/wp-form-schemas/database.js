@@ -5,7 +5,7 @@
  * Leest/schrijft alleen wp_sites en wp_form_schemas.
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../lib/database.js';
 
 const T = {
   sites:   'wp_sites',
@@ -16,7 +16,7 @@ function db(env) {
   if (!env?.SUPABASE_URL || !env?.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error('Missing Supabase configuration');
   }
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  return getSupabaseClient(env);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
