@@ -1,7 +1,6 @@
 import { testConnection } from "./actions/test_connection.js";
 import { receiveForminator } from "./actions/receive_forminator.js";
 import { MODULES, getModuleByRoute, getModuleByCode, resolveModuleRoute, getUserModules } from "./modules/registry.js";
-import { requireAdminAuth } from "./lib/admin_auth.js";
 import { validateSession } from "./lib/auth/session.js";
 import { getForminatorForm, extractFieldsFromForm, generateFieldMapping } from "./lib/wordpress.js";
 import { handleLogin, handleLogout, handleMe } from "./api/auth.js";
