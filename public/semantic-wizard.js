@@ -19,6 +19,8 @@ const IS_ADMIN = USER_ROLE === 'admin' || MODULE_PERMISSIONS.includes('admin');
 let crmStagesCache        = null;
 let informationSetsCache  = {};
 let aiExportPresetsCache  = null;
+// Indexed by model id → { base_fields: [{field, label}], label, ... }
+let modelsConfigCache     = {};
 
 // ============================================================================
 // MODEL CONFIGURATIE (hardcoded koppelingen)
@@ -141,14 +143,17 @@ class WizardState {
   buildPayload() {
     const model = this.selectedModel || 'x_sales_action_sheet';
     const modelCfgForPayload = MODEL_CONFIG[model] || {};
-    const nameField = modelCfgForPayload.nameField || 'name';
+
+    // Base fields: from DB config (if loaded), otherwise fall back to hardcoded nameField
+    const dbModel = modelsConfigCache[model];
+    const dbBaseFields = dbModel?.base_fields;
+    const baseFieldEntries = (Array.isArray(dbBaseFields) && dbBaseFields.length > 0)
+      ? dbBaseFields.map(bf => ({ model, field: bf.field }))
+      : [{ model, field: modelCfgForPayload.nameField || 'name' }];
+
     const payload = {
       base_model: model,
-      fields: [
-        { model, field: 'id' },
-        { model, field: nameField },
-        { model, field: 'create_date' }
-      ],
+      fields: [...baseFieldEntries],
       filters: []
     };
 
@@ -247,6 +252,17 @@ async function fetchAiExportPresets() {
     aiExportPresetsCache = data.data.presets;
     return aiExportPresetsCache;
   } catch (e) { console.warn('fetchAiExportPresets error:', e.message); return []; }
+}
+
+async function fetchModelsConfig() {
+  if (Object.keys(modelsConfigCache).length > 0) return modelsConfigCache;
+  try {
+    const res = await fetch('/insights/api/sales-insights/models-config');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error?.message);
+    (data.data.models || []).forEach(m => { modelsConfigCache[m.odoo_model] = m; });
+    return modelsConfigCache;
+  } catch (e) { console.warn('fetchModelsConfig error:', e.message); return {}; }
 }
 
 async function fetchCrmStages() {
@@ -565,7 +581,14 @@ async function renderStep2() {
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
         <h2 class="card-title text-2xl mb-2">Stap 2: Wat ophalen?</h2>
-        <p class="text-base-content/60 mb-4">Selecteer categorieën voor <strong>${modelCfg.label || model}</strong>. Basisvelden (id, naam, datum) zijn altijd inbegrepen.</p>
+        ${(() => {
+          const dbModel = modelsConfigCache[model];
+          const baseFields = dbModel?.base_fields;
+          const labels = (Array.isArray(baseFields) && baseFields.length > 0)
+            ? baseFields.map(bf => bf.label || bf.field)
+            : ['id', MODEL_CONFIG[model]?.nameField || 'naam', 'datum'];
+          return `<p class="text-base-content/60 mb-4">Selecteer categorieën voor <strong>${modelCfg.label || model}</strong>. Basisvelden (<span class="font-mono text-xs">${labels.join(', ')}</span>) zijn altijd inbegrepen.</p>`;
+        })()}
         <div class="flex items-center justify-between mb-3">
           <span class="text-sm text-base-content/60">${sets.length} categorieën</span>
           <div class="flex gap-2">
@@ -831,7 +854,7 @@ function renderActions() {
       <div class="flex gap-2">
         ${wizardState.currentStep > 1 ? `<button class="btn btn-ghost" onclick="wizardState.resetState(); renderWizard();">Reset</button>` : ''}
         ${canGoNext ? `<button class="btn btn-primary" ${!wizardState.selectedModel ? 'disabled' : ''} onclick="wizardState.currentStep++; renderWizard();">Volgende →</button>` : ''}
-        ${canExecute ? `<button class="btn btn-primary" onclick="executeQuery();">Uitvoeren</button>` : ''}
+        ${canExecute ? `<button class="btn btn-primary" id="executeBtn" onclick="executeQuery();">Uitvoeren</button>` : ''}
       </div>
     </div>`;
 }
@@ -894,6 +917,254 @@ async function enrichWithWebActivity(data) {
   } catch (e) { console.warn('Web activity error:', e.message); return data; }
 }
 
+// ─── Web activity HTML sanitizer ─────────────────────────────────────────────
+// Converts x_studio_merged_kpi_html / x_studio_merged_timeline_html from
+// full inline-CSS HTML blobs into compact structured data for AI export.
+
+function _styleOf(el) { return el.getAttribute('style') || ''; }
+
+function _parseKpiHtml(html) {
+  if (!html) return null;
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const result = {};
+    const allDivs = Array.from(doc.querySelectorAll('div'));
+
+    // KPI cards: border-radius:8px + background:#fff, with label (uppercase) + value (font-size:20px)
+    for (const card of allDivs) {
+      const cs = _styleOf(card);
+      if (!cs.includes('border-radius:8px') || !cs.includes('background:#fff')) continue;
+      const children = Array.from(card.children).filter(c => c.tagName === 'DIV');
+      if (children.length < 2) continue;
+      const labelEl = children[0];
+      const valueEl = children[1];
+      const labelStyle = _styleOf(labelEl);
+      const valueStyle = _styleOf(valueEl);
+      // Label must be uppercase/small-caps header; value must be the large numeric/text value
+      if (!labelStyle.includes('text-transform:uppercase')) continue;
+      // Skip if valueEl is a flex row (that's a page-list block, not a KPI value)
+      if (valueStyle.includes('display:flex') || !valueStyle.includes('font-size:20px')) continue;
+      const label = labelEl.textContent.trim();
+      const value = valueEl.textContent.trim();
+      if (!label || !value) continue;
+      const key = label.toLowerCase()
+        .replace(/['']/g, '').replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').replace(/_+/g, '_').replace(/^_|_$/g, '');
+      if (!result[key]) result[key] = value;
+    }
+
+    // Top pages block: first div with child text "Top pagina's"
+    const topPagesBlock = allDivs.find(d =>
+      d.children[0] && d.children[0].textContent.trim() === "Top pagina's"
+    );
+    if (topPagesBlock) {
+      const rows = Array.from(topPagesBlock.querySelectorAll('div')).filter(d =>
+        _styleOf(d).includes('justify-content:space-between')
+      );
+      const pages = rows.map(r => {
+        const spans = Array.from(r.querySelectorAll('span'));
+        // First span may have a nested site-label span — get just the first text node
+        const firstSpan = spans[0];
+        const pageTxt = firstSpan
+          ? Array.from(firstSpan.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim()
+            || firstSpan.textContent.trim()
+          : null;
+        const countTxt = spans.length > 1 ? spans[spans.length - 1].textContent.trim() : null;
+        const siteTxt = firstSpan?.querySelector('span')?.textContent.trim() || null;
+        if (!pageTxt) return null;
+        const entry = { pagina: pageTxt };
+        if (siteTxt) entry.site = siteTxt;
+        if (countTxt) entry.bezoeken = countTxt;
+        return entry;
+      }).filter(Boolean);
+      if (pages.length) result.top_paginas = pages;
+    }
+
+    // Channels block: first div with child text "Advertenties"
+    const adsBlock = allDivs.find(d =>
+      d.children[0] && d.children[0].textContent.trim() === 'Advertenties'
+    );
+    if (adsBlock) {
+      const channels = Array.from(adsBlock.querySelectorAll('span')).map(s => s.textContent.trim()).filter(Boolean);
+      if (channels.length) result.advertentie_kanalen = channels;
+    }
+
+    return Object.keys(result).length ? result : null;
+  } catch (e) {
+    console.warn('_parseKpiHtml error:', e.message);
+    return null;
+  }
+}
+
+function _extractSessionEvents(eventsDiv) {
+  const pages = [], conversies = [], advertenties = [], acties = [], geskimd = [];
+
+  const processBlock = (block) => {
+    const s = _styleOf(block);
+
+    // Split row: flex container wrapping a 2/3 page block + 1/3 side block.
+    // The flex:2 div is a wrapper — the actual event block is its first child.
+    if (s.includes('display:flex') && s.includes('align-items:stretch')) {
+      for (const child of block.children) {
+        if (_styleOf(child).includes('flex:2')) {
+          if (child.children[0]) processBlock(child.children[0]);
+          return;
+        }
+      }
+      if (block.children[0]) processBlock(block.children[0]);
+      return;
+    }
+
+    // Calendly (green)
+    if (s.includes('#22c55e') && s.includes('border-left')) {
+      const titleEl = Array.from(block.children).find(c => _styleOf(c).includes('font-weight:700'));
+      const text = titleEl ? titleEl.textContent.trim().replace(/^✓\s*/, '') : block.textContent.replace(/Conversie/i,'').trim().slice(0, 80);
+      if (text) conversies.push(text);
+      return;
+    }
+
+    // Touchpoint / ad (purple)
+    if (s.includes('#9333ea') && s.includes('border-left')) {
+      const titleEl = Array.from(block.children).find(c => _styleOf(c).includes('font-weight:700'));
+      const detailEls = Array.from(block.children).filter(c => _styleOf(c).includes('font-size:11px') && _styleOf(c).includes('#9333ea'));
+      const adName = Array.from(block.children).find(c => _styleOf(c).includes('font-size:12px') && _styleOf(c).includes('font-weight:700'));
+      const parts = [];
+      if (titleEl) parts.push(titleEl.textContent.trim());
+      detailEls.forEach(d => { const t = d.textContent.trim(); if (t) parts.push(t); });
+      if (adName && !detailEls.includes(adName)) parts.push(adName.textContent.trim());
+      if (parts.length) advertenties.push(parts.join(' | '));
+      return;
+    }
+
+    // Exit/click (orange)
+    if (s.includes('#f97316') && s.includes('border-left')) {
+      const titleEl = Array.from(block.children).find(c => _styleOf(c).includes('font-weight:600'));
+      if (titleEl) acties.push('exit: ' + titleEl.textContent.trim());
+      return;
+    }
+
+    // Page block: has border-left but not the above colors
+    if (s.includes('border-left')) {
+      const children = Array.from(block.children);
+      const labelDiv = children[0];
+      const pageDiv = children[children.length - 1];
+      if (!pageDiv || pageDiv === labelDiv) return;
+
+      // Extract engagement label from the span inside the label div
+      let engagement = null;
+      if (labelDiv) {
+        const span = labelDiv.querySelector('span');
+        if (span) {
+          // "[grondig bestudeerd — 3m 20s]" or "[gelezen — 45s]" etc.
+          engagement = span.textContent.trim().replace(/^\[|\]$/g, '').trim();
+        }
+      }
+
+      const pageName = pageDiv.textContent.trim();
+      if (!pageName) return;
+      const entry = { pagina: pageName };
+      if (engagement) entry.engagement = engagement;
+      pages.push(entry);
+      return;
+    }
+  };
+
+  for (const child of eventsDiv.children) {
+    // vt-skimmed pill
+    if (_styleOf(child).includes('font-style:italic') || child.className === 'vt-skimmed') {
+      const txt = child.textContent.trim();
+      if (txt) geskimd.push(txt);
+      continue;
+    }
+    processBlock(child);
+  }
+
+  const result = {};
+  if (pages.length) result.paginas = pages;
+  if (conversies.length) result.conversies = conversies;
+  if (advertenties.length) result.advertenties = advertenties;
+  if (acties.length) result.acties = acties;
+  if (geskimd.length) result.geskimd = geskimd;
+  return result;
+}
+
+function _parseTimelineHtml(html) {
+  if (!html) return null;
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const wrap = doc.querySelector('.vt-wrap');
+    if (!wrap) return null;
+
+    const sessions = [];
+    let currentDay = null;
+
+    for (const el of wrap.children) {
+      // Day header
+      if (el.classList.contains('vt-day-header')) {
+        currentDay = el.textContent.trim();
+        continue;
+      }
+      // Checkbox toggles and login/partner pills → skip
+      if (el.tagName === 'INPUT' || !el.classList.contains('vt-session')) continue;
+
+      const header = el.querySelector('.vt-session-header');
+      const eventsDiv = el.querySelector('.vt-events');
+      if (!header) continue;
+
+      // Time range — bold span
+      const allSpans = Array.from(header.querySelectorAll('span'));
+      const timeSpan = allSpans.find(s => _styleOf(s).includes('font-weight:600'));
+      if (!timeSpan) continue;
+      const session = { datum: currentDay, tijd: timeSpan.textContent.trim() };
+
+      // Duration — span with color:#aaa and font-weight:400
+      const durSpan = allSpans.find(s => _styleOf(s).includes('font-weight:400') && _styleOf(s).includes('#aaa'));
+      if (durSpan) session.duur = durSpan.textContent.trim();
+
+      // Conversion/intent badges (border-radius:10px spans)
+      const badges = allSpans
+        .filter(s => _styleOf(s).includes('border-radius:10px'))
+        .map(s => s.textContent.trim())
+        .filter(Boolean);
+      if (badges.length) session.badges = badges;
+
+      // Events within session
+      if (eventsDiv) {
+        const events = _extractSessionEvents(eventsDiv);
+        Object.assign(session, events);
+      }
+
+      sessions.push(session);
+    }
+
+    if (!sessions.length) return null;
+    return { sessies: sessions, totaal: sessions.length };
+  } catch (e) {
+    console.warn('_parseTimelineHtml error:', e.message);
+    return null;
+  }
+}
+
+function sanitizeWebActivityFields(data) {
+  const rowKey = data.records ? 'records' : data.rows ? 'rows' : null;
+  if (!rowKey) return data;
+  const sanitized = data[rowKey].map(row => {
+    if (!row.x_studio_merged_kpi_html && !row.x_studio_merged_timeline_html) return row;
+    const out = { ...row };
+    if (out.x_studio_merged_kpi_html) {
+      const parsed = _parseKpiHtml(out.x_studio_merged_kpi_html);
+      if (parsed) out.web_activiteit_kpi = parsed;
+      delete out.x_studio_merged_kpi_html;
+    }
+    if (out.x_studio_merged_timeline_html) {
+      const parsed = _parseTimelineHtml(out.x_studio_merged_timeline_html);
+      if (parsed) out.web_activiteit_sessies = parsed;
+      delete out.x_studio_merged_timeline_html;
+    }
+    return out;
+  });
+  return { ...data, [rowKey]: sanitized };
+}
+
 function buildExportMeta(payload) {
   const model = payload.base_model;
   const modelCfg = MODEL_CONFIG[model] || {};
@@ -925,7 +1196,7 @@ function buildExportMeta(payload) {
 async function executeQuery() {
   const payload = wizardState.buildPayload();
   const payloadDisplay = document.getElementById('payload-display');
-  if (payloadDisplay) payloadDisplay.innerHTML = `<div class="card bg-base-200 shadow-xl mb-4"><div class="card-body"><h3 class="card-title text-lg">📦 Query Payload</h3><pre class="bg-base-300 p-4 rounded overflow-x-auto text-sm"><code>${JSON.stringify(payload, null, 2)}</code></pre></div></div>`;
+  if (payloadDisplay) payloadDisplay.innerHTML = '';
 
   showLoading('Bezig met query uitvoeren...');
   try {
@@ -942,42 +1213,126 @@ async function executeQuery() {
 }
 
 function showLoading(msg) {
+  const btn = document.getElementById('executeBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> ' + (msg || 'Bezig...');
+  }
+  // Also update inline container for sub-operations (web activity etc.)
   const c = document.getElementById('results-container');
-  if (c) c.innerHTML = `<div class="flex items-center justify-center py-8"><span class="loading loading-spinner loading-lg"></span><span class="ml-4">${msg}</span></div>`;
+  if (c && msg && msg !== 'Bezig met query uitvoeren...') {
+    c.innerHTML = `<div class="flex items-center gap-3 py-4 text-sm text-base-content/60"><span class="loading loading-spinner loading-sm"></span>${msg}</div>`;
+  }
 }
 function hideLoading() {
+  const btn = document.getElementById('executeBtn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Uitvoeren'; }
   const c = document.getElementById('results-container');
   if (c && c.querySelector('.loading')) c.innerHTML = '';
 }
 function showError(error) {
-  const c = document.getElementById('results-container');
-  if (c) c.innerHTML = `<div class="alert alert-error"><div><h3 class="font-bold">❌ ${error.message}</h3></div></div>`;
+  hideLoading();
+  ensureResultsModal();
+  const box = document.getElementById('resultsModalBox');
+  box.innerHTML = '<div class="flex items-center gap-2 mb-4">'
+    + '<h3 class="font-bold text-lg">Fout</h3>'
+    + '<button class="btn btn-ghost btn-sm btn-circle ml-auto" onclick="document.getElementById(\'resultsModal\').close()">✕</button>'
+    + '</div>'
+    + '<div class="alert alert-error"><span>❌ ' + error.message + '</span></div>'
+    + '<div class="mt-4 text-right"><button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'resultsModal\').close()">Sluiten</button></div>';
+  document.getElementById('resultsModal').showModal();
 }
+// Last fetched data — kept in memory so the modal can re-export
+let _lastQueryData = null;
+
+function ensureResultsModal() {
+  if (document.getElementById('resultsModal')) return;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'resultsModal';
+  dialog.className = 'modal';
+  dialog.innerHTML = '<div class="modal-box w-full max-w-lg" id="resultsModalBox"></div>'
+    + '<form method="dialog" class="modal-backdrop"><button>close</button></form>';
+  document.body.appendChild(dialog);
+}
+
 function showResults(data, isPreview) {
-  const c = document.getElementById('results-container');
-  if (!c) return;
   if (!data?.records) { showError({ message: 'No data returned' }); return; }
+  _lastQueryData = sanitizeWebActivityFields(data);
+  renderResultsModal(_lastQueryData);
+}
+
+function renderResultsModal(data) {
+  ensureResultsModal();
   const { records } = data;
-  c.innerHTML = `
-    <div class="card bg-base-100 shadow-xl">
-      <div class="card-body">
-        <div class="flex justify-between items-center mb-4">
-          <div><h3 class="text-xl font-bold">✅ Resultaten</h3><p class="text-sm text-base-content/60">${records.length} resultaten</p></div>
-          <div class="flex gap-2">
-            <button class="btn btn-sm btn-outline" onclick="exportSemanticQuery('xlsx')">📈 XLSX</button>
-            <button class="btn btn-sm btn-outline" onclick="exportSemanticQuery('json')">📄 JSON</button>
-          </div>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="table table-zebra table-sm w-full">
-            <thead><tr>${records.length > 0 ? Object.keys(records[0]).map(k=>`<th>${k}</th>`).join('') : '<th>Geen data</th>'}</tr></thead>
-            <tbody>${records.slice(0,50).map(r=>`<tr>${Object.values(r).map(v=>`<td>${formatValue(v)}</td>`).join('')}</tr>`).join('')}</tbody>
-          </table>
-          ${records.length > 50 ? `<div class="text-center py-2 text-sm text-base-content/50">Toont 50 van ${records.length} — export JSON voor volledig bestand.</div>` : ''}
-        </div>
-      </div>
-    </div>`;
+  const count = records.length;
+
+  // Build preview: first 3 records, only non-internal cols, max 4 cols
+  const allCols = count > 0 ? Object.keys(records[0]).filter(k => !k.startsWith('__')) : [];
+  const previewCols = allCols.slice(0, 4);
+  const previewRows = records.slice(0, 3);
+
+  let previewHtml = '';
+  if (previewCols.length > 0 && previewRows.length > 0) {
+    previewHtml = '<div class="overflow-x-auto">'
+      + '<table class="table table-xs w-full">'
+      + '<thead><tr>' + previewCols.map(k => '<th class="text-xs">' + k + '</th>').join('') + (allCols.length > 4 ? '<th class="text-xs text-base-content/30">…</th>' : '') + '</tr></thead>'
+      + '<tbody>'
+      + previewRows.map(r => '<tr>' + previewCols.map(k => '<td class="text-xs max-w-24 truncate">' + formatValue(r[k]) + '</td>').join('') + (allCols.length > 4 ? '<td></td>' : '') + '</tr>').join('')
+      + '</tbody></table>'
+      + (count > 3 ? '<p class="text-xs text-base-content/40 text-right mt-1">+ ' + (count - 3) + ' meer rijen</p>' : '')
+      + '</div>';
+  }
+
+  // AI preset selector
+  const presets = aiExportPresetsCache || [];
+  const presetOptions = presets.map(p =>
+    '<option value="' + p.id + '"' + (wizardState.aiPresetId === p.id ? ' selected' : '') + '>'
+    + p.label + (p.description ? ' — ' + p.description : '') + '</option>'
+  ).join('');
+  const presetHtml = presets.length > 0
+    ? '<div class="form-control mb-4">'
+      + '<label class="label py-1"><span class="label-text text-xs font-semibold">AI-instructie bij de JSON</span></label>'
+      + '<select class="select select-bordered select-sm" id="modalPresetSelect" onchange="wizardState.aiPresetId = this.value ? parseInt(this.value) : null">'
+      + presetOptions + '</select>'
+      + '</div>'
+    : '';
+
+  const box = document.getElementById('resultsModalBox');
+  box.innerHTML =
+    '<div class="flex items-center gap-3 mb-4">'
+    + '<div class="bg-success/10 rounded-full p-2"><i data-lucide="check-circle-2" class="w-6 h-6 text-success"></i></div>'
+    + '<div>'
+    + '<h3 class="font-bold text-lg leading-tight">Klaar</h3>'
+    + '<p class="text-sm text-base-content/60">' + count + ' record' + (count !== 1 ? 's' : '') + ' opgehaald — ' + allCols.length + ' velden</p>'
+    + '</div>'
+    + '<button class="btn btn-ghost btn-sm btn-circle ml-auto" onclick="document.getElementById(\'resultsModal\').close()">✕</button>'
+    + '</div>'
+
+    + '<div class="divider my-2 text-xs">Downloaden</div>'
+    + presetHtml
+    + '<div class="flex gap-2 mb-4">'
+    + '<button class="btn btn-primary flex-1 gap-2" onclick="exportSemanticQuery(\'json\')">'
+    + '<i data-lucide="download" class="w-4 h-4"></i>JSON downloaden'
+    + '</button>'
+    + '<button class="btn btn-outline flex-1 gap-2" onclick="exportSemanticQuery(\'xlsx\')">'
+    + '<i data-lucide="table-2" class="w-4 h-4"></i>XLSX downloaden'
+    + '</button>'
+    + '</div>'
+
+    + '<div class="divider my-2 text-xs">Voorbeeld</div>'
+    + previewHtml
+
+    + '<div class="mt-4 text-right">'
+    + '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'resultsModal\').close()">Sluiten</button>'
+    + '</div>';
+
+  const modal = document.getElementById('resultsModal');
+  modal.showModal();
   if (window.lucide) lucide.createIcons();
+
+  // Clear the inline results container (no more scroll-down card)
+  const c = document.getElementById('results-container');
+  if (c) c.innerHTML = '';
 }
 function formatValue(v) {
   if (v === null || v === undefined) return '<span class="text-base-content/40">—</span>';
@@ -1004,6 +1359,7 @@ async function exportSemanticQuery(format) {
       if (!result.success) throw new Error(result.error?.message || 'Query failed');
       let data = result.data;
       if (needsWebActivity) data = await enrichWithWebActivity(data);
+      data = sanitizeWebActivityFields(data);
 
       // Add rich export meta + AI instruction at top level
       const exportMeta = buildExportMeta(payload);
@@ -1053,7 +1409,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (loadingEl) loadingEl.style.display = 'none';
     if (mainEl)    mainEl.style.display    = 'block';
 
-    await fetchAiExportPresets();
+    await Promise.all([fetchAiExportPresets(), fetchModelsConfig()]);
     if (aiExportPresetsCache?.length > 0) {
       const geen = aiExportPresetsCache.find(p => p.label === 'Geen preset');
       if (geen) wizardState.aiPresetId = geen.id;

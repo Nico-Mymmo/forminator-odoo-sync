@@ -22,63 +22,183 @@ export function queryBuilderAdminUI(user) {
         </a>
         <div>
           <h1 class="text-3xl font-bold">Sales Insight Explorer — Beheer</h1>
-          <p class="text-base-content/60">Moduletoegang en beheersrechten per gebruiker</p>
+          <p class="text-base-content/60">Gebruikers, modellen en rechten beheren</p>
         </div>
       </div>
 
-      <div class="alert mb-6">
-        <i data-lucide="info" class="w-5 h-5 shrink-0"></i>
-        <div class="text-sm">
-          <strong>Module toegang</strong> geeft een gebruiker toegang tot de Sales Insight Explorer.
-          <strong>Sales Insight Admin</strong> geeft bovenop die toegang het recht om informatiecategorieën
-          en velden te beheren. Wijzigingen hier zijn direct actief na herlogin van de gebruiker.
-        </div>
-      </div>
-
-      <!-- Zoek -->
-      <div class="form-control mb-4 max-w-sm">
-        <input type="text" id="searchInput" placeholder="Zoek op naam of email..."
-          class="input input-bordered input-sm w-full"
-          oninput="filterTable(this.value)" />
-      </div>
-
-      <!-- Tabel -->
-      <div class="card bg-base-100 shadow-xl">
-        <div class="card-body p-0">
-          <div id="loadingUsers" class="flex items-center gap-3 p-6">
-            <span class="loading loading-spinner loading-sm"></span>
-            <span class="text-sm text-base-content/60">Laden...</span>
-          </div>
-          <div id="errorMsg" class="alert alert-error m-4" style="display:none;"></div>
-          <div id="usersTableWrap" class="overflow-x-auto" style="display:none;">
-            <table class="table table-sm w-full">
-              <thead>
-                <tr class="border-b border-base-200">
-                  <th>Gebruiker</th>
-                  <th>Globale rol</th>
-                  <th class="text-center">Module toegang</th>
-                  <th class="text-center">SI Admin</th>
-                </tr>
-              </thead>
-              <tbody id="usersTableBody"></tbody>
-            </table>
-          </div>
-        </div>
+      <!-- Tabs -->
+      <div role="tablist" class="tabs tabs-bordered mb-6">
+        <a role="tab" class="tab tab-active" data-tab="users" onclick="switchTab('users', this)">Gebruikers</a>
+        <a role="tab" class="tab" data-tab="models" onclick="switchTab('models', this)">Modellen</a>
       </div>
 
       <!-- Toast container -->
       <div id="toastContainer" class="toast toast-end z-50"></div>
 
+      <!-- TAB: GEBRUIKERS -->
+      <div id="tab-users">
+        <div class="alert mb-6">
+          <i data-lucide="info" class="w-5 h-5 shrink-0"></i>
+          <div class="text-sm">
+            <strong>Module toegang</strong> geeft een gebruiker toegang tot de Sales Insight Explorer.
+            <strong>Sales Insight Admin</strong> geeft bovenop die toegang het recht om informatiecategorieën
+            en velden te beheren. Wijzigingen zijn direct actief na herlogin van de gebruiker.
+          </div>
+        </div>
+
+        <div class="form-control mb-4 max-w-sm">
+          <input type="text" id="searchInput" placeholder="Zoek op naam of email..."
+            class="input input-bordered input-sm w-full"
+            oninput="filterTable(this.value)" />
+        </div>
+
+        <div class="card bg-base-100 shadow-xl">
+          <div class="card-body p-0">
+            <div id="loadingUsers" class="flex items-center gap-3 p-6">
+              <span class="loading loading-spinner loading-sm"></span>
+              <span class="text-sm text-base-content/60">Laden...</span>
+            </div>
+            <div id="errorMsg" class="alert alert-error m-4" style="display:none;"></div>
+            <div id="usersTableWrap" class="overflow-x-auto" style="display:none;">
+              <table class="table table-sm w-full">
+                <thead>
+                  <tr class="border-b border-base-200">
+                    <th>Gebruiker</th>
+                    <th>Globale rol</th>
+                    <th class="text-center">Module toegang</th>
+                    <th class="text-center">SI Admin</th>
+                  </tr>
+                </thead>
+                <tbody id="usersTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB: MODELLEN -->
+      <div id="tab-models" style="display:none;">
+        <div class="flex justify-between items-center mb-4">
+          <p class="text-sm text-base-content/60">Odoo-modellen die beschikbaar zijn als startpunt of submodel in de wizard.</p>
+          <button class="btn btn-sm btn-primary gap-2" onclick="openModelModal(null)">
+            <i data-lucide="plus" class="w-4 h-4"></i>Nieuw model
+          </button>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl">
+          <div class="card-body p-0">
+            <div id="loadingModels" class="flex items-center gap-3 p-6">
+              <span class="loading loading-spinner loading-sm"></span>
+              <span class="text-sm text-base-content/60">Laden...</span>
+            </div>
+            <div id="modelsErrorMsg" class="alert alert-error m-4" style="display:none;"></div>
+            <div id="modelsTableWrap" class="overflow-x-auto" style="display:none;">
+              <table class="table table-sm w-full">
+                <thead>
+                  <tr class="border-b border-base-200">
+                    <th>ID / Odoo model</th>
+                    <th>Label</th>
+                    <th>Omschrijving</th>
+                    <th class="text-center">Startpunt</th>
+                    <th class="text-center">Submodel</th>
+                    <th class="text-center">Volgorde</th>
+                    <th class="text-center">Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="modelsTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
-  <script>
-    let allRows = [];
+  <!-- MODAL: model aanmaken / bewerken -->
+  <dialog id="modelModal" class="modal">
+    <div class="modal-box w-full max-w-lg">
+      <h3 class="font-bold text-lg mb-4" id="modelModalTitle">Model</h3>
+      <form id="modelForm" onsubmit="saveModel(event)">
+        <input type="hidden" id="modelId" />
 
-    // ── Load ──────────────────────────────────────────────────────────────────
+        <div class="form-control mb-3" id="newModelIdWrap">
+          <label class="label"><span class="label-text font-semibold">ID <span class="text-error">*</span></span></label>
+          <input type="text" id="modelFieldId" class="input input-bordered input-sm" placeholder="bv. crm_lead" />
+          <label class="label"><span class="label-text-alt text-base-content/50">Slug: lowercase, cijfers en underscores</span></label>
+        </div>
+
+        <div class="form-control mb-3" id="newModelOdooWrap">
+          <label class="label"><span class="label-text font-semibold">Odoo model <span class="text-error">*</span></span></label>
+          <input type="text" id="modelFieldOdoo" class="input input-bordered input-sm" placeholder="bv. crm.lead" />
+        </div>
+
+        <div class="form-control mb-3">
+          <label class="label"><span class="label-text font-semibold">Label <span class="text-error">*</span></span></label>
+          <input type="text" id="modelFieldLabel" class="input input-bordered input-sm" placeholder="bv. Leads" required />
+        </div>
+
+        <div class="form-control mb-3">
+          <label class="label"><span class="label-text font-semibold">Omschrijving</span></label>
+          <textarea id="modelFieldDesc" class="textarea textarea-bordered text-sm" rows="3"
+            placeholder="AI-context: wat stelt dit model voor?"></textarea>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3 mb-3">
+          <div class="form-control">
+            <label class="label"><span class="label-text font-semibold">Volgorde</span></label>
+            <input type="number" id="modelFieldSort" class="input input-bordered input-sm" value="0" min="0" />
+          </div>
+          <div class="form-control items-center">
+            <label class="label"><span class="label-text font-semibold">Startpunt</span></label>
+            <input type="checkbox" id="modelFieldStartpoint" class="toggle toggle-sm toggle-success" checked />
+          </div>
+          <div class="form-control items-center">
+            <label class="label"><span class="label-text font-semibold">Submodel</span></label>
+            <input type="checkbox" id="modelFieldSubmodel" class="toggle toggle-sm toggle-primary" />
+          </div>
+        </div>
+
+        <!-- Base fields -->
+        <div class="divider text-xs">Standaardvelden</div>
+        <div class="mb-3">
+          <p class="text-xs text-base-content/60 mb-2">Deze velden worden <strong>altijd</strong> opgehaald, ongeacht de geselecteerde categorieën.</p>
+          <div id="baseFieldsList" class="space-y-1 mb-2"></div>
+          <div class="flex gap-2">
+            <input type="text" id="newBaseFieldKey" class="input input-bordered input-xs flex-1" placeholder="Veldnaam in Odoo (bv. won_status)" />
+            <input type="text" id="newBaseFieldLabel" class="input input-bordered input-xs w-32" placeholder="Label" />
+            <button type="button" class="btn btn-xs btn-outline" onclick="addBaseField()">+ Voeg toe</button>
+          </div>
+        </div>
+
+        <div class="modal-action mt-4">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('modelModal').close()">Annuleren</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="modelSaveBtn">Opslaan</button>
+        </div>
+      </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <script>
+    let allRows       = [];
+    let allModels     = [];
+    let currentBaseFields = [];
+
+    // ── Tabs ──────────────────────────────────────────────────────────────────
+    function switchTab(tab, el) {
+      document.querySelectorAll('[data-tab]').forEach(t => t.classList.remove('tab-active'));
+      el.classList.add('tab-active');
+      document.getElementById('tab-users').style.display  = tab === 'users'  ? '' : 'none';
+      document.getElementById('tab-models').style.display = tab === 'models' ? '' : 'none';
+      if (tab === 'models' && allModels.length === 0) loadModels();
+    }
+
+    // ── Load users ────────────────────────────────────────────────────────────
     async function loadUsers() {
       try {
-        const res = await fetch('/insights/api/sales-insights/admin/users');
+        const res  = await fetch('/insights/api/sales-insights/admin/users');
         const data = await res.json();
         document.getElementById('loadingUsers').style.display = 'none';
         if (!data.success) throw new Error(data.error?.message);
@@ -93,7 +213,6 @@ export function queryBuilderAdminUI(user) {
       }
     }
 
-    // ── Render ────────────────────────────────────────────────────────────────
     function renderTable(rows) {
       const tbody = document.getElementById('usersTableBody');
       tbody.innerHTML = rows.map(row => {
@@ -103,14 +222,12 @@ export function queryBuilderAdminUI(user) {
         const isSIAdmin     = Array.isArray(row.permissions) && row.permissions.includes('admin');
         const roleLabel     = { admin: 'Admin', manager: 'Manager', marketing_signature: 'Marketing', user: 'Gebruiker' }[u.role] || u.role;
 
-        // Module access toggle
         const accessCell = isGlobalAdmin
           ? '<span class="badge badge-sm badge-primary">Altijd</span>'
           : \`<input type="checkbox" class="toggle toggle-sm toggle-success"
                \${hasAccess ? 'checked' : ''}
                onchange="toggleAccess('\${u.id}', this.checked, this)" />\`;
 
-        // SI Admin toggle — only meaningful when user has access
         const adminCell = isGlobalAdmin
           ? '<span class="text-xs text-base-content/40">Globale admin</span>'
           : !hasAccess
@@ -129,11 +246,9 @@ export function queryBuilderAdminUI(user) {
           <td class="text-center">\${adminCell}</td>
         </tr>\`;
       }).join('');
-
       if (window.lucide) lucide.createIcons();
     }
 
-    // ── Filter ────────────────────────────────────────────────────────────────
     function filterTable(query) {
       const q = query.toLowerCase();
       renderTable(q ? allRows.filter(r =>
@@ -142,7 +257,6 @@ export function queryBuilderAdminUI(user) {
       ) : allRows);
     }
 
-    // ── Toggle module access ──────────────────────────────────────────────────
     async function toggleAccess(userId, enable, toggleEl) {
       try {
         const res = await fetch(\`/insights/api/sales-insights/admin/users/\${userId}/module-access\`, {
@@ -152,23 +266,19 @@ export function queryBuilderAdminUI(user) {
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error?.message);
-
-        // Update local state and re-render
         const row = allRows.find(r => r.user.id === userId);
         if (row) {
           row.has_module_access = enable;
-          // If disabling, also clear SI admin (no access = no admin)
           if (!enable) row.permissions = [];
         }
         toast(enable ? 'Toegang verleend' : 'Toegang ingetrokken', enable ? 'success' : 'warning');
         renderTable(allRows);
       } catch (e) {
         toast('Fout: ' + e.message, 'error');
-        toggleEl.checked = !enable; // reset
+        toggleEl.checked = !enable;
       }
     }
 
-    // ── Toggle SI Admin ───────────────────────────────────────────────────────
     async function toggleSIAdmin(userModuleId, isAdmin, toggleEl) {
       if (!userModuleId) {
         toast('Geef eerst module toegang aan deze gebruiker', 'warning');
@@ -193,10 +303,183 @@ export function queryBuilderAdminUI(user) {
       }
     }
 
+    // ── Load models ───────────────────────────────────────────────────────────
+    async function loadModels() {
+      document.getElementById('loadingModels').style.display = 'flex';
+      document.getElementById('modelsTableWrap').style.display = 'none';
+      try {
+        const res  = await fetch('/insights/api/sales-insights/models-config');
+        const data = await res.json();
+        document.getElementById('loadingModels').style.display = 'none';
+        if (!data.success) throw new Error(data.error?.message);
+        allModels = data.data.models;
+        renderModels(allModels);
+        document.getElementById('modelsTableWrap').style.display = 'block';
+      } catch (e) {
+        document.getElementById('loadingModels').style.display = 'none';
+        const err = document.getElementById('modelsErrorMsg');
+        err.textContent = 'Fout bij laden: ' + e.message;
+        err.style.display = 'flex';
+      }
+    }
+
+    function renderModels(models) {
+      const tbody = document.getElementById('modelsTableBody');
+      if (!models.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-base-content/40 py-6">Geen modellen gevonden</td></tr>';
+        return;
+      }
+      tbody.innerHTML = models.map(m => {
+        const desc = m.description ? m.description.slice(0, 60) + (m.description.length > 60 ? '…' : '') : '';
+        const descHtml = desc ? desc : '<span class="opacity-40">—</span>';
+        const startBadge = m.can_be_startpoint ? '<span class="badge badge-xs badge-success">ja</span>' : '<span class="badge badge-xs badge-ghost">nee</span>';
+        const subBadge   = m.can_be_submodel   ? '<span class="badge badge-xs badge-primary">ja</span>' : '<span class="badge badge-xs badge-ghost">nee</span>';
+        const statusBadge = m.is_active !== false ? '<span class="badge badge-xs badge-success">actief</span>' : '<span class="badge badge-xs badge-error">inactief</span>';
+        const editBtn = '<button class="btn btn-xs btn-ghost" data-action="editModel" data-id="' + m.id + '" title="Bewerken"><i data-lucide="pencil" class="w-3 h-3"></i></button>';
+        const delBtn  = m.is_active !== false ? '<button class="btn btn-xs btn-ghost text-error" data-action="deactivateModel" data-id="' + m.id + '" title="Deactiveren"><i data-lucide="trash-2" class="w-3 h-3"></i></button>' : '';
+        return '<tr class="hover">'
+          + '<td><div class="font-mono text-xs font-semibold">' + m.id + '</div><div class="text-xs text-base-content/50">' + m.odoo_model + '</div></td>'
+          + '<td class="text-sm">' + m.label + '</td>'
+          + '<td class="text-xs text-base-content/60 max-w-xs">' + descHtml + '</td>'
+          + '<td class="text-center">' + startBadge + '</td>'
+          + '<td class="text-center">' + subBadge + '</td>'
+          + '<td class="text-center text-sm">' + m.sort_order + '</td>'
+          + '<td class="text-center">' + statusBadge + '</td>'
+          + '<td class="text-right"><div class="flex gap-1 justify-end">' + editBtn + delBtn + '</div></td>'
+          + '</tr>';
+      }).join('');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // ── Base fields helpers ───────────────────────────────────────────────────
+    function renderBaseFieldsList() {
+      const list = document.getElementById('baseFieldsList');
+      if (!list) return;
+      if (!currentBaseFields.length) {
+        list.innerHTML = '<p class="text-xs text-base-content/40 italic">Geen standaardvelden — voeg er minstens één toe.</p>';
+        return;
+      }
+      list.innerHTML = currentBaseFields.map((bf, i) =>
+        '<div class="flex items-center gap-2 bg-base-200 rounded px-2 py-1">'
+        + '<span class="font-mono text-xs w-40 shrink-0">' + bf.field + '</span>'
+        + '<input type="text" class="input input-xs input-ghost flex-1 min-w-0" value="' + (bf.label || '').replace(/"/g, '&quot;') + '" placeholder="Label" data-action="baseFieldLabel" data-idx="' + i + '" />'
+        + '<button type="button" class="btn btn-xs btn-ghost text-error shrink-0" data-action="removeBaseField" data-idx="' + i + '">✕</button>'
+        + '</div>'
+      ).join('');
+    }
+
+    // Live label editing via event delegation
+    document.addEventListener('input', e => {
+      const el = e.target.closest('[data-action="baseFieldLabel"]');
+      if (!el) return;
+      currentBaseFields[parseInt(el.dataset.idx, 10)].label = el.value;
+    });
+
+    function addBaseField() {
+      const fieldKey   = document.getElementById('newBaseFieldKey').value.trim();
+      const fieldLabel = document.getElementById('newBaseFieldLabel').value.trim();
+      if (!fieldKey) { toast('Veldnaam is verplicht', 'warning'); return; }
+      if (currentBaseFields.find(bf => bf.field === fieldKey)) { toast('Veld staat er al in', 'warning'); return; }
+      currentBaseFields.push({ field: fieldKey, label: fieldLabel || fieldKey });
+      document.getElementById('newBaseFieldKey').value   = '';
+      document.getElementById('newBaseFieldLabel').value = '';
+      renderBaseFieldsList();
+    }
+
+    // Central click also handles removeBaseField
+    document.addEventListener('click', e => {
+      const el = e.target.closest('[data-action]');
+      if (!el) return;
+      const { action, id, idx } = el.dataset;
+      if (action === 'editModel')       { const m = allModels.find(x => x.id === id); if (m) openModelModal(m); }
+      if (action === 'deactivateModel') deactivateModel(id);
+      if (action === 'removeBaseField') {
+        currentBaseFields.splice(parseInt(idx, 10), 1);
+        renderBaseFieldsList();
+      }
+    });
+
+    // ── Model modal ───────────────────────────────────────────────────────────
+    function openModelModal(model) {
+      const isNew = !model;
+      document.getElementById('modelModalTitle').textContent    = isNew ? 'Nieuw model' : 'Model bewerken';
+      document.getElementById('modelId').value                  = model ? model.id : '';
+      document.getElementById('modelFieldLabel').value          = model ? model.label : '';
+      document.getElementById('modelFieldDesc').value           = model ? (model.description || '') : '';
+      document.getElementById('modelFieldSort').value           = model ? model.sort_order : 0;
+      document.getElementById('modelFieldStartpoint').checked   = model ? !!model.can_be_startpoint : true;
+      document.getElementById('modelFieldSubmodel').checked     = model ? !!model.can_be_submodel   : false;
+      document.getElementById('newModelIdWrap').style.display   = isNew ? '' : 'none';
+      document.getElementById('newModelOdooWrap').style.display = isNew ? '' : 'none';
+      if (isNew) {
+        document.getElementById('modelFieldId').value   = '';
+        document.getElementById('modelFieldOdoo').value = '';
+      }
+      // Base fields
+      currentBaseFields = model?.base_fields ? JSON.parse(JSON.stringify(model.base_fields)) : [];
+      renderBaseFieldsList();
+      document.getElementById('newBaseFieldKey').value   = '';
+      document.getElementById('newBaseFieldLabel').value = '';
+      document.getElementById('modelModal').showModal();
+    }
+
+    async function saveModel(e) {
+      e.preventDefault();
+      const id    = document.getElementById('modelId').value;
+      const isNew = !id;
+      const btn   = document.getElementById('modelSaveBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>';
+
+      const body = {
+        label:             document.getElementById('modelFieldLabel').value.trim(),
+        description:       document.getElementById('modelFieldDesc').value.trim() || null,
+        sort_order:        parseInt(document.getElementById('modelFieldSort').value, 10) || 0,
+        can_be_startpoint: document.getElementById('modelFieldStartpoint').checked,
+        can_be_submodel:   document.getElementById('modelFieldSubmodel').checked,
+        base_fields:       currentBaseFields,
+      };
+      if (isNew) {
+        body.id         = document.getElementById('modelFieldId').value.trim();
+        body.odoo_model = document.getElementById('modelFieldOdoo').value.trim();
+      }
+
+      try {
+        const url    = isNew ? '/insights/api/sales-insights/models' : '/insights/api/sales-insights/models/' + id;
+        const method = isNew ? 'POST' : 'PATCH';
+        const res    = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data   = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        document.getElementById('modelModal').close();
+        toast(isNew ? 'Model aangemaakt' : 'Model bijgewerkt', 'success');
+        allModels = [];
+        await loadModels();
+      } catch (err) {
+        toast('Fout: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Opslaan';
+      }
+    }
+
+    async function deactivateModel(id) {
+      if (!confirm('Model deactiveren? Het verdwijnt uit de wizard voor gebruikers.')) return;
+      try {
+        const res  = await fetch('/insights/api/sales-insights/models/' + id, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        toast('Model gedeactiveerd', 'warning');
+        allModels = [];
+        await loadModels();
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
+      }
+    }
+
     // ── Toast ─────────────────────────────────────────────────────────────────
     function toast(msg, type = 'success') {
       const el = document.createElement('div');
-      el.className = \`alert alert-\${type} py-2 text-sm shadow-lg\`;
+      el.className = 'alert alert-' + type + ' py-2 text-sm shadow-lg';
       el.textContent = msg;
       const container = document.getElementById('toastContainer');
       container.appendChild(el);
