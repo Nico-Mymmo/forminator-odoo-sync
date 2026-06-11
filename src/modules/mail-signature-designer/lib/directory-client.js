@@ -166,6 +166,8 @@ export async function getUserByEmail(env, email) {
   );
 
   if (resp.status === 404) return null;
+  // 400 means the userKey format isn't supported (e.g. user not in Google Workspace) — treat as not found
+  if (resp.status === 400) return null;
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(`Directory API getUser failed (${resp.status}): ${text}`);

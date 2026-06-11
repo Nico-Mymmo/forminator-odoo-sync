@@ -93,45 +93,43 @@ export function loginPageUI() {
 
 export function homeDashboardUI(user) {
   // Get user's modules - extract module objects from user_modules array
+  // Filter out removed modules and utility modules (shown in navbar, not the grid)
+  const REMOVED_MODULES = ['forminator_sync'];
+  const UTILITY_MODULES = ['asset_manager', 'admin'];
   const userModules = user.modules || [];
-  const modules = userModules.map(um => um.module || um);
-  
-  // Add admin module if user is admin
-  const allModules = [...modules];
-  if (user.role === 'admin') {
-    allModules.push({
-      code: 'admin',
-      name: 'Administration',
-      description: 'Manage users, invites, and module access',
-      route: '/admin',
-      icon: 'settings'
-    });
-  }
-  
-  // Icon mapping
+  const allModules = userModules
+    .map(function(um) { return um.module || um; })
+    .filter(function(m) { return !REMOVED_MODULES.includes(m.code) && !UTILITY_MODULES.includes(m.code); });
+
+  // Icon mapping — keyed by module code
   const iconMap = {
-    'forminator': 'file-text',
-    'project-generator': 'briefcase',
-    'admin': 'settings',
-    'settings': 'settings',
-    'home': 'home'
+    'home':                    'home',
+    'admin':                   'settings',
+    'profile':                 'user',
+    'forminator_sync_v2':      'arrow-left-right',
+    'project_generator':       'folder-plus',
+    'sales_insight_explorer':  'bar-chart-2',
+    'event_operations':        'calendar',
+    'mail_signature_designer': 'pen-tool',
+    'asset_manager':           'hard-drive',
+    'cx_powerboard':           'layout-dashboard',
+    'wp_form_schemas':         'file-code',
+    'claude_integration':      'bot'
   };
-  
-  const moduleCards = allModules.map(module => {
-    const icon = iconMap[module.icon] || iconMap[module.code] || 'box';
-    return `
-      <a href="${module.route}" class="card bg-base-100 shadow-xl hover:shadow-2xl transition-all cursor-pointer group">
-        <div class="card-body items-center text-center">
-          <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/20 transition-colors">
-            <i data-lucide="${icon}" class="w-8 h-8 text-primary"></i>
-          </div>
-          <h2 class="card-title">${module.name}</h2>
-          <p class="text-sm text-base-content/60">${module.description || ''}</p>
-        </div>
-      </a>
-    `;
+
+  const moduleCards = allModules.map(function(module) {
+    const icon = iconMap[module.code] || iconMap[module.icon] || 'box';
+    return '<a href="' + module.route + '" class="card bg-base-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group border border-base-200 hover:border-primary/30">'
+      + '<div class="card-body items-center text-center gap-3 py-8">'
+      + '<div class="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">'
+      + '<i data-lucide="' + icon + '" class="w-7 h-7 text-primary"></i>'
+      + '</div>'
+      + '<h2 class="card-title text-base font-semibold">' + module.name + '</h2>'
+      + '<p class="text-sm text-base-content/60 leading-relaxed">' + (module.description || '') + '</p>'
+      + '</div>'
+      + '</a>';
   }).join('');
-  
+
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>

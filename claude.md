@@ -1,5 +1,16 @@
 # Projectregels — forminator-odoo-sync
 
+## Wat is dit project?
+
+Dit is de **Operations Manager** — een intern platform voor mymmo.com dat draait als Cloudflare Worker. De repository heet `forminator-odoo-sync` (historische naam), maar het platform heeft inmiddels veel meer modules dan alleen de forminator-sync.
+
+**Naamgeving:**
+- "forminator" in de context van dit project = de Operations Manager app zelf
+- "forminator-sync" = een specifieke module die WordPress Forminator form submissions synchroniseert naar Odoo. De v1 is verwijderd; gebruik altijd **forminator-sync-v2** (`/forminator-v2`, code: `forminator_sync_v2`).
+- "Odoo" = het CRM/ERP systeem waar data naartoe gesynchroniseerd wordt
+
+---
+
 ## Stack
 
 - **Backend:** Cloudflare Worker (`src/`) — enkel API routes en server-logica
@@ -113,7 +124,6 @@ De navbar zit in elke HTML pagina als plain HTML — niet als server-rendered co
 | home | `/` | `src/modules/home/ui.js` | ⚠️ Legacy — niet herschrijven tenzij gevraagd |
 | admin | `/admin` | `public/admin-dashboard.html` | ✅ Correct |
 | profile | `/profile` | `src/modules/profile/ui.js` | ⚠️ Legacy |
-| forminator-sync | `/forminator` | `src/modules/forminator-sync/ui.js` | ⚠️ Legacy |
 | forminator-sync-v2 | `/forminator-v2` | in `routes.js` | ⚠️ Legacy |
 | project-generator | `/projects` | `src/modules/project-generator/ui.js` | ⚠️ Legacy |
 | sales-insight-explorer | `/insights` | `src/modules/sales-insight-explorer/ui-*.js` | ⚠️ Legacy — migratie bezig |

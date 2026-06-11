@@ -347,68 +347,6 @@ export default {
       return await resolved.handler(context);
     }
     
-    // Special handling for legacy /api/ routes -> redirect to forminator module
-    if (pathname.startsWith('/api/mappings') || pathname.startsWith('/api/history') || pathname === '/api/test-connection') {
-      // These are actually Forminator Sync module routes
-      // Rewrite the request to go through the forminator module
-      const forminatorModule = getModuleByCode('forminator_sync');
-      if (forminatorModule) {
-        // Extract session token
-        const authHeader = request.headers.get('Authorization');
-        let token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-        
-        if (!token) {
-          const cookieHeader = request.headers.get('Cookie');
-          if (cookieHeader) {
-            const cookies = cookieHeader.split(';').map(c => c.trim());
-            const sessionCookie = cookies.find(c => c.startsWith('session='));
-            if (sessionCookie) {
-              token = sessionCookie.split('=')[1];
-            }
-          }
-        }
-        
-        // Validate session
-        let user = null;
-        if (token) {
-          user = await validateSession(env, token);
-        }
-        
-        // Build context
-        const context = { request, env, ctx, user };
-        
-        // Check auth
-        if (!user) {
-          return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
-            status: 401,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-        
-        // Resolve route within forminator module
-        const subPath = pathname; // Use full path as-is
-        const routeKey = `${request.method} ${subPath}`;
-        
-        if (forminatorModule.routes[routeKey]) {
-          return await forminatorModule.routes[routeKey](context);
-        }
-        
-        // Try parameter routes
-        for (const [key, handler] of Object.entries(forminatorModule.routes)) {
-          const [routeMethod, routePath] = key.split(' ');
-          if (routeMethod !== request.method) continue;
-          
-          const pattern = routePath.replace(/:[^/]+/g, '([^/]+)');
-          const regex = new RegExp(`^${pattern}$`);
-          const match = subPath.match(regex);
-          
-          if (match) {
-            return await handler(context);
-          }
-        }
-      }
-    }
-    
     // Try to resolve module route
     const module = getModuleByRoute(pathname);
     if (module && !hasAction) {
