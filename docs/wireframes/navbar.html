@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wireframe — Navbar — Operations Manager</title>
+  <script>
+    // Vroege theme-init: geen flits
+    document.documentElement.setAttribute('data-theme', localStorage.getItem('selectedTheme') || 'light');
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <!-- ====== Wireframe-besturing (geen onderdeel van het ontwerp) ====== -->
+  <div class="container mx-auto px-6 pt-6 max-w-7xl">
+    <div class="alert mb-4 bg-base-100 border border-base-300 text-sm flex-wrap">
+      <i data-lucide="layout-template" class="w-5 h-5 text-primary shrink-0"></i>
+      <div>
+        <strong>Wireframe: navbar</strong> — kies een variant. De balk hieronder wordt live opnieuw gerenderd.
+        Het thema-menu werkt echt (schrijft naar <code>localStorage.selectedTheme</code>).
+      </div>
+    </div>
+    <div class="join mb-2" role="group" aria-label="Variant kiezen">
+      <button class="btn btn-sm join-item btn-primary" data-action="setVariant" data-variant="user">Ingelogd: gebruiker</button>
+      <button class="btn btn-sm join-item" data-action="setVariant" data-variant="admin">Ingelogd: admin</button>
+      <button class="btn btn-sm join-item" data-action="setVariant" data-variant="loggedout">Uitgelogd</button>
+    </div>
+    <label class="label cursor-pointer justify-start gap-2 w-fit mb-4">
+      <input type="checkbox" class="toggle toggle-sm" id="mobileToggle" data-action="toggleMobile">
+      <span class="label-text text-sm">Mobiele weergave (375 px) tonen</span>
+    </label>
+  </div>
+
+  <!-- ====== DESKTOP-DEMO ====== -->
+  <div id="desktopDemo" class="container mx-auto px-6 max-w-7xl">
+    <p class="text-xs text-base-content/50 mb-1 uppercase tracking-wide font-semibold">Desktop (≥768 px)</p>
+    <div class="border border-base-300 rounded-box overflow-visible bg-base-200 mb-8" style="min-height: 280px;">
+      <!-- De navbar zelf wordt hier gerenderd -->
+      <div id="navbarDesktop"></div>
+      <div class="p-6 text-sm text-base-content/40" id="desktopHint"></div>
+    </div>
+  </div>
+
+  <!-- ====== MOBIELE DEMO ====== -->
+  <div id="mobileDemo" class="container mx-auto px-6 max-w-7xl hidden">
+    <p class="text-xs text-base-content/50 mb-1 uppercase tracking-wide font-semibold">Mobiel (&lt;768 px) — hamburger-menu</p>
+    <div class="border border-base-300 rounded-box overflow-visible bg-base-200 mb-8 mx-auto" style="width: 375px; min-height: 340px;">
+      <div id="navbarMobile"></div>
+      <div class="p-4 text-sm text-base-content/40">Tik op het hamburger-icoon: alle navigatie en accountacties in één menu.</div>
+    </div>
+  </div>
+
+  <!-- ====== ONTWERPNOTITIES ====== -->
+  <div class="container mx-auto px-6 max-w-7xl pb-12">
+    <div class="card bg-base-100 border border-base-200 shadow-sm">
+      <div class="card-body">
+        <h2 class="text-base font-semibold">Ontwerpnotities</h2>
+        <ul class="text-sm text-base-content/70 list-disc ml-5 space-y-1">
+          <li><strong>Klik-dropdowns</strong> via <code>&lt;details class="dropdown"&gt;</code> — geen <code>dropdown-hover</code> (faalt op touch, klapt onbedoeld open).</li>
+          <li><strong>Actieve module</strong> krijgt een vinkje in het Modules-menu.</li>
+          <li><strong>Identiteit rechts:</strong> avatar met initialen; menu bevat naam + e-mail, admin-badge, Profiel, Thema (sub-lijst), Uitloggen.</li>
+          <li><strong>Uitloggen</strong> in error-kleur, onderaan, gescheiden door een divider — niet langer als permanente rode knop in de balk.</li>
+          <li><strong>Beheer</strong> (admin) als utility-knop links van het avatar-menu, alleen zichtbaar voor admins of gebruikers met de admin-module.</li>
+          <li>Het lege <code>#saveIndicator</code>-slot in het midden blijft gereserveerd voor module-statusmeldingen.</li>
+          <li>Uitgelogd = geen navbar: het login-scherm (zie <code>home.html</code>) is paginavullend zonder balk. Hieronder ter referentie getoond.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ================= Wireframe-data ================= */
+    var THEMES_CURATED = ['light', 'dark', 'corporate', 'business', 'winter', 'lofi'];
+    var THEMES_ALL = ['light','dark','cupcake','bumblebee','emerald','corporate','synthwave','retro','cyberpunk','valentine','halloween','garden','forest','aqua','lofi','pastel','fantasy','wireframe','black','luxury','dracula','cmyk','autumn','business','acid','lemonade','night','coffee','winter'];
+
+    var USERS = {
+      user: {
+        name: 'Sofie Janssens',
+        email: 'sofie@mymmo.com',
+        role: 'user',
+        modules: [
+          { code: 'mail_signature_designer', name: 'Mail Signature Designer', route: '#', icon: 'pen-tool' },
+          { code: 'event_operations', name: 'Event Operations', route: '#', icon: 'calendar' }
+        ]
+      },
+      admin: {
+        name: 'Nico Plinke',
+        email: 'nico@mymmo.com',
+        role: 'admin',
+        modules: [
+          { code: 'forminator_sync_v2', name: 'Forminator Sync v2', route: '#', icon: 'arrow-left-right' },
+          { code: 'project_generator', name: 'Project Generator', route: '#', icon: 'folder-plus' },
+          { code: 'sales_insight_explorer', name: 'Sales Insight Explorer', route: '#', icon: 'bar-chart-2' },
+          { code: 'event_operations', name: 'Event Operations', route: '#', icon: 'calendar' },
+          { code: 'mail_signature_designer', name: 'Mail Signature Designer', route: '#', icon: 'pen-tool' },
+          { code: 'cx_powerboard', name: 'CX Powerboard', route: '#', icon: 'layout-dashboard' }
+        ]
+      }
+    };
+
+    var state = { variant: 'user', activeModuleCode: 'event_operations' };
+
+    /* ================= Bouwstenen ================= */
+    function initials(name) {
+      return name.split(' ').map(function (p) { return p[0]; }).slice(0, 2).join('').toUpperCase();
+    }
+
+    function themeMenu() {
+      var cur = localStorage.getItem('selectedTheme') || 'light';
+      var curated = THEMES_CURATED.map(function (t) {
+        return '<li><a data-action="setTheme" data-theme="' + t + '" class="capitalize ' + (t === cur ? 'active' : '') + '">'
+          + (t === cur ? '<i data-lucide="check" class="w-3.5 h-3.5"></i>' : '<span class="w-3.5"></span>')
+          + t + '</a></li>';
+      }).join('');
+      var rest = THEMES_ALL.filter(function (t) { return THEMES_CURATED.indexOf(t) === -1; }).map(function (t) {
+        return '<li><a data-action="setTheme" data-theme="' + t + '" class="capitalize ' + (t === cur ? 'active' : '') + '">'
+          + (t === cur ? '<i data-lucide="check" class="w-3.5 h-3.5"></i>' : '<span class="w-3.5"></span>')
+          + t + '</a></li>';
+      }).join('');
+      return '<li>'
+        + '<details>'
+        + '<summary><i data-lucide="palette" class="w-4 h-4"></i>Thema</summary>'
+        + '<ul class="max-h-64 overflow-y-auto">'
+        + curated
+        + '<li class="menu-title text-xs pt-2">Alle thema’s</li>'
+        + rest
+        + '</ul>'
+        + '</details>'
+        + '</li>';
+    }
+
+    function modulesDropdown(user) {
+      if (!user.modules.length) return '';
+      var items = user.modules.map(function (m) {
+        var active = m.code === state.activeModuleCode;
+        return '<li><a href="' + m.route + '" class="' + (active ? 'active' : '') + '">'
+          + '<i data-lucide="' + m.icon + '" class="w-4 h-4"></i>'
+          + m.name
+          + (active ? '<i data-lucide="check" class="w-3.5 h-3.5 ml-auto"></i>' : '')
+          + '</a></li>';
+      }).join('');
+      return '<details class="dropdown">'
+        + '<summary class="btn btn-sm btn-ghost gap-2 font-normal">'
+        + '<i data-lucide="layout-grid" class="w-4 h-4"></i>Modules'
+        + '<i data-lucide="chevron-down" class="w-3.5 h-3.5 opacity-60"></i>'
+        + '</summary>'
+        + '<ul class="dropdown-content z-[60] menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-200">'
+        + items
+        + '</ul>'
+        + '</details>';
+    }
+
+    function avatarMenu(user) {
+      var adminBadge = user.role === 'admin'
+        ? '<span class="badge badge-primary badge-xs ml-2">Admin</span>' : '';
+      return '<details class="dropdown dropdown-end">'
+        + '<summary class="btn btn-ghost btn-sm btn-circle avatar placeholder" aria-label="Account-menu">'
+        + '<div class="bg-primary text-primary-content rounded-full w-7"><span class="text-xs">' + initials(user.name) + '</span></div>'
+        + '</summary>'
+        + '<ul class="dropdown-content z-[60] menu p-2 shadow-lg bg-base-100 rounded-box w-60 border border-base-200">'
+        + '<li class="menu-title px-4 py-2">'
+        + '<div class="text-sm font-semibold text-base-content normal-case">' + user.name + adminBadge + '</div>'
+        + '<div class="text-xs text-base-content/50 normal-case">' + user.email + '</div>'
+        + '</li>'
+        + '<li><a href="#"><i data-lucide="user" class="w-4 h-4"></i>Profiel</a></li>'
+        + themeMenu()
+        + '<div class="divider my-1"></div>'
+        + '<li><a data-action="logout" class="text-error"><i data-lucide="log-out" class="w-4 h-4"></i><span data-role="logoutLabel">Uitloggen</span></a></li>'
+        + '</ul>'
+        + '</details>';
+    }
+
+    /* ================= Navbar (desktop) ================= */
+    function navbarDesktop(user) {
+      if (!user) return loggedOutBanner();
+      var adminBtn = user.role === 'admin'
+        ? '<a href="#" class="btn btn-xs btn-ghost gap-1.5 font-normal text-base-content/70 hover:text-base-content">'
+          + '<i data-lucide="settings" class="w-3.5 h-3.5"></i>Beheer</a>'
+        : '';
+      return '<header class="flex items-center justify-between bg-base-100 border-b border-base-200 px-4 h-12 relative z-50">'
+        + '<div class="flex items-center gap-3">'
+        + '<a href="#" class="flex items-center gap-2 hover:opacity-75 transition-opacity">'
+        + '<i data-lucide="home" class="w-4 h-4"></i>'
+        + '<span class="text-sm font-semibold tracking-tight">OpenVME Operations Manager</span>'
+        + '</a>'
+        + (user.modules.length ? '<div class="w-px h-4 bg-base-300"></div>' : '')
+        + modulesDropdown(user)
+        + '</div>'
+        + '<div id="saveIndicator" class="flex items-center gap-1 text-xs text-base-content/50"></div>'
+        + '<div class="flex items-center gap-1">'
+        + adminBtn
+        + (adminBtn ? '<div class="w-px h-4 bg-base-300 mx-1"></div>' : '')
+        + avatarMenu(user)
+        + '</div>'
+        + '</header>';
+    }
+
+    /* ================= Navbar (mobiel) ================= */
+    function navbarMobile(user) {
+      if (!user) return loggedOutBanner();
+      var moduleItems = user.modules.map(function (m) {
+        var active = m.code === state.activeModuleCode;
+        return '<li><a href="' + m.route + '" class="' + (active ? 'active' : '') + '">'
+          + '<i data-lucide="' + m.icon + '" class="w-4 h-4"></i>' + m.name + '</a></li>';
+      }).join('');
+      var adminItem = user.role === 'admin'
+        ? '<li><a href="#"><i data-lucide="settings" class="w-4 h-4"></i>Beheer</a></li>' : '';
+      return '<header class="flex items-center justify-between bg-base-100 border-b border-base-200 px-3 h-12 relative z-50">'
+        + '<details class="dropdown">'
+        + '<summary class="btn btn-ghost btn-sm btn-square" aria-label="Menu">'
+        + '<i data-lucide="menu" class="w-5 h-5"></i>'
+        + '</summary>'
+        + '<ul class="dropdown-content z-[60] menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-200">'
+        + '<li class="menu-title text-xs">Modules</li>'
+        + moduleItems
+        + (adminItem ? '<div class="divider my-1"></div>' + adminItem : '')
+        + '</ul>'
+        + '</details>'
+        + '<a href="#" class="text-sm font-semibold tracking-tight">Operations Manager</a>'
+        + avatarMenu(user)
+        + '</header>';
+    }
+
+    /* ================= Uitgelogd ================= */
+    function loggedOutBanner() {
+      return '<div class="p-6">'
+        + '<div class="text-center text-sm text-base-content/50 mb-4">Uitgelogd: er is géén navbar — het login-scherm is paginavullend (zie <code>home.html</code>). Compacte referentie:</div>'
+        + '<div class="card w-80 mx-auto bg-base-100 border border-base-200 shadow-sm">'
+        + '<div class="card-body items-center gap-2 py-6">'
+        + '<i data-lucide="home" class="w-6 h-6 text-primary"></i>'
+        + '<div class="text-sm font-semibold">OpenVME Operations Manager</div>'
+        + '<div class="text-xs text-base-content/50">Log in om verder te gaan</div>'
+        + '<button class="btn btn-primary btn-sm mt-2 w-full">Naar inloggen</button>'
+        + '</div></div></div>';
+    }
+
+    /* ================= Render & events ================= */
+    function render() {
+      var user = state.variant === 'loggedout' ? null : USERS[state.variant];
+      document.getElementById('navbarDesktop').innerHTML = navbarDesktop(user);
+      document.getElementById('navbarMobile').innerHTML = navbarMobile(user);
+      document.getElementById('desktopHint').textContent = user
+        ? 'Klik op "Modules" en op de avatar rechts om de menu’s te openen. Actieve module: ' +
+          (user.modules.find(function (m) { return m.code === state.activeModuleCode; }) || { name: 'geen' }).name + '.'
+        : '';
+      // Variant-knoppen highlighten
+      document.querySelectorAll('[data-action="setVariant"]').forEach(function (b) {
+        b.classList.toggle('btn-primary', b.dataset.variant === state.variant);
+      });
+      lucide.createIcons();
+    }
+
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest('[data-action]');
+      if (!el) return;
+      var action = el.dataset.action;
+      if (action === 'setVariant') {
+        state.variant = el.dataset.variant;
+        render();
+      } else if (action === 'setTheme') {
+        e.preventDefault();
+        document.documentElement.setAttribute('data-theme', el.dataset.theme);
+        localStorage.setItem('selectedTheme', el.dataset.theme);
+        render();
+      } else if (action === 'toggleMobile') {
+        document.getElementById('mobileDemo').classList.toggle('hidden', !el.checked);
+      } else if (action === 'logout') {
+        e.preventDefault();
+        var label = el.querySelector('[data-role="logoutLabel"]');
+        if (label) label.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Uitloggen…';
+        setTimeout(function () { state.variant = 'loggedout'; render(); }, 800);
+      }
+    });
+
+    render();
+    lucide.createIcons();
+  </script>
+</body>
+</html>

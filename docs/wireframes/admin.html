@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wireframe — Beheer — Operations Manager</title>
+  <script>
+    document.documentElement.setAttribute('data-theme', localStorage.getItem('selectedTheme') || 'light');
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="bg-base-200 min-h-screen" style="overflow-y: scroll;">
+
+  <!-- ====== Wireframe-besturing ====== -->
+  <div class="container mx-auto px-6 pt-6 max-w-7xl">
+    <div class="alert mb-4 bg-base-100 border border-base-300 text-sm flex-wrap">
+      <i data-lucide="layout-template" class="w-5 h-5 text-primary shrink-0"></i>
+      <div><strong>Wireframe: beheer</strong> — alle mutaties zijn gesimuleerd (800 ms vertraging).
+      Ingelogd als <code>nico@mymmo.com</code> (eigen rij is beschermd). Gebruik de staat-knoppen om alle scenario’s te zien.</div>
+    </div>
+    <div class="join mb-6" role="group" aria-label="Staat kiezen">
+      <button class="btn btn-sm join-item btn-primary" data-action="setPageState" data-state="filled">Gevuld</button>
+      <button class="btn btn-sm join-item" data-action="setPageState" data-state="loading">Laden</button>
+      <button class="btn btn-sm join-item" data-action="setPageState" data-state="empty">Leeg</button>
+      <button class="btn btn-sm join-item" data-action="setPageState" data-state="error">Fout</button>
+    </div>
+  </div>
+
+  <!-- Navbar-placeholder -->
+  <header class="flex items-center justify-between bg-base-100 border-y border-base-200 px-4 h-12">
+    <div class="flex items-center gap-3">
+      <span class="flex items-center gap-2">
+        <i data-lucide="home" class="w-4 h-4"></i>
+        <span class="text-sm font-semibold tracking-tight">OpenVME Operations Manager</span>
+      </span>
+      <span class="text-xs text-base-content/40">— navbar: zie navbar.html</span>
+    </div>
+    <div class="avatar placeholder">
+      <div class="bg-primary text-primary-content rounded-full w-7"><span class="text-xs">NP</span></div>
+    </div>
+  </header>
+
+  <div class="container mx-auto px-6 py-8 max-w-7xl">
+    <!-- Paginakop -->
+    <div class="mb-6">
+      <h1 class="text-2xl font-bold">Beheer</h1>
+      <p class="text-sm text-base-content/60 mt-1">Beheer gebruikers, rollen en moduletoegang</p>
+    </div>
+
+    <!-- Statistieken met skeleton-staat -->
+    <div class="stats border border-base-200 bg-base-100 shadow-sm w-full mb-6" id="statsBar">
+      <div class="stat py-4">
+        <div class="stat-figure text-primary"><i data-lucide="users" class="w-7 h-7"></i></div>
+        <div class="stat-title text-sm">Gebruikers</div>
+        <div class="stat-value text-primary text-2xl" data-role="statUsers"><div class="skeleton h-7 w-10"></div></div>
+        <div class="stat-desc" data-role="statUsersDesc"><div class="skeleton h-3 w-24 mt-1"></div></div>
+      </div>
+      <div class="stat py-4">
+        <div class="stat-figure text-accent"><i data-lucide="package" class="w-7 h-7"></i></div>
+        <div class="stat-title text-sm">Modules</div>
+        <div class="stat-value text-accent text-2xl" data-role="statModules"><div class="skeleton h-7 w-10"></div></div>
+        <div class="stat-desc" data-role="statModulesDesc"><div class="skeleton h-3 w-24 mt-1"></div></div>
+      </div>
+    </div>
+
+    <!-- Tabs: één vlak per tab, geen kaart-in-kaart -->
+    <div role="tablist" class="tabs tabs-lifted">
+      <!-- ============ TAB 1: GEBRUIKERS ============ -->
+      <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Gebruikers" id="tabUsers" checked />
+      <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 class="text-base font-semibold">Gebruikersbeheer</h2>
+          <label class="input input-bordered input-sm flex items-center gap-2 w-64">
+            <i data-lucide="search" class="w-4 h-4 text-base-content/40"></i>
+            <input type="search" id="userSearch" class="grow" placeholder="Zoek op e-mailadres of rol…" />
+          </label>
+        </div>
+        <div id="usersTable" class="overflow-x-auto"></div>
+      </div>
+
+      <!-- ============ TAB 2: GEBRUIKER AANMAKEN ============ -->
+      <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Gebruiker aanmaken" id="tabCreate" />
+      <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+        <h2 class="text-base font-semibold mb-4">Nieuwe gebruiker aanmaken</h2>
+        <form id="createUserForm" class="max-w-2xl" novalidate>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+            <label class="form-control w-full">
+              <div class="label"><span class="label-text">E-mailadres <span class="text-error">*</span></span></div>
+              <input type="email" name="email" placeholder="naam@mymmo.com" class="input input-bordered input-sm w-full" />
+              <div class="label py-1 hidden" data-role="err-email">
+                <span class="label-text-alt text-xs text-error">Vul een geldig e-mailadres in</span>
+              </div>
+            </label>
+            <label class="form-control w-full">
+              <div class="label"><span class="label-text">Wachtwoord <span class="text-error">*</span></span></div>
+              <input type="password" name="password" placeholder="••••••••" class="input input-bordered input-sm w-full" autocomplete="new-password" />
+              <div class="label py-1">
+                <span class="label-text-alt text-xs text-base-content/50" data-role="pw-help">Minimaal 8 tekens</span>
+                <span class="label-text-alt text-xs text-error hidden" data-role="err-password">Het wachtwoord moet minstens 8 tekens lang zijn</span>
+              </div>
+            </label>
+          </div>
+
+          <label class="form-control w-full max-w-md mb-1">
+            <div class="label"><span class="label-text">Rol <span class="text-error">*</span></span></div>
+            <select name="role" class="select select-bordered select-sm" id="createRoleSelect">
+              <option value="user">Gebruiker</option>
+              <option value="manager">Manager</option>
+              <option value="marketing_signature">Marketing Signatures</option>
+              <option value="cx_powerboard_manager">CX Powerboard-manager</option>
+              <option value="admin">Admin</option>
+            </select>
+            <div class="label py-1"><span class="label-text-alt text-xs text-base-content/50" id="roleHelp"></span></div>
+          </label>
+
+          <div class="form-control mb-4">
+            <div class="label"><span class="label-text">Modules</span></div>
+            <div id="moduleCheckboxes" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1"></div>
+            <div class="label py-1"><span class="label-text-alt text-xs text-base-content/50">Auto-toegekende modules van de gekozen rol hoef je niet aan te vinken.</span></div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-sm gap-2" id="createUserBtn">
+            <i data-lucide="user-plus" class="w-4 h-4"></i>
+            <span data-role="createBtnLabel">Gebruiker aanmaken</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- ============ TAB 3: MODULES ============ -->
+      <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Modules" id="tabModules" />
+      <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="text-base font-semibold">Beschikbare modules</h2>
+        </div>
+        <p class="text-xs text-base-content/50 mb-4">Een gedeactiveerde module verdwijnt bij iedereen uit de navigatie; toewijzingen blijven bewaard.</p>
+        <div id="modulesTable"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== Ontwerpnotities ====== -->
+  <div class="container mx-auto px-6 max-w-7xl pb-12">
+    <div class="card bg-base-100 border border-base-200 shadow-sm">
+      <div class="card-body">
+        <h2 class="text-base font-semibold">Ontwerpnotities</h2>
+        <ul class="text-sm text-base-content/70 list-disc ml-5 space-y-1">
+          <li>Geen <code>alert()</code>/<code>confirm()</code>: toasts voor feedback, <code>&lt;dialog class="modal"&gt;</code> voor bevestigingen.</li>
+          <li>Deactiveren én rolwijziging vragen bevestiging met uitleg van het gevolg; bij annuleren springt de rol-select terug.</li>
+          <li>De eigen rij (nico@mymmo.com) kan zichzelf niet deactiveren of degraderen (disabled + tooltip).</li>
+          <li>Module-badges in de tabel: max. 3 + "+n"; volledige lijst in de bewerken-modal.</li>
+          <li>Na succesvol aanmaken: toast + automatisch naar de Gebruikers-tab, nieuwe rij gemarkeerd.</li>
+          <li>Modules-tab heeft een actief-toggle — vereist een nieuw backend-endpoint (zie ux-spec.md, open vraag 2).</li>
+          <li>Odoo-UID en e-mail-overrides blijven bereikbaar via rij-acties (modals), niet in de tabel.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== Bevestigingsmodal (generiek) ====== -->
+  <dialog id="confirmModal" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg" id="confirmTitle">Bevestigen</h3>
+      <p class="py-3 text-sm text-base-content/70" id="confirmBody"></p>
+      <div class="modal-action">
+        <button class="btn btn-sm" id="confirmOkBtn">
+          <span data-role="confirmOkLabel">Bevestigen</span>
+        </button>
+        <button class="btn btn-ghost btn-sm" data-action="closeConfirm">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- ====== Modules-bewerken-modal ====== -->
+  <dialog id="modulesModal" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-1">Modules bewerken</h3>
+      <p class="text-sm text-base-content/60 mb-3" id="modulesModalSub"></p>
+      <div class="space-y-1 max-h-72 overflow-y-auto" id="modulesModalList"></div>
+      <div class="modal-action">
+        <button class="btn btn-primary btn-sm" id="saveModulesBtn"><span data-role="saveModulesLabel">Opslaan</span></button>
+        <button class="btn btn-ghost btn-sm" data-action="closeModulesModal">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- ====== Toast-container ====== -->
+  <div id="toastContainer" class="toast toast-end z-50"></div>
+
+  <script>
+    /* ================= Demo-data ================= */
+    var CURRENT_USER_EMAIL = 'nico@mymmo.com';
+
+    var ROLES = {
+      user:                  { label: 'Gebruiker', help: 'Standaardrol: ziet alleen toegewezen modules.' },
+      manager:               { label: 'Manager', help: 'Als gebruiker, met extra rechten binnen modules.' },
+      marketing_signature:   { label: 'Marketing Signatures', help: 'Krijgt automatisch de module Mail Signature Designer.' },
+      cx_powerboard_manager: { label: 'CX Powerboard-manager', help: 'Krijgt automatisch de module CX Powerboard.' },
+      admin:                 { label: 'Admin', help: 'Volledige beheerrechten, inclusief deze beheerpagina.' }
+    };
+
+    var SEED_MODULES = [
+      { code: 'forminator_sync_v2', name: 'Forminator Sync v2', icon: 'arrow-left-right', description: 'Koppel WordPress-formulieren aan Odoo-flows.', isActive: true },
+      { code: 'project_generator', name: 'Project Generator', icon: 'folder-plus', description: 'Genereer Odoo-projecten vanuit sjablonen.', isActive: true },
+      { code: 'sales_insight_explorer', name: 'Sales Insight Explorer', icon: 'bar-chart-2', description: 'Bouw en bewaar query’s op Odoo-verkoopdata.', isActive: true },
+      { code: 'event_operations', name: 'Event Operations', icon: 'calendar', description: 'Synchroniseer events tussen Odoo en WordPress.', isActive: true },
+      { code: 'mail_signature_designer', name: 'Mail Signature Designer', icon: 'pen-tool', description: 'Ontwerp en push e-mailhandtekeningen.', isActive: true },
+      { code: 'cx_powerboard', name: 'CX Powerboard', icon: 'layout-dashboard', description: 'Dagelijks CX-dashboard met kerncijfers.', isActive: true },
+      { code: 'asset_manager', name: 'Asset Manager', icon: 'hard-drive', description: 'Beheer afbeeldingen en bestanden in R2.', isActive: true },
+      { code: 'wp_form_schemas', name: 'WP Form Schemas', icon: 'file-code', description: 'Formulierschema’s van gekoppelde WP-sites.', isActive: false }
+    ];
+
+    var SEED_USERS = [
+      { id: 'u1', email: 'nico@mymmo.com', role: 'admin', isActive: true, createdAt: '2024-03-12', modules: ['forminator_sync_v2','project_generator','sales_insight_explorer','event_operations','mail_signature_designer','cx_powerboard','asset_manager'] },
+      { id: 'u2', email: 'sofie@mymmo.com', role: 'marketing_signature', isActive: true, createdAt: '2025-01-08', modules: ['mail_signature_designer','event_operations'] },
+      { id: 'u3', email: 'jeroen@mymmo.com', role: 'manager', isActive: true, createdAt: '2025-02-20', modules: ['sales_insight_explorer','project_generator'] },
+      { id: 'u4', email: 'lotte@mymmo.com', role: 'cx_powerboard_manager', isActive: true, createdAt: '2025-06-02', modules: ['cx_powerboard'] },
+      { id: 'u5', email: 'oud-account@mymmo.com', role: 'user', isActive: false, createdAt: '2024-07-15', modules: [] }
+    ];
+
+    var state = {
+      pageState: 'loading',      // filled | loading | empty | error
+      users: [], modules: [],
+      search: '',
+      highlightUserId: null
+    };
+    var idSeq = 100;
+
+    /* ================= Helpers ================= */
+    function showToast(message, type) {
+      type = type || 'info';
+      var container = document.getElementById('toastContainer');
+      var cls = type === 'error' ? 'alert-error' : type === 'success' ? 'alert-success' : 'alert-info';
+      var toast = document.createElement('div');
+      toast.className = 'alert ' + cls + ' text-sm py-2 px-4 shadow-sm';
+      var span = document.createElement('span');
+      span.textContent = message;
+      toast.appendChild(span);
+      if (type === 'error') {
+        var close = document.createElement('button');
+        close.className = 'btn btn-ghost btn-xs';
+        close.textContent = '✕';
+        close.addEventListener('click', function () { toast.remove(); });
+        toast.appendChild(close);
+      }
+      container.appendChild(toast);
+      if (type !== 'error') setTimeout(function () { toast.remove(); }, 3000);
+    }
+
+    function fakeServer(fn) { setTimeout(fn, 800); }
+    function moduleByCode(code) { return state.modules.find(function (m) { return m.code === code; }); }
+    function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    /* ================= Statistieken ================= */
+    function renderStats() {
+      var u = document.querySelector('[data-role="statUsers"]');
+      var ud = document.querySelector('[data-role="statUsersDesc"]');
+      var m = document.querySelector('[data-role="statModules"]');
+      var md = document.querySelector('[data-role="statModulesDesc"]');
+      if (state.pageState === 'loading') {
+        u.innerHTML = '<div class="skeleton h-7 w-10"></div>';
+        ud.innerHTML = '<div class="skeleton h-3 w-24 mt-1"></div>';
+        m.innerHTML = '<div class="skeleton h-7 w-10"></div>';
+        md.innerHTML = '<div class="skeleton h-3 w-24 mt-1"></div>';
+      } else if (state.pageState === 'error') {
+        u.textContent = '—'; ud.textContent = 'niet geladen';
+        m.textContent = '—'; md.textContent = 'niet geladen';
+      } else {
+        var active = state.users.filter(function (x) { return x.isActive; }).length;
+        u.textContent = active;
+        ud.textContent = state.users.length - active > 0 ? (state.users.length - active) + ' gedeactiveerd' : 'allemaal actief';
+        var activeMods = state.modules.filter(function (x) { return x.isActive; }).length;
+        m.textContent = activeMods;
+        md.textContent = (state.modules.length - activeMods) + ' inactief';
+      }
+    }
+
+    /* ================= Gebruikerstabel ================= */
+    function roleSelect(user) {
+      var self = user.email === CURRENT_USER_EMAIL;
+      var opts = Object.keys(ROLES).map(function (r) {
+        return '<option value="' + r + '"' + (user.role === r ? ' selected' : '') + '>' + ROLES[r].label + '</option>';
+      }).join('');
+      return '<select class="select select-bordered select-xs" data-action="changeRole" data-id="' + user.id + '"'
+        + (self ? ' disabled title="Je kunt je eigen rol niet wijzigen"' : '') + '>' + opts + '</select>';
+    }
+
+    function moduleBadges(user) {
+      if (!user.modules.length) return '<span class="text-xs text-base-content/40">Geen</span>';
+      var names = user.modules.map(function (c) { var m = moduleByCode(c); return m ? m.name : c; });
+      var shown = names.slice(0, 3).map(function (n) { return '<span class="badge badge-sm badge-ghost">' + escapeHtml(n) + '</span>'; }).join(' ');
+      var extra = names.length > 3 ? ' <span class="badge badge-sm badge-ghost" title="' + escapeHtml(names.slice(3).join(', ')) + '">+' + (names.length - 3) + '</span>' : '';
+      return '<div class="flex flex-wrap gap-1">' + shown + extra + '</div>';
+    }
+
+    function userRow(user) {
+      var self = user.email === CURRENT_USER_EMAIL;
+      var highlight = user.id === state.highlightUserId ? ' class="bg-success/10"' : '';
+      return '<tr' + highlight + '>'
+        + '<td class="font-medium">' + escapeHtml(user.email) + (self ? ' <span class="badge badge-primary badge-xs ml-1">jij</span>' : '') + '</td>'
+        + '<td>' + roleSelect(user) + '</td>'
+        + '<td>' + moduleBadges(user) + '</td>'
+        + '<td><span class="badge badge-sm ' + (user.isActive ? 'badge-success' : 'badge-ghost') + '">' + (user.isActive ? 'Actief' : 'Gedeactiveerd') + '</span></td>'
+        + '<td class="text-sm text-base-content/60">' + new Date(user.createdAt).toLocaleDateString('nl-NL') + '</td>'
+        + '<td><div class="join">'
+        + '<button class="btn btn-xs btn-ghost join-item" data-action="editModules" data-id="' + user.id + '" title="Modules bewerken"><i data-lucide="package" class="w-3.5 h-3.5"></i></button>'
+        + '<button class="btn btn-xs btn-ghost join-item" data-action="editOdoo" data-id="' + user.id + '" title="Odoo-koppeling (UID en e-mail-overrides)"><i data-lucide="link" class="w-3.5 h-3.5"></i></button>'
+        + (self
+            ? '<button class="btn btn-xs btn-ghost join-item btn-disabled" title="Je kunt je eigen account niet deactiveren"><i data-lucide="user-x" class="w-3.5 h-3.5"></i></button>'
+            : '<button class="btn btn-xs btn-ghost join-item ' + (user.isActive ? 'text-error' : '') + '" data-action="toggleStatus" data-id="' + user.id + '" title="' + (user.isActive ? 'Deactiveren' : 'Opnieuw activeren') + '"><i data-lucide="' + (user.isActive ? 'user-x' : 'user-check') + '" class="w-3.5 h-3.5"></i></button>')
+        + '</div></td>'
+        + '</tr>';
+    }
+
+    function renderUsers() {
+      var c = document.getElementById('usersTable');
+      if (state.pageState === 'loading') {
+        c.innerHTML = '<div class="flex justify-center py-20"><span class="loading loading-spinner loading-md text-primary"></span></div>';
+        return;
+      }
+      if (state.pageState === 'error') {
+        c.innerHTML = '<div class="alert alert-error text-sm">'
+          + '<i data-lucide="alert-circle" class="w-5 h-5"></i>'
+          + '<span>Gebruikers laden mislukt: de server is niet bereikbaar.</span>'
+          + '<button class="btn btn-outline btn-sm" data-action="retryLoad">Opnieuw proberen</button>'
+          + '</div>';
+        lucide.createIcons();
+        return;
+      }
+      if (!state.users.length) {
+        c.innerHTML = '<div class="flex flex-col items-center justify-center py-20 text-center">'
+          + '<i data-lucide="users" class="w-12 h-12 text-base-content/40 mb-4"></i>'
+          + '<p class="text-base font-semibold text-base-content/60 mb-1">Nog geen gebruikers</p>'
+          + '<p class="text-sm text-base-content/40 mb-4">Maak de eerste gebruiker aan via het tabblad ‘Gebruiker aanmaken’.</p>'
+          + '<button class="btn btn-primary btn-sm gap-2" data-action="gotoCreateTab"><i data-lucide="user-plus" class="w-4 h-4"></i>Gebruiker aanmaken</button>'
+          + '</div>';
+        lucide.createIcons();
+        return;
+      }
+      var q = state.search.toLowerCase();
+      var filtered = state.users.filter(function (u) {
+        return !q || u.email.toLowerCase().includes(q) || ROLES[u.role].label.toLowerCase().includes(q);
+      });
+      if (!filtered.length) {
+        c.innerHTML = '<div class="flex flex-col items-center justify-center py-16 text-center">'
+          + '<i data-lucide="search-x" class="w-12 h-12 text-base-content/40 mb-4"></i>'
+          + '<p class="text-sm text-base-content/40 mb-3">Geen gebruikers gevonden voor ‘' + escapeHtml(state.search) + '’.</p>'
+          + '<button class="btn btn-ghost btn-sm" data-action="clearSearch">Zoekopdracht wissen</button>'
+          + '</div>';
+        lucide.createIcons();
+        return;
+      }
+      c.innerHTML = '<table class="table table-zebra table-sm">'
+        + '<thead><tr><th>E-mailadres</th><th>Rol</th><th>Modules</th><th>Status</th><th>Aangemaakt</th><th class="w-28">Acties</th></tr></thead>'
+        + '<tbody>' + filtered.map(userRow).join('') + '</tbody></table>';
+      lucide.createIcons();
+    }
+
+    /* ================= Modules-tab ================= */
+    function renderModules() {
+      var c = document.getElementById('modulesTable');
+      if (state.pageState === 'loading') {
+        c.innerHTML = '<div class="flex justify-center py-20"><span class="loading loading-spinner loading-md text-primary"></span></div>';
+        return;
+      }
+      if (state.pageState === 'error') {
+        c.innerHTML = '<div class="alert alert-error text-sm"><i data-lucide="alert-circle" class="w-5 h-5"></i><span>Modules laden mislukt. </span><button class="btn btn-outline btn-sm" data-action="retryLoad">Opnieuw proberen</button></div>';
+        lucide.createIcons();
+        return;
+      }
+      if (!state.modules.length) {
+        c.innerHTML = '<div class="flex flex-col items-center justify-center py-20 text-center">'
+          + '<i data-lucide="package-open" class="w-12 h-12 text-base-content/40 mb-4"></i>'
+          + '<p class="text-sm text-base-content/40">Geen modules geregistreerd. Modules worden vastgelegd in de code-registry en database.</p>'
+          + '</div>';
+        lucide.createIcons();
+        return;
+      }
+      c.innerHTML = state.modules.map(function (m) {
+        return '<div class="flex items-center justify-between gap-4 p-3 border border-base-200 rounded-lg mb-2 ' + (m.isActive ? '' : 'opacity-60') + '">'
+          + '<div class="flex items-center gap-3 min-w-0">'
+          + '<div class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"><i data-lucide="' + m.icon + '" class="w-4 h-4 text-primary"></i></div>'
+          + '<div class="min-w-0">'
+          + '<div class="text-sm font-semibold truncate">' + m.name + ' <code class="text-xs font-normal text-base-content/40 ml-1">' + m.code + '</code></div>'
+          + '<div class="text-xs text-base-content/50 truncate">' + m.description + '</div>'
+          + '</div></div>'
+          + '<div class="flex items-center gap-3 shrink-0">'
+          + '<span class="badge badge-sm ' + (m.isActive ? 'badge-success' : 'badge-ghost') + '" data-role="moduleBadge-' + m.code + '">' + (m.isActive ? 'Actief' : 'Inactief') + '</span>'
+          + '<input type="checkbox" class="toggle toggle-sm toggle-success" data-action="toggleModule" data-code="' + m.code + '"' + (m.isActive ? ' checked' : '') + ' />'
+          + '</div></div>';
+      }).join('');
+      lucide.createIcons();
+    }
+
+    /* ================= Aanmaak-formulier ================= */
+    function renderModuleCheckboxes() {
+      var c = document.getElementById('moduleCheckboxes');
+      if (state.pageState === 'loading') {
+        c.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
+        return;
+      }
+      var mods = state.modules.filter(function (m) { return m.isActive; });
+      c.innerHTML = mods.map(function (m) {
+        return '<label class="label cursor-pointer justify-start gap-2 py-1">'
+          + '<input type="checkbox" name="modules" value="' + m.code + '" class="checkbox checkbox-sm" />'
+          + '<span class="label-text text-sm">' + m.name + '</span>'
+          + '</label>';
+      }).join('');
+    }
+
+    function updateRoleHelp() {
+      var role = document.getElementById('createRoleSelect').value;
+      document.getElementById('roleHelp').textContent = ROLES[role].help;
+    }
+
+    function setCreateError(field, show) {
+      var err = document.querySelector('[data-role="err-' + field + '"]');
+      var input = document.querySelector('#createUserForm [name="' + field + '"]');
+      err.classList.toggle('hidden', !show);
+      input.classList.toggle('input-error', show);
+      if (field === 'password') {
+        document.querySelector('[data-role="pw-help"]').classList.toggle('hidden', show);
+      }
+    }
+
+    document.getElementById('createUserForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var form = e.target;
+      var email = form.email.value.trim();
+      var password = form.password.value;
+      var role = form.role.value;
+      var mods = Array.from(form.querySelectorAll('input[name="modules"]:checked')).map(function (cb) { return cb.value; });
+
+      var emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      var pwOk = password.length >= 8;
+      setCreateError('email', !emailOk);
+      setCreateError('password', !pwOk);
+      if (!emailOk || !pwOk) return;
+
+      if (state.users.some(function (u) { return u.email.toLowerCase() === email.toLowerCase(); })) {
+        setCreateError('email', false);
+        showToast('Er bestaat al een gebruiker met dit e-mailadres.', 'error');
+        return;
+      }
+
+      var btn = document.getElementById('createUserBtn');
+      var label = btn.querySelector('[data-role="createBtnLabel"]');
+      btn.disabled = true;
+      label.textContent = 'Aanmaken…';
+
+      fakeServer(function () {
+        btn.disabled = false;
+        label.textContent = 'Gebruiker aanmaken';
+        var nu = { id: 'u' + (++idSeq), email: email, role: role, isActive: true, createdAt: new Date().toISOString(), modules: mods };
+        // Auto-grants van de rol
+        if (role === 'marketing_signature' && nu.modules.indexOf('mail_signature_designer') === -1) nu.modules.push('mail_signature_designer');
+        if (role === 'cx_powerboard_manager' && nu.modules.indexOf('cx_powerboard') === -1) nu.modules.push('cx_powerboard');
+        state.users.unshift(nu);
+        state.highlightUserId = nu.id;
+        form.reset();
+        updateRoleHelp();
+        showToast('Gebruiker ' + email + ' aangemaakt', 'success');
+        document.getElementById('tabUsers').checked = true; // spring naar Gebruikers-tab
+        renderAll();
+        setTimeout(function () { state.highlightUserId = null; renderUsers(); }, 3000);
+      });
+    });
+
+    document.getElementById('createRoleSelect').addEventListener('change', updateRoleHelp);
+
+    /* ================= Bevestigingsmodal ================= */
+    var confirmCb = null;
+    function openConfirm(opts) {
+      document.getElementById('confirmTitle').textContent = opts.title;
+      document.getElementById('confirmBody').textContent = opts.body;
+      var ok = document.getElementById('confirmOkBtn');
+      ok.className = 'btn btn-sm ' + (opts.danger ? 'btn-error' : 'btn-primary');
+      ok.querySelector('[data-role="confirmOkLabel"]').textContent = opts.okLabel || 'Bevestigen';
+      confirmCb = opts.onConfirm;
+      document.getElementById('confirmModal').showModal();
+    }
+    document.getElementById('confirmOkBtn').addEventListener('click', function () {
+      var ok = this;
+      var label = ok.querySelector('[data-role="confirmOkLabel"]');
+      var orig = label.textContent;
+      ok.disabled = true;
+      label.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Bezig…';
+      fakeServer(function () {
+        ok.disabled = false;
+        label.textContent = orig;
+        document.getElementById('confirmModal').close();
+        if (confirmCb) confirmCb();
+        confirmCb = null;
+      });
+    });
+    document.getElementById('confirmModal').addEventListener('close', function () {
+      // Annuleren of backdrop: pending rol-wijziging terugdraaien
+      if (pendingRoleRevert) { pendingRoleRevert(); pendingRoleRevert = null; }
+    });
+
+    /* ================= Modules-bewerken-modal ================= */
+    var modulesModalUserId = null;
+    function openModulesModal(userId) {
+      var user = state.users.find(function (u) { return u.id === userId; });
+      modulesModalUserId = userId;
+      document.getElementById('modulesModalSub').textContent = 'Moduletoegang voor ' + user.email;
+      document.getElementById('modulesModalList').innerHTML = state.modules.map(function (m) {
+        var checked = user.modules.indexOf(m.code) !== -1;
+        return '<label class="label cursor-pointer justify-start gap-3 py-1.5 rounded hover:bg-base-200 px-2 ' + (m.isActive ? '' : 'opacity-50') + '">'
+          + '<input type="checkbox" value="' + m.code + '" class="checkbox checkbox-sm"' + (checked ? ' checked' : '') + ' />'
+          + '<span class="label-text text-sm">' + m.name + (m.isActive ? '' : ' <span class="badge badge-ghost badge-xs ml-1">module inactief</span>') + '</span>'
+          + '</label>';
+      }).join('');
+      document.getElementById('modulesModal').showModal();
+    }
+    document.getElementById('saveModulesBtn').addEventListener('click', function () {
+      var btn = this, label = btn.querySelector('[data-role="saveModulesLabel"]');
+      var checked = Array.from(document.querySelectorAll('#modulesModalList input:checked')).map(function (cb) { return cb.value; });
+      btn.disabled = true;
+      label.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Opslaan…';
+      fakeServer(function () {
+        btn.disabled = false;
+        label.textContent = 'Opslaan';
+        var user = state.users.find(function (u) { return u.id === modulesModalUserId; });
+        user.modules = checked;
+        document.getElementById('modulesModal').close();
+        showToast('Modules van ' + user.email + ' bijgewerkt', 'success');
+        renderAll();
+      });
+    });
+
+    /* ================= Centrale click-listener ================= */
+    var pendingRoleRevert = null;
+
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest('[data-action]');
+      if (!el) return;
+      var a = el.dataset.action;
+
+      if (a === 'setPageState') {
+        setPageState(el.dataset.state);
+      } else if (a === 'retryLoad') {
+        setPageState('loading');
+        fakeServer(function () { setPageState('filled'); showToast('Gegevens opnieuw geladen', 'success'); });
+      } else if (a === 'clearSearch') {
+        state.search = '';
+        document.getElementById('userSearch').value = '';
+        renderUsers();
+      } else if (a === 'gotoCreateTab') {
+        document.getElementById('tabCreate').checked = true;
+      } else if (a === 'editModules') {
+        openModulesModal(el.dataset.id);
+      } else if (a === 'editOdoo') {
+        var u = state.users.find(function (x) { return x.id === el.dataset.id; });
+        showToast('Odoo-koppeling van ' + u.email + ' — modal met UID + e-mail-overrides (bestaand patroon, ongewijzigd)', 'info');
+      } else if (a === 'toggleStatus') {
+        var user = state.users.find(function (x) { return x.id === el.dataset.id; });
+        if (user.isActive) {
+          openConfirm({
+            title: 'Gebruiker deactiveren',
+            body: user.email + ' kan hierna direct niet meer inloggen; lopende sessies vervallen bij de volgende controle. Moduletoewijzingen blijven bewaard. Je kunt het account later weer activeren.',
+            okLabel: 'Deactiveren',
+            danger: true,
+            onConfirm: function () {
+              user.isActive = false;
+              showToast(user.email + ' gedeactiveerd', 'success');
+              renderAll();
+            }
+          });
+        } else {
+          openConfirm({
+            title: 'Gebruiker opnieuw activeren',
+            body: user.email + ' kan hierna weer inloggen met het bestaande wachtwoord en de bewaarde moduletoegang.',
+            okLabel: 'Activeren',
+            danger: false,
+            onConfirm: function () {
+              user.isActive = true;
+              showToast(user.email + ' geactiveerd', 'success');
+              renderAll();
+            }
+          });
+        }
+      }
+    });
+
+    /* Rol-wijziging: change-event + bevestiging met terugdraai */
+    document.addEventListener('change', function (e) {
+      var el = e.target.closest('[data-action]');
+      if (!el) return;
+
+      if (el.dataset.action === 'changeRole') {
+        var user = state.users.find(function (x) { return x.id === el.dataset.id; });
+        var newRole = el.value;
+        var oldRole = user.role;
+        if (newRole === oldRole) return;
+        pendingRoleRevert = function () { el.value = oldRole; };
+        var extra = newRole === 'admin' ? ' Deze rol geeft volledige beheerrechten.'
+          : newRole === 'marketing_signature' ? ' De module Mail Signature Designer wordt automatisch toegekend.'
+          : newRole === 'cx_powerboard_manager' ? ' De module CX Powerboard wordt automatisch toegekend.'
+          : '';
+        openConfirm({
+          title: 'Rol wijzigen',
+          body: 'Rol van ' + user.email + ' wijzigen van ' + ROLES[oldRole].label + ' naar ' + ROLES[newRole].label + '?' + extra,
+          okLabel: 'Rol wijzigen',
+          danger: newRole === 'admin',
+          onConfirm: function () {
+            pendingRoleRevert = null;
+            user.role = newRole;
+            if (newRole === 'marketing_signature' && user.modules.indexOf('mail_signature_designer') === -1) user.modules.push('mail_signature_designer');
+            if (newRole === 'cx_powerboard_manager' && user.modules.indexOf('cx_powerboard') === -1) user.modules.push('cx_powerboard');
+            showToast('Rol van ' + user.email + ' gewijzigd naar ' + ROLES[newRole].label, 'success');
+            renderAll();
+          }
+        });
+      } else if (el.dataset.action === 'toggleModule') {
+        var mod = moduleByCode(el.dataset.code);
+        var target = el.checked;
+        el.disabled = true;
+        fakeServer(function () {
+          el.disabled = false;
+          mod.isActive = target;
+          showToast('Module ' + mod.name + (target ? ' geactiveerd' : ' gedeactiveerd'), 'success');
+          renderAll();
+        });
+      }
+    });
+
+    document.getElementById('userSearch').addEventListener('input', function (e) {
+      state.search = e.target.value;
+      renderUsers();
+    });
+
+    /* ================= Paginastaat ================= */
+    function setPageState(s) {
+      state.pageState = s;
+      if (s === 'filled') {
+        state.users = JSON.parse(JSON.stringify(SEED_USERS));
+        state.modules = JSON.parse(JSON.stringify(SEED_MODULES));
+      } else if (s === 'empty') {
+        state.users = [];
+        state.modules = [];
+      }
+      document.querySelectorAll('[data-action="setPageState"]').forEach(function (b) {
+        b.classList.toggle('btn-primary', b.dataset.state === s);
+      });
+      renderAll();
+    }
+
+    function renderAll() {
+      renderStats();
+      renderUsers();
+      renderModules();
+      renderModuleCheckboxes();
+      lucide.createIcons();
+    }
+
+    /* ================= Init: laadstaat → gevuld ================= */
+    updateRoleHelp();
+    setPageState('loading');
+    fakeServer(function () { setPageState('filled'); });
+    lucide.createIcons();
+  </script>
+</body>
+</html>

@@ -406,173 +406,6 @@ export async function handleToggleUserStatus(context) {
 }
 
 /**
- * Get all invites
- */
-export async function handleGetInvites(context) {
-  const { env, user } = context;
-  
-  if (user?.role !== 'admin') {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  const supabase = getSupabaseClient(env);
-  
-  const { data: invites, error } = await supabase
-    .from('invites')
-    .select('*')
-    .order('created_at', { ascending: false });
-  
-  if (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  return new Response(JSON.stringify({ invites }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
-/**
- * Create new invite
- */
-export async function handleCreateInvite(context) {
-  const { env, user } = context;
-  
-  if (user?.role !== 'admin') {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  const body = await context.request.json();
-  const { email, role, modules } = body;
-  
-  if (!email || !role) {
-    return new Response(JSON.stringify({ error: 'Email and role required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  if (!['admin', 'manager', 'user', 'marketing_signature', 'cx_powerboard_manager'].includes(role)) {
-    return new Response(JSON.stringify({ error: 'Invalid role' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  const supabase = getSupabaseClient(env);
-  
-  // Check if user already exists
-  const { data: existingUser } = await supabase
-    .from('users')
-    .select('id')
-    .eq('email', email)
-    .single();
-  
-  if (existingUser) {
-    return new Response(JSON.stringify({ error: 'User already exists' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  // Check if invite already exists and is pending
-  const { data: existingInvite } = await supabase
-    .from('invites')
-    .select('id, status')
-    .eq('email', email)
-    .eq('status', 'pending')
-    .single();
-  
-  if (existingInvite) {
-    return new Response(JSON.stringify({ error: 'Pending invite already exists' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  // Generate invite token (simple UUID for now)
-  const token = crypto.randomUUID();
-  
-  // Set expiry (7 days from now)
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-  
-  // Create invite
-  const { data: invite, error } = await supabase
-    .from('invites')
-    .insert({
-      email,
-      role,
-      default_modules: modules || [],
-      token,
-      expires_at: expiresAt.toISOString(),
-      status: 'pending',
-      created_by: user.id
-    })
-    .select()
-    .single();
-  
-  if (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  // TODO: Send email with invite link
-  const inviteLink = `${context.request.url.split('/')[0]}//${context.request.url.split('/')[2]}/invite?token=${token}`;
-  
-  return new Response(JSON.stringify({ 
-    invite,
-    inviteLink,
-    message: 'Invite created. Send this link to the user: ' + inviteLink
-  }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
-/**
- * Delete/revoke invite
- */
-export async function handleDeleteInvite(context) {
-  const { env, user, params } = context;
-  
-  if (user?.role !== 'admin') {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  const inviteId = params.id;
-  const supabase = getSupabaseClient(env);
-  
-  const { error } = await supabase
-    .from('invites')
-    .delete()
-    .eq('id', inviteId);
-  
-  if (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  
-  return new Response(JSON.stringify({ success: true }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
-/**
  * Set / clear odoo_uid for a user (admin only, useful for testing)
  */
 export async function handleUpdateUserOdooUid(context) {
@@ -625,40 +458,164 @@ export async function handleUpdateUserOdooUid(context) {
   });
 }
 
+// Registry codes that exist in the codebase
+const REGISTRY_CODES = new Set([
+  'home', 'forminator_sync_v2', 'wp_form_schemas', 'project_generator',
+  'admin', 'profile', 'sales_insight_explorer', 'event_operations',
+  'mail_signature_designer', 'asset_manager', 'cx_powerboard', 'claude_integration'
+]);
+
 /**
  * Get all modules
  */
 export async function handleGetModules(context) {
   const { env, user } = context;
-  
+
   if (user?.role !== 'admin') {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' }
     });
   }
-  
+
   const supabase = getSupabaseClient(env);
-  
+
   const { data: modules, error } = await supabase
     .from('modules')
     .select('*')
     .order('name');
-  
+
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
-  
-  // Normalize snake_case DB columns to camelCase for the frontend
+
+  // Normalize snake_case DB columns to camelCase; flag orphaned modules
   const normalized = (modules || []).map(m => ({
     ...m,
-    isActive: m.is_active ?? m.isActive ?? false
+    isActive: m.is_active ?? m.isActive ?? false,
+    inRegistry: REGISTRY_CODES.has(m.code)
   }));
-  
+
   return new Response(JSON.stringify({ modules: normalized }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
+ * Toggle module active status
+ */
+export async function handleToggleModule(context) {
+  const { env, user, params } = context;
+
+  if (user?.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const moduleId = params?.id;
+  if (!moduleId) {
+    return new Response(JSON.stringify({ error: 'Module ID required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const supabase = getSupabaseClient(env);
+
+  const { data: current, error: fetchError } = await supabase
+    .from('modules')
+    .select('is_active')
+    .eq('id', moduleId)
+    .single();
+
+  if (fetchError) {
+    return new Response(JSON.stringify({ error: fetchError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const { data, error } = await supabase
+    .from('modules')
+    .update({ is_active: !current.is_active })
+    .eq('id', moduleId)
+    .select()
+    .single();
+
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true, module: data }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
+ * Delete a module (orphaned modules only)
+ */
+export async function handleDeleteModule(context) {
+  const { env, user, params } = context;
+
+  if (user?.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const moduleId = params?.id;
+  if (!moduleId) {
+    return new Response(JSON.stringify({ error: 'Module ID required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const supabase = getSupabaseClient(env);
+
+  // Safety check: refuse to delete modules that are still in the registry
+  const { data: mod, error: fetchError } = await supabase
+    .from('modules')
+    .select('id, code')
+    .eq('id', moduleId)
+    .single();
+
+  if (fetchError || !mod) {
+    return new Response(JSON.stringify({ error: 'Module niet gevonden' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  if (REGISTRY_CODES.has(mod.code)) {
+    return new Response(JSON.stringify({ error: 'Kan geen actieve module verwijderen' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // Remove user_modules references first
+  await supabase.from('user_modules').delete().eq('module_id', moduleId);
+
+  const { error } = await supabase.from('modules').delete().eq('id', moduleId);
+
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true }), {
     headers: { 'Content-Type': 'application/json' }
   });
 }

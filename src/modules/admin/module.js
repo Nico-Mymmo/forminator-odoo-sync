@@ -1,27 +1,26 @@
 /**
  * Admin Module
- * 
- * Platform administration: user management, invites, module assignments
+ *
+ * Platform administration: user management, module assignments
  */
 
-import { 
-  handleGetUsers, 
+import {
+  handleGetUsers,
   handleCreateUser,
-  handleUpdateUserRole, 
+  handleUpdateUserRole,
   handleUpdateUserModules,
   handleUpdateUserOdooUid,
   handleToggleUserStatus,
-  handleGetInvites,
-  handleCreateInvite,
-  handleDeleteInvite,
-  handleGetModules
+  handleGetModules,
+  handleToggleModule,
+  handleDeleteModule
 } from './routes.js';
 
 export default {
   // Module metadata
   code: 'admin',
   name: 'Administration',
-  description: 'Manage users, invites, and module access',
+  description: 'Beheer gebruikers en moduletoegang',
   route: '/admin',
   icon: 'settings',
   
@@ -59,12 +58,9 @@ export default {
     'PUT /api/users/:id/odoo-uid': handleUpdateUserOdooUid,
     'PUT /api/users/:id/toggle': handleToggleUserStatus,
     
-    // Invites API
-    'GET /api/invites': handleGetInvites,
-    'POST /api/invites': handleCreateInvite,
-    'DELETE /api/invites/:id': handleDeleteInvite,
-    
     // Modules API
-    'GET /api/modules': handleGetModules
+    'GET /api/modules': handleGetModules,
+    'PUT /api/modules/:id/toggle': handleToggleModule,
+    'DELETE /api/modules/:id': handleDeleteModule
   }
 };

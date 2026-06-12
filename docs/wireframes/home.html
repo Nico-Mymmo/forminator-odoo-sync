@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wireframe — Home (login + dashboard) — Operations Manager</title>
+  <script>
+    document.documentElement.setAttribute('data-theme', localStorage.getItem('selectedTheme') || 'light');
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <!-- ====== Wireframe-besturing ====== -->
+  <div class="container mx-auto px-6 pt-6 max-w-7xl">
+    <div class="alert mb-4 bg-base-100 border border-base-300 text-sm flex-wrap">
+      <i data-lucide="layout-template" class="w-5 h-5 text-primary shrink-0"></i>
+      <div><strong>Wireframe: home</strong> — login en dashboard in één bestand. Login-knop simuleert
+      succes (juiste gegevens: <code>nico@mymmo.com</code> / <code>demo1234</code>), fout en netwerkfout.</div>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-6">
+      <div class="join" role="group" aria-label="Scherm">
+        <button class="btn btn-sm join-item btn-primary" data-action="setView" data-view="login">Login-scherm</button>
+        <button class="btn btn-sm join-item" data-action="setView" data-view="dashboard">Dashboard</button>
+      </div>
+      <div class="join" id="dashStateButtons" role="group" aria-label="Dashboard-staat">
+        <button class="btn btn-sm join-item" data-action="setDashState" data-state="few">Paar modules</button>
+        <button class="btn btn-sm join-item" data-action="setDashState" data-state="many">Veel modules</button>
+        <button class="btn btn-sm join-item" data-action="setDashState" data-state="empty">Geen modules</button>
+        <button class="btn btn-sm join-item" data-action="setDashState" data-state="loading">Laden (skeleton)</button>
+      </div>
+      <div class="join" id="loginStateButtons" role="group" aria-label="Login-simulatie">
+        <button class="btn btn-sm join-item" data-action="setLoginSim" data-sim="ok">Simuleer: succes</button>
+        <button class="btn btn-sm join-item" data-action="setLoginSim" data-sim="wrong">Simuleer: foute gegevens</button>
+        <button class="btn btn-sm join-item" data-action="setLoginSim" data-sim="network">Simuleer: netwerkfout</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       LOGIN-SCHERM (paginavullend, geen navbar)
+       ============================================================ -->
+  <div id="viewLogin" class="border-t border-base-300">
+    <div class="flex items-center justify-center py-16 px-4">
+      <div class="card w-full max-w-sm bg-base-100 border border-base-200 shadow-sm">
+        <div class="card-body">
+          <div class="flex flex-col items-center gap-2 mb-4">
+            <div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <i data-lucide="home" class="w-6 h-6 text-primary"></i>
+            </div>
+            <h1 class="text-2xl font-bold">Inloggen</h1>
+            <p class="text-sm text-base-content/60">OpenVME Operations Manager</p>
+          </div>
+
+          <form id="loginForm" novalidate>
+            <label class="form-control w-full mb-2">
+              <div class="label"><span class="label-text">E-mailadres</span></div>
+              <input type="email" id="emailInput" placeholder="naam@mymmo.com"
+                     class="input input-bordered input-sm w-full" autocomplete="username" required>
+              <div class="label hidden" data-role="emailError">
+                <span class="label-text-alt text-xs text-error">Vul je e-mailadres in</span>
+              </div>
+            </label>
+
+            <label class="form-control w-full mb-3">
+              <div class="label"><span class="label-text">Wachtwoord</span></div>
+              <input type="password" id="passwordInput" placeholder="••••••••"
+                     class="input input-bordered input-sm w-full" autocomplete="current-password" required>
+              <div class="label hidden" data-role="passwordError">
+                <span class="label-text-alt text-xs text-error">Vul je wachtwoord in</span>
+              </div>
+            </label>
+
+            <!-- Foutmelding: vaste plek boven de knop, blijft staan tot nieuwe poging -->
+            <div id="loginError" class="alert alert-error text-sm py-2 px-3 mb-3 hidden" role="alert">
+              <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+              <span id="loginErrorMessage"></span>
+            </div>
+
+            <button type="submit" id="loginBtn" class="btn btn-primary btn-sm w-full gap-2">
+              <i data-lucide="log-in" class="w-4 h-4"></i>
+              <span data-role="loginBtnLabel">Inloggen</span>
+            </button>
+          </form>
+
+          <p class="text-xs text-base-content/50 text-center mt-3">
+            Geen account of wachtwoord vergeten? Vraag je beheerder.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       DASHBOARD (na inloggen, met navbar-placeholder)
+       ============================================================ -->
+  <div id="viewDashboard" class="hidden border-t border-base-300">
+    <!-- Navbar-placeholder: het echte ontwerp staat in navbar.html -->
+    <header class="flex items-center justify-between bg-base-100 border-b border-base-200 px-4 h-12">
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-2">
+          <i data-lucide="home" class="w-4 h-4"></i>
+          <span class="text-sm font-semibold tracking-tight">OpenVME Operations Manager</span>
+        </span>
+        <span class="text-xs text-base-content/40">— navbar: zie navbar.html</span>
+      </div>
+      <div class="avatar placeholder">
+        <div class="bg-primary text-primary-content rounded-full w-7"><span class="text-xs">NP</span></div>
+      </div>
+    </header>
+
+    <div class="container mx-auto px-6 py-8 max-w-7xl">
+      <!-- Kop: text-2xl conform designsysteem, mét naam van de gebruiker -->
+      <div class="mb-8">
+        <h1 class="text-2xl font-bold">Welkom, <span id="welcomeName">Nico</span></h1>
+        <p class="text-sm text-base-content/60 mt-1">Kies een module om te beginnen</p>
+      </div>
+
+      <!-- Staat: gevuld -->
+      <div id="moduleGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+
+      <!-- Staat: laden (skeleton, alleen relevant bij client-side fetch) -->
+      <div id="moduleSkeleton" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- 3 skeleton-kaarten, via JS gevuld -->
+      </div>
+
+      <!-- Staat: leeg — instructief, niet alleen informerend -->
+      <div id="moduleEmpty" class="hidden flex flex-col items-center justify-center py-20 text-center">
+        <i data-lucide="package-open" class="w-12 h-12 text-base-content/40 mb-4"></i>
+        <p class="text-base font-semibold text-base-content/60 mb-1">Je hebt nog geen modules</p>
+        <p class="text-sm text-base-content/40 max-w-sm">
+          Vraag je beheerder om toegang tot de modules die je nodig hebt.
+          Zodra een module is toegewezen, verschijnt hij hier automatisch.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== Ontwerpnotities ====== -->
+  <div class="container mx-auto px-6 max-w-7xl py-8">
+    <div class="card bg-base-100 border border-base-200 shadow-sm">
+      <div class="card-body">
+        <h2 class="text-base font-semibold">Ontwerpnotities</h2>
+        <ul class="text-sm text-base-content/70 list-disc ml-5 space-y-1">
+          <li>Login is een echte <code>&lt;form&gt;</code>: Enter werkt op beide velden, autocomplete intact voor wachtwoordmanagers.</li>
+          <li>Loginknop tijdens submit: <code>disabled</code> + spinner + "Inloggen…" — geen dubbele submits.</li>
+          <li>Bij 401 blijft het e-mailadres staan en wordt het wachtwoord geselecteerd; bij netwerkfout blijft alles staan.</li>
+          <li>Foutmelding heeft een vaste plek boven de knop en verdwijnt zodra een nieuwe poging start.</li>
+          <li>Welkomstkop toont username → full_name → e-mail (eerste niet-lege).</li>
+          <li>Het grid toont alleen grid-modules; admin en asset-manager blijven utility-knoppen in de navbar.</li>
+          <li>Lege staat is instructief en legt uit dat toewijzing automatisch zichtbaar wordt.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ================= Demo-data ================= */
+    var MODULES_FEW = [
+      { code: 'mail_signature_designer', name: 'Mail Signature Designer', icon: 'pen-tool', description: 'Ontwerp en push e-mailhandtekeningen naar Gmail.' },
+      { code: 'event_operations', name: 'Event Operations', icon: 'calendar', description: 'Synchroniseer events tussen Odoo en WordPress.' }
+    ];
+    var MODULES_MANY = MODULES_FEW.concat([
+      { code: 'forminator_sync_v2', name: 'Forminator Sync v2', icon: 'arrow-left-right', description: 'Koppel WordPress-formulieren aan Odoo-flows.' },
+      { code: 'project_generator', name: 'Project Generator', icon: 'folder-plus', description: 'Genereer Odoo-projecten vanuit sjablonen.' },
+      { code: 'sales_insight_explorer', name: 'Sales Insight Explorer', icon: 'bar-chart-2', description: 'Bouw en bewaar query’s op Odoo-verkoopdata.' },
+      { code: 'cx_powerboard', name: 'CX Powerboard', icon: 'layout-dashboard', description: 'Dagelijks CX-dashboard met kerncijfers.' },
+      { code: 'wp_form_schemas', name: 'WP Form Schemas', icon: 'file-code', description: 'Bekijk formulierschema’s van gekoppelde WP-sites.' },
+      { code: 'claude_integration', name: 'Claude-integratie', icon: 'bot', description: 'Beheer AI-koppelingen voor Sales Insights.' }
+    ]);
+
+    var state = { view: 'login', dashState: 'few', loginSim: 'wrong' };
+
+    /* ================= Renderers ================= */
+    function moduleCard(m) {
+      return '<a href="#" class="card bg-base-100 border border-base-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-primary/30 transition-all cursor-pointer group">'
+        + '<div class="card-body items-center text-center gap-3 py-8">'
+        + '<div class="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">'
+        + '<i data-lucide="' + m.icon + '" class="w-7 h-7 text-primary"></i>'
+        + '</div>'
+        + '<h2 class="card-title text-base font-semibold">' + m.name + '</h2>'
+        + '<p class="text-sm text-base-content/60 leading-relaxed">' + m.description + '</p>'
+        + '</div></a>';
+    }
+
+    function skeletonCard() {
+      return '<div class="card bg-base-100 border border-base-200 shadow-sm">'
+        + '<div class="card-body items-center gap-3 py-8">'
+        + '<div class="skeleton w-14 h-14 rounded-2xl"></div>'
+        + '<div class="skeleton h-4 w-32"></div>'
+        + '<div class="skeleton h-3 w-44"></div>'
+        + '</div></div>';
+    }
+
+    function renderDashboard() {
+      var grid = document.getElementById('moduleGrid');
+      var skel = document.getElementById('moduleSkeleton');
+      var empty = document.getElementById('moduleEmpty');
+      grid.classList.add('hidden'); skel.classList.add('hidden'); empty.classList.add('hidden');
+
+      if (state.dashState === 'loading') {
+        skel.innerHTML = [skeletonCard(), skeletonCard(), skeletonCard()].join('');
+        skel.classList.remove('hidden');
+      } else if (state.dashState === 'empty') {
+        empty.classList.remove('hidden');
+      } else {
+        var mods = state.dashState === 'many' ? MODULES_MANY : MODULES_FEW;
+        grid.innerHTML = mods.map(moduleCard).join('');
+        grid.classList.remove('hidden');
+      }
+      lucide.createIcons();
+    }
+
+    function renderView() {
+      document.getElementById('viewLogin').classList.toggle('hidden', state.view !== 'login');
+      document.getElementById('viewDashboard').classList.toggle('hidden', state.view !== 'dashboard');
+      document.getElementById('dashStateButtons').classList.toggle('hidden', state.view !== 'dashboard');
+      document.getElementById('loginStateButtons').classList.toggle('hidden', state.view !== 'login');
+      document.querySelectorAll('[data-action="setView"]').forEach(function (b) {
+        b.classList.toggle('btn-primary', b.dataset.view === state.view);
+      });
+      document.querySelectorAll('[data-action="setDashState"]').forEach(function (b) {
+        b.classList.toggle('btn-primary', b.dataset.state === state.dashState);
+      });
+      document.querySelectorAll('[data-action="setLoginSim"]').forEach(function (b) {
+        b.classList.toggle('btn-primary', b.dataset.sim === state.loginSim);
+      });
+      if (state.view === 'dashboard') renderDashboard();
+      lucide.createIcons();
+    }
+
+    /* ================= Login-gedrag ================= */
+    function setLoginLoading(loading) {
+      var btn = document.getElementById('loginBtn');
+      var label = btn.querySelector('[data-role="loginBtnLabel"]');
+      btn.disabled = loading;
+      label.innerHTML = loading
+        ? '<span class="loading loading-spinner loading-xs"></span> Inloggen…'
+        : 'Inloggen';
+    }
+
+    function showLoginError(msg) {
+      document.getElementById('loginErrorMessage').textContent = msg;
+      document.getElementById('loginError').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function hideLoginError() {
+      document.getElementById('loginError').classList.add('hidden');
+    }
+
+    function setFieldError(role, show) {
+      var el = document.querySelector('[data-role="' + role + 'Error"]');
+      var input = document.getElementById(role + 'Input');
+      el.classList.toggle('hidden', !show);
+      input.classList.toggle('input-error', show);
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var email = document.getElementById('emailInput').value.trim();
+      var password = document.getElementById('passwordInput').value;
+
+      // Client-side validatie vóór de fetch
+      setFieldError('email', !email);
+      setFieldError('password', !password);
+      if (!email || !password) return;
+
+      hideLoginError();
+      setLoginLoading(true);
+
+      // Gesimuleerde server-call (wireframe). Sim-knoppen bepalen de uitkomst,
+      // behalve bij de demo-inloggegevens: die winnen altijd.
+      var outcome = (email === 'nico@mymmo.com' && password === 'demo1234') ? 'ok' : state.loginSim;
+      setTimeout(function () {
+        setLoginLoading(false);
+        if (outcome === 'ok') {
+          state.view = 'dashboard';
+          renderView();
+        } else if (outcome === 'network') {
+          showLoginError('Verbindingsfout. Controleer je internetverbinding en probeer het opnieuw.');
+        } else {
+          showLoginError('Inloggen mislukt. Controleer je gegevens en probeer opnieuw.');
+          var pw = document.getElementById('passwordInput');
+          pw.focus(); pw.select();
+        }
+      }, 900);
+    });
+
+    /* ================= Wireframe-besturing ================= */
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest('[data-action]');
+      if (!el) return;
+      var a = el.dataset.action;
+      if (a === 'setView') { state.view = el.dataset.view; renderView(); }
+      else if (a === 'setDashState') { state.dashState = el.dataset.state; renderView(); }
+      else if (a === 'setLoginSim') { state.loginSim = el.dataset.sim; renderView(); }
+    });
+
+    renderView();
+    lucide.createIcons();
+  </script>
+</body>
+</html>

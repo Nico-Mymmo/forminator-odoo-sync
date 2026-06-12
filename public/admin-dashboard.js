@@ -1,13 +1,85 @@
-// Admin Dashboard JavaScript
-// Industry-standard separation of concerns: HTML, CSS, JS
+// Admin Dashboard — Beheer
+// Vanilla JS (ES6+), data-action + centrale event-listeners, geen inline handlers.
 
 lucide.createIcons();
 
 let allModules = [];
 let allUsers = [];
-let allInvites = [];
 
-// Theme management
+const ROLE_LABELS = {
+  user: 'Gebruiker',
+  manager: 'Manager',
+  marketing_signature: 'Marketing Signatures',
+  admin: 'Admin'
+};
+
+// ====== Helpers ======
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+function showToast(message, type) {
+  var container = document.getElementById('toastContainer');
+  var cls = type === 'error' ? 'alert-error' : type === 'success' ? 'alert-success' : 'alert-info';
+  var toast = document.createElement('div');
+  toast.className = 'alert ' + cls + ' text-sm py-2 px-4';
+  var span = document.createElement('span');
+  span.textContent = message;
+  toast.appendChild(span);
+  if (type === 'error') {
+    var close = document.createElement('button');
+    close.className = 'btn btn-ghost btn-xs';
+    close.setAttribute('data-action', 'dismissToast');
+    close.textContent = '✕';
+    toast.appendChild(close);
+  }
+  container.appendChild(toast);
+  if (type !== 'error') setTimeout(function() { toast.remove(); }, 3000);
+}
+
+async function apiFetch(url, options) {
+  const res = await fetch(url, Object.assign({ credentials: 'include' }, options || {}));
+  if (res.status === 401) {
+    window.location.href = '/';
+    throw new Error('Niet ingelogd');
+  }
+  return res;
+}
+
+function userDisplayName(user) {
+  return user.full_name || user.fullName || user.email;
+}
+
+// ====== Bevestigingsmodal ======
+
+let confirmCallback = null;
+let pendingRoleRevert = null;
+
+function openConfirm(opts) {
+  document.getElementById('confirmTitle').textContent = opts.title;
+  document.getElementById('confirmBody').textContent = opts.body;
+  const ok = document.getElementById('confirmOkBtn');
+  ok.className = 'btn btn-sm ' + (opts.danger ? 'btn-error' : 'btn-primary');
+  ok.textContent = opts.okLabel || 'Bevestigen';
+  ok.disabled = false;
+  confirmCallback = opts.onConfirm;
+  document.getElementById('confirmModal').showModal();
+}
+
+document.getElementById('confirmModal').addEventListener('close', function() {
+  // Annuleren of backdrop: openstaande rolwijziging terugdraaien
+  if (pendingRoleRevert) {
+    pendingRoleRevert();
+    pendingRoleRevert = null;
+  }
+  confirmCallback = null;
+});
+
+// ====== Thema ======
+
 function changeTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('selectedTheme', theme);
@@ -22,20 +94,20 @@ function initTheme() {
   }
 }
 
-// Render navbar using standard component
+// ====== Navbar ======
+
 async function renderNavbar() {
-  const response = await fetch('/api/auth/me', { credentials: 'include' });
+  const response = await apiFetch('/api/auth/me');
   const data = await response.json();
-  
+
   if (!data.user) {
     window.location.href = '/';
     return;
   }
-  
-  // Extract modules from user_modules array
+
   const userModules = data.user.modules || [];
   const modules = userModules.map(um => um.module || um);
-  
+
   const navbar = document.getElementById('navbar');
   navbar.innerHTML = `
 <header class="flex items-center justify-between bg-base-100 shadow-sm px-4" style="position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 50;">
@@ -59,14 +131,14 @@ async function renderNavbar() {
             Modules
           </div>
           <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
-            ${modules.map(m => '<li><a href="' + m.route + '">' + m.name + '</a></li>').join('')}
+            ${modules.map(m => '<li><a href="' + m.route + '">' + escapeHtml(m.name) + '</a></li>').join('')}
           </ul>
         </div>
       ` : ''}
     </div>
     <div id="saveIndicator" class="flex items-center gap-1 text-sm"></div>
     <div class="flex gap-2 items-center">
-        <select id="themeSelector" class="select select-xs select-bordered" onchange="changeTheme(this.value)">
+        <select id="themeSelector" class="select select-xs select-bordered">
             <option value="light">Light</option>
             <option value="dark">Dark</option>
             <option value="cupcake">Cupcake</option>
@@ -97,15 +169,19 @@ async function renderNavbar() {
             <option value="coffee">Coffee</option>
             <option value="winter">Winter</option>
         </select>
-        <a href="/profile" class="btn btn-ghost btn-xs" title="Profile">
+        <a href="/profile" class="btn btn-ghost btn-xs" title="Profiel">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
         </a>
-        <button onclick="logout()" class="btn btn-error btn-xs">Logout</button>
+        <button data-action="logout" class="btn btn-error btn-xs">Uitloggen</button>
     </div>
 </header>
   `;
+
+  const selector = document.getElementById('themeSelector');
+  selector.value = localStorage.getItem('selectedTheme') || 'light';
+  selector.addEventListener('change', function(e) { changeTheme(e.target.value); });
 }
 
 async function logout() {
@@ -113,231 +189,323 @@ async function logout() {
   window.location.href = '/';
 }
 
-// Load modules
+// ====== Modules ======
+
 async function loadModules() {
   try {
-    const response = await fetch('/admin/api/modules', { credentials: 'include' });
+    const response = await apiFetch('/admin/api/modules');
     const data = await response.json();
     allModules = data.modules || [];
     renderModuleCheckboxes();
     renderModulesTable();
     document.getElementById('statsModules').textContent = allModules.length;
   } catch (error) {
-    console.error('Failed to load modules:', error);
+    console.error('Modules laden mislukt:', error);
+    document.getElementById('statsModules').textContent = '—';
+    showToast('Modules laden mislukt. Probeer het opnieuw', 'error');
   }
 }
 
 function renderModuleCheckboxes() {
   const container = document.getElementById('moduleCheckboxes');
   if (allModules.length === 0) {
-    container.innerHTML = '<p class="text-sm text-base-content/60">No modules available</p>';
+    container.innerHTML = '<p class="text-sm text-base-content/60">Geen modules beschikbaar</p>';
     return;
   }
-  
-  const html = allModules.map(m => 
-    '<label class="label cursor-pointer gap-2">' +
-      '<input type="checkbox" name="modules" value="' + m.code + '" class="checkbox checkbox-sm" />' +
-      '<span class="label-text">' + m.name + '</span>' +
+
+  container.innerHTML = allModules.map(m =>
+    '<label class="label cursor-pointer justify-start gap-2 py-1">' +
+      '<input type="checkbox" name="modules" value="' + escapeHtml(m.code) + '" class="checkbox checkbox-sm" />' +
+      '<span class="label-text text-sm">' + escapeHtml(m.name) + '</span>' +
     '</label>'
   ).join('');
-  
-  container.innerHTML = html;
 }
 
 function renderModulesTable() {
   const container = document.getElementById('modulesTable');
-  
+
   if (allModules.length === 0) {
-    container.innerHTML = '<div class="alert alert-info">No modules available</div>';
+    container.innerHTML =
+      '<div class="flex flex-col items-center justify-center py-20 text-center">' +
+        '<i data-lucide="package-open" class="w-12 h-12 text-base-content/40 mb-4"></i>' +
+        '<p class="text-sm text-base-content/40">Geen modules beschikbaar.</p>' +
+      '</div>';
+    lucide.createIcons();
     return;
   }
-  
-  const rows = allModules.map(m => 
-    '<div class="flex items-center justify-between p-4 bg-base-200 rounded-lg mb-2">' +
-      '<div class="flex items-center gap-4">' +
-        '<i data-lucide="' + (m.icon || 'package') + '" class="w-6 h-6 text-primary"></i>' +
-        '<div>' +
-          '<div class="font-semibold">' + m.name + '</div>' +
-          '<div class="text-sm text-base-content/60">' + (m.description || '') + '</div>' +
+
+  container.innerHTML = allModules.map(m =>
+    '<div class="flex items-center justify-between gap-4 p-3 border border-base-200 rounded-lg mb-2' + (!m.inRegistry ? ' opacity-60' : '') + '">' +
+      '<div class="flex items-center gap-3 min-w-0">' +
+        '<div class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">' +
+          '<i data-lucide="' + escapeHtml(m.icon || 'package') + '" class="w-4 h-4 text-primary"></i>' +
+        '</div>' +
+        '<div class="min-w-0">' +
+          '<div class="flex items-center gap-2">' +
+            '<span class="text-sm font-semibold truncate">' + escapeHtml(m.name) + '</span>' +
+            (!m.inRegistry ? '<span class="badge badge-xs badge-warning">Verouderd</span>' : '') +
+          '</div>' +
+          '<div class="text-xs text-base-content/50 truncate">' + escapeHtml(m.description || '') + '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="badge ' + (m.isActive ? 'badge-success' : 'badge-ghost') + '">' +
-        (m.isActive ? 'Active' : 'Inactive') +
+      '<div class="flex items-center gap-2 shrink-0">' +
+        '<span class="badge badge-sm ' + (m.isActive ? 'badge-success' : 'badge-ghost') + '">' +
+          (m.isActive ? 'Actief' : 'Inactief') +
+        '</span>' +
+        (m.inRegistry
+          ? '<button class="btn btn-ghost btn-xs" data-action="toggleModule" data-id="' + escapeHtml(String(m.id)) + '" data-active="' + (m.isActive ? '1' : '0') + '" title="' + (m.isActive ? 'Deactiveren' : 'Activeren') + '">' +
+              '<i data-lucide="' + (m.isActive ? 'toggle-right' : 'toggle-left') + '" class="w-4 h-4"></i>' +
+            '</button>'
+          : '<button class="btn btn-ghost btn-xs text-error" data-action="deleteModule" data-id="' + escapeHtml(String(m.id)) + '" data-name="' + escapeHtml(m.name) + '" title="Verwijderen">' +
+              '<i data-lucide="trash-2" class="w-4 h-4"></i>' +
+            '</button>'
+        ) +
       '</div>' +
     '</div>'
   ).join('');
-  
-  container.innerHTML = rows;
   lucide.createIcons();
 }
 
-// Load users
+// ====== Gebruikers ======
+
 async function loadUsers() {
   try {
-    const response = await fetch('/admin/api/users', { credentials: 'include' });
+    const response = await apiFetch('/admin/api/users');
     const data = await response.json();
     allUsers = data.users || [];
     renderUsersTable();
     document.getElementById('statsUsers').textContent = allUsers.filter(u => u.isActive).length;
   } catch (error) {
-    console.error('Failed to load users:', error);
-    document.getElementById('usersTable').innerHTML = '<div class="alert alert-error">Failed to load users</div>';
+    console.error('Gebruikers laden mislukt:', error);
+    document.getElementById('statsUsers').textContent = '—';
+    document.getElementById('usersTable').innerHTML =
+      '<div class="alert alert-error text-sm"><span>Gebruikers laden mislukt. Vernieuw de pagina of probeer het later opnieuw.</span></div>';
   }
+}
+
+function roleSelectHtml(user) {
+  const opts = Object.keys(ROLE_LABELS).map(r =>
+    '<option value="' + r + '"' + (user.role === r ? ' selected' : '') + '>' + ROLE_LABELS[r] + '</option>'
+  ).join('');
+  return '<select class="select select-sm select-bordered" data-action="changeRole" data-id="' + escapeHtml(user.id) + '">' + opts + '</select>';
 }
 
 function renderUsersTable() {
   const container = document.getElementById('usersTable');
-  
+
   if (allUsers.length === 0) {
-    container.innerHTML = '<div class="alert alert-info">No users found. Create an invite to add users.</div>';
+    container.innerHTML =
+      '<div class="flex flex-col items-center justify-center py-20 text-center">' +
+        '<i data-lucide="users" class="w-12 h-12 text-base-content/40 mb-4"></i>' +
+        '<p class="text-base font-semibold text-base-content/60 mb-1">Nog geen gebruikers</p>' +
+        '<p class="text-sm text-base-content/40">Maak de eerste gebruiker aan via het tabblad ‘Gebruiker aanmaken’.</p>' +
+      '</div>';
+    lucide.createIcons();
     return;
   }
-  
-  const rows = allUsers.map(user => 
-    '<tr>' +
-      '<td>' + user.email + '</td>' +
-      '<td>' +
-        '<select class="select select-sm select-bordered" onchange="updateUserRole(\'' + user.id + '\', this.value)">' +
-          '<option value="user" ' + (user.role === 'user' ? 'selected' : '') + '>User</option>' +
-          '<option value="manager" ' + (user.role === 'manager' ? 'selected' : '') + '>Manager</option>' +
-          '<option value="marketing_signature" ' + (user.role === 'marketing_signature' ? 'selected' : '') + '>Marketing Signatures</option>' +
-          '<option value="admin" ' + (user.role === 'admin' ? 'selected' : '') + '>Admin</option>' +
-        '</select>' +
-      '</td>' +
+
+  const rows = allUsers.map(user => {
+    const searchText = ((user.email || '') + ' ' + (user.full_name || user.fullName || '')).toLowerCase();
+    return '<tr data-user-email="' + escapeHtml(user.email) + '" data-search="' + escapeHtml(searchText) + '">' +
+      '<td class="font-medium">' + escapeHtml(user.email) + '</td>' +
+      '<td>' + roleSelectHtml(user) + '</td>' +
       '<td>' +
         '<div class="flex flex-wrap gap-1">' +
-          (user.modules && user.modules.length > 0 
-            ? user.modules.map(m => '<span class="badge badge-sm">' + (m.name || m.code || m) + '</span>').join('')
-            : '<span class="text-sm text-base-content/60">None</span>'
+          (user.modules && user.modules.length > 0
+            ? user.modules.map(m => '<span class="badge badge-sm badge-ghost">' + escapeHtml(m.name || m.code || m) + '</span>').join('')
+            : '<span class="text-xs text-base-content/40">Geen</span>'
           ) +
         '</div>' +
       '</td>' +
       '<td>' +
-        '<div class="badge ' + (user.isActive ? 'badge-success' : 'badge-error') + ' gap-2">' +
-          (user.isActive ? 'Active' : 'Inactive') +
-        '</div>' +
+        '<span class="badge badge-sm ' + (user.isActive ? 'badge-success' : 'badge-ghost') + '">' +
+          (user.isActive ? 'Actief' : 'Inactief') +
+        '</span>' +
       '</td>' +
-      '<td>' + new Date(user.createdAt).toLocaleDateString() + '</td>' +
+      '<td class="text-sm text-base-content/60">' + new Date(user.createdAt).toLocaleDateString('nl-NL') + '</td>' +
       '<td>' +
         '<div class="join">' +
-          '<button class="btn btn-xs btn-ghost join-item" onclick="editUserModules(\'' + user.id + '\')" title="Edit Modules">' +
-            '<i data-lucide="package" class="w-3 h-3"></i>' +
+          '<button class="btn btn-ghost btn-xs join-item" data-action="editModules" data-id="' + escapeHtml(user.id) + '" title="Modules bewerken">' +
+            '<i data-lucide="package" class="w-3.5 h-3.5"></i>' +
           '</button>' +
-          '<button class="btn btn-xs btn-ghost join-item" onclick="editUserOdooEmail(\'' + user.email + '\')" title="Odoo e-mail override">' +
-            '<i data-lucide="at-sign" class="w-3 h-3"></i>' +
-          '</button>' +          '<button class="btn btn-xs btn-ghost join-item" onclick="editUserOdooUid(\'' + user.id + '\', ' + (user.odooUid ?? 'null') + ')" title="Odoo UID">' +
-            '<i data-lucide="hash" class="w-3 h-3"></i>' +
-          '</button>' +          '<button class="btn btn-xs btn-ghost join-item" onclick="toggleUserStatus(\'' + user.id + '\')" title="Toggle Status">' +
-            '<i data-lucide="' + (user.isActive ? 'user-x' : 'user-check') + '" class="w-3 h-3"></i>' +
+          '<button class="btn btn-ghost btn-xs join-item" data-action="editOdooEmail" data-email="' + escapeHtml(user.email) + '" title="Odoo e-mail-overrides">' +
+            '<i data-lucide="at-sign" class="w-3.5 h-3.5"></i>' +
+          '</button>' +
+          '<button class="btn btn-ghost btn-xs join-item" data-action="editOdooUid" data-id="' + escapeHtml(user.id) + '" data-uid="' + (user.odooUid ?? '') + '" title="Odoo UID">' +
+            '<i data-lucide="hash" class="w-3.5 h-3.5"></i>' +
+          '</button>' +
+          '<button class="btn btn-ghost btn-xs join-item' + (user.isActive ? ' text-error' : '') + '" data-action="toggleStatus" data-id="' + escapeHtml(user.id) + '" title="Status wisselen">' +
+            '<i data-lucide="' + (user.isActive ? 'user-x' : 'user-check') + '" class="w-3.5 h-3.5"></i>' +
           '</button>' +
         '</div>' +
       '</td>' +
-    '</tr>'
-  ).join('');
-  
-  container.innerHTML = 
-    '<table class="table table-zebra">' +
+    '</tr>';
+  }).join('');
+
+  container.innerHTML =
+    '<table class="table table-zebra table-sm">' +
       '<thead>' +
         '<tr>' +
-          '<th>Email</th>' +
-          '<th>Role</th>' +
+          '<th>E-mailadres</th>' +
+          '<th>Rol</th>' +
           '<th>Modules</th>' +
           '<th>Status</th>' +
-          '<th>Created</th>' +
-          '<th>Actions</th>' +
+          '<th>Aangemaakt</th>' +
+          '<th>Acties</th>' +
         '</tr>' +
       '</thead>' +
       '<tbody>' + rows + '</tbody>' +
     '</table>';
-  
+
   lucide.createIcons();
+  applyUserSearch();
 }
 
-async function updateUserRole(userId, role) {
-  try {
-    await fetch('/admin/api/users/' + userId + '/role', {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: role })
-    });
-    await loadUsers();
-  } catch (error) {
-    console.error('Failed to update role:', error);
-    alert('Failed to update user role');
-  }
+// Client-side zoekfilter: verbergt niet-matchende rijen
+function applyUserSearch() {
+  const q = (document.getElementById('userSearch').value || '').trim().toLowerCase();
+  document.querySelectorAll('#usersTable tbody tr').forEach(tr => {
+    tr.classList.toggle('hidden', q !== '' && !(tr.dataset.search || '').includes(q));
+  });
 }
 
-async function toggleUserStatus(userId) {
-  try {
-    await fetch('/admin/api/users/' + userId + '/toggle', {
-      method: 'PUT',
-      credentials: 'include'
-    });
-    await loadUsers();
-  } catch (error) {
-    console.error('Failed to toggle status:', error);
-    alert('Failed to update user status');
-  }
+function highlightUserRow(email) {
+  const tr = document.querySelector('#usersTable tbody tr[data-user-email="' + CSS.escape(email) + '"]');
+  if (!tr) return;
+  tr.classList.add('bg-success/20');
+  setTimeout(function() { tr.classList.remove('bg-success/20'); }, 3000);
 }
 
-function editUserModules(userId) {
+// ====== Rolwijziging (met bevestiging) ======
+
+function requestRoleChange(selectEl, userId) {
   const user = allUsers.find(u => u.id === userId);
-  const currentModules = user ? (user.modules || []) : [];
-  // currentModules may be an array of strings or objects {code, name}
-  const currentCodes = currentModules.map(m => typeof m === 'string' ? m : m.code);
-  
-  const checkboxes = allModules.map(m =>
-    '<label class="label cursor-pointer justify-start gap-2">' +
-      '<input type="checkbox" value="' + m.code + '" ' +
-        (currentCodes.includes(m.code) ? 'checked' : '') +
-        ' class="checkbox checkbox-sm">' +
-      '<span class="label-text">' + m.name + '</span>' +
+  if (!user) return;
+  const newRole = selectEl.value;
+  const oldRole = user.role;
+  if (newRole === oldRole) return;
+
+  pendingRoleRevert = function() { selectEl.value = oldRole; };
+
+  const name = userDisplayName(user);
+  let body = 'Rol wijzigen van ' + (ROLE_LABELS[oldRole] || oldRole) + ' naar ' + (ROLE_LABELS[newRole] || newRole) + ' voor ' + name + '?';
+  if (newRole === 'admin') {
+    body += ' Deze gebruiker krijgt toegang tot het beheerpaneel.';
+  }
+
+  openConfirm({
+    title: 'Rol wijzigen',
+    body: body,
+    okLabel: 'Rol wijzigen',
+    danger: newRole === 'admin',
+    onConfirm: async function() {
+      pendingRoleRevert = null;
+      try {
+        const res = await apiFetch('/admin/api/users/' + userId + '/role', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: newRole })
+        });
+        if (!res.ok) throw new Error('Serverfout');
+        showToast('Rol van ' + name + ' gewijzigd naar ' + (ROLE_LABELS[newRole] || newRole), 'success');
+        await loadUsers();
+      } catch (error) {
+        console.error('Rol bijwerken mislukt:', error);
+        selectEl.value = oldRole;
+        showToast('Rol bijwerken mislukt. Probeer het opnieuw', 'error');
+      }
+    }
+  });
+}
+
+// ====== Status wisselen (met bevestiging) ======
+
+function requestStatusToggle(userId) {
+  const user = allUsers.find(u => u.id === userId);
+  if (!user) return;
+  const name = userDisplayName(user);
+  const deactivating = user.isActive;
+
+  openConfirm({
+    title: deactivating ? 'Gebruiker deactiveren' : 'Gebruiker activeren',
+    body: deactivating
+      ? 'Weet je zeker dat je ' + name + ' (' + user.email + ') wilt deactiveren? De gebruiker kan niet meer inloggen.'
+      : 'Weet je zeker dat je ' + name + ' (' + user.email + ') wilt activeren? De gebruiker kan hierna weer inloggen.',
+    okLabel: deactivating ? 'Deactiveren' : 'Activeren',
+    danger: deactivating,
+    onConfirm: async function() {
+      try {
+        const res = await apiFetch('/admin/api/users/' + userId + '/toggle', { method: 'PUT' });
+        if (!res.ok) throw new Error('Serverfout');
+        showToast(name + (deactivating ? ' gedeactiveerd' : ' geactiveerd'), 'success');
+        await loadUsers();
+      } catch (error) {
+        console.error('Status bijwerken mislukt:', error);
+        showToast('Status bijwerken mislukt. Probeer het opnieuw', 'error');
+      }
+    }
+  });
+}
+
+// ====== Modules bewerken (modal) ======
+
+let modulesModalUserId = null;
+
+function openModulesModal(userId) {
+  const user = allUsers.find(u => u.id === userId);
+  if (!user) return;
+  modulesModalUserId = userId;
+
+  const currentCodes = (user.modules || []).map(m => typeof m === 'string' ? m : m.code);
+
+  document.getElementById('modulesModalSub').textContent = 'Moduletoegang voor ' + user.email;
+  document.getElementById('modulesModalList').innerHTML = allModules.map(m =>
+    '<label class="label cursor-pointer justify-start gap-3 py-1.5 rounded hover:bg-base-200 px-2">' +
+      '<input type="checkbox" value="' + escapeHtml(m.code) + '" class="checkbox checkbox-sm"' + (currentCodes.includes(m.code) ? ' checked' : '') + ' />' +
+      '<span class="label-text text-sm">' + escapeHtml(m.name) + '</span>' +
     '</label>'
   ).join('');
-  
-  const modal = document.createElement('div');
-  modal.className = 'modal modal-open';
-  modal.innerHTML =
-    '<div class="modal-box">' +
-      '<h3 class="font-bold text-lg mb-4">Edit User Modules</h3>' +
-      '<div class="space-y-2">' + checkboxes + '</div>' +
-      '<div class="modal-action">' +
-        '<button class="btn" onclick="this.closest(\'.modal\').remove()">Cancel</button>' +
-        '<button class="btn btn-primary" onclick="saveUserModules(\'' + userId + '\', this)">Save</button>' +
-      '</div>' +
-    '</div>';
-  
-  document.body.appendChild(modal);
+
+  document.getElementById('modulesModal').showModal();
 }
 
-async function saveUserModules(userId, btn) {
-  const modal = btn.closest('.modal');
-  const checkboxes = modal.querySelectorAll('input[type="checkbox"]:checked');
-  const modules = Array.from(checkboxes).map(cb => cb.value);
-  
+async function saveUserModules() {
+  if (!modulesModalUserId) return;
+  const user = allUsers.find(u => u.id === modulesModalUserId);
+  const btn = document.getElementById('saveModulesBtn');
+  const modules = Array.from(document.querySelectorAll('#modulesModalList input[type="checkbox"]:checked')).map(cb => cb.value);
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Opslaan…';
+
   try {
-    await fetch('/admin/api/users/' + userId + '/modules', {
+    const res = await apiFetch('/admin/api/users/' + modulesModalUserId + '/modules', {
       method: 'PUT',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ modules: modules })
     });
+    if (!res.ok) throw new Error('Serverfout');
+    document.getElementById('modulesModal').close();
+    showToast('Modules van ' + (user ? user.email : 'gebruiker') + ' bijgewerkt', 'success');
     await loadUsers();
-    modal.remove();
   } catch (error) {
-    console.error('Failed to update modules:', error);
-    alert('Failed to update user modules');
+    console.error('Modules bijwerken mislukt:', error);
+    showToast('Modules bijwerken mislukt. Probeer het opnieuw', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Opslaan';
+    modulesModalUserId = null;
   }
 }
 
+// ====== Odoo e-mail-overrides (dynamische modal) ======
+
 async function editUserOdooEmail(userEmail) {
-  // Fetch current overrides from signature settings
   let odooCurrent = '', googleCurrent = '';
   try {
-    const res  = await fetch('/mail-signatures/api/admin/user-settings?email=' + encodeURIComponent(userEmail), { credentials: 'include' });
+    const res = await apiFetch('/mail-signatures/api/admin/user-settings?email=' + encodeURIComponent(userEmail));
     const json = await res.json();
-    odooCurrent   = json.data?.settings?.odoo_email_override   || '';
+    odooCurrent = json.data?.settings?.odoo_email_override || '';
     googleCurrent = json.data?.settings?.google_email_override || '';
   } catch (_) {}
 
@@ -345,86 +513,41 @@ async function editUserOdooEmail(userEmail) {
   modal.className = 'modal modal-open';
   modal.innerHTML =
     '<div class="modal-box">' +
-      '<h3 class="font-bold text-lg mb-1">E-mail overrides</h3>' +
-      '<p class="text-sm text-base-content/60 mb-4">Standaard wordt <strong>' + userEmail + '</strong> gebruikt. Vul hieronder alternatieven in als het afwijkt.</p>' +
+      '<h3 class="font-bold text-lg mb-1">E-mail-overrides</h3>' +
+      '<p class="text-sm text-base-content/60 mb-4">Standaard wordt <strong>' + escapeHtml(userEmail) + '</strong> gebruikt. Vul hieronder alternatieven in als het afwijkt.</p>' +
       '<div class="space-y-3">' +
-        '<div class="form-control">' +
-          '<label class="label py-0.5"><span class="label-text text-xs font-semibold">Odoo work_email</span><span class="label-text-alt text-xs">voor ophalen functie &amp; telefoonnummer</span></label>' +
-          '<input id="adminOdooEmailInput" type="email" class="input input-bordered input-sm" placeholder="naam@bedrijf.com" value="' + odooCurrent + '">' +
-        '</div>' +
-        '<div class="form-control">' +
-          '<label class="label py-0.5"><span class="label-text text-xs font-semibold">Google Workspace e-mail</span><span class="label-text-alt text-xs">voor Gmail-handtekening pushen</span></label>' +
-          '<input id="adminGoogleEmailInput" type="email" class="input input-bordered input-sm" placeholder="naam@bedrijf.com" value="' + googleCurrent + '">' +
-        '</div>' +
+        '<label class="form-control w-full">' +
+          '<div class="label py-0.5"><span class="label-text text-xs font-semibold">Odoo work_email</span><span class="label-text-alt text-xs">voor ophalen functie &amp; telefoonnummer</span></div>' +
+          '<input id="adminOdooEmailInput" type="email" class="input input-bordered input-sm w-full" placeholder="naam@bedrijf.com" value="' + escapeHtml(odooCurrent) + '">' +
+        '</label>' +
+        '<label class="form-control w-full">' +
+          '<div class="label py-0.5"><span class="label-text text-xs font-semibold">Google Workspace e-mail</span><span class="label-text-alt text-xs">voor Gmail-handtekening pushen</span></div>' +
+          '<input id="adminGoogleEmailInput" type="email" class="input input-bordered input-sm w-full" placeholder="naam@bedrijf.com" value="' + escapeHtml(googleCurrent) + '">' +
+        '</label>' +
       '</div>' +
-      '<p class="text-xs text-base-content/50 mt-2">Leeg laten = login-email wordt gebruikt.</p>' +
+      '<p class="text-xs text-base-content/50 mt-2">Leeg laten = login-e-mailadres wordt gebruikt.</p>' +
       '<div class="modal-action">' +
-        '<button class="btn btn-sm" onclick="this.closest(\'.modal\').remove()">Annuleren</button>' +
-        '<button class="btn btn-sm btn-primary" onclick="saveUserEmailOverrides(\'' + userEmail + '\', this)">Opslaan</button>' +
+        '<button class="btn btn-primary btn-sm" data-action="saveOdooEmails" data-email="' + escapeHtml(userEmail) + '">Opslaan</button>' +
+        '<button class="btn btn-ghost btn-sm" data-action="closeDynModal">Annuleren</button>' +
       '</div>' +
     '</div>';
   document.body.appendChild(modal);
-  lucide.createIcons();
-}
-
-function editUserOdooUid(userId, currentUid) {
-  const modal = document.createElement('div');
-  modal.className = 'modal modal-open';
-  modal.innerHTML =
-    '<div class="modal-box max-w-sm">' +
-      '<h3 class="font-bold text-lg mb-1">Odoo UID</h3>' +
-      '<p class="text-sm text-base-content/60 mb-4">Direct Odoo <code>res.users.id</code> koppelen. Leeg laten om te wissen (volgende login wordt opnieuw opgezocht).</p>' +
-      '<div class="form-control">' +
-        '<label class="label"><span class="label-text text-xs font-semibold">Odoo UID</span></label>' +
-        '<input id="adminOdooUidInput" type="number" min="1" class="input input-bordered input-sm" placeholder="bijv. 42" value="' + (currentUid ?? '') + '">' +
-      '</div>' +
-      '<div class="modal-action">' +
-        '<button class="btn btn-sm" onclick="this.closest(\'.modal\').remove()">Annuleren</button>' +
-        '<button class="btn btn-sm btn-primary" onclick="saveUserOdooUid(\'' + userId + '\', this)">Opslaan</button>' +
-      '</div>' +
-    '</div>';
-  document.body.appendChild(modal);
-}
-
-async function saveUserOdooUid(userId, btn) {
-  const modal = btn.closest('.modal');
-  const raw   = modal.querySelector('#adminOdooUidInput').value.trim();
-  const uid   = raw === '' ? null : parseInt(raw, 10);
-  btn.disabled    = true;
-  btn.textContent = 'Opslaan…';
-  try {
-    const res = await fetch('/admin/api/users/' + userId + '/odoo-uid', {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ odoo_uid: uid })
-    });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
-    modal.remove();
-    await loadUsers();
-  } catch (err) {
-    alert('Fout: ' + err.message);
-    btn.disabled    = false;
-    btn.textContent = 'Opslaan';
-  }
 }
 
 async function saveUserEmailOverrides(userEmail, btn) {
-  const modal         = btn.closest('.modal');
-  const odooVal       = modal.querySelector('#adminOdooEmailInput').value.trim().toLowerCase();
-  const googleVal     = modal.querySelector('#adminGoogleEmailInput').value.trim().toLowerCase();
-  btn.disabled        = true;
-  btn.textContent     = 'Opslaan…';
+  const modal = btn.closest('.modal');
+  const odooVal = modal.querySelector('#adminOdooEmailInput').value.trim().toLowerCase();
+  const googleVal = modal.querySelector('#adminGoogleEmailInput').value.trim().toLowerCase();
+  btn.disabled = true;
+  btn.textContent = 'Opslaan…';
   try {
-    const res = await fetch('/mail-signatures/api/admin/user-settings', {
+    const res = await apiFetch('/mail-signatures/api/admin/user-settings', {
       method: 'PUT',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userEmail,
         settings: {
-          odoo_email_override:   odooVal   || null,
+          odoo_email_override: odooVal || null,
           google_email_override: googleVal || null
         }
       })
@@ -432,54 +555,215 @@ async function saveUserEmailOverrides(userEmail, btn) {
     const json = await res.json();
     if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
     modal.remove();
+    showToast('E-mail-overrides opgeslagen', 'success');
   } catch (err) {
-    alert('Fout: ' + err.message);
-    btn.disabled    = false;
+    showToast('Opslaan mislukt: ' + err.message + '. Probeer het opnieuw', 'error');
+    btn.disabled = false;
     btn.textContent = 'Opslaan';
   }
 }
 
-// Handle create user form
+// ====== Odoo UID (dynamische modal) ======
+
+function editUserOdooUid(userId, currentUid) {
+  const modal = document.createElement('div');
+  modal.className = 'modal modal-open';
+  modal.innerHTML =
+    '<div class="modal-box max-w-sm">' +
+      '<h3 class="font-bold text-lg mb-1">Odoo UID</h3>' +
+      '<p class="text-sm text-base-content/60 mb-4">Direct Odoo <code>res.users.id</code> koppelen. Leeg laten om te wissen (bij de volgende login wordt opnieuw gezocht).</p>' +
+      '<label class="form-control w-full">' +
+        '<div class="label"><span class="label-text text-xs font-semibold">Odoo UID</span></div>' +
+        '<input id="adminOdooUidInput" type="number" min="1" class="input input-bordered input-sm w-full" placeholder="bijv. 42" value="' + escapeHtml(currentUid ?? '') + '">' +
+      '</label>' +
+      '<div class="modal-action">' +
+        '<button class="btn btn-primary btn-sm" data-action="saveOdooUid" data-id="' + escapeHtml(userId) + '">Opslaan</button>' +
+        '<button class="btn btn-ghost btn-sm" data-action="closeDynModal">Annuleren</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+}
+
+async function saveUserOdooUid(userId, btn) {
+  const modal = btn.closest('.modal');
+  const raw = modal.querySelector('#adminOdooUidInput').value.trim();
+  const uid = raw === '' ? null : parseInt(raw, 10);
+  btn.disabled = true;
+  btn.textContent = 'Opslaan…';
+  try {
+    const res = await apiFetch('/admin/api/users/' + userId + '/odoo-uid', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ odoo_uid: uid })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+    modal.remove();
+    showToast('Odoo UID opgeslagen', 'success');
+    await loadUsers();
+  } catch (err) {
+    showToast('Opslaan mislukt: ' + err.message + '. Probeer het opnieuw', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Opslaan';
+  }
+}
+
+// ====== Gebruiker aanmaken ======
+
 document.getElementById('createUserForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  
-  const formData = new FormData(e.target);
-  const email = formData.get('email');
-  const password = formData.get('password');
+
+  const form = e.target;
+  const formData = new FormData(form);
+  const email = (formData.get('email') || '').trim();
+  const password = formData.get('password') || '';
   const role = formData.get('role');
   const modules = Array.from(document.querySelectorAll('#moduleCheckboxes input:checked')).map(cb => cb.value);
-  
+
+  if (password.length < 8) {
+    showToast('Het wachtwoord moet minstens 8 tekens lang zijn', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('createUserBtn');
+  const label = btn.querySelector('[data-role="createBtnLabel"]');
+  btn.disabled = true;
+  label.textContent = 'Aanmaken…';
+
   try {
-    const response = await fetch('/admin/api/users', {
+    const response = await apiFetch('/admin/api/users', {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        email: email, 
-        password: password,
-        role: role, 
-        modules: modules 
-      })
+      body: JSON.stringify({ email: email, password: password, role: role, modules: modules })
     });
-    
+
     const data = await response.json();
-    
+
     if (response.ok) {
-      alert('User created successfully!');
-      e.target.reset();
-      document.querySelectorAll('#moduleCheckboxes input:checked').forEach(cb => cb.checked = false);
+      showToast('Gebruiker aangemaakt', 'success');
+      form.reset();
+      document.querySelectorAll('#moduleCheckboxes input:checked').forEach(cb => { cb.checked = false; });
+      // Terug naar Gebruikers-tab, lijst herladen en nieuwe rij markeren
+      document.getElementById('tabUsers').checked = true;
       await loadUsers();
+      highlightUserRow(email);
     } else {
-      alert('Error: ' + data.error);
+      showToast('Gebruiker aanmaken mislukt: ' + (data.error || 'onbekende fout') + '. Probeer het opnieuw', 'error');
     }
   } catch (error) {
-    console.error('Failed to create user:', error);
-    alert('Failed to create user');
+    console.error('Gebruiker aanmaken mislukt:', error);
+    showToast('Gebruiker aanmaken mislukt. Probeer het opnieuw', 'error');
+  } finally {
+    btn.disabled = false;
+    label.textContent = 'Gebruiker aanmaken';
   }
 });
 
-// Initialize on page load
+// ====== Zoekveld ======
+
+document.getElementById('userSearch').addEventListener('input', applyUserSearch);
+
+// ====== Centrale event-listeners ======
+
+document.addEventListener('click', function(e) {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const action = el.dataset.action;
+
+  if (action === 'logout') {
+    logout();
+  } else if (action === 'editModules') {
+    openModulesModal(el.dataset.id);
+  } else if (action === 'saveUserModules') {
+    saveUserModules();
+  } else if (action === 'closeModulesModal') {
+    modulesModalUserId = null;
+    document.getElementById('modulesModal').close();
+  } else if (action === 'toggleStatus') {
+    requestStatusToggle(el.dataset.id);
+  } else if (action === 'confirmOk') {
+    const cb = confirmCallback;
+    confirmCallback = null;
+    pendingRoleRevert = null;
+    document.getElementById('confirmModal').close();
+    if (cb) cb();
+  } else if (action === 'closeConfirm') {
+    document.getElementById('confirmModal').close();
+  } else if (action === 'editOdooEmail') {
+    editUserOdooEmail(el.dataset.email);
+  } else if (action === 'editOdooUid') {
+    editUserOdooUid(el.dataset.id, el.dataset.uid || null);
+  } else if (action === 'saveOdooEmails') {
+    saveUserEmailOverrides(el.dataset.email, el);
+  } else if (action === 'saveOdooUid') {
+    saveUserOdooUid(el.dataset.id, el);
+  } else if (action === 'closeDynModal') {
+    const m = el.closest('.modal');
+    if (m) m.remove();
+  } else if (action === 'dismissToast') {
+    const t = el.closest('.alert');
+    if (t) t.remove();
+  } else if (action === 'toggleModule') {
+    requestModuleToggle(el.dataset.id, el.dataset.active === '1');
+  } else if (action === 'deleteModule') {
+    requestModuleDelete(el.dataset.id, el.dataset.name);
+  }
+});
+
+document.addEventListener('change', function(e) {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  if (el.dataset.action === 'changeRole') {
+    requestRoleChange(el, el.dataset.id);
+  }
+});
+
+// ====== Module toggle / delete ======
+
+function requestModuleToggle(moduleId, isCurrentlyActive) {
+  openConfirm({
+    title: isCurrentlyActive ? 'Module deactiveren' : 'Module activeren',
+    body: isCurrentlyActive
+      ? 'Gebruikers kunnen deze module niet meer openen totdat je hem weer activeert.'
+      : 'Gebruikers met toegang kunnen deze module weer openen.',
+    okLabel: isCurrentlyActive ? 'Deactiveren' : 'Activeren',
+    danger: isCurrentlyActive,
+    onConfirm: async function() {
+      try {
+        const res = await apiFetch('/admin/api/modules/' + moduleId + '/toggle', { method: 'PUT' });
+        if (!res.ok) throw new Error('Serverfout');
+        showToast('Module ' + (isCurrentlyActive ? 'gedeactiveerd' : 'geactiveerd'), 'success');
+        await loadModules();
+      } catch (err) {
+        showToast('Module bijwerken mislukt. Probeer het opnieuw', 'error');
+      }
+    }
+  });
+}
+
+function requestModuleDelete(moduleId, moduleName) {
+  openConfirm({
+    title: 'Module verwijderen',
+    body: 'Verwijder "' + moduleName + '" uit de database? Deze module staat niet meer in de code. Moduletoegang van gebruikers wordt ook verwijderd.',
+    okLabel: 'Verwijderen',
+    danger: true,
+    onConfirm: async function() {
+      try {
+        const res = await apiFetch('/admin/api/modules/' + moduleId, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Serverfout');
+        showToast('"' + moduleName + '" verwijderd', 'success');
+        await loadModules();
+      } catch (err) {
+        showToast('Verwijderen mislukt. Probeer het opnieuw', 'error');
+      }
+    }
+  });
+}
+
+// ====== Init ======
+
 initTheme();
 renderNavbar();
 loadModules();
 loadUsers();
+lucide.createIcons();

@@ -21,6 +21,11 @@ let informationSetsCache  = {};
 let aiExportPresetsCache  = null;
 // Indexed by model id → { base_fields: [{field, label}], label, ... }
 let modelsConfigCache     = {};
+let savedSearchesCache      = null;
+let sourceSitesCache            = null;
+let touchpointFilterValuesCache = null;
+// Tijdelijke periode-override per saved search id (niet opgeslagen, enkel in-memory)
+const savedSearchPeriodOverrides = {};
 
 // ============================================================================
 // MODEL CONFIGURATIE (hardcoded koppelingen)
@@ -31,9 +36,32 @@ const MODEL_CONFIG = {
     icon: 'file-text',
     nameField: 'x_name',
     dateFields: [{ field: 'create_date', label: 'Aanmaakdatum' }],
-    submodels: ['crm.lead'],
-    // Model-specifieke filters getoond in stap 3
+    submodels: ['crm.lead', 'mail.message', 'mail.activity'],
     extraFilters: ['apartments']
+  },
+  'mail.message': {
+    label: 'Chatter Berichten',
+    icon: 'message-square',
+    nameField: 'preview',
+    dateFields: [{ field: 'date', label: 'Datum' }],
+    submodels: [],
+    extraFilters: []
+  },
+  'mail.activity': {
+    label: 'Activiteiten',
+    icon: 'check-square',
+    nameField: 'summary',
+    dateFields: [{ field: 'date_deadline', label: 'Deadline' }],
+    submodels: [],
+    extraFilters: []
+  },
+  'res.partner': {
+    label: "Partners (VME's & Syndici)",
+    icon: 'building-2',
+    nameField: 'name',
+    dateFields: [{ field: 'create_date', label: 'Aanmaakdatum' }],
+    submodels: ['crm.lead', 'x_sales_action_sheet'],
+    extraFilters: ['partner_type', 'company_status']
   },
   'crm.lead': {
     label: 'Leads',
@@ -44,7 +72,7 @@ const MODEL_CONFIG = {
       { field: 'date_last_stage_update', label: 'Laatste stage update' },
       { field: 'date_closed',            label: 'Afsluitdatum' }
     ],
-    submodels: [],
+    submodels: ['mail.message', 'mail.activity'],
     extraFilters: ['won_status', 'stages']
   },
   'x_web_visitor': {
@@ -55,8 +83,8 @@ const MODEL_CONFIG = {
       { field: 'x_studio_first_seen', label: 'Eerste bezoek' },
       { field: 'x_studio_last_seen',  label: 'Laatste bezoek' }
     ],
-    submodels: ['x_ad_touchpoint'],
-    extraFilters: ['bounce']
+    submodels: ['x_ad_touchpoint', 'crm.lead'],
+    extraFilters: ['source_site', 'bounce']
   },
   'x_ad_touchpoint': {
     label: 'Ad Touchpoints',
@@ -65,8 +93,8 @@ const MODEL_CONFIG = {
     dateFields: [
       { field: 'x_studio_timestamp', label: 'Tijdstip klik' }
     ],
-    submodels: [],
-    extraFilters: []
+    submodels: ['x_web_visitor'],
+    extraFilters: ['ad_filters']
   }
 };
 
@@ -85,23 +113,83 @@ class WizardState {
       filters: { won_status: [], stage_ids: [] },
       property_groups: [], webActivity: false
     };
+    this.submodelSets = {};
+    // Sub-submodel selectie: { 'crm.lead': { 'mail.message_enabled': true }, ... }
+    this.subSubmodels = {};
+    this.partnerFilter = { companyTypes: [], companyStatuses: [] };
     this.aiPresetId = null;
     this._expandedSet = null;
     this._showAddSet = false;
     this._showAddField = null; // set_id of which set is open for adding a field
-    this._editingSet = null;   // set_id being edited
-    this._editingField = null; // field id being edited
-    this._totalStages = 0;     // total available stages, for 'all selected' detection
+    this._editingSet = null;        // set_id being edited
+    this._editingField = null;      // field id being edited
+    this._totalStages = 0;          // total available stages, for 'all selected' detection
+    this._saveSearchName = undefined;    // undefined = hidden, string = input visible
+    this._renamingSearchId = null;       // id of saved search being renamed
+    this._editingFromSavedSearch = null; // { id, name, snapshot } wanneer bezig met bewerken
+    // Web visitor filters
+    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'include', instantBounce: 'include' };
+    this._allSourceSites = [];           // alle beschikbare sites (voor vergelijking in buildPayload)
+    this._sourceSitesInitialized = false; // voorkom herinitialisatie na snapshot-load
+    // Ad touchpoint filters
+    this.adTouchpointFilter = { sources: [], mediums: [], campaigns: [] };
+    this._adFilters = { sources: [], mediums: [], campaigns: [] }; // alle beschikbare waarden
+    this._adFiltersInitialized = false;
   }
 
   selectModel(model) {
     this.selectedModel = model;
     this.informationSets = {};
+    this.submodelSets = {};
+    this.subSubmodels = {};
+    // Standaard: VME-types aan, professionals uit; actieve statussen aan, intern/geblokkeerd uit
+    this.partnerFilter = {
+      companyTypes:    [1, 3],
+      companyStatuses: ['Free Trial', 'Active', 'Inactive']
+    };
     this.timeFilter.field = MODEL_CONFIG[model]?.dateFields[0]?.field || null;
-    // Default: all won statuses selected
+    // Opt-out: alle won statuses standaard geselecteerd
     this.leadEnrichment.filters.won_status = ['won', 'lost', 'pending'];
     this.leadEnrichment.filters.stage_ids = [];
     this._totalStages = 0;
+    // Reset web visitor filter
+    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'include', instantBounce: 'include' };
+    this._allSourceSites = [];
+    this._sourceSitesInitialized = false;
+    // Reset ad touchpoint filter
+    this.adTouchpointFilter = { sources: [], mediums: [], campaigns: [] };
+    this._adFilters = { sources: [], mediums: [], campaigns: [] };
+    this._adFiltersInitialized = false;
+  }
+
+  // Filter toggle helpers — worden aangeroepen vanuit inline event handlers
+  togglePartnerType(v) {
+    const cur = this.partnerFilter.companyTypes;
+    this.partnerFilter.companyTypes = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v];
+  }
+  toggleCompanyStatus(v) {
+    const cur = this.partnerFilter.companyStatuses;
+    this.partnerFilter.companyStatuses = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v];
+  }
+  toggleWonStatus(v) {
+    const cur = this.leadEnrichment.filters.won_status;
+    this.leadEnrichment.filters.won_status = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v];
+  }
+  toggleSourceSite(v) {
+    const cur = this.webVisitorFilter.sourceSites;
+    this.webVisitorFilter.sourceSites = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v];
+  }
+  toggleAdSource(v) {
+    const cur = this.adTouchpointFilter.sources;
+    this.adTouchpointFilter.sources = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v];
+  }
+  toggleAdMedium(v) {
+    const cur = this.adTouchpointFilter.mediums;
+    this.adTouchpointFilter.mediums = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v];
+  }
+  toggleAdCampaign(v) {
+    const cur = this.adTouchpointFilter.campaigns;
+    this.adTouchpointFilter.campaigns = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v];
   }
 
   toggleSet(setId, value) { this.informationSets[setId] = value; }
@@ -122,6 +210,45 @@ class WizardState {
   setLeadStageFilter(a)      { this.leadEnrichment.filters.stage_ids = a; }
   setTimeFilter(from, to)    { this.timeFilter.dateFrom = from; this.timeFilter.dateTo = to; }
   setApartmentsFilter(min, max, zero) { this.apartmentsFilter = { min, max, include_zero: zero }; }
+
+  // Serialiseer de wizard-state naar een opslaan-snapshot
+  toSnapshot() {
+    return {
+      selectedModel:    this.selectedModel,
+      informationSets:  { ...this.informationSets },
+      submodelSets:     { ...this.submodelSets },
+      subSubmodels:     JSON.parse(JSON.stringify(this.subSubmodels)),
+      timeFilter:       { ...this.timeFilter },
+      partnerFilter:    { ...this.partnerFilter },
+      leadEnrichment:   JSON.parse(JSON.stringify(this.leadEnrichment)),
+      apartmentsFilter: { ...this.apartmentsFilter },
+      webVisitorFilter:    { ...this.webVisitorFilter },
+      adTouchpointFilter:  { ...this.adTouchpointFilter },
+      aiPresetId:          this.aiPresetId
+    };
+  }
+
+  // Herstel wizard-state vanuit een snapshot
+  loadSnapshot(snap) {
+    if (!snap) return;
+    if (snap.selectedModel) this.selectModel(snap.selectedModel);
+    if (snap.informationSets)  this.informationSets  = snap.informationSets;
+    if (snap.submodelSets)     this.submodelSets     = snap.submodelSets;
+    if (snap.subSubmodels)     this.subSubmodels     = snap.subSubmodels;
+    if (snap.timeFilter)       this.timeFilter       = { ...this.timeFilter, ...snap.timeFilter };
+    if (snap.partnerFilter)    this.partnerFilter    = snap.partnerFilter;
+    if (snap.leadEnrichment)   this.leadEnrichment   = snap.leadEnrichment;
+    if (snap.apartmentsFilter) this.apartmentsFilter = snap.apartmentsFilter;
+    if (snap.webVisitorFilter) {
+      this.webVisitorFilter = { possibleBounce: 'include', instantBounce: 'include', ...snap.webVisitorFilter };
+      this._sourceSitesInitialized = true; // Niet overschrijven met defaults
+    }
+    if (snap.adTouchpointFilter) {
+      this.adTouchpointFilter = { ...snap.adTouchpointFilter };
+      this._adFiltersInitialized = true;
+    }
+    if (snap.aiPresetId !== undefined) this.aiPresetId = snap.aiPresetId;
+  }
 
   resolvedTimeFilter() {
     const today = new Date();
@@ -176,6 +303,19 @@ class WizardState {
       if (this.apartmentsFilter.include_zero === false) payload.filters.push({ model, field: 'x_studio_number_of_apartments', operator: '>', value: 0 });
     }
 
+    // res.partner filters (altijd is_company=true + opt-out voor type/status)
+    if (model === 'res.partner') {
+      payload.filters.push({ model, field: 'is_company', operator: '=', value: true });
+      // Alleen filter toevoegen als het een SUBSET is (niet alles geselecteerd)
+      if (this.partnerFilter.companyTypes.length > 0 && this.partnerFilter.companyTypes.length < 3) {
+        payload.filters.push({ model, field: 'x_studio_company_type', operator: 'in', value: this.partnerFilter.companyTypes });
+      }
+      const allStatuses = ['Free Trial', 'Active', 'Inactive', 'Internal', 'Blocked'];
+      if (this.partnerFilter.companyStatuses.length > 0 && this.partnerFilter.companyStatuses.length < allStatuses.length) {
+        payload.filters.push({ model, field: 'x_studio_company_status', operator: 'in', value: this.partnerFilter.companyStatuses });
+      }
+    }
+
     // Direct lead filters (when crm.lead is the root model)
     if ((modelCfgForPayload.extraFilters || []).includes('won_status')) {
       // Always filter on type = opportunity for crm.lead
@@ -209,6 +349,117 @@ class WizardState {
       if (this.leadEnrichment.webActivity)                 payload.lead_enrichment.web_activity       = true;
     }
 
+    // Chatter enrichment (mail.message submodel)
+    if (this.submodelSets['mail.message_enabled']) {
+      payload.chatter_enrichment = { enabled: true };
+    }
+
+    // Activity enrichment (mail.activity submodel)
+    if (this.submodelSets['mail.activity_enabled']) {
+      payload.activity_enrichment = { enabled: true, include_done: false };
+    }
+
+    // Partner enrichments (res.partner als startmodel)
+    if (model === 'res.partner') {
+      if (this.submodelSets['crm.lead_enabled']) {
+        const pGroups = this.leadEnrichment.property_groups.length
+          ? this.leadEnrichment.property_groups : [];
+        payload.partner_lead_enrichment = {
+          enabled: true,
+          property_groups: pGroups,
+          filters: {}
+        };
+        const allWon = ['won', 'lost', 'pending'];
+        if (this.leadEnrichment.filters.won_status.length > 0 &&
+            this.leadEnrichment.filters.won_status.length < allWon.length) {
+          payload.partner_lead_enrichment.filters.won_status = this.leadEnrichment.filters.won_status;
+        }
+        // L2: sub-enrichments voor leads
+        const leadSubs = this.subSubmodels['crm.lead'] || {};
+        if (leadSubs['mail.message_enabled']) {
+          payload.partner_lead_enrichment.chatter_enrichment = { enabled: true };
+        }
+        if (leadSubs['mail.activity_enabled']) {
+          payload.partner_lead_enrichment.activity_enrichment = { enabled: true };
+        }
+      }
+      if (this.submodelSets['x_sales_action_sheet_enabled']) {
+        payload.partner_actionsheet_enrichment = { enabled: true };
+        // L2: sub-enrichments voor actiebladen
+        const asSubs = this.subSubmodels['x_sales_action_sheet'] || {};
+        if (asSubs['mail.message_enabled']) {
+          payload.partner_actionsheet_enrichment.chatter_enrichment = { enabled: true };
+        }
+        if (asSubs['mail.activity_enabled']) {
+          payload.partner_actionsheet_enrichment.activity_enrichment = { enabled: true };
+        }
+        if (asSubs['crm.lead_enabled']) {
+          payload.partner_actionsheet_enrichment.lead_enrichment = { enabled: true, filters: {} };
+        }
+      }
+    }
+
+    // x_web_visitor enrichments
+    if (model === 'x_web_visitor') {
+      // Source site filter (opt-out: alleen als subset geselecteerd)
+      const allSites = this._allSourceSites;
+      const selectedSites = this.webVisitorFilter.sourceSites;
+      if (allSites.length > 0 && selectedSites.length > 0 && selectedSites.length < allSites.length) {
+        payload.filters.push({ model, field: 'x_studio_source_site', operator: 'in', value: selectedSites });
+      }
+      // Bounce filters
+      if (this.webVisitorFilter.possibleBounce === 'exclude') {
+        payload.filters.push({ model, field: 'x_studio_possible_bounce', operator: '=', value: false });
+      } else if (this.webVisitorFilter.possibleBounce === 'only') {
+        payload.filters.push({ model, field: 'x_studio_possible_bounce', operator: '=', value: true });
+      }
+      if (this.webVisitorFilter.instantBounce === 'exclude') {
+        payload.filters.push({ model, field: 'x_studio_instant_bounce', operator: '=', value: false });
+      } else if (this.webVisitorFilter.instantBounce === 'only') {
+        payload.filters.push({ model, field: 'x_studio_instant_bounce', operator: '=', value: true });
+      }
+      // Touchpoint submodel
+      if (this.submodelSets['x_ad_touchpoint_enabled']) {
+        payload.visitor_touchpoint_enrichment = { enabled: true };
+      }
+      // Lead submodel (via x_studio_lead_ids)
+      if (this.submodelSets['crm.lead_enabled']) {
+        payload.visitor_lead_enrichment = { enabled: true, filters: {} };
+        const allWon = ['won', 'lost', 'pending'];
+        const selWon = this.leadEnrichment.filters.won_status;
+        if (selWon.length > 0 && selWon.length < allWon.length) {
+          payload.visitor_lead_enrichment.filters.won_status = selWon;
+        }
+      }
+    }
+
+    // x_ad_touchpoint filters (opt-out: alleen als subset geselecteerd)
+    if (model === 'x_ad_touchpoint') {
+      const all = this._adFilters;
+      const sel = this.adTouchpointFilter;
+      if (all.sources.length && sel.sources.length && sel.sources.length < all.sources.length) {
+        payload.filters.push({ model, field: 'x_studio_source', operator: 'in', value: sel.sources });
+      }
+      if (all.mediums.length && sel.mediums.length && sel.mediums.length < all.mediums.length) {
+        payload.filters.push({ model, field: 'x_studio_medium', operator: 'in', value: sel.mediums });
+      }
+      if (all.campaigns.length && sel.campaigns.length && sel.campaigns.length < all.campaigns.length) {
+        payload.filters.push({ model, field: 'x_studio_campaign_name', operator: 'in', value: sel.campaigns });
+      }
+    }
+
+    // x_ad_touchpoint enrichments
+    if (model === 'x_ad_touchpoint') {
+      if (this.submodelSets['x_web_visitor_enabled']) {
+        payload.touchpoint_visitor_enrichment = { enabled: true };
+        // L2: leads voor bezoekers
+        const visitSubs = this.subSubmodels['x_web_visitor'] || {};
+        if (visitSubs['crm.lead_enabled']) {
+          payload.touchpoint_visitor_enrichment.lead_enrichment = { enabled: true };
+        }
+      }
+    }
+
     if (this.aiPresetId && aiExportPresetsCache) {
       const preset = aiExportPresetsCache.find(p => p.id === this.aiPresetId);
       if (preset?.instruction) {
@@ -223,8 +474,19 @@ class WizardState {
     this.currentStep = 1; this.selectedModel = null; this.informationSets = {};
     this.timeFilter = { mode: null, quickPeriod: null, dateFrom: null, dateTo: null, field: null };
     this.apartmentsFilter = { min: null, max: null, include_zero: true };
-    this.leadEnrichment = { enabled: false, mode: 'include', filters: { won_status: [], stage_ids: [] }, property_groups: [], webActivity: false };
+    this.leadEnrichment = { enabled: false, mode: 'include', filters: { won_status: ['won', 'lost', 'pending'], stage_ids: [] }, property_groups: [], webActivity: false };
+    this.submodelSets = {};
+    this.subSubmodels = {};
+    this.partnerFilter = {
+      companyTypes:    [1, 3],
+      companyStatuses: ['Free Trial', 'Active', 'Inactive']
+    };
+    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'include', instantBounce: 'include' };
+    this._allSourceSites = []; this._sourceSitesInitialized = false;
+    this.adTouchpointFilter = { sources: [], mediums: [], campaigns: [] };
+    this._adFilters = { sources: [], mediums: [], campaigns: [] }; this._adFiltersInitialized = false;
     this.aiPresetId = null; this._expandedSet = null; this._showAddSet = false; this._showAddField = null;
+    this._saveSearchName = undefined; this._renamingSearchId = null; this._editingFromSavedSearch = null;
   }
 }
 const wizardState = new WizardState();
@@ -274,6 +536,151 @@ async function fetchCrmStages() {
     return [];
   } catch (e) { return []; }
 }
+
+async function fetchSourceSites() {
+  if (sourceSitesCache !== null) return sourceSitesCache;
+  try {
+    const res = await fetch('/insights/api/sales-insights/source-sites', { credentials: 'include' });
+    if (!res.ok) return [];
+    const { data } = await res.json();
+    sourceSitesCache = data?.sites || [];
+    return sourceSitesCache;
+  } catch (e) { console.warn('fetchSourceSites error:', e); return []; }
+}
+
+async function fetchTouchpointFilterValues() {
+  if (touchpointFilterValuesCache !== null) return touchpointFilterValuesCache;
+  try {
+    const res = await fetch('/insights/api/sales-insights/touchpoint-filter-values', { credentials: 'include' });
+    if (!res.ok) return { sources: [], mediums: [], campaigns: [] };
+    const { data } = await res.json();
+    touchpointFilterValuesCache = {
+      sources:   data?.sources   || [],
+      mediums:   data?.mediums   || [],
+      campaigns: data?.campaigns || []
+    };
+    return touchpointFilterValuesCache;
+  } catch (e) { console.warn('fetchTouchpointFilterValues error:', e); return { sources: [], mediums: [], campaigns: [] }; }
+}
+
+// ============================================================================
+// SAVED SEARCHES — API helpers
+// ============================================================================
+async function fetchSavedSearches() {
+  if (savedSearchesCache !== null) return savedSearchesCache;
+  try {
+    const res = await fetch('/insights/api/sales-insights/saved-searches', { credentials: 'include' });
+    if (!res.ok) return [];
+    const { data } = await res.json();
+    savedSearchesCache = data || [];
+    return savedSearchesCache;
+  } catch (e) { return []; }
+}
+
+function invalidateSavedSearches() { savedSearchesCache = null; }
+
+async function saveCurrentSearch() {
+  const name = (wizardState._saveSearchName || '').trim();
+  if (!name) { alert('Geef een naam op voor deze zoekopdracht.'); return; }
+  const snapshot = wizardState.toSnapshot();
+  const res = await fetch('/insights/api/sales-insights/saved-searches', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, wizard_state: snapshot })
+  });
+  if (!res.ok) { alert('Opslaan mislukt.'); return; }
+  wizardState._saveSearchName = undefined;
+  invalidateSavedSearches();
+  renderWizard();
+}
+
+async function renameSavedSearch(id, newName) {
+  const name = (newName || '').trim();
+  if (!name) return;
+  await fetch(`/insights/api/sales-insights/saved-searches/${id}`, {
+    method: 'PATCH', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  invalidateSavedSearches();
+  wizardState._renamingSearchId = null;
+  renderWizard();
+}
+
+async function deleteSavedSearch(id) {
+  if (!confirm('Zoekopdracht verwijderen?')) return;
+  await fetch(`/insights/api/sales-insights/saved-searches/${id}`, {
+    method: 'DELETE', credentials: 'include'
+  });
+  invalidateSavedSearches();
+  renderWizard();
+}
+
+function editSavedSearch(id) {
+  const s = savedSearchesCache?.find(x => x.id === id);
+  if (!s) return;
+  // Sla rollback-snapshot op zodat de gebruiker kan terugzetten
+  wizardState._editingFromSavedSearch = {
+    id: s.id,
+    name: s.name,
+    snapshot: JSON.parse(JSON.stringify(s.wizard_state))
+  };
+  wizardState.loadSnapshot(s.wizard_state);
+  wizardState.currentStep = 1;
+  renderWizard();
+}
+
+function runSavedSearch(id) {
+  const s = savedSearchesCache?.find(x => x.id === id);
+  if (!s) return;
+  const snapshot = JSON.parse(JSON.stringify(s.wizard_state));
+  // Pas eventuele periode-override toe
+  const override = savedSearchPeriodOverrides[id];
+  if (override !== undefined) {
+    if (!snapshot.timeFilter) snapshot.timeFilter = {};
+    if (override === null) {
+      snapshot.timeFilter.mode = null;
+    } else {
+      snapshot.timeFilter.mode = 'quick';
+      snapshot.timeFilter.quickPeriod = override;
+    }
+  }
+  wizardState.loadSnapshot(snapshot);
+  // Direct uitvoeren — geen stap 3 tussenstap nodig
+  executeQuery();
+}
+
+function setSavedSearchPeriod(id, period) {
+  // period = null (geen) | 'week' | 'month' | 'quarter' | 'year'
+  savedSearchPeriodOverrides[id] = period;
+  renderWizard();
+}
+
+async function saveSavedSearchChanges() {
+  const editing = wizardState._editingFromSavedSearch;
+  if (!editing) return;
+  const snapshot = wizardState.toSnapshot();
+  const res = await fetch(`/insights/api/sales-insights/saved-searches/${editing.id}`, {
+    method: 'PATCH', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wizard_state: snapshot })
+  });
+  if (!res.ok) { alert('Opslaan mislukt.'); return; }
+  invalidateSavedSearches();
+  wizardState._editingFromSavedSearch = null;
+  renderWizard();
+}
+
+function cancelEditSavedSearch() {
+  const editing = wizardState._editingFromSavedSearch;
+  if (!editing) return;
+  wizardState.loadSnapshot(editing.snapshot);
+  wizardState._editingFromSavedSearch = null;
+  wizardState.currentStep = 1;
+  renderWizard();
+}
+
+// ============================================================================
 
 async function saveNewSet(formData) {
   const res = await fetch('/insights/api/sales-insights/information-sets', {
@@ -332,27 +739,110 @@ function renderProgressBar() {
 // ============================================================================
 // RENDERING: Step 1 — Startpunt
 // ============================================================================
-function renderStep1() {
+async function renderStep1() {
+  const [modelsConfig, savedSearches] = await Promise.all([fetchModelsConfig(), fetchSavedSearches()]);
+  // Toon alleen modellen met can_be_startpoint !== false
+  const startpointEntries = Object.entries(MODEL_CONFIG).filter(([key]) => {
+    const dbModel = modelsConfig[key];
+    if (!dbModel) return true; // Niet in DB → tonen als fallback
+    return dbModel.can_be_startpoint !== false;
+  });
+
+  const savedSearchesHtml = savedSearches.length > 0 ? `
+    <div class="mb-8">
+      <h3 class="font-semibold text-base mb-3 flex items-center gap-2">
+        <i data-lucide="bookmark" class="w-4 h-4 text-primary"></i>
+        Mijn zoekopdrachten
+      </h3>
+      <div class="space-y-2">
+        ${savedSearches.map(s => {
+          const modelLabel = MODEL_CONFIG[s.wizard_state?.selectedModel]?.label || s.wizard_state?.selectedModel || '—';
+          const isRenaming = wizardState._renamingSearchId === s.id;
+          // Effectieve periode: override heeft voorrang op opgeslagen waarde
+          const hasOverride = Object.prototype.hasOwnProperty.call(savedSearchPeriodOverrides, s.id);
+          const savedPeriod = s.wizard_state?.timeFilter?.mode === 'quick'
+            ? s.wizard_state.timeFilter.quickPeriod
+            : (s.wizard_state?.timeFilter?.mode ? '—' : null);
+          const activePeriod = hasOverride ? savedSearchPeriodOverrides[s.id] : savedPeriod;
+          const periodLabels = { null: 'Geen', week: 'Week', month: 'Maand', quarter: 'Kwartaal', year: 'Jaar' };
+          const periodOptions = [null, 'week', 'month', 'quarter', 'year'];
+
+          return `
+          <div class="px-4 py-3 rounded-xl border border-base-200 bg-base-50 hover:border-primary/20 transition-all">
+            ${isRenaming ? `
+              <div class="flex gap-2 items-center">
+                <input id="rename-input-${s.id}" type="text" class="input input-bordered input-sm flex-1"
+                  value="${s.name.replace(/"/g, '&quot;')}"
+                  onkeydown="if(event.key==='Enter') renameSavedSearch('${s.id}', this.value); if(event.key==='Escape') { wizardState._renamingSearchId=null; renderWizard(); }" />
+                <button class="btn btn-sm btn-primary" onclick="renameSavedSearch('${s.id}', document.getElementById('rename-input-${s.id}').value)">OK</button>
+                <button class="btn btn-sm btn-ghost" onclick="wizardState._renamingSearchId=null; renderWizard();">✕</button>
+              </div>
+            ` : `
+              <div class="flex items-start justify-between gap-3 mb-2">
+                <div class="min-w-0">
+                  <div class="font-semibold text-sm truncate">${s.name}</div>
+                  <div class="text-xs text-base-content/40 flex items-center gap-1 mt-0.5">
+                    <i data-lucide="database" class="w-3 h-3"></i>${modelLabel}
+                  </div>
+                </div>
+                <div class="flex gap-1 shrink-0">
+                  <button class="btn btn-xs btn-ghost" title="Naam wijzigen" onclick="wizardState._renamingSearchId='${s.id}'; renderWizard();">
+                    <i data-lucide="pencil" class="w-3 h-3"></i>
+                  </button>
+                  <button class="btn btn-xs btn-ghost" title="Bewerken (volledige wizard)" onclick="editSavedSearch('${s.id}')">
+                    <i data-lucide="settings-2" class="w-3 h-3"></i>
+                  </button>
+                  <button class="btn btn-xs btn-ghost text-error" title="Verwijderen" onclick="deleteSavedSearch('${s.id}')">
+                    <i data-lucide="trash-2" class="w-3 h-3"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="flex gap-1 flex-wrap flex-1">
+                  ${periodOptions.map(p => {
+                    const isActive = activePeriod === p;
+                    const pStr = p === null ? 'null' : `'${p}'`;
+                    return `<button class="btn btn-xs ${isActive ? 'btn-accent' : 'btn-ghost border border-base-300'}"
+                      onclick="event.stopPropagation(); setSavedSearchPeriod('${s.id}', ${pStr});">
+                      ${periodLabels[p]}
+                    </button>`;
+                  }).join('')}
+                </div>
+                <button class="btn btn-sm btn-primary gap-1 shrink-0" onclick="runSavedSearch('${s.id}')">
+                  <i data-lucide="play" class="w-3 h-3"></i>Uitvoeren
+                </button>
+              </div>
+            `}
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="divider mt-6">Nieuw startpunt</div>
+    </div>` : '';
+
   return `
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
         <h2 class="card-title text-2xl mb-2">Stap 1: Startpunt</h2>
+        ${savedSearchesHtml}
         <p class="text-base-content/60 mb-6">Kies het model waarvan je wil vertrekken.</p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          ${Object.entries(MODEL_CONFIG).map(([key, cfg]) => {
+        <div class="grid grid-cols-2 gap-4">
+          ${startpointEntries.map(([key, cfg]) => {
             const sel = wizardState.selectedModel === key;
             return `
-              <button class="card border-2 text-left transition-all cursor-pointer hover:border-primary ${sel ? 'border-primary bg-primary/5' : 'border-base-300 bg-base-100'}"
+              <button class="group relative flex flex-col items-start gap-3 p-5 rounded-2xl border-2 text-left transition-all cursor-pointer
+                ${sel
+                  ? 'border-primary bg-primary/5 shadow-md'
+                  : 'border-base-200 bg-base-100 hover:border-primary/50 hover:bg-base-200/50 hover:shadow-sm'}"
                 onclick="wizardState.selectModel('${key}'); renderWizard();">
-                <div class="card-body py-4 px-5">
-                  <div class="flex items-center gap-3">
-                    <i data-lucide="${cfg.icon}" class="w-6 h-6 ${sel ? 'text-primary' : 'text-base-content/50'}"></i>
-                    <div class="flex-1">
-                      <div class="font-bold text-base">${cfg.label}</div>
-                      <div class="text-xs text-base-content/40">${key}</div>
-                    </div>
-                    ${sel ? '<i data-lucide="check-circle" class="w-5 h-5 text-primary"></i>' : ''}
+                <div class="flex items-center justify-between w-full">
+                  <div class="p-2 rounded-xl ${sel ? 'bg-primary/15' : 'bg-base-200 group-hover:bg-primary/10'} transition-colors">
+                    <i data-lucide="${cfg.icon}" class="w-5 h-5 ${sel ? 'text-primary' : 'text-base-content/50 group-hover:text-primary/70'}"></i>
                   </div>
+                  ${sel ? '<i data-lucide="check-circle" class="w-5 h-5 text-primary"></i>' : '<div class="w-5 h-5"></div>'}
+                </div>
+                <div>
+                  <div class="font-semibold text-sm ${sel ? 'text-primary' : 'text-base-content'}">${cfg.label}</div>
+                  <div class="text-xs text-base-content/40 mt-0.5 font-mono">${key}</div>
                 </div>
               </button>`;
           }).join('')}
@@ -492,7 +982,8 @@ async function renderStep2() {
   for (const submodelKey of submodelKeys) {
     const subCfg = MODEL_CONFIG[submodelKey] || {};
     const subSets = await fetchInformationSets(submodelKey);
-    const isLeadSubmodel = submodelKey === 'crm.lead';
+    // isLeadSubmodel: alleen voor x_sales_action_sheet → crm.lead (speciale enrichment-UI)
+    const isLeadSubmodel = submodelKey === 'crm.lead' && model === 'x_sales_action_sheet';
 
     // State: reuse leadEnrichment for crm.lead, use generic submodelSets for others
     const isSubEnabled = isLeadSubmodel
@@ -572,6 +1063,7 @@ async function renderStep2() {
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info shrink-0 w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               <span class="text-xs">id, name, stage_id, active, won_status worden altijd opgehaald.</span>
             </div>` : ''}
+          ${renderL2Submodels(submodelKey)}
         </div>
       ` : ''}
     `;
@@ -636,6 +1128,58 @@ function deselectAllLeadSets() {
   renderWizard();
 }
 
+/**
+ * Render L2-submodel toggles voor een gegeven L1-submodel.
+ * Toont enable/disable knoppen voor elk submodel dat het L1-model zelf heeft.
+ * Puur sync — geen DB-ophaling nodig, alleen MODEL_CONFIG.
+ *
+ * @param {string} parentKey  - bv. 'crm.lead', 'x_sales_action_sheet'
+ * @returns {string} HTML
+ */
+function renderL2Submodels(parentKey) {
+  const l2Keys = MODEL_CONFIG[parentKey]?.submodels || [];
+  if (!l2Keys.length) return '';
+
+  // Context-aware descriptions: eerst parentKey|l2Key, dan l2Key als fallback
+  const L2_DESCRIPTIONS = {
+    'mail.message':                    'Notities, emails en veldwijzigingen uit de chatter',
+    'mail.activity':                   'Geplande activiteiten (taken, afspraken, herinneringen)',
+    'crm.lead':                        'Leads gelinkt aan dit actieblad (via x_studio_as_opportunity_ids)',
+    'x_sales_action_sheet':            'Actiebladen gelinkt aan dit record',
+    'x_web_visitor|x_ad_touchpoint':   'Advertentie-klikken van deze bezoeker',
+    'x_web_visitor|crm.lead':          'Leads gelinkt aan dit bezoekersprofiel (via x_studio_lead_ids)',
+    'x_ad_touchpoint|x_web_visitor':   'Bezoeker die op deze advertentie klikte (met optioneel leads als L2)'
+  };
+
+  const rows = l2Keys.map(l2Key => {
+    const l2Cfg = MODEL_CONFIG[l2Key] || {};
+    const isEnabled = !!(wizardState.subSubmodels[parentKey]?.[l2Key + '_enabled']);
+    const desc = L2_DESCRIPTIONS[parentKey + '|' + l2Key] || L2_DESCRIPTIONS[l2Key] || '';
+
+    return `
+      <label class="label cursor-pointer justify-start gap-3 py-2 hover:bg-base-200 rounded-lg px-2 transition-colors"
+             onclick="event.preventDefault(); if(!wizardState.subSubmodels['${parentKey}']) wizardState.subSubmodels['${parentKey}'] = {}; wizardState.subSubmodels['${parentKey}']['${l2Key}_enabled'] = ${!isEnabled}; renderWizard();">
+        <input type="checkbox" class="checkbox checkbox-xs checkbox-secondary pointer-events-none"
+          ${isEnabled ? 'checked' : ''}
+        />
+        <div class="flex-1">
+          <div class="label-text text-sm font-medium">${l2Cfg.label || l2Key}</div>
+          ${desc ? `<div class="label-text-alt text-xs text-base-content/50">${desc}</div>` : ''}
+        </div>
+        ${isEnabled ? `<span class="badge badge-xs badge-secondary badge-outline">aan</span>` : ''}
+      </label>`;
+  }).join('');
+
+  return `
+    <div class="mt-4 pt-3 border-t border-base-200">
+      <div class="text-xs font-semibold text-secondary/60 uppercase tracking-wide mb-2 flex items-center gap-1">
+        <i data-lucide="layers" class="w-3 h-3"></i>
+        Subdata van ${MODEL_CONFIG[parentKey]?.label || parentKey}
+      </div>
+      <div class="space-y-1">${rows}</div>
+    </div>`;
+}
+
 async function submitEditSet(setId) {
   const label = document.getElementById(`es-label-${setId}`)?.value?.trim();
   const desc  = document.getElementById(`es-desc-${setId}`)?.value?.trim();
@@ -684,6 +1228,54 @@ async function submitNewField(setId) {
 // ============================================================================
 // RENDERING: Step 3 — Filters & Export
 // ============================================================================
+/**
+ * Generieke multi-select pill filter.
+ * Opt-out: alle opties standaard aan, gebruiker kan uitzetten.
+ *
+ * @param {Object} cfg
+ * @param {string}   cfg.label         - Sectietitel
+ * @param {string}   [cfg.hint]        - Kleine hint tekst
+ * @param {Array}    cfg.options        - [{ value, label, badge? }]
+ * @param {Array}    cfg.state          - Huidig geselecteerde waarden
+ * @param {string}   cfg.toggleFn       - JS expressie voor toggle (bijv. 'wizardState.togglePartnerType')
+ * @param {string}   cfg.allCode        - JS code om alles te selecteren
+ * @param {string}   [cfg.noneCode]     - JS code om alles te deselecteren
+ * @returns {string} HTML
+ */
+function renderMultiPillFilter({ label, hint, options, state, toggleFn, allCode, noneCode }) {
+  const allValues = options.map(o => o.value);
+  const allSelected = allValues.every(v => state.includes(v));
+  const noneSelected = state.length === 0;
+  const isFiltered = !allSelected;
+
+  const pills = options.map(opt => {
+    const active = state.includes(opt.value);
+    const valStr = typeof opt.value === 'string' ? `'${opt.value}'` : opt.value;
+    return `
+      <button class="btn btn-sm gap-1 transition-all ${active ? 'btn-primary' : 'btn-ghost border border-base-300 opacity-50'}"
+        onclick="${toggleFn}(${valStr}); renderWizard();">
+        ${opt.badge ? `<span class="badge badge-xs ${opt.badge}"></span>` : ''}
+        ${opt.label}
+      </button>`;
+  }).join('');
+
+  return `
+    <div class="bg-base-200/60 rounded-xl p-4 mb-3">
+      <div class="flex items-center justify-between mb-3">
+        <span class="font-semibold text-sm flex items-center gap-2">
+          ${label}
+          ${isFiltered ? `<span class="badge badge-xs badge-warning">gefilterd</span>` : `<span class="badge badge-xs badge-ghost">alles</span>`}
+        </span>
+        <div class="flex gap-1">
+          ${isFiltered ? `<button class="btn btn-xs btn-ghost" onclick="${allCode}; renderWizard();">Alles aan</button>` : ''}
+          ${!noneSelected && noneCode ? `<button class="btn btn-xs btn-ghost text-error" onclick="${noneCode}; renderWizard();">Alles uit</button>` : ''}
+        </div>
+      </div>
+      ${hint ? `<div class="text-xs text-base-content/50 mb-2">${hint}</div>` : ''}
+      <div class="flex flex-wrap gap-2">${pills}</div>
+    </div>`;
+}
+
 async function renderStep3() {
   const model = wizardState.selectedModel || 'x_sales_action_sheet';
   const modelCfg = MODEL_CONFIG[model] || {};
@@ -691,13 +1283,121 @@ async function renderStep3() {
   const tf = wizardState.timeFilter;
   const presets = await fetchAiExportPresets();
   let crmStages = [];
-  if (wizardState.leadEnrichment.enabled || (modelCfg.extraFilters || []).includes('won_status')) {
+  if (wizardState.leadEnrichment.enabled || (modelCfg.extraFilters || []).includes('won_status') || !!wizardState.submodelSets['crm.lead_enabled']) {
     crmStages = await fetchCrmStages();
     // Init stage filter to all stages when first loaded
     if (crmStages.length && !wizardState.leadEnrichment.filters.stage_ids.length) {
       wizardState.leadEnrichment.filters.stage_ids = crmStages.map(s => s.id);
     }
     if (crmStages.length) wizardState._totalStages = crmStages.length;
+  }
+
+  // Ad touchpoint filters (source / medium / campaign)
+  let adFiltersHtml = '';
+  if ((modelCfg.extraFilters || []).includes('ad_filters')) {
+    const adVals = await fetchTouchpointFilterValues();
+    if (!wizardState._adFiltersInitialized && (adVals.sources.length || adVals.mediums.length || adVals.campaigns.length)) {
+      wizardState.adTouchpointFilter.sources   = [...adVals.sources];
+      wizardState.adTouchpointFilter.mediums   = [...adVals.mediums];
+      wizardState.adTouchpointFilter.campaigns = [...adVals.campaigns];
+      wizardState._adFilters = { ...adVals };
+      wizardState._adFiltersInitialized = true;
+    }
+    const adParts = [];
+    if (adVals.sources.length) {
+      adParts.push(renderMultiPillFilter({
+        label: 'Bron (source)',
+        options: adVals.sources.map(s => ({ value: s, label: s })),
+        state: wizardState.adTouchpointFilter.sources,
+        toggleFn: 'wizardState.toggleAdSource',
+        allCode:  'wizardState.adTouchpointFilter.sources=[' + adVals.sources.map(s => JSON.stringify(s)).join(',') + ']',
+        noneCode: 'wizardState.adTouchpointFilter.sources=[]'
+      }));
+    }
+    if (adVals.mediums.length) {
+      adParts.push(renderMultiPillFilter({
+        label: 'Medium',
+        options: adVals.mediums.map(m => ({ value: m, label: m })),
+        state: wizardState.adTouchpointFilter.mediums,
+        toggleFn: 'wizardState.toggleAdMedium',
+        allCode:  'wizardState.adTouchpointFilter.mediums=[' + adVals.mediums.map(m => JSON.stringify(m)).join(',') + ']',
+        noneCode: 'wizardState.adTouchpointFilter.mediums=[]'
+      }));
+    }
+    if (adVals.campaigns.length) {
+      adParts.push(renderMultiPillFilter({
+        label: 'Campagne',
+        options: adVals.campaigns.map(c => ({ value: c, label: c.length > 40 ? c.slice(0, 38) + '…' : c })),
+        state: wizardState.adTouchpointFilter.campaigns,
+        toggleFn: 'wizardState.toggleAdCampaign',
+        allCode:  'wizardState.adTouchpointFilter.campaigns=[' + adVals.campaigns.map(c => JSON.stringify(c)).join(',') + ']',
+        noneCode: 'wizardState.adTouchpointFilter.campaigns=[]'
+      }));
+    }
+    adFiltersHtml = adParts.join('');
+  }
+
+  // Bounce filter voor x_web_visitor
+  let bounceHtml = '';
+  if ((modelCfg.extraFilters || []).includes('bounce')) {
+    const pb = wizardState.webVisitorFilter.possibleBounce;
+    const ib = wizardState.webVisitorFilter.instantBounce;
+    const pbFiltered = pb !== 'include';
+    const ibFiltered = ib !== 'include';
+    const bounceFiltered = pbFiltered || ibFiltered;
+    const modeBtn = (field, mode, current, label, style) =>
+      `<button class="btn btn-sm ${current === mode ? style : 'btn-ghost border border-base-300 opacity-60'}"
+        onclick="wizardState.webVisitorFilter.${field}='${mode}'; renderWizard();">${label}</button>`;
+    bounceHtml = `
+      <div class="bg-base-200/60 rounded-xl p-4 mb-3">
+        <div class="flex items-center justify-between mb-3">
+          <span class="font-semibold text-sm flex items-center gap-2">
+            Bounces
+            ${bounceFiltered ? '<span class="badge badge-xs badge-warning">gefilterd</span>' : '<span class="badge badge-xs badge-ghost">alles</span>'}
+          </span>
+          ${bounceFiltered ? `<button class="btn btn-xs btn-ghost" onclick="wizardState.webVisitorFilter.possibleBounce='include'; wizardState.webVisitorFilter.instantBounce='include'; renderWizard();">Reset</button>` : ''}
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <div class="text-xs text-base-content/60 mb-2 font-medium">Possible bounce</div>
+            <div class="flex gap-1 flex-wrap">
+              ${modeBtn('possibleBounce', 'include', pb, 'Alle', 'btn-neutral')}
+              ${modeBtn('possibleBounce', 'exclude', pb, 'Excl. bounces', 'btn-success')}
+              ${modeBtn('possibleBounce', 'only',    pb, 'Alleen bounces', 'btn-warning')}
+            </div>
+          </div>
+          <div>
+            <div class="text-xs text-base-content/60 mb-2 font-medium">Instant bounce</div>
+            <div class="flex gap-1 flex-wrap">
+              ${modeBtn('instantBounce', 'include', ib, 'Alle', 'btn-neutral')}
+              ${modeBtn('instantBounce', 'exclude', ib, 'Excl. bounces', 'btn-success')}
+              ${modeBtn('instantBounce', 'only',    ib, 'Alleen bounces', 'btn-warning')}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Source site filter voor x_web_visitor
+  let sourceSiteHtml = '';
+  if ((modelCfg.extraFilters || []).includes('source_site')) {
+    const sites = await fetchSourceSites();
+    if (sites.length && !wizardState._sourceSitesInitialized) {
+      wizardState.webVisitorFilter.sourceSites = [...sites];
+      wizardState._allSourceSites = [...sites];
+      wizardState._sourceSitesInitialized = true;
+    }
+    if (sites.length) {
+      sourceSiteHtml = renderMultiPillFilter({
+        label: 'Bron website',
+        hint: 'Website waarvan de bezoeker afkomstig is (x_studio_source_site)',
+        options: sites.map(s => ({ value: s, label: s })),
+        state: wizardState.webVisitorFilter.sourceSites,
+        toggleFn: 'wizardState.toggleSourceSite',
+        allCode: 'wizardState.webVisitorFilter.sourceSites=[' + sites.map(s => JSON.stringify(s)).join(',') + ']',
+        noneCode: 'wizardState.webVisitorFilter.sourceSites=[]'
+      });
+    }
   }
 
   const quickPeriods = [
@@ -710,42 +1410,92 @@ async function renderStep3() {
 
   // Show lead filters if:
   // a) actionsheet with lead enrichment enabled, OR
-  // b) crm.lead is the direct model
+  // b) crm.lead is the direct/primary model, OR
+  // c) crm.lead is enabled as a submodel (L1)
   const showLeadFilters = wizardState.leadEnrichment.enabled ||
-    (modelCfg.extraFilters || []).includes('won_status');
-  const leadFiltersHtml = showLeadFilters ? `
-    <div class="divider mt-6">Lead filters (Optioneel)</div>
-    <div class="form-control mb-4">
-      <label class="label">
-        <span class="label-text font-semibold">Won Status</span>
-        <span class="label-text-alt text-base-content/40">Vink uit om te excluderen</span>
-      </label>
-      <div class="flex gap-4">
-        ${['won','lost','pending'].map(s => `
-          <label class="label cursor-pointer gap-2">
-            <input type="checkbox" class="checkbox checkbox-sm"
-              ${wizardState.leadEnrichment.filters.won_status.includes(s) ? 'checked' : ''}
-              onchange="handleWonStatusChange('${s}', this.checked); renderWizard();" />
-            <span class="label-text capitalize">${s}</span>
+    (modelCfg.extraFilters || []).includes('won_status') ||
+    !!wizardState.submodelSets['crm.lead_enabled'];
+
+  // --- Uniform filter sections via renderMultiPillFilter ---
+
+  // Partner type (res.partner: x_studio_company_type)
+  const PARTNER_COMPANY_TYPES = [
+    { value: 1, label: "VME's in advies (zelfbeheer)" },
+    { value: 3, label: "VME's in beheer (onder professional)" },
+    { value: 2, label: 'Professionals' }
+  ];
+  const PARTNER_COMPANY_STATUSES = [
+    { value: 'Free Trial', label: 'Free Trial' },
+    { value: 'Active',     label: 'Actief' },
+    { value: 'Inactive',   label: 'Inactief' },
+    { value: 'Internal',   label: 'Internal' },
+    { value: 'Blocked',    label: 'Geblokkeerd' }
+  ];
+
+  const partnerTypeHtml = (modelCfg.extraFilters || []).includes('partner_type')
+    ? renderMultiPillFilter({
+        label: 'Type partner',
+        options: PARTNER_COMPANY_TYPES,
+        state: wizardState.partnerFilter.companyTypes,
+        toggleFn: 'wizardState.togglePartnerType',
+        allCode: 'wizardState.partnerFilter.companyTypes=[1,3,2]',
+        noneCode: 'wizardState.partnerFilter.companyTypes=[]'
+      })
+    : '';
+
+  const companyStatusHtml = (modelCfg.extraFilters || []).includes('company_status')
+    ? renderMultiPillFilter({
+        label: 'Status',
+        options: PARTNER_COMPANY_STATUSES,
+        state: wizardState.partnerFilter.companyStatuses,
+        toggleFn: 'wizardState.toggleCompanyStatus',
+        allCode: "wizardState.partnerFilter.companyStatuses=['Free Trial','Active','Inactive','Internal','Blocked']",
+        noneCode: 'wizardState.partnerFilter.companyStatuses=[]'
+      })
+    : '';
+
+  // Won status (crm.lead: won_status) — opt-out
+  const wonStatusHtml = showLeadFilters
+    ? renderMultiPillFilter({
+        label: 'Lead status',
+        options: [
+          { value: 'won',     label: 'Gewonnen' },
+          { value: 'lost',    label: 'Verloren' },
+          { value: 'pending', label: 'Lopend'   }
+        ],
+        state: wizardState.leadEnrichment.filters.won_status,
+        toggleFn: 'wizardState.toggleWonStatus',
+        allCode: "wizardState.leadEnrichment.filters.won_status=['won','lost','pending']",
+        noneCode: "wizardState.leadEnrichment.filters.won_status=[]"
+      })
+    : '';
+
+  // CRM stages — card met grid (complexere UX, apart gehouden)
+  const stagesFiltered = crmStages.length > 0 &&
+    wizardState.leadEnrichment.filters.stage_ids.length < crmStages.length;
+  const stagesHtml = (showLeadFilters && crmStages.length > 0) ? `
+    <div class="bg-base-200/60 rounded-xl p-4 mb-3">
+      <div class="flex items-center justify-between mb-3">
+        <span class="font-semibold text-sm flex items-center gap-2">
+          CRM Stages
+          ${stagesFiltered
+            ? '<span class="badge badge-xs badge-warning">gefilterd</span>'
+            : '<span class="badge badge-xs badge-ghost">alles</span>'}
+        </span>
+        <div class="flex gap-1">
+          ${stagesFiltered ? `<button class="btn btn-xs btn-ghost" onclick="selectStagesUpTo(${crmStages[crmStages.length-1]?.id||0}); renderWizard();">Alles aan</button>` : ''}
+          <button class="btn btn-xs btn-ghost text-error" onclick="wizardState.setLeadStageFilter([]); renderWizard();">Wissen</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-1 max-h-48 overflow-y-auto">
+        ${crmStages.map(s => `
+          <label class="label cursor-pointer justify-start gap-2 rounded hover:bg-base-300 px-2 py-1">
+            <input type="checkbox" class="checkbox checkbox-sm checkbox-primary"
+              ${wizardState.leadEnrichment.filters.stage_ids.includes(s.id) ? 'checked' : ''}
+              onchange="handleStageChange(${s.id}, this.checked); renderWizard();" />
+            <span class="label-text text-xs"><span class="badge badge-xs mr-1">${s.sequence}</span>${s.name}</span>
           </label>`).join('')}
       </div>
-    </div>
-    <div class="form-control">
-      <label class="label"><span class="label-text font-semibold">CRM Stages</span><span class="label-text-alt text-base-content/40">Vink uit om te excluderen</span></label>
-      ${crmStages.length > 0 ? `
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 border border-base-300 rounded">
-          ${crmStages.map(s => `
-            <label class="label cursor-pointer justify-start gap-2">
-              <input type="checkbox" class="checkbox checkbox-sm" ${wizardState.leadEnrichment.filters.stage_ids.includes(s.id) ? 'checked' : ''}
-                onchange="handleStageChange(${s.id}, this.checked); renderWizard();" />
-              <span class="label-text text-xs"><span class="badge badge-xs mr-1">${s.sequence}</span>${s.name}</span>
-            </label>`).join('')}
-        </div>
-        <div class="flex gap-2 mt-2">
-          <button class="btn btn-xs btn-ghost" onclick="selectStagesUpTo(${crmStages[crmStages.length-1]?.id||0}); renderWizard();">Alles</button>
-          <button class="btn btn-xs btn-ghost" onclick="wizardState.setLeadStageFilter([]); renderWizard();">Wissen</button>
-        </div>
-      ` : '<div class="text-sm text-error">Stages konden niet geladen worden.</div>'}
     </div>` : '';
 
   const apartmentsHtml = (modelCfg.extraFilters || []).includes('apartments') ? `
@@ -778,53 +1528,93 @@ async function renderStep3() {
 
         <!-- Tijdsfilter -->
         <div class="divider">Tijdsfilter</div>
-        ${dateFields.length > 1 ? `
-          <div class="form-control mb-3">
-            <label class="label"><span class="label-text font-semibold">Filter op</span></label>
-            <select class="select select-bordered select-sm w-full max-w-xs"
-              onchange="wizardState.timeFilter.field = this.value; renderWizard();">
-              ${dateFields.map(df => `<option value="${df.field}" ${tf.field === df.field ? 'selected' : ''}>${df.label}</option>`).join('')}
-            </select>
-          </div>` : ''}
+        <div class="bg-base-200/60 rounded-xl p-4 mb-2">
 
-        <div class="flex flex-wrap gap-2 mb-3">
-          ${[{k:null,l:'Geen filter'},{k:'quick',l:'Snelle periode'},{k:'from',l:'Vanaf datum'},{k:'range',l:'Specifieke periode'}].map(o => `
-            <button class="btn btn-sm ${tf.mode === o.k ? 'btn-primary' : 'btn-outline'}"
-              onclick="wizardState.timeFilter.mode = ${o.k === null ? 'null' : `'${o.k}'`}; ${o.k === 'quick' ? `wizardState.timeFilter.quickPeriod = wizardState.timeFilter.quickPeriod || 'month';` : ''} renderWizard();">
-              ${o.l}
-            </button>`).join('')}
+          <!-- Veld-selector: altijd zichtbaar -->
+          <div class="flex items-center gap-2 mb-4">
+            <i data-lucide="calendar" class="w-4 h-4 text-base-content/50 shrink-0"></i>
+            <span class="text-sm text-base-content/60">Filteren op datum:</span>
+            ${dateFields.length > 1 ? `
+              <select class="select select-bordered select-xs font-semibold"
+                onchange="wizardState.timeFilter.field = this.value; renderWizard();">
+                ${dateFields.map(df => `<option value="${df.field}" ${tf.field === df.field ? 'selected' : ''}>${df.label}</option>`).join('')}
+              </select>` : `
+              <span class="badge badge-outline badge-sm font-semibold">${dateFields[0]?.label || 'Aanmaakdatum'}</span>`}
+          </div>
+
+          <!-- Modus tabs -->
+          <div class="flex flex-wrap gap-2 mb-3">
+            ${[
+              { k: null,    l: 'Geen',         icon: 'x-circle' },
+              { k: 'quick', l: 'Snelle keuze', icon: 'zap' },
+              { k: 'from',  l: 'Vanaf datum',  icon: 'calendar-arrow-right' },
+              { k: 'range', l: 'Eigen bereik', icon: 'calendar-range' }
+            ].map(o => `
+              <button class="btn btn-sm gap-1 ${tf.mode === o.k ? 'btn-primary' : 'btn-ghost border border-base-300'}"
+                onclick="wizardState.timeFilter.mode = ${o.k === null ? 'null' : `'${o.k}'`}; ${o.k === 'quick' ? `wizardState.timeFilter.quickPeriod = wizardState.timeFilter.quickPeriod || 'month';` : ''} renderWizard();">
+                <i data-lucide="${o.icon}" class="w-3 h-3"></i>${o.l}
+              </button>`).join('')}
+          </div>
+
+          <!-- Snelle periode -->
+          ${tf.mode === 'quick' ? `
+            <div class="flex flex-wrap gap-2 mb-3">
+              ${quickPeriods.map(p => `
+                <button class="btn btn-sm ${tf.quickPeriod === p.key ? 'btn-accent' : 'btn-outline border-base-300'}"
+                  onclick="wizardState.timeFilter.quickPeriod = '${p.key}'; renderWizard();">
+                  ${p.label}
+                </button>`).join('')}
+            </div>` : ''}
+
+          <!-- Vanaf datum -->
+          ${tf.mode === 'from' ? `
+            <div class="flex items-center gap-3 mb-3">
+              <div class="form-control">
+                <label class="label py-1"><span class="label-text text-xs font-semibold">Vanaf</span></label>
+                <input type="date" class="input input-bordered input-sm" value="${tf.dateFrom||''}"
+                  onchange="wizardState.timeFilter.dateFrom = this.value; renderWizard();" />
+              </div>
+              <div class="self-end pb-2 text-base-content/40 text-sm">→ vandaag</div>
+            </div>` : ''}
+
+          <!-- Eigen bereik -->
+          ${tf.mode === 'range' ? `
+            <div class="flex items-center gap-3 mb-3">
+              <div class="form-control">
+                <label class="label py-1"><span class="label-text text-xs font-semibold">Van</span></label>
+                <input type="date" class="input input-bordered input-sm" value="${tf.dateFrom||''}"
+                  onchange="wizardState.timeFilter.dateFrom = this.value; renderWizard();" />
+              </div>
+              <div class="self-end pb-2 text-base-content/40">→</div>
+              <div class="form-control">
+                <label class="label py-1"><span class="label-text text-xs font-semibold">Tot en met</span></label>
+                <input type="date" class="input input-bordered input-sm" value="${tf.dateTo||''}"
+                  onchange="wizardState.timeFilter.dateTo = this.value; renderWizard();" />
+              </div>
+            </div>` : ''}
+
+          <!-- Samenvatting van actief filter -->
+          ${periodLabel ? `
+            <div class="flex items-center gap-2 mt-1 pt-3 border-t border-base-300">
+              <i data-lucide="check-circle" class="w-4 h-4 text-success shrink-0"></i>
+              <span class="text-xs text-base-content/60">Actief filter:</span>
+              <span class="badge badge-success badge-sm font-mono">${periodLabel}</span>
+            </div>` : `
+            <div class="flex items-center gap-2 mt-1 pt-3 border-t border-base-300">
+              <i data-lucide="minus-circle" class="w-4 h-4 text-base-content/30 shrink-0"></i>
+              <span class="text-xs text-base-content/40">Geen tijdsfilter actief — alle records worden opgehaald.</span>
+            </div>`}
+
         </div>
 
-        ${tf.mode === 'quick' ? `
-          <div class="flex flex-wrap gap-2 mb-2">
-            ${quickPeriods.map(p => `<button class="btn btn-sm ${tf.quickPeriod === p.key ? 'btn-primary' : 'btn-outline'}" onclick="wizardState.timeFilter.quickPeriod = '${p.key}'; renderWizard();">${p.label}</button>`).join('')}
-          </div>
-          <div class="text-xs text-base-content/50">${periodLabel}</div>` : ''}
-
-        ${tf.mode === 'from' ? `
-          <div class="form-control max-w-xs">
-            <label class="label"><span class="label-text font-semibold">Vanaf</span></label>
-            <input type="date" class="input input-bordered input-sm" value="${tf.dateFrom||''}"
-              onchange="wizardState.timeFilter.dateFrom = this.value; renderWizard();" />
-            <label class="label"><span class="label-text-alt text-base-content/50">Tot en met vandaag</span></label>
-          </div>` : ''}
-
-        ${tf.mode === 'range' ? `
-          <div class="grid grid-cols-2 gap-4">
-            <div class="form-control">
-              <label class="label"><span class="label-text font-semibold">Van</span></label>
-              <input type="date" class="input input-bordered input-sm" value="${tf.dateFrom||''}"
-                onchange="wizardState.timeFilter.dateFrom = this.value; renderWizard();" />
-            </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text font-semibold">Tot en met</span></label>
-              <input type="date" class="input input-bordered input-sm" value="${tf.dateTo||''}"
-                onchange="wizardState.timeFilter.dateTo = this.value; renderWizard();" />
-            </div>
-          </div>` : ''}
-
+        ${partnerTypeHtml}
+        ${companyStatusHtml}
+        ${sourceSiteHtml}
+        ${bounceHtml}
+        ${adFiltersHtml}
         ${apartmentsHtml}
-        ${leadFiltersHtml}
+        ${wonStatusHtml}
+        ${stagesHtml}
 
         <!-- AI Preset -->
         <div class="divider mt-6">AI instructie</div>
@@ -835,6 +1625,27 @@ async function renderStep3() {
             ${presets.map(p => `<option value="${p.id}" ${wizardState.aiPresetId === p.id ? 'selected' : ''}>${p.label}${p.description ? ' — ' + p.description : ''}</option>`).join('')}
           </select>
           ${(() => { const p = presets.find(p => p.id === wizardState.aiPresetId); return p?.instruction ? `<div class="mt-2 p-3 bg-base-200 rounded text-xs text-base-content/60 italic">"${p.instruction.slice(0,180)}${p.instruction.length>180?'...':''}"</div>` : ''; })()}
+        </div>
+
+        <!-- Opslaan als zoekopdracht -->
+        <div class="divider mt-6">Opslaan</div>
+        <div id="save-search-section">
+          ${wizardState._saveSearchName !== undefined ? `
+            <div class="flex gap-2 items-center">
+              <input type="text" class="input input-bordered input-sm flex-1" placeholder="Naam voor deze zoekopdracht…"
+                value="${(wizardState._saveSearchName || '').replace(/"/g, '&quot;')}"
+                oninput="wizardState._saveSearchName = this.value;"
+                onkeydown="if(event.key==='Enter') saveCurrentSearch(); if(event.key==='Escape') { wizardState._saveSearchName=undefined; renderWizard(); }" />
+              <button class="btn btn-sm btn-primary" onclick="saveCurrentSearch()">
+                <i data-lucide="bookmark-check" class="w-4 h-4"></i>Opslaan
+              </button>
+              <button class="btn btn-sm btn-ghost" onclick="wizardState._saveSearchName=undefined; renderWizard();">Annuleren</button>
+            </div>
+          ` : `
+            <button class="btn btn-outline btn-sm gap-2" onclick="wizardState._saveSearchName=''; renderWizard();">
+              <i data-lucide="bookmark-plus" class="w-4 h-4"></i>Opslaan als zoekopdracht
+            </button>
+          `}
         </div>
 
       </div>
@@ -881,10 +1692,23 @@ async function renderWizard() {
   const container = document.getElementById('wizard-container');
   if (!container) return;
   let stepContent = '';
-  if (wizardState.currentStep === 1) stepContent = renderStep1();
+  if (wizardState.currentStep === 1) stepContent = await renderStep1();
   else if (wizardState.currentStep === 2) stepContent = await renderStep2();
   else if (wizardState.currentStep === 3) stepContent = await renderStep3();
-  container.innerHTML = renderProgressBar() + stepContent + renderActions();
+
+  // Banner: bezig met bewerken van een opgeslagen zoekopdracht
+  const editing = wizardState._editingFromSavedSearch;
+  const editingBanner = editing ? `
+    <div class="alert bg-warning/10 border border-warning/30 rounded-xl mb-4 flex items-center gap-3 py-3 px-4">
+      <i data-lucide="pencil" class="w-4 h-4 text-warning shrink-0"></i>
+      <span class="text-sm flex-1">Je bewerkt <strong>${editing.name}</strong></span>
+      <button class="btn btn-xs btn-warning gap-1" onclick="saveSavedSearchChanges()">
+        <i data-lucide="save" class="w-3 h-3"></i>Wijzigingen opslaan
+      </button>
+      <button class="btn btn-xs btn-ghost" onclick="cancelEditSavedSearch()">Terugzetten</button>
+    </div>` : '';
+
+  container.innerHTML = renderProgressBar() + editingBanner + stepContent + renderActions();
   if (window.lucide) lucide.createIcons();
 }
 
@@ -1236,10 +2060,13 @@ function showError(error) {
   const box = document.getElementById('resultsModalBox');
   box.innerHTML = '<div class="flex items-center gap-2 mb-4">'
     + '<h3 class="font-bold text-lg">Fout</h3>'
-    + '<button class="btn btn-ghost btn-sm btn-circle ml-auto" onclick="document.getElementById(\'resultsModal\').close()">✕</button>'
+    + '<button class="btn btn-ghost btn-sm btn-circle ml-auto" onclick="closeResultsModal()">✕</button>'
     + '</div>'
     + '<div class="alert alert-error"><span>❌ ' + error.message + '</span></div>'
-    + '<div class="mt-4 text-right"><button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'resultsModal\').close()">Sluiten</button></div>';
+    + '<div class="mt-4 flex gap-2 justify-end">'
+    + '<button class="btn btn-outline btn-sm gap-2" onclick="refineQuery()"><i data-lucide="sliders-horizontal" class="w-3 h-3"></i>Aanpassen</button>'
+    + '<button class="btn btn-ghost btn-sm" onclick="closeAndReset()">Sluiten</button>'
+    + '</div>';
   document.getElementById('resultsModal').showModal();
 }
 // Last fetched data — kept in memory so the modal can re-export
@@ -1305,7 +2132,7 @@ function renderResultsModal(data) {
     + '<h3 class="font-bold text-lg leading-tight">Klaar</h3>'
     + '<p class="text-sm text-base-content/60">' + count + ' record' + (count !== 1 ? 's' : '') + ' opgehaald — ' + allCols.length + ' velden</p>'
     + '</div>'
-    + '<button class="btn btn-ghost btn-sm btn-circle ml-auto" onclick="document.getElementById(\'resultsModal\').close()">✕</button>'
+    + '<button class="btn btn-ghost btn-sm btn-circle ml-auto" onclick="closeResultsModal()">✕</button>'
     + '</div>'
 
     + '<div class="divider my-2 text-xs">Downloaden</div>'
@@ -1322,8 +2149,11 @@ function renderResultsModal(data) {
     + '<div class="divider my-2 text-xs">Voorbeeld</div>'
     + previewHtml
 
-    + '<div class="mt-4 text-right">'
-    + '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'resultsModal\').close()">Sluiten</button>'
+    + '<div class="mt-4 flex gap-2 justify-end">'
+    + '<button class="btn btn-outline btn-sm gap-2" onclick="refineQuery()">'
+    + '<i data-lucide="sliders-horizontal" class="w-3 h-3"></i>Aanpassen'
+    + '</button>'
+    + '<button class="btn btn-ghost btn-sm" onclick="closeAndReset()">Sluiten</button>'
     + '</div>';
 
   const modal = document.getElementById('resultsModal');
@@ -1334,6 +2164,26 @@ function renderResultsModal(data) {
   const c = document.getElementById('results-container');
   if (c) c.innerHTML = '';
 }
+// Sluit popup zonder state te wissen (wizard blijft op huidige stap)
+function closeResultsModal() {
+  document.getElementById('resultsModal')?.close();
+}
+
+// Aanpassen: sluit popup, ga naar stap 3 (filters + export)
+function refineQuery() {
+  document.getElementById('resultsModal')?.close();
+  wizardState.currentStep = 3;
+  renderWizard();
+}
+
+// Sluiten: sluit popup + reset naar startscherm
+function closeAndReset() {
+  document.getElementById('resultsModal')?.close();
+  wizardState.resetState();
+  wizardState.currentStep = 1;
+  renderWizard();
+}
+
 function formatValue(v) {
   if (v === null || v === undefined) return '<span class="text-base-content/40">—</span>';
   if (typeof v === 'boolean') return v ? '✅' : '❌';

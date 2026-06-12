@@ -1,136 +1,153 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="nl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Administration - OpenVME Operations Manager</title>
+    <title>Beheer - OpenVME Operations Manager</title>
+    <script>
+      (function() {
+        var t = localStorage.getItem('selectedTheme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="bg-base-200" style="overflow-y: scroll;">
     <div id="navbar"></div>
-    
+
     <div style="padding-top: 48px;">
-      <div class="pb-8">
-        <div class="container mx-auto px-6 max-w-7xl">
-          <div class="mb-8">
-            <h1 class="text-4xl font-bold mb-2">Administration</h1>
-            <p class="text-base-content/60">Manage users, invites, and module access</p>
+      <div class="container mx-auto px-6 py-8 max-w-7xl">
+        <div class="mb-6">
+          <h1 class="text-2xl font-bold">Beheer</h1>
+          <p class="text-sm text-base-content/60 mt-1">Beheer gebruikers en moduletoegang</p>
+        </div>
+
+        <div class="stats border border-base-200 bg-base-100 shadow-sm w-full mb-6">
+          <div class="stat py-4">
+            <div class="stat-figure text-primary">
+              <i data-lucide="users" class="w-7 h-7"></i>
+            </div>
+            <div class="stat-title text-sm">Gebruikers</div>
+            <div class="stat-value text-primary text-2xl" id="statsUsers"><div class="skeleton h-8 w-16 rounded"></div></div>
+            <div class="stat-desc">Actieve accounts</div>
           </div>
 
-          <div class="stats shadow w-full mb-8">
-            <div class="stat">
-              <div class="stat-figure text-primary">
-                <i data-lucide="users" class="w-8 h-8"></i>
-              </div>
-              <div class="stat-title">Total Users</div>
-              <div class="stat-value text-primary" id="statsUsers">0</div>
-              <div class="stat-desc">Active accounts</div>
+          <div class="stat py-4">
+            <div class="stat-figure text-accent">
+              <i data-lucide="package" class="w-7 h-7"></i>
             </div>
-            
-            <div class="stat">
-              <div class="stat-figure text-accent">
-                <i data-lucide="package" class="w-8 h-8"></i>
+            <div class="stat-title text-sm">Actieve modules</div>
+            <div class="stat-value text-accent text-2xl" id="statsModules"><div class="skeleton h-8 w-16 rounded"></div></div>
+            <div class="stat-desc">Beschikbare modules</div>
+          </div>
+        </div>
+
+        <div role="tablist" class="tabs tabs-lifted">
+          <!-- ============ TAB: GEBRUIKERS ============ -->
+          <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Gebruikers" id="tabUsers" checked />
+          <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <h2 class="text-base font-semibold">Gebruikersbeheer</h2>
+              <input type="text" id="userSearch" class="input input-bordered input-sm w-full max-w-xs" placeholder="Zoek op naam of e-mail&hellip;">
+            </div>
+
+            <div id="usersTable" class="overflow-x-auto">
+              <div class="flex justify-center py-20">
+                <span class="loading loading-spinner loading-md text-primary"></span>
               </div>
-              <div class="stat-title">Active Modules</div>
-              <div class="stat-value text-accent" id="statsModules">0</div>
-              <div class="stat-desc">Available modules</div>
             </div>
           </div>
 
-          <div role="tablist" class="tabs tabs-lifted tabs-lg mb-4">
-            <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Users" checked />
-            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
-              <div class="card bg-base-100 shadow-xl">
-                <div class="card-body">
-                  <div class="flex justify-between items-center mb-6">
-                    <h2 class="card-title text-2xl">User Management</h2>
-                  </div>
-                  
-                  <div id="usersTable" class="overflow-x-auto">
-                    <div class="flex justify-center py-8">
-                      <span class="loading loading-spinner loading-lg"></span>
-                    </div>
+          <!-- ============ TAB: GEBRUIKER AANMAKEN ============ -->
+          <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Aanmaken" id="tabCreate" />
+          <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+            <h2 class="text-base font-semibold mb-4">Nieuwe gebruiker aanmaken</h2>
+
+            <form id="createUserForm" class="max-w-2xl">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                <label class="form-control w-full">
+                  <div class="label"><span class="label-text">E-mailadres <span class="text-error">*</span></span></div>
+                  <input type="email" name="email" placeholder="naam@mymmo.com" class="input input-bordered input-sm w-full" required />
+                </label>
+
+                <label class="form-control w-full">
+                  <div class="label"><span class="label-text">Wachtwoord <span class="text-error">*</span></span></div>
+                  <input type="password" name="password" placeholder="Minimaal 8 tekens" class="input input-bordered input-sm w-full" autocomplete="new-password" required />
+                  <div class="label py-1"><span class="label-text-alt text-xs text-base-content/50">Minimaal 8 tekens</span></div>
+                </label>
+              </div>
+
+              <label class="form-control w-full max-w-md mb-2">
+                <div class="label"><span class="label-text">Rol <span class="text-error">*</span></span></div>
+                <select name="role" class="select select-bordered select-sm" required>
+                  <option value="user">Gebruiker</option>
+                  <option value="manager">Manager</option>
+                  <option value="marketing_signature">Marketing Signatures</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+
+              <div class="form-control mb-4">
+                <div class="label"><span class="label-text">Modules</span></div>
+                <div id="moduleCheckboxes" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+                  <div class="flex justify-center py-2">
+                    <span class="loading loading-spinner loading-sm"></span>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Create User" />
-            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
-              <div class="card bg-base-100 shadow-xl">
-                <div class="card-body">
-                  <div class="flex justify-between items-center mb-6">
-                    <h2 class="card-title text-2xl">Create New User</h2>
-                  </div>
-                  
-                  <form id="createUserForm" class="mb-8">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text">Email Address</span>
-                        </label>
-                        <input type="email" name="email" placeholder="user@example.com" class="input input-bordered" required />
-                      </div>
-                      
-                      <div class="form-control">
-                        <label class="label">
-                          <span class="label-text">Password</span>
-                        </label>
-                        <input type="password" name="password" placeholder="Enter password" class="input input-bordered" required />
-                      </div>
-                    </div>
-                    
-                    <div class="form-control mb-4">
-                      <label class="label">
-                        <span class="label-text">Role</span>
-                      </label>
-                      <select name="role" class="select select-bordered" required>
-                        <option value="user">User</option>
-                        <option value="manager">Manager</option>
-                        <option value="marketing_signature">Marketing Signatures</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </div>
-                    
-                    <div class="form-control mb-4">
-                      <label class="label">
-                        <span class="label-text">Modules</span>
-                      </label>
-                      <div id="moduleCheckboxes" class="flex flex-wrap gap-4">
-                        <div class="flex justify-center py-2">
-                          <span class="loading loading-spinner loading-sm"></span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary gap-2">
-                      <i data-lucide="user-plus" class="w-4 h-4"></i>
-                      Create User
-                    </button>
-                  </form>
-                </div>
-              </div>
-            </div>
+              <button type="submit" class="btn btn-primary btn-sm gap-2" id="createUserBtn">
+                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                <span data-role="createBtnLabel">Gebruiker aanmaken</span>
+              </button>
+            </form>
+          </div>
 
-            <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Modules" />
-            <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
-              <div class="card bg-base-100 shadow-xl">
-                <div class="card-body">
-                  <h2 class="card-title mb-4">Available Modules</h2>
-                  <div id="modulesTable" class="overflow-x-auto">
-                    <div class="flex justify-center py-8">
-                      <span class="loading loading-spinner loading-lg"></span>
-                    </div>
-                  </div>
-                </div>
+          <!-- ============ TAB: MODULES ============ -->
+          <input type="radio" name="admin_tabs" role="tab" class="tab" aria-label="Modules" id="tabModules" />
+          <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+            <h2 class="text-base font-semibold mb-4">Beschikbare modules</h2>
+            <div id="modulesTable" class="overflow-x-auto">
+              <div class="flex justify-center py-20">
+                <span class="loading loading-spinner loading-md text-primary"></span>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- ====== Bevestigingsmodal (generiek) ====== -->
+    <dialog id="confirmModal" class="modal">
+      <div class="modal-box max-w-md">
+        <h3 class="font-bold text-lg" id="confirmTitle">Bevestigen</h3>
+        <p class="py-3 text-sm text-base-content/70" id="confirmBody"></p>
+        <div class="modal-action">
+          <button class="btn btn-sm" id="confirmOkBtn" data-action="confirmOk">Bevestigen</button>
+          <button class="btn btn-ghost btn-sm" data-action="closeConfirm">Annuleren</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+    </dialog>
+
+    <!-- ====== Modules-bewerken-modal ====== -->
+    <dialog id="modulesModal" class="modal">
+      <div class="modal-box max-w-md">
+        <h3 class="font-bold text-lg mb-1">Modules bewerken</h3>
+        <p class="text-sm text-base-content/60 mb-3" id="modulesModalSub"></p>
+        <div class="space-y-1 max-h-72 overflow-y-auto" id="modulesModalList"></div>
+        <div class="modal-action">
+          <button class="btn btn-primary btn-sm" id="saveModulesBtn" data-action="saveUserModules">Opslaan</button>
+          <button class="btn btn-ghost btn-sm" data-action="closeModulesModal">Annuleren</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+    </dialog>
+
+    <!-- ====== Toast-container ====== -->
+    <div id="toastContainer" class="toast toast-end z-50"></div>
 
     <script src="/admin-dashboard.js"></script>
 </body>

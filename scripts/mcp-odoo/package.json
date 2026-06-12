@@ -1,0 +1,13 @@
+{
+  "name": "mcp-odoo",
+  "version": "1.0.0",
+  "description": "Lokale MCP-server voor Odoo mymmo",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  }
+}

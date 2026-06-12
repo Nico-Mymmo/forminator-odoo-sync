@@ -1,107 +1,183 @@
 /**
- * Home Dashboard UI
+ * Home — login + dashboard (LEGACY ui.js)
+ *
+ * Regels: uitsluitend string-concatenatie (+), geen backticks,
+ * geen variabelen in inline event handlers.
+ * Alle interactie via addEventListener / data-action of element-listeners.
  */
 
 import { navbar } from '../../lib/components/navbar.js';
 
-export function loginPageUI() {
-  return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - OpenVME Operations Manager</title>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-</head>
-<body class="bg-base-200">
-    <div class="flex items-center justify-center min-h-screen">
-      <div class="card w-96 bg-base-100 shadow-xl">
-        <div class="card-body">
-          <h2 class="card-title text-2xl justify-center mb-4">🔐 Login</h2>
-          <p class="text-center text-sm text-base-content/60 mb-4">OpenVME Operations Manager</p>
-          <div class="form-control mb-2">
-            <label class="label">
-              <span class="label-text">Email</span>
-            </label>
-            <input type="email" id="emailInput" placeholder="admin@mymmo.com" class="input input-bordered" autocomplete="username">
-          </div>
-          <div class="form-control mb-4">
-            <label class="label">
-              <span class="label-text">Password</span>
-            </label>
-            <input type="password" id="passwordInput" placeholder="••••••••" class="input input-bordered" autocomplete="current-password" onkeypress="if(event.key==='Enter') login()">
-          </div>
-          <div id="loginError" class="alert alert-error mb-2" style="display: none;">
-            <span id="loginErrorMessage"></span>
-          </div>
-          <button onclick="login()" class="btn btn-primary w-full">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
-              <polyline points="10 17 15 12 10 7"/>
-              <line x1="15" x2="3" y1="12" y2="12"/>
-            </svg>
-            Login
-          </button>
-        </div>
-      </div>
-    </div>
-    
-    <script>
-      async function login() {
-        const email = document.getElementById('emailInput').value;
-        const password = document.getElementById('passwordInput').value;
-        const errorDiv = document.getElementById('loginError');
-        const errorMsg = document.getElementById('loginErrorMessage');
-        
-        if (!email || !password) {
-          errorMsg.textContent = 'Please enter email and password';
-          errorDiv.style.display = 'flex';
-          return;
-        }
-        
-        try {
-          errorDiv.style.display = 'none';
-          
-          const response = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-          });
-          
-          const result = await response.json();
-          
-          if (result.success && result.token) {
-            localStorage.setItem('adminToken', result.token);
-            window.location.href = '/';
-          } else {
-            errorMsg.textContent = result.error || 'Login failed';
-            errorDiv.style.display = 'flex';
-          }
-        } catch (err) {
-          errorMsg.textContent = 'Connection error: ' + err.message;
-          errorDiv.style.display = 'flex';
-        }
-      }
-      
-      lucide.createIcons();
-    </script>
-</body>
-</html>`;
+// Gedeelde <head>-regels: vroege thema-init (geen flits) + CDN-assets
+function pageHead(title) {
+  return [
+    '<head>',
+    '    <meta charset="UTF-8">',
+    '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+    '    <title>' + title + ' - OpenVME Operations Manager</title>',
+    '    <script>(function(){',
+    "    var t=localStorage.getItem('selectedTheme')||'light';",
+    "    document.documentElement.setAttribute('data-theme',t);",
+    '    })()</' + 'script>',
+    '    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />',
+    '    <script src="https://cdn.tailwindcss.com"></' + 'script>',
+    '    <script src="https://unpkg.com/lucide@latest"></' + 'script>',
+    '</head>'
+  ].join('\n');
 }
 
+export function loginPageUI() {
+  const loginScript = [
+    '<script>',
+    '(function () {',
+    "  var form = document.getElementById('loginForm');",
+    "  var emailInput = document.getElementById('emailInput');",
+    "  var passwordInput = document.getElementById('passwordInput');",
+    "  var loginBtn = document.getElementById('loginBtn');",
+    '',
+    '  function setLoading(loading) {',
+    "    var label = loginBtn.querySelector('[data-role=\"loginBtnLabel\"]');",
+    '    loginBtn.disabled = loading;',
+    '    if (loading) {',
+    "      label.innerHTML = '<span class=\"loading loading-spinner loading-xs\"></span> Bezig\\u2026';",
+    '    } else {',
+    "      label.textContent = 'Inloggen';",
+    '    }',
+    '  }',
+    '',
+    '  function showError(msg) {',
+    "    document.getElementById('loginErrorMessage').textContent = msg;",
+    "    document.getElementById('loginError').classList.remove('hidden');",
+    '  }',
+    '',
+    '  function hideError() {',
+    "    document.getElementById('loginError').classList.add('hidden');",
+    '  }',
+    '',
+    "  form.addEventListener('submit', async function (e) {",
+    '    e.preventDefault();',
+    '    if (loginBtn.disabled) return;',
+    '',
+    '    var email = emailInput.value.trim();',
+    '    var password = passwordInput.value;',
+    '',
+    '    // Client-side validatie vóór de fetch',
+    "    emailInput.classList.toggle('input-error', !email);",
+    "    passwordInput.classList.toggle('input-error', !password);",
+    '    if (!email || !password) {',
+    "      showError('Vul je e-mailadres en wachtwoord in');",
+    '      return;',
+    '    }',
+    '',
+    '    hideError();',
+    '    setLoading(true);',
+    '',
+    '    try {',
+    "      var response = await fetch('/api/auth/login', {",
+    "        method: 'POST',",
+    "        headers: { 'Content-Type': 'application/json' },",
+    "        credentials: 'include',",
+    '        body: JSON.stringify({ email: email, password: password })',
+    '      });',
+    '',
+    '      var result = null;',
+    '      try { result = await response.json(); } catch (parseErr) { result = null; }',
+    '',
+    '      if (response.ok && result && result.success) {',
+    "        if (result.token) localStorage.setItem('adminToken', result.token);",
+    "        window.location.href = '/';",
+    '        return;',
+    '      }',
+    '',
+    '      setLoading(false);',
+    '      if (response.status === 401) {',
+    '        // Foute gegevens: wachtwoord leegmaken, veld markeren, focus terug',
+    "        showError('Inloggen mislukt. Controleer je gegevens.');",
+    "        passwordInput.value = '';",
+    "        passwordInput.classList.add('input-error');",
+    '        passwordInput.focus();',
+    '      } else {',
+    '        // Server-/andere fout: velden blijven staan',
+    "        showError('Verbindingsfout. Probeer het opnieuw.');",
+    '      }',
+    '    } catch (err) {',
+    '      // Netwerkfout: velden blijven staan',
+    '      setLoading(false);',
+    "      showError('Verbindingsfout. Probeer het opnieuw.');",
+    '    }',
+    '  });',
+    '',
+    '  lucide.createIcons();',
+    '})();',
+    '</' + 'script>'
+  ].join('\n');
+
+  return '<!DOCTYPE html>\n'
+    + '<html lang="nl">\n'
+    + pageHead('Inloggen') + '\n'
+    + '<body class="bg-base-200">\n'
+    + '    <div class="flex items-center justify-center min-h-screen px-4">\n'
+    + '      <div class="card bg-base-100 border border-base-200 shadow-sm w-96">\n'
+    + '        <div class="card-body">\n'
+    + '          <div class="flex flex-col items-center gap-2 mb-4">\n'
+    + '            <div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">\n'
+    + '              <i data-lucide="home" class="w-6 h-6 text-primary"></i>\n'
+    + '            </div>\n'
+    + '            <h1 class="text-2xl font-bold">Inloggen</h1>\n'
+    + '            <p class="text-sm text-base-content/60">OpenVME Operations Manager</p>\n'
+    + '          </div>\n'
+    + '\n'
+    + '          <form id="loginForm" action="#" novalidate>\n'
+    + '            <label class="form-control w-full mb-2">\n'
+    + '              <div class="label"><span class="label-text">E-mailadres</span></div>\n'
+    + '              <input type="email" id="emailInput" placeholder="naam@mymmo.com"\n'
+    + '                     class="input input-bordered input-sm w-full" autocomplete="username" required>\n'
+    + '            </label>\n'
+    + '\n'
+    + '            <label class="form-control w-full mb-3">\n'
+    + '              <div class="label"><span class="label-text">Wachtwoord</span></div>\n'
+    + '              <input type="password" id="passwordInput" placeholder="••••••••"\n'
+    + '                     class="input input-bordered input-sm w-full" autocomplete="current-password" required>\n'
+    + '            </label>\n'
+    + '\n'
+    + '            <!-- Foutmelding: vaste plek boven de knop -->\n'
+    + '            <div id="loginError" class="alert alert-error text-sm py-2 px-3 mb-3 hidden" role="alert">\n'
+    + '              <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>\n'
+    + '              <span id="loginErrorMessage"></span>\n'
+    + '            </div>\n'
+    + '\n'
+    + '            <button type="submit" id="loginBtn" class="btn btn-primary btn-sm w-full">\n'
+    + '              <i data-lucide="log-in" class="w-4 h-4"></i>\n'
+    + '              <span data-role="loginBtnLabel">Inloggen</span>\n'
+    + '            </button>\n'
+    + '          </form>\n'
+    + '\n'
+    + '          <p class="text-xs text-base-content/50 text-center mt-3">\n'
+    + '            Geen account of wachtwoord vergeten? Vraag je beheerder.\n'
+    + '          </p>\n'
+    + '        </div>\n'
+    + '      </div>\n'
+    + '    </div>\n'
+    + '\n'
+    + loginScript + '\n'
+    + '</body>\n'
+    + '</html>';
+}
+
+// Alias voor consistente naamgeving met andere modules
+export const homeLoginUI = loginPageUI;
+
 export function homeDashboardUI(user) {
-  // Get user's modules - extract module objects from user_modules array
-  // Filter out removed modules and utility modules (shown in navbar, not the grid)
+  // Modules van de gebruiker: module-objecten uit de user_modules-array halen.
+  // Verwijderde en utility-modules (navbar-knoppen) horen niet in het grid.
   const REMOVED_MODULES = ['forminator_sync'];
-  const UTILITY_MODULES = ['asset_manager', 'admin'];
+  const UTILITY_MODULES = ['asset_manager', 'admin', 'claude_integration'];
   const userModules = user.modules || [];
   const allModules = userModules
-    .map(function(um) { return um.module || um; })
-    .filter(function(m) { return !REMOVED_MODULES.includes(m.code) && !UTILITY_MODULES.includes(m.code); });
+    .map(function (um) { return um.module || um; })
+    .filter(function (m) { return m && !REMOVED_MODULES.includes(m.code) && !UTILITY_MODULES.includes(m.code); });
 
-  // Icon mapping — keyed by module code
+  // Lucide-iconen per module-code
   const iconMap = {
     'home':                    'home',
     'admin':                   'settings',
@@ -117,9 +193,11 @@ export function homeDashboardUI(user) {
     'claude_integration':      'bot'
   };
 
-  const moduleCards = allModules.map(function(module) {
+  const welcomeName = user.full_name || user.username || user.email || '';
+
+  const moduleCards = allModules.map(function (module) {
     const icon = iconMap[module.code] || iconMap[module.icon] || 'box';
-    return '<a href="' + module.route + '" class="card bg-base-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group border border-base-200 hover:border-primary/30">'
+    return '<a href="' + module.route + '" class="card bg-base-100 border border-base-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-primary/30 transition-all cursor-pointer group">'
       + '<div class="card-body items-center text-center gap-3 py-8">'
       + '<div class="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">'
       + '<i data-lucide="' + icon + '" class="w-7 h-7 text-primary"></i>'
@@ -130,76 +208,38 @@ export function homeDashboardUI(user) {
       + '</a>';
   }).join('');
 
-  return `<!DOCTYPE html>
-<html lang="en" data-theme="light">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Home - OpenVME Operations Manager</title>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-</head>
-<body class="bg-base-200">
-    ${navbar(user)}
-    
-    <div style="padding-top: 48px;">
-      <div class="container mx-auto px-6 py-8 max-w-7xl">
-        <!-- Header -->
-        <div class="mb-8">
-          <h1 class="text-4xl font-bold mb-2">Welcome, ${user.username || user.full_name || user.email}</h1>
-          <p class="text-base-content/60">Select a module to get started</p>
-        </div>
+  // Lege staat: gecentreerd icoon + instructieve tekst
+  const emptyState = '<div class="flex flex-col items-center justify-center py-20 text-center">'
+    + '<i data-lucide="layout-dashboard" class="w-12 h-12 text-base-content/40 mb-4"></i>'
+    + '<p class="text-base-content/40">Je hebt nog geen modules. Vraag je beheerder om toegang.</p>'
+    + '</div>';
 
-        <!-- Module Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          ${moduleCards}
-        </div>
-        
-        ${allModules.length === 0 ? `
-          <div class="alert alert-info">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            <span>No modules assigned yet. Contact your administrator.</span>
-          </div>
-        ` : ''}
-      </div>
-    </div>
-    
-    <script>
-      // Initialize theme
-      function changeTheme(theme) {
-        document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('selectedTheme', theme);
-      }
-      
-      function initTheme() {
-        const savedTheme = localStorage.getItem('selectedTheme') || 'light';
-        document.documentElement.setAttribute('data-theme', savedTheme);
-        const selector = document.getElementById('themeSelector');
-        if (selector) {
-          selector.value = savedTheme;
-        }
-      }
-      
-      async function logout() {
-        try {
-          await fetch('/api/auth/logout', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            credentials: 'include'
-          });
-        } catch (err) {
-          console.error('Logout error:', err);
-        }
-        localStorage.removeItem('adminToken');
-        window.location.href = '/';
-      }
-      
-      initTheme();
-      lucide.createIcons();
-    </script>
-</body>
-</html>`;
+  const gridSection = allModules.length > 0
+    ? '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">' + moduleCards + '</div>'
+    : emptyState;
+
+  return '<!DOCTYPE html>\n'
+    + '<html lang="nl">\n'
+    + pageHead('Home') + '\n'
+    + '<body class="bg-base-200">\n'
+    + navbar(user) + '\n'
+    + '\n'
+    + '    <div style="padding-top: 48px;">\n'
+    + '      <div class="container mx-auto px-6 py-8 max-w-7xl">\n'
+    + '        <!-- Kop -->\n'
+    + '        <div class="mb-8">\n'
+    + '          <h1 class="text-2xl font-bold">Welkom, ' + welcomeName + '</h1>\n'
+    + '          <p class="text-sm text-base-content/60 mt-1">Kies een module om te beginnen</p>\n'
+    + '        </div>\n'
+    + '\n'
+    + '        <!-- Module-grid of lege staat -->\n'
+    + '        ' + gridSection + '\n'
+    + '      </div>\n'
+    + '    </div>\n'
+    + '\n'
+    + '    <script>\n'
+    + '      lucide.createIcons();\n'
+    + '    </' + 'script>\n'
+    + '</body>\n'
+    + '</html>';
 }
