@@ -2330,6 +2330,26 @@ async function updateInformationSetField(context) {
   }
 }
 
+/**
+ * DELETE /api/sales-insights/information-set-fields/:id
+ * Admin only. Verwijder een veld uit een informatieset.
+ */
+async function deleteInformationSetField(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  try {
+    const { env, params } = context;
+    const id = params?.id;
+    if (!id) return new Response(JSON.stringify({ success: false, error: { message: 'id is verplicht' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    const supabase = getSupabaseClient(env);
+    const { error } = await supabase.from('information_set_fields').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
 // ============================================================================
 // SAVED SEARCHES
 // ============================================================================
@@ -2536,6 +2556,7 @@ export const routes = {
   'POST /api/sales-insights/information-set-fields': createInformationSetField,
   'PATCH /api/sales-insights/information-sets/:id': updateInformationSet,
   'PATCH /api/sales-insights/information-set-fields/:id': updateInformationSetField,
+  'DELETE /api/sales-insights/information-set-fields/:id': deleteInformationSetField,
   'GET /api/sales-insights/saved-searches': listSavedSearches,
   'POST /api/sales-insights/saved-searches': createSavedSearch,
   'PATCH /api/sales-insights/saved-searches/:id': updateSavedSearch,

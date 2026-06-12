@@ -553,9 +553,38 @@ export const routes = {
           photoUrl:     photoUrl           || null
         })),
         getMarketingSettings(context.env)
-          .then(r => {
+          .then(async r => {
             const c = r?.config || {};
-            if (!c.eventPromoEnabled || !c.eventTitle) return null;
+            if (!c.eventPromoEnabled || (!c.eventId && !c.eventTitle)) return null;
+            // Always fetch live title/date from Odoo so renaming an event is reflected immediately
+            if (c.eventId) {
+              try {
+                const rows = await searchRead(context.env, {
+                  model: 'x_webinar',
+                  domain: [['id', '=', c.eventId]],
+                  fields: ['x_name', 'x_studio_event_datetime'],
+                  limit: 1
+                });
+                const ev = rows?.[0];
+                if (ev) {
+                  let date = c.eventDate || null;
+                  if (ev.x_studio_event_datetime) {
+                    try {
+                      date = new Date(ev.x_studio_event_datetime.replace(' ', 'T') + 'Z')
+                        .toLocaleDateString('nl-BE', {
+                          timeZone: 'Europe/Brussels',
+                          day: 'numeric', month: 'long', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit'
+                        });
+                    } catch (_) { /* keep stored date */ }
+                  }
+                  return { id: c.eventId, title: ev.x_name || c.eventTitle, date };
+                }
+              } catch (err) {
+                console.warn(`${LOG_PREFIX} Live event title fetch failed for eventId ${c.eventId}:`, err.message);
+              }
+            }
+            if (!c.eventTitle) return null;
             return { id: c.eventId || null, title: c.eventTitle, date: c.eventDate || null };
           })
           .catch(() => null)

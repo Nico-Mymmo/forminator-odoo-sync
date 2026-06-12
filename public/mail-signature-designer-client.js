@@ -472,8 +472,10 @@ function applyConfigToForm(config) {
   set('eventPromoEnabled', config.eventPromoEnabled);
   set('eventId',           config.eventId        ?? '');
   _pendingEventId = config.eventId ? String(config.eventId) : null;  // stash for post-loadEvents restore
-  set('eventTitle',        config.eventTitle      ?? '');
-  set('eventDate',         config.eventDate       ?? '');
+  // Do NOT set eventTitle/eventDate from stored config — they may be stale if the event was renamed.
+  // onEventSelect() will populate these from live Odoo data after loadEvents() completes.
+  set('eventTitle', '');
+  set('eventDate',  '');
   set('eventEyebrow',         config.eventEyebrow         || 'Schrijf je in');
   set('eventImageUrl',        config.eventImageUrl        ?? '');
   set('eventImageMaxHeight',  config.eventImageMaxHeight  ?? '');
@@ -502,15 +504,8 @@ function applyConfigToForm(config) {
   toggleCond('fallback-banner-fields',    !!config.showBanner);
   toggleCond('disclaimer-fields',          !!config.showDisclaimer);
 
-  // Restore event metadata display (badge count restored after loadEvents)
-  if (promoOn && config.eventTitle) {
-    const metaDiv   = $('event-meta');
-    const metaTitle = $('event-meta-title');
-    const metaDate  = $('event-meta-date');
-    if (metaDiv)   metaDiv.classList.remove('hidden');
-    if (metaTitle) metaTitle.textContent = config.eventTitle;
-    if (metaDate)  metaDate.textContent  = config.eventDate || '';
-  }
+  // Event metadata display is intentionally NOT set here from stored config (may be stale).
+  // onEventSelect() will populate it with live Odoo data after loadEvents() completes.
 }
 
 // ════════════════════════════════════════════════════════
@@ -591,13 +586,12 @@ async function updatePreview() {
   setPreviewState('loading');
 
   const config   = getFormConfig();
-  // If eventId is set but eventTitle is empty (config saved before event was selected,
-  // or event is no longer in the upcoming dropdown), look it up live from _allEvents.
-  if (config.eventId && !config.eventTitle) {
+  // Always use the live Odoo title/date from _allEvents so renames are reflected immediately.
+  if (config.eventId) {
     const ev = _allEvents.find(e => e.id === config.eventId);
     if (ev) {
       config.eventTitle = ev.title;
-      if (!config.eventDate) config.eventDate = formatEventDate(ev.datetime);
+      config.eventDate  = formatEventDate(ev.datetime);
     }
   }
   // Ghost/anonymous userData — marketing preview focuses on the marketing block only

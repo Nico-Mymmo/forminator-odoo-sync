@@ -98,6 +98,15 @@ const MODEL_CONFIG = {
   }
 };
 
+
+
+// Spider diagram: global state
+const COMM_MODELS = new Set(['mail.message', 'mail.activity']);
+let _spiderPan = { x: 0, y: 0 };
+let _spiderScale = 1;
+let _spiderModel = null;
+let _nodePositions = {};
+let _spiderPanCleanup = null;
 // ============================================================================
 // WIZARD STATE
 // ============================================================================
@@ -121,7 +130,9 @@ class WizardState {
     this._expandedSet = null;
     this._showAddSet = false;
     this._showAddField = null; // set_id of which set is open for adding a field
+    this._adminOpen = false;     // beheermodal open
     this._editingSet = null;        // set_id being edited
+    this._previewSet = null;         // set_id currently previewed (eye icon)
     this._editingField = null;      // field id being edited
     this._totalStages = 0;          // total available stages, for 'all selected' detection
     this._saveSearchName = undefined;    // undefined = hidden, string = input visible
@@ -485,7 +496,7 @@ class WizardState {
     this._allSourceSites = []; this._sourceSitesInitialized = false;
     this.adTouchpointFilter = { sources: [], mediums: [], campaigns: [] };
     this._adFilters = { sources: [], mediums: [], campaigns: [] }; this._adFiltersInitialized = false;
-    this.aiPresetId = null; this._expandedSet = null; this._showAddSet = false; this._showAddField = null;
+    this.aiPresetId = null; this._expandedSet = null; this._showAddSet = false; this._showAddField = null; this._previewSet = null; this._adminOpen = false;
     this._saveSearchName = undefined; this._renamingSearchId = null; this._editingFromSavedSearch = null;
   }
 }
@@ -717,6 +728,15 @@ async function updateField(fieldId, updates) {
   return data.data;
 }
 
+async function deleteField(fieldId) {
+  const res = await fetch(`/insights/api/sales-insights/information-set-fields/${fieldId}`, {
+    method: 'DELETE', credentials: 'include'
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error?.message);
+  informationSetsCache = {};
+}
+
 async function saveNewField(formData) {
   const res = await fetch('/insights/api/sales-insights/information-set-fields', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -833,7 +853,7 @@ async function renderStep1() {
                 ${sel
                   ? 'border-primary bg-primary/5 shadow-md'
                   : 'border-base-200 bg-base-100 hover:border-primary/50 hover:bg-base-200/50 hover:shadow-sm'}"
-                onclick="wizardState.selectModel('${key}'); renderWizard();">
+                onclick="wizardState.selectModel('${key}'); wizardState.currentStep = 2; renderWizard();">
                 <div class="flex items-center justify-between w-full">
                   <div class="p-2 rounded-xl ${sel ? 'bg-primary/15' : 'bg-base-200 group-hover:bg-primary/10'} transition-colors">
                     <i data-lucide="${cfg.icon}" class="w-5 h-5 ${sel ? 'text-primary' : 'text-base-content/50 group-hover:text-primary/70'}"></i>
@@ -852,247 +872,545 @@ async function renderStep1() {
 }
 
 // ============================================================================
-// RENDERING: Step 2 — Wat ophalen
 // ============================================================================
+// ============================================================================
+// ============================================================================
+// RENDERING: Step 2 — Spider Diagram
+// ============================================================================
+
+function toSafeId(k)  { return k.replace(/[^a-z0-9]/gi, '_'); }
+
+function getCurrentNodePos(key) {
+  if (_nodePositions[key]) return _nodePositions[key];
+  const el = document.getElementById('sn-' + toSafeId(key));
+  if (!el) return null;
+  return { x: parseInt(el.style.left), y: parseInt(el.style.top) };
+}
+
+function updateSpiderLines() {
+  const svg = document.querySelector('#spider-canvas svg');
+  if (!svg) return;
+  svg.querySelectorAll('line[data-s]').forEach(line => {
+    const sp = getCurrentNodePos(line.dataset.s);
+    const dp = getCurrentNodePos(line.dataset.d);
+    if (sp && dp) { line.setAttribute('x1',sp.x); line.setAttribute('y1',sp.y); line.setAttribute('x2',dp.x); line.setAttribute('y2',dp.y); }
+  });
+  svg.querySelectorAll('circle[data-s]').forEach(c => {
+    const sp = getCurrentNodePos(c.dataset.s);
+    const dp = getCurrentNodePos(c.dataset.d);
+    if (sp && dp) { c.setAttribute('cx', Math.round((sp.x+dp.x)/2)); c.setAttribute('cy', Math.round((sp.y+dp.y)/2)); }
+  });
+}
+
+/** Data-submodellen links en rechts van het center. */
+function dataLRPositions(cx, cy, dataKeys, R) {
+  const N = dataKeys.length;
+  if (!N) return [];
+  if (N === 1) return [{ key: dataKeys[0], x: Math.round(cx + R), y: cy }];
+  if (N === 2) return [
+    { key: dataKeys[0], x: Math.round(cx - R), y: cy },
+    { key: dataKeys[1], x: Math.round(cx + R), y: cy }
+  ];
+  return dataKeys.map((key, i) => {
+    const frac = i / (N - 1);
+    const angle = Math.PI + frac * Math.PI;
+    return { key, x: Math.round(cx + R * Math.cos(angle)), y: Math.round(cy + R * 0.55 * Math.sin(angle)) };
+  });
+}
+
+/** Comm-submodellen (chatter/activiteiten) gecentreerd onder de ouder. */
+function commBelowPositions(px, py, commKeys, dy, spacing) {
+  const N = commKeys.length;
+  if (!N) return [];
+  const totalW = (N - 1) * spacing;
+  return commKeys.map((key, i) => ({
+    key, x: Math.round(px - totalW / 2 + i * spacing), y: py + dy
+  }));
+}
+
+/** Chips voor center-model: oog-knop + geen afkapping. */
+function renderCenterInfoChips(sets) {
+  if (!sets.length) return '<div class="text-xs text-base-content/30 italic py-1">Geen categorieën geconfigureerd</div>';
+  return sets.map(set => {
+    const active = !!wizardState.informationSets[set.id];
+    const previewing = wizardState._previewSet === set.id;
+    const fields = set.information_set_fields || [];
+    if (IS_ADMIN && wizardState._editingSet === set.id) {
+      return `<div class="p-1.5 bg-info/5 border border-info/20 rounded mb-1 text-xs">
+        <input id="es-label-${set.id}" type="text" value="${set.label.replace(/"/g,'&quot;')}" class="input input-bordered input-xs w-full mb-1" />
+        <input id="es-desc-${set.id}" type="text" value="${(set.description||'').replace(/"/g,'&quot;')}" class="input input-bordered input-xs w-full mb-1" placeholder="AI-beschrijving" />
+        <div class="flex gap-1"><button class="btn btn-xs btn-info" onclick="submitEditSet('${set.id}')">OK</button><button class="btn btn-xs btn-ghost" onclick="wizardState._editingSet=null; renderWizard();">✕</button></div>
+      </div>`;
+    }
+    return `<div class="mb-1">
+      <div class="flex items-start gap-0.5">
+        <button class="btn btn-xs flex-1 justify-start gap-1.5 min-h-0 h-auto py-1.5 text-left overflow-hidden ${active ? 'btn-primary' : 'btn-ghost border border-base-300 text-base-content/55 hover:text-base-content'}"
+          onclick="wizardState.toggleSet('${set.id}', ${!active}); renderWizard();"
+          title="${(set.description||'').replace(/"/g,'&quot;')}">
+          <i data-lucide="${active ? 'check-circle' : 'circle'}" class="w-3.5 h-3.5 shrink-0 mt-px"></i>
+          <span class="text-xs leading-snug" style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;flex:1">${set.label}</span>
+        </button>
+        <button class="btn btn-xs btn-ghost min-h-0 h-auto py-1.5 px-1 shrink-0 ${previewing ? 'text-info' : 'opacity-25 hover:opacity-70'}"
+          onclick="event.stopPropagation(); wizardState._previewSet = wizardState._previewSet==='${set.id}' ? null : '${set.id}'; renderWizard();"
+          title="Bekijk velden"><i data-lucide="eye" class="w-3.5 h-3.5"></i></button>
+
+      </div>
+      ${previewing && fields.length ? `
+        <div class="mx-0.5 mt-0.5 mb-1 bg-base-200/60 border border-base-300/60 rounded-lg px-2 py-1.5">
+          <div class="text-xs text-base-content/40 font-semibold uppercase tracking-wide mb-1">Velden</div>
+          <div class="flex flex-wrap gap-1">
+            ${fields.map(f => `<span class="badge badge-sm badge-ghost font-mono text-xs">${f.label || f.field_key}</span>`).join('')}
+          </div>
+        </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/** Chips voor sub-model: oog-knop + lead-special-case. */
+function renderSubInfoChips(parentModel, submodelKey, sets) {
+  const isLeadSub = submodelKey === 'crm.lead' && parentModel === 'x_sales_action_sheet';
+  return sets.map(set => {
+    const isWebActivity = set.id === 'lead_web_activity';
+    const previewKey = submodelKey + ':' + set.id;
+    const previewing = wizardState._previewSet === previewKey;
+    const fields = set.information_set_fields || [];
+    let active, toggleCode;
+    if (isLeadSub) {
+      active = isWebActivity ? wizardState.leadEnrichment.webActivity : wizardState.leadEnrichment.property_groups.includes(set.id);
+      toggleCode = isWebActivity
+        ? `wizardState.toggleWebActivity(${!active}); renderWizard();`
+        : `wizardState.toggleLeadPropertyGroup('${set.id}', ${!active}); renderWizard();`;
+    } else {
+      active = !!wizardState.submodelSets[set.id];
+      toggleCode = `wizardState.submodelSets['${set.id}'] = ${!active}; renderWizard();`;
+    }
+    return `<div class="mb-0.5">
+      <div class="flex items-start gap-0.5">
+        <button class="btn btn-xs flex-1 justify-start gap-1 min-h-0 h-auto py-1 text-left ${active ? 'btn-secondary' : 'btn-ghost border border-base-200 text-base-content/45 hover:text-base-content/80'}"
+          onclick="event.stopPropagation(); ${toggleCode}"
+          title="${(set.description||'').replace(/"/g,'&quot;')}">
+          <i data-lucide="${active ? 'check-circle' : 'circle'}" class="w-3 h-3 shrink-0 mt-px"></i>
+          <span class="text-xs leading-snug">${set.label}${isWebActivity ? ' <span class="badge badge-xs badge-warning ml-1">+call</span>' : ''}</span>
+        </button>
+        <button class="btn btn-xs btn-ghost min-h-0 h-auto py-1 px-1 shrink-0 ${previewing ? 'text-info' : 'opacity-20 hover:opacity-60'}"
+          onclick="event.stopPropagation(); wizardState._previewSet = wizardState._previewSet==='${previewKey}' ? null : '${previewKey}'; renderWizard();"
+          title="Bekijk velden"><i data-lucide="eye" class="w-3 h-3"></i></button>
+      </div>
+      ${previewing && fields.length ? `
+        <div class="mx-0.5 mt-0.5 mb-0.5 bg-base-200/50 rounded px-1.5 py-1 flex flex-wrap gap-0.5">
+          ${fields.map(f => `<span class="badge badge-xs badge-ghost font-mono">${f.label || f.field_key}</span>`).join('')}
+        </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
 async function renderStep2() {
   const model = wizardState.selectedModel || 'x_sales_action_sheet';
-  const sets = await fetchInformationSets(model);
   const modelCfg = MODEL_CONFIG[model] || {};
-
-  const setsHtml = sets.map(set => {
-    const checked = !!wizardState.informationSets[set.id];
-    const fields = set.information_set_fields || [];
-    const expanded = wizardState._expandedSet === set.id;
-    const showAddField = IS_ADMIN && wizardState._showAddField === set.id;
-    const editingSet = IS_ADMIN && wizardState._editingSet === set.id;
-
-    return `
-      <div class="border border-base-300 rounded-lg overflow-hidden">
-        ${editingSet ? `
-          <div class="px-4 py-3 bg-info/5 border-b border-info/20">
-            <div class="text-xs font-semibold mb-2 text-info">Categorie bewerken</div>
-            <div class="space-y-2">
-              <input id="es-label-${set.id}" type="text" value="${set.label.replace(/"/g,'&quot;')}" placeholder="Label" class="input input-bordered input-xs w-full" />
-              <input id="es-desc-${set.id}" type="text" value="${(set.description||'').replace(/"/g,'&quot;')}" placeholder="Beschrijving voor AI" class="input input-bordered input-xs w-full" />
-              <div class="flex gap-2">
-                <button class="btn btn-xs btn-info" onclick="submitEditSet('${set.id}')">Opslaan</button>
-                <button class="btn btn-xs btn-ghost" onclick="wizardState._editingSet = null; renderWizard();">Annuleren</button>
-              </div>
-            </div>
-          </div>
-        ` : ''}
-        <div class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 cursor-pointer transition-colors"
-             onclick="wizardState.toggleSet('${set.id}', !wizardState.informationSets['${set.id}']); renderWizard();">
-          <input type="checkbox" class="checkbox checkbox-primary checkbox-sm"
-            ${checked ? 'checked' : ''}
-            onclick="event.stopPropagation(); wizardState.toggleSet('${set.id}', this.checked); renderWizard();"
-          />
-          <div class="flex-1">
-            <div class="font-semibold text-sm">${set.label}</div>
-            ${set.description ? `<div class="text-xs text-base-content/50 mt-0.5">${set.description}</div>` : ''}
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="badge badge-sm badge-ghost">${fields.length} velden</span>
-            ${IS_ADMIN ? `
-              <button class="btn btn-xs btn-ghost" onclick="event.stopPropagation(); wizardState._editingSet = wizardState._editingSet === '${set.id}' ? null : '${set.id}'; wizardState._showAddField = null; renderWizard();" title="Bewerken">
-                <i data-lucide="pencil" class="w-3 h-3"></i>
-              </button>
-              <button class="btn btn-xs btn-ghost" onclick="event.stopPropagation(); wizardState._showAddField = wizardState._showAddField === '${set.id}' ? null : '${set.id}'; renderWizard();" title="Veld toevoegen">+</button>
-            ` : ''}
-            <button class="btn btn-xs btn-ghost btn-circle" onclick="event.stopPropagation(); toggleSetExpand('${set.id}');" title="Toon velden">
-              <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="w-4 h-4 text-base-content/40"></i>
-            </button>
-          </div>
-        </div>
-        ${expanded || showAddField ? `
-          <div class="border-t border-base-200 px-4 py-3 bg-base-50/50">
-            ${fields.map(f => {
-              const editingThisField = IS_ADMIN && wizardState._editingField === f.id;
-              return editingThisField ? `
-                <div class="mb-2 p-2 bg-info/5 border border-info/20 rounded">
-                  <div class="text-xs font-mono text-primary/80 mb-1">${f.field_key}</div>
-                  <div class="space-y-1">
-                    <input id="ef-label-${f.id}" type="text" value="${(f.label||'').replace(/"/g,'&quot;')}" placeholder="Label" class="input input-bordered input-xs w-full" />
-                    <input id="ef-desc-${f.id}" type="text" value="${(f.description||'').replace(/"/g,'&quot;')}" placeholder="Beschrijving voor AI" class="input input-bordered input-xs w-full" />
-                    <div class="flex gap-2">
-                      <button class="btn btn-xs btn-info" onclick="submitEditField(${f.id})">Opslaan</button>
-                      <button class="btn btn-xs btn-ghost" onclick="wizardState._editingField = null; renderWizard();">Annuleren</button>
-                    </div>
-                  </div>
-                </div>
-              ` : `
-                <div class="text-xs mb-1 flex items-start gap-2 group">
-                  <div class="flex-1">
-                    <span class="font-mono text-primary/80">${f.field_key}</span>
-                    ${f.label ? `<span class="text-base-content/60"> — ${f.label}</span>` : ''}
-                    ${f.description ? `<div class="text-base-content/40 ml-4">${f.description}</div>` : ''}
-                  </div>
-                  ${IS_ADMIN ? `<button class="btn btn-xs btn-ghost opacity-0 group-hover:opacity-100 shrink-0" onclick="wizardState._editingField = ${f.id}; renderWizard();" title="Bewerken"><i data-lucide="pencil" class="w-3 h-3"></i></button>` : ''}
-                </div>
-              `;
-            }).join('')}
-            ${showAddField ? `
-              <div class="mt-3 p-3 bg-warning/10 border border-warning/30 rounded-lg">
-                <div class="text-xs font-semibold mb-2">Veld toevoegen aan "${set.label}"</div>
-                <div class="space-y-2">
-                  <input id="nf-key-${set.id}" type="text" placeholder="field_key (bv. x_studio_mijn_veld)" class="input input-bordered input-xs w-full font-mono" />
-                  <input id="nf-label-${set.id}" type="text" placeholder="Label (leesbare naam)" class="input input-bordered input-xs w-full" />
-                  <input id="nf-desc-${set.id}" type="text" placeholder="Beschrijving voor AI (optioneel)" class="input input-bordered input-xs w-full" />
-                  <div class="flex gap-2">
-                    <button class="btn btn-xs btn-warning" onclick="submitNewField('${set.id}')">Opslaan</button>
-                    <button class="btn btn-xs btn-ghost" onclick="wizardState._showAddField = null; renderWizard();">Annuleren</button>
-                  </div>
-                </div>
-              </div>
-            ` : ''}
-          </div>
-        ` : ''}
-      </div>`;
-  }).join('');
-
-  // Add Set form (admin only)
-  const addSetHtml = IS_ADMIN ? `
-    <div class="mt-4">
-      ${wizardState._showAddSet ? `
-        <div class="p-4 bg-warning/10 border border-warning/30 rounded-lg">
-          <div class="text-sm font-semibold mb-3">Nieuwe categorie toevoegen</div>
-          <div class="space-y-2">
-            <input id="ns-id" type="text" placeholder="id (bv. mijn_categorie, geen spaties)" class="input input-bordered input-sm w-full font-mono" />
-            <input id="ns-label" type="text" placeholder="Label (getoond in de UI)" class="input input-bordered input-sm w-full" />
-            <textarea id="ns-desc" placeholder="Beschrijving voor AI (optioneel)" class="textarea textarea-bordered textarea-sm w-full" rows="2"></textarea>
-            <div class="flex gap-2">
-              <button class="btn btn-sm btn-warning" onclick="submitNewSet('${model}')">Opslaan</button>
-              <button class="btn btn-sm btn-ghost" onclick="wizardState._showAddSet = false; renderWizard();">Annuleren</button>
-            </div>
-          </div>
-        </div>
-      ` : `
-        <button class="btn btn-sm btn-ghost gap-2 border border-dashed border-base-300 w-full"
-          onclick="wizardState._showAddSet = true; renderWizard();">
-          <i data-lucide="plus" class="w-4 h-4"></i> Categorie toevoegen
-        </button>
-      `}
-    </div>
-  ` : '';
-
-  // Submodel sectie — generiek voor elk model met submodels
-  let submodelHtml = '';
   const submodelKeys = modelCfg.submodels || [];
 
-  for (const submodelKey of submodelKeys) {
-    const subCfg = MODEL_CONFIG[submodelKey] || {};
-    const subSets = await fetchInformationSets(submodelKey);
-    // isLeadSubmodel: alleen voor x_sales_action_sheet → crm.lead (speciale enrichment-UI)
-    const isLeadSubmodel = submodelKey === 'crm.lead' && model === 'x_sales_action_sheet';
-
-    // State: reuse leadEnrichment for crm.lead, use generic submodelSets for others
-    const isSubEnabled = isLeadSubmodel
-      ? wizardState.leadEnrichment.enabled
-      : !!wizardState.submodelSets[submodelKey + '_enabled'];
-
-    const toggleEnable = isLeadSubmodel
-      ? `wizardState.toggleLeadEnrichment(this.checked); renderWizard();`
-      : `wizardState.submodelSets['${submodelKey}_enabled'] = this.checked; renderWizard();`;
-
-    const subSetToggles = subSets.map(set => {
-      const isWebActivity = set.id === 'lead_web_activity';
-      let checked, toggleOn, toggleOff;
-      if (isLeadSubmodel) {
-        checked = isWebActivity ? wizardState.leadEnrichment.webActivity : wizardState.leadEnrichment.property_groups.includes(set.id);
-        toggleOn  = isWebActivity ? `wizardState.toggleWebActivity(true)` : `wizardState.toggleLeadPropertyGroup('${set.id}', true)`;
-        toggleOff = isWebActivity ? `wizardState.toggleWebActivity(false)` : `wizardState.toggleLeadPropertyGroup('${set.id}', false)`;
-      } else {
-        checked = !!wizardState.submodelSets[set.id];
-        toggleOn  = `wizardState.submodelSets['${set.id}'] = true`;
-        toggleOff = `wizardState.submodelSets['${set.id}'] = false`;
-      }
-      const fields = set.information_set_fields || [];
-      const expanded = wizardState._expandedSet === submodelKey + '_' + set.id;
-      return `
-        <div class="border border-base-300 rounded-lg overflow-hidden">
-          <div class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 cursor-pointer transition-colors"
-               onclick="${checked ? toggleOff : toggleOn}; renderWizard();">
-            <input type="checkbox" class="checkbox checkbox-xs checkbox-accent"
-              ${checked ? 'checked' : ''}
-              onclick="event.stopPropagation(); ${checked ? toggleOff : toggleOn}; renderWizard();"
-            />
-            <div class="flex-1">
-              <div class="label-text text-sm">${set.label}</div>
-              ${set.description ? `<div class="label-text-alt text-xs text-base-content/50">${set.description}</div>` : ''}
-            </div>
-            <div class="flex items-center gap-2">
-              ${isWebActivity ? '<span class="badge badge-xs badge-warning">2e call</span>' : ''}
-              <span class="badge badge-sm badge-ghost">${fields.length} velden</span>
-              <button class="btn btn-xs btn-ghost btn-circle" onclick="event.stopPropagation(); toggleSetExpand('${submodelKey}_${set.id}');">
-                <i data-lucide="${expanded ? 'chevron-up' : 'chevron-down'}" class="w-4 h-4 text-base-content/40"></i>
-              </button>
-            </div>
-          </div>
-          ${expanded ? `<div class="border-t border-base-200 px-4 py-3 bg-base-50/50">
-            ${fields.map(f => `<div class="text-xs mb-1"><span class="font-mono text-primary/80">${f.field_key}</span>${f.label ? ` — <span class="text-base-content/60">${f.label}</span>` : ''}</div>`).join('')}
-          </div>` : ''}
-        </div>`;
-    }).join('');
-
-    submodelHtml += `
-      <div class="divider mt-8">${subCfg.label || submodelKey} (Optioneel)</div>
-      <label class="label cursor-pointer justify-start gap-4 mb-3">
-        <input type="checkbox" class="checkbox checkbox-secondary checkbox-sm"
-          ${isSubEnabled ? 'checked' : ''}
-          onchange="${toggleEnable}"
-        />
-        <div>
-          <div class="label-text font-bold">${subCfg.label || submodelKey} koppelen</div>
-          <div class="label-text-alt text-base-content/60">
-            Enkel ${subCfg.label?.toLowerCase() || submodelKey} gelinkt aan de opgehaalde records (cascade).
-          </div>
-        </div>
-      </label>
-      ${isSubEnabled ? `
-        <div class="ml-6 space-y-2">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-sm font-semibold text-base-content/70">${subCfg.label} velden</span>
-            <div class="flex gap-2">
-              <button class="btn btn-xs btn-ghost" onclick="${isLeadSubmodel ? 'selectAllLeadSets()' : `selectAllSubSets('${submodelKey}')` }">Alles</button>
-              <button class="btn btn-xs btn-ghost" onclick="${isLeadSubmodel ? 'deselectAllLeadSets()' : `deselectAllSubSets('${submodelKey}')`}">Wissen</button>
-            </div>
-          </div>
-          ${subSetToggles}
-          ${isLeadSubmodel ? `
-            <div class="alert alert-sm py-2 mt-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info shrink-0 w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-              <span class="text-xs">id, name, stage_id, active, won_status worden altijd opgehaald.</span>
-            </div>` : ''}
-          ${renderL2Submodels(submodelKey)}
-        </div>
-      ` : ''}
-    `;
+  // Reset spider wanneer een ander model geselecteerd wordt
+  if (_spiderModel !== model) {
+    _spiderPan = { x: 0, y: 0 };
+    _spiderScale = 1;
+    _nodePositions = {};
+    _spiderModel = model;
   }
 
-  return `
-    <div class="card bg-base-100 shadow-xl">
-      <div class="card-body">
-        <h2 class="card-title text-2xl mb-2">Stap 2: Wat ophalen?</h2>
-        ${(() => {
-          const dbModel = modelsConfigCache[model];
-          const baseFields = dbModel?.base_fields;
-          const labels = (Array.isArray(baseFields) && baseFields.length > 0)
-            ? baseFields.map(bf => bf.label || bf.field)
-            : ['id', MODEL_CONFIG[model]?.nameField || 'naam', 'datum'];
-          return `<p class="text-base-content/60 mb-4">Selecteer categorieën voor <strong>${modelCfg.label || model}</strong>. Basisvelden (<span class="font-mono text-xs">${labels.join(', ')}</span>) zijn altijd inbegrepen.</p>`;
-        })()}
-        <div class="flex items-center justify-between mb-3">
-          <span class="text-sm text-base-content/60">${sets.length} categorieën</span>
-          <div class="flex gap-2">
-            <button class="btn btn-sm btn-ghost" onclick="wizardState.selectAllSets(window._currentSets||[]); renderWizard();">Alles selecteren</button>
-            <button class="btn btn-sm btn-ghost" onclick="wizardState.deselectAllSets(window._currentSets||[]); renderWizard();">Wissen</button>
+  const dataL1 = submodelKeys.filter(k => !COMM_MODELS.has(k));
+  const commL1 = submodelKeys.filter(k =>  COMM_MODELS.has(k));
+
+  // L2 comm-nodes voor elke data-L1 (excl. al getoonde modellen)
+  const shownAsL1 = new Set([model, ...submodelKeys]);
+  const l2CommMap = {};
+  for (const l1k of dataL1) {
+    const l2c = (MODEL_CONFIG[l1k]?.submodels || []).filter(k => COMM_MODELS.has(k));
+    if (l2c.length) l2CommMap[l1k] = l2c;
+  }
+
+  // Concurrent fetch
+  const l2CommAll = [...new Set(Object.values(l2CommMap).flat())];
+  const fetchKeys = [...new Set([model, ...submodelKeys, ...l2CommAll])];
+  const fetchResults = await Promise.all(fetchKeys.map(k => fetchInformationSets(k)));
+  const allSets = {};
+  fetchKeys.forEach((k, i) => { allSets[k] = fetchResults[i] || []; });
+  window._currentSets = allSets[model];
+
+  const centerSets = allSets[model];
+  const hasSubmodels = submodelKeys.length > 0;
+  const hasL2Comm = Object.keys(l2CommMap).length > 0;
+
+  // Layout
+  const R_DATA   = 340;
+  const COMM_DY  = 215;
+  const COMM_SP  = 215;
+  const NODE_W   = 270;
+  const SUB_W    = 255;
+  const COMM_W   = 210;
+  const W = hasSubmodels ? 1420 : 560;
+  const H = hasSubmodels ? (hasL2Comm ? 800 : 720) : 370;
+  const cx = Math.round(W / 2);
+  const cy = hasSubmodels ? 295 : Math.round(H / 2);
+
+  // Override positions als de user nodes heeft gesleept
+  function nodePos(key, defaultX, defaultY) {
+    return _nodePositions[key] || { x: defaultX, y: defaultY };
+  }
+
+  const dataPositions = dataLRPositions(cx, cy, dataL1, R_DATA).map(p => ({
+    ...p, ...nodePos(p.key, p.x, p.y)
+  }));
+  const commCenterPos = commBelowPositions(cx, cy, commL1, COMM_DY, COMM_SP).map(p => ({
+    ...p, ...nodePos(p.key, p.x, p.y)
+  }));
+  const commL2Positions = {};
+  for (const { key: l1k, x: l1x, y: l1y } of dataPositions) {
+    if (l2CommMap[l1k]?.length) {
+      commL2Positions[l1k] = commBelowPositions(l1x, l1y, l2CommMap[l1k], COMM_DY, COMM_SP).map(p => ({
+        ...p, ...nodePos(l1k + ':comm:' + p.key, p.x, p.y)
+      }));
+    }
+  }
+
+  // Center node position
+  const centerPosActual = nodePos('__center__', cx, cy);
+
+  // Base fields
+  const dbModel = modelsConfigCache[model];
+  const baseFieldsArr = dbModel?.base_fields;
+  const baseLabels = (Array.isArray(baseFieldsArr) && baseFieldsArr.length)
+    ? baseFieldsArr.map(bf => bf.label || bf.field)
+    : [modelCfg.nameField || 'naam'];
+
+  // ── SVG ──
+  let svgLines = '';
+  function addLine(sx, sy, dx, dy, srcKey, dstKey, on, colorOn, colorOff) {
+    const col = on ? colorOn : colorOff;
+    const lw  = on ? '2.5' : '1.5';
+    const dash = on ? '' : 'stroke-dasharray="6 4"';
+    svgLines += `<line x1="${sx}" y1="${sy}" x2="${dx}" y2="${dy}" stroke="${col}" stroke-width="${lw}" ${dash} stroke-linecap="round" data-s="${srcKey}" data-d="${dstKey}"/>`;
+    if (on) svgLines += `<circle cx="${Math.round((sx+dx)/2)}" cy="${Math.round((sy+dy)/2)}" r="4" fill="${colorOn}" opacity="0.35" data-s="${srcKey}" data-d="${dstKey}"/>`;
+  }
+
+  const cpX = centerPosActual.x, cpY = centerPosActual.y;
+  for (const { key, x, y } of dataPositions) {
+    const isLead = key === 'crm.lead' && model === 'x_sales_action_sheet';
+    const on = isLead ? wizardState.leadEnrichment.enabled : !!wizardState.submodelSets[key + '_enabled'];
+    addLine(cpX, cpY, x, y, '__center__', key, on, '#6366f1', '#d1d5db');
+  }
+  for (const { key, x, y } of commCenterPos) {
+    const on = !!wizardState.submodelSets[key + '_enabled'];
+    addLine(cpX, cpY, x, y, '__center__', key, on, '#8b5cf6', '#d1d5db');
+  }
+  for (const { key: l1k, x: l1x, y: l1y } of dataPositions) {
+    for (const { key: l2k, x: l2x, y: l2y } of (commL2Positions[l1k] || [])) {
+      const on = !!(wizardState.subSubmodels[l1k]?.[l2k + '_enabled']);
+      addLine(l1x, l1y, l2x, l2y, l1k, l1k + ':comm:' + l2k, on, '#10b981', '#d1d5db');
+    }
+  }
+
+  const svgLayer = `<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:visible;" xmlns="http://www.w3.org/2000/svg">${svgLines}</svg>`;
+
+  // ── Node renderers ──
+  // (SOLID_BG merged directly into node style attrs below)
+
+  function renderDataNode(key, x, y, width) {
+    const cfg = MODEL_CONFIG[key] || {};
+    const sets = allSets[key] || [];
+    const isLead = key === 'crm.lead' && model === 'x_sales_action_sheet';
+    const on = isLead ? wizardState.leadEnrichment.enabled : !!wizardState.submodelSets[key + '_enabled'];
+    const toggleOn  = isLead ? `wizardState.toggleLeadEnrichment(true); renderWizard();`  : `wizardState.submodelSets['${key}_enabled']=true; renderWizard();`;
+    const toggleOff = isLead ? `wizardState.toggleLeadEnrichment(false); renderWizard();` : `wizardState.submodelSets['${key}_enabled']=false; renderWizard();`;
+    const enabledCount = sets.filter(s => {
+      if (isLead) return s.id === 'lead_web_activity' ? wizardState.leadEnrichment.webActivity : wizardState.leadEnrichment.property_groups.includes(s.id);
+      return !!wizardState.submodelSets[s.id];
+    }).length;
+
+    return `<div id="sn-${toSafeId(key)}" style="position:absolute; left:${x}px; top:${y}px; transform:translate(-50%,-50%); z-index:5; width:${width}px;">
+      <div class="rounded-xl border-2 overflow-hidden shadow-md bg-base-100" style="border-color:${on?'oklch(var(--s,55% 0.22 280))':'oklch(var(--b3,85% 0 0))'}">
+        <div class="sn-header px-3 py-2.5 flex items-center gap-2 select-none cursor-grab active:cursor-grabbing ${on ? 'hover:bg-secondary/15' : 'hover:bg-base-200/80'}" data-node-key="${key}"
+             style="background:${on?'oklch(var(--s,55% 0.22 280)/0.1)':'oklch(var(--b2,96% 0 0))'}"
+             onclick="${on ? toggleOff : toggleOn}">
+          <div class="rounded-lg p-1.5 shrink-0" style="background:${on?'oklch(var(--s,55% 0.22 280)/0.2)':'oklch(var(--b3,85% 0 0))'}">
+            <i data-lucide="${cfg.icon||'database'}" class="w-4 h-4" style="color:${on?'oklch(var(--s,55% 0.22 280))':'oklch(var(--bc,20% 0 0)/0.35)'}"></i>
           </div>
+          <div class="flex-1 min-w-0 overflow-hidden">
+            <div class="font-semibold text-sm leading-tight truncate" style="color:${on?'oklch(var(--s,55% 0.22 280))':'oklch(var(--bc,20% 0 0)/0.45)'}">${cfg.label || key}</div>
+            <div class="text-xs leading-tight" style="color:${on?'oklch(var(--s,55% 0.22 280)/0.6)':'oklch(var(--bc,20% 0 0)/0.3)'}">${on ? enabledCount+'/'+sets.length+' categorieën' : 'klik om toe te voegen'}</div>
+          </div>
+          <i data-lucide="${on?'check-circle-2':'plus-circle'}" class="w-4 h-4 shrink-0" style="color:${on?'oklch(var(--s,55% 0.22 280))':'oklch(var(--bc,20% 0 0)/0.25)'}"></i>
         </div>
-        <div class="space-y-2">${(window._currentSets = sets, setsHtml)}</div>
-        ${addSetHtml}
-        ${submodelHtml}
+        ${on && sets.length ? `
+          <div class="px-2.5 pt-2 pb-2" style="border-top:1px solid oklch(var(--s,55% 0.22 280)/0.15)">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-semibold uppercase tracking-wide" style="color:oklch(var(--bc,20% 0 0)/0.35)">Categorieën</span>
+              <div class="flex gap-0.5">
+                <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); selectAllSubSets('${key}');" title="Alles">✓</button>
+                <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); deselectAllSubSets('${key}');" title="Geen">✕</button>
+              </div>
+            </div>
+            <div style="max-height:200px; overflow-y:auto;">
+              ${renderSubInfoChips(model, key, sets)}
+            </div>
+          </div>` : ''}
       </div>
     </div>`;
+  }
+
+  function renderCommNode(key, x, y, width, parentKey, isL2) {
+    const cfg = MODEL_CONFIG[key] || {};
+    const nodeKey = isL2 ? parentKey + ':comm:' + key : key;
+    const on = isL2
+      ? !!(wizardState.subSubmodels[parentKey]?.[key + '_enabled'])
+      : !!wizardState.submodelSets[key + '_enabled'];
+    const toggle = isL2
+      ? `event.stopPropagation(); if(!wizardState.subSubmodels['${parentKey}'])wizardState.subSubmodels['${parentKey}']={};wizardState.subSubmodels['${parentKey}']['${key}_enabled']=!wizardState.subSubmodels['${parentKey}']['${key}_enabled']; renderWizard();`
+      : `wizardState.submodelSets['${key}_enabled']=!wizardState.submodelSets['${key}_enabled']; renderWizard();`;
+    const accentOn  = isL2 ? '#10b981' : '#8b5cf6';
+    const accentBg  = isL2 ? 'oklch(var(--su,55% 0.15 160)/0.1)' : 'oklch(60% 0.15 300/0.1)';
+    const accentBdr = isL2 ? 'oklch(var(--su,55% 0.15 160)/0.5)' : 'oklch(60% 0.15 300/0.4)';
+
+    return `<div id="sn-${toSafeId(nodeKey)}" style="position:absolute; left:${x}px; top:${y}px; transform:translate(-50%,-50%); z-index:4; width:${width}px;">
+      <div class="rounded-xl border-2 overflow-hidden shadow-sm bg-base-100" style="border-color:${on?accentBdr:'oklch(var(--b3,85% 0 0))'}; border-style:${on?'solid':'dashed'}">
+        <div class="sn-header px-2.5 py-2 flex items-center gap-2 cursor-grab active:cursor-grabbing select-none" data-node-key="${nodeKey}"
+             style="background:${on?accentBg:'oklch(var(--b2,96% 0 0))'}"
+             onclick="${toggle}">
+          <div class="rounded-md p-1.5 shrink-0" style="background:${on?accentBg:'oklch(var(--b3,85% 0 0))'}">
+            <i data-lucide="${cfg.icon||'layers'}" class="w-3.5 h-3.5" style="color:${on?accentOn:'oklch(var(--bc,20% 0 0)/0.30)'}"></i>
+          </div>
+          <div class="flex-1 min-w-0 overflow-hidden">
+            <div class="font-semibold text-xs leading-tight truncate" style="color:${on?accentOn:'oklch(var(--bc,20% 0 0)/0.40)'}">${cfg.label || key}</div>
+            <div class="text-xs leading-tight" style="color:${on?accentOn+'99':'oklch(var(--bc,20% 0 0)/0.25)'}">${on?'ingeschakeld':'klik om toe te voegen'}</div>
+          </div>
+          <i data-lucide="${on?'check-circle-2':'plus-circle'}" class="w-4 h-4 shrink-0" style="color:${on?accentOn:'oklch(var(--bc,20% 0 0)/0.20)'}"></i>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Center node ──
+  const enabledCount = centerSets.filter(s => !!wizardState.informationSets[s.id]).length;
+  const centerNodeHtml = `
+    <div id="sn-__center__" style="position:absolute; left:${cpX}px; top:${cpY}px; transform:translate(-50%,-50%); z-index:10; width:${NODE_W}px;">
+      <div class="rounded-2xl border-2 border-primary overflow-hidden shadow-xl bg-base-100">
+        <div class="sn-header bg-primary px-3 py-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing" data-node-key="__center__">
+          <div class="bg-white/20 rounded-xl p-1.5 shrink-0">
+            <i data-lucide="${modelCfg.icon||'database'}" class="w-4 h-4 text-white"></i>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="font-bold text-sm text-white leading-tight">${modelCfg.label || model}</div>
+            <div class="text-xs text-white/60 font-mono leading-tight">${model}</div>
+          </div>
+          <div class="badge badge-xs bg-white/20 text-white border-0 shrink-0">${enabledCount}/${centerSets.length}</div>
+        </div>
+        <div class="px-3 pt-2 pb-2 border-b border-base-200">
+          <div class="text-xs font-semibold text-base-content/35 uppercase tracking-wide mb-0.5">Altijd opgehaald</div>
+          <div class="text-xs text-base-content/45 leading-snug">${baseLabels.join(' · ')}</div>
+        </div>
+        <div class="px-2.5 pt-2 pb-2.5">
+          <div class="flex items-center justify-between mb-1.5">
+            <div class="text-xs font-semibold text-base-content/35 uppercase tracking-wide">Categorieën</div>
+            <div class="flex gap-0.5">
+              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5" onclick="event.stopPropagation(); wizardState.selectAllSets(window._currentSets||[]); renderWizard();" title="Alles">✓</button>
+              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5" onclick="event.stopPropagation(); wizardState.deselectAllSets(window._currentSets||[]); renderWizard();" title="Geen">✕</button>
+            </div>
+          </div>
+          <div style="max-height:220px; overflow-y:auto;">
+            ${renderCenterInfoChips(centerSets)}
+          </div>
+        </div>
+        ${IS_ADMIN ? `
+          <div class="border-t border-base-200 px-2.5 py-2">
+            ${wizardState._showAddSet ? `
+              <div class="space-y-1">
+                <input id="ns-id" type="text" placeholder="id (geen spaties)" class="input input-bordered input-xs w-full font-mono" />
+                <input id="ns-label" type="text" placeholder="Label" class="input input-bordered input-xs w-full" />
+                <div class="flex gap-1">
+                  <button class="btn btn-xs btn-warning" onclick="submitNewSet('${model}')">Opslaan</button>
+                  <button class="btn btn-xs btn-ghost" onclick="wizardState._showAddSet=false; renderWizard();">✕</button>
+                </div>
+              </div>` : `
+              <button class="btn btn-xs btn-ghost w-full gap-1 text-base-content/35 hover:text-base-content" onclick="wizardState._showAddSet=!wizardState._showAddSet; renderWizard();">
+                <i data-lucide="plus" class="w-3 h-3"></i>Categorie toevoegen
+              </button>`}
+          </div>` : ''}
+      </div>
+    </div>`;
+
+  let allNodesHtml = centerNodeHtml;
+  for (const { key, x, y } of dataPositions)   allNodesHtml += renderDataNode(key, x, y, SUB_W);
+  for (const { key, x, y } of commCenterPos)   allNodesHtml += renderCommNode(key, x, y, COMM_W, null, false);
+  for (const l1k of dataL1) {
+    for (const { key, x, y } of (commL2Positions[l1k] || []))
+      allNodesHtml += renderCommNode(key, x, y, COMM_W, l1k, true);
+  }
+
+  const vpH = hasSubmodels ? 560 : 370;
+  return `
+    <div class="card bg-base-100 shadow-xl">
+      <div class="card-body pb-3">
+        <h2 class="card-title text-2xl mb-1">Stap 2: Wat ophalen?</h2>
+        <p class="text-base-content/60 mb-3 text-sm">
+          Klik op een model om te koppelen. Scroll om in/uit te zoomen. <span class="opacity-50">Drag om te bewegen.</span>
+        </p>
+        <div id="spider-viewport" style="overflow:hidden; cursor:grab; height:${vpH}px; border-radius:12px; position:relative; border:1px solid oklch(var(--b3,90% 0 0)); background:oklch(var(--b2,97% 0 0));">
+          <div id="spider-canvas" style="position:absolute; width:${W}px; height:${H}px; top:0; left:0; transform-origin:0 0;" data-w="${W}" data-h="${H}" data-cx="${cx}" data-cy="${cy}">
+            ${svgLayer}
+            ${allNodesHtml}
+          </div>
+        </div>
+        <div class="flex justify-between items-center mt-1.5 px-0.5">
+          <div class="text-xs text-base-content/30 flex items-center gap-1">
+            <i data-lucide="move" class="w-3 h-3"></i>Drag nodes of achtergrond · Scroll = zoom
+          </div>
+          <button class="btn btn-xs btn-ghost gap-1 opacity-50 hover:opacity-90" onclick="resetSpider()">
+            <i data-lucide="maximize-2" class="w-3 h-3"></i>Reset
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function resetSpider() {
+  _spiderPan = { x: 0, y: 0 };
+  _spiderScale = 1;
+  _nodePositions = {};
+  // Deactiveer alle submodellen (houdt center-model categorieën intact)
+  wizardState.submodelSets = {};
+  wizardState.subSubmodels = {};
+  if (wizardState.leadEnrichment) {
+    wizardState.leadEnrichment.enabled = false;
+    wizardState.leadEnrichment.property_groups = [];
+    wizardState.leadEnrichment.webActivity = false;
+  }
+  renderWizard();
+  // Hercentreer na render
+  requestAnimationFrame(() => {
+    const cv2 = document.getElementById('spider-canvas');
+    const vp2 = document.getElementById('spider-viewport');
+    if (cv2 && vp2) {
+      const vpW = vp2.offsetWidth || 700;
+      const cvCx = parseInt(cv2.dataset.cx) || 600;
+      _spiderPan.x = Math.round(vpW / 2 - cvCx);
+      _spiderPan.y = 24;
+      cv2.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(1)`;
+    }
+  });
+}
+
+function initSpiderPan() {
+  if (_spiderPanCleanup) { _spiderPanCleanup(); _spiderPanCleanup = null; }
+  const vp = document.getElementById('spider-viewport');
+  const cv = document.getElementById('spider-canvas');
+  if (!vp || !cv) return;
+
+  cv.style.transformOrigin = '0 0';
+
+  // Initieel centreren bij het eerste laden
+  if (_spiderPan.x === 0 && _spiderPan.y === 0 && _spiderScale === 1) {
+    const vpW = vp.offsetWidth || 700;
+    const cvCx = parseInt(cv.dataset.cx) || 600;
+    _spiderPan.x = Math.round(vpW / 2 - cvCx);
+    _spiderPan.y = 24;
+  }
+  cv.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(${_spiderScale})`;
+
+  let mode = null; // 'pan' | 'node'
+  let dragKey = null;
+  let sx = 0, sy = 0;
+  let didMove = false;
+
+  function canvasCoords(clientX, clientY) {
+    const r = vp.getBoundingClientRect();
+    return { x: (clientX - r.left - _spiderPan.x) / _spiderScale,
+             y: (clientY - r.top  - _spiderPan.y) / _spiderScale };
+  }
+
+  function onDown(e) {
+    const hdr = e.target.closest('.sn-header');
+    if (hdr && hdr.dataset.nodeKey) {
+      mode = 'node';
+      dragKey = hdr.dataset.nodeKey;
+      didMove = false;
+      const pos = getCurrentNodePos(dragKey);
+      const cc  = canvasCoords(e.clientX, e.clientY);
+      sx = (pos?.x ?? 0) - cc.x;
+      sy = (pos?.y ?? 0) - cc.y;
+      e.preventDefault();
+    } else if (!e.target.closest('button') && !e.target.closest('input')) {
+      mode = 'pan';
+      didMove = false;
+      sx = e.clientX - _spiderPan.x;
+      sy = e.clientY - _spiderPan.y;
+      vp.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+  }
+
+  function onMove(e) {
+    if (!mode) return;
+    didMove = true;
+    if (mode === 'pan') {
+      _spiderPan.x = e.clientX - sx;
+      _spiderPan.y = e.clientY - sy;
+      cv.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(${_spiderScale})`;
+    } else if (mode === 'node') {
+      const cc = canvasCoords(e.clientX, e.clientY);
+      const nx = Math.round(cc.x + sx);
+      const ny = Math.round(cc.y + sy);
+      _nodePositions[dragKey] = { x: nx, y: ny };
+      const el = document.getElementById('sn-' + toSafeId(dragKey));
+      if (el) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
+      updateSpiderLines();
+    }
+  }
+
+  function onUp(e) {
+    if (mode === 'pan') vp.style.cursor = 'grab';
+    if (mode === 'node' && didMove) {
+      // Suppress the onclick that would fire after drag
+      document.addEventListener('click', function suppress(ev) {
+        ev.stopPropagation();
+        document.removeEventListener('click', suppress, true);
+      }, { capture: true, once: true });
+    }
+    mode = null;
+    dragKey = null;
+  }
+
+  function onWheel(e) {
+    e.preventDefault();
+    const zf = e.deltaY < 0 ? 1.12 : 0.893;
+    const ns = Math.max(0.2, Math.min(3, _spiderScale * zf));
+    const r  = vp.getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    const my = e.clientY - r.top;
+    _spiderPan.x = Math.round(mx - (mx - _spiderPan.x) * (ns / _spiderScale));
+    _spiderPan.y = Math.round(my - (my - _spiderPan.y) * (ns / _spiderScale));
+    _spiderScale = ns;
+    cv.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(${_spiderScale})`;
+  }
+
+  // Touch pan
+  let tSx = 0, tSy = 0;
+  function onTouchStart(e) { if (!e.target.closest('button')) { tSx = e.touches[0].clientX - _spiderPan.x; tSy = e.touches[0].clientY - _spiderPan.y; } }
+  function onTouchMove(e)  { _spiderPan.x = e.touches[0].clientX - tSx; _spiderPan.y = e.touches[0].clientY - tSy; cv.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(${_spiderScale})`; e.preventDefault(); }
+
+  vp.addEventListener('mousedown', onDown);
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  vp.addEventListener('wheel', onWheel, { passive: false });
+  vp.addEventListener('touchstart', onTouchStart, { passive: true });
+  vp.addEventListener('touchmove', onTouchMove, { passive: false });
+
+  _spiderPanCleanup = () => {
+    vp.removeEventListener('mousedown', onDown);
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    vp.removeEventListener('wheel', onWheel);
+    vp.removeEventListener('touchstart', onTouchStart);
+    vp.removeEventListener('touchmove', onTouchMove);
+  };
 }
 
 function toggleSetExpand(setId) {
@@ -1101,6 +1419,10 @@ function toggleSetExpand(setId) {
 }
 
 function selectAllSubSets(submodelKey) {
+  const parentModel = wizardState.selectedModel;
+  if (submodelKey === 'crm.lead' && parentModel === 'x_sales_action_sheet') {
+    selectAllLeadSets(); return;
+  }
   (informationSetsCache[submodelKey] || []).forEach(s => {
     wizardState.submodelSets[s.id] = true;
   });
@@ -1108,6 +1430,10 @@ function selectAllSubSets(submodelKey) {
 }
 
 function deselectAllSubSets(submodelKey) {
+  const parentModel = wizardState.selectedModel;
+  if (submodelKey === 'crm.lead' && parentModel === 'x_sales_action_sheet') {
+    deselectAllLeadSets(); return;
+  }
   (informationSetsCache[submodelKey] || []).forEach(s => {
     wizardState.submodelSets[s.id] = false;
   });
@@ -1226,6 +1552,209 @@ async function submitNewField(setId) {
 }
 
 // ============================================================================
+// ============================================================================
+// ADMIN BEHEERMODAL — categorieën + properties
+// ============================================================================
+
+/**
+ * Render de admin beheermodal als overlay op de pagina.
+ * Toont alle info sets voor het geselecteerde model + velden per set.
+ */
+async function renderAdminModal() {
+  const model = wizardState.selectedModel || 'x_sales_action_sheet';
+  // Force-refresh cache
+  delete informationSetsCache[model];
+  const sets = await fetchInformationSets(model);
+
+  const rows = sets.map(set => {
+    const fields = set.information_set_fields || [];
+    const fieldRows = fields.map(f => `
+      <tr id="afield-row-${f.id}">
+        <td class="py-1 px-2 font-mono text-xs text-base-content/60">${f.field_key}</td>
+        <td class="py-1 px-2">
+          <input type="text" value="${(f.label||'').replace(/"/g,'&quot;')}" placeholder="${f.field_key}"
+            class="input input-xs input-bordered w-full" id="afl-${f.id}" />
+        </td>
+        <td class="py-1 px-2">
+          <input type="text" value="${(f.description||'').replace(/"/g,'&quot;')}" placeholder="Omschrijving"
+            class="input input-xs input-bordered w-full" id="afd-${f.id}" />
+        </td>
+        <td class="py-1 px-1 text-right whitespace-nowrap">
+          <button class="btn btn-xs btn-ghost text-success px-1" onclick="adminSaveField('${f.id}')" title="Opslaan">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+          </button>
+          <button class="btn btn-xs btn-ghost text-error px-1" onclick="adminDeleteField('${f.id}', '${set.id}')" title="Verwijderen">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </td>
+      </tr>`).join('');
+
+    const addRow = `
+      <tr id="afield-add-${set.id}">
+        <td class="py-1.5 px-2"><input type="text" placeholder="field_key *" class="input input-xs input-bordered w-full font-mono" id="anf-key-${set.id}" /></td>
+        <td class="py-1.5 px-2"><input type="text" placeholder="Label" class="input input-xs input-bordered w-full" id="anf-lbl-${set.id}" /></td>
+        <td class="py-1.5 px-2"><input type="text" placeholder="Omschrijving" class="input input-xs input-bordered w-full" id="anf-dsc-${set.id}" /></td>
+        <td class="py-1.5 px-1 text-right">
+          <button class="btn btn-xs btn-success px-2" onclick="adminAddField('${set.id}', '${model}')">+ Toevoegen</button>
+        </td>
+      </tr>`;
+
+    return `
+      <div class="collapse collapse-arrow border border-base-300 rounded-lg mb-2" id="acollapse-${set.id}">
+        <input type="checkbox" class="peer" />
+        <div class="collapse-title py-2.5 px-3 flex items-center gap-2 min-h-0">
+          <span class="font-semibold text-sm flex-1">${set.label}</span>
+          <span class="badge badge-sm badge-ghost">${fields.length} velden</span>
+          <div class="flex gap-1 z-10" onclick="event.stopPropagation()">
+            <button class="btn btn-xs btn-ghost opacity-50 hover:opacity-100" onclick="adminEditSet('${set.id}')" title="Naam/omschrijving bewerken">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+          </div>
+          <span class="text-xs text-base-content/30 font-mono ml-1">${set.id}</span>
+        </div>
+        <div class="collapse-content px-0 pt-0">
+          <div id="aset-edit-${set.id}" class="hidden px-3 pb-2 pt-1 bg-info/5 border-b border-base-200">
+            <div class="flex gap-2 items-end">
+              <div class="flex-1"><label class="label label-text text-xs">Label</label>
+                <input type="text" id="ase-lbl-${set.id}" value="${set.label.replace(/"/g,'&quot;')}" class="input input-bordered input-xs w-full" /></div>
+              <div class="flex-1"><label class="label label-text text-xs">Omschrijving</label>
+                <input type="text" id="ase-dsc-${set.id}" value="${(set.description||'').replace(/"/g,'&quot;')}" class="input input-bordered input-xs w-full" /></div>
+              <button class="btn btn-xs btn-info mb-0.5" onclick="adminSaveSet('${set.id}')">Opslaan</button>
+              <button class="btn btn-xs btn-ghost mb-0.5" onclick="document.getElementById('aset-edit-${set.id}').classList.add('hidden')">✕</button>
+            </div>
+          </div>
+          ${fields.length ? `
+          <div class="overflow-x-auto">
+            <table class="table table-xs w-full">
+              <thead><tr class="text-base-content/40">
+                <th class="py-1 px-2 w-36">Veldsleutel</th>
+                <th class="py-1 px-2 w-36">Label</th>
+                <th class="py-1 px-2">Omschrijving</th>
+                <th class="py-1 px-1 w-16"></th>
+              </tr></thead>
+              <tbody>${fieldRows}</tbody>
+            </table>
+          </div>` : '<div class="px-3 py-2 text-xs text-base-content/30 italic">Nog geen velden</div>'}
+          <div class="border-t border-base-200 mt-1">
+            <table class="table table-xs w-full">
+              <thead><tr class="text-base-content/40 bg-success/5">
+                <th class="py-1 px-2 w-36">Veldsleutel *</th>
+                <th class="py-1 px-2 w-36">Label</th>
+                <th class="py-1 px-2">Omschrijving</th>
+                <th class="py-1 px-1 w-16"></th>
+              </tr></thead>
+              <tbody>${addRow}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const newSetForm = `
+    <div class="border border-dashed border-primary/40 rounded-lg p-3 mt-3 bg-primary/3">
+      <div class="text-xs font-semibold text-primary mb-2 uppercase tracking-wide">Nieuwe categorie</div>
+      <div class="flex gap-2">
+        <div><label class="label label-text text-xs">ID (uniek) *</label>
+          <input type="text" id="ams-id" placeholder="bijv. nieuwe_cat" class="input input-xs input-bordered font-mono w-36" /></div>
+        <div class="flex-1"><label class="label label-text text-xs">Label *</label>
+          <input type="text" id="ams-lbl" placeholder="Zichtbare naam" class="input input-xs input-bordered w-full" /></div>
+        <div class="flex-1"><label class="label label-text text-xs">Omschrijving</label>
+          <input type="text" id="ams-dsc" placeholder="AI-context" class="input input-xs input-bordered w-full" /></div>
+        <div class="flex items-end"><button class="btn btn-xs btn-primary mb-0.5" onclick="adminAddSet('${model}')">+ Aanmaken</button></div>
+      </div>
+    </div>`;
+
+  const html = `
+    <div id="admin-modal-overlay" class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeAdminModal()">
+      <div class="bg-base-100 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div class="flex items-center gap-3 px-5 py-4 border-b border-base-200 shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          <div class="flex-1">
+            <div class="font-bold text-base">Categorieën & properties beheren</div>
+            <div class="text-xs text-base-content/45 font-mono">${model}</div>
+          </div>
+          <button class="btn btn-sm btn-ghost btn-circle" onclick="closeAdminModal()">✕</button>
+        </div>
+        <div class="overflow-y-auto flex-1 p-4">
+          ${rows || '<div class="text-sm text-base-content/40 italic">Geen categorieën gevonden voor dit model.</div>'}
+          ${newSetForm}
+        </div>
+      </div>
+    </div>`;
+
+  // Verwijder eventuele eerdere modal
+  document.getElementById('admin-modal-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+  if (window.lucide) lucide.createIcons({ nodes: [document.getElementById('admin-modal-overlay')] });
+}
+
+function closeAdminModal() {
+  document.getElementById('admin-modal-overlay')?.remove();
+}
+
+function adminEditSet(setId) {
+  const el = document.getElementById(`aset-edit-${setId}`);
+  if (el) el.classList.toggle('hidden');
+}
+
+async function adminSaveSet(setId) {
+  const label = document.getElementById(`ase-lbl-${setId}`)?.value?.trim();
+  const desc  = document.getElementById(`ase-dsc-${setId}`)?.value?.trim();
+  if (!label) { alert('Label is verplicht'); return; }
+  try {
+    await updateSet(setId, { label, description: desc || null });
+    await renderAdminModal();
+    renderWizard();
+  } catch (e) { alert('Fout: ' + e.message); }
+}
+
+async function adminSaveField(fieldId) {
+  const label = document.getElementById(`afl-${fieldId}`)?.value?.trim();
+  const desc  = document.getElementById(`afd-${fieldId}`)?.value?.trim();
+  try {
+    await updateField(fieldId, { label: label || null, description: desc || null });
+    // Inline feedback
+    const btn = document.querySelector(`#afield-row-${fieldId} button.text-success`);
+    if (btn) { btn.textContent = '✓'; setTimeout(() => { btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>'; }, 1200); }
+    informationSetsCache = {};
+    renderWizard();
+  } catch (e) { alert('Fout: ' + e.message); }
+}
+
+async function adminDeleteField(fieldId, setId) {
+  if (!confirm('Veld verwijderen?')) return;
+  try {
+    await deleteField(fieldId);
+    document.getElementById(`afield-row-${fieldId}`)?.remove();
+    informationSetsCache = {};
+    renderWizard();
+  } catch (e) { alert('Fout: ' + e.message); }
+}
+
+async function adminAddField(setId, model) {
+  const key   = document.getElementById(`anf-key-${setId}`)?.value?.trim();
+  const label = document.getElementById(`anf-lbl-${setId}`)?.value?.trim();
+  const desc  = document.getElementById(`anf-dsc-${setId}`)?.value?.trim();
+  if (!key) { alert('Field key is verplicht'); return; }
+  try {
+    await saveNewField({ set_id: setId, field_key: key, label: label || null, description: desc || null });
+    await renderAdminModal();
+    renderWizard();
+  } catch (e) { alert('Fout: ' + e.message); }
+}
+
+async function adminAddSet(model) {
+  const id    = document.getElementById('ams-id')?.value?.trim();
+  const label = document.getElementById('ams-lbl')?.value?.trim();
+  const desc  = document.getElementById('ams-dsc')?.value?.trim();
+  if (!id || !label) { alert('ID en label zijn verplicht'); return; }
+  try {
+    await saveNewSet({ id, label, description: desc || null, model, sort_order: 99 });
+    await renderAdminModal();
+    renderWizard();
+  } catch (e) { alert('Fout: ' + e.message); }
+}
+
 // RENDERING: Step 3 — Filters & Export
 // ============================================================================
 /**
@@ -1710,6 +2239,7 @@ async function renderWizard() {
 
   container.innerHTML = renderProgressBar() + editingBanner + stepContent + renderActions();
   if (window.lucide) lucide.createIcons();
+  initSpiderPan();
 }
 
 // ============================================================================
