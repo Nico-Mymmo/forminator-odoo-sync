@@ -36,7 +36,6 @@ const MODEL_CONFIG = {
     icon: 'file-text',
     nameField: 'x_name',
     dateFields: [{ field: 'create_date', label: 'Aanmaakdatum' }],
-    submodels: ['crm.lead', 'mail.message', 'mail.activity'],
     extraFilters: ['apartments']
   },
   'mail.message': {
@@ -44,7 +43,6 @@ const MODEL_CONFIG = {
     icon: 'message-square',
     nameField: 'preview',
     dateFields: [{ field: 'date', label: 'Datum' }],
-    submodels: [],
     extraFilters: []
   },
   'mail.activity': {
@@ -52,7 +50,6 @@ const MODEL_CONFIG = {
     icon: 'check-square',
     nameField: 'summary',
     dateFields: [{ field: 'date_deadline', label: 'Deadline' }],
-    submodels: [],
     extraFilters: []
   },
   'res.partner': {
@@ -60,7 +57,6 @@ const MODEL_CONFIG = {
     icon: 'building-2',
     nameField: 'name',
     dateFields: [{ field: 'create_date', label: 'Aanmaakdatum' }],
-    submodels: ['crm.lead', 'x_sales_action_sheet'],
     extraFilters: ['partner_type', 'company_status']
   },
   'crm.lead': {
@@ -72,7 +68,6 @@ const MODEL_CONFIG = {
       { field: 'date_last_stage_update', label: 'Laatste stage update' },
       { field: 'date_closed',            label: 'Afsluitdatum' }
     ],
-    submodels: ['mail.message', 'mail.activity'],
     extraFilters: ['won_status', 'stages']
   },
   'x_web_visitor': {
@@ -83,7 +78,6 @@ const MODEL_CONFIG = {
       { field: 'x_studio_first_seen', label: 'Eerste bezoek' },
       { field: 'x_studio_last_seen',  label: 'Laatste bezoek' }
     ],
-    submodels: ['x_ad_touchpoint', 'crm.lead'],
     extraFilters: ['source_site', 'bounce']
   },
   'x_ad_touchpoint': {
@@ -93,12 +87,80 @@ const MODEL_CONFIG = {
     dateFields: [
       { field: 'x_studio_timestamp', label: 'Tijdstip klik' }
     ],
-    submodels: ['x_web_visitor'],
     extraFilters: ['ad_filters']
   }
 };
 
+// ============================================================================
+// MODEL GRAPH — één centrale definitie van alle koppelingen (bidirectioneel)
+// ============================================================================
+// Elke edge geldt in beide richtingen. a/b zijn symmetrisch — volgorde is irrelevant.
+// COMM_MODELS (mail.message, mail.activity) worden altijd onder hun parent getoond.
+const GRAPH_EDGES = [
+  // Data-koppelingen
+  { a: 'x_ad_touchpoint',      b: 'x_web_visitor',        via: 'x_studio_visitor',            type: 'many2one'  },
+  { a: 'x_web_visitor',        b: 'crm.lead',             via: 'x_studio_lead_ids',           type: 'many2many' },
+  { a: 'crm.lead',             b: 'x_sales_action_sheet', via: 'x_studio_as_opportunity_ids', type: 'many2many' },
+  { a: 'crm.lead',             b: 'res.partner',          via: 'partner_id',                  type: 'many2one'  },
+  { a: 'x_sales_action_sheet', b: 'res.partner',          via: 'x_studio_for_company_id',     type: 'many2one'  },
+  // Comm-koppelingen (mail.message + mail.activity hangen aan elk data-model)
+  { a: 'x_ad_touchpoint',      b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
+  { a: 'x_ad_touchpoint',      b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
+  { a: 'x_web_visitor',        b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
+  { a: 'x_web_visitor',        b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
+  { a: 'crm.lead',             b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
+  { a: 'crm.lead',             b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
+  { a: 'x_sales_action_sheet', b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
+  { a: 'x_sales_action_sheet', b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
+  { a: 'res.partner',          b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
+  { a: 'res.partner',          b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
+];
 
+/**
+ * Geeft alle directe buren van een model terug vanuit de graph.
+ * @param {string} model - het model waarvoor je buren wilt
+ * @param {string[]} exclude - modellen die uitgesloten moeten worden
+ * @returns {string[]}
+ */
+function getNeighbors(model, exclude = []) {
+  const excSet = new Set(exclude);
+  const result = [];
+  for (const e of GRAPH_EDGES) {
+    if (e.a === model && !excSet.has(e.b)) result.push(e.b);
+    else if (e.b === model && !excSet.has(e.a)) result.push(e.a);
+  }
+  return result;
+}
+
+
+
+// Relatie-metadata: welk Odoo-veld koppelt elk submodel (voor labels op verbindingslijnen)
+const RELATION_META = {
+  'x_sales_action_sheet': {
+    'crm.lead':       { via: 'x_studio_as_opportunity_ids',   type: 'many2many', short: 'm↔m' },
+    'mail.message':   { via: 'message_ids',                   type: 'one2many',  short: '1→n' },
+    'mail.activity':  { via: 'activity_ids',                  type: 'one2many',  short: '1→n' }
+  },
+  'res.partner': {
+    'crm.lead':             { via: 'partner_id (inverse)',              type: 'one2many',  short: '1→n' },
+    'x_sales_action_sheet': { via: 'x_studio_for_company_id (inverse)', type: 'one2many',  short: '1→n' },
+    'mail.message':         { via: 'message_ids',                       type: 'one2many',  short: '1→n' },
+    'mail.activity':        { via: 'activity_ids',                      type: 'one2many',  short: '1→n' }
+  },
+  'crm.lead': {
+    'mail.message':   { via: 'message_ids',        type: 'one2many',  short: '1→n' },
+    'mail.activity':  { via: 'activity_ids',        type: 'one2many',  short: '1→n' }
+  },
+  'x_web_visitor': {
+    'x_ad_touchpoint': { via: 'x_studio_visitor (inverse)', type: 'one2many',  short: '1→n' },
+    'crm.lead':        { via: 'x_studio_lead_ids',          type: 'many2many', short: 'm↔m' },
+    'mail.message':    { via: 'message_ids',                type: 'one2many',  short: '1→n' },
+    'mail.activity':   { via: 'activity_ids',               type: 'one2many',  short: '1→n' }
+  },
+  'x_ad_touchpoint': {
+    'x_web_visitor': { via: 'x_studio_visitor', type: 'many2one', short: 'n→1' }
+  }
+};
 
 // Spider diagram: global state
 const COMM_MODELS = new Set(['mail.message', 'mail.activity']);
@@ -463,9 +525,8 @@ class WizardState {
     if (model === 'x_ad_touchpoint') {
       if (this.submodelSets['x_web_visitor_enabled']) {
         payload.touchpoint_visitor_enrichment = { enabled: true };
-        // L2: leads voor bezoekers
-        const visitSubs = this.subSubmodels['x_web_visitor'] || {};
-        if (visitSubs['crm.lead_enabled']) {
+        // L2: leads voor bezoekers (flat state)
+        if (this.submodelSets['crm.lead_enabled']) {
           payload.touchpoint_visitor_enrichment.lead_enrichment = { enabled: true };
         }
       }
@@ -1007,7 +1068,6 @@ function renderSubInfoChips(parentModel, submodelKey, sets) {
 async function renderStep2() {
   const model = wizardState.selectedModel || 'x_sales_action_sheet';
   const modelCfg = MODEL_CONFIG[model] || {};
-  const submodelKeys = modelCfg.submodels || [];
 
   // Reset spider wanneer een ander model geselecteerd wordt
   if (_spiderModel !== model) {
@@ -1017,38 +1077,42 @@ async function renderStep2() {
     _spiderModel = model;
   }
 
-  const dataL1 = submodelKeys.filter(k => !COMM_MODELS.has(k));
-  const commL1 = submodelKeys.filter(k =>  COMM_MODELS.has(k));
+  // Bereken L1-buren vanuit de centrale graph (excl. comm-modellen — die staan in de node-header)
+  const l1Neighbors = getNeighbors(model);
+  const dataL1 = l1Neighbors.filter(k => !COMM_MODELS.has(k));
 
-  // L2 comm-nodes voor elke data-L1 (excl. al getoonde modellen)
-  const shownAsL1 = new Set([model, ...submodelKeys]);
-  const l2CommMap = {};
+  const shownModels = new Set([model, ...dataL1]);
+
+  // L2 data-nodes: data-buren van L1 data-nodes die nog niet als L1 of center staan
+  const l2DataMap = {}; // { l1key: [l2key, ...] }
   for (const l1k of dataL1) {
-    const l2c = (MODEL_CONFIG[l1k]?.submodels || []).filter(k => COMM_MODELS.has(k));
-    if (l2c.length) l2CommMap[l1k] = l2c;
+    const l2d = getNeighbors(l1k, [...shownModels]).filter(k => !COMM_MODELS.has(k));
+    if (l2d.length) {
+      l2DataMap[l1k] = l2d;
+      l2d.forEach(k => shownModels.add(k));
+    }
   }
 
-  // Concurrent fetch
-  const l2CommAll = [...new Set(Object.values(l2CommMap).flat())];
-  const fetchKeys = [...new Set([model, ...submodelKeys, ...l2CommAll])];
+  // Concurrent fetch voor alle modellen incl. L2 data-nodes
+  const l2DataAll = [...new Set(Object.values(l2DataMap).flat())];
+  const fetchKeys = [...new Set([model, ...dataL1, ...l2DataAll])];
   const fetchResults = await Promise.all(fetchKeys.map(k => fetchInformationSets(k)));
   const allSets = {};
   fetchKeys.forEach((k, i) => { allSets[k] = fetchResults[i] || []; });
   window._currentSets = allSets[model];
 
   const centerSets = allSets[model];
-  const hasSubmodels = submodelKeys.length > 0;
-  const hasL2Comm = Object.keys(l2CommMap).length > 0;
+  const hasSubmodels = dataL1.length > 0;
+  const hasL2Data = Object.keys(l2DataMap).length > 0;
 
   // Layout
-  const R_DATA   = 340;
-  const COMM_DY  = 215;
-  const COMM_SP  = 215;
-  const NODE_W   = 270;
-  const SUB_W    = 255;
-  const COMM_W   = 210;
-  const W = hasSubmodels ? 1420 : 560;
-  const H = hasSubmodels ? (hasL2Comm ? 800 : 720) : 370;
+  const R_DATA    = 340;
+  const R_L2_DATA = 290;
+  const NODE_W    = 270;
+  const SUB_W     = 255;
+  const L2D_W     = 220;
+  const W = hasSubmodels ? (hasL2Data ? 1800 : 1420) : 560;
+  const H = hasSubmodels ? 720 : 370;
   const cx = Math.round(W / 2);
   const cy = hasSubmodels ? 295 : Math.round(H / 2);
 
@@ -1060,16 +1124,23 @@ async function renderStep2() {
   const dataPositions = dataLRPositions(cx, cy, dataL1, R_DATA).map(p => ({
     ...p, ...nodePos(p.key, p.x, p.y)
   }));
-  const commCenterPos = commBelowPositions(cx, cy, commL1, COMM_DY, COMM_SP).map(p => ({
-    ...p, ...nodePos(p.key, p.x, p.y)
-  }));
-  const commL2Positions = {};
+
+  // L2 data-node posities: verder in dezelfde richting als center→L1
+  const dataL2Positions = {}; // { l1key: [{key, x, y}, ...] }
   for (const { key: l1k, x: l1x, y: l1y } of dataPositions) {
-    if (l2CommMap[l1k]?.length) {
-      commL2Positions[l1k] = commBelowPositions(l1x, l1y, l2CommMap[l1k], COMM_DY, COMM_SP).map(p => ({
-        ...p, ...nodePos(l1k + ':comm:' + p.key, p.x, p.y)
-      }));
-    }
+    if (!l2DataMap[l1k]?.length) continue;
+    const l2keys = l2DataMap[l1k];
+    const dx = l1x - cx, dy = l1y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const ux = dx / dist, uy = dy / dist;
+    const perp = { x: -uy, y: ux };
+    const spread = (l2keys.length - 1) * 90;
+    dataL2Positions[l1k] = l2keys.map((key, i) => {
+      const offset = l2keys.length > 1 ? (i / (l2keys.length - 1) - 0.5) * spread : 0;
+      const defX = Math.round(l1x + ux * R_L2_DATA + perp.x * offset);
+      const defY = Math.round(l1y + uy * R_L2_DATA + perp.y * offset);
+      return { key, ...nodePos(l1k + ':data:' + key, defX, defY) };
+    });
   }
 
   // Center node position
@@ -1089,7 +1160,16 @@ async function renderStep2() {
     const lw  = on ? '2.5' : '1.5';
     const dash = on ? '' : 'stroke-dasharray="6 4"';
     svgLines += `<line x1="${sx}" y1="${sy}" x2="${dx}" y2="${dy}" stroke="${col}" stroke-width="${lw}" ${dash} stroke-linecap="round" data-s="${srcKey}" data-d="${dstKey}"/>`;
-    if (on) svgLines += `<circle cx="${Math.round((sx+dx)/2)}" cy="${Math.round((sy+dy)/2)}" r="4" fill="${colorOn}" opacity="0.35" data-s="${srcKey}" data-d="${dstKey}"/>`;
+    const mx = Math.round((sx + dx) / 2);
+    const my = Math.round((sy + dy) / 2);
+    if (on) svgLines += `<circle cx="${mx}" cy="${my}" r="4" fill="${colorOn}" opacity="0.35" data-s="${srcKey}" data-d="${dstKey}"/>`;
+    const meta = (RELATION_META[srcKey] || {})[dstKey]
+               || (RELATION_META[dstKey] || {})[srcKey]
+               || null;
+    if (meta) {
+      const labelOpacity = on ? '0.55' : '0.22';
+      svgLines += `<text x="${mx}" y="${my - (on ? 12 : 10)}" text-anchor="middle" fill="${col}" font-size="9" font-family="monospace" opacity="${labelOpacity}" style="pointer-events:none;user-select:none;">${meta.short}</text>`;
+    }
   }
 
   const cpX = centerPosActual.x, cpY = centerPosActual.y;
@@ -1098,151 +1178,259 @@ async function renderStep2() {
     const on = isLead ? wizardState.leadEnrichment.enabled : !!wizardState.submodelSets[key + '_enabled'];
     addLine(cpX, cpY, x, y, '__center__', key, on, '#6366f1', '#d1d5db');
   }
-  for (const { key, x, y } of commCenterPos) {
-    const on = !!wizardState.submodelSets[key + '_enabled'];
-    addLine(cpX, cpY, x, y, '__center__', key, on, '#8b5cf6', '#d1d5db');
-  }
+  // L2 data-node lijnen (l1 → l2 data)
   for (const { key: l1k, x: l1x, y: l1y } of dataPositions) {
-    for (const { key: l2k, x: l2x, y: l2y } of (commL2Positions[l1k] || [])) {
-      const on = !!(wizardState.subSubmodels[l1k]?.[l2k + '_enabled']);
-      addLine(l1x, l1y, l2x, l2y, l1k, l1k + ':comm:' + l2k, on, '#10b981', '#d1d5db');
+    for (const { key: l2k, x: l2x, y: l2y } of (dataL2Positions[l1k] || [])) {
+      const isL1On = !!wizardState.submodelSets[l1k + '_enabled'];
+      const on = isL1On && !!wizardState.submodelSets[l2k + '_enabled'];
+      addLine(l1x, l1y, l2x, l2y, l1k, l1k + ':data:' + l2k, on, '#f59e0b', '#d1d5db');
     }
   }
 
-  const svgLayer = `<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:visible;" xmlns="http://www.w3.org/2000/svg">${svgLines}</svg>`;
+  const svgLayer = `<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:hidden;" xmlns="http://www.w3.org/2000/svg">${svgLines}</svg>`;
 
   // ── Node renderers ──
   // (SOLID_BG merged directly into node style attrs below)
 
-  function renderDataNode(key, x, y, width) {
-    const cfg = MODEL_CONFIG[key] || {};
+  // ─────────────────────────────────────────────────────────────────────────
+  // Één universele node-renderer voor alle niveaus (center / l1 / l2+).
+  //
+  // opts {
+  //   level      : 'center' | 'l1' | 'l2'
+  //   nodeKey    : DOM-id suffix (bijv. '__center__', 'crm.lead', 'l1k:data:l2k')
+  //   modelKey   : echte Odoo-modelnaam (voor state-lookups en cache)
+  //   parentKey  : alleen voor level='l2' — de L1-sleutel
+  //   x, y, w    : positie + breedte in px
+  //   zIndex     : z-index
+  //   sets       : array van categorieën voor dit model
+  //   on         : boolean — staat het model aan?
+  //   toggleCode : inline JS voor de aan/uit-knop
+  //   chipsFn    : functie() → HTML van categorieën
+  //   alwaysFn   : functie() → HTML van "Altijd opgehaald" of null/''
+  // }
+  function renderSpiderNode(opts) {
+    const {
+      level, nodeKey, modelKey, parentKey,
+      x, y, w, zIndex,
+      sets, on, toggleCode, chipsFn, alwaysFn,
+    } = opts;
+    const cfg = MODEL_CONFIG[modelKey] || {};
+    const enabledCount = sets.filter(s => !!wizardState.submodelSets[s.id]).length;
+    const isCenter = level === 'center';
+
+    // ── Kleurpalet per niveau ──
+    let accent, accentSub, borderCol, headerBg, iconBg, headerTextCls, subTextCls;
+    if (isCenter) {
+      // Palet wordt volledig via Tailwind-klassen geregeld voor center
+      accent = accentSub = borderCol = headerBg = iconBg = null; // n.v.t.
+    } else if (level === 'l1') {
+      accent    = on ? 'oklch(var(--s,55% 0.22 280))'       : 'oklch(var(--bc,20% 0 0)/0.45)';
+      accentSub = on ? 'oklch(var(--s,55% 0.22 280)/0.6)'   : 'oklch(var(--bc,20% 0 0)/0.30)';
+      borderCol = on ? 'oklch(var(--s,55% 0.22 280))'       : 'oklch(var(--b3,85% 0 0))';
+      headerBg  = on ? 'oklch(var(--s,55% 0.22 280)/0.10)'  : 'oklch(var(--b2,96% 0 0))';
+      iconBg    = on ? 'oklch(var(--s,55% 0.22 280)/0.20)'  : 'oklch(var(--b3,85% 0 0))';
+    } else {
+      // l2 en verder: amber wanneer aan, neutraal grijs wanneer uit
+      accent    = on ? 'oklch(68% 0.18 85)'            : 'oklch(var(--bc,20% 0 0)/0.45)';
+      accentSub = on ? 'oklch(68% 0.18 85/0.65)'       : 'oklch(var(--bc,20% 0 0)/0.30)';
+      borderCol = on ? 'oklch(68% 0.18 85/0.65)'       : 'oklch(var(--b3,85% 0 0))';
+      headerBg  = on ? 'oklch(82% 0.16 85/0.13)'       : 'oklch(var(--b2,96% 0 0))';
+      iconBg    = on ? 'oklch(82% 0.16 85/0.20)'       : 'oklch(var(--b3,85% 0 0))';
+    }
+
+    // ── Header ──
+    const headerHtml = isCenter
+      ? `<div class="sn-header bg-primary px-3 py-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing select-none" data-node-key="${nodeKey}" data-drag-key="${nodeKey}">
+          <div class="bg-white/20 rounded-xl p-1.5 shrink-0">
+            <i data-lucide="${cfg.icon||'database'}" class="w-4 h-4 text-white"></i>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="font-bold text-sm text-white leading-tight">${cfg.label || modelKey}</div>
+            <div class="text-xs text-white/60 font-mono leading-tight">${modelKey}</div>
+          </div>
+          <div class="badge badge-xs bg-white/20 text-white border-0 shrink-0">${enabledCount}/${sets.length}</div>
+        </div>`
+      : `<div class="sn-header px-2.5 py-2.5 flex items-center gap-2 select-none cursor-grab active:cursor-grabbing" data-node-key="${nodeKey}" data-drag-key="${nodeKey}"
+             style="background:${headerBg}">
+          <div class="rounded-md p-1.5 shrink-0" style="background:${iconBg}">
+            <i data-lucide="${cfg.icon||'database'}" class="w-4 h-4" style="color:${accent}"></i>
+          </div>
+          <div class="flex-1 min-w-0 overflow-hidden">
+            <div class="font-semibold text-sm leading-tight truncate" style="color:${accent}">${cfg.label || modelKey}</div>
+            <div class="text-xs leading-tight" style="color:${accentSub}">${on ? enabledCount+'/'+sets.length+' categorieën' : modelKey}</div>
+          </div>
+          <button class="btn btn-xs btn-ghost min-h-0 h-7 w-7 p-0 shrink-0 rounded-lg" onclick="${toggleCode}"
+                  title="${on ? 'Uitschakelen' : 'Inschakelen'}">
+            <i data-lucide="${on?'check-circle-2':'plus-circle'}" class="w-4 h-4 pointer-events-none" style="color:${accent}"></i>
+          </button>
+        </div>`;
+
+    // ── Altijd opgehaald ──
+    const alwaysRaw = alwaysFn ? alwaysFn() : '';
+    const alwaysHtml = alwaysRaw ? (isCenter
+      ? `<div class="px-3 pt-2 pb-2 border-b border-base-200">
+          <div class="text-xs font-semibold text-base-content/35 uppercase tracking-wide mb-0.5">Altijd opgehaald</div>
+          <div class="text-xs text-base-content/45 leading-snug">${alwaysRaw}</div>
+        </div>`
+      : `<div class="px-2.5 pt-1.5 pb-1.5" style="border-bottom:1px solid oklch(var(--b3,85% 0 0))">
+          <div class="text-xs font-semibold uppercase tracking-wide mb-0.5" style="color:${accentSub}">Altijd opgehaald</div>
+          <div class="text-xs" style="color:${accentSub}">${alwaysRaw}</div>
+        </div>`)
+      : '';
+
+    // ── Toevoegen (comm pills) ──
+    // Voor center: stateKey = null (submodelSets direct).
+    // Voor data-nodes: stateKey = modelKey, en pills zijn disabled als model uit staat.
+    const commStateKey = isCenter ? null : modelKey;
+    const toevoegenHtml = isCenter
+      ? `<div class="px-3 py-1 flex items-center gap-1 border-b border-base-200">
+          <span class="text-xs text-base-content/40">Toevoegen</span>
+          ${renderCommPills(commStateKey, true)}
+        </div>`
+      : `<div class="px-2.5 py-1 flex items-center gap-1" style="border-bottom:1px solid ${on?borderCol.replace(')','/ 0.3)').replace('/0.65','/ 0.3'):'oklch(var(--b3,85% 0 0))'};">
+          <span class="text-xs" style="color:${accentSub}">Toevoegen</span>
+          ${renderCommPills(commStateKey, on)}
+        </div>`;
+
+    // ── Categorieën ──
+    const catsHtml = (on && sets.length) ? chipsFn() : '';
+
+    // ── Outer wrapper stijl ──
+    const wrapperStyle = isCenter
+      ? `rounded-2xl border-2 border-primary overflow-hidden shadow-xl bg-base-100`
+      : `rounded-xl border-2 overflow-hidden ${level==='l1'?'shadow-md':'shadow-sm'} bg-base-100`;
+    const wrapperExtra = isCenter ? '' : `style="border-color:${borderCol}"`;
+
+    return `<div id="sn-${toSafeId(nodeKey)}" style="position:absolute; left:${x}px; top:${y}px; transform:translate(-50%,-50%); z-index:${zIndex}; width:${w}px;">
+      <div class="${wrapperStyle}" ${wrapperExtra}>
+        ${headerHtml}
+        ${alwaysHtml}
+        ${toevoegenHtml}
+        ${catsHtml}
+      </div>
+    </div>`;
+  }
+
+  // ── Comm pills helper (ongewijzigd) ──
+  function renderCommPills(stateKey, modelActive) {
+    const isCenter = stateKey === null;
+    const commKeys = ['mail.message', 'mail.activity'];
+    const icons    = { 'mail.message': 'message-square', 'mail.activity': 'check-square' };
+    const labels   = { 'mail.message': 'Chatterberichten', 'mail.activity': 'Activiteiten' };
+    const colOn    = { 'mail.message': '#8b5cf6', 'mail.activity': '#10b981' };
+    return commKeys.map(ck => {
+      const on = isCenter
+        ? !!wizardState.submodelSets[ck + '_enabled']
+        : !!(wizardState.subSubmodels[stateKey]?.[ck + '_enabled']);
+      const active = modelActive !== false;
+      const toggle = (active && !isCenter)
+        ? `event.stopPropagation(); if(!wizardState.subSubmodels['${stateKey}'])wizardState.subSubmodels['${stateKey}']={};wizardState.subSubmodels['${stateKey}']['${ck}_enabled']=!wizardState.subSubmodels['${stateKey}']['${ck}_enabled']; renderWizard();`
+        : `event.stopPropagation(); wizardState.submodelSets['${ck}_enabled']=!wizardState.submodelSets['${ck}_enabled']; renderWizard();`;
+      const col = (on && active) ? colOn[ck] : 'oklch(var(--bc,20% 0 0)/0.15)';
+      const disabledAttr = !active ? 'disabled' : '';
+      const title = !active ? `${labels[ck]} (schakel het model eerst in)` : `${labels[ck]} ${on?'(aan)':'(uit)'}`;
+      return `<button class="btn btn-xs btn-ghost min-h-0 h-5 w-5 p-0 rounded shrink-0" onclick="${toggle}" title="${title}" ${disabledAttr}>
+        <i data-lucide="${icons[ck]}" class="w-3 h-3 pointer-events-none" style="color:${col}"></i>
+      </button>`;
+    }).join('');
+  }
+
+  // ── Center node ──
+  const enabledCount = centerSets.filter(s => !!wizardState.informationSets[s.id]).length;
+  const centerNodeHtml = renderSpiderNode({
+    level: 'center', nodeKey: '__center__', modelKey: model,
+    x: cpX, y: cpY, w: NODE_W, zIndex: 10,
+    sets: centerSets, on: true,
+    toggleCode: '',
+    alwaysFn: () => baseLabels.join(' · '),
+    chipsFn: () => `
+      <div class="px-2.5 pt-2 pb-2.5">
+        <div class="flex items-center justify-between mb-1.5">
+          <div class="text-xs font-semibold text-base-content/35 uppercase tracking-wide">Categorieën</div>
+          <div class="flex gap-0.5">
+            <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5" onclick="event.stopPropagation(); wizardState.selectAllSets(window._currentSets||[]); renderWizard();" title="Alles">✓</button>
+            <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5" onclick="event.stopPropagation(); wizardState.deselectAllSets(window._currentSets||[]); renderWizard();" title="Geen">✕</button>
+          </div>
+        </div>
+        <div style="max-height:220px; overflow-y:auto;">
+          ${renderCenterInfoChips(centerSets)}
+        </div>
+      </div>`,
+  });
+
+  // ── L1 data-nodes ──
+  function buildL1Node(key, x, y) {
     const sets = allSets[key] || [];
     const isLead = key === 'crm.lead' && model === 'x_sales_action_sheet';
     const on = isLead ? wizardState.leadEnrichment.enabled : !!wizardState.submodelSets[key + '_enabled'];
     const toggleOn  = isLead ? `wizardState.toggleLeadEnrichment(true); renderWizard();`  : `wizardState.submodelSets['${key}_enabled']=true; renderWizard();`;
     const toggleOff = isLead ? `wizardState.toggleLeadEnrichment(false); renderWizard();` : `wizardState.submodelSets['${key}_enabled']=false; renderWizard();`;
-    const enabledCount = sets.filter(s => {
-      if (isLead) return s.id === 'lead_web_activity' ? wizardState.leadEnrichment.webActivity : wizardState.leadEnrichment.property_groups.includes(s.id);
-      return !!wizardState.submodelSets[s.id];
-    }).length;
-
-    return `<div id="sn-${toSafeId(key)}" style="position:absolute; left:${x}px; top:${y}px; transform:translate(-50%,-50%); z-index:5; width:${width}px;">
-      <div class="rounded-xl border-2 overflow-hidden shadow-md bg-base-100" style="border-color:${on?'oklch(var(--s,55% 0.22 280))':'oklch(var(--b3,85% 0 0))'}">
-        <div class="sn-header px-3 py-2.5 flex items-center gap-2 select-none cursor-grab active:cursor-grabbing ${on ? 'hover:bg-secondary/15' : 'hover:bg-base-200/80'}" data-node-key="${key}"
-             style="background:${on?'oklch(var(--s,55% 0.22 280)/0.1)':'oklch(var(--b2,96% 0 0))'}"
-             onclick="${on ? toggleOff : toggleOn}">
-          <div class="rounded-lg p-1.5 shrink-0" style="background:${on?'oklch(var(--s,55% 0.22 280)/0.2)':'oklch(var(--b3,85% 0 0))'}">
-            <i data-lucide="${cfg.icon||'database'}" class="w-4 h-4" style="color:${on?'oklch(var(--s,55% 0.22 280))':'oklch(var(--bc,20% 0 0)/0.35)'}"></i>
-          </div>
-          <div class="flex-1 min-w-0 overflow-hidden">
-            <div class="font-semibold text-sm leading-tight truncate" style="color:${on?'oklch(var(--s,55% 0.22 280))':'oklch(var(--bc,20% 0 0)/0.45)'}">${cfg.label || key}</div>
-            <div class="text-xs leading-tight" style="color:${on?'oklch(var(--s,55% 0.22 280)/0.6)':'oklch(var(--bc,20% 0 0)/0.3)'}">${on ? enabledCount+'/'+sets.length+' categorieën' : 'klik om toe te voegen'}</div>
-          </div>
-          <i data-lucide="${on?'check-circle-2':'plus-circle'}" class="w-4 h-4 shrink-0" style="color:${on?'oklch(var(--s,55% 0.22 280))':'oklch(var(--bc,20% 0 0)/0.25)'}"></i>
-        </div>
-        ${on && sets.length ? `
-          <div class="px-2.5 pt-2 pb-2" style="border-top:1px solid oklch(var(--s,55% 0.22 280)/0.15)">
-            <div class="flex items-center justify-between mb-1.5">
-              <span class="text-xs font-semibold uppercase tracking-wide" style="color:oklch(var(--bc,20% 0 0)/0.35)">Categorieën</span>
-              <div class="flex gap-0.5">
-                <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); selectAllSubSets('${key}');" title="Alles">✓</button>
-                <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); deselectAllSubSets('${key}');" title="Geen">✕</button>
-              </div>
-            </div>
-            <div style="max-height:200px; overflow-y:auto;">
-              ${renderSubInfoChips(model, key, sets)}
-            </div>
-          </div>` : ''}
-      </div>
-    </div>`;
-  }
-
-  function renderCommNode(key, x, y, width, parentKey, isL2) {
-    const cfg = MODEL_CONFIG[key] || {};
-    const nodeKey = isL2 ? parentKey + ':comm:' + key : key;
-    const on = isL2
-      ? !!(wizardState.subSubmodels[parentKey]?.[key + '_enabled'])
-      : !!wizardState.submodelSets[key + '_enabled'];
-    const toggle = isL2
-      ? `event.stopPropagation(); if(!wizardState.subSubmodels['${parentKey}'])wizardState.subSubmodels['${parentKey}']={};wizardState.subSubmodels['${parentKey}']['${key}_enabled']=!wizardState.subSubmodels['${parentKey}']['${key}_enabled']; renderWizard();`
-      : `wizardState.submodelSets['${key}_enabled']=!wizardState.submodelSets['${key}_enabled']; renderWizard();`;
-    const accentOn  = isL2 ? '#10b981' : '#8b5cf6';
-    const accentBg  = isL2 ? 'oklch(var(--su,55% 0.15 160)/0.1)' : 'oklch(60% 0.15 300/0.1)';
-    const accentBdr = isL2 ? 'oklch(var(--su,55% 0.15 160)/0.5)' : 'oklch(60% 0.15 300/0.4)';
-
-    return `<div id="sn-${toSafeId(nodeKey)}" style="position:absolute; left:${x}px; top:${y}px; transform:translate(-50%,-50%); z-index:4; width:${width}px;">
-      <div class="rounded-xl border-2 overflow-hidden shadow-sm bg-base-100" style="border-color:${on?accentBdr:'oklch(var(--b3,85% 0 0))'}; border-style:${on?'solid':'dashed'}">
-        <div class="sn-header px-2.5 py-2 flex items-center gap-2 cursor-grab active:cursor-grabbing select-none" data-node-key="${nodeKey}"
-             style="background:${on?accentBg:'oklch(var(--b2,96% 0 0))'}"
-             onclick="${toggle}">
-          <div class="rounded-md p-1.5 shrink-0" style="background:${on?accentBg:'oklch(var(--b3,85% 0 0))'}">
-            <i data-lucide="${cfg.icon||'layers'}" class="w-3.5 h-3.5" style="color:${on?accentOn:'oklch(var(--bc,20% 0 0)/0.30)'}"></i>
-          </div>
-          <div class="flex-1 min-w-0 overflow-hidden">
-            <div class="font-semibold text-xs leading-tight truncate" style="color:${on?accentOn:'oklch(var(--bc,20% 0 0)/0.40)'}">${cfg.label || key}</div>
-            <div class="text-xs leading-tight" style="color:${on?accentOn+'99':'oklch(var(--bc,20% 0 0)/0.25)'}">${on?'ingeschakeld':'klik om toe te voegen'}</div>
-          </div>
-          <i data-lucide="${on?'check-circle-2':'plus-circle'}" class="w-4 h-4 shrink-0" style="color:${on?accentOn:'oklch(var(--bc,20% 0 0)/0.20)'}"></i>
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // ── Center node ──
-  const enabledCount = centerSets.filter(s => !!wizardState.informationSets[s.id]).length;
-  const centerNodeHtml = `
-    <div id="sn-__center__" style="position:absolute; left:${cpX}px; top:${cpY}px; transform:translate(-50%,-50%); z-index:10; width:${NODE_W}px;">
-      <div class="rounded-2xl border-2 border-primary overflow-hidden shadow-xl bg-base-100">
-        <div class="sn-header bg-primary px-3 py-2.5 flex items-center gap-2 cursor-grab active:cursor-grabbing" data-node-key="__center__">
-          <div class="bg-white/20 rounded-xl p-1.5 shrink-0">
-            <i data-lucide="${modelCfg.icon||'database'}" class="w-4 h-4 text-white"></i>
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="font-bold text-sm text-white leading-tight">${modelCfg.label || model}</div>
-            <div class="text-xs text-white/60 font-mono leading-tight">${model}</div>
-          </div>
-          <div class="badge badge-xs bg-white/20 text-white border-0 shrink-0">${enabledCount}/${centerSets.length}</div>
-        </div>
-        <div class="px-3 pt-2 pb-2 border-b border-base-200">
-          <div class="text-xs font-semibold text-base-content/35 uppercase tracking-wide mb-0.5">Altijd opgehaald</div>
-          <div class="text-xs text-base-content/45 leading-snug">${baseLabels.join(' · ')}</div>
-        </div>
-        <div class="px-2.5 pt-2 pb-2.5">
+    const dbModel = modelsConfigCache[key];
+    const baseStr = Array.isArray(dbModel?.base_fields) && dbModel.base_fields.length
+      ? dbModel.base_fields.map(bf => bf.label || bf.field).join(' · ')
+      : (MODEL_CONFIG[key]?.nameField || '');
+    return renderSpiderNode({
+      level: 'l1', nodeKey: key, modelKey: key,
+      x, y, w: SUB_W, zIndex: 5,
+      sets, on,
+      toggleCode: `event.stopPropagation(); ${on ? toggleOff : toggleOn}`,
+      alwaysFn: () => baseStr,
+      chipsFn: () => `
+        <div class="px-2.5 pt-2 pb-2">
           <div class="flex items-center justify-between mb-1.5">
-            <div class="text-xs font-semibold text-base-content/35 uppercase tracking-wide">Categorieën</div>
+            <span class="text-xs font-semibold uppercase tracking-wide" style="color:oklch(var(--bc,20% 0 0)/0.35)">Categorieën</span>
             <div class="flex gap-0.5">
-              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5" onclick="event.stopPropagation(); wizardState.selectAllSets(window._currentSets||[]); renderWizard();" title="Alles">✓</button>
-              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5" onclick="event.stopPropagation(); wizardState.deselectAllSets(window._currentSets||[]); renderWizard();" title="Geen">✕</button>
+              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); selectAllSubSets('${key}');" title="Alles">✓</button>
+              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); deselectAllSubSets('${key}');" title="Geen">✕</button>
             </div>
           </div>
-          <div style="max-height:220px; overflow-y:auto;">
-            ${renderCenterInfoChips(centerSets)}
+          <div style="max-height:200px; overflow-y:auto;">
+            ${renderSubInfoChips(model, key, sets)}
           </div>
-        </div>
-        ${IS_ADMIN ? `
-          <div class="border-t border-base-200 px-2.5 py-2">
-            ${wizardState._showAddSet ? `
-              <div class="space-y-1">
-                <input id="ns-id" type="text" placeholder="id (geen spaties)" class="input input-bordered input-xs w-full font-mono" />
-                <input id="ns-label" type="text" placeholder="Label" class="input input-bordered input-xs w-full" />
-                <div class="flex gap-1">
-                  <button class="btn btn-xs btn-warning" onclick="submitNewSet('${model}')">Opslaan</button>
-                  <button class="btn btn-xs btn-ghost" onclick="wizardState._showAddSet=false; renderWizard();">✕</button>
-                </div>
-              </div>` : `
-              <button class="btn btn-xs btn-ghost w-full gap-1 text-base-content/35 hover:text-base-content" onclick="wizardState._showAddSet=!wizardState._showAddSet; renderWizard();">
-                <i data-lucide="plus" class="w-3 h-3"></i>Categorie toevoegen
-              </button>`}
-          </div>` : ''}
-      </div>
-    </div>`;
+        </div>`,
+    });
+  }
+
+  // ── L2+ data-nodes ──
+  function buildL2Node(key, parentL1Key, x, y) {
+    const nodeKey = parentL1Key + ':data:' + key;
+    const sets = allSets[key] || [];
+    const on  = !!wizardState.submodelSets[key + '_enabled'];
+    const toggleCode = `event.stopPropagation();
+      const nextOn = !wizardState.submodelSets['${key}_enabled'];
+      wizardState.submodelSets['${key}_enabled'] = nextOn;
+      if(nextOn) wizardState.submodelSets['${parentL1Key}_enabled'] = true;
+      renderWizard();`;
+    const dbModel = modelsConfigCache[key];
+    const baseStr = Array.isArray(dbModel?.base_fields) && dbModel.base_fields.length
+      ? dbModel.base_fields.map(bf => bf.label || bf.field).join(' · ')
+      : (MODEL_CONFIG[key]?.nameField || '');
+    return renderSpiderNode({
+      level: 'l2', nodeKey, modelKey: key, parentKey: parentL1Key,
+      x, y, w: L2D_W, zIndex: 4,
+      sets, on, toggleCode,
+      alwaysFn: () => baseStr,
+      chipsFn: () => `
+        <div class="px-2.5 pt-2 pb-2">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-semibold uppercase tracking-wide" style="color:oklch(var(--bc,20% 0 0)/0.35)">Categorieën</span>
+            <div class="flex gap-0.5">
+              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); selectAllSubSets('${key}');" title="Alles">✓</button>
+              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); deselectAllSubSets('${key}');" title="Geen">✕</button>
+            </div>
+          </div>
+          <div style="max-height:200px; overflow-y:auto;">
+            ${renderSubInfoChips(model, key, sets)}
+          </div>
+        </div>`,
+    });
+  }
 
   let allNodesHtml = centerNodeHtml;
-  for (const { key, x, y } of dataPositions)   allNodesHtml += renderDataNode(key, x, y, SUB_W);
-  for (const { key, x, y } of commCenterPos)   allNodesHtml += renderCommNode(key, x, y, COMM_W, null, false);
+  for (const { key, x, y } of dataPositions)   allNodesHtml += buildL1Node(key, x, y);
   for (const l1k of dataL1) {
-    for (const { key, x, y } of (commL2Positions[l1k] || []))
-      allNodesHtml += renderCommNode(key, x, y, COMM_W, l1k, true);
+    for (const { key, x, y } of (dataL2Positions[l1k] || []))
+      allNodesHtml += buildL2Node(key, l1k, x, y);
   }
 
   const vpH = hasSubmodels ? 560 : 370;
@@ -1261,30 +1449,26 @@ async function renderStep2() {
         </div>
         <div class="flex justify-between items-center mt-1.5 px-0.5">
           <div class="text-xs text-base-content/30 flex items-center gap-1">
-            <i data-lucide="move" class="w-3 h-3"></i>Drag nodes of achtergrond · Scroll = zoom
+            <i data-lucide="move" class="w-3 h-3"></i>Header slepen = verplaatsen · ⊕/✓ knop = aan/uit · Scroll = zoom
           </div>
-          <button class="btn btn-xs btn-ghost gap-1 opacity-50 hover:opacity-90" onclick="resetSpider()">
-            <i data-lucide="maximize-2" class="w-3 h-3"></i>Reset
-          </button>
+          <div class="flex gap-1">
+            <button class="btn btn-xs btn-ghost gap-1 opacity-50 hover:opacity-90" onclick="recenterSpider()" title="Hercentreer de view (behoudt selecties)">
+              <i data-lucide="maximize-2" class="w-3 h-3"></i>Hercentreer
+            </button>
+            <button class="btn btn-xs btn-ghost gap-1 opacity-35 hover:opacity-80 hover:text-error" onclick="if(confirm('Alle submodel-selecties wissen?')) resetSpider();" title="Wis alle submodel-selecties en hercentreer">
+              <i data-lucide="rotate-ccw" class="w-3 h-3"></i>Wis alles
+            </button>
+          </div>
         </div>
       </div>
     </div>`;
 }
 
-function resetSpider() {
+function recenterSpider() {
   _spiderPan = { x: 0, y: 0 };
   _spiderScale = 1;
   _nodePositions = {};
-  // Deactiveer alle submodellen (houdt center-model categorieën intact)
-  wizardState.submodelSets = {};
-  wizardState.subSubmodels = {};
-  if (wizardState.leadEnrichment) {
-    wizardState.leadEnrichment.enabled = false;
-    wizardState.leadEnrichment.property_groups = [];
-    wizardState.leadEnrichment.webActivity = false;
-  }
   renderWizard();
-  // Hercentreer na render
   requestAnimationFrame(() => {
     const cv2 = document.getElementById('spider-canvas');
     const vp2 = document.getElementById('spider-viewport');
@@ -1296,6 +1480,17 @@ function resetSpider() {
       cv2.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(1)`;
     }
   });
+}
+
+function resetSpider() {
+  wizardState.submodelSets = {};
+  wizardState.subSubmodels = {};
+  if (wizardState.leadEnrichment) {
+    wizardState.leadEnrichment.enabled = false;
+    wizardState.leadEnrichment.property_groups = [];
+    wizardState.leadEnrichment.webActivity = false;
+  }
+  recenterSpider();
 }
 
 function initSpiderPan() {
@@ -1318,7 +1513,6 @@ function initSpiderPan() {
   let mode = null; // 'pan' | 'node'
   let dragKey = null;
   let sx = 0, sy = 0;
-  let didMove = false;
 
   function canvasCoords(clientX, clientY) {
     const r = vp.getBoundingClientRect();
@@ -1327,19 +1521,19 @@ function initSpiderPan() {
   }
 
   function onDown(e) {
-    const hdr = e.target.closest('.sn-header');
-    if (hdr && hdr.dataset.nodeKey) {
+    // Buttons/inputs inside a header are interactive — don't drag
+    if (e.target.closest('button') || e.target.closest('input')) return;
+    const header = e.target.closest('[data-drag-key]');
+    if (header) {
       mode = 'node';
-      dragKey = hdr.dataset.nodeKey;
-      didMove = false;
+      dragKey = header.dataset.dragKey;
       const pos = getCurrentNodePos(dragKey);
       const cc  = canvasCoords(e.clientX, e.clientY);
       sx = (pos?.x ?? 0) - cc.x;
       sy = (pos?.y ?? 0) - cc.y;
       e.preventDefault();
-    } else if (!e.target.closest('button') && !e.target.closest('input')) {
+    } else {
       mode = 'pan';
-      didMove = false;
       sx = e.clientX - _spiderPan.x;
       sy = e.clientY - _spiderPan.y;
       vp.style.cursor = 'grabbing';
@@ -1349,15 +1543,17 @@ function initSpiderPan() {
 
   function onMove(e) {
     if (!mode) return;
-    didMove = true;
     if (mode === 'pan') {
       _spiderPan.x = e.clientX - sx;
       _spiderPan.y = e.clientY - sy;
       cv.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(${_spiderScale})`;
     } else if (mode === 'node') {
       const cc = canvasCoords(e.clientX, e.clientY);
-      const nx = Math.round(cc.x + sx);
-      const ny = Math.round(cc.y + sy);
+      const canvasW = parseInt(cv.dataset.w) || 1420;
+      const canvasH = parseInt(cv.dataset.h) || 800;
+      const MARGIN = 140;
+      const nx = Math.max(MARGIN, Math.min(canvasW - MARGIN, Math.round(cc.x + sx)));
+      const ny = Math.max(MARGIN, Math.min(canvasH - MARGIN, Math.round(cc.y + sy)));
       _nodePositions[dragKey] = { x: nx, y: ny };
       const el = document.getElementById('sn-' + toSafeId(dragKey));
       if (el) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
@@ -1367,18 +1563,18 @@ function initSpiderPan() {
 
   function onUp(e) {
     if (mode === 'pan') vp.style.cursor = 'grab';
-    if (mode === 'node' && didMove) {
-      // Suppress the onclick that would fire after drag
-      document.addEventListener('click', function suppress(ev) {
-        ev.stopPropagation();
-        document.removeEventListener('click', suppress, true);
-      }, { capture: true, once: true });
-    }
     mode = null;
     dragKey = null;
   }
 
   function onWheel(e) {
+    // Als de cursor boven een scrollbare container in een node staat → scroll de node, niet zoom
+    let el = e.target;
+    while (el && el !== vp) {
+      const oy = window.getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return;
+      el = el.parentElement;
+    }
     e.preventDefault();
     const zf = e.deltaY < 0 ? 1.12 : 0.893;
     const ns = Math.max(0.2, Math.min(3, _spiderScale * zf));
@@ -1462,8 +1658,8 @@ function deselectAllLeadSets() {
  * @param {string} parentKey  - bv. 'crm.lead', 'x_sales_action_sheet'
  * @returns {string} HTML
  */
-function renderL2Submodels(parentKey) {
-  const l2Keys = MODEL_CONFIG[parentKey]?.submodels || [];
+function renderL2Submodels(parentKey, excludeKeys = []) {
+  const l2Keys = (MODEL_CONFIG[parentKey]?.submodels || []).filter(k => !excludeKeys.includes(k));
   if (!l2Keys.length) return '';
 
   // Context-aware descriptions: eerst parentKey|l2Key, dan l2Key als fallback
@@ -2719,7 +2915,6 @@ function formatValue(v) {
   if (typeof v === 'boolean') return v ? '✅' : '❌';
   if (typeof v === 'number') return v.toLocaleString();
   if (Array.isArray(v)) return v.length ? v.join(', ') : '<span class="text-base-content/40">[]</span>';
-  const s = String(v);
   return s.length > 100 ? `<span title="${s.replace(/"/g,'&quot;')}">${s.slice(0,100)}…</span>` : s;
 }
 
@@ -2781,7 +2976,6 @@ async function exportSemanticQuery(format) {
 
 // ============================================================================
 // INITIALIZATION
-// ============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     const loadingEl = document.getElementById('loadingState');
