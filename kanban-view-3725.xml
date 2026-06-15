@@ -1,0 +1,145 @@
+<data>
+  <xpath expr="//div[@name='studio_auto_kanban_body']" position="inside">
+    <div class="ai-summary" name="studio_div_ef6d47">
+      <field name="x_studio_active_products_html" display="full"/>
+    </div>
+  </xpath>
+
+  <xpath expr="//field[@name='activity_ids']" position="after">
+    <field name="activity_summary" display="full"/>
+  </xpath>
+
+  <xpath expr="//div[@name='studio_auto_kanban_bottom']/div[@class='oe_kanban_bottom_left']" position="before">
+    <div class="next-activity-title" name="studio_div_next_activity_title">
+      Volgende activiteit
+    </div>
+  </xpath>
+
+  <xpath expr="//kanban[1]/templates[1]/t[1]/div[1]" position="after">
+    <style type="text/css">
+/* =========================================================
+   Algemene kanban layout
+   ========================================================= */
+.o_kanban_renderer .o_kanban_record {
+  margin: 0 0 6px;
+}
+.o_kanban_renderer .oe_kanban_global_click {
+  padding-bottom: 0 !important;
+}
+.o_kanban_renderer .oe_kanban_global_click .clearfix {
+  margin-bottom: 0 !important;
+}
+
+/* =========================================================
+   Bovenkant van de kaart
+   ========================================================= */
+.o_kanban_renderer .o_kanban_record_top {
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+}
+
+/* =========================================================
+   Kanban bottom – correcte flex-architectuur
+   ========================================================= */
+.o_kanban_renderer .o_kanban_record_bottom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* Titel: eigen rij boven activiteiten */
+.o_kanban_renderer .next-activity-title {
+  flex: 0 0 100%;
+  width: 100%;
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  margin: 4px 0 6px 0;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+/* Linkerkant: activiteiten / summary */
+.o_kanban_renderer .oe_kanban_bottom_left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Rechterkant: state + avatar (nooit wrappen) */
+.o_kanban_renderer .oe_kanban_bottom_right {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* =========================================================
+   Activity summary – max 3 lijnen + ellipsis
+   ========================================================= */
+.o_kanban_renderer .oe_kanban_bottom_left .o_activity_summary,
+.o_kanban_renderer .oe_kanban_bottom_left .o_activity_title {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =========================================================
+   Dropdown fixes
+   ========================================================= */
+.o_kanban_renderer .o_dropdown_kanban.dropdown {
+  position: absolute !important;
+  top: 0 !important;
+  right: 4px !important;
+  height: auto !important;
+}
+.o_kanban_renderer .o_dropdown_kanban.dropdown > a {
+  padding: 2px !important;
+}
+.o_kanban_renderer .o_dropdown_kanban.dropdown::before {
+  display: none;
+}
+
+/* =========================================================
+   Kleuraccenten per kanban-kleur
+   ========================================================= */
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_0 .o_kanban_record_top {
+  background: transparent !important;
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_1 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(255,70,70,.18), rgba(255,70,70,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_2 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(255,150,50,.18), rgba(255,150,50,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_3 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(255,210,0,.18), rgba(255,210,0,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_4 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(100,190,255,.18), rgba(100,190,255,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_5 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(200,90,150,.18), rgba(200,90,150,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_6 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(160,82,45,.18), rgba(160,82,45,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_7 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(0,200,170,.18), rgba(0,200,170,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_8 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(60,120,255,.18), rgba(60,120,255,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_9 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(255,40,160,.18), rgba(255,40,160,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_10 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(0,200,0,.18), rgba(0,200,0,0));
+}
+.o_kanban_renderer .oe_kanban_global_click.oe_kanban_color_11 .o_kanban_record_top {
+  background: linear-gradient(to top, rgba(170,90,255,.18), rgba(170,90,255,0));
+}
+    </style>
+  </xpath>
+</data>
