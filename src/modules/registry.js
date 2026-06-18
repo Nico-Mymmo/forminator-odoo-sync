@@ -138,7 +138,7 @@ export function resolveModuleRoute(module, method, pathname) {
       const paramNames = (routePath.match(/:[^/]+/g) || []).map(p => p.slice(1));
       const params = {};
       paramNames.forEach((name, i) => {
-        params[name] = match[i + 1];
+        params[name] = decodeURIComponent(match[i + 1]);
       });
       return { handler, params, routePath };
     }

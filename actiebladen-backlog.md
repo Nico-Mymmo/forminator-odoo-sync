@@ -1,3 +1,10 @@
+# ⚠️ GEARCHIVEERD — niet meer bijgewerkt
+
+> **Dit document is vervangen door [`actiebladen-herontwerp.md`](./actiebladen-herontwerp.md).**  
+> Alle backlog-items, acceptatiecriteria en technische context staan daar. Dit bestand wordt niet meer bijgewerkt.
+
+---
+
 # Backlog: Actiebladen Verbetering — CS Onboarding Flow
 
 _Gegenereerd op 2026-06-11 op basis van Odoo model `x_sales_action_sheet` + wishlist collega_

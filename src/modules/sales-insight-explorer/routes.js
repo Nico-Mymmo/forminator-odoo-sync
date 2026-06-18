@@ -48,6 +48,11 @@ import { enrichPartnersWithActionSheets } from './lib/partner-actionsheet-enrich
 import { enrichVisitorsWithTouchpoints } from './lib/visitor-touchpoint-enrichment.js';
 import { enrichVisitorsWithLeads as enrichVisitorsWithLeadsFn } from './lib/visitor-lead-enrichment.js';
 import { enrichTouchpointsWithVisitor } from './lib/touchpoint-visitor-enrichment.js';
+import { enrichActiesheetsWithPartner } from './lib/actionsheet-partner-enrichment.js';
+import { enrichLeadsWithPartner } from './lib/lead-partner-enrichment.js';
+import { enrichLeadsWithActionSheets } from './lib/lead-actionsheet-enrichment.js';
+import { enrichLeadsWithVisitors } from './lib/lead-visitor-enrichment.js';
+import { enrichVisitorsWithPartner } from './lib/visitor-partner-enrichment.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
 import { leadWebActivity, listWebVisitors } from './web-activity-routes.js';
 import { getSupabaseClient } from '../../lib/database.js';
@@ -1646,6 +1651,53 @@ async function runSemanticQuery(context) {
     } else {
       fields = ['id'];
     }
+
+    // Guard: verwijder duidelijk verkeerde veldnamen vóór de Odoo-call.
+    // Odoo Studio-velden beginnen altijd met 'x_'. Alles met 's_studio_' prefix
+    // is een typo (ooit verkeerd aangemaakt). Deduplicate ook meteen.
+    const seenFields = new Set();
+    fields = fields.filter(f => {
+      if (!f || f.startsWith('s_studio_')) {
+        console.warn(`[runSemanticQuery] Veld '${f}' gefilterd — ongeldige prefix (waarschijnlijk stale Supabase data)`);
+        return false;
+      }
+      if (seenFields.has(f)) return false;
+      seenFields.add(f);
+      return true;
+    });
+
+    // Guard: x_web_visitor met HTML-blob velden vereist filters.
+    // x_studio_visitor_timeline_html / x_studio_visitor_kpi_html / x_studio_pages_json
+    // zijn grote HTML-aggregaties per record. Odoo.sh's proxy crasht (Bad Gateway)
+    // als deze velden voor duizenden records tegelijk worden opgevraagd.
+    // Oplossing: blokkeer de query als er geen tijdsfilter of ander filter aanwezig is.
+    if (model === 'x_web_visitor') {
+      const HEAVY_VISITOR_FIELDS = new Set([
+        'x_studio_visitor_timeline_html',
+        'x_studio_visitor_kpi_html',
+        'x_studio_pages_json'
+      ]);
+      const heavyFieldsRequested = fields.filter(f => HEAVY_VISITOR_FIELDS.has(f));
+      if (heavyFieldsRequested.length > 0) {
+        // Controleer of er minstens één filter aanwezig is (tijdsfilter, source site, bounce, ...)
+        // Nota: domain is nog niet gebouwd op dit punt — controleer payload.filters
+        const hasFilter = Array.isArray(payload.filters) && payload.filters.length > 0;
+        if (!hasFilter && !isVerifyMode) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: {
+              message: `De velden ${heavyFieldsRequested.join(', ')} bevatten grote HTML-data per bezoeker. Voeg een filter toe (bijv. een tijdsperiode of source site) om het aantal records te beperken — anders crasht de query bij grote datasets.`,
+              code: 'QUERY_TOO_BROAD',
+              hint: 'Voeg een tijdsfilter toe (bijv. "eerste bezoek" van de laatste 30 dagen) of filter op source site om het resultaat te beperken.',
+              heavy_fields: heavyFieldsRequested
+            }
+          }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+    }
     
     // STEP 3: Translate filters to Odoo domain
     const domain = [];
@@ -1688,12 +1740,14 @@ async function runSemanticQuery(context) {
     const notes = [];
     notes.push(`Primary query: ${model} with ${domain.length} filters`);
     
-    // STEP 4: Call searchRead with limit: false to fetch all records
+    // STEP 4: Call searchRead — verify mode uses limit 25 + id desc, otherwise no limit
+    const isVerifyMode = payload._verify_mode === true;
     let records = await searchRead(env, {
       model,
       domain,
       fields,
-      limit: false
+      limit: isVerifyMode ? 25 : false,
+      ...(isVerifyMode ? { order: 'id desc' } : {})
     });
     
     console.log(`✅ searchRead returned ${records.length} records`);
@@ -1823,6 +1877,107 @@ async function runSemanticQuery(context) {
       touchpointVisitorMeta = tvResult.meta;
     }
 
+    // 5i: Actieblad → Partner enrichment (res.partner als submodel van x_sales_action_sheet)
+    let actionsheetPartnerMeta = null;
+    if (payload.actionsheet_partner_enrichment?.enabled && model === 'x_sales_action_sheet') {
+      const apResult = await enrichActiesheetsWithPartner(
+        records,
+        payload.actionsheet_partner_enrichment,
+        env,
+        notes
+      );
+      records = apResult.records;
+      actionsheetPartnerMeta = apResult.meta;
+
+      // Stap 5i-b: Leads als L2 van Partners (crm.lead omgeleid via res.partner)
+      if (payload.actionsheet_partner_enrichment.lead_enrichment?.enabled) {
+        const apLeadCfg = payload.actionsheet_partner_enrichment.lead_enrichment;
+        const pIds = [];
+        for (const rec of records) {
+          if (rec.__partner?.id && !pIds.includes(rec.__partner.id)) pIds.push(rec.__partner.id);
+        }
+        if (pIds.length) {
+          const leadDomain = [['partner_id', 'in', pIds], ['type', '=', 'opportunity'], ['active', 'in', [true, false]]];
+          if (apLeadCfg.filters?.won_status?.length) {
+            leadDomain.push(['won_status', 'in', apLeadCfg.filters.won_status]);
+          }
+          const partnerLeadsAP = await searchRead(env, {
+            model: 'crm.lead',
+            domain: leadDomain,
+            fields: ['id', 'name', 'won_status', 'stage_id', 'partner_id'],
+            limit: false
+          });
+          notes.push(`Actieblad→Partner→Lead: ${partnerLeadsAP.length} leads voor ${pIds.length} partners`);
+          const leadsByPartner = {};
+          for (const lead of partnerLeadsAP) {
+            const pid = Array.isArray(lead.partner_id) ? lead.partner_id[0] : lead.partner_id;
+            if (!leadsByPartner[pid]) leadsByPartner[pid] = [];
+            leadsByPartner[pid].push(lead);
+          }
+          records = records.map(rec => {
+            if (!rec.__partner) return rec;
+            return { ...rec, __partner: { ...rec.__partner, __leads: leadsByPartner[rec.__partner.id] || [] } };
+          });
+        }
+      }
+    }
+
+    // 5i-c: Partners als L2 van Leads (res.partner omgeleid via crm.lead)
+    let leadPartnerMeta = null;
+    if (payload.lead_enrichment?.partner_enrichment?.enabled && model === 'x_sales_action_sheet') {
+      const lpResult = await enrichLeadsWithPartner(
+        records,
+        payload.lead_enrichment.partner_enrichment,
+        env,
+        notes
+      );
+      records = lpResult.records;
+      leadPartnerMeta = lpResult.meta;
+    }
+
+    // 5j: Lead → Actiebladen enrichment (x_sales_action_sheet als submodel van crm.lead)
+    let leadActionsheetMeta = null;
+    if (payload.lead_actionsheet_enrichment?.enabled && model === 'crm.lead') {
+      const laResult = await enrichLeadsWithActionSheets(
+        records,
+        payload.lead_actionsheet_enrichment,
+        env,
+        notes
+      );
+      records = laResult.records;
+      leadActionsheetMeta = laResult.meta;
+    }
+
+    // 5k: Lead → Web Visitor enrichment (werkt op elk basismodel met __leads)
+    // Trigger: lead_enrichment.visitor_enrichment.enabled
+    // Haalt x_web_visitor op per lead via many2many reverse lookup.
+    // Optioneel ook x_ad_touchpoint per visitor (visitor_enrichment.touchpoint_enrichment).
+    let leadVisitorMeta = null;
+    if (payload.lead_enrichment?.visitor_enrichment?.enabled) {
+      const lvResult = await enrichLeadsWithVisitors(
+        records,
+        payload.lead_enrichment.visitor_enrichment,
+        env,
+        notes
+      );
+      records = lvResult.records;
+      leadVisitorMeta = lvResult.meta;
+    }
+
+    // 5l: Visitor → Partner enrichment (alleen voor x_web_visitor als basismodel)
+    // Koppeling via e-mail: x_web_visitor.x_studio_email → res.partner.email
+    let visitorPartnerMeta = null;
+    if (payload.visitor_partner_enrichment?.enabled && model === 'x_web_visitor') {
+      const vpResult = await enrichVisitorsWithPartner(
+        records,
+        payload.visitor_partner_enrichment,
+        env,
+        notes
+      );
+      records = vpResult.records;
+      visitorPartnerMeta = vpResult.meta;
+    }
+
     // Check if export is requested
     const exportFormat = payload.export;
     
@@ -1894,7 +2049,8 @@ async function runSemanticQuery(context) {
     
     // NORMAL PATH: Return JSON results
     const anyEnrichment = enrichmentMeta || chatterMeta || activitiesMeta || partnerLeadMeta
-      || partnerActionsheetMeta || visitorTouchpointMeta || visitorLeadMeta || touchpointVisitorMeta;
+      || partnerActionsheetMeta || visitorTouchpointMeta || visitorLeadMeta || touchpointVisitorMeta
+      || actionsheetPartnerMeta || leadPartnerMeta || leadVisitorMeta || visitorPartnerMeta;
     return new Response(JSON.stringify({
       success: true,
       data: {
@@ -1912,8 +2068,12 @@ async function runSemanticQuery(context) {
           ...(partnerLeadMeta       ? { partner_lead_enrichment:        partnerLeadMeta }       : {}),
           ...(partnerActionsheetMeta ? { partner_actionsheet_enrichment: partnerActionsheetMeta } : {}),
           ...(visitorTouchpointMeta ? { visitor_touchpoint_enrichment:  visitorTouchpointMeta } : {}),
-          ...(visitorLeadMeta       ? { visitor_lead_enrichment:        visitorLeadMeta }       : {}),
-          ...(touchpointVisitorMeta ? { touchpoint_visitor_enrichment:  touchpointVisitorMeta } : {})
+          ...(visitorLeadMeta           ? { visitor_lead_enrichment:            visitorLeadMeta }           : {}),
+          ...(touchpointVisitorMeta     ? { touchpoint_visitor_enrichment:      touchpointVisitorMeta }     : {}),
+          ...(actionsheetPartnerMeta    ? { actionsheet_partner_enrichment:     actionsheetPartnerMeta }    : {}),
+          ...(leadPartnerMeta           ? { lead_partner_enrichment:            leadPartnerMeta }           : {}),
+          ...(leadVisitorMeta           ? { lead_visitor_enrichment:            leadVisitorMeta }           : {}),
+          ...(visitorPartnerMeta        ? { visitor_partner_enrichment:         visitorPartnerMeta }        : {})
         }
       }
     }), {
@@ -2093,7 +2253,7 @@ async function createInformationSet(context) {
     if (!id || !label || !model) return new Response(JSON.stringify({ success: false, error: { message: 'id, label and model are required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_sets')
-      .insert({ id, label, description: description || null, model, sort_order: sort_order || 99, created_by: context.user?.id || null })
+      .insert({ id, label, description: description || null, model, sort_order: sort_order || 99 })
       .select().single();
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
@@ -2116,7 +2276,7 @@ async function createInformationSetField(context) {
     if (!set_id || !field_key) return new Response(JSON.stringify({ success: false, error: { message: 'set_id and field_key are required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_set_fields')
-      .insert({ set_id, field_key, label: label || null, description: description || null, sort_order: sort_order || 99, created_by: context.user?.id || null })
+      .insert({ set_id, field_key, label: label || null, description: description || null, sort_order: sort_order || 99 })
       .select().single();
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
@@ -2298,10 +2458,34 @@ async function updateInformationSet(context) {
     const updates = {};
     if (body.label !== undefined)       updates.label       = body.label;
     if (body.description !== undefined) updates.description = body.description;
+    if (body.sort_order !== undefined)  updates.sort_order  = body.sort_order;
     const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_sets').update(updates).eq('id', id).select().single();
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * DELETE /api/sales-insights/information-sets/:id
+ * Soft-delete (sets is_active = false). Requires SI admin.
+ */
+async function deleteInformationSet(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  try {
+    const { env, params } = context;
+    const id = params?.id;
+    if (!id) return new Response(JSON.stringify({ success: false, error: { message: 'id is verplicht' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    const supabase = getSupabaseClient(env);
+    const { data, error } = await supabase.from('information_sets').update({ is_active: false }).eq('id', id).select('id');
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) {
+      return new Response(JSON.stringify({ success: false, error: { message: `Categorie '${id}' niet gevonden of al verwijderd` } }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
   } catch (e) {
     return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
@@ -2555,6 +2739,7 @@ export const routes = {
   'POST /api/sales-insights/information-sets': createInformationSet,
   'POST /api/sales-insights/information-set-fields': createInformationSetField,
   'PATCH /api/sales-insights/information-sets/:id': updateInformationSet,
+  'DELETE /api/sales-insights/information-sets/:id': deleteInformationSet,
   'PATCH /api/sales-insights/information-set-fields/:id': updateInformationSetField,
   'DELETE /api/sales-insights/information-set-fields/:id': deleteInformationSetField,
   'GET /api/sales-insights/saved-searches': listSavedSearches,

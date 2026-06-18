@@ -102,7 +102,7 @@ export const LEAD_PROPERTY_GROUPS = {
  * @param {Array<string>} enabledGroups - Group IDs to include (status_outcome always added)
  * @returns {Array<string>} - Unique field names
  */
-export function getEnabledFields(enabledGroups = []) {
+export function getEnabledFields(enabledGroups = [], extraFields = []) {
   const fields = new Set();
 
   // status_outcome is ALWAYS included
@@ -124,6 +124,9 @@ export function getEnabledFields(enabledGroups = []) {
 
   // active is needed for classification (classifyLead checks active flag)
   fields.add('active');
+
+  // Caller-supplied extra fields (e.g. partner_id when partner enrichment is active)
+  for (const f of extraFields) fields.add(f);
 
   return Array.from(fields);
 }
@@ -150,6 +153,11 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
 
   const enabledGroups = enrichmentConfig.property_groups || [];
   notes.push(`Property groups: status_outcome (altijd) + ${enabledGroups.join(', ') || 'geen extra'}`);
+
+  // Extra velden voor downstream enrichment — link_field is model-specifiek (bijv. 'partner_id' op crm.lead)
+  const partnerLinkField = enrichmentConfig.partner_enrichment?.link_field;
+  const extraFields = (enrichmentConfig.partner_enrichment?.enabled && partnerLinkField) ? [partnerLinkField] : [];
+  if (extraFields.length) notes.push(`Extra velden voor downstream enrichment: ${extraFields.join(', ')}`);
 
   // FASE 1: Verzamel alle unieke lead-IDs uit de actiebladen zelf.
   // Dit is betrouwbaarder dan de inverse many2many-richting op crm.lead.
@@ -182,7 +190,7 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
   }
 
   // FASE 2: Haal alleen de relevante leads op (gefilterd op ID + eventuele won_status/stage-filters).
-  const fields = getEnabledFields(enabledGroups);
+  const fields = getEnabledFields(enabledGroups, extraFields);
   const domain = [
     ['id', 'in', Array.from(allLeadIds)],
     ['active', 'in', [true, false]] // inclusief gearchiveerde (LOST) leads
@@ -207,7 +215,7 @@ export async function enrichWithLeads(actionSheets, enrichmentConfig, env, notes
 
   const leadPayloadMap = new Map();
   for (const lead of filteredLeads) {
-    leadPayloadMap.set(lead.id, extractLeadPayload(lead, enabledGroups));
+    leadPayloadMap.set(lead.id, extractLeadPayload(lead, enabledGroups, extraFields));
   }
 
   // Koppel leads aan actiebladen; verwijder intern veld uit output
@@ -281,20 +289,20 @@ function applyMode(enriched, mode, notes) {
  * @param {Array<string>} enabledGroups - Enabled property groups (excluding status_outcome)
  * @returns {Object} Lead payload for enrichment
  */
-function extractLeadPayload(lead, enabledGroups = []) {
+function extractLeadPayload(lead, enabledGroups = [], extraFields = []) {
   const payload = {};
-  
+
   // ALWAYS include Status & Outcome fields (in order)
   for (const field of LEAD_PROPERTY_GROUPS.status_outcome.fields) {
     payload[field] = lead[field] !== undefined ? lead[field] : null;
   }
-  
+
   // Add classification (always included)
   payload.classification = classifyLead(lead);
-  
+
   // Add fields from enabled groups (in group order)
   const groupOrder = ['time_flow', 'origin_marketing', 'business_signals', 'lead_context'];
-  
+
   for (const groupId of groupOrder) {
     if (enabledGroups.includes(groupId) && LEAD_PROPERTY_GROUPS[groupId]) {
       for (const field of LEAD_PROPERTY_GROUPS[groupId].fields) {
@@ -302,7 +310,12 @@ function extractLeadPayload(lead, enabledGroups = []) {
       }
     }
   }
-  
+
+  // Extra velden voor downstream enrichment (bijv. partner_id voor lead→partner)
+  for (const f of extraFields) {
+    if (lead[f] !== undefined) payload[f] = lead[f];
+  }
+
   return payload;
 }
 

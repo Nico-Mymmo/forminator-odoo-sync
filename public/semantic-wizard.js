@@ -148,6 +148,7 @@ const RELATION_META = {
     'mail.activity':        { via: 'activity_ids',                      type: 'one2many',  short: '1→n' }
   },
   'crm.lead': {
+    'x_sales_action_sheet': { via: 'x_studio_as_opportunity_ids (inverse)', type: 'many2many', short: 'm↔m' },
     'mail.message':   { via: 'message_ids',        type: 'one2many',  short: '1→n' },
     'mail.activity':  { via: 'activity_ids',        type: 'one2many',  short: '1→n' }
   },
@@ -169,6 +170,7 @@ let _spiderScale = 1;
 let _spiderModel = null;
 let _nodePositions = {};
 let _spiderPanCleanup = null;
+let _spiderLastCx = null; // bijhouden voor pan-compensatie bij canvas-resize
 // ============================================================================
 // WIZARD STATE
 // ============================================================================
@@ -182,9 +184,10 @@ class WizardState {
     this.leadEnrichment = {
       enabled: false, mode: 'include',
       filters: { won_status: [], stage_ids: [] },
-      property_groups: [], webActivity: false
+      property_groups: []
     };
     this.submodelSets = {};
+    this.submodelPaths = {}; // { modelKey: 'direct' | parentL1Key } — welk pad een submodel gebruikt
     // Sub-submodel selectie: { 'crm.lead': { 'mail.message_enabled': true }, ... }
     this.subSubmodels = {};
     this.partnerFilter = { companyTypes: [], companyStatuses: [] };
@@ -201,7 +204,7 @@ class WizardState {
     this._renamingSearchId = null;       // id of saved search being renamed
     this._editingFromSavedSearch = null; // { id, name, snapshot } wanneer bezig met bewerken
     // Web visitor filters
-    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'include', instantBounce: 'include' };
+    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'exclude', instantBounce: 'exclude' };
     this._allSourceSites = [];           // alle beschikbare sites (voor vergelijking in buildPayload)
     this._sourceSitesInitialized = false; // voorkom herinitialisatie na snapshot-load
     // Ad touchpoint filters
@@ -214,6 +217,7 @@ class WizardState {
     this.selectedModel = model;
     this.informationSets = {};
     this.submodelSets = {};
+    this.submodelPaths = {};
     this.subSubmodels = {};
     // Standaard: VME-types aan, professionals uit; actieve statussen aan, intern/geblokkeerd uit
     this.partnerFilter = {
@@ -226,7 +230,7 @@ class WizardState {
     this.leadEnrichment.filters.stage_ids = [];
     this._totalStages = 0;
     // Reset web visitor filter
-    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'include', instantBounce: 'include' };
+    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'exclude', instantBounce: 'exclude' };
     this._allSourceSites = [];
     this._sourceSitesInitialized = false;
     // Reset ad touchpoint filter
@@ -272,9 +276,8 @@ class WizardState {
 
   toggleLeadEnrichment(enabled) {
     this.leadEnrichment.enabled = enabled;
-    if (!enabled) { this.leadEnrichment.filters.won_status = []; this.leadEnrichment.filters.stage_ids = []; this.leadEnrichment.webActivity = false; }
+    if (!enabled) { this.leadEnrichment.filters.won_status = []; this.leadEnrichment.filters.stage_ids = []; }
   }
-  toggleWebActivity(v) { this.leadEnrichment.webActivity = v; }
   toggleLeadPropertyGroup(id, v) {
     if (v && !this.leadEnrichment.property_groups.includes(id)) this.leadEnrichment.property_groups.push(id);
     else if (!v) this.leadEnrichment.property_groups = this.leadEnrichment.property_groups.filter(g => g !== id);
@@ -290,6 +293,7 @@ class WizardState {
       selectedModel:    this.selectedModel,
       informationSets:  { ...this.informationSets },
       submodelSets:     { ...this.submodelSets },
+      submodelPaths:    { ...this.submodelPaths },
       subSubmodels:     JSON.parse(JSON.stringify(this.subSubmodels)),
       timeFilter:       { ...this.timeFilter },
       partnerFilter:    { ...this.partnerFilter },
@@ -307,6 +311,7 @@ class WizardState {
     if (snap.selectedModel) this.selectModel(snap.selectedModel);
     if (snap.informationSets)  this.informationSets  = snap.informationSets;
     if (snap.submodelSets)     this.submodelSets     = snap.submodelSets;
+    if (snap.submodelPaths)    this.submodelPaths    = snap.submodelPaths;
     if (snap.subSubmodels)     this.subSubmodels     = snap.subSubmodels;
     if (snap.timeFilter)       this.timeFilter       = { ...this.timeFilter, ...snap.timeFilter };
     if (snap.partnerFilter)    this.partnerFilter    = snap.partnerFilter;
@@ -407,7 +412,9 @@ class WizardState {
       }
     }
 
-    if (this.leadEnrichment.enabled) {
+    // Lead enrichment: alleen als leads als DIRECT L1-node actief is (niet omgeleid via partner)
+    const _leadIsViaPartner = model === 'x_sales_action_sheet' && this.submodelPaths['crm.lead'] === 'res.partner';
+    if (this.leadEnrichment.enabled && !_leadIsViaPartner) {
       payload.lead_enrichment = { enabled: true, mode: this.leadEnrichment.mode, filters: {} };
       const allWonSub = ['won', 'lost', 'pending'];
       if (this.leadEnrichment.filters.won_status.length > 0 && this.leadEnrichment.filters.won_status.length < allWonSub.length) {
@@ -419,7 +426,34 @@ class WizardState {
         payload.lead_enrichment.filters.stage_ids = selectedStagesSub;
       }
       if (this.leadEnrichment.property_groups.length)      payload.lead_enrichment.property_groups    = this.leadEnrichment.property_groups;
-      if (this.leadEnrichment.webActivity)                 payload.lead_enrichment.web_activity       = true;
+      // Web Visitors (L2) en Ad Touchpoints (L3) — backend visitor enrichment
+      if (this.submodelSets['x_web_visitor_enabled'] || this.submodelSets['x_ad_touchpoint_enabled']) {
+        const veFilters = {};
+        if (this.webVisitorFilter.possibleBounce !== 'include') veFilters.possible_bounce = this.webVisitorFilter.possibleBounce;
+        if (this.webVisitorFilter.instantBounce  !== 'include') veFilters.instant_bounce  = this.webVisitorFilter.instantBounce;
+        payload.lead_enrichment.visitor_enrichment = {
+          enabled: true,
+          touchpoint_enrichment: { enabled: !!this.submodelSets['x_ad_touchpoint_enabled'] },
+          ...(Object.keys(veFilters).length ? { filters: veFilters } : {})
+        };
+      }
+      // Partners als L2 van leads (partner_enrichment binnen lead_enrichment)
+      const _partnerIsViaLead = model === 'x_sales_action_sheet'
+        && this.submodelSets['res.partner_enabled']
+        && this.submodelPaths['res.partner'] === 'crm.lead';
+      if (_partnerIsViaLead) {
+        const _pSets = informationSetsCache['res.partner'] || [];
+        const _pAny = _pSets.some(function(s) { return !!wizardState.submodelSets[s.id]; });
+        const _pFields = [];
+        _pSets.forEach(function(set) {
+          if (!_pAny || wizardState.submodelSets[set.id]) {
+            (set.information_set_fields || []).forEach(function(f) {
+              if (!_pFields.includes(f.field_key)) _pFields.push(f.field_key);
+            });
+          }
+        });
+        payload.lead_enrichment.partner_enrichment = { enabled: true, link_field: 'partner_id', fields: _pFields };
+      }
     }
 
     // Chatter enrichment (mail.message submodel)
@@ -430,6 +464,36 @@ class WizardState {
     // Activity enrichment (mail.activity submodel)
     if (this.submodelSets['mail.activity_enabled']) {
       payload.activity_enrichment = { enabled: true, include_done: false };
+    }
+
+    // Actieblad → Partner enrichment
+    if (model === 'x_sales_action_sheet' && this.submodelSets['res.partner_enabled']) {
+      const _partnerVia = this.submodelPaths['res.partner'] || 'direct';
+      if (_partnerVia === 'direct') {
+        // Directe koppeling actieblad → partner
+        // Partner-velden komen uit informationSetsCache['res.partner'], geselecteerd via submodelSets.
+        // Fallback: als geen enkele set individueel geselecteerd is, neem alle sets.
+        const partnerSets = informationSetsCache['res.partner'] || [];
+        const anySetsSelected = partnerSets.some(function(s) { return !!wizardState.submodelSets[s.id]; });
+        const partnerFields = [];
+        partnerSets.forEach(function(set) {
+          if (!anySetsSelected || wizardState.submodelSets[set.id]) {
+            (set.information_set_fields || []).forEach(function(f) {
+              if (!partnerFields.includes(f.field_key)) partnerFields.push(f.field_key);
+            });
+          }
+        });
+        payload.actionsheet_partner_enrichment = { enabled: true, fields: partnerFields };
+        // Leads als L2 van partners (crm.lead omgeleid via res.partner)
+        if (this.submodelPaths['crm.lead'] === 'res.partner' && this.leadEnrichment.enabled) {
+          payload.actionsheet_partner_enrichment.lead_enrichment = { enabled: true, filters: {} };
+          const allWonAP = ['won', 'lost', 'pending'];
+          if (this.leadEnrichment.filters.won_status.length > 0 && this.leadEnrichment.filters.won_status.length < allWonAP.length) {
+            payload.actionsheet_partner_enrichment.lead_enrichment.filters.won_status = this.leadEnrichment.filters.won_status;
+          }
+        }
+      }
+      // Als _partnerVia === 'crm.lead': partner_enrichment zit al in lead_enrichment hierboven
     }
 
     // Partner enrichments (res.partner als startmodel)
@@ -457,17 +521,25 @@ class WizardState {
         }
       }
       if (this.submodelSets['x_sales_action_sheet_enabled']) {
-        payload.partner_actionsheet_enrichment = { enabled: true };
-        // L2: sub-enrichments voor actiebladen
-        const asSubs = this.subSubmodels['x_sales_action_sheet'] || {};
-        if (asSubs['mail.message_enabled']) {
-          payload.partner_actionsheet_enrichment.chatter_enrichment = { enabled: true };
-        }
-        if (asSubs['mail.activity_enabled']) {
-          payload.partner_actionsheet_enrichment.activity_enrichment = { enabled: true };
-        }
-        if (asSubs['crm.lead_enabled']) {
-          payload.partner_actionsheet_enrichment.lead_enrichment = { enabled: true, filters: {} };
+        if (this.submodelPaths['x_sales_action_sheet'] === 'crm.lead') {
+          // Actiebladen via leads (partner → lead → actieblad via x_studio_as_opportunity_ids)
+          if (!payload.partner_lead_enrichment) {
+            payload.partner_lead_enrichment = { enabled: true, property_groups: [], filters: {} };
+          }
+          payload.partner_lead_enrichment.lead_actionsheet_enrichment = { enabled: true };
+        } else {
+          // Directe link: partner → actieblad (via x_studio_for_company_id)
+          payload.partner_actionsheet_enrichment = { enabled: true };
+          const asSubs = this.subSubmodels['x_sales_action_sheet'] || {};
+          if (asSubs['mail.message_enabled']) {
+            payload.partner_actionsheet_enrichment.chatter_enrichment = { enabled: true };
+          }
+          if (asSubs['mail.activity_enabled']) {
+            payload.partner_actionsheet_enrichment.activity_enrichment = { enabled: true };
+          }
+          if (asSubs['crm.lead_enabled']) {
+            payload.partner_actionsheet_enrichment.lead_enrichment = { enabled: true, filters: {} };
+          }
         }
       }
     }
@@ -504,6 +576,25 @@ class WizardState {
           payload.visitor_lead_enrichment.filters.won_status = selWon;
         }
       }
+      // Partner submodel (via e-mail: x_studio_email → res.partner.email)
+      if (this.submodelSets['res.partner_enabled']) {
+        const partnerSets = informationSetsCache['res.partner'] || [];
+        const anySetsSelected = partnerSets.some(s => !!this.submodelSets[s.id]);
+        const partnerFields = [];
+        partnerSets.forEach(set => {
+          if (!anySetsSelected || this.submodelSets[set.id]) {
+            (set.information_set_fields || []).forEach(f => {
+              if (!partnerFields.includes(f.field_key)) partnerFields.push(f.field_key);
+            });
+          }
+        });
+        payload.visitor_partner_enrichment = { enabled: true, fields: partnerFields };
+      }
+    }
+
+    // crm.lead → Actiebladen enrichment
+    if (model === 'crm.lead' && this.submodelSets['x_sales_action_sheet_enabled']) {
+      payload.lead_actionsheet_enrichment = { enabled: true };
     }
 
     // x_ad_touchpoint filters (opt-out: alleen als subset geselecteerd)
@@ -546,14 +637,14 @@ class WizardState {
     this.currentStep = 1; this.selectedModel = null; this.informationSets = {};
     this.timeFilter = { mode: null, quickPeriod: null, dateFrom: null, dateTo: null, field: null };
     this.apartmentsFilter = { min: null, max: null, include_zero: true };
-    this.leadEnrichment = { enabled: false, mode: 'include', filters: { won_status: ['won', 'lost', 'pending'], stage_ids: [] }, property_groups: [], webActivity: false };
+    this.leadEnrichment = { enabled: false, mode: 'include', filters: { won_status: ['won', 'lost', 'pending'], stage_ids: [] }, property_groups: [] };
     this.submodelSets = {};
     this.subSubmodels = {};
     this.partnerFilter = {
       companyTypes:    [1, 3],
       companyStatuses: ['Free Trial', 'Active', 'Inactive']
     };
-    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'include', instantBounce: 'include' };
+    this.webVisitorFilter = { sourceSites: [], possibleBounce: 'exclude', instantBounce: 'exclude' };
     this._allSourceSites = []; this._sourceSitesInitialized = false;
     this.adTouchpointFilter = { sources: [], mediums: [], campaigns: [] };
     this._adFilters = { sources: [], mediums: [], campaigns: [] }; this._adFiltersInitialized = false;
@@ -702,7 +793,7 @@ function editSavedSearch(id) {
   renderWizard();
 }
 
-function runSavedSearch(id) {
+async function runSavedSearch(id) {
   const s = savedSearchesCache?.find(x => x.id === id);
   if (!s) return;
   const snapshot = JSON.parse(JSON.stringify(s.wizard_state));
@@ -718,6 +809,20 @@ function runSavedSearch(id) {
     }
   }
   wizardState.loadSnapshot(snapshot);
+
+  // Zorg dat informationSetsCache gevuld is voor alle benodigde modellen
+  // vóór buildPayload() wordt aangeroepen — anders zijn submodel-velden leeg.
+  // In de wizard gebeurt dit tijdens het renderen van de submodel-stap;
+  // bij direct uitvoeren slaan we die stap over en moeten we prefetchen.
+  const modelsToFetch = new Set([snapshot.selectedModel || 'x_sales_action_sheet']);
+  Object.entries(snapshot.submodelSets || {}).forEach(function([key, val]) {
+    if (!val || !key.endsWith('_enabled')) return;
+    const model = key.slice(0, -'_enabled'.length);
+    // Alleen echte Odoo-modelnames (bevatten punt of beginnen met x_)
+    if (model.includes('.') || model.startsWith('x_')) modelsToFetch.add(model);
+  });
+  await Promise.all(Array.from(modelsToFetch).map(function(m) { return fetchInformationSets(m); }));
+
   // Direct uitvoeren — geen stap 3 tussenstap nodig
   executeQuery();
 }
@@ -1028,30 +1133,27 @@ function renderCenterInfoChips(sets) {
 }
 
 /** Chips voor sub-model: oog-knop + lead-special-case. */
-function renderSubInfoChips(parentModel, submodelKey, sets) {
+function renderSubInfoChips(parentModel, submodelKey, sets, chipActiveClass = 'btn-secondary') {
   const isLeadSub = submodelKey === 'crm.lead' && parentModel === 'x_sales_action_sheet';
   return sets.map(set => {
-    const isWebActivity = set.id === 'lead_web_activity';
     const previewKey = submodelKey + ':' + set.id;
     const previewing = wizardState._previewSet === previewKey;
     const fields = set.information_set_fields || [];
     let active, toggleCode;
     if (isLeadSub) {
-      active = isWebActivity ? wizardState.leadEnrichment.webActivity : wizardState.leadEnrichment.property_groups.includes(set.id);
-      toggleCode = isWebActivity
-        ? `wizardState.toggleWebActivity(${!active}); renderWizard();`
-        : `wizardState.toggleLeadPropertyGroup('${set.id}', ${!active}); renderWizard();`;
+      active = wizardState.leadEnrichment.property_groups.includes(set.id);
+      toggleCode = `wizardState.toggleLeadPropertyGroup('${set.id}', ${!active}); renderWizard();`;
     } else {
       active = !!wizardState.submodelSets[set.id];
       toggleCode = `wizardState.submodelSets['${set.id}'] = ${!active}; renderWizard();`;
     }
     return `<div class="mb-0.5">
       <div class="flex items-start gap-0.5">
-        <button class="btn btn-xs flex-1 justify-start gap-1 min-h-0 h-auto py-1 text-left ${active ? 'btn-secondary' : 'btn-ghost border border-base-200 text-base-content/45 hover:text-base-content/80'}"
+        <button class="btn btn-xs flex-1 flex-row items-center justify-start gap-1 min-h-0 h-7 py-0 text-left overflow-hidden ${active ? chipActiveClass : 'btn-ghost border border-base-200 text-base-content/45 hover:text-base-content/80'}"
           onclick="event.stopPropagation(); ${toggleCode}"
           title="${(set.description||'').replace(/"/g,'&quot;')}">
-          <i data-lucide="${active ? 'check-circle' : 'circle'}" class="w-3 h-3 shrink-0 mt-px"></i>
-          <span class="text-xs leading-snug">${set.label}${isWebActivity ? ' <span class="badge badge-xs badge-warning ml-1">+call</span>' : ''}</span>
+          <i data-lucide="${active ? 'check-circle' : 'circle'}" class="w-3 h-3 shrink-0 pointer-events-none"></i>
+          <span class="text-xs truncate min-w-0">${set.label}</span>
         </button>
         <button class="btn btn-xs btn-ghost min-h-0 h-auto py-1 px-1 shrink-0 ${previewing ? 'text-info' : 'opacity-20 hover:opacity-60'}"
           onclick="event.stopPropagation(); wizardState._previewSet = wizardState._previewSet==='${previewKey}' ? null : '${previewKey}'; renderWizard();"
@@ -1075,6 +1177,7 @@ async function renderStep2() {
     _spiderScale = 1;
     _nodePositions = {};
     _spiderModel = model;
+    _spiderLastCx = null;
   }
 
   // Bereken L1-buren vanuit de centrale graph (excl. comm-modellen — die staan in de node-header)
@@ -1083,19 +1186,55 @@ async function renderStep2() {
 
   const shownModels = new Set([model, ...dataL1]);
 
-  // L2 data-nodes: data-buren van L1 data-nodes die nog niet als L1 of center staan
+  // Bepaal welke L1-nodes "direct enabled" zijn (niet omgeleid via een ander pad)
+  const isEnabledDirect = k => {
+    const path = wizardState.submodelPaths[k];
+    if (path && path !== 'direct') return false; // expliciet omgeleid via een ander pad
+    if (k === 'crm.lead' && model === 'x_sales_action_sheet') return wizardState.leadEnrichment.enabled;
+    return !!wizardState.submodelSets[k + '_enabled'];
+  };
+  const enabledDirectL1 = dataL1.filter(isEnabledDirect);
+
+  // L2 exclusie: alleen center + enabled-direct L1 nodes uitsluiten.
+  // Uitgeschakelde of omgeleide L1-nodes mogen als L2 verschijnen bij enabled-direct L1-parents.
+  const excludeFromL2 = new Set([model, ...enabledDirectL1]);
+
+  // L2 data-nodes: alleen van enabled-direct L1-parents
   const l2DataMap = {}; // { l1key: [l2key, ...] }
-  for (const l1k of dataL1) {
-    const l2d = getNeighbors(l1k, [...shownModels]).filter(k => !COMM_MODELS.has(k));
+  for (const l1k of enabledDirectL1) {
+    const l2d = getNeighbors(l1k, [...excludeFromL2]).filter(k => !COMM_MODELS.has(k));
     if (l2d.length) {
       l2DataMap[l1k] = l2d;
+      l2d.forEach(k => excludeFromL2.add(k));
       l2d.forEach(k => shownModels.add(k));
     }
   }
 
-  // Concurrent fetch voor alle modellen incl. L2 data-nodes
+  // Welke L1-nodes zijn "geclaimd als L2" van een andere L1-node?
+  // (= verschijnen in L2DataMap én zijn ook in dataL1)
+  const claimedAsL2 = {}; // { modelKey: parentL1Key }
+  for (const [l1k, l2list] of Object.entries(l2DataMap)) {
+    for (const k of l2list) {
+      if (dataL1.includes(k)) claimedAsL2[k] = l1k;
+    }
+  }
+
+  // L3 data-nodes: data-buren van L2 data-nodes
+  const l3DataMap = {}; // { l2key: [l3key, ...] }
+  for (const [l1k, l2list] of Object.entries(l2DataMap)) {
+    for (const l2k of l2list) {
+      const l3d = getNeighbors(l2k, [...shownModels]).filter(k => !COMM_MODELS.has(k));
+      if (l3d.length) {
+        l3DataMap[l2k] = l3d;
+        l3d.forEach(k => shownModels.add(k));
+      }
+    }
+  }
+
+  // Concurrent fetch voor alle modellen incl. L2 en L3 data-nodes
   const l2DataAll = [...new Set(Object.values(l2DataMap).flat())];
-  const fetchKeys = [...new Set([model, ...dataL1, ...l2DataAll])];
+  const l3DataAll = [...new Set(Object.values(l3DataMap).flat())];
+  const fetchKeys = [...new Set([model, ...dataL1, ...l2DataAll, ...l3DataAll])];
   const fetchResults = await Promise.all(fetchKeys.map(k => fetchInformationSets(k)));
   const allSets = {};
   fetchKeys.forEach((k, i) => { allSets[k] = fetchResults[i] || []; });
@@ -1104,6 +1243,7 @@ async function renderStep2() {
   const centerSets = allSets[model];
   const hasSubmodels = dataL1.length > 0;
   const hasL2Data = Object.keys(l2DataMap).length > 0;
+  const hasL3Data = Object.keys(l3DataMap).length > 0;
 
   // Layout
   const R_DATA    = 340;
@@ -1111,8 +1251,8 @@ async function renderStep2() {
   const NODE_W    = 270;
   const SUB_W     = 255;
   const L2D_W     = 220;
-  const W = hasSubmodels ? (hasL2Data ? 1800 : 1420) : 560;
-  const H = hasSubmodels ? 720 : 370;
+  const W = hasSubmodels ? (hasL2Data || hasL3Data ? 3600 : 2800) : 560;
+  const H = hasSubmodels ? 2000 : 370;
   const cx = Math.round(W / 2);
   const cy = hasSubmodels ? 295 : Math.round(H / 2);
 
@@ -1134,13 +1274,33 @@ async function renderStep2() {
     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
     const ux = dx / dist, uy = dy / dist;
     const perp = { x: -uy, y: ux };
-    const spread = (l2keys.length - 1) * 90;
+    const spread = (l2keys.length - 1) * 220;
     dataL2Positions[l1k] = l2keys.map((key, i) => {
       const offset = l2keys.length > 1 ? (i / (l2keys.length - 1) - 0.5) * spread : 0;
       const defX = Math.round(l1x + ux * R_L2_DATA + perp.x * offset);
       const defY = Math.round(l1y + uy * R_L2_DATA + perp.y * offset);
       return { key, ...nodePos(l1k + ':data:' + key, defX, defY) };
     });
+  }
+
+  // L3 data-node posities: verder in dezelfde richting als center→L1→L2
+  const dataL3Positions = {}; // { l2key: [{key, x, y}, ...] }
+  for (const { key: l1k, x: l1x, y: l1y } of dataPositions) {
+    for (const { key: l2k, x: l2x, y: l2y } of (dataL2Positions[l1k] || [])) {
+      if (!l3DataMap[l2k]?.length) continue;
+      const l3keys = l3DataMap[l2k];
+      const dx = l2x - l1x, dy = l2y - l1y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const ux = dx / dist, uy = dy / dist;
+      const perp = { x: -uy, y: ux };
+      const spread = (l3keys.length - 1) * 220;
+      dataL3Positions[l2k] = l3keys.map((key, i) => {
+        const offset = l3keys.length > 1 ? (i / (l3keys.length - 1) - 0.5) * spread : 0;
+        const defX = Math.round(l2x + ux * R_L2_DATA + perp.x * offset);
+        const defY = Math.round(l2y + uy * R_L2_DATA + perp.y * offset);
+        return { key, ...nodePos(l2k + ':data:' + key, defX, defY) };
+      });
+    }
   }
 
   // Center node position
@@ -1186,8 +1346,18 @@ async function renderStep2() {
       addLine(l1x, l1y, l2x, l2y, l1k, l1k + ':data:' + l2k, on, '#f59e0b', '#d1d5db');
     }
   }
+  // L3 data-node lijnen (l2 → l3 data)
+  for (const { key: l1k } of dataPositions) {
+    for (const { key: l2k, x: l2x, y: l2y } of (dataL2Positions[l1k] || [])) {
+      for (const { key: l3k, x: l3x, y: l3y } of (dataL3Positions[l2k] || [])) {
+        const isL2On = !!wizardState.submodelSets[l2k + '_enabled'];
+        const on = isL2On && !!wizardState.submodelSets[l3k + '_enabled'];
+        addLine(l2x, l2y, l3x, l3y, l1k + ':data:' + l2k, l2k + ':data:' + l3k, on, '#0ea5e9', '#d1d5db');
+      }
+    }
+  }
 
-  const svgLayer = `<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:hidden;" xmlns="http://www.w3.org/2000/svg">${svgLines}</svg>`;
+  const svgLayer = `<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:visible;" xmlns="http://www.w3.org/2000/svg">${svgLines}</svg>`;
 
   // ── Node renderers ──
   // (SOLID_BG merged directly into node style attrs below)
@@ -1229,13 +1399,20 @@ async function renderStep2() {
       borderCol = on ? 'oklch(var(--s,55% 0.22 280))'       : 'oklch(var(--b3,85% 0 0))';
       headerBg  = on ? 'oklch(var(--s,55% 0.22 280)/0.10)'  : 'oklch(var(--b2,96% 0 0))';
       iconBg    = on ? 'oklch(var(--s,55% 0.22 280)/0.20)'  : 'oklch(var(--b3,85% 0 0))';
-    } else {
-      // l2 en verder: amber wanneer aan, neutraal grijs wanneer uit
+    } else if (level === 'l2') {
+      // amber
       accent    = on ? 'oklch(68% 0.18 85)'            : 'oklch(var(--bc,20% 0 0)/0.45)';
       accentSub = on ? 'oklch(68% 0.18 85/0.65)'       : 'oklch(var(--bc,20% 0 0)/0.30)';
       borderCol = on ? 'oklch(68% 0.18 85/0.65)'       : 'oklch(var(--b3,85% 0 0))';
       headerBg  = on ? 'oklch(82% 0.16 85/0.13)'       : 'oklch(var(--b2,96% 0 0))';
       iconBg    = on ? 'oklch(82% 0.16 85/0.20)'       : 'oklch(var(--b3,85% 0 0))';
+    } else {
+      // l3+: teal/info
+      accent    = on ? 'oklch(65% 0.15 200)'            : 'oklch(var(--bc,20% 0 0)/0.45)';
+      accentSub = on ? 'oklch(65% 0.15 200/0.65)'       : 'oklch(var(--bc,20% 0 0)/0.30)';
+      borderCol = on ? 'oklch(65% 0.15 200/0.65)'       : 'oklch(var(--b3,85% 0 0))';
+      headerBg  = on ? 'oklch(85% 0.10 200/0.13)'       : 'oklch(var(--b2,96% 0 0))';
+      iconBg    = on ? 'oklch(85% 0.10 200/0.20)'       : 'oklch(var(--b3,85% 0 0))';
     }
 
     // ── Header ──
@@ -1363,8 +1540,15 @@ async function renderStep2() {
     const sets = allSets[key] || [];
     const isLead = key === 'crm.lead' && model === 'x_sales_action_sheet';
     const on = isLead ? wizardState.leadEnrichment.enabled : !!wizardState.submodelSets[key + '_enabled'];
-    const toggleOn  = isLead ? `wizardState.toggleLeadEnrichment(true); renderWizard();`  : `wizardState.submodelSets['${key}_enabled']=true; renderWizard();`;
-    const toggleOff = isLead ? `wizardState.toggleLeadEnrichment(false); renderWizard();` : `wizardState.submodelSets['${key}_enabled']=false; renderWizard();`;
+    // Selecteer alle categorieën alleen bij eerste activatie (geen enkele geselecteerd).
+    // Bij her-activatie worden bestaande categoriekeuzes bewaard.
+    const hasSomeSelected = sets.some(s => !!wizardState.submodelSets[s.id]);
+    const toggleOn  = isLead
+      ? `wizardState.submodelPaths['crm.lead']='direct'; wizardState.toggleLeadEnrichment(true); renderWizard();`
+      : `wizardState.submodelPaths['${key}']='direct'; wizardState.submodelSets['${key}_enabled']=true; ${hasSomeSelected ? 'renderWizard()' : `selectAllSubSets('${key}')`};`;
+    const toggleOff = isLead
+      ? `wizardState.submodelPaths['crm.lead']=null; wizardState.toggleLeadEnrichment(false); renderWizard();`
+      : `wizardState.submodelPaths['${key}']=null; wizardState.submodelSets['${key}_enabled']=false; renderWizard();`;
     const dbModel = modelsConfigCache[key];
     const baseStr = Array.isArray(dbModel?.base_fields) && dbModel.base_fields.length
       ? dbModel.base_fields.map(bf => bf.label || bf.field).join(' · ')
@@ -1385,22 +1569,67 @@ async function renderStep2() {
             </div>
           </div>
           <div style="max-height:200px; overflow-y:auto;">
-            ${renderSubInfoChips(model, key, sets)}
+            ${renderSubInfoChips(model, key, sets, 'btn-secondary')}
           </div>
         </div>`,
     });
   }
 
   // ── L2+ data-nodes ──
-  function buildL2Node(key, parentL1Key, x, y) {
+  // isReroutedL1=true: deze L2-node is ook een L1-neighbor (bv. partners als L2 van leads).
+  // In dat geval gebruikt de toggle submodelPaths en enable-logica aangepast voor cross-paden.
+  function buildL2Node(key, parentL1Key, x, y, isReroutedL1 = false) {
     const nodeKey = parentL1Key + ':data:' + key;
     const sets = allSets[key] || [];
-    const on  = !!wizardState.submodelSets[key + '_enabled'];
-    const toggleCode = `event.stopPropagation();
-      const nextOn = !wizardState.submodelSets['${key}_enabled'];
-      wizardState.submodelSets['${key}_enabled'] = nextOn;
-      if(nextOn) wizardState.submodelSets['${parentL1Key}_enabled'] = true;
-      renderWizard();`;
+    // on-state: voor een rerouted L1-node hangt dit af van submodelPaths
+    const nodeIsLead = key === 'crm.lead';
+    const on = nodeIsLead
+      ? (wizardState.leadEnrichment.enabled && wizardState.submodelPaths['crm.lead'] === parentL1Key)
+      : (!!wizardState.submodelSets[key + '_enabled'] && (!isReroutedL1 || wizardState.submodelPaths[key] === parentL1Key));
+
+    let toggleCode;
+    if (isReroutedL1) {
+      // Pad-bewuste toggle voor rerouted L1-nodes
+      const parentIsLead = parentL1Key === 'crm.lead';
+      // Enable de parent als direct L1
+      const enableParent = parentIsLead
+        ? `wizardState.submodelPaths['crm.lead']='direct'; wizardState.toggleLeadEnrichment(true);`
+        : `wizardState.submodelPaths['${parentL1Key}']='direct'; wizardState.submodelSets['${parentL1Key}_enabled']=true;`;
+      const disableParent = ''; // parent uitschakelen bij disable van L2-node: bewust niet — onafhankelijk
+      if (nodeIsLead) {
+        // crm.lead als L2 van res.partner
+        toggleCode = `event.stopPropagation();
+          const _on = wizardState.leadEnrichment.enabled && wizardState.submodelPaths['crm.lead']==='${parentL1Key}';
+          if(!_on) {
+            wizardState.submodelPaths['crm.lead']='${parentL1Key}';
+            wizardState.toggleLeadEnrichment(true);
+            ${enableParent}
+          } else {
+            wizardState.submodelPaths['crm.lead']=null;
+            wizardState.toggleLeadEnrichment(false);
+          }
+          renderWizard();`;
+      } else {
+        // Regulier model (bv. res.partner) als L2 van een L1-node
+        toggleCode = `event.stopPropagation();
+          const _on = !!wizardState.submodelSets['${key}_enabled'] && wizardState.submodelPaths['${key}']==='${parentL1Key}';
+          if(!_on) {
+            wizardState.submodelPaths['${key}']='${parentL1Key}';
+            wizardState.submodelSets['${key}_enabled']=true;
+            ${enableParent}
+          } else {
+            wizardState.submodelPaths['${key}']=null;
+            wizardState.submodelSets['${key}_enabled']=false;
+          }
+          renderWizard();`;
+      }
+    } else {
+      toggleCode = `event.stopPropagation();
+        const nextOn = !wizardState.submodelSets['${key}_enabled'];
+        wizardState.submodelSets['${key}_enabled'] = nextOn;
+        if(nextOn) wizardState.submodelSets['${parentL1Key}_enabled'] = true;
+        renderWizard();`;
+    }
     const dbModel = modelsConfigCache[key];
     const baseStr = Array.isArray(dbModel?.base_fields) && dbModel.base_fields.length
       ? dbModel.base_fields.map(bf => bf.label || bf.field).join(' · ')
@@ -1420,20 +1649,114 @@ async function renderStep2() {
             </div>
           </div>
           <div style="max-height:200px; overflow-y:auto;">
-            ${renderSubInfoChips(model, key, sets)}
+            ${renderSubInfoChips(model, key, sets, 'btn-warning')}
+          </div>
+        </div>`,
+    });
+  }
+
+  // ── L1-node omgeleid via een L2-pad (ghost visual) ──
+  // Toont dat het model via de parentL1Key bereikbaar is; geeft de optie om terug te schakelen naar direct.
+  function buildL1NodeRerouted(key, parentL1Key, x, y) {
+    const cfg = MODEL_CONFIG[key] || {};
+    const parentCfg = MODEL_CONFIG[parentL1Key] || {};
+    const modelLabel = cfg.label || key;
+    const parentLabel = parentCfg.label || parentL1Key;
+    // Terug naar direct koppelen: pad wissen + model direct inschakelen
+    const nodeIsLead = key === 'crm.lead';
+    const _reclaimHasSome = (allSets[key] || []).some(s => !!wizardState.submodelSets[s.id]);
+    const reclaimCode = nodeIsLead
+      ? `event.stopPropagation(); wizardState.submodelPaths['crm.lead']='direct'; wizardState.toggleLeadEnrichment(true); renderWizard();`
+      : `event.stopPropagation(); wizardState.submodelPaths['${key}']='direct'; wizardState.submodelSets['${key}_enabled']=true; ${_reclaimHasSome ? 'renderWizard()' : `selectAllSubSets('${key}')`};`;
+    // Uitschakelen van het omgeleide pad
+    const disableCode = nodeIsLead
+      ? `event.stopPropagation(); wizardState.submodelPaths['crm.lead']=null; wizardState.toggleLeadEnrichment(false); renderWizard();`
+      : `event.stopPropagation(); wizardState.submodelPaths['${key}']=null; wizardState.submodelSets['${key}_enabled']=false; renderWizard();`;
+    // Ghost-node HTML (geen chips, lichtgekleurd, informatief)
+    const accent = 'oklch(68% 0.04 240)'; // grijsblauw
+    return `<div id="sn-${toSafeId(key)}" style="position:absolute; left:${x}px; top:${y}px; transform:translate(-50%,-50%); z-index:5; width:${SUB_W}px; pointer-events:auto;">
+      <div class="rounded-xl border-2 border-dashed" style="border-color:${accent}; background:oklch(97% 0.01 240); opacity:0.72;">
+        <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none" onclick="${disableCode}" title="Uitschakelen">
+          <i data-lucide="git-branch" class="w-4 h-4 shrink-0" style="color:${accent}"></i>
+          <span class="font-semibold text-sm truncate" style="color:${accent}">${modelLabel}</span>
+        </div>
+        <div class="px-3 pb-2.5 text-xs" style="color:${accent}">
+          <div class="flex items-center gap-1 mb-1.5 opacity-75">
+            <i data-lucide="corner-down-right" class="w-3 h-3 shrink-0"></i>
+            <span>Verbonden via <strong>${parentLabel}</strong></span>
+          </div>
+          <button class="btn btn-xs btn-ghost w-full h-6 min-h-0 border border-current opacity-60 hover:opacity-100" onclick="${reclaimCode}" title="Zet dit model terug als directe koppeling (verwijdert het als submodel van ${parentLabel})">
+            <i data-lucide="arrow-left" class="w-3 h-3"></i> Direct koppelen
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── L3 data-nodes ──
+  function buildL3Node(key, parentL2Key, parentL1Key, x, y) {
+    const nodeKey = parentL2Key + ':data:' + key;
+    const sets = allSets[key] || [];
+    const on  = !!wizardState.submodelSets[key + '_enabled'];
+    const toggleCode = `event.stopPropagation();
+    const nextOn = !wizardState.submodelSets['${key}_enabled'];
+    wizardState.submodelSets['${key}_enabled'] = nextOn;
+    if(nextOn) {
+      wizardState.submodelSets['${parentL2Key}_enabled'] = true;
+      if('${parentL1Key}' === 'crm.lead') wizardState.toggleLeadEnrichment(true);
+      else wizardState.submodelSets['${parentL1Key}_enabled'] = true;
+    }
+    renderWizard();`;
+    const L3D_W = 200;
+    const dbModel = modelsConfigCache[key];
+    const baseStr = Array.isArray(dbModel?.base_fields) && dbModel.base_fields.length
+      ? dbModel.base_fields.map(bf => bf.label || bf.field).join(' · ')
+      : (MODEL_CONFIG[key]?.nameField || '');
+    return renderSpiderNode({
+      level: 'l3', nodeKey, modelKey: key, parentKey: parentL2Key,
+      x, y, w: L3D_W, zIndex: 3,
+      sets, on, toggleCode,
+      alwaysFn: () => baseStr,
+      chipsFn: () => `
+        <div class="px-2.5 pt-2 pb-2">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-semibold uppercase tracking-wide" style="color:oklch(var(--bc,20% 0 0)/0.35)">Categorieën</span>
+            <div class="flex gap-0.5">
+              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); selectAllSubSets('${key}');" title="Alles">✓</button>
+              <button class="btn btn-xs btn-ghost min-h-0 h-5 px-1.5 opacity-60 hover:opacity-100" onclick="event.stopPropagation(); deselectAllSubSets('${key}');" title="Geen">✕</button>
+            </div>
+          </div>
+          <div style="max-height:200px; overflow-y:auto;">
+            ${renderSubInfoChips(model, key, sets, 'btn-info')}
           </div>
         </div>`,
     });
   }
 
   let allNodesHtml = centerNodeHtml;
-  for (const { key, x, y } of dataPositions)   allNodesHtml += buildL1Node(key, x, y);
+  // L1-nodes: omgeleide nodes krijgen een ghost-visual
+  for (const { key, x, y } of dataPositions) {
+    if (claimedAsL2[key]) {
+      allNodesHtml += buildL1NodeRerouted(key, claimedAsL2[key], x, y);
+    } else {
+      allNodesHtml += buildL1Node(key, x, y);
+    }
+  }
+  // L2-nodes: itereer over enabled-direct L1s (l2DataMap bevat alleen die)
+  for (const l1k of Object.keys(l2DataMap)) {
+    for (const { key, x, y } of (dataL2Positions[l1k] || [])) {
+      const isReroutedL1 = !!claimedAsL2[key]; // deze L2 is ook een L1-neighbor
+      allNodesHtml += buildL2Node(key, l1k, x, y, isReroutedL1);
+    }
+  }
   for (const l1k of dataL1) {
-    for (const { key, x, y } of (dataL2Positions[l1k] || []))
-      allNodesHtml += buildL2Node(key, l1k, x, y);
+    for (const { key: l2k, x: l2x, y: l2y } of (dataL2Positions[l1k] || [])) {
+      for (const { key: l3k, x: l3x, y: l3y } of (dataL3Positions[l2k] || []))
+        allNodesHtml += buildL3Node(l3k, l2k, l1k, l3x, l3y);
+    }
   }
 
-  const vpH = hasSubmodels ? 560 : 370;
+  const vpH = hasSubmodels ? 700 : 370;
   return `
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body pb-3">
@@ -1484,11 +1807,11 @@ function recenterSpider() {
 
 function resetSpider() {
   wizardState.submodelSets = {};
+  wizardState.submodelPaths = {};
   wizardState.subSubmodels = {};
   if (wizardState.leadEnrichment) {
     wizardState.leadEnrichment.enabled = false;
     wizardState.leadEnrichment.property_groups = [];
-    wizardState.leadEnrichment.webActivity = false;
   }
   recenterSpider();
 }
@@ -1501,23 +1824,81 @@ function initSpiderPan() {
 
   cv.style.transformOrigin = '0 0';
 
-  // Initieel centreren bij het eerste laden
+  const vpW  = vp.offsetWidth || 700;
+  const cvCx = parseInt(cv.dataset.cx) || 600;
+
   if (_spiderPan.x === 0 && _spiderPan.y === 0 && _spiderScale === 1) {
-    const vpW = vp.offsetWidth || 700;
-    const cvCx = parseInt(cv.dataset.cx) || 600;
+    // Initieel centreren bij het eerste laden
     _spiderPan.x = Math.round(vpW / 2 - cvCx);
     _spiderPan.y = 24;
+  } else if (_spiderLastCx !== null && _spiderLastCx !== cvCx) {
+    // Canvas cx verschoof (bijv. 2800→3600 na eerste L1 met L2-buren).
+    // Compenseer zodat de visuele positie van de inhoud hetzelfde blijft.
+    _spiderPan.x -= Math.round((cvCx - _spiderLastCx) * _spiderScale);
   }
+  _spiderLastCx = cvCx;
+
   cv.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(${_spiderScale})`;
 
   let mode = null; // 'pan' | 'node'
   let dragKey = null;
   let sx = 0, sy = 0;
+  let _edgePanRaf = null;
+  let _lastMouseX = 0, _lastMouseY = 0;
 
   function canvasCoords(clientX, clientY) {
     const r = vp.getBoundingClientRect();
     return { x: (clientX - r.left - _spiderPan.x) / _spiderScale,
              y: (clientY - r.top  - _spiderPan.y) / _spiderScale };
+  }
+
+  function applyNodePos(key, nx, ny) {
+    _nodePositions[key] = { x: nx, y: ny };
+    const el = document.getElementById('sn-' + toSafeId(key));
+    if (el) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
+    // Vergroot canvas dynamisch
+    const PAD = 300;
+    let cw = parseInt(cv.dataset.w) || 1420;
+    let ch = parseInt(cv.dataset.h) || 800;
+    const needW = nx + PAD;
+    const needH = ny + PAD;
+    if (needW > cw || needH > ch) {
+      cw = Math.max(cw, needW);
+      ch = Math.max(ch, needH);
+      cv.dataset.w = cw; cv.dataset.h = ch;
+      cv.style.width = cw + 'px'; cv.style.height = ch + 'px';
+    }
+    updateSpiderLines();
+  }
+
+  function startEdgePan() {
+    if (_edgePanRaf) return;
+    const EDGE = 80;  // px vanaf rand
+    const MAX_SPEED = 18;
+    function tick() {
+      if (mode !== 'node') { _edgePanRaf = null; return; }
+      const r = vp.getBoundingClientRect();
+      let dx = 0, dy = 0;
+      const lx = _lastMouseX, ly = _lastMouseY;
+      if (lx < r.left + EDGE)        dx =  MAX_SPEED * (1 - (lx - r.left)  / EDGE);
+      else if (lx > r.right - EDGE)  dx = -MAX_SPEED * (1 - (r.right - lx) / EDGE);
+      if (ly < r.top + EDGE)         dy =  MAX_SPEED * (1 - (ly - r.top)   / EDGE);
+      else if (ly > r.bottom - EDGE) dy = -MAX_SPEED * (1 - (r.bottom - ly) / EDGE);
+      if (dx || dy) {
+        _spiderPan.x += dx;
+        _spiderPan.y += dy;
+        cv.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(${_spiderScale})`;
+        // Herbereken node positie na pan
+        const cc = canvasCoords(lx, ly);
+        applyNodePos(dragKey, Math.round(cc.x + sx), Math.round(cc.y + sy));
+      }
+      _edgePanRaf = requestAnimationFrame(tick);
+    }
+    _edgePanRaf = requestAnimationFrame(tick);
+  }
+
+  function stopEdgePan() {
+    if (_edgePanRaf) { cancelAnimationFrame(_edgePanRaf); _edgePanRaf = null; }
   }
 
   function onDown(e) {
@@ -1531,6 +1912,8 @@ function initSpiderPan() {
       const cc  = canvasCoords(e.clientX, e.clientY);
       sx = (pos?.x ?? 0) - cc.x;
       sy = (pos?.y ?? 0) - cc.y;
+      _lastMouseX = e.clientX;
+      _lastMouseY = e.clientY;
       e.preventDefault();
     } else {
       mode = 'pan';
@@ -1543,21 +1926,16 @@ function initSpiderPan() {
 
   function onMove(e) {
     if (!mode) return;
+    _lastMouseX = e.clientX;
+    _lastMouseY = e.clientY;
     if (mode === 'pan') {
       _spiderPan.x = e.clientX - sx;
       _spiderPan.y = e.clientY - sy;
       cv.style.transform = `translate(${_spiderPan.x}px,${_spiderPan.y}px) scale(${_spiderScale})`;
     } else if (mode === 'node') {
       const cc = canvasCoords(e.clientX, e.clientY);
-      const canvasW = parseInt(cv.dataset.w) || 1420;
-      const canvasH = parseInt(cv.dataset.h) || 800;
-      const MARGIN = 140;
-      const nx = Math.max(MARGIN, Math.min(canvasW - MARGIN, Math.round(cc.x + sx)));
-      const ny = Math.max(MARGIN, Math.min(canvasH - MARGIN, Math.round(cc.y + sy)));
-      _nodePositions[dragKey] = { x: nx, y: ny };
-      const el = document.getElementById('sn-' + toSafeId(dragKey));
-      if (el) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
-      updateSpiderLines();
+      applyNodePos(dragKey, Math.round(cc.x + sx), Math.round(cc.y + sy));
+      startEdgePan();
     }
   }
 
@@ -1565,6 +1943,7 @@ function initSpiderPan() {
     if (mode === 'pan') vp.style.cursor = 'grab';
     mode = null;
     dragKey = null;
+    stopEdgePan();
   }
 
   function onWheel(e) {
@@ -1600,6 +1979,7 @@ function initSpiderPan() {
   vp.addEventListener('touchmove', onTouchMove, { passive: false });
 
   _spiderPanCleanup = () => {
+    stopEdgePan();
     vp.removeEventListener('mousedown', onDown);
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
@@ -1638,15 +2018,13 @@ function deselectAllSubSets(submodelKey) {
 
 function selectAllLeadSets() {
   (informationSetsCache['crm.lead'] || []).forEach(s => {
-    if (s.id === 'lead_web_activity') wizardState.leadEnrichment.webActivity = true;
-    else wizardState.toggleLeadPropertyGroup(s.id, true);
+    wizardState.toggleLeadPropertyGroup(s.id, true);
   });
   renderWizard();
 }
 
 function deselectAllLeadSets() {
   wizardState.leadEnrichment.property_groups = [];
-  wizardState.leadEnrichment.webActivity = false;
   renderWizard();
 }
 
@@ -2272,7 +2650,7 @@ async function renderStep3() {
             ${[
               { k: null,    l: 'Geen',         icon: 'x-circle' },
               { k: 'quick', l: 'Snelle keuze', icon: 'zap' },
-              { k: 'from',  l: 'Vanaf datum',  icon: 'calendar-arrow-right' },
+              { k: 'from',  l: 'Vanaf datum',  icon: 'calendar-days' },
               { k: 'range', l: 'Eigen bereik', icon: 'calendar-range' }
             ].map(o => `
               <button class="btn btn-sm gap-1 ${tf.mode === o.k ? 'btn-primary' : 'btn-ghost border border-base-300'}"
@@ -2456,12 +2834,22 @@ async function enrichWithWebActivity(data) {
     const waResult = await res.json();
     if (!waResult.success) { console.warn('Web activity failed:', waResult.error); return data; }
     const waMap = new Map(waResult.data.results.map(r => [r.lead_id, r]));
+    // Web activity hangt aan de lead, niet aan het hoofdrecord
     const enriched = rows.map(row => {
       const leads = row.__leads || [];
       if (!leads.length) return row;
-      const wa = waMap.get(leads[0].id);
-      if (!wa) return row;
-      return { ...row, x_has_web_activity: wa.x_has_web_activity||false, x_studio_brand_origin: wa.x_studio_brand_origin||null, x_studio_merged_kpi_html: wa.x_studio_merged_kpi_html||null, x_studio_merged_timeline_html: wa.x_studio_merged_timeline_html||null };
+      const enrichedLeads = leads.map(lead => {
+        const wa = waMap.get(lead.id);
+        if (!wa) return lead;
+        return {
+          ...lead,
+          x_has_web_activity: wa.x_has_web_activity || false,
+          x_studio_brand_origin: wa.x_studio_brand_origin || lead.x_studio_brand_origin || null,
+          x_studio_merged_kpi_html: wa.x_studio_merged_kpi_html || null,
+          x_studio_merged_timeline_html: wa.x_studio_merged_timeline_html || null
+        };
+      });
+      return { ...row, __leads: enrichedLeads };
     });
     return { ...data, [rowKey]: enriched };
   } catch (e) { console.warn('Web activity error:', e.message); return data; }
@@ -2698,19 +3086,23 @@ function sanitizeWebActivityFields(data) {
   const rowKey = data.records ? 'records' : data.rows ? 'rows' : null;
   if (!rowKey) return data;
   const sanitized = data[rowKey].map(row => {
-    if (!row.x_studio_merged_kpi_html && !row.x_studio_merged_timeline_html) return row;
-    const out = { ...row };
-    if (out.x_studio_merged_kpi_html) {
-      const parsed = _parseKpiHtml(out.x_studio_merged_kpi_html);
-      if (parsed) out.web_activiteit_kpi = parsed;
-      delete out.x_studio_merged_kpi_html;
-    }
-    if (out.x_studio_merged_timeline_html) {
-      const parsed = _parseTimelineHtml(out.x_studio_merged_timeline_html);
-      if (parsed) out.web_activiteit_sessies = parsed;
-      delete out.x_studio_merged_timeline_html;
-    }
-    return out;
+    if (!Array.isArray(row.__leads)) return row;
+    const sanitizedLeads = row.__leads.map(lead => {
+      if (!lead.x_studio_merged_kpi_html && !lead.x_studio_merged_timeline_html) return lead;
+      const out = { ...lead };
+      if (out.x_studio_merged_kpi_html) {
+        const parsed = _parseKpiHtml(out.x_studio_merged_kpi_html);
+        if (parsed) out.web_activiteit_kpi = parsed;
+        delete out.x_studio_merged_kpi_html;
+      }
+      if (out.x_studio_merged_timeline_html) {
+        const parsed = _parseTimelineHtml(out.x_studio_merged_timeline_html);
+        if (parsed) out.web_activiteit_sessies = parsed;
+        delete out.x_studio_merged_timeline_html;
+      }
+      return out;
+    });
+    return { ...row, __leads: sanitizedLeads };
   });
   return { ...data, [rowKey]: sanitized };
 }
@@ -2735,7 +3127,7 @@ function buildExportMeta(payload) {
         enabled: true,
         won_status_filter: wizardState.leadEnrichment.filters.won_status,
         stage_filter: wizardState.leadEnrichment.filters.stage_ids,
-        includes_web_activity: wizardState.leadEnrichment.webActivity
+        includes_web_activity: !!wizardState.submodelSets['x_web_visitor_enabled'] || !!wizardState.submodelSets['x_ad_touchpoint_enabled']
       } : null,
       ai_instruction: preset?.instruction || null,
       ai_preset: preset ? { id: preset.id, label: preset.label } : null
@@ -2756,7 +3148,6 @@ async function executeQuery() {
     const result = await response.json();
     if (!response.ok || !result.success) { showError(result.error || { message: 'Query failed' }); return; }
     let data = result.data;
-    if (wizardState.leadEnrichment.enabled && wizardState.leadEnrichment.webActivity) data = await enrichWithWebActivity(data);
     showResults(data, false);
   } catch (error) { showError({ message: error.message }); }
   finally { hideLoading(); }
@@ -2784,11 +3175,15 @@ function showError(error) {
   hideLoading();
   ensureResultsModal();
   const box = document.getElementById('resultsModalBox');
+  const hintHtml = error.hint
+    ? '<div class="alert alert-warning mt-3"><span>💡 ' + error.hint + '</span></div>'
+    : '';
   box.innerHTML = '<div class="flex items-center gap-2 mb-4">'
     + '<h3 class="font-bold text-lg">Fout</h3>'
     + '<button class="btn btn-ghost btn-sm btn-circle ml-auto" onclick="closeResultsModal()">✕</button>'
     + '</div>'
     + '<div class="alert alert-error"><span>❌ ' + error.message + '</span></div>'
+    + hintHtml
     + '<div class="mt-4 flex gap-2 justify-end">'
     + '<button class="btn btn-outline btn-sm gap-2" onclick="refineQuery()"><i data-lucide="sliders-horizontal" class="w-3 h-3"></i>Aanpassen</button>'
     + '<button class="btn btn-ghost btn-sm" onclick="closeAndReset()">Sluiten</button>'
@@ -2863,14 +3258,23 @@ function renderResultsModal(data) {
 
     + '<div class="divider my-2 text-xs">Downloaden</div>'
     + presetHtml
-    + '<div class="flex gap-2 mb-4">'
-    + '<button class="btn btn-primary flex-1 gap-2" onclick="exportSemanticQuery(\'json\')">'
-    + '<i data-lucide="download" class="w-4 h-4"></i>JSON downloaden'
+    + '<button class="btn btn-primary w-full gap-2 mb-2" onclick="exportSemanticQuery(\'md\')">'
+    + '<i data-lucide="bot" class="w-4 h-4"></i>MD downloaden — voor AI <span class="badge badge-xs badge-primary-content ml-1">met instructie</span>'
     + '</button>'
-    + '<button class="btn btn-outline flex-1 gap-2" onclick="exportSemanticQuery(\'xlsx\')">'
-    + '<i data-lucide="table-2" class="w-4 h-4"></i>XLSX downloaden'
+    + '<div class="flex gap-2 mb-1">'
+    + '<button class="btn btn-outline btn-sm flex-1 gap-1" onclick="exportSemanticQuery(\'json\')">'
+    + '<i data-lucide="braces" class="w-3 h-3"></i>JSON'
+    + '</button>'
+    + '<button class="btn btn-outline btn-sm flex-1 gap-1" onclick="exportSemanticQuery(\'xlsx\')">'
+    + '<i data-lucide="table-2" class="w-3 h-3"></i>XLSX'
     + '</button>'
     + '</div>'
+    + '<p class="text-xs text-base-content/40 mb-3">JSON en XLSX zijn ruwe data — geen AI-instructie</p>'
+    + (IS_ADMIN
+      ? '<button class="btn btn-warning btn-sm w-full gap-2 mb-4" onclick="exportVerifyData()">'
+        + '<i data-lucide="shield-check" class="w-4 h-4"></i>Verifieer data — laatste 25 records + AI-schema'
+        + '</button>'
+      : '<div class="mb-4"></div>')
 
     + '<div class="divider my-2 text-xs">Voorbeeld</div>'
     + previewHtml
@@ -2915,28 +3319,267 @@ function formatValue(v) {
   if (typeof v === 'boolean') return v ? '✅' : '❌';
   if (typeof v === 'number') return v.toLocaleString();
   if (Array.isArray(v)) return v.length ? v.join(', ') : '<span class="text-base-content/40">[]</span>';
+  const s = String(v);
   return s.length > 100 ? `<span title="${s.replace(/"/g,'&quot;')}">${s.slice(0,100)}…</span>` : s;
 }
 
-async function exportSemanticQuery(format) {
-  if (format !== 'xlsx' && format !== 'json') return;
+async function exportVerifyData() {
+  if (!IS_ADMIN) return;
+  const btn = document.querySelector('[onclick="exportVerifyData()"]');
+  const origText = btn ? btn.innerHTML : '';
   try {
     const payload = wizardState.buildPayload();
-    const needsWebActivity = wizardState.leadEnrichment.enabled && wizardState.leadEnrichment.webActivity;
+    const tf = wizardState.resolvedTimeFilter();
+    const tfField = tf?.field || 'create_date';
 
-    if (format === 'json') {
+    const originalTimeFilters = (payload.filters || []).filter(function(f) { return f.field === tfField; });
+    payload.filters = (payload.filters || []).filter(function(f) { return f.field !== tfField; });
+    payload._verify_mode = true;
+
+    if (btn) btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Ophalen...';
+
+    const response = await fetch('/insights/api/sales-insights/semantic/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error('Fetch failed: ' + response.status);
+    const result = await response.json();
+    if (!result.success) throw new Error(result.error?.message || 'Query mislukt');
+
+    const processedData = result.data || { records: [] };
+    const records = processedData.records || [];
+    const model = payload.base_model || 'data';
+    const modelCfg = MODEL_CONFIG[model] || {};
+
+    // Hoofd-velden (geen __ prefix)
+    const allRecordKeys = records.length ? Object.keys(records[0]).filter(function(k) { return !k.startsWith('__'); }) : [];
+    // L2 submodel-sleutels (__ prefix op hoofdrecord) — bijv. __leads, __messages
+    const subModelKeys = records.length ? Object.keys(records[0]).filter(function(k) { return k.startsWith('__'); }) : [];
+
+    // L3 detectie: scan __ sleutels binnen L2-arrays
+    const l3Detected = {}; // { l2key: [l3key, ...] }
+    subModelKeys.forEach(function(l2key) {
+      records.forEach(function(r) {
+        var items = Array.isArray(r[l2key]) ? r[l2key] : (r[l2key] ? [r[l2key]] : []);
+        items.forEach(function(item) {
+          if (item && typeof item === 'object') {
+            Object.keys(item).filter(function(k) { return k.startsWith('__'); }).forEach(function(k) {
+              if (!l3Detected[l2key]) l3Detected[l2key] = [];
+              if (!l3Detected[l2key].includes(k)) l3Detected[l2key].push(k);
+            });
+          }
+        });
+      });
+    });
+
+    // Fill-stats voor hoofd-velden
+    const fieldFillStats = allRecordKeys.map(function(field) {
+      const total = records.length;
+      const empty = records.filter(function(r) {
+        const v = r[field];
+        return v === false || v === null || v === undefined || (Array.isArray(v) && v.length === 0) || v === '';
+      }).length;
+      return { field: field, total: total, empty: empty, fill_pct: total ? Math.round((total - empty) / total * 100) + '%' : '0%' };
+    });
+
+    // Fill-stats voor L2 submodels + L3
+    subModelKeys.forEach(function(l2key) {
+      const total = records.length;
+      const emptyL2 = records.filter(function(r) {
+        const v = r[l2key];
+        return !v || (Array.isArray(v) && v.length === 0);
+      }).length;
+      fieldFillStats.push({
+        field: l2key,
+        total: total,
+        empty: emptyL2,
+        fill_pct: total ? Math.round((total - emptyL2) / total * 100) + '%' : '0%',
+        note: 'L2 submodel — % records met minstens 1 gekoppeld object'
+      });
+      // Per-veld fill-stats voor velden binnen L2-items (bijv. web_activiteit_kpi op leads)
+      // Gebaseerd op totaal aantal L2-items (niet hoofdrecords)
+      var allL2Items = [];
+      records.forEach(function(r) {
+        var items = Array.isArray(r[l2key]) ? r[l2key] : (r[l2key] ? [r[l2key]] : []);
+        allL2Items = allL2Items.concat(items);
+      });
+      if (allL2Items.length) {
+        var l2FieldNames = [];
+        allL2Items.forEach(function(item) {
+          if (item && typeof item === 'object') {
+            Object.keys(item).filter(function(k) { return !k.startsWith('__'); }).forEach(function(k) {
+              if (!l2FieldNames.includes(k)) l2FieldNames.push(k);
+            });
+          }
+        });
+        l2FieldNames.forEach(function(f) {
+          var emptyF = allL2Items.filter(function(item) {
+            var v = item ? item[f] : undefined;
+            return v === false || v === null || v === undefined || (Array.isArray(v) && v.length === 0) || v === '';
+          }).length;
+          fieldFillStats.push({
+            field: l2key + '.' + f,
+            total: allL2Items.length,
+            empty: emptyF,
+            fill_pct: Math.round((allL2Items.length - emptyF) / allL2Items.length * 100) + '%',
+            note: 'veld op ' + l2key + '-items'
+          });
+        });
+      }
+      // L3 fill-stats
+      (l3Detected[l2key] || []).forEach(function(l3key) {
+        const emptyL3 = records.filter(function(r) {
+          const l2items = Array.isArray(r[l2key]) ? r[l2key] : (r[l2key] ? [r[l2key]] : []);
+          return !l2items.some(function(item) {
+            const v = item ? item[l3key] : undefined;
+            return v !== null && v !== false && v !== undefined && !(Array.isArray(v) && v.length === 0);
+          });
+        }).length;
+        fieldFillStats.push({
+          field: l2key + '.' + l3key,
+          total: total,
+          empty: emptyL3,
+          fill_pct: total ? Math.round((total - emptyL3) / total * 100) + '%' : '0%',
+          note: 'L3 submodel — % records met minstens 1 gekoppeld object via ' + l2key
+        });
+      });
+    });
+
+    // Geselecteerde veldcategorieën (hoofdmodel)
+    const selectedSets = (informationSetsCache[model] || [])
+      .filter(function(s) { return wizardState.informationSets[s.id]; })
+      .map(function(s) { return { id: s.id, label: s.label, description: s.description }; });
+
+    // Gevraagde modellen: hoofdmodel + L2 + L3
+    const subModelMeta = {
+      '__leads':       { model: 'crm.lead',             label: 'Leads' },
+      '__messages':    { model: 'mail.message',          label: 'Chatberichten' },
+      '__activities':  { model: 'mail.activity',         label: 'Activiteiten' },
+      '__partners':    { model: 'res.partner',           label: 'Partners (direct)' },
+      '__partner':     { model: 'res.partner',           label: 'Partner' },
+      '__visitors':    { model: 'x_web_visitor',         label: 'Web Visitors' },
+      '__touchpoints': { model: 'x_ad_touchpoint',       label: 'Ad Touchpoints' },
+      '__actionsheets':{ model: 'x_sales_action_sheet',  label: 'Actiebladen' }
+    };
+    const requestedModels = [{ model: model, label: modelCfg.label || model, fields: allRecordKeys }];
+    subModelKeys.forEach(function(l2key) {
+      const meta = subModelMeta[l2key] || { model: l2key, label: l2key };
+      const subFields = [];
+      records.forEach(function(r) {
+        var items = Array.isArray(r[l2key]) ? r[l2key] : (r[l2key] ? [r[l2key]] : []);
+        items.forEach(function(item) {
+          if (item && typeof item === 'object') {
+            Object.keys(item).filter(function(f) { return !f.startsWith('__'); }).forEach(function(f) {
+              if (!subFields.includes(f)) subFields.push(f);
+            });
+          }
+        });
+      });
+      requestedModels.push({ model: meta.model, label: meta.label, source_key: l2key, fields: subFields });
+      // L3 modellen
+      (l3Detected[l2key] || []).forEach(function(l3key) {
+        const l3meta = subModelMeta[l3key] || { model: l3key, label: l3key };
+        const l3Fields = [];
+        records.forEach(function(r) {
+          var l2items = Array.isArray(r[l2key]) ? r[l2key] : (r[l2key] ? [r[l2key]] : []);
+          l2items.forEach(function(item) {
+            if (!item) return;
+            const l3val = item[l3key];
+            var l3items = Array.isArray(l3val) ? l3val : (l3val && typeof l3val === 'object' ? [l3val] : []);
+            l3items.forEach(function(l3item) {
+              if (l3item && typeof l3item === 'object') {
+                Object.keys(l3item).forEach(function(f) { if (!l3Fields.includes(f)) l3Fields.push(f); });
+              }
+            });
+          });
+        });
+        requestedModels.push({
+          model: l3meta.model, label: l3meta.label,
+          source_key: l3key, parent_key: l2key, level: 'L3',
+          fields: l3Fields
+        });
+      });
+    });
+
+    // Samengestelde query-config: wat was geconfigureerd in de wizard
+    const exportMeta = buildExportMeta(payload);
+    const verificationSchema = {
+      generated_at: new Date().toISOString(),
+      mode: 'verify_last_25',
+      description: 'Verificatie-export: laatste 25 records op basis van ID (aflopend). Tijdfilters zijn genegeerd; overige filters zijn WEL toegepast.',
+      query_config: exportMeta._export_meta,
+      requested_models: requestedModels,
+      field_groups: selectedSets,
+      applied_filters: payload.filters || [],
+      original_time_filters_skipped: originalTimeFilters,
+      field_fill_stats: fieldFillStats,
+      records_fetched: records.length
+    };
+
+    const preset = aiExportPresetsCache && wizardState.aiPresetId
+      ? aiExportPresetsCache.find(function(p) { return p.id === wizardState.aiPresetId; })
+      : null;
+    const aiInstruction = (preset && preset.instruction && preset.label !== 'Geen preset')
+      ? preset.instruction
+      : 'Voer onmiddellijk de onderstaande verificatie-analyse uit. Stel geen vragen. Vraag niet wat je moet doen. Begin direct met de output.\n\n'
+        + 'DIT BESTAND IS EEN VERIFICATIE-EXPORT van een Odoo-instantie. Het bevat:\n'
+        + '- _verification_schema: welke modellen en velden werden opgevraagd, en fill-statistieken per veld\n'
+        + '- records: de laatste 25 records van het hoofdmodel, met eventuele submodel-data als geneste arrays\n\n'
+        + 'JOUW TAAK: controleer of elk gevraagd model en veld daadwerkelijk data teruggeeft.\n\n'
+        + 'ENIGE TRIGGER OM TE FLAGGEN: fill_pct = "0%" in field_fill_stats.\n'
+        + 'Dit betekent: geen enkel record heeft data voor dit veld of submodel. Dat is het enige teken van een probleem.\n\n'
+        + 'NIET FLAGGEN: fill_pct > 0%. Zelfs 1 record met data = het werkt. Geen commentaar op inhoud, schrijfstijl of optionele lege velden.\n\n'
+        + 'OUTPUT-FORMAAT (gebruik dit exact):\n\n'
+        + '## Modellen\n'
+        + 'Voor elk model in requested_models: naam, source_key (indien submodel), fill_pct van die key in field_fill_stats, status ✅ of ❌.\n\n'
+        + '## Velden met fill_pct = 0% ❌\n'
+        + 'Lijst elk veld met fill_pct = "0%". Geef per veld een mogelijke oorzaak. Als er geen zijn: schrijf "Geen — alle velden leveren data."\n\n'
+        + '## Tijdfilters\n'
+        + 'Vermeld kort welke filters uit original_time_filters_skipped bewust zijn overgeslagen.\n\n'
+        + '## Conclusie\n'
+        + 'Één zin: werkt de export correct, en zijn er actiepunten?';
+
+    // Exporteer als .md — instructie staat als eerste tekst zodat de AI hem leest als opdracht
+    const jsonPayload = JSON.stringify({ _verification_schema: verificationSchema, records: records }, null, 2);
+    const mdContent = aiInstruction + '\n\n---\n\n## Verificatie-data\n\n```json\n' + jsonPayload + '\n```\n';
+
+    const blob = new Blob([mdContent], { type: 'text/markdown' });
+    const url = window.URL.createObjectURL(blob);
+    const filename = 'verify_' + model + '_last25_' + new Date().toISOString().slice(0, 10) + '.md';
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    if (btn) btn.innerHTML = origText;
+  } catch (error) {
+    if (btn) btn.innerHTML = origText;
+    console.error('Verify failed:', error);
+    alert('Verificatie mislukt: ' + error.message);
+  }
+}
+
+async function exportSemanticQuery(format) {
+  if (format !== 'xlsx' && format !== 'json' && format !== 'md') return;
+  try {
+    const payload = wizardState.buildPayload();
+
+    if (format === 'json' || format === 'md') {
       showLoading('Bezig met exporteren...');
       const response = await fetch('/insights/api/sales-insights/semantic/run', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        credentials: 'include'
       });
       if (!response.ok) throw new Error(`Export failed: ${response.status}`);
       const result = await response.json();
       if (!result.success) throw new Error(result.error?.message || 'Query failed');
-      let data = result.data;
-      if (needsWebActivity) data = await enrichWithWebActivity(data);
-      data = sanitizeWebActivityFields(data);
+      const data = result.data;
 
-      // Add rich export meta + AI instruction at top level
       const exportMeta = buildExportMeta(payload);
       const exportData = { ...exportMeta, ...data };
 
@@ -2945,8 +3588,28 @@ async function exportSemanticQuery(format) {
       const periodStr = tf.from ? `_${tf.from}_${tf.to}` : '';
       const preset = aiExportPresetsCache?.find(p => p.id === wizardState.aiPresetId);
       const presetStr = preset && preset.label !== 'Geen preset' ? `_${preset.label.replace(/\s+/g,'-')}` : '';
-      const filename = `${model}${periodStr}${presetStr}_${new Date().toISOString().slice(0,10)}.json`;
 
+      if (format === 'md') {
+        // MD-export: AI-instructie als eerste tekst, dan data als JSON-codeblok
+        const aiInstruction = preset?.instruction && preset.label !== 'Geen preset'
+          ? preset.instruction
+          : 'Analyseer de JSON-data in dit bestand en geef een beknopte samenvatting van de inhoud. '
+            + 'Gebruik de _export_meta voor context over het model, de geselecteerde veldcategorieën en eventuele filters. '
+            + 'Bespreek patronen, opvallende waarden en ontbrekende data.';
+        const jsonStr = JSON.stringify(exportData, null, 2);
+        const mdContent = aiInstruction + '\n\n---\n\n## Export-data\n\n```json\n' + jsonStr + '\n```\n';
+        const filename = model + periodStr + presetStr + '_' + new Date().toISOString().slice(0,10) + '.md';
+        const blob = new Blob([mdContent], { type: 'text/markdown' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        window.URL.revokeObjectURL(url); document.body.removeChild(a);
+        hideLoading();
+        return;
+      }
+
+      const filename = `${model}${periodStr}${presetStr}_${new Date().toISOString().slice(0,10)}.json`;
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2959,14 +3622,15 @@ async function exportSemanticQuery(format) {
 
     payload.export = format;
     const response = await fetch('/insights/api/sales-insights/semantic/run', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      credentials: 'include'
     });
     if (!response.ok) throw new Error(`Export failed: ${response.status}`);
     const cd = response.headers.get('Content-Disposition');
     let filename = `export_${Date.now()}.${format}`;
     if (cd) { const m = cd.match(/filename="?(.+?)"?$/); if (m) filename = m[1]; }
     const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
+        const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click();
@@ -2991,9 +3655,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     renderWizard();
     if (window.lucide) lucide.createIcons();
-    console.log('✅ Semantic Wizard loaded — role:', USER_ROLE);
+    console.log('\u2705 Semantic Wizard loaded \u2014 role:', USER_ROLE);
   } catch (error) {
-    console.error('❌ Init failed:', error);
+    console.error('\u274c Init failed:', error);
     const loadingEl = document.getElementById('loadingState');
     if (loadingEl) loadingEl.innerHTML = `<div class="alert alert-error"><div><h3 class="font-bold">Laden mislukt</h3><p>${error.message}</p></div></div>`;
   }

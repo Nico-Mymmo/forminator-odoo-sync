@@ -1,17 +1,41 @@
 # Herontwerp Actiebladen — Krachtige CS Supportpipeline
 
-_Analyse op basis van volledig Odoo-onderzoek + beantwoorde vragen — bijgewerkt 2026-06-12_
+_Analyse op basis van volledig Odoo-onderzoek + beantwoorde vragen — bijgewerkt 2026-06-15_
+
+> **Dit is het enige actieve document voor het actiebladen-herontwerp.** Het oude `actiebladen-backlog.md` is gearchiveerd en niet meer bijgewerkt.
 
 ---
 
-## 1. Wat er al staat — het echte beeld
+## Inhoudsopgave
+
+- [1. Wat er al staat](#1-wat-er-al-staat)
+- [2. De echte pijplijn](#2-de-echte-pijplijn)
+- [3. Herontwerp — de nieuwe pipeline](#3-herontwerp--de-nieuwe-pipeline)
+- [4. Velden](#4-velden--wat-toevoegen-wijzigen-verwijderen)
+- [5. Kanban-tegel herontwerp](#5-kanban-tegel-herontwerp)
+- [6. Formulierweergave herontwerp](#6-formulierweergave-herontwerp)
+- [7. Zoekweergave herontwerp](#7-zoekweergave-herontwerp)
+- [8. Activiteiten — structuur invoeren](#8-activiteiten--structuur-invoeren)
+- [9. Backlog per sprint](#9-volledig-herziene-backlog)
+  - [Sprint 0 — Opkuis](#-sprint-0--opkuis-geen-nieuwe-features-ballast-weg)
+  - [Sprint 1 — Fundament](#-sprint-1--fundament-rollen-pakket-red-flag)
+  - [Sprint 2 — Pipeline automatiseren](#-sprint-2--pipeline-automatiseren)
+  - [Sprint 3 — Langetermijn](#-sprint-3--langetermijn--periodiciteit)
+  - [Sprint C — Communicatie](#-sprint-c--communicatie-integratie)
+- [10. Samenvatting prioriteiten](#10-samenvatting--prioriteiten-per-sprint)
+- [11. Communicatie-integratie](#11-communicatie-integratie--analyse--backlog)
+- [12. Voor de integratiepartner (Dynapps)](#12-voor-de-integratiepartner-dynapps)
+
+---
+
+## 1. Wat er al staat
 
 Voordat we iets bouwen, is het cruciaal te begrijpen wat Odoo al doet. Veel is slimmer dan het eruitziet.
 
 ### 1.1 Wat goed werkt en je moet bewaren
 
 **Auto-aanmaken actieblad bij Won (server action 1039)**
-De code is goed gebouwd: controleert of er al een actieblad bestaat voor het contact, zo ja → koppelt de lead, zo nee → maakt nieuw aan. Behandelt gebouw vs. contactpersoon correct. Markeert de lead rood bij fouten. **Niet aanraken.**
+De code is goed gebouwd: controleert of er al een actieblad bestaat voor het contact, zo ja → koppelt de lead, zo nee → maakt nieuw aan. Behandelt gebouw vs. contactpersoon correct. Markeert de lead rood bij fouten. **Uitgebreid in sprint 2:** zet stage op Intake, vult `x_studio_support_user_id` in met Rob Claes, en maakt automatisch een "Welkomsgesprek inplannen" activiteit aan (type ID 26, deadline +3 werkdagen). Werkt zowel voor nieuwe als bestaande actiebladen.
 
 **Onboarding bucket systeem op res.partner (daily cron id 61)**
 Dit is de meest waardevolle bestaande logica voor de supportpipeline. De cron draait dagelijks en berekent per gebouw:
@@ -70,7 +94,7 @@ De 5 open vragen met gestructureerde vragenlijsten zijn waardevol. Bewaren, wel 
 
 ---
 
-## 2. De echte pijplijn — wat er nu echt gebeurt
+## 2. De echte pijplijn
 
 ```
 Salespipeline (crm.lead)          Actieblad (x_sales_action_sheet)
@@ -181,10 +205,12 @@ env['mail.activity'].create({
 |--------------------|------|-------|------|------|
 | `x_studio_support_user_id` | many2one → res.users | Support Verantwoordelijke | CS-medewerker, apart van sales | Actieblad |
 | `x_studio_syndicoach_package` | selection | Syndicoach Pakket | Manueel: Geen / Assistant / Coach / Captain | Actieblad + Lead + res.partner VME |
-| `x_studio_red_flag` | boolean | 🚩 Red Flag | Escalatiestatus, auto + manueel | Actieblad |
-| `x_studio_red_flag_reason` | selection | Reden Red Flag | Geen activiteit / Churn-signaal / Te lang in fase / Manueel | Actieblad |
+| `x_flag_level` | selection | Vlag | `none` Geen · `reminder` Herinnering · `attention` Attentie · `urgent` Urgent · `critical` Kritiek | Actieblad |
+| `x_flag_reason` | selection | Reden vlag | Geen activiteit / Churn-signaal / Te lang in fase / Manueel | Actieblad |
+| `x_flag_custom_message` | char | Vlag bericht | Vrij tekstveld — contextnota bij de vlag; blijft behouden bij wissen vlag | Actieblad |
+| `x_last_response_date` | date | Laatste klantreactie | Startpunt voor inactiviteitsteller | Actieblad |
 | `x_studio_won_date` | date | Won op | T0 voor timing (computed van lead.x_studio_became_customer) | Actieblad |
-| `x_studio_heeft_opstarthulp` | boolean | Opstarthulp aangekocht | Uit active_products_html / sale order (product id 37) | Actieblad |
+| `x_has_startup_assistance` | boolean | Heeft Opstarthulp | Gezet tijdens active products berekening (product template id 37) | Actieblad |
 | `x_studio_opstarthulp_status` | selection | Status Opstarthulp | Niet aangekocht / In te plannen / Gepland / Gehouden | Actieblad |
 
 ### Syndicoach-pakket — aanpak (bijgewerkt)
@@ -199,7 +225,7 @@ env['mail.activity'].create({
 
 **Synchronisatie:** Bij Won → automation 1039 uitbreiden: als de lead al een pakket heeft, overnemen op het actieblad. Zo hoeft CS het niet dubbel in te vullen.
 
-**Op lead:** Veld `x_studio_syndicoach_package` toevoegen, zichtbaar in formulier en CRM-pipeline.
+**Op lead:** Veld `x_studio_syndicoach_package` toevoegen, zichtbaar in formulier en CRM-pipeline.  
 **Op res.partner VME:** Idem, zodat het op het contact-record blijft staan ook na closing.
 
 ### Checklist — M2M model (bevestigd)
@@ -276,7 +302,7 @@ Problemen: geen contactnaam, geen gebouw, geen pakket, kanban_state ongebruikt, 
 3. Voeg toe aan body: gebouwnaam, contactnaam, pakket badge, compacte product-badges
 4. Voeg toe aan bottom-right: `x_studio_support_user_id` avatar (hoofd) + `x_studio_user_id` kleiner
 5. Voeg toe aan bottom-left: `x_studio_won_date` als compacte datum
-6. Voeg toe aan header: `x_studio_red_flag` als conditionally zichtbaar 🚩 icoon
+6. Voeg toe aan header: `x_flag_level` als badge (none = verborgen; geel/oranje/rood = gekleurde chip)
 
 ---
 
@@ -289,7 +315,7 @@ Problemen: geen contactnaam, geen gebouw, geen pakket, kanban_state ongebruikt, 
 │ Support Verantwoordelijke: [user]             │
 │ Syndicoach Pakket:         [Assistant/Coach/Captain/Geen] │
 │ Won op:                    [datum]            │
-│ 🚩 Red Flag:               [toggle] [reden]  │
+│ Vlag:                      [🟡/🟠/🔴 level] [reden]  │
 │ Opstarthulp status:        [selectie]         │
 ├── Configuratie Checklist ────────────────────┤
 │ ✓ Financiële module geactiveerd    [verplicht]│
@@ -313,7 +339,10 @@ Problemen: geen contactnaam, geen gebouw, geen pakket, kanban_state ongebruikt, 
 Huidige filters: Mijn actiebladen, Gearchiveerd. Dat is te weinig.
 
 **Toevoegen:**
-- Filter: "🚩 Red Flags" → `[['x_studio_red_flag', '=', True]]`
+- Filter: "Alle vlaggen" → `[['x_flag_level', '!=', 'none']]`
+- Filter: "🟡 Attentie" → `[['x_flag_level', '=', 'attention']]`
+- Filter: "🟠 Urgent" → `[['x_flag_level', '=', 'urgent']]`
+- Filter: "🔴 Kritiek" → `[['x_flag_level', '=', 'critical']]`
 - Filter: "Pre-sales verbergen" → standaard actief → `[['x_studio_stage_id.x_studio_sequence', '>', 10]]`
 - Filter: "Mijn support dossiers" → `[['x_studio_support_user_id', '=', uid]]`
 - Groepering: Syndicoach Pakket
@@ -340,160 +369,497 @@ Huidige filters: Mijn actiebladen, Gearchiveerd. Dat is te weinig.
 
 ## 9. Volledig herziene backlog
 
-De originele BI-01 t/m BI-20 zijn hieronder geherstructureerd op basis van de volledige analyse. Items zijn opgesplitst in **nu uitvoerbaar** (alles staat er al voor), **afhankelijk van beslissing** (openstaande vraag), en **later**.
-
 ---
 
 ### 🔴 SPRINT 0 — Opkuis (geen nieuwe features, ballast weg)
 
 #### BI-S0-01 — Pre-sales actiebladen verbergen in CS kanban
-**Wat:** Voeg standaard filter toe aan zoekweergave: `stage_id = Pre-sales` verbergen.
-**Hoe:** Uitbreiden search view 3560 met default filter.
+
+**Wat:** Voeg standaard filter toe aan zoekweergave: `stage_id = Pre-sales` verbergen.  
+**Hoe:** Uitbreiden search view 3560 met default filter. Optioneel: Pre-sales stage persistent folden (zie TECH-01).  
 **Impact:** CS ziet direct enkel actieve dossiers. Geen datawijziging nodig.
 
+**Acceptatiecriteria:**
+- [x] Domeinfilter `[("x_studio_stage_id", "!=", 1)]` ingesteld op action 953
+- [x] Pre-sales kolom staat standaard gefold bij openen kanban _(via Dynapps)_
+- [x] CS kan Pre-sales kolom zelf tonen/verbergen via filterknop
+
+---
+
 #### BI-S0-02 — Lege automations opkuisen of implementeren
-**Wat:** Automations 1022 ("Bijwerken stage id") en 1023 ("Bereken sequence") hebben lege code.
-**Hoe:** Beslissen: implementeren (zie sprint 1) of verwijderen.
+
+**Wat:** Automations 1022 ("Bijwerken stage id") en 1023 ("Bereken sequence") hebben lege code.  
+**Hoe:** Beslissen: implementeren (zie sprint 1) of verwijderen.  
 **Impact:** Vermijdt verwarring en onnodige triggers.
 
+**Beslissing:** Automation 1023 ("Bereken sequence") verwijderd — sequentieveld was nutteloos. Automation 1022 ("Bijwerken stage id") geïmplementeerd: zet nieuwe actiebladen automatisch op stage "Discovery" bij aanmaken.
+
+**Acceptatiecriteria:**
+- [x] Automation 1023 verwijderd
+- [x] Automation 1022 geïmplementeerd — nieuwe actiebladen krijgen automatisch stage "Discovery"
+
+---
+
 #### BI-S0-03 — Donuts verwijderen uit kanban
-**Wat:** Alle 4 donuts (Interactie, Gegevens, Context, Discovery) verwijderen uit de kanban-tegel.
-**Beslissing:** Donuts waren een oud idee zonder databinding. Discovery was de enige echte, de andere 3 stonden op 0 hardcoded. De volledige donut-footer sectie wordt vervangen door pakket + gebouw + contactinfo (zie §5).
+
+**Wat:** Alle 4 donuts (Interactie, Gegevens, Context, Discovery) verwijderen uit de kanban-tegel.  
+**Beslissing:** Donuts waren een oud idee zonder databinding. De volledige donut-footer sectie wordt vervangen door pakket + gebouw + contactinfo (zie §5).  
 **Hoe:** Xpath in kanban overerving 3725: donut-footer verwijderen.
 
+**Acceptatiecriteria:**
+- [x] Donut-footer volledig verwijderd uit kanban-tegel
+- [x] Geen visuele breuk of lege ruimte zichtbaar
+
+---
+
 #### BI-S0-04 — "Stats" tab verwijderen uit formulier
-**Wat:** De "Stats" tab in het notebook is volledig leeg.
+
+**Wat:** De "Stats" tab in het notebook is volledig leeg.  
 **Hoe:** `invisible="True"` of volledig verwijderen uit view overerving 3564.
 
+**Acceptatiecriteria:**
+- [ ] "Stats" tab niet meer zichtbaar in de formulierweergave
+
+---
+
 #### BI-S0-05 — Tags editeerbaar maken in formulier
-**Wat:** Tags (`x_studio_tag_ids`) zijn momenteel read-only in de formulierweergave. Ze worden manueel ingevuld door CS.
-**Hoe:** In view-overerving 3564: `readonly` attribuut verwijderen van het tags-veld.
-**Opmerking:** Tags blijven freeform/manueel — geen automatisering.
+
+**Wat:** Tags (`x_studio_tag_ids`) zijn momenteel read-only in de formulierweergave. Ze worden manueel ingevuld door CS.  
+**Beslissing:** Tags verwijderd uit de formulierweergave — veld is leeg en wordt niet actief gebruikt. Tags worden automatisch meeaangemaakt (infrastructuur staat klaar voor later gebruik).
+
+**Acceptatiecriteria:**
+- [x] Tags verwijderd uit formulierweergave (niet readonly maar volledig verborgen)
+- [x] Bestaande tags blijven behouden in het model
+
+---
 
 #### BI-S0-06 — kanban_state vervangen in views
-**Wat:** `x_studio_kanban_state` widget zit in kanban-tegel maar is nooit ingevuld in de data.
+
+**Wat:** `x_studio_kanban_state` widget zit in kanban-tegel maar is nooit ingevuld in de data.  
 **Hoe:** Verwijderen uit kanban bottom-right, vervangen door Red Flag icoon (zie sprint 1).
+
+**Acceptatiecriteria:**
+- [x] `x_studio_kanban_state` widget verwijderd uit kanban-tegel
+- [ ] Ruimte ingenomen door Red Flag icoon (BI-S1-03) — nog te doen
+
+---
+
+#### BI-S0-07 — "Mijn actiebladen" filter verwijst naar Support Verantwoordelijke
+
+**Wat:** De standaard "Mijn actiebladen" kanban-filter gebruikte `x_studio_user_id` (sales). Voor CS is de relevante gebruiker de Support Verantwoordelijke (`x_studio_support_user_id`).
+
+**Acceptatiecriteria:**
+- [x] Kanban-actie filtert op `x_studio_support_user_id = uid` in plaats van `x_studio_user_id`
+- [ ] Extra filters voor andere rollen indien nodig (mijn sales dossiers, alles) — backlog
 
 ---
 
 ### 🟠 SPRINT 1 — Fundament: rollen, pakket, Red Flag
 
 #### BI-S1-01 — Support Verantwoordelijke veld
-**Wat:** Nieuw `x_studio_support_user_id` (many2one → res.users) op actieblad.
-**Waarom:** Sales verantwoordelijke ≠ CS medewerker. Op kanban-tegel tonen.
-**Bij Won-automation:** voorlopig altijd Rob Claes invullen (hard-coded via `user_id` lookup op het e-mailadres).
-**Roadmap:** Zodra een tweede CX-medewerker start → round-robin of toewijzingsregel bouwen (bv. op basis van pakket, regio of load-balancing). Zie ook BI-S3-05 voor planning.
+
+**Wat:** Nieuw `x_studio_support_user_id` (many2one → res.users) op actieblad.  
+**Waarom:** Sales verantwoordelijke ≠ CS medewerker. Op kanban-tegel tonen.  
+**Bij Won-automation:** voorlopig altijd Rob Claes invullen (hard-coded via `user_id` lookup op het e-mailadres).  
+**Roadmap:** Zodra een tweede CX-medewerker start → round-robin of toewijzingsregel bouwen. Zie ook BI-S3-05.
+
+**Acceptatiecriteria:**
+- [x] Veld `x_studio_support_user_id` aangemaakt op `x_sales_action_sheet`
+- [ ] Zichtbaar in formulierweergave (CS Onboarding tab)
+- [x] Zichtbaar als avatar op kanban-tegel
+- [x] Won-automation 1039 vult het veld automatisch in (voorlopig: altijd Rob Claes)
+
+---
 
 #### BI-S1-02 — Syndicoach-pakket veld
-**Wat:** Nieuw selection veld `x_studio_syndicoach_package` met waarden: `none`, `assistant`, `coach`, `captain`.
-**Hoe invullen:** Manueel door CS op actieblad, lead en res.partner VME. Automatische detectie vanuit producten is niet mogelijk — tiers zitten niet in de productcatalogus.
-**Synchronisatie:** Won-automation 1039 uitbreiden: als de lead al een pakket heeft ingevuld, dit overnemen op het actieblad zodat CS niet dubbel hoeft in te vullen.
 
-#### BI-S1-03 — Red Flag statusveld + manuele toggle
-**Wat:** Boolean `x_studio_red_flag` + selection `x_studio_red_flag_reason` (geen activiteit / churn-signaal / te lang in fase / manueel).
-**Hoe:** Veld aanmaken, manueel instelbaar door CS, auto-trigger via cron (zie BI-S2-02).
-**In kanban:** Rood icoon 🚩 conditionally zichtbaar.
+**Wat:** Nieuw selection veld `x_studio_syndicoach_package` met waarden: `none`, `assistant`, `coach`, `captain`.  
+**Hoe invullen:** Manueel door CS op actieblad, lead en res.partner VME. Automatische detectie vanuit producten is niet mogelijk — tiers zitten niet in de productcatalogus.  
+**Synchronisatie:** Won-automation 1039 uitbreiden: als de lead al een pakket heeft ingevuld, dit overnemen op het actieblad.
+
+**Implementatie:** Veld `x_syndicoach_pack` (selection: assistant/coach/captain) aangemaakt op `res.partner` als bron van waarheid. Related fields op `x_sales_action_sheet` (via `x_studio_for_company_id`) en `crm.lead`, beide store=True en editeerbaar. Geen Won-automation sync nodig — related field synchroniseert automatisch.
+
+**Acceptatiecriteria:**
+- [x] Veld aangemaakt op `res.partner` (VME-gebouwen) als bron van waarheid
+- [x] Related field op `x_sales_action_sheet` (via `x_studio_for_company_id`)
+- [x] Related field op `crm.lead`
+- [x] Zichtbaar als gekleurde chip op kanban-tegel (balk tussen header en body, rechts uitgelijnd)
+- [x] Won-automation sync niet nodig — related field doet dit automatisch
+
+---
+
+#### BI-S1-03 — Escalatievlag: 🔵 Herinnering / 🟡 Attentie / 🟠 Urgent / 🔴 Kritiek
+
+**Wat:** Vierniveaus-escalatie op actieblad via één selection + reden + bericht + datum laatste klantreactie.  
+**Velden:**
+- `x_flag_level` (selection): `none` Geen · `reminder` 🔵 Herinnering · `attention` 🟡 Attentie · `urgent` 🟠 Urgent · `critical` 🔴 Kritiek
+- `x_flag_reason` (selection): `no_activity` Geen activiteit · `churn_signal` Churn-signaal · `too_long_in_stage` Te lang in fase · `manual` Manueel — **niet getoond bij `reminder`**
+- `x_flag_custom_message` (char): Vrij tekstveld — contextnota of snelle note; wordt **niet** gewist bij vlag verwijderen
+- `x_last_response_date` (date): Laatste klantreactie — startpunt inactiviteitsteller
+
+**In kanban:** Gekleurde chip + balkkleur + message-strip per niveau (none = geen markering). Kaartkleuring via `x_color` — zie BI-S1-06.  
+**Manuele knoppen:** "Klant vlaggen" (popup) + "Vlag verwijderen" op formulier.  
+**Auto-trigger:** Dagelijkse cron op inactiviteit en onboarding bucket (zie BI-S2-02).  
+**Drempelwaarden (instelbaar in automations):** Geel: 14 d · Oranje: 30 d · Rood: 60 d.
+
+**Acceptatiecriteria:**
+- [x] Veld `x_flag_level` (selection, 5 waarden incl. `reminder`) aangemaakt
+- [x] Veld `x_flag_reason` (selection, 4 waarden) aangemaakt
+- [x] Veld `x_flag_custom_message` (char) aangemaakt
+- [x] Veld `x_last_response_date` (date) aangemaakt
+- [x] Popup "Klant vlaggen": bij `reminder` enkel bericht tonen, geen reden
+- [x] Vlag-chip + gekleurde balk + message-strip conditionally zichtbaar op kanban-tegel
+- [ ] Filterbaar via zoekweergave ("🔵 Herinnering", "🟡 Attentie", "🟠 Urgent", "🔴 Kritiek", "Alle vlaggen")
+- [x] x_color kaartkleuring via BI-S1-06
+
+---
 
 #### BI-S1-04 — Won-datum ophalen op actieblad
-**Wat:** Computed date veld `x_studio_won_date` dat `x_studio_became_customer` van de gekoppelde lead leest.
+
+**Wat:** Computed date veld `x_studio_won_date` dat `x_studio_became_customer` van de gekoppelde lead leest.  
 **Waarom:** Betrouwbaarder T0 dan `create_date` voor alle timing-automations.
 
+**Acceptatiecriteria:**
+- [ ] Veld `x_studio_won_date` aangemaakt (computed of automation-gevuld)
+- [ ] Correct gevuld vanuit de gekoppelde lead bij Won
+- [ ] Zichtbaar op kanban-tegel (compact formaat)
+
+---
+
 #### BI-S1-05 — Kanban-tegel updaten
-**Wat:** Xpath-aanpassingen op overerving view 3725:
-- Gebouwnaam toevoegen aan body
-- Syndicoach-pakket badge toevoegen
-- Red Flag icoon toevoegen (conditionally)
-- `kanban_state` vervangen door `support_user_id` avatar
-- Sales verantwoordelijke als tweede kleinere avatar
+
+**Wat:** Xpath-aanpassingen op overerving view 3725.
+
+**Acceptatiecriteria:**
+- [ ] Gebouwnaam zichtbaar op tegel
+- [ ] Syndicoach-pakket badge zichtbaar
+- [ ] Red Flag icoon conditionally zichtbaar
+- [ ] `kanban_state` vervangen door `support_user_id` avatar
+- [ ] Sales verantwoordelijke als tweede kleinere avatar behouden
+- [ ] Won-datum compact zichtbaar onderaan
+- [ ] Donut-footer verwijderd
+
+---
+
+#### BI-S1-06 — x_color kaartkleuring (vlag + opstarthulp)
+
+**Wat:** Automation die `x_color` zet op basis van `x_flag_level` en `x_has_startup_assistance`. Opstarthulp heeft hogere prioriteit dan vlag.
+
+**Mapping:**
+
+| Conditie | x_color | Kleur |
+|---|---|---|
+| `x_has_startup_assistance = True` | 11 | Paars |
+| `x_flag_level = 'critical'` | 1 | Rood |
+| `x_flag_level = 'urgent'` | 2 | Oranje |
+| `x_flag_level = 'attention'` | 3 | Geel |
+| `x_flag_level = 'reminder'` | 4 | Lichtblauw |
+| (geen van bovenstaande) | 0 | Geen kleur |
+
+**Automation:** `Bij opslaan - Flagged actieblad` — gecombineerd met reden-wissen, trigger op `x_flag_level` en `x_has_startup_assistance`:
+```python
+# Reden wissen bij geen vlag
+if not record.x_flag_level or record.x_flag_level == 'none':
+    record.write({'x_flag_reason': False})
+
+# x_color bijwerken
+if record.x_has_startup_assistance:
+    color = 11
+elif record.x_flag_level == 'critical':
+    color = 1
+elif record.x_flag_level == 'urgent':
+    color = 2
+elif record.x_flag_level == 'attention':
+    color = 3
+elif record.x_flag_level == 'reminder':
+    color = 4
+else:
+    color = 0
+record.write({'x_color': color})
+```
+
+**Acceptatiecriteria:**
+- [x] Automation aangemaakt (`Bij opslaan - Flagged actieblad`), triggert op beide velden
+- [x] Kaart wordt paars bij Opstarthulp (ongeacht vlag)
+- [x] Kaart volgt vlagkleur wanneer geen Opstarthulp
+- [x] x_color = 0 wanneer geen vlag en geen Opstarthulp
 
 ---
 
 ### 🟡 SPRINT 2 — Pipeline automatiseren
 
 #### BI-S2-01 — Won → Intake: stage + welkomstaak (automation 41 uitbreiden)
+
 **Wat:** Uitbreiden server action 1039 met:
 1. Stage actieblad zetten op "Intake"
 2. Activiteit aanmaken: "Welkomsgesprek: klant bellen" → deadline = vandaag + 3 werkdagen → toegewezen aan Support Verantwoordelijke
 3. `x_studio_entrypoint` auto-invullen vanuit `lead.source_id` of `lead.medium_id`
-**Impact:** Elke nieuwe klant start automatisch in de juiste CS-fase met een taak.
 
-#### BI-S2-02 — Daily cron: Red Flag detectie
-**Wat:** Nieuwe dagelijkse cron op `x_sales_action_sheet`:
+**Acceptatiecriteria:**
+- [x] Bij Won: actieblad stage wordt automatisch "Intake"
+- [x] Activiteit "Welkomsgesprek inplannen" aangemaakt met juiste deadline (3 werkdagen) — activiteitstype ID 26
+- [x] Activiteit toegewezen aan Support Verantwoordelijke (Rob Claes, user ID 11)
+- [ ] `x_studio_entrypoint` automatisch gevuld
+- [x] Werkt ook als actieblad al bestaat (koppeling zonder duplicaat)
+
+---
+
+#### BI-S2-02 — Daily cron: escalatievlag detectie
+
+**Wat:** Drie Studio-automations (time-based) + bucket-check op `x_sales_action_sheet`.
+
+**Automatie A — Inactiviteit Geel (instelbaar, standaard 14 d):**
 ```
-Filter: stage in [Intake, Opstarthulp, In Configuratie, Follow-up Validatie]
-Check 1: gebouw.x_studio_onboarding_bucket in ['early_dropout', 'dormant', 'snoozing']
-  → Red Flag + reden = "geen activiteit"
-Check 2: won_date > 60 dagen geleden EN stage < Follow-up Validatie
-  → Red Flag + reden = "te lang in fase"
-Bij Red Flag: interne notificatie naar Support Verantwoordelijke
+Trigger: x_last_response_date + 14 dagen
+Filter: stage in CS-pipeline EN flag_level = none
+Actie: flag_level = attention, flag_reason = no_activity
 ```
-**Voordeel:** Hergebruikt de bucket-logica die al dagelijks draait. Geen nieuwe berekeningen nodig.
+
+**Automatie B — Inactiviteit Oranje (instelbaar, standaard 30 d):**
+```
+Trigger: x_last_response_date + 30 dagen
+Filter: stage in CS-pipeline EN flag_level in [none, attention]
+Actie: flag_level = urgent, flag_reason = no_activity
+```
+
+**Automatie C — Inactiviteit Rood (instelbaar, standaard 60 d):**
+```
+Trigger: x_last_response_date + 60 dagen
+Filter: stage in CS-pipeline EN flag_level != critical
+Actie: flag_level = critical, flag_reason = no_activity
+```
+
+**Automatie D — Bucket-check (dagelijks, via Python/Dynapps):**
+```
+snoozing → attention (reden: churn_signaal)
+early_dropout → urgent (reden: churn_signaal)
+dormant → critical (reden: churn_signaal)
+```
+
+**Automatie E — Te lang in fase (instelbaar, standaard 60 d na won_date):**
+```
+Trigger: x_studio_won_date + 60 dagen
+Filter: stage < Follow-up Validatie EN flag_level != critical
+Actie: flag_level = critical, flag_reason = too_long_in_stage
+```
+
+Bij elke nieuwe vlag: interne notificatie naar Support Verantwoordelijke.
+
+**Acceptatiecriteria:**
+- [ ] Automaties A/B/C aangemaakt in Studio (time-based op last_response_date)
+- [ ] Automatie E aangemaakt in Studio (time-based op won_date)
+- [ ] Automatie D (bucket-check) geïmplementeerd
+- [ ] Escalatie werkt correct: attention → urgent → critical (geen downgrade door cron)
+- [ ] Geen dubbele meldingen bij al-gemarkeerde vlaggen
+- [ ] Interne notificatie verstuurd naar Support Verantwoordelijke
+- [ ] Logboek/notitie op actieblad met reden
+
+---
 
 #### BI-S2-03 — Heeft Opstarthulp veld + conditionele routing
-**Wat:** Boolean `x_studio_heeft_opstarthulp` (computed uit sale order producten, product "Opstarthulp" id 37).
-**Waarom:** Bepaalt of stage "Opstarthulp" overgeslagen wordt of niet.
-**Automatisering:** Bij stage = Intake, als `heeft_opstarthulp = True` → toon sub-status "Opstartsessie inplannen" + maak taak aan.
+
+**Wat:** Boolean `x_has_startup_assistance` (product "Opstarthulp" id 37 aanwezig in actieve sale orders).  
+**Waarom:** (1) Bepaalt of stage "Opstarthulp" overgeslagen wordt. (2) Drijft `x_color = 11` (paars) op de kanban-kaart via BI-S1-06.  
+**Detectie:** Boolean wordt gezet **tijdens de berekening van `x_studio_active_products_html`** (automation 50 + server action 1117) — geen aparte automation nodig.  
+**Prioriteit kaartkleuring:** Opstarthulp (paars) heeft hogere prioriteit dan vlagkleur — zie BI-S1-06.  
+**Automatisering routing:** Bij stage = Intake, als `heeft_opstarthulp = True` → toon sub-status "Opstartsessie inplannen" + maak taak aan.
+
+**Acceptatiecriteria:**
+- [x] Veld `x_has_startup_assistance` aangemaakt (boolean)
+- [x] Boolean correct gezet tijdens automation 50 + server action 1117 (active products berekening)
+- [x] Wijziging boolean triggert x_color update (via BI-S1-06)
+- [ ] Bij Intake + Opstarthulp: taak "Opstartsessie inplannen" wordt aangemaakt
+- [ ] Bij Intake + geen Opstarthulp: stage slaat "Opstarthulp" over
+
+---
 
 #### BI-S2-04 — Opstarthulp sub-status veld
-**Wat:** Selection `x_studio_opstarthulp_status`: `niet_aangekocht` / `in_te_plannen` / `gepland` / `gehouden`.
-**Trigger doorschuiven:** CS markeert manueel "gehouden" → auto naar "In Configuratie" + checklist aanmaken.
-**Noot:** Automatische duur-detectie via `x_as_meetings.x_studio_duration` vervalt — wordt in de praktijk niet bijgehouden. CS beslist zelf wanneer de sessie als "gehouden" telt.
+
+**Wat:** Selection `x_studio_opstarthulp_status`: `niet_aangekocht` / `in_te_plannen` / `gepland` / `gehouden`.  
+**Trigger doorschuiven:** CS markeert manueel "gehouden" → auto naar "In Configuratie" + checklist aanmaken.  
+**Noot:** Automatische duur-detectie via `x_as_meetings.x_studio_duration` vervalt — CS beslist zelf wanneer de sessie als "gehouden" telt.
+
+**Acceptatiecriteria:**
+- [ ] Veld aangemaakt met de 4 statussen
+- [ ] Zichtbaar in formulierweergave (CS Onboarding tab), conditioneel (enkel als `heeft_opstarthulp = True`)
+- [ ] Bij "gehouden": automatisch doorschuiven naar "In Configuratie"
+- [ ] Bij "gehouden": checklist-items aangemaakt op het actieblad
+
+---
 
 #### BI-S2-05 — Configuratie-checklist
-**Wat:** 5 boolean-velden op actieblad (verplicht/optioneel):
+
+**Wat:** Boolean-velden of M2M checklist op actieblad:
 - `x_studio_check_financieel` (verplicht)
 - `x_studio_check_facturen` (verplicht)
 - `x_studio_check_documenten` (verplicht)
-- `x_studio_check_bankkoppeling` (optioneel, tonen als Ponto-product actief)
-- `x_studio_check_peppol` (optioneel, tonen als Peppol-product actief)
+- `x_studio_check_bankkoppeling` (optioneel)
+- `x_studio_check_peppol` (optioneel)
 
-**Automation:** `on_create_or_write`, filter = alle verplichte checks = True:
-→ Stage naar "Follow-up Validatie" + activiteit "Follow-up call" deadline vandaag + 14 dagen.
+**Automation:** `on_create_or_write`, filter = alle verplichte checks = True → Stage naar "Follow-up Validatie" + activiteit "Follow-up call" deadline vandaag + 14 dagen.
 
-**Aanpak:** M2M model `x_cs_checklist_item` (zie §4 — Checklist). CS kan items beheren zonder view-aanpassingen.
+**Acceptatiecriteria:**
+- [ ] Alle 5 checklistitems aanwezig en aanvinkbaar in formulier
+- [ ] Optionele items duidelijk onderscheiden van verplichte
+- [ ] Bij alle verplichte items ✓: automatisch doorschuiven naar Follow-up Validatie
+- [ ] Activiteit "Follow-up call" aangemaakt met deadline +14 dagen
+
+---
 
 #### BI-S2-06 — Follow-up Validatie afsluiten
-**Wat:** Manuele eindcheck door CX. Geen volledige automatisering, maar: voeg een "Validatie afgerond" boolean + knop toe die stage naar "Goed Opgestart" zet.
 
-**De "Cindy-check":** Cindy is de ingebouwde AI-assistent in OpenVME. De eindscreening gebeurt door CX die manueel verifieert of de gegevens in de applicatie correct zijn (leveranciers, verdeelsleutels, grootboekrekeningen). Dit is een kwalitatieve beoordeling, geen automatiseerbare stap.
+**Wat:** Manuele eindcheck door CX. Voeg een "Validatie afgerond" boolean + knop toe die stage naar "Goed Opgestart" zet.
 
-**Voorstel:** Voeg een checklist-item toe in de Follow-up Validatie checklist: "Instellingen gevalideerd (leveranciers, verdeelsleutels, GB-rekeningen)" → verplicht aanvinken voor afsluiting.
+**De "Cindy-check":** Kwalitatieve beoordeling door CX of instellingen correct zijn (leveranciers, verdeelsleutels, grootboekrekeningen). Niet automatiseerbaar.
+
+**Acceptatiecriteria:**
+- [ ] Checklist-item "Instellingen gevalideerd" aanwezig in Follow-up Validatie checklist (verplicht)
+- [ ] Knop of toggle "Validatie afgerond" beschikbaar in formulierweergave
+- [ ] Bij afgerond: stage naar "Goed Opgestart"
 
 ---
 
 ### 🟢 SPRINT 3 — Langetermijn & periodiciteit
 
 #### BI-S3-01 — Periodieke check-in mail voor Goed Opgestart (via x_dynamic_mail_block)
+
 **Wat:** Maandelijkse cron: actiebladen in "Goed Opgestart" zonder activiteit >120 dagen → automatisch een check-in mail versturen + activiteit aanmaken.
 
 **Implementatie via bestaande mail-infrastructuur:**
-Het systeem `x_dynamic_mail_block` is al gebouwd en in gebruik voor Meta Lead + Syndicoach flows. Blokken hebben `x_condition_field` + `x_condition_value` voor conditionele inhoud.
+1. `mail.template` aanmaken op model `x_sales_action_sheet`
+2. `x_dynamic_mail_block`-blokken definiëren voor de check-in mail (per pakket conditioneel)
+3. Cron stuurt mail + maakt activiteit "Check-in mail verstuurd" aan
 
-Aanpak:
-1. Maak een Odoo `mail.template` aan op model `x_sales_action_sheet`
-2. Definieer `x_dynamic_mail_block`-blokken voor de check-in mail:
-   - Introductieblok (per pakket: Geen / Assistant / Coach / Captain kan anders zijn)
-   - Overzichtsblok (actieve producten, gebouwnaam)
-   - Call-to-action blok
-3. Sla verstuurde blok-referentie op het actieblad op
-4. Cron stuurt mail + maakt activiteit "Check-in mail verstuurd" aan
+**Acceptatiecriteria:**
+- [ ] Mail-template aangemaakt met conditionele blokken per pakket
+- [ ] Cron draait maandelijks
+- [ ] Mail verstuurd naar klant bij >120 dagen inactiviteit
+- [ ] Activiteit "Check-in mail verstuurd" aangemaakt op actieblad
+- [ ] Geen dubbele mails (eenmalige trigger per periode)
 
-**Flow na mail:** CS monitort reacties manueel. Bij reactie → actieblad naar "Na te checken".
+---
 
 #### BI-S3-02 — "Na te checken" fase
-**Wat:** Nieuwe stage na "Goed Opgestart". CS plaatst actieblad hier manueel na reactie op check-in.
+
+**Wat:** Nieuwe stage na "Goed Opgestart". CS plaatst actieblad hier manueel na reactie op check-in.  
 **Automatiseren later:** Als Odoo mail-tracking dit ondersteunt (open/reply tracking).
 
+**Acceptatiecriteria:**
+- [ ] Stage "Na te checken" aangemaakt na "Goed Opgestart" in volgorde
+- [ ] Manueel verplaatsen door CS mogelijk
+- [ ] Stage niet standaard zichtbaar (gefold of apart filter)
+
+---
+
 #### BI-S3-03 — Upsell-signalering vanuit actieblad
+
 **Observatie:** In bestaande activiteiten-data staat al "algemene follow-up > Upsell?" in de notes van Rob Claes. Er is al upsell-denken, maar ongestructureerd.
-**Voorstel:**
-- Voeg `x_studio_upsell_kans` selection toe: `geen` / `potentieel` / `warm` / `aangemeld`
-- Bij `aangemeld`: automatisch een nieuwe lead aanmaken in CRM vanuit actieblad
+
+**Acceptatiecriteria:**
+- [ ] Veld `x_studio_upsell_kans` aangemaakt (selection: geen / potentieel / warm / aangemeld)
+- [ ] Zichtbaar in formulierweergave
+- [ ] Bij `aangemeld`: automatisch nieuwe lead aanmaken in CRM vanuit actieblad
+
+---
 
 #### BI-S3-05 — Auto-toewijzing support verantwoordelijke
-**Context:** Rob Claes is hoofd-CX maar er komen meer medewerkers. Nu staat alles op Rob.
-**Voorstel:** Bij Won → toewijzing via round-robin of vaste regel (bv. op basis van pakket of regio). Implementeer zodra tweede CX-medewerker actief is.
-**Voorlopig:** Bij Won → altijd Rob Claes als support_user_id (hard-coded tot multi-CX).
+
+**Context:** Rob Claes is hoofd-CX maar er komen meer medewerkers. Nu staat alles op Rob.  
+**Voorstel:** Bij Won → toewijzing via round-robin of vaste regel. Implementeer zodra tweede CX-medewerker actief is.
+
+**Acceptatiecriteria:**
+- [ ] Round-robin of toewijzingslogica gedefinieerd (bv. op pakket of load)
+- [ ] Won-automation gebruikt de toewijzingslogica in plaats van hard-coded Rob Claes
+- [ ] Configureerbaar zonder code-aanpassing
+
+---
+
+### 🔵 SPRINT C — Communicatie-integratie
+
+#### BI-SC-01 — Klantcontact valideren bij aanmaken actieblad (QUICK WIN)
+
+**Wat:** Bij Won-automation 1039: controleer of `contact_id.email` en `contact_id.phone` ingevuld zijn. Zo niet → activiteit "Contactgegevens aanvullen" voor de support verantwoordelijke.
+
+**Acceptatiecriteria:**
+- [ ] Won-automation checkt email + telefoon van de contactpersoon
+- [ ] Bij ontbrekende gegevens: activiteit aangemaakt met deadline +1 dag
+- [ ] Activiteit toegewezen aan Support Verantwoordelijke
+
+---
+
+#### BI-SC-02 — AI chatter → veldextractie
+
+**Wat:** Uitbreiden van de bestaande AI-automation (id 38) met een extra prompt die recente chatter-notities analyseert en voorstelt welke checklistitems afgevinkt kunnen worden + of contactgegevens in de chatter staan.
+
+**Output:** Nieuw veld `x_studio_ai_chatter_digest`.  
+**Fase 2:** Auto-aanvinken van checklistitems als de AI hoge zekerheid heeft.
+
+**Acceptatiecriteria:**
+- [ ] Veld `x_studio_ai_chatter_digest` aangemaakt
+- [ ] AI-prompt uitgebreid met chatter-analyse
+- [ ] Output zichtbaar in formulierweergave (Progress tab of CS Onboarding tab)
+- [ ] (Fase 2) Auto-aanvinken checklist bij hoge AI-zekerheid
+
+---
+
+#### BI-SC-03 — Snelle statusupdate UI
+
+**Wat:** Checklistitems zichtbaar bovenaan het formulier als klikbare rijen. Aanvullen met een "Snel notitie" knop met vaste opties: "Gebeld, geen opname" / "Mail gestuurd" / "Afgesproken" / vrij veld.
+
+**Acceptatiecriteria:**
+- [ ] Checklistitems zichtbaar bovenaan formulier (niet alleen in tab)
+- [ ] "Snel notitie" knop aanwezig met vaste opties
+- [ ] Notitie wordt gelogd in chatter met timestamp en medewerker
+
+---
+
+#### BI-SC-04 — E-mailintegratie: Odoo chatter als mailkanaal
+
+**Beslissing:** Rob is bereid te switchen naar Odoo voor actieblad-communicatie. CX stuurt klantmails voortaan vanuit de Odoo-chatter ("Send message").
+
+**Configuratiestappen:**
+1. Inkomende mailserver: `catchall@mymmo.com` toevoegen als fetchmail server (IMAP, Google Workspace)
+2. Alias domain: `mymmo.com` is al geconfigureerd ✅
+3. Afzenderadres: `openvme.be` toevoegen als alias domain (SPF/DKIM instellen)
+4. Outbound server: configureren voor gekozen From-domein
+
+**Acceptatiecriteria:**
+- [ ] Inkomende mailserver `catchall@mymmo.com` geconfigureerd en actief
+- [ ] Replies op Odoo-mails landen automatisch in de chatter van het juiste actieblad
+- [ ] CX kan vanuit de chatter mailen met correct afzenderadres
+- [ ] Intercom ontvangt BCC van Odoo-mails (optionele brug)
+
+---
+
+#### BI-SC-05 — Mail templates voor actiebladen
+
+**Wat:** `mail.template` records aanmaken op model `x_sales_action_sheet`.
+
+| Template | Trigger | Inhoud |
+|----------|---------|--------|
+| Welkomsmail | Bij Intake (of manueel) | Intro OpenVME, wat te verwachten, contactinfo Rob |
+| Opvolgingsvraag | Manueel na geen activiteit | "Hoe verloopt de opstart? Loopt er iets vast?" |
+| Beginbalans / financieel | Manueel bij blocker | Uitleg + link naar Calendly/afspraakmogelijkheid |
+| Afspraakherinnering | Manueel of auto vóór meeting | Datum + link + korte agenda |
+| Samenvatting gesprek | Na call (manueel) | Wat besproken, wat klant moet doen, wat CX doet |
+
+**Acceptatiecriteria:**
+- [ ] Alle 5 templates aangemaakt op model `x_sales_action_sheet`
+- [ ] Dynamische velden correct (naam, gebouw, pakket, contactinfo)
+- [ ] Koppeling met `x_dynamic_mail_block` systeem voor conditionele inhoud per pakket
+- [ ] Selecteerbaar vanuit chatter "Send message"
+
+---
+
+## 10. Samenvatting — prioriteiten per sprint
+
+| Sprint | Doel | Resultaat voor CS |
+|--------|------|------------------|
+| 0 | Opkuis | CS ziet alleen relevante dossiers, geen rommel |
+| 1 | Rollen + pakket + Red Flag | CS weet van elk dossier wie verantwoordelijk is, wat ze kochten, en welke dossiers alarm slaan |
+| 2 | Pipeline automatiseren | Taken verschijnen vanzelf, stages schuiven door, geen enkel dossier valt door de mand |
+| 3 | Langetermijn opvolging | Klanten in "Goed Opgestart" worden periodiek gecontacteerd, upsell-kansen worden gevangen |
+| C | Communicatie-integratie | Klantmails landen automatisch in het actieblad, WA is zichtbaar in context, AI analyseert de chatter |
 
 ---
 
@@ -538,75 +904,297 @@ WhatsApp is momenteel enkel ingesteld voor de `crm.lead`-pipeline. Er zijn geken
 1. CX moet vanuit de Odoo-chatter ("Send message") mailen in plaats van vanuit Gmail → gedragsverandering
 2. Een inkomende mailserver voor `catchall@mymmo.com` configureren → replies landen automatisch in de chatter
 
-Alternatief zonder gedragsverandering: de Gmail-inbox van CX integreren met Odoo (Google Workspace connector) zodat mails die vanuit Gmail gestuurd worden automatisch gelogd worden op het actieblad. Dit is technisch complexer maar minder afhankelijk van teamtraining.
+---
+
+## 12. Studio-implementatiegids — BI-S1-03 Escalatievlag
+
+### Stap 1 — Velden aanmaken
+
+Open Studio → model `x_sales_action_sheet` → Fields → New.
+
+**Veld 1: `x_flag_level`**
+| Instelling | Waarde |
+|---|---|
+| Type | Selection |
+| Veldnaam | `flag_level` (Studio voegt `x_studio_` toe) |
+| Label | Vlag |
+| Standaardwaarde | `none` |
+| Verplicht | nee |
+
+Waarden:
+```
+Technisch    Label
+none         Geen
+reminder     🔵 Herinnering
+attention    🟡 Attentie
+urgent       🟠 Urgent
+critical     🔴 Kritiek
+```
+
+**Veld 2: `x_flag_reason`**
+| Instelling | Waarde |
+|---|---|
+| Type | Selection |
+| Veldnaam | `flag_reason` |
+| Label | Reden vlag |
+| Standaardwaarde | — (leeg) |
+
+Waarden:
+```
+Technisch        Label
+no_activity      Geen activiteit
+churn_signal     Churn-signaal
+too_long_in_stage  Te lang in fase
+manual           Manueel
+```
+
+**Veld 3: `x_flag_custom_message`**
+| Instelling | Waarde |
+|---|---|
+| Type | Char |
+| Veldnaam | `flag_custom_message` |
+| Label | Vlag bericht |
+| Standaardwaarde | — (leeg) |
+
+> Wordt **niet** gewist door de automation "Reden wissen bij Geen vlag" — bewuste keuze. De message blijft als historische notitie.
+
+**Veld 4: `x_last_response_date`**
+| Instelling | Waarde |
+|---|---|
+| Type | Date |
+| Veldnaam | `last_response_date` |
+| Label | Laatste klantreactie |
 
 ---
 
-### 🔵 SPRINT C — Communicatie-integratie
+### Stap 2 — Formulierweergave
 
-#### BI-SC-01 — Klantcontact valideren bij aanmaken actieblad (QUICK WIN)
-**Wat:** Bij Won-automation 1039: controleer of `contact_id.email` en `contact_id.phone` ingevuld zijn. Zo niet → activiteit "Contactgegevens aanvullen" voor de support verantwoordelijke.
-**Waarom:** Contactinfo wordt nu handmatig in de chatter getypt omdat de velden leeg zijn. Dit lost patroon 2 op.
+Studio → Views → Form → open de CS Onboarding tab.
 
-#### BI-SC-02 — AI chatter → veldextractie
-**Wat:** Uitbreiden van de bestaande AI-automation (id 38) met een extra prompt die recente chatter-notities analyseert en voorstelt:
-- Welke checklistitems afgevinkt kunnen worden op basis van wat er beschreven staat
-- Of contactgegevens in de chatter staan die nog niet in `res.partner` zitten
-- Wat de huidige status/blocker is op basis van de laatste notities
-
-**Output:** Nieuw veld `x_studio_ai_chatter_digest` — een kort AI-gegenereerd overzicht van de chatter, aanvullend op `ai_suggested_next_step`.
-**Fase 2:** Auto-aanvinken van checklistitems als de AI hoge zekerheid heeft (bv. "Ponto Koppeling oke" → `x_studio_check_bankkoppeling = True`).
-
-#### BI-SC-03 — Snelle statusupdate UI
-**Wat:** Checklistitems zichtbaar bovenaan het formulier als klikbare rijen (niet verborgen in een tab). Aanvullen met een "Snel notitie" knop met vaste opties: "Gebeld, geen opname" / "Mail gestuurd" / "Afgesproken" / vrij veld.
-**Doel:** De drempel om het actieblad bij te werken verlagen zodat CX minder snel naar Gmail of WhatsApp vlucht voor snelle updates.
-
-#### BI-SC-04 — E-mailintegratie: Odoo chatter als mailkanaal (Optie A)
-
-**Beslissing:** Rob is bereid te switchen naar Odoo voor actieblad-communicatie. CX stuurt klantmails voortaan vanuit de Odoo-chatter ("Send message"). Context: Rob gebruikt momenteel Intercom (ingelogd als support@mymmo.com) voor alle klantcommunicatie en zal dat blijven doen voor andere kanalen.
-
-**Hoe het werkt:**
-Odoo verstuurt elke "Send message" met:
-- `From: Rob van OpenVME <support@openvme.be>` — wat de klant ziet
-- `Reply-To: catchall+x_sales_action_sheet-{id}@mymmo.com` — waar de reply automatisch naartoe gaat
-
-De klant antwoordt, Odoo vangt de reply op via de catchall, en linkt hem terug aan het juiste actieblad. Geen handmatig kopiëren meer.
-
-**Configuratiestappen:**
-1. **Inkomende mailserver:** `catchall@mymmo.com` toevoegen als fetchmail server (IMAP, Gmail/Google Workspace)
-2. **Alias domain:** `mymmo.com` is al geconfigureerd — catchall alias ook ✅
-3. **Afzenderadres:** `openvme.be` toevoegen als alias domain in Odoo (SPF/DKIM instellen). **Open keuze:**
-   - Optie A: persoonlijk per medewerker — `Rob van OpenVME <rob@openvme.be>`, `Thomas van OpenVME <thomas@openvme.be>`. Klant weet wie ze schrijven, antwoorden zijn persoonlijker.
-   - Optie B: gedeeld support-adres — `Rob van OpenVME <support@openvme.be>`, `Thomas van OpenVME <support@openvme.be>`. Consistenter, makkelijker te beheren bij wissel van medewerkers, maar minder persoonlijk.
-   - Aanbeveling: Optie B past beter bij een CS-team dat groeit (nieuwe medewerkers = geen extra domeinconfiguratie). Optie A geeft meer persoonlijk gevoel maar vereist een apart mailbox per medewerker op openvme.be.
-4. **Outbound server:** Bestaande Gmail SMTP (`support@syndicusonline.com`) vervangen door een server geauthenticeerd voor het gekozen From-domein, OF de Gmail server uitbreiden om ook `openvme.be` te mogen sturen (GSuite alias).
-
-**Intercom ↔ Odoo in de loop houden:**
-_Opmerking voor later — nog te analyseren als apart project._
-Eenvoudigste brug: elke "Send message" vanuit Odoo verstuurt een BCC naar het e-mail-in adres van de Intercom-inbox (te vinden in Intercom onder Settings > Channels > Email). Zo verschijnt de Odoo-mail ook in Intercom als leesoverzicht. Klantreacties gaan via Reply-To terug naar Odoo — Odoo is de databron, Intercom is het leesvenster.
-
-#### BI-SC-05 — Mail templates voor actiebladen
-**Wat:** `mail.template` records aanmaken op model `x_sales_action_sheet` zodat CX met één klik een gestandaardiseerde mail kan sturen vanuit de chatter.
-
-**Templates (prioriteit):**
-| Template | Trigger | Inhoud |
-|----------|---------|--------|
-| Welkomsmail | Bij Intake (of manueel) | Intro OpenVME, wat te verwachten, contactinfo Rob |
-| Opvolgingsvraag | Manueel na geen activiteit | "Hoe verloopt de opstart? Loopt er iets vast?" |
-| Beginbalans / financieel | Manueel bij blocker | Uitleg + link naar Calendly/afspraakmogelijkheid |
-| Afspraakherinnering | Manueel of auto vóór meeting | Datum + link + korte agenda |
-| Samenvatting gesprek | Na call (manueel) | Wat besproken, wat klant moet doen, wat CX doet |
-
-**Hoe:** Odoo Studio of Technisch > E-mailtemplates. Body kan dynamische velden bevatten (`{{ object.x_name }}`, `{{ object.x_studio_contact_id.name }}`). Koppelen aan `x_dynamic_mail_block` systeem voor conditionele inhoud per pakket (zie §1.1).
+Voeg toe na `x_studio_support_user_id`:
+1. `x_flag_level` — Selection, full width
+2. `x_flag_reason` — Selection, **visibility**: `x_flag_level != 'none'`
+3. `x_flag_custom_message` — Char, label "Vlag bericht", **visibility**: `x_flag_level != 'none'`
+4. `x_last_response_date` — Date, label "Laatste klantreactie"
 
 ---
 
-## 10. Samenvatting — prioriteiten per sprint
+### Stap 3 — Kanban-tegel
 
-| Sprint | Doel | Resultaat voor CS |
-|--------|------|------------------|
-| 0 | Opkuis | CS ziet alleen relevante dossiers, geen rommel |
-| 1 | Rollen + pakket + Red Flag | CS weet van elk dossier wie verantwoordelijk is, wat ze kochten, en welke dossiers alarm slaan |
-| 2 | Pipeline automatiseren | Taken verschijnen vanzelf, stages schuiven door, geen enkel dossier valt door de mand |
-| 3 | Langetermijn opvolging | Klanten in "Goed Opgestart" worden periodiek gecontacteerd, upsell-kansen worden gevangen |
-| C | Communicatie-integratie | Klantmails landen automatisch in het actieblad, WA is zichtbaar in context, AI analyseert de chatter |
+Studio → Views → Kanban → sleep `x_flag_level` naar de kaart-header.
+
+- Widget: **Badge**
+- Visibility: `x_flag_level != 'none'`
+- Kleurmapping (in Studio "Decoration" opties):
+  - `attention` → warning
+  - `urgent` → danger (Odoo heeft geen native oranje; gebruik danger of custom CSS-klasse via x_color mapping)
+  - `critical` → danger
+
+> **Noot:** Gekleurde card-borders (zoals in de mockup) kunnen niet puur via Studio. Gebruik een x_color mapping om per `flag_level`-waarde een CSS-klasse toe te voegen aan de kaart.
+
+---
+
+### Stap 4 — Manuele actieknoppen + popup
+
+Twee actieknoppen bovenaan het formulier (server actions):
+
+**Knop 1: "Klant vlaggen"** — opent popup-formulier (view `__custom__sales_action_sheet.flag_popup`, target: new):
+```python
+view = env.ref('__custom__sales_action_sheet.flag_popup')
+action = {
+    'type': 'ir.actions.act_window',
+    'name': 'Klant vlaggen',
+    'res_model': 'x_sales_action_sheet',
+    'res_id': record.id,
+    'view_mode': 'form',
+    'view_id': view.id,
+    'target': 'new',
+}
+```
+
+**Popup-formulierweergave (Technical → Views, model `x_sales_action_sheet`, XML ID: `__custom__sales_action_sheet.flag_popup`):**
+```xml
+<form string="Klant vlaggen">
+    <div style="padding: 4px 0 16px;">
+        <div style="font-size:12px; color:#999; margin-bottom:16px;">
+            Selecteer een niveau en optioneel een reden.
+        </div>
+        <div style="margin-bottom:16px;">
+            <div style="font-size:11px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;">Niveau</div>
+            <field name="x_flag_level" widget="selection_badge" nolabel="1"/>
+        </div>
+        <div invisible="x_flag_level == 'none' or not x_flag_level">
+            <div style="font-size:11px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;">Reden</div>
+            <field name="x_flag_reason" widget="selection_badge" nolabel="1"/>
+        </div>
+        <div invisible="x_flag_level == 'none' or not x_flag_level" style="margin-top:12px;">
+            <div style="font-size:11px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;">Bericht (optioneel)</div>
+            <field name="x_flag_custom_message" nolabel="1" placeholder="Bijv. klant heeft niet gereageerd op 3 pogingen..."/>
+        </div>
+    </div>
+    <footer>
+        <button string="Toepassen" class="btn-primary" special="save"/>
+        <button string="Annuleren" class="btn-secondary" special="cancel"/>
+    </footer>
+</form>
+```
+
+**Knop 2: "Vlag verwijderen"** — server action, visibility: `x_flag_level != 'none'`:
+```python
+record.write({'x_flag_level': 'none', 'x_flag_reason': False})
+# x_flag_custom_message wordt bewust NIET gewist
+```
+
+**Automation: "Reden wissen bij Geen vlag"** (on_create_or_write, trigger: x_flag_level wijzigt, filter: x_flag_level == 'none'):
+```python
+record.write({'x_flag_reason': False})
+# x_flag_custom_message niet aanraken
+```
+
+**Computed field `x_flag_banner_html`** (HTML, stored, dependencies: `x_flag_level,x_flag_reason,x_flag_custom_message`):
+```python
+for record in self:
+    level = record.x_flag_level
+    reason_map = {
+        'no_activity': 'Geen activiteit',
+        'churn_signal': 'Churn-signaal',
+        'too_long_in_stage': 'Te lang in fase',
+        'manual': 'Manueel',
+    }
+    reason = reason_map.get(record.x_flag_reason, '')
+    styles = {
+        'reminder':  ('🔵 Herinnering', '#0d47a1', '#e3f2fd', '#1e88e5'),
+        'attention': ('🟡 Attentie',    '#7a5c00', '#fff8e1', '#f0c040'),
+        'urgent':    ('🟠 Urgent',      '#7a3300', '#fff3e0', '#e8872a'),
+        'critical':  ('🔴 Kritiek',     '#7a0000', '#ffebee', '#e53935'),
+    }
+    if level in styles:
+        label, color, bg, border = styles[level]
+        reason_html = f' &nbsp;·&nbsp; <span style="opacity:0.75;">{reason}</span>' if reason else ''
+        msg = record.x_flag_custom_message
+        msg_html = f'<div style="margin-top:4px;font-size:12px;opacity:0.8;">{msg}</div>' if msg else ''
+        record['x_flag_banner_html'] = (
+            f'<div style="background:{bg};border-left:4px solid {border};color:{color};'
+            f'padding:8px 14px;border-radius:4px;font-weight:500;">'
+            f'{label}{reason_html}{msg_html}</div>'
+        )
+    else:
+        record['x_flag_banner_html'] = ''
+```
+
+---
+
+### Stap 5 — Automations
+
+Ga naar Settings → Technical → Automations → New.
+
+**Automatie A: Geel na 14 dagen geen reactie**
+| Instelling | Waarde |
+|---|---|
+| Model | Sales Action Sheet |
+| Trigger | Based on timed condition |
+| Date field | `x_last_response_date` |
+| Delay | +14 days |
+| Before/After | After |
+| Filter | `x_flag_level = 'none'` + stage in CS-pipeline |
+| Action | Update record: `flag_level = 'attention'`, `flag_reason = 'no_activity'` |
+| Notificatie | Send message → Support Verantwoordelijke |
+
+**Automatie B: Oranje na 30 dagen**  
+Identiek aan A, maar delay = +30 dagen, filter `flag_level in ('none','attention')`, actie `flag_level = 'urgent'`.
+
+**Automatie C: Rood na 60 dagen**  
+Delay = +60 dagen, filter `flag_level != 'critical'`, actie `flag_level = 'critical'`.
+
+**Automatie E: Te lang in fase (60 dagen na Won)**
+| Instelling | Waarde |
+|---|---|
+| Date field | `x_studio_won_date` |
+| Delay | +60 days |
+| Filter | stage sequence < Follow-up Validatie EN `flag_level != 'critical'` |
+| Action | `flag_level = 'critical'`, `flag_reason = 'too_long_in_stage'` |
+
+> **Bucket-check (Automatie D):** Vereist een relatie-filter op `res.partner.x_studio_onboarding_bucket`. Implementeer als Python cron in de custom module.
+
+---
+
+### Stap 6 — Zoekfilters toevoegen
+
+Studio → Views → Search → Filters → New:
+
+| Naam | Domein |
+|---|---|
+| Alle vlaggen | `[('x_flag_level', '!=', 'none')]` |
+| 🟡 Attentie | `[('x_flag_level', '=', 'attention')]` |
+| 🟠 Urgent | `[('x_flag_level', '=', 'urgent')]` |
+| 🔴 Kritiek | `[('x_flag_level', '=', 'critical')]` |
+
+---
+
+Alles bovenstaande is uitvoerbaar in Studio.
+
+---
+
+## 13. Voor de integratiepartner (Dynapps)
+
+> Dit onderdeel groepeert alle technische aanpassingen die **niet via Odoo Studio of de Technische UI** kunnen worden doorgevoerd en dus in een Python-module moeten worden geïmplementeerd door de integratiepartner. De module draait op de Odoo.sh-omgeving van mymmo, in de custom module `mymmo_fixes` (of een aparte module naar keuze van Dynapps).
+>
+> **Omgeving:** Odoo 17, beheerd op Odoo.sh. De custom module staat in `/home/odoo/src/user/parts/custom/`. Er is een staging-branch beschikbaar voor tests.
+
+---
+
+### TECH-01 — Persistente kanban-fold voor de Pre-sales stage
+
+**Prioriteit:** Middel (onderdeel van BI-S0-01)
+
+**Achtergrond:**  
+Het `x_support_stage`-model is aangemaakt via Odoo Studio. Studio-modellen zijn niet aanwezig in de Python ORM-registry — ze bestaan enkel in de database. Dit betekent dat klassieke `_inherit`-overerving in een Python-module **niet werkt**: Odoo gooit een `TypeError: Model 'x_support_stage' does not exist in registry`.
+
+Odoo 17 vereist een kolom genaamd precies `fold` (boolean) op het stage-model om kanban-kolommen persistent samengevouwen te houden. Studio heeft het veld `x_studio_fold` aangemaakt, maar Odoo erkent dit niet als het kanban-fold veld. Hernoeming naar `fold` is geblokkeerd door de Odoo-constraint `ir_model_fields_name_manual_field` die vereist dat custom velden beginnen met `x_` — dit is bevestigd via rechtstreekse SQL-test op staging.
+
+**Gewenst resultaat:**  
+De "Pre-sales" (Discovery) kolom staat bij het openen van de kanban standaard samengevouwen (fold). De staat blijft behouden per gebruiker (Odoo-standaardgedrag zodra het `fold`-veld correct is).
+
+**Oplossing:**  
+Een `post_init_hook` in de `mymmo_fixes`-module voegt via raw SQL een `fold`-kolom toe aan de `x_support_stage`-tabel, en vult deze initieel vanuit de bestaande `x_studio_fold`-kolom. Er wordt **geen** `ir.model.fields` record aangemaakt — de kolom bestaat puur op DB-niveau, buiten het Studio-veldensysteem om.
+
+```python
+# hooks.py
+def post_init_hook(env):
+    env.cr.execute("""
+        ALTER TABLE x_support_stage 
+        ADD COLUMN IF NOT EXISTS fold boolean DEFAULT false;
+        UPDATE x_support_stage SET fold = x_studio_fold;
+    """)
+```
+
+```python
+# __manifest__.py
+{
+    'name': 'mymmo Fixes',
+    'version': '17.0.1.0.0',
+    'depends': ['base'],
+    'installable': True,
+    'post_init_hook': 'post_init_hook',
+}
+```
+
+```python
+# __init__.py
+from . import hooks
+```
+
+**Verificatie na installatie:**
+- Technische UI → Database structuur → tabel `x_support_stage`: kolom `fold` aanwezig
+- Record ID 1 (Pre-sales stage) instellen op `fold = True` via Technische UI → Model `x_support_stage`
+- Kanban openen: Pre-sales kolom staat dichtgevouwen en blijft zo na reload
+
+**Aandachtspunt:**  
+Bij een `--update=all` of module-update probeert Odoo de velden te synchroniseren. Omdat er geen `ir.model.fields` record is voor `fold`, laat Odoo de kolom ongemoeid. De `x_studio_fold`-kolom blijft ook bestaan — geen conflict.
+
+**Acceptatiecriteria:**
+- [ ] Module geïnstalleerd op staging zonder errors
+- [ ] Kolom `fold` aanwezig op `x_support_stage` tabel
+- [ ] Pre-sales stage persistent gefold in kanban na reload
+- [ ] Andere stages niet beïnvloed
+- [ ] Module geïnstalleerd op productie

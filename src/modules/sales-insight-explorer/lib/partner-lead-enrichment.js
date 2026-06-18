@@ -21,6 +21,7 @@ import { searchRead } from '../../../lib/odoo.js';
 import { LEAD_PROPERTY_GROUPS, getEnabledFields, filterIgnoredLeads } from './lead-enrichment.js';
 import { enrichWithChatter } from './chatter-enrichment.js';
 import { enrichWithActivities } from './activity-enrichment.js';
+import { enrichLeadsWithActionSheets } from './lead-actionsheet-enrichment.js';
 
 /**
  * Enrich partners met gekoppelde leads, inclusief optionele sub-enrichments per lead.
@@ -112,6 +113,11 @@ export async function enrichPartnersWithLeads(partners, config, env, notes) {
     enrichedLeads = r.records;
   }
 
+  if (config.lead_actionsheet_enrichment?.enabled) {
+    const r = await enrichLeadsWithActionSheets(enrichedLeads, config.lead_actionsheet_enrichment, env, notes);
+    enrichedLeads = r.records;
+  }
+
   // Stap 4: groepeer per VME
   const leadsByPartnerId = new Map();
   for (const lead of enrichedLeads) {
@@ -134,8 +140,9 @@ export async function enrichPartnersWithLeads(partners, config, env, notes) {
         }
       }
     }
-    if (lead.__chatter)    payload.__chatter    = lead.__chatter;
-    if (lead.__activities) payload.__activities = lead.__activities;
+    if (lead.__chatter)     payload.__chatter     = lead.__chatter;
+    if (lead.__activities)  payload.__activities  = lead.__activities;
+    if (lead.__actiebladen) payload.__actiebladen = lead.__actiebladen;
 
     leadsByPartnerId.get(vmeId).push(payload);
   }
@@ -153,8 +160,9 @@ export async function enrichPartnersWithLeads(partners, config, env, notes) {
     classification_counts: classificationCounts,
     partners_with_leads: leadsByPartnerId.size,
     l2_enrichments: {
-      chatter:    config.chatter_enrichment?.enabled  ?? false,
-      activities: config.activity_enrichment?.enabled ?? false
+      chatter:       config.chatter_enrichment?.enabled           ?? false,
+      activities:    config.activity_enrichment?.enabled          ?? false,
+      actiebladen:   config.lead_actionsheet_enrichment?.enabled  ?? false
     },
     execution_time_ms: Date.now() - startTime
   };

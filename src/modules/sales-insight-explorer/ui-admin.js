@@ -446,6 +446,9 @@ export function queryBuilderAdminUI(user) {
       }
       if (action === 'toggleCatEdit')  toggleCatEdit(id);
       if (action === 'catSaveSet')     catSaveSet(id);
+      if (action === 'catDeleteSet')   catDeleteSet(id);
+      if (action === 'catMoveUp')      catMoveOrder(id, -1);
+      if (action === 'catMoveDown')    catMoveOrder(id, 1);
       if (action === 'catSaveField')   catSaveField(id);
       if (action === 'catDeleteField') catDeleteField(id);
       if (action === 'catAddField')    catAddField(id);
@@ -479,283 +482,300 @@ export function queryBuilderAdminUI(user) {
 
     async function saveModel(e) {
       e.preventDefault();
-      const id    = document.getElementById('modelId').value;
-      const isNew = !id;
-      const btn   = document.getElementById('modelSaveBtn');
-      btn.disabled = true;
-      btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>';
-
-      const body = {
+      const id     = document.getElementById('modelId').value;
+      const isNew  = !id;
+      const body   = {
         label:             document.getElementById('modelFieldLabel').value.trim(),
         description:       document.getElementById('modelFieldDesc').value.trim() || null,
-        sort_order:        parseInt(document.getElementById('modelFieldSort').value, 10) || 0,
+        sort_order:        parseInt(document.getElementById('modelFieldSort').value) || 0,
         can_be_startpoint: document.getElementById('modelFieldStartpoint').checked,
         can_be_submodel:   document.getElementById('modelFieldSubmodel').checked,
-        base_fields:       currentBaseFields,
+        base_fields:       currentBaseFields
       };
       if (isNew) {
         body.id         = document.getElementById('modelFieldId').value.trim();
         body.odoo_model = document.getElementById('modelFieldOdoo').value.trim();
       }
-
+      const btn = document.getElementById('modelSaveBtn');
+      btn.disabled = true; btn.textContent = 'Opslaan...';
       try {
         const url    = isNew ? '/insights/api/sales-insights/models' : '/insights/api/sales-insights/models/' + id;
         const method = isNew ? 'POST' : 'PATCH';
         const res    = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const data   = await res.json();
         if (!data.success) throw new Error(data.error?.message);
-        document.getElementById('modelModal').close();
         toast(isNew ? 'Model aangemaakt' : 'Model bijgewerkt', 'success');
+        document.getElementById('modelModal').close();
         allModels = [];
-        await loadModels();
+        loadModels();
       } catch (err) {
         toast('Fout: ' + err.message, 'error');
       } finally {
-        btn.disabled = false;
-        btn.textContent = 'Opslaan';
+        btn.disabled = false; btn.textContent = 'Opslaan';
       }
     }
 
     async function deactivateModel(id) {
-      if (!confirm('Model deactiveren? Het verdwijnt uit de wizard voor gebruikers.')) return;
+      if (!confirm('Model deactiveren?')) return;
       try {
         const res  = await fetch('/insights/api/sales-insights/models/' + id, { method: 'DELETE' });
         const data = await res.json();
         if (!data.success) throw new Error(data.error?.message);
         toast('Model gedeactiveerd', 'warning');
         allModels = [];
-        await loadModels();
+        loadModels();
       } catch (e) {
         toast('Fout: ' + e.message, 'error');
       }
     }
 
-    // ── Categorieën tab ───────────────────────────────────────────────────────
+    function toast(msg, type) {
+      const t = document.createElement('div');
+      t.className = 'alert alert-' + (type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'error') + ' py-2 px-4 text-sm shadow-lg';
+      t.textContent = msg;
+      document.getElementById('toastContainer').appendChild(t);
+      setTimeout(() => t.remove(), 3500);
+    }
+
+    // ── Categories tab ────────────────────────────────────────────────────────
     async function initCategoriesTab() {
-      if (allCatModels.length) return; // al geladen
-      try {
-        const r = await fetch('/insights/api/sales-insights/models-config', { credentials: 'include' });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error?.message);
-        allCatModels = (d.data?.models || []).filter(m => m.is_active !== false);
-        const sel = document.getElementById('catModelSelect');
-        allCatModels.forEach(m => {
-          const opt = document.createElement('option');
-          opt.value = m.id; opt.textContent = m.label + ' (' + m.id + ')';
-          sel.appendChild(opt);
-        });
-      } catch (e) { toast('Modellen laden mislukt: ' + e.message, 'error'); }
+      const sel = document.getElementById('catModelSelect');
+      if (sel.options.length <= 1) {
+        try {
+          const res  = await fetch('/insights/api/sales-insights/models-config');
+          const data = await res.json();
+          if (data.success) {
+            allCatModels = data.data.models;
+            allCatModels.forEach(m => {
+              const opt = document.createElement('option');
+              opt.value = m.id;
+              opt.textContent = m.label + ' (' + m.id + ')';
+              sel.appendChild(opt);
+            });
+          }
+        } catch (e) { /* ignore */ }
+      }
+      if (sel.value) loadCategories();
     }
 
     async function loadCategories() {
-      const modelId = document.getElementById('catModelSelect').value;
-      const list = document.getElementById('categoriesList');
-      const loading = document.getElementById('categoriesLoading');
-      if (!modelId) { list.innerHTML = ''; return; }
-      loading.style.display = '';
+      const model = document.getElementById('catModelSelect').value;
+      const list  = document.getElementById('categoriesList');
+      const spin  = document.getElementById('categoriesLoading');
       list.innerHTML = '';
+      if (!model) return;
+      spin.style.display = '';
       try {
-        const r = await fetch('/insights/api/sales-insights/information-sets?model=' + encodeURIComponent(modelId), { credentials: 'include' });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error?.message);
-        loading.style.display = 'none';
-        renderCategoriesList(d.data?.sets || []);
+        const res  = await fetch('/insights/api/sales-insights/information-sets?model=' + encodeURIComponent(model));
+        const data = await res.json();
+        spin.style.display = 'none';
+        if (!data.success) throw new Error(data.error?.message);
+        renderCategories(data.data.sets);
       } catch (e) {
-        loading.style.display = 'none';
-        toast('Laden mislukt: ' + e.message, 'error');
+        spin.style.display = 'none';
+        list.innerHTML = '<div class="alert alert-error text-sm">' + e.message + '</div>';
       }
     }
 
-    function fieldRowHtml(f) {
-      var lbl = (f.label||'').replace(/"/g,'&quot;');
-      var dsc = (f.description||'').replace(/"/g,'&quot;');
-      return '<tr id="cr-field-' + f.id + '">'
-        + '<td class="py-1.5 px-3 font-mono text-xs text-base-content/60 w-40">' + f.field_key + '</td>'
-        + '<td class="py-1.5 px-3"><input type="text" id="cr-lbl-' + f.id + '" value="' + lbl + '" placeholder="' + f.field_key + '" class="input input-xs input-bordered w-full" /></td>'
-        + '<td class="py-1.5 px-3"><input type="text" id="cr-dsc-' + f.id + '" value="' + dsc + '" placeholder="Omschrijving" class="input input-xs input-bordered w-full" /></td>'
-        + '<td class="py-1.5 px-2 text-right whitespace-nowrap w-16">'
-        +   '<button class="btn btn-xs btn-ghost text-success" data-action="catSaveField" data-id="' + f.id + '" title="Opslaan">✓</button>'
-        +   '<button class="btn btn-xs btn-ghost text-error" data-action="catDeleteField" data-id="' + f.id + '" title="Verwijderen">✕</button>'
-        + '</td></tr>';
+    // Track loaded sets for order operations
+    let _loadedSets = [];
+
+    function renderCategories(sets) {
+      _loadedSets = sets;
+      const list = document.getElementById('categoriesList');
+      if (!sets.length) {
+        list.innerHTML = '<p class="text-sm text-base-content/40 italic">Geen categorieën voor dit model.</p>';
+        return;
+      }
+      list.innerHTML = sets.map((s, idx) => {
+        const fields = s.information_set_fields || [];
+        const isFirst = idx === 0;
+        const isLast  = idx === sets.length - 1;
+        const fieldsHtml = fields.map(f =>
+          '<div class="flex items-center gap-2 py-0.5" id="field-row-' + f.id + '">'
+          + '<span class="font-mono text-xs w-36 shrink-0">' + f.field_key + '</span>'
+          + '<input type="text" class="input input-xs input-bordered flex-1 min-w-0" id="field-label-' + f.id + '" value="' + (f.label || '').replace(/"/g, '&quot;') + '" placeholder="Label" />'
+          + '<button class="btn btn-xs btn-ghost text-primary shrink-0" data-action="catSaveField" data-id="' + f.id + '" title="Opslaan">&#10003;</button>'
+          + '<button class="btn btn-xs btn-ghost text-error shrink-0" data-action="catDeleteField" data-id="' + f.id + '" title="Verwijder">&#x2715;</button>'
+          + '</div>'
+        ).join('');
+        const addFieldRow = '<div class="flex gap-2 mt-2">'
+          + '<input type="text" class="input input-xs input-bordered w-36" id="new-field-key-' + s.id + '" placeholder="Veldnaam (Odoo)" />'
+          + '<input type="text" class="input input-xs input-bordered flex-1" id="new-field-label-' + s.id + '" placeholder="Label" />'
+          + '<button class="btn btn-xs btn-outline" data-action="catAddField" data-id="' + s.id + '">+ Voeg toe</button>'
+          + '</div>';
+        return '<div class="card bg-base-100 shadow border border-base-200">'
+          + '<div class="card-body py-3 px-4">'
+          + '<div class="flex items-center gap-2 mb-1">'
+          + '<div class="flex flex-col gap-0 shrink-0">'
+          + '<button class="btn btn-xs btn-ghost h-4 min-h-0 px-1 opacity-40 hover:opacity-80' + (isFirst ? ' invisible' : '') + '" data-action="catMoveUp" data-id="' + s.id + '" title="Omhoog">&#9650;</button>'
+          + '<button class="btn btn-xs btn-ghost h-4 min-h-0 px-1 opacity-40 hover:opacity-80' + (isLast ? ' invisible' : '') + '" data-action="catMoveDown" data-id="' + s.id + '" title="Omlaag">&#9660;</button>'
+          + '</div>'
+          + '<span class="font-semibold text-sm">' + s.label + '</span>'
+          + '<span class="badge badge-xs badge-ghost font-mono">' + s.id + '</span>'
+          + '<span class="ml-auto flex gap-1">'
+          + '<button class="btn btn-xs btn-ghost" data-action="toggleCatEdit" data-id="' + s.id + '" title="Bewerken"><i data-lucide="pencil" class="w-3 h-3"></i></button>'
+          + '<button class="btn btn-xs btn-ghost text-error" data-action="catDeleteSet" data-id="' + s.id + '" title="Verwijder categorie"><i data-lucide="trash-2" class="w-3 h-3"></i></button>'
+          + '</span>'
+          + '</div>'
+          + (s.description ? '<p class="text-xs text-base-content/50 mb-2">' + s.description + '</p>' : '')
+          + '<div id="cat-edit-' + s.id + '" style="display:none;">'
+          + '<div class="form-control mb-1"><input type="text" class="input input-xs input-bordered w-full" id="cat-label-' + s.id + '" value="' + s.label.replace(/"/g, '&quot;') + '" placeholder="Label" /></div>'
+          + '<div class="form-control mb-2"><input type="text" class="input input-xs input-bordered w-full" id="cat-desc-' + s.id + '" value="' + (s.description || '').replace(/"/g, '&quot;') + '" placeholder="Omschrijving" /></div>'
+          + '<button class="btn btn-xs btn-primary mb-3" data-action="catSaveSet" data-id="' + s.id + '">Opslaan</button>'
+          + '</div>'
+          + '<div class="space-y-0.5">' + fieldsHtml + '</div>'
+          + addFieldRow
+          + '</div>'
+          + '</div>';
+      }).join('');
+      if (window.lucide) lucide.createIcons();
     }
 
-    function renderCategoriesList(sets) {
-      const list = document.getElementById('categoriesList');
-      if (!sets.length) { list.innerHTML = '<p class="text-sm text-base-content/40 italic">Geen categorieën gevonden.</p>'; return; }
-      list.innerHTML = sets.map(function(set) {
-        var fields = set.information_set_fields || [];
-        var sid = set.id;
-        var slbl = set.label.replace(/"/g,'&quot;');
-        var sdsc = (set.description||'').replace(/"/g,'&quot;');
-        var veldTxt = fields.length + (fields.length !== 1 ? ' velden' : ' veld');
-        var fieldRows = fields.map(fieldRowHtml).join('');
+    function openNewCategoryForm() {
+      document.getElementById('newCategoryForm').style.display = '';
+      document.getElementById('newCatId').value    = '';
+      document.getElementById('newCatLabel').value = '';
+      document.getElementById('newCatDesc').value  = '';
+    }
 
-        return '<div class="card bg-base-100 shadow border border-base-200">'
-          + '<div class="card-body p-0">'
-          + '<div class="flex items-center gap-3 px-4 py-3 border-b border-base-200 bg-base-200/40">'
-          +   '<div class="flex-1">'
-          +     '<div id="cat-title-' + sid + '" class="font-semibold text-sm">' + set.label + '</div>'
-          +     '<div class="text-xs text-base-content/40 font-mono">' + sid + ' &middot; ' + veldTxt + '</div>'
-          +   '</div>'
-          +   '<button class="btn btn-xs btn-ghost gap-1" data-action="toggleCatEdit" data-id="' + sid + '">'
-          +     '<i data-lucide="pencil" class="w-3 h-3"></i>Bewerken'
-          +   '</button>'
-          + '</div>'
-          + '<div id="cat-edit-' + sid + '" class="px-4 py-3 bg-info/5 border-b border-base-200" style="display:none;">'
-          +   '<div class="grid grid-cols-2 gap-3 mb-2">'
-          +     '<div><label class="label py-0.5"><span class="label-text text-xs">Label</span></label>'
-          +       '<input type="text" id="cat-elbl-' + sid + '" value="' + slbl + '" class="input input-bordered input-xs w-full" /></div>'
-          +     '<div><label class="label py-0.5"><span class="label-text text-xs">Omschrijving</span></label>'
-          +       '<input type="text" id="cat-edsc-' + sid + '" value="' + sdsc + '" class="input input-bordered input-xs w-full" /></div>'
-          +   '</div>'
-          +   '<div class="flex gap-2">'
-          +     '<button class="btn btn-xs btn-info" data-action="catSaveSet" data-id="' + sid + '">Opslaan</button>'
-          +     '<button class="btn btn-xs btn-ghost" data-action="toggleCatEdit" data-id="' + sid + '">Annuleren</button>'
-          +   '</div>'
-          + '</div>'
-          + '<div class="overflow-x-auto"><table class="table table-xs w-full">'
-          +   '<thead><tr class="text-base-content/40 text-xs border-b border-base-200">'
-          +     '<th class="py-1.5 px-3 w-40">Veldsleutel</th>'
-          +     '<th class="py-1.5 px-3">Label</th>'
-          +     '<th class="py-1.5 px-3">Omschrijving</th>'
-          +     '<th class="py-1.5 px-2 w-16"></th>'
-          +   '</tr></thead>'
-          +   '<tbody id="cr-tbody-' + sid + '">' + fieldRows + '</tbody>'
-          + '</table></div>'
-          + '<div class="px-4 py-2.5 border-t border-base-200">'
-          +   '<div class="flex gap-2 items-end">'
-          +     '<div class="w-40"><label class="label py-0"><span class="label-text text-xs">Veldsleutel *</span></label>'
-          +       '<input type="text" id="cr-nkey-' + sid + '" placeholder="field_key" class="input input-xs input-bordered w-full font-mono" /></div>'
-          +     '<div class="flex-1"><label class="label py-0"><span class="label-text text-xs">Label</span></label>'
-          +       '<input type="text" id="cr-nlbl-' + sid + '" placeholder="Label" class="input input-xs input-bordered w-full" /></div>'
-          +     '<div class="flex-1"><label class="label py-0"><span class="label-text text-xs">Omschrijving</span></label>'
-          +       '<input type="text" id="cr-ndsc-' + sid + '" placeholder="Omschrijving" class="input input-xs input-bordered w-full" /></div>'
-          +     '<button class="btn btn-xs btn-success mb-0.5" data-action="catAddField" data-id="' + sid + '">+ Veld toevoegen</button>'
-          +   '</div>'
-          + '</div>'
-          + '</div></div>';
-      }).join('');
-      if (window.lucide) lucide.createIcons({ nodes: [list] });
+    async function saveNewCategory() {
+      const model = document.getElementById('catModelSelect').value;
+      if (!model) { toast('Kies eerst een model', 'warning'); return; }
+      const id    = document.getElementById('newCatId').value.trim();
+      const label = document.getElementById('newCatLabel').value.trim();
+      const desc  = document.getElementById('newCatDesc').value.trim();
+      if (!id || !label) { toast('ID en label zijn verplicht', 'warning'); return; }
+      try {
+        const res  = await fetch('/insights/api/sales-insights/information-sets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, label, description: desc || null, model })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        toast('Categorie aangemaakt', 'success');
+        document.getElementById('newCategoryForm').style.display = 'none';
+        loadCategories();
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
+      }
     }
 
     function toggleCatEdit(setId) {
       const el = document.getElementById('cat-edit-' + setId);
-      el.style.display = el.style.display === 'none' ? '' : 'none';
+      if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
     }
 
     async function catSaveSet(setId) {
-      const label = document.getElementById('cat-elbl-' + setId)?.value?.trim();
-      const desc  = document.getElementById('cat-edsc-' + setId)?.value?.trim();
-      if (!label) { toast('Label is verplicht', 'error'); return; }
+      const label = document.getElementById('cat-label-' + setId)?.value?.trim();
+      const desc  = document.getElementById('cat-desc-' + setId)?.value?.trim();
+      if (!label) { toast('Label is verplicht', 'warning'); return; }
       try {
-        const r = await fetch('/insights/api/sales-insights/information-sets/' + setId, {
-          method: 'PATCH', credentials: 'include',
+        const res  = await fetch('/insights/api/sales-insights/information-sets/' + setId, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ label, description: desc || null })
         });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error?.message);
-        document.getElementById('cat-title-' + setId).textContent = label;
-        toggleCatEdit(setId);
-        toast('Categorie opgeslagen');
-      } catch (e) { toast('Fout: ' + e.message, 'error'); }
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        toast('Categorie bijgewerkt', 'success');
+        loadCategories();
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
+      }
+    }
+
+    async function catDeleteSet(setId) {
+      if (!confirm('Categorie verwijderen? De velden worden ook verwijderd.')) return;
+      try {
+        const res  = await fetch('/insights/api/sales-insights/information-sets/' + setId, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          const msg = data.error?.message || ('HTTP ' + res.status);
+          throw new Error(msg);
+        }
+        toast('Categorie verwijderd', 'warning');
+        loadCategories();
+      } catch (e) {
+        toast('Fout bij verwijderen: ' + e.message, 'error');
+      }
+    }
+
+    async function catMoveOrder(setId, direction) {
+      const idx = _loadedSets.findIndex(s => s.id === setId);
+      if (idx < 0) return;
+      const swapIdx = idx + direction;
+      if (swapIdx < 0 || swapIdx >= _loadedSets.length) return;
+      // Bouw de nieuwe volgorde door de twee items te wisselen
+      const newOrder = [..._loadedSets];
+      const tmp = newOrder[idx]; newOrder[idx] = newOrder[swapIdx]; newOrder[swapIdx] = tmp;
+      // Hernoem ALLE items met sequentiële sort_orders zodat duplicaten
+      // nooit meer voor kunnen komen (ook na eerdere duplicaten in de DB).
+      try {
+        const responses = await Promise.all(newOrder.map(function(s, i) {
+          return fetch('/insights/api/sales-insights/information-sets/' + s.id, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sort_order: (i + 1) * 10 })
+          }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); });
+        }));
+        const failed = responses.find(function(r) { return !r.ok || !r.data.success; });
+        if (failed) throw new Error(failed.data?.error?.message || 'PATCH mislukt');
+        loadCategories();
+      } catch (e) {
+        toast('Fout bij rangschikken: ' + e.message, 'error');
+      }
     }
 
     async function catSaveField(fieldId) {
-      const label = document.getElementById('cr-lbl-' + fieldId)?.value?.trim();
-      const desc  = document.getElementById('cr-dsc-' + fieldId)?.value?.trim();
+      const label = document.getElementById('field-label-' + fieldId)?.value?.trim();
       try {
-        const r = await fetch('/insights/api/sales-insights/information-set-fields/' + fieldId, {
-          method: 'PATCH', credentials: 'include',
+        const res  = await fetch('/insights/api/sales-insights/information-set-fields/' + fieldId, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ label: label || null, description: desc || null })
+          body: JSON.stringify({ label: label || null })
         });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error?.message);
-        toast('Veld opgeslagen');
-      } catch (e) { toast('Fout: ' + e.message, 'error'); }
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        toast('Veld opgeslagen', 'success');
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
+      }
     }
 
     async function catDeleteField(fieldId) {
       if (!confirm('Veld verwijderen?')) return;
       try {
-        const r = await fetch('/insights/api/sales-insights/information-set-fields/' + fieldId, {
-          method: 'DELETE', credentials: 'include'
-        });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error?.message);
-        document.getElementById('cr-field-' + fieldId)?.remove();
+        const res  = await fetch('/insights/api/sales-insights/information-set-fields/' + fieldId, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
         toast('Veld verwijderd', 'warning');
-      } catch (e) { toast('Fout: ' + e.message, 'error'); }
+        loadCategories();
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
+      }
     }
 
     async function catAddField(setId) {
-      const key   = document.getElementById('cr-nkey-' + setId)?.value?.trim();
-      const label = document.getElementById('cr-nlbl-' + setId)?.value?.trim();
-      const desc  = document.getElementById('cr-ndsc-' + setId)?.value?.trim();
-      if (!key) { toast('Veldsleutel is verplicht', 'error'); return; }
+      const fieldKey   = document.getElementById('new-field-key-' + setId)?.value?.trim();
+      const fieldLabel = document.getElementById('new-field-label-' + setId)?.value?.trim();
+      if (!fieldKey) { toast('Veldnaam is verplicht', 'warning'); return; }
       try {
-        const r = await fetch('/insights/api/sales-insights/information-set-fields', {
-          method: 'POST', credentials: 'include',
+        const res  = await fetch('/insights/api/sales-insights/information-set-fields', {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ set_id: setId, field_key: key, label: label || null, description: desc || null })
+          body: JSON.stringify({ set_id: setId, field_key: fieldKey, label: fieldLabel || null })
         });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error?.message);
-        // Voeg nieuwe rij toe aan tabel
-        const tbody = document.getElementById('cr-tbody-' + setId);
-        const f = d.data;
-        const tr = document.createElement('tr');
-        tr.id = 'cr-field-' + f.id;
-        tr.innerHTML = fieldRowHtml(f);
-        tbody.appendChild(tr);
-        // Reset inputs
-        ['cr-nkey-','cr-nlbl-','cr-ndsc-'].forEach(p => { const el = document.getElementById(p+setId); if(el) el.value=''; });
-        toast('Veld toegevoegd');
-      } catch (e) { toast('Fout: ' + e.message, 'error'); }
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        toast('Veld toegevoegd', 'success');
+        loadCategories();
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
+      }
     }
 
-    function openNewCategoryForm() {
-      document.getElementById('newCategoryForm').style.display = '';
-      document.getElementById('newCatId').focus();
-    }
-
-    async function saveNewCategory() {
-      const modelId = document.getElementById('catModelSelect').value;
-      const id    = document.getElementById('newCatId')?.value?.trim();
-      const label = document.getElementById('newCatLabel')?.value?.trim();
-      const desc  = document.getElementById('newCatDesc')?.value?.trim();
-      if (!modelId) { toast('Kies eerst een model', 'error'); return; }
-      if (!id || !label) { toast('ID en label zijn verplicht', 'error'); return; }
-      try {
-        const r = await fetch('/insights/api/sales-insights/information-sets', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, label, description: desc || null, model: modelId, sort_order: 99 })
-        });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error?.message);
-        document.getElementById('newCategoryForm').style.display = 'none';
-        ['newCatId','newCatLabel','newCatDesc'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
-        await loadCategories();
-        toast('Categorie aangemaakt');
-      } catch (e) { toast('Fout: ' + e.message, 'error'); }
-    }
-
-    // ── Toast ─────────────────────────────────────────────────────────────────
-    function toast(msg, type = 'success') {
-      const el = document.createElement('div');
-      el.className = 'alert alert-' + type + ' py-2 text-sm shadow-lg';
-      el.textContent = msg;
-      const container = document.getElementById('toastContainer');
-      container.appendChild(el);
-      setTimeout(() => el.remove(), 2500);
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      loadUsers();
-      if (window.lucide) lucide.createIcons();
-    });
+    loadUsers();
   </script>
 </body>
 </html>`;
