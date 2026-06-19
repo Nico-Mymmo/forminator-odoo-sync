@@ -9,6 +9,7 @@ import { handlePreflight } from './router/cors.js';
 import { handlePublicRoutes } from './router/public-routes.js';
 import { handleModuleRequest } from './router/module-router.js';
 import { handleCxWinDetection } from './modules/cx_powerboard/cron/win-detection.js';
+import { runFlagCron } from './modules/cx-automations/cron.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -45,6 +46,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    await handleCxWinDetection(env);
+    ctx.waitUntil(handleCxWinDetection(env));
+    ctx.waitUntil(runFlagCron(env));
   }
 };

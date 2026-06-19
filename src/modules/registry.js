@@ -17,6 +17,7 @@ import mailSignatureDesignerModule from './mail-signature-designer/module.js';
 import assetManagerModule from './asset-manager/module.js';
 import cxPowerboardModule from './cx_powerboard/module.js';
 import claudeIntegrationModule from './claude-integration/module.js';
+import cxAutomationsModule from './cx-automations/module.js';
 
 /**
  * All registered modules
@@ -33,7 +34,8 @@ export const MODULES = [
   mailSignatureDesignerModule,
   assetManagerModule,
   cxPowerboardModule,
-  claudeIntegrationModule
+  claudeIntegrationModule,
+  cxAutomationsModule,
 ];
 
 /**

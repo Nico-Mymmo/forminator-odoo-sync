@@ -1,0 +1,2 @@
+-- VERVALLEN: stage_name wordt nu dynamisch uit Odoo geladen, niet meer bijgehouden als statische waarde.
+-- Deze migratie doet niets.

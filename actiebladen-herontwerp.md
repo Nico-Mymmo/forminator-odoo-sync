@@ -25,6 +25,7 @@ _Analyse op basis van volledig Odoo-onderzoek + beantwoorde vragen — bijgewerk
 - [10. Samenvatting prioriteiten](#10-samenvatting--prioriteiten-per-sprint)
 - [11. Communicatie-integratie](#11-communicatie-integratie--analyse--backlog)
 - [12. Voor de integratiepartner (Dynapps)](#12-voor-de-integratiepartner-dynapps)
+- [14. Operations Manager — module `cx-automations`](#14-operations-manager--module-cx-automations)
 
 ---
 
@@ -604,55 +605,71 @@ record.write({'x_color': color})
 
 ---
 
-#### BI-S2-02 — Daily cron: escalatievlag detectie
+#### BI-S2-02 — Dagelijkse vlag-cron via Operations Manager
 
-**Wat:** Drie Studio-automations (time-based) + bucket-check op `x_sales_action_sheet`.
+**Aanpak (herzien):** Geen Studio time-based automations met hardcoded delays. In plaats daarvan berekent de Operations Manager dagelijks de flags op basis van de **gebouw-inactiviteit** (`res.partner`), met **per-fase instelbare drempelwaarden**. Support kan de drempels zelf instellen via een module in de Operations Manager (zie §14).
 
-**Automatie A — Inactiviteit Geel (instelbaar, standaard 14 d):**
+**Databron: gebouw-inactiviteit**
+
+Cron 61 op `res.partner` berekent al dagelijks de onboarding bucket op basis van platformactiviteit per gebouw. We breiden dit uit met één extra veld: `x_days_since_active` (Integer, stored) — het aantal dagen sinds de laatste gebouwactiviteit. Dit veld wordt meegeschreven door cron 61 (kleine uitbreiding, uitvoerbaar in Studio of als kleine Dynapps-aanpassing).
+
+> **Verificatie vereist:** check welk datumveld cron 61 als bron gebruikt voor de bucket-berekening. `x_days_since_active` = `(vandaag - <dat datumveld>).days`. Als het datumveld al bestaat op `res.partner`, kan dit als Studio computed field worden aangemaakt.
+
+**Per-fase drempelwaarden**
+
+De Operations Manager beheert een Supabase-tabel `flag_thresholds` met één rij per CS-stage:
+
+| stage_id | stage_name | yellow_days | orange_days | red_days |
+|---|---|---|---|---|
+| (Odoo ID) | Intake | 7 | 14 | 30 |
+| (Odoo ID) | Opstarthulp | 7 | 14 | 30 |
+| (Odoo ID) | In Configuratie | 10 | 21 | 45 |
+| (Odoo ID) | Follow-up Validatie | 14 | 30 | 60 |
+
+Support stelt deze waarden in via `/cx-automations` in de Operations Manager (zie §14).
+
+**Cron-logica (dagelijks, in Operations Manager `scheduled()`)**
+
 ```
-Trigger: x_last_response_date + 14 dagen
-Filter: stage in CS-pipeline EN flag_level = none
-Actie: flag_level = attention, flag_reason = no_activity
+1. Lees drempelwaarden uit Supabase (flag_thresholds)
+2. Haal alle actiebladen op uit Odoo in CS-stages (Intake t/m Follow-up Validatie)
+   Fields: id, x_studio_for_company_id, x_studio_stage_id, x_flag_level
+3. Per actieblad:
+   a. Lees x_days_since_active van het gekoppelde gebouw (res.partner)
+   b. Zoek de drempelwaarden voor deze stage op
+   c. Bepaal het nieuwe vlag-niveau:
+      - days >= red_days   → critical
+      - days >= orange_days → urgent
+      - days >= yellow_days → attention
+      - anders             → geen wijziging
+   d. Vergelijk met huidige x_flag_level:
+      - Alleen escaleren (none < attention < urgent < critical)
+      - Nooit automatisch downgraden
+      - Als al hoger of gelijk → overslaan
+   e. Bij wijziging: schrijf x_flag_level + x_flag_reason ('no_activity') naar Odoo
+4. Log het resultaat (run-timestamp, aantal gewijzigd) in Supabase (flag_run_log)
 ```
 
-**Automatie B — Inactiviteit Oranje (instelbaar, standaard 30 d):**
-```
-Trigger: x_last_response_date + 30 dagen
-Filter: stage in CS-pipeline EN flag_level in [none, attention]
-Actie: flag_level = urgent, flag_reason = no_activity
-```
+**Odoo-automations (vereenvoudigd)**
 
-**Automatie C — Inactiviteit Rood (instelbaar, standaard 60 d):**
-```
-Trigger: x_last_response_date + 60 dagen
-Filter: stage in CS-pipeline EN flag_level != critical
-Actie: flag_level = critical, flag_reason = no_activity
-```
+De oorspronkelijke automations A/B/C/E (time-based op `x_last_response_date`) **vervallen** — de Operations Manager cron neemt hun rol over. Automatie D (bucket-check) vervalt ook om dezelfde reden.
 
-**Automatie D — Bucket-check (dagelijks, via Python/Dynapps):**
-```
-snoozing → attention (reden: churn_signaal)
-early_dropout → urgent (reden: churn_signaal)
-dormant → critical (reden: churn_signaal)
-```
+Wat overblijft in Studio:
+- Automation "Reden wissen bij Geen vlag" (on save) — blijft
+- Automation "Bij opslaan - Flagged actieblad" voor `x_color` — blijft
+- Notificatie naar Support Verantwoordelijke: de Operations Manager stuurt een Odoo-activiteit of interne notitie aan bij elke nieuwe vlag
 
-**Automatie E — Te lang in fase (instelbaar, standaard 60 d na won_date):**
-```
-Trigger: x_studio_won_date + 60 dagen
-Filter: stage < Follow-up Validatie EN flag_level != critical
-Actie: flag_level = critical, flag_reason = too_long_in_stage
-```
-
-Bij elke nieuwe vlag: interne notificatie naar Support Verantwoordelijke.
+**Escalatieregel:** De cron downgradet nooit. "Vlag verwijderen" blijft een manuele actie door CS.
 
 **Acceptatiecriteria:**
-- [ ] Automaties A/B/C aangemaakt in Studio (time-based op last_response_date)
-- [ ] Automatie E aangemaakt in Studio (time-based op won_date)
-- [ ] Automatie D (bucket-check) geïmplementeerd
-- [ ] Escalatie werkt correct: attention → urgent → critical (geen downgrade door cron)
-- [ ] Geen dubbele meldingen bij al-gemarkeerde vlaggen
-- [ ] Interne notificatie verstuurd naar Support Verantwoordelijke
-- [ ] Logboek/notitie op actieblad met reden
+- [ ] `x_days_since_active` veld beschikbaar op `res.partner` (computed of door cron 61 geschreven)
+- [ ] Supabase tabel `flag_thresholds` aangemaakt met standaardwaarden
+- [ ] Supabase tabel `flag_run_log` aangemaakt (audit)
+- [ ] Operations Manager cron loopt dagelijks en zet flags correct
+- [ ] Escalatie werkt correct: alleen omhoog, nooit omlaag
+- [ ] Geen dubbele vlag-updates bij al-gemarkeerde vlaggen
+- [ ] Drempelwaarden instelbaar via `/cx-automations` module (zie §14)
+- [ ] Odoo automations A/B/C/D/E verwijderd of uitgeschakeld
 
 ---
 
@@ -1132,6 +1149,136 @@ Studio → Views → Search → Filters → New:
 ---
 
 Alles bovenstaande is uitvoerbaar in Studio.
+
+---
+
+## 14. Operations Manager — module `cx-automations`
+
+### Doel
+
+Support kan per CS-fase instellen hoeveel dagen gebouw-inactiviteit vereist zijn voor een gele, oranje of rode vlag. Afzonderlijk: escalatiesnelheid voor actiebladen zonder gebouw (technical block). De module toont ook een lijst van actieve technische blokkades en wanneer de cron voor het laatst liep.
+
+### Bestandsstructuur
+
+```
+src/modules/cx-automations/
+  module.js     — definitie + routes
+  routes.js     — API-handlers
+  cron.js       — runFlagCron(env)
+public/
+  cx-automations.html   — UI
+  cx-automations.js     — client-side logica
+```
+
+### API-routes
+
+| Method | Route | Beschrijving |
+|---|---|---|
+| `GET /` | HTML via ASSETS.fetch | Pagina |
+| `GET /api/odoo-config` | Stages + redenen uit Odoo | Dynamisch opgehaald (sequence 11–15) |
+| `GET /api/thresholds` | Drempelwaarden uit Supabase | Per stage_id |
+| `POST /api/thresholds` | Opslaan drempelwaarden | Upsert per stage_id, validatie oplopend |
+| `GET /api/settings` | Tech-block escalatie-instellingen | Uit `cx_settings` |
+| `POST /api/settings` | Opslaan escalatie-instellingen | Naar `cx_settings` |
+| `GET /api/technical-blocks` | Actiebladen zonder gebouw | Uit Odoo, CS-stages only |
+| `GET /api/log` | Laatste 10 cron-runs | Uit `flag_run_log` |
+| `POST /api/run-cron` | Cron manueel triggeren | Roept `runFlagCron(env)` aan |
+
+### Supabase tabellen
+
+**`flag_thresholds`** — inactiviteitsdrempels per CS-fase
+```sql
+CREATE TABLE flag_thresholds (
+  id          SERIAL PRIMARY KEY,
+  stage_id    INTEGER NOT NULL UNIQUE,
+  stage_name  TEXT NOT NULL,              -- cache van Odoo-naam
+  yellow_days INTEGER NOT NULL DEFAULT 14,
+  orange_days INTEGER NOT NULL DEFAULT 30,
+  red_days    INTEGER NOT NULL DEFAULT 60,
+  flag_reason TEXT    NOT NULL DEFAULT 'no_activity',
+  updated_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_by  TEXT
+);
+```
+
+Standaardseed: 5 (Opstartgesprek), 7 (Opstartsessie Expert), 8 (Basisinstellingen gecontroleerd), 9 (Follow-up validatie). Fasenamen worden bij paginaladen dynamisch herladen vanuit Odoo.
+
+**`flag_run_log`** — cron-runs
+```sql
+CREATE TABLE flag_run_log (
+  id                   SERIAL PRIMARY KEY,
+  ran_at               TIMESTAMPTZ DEFAULT NOW(),
+  actiebladen_checked  INTEGER,
+  flags_updated        INTEGER,
+  error                TEXT
+);
+```
+
+**`cx_settings`** — algemene instellingen
+```sql
+CREATE TABLE cx_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_by TEXT
+);
+-- Standaard seed:
+-- tech_block_orange_days = 3
+-- tech_block_red_days    = 5
+```
+
+### Cron-logica (`cron.js`)
+
+`runFlagCron(env)` draait dagelijks via `scheduled()` in `src/index.js`:
+
+```js
+ctx.waitUntil(runFlagCron(env));
+```
+
+**Inactiviteitsvlaggen (normaal pad):**
+1. Laad `flag_thresholds` + `cx_settings` uit Supabase
+2. Haal CS-stage IDs op uit Odoo (sequence 11–15)
+3. Haal alle actiebladen in die stages op (inclusief `x_flag_reason`, `x_flag_custom_message`)
+4. Haal `x_studio_last_activity` per gebouw op in één batch-call
+5. Per actieblad: bereken `daysSince()` → vergelijk met drempels → alleen escaleren (nooit downgraden)
+6. Bericht dagelijks bijwerken voor elk geflagd actieblad: `[DD/MM/YYYY] Auto: X dagen inactief | <manuele tekst>`. Manuele tekst na ` | ` blijft bewaard.
+7. Log naar `flag_run_log`
+
+**Technical block pad** (actieblad zonder gekoppeld gebouw):
+- `x_flag_reason = 'technical_block'`
+- Start op `x_flag_level = 'attention'` (geel) bij eerste detectie
+- Escaleer naar `urgent` / `critical` op basis van `cx_settings.tech_block_orange_days` en `tech_block_red_days`
+- "Sinds"-datum opgeslagen in het bericht: `geen gebouw gekoppeld (sinds DD/MM/YYYY)`. Volgende runs parsen deze datum om escalatiedagen te berekenen.
+
+### UI — secties
+
+1. **Vlag-drempelwaarden per fase** — tabel met kolommen Geel / Oranje / Rood / Reden per CS-fase; fasenamen dynamisch uit Odoo; [Opslaan]-knop
+2. **Technische blokkades** — kaart met badge-teller; tabel met links naar Odoo-records
+3. **Technische blokkade — escalatie** — twee number-inputs (Oranje na X dagen / Rood na Y dagen); [Opslaan]-knop
+4. **Cron-log** — laatste 10 runs; [Nu uitvoeren]-knop
+
+### Odoo-vereiste
+
+`x_studio_last_activity` (Date) bestaat al op `res.partner`. De Operations Manager berekent het aantal dagen zelf in JS — geen extra veld nodig.
+
+Voeg `technical_block` toe als selectiewaarde bij het veld **`x_flag_reason`** op model `x_sales_action_sheet` in Odoo Studio (label: "Technische blokkade").
+
+### Acceptatiecriteria
+
+- [x] Module aangemaakt en geregistreerd (`/cx-automations`, requiresAdmin, code `cx_automations`)
+- [x] Fasenamen dynamisch uit Odoo, niet hardcoded
+- [x] Redenen dynamisch uit Odoo via `fields_get`
+- [x] UI: drempelwaarden per fase instelbaar + validatie oplopend
+- [x] UI: technical-block escalatie instelbaar (oranje/rood na X/Y dagen)
+- [x] UI: lijst actieve technische blokkades met Odoo-links
+- [x] Cron: inactiviteitsvlaggen — escaleert nooit omlaag
+- [x] Cron: bericht dagelijks bijwerken, manuele tekst bewaard
+- [x] Cron: technical_block als reden, level start op attention, escaleert op instelbare drempels
+- [x] Cron: "since"-datum in bericht voor escalatieberekening
+- [x] Manuele trigger via POST /api/run-cron
+- [x] Supabase: `flag_thresholds`, `flag_run_log`, `cx_settings` aangemaakt
+- [x] `runFlagCron(env)` geïntegreerd in `scheduled()` in `src/index.js`
+- [ ] Odoo Studio: `technical_block` toevoegen aan `x_flag_reason` selectie
 
 ---
 

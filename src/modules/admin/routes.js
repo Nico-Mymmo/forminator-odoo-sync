@@ -462,7 +462,8 @@ export async function handleUpdateUserOdooUid(context) {
 const REGISTRY_CODES = new Set([
   'home', 'forminator_sync_v2', 'wp_form_schemas', 'project_generator',
   'admin', 'profile', 'sales_insight_explorer', 'event_operations',
-  'mail_signature_designer', 'asset_manager', 'cx_powerboard', 'claude_integration'
+  'mail_signature_designer', 'asset_manager', 'cx_powerboard', 'claude_integration',
+  'cx_automations',
 ]);
 
 /**

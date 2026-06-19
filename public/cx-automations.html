@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CX Automations - OpenVME Operations Manager</title>
+    <script>
+      (function() {
+        var t = localStorage.getItem('selectedTheme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-base-200" style="overflow-y: scroll;">
+    <div id="navbar"></div>
+
+    <div style="padding-top: 48px;">
+      <div class="container mx-auto px-6 py-8 max-w-4xl">
+
+        <div class="mb-6">
+          <h1 class="text-2xl font-bold">CX Automations</h1>
+          <p class="text-sm text-base-content/60 mt-1">Stel per CS-fase in hoeveel dagen gebouw-inactiviteit een gele, oranje of rode vlag triggert.</p>
+        </div>
+
+        <!-- ======= Drempelwaarden ======= -->
+        <div class="card bg-base-100 shadow-sm border border-base-200 mb-6">
+          <div class="card-body p-6">
+            <div class="flex items-center justify-between mb-1">
+              <h2 class="text-base font-semibold">Vlag-drempelwaarden per fase</h2>
+              <button class="btn btn-primary btn-sm gap-2" id="saveBtn" data-action="saveThresholds">
+                <i data-lucide="save" class="w-4 h-4"></i>
+                Opslaan
+              </button>
+            </div>
+            <p class="text-xs text-base-content/50 mb-5">Dagen zijn gebaseerd op de laatste activiteit van het bijhorende gebouw in OpenVME. De cron loopt dagelijks en escaleert alleen — nooit omlaag. Stel een waarde in op <strong>0</strong> om dat vlag-niveau uit te schakelen voor die fase.</p>
+
+            <div id="thresholdsTable">
+              <div class="flex justify-center py-10">
+                <span class="loading loading-spinner loading-md text-primary"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======= Technical blocks ======= -->
+        <div class="card bg-base-100 shadow-sm border border-error/30 mb-6" id="technicalBlocksCard">
+          <div class="card-body p-6">
+            <div class="flex items-center gap-2 mb-1">
+              <i data-lucide="triangle-alert" class="w-4 h-4 text-error"></i>
+              <h2 class="text-base font-semibold">Technische blokkades</h2>
+              <span class="badge badge-error badge-sm ml-1" id="technicalBlocksBadge" style="display:none;"></span>
+            </div>
+            <p class="text-xs text-base-content/50 mb-4">Actiebladen in een actieve CS-fase zonder gekoppeld gebouw. De cron kan geen activiteit berekenen en zet automatisch een <code>technical_block</code> vlag.</p>
+            <div id="technicalBlocksList">
+              <div class="flex justify-center py-6">
+                <span class="loading loading-spinner loading-sm text-error"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======= Technical block escalatie ======= -->
+        <div class="card bg-base-100 shadow-sm border border-base-200 mb-6">
+          <div class="card-body p-6">
+            <div class="flex items-center justify-between mb-1">
+              <div class="flex items-center gap-2">
+                <i data-lucide="timer" class="w-4 h-4 text-warning"></i>
+                <h2 class="text-base font-semibold">Technische blokkade — escalatie</h2>
+              </div>
+              <button class="btn btn-primary btn-sm gap-2" id="saveSettingsBtn" data-action="saveSettings">
+                <i data-lucide="save" class="w-4 h-4"></i>
+                Opslaan
+              </button>
+            </div>
+            <p class="text-xs text-base-content/50 mb-5">
+              Als een actieblad geen gebouw heeft, zet de cron automatisch een gele vlag met reden <code>technical_block</code>.
+              Escaleer naar oranje of rood op basis van het aantal dagen dat de blokkade al bestaat. Stel in op <strong>0</strong> om dat niveau over te slaan.
+            </p>
+            <div id="techBlockSettings">
+              <div class="flex justify-center py-6"><span class="loading loading-spinner loading-sm text-primary"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======= Cron log ======= -->
+        <div class="card bg-base-100 shadow-sm border border-base-200">
+          <div class="card-body p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-base font-semibold">Cron-log</h2>
+              <button class="btn btn-sm btn-outline gap-2" id="runCronBtn" data-action="runCron">
+                <i data-lucide="play" class="w-4 h-4"></i>
+                Nu uitvoeren
+              </button>
+            </div>
+            <div id="logTable">
+              <div class="flex justify-center py-10">
+                <span class="loading loading-spinner loading-md text-primary"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div id="toastContainer" class="toast toast-end z-50"></div>
+
+    <script src="/cx-automations.js"></script>
+</body>
+</html>
