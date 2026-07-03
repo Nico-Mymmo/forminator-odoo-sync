@@ -1060,14 +1060,28 @@
         }
         return;
       }
+      if (action === 'insert-activity-field') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        var fid = btn.dataset.fieldId || btn.dataset.fieldid;
+        if (tid && fid) {
+          var _inp = document.getElementById('activitySummaryTemplate-' + tid);
+          if (_inp) {
+            var _pos   = _inp.selectionStart || _inp.value.length;
+            var _end   = _inp.selectionEnd   || _pos;
+            var _token = '{' + fid + '}';
+            _inp.value = _inp.value.substring(0, _pos) + _token + _inp.value.substring(_end);
+            _inp.selectionStart = _inp.selectionEnd = _pos + _token.length;
+            _inp.focus();
+          }
+        }
+        return;
+      }
       if (action === 'ff-sub-nav') {
         var _dir = parseInt(btn.dataset.dir || '1', 10);
-        if (!window.FSV2._ffSubmIdx) window.FSV2._ffSubmIdx = {};
-        var _navKey = 'ffSubmIdx_' + String(window.FSV2.S.activeId || '');
         var _subs = (window.FSV2.S.submissions || []).filter(function(s) { return s.source_payload; });
         if (_subs.length > 1) {
-          var _cur = window.FSV2._ffSubmIdx[_navKey] || 0;
-          window.FSV2._ffSubmIdx[_navKey] = (_cur + _dir + _subs.length) % _subs.length;
+          var _cur = window.FSV2.S._previewSubmissionIdx || 0;
+          window.FSV2.S._previewSubmissionIdx = (_cur + _dir + _subs.length) % _subs.length;
         }
         if (window.FSV2.renderDetailFormFields) window.FSV2.renderDetailFormFields();
         return;

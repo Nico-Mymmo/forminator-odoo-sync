@@ -97,7 +97,13 @@
 
       if (f.is_composite === true) {
         var children = Array.isArray(f.children) ? f.children : [];
-        if (children.length === 0) return;
+        if (children.length === 0) {
+          // Geen sub-velden in API-respons — voeg als plain entry toe zodat field_id bruikbaar blijft als placeholder
+          var _plainParent = { field_id: fid, label: displayLabel, type: type, required: !!f.required };
+          topLevel.push(_plainParent);
+          flatFields.push(_plainParent);
+          return;
+        }
 
         var parentEntry = {
           field_id:           fid,
@@ -1153,56 +1159,67 @@
     if (!calloutsEl) return;
 
     var myIdx = sortedTargets.findIndex(function (t) { return String(t.id) === tid; });
+
+    // Filter: preceding steps, excluding chatter/activity types; respect model config
     var compatibleSteps = sortedTargets.filter(function (t, idx) {
-      return idx < myIdx && t.operation_type !== 'chatter_message' && t.operation_type !== 'create_activity';
+      if (idx >= myIdx) return false;
+      if (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity') return false;
+      var cache = (S() && S().odooModelsCache) || [];
+      var mc = cache.find(function (c) { return (c.odoo_model || c.name) === t.odoo_model; });
+      return !mc || mc.allow_activity !== false;
     });
-    if (!compatibleSteps.length) return;
 
     var currentResIdSource = target.activity_res_id_source || '';
     var currentStepOrder   = null;
     var srcMatch = currentResIdSource.match(/^step\.([^.]+)\.record_id$/);
     if (srcMatch) currentStepOrder = srcMatch[1];
 
-    var linkedLabel = 'Niet gekoppeld';
-    if (currentStepOrder !== null) {
-      var linkedT = compatibleSteps.find(function (t) { return String(getTargetOrder(t, 0)) === String(currentStepOrder); });
-      if (linkedT) linkedLabel = linkedT.label || modelLabel(linkedT.odoo_model);
+    var div = document.createElement('div');
+    div.className = 'px-3 pb-3 pt-2.5';
+
+    if (!compatibleSteps.length) {
+      div.innerHTML =
+        '<p class="text-xs text-base-content/50 italic">Geen compatibele stappen beschikbaar. ' +
+        'Voeg eerst een stap toe die een record aanmaakt of bijwerkt.</p>';
+    } else {
+      var listItems = '';
+      compatibleSteps.forEach(function (t) {
+        var order   = getTargetOrder(t, 0);
+        var visualN = sortedTargets.indexOf(t) + 1;
+        var lbl     = t.label || modelLabel(t.odoo_model);
+        var mlbl    = modelLabel(t.odoo_model);
+        var isChk   = currentStepOrder !== null
+          ? String(currentStepOrder) === String(order)
+          : compatibleSteps.length === 1;
+        listItems +=
+          '<li class="flex items-center gap-2 px-2.5 py-1.5 border-b border-base-200 last:border-0 bg-base-100 hover:bg-base-200/30">' +
+            '<input type="radio" name="activityStep-' + esc(tid) + '" class="radio radio-xs shrink-0"' +
+              ' data-activity-step="' + esc(tid) + '"' +
+              ' value="' + esc(String(order)) + '"' + (isChk ? ' checked' : '') + '>' +
+            '<div class="flex-1 min-w-0">' +
+              '<span class="font-medium text-xs">' + esc(lbl) + '</span>' +
+              '<span class="text-base-content/40 text-xs ml-1">stap ' + visualN +
+                (mlbl && mlbl !== lbl ? ' \u00b7 ' + esc(mlbl) : '') + '</span>' +
+            '</div>' +
+          '</li>';
+      });
+      div.innerHTML =
+        '<p class="text-xs text-base-content/50 mb-1.5">Activiteit wordt gekoppeld aan het record van de geselecteerde stap.</p>' +
+        '<ul id="activityStepList-' + esc(tid) + '" class="border border-base-200 rounded-lg overflow-hidden">' +
+          listItems +
+        '</ul>';
     }
 
-    var opts = compatibleSteps.map(function (t) {
-      var order = getTargetOrder(t, 0);
-      var lbl   = t.label || modelLabel(t.odoo_model);
-      var sel   = (currentStepOrder !== null && String(currentStepOrder) === String(order)) ? ' selected' : '';
-      return '<option value="' + esc(String(order)) + '"' + sel + '>' + esc(lbl) + ' (stap ' + (order + 1) + ')</option>';
-    }).join('');
-
-    var div = document.createElement('div');
-    div.innerHTML =
-      '<details class="w-full rounded-xl border border-base-300 bg-base-200/40 mt-3">' +
-        '<summary class="flex items-center gap-2 px-3.5 py-2.5 cursor-pointer rounded-xl select-none list-none">' +
-          '<i data-lucide="link-2" class="w-3.5 h-3.5 text-info shrink-0"></i>' +
-          '<span class="text-xs font-semibold text-base-content/70">Koppeling vorige stap</span>' +
-          '<span class="text-xs ml-1 text-base-content/40">' + esc(linkedLabel) + '</span>' +
-          '<i data-lucide="chevron-right" class="w-3.5 h-3.5 ml-auto details-chevron text-base-content/40 shrink-0"></i>' +
-        '</summary>' +
-        '<div class="px-3 pb-3 pt-2 border-t border-base-300">' +
-          '<div class="form-control">' +
-            '<label class="label pb-1"><span class="label-text text-xs font-medium">Koppel aan stap</span></label>' +
-            '<select class="select select-xs select-bordered" id="activityStepSelect-' + esc(tid) + '">' +
-              opts +
-            '</select>' +
-            '<label class="label pt-1"><span class="label-text-alt text-base-content/50 text-xs">Record-ID van deze stap wordt als activiteitsontvanger gebruikt.</span></label>' +
-          '</div>' +
-        '</div>' +
-      '</details>';
-    calloutsEl.appendChild(div.firstElementChild);
+    calloutsEl.appendChild(div);
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: calloutsEl });
 
-    // Herlaad activity-types bij stap-wissel
-    var actStepSel = document.getElementById('activityStepSelect-' + tid);
-    if (actStepSel) {
-      actStepSel.addEventListener('change', function () {
-        var selOrder = actStepSel.value;
+    // Reload activity types when step selection changes
+    var stepList = document.getElementById('activityStepList-' + tid);
+    if (stepList) {
+      stepList.addEventListener('change', function (e) {
+        var radio = e.target.closest('input[data-activity-step]');
+        if (!radio) return;
+        var selOrder = radio.value;
         var newStep  = compatibleSteps.find(function (t) { return String(getTargetOrder(t, 0)) === String(selOrder); });
         var newModel = newStep ? newStep.odoo_model : null;
         var typesSel = document.getElementById('activityTypeSelect-' + tid);
@@ -1779,7 +1796,7 @@ function renderDetailFormFields() {
       return;
     }
     // ── Submission preview helper ─────────────────────────────────────────────
-    var submissions    = S().submissions || [];
+    var submissions    = (S().submissions || []).filter(function (s) { return s.source_payload; });
     var previewIdx     = S()._previewSubmissionIdx != null ? S()._previewSubmissionIdx : 0;
     if (previewIdx >= submissions.length) previewIdx = 0;
     var previewSub     = submissions[previewIdx] || null;
@@ -1830,8 +1847,29 @@ function renderDetailFormFields() {
         '</button>'
       : '';
 
-    var toolbarHtml = hiddenToggleHtml
-      ? '<div class="flex items-center mb-2">' + hiddenToggleHtml + '</div>'
+    var subNavHtml = '';
+    if (submissions.length > 1) {
+      subNavHtml =
+        '<div class="flex items-center gap-0.5">' +
+          '<button class="btn btn-xs btn-ghost btn-circle opacity-60" data-action="ff-sub-nav" data-dir="-1">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>' +
+          '</button>' +
+          '<span class="text-xs text-base-content/50" style="font-variant-numeric:tabular-nums">inzending ' + (previewIdx + 1) + '/' + submissions.length + '</span>' +
+          '<button class="btn btn-xs btn-ghost btn-circle opacity-60" data-action="ff-sub-nav" data-dir="1">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' +
+          '</button>' +
+        '</div>';
+    } else if (submissions.length === 1) {
+      var _d = new Date(submissions[0].created_at || '');
+      subNavHtml = '<span class="text-xs text-base-content/40">' +
+        (isNaN(_d) ? 'inzending' : _d.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit' })) + '</span>';
+    }
+
+    var toolbarHtml = (hiddenToggleHtml || subNavHtml)
+      ? '<div class="flex items-center justify-between mb-2">' +
+          '<div>' + hiddenToggleHtml + '</div>' +
+          subNavHtml +
+        '</div>'
       : '';
 
     var fieldsToShow = showHidden
@@ -2844,6 +2882,45 @@ function renderDetailFormFields() {
     var oA = getTargetOrder(tA, idx);  var oB = getTargetOrder(tB, swapIdx);
     var temp = Math.max(oA, oB) + 100;  // safe temp (no unique constraint conflict)
 
+    // ── Koppelingscontrole ────────────────────────────────────────────────────
+    // Geeft de execution_orders terug van alle stappen waaraan dit target gekoppeld is
+    function _linkedOrders(t) {
+      var ords = [];
+      // Activiteit: activity_res_id_source = 'step.{order}.record_id'
+      if (t.activity_res_id_source) {
+        var _m = t.activity_res_id_source.match(/^step\.([^.]+)\.record_id$/);
+        if (_m) ords.push(Number(_m[1]));
+      }
+      // Chatter: _chatter_record_id mappings
+      var _maps = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[t.id]) || [];
+      _maps.filter(function (m) { return m.odoo_field === '_chatter_record_id'; }).forEach(function (m) {
+        var _sm = (m.source_value || '').match(/^step\.([^.]+)\.record_id$/);
+        if (_sm) ords.push(Number(_sm[1]));
+      });
+      return ords;
+    }
+
+    var _isChatAct = function (t) {
+      return t.operation_type === 'chatter_message' || t.operation_type === 'create_activity';
+    };
+
+    if (direction === -1 && _isChatAct(tA)) {
+      // tA beweegt omhoog — mag niet voor zijn eigen gekoppelde stap (tB) komen
+      if (_linkedOrders(tA).includes(oB)) {
+        window.FSV2.showAlert(
+          'Deze stap is gekoppeld aan de vorige stap en kan er niet voor geplaatst worden.', 'error');
+        return;
+      }
+    }
+    if (direction === 1 && _isChatAct(tB)) {
+      // tB beweegt omhoog — mag niet voor zijn eigen gekoppelde stap (tA) komen
+      if (_linkedOrders(tB).includes(oA)) {
+        window.FSV2.showAlert(
+          'De volgende stap is gekoppeld aan deze stap en kan er niet voor geplaatst worden.', 'error');
+        return;
+      }
+    }
+
     var VALID_ID_TYPES  = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields', 'odoo_id'];
     var VALID_POLICIES  = ['always_overwrite', 'only_if_incoming_non_empty', 'upsert'];
     function payload(t, execOrder) {
@@ -2851,6 +2928,7 @@ function renderDetailFormFields() {
       var policy  = VALID_POLICIES.includes(t.update_policy)    ? t.update_policy    : 'always_overwrite';
       return JSON.stringify({
         odoo_model:      t.odoo_model,
+        operation_type:  t.operation_type || null,
         identifier_type: idType,
         update_policy:   policy,
         order_index:     Number(t.order_index || 0),
@@ -4424,16 +4502,30 @@ function renderDetailFormFields() {
       '</div>' +
     '</div>';
 
-    // Beschrijving
+    // Formuliervelden voor placeholder-chips
+    var _actFfr = buildDetailFlatFields(S().detailFormFields || []);
+    var _actFields = _actFfr.flatFields || [];
+
+    // Beschrijving + veld-chips
+    var _actChips = _actFields.map(function (f) {
+      var fid = f.field_id || f.fieldId || f.id || f.name || '';
+      var lbl = f.label || fid;
+      return '<button type="button"' +
+        ' class="badge badge-outline badge-sm cursor-pointer hover:badge-primary transition-colors"' +
+        ' data-action="insert-activity-field" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
+        ' title="Invoegen: {' + esc(fid) + '}">' + esc(lbl) + '</button>';
+    }).join('');
+
     html += '<div class="form-control mb-3">' +
       '<label class="label pb-1">' +
         '<span class="label-text text-sm font-medium">Beschrijving</span>' +
+        '<span class="label-text-alt text-base-content/50 text-xs">Klik op een veld om het in te voegen.</span>' +
       '</label>' +
       '<input type="text" class="input input-bordered input-sm"' +
         ' id="activitySummaryTemplate-' + esc(tid) + '"' +
         ' value="' + esc(target.activity_summary_template || '') + '"' +
-        ' placeholder="Nieuwe aanvraag van {{name}}">' +
-      '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Gebruik {{veldnaam}} voor formulierwaarden</span></label>' +
+        ' placeholder="Nieuwe aanvraag van {name}">' +
+      (_actChips ? '<div class="flex flex-wrap gap-1 mt-1.5">' + _actChips + '</div>' : '') +
       '</div>';
 
     // ── User assignment ──────────────────────────────────────────────────────
@@ -4476,14 +4568,6 @@ function renderDetailFormFields() {
       '</div>';
 
     html += '</div>'; // end form-control
-
-    // Save button
-    html += '<div class="mt-4 flex justify-end">' +
-      '<button type="button" class="btn btn-primary btn-sm"' +
-        ' data-action="save-activity-composer" data-target-id="' + esc(tid) + '">' +
-        '<i data-lucide="save" class="w-4 h-4 mr-1"></i>Opslaan' +
-      '</button>' +
-      '</div>';
 
     el.innerHTML = html;
 
@@ -4564,7 +4648,8 @@ function renderDetailFormFields() {
     if (!target) { window.FSV2.showAlert('Target niet gevonden.', 'error'); return; }
     var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
 
-    var stepSel      = document.getElementById('activityStepSelect-' + tid);
+    var _actStepList = document.getElementById('activityStepList-' + tid);
+    var _actStepRadio = _actStepList ? _actStepList.querySelector('input[data-activity-step]:checked') : null;
     var typeSel      = document.getElementById('activityTypeSelect-' + tid);
     var offsetInput  = document.getElementById('activityDeadlineOffset-' + tid);
     var summaryInput = document.getElementById('activitySummaryTemplate-' + tid);
@@ -4585,13 +4670,13 @@ function renderDetailFormFields() {
       poolCheckboxes.forEach(function (cb) { userPool.push(parseInt(cb.value, 10)); });
     }
 
-    var stepOrder   = stepSel ? stepSel.value : null;
+    var stepOrder   = _actStepRadio ? _actStepRadio.value : null;
     var resIdSource = stepOrder ? ('step.' + stepOrder + '.record_id') : (target.activity_res_id_source || null);
 
     // Derive model from the linked step
     var linkedModel = target.odoo_model;
-    if (stepSel) {
-      var _selOrd = parseInt(stepSel.value, 10);
+    if (stepOrder) {
+      var _selOrd = parseInt(stepOrder, 10);
       var _allTargets = (S().detail && S().detail.targets) || [];
       var _linked = _allTargets.find(function (t) {
         return getTargetOrder(t, 0) === _selOrd &&
@@ -4696,12 +4781,11 @@ function renderDetailFormFields() {
     handleToggleDeleteUnlock: handleToggleDeleteUnlock,
     handleCleanupReplays:    handleCleanupReplays,
     handleOpenExportModal:   handleOpenExportModal,
-    handleExportSubmissions: handleExportSubmissions,
-    handleOpenImportModal:   handleOpenImportModal,
-    handleImportMetaLeads:   handleImportMetaLeads,
+    handleExportSubmissions:    handleExportSubmissions,
+    handleOpenImportModal:       handleOpenImportModal,
+    handleImportMetaLeads:       handleImportMetaLeads,
+    handleAddBulkImportRow:      handleAddBulkImportRow,
+    handleRemoveBulkImportRow:   handleRemoveBulkImportRow,
     handleValidateBulkImportRows: handleValidateBulkImportRows,
-    handleAddBulkImportRow:  handleAddBulkImportRow,
-    handleRemoveBulkImportRow: handleRemoveBulkImportRow,
   });
-
-}());
+})();
