@@ -13,6 +13,7 @@
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="/shared-navbar.js"></script>
 </head>
 <body class="bg-base-200" style="overflow-y: scroll;">
     <div id="navbar"></div>
@@ -22,8 +23,17 @@
 
         <div class="mb-6">
           <h1 class="text-2xl font-bold">CX Automations</h1>
-          <p class="text-sm text-base-content/60 mt-1">Stel per CS-fase in hoeveel dagen gebouw-inactiviteit een gele, oranje of rode vlag triggert.</p>
+          <p class="text-sm text-base-content/60 mt-1">Vlag-drempelwaarden, technische blokkades en merger-instellingen.</p>
         </div>
+
+        <!-- ======= Tab navigatie ======= -->
+        <div role="tablist" class="tabs tabs-bordered mb-6">
+          <button role="tab" class="tab tab-active" data-tab="vlaggen">Vlag-drempelwaarden</button>
+          <button role="tab" class="tab" data-tab="mergers">Mergers</button>
+        </div>
+
+        <!-- ======= Tab: Vlaggen ======= -->
+        <div id="tab-vlaggen">
 
         <!-- ======= Drempelwaarden ======= -->
         <div class="card bg-base-100 shadow-sm border border-base-200 mb-6">
@@ -102,6 +112,138 @@
             </div>
           </div>
         </div>
+
+        </div> <!-- /tab-vlaggen -->
+
+        <!-- ======= Tab: Mergers ======= -->
+        <div id="tab-mergers" style="display:none;">
+
+          <div class="card bg-base-100 shadow-sm border border-base-200 mb-6">
+            <div class="card-body p-6">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <h2 class="text-base font-semibold">Categorie-mapping</h2>
+                  <p class="text-xs text-base-content/50 mt-1">
+                    Bepaal welke velden per categorie worden overgenomen. Wijzigingen worden direct in Odoo opgeslagen.<br>
+                    <strong>Let op:</strong> voor een nieuwe categorie moet je ook een boolean-veld aanmaken in de wizard via Studio met dezelfde sleutel.
+                  </p>
+                </div>
+                <button class="btn btn-primary btn-sm gap-2 ml-4 flex-shrink-0" data-action="saveMergerConfig" id="saveMergerBtn">
+                  <i data-lucide="save" class="w-4 h-4"></i>
+                  Opslaan naar Odoo
+                </button>
+              </div>
+              <!-- Sub-tabs -->
+              <div role="tablist" class="tabs tabs-bordered tabs-sm">
+                <button role="tab" class="tab tab-active" data-merger-pair="estate">Gebouw overnemen</button>
+                <button role="tab" class="tab" data-merger-pair="contact">Contact overnemen</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Categorieën -->
+            <div class="lg:col-span-2">
+              <div id="mergerCategories">
+                <div class="flex justify-center py-10"><span class="loading loading-spinner loading-md text-primary"></span></div>
+              </div>
+              <button class="btn btn-outline btn-sm gap-2 mt-4" data-action="addMergerCategory">
+                <i data-lucide="plus" class="w-4 h-4"></i>
+                Nieuwe categorie
+              </button>
+            </div>
+
+            <!-- Niet-gemapte velden -->
+            <div>
+              <div class="card bg-base-100 shadow-sm border border-base-200 sticky top-16">
+                <div class="card-body p-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold">Niet-gemapte velden</h3>
+                    <button class="btn btn-ghost btn-xs gap-1" data-action="loadMergerFields" id="loadFieldsBtn">
+                      <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                  <p class="text-xs text-base-content/40 mb-3">Velden van <code>res.partner</code> die nog in geen categorie zitten.</p>
+                  <input type="text" id="fieldSearch" placeholder="Zoeken…" class="input input-bordered input-xs w-full mb-3" data-action="filterFields" />
+                  <div id="unmappedFields">
+                    <p class="text-xs text-base-content/40">Klik op vernieuwen om te laden.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Modal: veld toevoegen aan categorie -->
+          <dialog id="addFieldModal" class="modal">
+            <div class="modal-box">
+              <h3 class="font-bold text-base mb-4">Veld toevoegen aan categorie</h3>
+              <input type="hidden" id="modalFieldName" />
+              <div class="form-control mb-3">
+                <label class="label pb-1"><span class="label-text text-xs font-semibold">Veldnaam</span></label>
+                <input type="text" id="modalFieldNameDisplay" class="input input-bordered input-sm" readonly />
+              </div>
+              <div class="form-control mb-3">
+                <label class="label pb-1"><span class="label-text text-xs font-semibold">Label (leesbare naam)</span></label>
+                <input type="text" id="modalFieldLabel" class="input input-bordered input-sm" placeholder="bv. Gemeente" />
+              </div>
+              <div class="form-control mb-4">
+                <label class="label pb-1"><span class="label-text text-xs font-semibold">Categorie</span></label>
+                <select id="modalFieldCategory" class="select select-bordered select-sm"></select>
+              </div>
+              <div class="modal-action">
+                <button class="btn btn-primary btn-sm" data-action="confirmAddField">Toevoegen</button>
+                <button class="btn btn-ghost btn-sm" data-action="closeModal">Annuleren</button>
+              </div>
+            </div>
+            <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+          </dialog>
+
+          <!-- Eenmalige patches -->
+          <div class="card bg-base-100 shadow-sm border border-base-200 mt-6">
+            <div class="card-body p-4">
+              <h3 class="text-sm font-semibold mb-1">Eenmalige patches</h3>
+              <p class="text-xs text-base-content/50 mb-3">Voer eenmalig uit nadat de wizard in Odoo klaar is. Veilig om meerdere keren te drukken (controleert of al gepatcht).</p>
+              <button class="btn btn-outline btn-sm gap-2" id="patchLeadPreviewBtn" data-action="patchLeadPreview">
+                <i data-lucide="zap" class="w-3 h-3"></i>
+                Patch lead-preview (1041/1042/1163/1164)
+              </button>
+              <div id="patchLeadResult" class="mt-2 text-xs text-base-content/60"></div>
+              <button class="btn btn-outline btn-sm gap-2 mt-2" id="fixLeadSearchBtn" data-action="fixLeadSearch">
+                <i data-lucide="zap" class="w-3 h-3"></i>
+                Fix lead-zoekopdracht: include lost leads
+              </button>
+              <div id="fixLeadSearchResult" class="mt-2 text-xs text-base-content/60"></div>
+              <button class="btn btn-outline btn-sm gap-2 mt-2" id="upgradeLeadPreviewBtn" data-action="upgradeLeadPreview">
+                <i data-lucide="zap" class="w-3 h-3"></i>
+                Upgrade lead-display: lijst zoals contacten
+              </button>
+              <div id="upgradeLeadPreviewResult" class="mt-2 text-xs text-base-content/60"></div>
+              <button class="btn btn-outline btn-sm gap-2 mt-2" id="disableSanitizeBtn" data-action="disableSanitize">
+                <i data-lucide="zap" class="w-3 h-3"></i>
+                Stap 1: disable HTML-sanitization op wizard-velden
+              </button>
+              <div id="disableSanitizeResult" class="mt-2 text-xs text-base-content/60"></div>
+              <button class="btn btn-outline btn-sm gap-2 mt-2" id="addFieldExclusionsBtn" data-action="addFieldExclusions">
+                <i data-lucide="zap" class="w-3 h-3"></i>
+                Stap 2: activeer veld-selectie checkboxen (1041/1042/1163/1164)
+              </button>
+              <div id="addFieldExclusionsResult" class="mt-2 text-xs text-base-content/60"></div>
+              <button class="btn btn-outline btn-sm gap-2 mt-2" id="inlineCheckboxesBtn" data-action="inlineCheckboxes">
+                <i data-lucide="zap" class="w-3 h-3"></i>
+                Stap 3: inline checkboxen per rij in vergelijkingstabel (1042/1164)
+              </button>
+              <div id="inlineCheckboxesResult" class="mt-2 text-xs text-base-content/60"></div>
+              <button class="btn btn-warning btn-sm gap-2 mt-2" id="fixInlineCheckboxesBtn" data-action="fixInlineCheckboxes">
+                <i data-lucide="wrench" class="w-3 h-3"></i>
+                Fix: herstel leads/contacten + auto-save onchange (1042/1164)
+              </button>
+              <div id="fixInlineCheckboxesResult" class="mt-2 text-xs text-base-content/60"></div>
+            </div>
+          </div>
+
+        </div> <!-- /tab-mergers -->
 
       </div>
     </div>

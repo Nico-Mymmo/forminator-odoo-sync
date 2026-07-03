@@ -192,10 +192,14 @@ export async function createActivity(env, { resModel, resId, activityTypeId, dat
  * Haalt alle beschikbare mail.activity.type records op.
  * Bedoeld voor de UI-dropdown in FSV2-stap configuratie.
  */
-export async function fetchFsv2ActivityTypes(env) {
+export async function fetchFsv2ActivityTypes(env, resModel) {
+  // Filter: types without model restriction (global) + types for the specific model
+  const domain = resModel
+    ? ['|', ['res_model', '=', false], ['res_model', '=', resModel]]
+    : [];
   return searchRead(env, {
     model:  'mail.activity.type',
-    domain: [],
+    domain,
     fields: ['id', 'name'],
     order:  'name asc',
   });

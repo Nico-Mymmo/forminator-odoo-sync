@@ -46,7 +46,15 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(handleCxWinDetection(env));
-    ctx.waitUntil(runFlagCron(env));
+    ctx.waitUntil(
+      handleCxWinDetection(env).catch(err =>
+        console.error('[scheduled][cx_powerboard] CRASH:', err?.message, err?.stack)
+      )
+    );
+    ctx.waitUntil(
+      runFlagCron(env).catch(err =>
+        console.error('[scheduled][cx_automations] CRASH:', err?.message, err?.stack)
+      )
+    );
   }
 };

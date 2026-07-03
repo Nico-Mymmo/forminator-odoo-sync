@@ -1,0 +1,778 @@
+<data><xpath expr="//field[@name='category_id']" position="replace">
+    <field name="activity_user_id"/>
+    <field name="x_studio_impersonate" widget="url"/>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/group[1]/group[2]/field[@name='function']" position="replace"/>
+  <xpath expr="//div[@name='warning_tax']" position="before">
+    <header>
+      <field widget="statusbar" options="{'clickable': '1'}" name="x_studio_selection_field_3l2_1hnli05jb" invisible="is_company == True" string="LifeCycle Stage"/>
+    </header>
+  </xpath>
+  <xpath expr="//span[@name='address_name']" position="before">
+    <field name="x_studio_company_type" widget="selection_badge" options="{&quot;size&quot;:&quot;sm&quot;}" invisible="not is_company"/>
+    <field name="x_studio_is_adviserend_syndicus" widget="boolean_toggle" invisible="x_studio_company_type not in [2]"/>
+    <field name="x_studio_parent_expert" options="{&quot;no_open&quot;:true,&quot;no_create&quot;:true}" widget="many2one_avatar_user" domain="[(&quot;x_studio_is_adviserend_syndicus&quot;, &quot;=&quot;, True)]" invisible="x_studio_company_type not in [1]"/>
+    <field name="x_studio_company_status" invisible="not is_company" force_save="1" readonly="True"/>
+    <field name="x_studio_first_name" string="🔍 Voornaam" invisible="is_company == True"/>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/div[1]/field[@name='street2']" position="attributes">
+    <attribute name="invisible">True</attribute>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/div[1]/field[@name='state_id']" position="attributes">
+    <attribute name="invisible">True</attribute>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/div[1]" position="after">
+    <field name="x_studio_contact_type" widget="selection" invisible="is_company == True"/>
+  </xpath>
+  <xpath expr="//field[@name='vat']" position="attributes">
+    <attribute name="force_save">1</attribute>
+  </xpath>
+  <xpath expr="//field[@name='vat']" position="after">
+    <field name="x_studio_soid" invisible="false"/>
+  </xpath>
+  <xpath expr="//div[@name='vat_vies_container']" position="after">
+    <field name="x_studio_registration_number"/>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/group[1]/group[2]/field[@name='mobile_blacklisted']" position="after">
+    <xpath expr="//form[1]/sheet[1]/group[1]/group[2]/field[@name='title']" position="move"/>
+  </xpath>
+  <xpath expr="//field[@name='website']" position="attributes">
+    <attribute name="invisible">not is_company</attribute>
+    <attribute name="placeholder"/>
+    <attribute name="string"/>
+  </xpath>
+  <xpath expr="//field[@name='website']" position="after">
+    <field name="x_studio_admin_link" widget="url" invisible="is_company != True"/>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='internal_notes']/group[2]/group[1]/separator[1]" position="before">
+    <field name="create_date"/>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/notebook[1]" position="inside">
+    <page string="VME" name="studio_page_2si_1hn886dfu" invisible="not is_company">
+      <group name="studio_group_2si">
+        <group name="studio_group_2si_left" string="Informatie over VME">
+          <field name="x_studio_vme_reeds_opgericht" widget="boolean_toggle"/>
+          <field name="x_studio_selection_field_2ev_1hn88mh95" string="Type Syndicus" widget="selection_badge" options="{&quot;size&quot;:&quot;sm&quot;}"/>
+          <field name="x_studio_huidige_syndicus" domain="[&quot;&amp;&quot;, (&quot;is_company&quot;, &quot;=&quot;, True), (&quot;x_studio_selection_field_2ev_1hn88mh95&quot;, &quot;=&quot;, &quot;Professionele Syndicus&quot;)]" options="{&quot;no_create&quot;:true}" invisible="x_studio_selection_field_2ev_1hn88mh95 == &quot;Vrijwillige Syndicus&quot;"/>
+        </group>
+        <group name="studio_group_2si_right"/>
+      </group>
+      <group name="studio_group_7mf_1hn8bu29d">
+        <group name="studio_group_7mf_left" string="Informatie over kavel">
+          <field name="x_studio_bewoonbare_kavels"/>
+          <field name="x_studio_commercile_kavels"/>
+          <field name="x_studio_andere_kavels_1"/>
+          <field name="x_studio_totaal_quotiteiten"/>
+        </group>
+        <group name="studio_group_7mf_right"/>
+      </group>
+    </page>
+    <page string="Customer Status Updates" name="studio_page_tt_1i91fv9ou" invisible="is_company == True">
+      <group name="studio_group_tt">
+        <group name="studio_group_tt_left" string="status updates">
+          <field name="x_studio_became_early_customer" force_save="0" readonly="False" widget="datetime" options="{&quot;show_time&quot;:false}"/>
+          <field name="x_studio_became_customer" widget="datetime" options="{&quot;show_time&quot;:false}"/>
+        </group>
+        <group name="studio_group_tt_right"/>
+      </group>
+    </page>
+    <page string="📆 Calendly Meetings" name="studio_page_21v_1ih2frd48">
+      <field name="x_studio_cm_calendlymeetings_for_contact" force_save="1" readonly="True">
+        <tree decoration-danger="x_studio_cm_iscancelled" decoration-it="x_studio_cm_iscancelled">
+          <field name="x_studio_sequence" widget="handle"/>
+          <field name="x_name" string="Naam Meeting"/>
+          <field name="x_studio_cm_invitee" optional="show" widget="many2one_avatar_user"/>
+          <field name="x_studio_cm_event_type" optional="show"/>
+          <field name="x_studio_cm_iscancelled" optional="show"/>
+          <field name="x_studio_cm_start_time" optional="show"/>
+          <field name="x_studio_cm_host_name" optional="show" widget="many2one_avatar_user"/>
+        </tree>
+        <form>
+          <header/>
+          <sheet string="calendlyMeeting" name="studio_sheet_6aa940">
+            <widget name="web_ribbon" text="Gearchiveerd" bg_color="text-bg-danger" invisible="x_active"/>
+            <field name="x_active" invisible="1"/>
+            <div class="oe_title" name="studio_div_feb263">
+              <h1>
+                <field name="x_name" required="1" placeholder="Name..."/>
+              </h1>
+            </div>
+            <group name="studio_group_98ed6c">
+              <group name="studio_group_98ed6c_left">
+                <field name="x_studio_cm_host_name" widget="many2one_avatar_employee" string="🙋 Host" options="{&quot;no_open&quot;:true,&quot;no_create&quot;:true}"/>
+                <field name="x_studio_cm_event_type" options="{'create_name_field': 'x_name'}" string="📋 Type"/>
+                <field name="x_studio_cm_isroundrobin" string="Round Robin"/>
+              </group>
+              <group name="studio_group_98ed6c_right">
+                <field name="x_studio_cm_invitee" widget="many2one_avatar_user" string="🐵 Aanvrager"/>
+                <field name="x_studio_cm_rol" string="🧑‍🚀 Rol"/>
+                <field name="x_studio_cm_extra_info" string="💬 Extra Info"/>
+              </group>
+            </group>
+            <group name="studio_group_iu_1ihfgpkg1">
+              <group name="studio_group_iu_left">
+                <field name="x_studio_cm_join_link" widget="url" string="✔️ Join"/>
+                <field name="x_studio_cm_cancel_link" widget="url" string="❌ Cancel"/>
+                <field name="x_studio_cm_reschedule_link" widget="url" string="🔄️ Reschedule"/>
+              </group>
+              <group name="studio_group_iu_right">
+                <field name="x_studio_cm_start_time" string="⌚ Start"/>
+                <field name="x_studio_cm_end_time" string="⌚Einde"/>
+                <field name="x_studio_cm_duration" string="⌛Duur"/>
+              </group>
+            </group>
+          </sheet>
+        </form>
+      </field>
+    </page>
+    <page string="Dropper" name="studio_page_1io_1im2ar45a">
+      <group name="studio_group_1io">
+        <group name="studio_group_1io_left">
+          <field name="x_studio_expert_dropper_link" widget="url"/>
+          <field name="x_studio_vme_dropper_link" widget="url"/>
+          <field name="x_studio_expert_register_link" widget="url"/>
+          <field name="x_studio_linked_dropper_invites"/>
+        </group>
+        <group name="studio_group_1io_right"/>
+      </group>
+    </page>
+    <page string="👆 Marketing Touchpoints" name="studio_page_167_1inobk43l">
+      <group name="studio_group_167">
+        <group name="studio_group_167_left">
+          <field name="x_studio_last_activity_html_label" nolabel="1" colspan="2"/>
+          <field name="x_studio_form_reply_search_syndic" string="Formulier Syndicus Zoeken" force_save="1" readonly="True" widget="boolean_toggle"/>
+          <field name="x_studio_in_current_webinar_communication" force_save="1" readonly="True"/>
+        </group>
+        <group name="studio_group_167_right">
+          <field name="x_studio_is_in_mailing_contact" force_save="1" readonly="True" string="Mailing Contact Bestaat" widget="boolean_toggle"/>
+          <field name="x_studio_mailing_contact_count" string="Aantal Mailing Contacten" invisible="x_studio_mailing_contact_count &lt;= 1"/>
+          <field name="x_studio_mailing_lists" nolabel="1" style="width: 100%;" colspan="2">
+            <tree string="Mailinglijsten" editable="bottom" create="true" delete="true">
+              <field name="name" string="Actieve Mailinglijsten"/>
+            </tree>
+          </field>
+          <div style="width: 100%; border-left: 3px solid #4caf50; background-color: #f1f8e9; padding: 8px 12px; margin-top: 6px; font-size: 12px; color: #2e7d32; border-radius: 4px;" colspan="2" name="studio_div_b4e697">
+    ✅ Je kan van hieruit mailinglijsten toevoegen en verwijderen. Indien het mailingcontact nog niet bestaat zal het aangemaakt worden. Bestaat het al wel, zal de lijst gesynchroniseerd worden. 
+  </div>
+        </group>
+      </group>
+    </page>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/*[1]" position="before">
+    <group name="studio_group_8ul_1iuodbbj6">
+      <group name="studio_group_8ul_left"/>
+      <group name="studio_group_8ul_right"/>
+    </group>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[1]/group[1]" position="inside">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[1]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[1]" position="before">
+    <field name="x_studio_last_activity"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[1]" position="after">
+    <field name="x_studio_days_since_last_activity"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[2]/field[2]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[2]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[1]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[2]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[1]" position="before">
+    <field name="x_studio_first_nurture_flow_finished"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[1]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[1]" position="before">
+    <field name="x_studio_first_campaign_flow_finished"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[2]/field[16]" position="after">
+    <field name="x_studio_send_expert_summary"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[9]/group[1]/group[2]" position="inside">
+    <xpath expr="/form[1]/sheet[1]/group[2]/group[2]/field[17]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[9]/group[1]/group[2]" position="attributes">
+    <attribute name="string">Samenvattingsmail</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[9]/group[1]/group[2]/field[1]" position="after">
+    <field name="x_studio_expert_summary_interval"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[9]/group[1]/group[2]/field[1]" position="attributes">
+    <attribute name="string">Stuur samenvatting</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[9]/group[1]/group[2]/field[2]" position="attributes">
+    <attribute name="string">Interval</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]" position="attributes"><attribute name="invisible">False</attribute><attribute name="string">Informatie over het gebouw</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]" position="inside">
+    <field name="x_studio_number_of_apartments"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[1]" position="after">
+    <field name="x_studio_number_of_plots"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[2]" position="after">
+    <field name="x_studio_number_of_co_owners_1"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[1]" position="attributes">
+    <attribute name="string">Aantal Bewoonbare Kavels</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[2]" position="attributes">
+    <attribute name="string">Totaal Aantal Kavels</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[3]" position="attributes">
+    <attribute name="string">Aantal Mede-Eigenaars</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[3]" position="attributes">
+    <attribute name="invisible">False</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[2]" position="attributes">
+    <attribute name="string">Huidig Type Beheer</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[2]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[2]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[1]" position="after">
+    <field name="x_studio_current_syndic_type"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[2]" position="attributes">
+    <attribute name="widget">selection_badge</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[2]" position="after">
+    <field name="x_studio_current_syndic"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[3]" position="attributes"><attribute name="domain">["&amp;", ("is_company", "=", True), ("x_studio_company_type", "in", [2])]</attribute><attribute name="invisible">x_studio_current_syndic_type != "pro"</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[1]" position="before">
+    <field name="x_studio_hoa_established"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[1]" position="attributes">
+    <attribute name="widget">boolean_toggle</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]" position="attributes">
+    <attribute name="invisible">not is_company or x_studio_company_type not in [1, 3]</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]/field[1]" position="attributes">
+    <attribute name="string">[DEPR] Became Early Customer</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]/field[2]" position="attributes">
+    <attribute name="string">[DEPR] Became Customer</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]" position="attributes">
+    <attribute name="string">Statistische Gegevens</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]" position="attributes">
+    <attribute name="string">Persona</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]" position="inside">
+    <field name="x_studio_selection_field_818_1j0vglsb2"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]" position="inside">
+    <field name="x_studio_age_group"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]/field[1]" position="attributes"><attribute name="string">Leeftijdscategorie</attribute><attribute name="widget">selection_badge</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[2]" position="attributes">
+    <attribute name="string">Skills</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[2]" position="inside">
+    <field name="x_studio_digital_skill_level"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[2]/field[1]" position="attributes"><attribute name="string">Digitale Vaardigheid</attribute><attribute name="widget">selection_badge</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[2]/field[1]" position="after">
+    <field name="x_studio_legal_skill_level"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[2]/field[2]" position="attributes"><attribute name="string">Legale Vaardigheden</attribute><attribute name="widget">selection_badge</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[2]/field[2]" position="after">
+    <field name="x_studio_communication_skill_level"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[2]/field[3]" position="attributes"><attribute name="string">Communicatie Vaardigheid</attribute><attribute name="widget">selection_badge</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[2]" position="attributes">
+    <attribute name="string">Informatie over de inwoners</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[2]" position="inside">
+    <field name="x_studio_average_tenant_age"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[2]/field[1]" position="attributes"><attribute name="string">Gemiddelde Leeftijd Bewoners</attribute><attribute name="widget">selection_badge</attribute></xpath><xpath expr="/form[1]/sheet[1]/group[2]/group[1]/div[2]/field[2]" position="attributes">
+    <attribute name="invisible">False</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[2]/group[1]/group[3]/field[1]" position="after">
+    <field name="opportunity_ids"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[2]/group[1]/group[3]/field[2]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[2]/group[1]/group[3]/field[1]" position="after">
+    <field name="sale_order_ids"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[2]/group[1]/group[3]/field[2]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[2]" position="after">
+    <field name="x_studio_has_commercial_plots"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[3]" position="attributes"><attribute name="string">Heeft Commerciele Kavels</attribute><attribute name="widget">boolean_toggle</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[4]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[2]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[2]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]" position="attributes">
+    <attribute name="string">Activation and Dropoff</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]" position="inside">
+    <field name="x_studio_last_activity"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[1]" position="after">
+    <field name="x_studio_days_since_last_activity"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[2]" position="after">
+    <field name="x_studio_days_since_creation"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[3]" position="after">
+    <field name="x_studio_days_create_to_last_activity"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="after">
+    <field name="x_studio_d1_activated"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[5]" position="after">
+    <field name="x_studio_d7_activated"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="after">
+    <field name="x_studio_d30_activated"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[7]" position="after">
+    <field name="x_studio_onboarding_bucket"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[3]" position="attributes">
+    <attribute name="string">Dagen Sinds Creatie</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[1]" position="before">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[3]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[2]" position="attributes">
+    <attribute name="string">Laatste Activiteit Datum</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[3]" position="attributes">
+    <attribute name="string">Dagen Sinds Laatst Actief</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="attributes">
+    <attribute name="string">Aantal Dagen Actief Na Creatie</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[5]" position="attributes">
+    <attribute name="string">Activiteitsrate D1</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="attributes">
+    <attribute name="string">Activiteitsrate D7</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[7]" position="attributes">
+    <attribute name="string">Activiteitsrate D30</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[1]" position="after">
+    <field name="x_studio_first_activity"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[2]" position="attributes">
+    <attribute name="string">Eerste Activiteit</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[3]" position="attributes">
+    <attribute name="string">Laatste Activiteit</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]" position="attributes">
+    <attribute name="invisible">False</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]" position="attributes">
+    <attribute name="invisible">is_company == True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[2]" position="attributes">
+    <attribute name="invisible">is_company == True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]" position="attributes">
+    <attribute name="invisible">not is_company</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[1]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[2]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[3]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[5]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[7]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[8]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[9]" position="attributes"><attribute name="force_save">1</attribute><attribute name="readonly">True</attribute><attribute name="string">Onboarding Bucket</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="attributes">
+    <attribute name="string">Activatie D1</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[7]" position="attributes">
+    <attribute name="string">Activatie D7</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[8]" position="attributes">
+    <attribute name="string">Activatie D30</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[1]" position="after">
+    <field name="x_studio_activation_link_sent_date"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[2]" position="attributes"><attribute name="string">Activatie Mail Verstuurd op</attribute><attribute name="force_save">1</attribute><attribute name="readonly">True</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="attributes">
+    <attribute name="force_save">0</attribute>
+    <attribute name="readonly">False</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[3]" position="attributes">
+    <attribute name="force_save">0</attribute>
+    <attribute name="readonly">False</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[5]" position="attributes">
+    <attribute name="force_save">0</attribute>
+    <attribute name="readonly">False</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/div[2]/field[2]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/div[2]" position="after">
+    <field name="x_studio_soid"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[8]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]/field[1]" position="after">
+    <field name="x_studio_job_description" options="{'create_name_field': 'x_name'}"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[1]/group[1]/field[2]" position="attributes"><attribute name="options">{"create_name_field":"x_name","no_create":true,"no_open":true}</attribute><attribute name="string">Beroep</attribute></xpath><xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[9]" position="attributes">
+    <attribute name="force_save">0</attribute>
+    <attribute name="readonly">False</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="after">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[1]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="after">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[2]" position="after">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="after">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="attributes"><attribute name="string">Actieve Periode</attribute><attribute name="options">{}</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[9]" position="after">
+    <field name="x_studio_onboarding_bucket"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[10]" position="after">
+    <field name="x_studio_onboarding_bucket_2"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[10]" position="attributes"><attribute name="string">Onboarding Bucket</attribute><attribute name="widget">badge</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[11]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[2]" position="after">
+    <field name="x_studio_days_to_activation"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[3]" position="attributes"><attribute name="string">Dagen Tot Activatie</attribute><attribute name="force_save">1</attribute><attribute name="readonly">True</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[4]" position="attributes">
+    <attribute name="string">Dagen Sinds Activatie</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[1]/field[1]" position="inside">
+    <tree string="Contacts" sample="1" multi_edit="1">
+      <header/>
+      <field name="create_date" optional="show"/>
+      <field name="x_studio_soid" optional="show"/>
+      <field name="name" optional="show"/>
+      <field name="x_studio_contact_type" optional="show"/>
+      <field name="x_studio_selection_field_3l2_1hnli05jb" optional="hide"/>
+      <field name="x_studio_company_status" optional="show"/>
+      <field name="x_studio_d1_activated" optional="hide"/>
+      <field name="x_studio_d7_activated" optional="hide"/>
+      <field name="x_studio_d30_activated" optional="hide"/>
+      <field name="x_studio_onboarding_bucket" optional="show" widget="badge"/>
+      <field name="subscription_count" optional="hide"/>
+      <field name="x_studio_first_activity" optional="hide"/>
+      <field name="x_studio_last_activity" optional="hide"/>
+      <field name="x_studio_days_create_to_last_activity" optional="hide"/>
+      <field name="x_studio_days_since_last_activity" optional="hide"/>
+      <field name="activity_user_id" optional="hide"/>
+      <field name="function" column_invisible="True"/>
+      <field name="phone" class="o_force_ltr" optional="hide"/>
+      <field name="mobile" optional="hide"/>
+      <field name="email" optional="show"/>
+      <field name="user_id" optional="show" widget="many2one_avatar_user" domain="[('share', '=', False)]"/>
+      <field name="activity_ids" optional="show" widget="list_activity"/>
+      <field name="city" optional="show"/>
+      <field name="id" optional="show"/>
+      <field name="state_id" optional="hide" readonly="1"/>
+      <field name="country_id" optional="hide" readonly="1"/>
+      <field name="lang" optional="hide"/>
+      <field name="vat" optional="hide" readonly="1" string="VAT"/>
+      <field name="ubl_cii_format" string="EDI Format" optional="hide"/>
+      <field name="category_id" optional="hide" widget="many2many_tags" options="{'color_field': 'color'}"/>
+      <field name="company_id" groups="base.group_multi_company" readonly="1"/>
+      <field name="is_company" column_invisible="True"/>
+      <field name="parent_id" readonly="1" column_invisible="True"/>
+      <field name="active" column_invisible="True"/>
+    </tree>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[1]" position="inside">
+    <field name="display_name"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[1]/field[2]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[2]" position="attributes">
+    <attribute name="string">Estate Stats</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[2]" position="inside">
+    <field name="x_studio_estate_stats_id" mode="kanban" colspan="2" nolabel="1"/>
+  </xpath>
+  <xpath expr="//header[1]" position="inside">
+    <button string="Kopier VME Info" name="1040" type="action"/>
+    <button string="Toevoegen aan Mailing Professionals" name="1136" type="action"/>
+    <button string="Kopier Contact Info" name="1162" type="action"/>
+  </xpath>
+  <xpath expr="/form[1]/header[1]/button[1]" position="attributes">
+    <attribute name="invisible">is_company != True or x_studio_company_type not in [1]</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/div[1]/button[1]" position="attributes">
+    <attribute name="invisible">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/div[1]/button[9]" position="attributes">
+    <attribute name="invisible">False</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/div[1]/button[6]" position="attributes">
+    <attribute name="invisible">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[2]/field[16]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[8]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[5]/group[2]/group[1]/field[1]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[5]" position="attributes">
+    <attribute name="invisible">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[9]" position="attributes">
+    <attribute name="invisible">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[2]/field[15]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[2]/field[10]" position="replace"/>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[8]" position="attributes">
+    <attribute name="help">Bij het opslaan wordt het registratienummer automatisch opgeschoond. Indien het resultaat exact tien cijfers bevat en het Peppol-eindpunt nog leeg is, wordt dit automatisch ingevuld op basis van dit nummer. In alle andere gevallen gebeurt er geen automatische overname.</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[2]/field[13]" position="after">
+    <field name="x_studio_non_invoiced_customer"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[2]/field[14]" position="attributes"><attribute name="invisible">not is_company</attribute><attribute name="force_save">0</attribute><attribute name="readonly">False</attribute><attribute name="help"/><attribute name="string">Niet gefactureerde klant</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[5]" position="after">
+    <field name="x_studio_creation_date"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[7]/group[2]/group[1]/field[6]" position="attributes"><attribute name="options">{"warn_future":true}</attribute><attribute name="force_save">1</attribute><attribute name="readonly">True</attribute></xpath><xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[3]" position="after">
+    <field name="x_studio_invoiced_by_partner"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[2]" position="after">
+    <field name="x_studio_number_of_billable_plots"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[4]" position="after">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[2]/group[1]/field[1]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]" position="attributes">
+    <attribute name="invisible">not is_company or x_studio_company_type not in [1, 3]</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[4]" position="attributes">
+    <attribute name="invisible">x_studio_company_type not in [1, 3]</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[3]" position="attributes">
+    <attribute name="invisible">x_studio_company_type not in [1, 3]</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[3]/group[1]" position="inside">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[3]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[3]/group[1]" position="attributes">
+    <attribute name="invisible">not is_company</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[9]" position="after">
+    <field name="x_studio_soid"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]/group[1]/field[10]" position="attributes"><attribute name="invisible">True</attribute><attribute name="force_save">1</attribute><attribute name="readonly">True</attribute><attribute name="options">{"enable_formatting":false}</attribute><attribute name="string">OpenVME ID</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[3]" position="after">
+    <field name="x_studio_meta_comm_preference"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[4]" position="attributes">
+    <attribute name="force_save">1</attribute>
+    <attribute name="readonly">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]/group[1]/group[1]/field[4]" position="after">
+    <field name="x_studio_meta_topic_preference"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]" position="inside">
+    <page string="🤖 Meta Lead v2" name="studio_page_4o1_1jljfmfdm">
+      <group name="studio_group_4o1">
+        <group name="studio_group_4o1_left"/>
+        <group name="studio_group_4o1_right"/>
+      </group>
+    </page>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]" position="inside">
+    <page string="Professionals" name="studio_page_17a_1jm5vsaum">
+      <group name="studio_group_17a">
+        <group name="studio_group_17a_left"/>
+        <group name="studio_group_17a_right"/>
+      </group>
+    </page>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]" position="inside">
+    <field name="x_studio_meta_topic_preference"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]/field[1]" position="after">
+    <field name="x_studio_meta_comm_preference"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]/field[1]" position="attributes">
+    <attribute name="string">Voorkeur Onderwerp</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]/field[2]" position="attributes">
+    <attribute name="string">Voorkeur Communicatie</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]" position="attributes">
+    <attribute name="string">Formulierwaarden</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]/field[1]" position="before">
+    <field name="x_first_meta_form_submission_dt"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]/field[1]" position="attributes">
+    <attribute name="string">Eerste Meta Formulier OpenVME</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[2]" position="attributes">
+    <attribute name="string">Dynamische velden</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[2]" position="inside">
+    <field name="x_studio_mail_block_subject_line" options="{'create_name_field': 'x_name'}"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[2]/field[1]" position="attributes">
+    <attribute name="string">Onderwerp</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[2]/field[1]" position="after">
+    <field name="x_studio_mail_block_intro"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[2]/field[2]" position="after">
+    <field name="x_studio_mail_block_contact_instructions" options="{'create_name_field': 'x_name'}"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[2]/field[2]" position="attributes">
+    <attribute name="string">Intro Blok</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[2]/field[3]" position="attributes">
+    <attribute name="string">Contact Instructies Blok</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]/field[1]" position="after">
+    <field name="x_studio_meta_flow_status" nolabel="1" colspan="2"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]/field[2]" position="attributes">
+    <attribute name="widget">selection_badge</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]/group[1]/field[1]" position="attributes">
+    <attribute name="string">Status Meta Flow</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]" position="attributes"><attribute name="invisible">x_studio_company_type not in [1, 3]</attribute></xpath><xpath expr="/form[1]/sheet[1]/notebook[1]/page[12]" position="attributes">
+    <attribute name="invisible">x_studio_company_type in [1, 3]</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[12]/group[1]/group[1]" position="inside">
+    <field name="x_estates_managed"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[12]/group[1]/group[1]/field[1]" position="after">
+    <field name="x_estates_advisory"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[12]/group[1]/group[1]/field[2]" position="after">
+    <field name="x_estates_total"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[12]/group[1]/group[2]" position="inside">
+    <field name="x_prof_estates_summary"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[10]" position="attributes">
+    <attribute name="invisible">True</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[1]" position="attributes">
+    <attribute name="string">OpenVME META LEAD</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]" position="after">
+    <group name="studio_group_3fs_1jnf4mroj">
+      <group name="studio_group_3fs_left"/>
+      <group name="studio_group_3fs_right"/>
+    </group>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]" position="attributes">
+    <attribute name="string">Formulierwaarden</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]" position="attributes">
+    <attribute name="string">Syndicoach Meta Lead</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[2]" position="attributes">
+    <attribute name="string">dynamische velden</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]" position="inside">
+    <field name="x_studio_meta_syndicoach_status" nolabel="1" colspan="2"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]/field[1]" position="attributes">
+    <attribute name="widget">selection_badge</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]/field[1]" position="after">
+    <field name="x_studio_meta_form_syndicoach_first_submission_dt"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]/field[2]" position="attributes">
+    <attribute name="string">Eerste Meta Formulier Syndicoach (SC)</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]/field[2]" position="after">
+    <field name="x_studio_meta_syndicoach_pack_preference"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]/field[3]" position="after">
+    <field name="x_studio_meta_syndicoach_comm_preference"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]/field[3]" position="attributes">
+    <attribute name="string">Voorkeur Pakket</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[1]/field[4]" position="attributes">
+    <attribute name="string">Voorkeur Communicatie (SC)</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[2]" position="inside">
+    <field name="x_studio_mail_block_meta_syndicoach_subject_line" options="{'create_name_field': 'x_name'}"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[2]/field[1]" position="after">
+    <field name="x_studio_mail_block_meta_syndicoach_intro" options="{'create_name_field': 'x_name'}"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[2]/field[1]" position="attributes">
+    <attribute name="string">Onderwerp</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[2]/field[2]" position="attributes">
+    <attribute name="string">Intro Blok (SC)</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[2]/field[2]" position="after">
+    <field name="x_studio_mail_block_meta_syndicoach_contact"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[11]/group[2]/group[2]/field[3]" position="attributes">
+    <attribute name="string">Contact Instructies (SC)</attribute>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[1]" position="before">
+    <field name="x_syndicoach_pack"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[3]" position="after">
+    <xpath expr="/form[1]/sheet[1]/notebook[1]/page[6]/group[1]/group[1]/field[1]" position="move"/>
+  </xpath>
+  <xpath expr="/form[1]/sheet[1]/group[2]" position="after">
+    <group name="studio_group_88t_1jr5u4bga">
+      <group name="studio_group_88t_left"/>
+      <group name="studio_group_88t_right"/>
+    </group>
+  </xpath>
+  <xpath expr="/form[1]/header[1]/button[3]" position="attributes">
+    <attribute name="invisible">is_company == True</attribute>
+  </xpath>
+</data>

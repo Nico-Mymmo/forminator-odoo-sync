@@ -219,13 +219,31 @@ function parsePositiveInteger(value) {
  * Voorbeeld: vrijdag + 1 werkdag = maandag.
  */
 function addWorkingDays(startDate, days) {
-  const d = new Date(startDate);
-  if (days <= 0) return d;
+  // Determine Brussels local date + hour so cutoff rules are timezone-correct.
+  const now = new Date(startDate);
+  const brusselsDate = now.toLocaleDateString('en-CA', { timeZone: 'Europe/Brussels' }); // YYYY-MM-DD
+  const brusselsHour = parseInt(now.toLocaleTimeString('en-GB', { timeZone: 'Europe/Brussels', hour: '2-digit', hour12: false }), 10);
+  const d = new Date(brusselsDate + 'T00:00:00');
+  const dow = d.getDay(); // 0=zo, 6=za
+
+  // Advance to Monday if:
+  //  - submission is on Saturday or Sunday
+  //  - submission is on Friday at or after 15:00 local
+  const isWeekend = dow === 0 || dow === 6;
+  const isFridayAfterCutoff = dow === 5 && brusselsHour >= 15;
+  if (isWeekend || isFridayAfterCutoff) {
+    // Advance until we hit Monday
+    while (d.getDay() !== 1) {
+      d.setDate(d.getDate() + 1);
+    }
+  }
+
+  // Add the requested number of working days from the (possibly advanced) start.
   let added = 0;
   while (added < days) {
     d.setDate(d.getDate() + 1);
-    const dow = d.getDay(); // 0=zondag, 6=zaterdag
-    if (dow !== 0 && dow !== 6) added++;
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) added++;
   }
   return d;
 }
@@ -870,7 +888,7 @@ async function runSubmissionAttempt(env, {
 
           const rawTemplate = (target.activity_summary_template || '').trim();
           const summary = rawTemplate
-            ? rawTemplate.replace(/\{\{([^}]+)\}\}/g, function(_, key) {
+            ? rawTemplate.replace(/\{([^}]+)\}/g, function(_, key) {
                 return String(lookupFormValue(normalizedForm, key.trim()) || '');
               })
             : null;
@@ -963,14 +981,16 @@ async function runSubmissionAttempt(env, {
       // ── chatter_message: post HTML message to Odoo chatter ────────────────
       if (opType === 'chatter_message') {
         try {
-          const identifierMapping = mappings.find(function(m) { return m.is_identifier; });
-          if (!identifierMapping) {
-            throw createPermanentError('chatter_message target heeft geen identifier-mapping (is_identifier=true). Koppel het aan een vorig stap-record via previous_step_output.');
+          // Chatter supports multiple linked steps.
+          const identifierMappings = mappings.filter(function(m) { return m.is_identifier; });
+          if (!identifierMappings.length) {
+            throw createPermanentError('chatter_message target heeft geen identifier-mapping. Koppel het aan een vorig stap-record.');
           }
-          const rawRecordId = resolveMappingValue(identifierMapping, normalizedForm, contextObject);
-          const recordId = parsePositiveInteger(rawRecordId);
-          if (!recordId) {
-            throw createPermanentError('chatter_message: vorige stap heeft geen geldig record-ID opgeleverd (waarde: "' + String(rawRecordId) + '"). Zorg dat de gelinkte stap is uitgevoerd voor deze stap.');
+          const recordIds = identifierMappings
+            .map(function(m) { return parsePositiveInteger(resolveMappingValue(m, normalizedForm, contextObject)); })
+            .filter(Boolean);
+          if (!recordIds.length) {
+            throw createPermanentError('chatter_message: geen geldig record-ID van de gelinkte stappen.');
           }
 
           const rawTemplate    = (target.chatter_template || '').trim();
@@ -1042,12 +1062,16 @@ async function runSubmissionAttempt(env, {
             body = buildHtmlFormSummary(null, normalizedForm);
           }
 
-          const result = await postChatterMessage(env, {
-            model: target.odoo_model,
-            recordId: recordId,
-            body: body,
-            subtypeXmlid: target.chatter_subtype_xmlid || 'mail.mt_note'
-          });
+          // Post to each linked record (multi-step chatter).
+          let result = null;
+          for (const _recId of recordIds) {
+            result = await postChatterMessage(env, {
+              model: target.odoo_model,
+              recordId: _recId,
+              body: body,
+              subtypeXmlid: target.chatter_subtype_xmlid || 'mail.mt_note'
+            });
+          }
 
           const targetResult = {
             submission_id: submission.id,

@@ -1,13 +1,24 @@
 /**
  * CX Automations — Vlag-cron
  *
- * Dagelijks: lees gebouw-inactiviteit (x_studio_last_activity op res.partner),
- * vergelijk met per-fase drempelwaarden uit Supabase, en escaleer x_flag_level
- * op actiebladen in actieve CS-stages. Nooit downgraden.
+ * Elke 15 min: verwerkt een batch van BATCH_SIZE actiebladen (gepagineerd via cursor
+ * opgeslagen in cx_settings). Op die manier blijft het aantal subrequests ruim
+ * onder de Cloudflare free-tier limiet van 50 per invocatie.
+ *
+ * Budget per run (worst case):
+ *   cx_powerboard cron  ~7 subrequests
+ *   cx_automations fix  ~7 subrequests (settings, thresholds, stages, actiebladen, partners, cursor-write, log)
+ *   writes              max BATCH_SIZE
+ *   totaal              ~14 + BATCH_SIZE ≤ 44  ✓
+ *
+ * Volledige cyclus (alle actiebladen bijgewerkt): ceil(totaal / BATCH_SIZE) × 15 min.
  */
 
 import { getSupabaseClient } from '../../lib/database.js';
 import { searchRead, write } from '../../lib/odoo.js';
+
+// Max actiebladen per run — houd totaal subrequests ruim onder 50
+const BATCH_SIZE = 30;
 
 // Volgorde voor escalatiecheck (lager = minder urgent)
 const FLAG_ORDER = { none: 0, attention: 1, urgent: 2, critical: 3 };
@@ -32,7 +43,7 @@ function daysSince(dateStr) {
 /**
  * Bouw het automatische vlag-bericht op.
  * Vervangt een eerder auto-prefix (patroon: "[DD/MM/YYYY] Auto: ...") zodat
- * het bericht dagelijks up-to-date is zonder te stapelen.
+ * het bericht up-to-date is zonder te stapelen.
  * Handmatige tekst na het scheidingsteken " | " blijft bewaard.
  */
 function buildFlagMessage(days, existingMsg) {
@@ -52,7 +63,6 @@ function buildFlagMessage(days, existingMsg) {
 }
 
 export async function runFlagCron(env) {
-  const supabase = getSupabaseClient(env);
   const startedAt = new Date().toISOString();
   const log = (msg) => console.log(`[cx-automations][cron] ${msg}`);
 
@@ -60,16 +70,20 @@ export async function runFlagCron(env) {
 
   let actiebladen_checked = 0;
   let flags_updated = 0;
+  let supabase;
 
   try {
-    // 1a. Algemene instellingen laden uit Supabase (tech block escalatie)
+    supabase = getSupabaseClient(env);
+
+    // 1a. Instellingen + cursor laden (één Supabase-call)
     const { data: settings } = await supabase.from('cx_settings').select('*');
     const settingsMap = {};
     for (const s of settings || []) settingsMap[s.key] = s.value;
     const techBlockOrangeDays = parseInt(settingsMap['tech_block_orange_days'] || '3');
     const techBlockRedDays    = parseInt(settingsMap['tech_block_red_days']    || '5');
+    const cursor              = parseInt(settingsMap['flag_cron_cursor']       || '0');
 
-    // 1b. Drempelwaarden laden uit Supabase
+    // 1b. Drempelwaarden laden
     const { data: thresholds, error: threshErr } = await supabase
       .from('flag_thresholds')
       .select('*');
@@ -85,7 +99,7 @@ export async function runFlagCron(env) {
       thresholdByStage[t.stage_id] = t;
     }
 
-    // 2. CS-stage IDs dynamisch ophalen uit Odoo
+    // 2. CS-stage IDs ophalen uit Odoo
     const csStages = await searchRead(env, {
       model: 'x_support_stage',
       domain: [
@@ -102,36 +116,41 @@ export async function runFlagCron(env) {
     }
     log(`CS-stages: ${csStageIds.join(', ')}`);
 
-    // 3. Actiebladen in CS-stages ophalen
+    // 3. Gepagineerde batch actiebladen ophalen (cursor = offset, stabiel gesorteerd op id)
     const actiebladen = await searchRead(env, {
       model: 'x_sales_action_sheet',
       domain: [['x_studio_stage_id', 'in', csStageIds]],
       fields: ['id', 'x_studio_for_company_id', 'x_studio_stage_id', 'x_flag_level', 'x_flag_reason', 'x_flag_custom_message'],
+      limit: BATCH_SIZE,
+      offset: cursor,
+      order: 'id asc',
     });
 
     actiebladen_checked = actiebladen.length;
-    log(`${actiebladen_checked} actiebladen in CS-stages`);
+    const isLastPage  = actiebladen.length < BATCH_SIZE;
+    const nextCursor  = isLastPage ? 0 : cursor + BATCH_SIZE;
+    log(`Batch: offset=${cursor}, ${actiebladen_checked} actiebladen${isLastPage ? ' (laatste pagina → cursor reset)' : ` → volgende offset: ${nextCursor}`}`);
 
-    // 4. Gebouw-IDs verzamelen (dedupliceren voor batch)
+    // 4. Gebouw-IDs voor deze batch dedupliceren en ophalen
     const partnerIds = [...new Set(
       actiebladen
         .filter(b => b.x_studio_for_company_id)
         .map(b => b.x_studio_for_company_id[0])
     )];
 
-    // 5. Gebouwgegevens ophalen in één call
-    const partners = await searchRead(env, {
-      model: 'res.partner',
-      domain: [['id', 'in', partnerIds]],
-      fields: ['id', 'x_studio_last_activity'],
-    });
-
     const activityByPartnerId = {};
-    for (const p of partners) {
-      activityByPartnerId[p.id] = p.x_studio_last_activity || null;
+    if (partnerIds.length > 0) {
+      const partners = await searchRead(env, {
+        model: 'res.partner',
+        domain: [['id', 'in', partnerIds]],
+        fields: ['id', 'x_studio_last_activity'],
+      });
+      for (const p of partners) {
+        activityByPartnerId[p.id] = p.x_studio_last_activity || null;
+      }
     }
 
-    // 6. Per actieblad vlag berekenen en bijwerken
+    // 5. Per actieblad vlag berekenen en bijwerken
     for (const blad of actiebladen) {
       const stageId = Array.isArray(blad.x_studio_stage_id)
         ? blad.x_studio_stage_id[0]
@@ -145,21 +164,19 @@ export async function runFlagCron(env) {
         const existingReason = blad.x_flag_reason ?? '';
         const existingMsg    = blad.x_flag_custom_message || '';
 
-        // Bepaal wanneer de blokkade voor het eerst gezien werd
         const sinceMatch = existingReason === 'technical_block'
           ? existingMsg.match(TECH_BLOCK_SINCE_PATTERN)
           : null;
 
         let sinceDate;
         if (sinceMatch) {
-          // DD/MM/YYYY ontleden
           sinceDate = new Date(
             parseInt(sinceMatch[3]),
             parseInt(sinceMatch[2]) - 1,
             parseInt(sinceMatch[1])
           );
         } else {
-          sinceDate = new Date(); // eerste detectie = vandaag
+          sinceDate = new Date();
         }
 
         const daysSinceBlock = Math.floor((Date.now() - sinceDate.getTime()) / 86_400_000);
@@ -168,7 +185,6 @@ export async function runFlagCron(env) {
         });
         const blockMsg = `geen gebouw gekoppeld (sinds ${sinceDateStr})`;
 
-        // Escaleer op basis van instelbare drempels
         let targetFlag = 'attention';
         if (techBlockRedDays > 0 && daysSinceBlock >= techBlockRedDays)         targetFlag = 'critical';
         else if (techBlockOrangeDays > 0 && daysSinceBlock >= techBlockOrangeDays) targetFlag = 'urgent';
@@ -177,7 +193,6 @@ export async function runFlagCron(env) {
         const currentLevel = FLAG_ORDER[currentFlag] ?? 0;
         const targetLevel  = FLAG_ORDER[targetFlag]  ?? 0;
 
-        // Schrijf als: eerste keer technical_block, of escalatie nodig
         if (existingReason !== 'technical_block' || targetLevel > currentLevel) {
           await write(env, {
             model: 'x_sales_action_sheet',
@@ -192,31 +207,34 @@ export async function runFlagCron(env) {
           log(`Actieblad ${blad.id}: technical_block → ${targetFlag} (${daysSinceBlock}d sinds ${sinceDateStr})`);
         }
 
-        continue; // normale inactiviteitslogica overslaan
+        continue;
       }
 
-      const partnerId = blad.x_studio_for_company_id[0];
+      // ── Normale inactiviteitslogica ──
+      const partnerId    = blad.x_studio_for_company_id[0];
       const lastActivity = activityByPartnerId[partnerId] ?? null;
-      const days = daysSince(lastActivity);
+      const days         = daysSince(lastActivity);
 
-      // Bepaal nieuw niveau op basis van drempels (0 = uitgeschakeld voor dat niveau)
       let newFlag = 'none';
       if (thresh.red_days > 0 && days != null && days >= thresh.red_days)         newFlag = 'critical';
       else if (thresh.orange_days > 0 && days != null && days >= thresh.orange_days) newFlag = 'urgent';
       else if (thresh.yellow_days > 0 && days != null && days >= thresh.yellow_days) newFlag = 'attention';
 
-      const currentFlag = blad.x_flag_level ?? 'none';
+      const currentFlag  = blad.x_flag_level ?? 'none';
       const currentLevel = FLAG_ORDER[currentFlag] ?? 0;
-      const newLevel = FLAG_ORDER[newFlag] ?? 0;
+      const newLevel     = FLAG_ORDER[newFlag]     ?? 0;
       const effectiveFlag = newLevel > currentLevel ? newFlag : currentFlag;
 
-      // Bericht dagelijks bijwerken voor elk geflagd actieblad (ook zonder escalatie)
+      // Schrijf als: escalatie of bericht nog niet actueel (andere datum/dagenteller)
       if (effectiveFlag !== 'none') {
         const updatedMsg = buildFlagMessage(days, blad.x_flag_custom_message);
-        const values = { x_flag_custom_message: updatedMsg };
+        const isEscalating = newLevel > currentLevel;
+        const msgChanged   = updatedMsg !== (blad.x_flag_custom_message || '');
 
-        if (newLevel > currentLevel) {
-          // Escaleren
+        if (!isEscalating && !msgChanged) continue;
+
+        const values = { x_flag_custom_message: updatedMsg };
+        if (isEscalating) {
           values.x_flag_level  = newFlag;
           values.x_flag_reason = thresh.flag_reason || 'no_activity';
           flags_updated++;
@@ -231,16 +249,24 @@ export async function runFlagCron(env) {
       }
     }
 
-    log(`Klaar — ${flags_updated} vlaggen bijgewerkt`);
+    // 6. Cursor opslaan voor volgende run
+    await supabase.from('cx_settings').upsert(
+      [{ key: 'flag_cron_cursor', value: String(nextCursor), updated_at: new Date().toISOString(), updated_by: 'cron' }],
+      { onConflict: 'key' }
+    );
+
+    log(`Klaar — ${flags_updated} vlaggen bijgewerkt, cursor → ${nextCursor}`);
 
   } catch (err) {
     log(`ERROR: ${err.message}`);
-    await supabase.from('flag_run_log').insert({
-      ran_at: startedAt,
-      actiebladen_checked,
-      flags_updated,
-      error: err.message,
-    });
+    if (supabase) {
+      await supabase.from('flag_run_log').insert({
+        ran_at: startedAt,
+        actiebladen_checked,
+        flags_updated,
+        error: err.message,
+      });
+    }
     throw err;
   }
 

@@ -849,7 +849,7 @@ export async function getOdooModels(env) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
     .from(TABLES.odooModels)
-    .select('name, label, icon, sort_order, default_fields, identifier_type, update_policy, resolver_type')
+    .select('name, odoo_model, label, icon, sort_order, default_fields, fixed_fields, identifier_fields, identifier_type, update_policy, resolver_type')
     .order('sort_order', { ascending: true });
   if (error) throw new Error(`Failed to get odoo models: ${error.message}`);
   return ensureArray(data);
@@ -914,4 +914,96 @@ export async function rrNextUser(env, targetId) {
     .rpc('fs_v2_rr_next_user', { p_target_id: targetId });
   if (error) throw new Error(`Failed to get round-robin user: ${error.message}`);
   return data != null ? Number(data) : null;
+}
+export async function updateModelFixedFields(env, model, fields) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.odooModels)
+    .update({ fixed_fields: fields })
+    .eq('name', model);
+  if (error) throw new Error(`Failed to update model fixed fields: ${error.message}`);
+  return true;
+}
+
+export async function updateModelIdentifierFields(env, model, fields) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.odooModels)
+    .update({ identifier_fields: fields })
+    .eq('name', model);
+  if (error) throw new Error(`Failed to update model identifier fields: ${error.message}`);
+  return true;
+}
+
+/**
+ * Berekent per integratie welke verplichte standaardvelden ontbreken in de mappings.
+ * Retourneert: { [integrationId]: [{ targetId, targetLabel, missingLabels, missingFields }] }
+ * Alleen entries met ≥1 ontbrekend veld worden opgenomen.
+ * Chatter- en activiteit-stappen worden overgeslagen.
+ */
+export async function getIntegrationWarnings(env) {
+  const supabase = getSupabase(env);
+
+  // 1. Laad alle odoo-modellen met default_fields én fixed_fields
+  const { data: models, error: modelsErr } = await supabase
+    .from(TABLES.odooModels)
+    .select('name, default_fields, fixed_fields');
+  if (modelsErr) throw new Error(`Failed to load models: ${modelsErr.message}`);
+
+  // Bouw map: modelName → [{ name, label }] verplichte velden die NIET via fixed_fields gedekt zijn
+  const requiredByModel = {};
+  for (const m of (models || [])) {
+    const fixedNames = new Set((m.fixed_fields || []).map(f => f.name || f));
+    const req = (m.default_fields || [])
+      .filter(f => f.required && !fixedNames.has(f.name))
+      .map(f => ({ name: f.name, label: f.label || f.name }));
+    if (req.length) requiredByModel[m.name] = req;
+  }
+  if (!Object.keys(requiredByModel).length) return {};
+
+  // 2. Laad alle targets
+  const { data: targets, error: targetsErr } = await supabase
+    .from(TABLES.targets)
+    .select('id, integration_id, label, odoo_model, execution_order, operation_type')
+    .order('execution_order', { ascending: true });
+  if (targetsErr) throw new Error(`Failed to load targets: ${targetsErr.message}`);
+
+  // Sla chatter- en activiteit-stappen over — die hebben geen gewone veldmappings
+  const relevantTargets = (targets || []).filter(t =>
+    requiredByModel[t.odoo_model] &&
+    t.operation_type !== 'chatter_message' &&
+    t.operation_type !== 'create_activity'
+  );
+  if (!relevantTargets.length) return {};
+
+  // 3. Laad alle mappings voor relevante targets
+  const relevantIds = relevantTargets.map(t => t.id);
+  const { data: mappings, error: mappingsErr } = await supabase
+    .from(TABLES.mappings)
+    .select('target_id, odoo_field')
+    .in('target_id', relevantIds);
+  if (mappingsErr) throw new Error(`Failed to load mappings: ${mappingsErr.message}`);
+
+  const mappedByTarget = {};
+  for (const mp of (mappings || [])) {
+    if (!mappedByTarget[mp.target_id]) mappedByTarget[mp.target_id] = new Set();
+    mappedByTarget[mp.target_id].add(mp.odoo_field);
+  }
+
+  // 4. Bereken ontbrekende verplichte velden per integratie
+  const warnings = {};
+  for (const t of relevantTargets) {
+    const required = requiredByModel[t.odoo_model] || [];
+    const mapped   = mappedByTarget[t.id] || new Set();
+    const missing  = required.filter(f => !mapped.has(f.name));
+    if (!missing.length) continue;
+    if (!warnings[t.integration_id]) warnings[t.integration_id] = [];
+    warnings[t.integration_id].push({
+      targetId:      t.id,
+      targetLabel:   t.label || `Stap ${t.execution_order || '?'}`,
+      missingLabels: missing.map(f => f.label),
+      missingFields: missing.map(f => f.name),
+    });
+  }
+  return warnings;
 }

@@ -1,3 +1,4 @@
+      // Save button is now in #det-footer-{tid} (full-width footer below MappingTable)
 ﻿/**
  * Forminator Sync V2 &mdash; Detail
  *
@@ -480,7 +481,21 @@
         });
       }
 
-      // ── Card ────────────────────────────────────────────────────────────
+       var _opIcons = {
+        upsert:           'refresh-cw',
+        update_only:      'pencil',
+        create:           'plus-circle',
+        chatter_message:  'message-circle',
+        create_activity:  'calendar',
+      };
+      var _opIcon = _opIcons[target.operation_type] || 'refresh-cw';
+
+     // ── Card ────────────────────────────────────────────────────────────
+      // Ontbrekende verplichte velden — server-side warnings
+      var _intWarnings = (S().integrationWarnings && S().integrationWarnings[String(S().activeId || '')]) || [];
+      var _targetWarn  = _intWarnings.find(function(w) { return String(w.targetId) === tid; });
+      var _stepMissingFields = _targetWarn ? (_targetWarn.missingLabels || []) : [];
+
       html += '<div class="card bg-base-100 border border-base-200 shadow-sm" data-mt-target-id="' + esc(tid) + '">';
       html +=   '<div class="card-body p-0">';
 
@@ -493,14 +508,26 @@
       if (!isSingle) {
         html +=           '<span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral text-neutral-content text-sm font-bold shrink-0">' + (idx + 1) + '</span>';
       }
+      var actionCfg  = window.FSV2.getModelCfg ? (window.FSV2.getModelCfg(target.odoo_model) || {}) : {};
+      var _cardIcon  = actionCfg.icon || null;
       html +=           '<div class="min-w-0">';
-      html +=             '<div class="font-bold text-base leading-snug">' + esc(stepName) + '</div>';
+      html +=             '<div class="flex items-center gap-2 font-bold text-base leading-snug">' +
+                           (_cardIcon ? '<i data-lucide="' + esc(_cardIcon) + '" class="w-4 h-4 shrink-0 opacity-60"></i>' : '') +
+                           esc(stepName) + '</div>';
       html +=             '<div class="flex flex-wrap items-center gap-x-2.5 gap-y-0 mt-0.5 text-xs text-base-content/50">';
       if (target.operation_type !== 'chatter_message') {
         html +=               '<span class="font-mono">' + esc(target.odoo_model) + '</span>';
         html +=               '<span>·</span>';
       }
       html +=               '<span>' + esc(opTypeLbl) + '</span>';
+      if (_stepMissingFields.length) {
+        html +=             '<span>·</span>' +
+          '<span class="inline-flex items-center gap-1 text-warning font-medium"' +
+          ' title="Ontbrekend: ' + esc(_stepMissingFields.join(', ')) + '">' +
+          '<i data-lucide="alert-triangle" class="w-3 h-3"></i>' +
+          _stepMissingFields.length + ' verplicht' + (_stepMissingFields.length === 1 ? ' veld ontbreekt' : 'e velden ontbreken') +
+          '</span>';
+      }
       if (chainDeps.length > 0) {
         chainDeps.forEach(function (dep) {
           html +=           '<span>·</span>' +
@@ -510,14 +537,7 @@
             '</span>';
         });
       }
-      if (target.condition_field) {
-        var condValsHdr = Array.isArray(target.condition_values) ? target.condition_values : [];
-        html +=           '<span>·</span>' +
-          '<span class="inline-flex items-center gap-1 text-warning font-medium">' +
-          '<i data-lucide="filter" class="w-3 h-3"></i>' +
-          'Als ' + esc(target.condition_field) + ' = ' + esc(condValsHdr.length ? condValsHdr.join(' / ') : '?') +
-          '</span>';
-      }
+
       html +=             '</div>';
       html +=           '</div>';
       html +=         '</div>';
@@ -545,6 +565,20 @@
         html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 text-error/50 hover:text-error hover:bg-error/10" title="Stap verwijderen"' +
           ' data-action="delete-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
           '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
+        html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
+      }
+      // Status icons: filter (if condition set), chain (if coupled), optype
+      if (target.condition_field) {
+        html += '<span class="inline-flex items-center justify-center w-6 h-6 text-warning" title="Voorwaarde ingesteld">' +
+                '<i data-lucide="filter" class="w-3.5 h-3.5"></i></span>';
+      }
+      if (chainDeps.length > 0) {
+        html += '<span class="inline-flex items-center justify-center w-6 h-6 text-info" title="Gekoppeld aan vorige stap">' +
+                '<i data-lucide="link-2" class="w-3.5 h-3.5"></i></span>';
+      }
+      html += '<span class="inline-flex items-center justify-center w-6 h-6 text-primary" title="' + esc(opTypeLbl) + '">' +
+              '<i data-lucide="' + esc(_opIcon) + '" class="w-3.5 h-3.5"></i></span>';
+      if (target.condition_field || chainDeps.length > 0) {
         html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
       }
       // Duplicate step button (always visible)
@@ -586,15 +620,108 @@
 
       html +=     '</div>'; // px-5 py-4
 
-      // Condition section (prominent, at top — populated by renderStepConditionSection)
-      html +=     '<div id="det-cond-' + esc(tid) + '"' +
-                    ' style="display:' + (isOpen ? '' : 'none') + ';">' +
-                  '</div>';
+      // ── Gedragsbalk ─────────────────────────────────────────────────────────
+      var _condSummary = target.condition_field
+        ? 'Als ' + esc(target.condition_field) + ' = ' + esc(
+            Array.isArray(target.condition_values) && target.condition_values.length
+              ? target.condition_values.join(' / ') : '?')
+        : 'Geen voorwaarde ingesteld';
 
-      // Collapsible mapping section
-      html +=     '<div id="det-mc-' + esc(tid) + '" class="border-t border-base-200 px-5 pb-5 pt-4"' +
-                    ' style="display:' + (isOpen ? '' : 'none') + ';">' +
-                  '</div>';
+
+      var _chainSummary = chainDeps.length > 0
+        ? chainDeps.map(function (d) { return 'Gekoppeld aan Stap ' + d.stepNum + (d.stepName ? ' (' + esc(d.stepName) + ')' : ''); }).join(', ')
+        : 'Niet gekoppeld';
+
+      // Automatisch ingevuld — static rows uit DB (source_type='static')
+      var _staticMappings = ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [])
+        .filter(function (m) { return m.source_type === 'static' && m.source_value != null && m.source_value !== ''; });
+      var _autoFillHtml = _staticMappings.length > 0
+        ? _staticMappings.map(function (m) {
+            var odooLbl = esc(m.odoo_field);
+            var val     = esc(String(m.source_value));
+            return '<span class="inline-flex items-center gap-1 badge badge-ghost badge-sm font-normal">' +
+              '<i data-lucide="lock" class="w-3 h-3 text-base-content/40"></i>' +
+              '<span class="font-mono text-xs">' + odooLbl + '</span>' +
+              '<span class="opacity-40">=</span>' +
+              '<span class="text-xs">' + val + '</span>' +
+            '</span>';
+          }).join('')
+        : '<span class="text-sm opacity-30 italic">Geen vaste waarden ingesteld</span>';
+
+      html += '<div style="display:' + (isOpen ? '' : 'none') + ';">';
+
+      // ── Gedragsbalk: drie callout-kaarten ───────────────────────────────────
+      html += '<div class="border-t border-base-200 px-4 py-3 flex flex-col gap-2">';
+      html += '<div class="flex items-center gap-2 mb-0.5">' +
+                '<i data-lucide="settings-2" class="w-3.5 h-3.5 opacity-30"></i>' +
+                '<span class="text-xs font-semibold uppercase tracking-wide opacity-30">Gedrag</span>' +
+              '</div>';
+
+      // Callout 1: Voorwaarde
+      html += '<div class="border border-base-200 rounded-xl overflow-hidden">';
+      html +=   '<div class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-base-200/60 transition-colors select-none"' +
+                  ' data-action="toggle-step-cond" data-target-id="' + esc(tid) + '">' +
+                  '<i data-lucide="filter" class="w-3.5 h-3.5 shrink-0 text-warning"></i>' +
+                  '<span class="text-xs font-medium w-36 shrink-0">Voorwaarde</span>' +
+                  '<span class="text-xs flex-1 opacity-50">' + _condSummary + '</span>' +
+                  '<i data-lucide="chevron-right" class="w-3.5 h-3.5 opacity-30 shrink-0 ml-auto"></i>' +
+                '</div>' +
+                '<div id="det-cond-' + esc(tid) + '" style="display:none;"></div>';
+      html += '</div>';
+
+      // Callout 2: Gedrag bij verwerking
+      html += '<div class="border border-base-200 rounded-xl overflow-hidden">';
+      html +=   '<div class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-base-200/60 transition-colors select-none"' +
+                  ' data-action="toggle-step-optype" data-target-id="' + esc(tid) + '">' +
+                  '<i data-lucide="' + esc(_opIcon) + '" class="w-3.5 h-3.5 shrink-0 text-primary"></i>' +
+                  '<span class="text-xs font-medium w-36 shrink-0">Gedrag bij verwerking</span>' +
+                  '<span class="text-xs flex-1 opacity-50">' + esc(opTypeLbl) + '</span>' +
+                  '<i data-lucide="chevron-right" class="w-3.5 h-3.5 opacity-30 shrink-0 ml-auto"></i>' +
+                '</div>' +
+                '<div id="det-optype-' + esc(tid) + '" style="display:none;"></div>';
+      html += '</div>';
+
+      // Callout 3: Koppeling vorige stap (only for non-first steps)
+      if (!isFirst) {
+        html += '<div class="border border-base-200 rounded-xl overflow-hidden">';
+        html +=   '<div class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-base-200/60 transition-colors select-none"' +
+                    ' data-action="toggle-step-chain" data-target-id="' + esc(tid) + '">' +
+                    '<i data-lucide="link-2" class="w-3.5 h-3.5 shrink-0 ' + (chainDeps.length ? 'text-success' : 'opacity-30') + '"></i>' +
+                    '<span class="text-xs font-medium w-36 shrink-0">Koppeling vorige stap</span>' +
+                    '<span class="text-xs flex-1 opacity-50">' + esc(_chainSummary) + '</span>' +
+                    '<i data-lucide="chevron-right" class="w-3.5 h-3.5 opacity-30 shrink-0 ml-auto"></i>' +
+                  '</div>' +
+                  '<div id="det-callouts-' + esc(tid) + '" style="display:none;"></div>';
+        html += '</div>';
+      }
+
+      html += '</div>'; // /Gedragsbalk
+
+      // Automatisch ingevuld
+      html += '<div class="border-t border-base-200 px-5 py-3">';
+      html +=   '<div class="flex items-center gap-2 mb-2">' +
+                  '<i data-lucide="lock" class="w-3.5 h-3.5 opacity-40"></i>' +
+                  '<span class="text-xs font-semibold uppercase tracking-wide opacity-40">Automatisch ingevuld</span>' +
+                '</div>';
+      html +=   '<div class="flex flex-wrap gap-1.5">' + _autoFillHtml + '</div>';
+      html += '</div>';
+
+      // MappingTable renders its own 'Formuliervelden koppelen aan Odoo' header
+      html += '<div id="det-mc-' + esc(tid) + '" class="border-t border-base-200 px-5 pb-5 pt-4"'
+            + ' style="display:' + (isOpen ? '' : 'none') + ';">' + '</div>';
+
+      // Footer with save button — full-width so divider spans the card
+      html += '<div id="det-footer-' + esc(tid) + '"'
+            + ' class="border-t border-base-200 flex items-center justify-end gap-3 px-5 py-3"'
+            + ' style="display:' + (isOpen ? '' : 'none') + ';">';
+      html +=   '<button type="button" class="btn btn-primary btn-sm gap-1.5"'
+              + ' data-action="save-step-mappings" data-target-id="' + esc(tid) + '">'
+              + '<i data-lucide="save" class="w-4 h-4"></i>'
+              + (isSingle ? ' Koppelingen opslaan' : ' Stap ' + (idx + 1) + ' opslaan')
+              + '</button>';
+      html += '</div>'; // /footer
+
+      html += '</div>'; // /isOpen wrapper
 
       html +=   '</div>'; // card-body
       html += '</div>'; // card
@@ -651,7 +778,7 @@
             staticValue:   sv,
             sourceType:    m.source_type,
             isRequired:    !!m.is_required,
-            isIdentifier:  !!m.is_identifier,
+            isIdentifier:  m.source_type === 'previous_step_output' ? true : !!m.is_identifier,
             isUpdateField: m.is_update_field !== false,
           };
         });
@@ -705,6 +832,7 @@
       if (target.operation_type === 'create_activity') {
         renderActivityComposer(target, tid, sortedTargets);
         renderStepConditionSection(target, tid, flatFields);
+        renderActivityLinkCallout(target, tid, sortedTargets);
         return;
       }
 
@@ -745,22 +873,216 @@
         addChainAction:       'detail-add-chain-row',
       });
 
-      // Per-step save button (appended after MappingTable content)
-      var mcEl = document.getElementById('det-mc-' + tid);
-      if (mcEl) {
-        var saveDiv = document.createElement('div');
-        saveDiv.className = 'mt-4 pt-4 border-t border-base-200 flex justify-end';
-        saveDiv.innerHTML =
-          '<button type="button" class="btn btn-primary btn-sm gap-1.5"' +
-          ' data-action="save-step-mappings" data-target-id="' + esc(tid) + '">' +
-          '<i data-lucide="save" class="w-4 h-4"></i>' +
-          (isSingle ? ' Koppelingen opslaan' : ' Stap ' + (idx + 1) + ' opslaan') +
-          '</button>';
-        mcEl.appendChild(saveDiv);
-      }
+         // Save button is now in #det-footer-{tid} (full-width footer)
 
       renderStepConditionSection(target, tid, flatFields);
+      renderStepOpTypeSection(target, tid, flatFields);
+      renderStepChainSection(target, tid, sortedTargets, idx);
     });
+
+    // Populate section editors for ALL targets (open or not)
+    // so clicking a gedragsbalk row reveals a pre-filled editor
+    sortedTargets.forEach(function (target, idx) {
+      var tid = String(target.id);
+      renderStepConditionSection(target, tid, flatFields);
+      renderStepOpTypeSection(target, tid, flatFields);
+      renderStepChainSection(target, tid, sortedTargets, idx);
+    });
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: container });
+  }
+
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // GEDRAGSBALK SECTION RENDERERS
+  // ────────────────────────────────────────────────────────────────────────────
+
+  function renderStepOpTypeSection(target, tid, flatFields) {
+    var el = document.getElementById('det-optype-' + tid);
+    if (!el) return;
+    var currentOpType = target.operation_type || 'upsert';
+    if (currentOpType === 'chatter_message' || currentOpType === 'create_activity') return;
+
+    var odooCache = (S().odooFieldsCache || {})[target.odoo_model] || [];
+    var dbMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+    var inMemRows  = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
+    var identSet   = {};
+    dbMappings.forEach(function (m) {
+      if (m.source_type === 'form' && m.is_identifier && m.odoo_field) {
+        var oc = odooCache.find(function (f) { return f.name === m.odoo_field; });
+        identSet[m.odoo_field] = (oc && oc.label) || m.odoo_field;
+      }
+    });
+    inMemRows.forEach(function (r) {
+      if (r.isIdentifier && r.sourceType === 'form' && r.odooField) {
+        var oc = odooCache.find(function (f) { return f.name === r.odooField; });
+        identSet[r.odooField] = (oc && oc.label) || r.odooLabel || r.odooField;
+      }
+    });
+    var identFields = Object.keys(identSet).map(function (k) { return { name: k, label: identSet[k] }; });
+
+    var _opIcons = { upsert: 'git-merge', update_only: 'pencil', create: 'plus-circle' };
+    var options = [
+      { value: 'upsert',      icon: 'git-merge',  label: 'Zoeken + bijwerken of aanmaken' },
+      { value: 'update_only', icon: 'pencil',      label: 'Alleen bijwerken'               },
+      { value: 'create',      icon: 'plus-circle', label: 'Altijd nieuw aanmaken'          },
+    ];
+
+    var html = '<div class="px-3.5 py-2.5 border-t border-base-200 bg-base-200/30">';
+    html += '<div class="flex flex-col gap-0.5">';
+    options.forEach(function (o) {
+      var checked = currentOpType === o.value;
+      html += '<label class="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-lg border ' +
+              (checked ? 'border-primary/20 bg-primary/5' : 'border-transparent hover:bg-base-100') + '">' +
+              '<input type="radio" class="radio radio-xs radio-primary shrink-0"' +
+              ' name="det-optype-radio-' + esc(tid) + '" value="' + esc(o.value) + '"' + (checked ? ' checked' : '') + '>' +
+              '<span class="text-xs font-medium ' + (checked ? '' : 'opacity-60') + '">' + esc(o.label) + '</span>' +
+              '</label>';
+    });
+    html += '</div>';
+    if (identFields.length > 0) {
+      html += '<div class="mt-2 pt-2 border-t border-base-200 flex items-center gap-2 px-1">';
+      html += '<i data-lucide="key" class="w-3.5 h-3.5 opacity-40 shrink-0"></i>';
+      html += '<span class="text-xs opacity-50 shrink-0">Zoekcriterium:</span>';
+      if (identFields.length === 1) {
+        html += '<span class="text-xs font-medium">' + esc(identFields[0].label) + '</span>';
+      } else {
+        html += '<select class="select select-xs select-bordered flex-1" data-action="set-step-identifier" data-target-id="' + esc(tid) + '">';
+        identFields.forEach(function (f) {
+          html += '<option value="' + esc(f.name) + '">' + esc(f.label) + '</option>';
+        });
+        html += '</select>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
+  }
+
+  function renderStepChainSection(target, tid, sortedTargets, myIdx) {
+    var el = document.getElementById('det-callouts-' + tid);
+    if (!el) return;
+    if (myIdx <= 0) return;
+
+    var preceding   = sortedTargets.slice(0, myIdx);
+    var suggestions = computeChainSuggestions(target, preceding);
+    var html = '<div class="px-3.5 py-2.5 border-t border-base-200 bg-base-200/30">';
+
+    if (!suggestions.length) {
+      html += '<p class="text-xs opacity-40 italic py-1">Geen koppelingsopties beschikbaar.</p>';
+    } else {
+      suggestions.forEach(function (s) {
+        var applied   = isChainSuggestionApplied(tid, s.odooField);
+        var prevT     = sortedTargets.find(function (t) { return String(t.id) === String(s.prevTargetId); });
+        var prevModel = prevT ? modelLabel(prevT.odoo_model) : (s.stepLabel || ('Stap ' + s.stepNum));
+        var prevNum   = s.stepNum;
+        html += '<div class="flex items-center gap-2 py-1">';
+        html += '<i data-lucide="' + (applied ? 'link-2' : 'unlink') + '" class="w-3.5 h-3.5 shrink-0 ' + (applied ? 'text-success' : 'opacity-30') + '"></i>';
+        html += '<span class="text-xs flex-1">Koppel <span class="font-medium">' + esc(s.odooLabel) + '</span> ' +
+                (applied ? '→' : 'aan ID van') +
+                ' <span class="font-medium">' + esc(prevModel) + '</span> (Stap ' + prevNum + ')</span>';
+        if (applied) {
+          html += '<button type="button" class="btn btn-xs btn-ghost text-error/70 hover:text-error gap-1"' +
+                  ' data-action="remove-chain-link" data-target-id="' + esc(tid) + '" data-odoo-field="' + esc(s.odooField) + '">' +
+                  '<i data-lucide="x" class="w-3 h-3"></i> Ontkoppelen</button>';
+        } else {
+          html += '<button type="button" class="btn btn-xs btn-outline btn-primary gap-1"' +
+                  ' data-action="apply-chain-suggestion" data-target-id="' + esc(tid) + '"' +
+                  ' data-odoo-field="' + esc(s.odooField) + '" data-odoo-label="' + esc(s.odooLabel) + '"' +
+                  ' data-step-order="' + esc(String(s.stepOrder)) + '" data-step-label="' + esc(s.stepLabel || '') + '">' +
+                  '<i data-lucide="link-2" class="w-3 h-3"></i> Koppelen</button>';
+        }
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+    el.innerHTML = html;
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
+  }
+
+  function removeChainLink(tid, odooField) {
+    if (!S().detail._extraRowsByTarget || !S().detail._extraRowsByTarget[tid]) return;
+    S().detail._extraRowsByTarget[tid] = S().detail._extraRowsByTarget[tid].filter(function (r) {
+      return !(r.odooField === odooField && r.sourceType === 'previous_step_output');
+    });
+    renderDetailMappings();
+    window.FSV2.showAlert('Koppeling verwijderd. Sla de stap op om te bevestigen.', 'info');
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // ACTIVITY LINK CALLOUT — "Koppeling vorige stap" voor activiteit-stappen
+  // ────────────────────────────────────────────────────────────────────────────
+
+  function renderActivityLinkCallout(target, tid, sortedTargets) {
+    var calloutsEl = document.getElementById('det-callouts-' + tid);
+    if (!calloutsEl) return;
+
+    var myIdx = sortedTargets.findIndex(function (t) { return String(t.id) === tid; });
+    var compatibleSteps = sortedTargets.filter(function (t, idx) {
+      return idx < myIdx && t.operation_type !== 'chatter_message' && t.operation_type !== 'create_activity';
+    });
+    if (!compatibleSteps.length) return;
+
+    var currentResIdSource = target.activity_res_id_source || '';
+    var currentStepOrder   = null;
+    var srcMatch = currentResIdSource.match(/^step\.([^.]+)\.record_id$/);
+    if (srcMatch) currentStepOrder = srcMatch[1];
+
+    var linkedLabel = 'Niet gekoppeld';
+    if (currentStepOrder !== null) {
+      var linkedT = compatibleSteps.find(function (t) { return String(getTargetOrder(t, 0)) === String(currentStepOrder); });
+      if (linkedT) linkedLabel = linkedT.label || modelLabel(linkedT.odoo_model);
+    }
+
+    var opts = compatibleSteps.map(function (t) {
+      var order = getTargetOrder(t, 0);
+      var lbl   = t.label || modelLabel(t.odoo_model);
+      var sel   = (currentStepOrder !== null && String(currentStepOrder) === String(order)) ? ' selected' : '';
+      return '<option value="' + esc(String(order)) + '"' + sel + '>' + esc(lbl) + ' (stap ' + (order + 1) + ')</option>';
+    }).join('');
+
+    var div = document.createElement('div');
+    div.innerHTML =
+      '<details class="w-full rounded-xl border border-base-300 bg-base-200/40 mt-3">' +
+        '<summary class="flex items-center gap-2 px-3.5 py-2.5 cursor-pointer rounded-xl select-none list-none">' +
+          '<i data-lucide="link-2" class="w-3.5 h-3.5 text-info shrink-0"></i>' +
+          '<span class="text-xs font-semibold text-base-content/70">Koppeling vorige stap</span>' +
+          '<span class="text-xs ml-1 text-base-content/40">' + esc(linkedLabel) + '</span>' +
+          '<i data-lucide="chevron-right" class="w-3.5 h-3.5 ml-auto details-chevron text-base-content/40 shrink-0"></i>' +
+        '</summary>' +
+        '<div class="px-3 pb-3 pt-2 border-t border-base-300">' +
+          '<div class="form-control">' +
+            '<label class="label pb-1"><span class="label-text text-xs font-medium">Koppel aan stap</span></label>' +
+            '<select class="select select-xs select-bordered" id="activityStepSelect-' + esc(tid) + '">' +
+              opts +
+            '</select>' +
+            '<label class="label pt-1"><span class="label-text-alt text-base-content/50 text-xs">Record-ID van deze stap wordt als activiteitsontvanger gebruikt.</span></label>' +
+          '</div>' +
+        '</div>' +
+      '</details>';
+    calloutsEl.appendChild(div.firstElementChild);
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: calloutsEl });
+
+    // Herlaad activity-types bij stap-wissel
+    var actStepSel = document.getElementById('activityStepSelect-' + tid);
+    if (actStepSel) {
+      actStepSel.addEventListener('change', function () {
+        var selOrder = actStepSel.value;
+        var newStep  = compatibleSteps.find(function (t) { return String(getTargetOrder(t, 0)) === String(selOrder); });
+        var newModel = newStep ? newStep.odoo_model : null;
+        var typesSel = document.getElementById('activityTypeSelect-' + tid);
+        if (typesSel) typesSel.innerHTML = '<option value="">Laden\u2026</option>';
+        var url = '/activity-types' + (newModel ? '?model=' + encodeURIComponent(newModel) : '');
+        window.FSV2.api(url).then(function (res) {
+          if (!typesSel) return;
+          typesSel.innerHTML = '<option value="">\u2014 Geen type \u2014</option>' +
+            (res.data || []).map(function (t) {
+              return '<option value="' + esc(String(t.id)) + '">' + esc(t.name) + '</option>';
+            }).join('');
+        }).catch(function () {});
+      });
+    }
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -881,13 +1203,9 @@
     var valuesHtml = buildCondValuesHtml(tid, currentField, flatFields, fieldTransforms, condVals);
 
     condEl.innerHTML =
-      '<div class="px-5 py-3 border-t border-b border-warning/30 bg-warning/5">' +
-        '<div class="flex items-start gap-3 flex-wrap">' +
-          '<div class="flex items-center gap-1.5 pt-1.5 shrink-0">' +
-            '<i data-lucide="filter" class="w-3.5 h-3.5 text-warning"></i>' +
-            '<span class="text-xs font-bold tracking-wide text-warning">VOORWAARDE</span>' +
-          '</div>' +
-          '<div class="flex flex-col gap-2 flex-1 min-w-0">' +
+      '<div class="px-4 py-3 border-t border-base-200">' +
+        '<div class="flex flex-col gap-2">' +
+          '<div class="flex flex-col gap-2 min-w-0">' +
             '<div class="flex items-center gap-2 flex-wrap">' +
               '<span class="text-xs text-base-content/60">Voer deze stap alleen uit als veld</span>' +
               '<select id="stepCondField-' + esc(tid) + '" class="select select-bordered select-xs"' +
@@ -1326,36 +1644,77 @@ function renderDetailFormFields() {
       if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       return;
     }
+    // ── Submission preview helper ─────────────────────────────────────────────
+    var submissions    = S().submissions || [];
+    var previewIdx     = S()._previewSubmissionIdx != null ? S()._previewSubmissionIdx : 0;
+    if (previewIdx >= submissions.length) previewIdx = 0;
+    var previewSub     = submissions[previewIdx] || null;
+    var previewPayload = {};
+    if (previewSub) {
+      var rawP = previewSub.source_payload;
+      if (rawP && typeof rawP === 'object') previewPayload = rawP;
+      else if (rawP) { try { previewPayload = JSON.parse(rawP); } catch (e) {} }
+    }
+    function normalizeKeyLocal(k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); }
+    function getPreviewValue(fid) {
+      if (!fid) return '';
+      var norm = normalizeKeyLocal(fid);
+      var keys = Object.keys(previewPayload);
+      if (previewPayload[fid] !== undefined && previewPayload[fid] !== null && previewPayload[fid] !== '') return String(previewPayload[fid]);
+      var m = keys.find(function (k) { return normalizeKeyLocal(k) === norm && previewPayload[k] != null && previewPayload[k] !== ''; });
+      if (m) return String(previewPayload[m]);
+      var p = keys.find(function (k) { return normalizeKeyLocal(k).startsWith(norm + '_') && previewPayload[k] != null && previewPayload[k] !== ''; });
+      if (p) return String(previewPayload[p]);
+      return '';
+    }
 
     var TYPE_OPTIONS = [
       ['text',      'Tekst'],
-      ['boolean',   'Boolean (ja/nee)'],
+      ['boolean',   'Boolean'],
       ['integer',   'Integer'],
       ['float',     'Decimaal'],
       ['selection', 'Selectie (waardemap)'],
-      ['many2one',  'Many2one (ID)'],
+      ['many2one',  'Many2one'],
       ['datetime',  'Datum/tijd'],
       ['date',      'Datum'],
     ];
-    var integId         = esc(String(S().activeId || ''));
-    var expandedFid     = S()._expandedValueMapField || null;
-    var openFid         = S()._openFieldConfigPanel  || null;
-    var pendingRows     = S()._pendingValueMapRows   || [];
+    var integId        = esc(String(S().activeId || ''));
+    var openFid        = S()._openFieldConfigPanel || null;
+    var editingNameFid = S()._editingNameField     || null;
+    var pendingRows    = S()._pendingValueMapRows  || [];
     var pendingCatchall = S()._pendingCatchall !== undefined ? S()._pendingCatchall : '';
 
     // ── Toolbar ───────────────────────────────────────────────────────────────
     var hiddenCount = fields.filter(function (f) {
       return !!(fieldMeta[String(f.field_id || '')] && fieldMeta[String(f.field_id || '')].hidden);
     }).length;
-    var toolbarHtml = (hiddenCount > 0 || showHidden)
-      ? '<div class="flex items-center justify-between mb-2 px-1">' +
-          '<span class="text-xs text-base-content/40 italic">' + esc(String(hiddenCount)) + ' ' + (hiddenCount === 1 ? 'veld verborgen' : 'velden verborgen') + '</span>' +
-          '<button class="btn btn-xs btn-ghost gap-1" data-action="toggle-show-hidden">' +
-            '<i data-lucide="' + (showHidden ? 'eye-off' : 'eye') + '" class="w-3 h-3"></i>' +
-            esc(showHidden ? 'Verbergen' : 'Toon verborgen') +
+
+    var hiddenToggleHtml = (hiddenCount > 0 || showHidden)
+      ? '<button class="btn btn-xs btn-ghost gap-1" data-action="toggle-show-hidden">' +
+          '<i data-lucide="' + (showHidden ? 'eye-off' : 'eye') + '" class="w-3 h-3"></i>' +
+          esc(showHidden ? 'Verbergen (' + hiddenCount + ')' : 'Toon verborgen (' + hiddenCount + ')') +
+        '</button>'
+      : '';
+
+    var subSwitcherHtml = submissions.length > 0
+      ? '<div class="flex items-center gap-1 opacity-60 text-xs">' +
+          '<i data-lucide="receipt-text" class="w-3 h-3 shrink-0"></i>' +
+          '<span class="hidden sm:inline">Voorbeeld uit inzending</span>' +
+          '<button class="btn btn-ghost btn-xs btn-square" data-action="preview-sub-prev">' +
+            '<i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>' +
+          '</button>' +
+          '<span class="font-mono tabular-nums">' + esc(String(previewIdx + 1)) + '/' + esc(String(submissions.length)) + '</span>' +
+          '<button class="btn btn-ghost btn-xs btn-square" data-action="preview-sub-next">' +
+            '<i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>' +
           '</button>' +
         '</div>'
       : '';
+
+    var toolbarHtml =
+      '<div class="flex items-center justify-between mb-2">' +
+        '<div>' + hiddenToggleHtml + '</div>' +
+        '<div>' + subSwitcherHtml + '</div>' +
+      '</div>';
 
     var fieldsToShow = showHidden
       ? fields
@@ -1366,223 +1725,186 @@ function renderDetailFormFields() {
 
     // ── List items ────────────────────────────────────────────────────────────
     var itemsHtml = fieldsToShow.map(function (f) {
-      var fid          = String(f.field_id || '');
-      var rawLabel     = f.label && f.label !== fid ? f.label : null;
-      var meta         = fieldMeta[fid] || {};
-      var alias        = meta.alias || '';
-      var hidden       = !!meta.hidden;
-      var showInList   = !!meta.show_in_list;
-      var showInBulk   = meta.bulk_import_show !== false;
-      var bulkDefault  = meta.bulk_import_default != null ? String(meta.bulk_import_default) : '';
+      var fid         = String(f.field_id || '');
+      var rawLabel    = f.label && f.label !== fid ? f.label : null;
+      var meta        = fieldMeta[fid] || {};
+      var alias       = meta.alias || '';
+      var hidden      = !!meta.hidden;
+      var showInList  = !!meta.show_in_list;
+      var showInBulk  = meta.bulk_import_show !== false;
+      var bulkDefault = meta.bulk_import_default != null ? String(meta.bulk_import_default) : '';
       if (!bulkDefault && S().detail && S().detail.integration) {
         if (fid === 'form_id'   && S().detail.integration.forminator_form_id) bulkDefault = String(S().detail.integration.forminator_form_id);
         if (fid === 'form_name' && S().detail.integration.name)               bulkDefault = String(S().detail.integration.name);
       }
-      var coupled      = mappedLookup[fid];
-      var ft           = (S().fieldTransforms && S().fieldTransforms[fid]) || null;
-      var currentType  = ft ? (ft.field_type || 'text') : 'text';
-      var isOpen       = openFid === fid;
-      var vmExpanded   = expandedFid === fid;
-      var typeLabel    = (TYPE_OPTIONS.find(function (o) { return o[0] === currentType; }) || ['', currentType])[1];
+      var coupled       = mappedLookup[fid];
+      var ft            = (S().fieldTransforms && S().fieldTransforms[fid]) || null;
+      var currentType   = ft ? (ft.field_type || 'text') : 'text';
+      var isOpen        = openFid === fid;
+      var isEditingName = editingNameFid === fid;
+      var displayName   = alias || rawLabel || fid;
+      var showFieldId   = displayName !== fid;
+      var previewVal    = getPreviewValue(fid);
+      var hasVmap       = currentType === 'selection' || currentType === 'many2one';
 
-      // ── Summary line (always visible) ──────────────────────────────────────
-      var coupledSummary = coupled && coupled.length
-        ? coupled.slice(0, 2).map(function (of_) {
-            return '<span class="badge badge-success badge-xs font-mono">' + esc(of_) + '</span>';
-          }).join('') + (coupled.length > 2 ? '<span class="badge badge-ghost badge-xs">+' + (coupled.length - 2) + '</span>' : '')
-        : '<span class="text-base-content/25 text-xs">\u2014</span>';
-
-      var summaryRow =
-        '<div class="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none hover:bg-base-200/60 transition-colors" data-action="toggle-field-panel" data-field-id="' + esc(fid) + '">' +
-          // Chevron
-          '<i data-lucide="' + (isOpen ? 'chevron-down' : 'chevron-right') + '" class="w-3.5 h-3.5 shrink-0 text-base-content/30"></i>' +
-          // Field name
-          '<div class="w-36 shrink-0">' +
-            '<div class="font-mono text-xs font-semibold ' + (hidden ? 'text-base-content/25' : 'text-primary') + '">' + esc(fid) + '</div>' +
-            (alias
-              ? '<div class="text-[11px] text-warning truncate">' + esc(alias) + '</div>'
-              : (rawLabel ? '<div class="text-[11px] text-base-content/40 truncate">' + esc(rawLabel) + '</div>' : '')) +
-          '</div>' +
-          // Badges
-          '<div class="flex items-center gap-1 flex-1 flex-wrap">' +
-            '<span class="badge badge-ghost badge-xs">' + esc(f.type || '-') + '</span>' +
-            '<span class="badge badge-outline badge-xs text-base-content/40">' + esc(typeLabel) + '</span>' +
-            (hidden      ? '<span class="badge badge-warning badge-xs">verborgen</span>' : '') +
-            (showInList  ? '<span class="badge badge-info badge-xs">lijst</span>'        : '') +
-            (f.from_payload ? '<span class="badge badge-secondary badge-xs">payload</span>' : '') +
-          '</div>' +
-          // Odoo coupling (right side)
-          '<div class="flex items-center gap-1 shrink-0">' + coupledSummary + '</div>' +
-          // Quick action buttons (stop propagation — don't toggle panel)
-          '<div class="flex items-center gap-0.5 shrink-0 ml-1" onclick="event.stopPropagation()">' +
-            '<button class="btn btn-xs btn-ghost btn-square" data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '" title="' + (hidden ? 'Zichtbaar maken' : 'Verbergen') + '">' +
-              '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5 text-base-content/35"></i>' +
+      // ── Name block ──────────────────────────────────────────────────────────
+      var nameBlockHtml;
+      if (isEditingName) {
+        nameBlockHtml =
+          '<div class="flex items-center gap-1 min-w-0 flex-1" onclick="event.stopPropagation()">' +
+            '<input id="inline-alias-' + esc(fid) + '" type="text" ' +
+              'class="input input-xs input-bordered font-mono w-36" ' +
+              'value="' + esc(alias) + '" placeholder="' + esc(rawLabel || fid) + '" maxlength="60" ' +
+              'onkeydown="if(event.key===\'Enter\'){event.preventDefault();' +
+                'document.querySelector(\'[data-action=save-inline-name][data-field-id=\\\'' + esc(fid) + '\\\']\').click();}' +
+                'if(event.key===\'Escape\'){event.preventDefault();' +
+                'document.querySelector(\'[data-action=cancel-inline-name][data-field-id=\\\'' + esc(fid) + '\\\']\').click();}">' +
+            '<button class="btn btn-success btn-xs btn-square shrink-0" data-action="save-inline-name" data-field-id="' + esc(fid) + '">' +
+              '<i data-lucide="check" class="w-3 h-3"></i>' +
             '</button>' +
-            '<button class="btn btn-xs btn-square ' + (showInList ? 'btn-info' : 'btn-ghost') + '" data-action="toggle-field-show-in-list" data-field-id="' + esc(fid) + '" title="' + (showInList ? 'Verwijder uit lijst' : 'Toon in indieningen-lijst') + '">' +
-              '<i data-lucide="table-2" class="w-3.5 h-3.5"></i>' +
+            '<button class="btn btn-ghost btn-xs btn-square shrink-0" data-action="cancel-inline-name" data-field-id="' + esc(fid) + '">' +
+              '<i data-lucide="x" class="w-3 h-3"></i>' +
+            '</button>' +
+          '</div>';
+      } else {
+        nameBlockHtml =
+          '<div class="flex items-center gap-1.5 min-w-0 flex-1">' +
+            (coupled && coupled.length ? '<i data-lucide="link" class="w-3 h-3 shrink-0 text-success"></i>' : '') +
+            '<span class="font-semibold text-sm truncate ' + (hidden ? 'opacity-30' : '') + '">' + esc(displayName) + '</span>' +
+            '<button class="btn btn-ghost btn-xs btn-square shrink-0 opacity-30 hover:opacity-80" ' +
+              'data-action="start-edit-name" data-field-id="' + esc(fid) + '" title="Alias aanpassen" onclick="event.stopPropagation()">' +
+              '<i data-lucide="pencil" class="w-3 h-3"></i>' +
+            '</button>' +
+            (showFieldId ? '<span class="font-mono text-xs opacity-35 shrink-0">' + esc(fid) + '</span>' : '') +
+          '</div>';
+      }
+
+      // ── Summary row ─────────────────────────────────────────────────────────
+      var summaryRow =
+        '<div class="flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none hover:bg-base-200 transition-colors" data-action="toggle-field-panel" data-field-id="' + esc(fid) + '">' +
+          '<i data-lucide="' + (isOpen ? 'chevron-down' : 'chevron-right') + '" class="w-3.5 h-3.5 shrink-0 opacity-30"></i>' +
+          nameBlockHtml +
+          // Preview value (flex-1 middle)
+          (isEditingName ? '' :
+            '<div class="flex-1 min-w-0 px-2">' +
+              (previewVal
+                ? '<span class="text-xs opacity-50 truncate block">' + esc(previewVal) + '</span>'
+                : '<span class="text-xs opacity-20 block">—</span>') +
+            '</div>') +
+          // Type + action buttons (right, no propagation)
+          '<div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">' +
+            '<select class="select select-xs w-36" data-action="save-field-transform" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
+              TYPE_OPTIONS.map(function (opt) {
+                return '<option value="' + opt[0] + '"' + (currentType === opt[0] ? ' selected' : '') + '>' + opt[1] + '</option>';
+              }).join('') +
+            '</select>' +
+            '<button class="btn btn-xs ' + (hidden ? 'btn-warning' : 'btn-ghost') + ' gap-1" data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '">' +
+              '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3 h-3"></i>Verberg' +
+            '</button>' +
+            '<button class="btn btn-xs ' + (showInList ? 'btn-info' : 'btn-ghost') + ' gap-1" data-action="toggle-field-show-in-list" data-field-id="' + esc(fid) + '">' +
+              '<i data-lucide="table-2" class="w-3 h-3"></i>Lijst' +
+            '</button>' +
+            '<button class="btn btn-xs ' + (showInBulk ? 'btn-success' : 'btn-ghost') + ' gap-1" data-action="toggle-bulk-import-show" data-field-id="' + esc(fid) + '">' +
+              '<i data-lucide="upload" class="w-3 h-3"></i>Bulk' +
             '</button>' +
           '</div>' +
         '</div>';
 
       if (!isOpen) {
-        return '<div class="border-b border-base-200 last:border-b-0' + (hidden ? ' opacity-40' : '') + '">' + summaryRow + '</div>';
+        return '<div class="border-b border-base-200 last:border-b-0">' + summaryRow + '</div>';
       }
 
-      // ── Detail panel (only when open) ──────────────────────────────────────
-
-      // Type select
-      var typeSelect =
-        '<select class="select select-sm w-full max-w-xs" data-action="save-field-transform" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
-          TYPE_OPTIONS.map(function (opt) {
-            return '<option value="' + opt[0] + '"' + (currentType === opt[0] ? ' selected' : '') + '>' + opt[1] + '</option>';
-          }).join('') +
-        '</select>';
-
-      var vmapToggle = currentType === 'selection'
-        ? '<button class="btn btn-sm ' + (vmExpanded ? 'btn-primary' : 'btn-outline') + ' gap-1.5 mt-2" data-action="toggle-valuemap" data-field-id="' + esc(fid) + '">' +
-            '<i data-lucide="list" class="w-4 h-4"></i>' +
-            (vmExpanded ? 'Waardemap verbergen' : 'Waardemap bewerken') +
-          '</button>'
-        : '';
-
-      // Value map editor
-      var vmapEditorHtml = '';
-      if (vmExpanded && currentType === 'selection') {
-        var rowsHtml = pendingRows.length === 0
-          ? '<p class="text-xs text-base-content/40 italic mb-2">Nog geen regels \u2014 klik \u201c+ Rij toevoegen\u201d om te beginnen.</p>'
-          : pendingRows.map(function (row, idx) {
+      // ── Expanded detail panel ───────────────────────────────────────────────
+      // Waardemap (always visible for selection/many2one)
+      var vmapHtml = '';
+      if (hasVmap) {
+        if (pendingRows.length === 0) pendingRows = [{ from: '', to: '' }];
+        var rowsHtml = pendingRows.map(function (row, ri) {
               return '<div class="flex items-center gap-2 mb-1.5">' +
-                '<div class="badge badge-ghost badge-xs w-6 justify-center">' + esc(String(idx + 1)) + '</div>' +
-                '<input class="input input-xs input-bordered font-mono" style="flex:1" placeholder="Bronwaarde" value="' + esc(row.from || '') + '" data-vmap-from="' + idx + '">' +
-                '<i data-lucide="arrow-right" class="w-4 h-4 shrink-0 text-base-content/30"></i>' +
-                '<input class="input input-xs input-bordered font-mono" style="flex:1" placeholder="Odoo-waarde" value="' + esc(row.to || '') + '" data-vmap-to="' + idx + '">' +
+                '<input class="input input-sm input-bordered font-mono flex-1" placeholder="Bronwaarde" value="' + esc(row.from || '') + '" data-vmap-from="' + ri + '">' +
+                '<i data-lucide="arrow-right" class="w-4 h-4 shrink-0 opacity-30"></i>' +
+                '<input class="input input-sm input-bordered font-mono flex-1" placeholder="Odoo-waarde" value="' + esc(row.to || '') + '" data-vmap-to="' + ri + '">' +
                 '<div class="flex gap-0.5">' +
-                  '<button class="btn btn-xs btn-ghost btn-square" data-action="move-valuemap-row-up"   data-row-idx="' + idx + '" title="Omhoog"><i data-lucide="chevron-up"   class="w-3.5 h-3.5"></i></button>' +
-                  '<button class="btn btn-xs btn-ghost btn-square" data-action="move-valuemap-row-down" data-row-idx="' + idx + '" title="Omlaag"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></button>' +
-                  '<button class="btn btn-xs btn-ghost btn-square text-error" data-action="remove-valuemap-row" data-row-idx="' + idx + '" title="Verwijderen"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>' +
+                  '<button class="btn btn-xs btn-ghost btn-square" data-action="move-valuemap-row-up" data-row-idx="' + ri + '"><i data-lucide="chevron-up" class="w-3.5 h-3.5"></i></button>' +
+                  '<button class="btn btn-xs btn-ghost btn-square" data-action="move-valuemap-row-down" data-row-idx="' + ri + '"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></button>' +
+                  '<button class="btn btn-xs btn-ghost btn-square text-error" data-action="remove-valuemap-row" data-row-idx="' + ri + '"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>' +
                 '</div>' +
               '</div>';
             }).join('');
 
-        vmapEditorHtml =
-          '<div class="mt-3 bg-base-200/50 border border-base-300 rounded-lg p-3">' +
-            '<div class="text-xs font-semibold text-base-content/50 mb-2 flex items-center gap-1.5">' +
-              '<i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i> Waardemap' +
+        vmapHtml =
+          '<div class="mb-5">' +
+            '<div class="flex items-center justify-between mb-2">' +
+              '<span class="text-xs font-semibold opacity-40 uppercase tracking-wide">Waardemap</span>' +
+              '<span class="text-xs opacity-30">Bronwaarde → Odoo-waarde</span>' +
             '</div>' +
             rowsHtml +
-            '<button class="btn btn-xs btn-ghost gap-1 mt-1" data-action="add-valuemap-row"><i data-lucide="plus" class="w-3 h-3"></i> Rij toevoegen</button>' +
-            '<div class="divider text-xs my-2">Catchall (onbekende waarden)</div>' +
-            '<div class="flex items-center gap-2">' +
-              '<span class="text-xs text-base-content/50 shrink-0">Alles wat niet gevonden is \u2192</span>' +
-              '<input class="input input-xs input-bordered font-mono flex-1" placeholder="Leeg = niet omzetten" value="' + esc(pendingCatchall) + '" data-vmap-catchall>' +
-            '</div>' +
-            '<div class="flex justify-end mt-3">' +
-              '<button class="btn btn-sm btn-primary" data-action="save-field-valuemap" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
-                '<i data-lucide="save" class="w-4 h-4"></i> Waardemap opslaan' +
-              '</button>' +
+            '<button class="btn btn-ghost btn-xs gap-1 px-0 text-xs" data-action="add-valuemap-row">' +
+              '<i data-lucide="plus" class="w-3.5 h-3.5"></i> Rij toevoegen' +
+            '</button>' +
+            '<div class="flex items-center gap-3 mt-3 opacity-60">' +
+              '<span class="text-xs shrink-0">Anders (onbekend)</span>' +
+              '<i data-lucide="arrow-right" class="w-4 h-4 shrink-0 opacity-40"></i>' +
+              '<input class="input input-sm input-bordered font-mono flex-1" placeholder="Leeg = niet omzetten" value="' + esc(pendingCatchall) + '" data-vmap-catchall>' +
             '</div>' +
           '</div>';
       }
 
-      // Odoo coupled full list
-      var coupledFullHtml = coupled && coupled.length
-        ? '<div class="flex flex-wrap gap-1">' + coupled.map(function (of_) {
-            return '<span class="badge badge-success badge-sm font-mono">' + esc(of_) + '</span>';
-          }).join('') + '</div>'
-        : '<span class="text-sm text-base-content/35">Nog niet gekoppeld</span>';
+      // Standaardwaarde (only when bulk is on)
+      var bulkHtml = showInBulk
+        ? '<div class="mb-5">' +
+            '<div class="flex items-center justify-between mb-2">' +
+              '<span class="text-xs font-semibold opacity-40 uppercase tracking-wide">Standaardwaarde</span>' +
+              '<span class="text-xs opacity-30">Vooringevuld in bulkimport</span>' +
+            '</div>' +
+            '<input type="text" id="bulk-inp-' + esc(fid) + '" class="input input-sm input-bordered w-full font-mono" placeholder="Leeg = geen standaard…" value="' + esc(bulkDefault) + '">' +
+          '</div>'
+        : '';
+
+      // Gekoppeld aan Odoo
+      var coupledHtml =
+        '<div class="mb-5">' +
+          '<div class="text-xs font-semibold opacity-40 uppercase tracking-wide mb-2">Gekoppeld aan Odoo</div>' +
+          (coupled && coupled.length
+            ? '<div class="flex flex-wrap gap-1">' + coupled.map(function (of_) {
+                return '<span class="badge badge-success badge-sm font-mono">' + esc(of_) + '</span>';
+              }).join('') + '</div>'
+            : '<span class="text-sm opacity-30 italic">Nog niet gekoppeld via veldkoppelingen</span>') +
+        '</div>';
+
+      // Alias input (hidden in panel — controlled via inline pencil)
+      var aliasHiddenHtml =
+        '<input type="hidden" id="alias-inp-' + esc(fid) + '" value="' + esc(alias) + '">';
 
       var detailPanel =
-        '<div class="bg-base-50 border-t border-base-200 px-4 py-4">' +
-          '<div class="grid grid-cols-1 gap-5 sm:grid-cols-2">' +
+        '<div class="border-t border-base-200 px-5 py-4">' +
+          aliasHiddenHtml +
+          vmapHtml +
+          bulkHtml +
+          coupledHtml +
+          '<div class="flex justify-end pt-2">' +
+            '<button class="btn btn-primary btn-sm gap-2" data-action="save-field-panel" data-field-id="' + esc(fid) + '" data-has-bulk="' + (showInBulk ? '1' : '0') + '" data-has-vmap="' + (hasVmap ? '1' : '0') + '">' +
+              '<i data-lucide="save" class="w-4 h-4"></i> Opslaan' +
+            '</button>' +
+          '</div>' +
+        '</div>';
 
-            // Col A: Alias + Odoo koppeling
-            '<div class="space-y-4">' +
-
-              // Alias
-              '<div>' +
-                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Alias</div>' +
-                '<div class="flex items-center gap-1">' +
-                  '<input type="text" id="alias-inp-' + esc(fid) + '" class="input input-sm input-bordered flex-1 font-mono" placeholder="Alias\u2026" value="' + esc(alias) + '" maxlength="60">' +
-                  '<button class="btn btn-sm btn-primary btn-square" data-action="save-field-alias" data-field-id="' + esc(fid) + '" title="Opslaan"><i data-lucide="check" class="w-4 h-4"></i></button>' +
-                  (alias ? '<button class="btn btn-sm btn-ghost btn-square text-base-content/30" data-action="clear-field-alias" data-field-id="' + esc(fid) + '" title="Wissen"><i data-lucide="x" class="w-4 h-4"></i></button>' : '') +
-                '</div>' +
-              '</div>' +
-
-              // Odoo koppeling
-              '<div>' +
-                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Gekoppeld aan Odoo</div>' +
-                coupledFullHtml +
-              '</div>' +
-
-            '</div>' +
-
-            // Col B: Type + Zichtbaarheid + Bulk
-            '<div class="space-y-4">' +
-
-              // Type
-              '<div>' +
-                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Type (Transform)</div>' +
-                typeSelect +
-                vmapToggle +
-                vmapEditorHtml +
-              '</div>' +
-
-              // Zichtbaarheid
-              '<div>' +
-                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Zichtbaarheid</div>' +
-                '<div class="flex flex-col gap-1.5">' +
-                  '<div class="flex items-center justify-between">' +
-                    '<span class="text-sm">Verborgen in overzicht</span>' +
-                    '<button class="btn btn-xs ' + (hidden ? 'btn-warning' : 'btn-ghost') + ' gap-1" data-action="toggle-field-hidden" data-field-id="' + esc(fid) + '">' +
-                      '<i data-lucide="' + (hidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5"></i>' + (hidden ? 'Ja' : 'Nee') +
-                    '</button>' +
-                  '</div>' +
-                  '<div class="flex items-center justify-between">' +
-                    '<span class="text-sm">Tonen in indieningen-lijst</span>' +
-                    '<button class="btn btn-xs ' + (showInList ? 'btn-info' : 'btn-ghost') + ' gap-1" data-action="toggle-field-show-in-list" data-field-id="' + esc(fid) + '">' +
-                      '<i data-lucide="table-2" class="w-3.5 h-3.5"></i>' + (showInList ? 'Ja' : 'Nee') +
-                    '</button>' +
-                  '</div>' +
-                '</div>' +
-              '</div>' +
-
-              // Bulkimport
-              '<div>' +
-                '<div class="text-[11px] font-semibold text-base-content/40 uppercase tracking-wide mb-1.5">Bulkimport</div>' +
-                '<div class="flex flex-col gap-2">' +
-                  '<div class="flex items-center justify-between">' +
-                    '<span class="text-sm">Tonen in bulkimport</span>' +
-                    '<button class="btn btn-xs ' + (showInBulk ? 'btn-success' : 'btn-ghost') + ' gap-1" data-action="toggle-bulk-import-show" data-field-id="' + esc(fid) + '">' +
-                      '<i data-lucide="' + (showInBulk ? 'eye' : 'eye-off') + '" class="w-3.5 h-3.5"></i>' + (showInBulk ? 'Ja' : 'Nee') +
-                    '</button>' +
-                  '</div>' +
-                  '<div>' +
-                    '<div class="text-xs text-base-content/40 mb-1">Standaardwaarde</div>' +
-                    '<div class="flex items-center gap-1">' +
-                      '<input type="text" id="bulk-inp-' + esc(fid) + '" class="input input-xs input-bordered flex-1 font-mono" placeholder="Standaardwaarde\u2026" value="' + esc(bulkDefault) + '">' +
-                      '<button class="btn btn-xs btn-primary btn-square" data-action="save-bulk-import-default" data-field-id="' + esc(fid) + '" title="Opslaan"><i data-lucide="save" class="w-3.5 h-3.5"></i></button>' +
-                    '</div>' +
-                  '</div>' +
-                '</div>' +
-              '</div>' +
-
-            '</div>' +
-          '</div>' + // end grid
-        '</div>'; // end detail panel
-
-      return '<div class="border-b border-base-200 last:border-b-0' + (hidden ? ' opacity-40' : '') + '">' + summaryRow + detailPanel + '</div>';
+      return '<div class="border-b border-base-200 last:border-b-0">' + summaryRow + detailPanel + '</div>';
 
     }).join('');
 
     // ── Assemble ──────────────────────────────────────────────────────────────
     el.innerHTML =
       toolbarHtml +
-      '<div class="rounded-box border border-base-300 bg-base-100 divide-y divide-base-200 overflow-hidden">' +
+      '<div class="rounded-box border border-base-200 bg-base-100 overflow-hidden">' +
         itemsHtml +
       '</div>';
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
   }
+
+
+
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // DETAIL ACTIONS
@@ -1613,6 +1935,12 @@ function renderDetailFormFields() {
       S()._pendingCatchall        = '';
       S()._fieldMeta        = _loadFieldMeta(id);  // reads from integration.field_meta
       S()._showHiddenFields = false;
+      // Laad warnings (fire-and-forget) — nodig voor step card badges
+      window.FSV2.api('/integrations/warnings').then(function (wb) {
+        S().integrationWarnings = wb.data || {};
+        if (S().activeId === id) renderDetailMappings();
+      }).catch(function () {});
+
       window.FSV2.api('/integrations/' + id + '/field-transforms').then(function (r) {
         S().fieldTransforms = {};
         (r.data || []).forEach(function (t) { S().fieldTransforms[t.field_name] = t; });
@@ -1852,60 +2180,93 @@ function renderDetailFormFields() {
     await openDetail(S().activeId);
   }
 
-  // ── Fase 1: Render 4 intent-kaarten in #addTargetTypeCards ─────────────────
+  // ── Fase 1: Model-kaarten in #addTargetObjectCards ──────────────────────────
   function renderAddTargetDialog() {
-    var container = document.getElementById('addTargetTypeCards');
+    var container = document.getElementById('addTargetObjectCards');
     if (!container) return;
     var dlg = document.getElementById('addTargetDialog');
-    var sel = dlg ? dlg.dataset.selectedType : '';
-    var modelRow = document.getElementById('addTargetModelRow');
+    var sel = dlg ? (dlg.dataset.selectedObject || '') : '';
 
-    var TYPES = [
-      { opType: 'upsert',          icon: 'git-merge',      label: 'Upsert',             desc: 'Aanmaken of bijwerken' },
-      { opType: 'create',          icon: 'plus-circle',    label: 'Aanmaken',           desc: 'Altijd nieuw record aanmaken' },
-      { opType: 'update_only',     icon: 'pencil',         label: 'Bijwerken',          desc: 'Alleen bestaand record bijwerken' },
-      { opType: 'chatter_message', icon: 'message-square', label: 'Chatter-bericht',    desc: 'Bericht in de chatter plaatsen' },
-      { opType: 'create_activity', icon: 'calendar-check', label: 'Activiteit',         desc: 'Taak inplannen op een record' },
+    var models = Array.isArray(S().odooModelsCache) && S().odooModelsCache.length
+      ? S().odooModelsCache
+      : (window.FSV2.DEFAULT_ODOO_MODELS || []);
+
+    var SPECIAL = [
+      { id: 'chatter_message', icon: 'message-square', label: 'Chatter-bericht',  desc: 'Bericht in de chatter plaatsen' },
+      { id: 'create_activity', icon: 'calendar-check', label: 'Activiteit',        desc: 'Taak inplannen op een record' },
     ];
 
-    container.innerHTML = TYPES.map(function (t) {
-      var isActive = sel === t.opType;
-      return (
-        '<button type="button"' +
-          ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + '"' +
-          ' data-action="select-target-type" data-op-type="' + t.opType + '">' +
-          '<i data-lucide="' + t.icon + '" class="w-5 h-5 shrink-0"></i>' +
-          '<span class="text-left"><span class="font-semibold">' + t.label + '</span>' +
-            '<span class="block text-xs font-normal opacity-70">' + t.desc + '</span></span>' +
-        '</button>'
-      );
+    var modelCards = models.map(function (m) {
+      var isActive = sel === (m.odoo_model || m.name);
+      var icon     = m.icon || 'box';
+      var label    = m.label || m.odoo_model || m.name;
+      var modelId  = m.name;
+      return '<button type="button"' +
+        ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + '"' +
+        ' data-action="select-target-object" data-object-id="' + esc(modelId) + '">' +
+        '<i data-lucide="' + esc(icon) + '" class="w-5 h-5 shrink-0"></i>' +
+        '<span class="text-left font-semibold">' + esc(label) + '</span>' +
+        '</button>';
     }).join('');
 
-    // show/hide model picker
-    if (modelRow) {
-      modelRow.style.display = (sel && sel !== 'chatter_message' && sel !== 'create_activity') ? '' : 'none';
-    }
+    var specialCards = SPECIAL.map(function (s) {
+      var isActive = sel === s.id;
+      return '<button type="button"' +
+        ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + '"' +
+        ' data-action="select-target-object" data-object-id="' + esc(s.id) + '">' +
+        '<i data-lucide="' + esc(s.icon) + '" class="w-5 h-5 shrink-0"></i>' +
+        '<span class="text-left"><span class="font-semibold">' + esc(s.label) + '</span>' +
+          '<span class="block text-xs font-normal opacity-70">' + esc(s.desc) + '</span></span>' +
+        '</button>';
+    }).join('');
 
-    // unlock confirm button for chatter_message and create_activity immediately
-    var confirmBtn = document.getElementById('confirmAddTargetBtn');
-    if (confirmBtn) {
-      var picker = document.getElementById('addTargetModelPicker');
-      confirmBtn.disabled = !sel || (sel !== 'chatter_message' && sel !== 'create_activity' && !(picker && picker.value));
-    }
+    container.innerHTML = modelCards + (models.length ? '<div class="divider my-1"></div>' : '') + specialCards;
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) {
-      lucide.createIcons({ nodes: [container] });
+      lucide.createIcons({ context: container });
+    }
+  }
+
+  // ── Fase 2: Operatie-kaarten in #addTargetOpCards ───────────────────────────
+  function renderAddTargetStep2() {
+    var container = document.getElementById('addTargetOpCards');
+    if (!container) return;
+    var dlg = document.getElementById('addTargetDialog');
+    var sel = dlg ? (dlg.dataset.selectedOp || '') : '';
+
+    var OPS = [
+      { opType: 'upsert',      icon: 'git-merge',  label: 'Zoeken + bijwerken of aanmaken', desc: 'Zoek op identifier; update of maak nieuw aan' },
+      { opType: 'create',      icon: 'plus-circle', label: 'Altijd nieuw aanmaken',           desc: 'Maakt altijd een nieuw record' },
+      { opType: 'update_only', icon: 'pencil',      label: 'Alleen bijwerken',                desc: 'Werkt alleen bij als record gevonden wordt' },
+    ];
+
+    container.innerHTML = OPS.map(function (o) {
+      var isActive = sel === o.opType;
+      return '<button type="button"' +
+        ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + '"' +
+        ' data-action="select-target-op" data-op-type="' + esc(o.opType) + '">' +
+        '<i data-lucide="' + esc(o.icon) + '" class="w-5 h-5 shrink-0"></i>' +
+        '<span class="text-left"><span class="font-semibold">' + esc(o.label) + '</span>' +
+          '<span class="block text-xs font-normal opacity-70">' + esc(o.desc) + '</span></span>' +
+        '</button>';
+    }).join('');
+
+    var confirmBtn = document.getElementById('confirmAddTargetBtn');
+    if (confirmBtn) confirmBtn.disabled = !sel;
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+      lucide.createIcons({ context: container });
     }
   }
 
   // ── Fase 1: Handle confirmed "Stap toevoegen" from intent-picker ───────────
-  async function handleAddTargetWithType(integrationId, opType) {
+  async function handleAddTargetWithType(integrationId, objectId, opType) {
     var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
     var maxOrder = targets.reduce(function (max, t) {
       return Math.max(max, getTargetOrder(t, 0));
     }, 0);
 
-    if (opType === 'create_activity') {
+    if (objectId === 'create_activity') {
       var actCompatibles = targets.filter(function (t) {
         return t.operation_type !== 'chatter_message' && t.operation_type !== 'create_activity' && t.odoo_model;
       }).sort(function (a, b) { return getTargetOrder(a, 0) - getTargetOrder(b, 0); });
@@ -1945,7 +2306,7 @@ function renderDetailFormFields() {
       return;
     }
 
-    if (opType === 'chatter_message') {
+    if (objectId === 'chatter_message') {
       // Find the first compatible preceding target (non-chatter, has a model)
       var compatibles = targets.filter(function (t) {
         return t.operation_type !== 'chatter_message' && t.odoo_model;
@@ -2001,25 +2362,72 @@ function renderDetailFormFields() {
       return;
     }
 
-    var picker  = document.getElementById('addTargetModelPicker');
-    var chosenModel = picker ? picker.value : '';
+    var chosenModel  = objectId || '';
+    var actualOpType = opType   || 'upsert';
     if (!chosenModel) {
       window.FSV2.showAlert('Kies een model voor de nieuwe stap.', 'error');
       return;
     }
 
     var actionCfg = window.FSV2.getModelCfg ? (window.FSV2.getModelCfg(chosenModel) || {}) : {};
+    // Use actual Odoo model name (resolved from slug via actionCfg.odoo_model)
+    var odooModelName = actionCfg.odoo_model || chosenModel;
 
-    await window.FSV2.api('/integrations/' + integrationId + '/targets', {
-      method: 'POST',
-      body: JSON.stringify({
-        odoo_model:      chosenModel,
-        identifier_type: actionCfg.identifier_type || 'mapped_fields',
-        update_policy:   actionCfg.update_policy   || 'always_overwrite',
-        operation_type:  opType,
-        execution_order: maxOrder + 1,
-      }),
-    });
+    var newTargetRes;
+    try {
+      newTargetRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_model:      odooModelName,
+          identifier_type: actionCfg.identifier_type || 'mapped_fields',
+          update_policy:   actionCfg.update_policy   || 'always_overwrite',
+          operation_type:  actualOpType || 'upsert',
+          execution_order: maxOrder + 1,
+        }),
+      });
+    } catch (e) {
+      window.FSV2.showAlert('Stap aanmaken mislukt: ' + (e.message || 'onbekende fout'), 'error');
+      return;
+    }
+    var newTargetId = newTargetRes && newTargetRes.data && newTargetRes.data.id;
+
+    // Post fixed_fields (vaste waarden) as static mappings
+    if (newTargetId) {
+      var fixedFields = Array.isArray(actionCfg.fixed_fields) ? actionCfg.fixed_fields : [];
+      var skippedFixed = [];
+      for (var ffi = 0; ffi < fixedFields.length; ffi++) {
+        var ff = fixedFields[ffi];
+        if (!ff || !ff.name) continue;
+        // Boolean false must become 'false'; only skip truly absent values
+        var rawVal = ff.value;
+        if (rawVal === null || rawVal === undefined || rawVal === '') {
+          skippedFixed.push(ff.name);
+          continue;
+        }
+        var ffVal = String(rawVal);
+        try {
+          await window.FSV2.api('/targets/' + newTargetId + '/mappings', {
+            method: 'POST',
+            body: JSON.stringify({
+              odoo_field:      ff.name,
+              source_type:     'static',
+              source_value:    ffVal,
+              is_identifier:   false,
+              is_required:     false,
+              is_update_field: true,
+              order_index:     ffi,
+            }),
+          });
+        } catch (e) {
+          skippedFixed.push(ff.name);
+          console.warn('fixed_field mapping failed for ' + ff.name, e);
+        }
+      }
+      if (skippedFixed.length) {
+        window.FSV2.showAlert('Vaste waarden niet ingevuld voor: ' + skippedFixed.join(', ') + '. Stel ze opnieuw in via Instellingen.', 'error');
+      }
+    }
+
     window.FSV2.showAlert('Stap toegevoegd.', 'success');
     await openDetail(S().activeId);
   }
@@ -2360,6 +2768,8 @@ function renderDetailFormFields() {
     var meta    = S()._fieldMeta || {};
     if (!meta[fid]) meta[fid] = {};
     meta[fid].hidden = !meta[fid].hidden;
+    // When hiding a field, also disable bulk import for it
+    if (meta[fid].hidden) meta[fid].bulk_import_show = false;
     if (!hasAnyFieldMetaOverrides(meta[fid])) delete meta[fid];
     S()._fieldMeta = meta;
     _saveFieldMeta(integId, meta);
@@ -2478,6 +2888,7 @@ function renderDetailFormFields() {
     } else {
       S().detailFormFields = [];
     }
+    applyDefaultFieldMeta();
   }
 
   /**
@@ -2537,6 +2948,34 @@ function renderDetailFormFields() {
     return (knownFields || []).concat(extras);
   }
 
+  /**
+   * Stelt standaard verborgen status in voor velden die raw_* bevatten of type captcha hebben.
+   * Wordt alleen toegepast als het veld nog geen expliciete meta heeft.
+   */
+  function applyDefaultFieldMeta() {
+    var fields = S().detailFormFields;
+    if (!Array.isArray(fields) || !fields.length) return;
+    var integId = String(S().activeId || '');
+    var meta    = S()._fieldMeta || {};
+    var changed = false;
+    fields.forEach(function (f) {
+      var fid  = String(f.field_id || '');
+      var type = String(f.type || '').toLowerCase();
+      var shouldHide = /raw/.test(fid.toLowerCase()) || type === 'captcha' || fid.toLowerCase().startsWith('captcha');
+      if (shouldHide && !(meta[fid] && meta[fid]._defaultApplied)) {
+        if (!meta[fid]) meta[fid] = {};
+        meta[fid].hidden          = true;
+        meta[fid].bulk_import_show = false;
+        meta[fid]._defaultApplied = true;
+        changed = true;
+      }
+    });
+    if (changed) {
+      S()._fieldMeta = meta;
+      _saveFieldMeta(integId, meta);
+    }
+  }
+
   async function fetchDetailFormFields(sk, fid) {
     S().detailFormFields = 'loading';
     renderDetailFormFields();
@@ -2564,6 +3003,7 @@ function renderDetailFormFields() {
       S().detailFormFields = ffMatch && ffMatch.fields ? ffMatch.fields : [];
       // Voeg extra velden toe die in payload-inzendingen voorkomen maar niet in de form-definitie staan
       S().detailFormFields = mergePayloadExtraFields(S().detailFormFields);
+      applyDefaultFieldMeta();
 
       // Sla de ontdekte site_key terug op de integratie zodat volgende keer direct werkt
       if (foundKey && !sk && S().detail && S().detail.integration) {
@@ -3324,6 +3764,10 @@ function renderDetailFormFields() {
       return r.odooField === odooField && r.sourceType === 'previous_step_output';
     });
     if (already) { window.FSV2.showAlert('Koppeling bestaat al.', 'info'); return; }
+    // Remove any existing default/empty row for the same odoo field so it doesn't duplicate
+    S().detail._extraRowsByTarget[tid] = S().detail._extraRowsByTarget[tid].filter(function (r) {
+      return !(r.odooField === odooField && r.sourceType !== 'previous_step_output');
+    });
     S().detail._extraRowsByTarget[tid].push({
       odooField:   odooField,
       odooLabel:   odooLabel || odooField,
@@ -3781,57 +4225,42 @@ function renderDetailFormFields() {
 
     var html = '';
 
-    // Step selector
-    if (!compatibleSteps.length) {
-      html += '<div class="alert alert-warning text-sm mb-4">' +
-        '<i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>' +
-        '<span>Let op: er is nog geen voorgaande stap beschikbaar. ' +
-        'Voeg eerst een stap toe die een record aanmaakt of bijwerkt.</span>' +
-        '</div>';
-    } else {
-      html += '<div class="form-control mb-3">' +
-        '<label class="label pb-1"><span class="label-text text-sm font-medium">Koppel aan stap</span></label>' +
-        '<select class="select select-bordered select-sm" id="activityStepSelect-' + esc(tid) + '">';
-      compatibleSteps.forEach(function (t) {
-        var order = getTargetOrder(t, 0);
-        var lbl   = t.label || modelLabel(t.odoo_model);
-        var sel   = (currentStepOrder !== null && String(currentStepOrder) === String(order)) ? ' selected' : '';
-        html += '<option value="' + esc(String(order)) + '"' + sel + '>' + esc(lbl) + ' (stap ' + (order + 1) + ')</option>';
-      });
-      html += '</select>' +
-        '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Record-ID van deze stap wordt als activiteitsontvanger gebruikt.</span></label>' +
-        '</div>';
+    // Activiteitstype + Deadline op één rij
+    var _linkedModel = null;
+    if (currentStepOrder !== null) {
+      var _linkedStep = compatibleSteps.find(function (t) { return String(getTargetOrder(t, 0)) === String(currentStepOrder); });
+      if (_linkedStep) _linkedModel = _linkedStep.odoo_model;
     }
+    if (!_linkedModel && compatibleSteps.length > 0) _linkedModel = compatibleSteps[0].odoo_model;
 
-    // Activity type dropdown (populated async)
-    html += '<div class="form-control mb-3">' +
-      '<label class="label pb-1"><span class="label-text text-sm font-medium">Activiteitstype</span></label>' +
-      '<select class="select select-bordered select-sm" id="activityTypeSelect-' + esc(tid) + '">' +
-        '<option value="">Laden\u2026</option>' +
-      '</select>' +
-      '</div>';
+    html += '<div class="flex gap-4 mb-3 items-end">' +
+      '<div class="form-control flex-1">' +
+        '<label class="label pb-1"><span class="label-text text-sm font-medium">Activiteitstype</span></label>' +
+        '<select class="select select-bordered select-sm" id="activityTypeSelect-' + esc(tid) + '">' +
+          '<option value="">Laden\u2026</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="form-control">' +
+        '<label class="label pb-1">' +
+          '<span class="label-text text-sm font-medium">Deadline</span>' +
+          '<span class="label-text-alt text-base-content/50">werkdagen</span>' +
+        '</label>' +
+        '<input type="number" min="0" class="input input-bordered input-sm w-24"' +
+          ' id="activityDeadlineOffset-' + esc(tid) + '"' +
+          ' value="' + esc(String(target.activity_deadline_offset != null ? target.activity_deadline_offset : 1)) + '">' +
+      '</div>' +
+    '</div>';
 
-    // Deadline in working days
+    // Beschrijving
     html += '<div class="form-control mb-3">' +
       '<label class="label pb-1">' +
-        '<span class="label-text text-sm font-medium">Deadline (werkdagen vanaf vandaag)</span>' +
-        '<span class="label-text-alt text-base-content/50">Zaterdag &amp; zondag worden overgeslagen</span>' +
-      '</label>' +
-      '<input type="number" min="0" class="input input-bordered input-sm w-32"' +
-        ' id="activityDeadlineOffset-' + esc(tid) + '"' +
-        ' value="' + esc(String(target.activity_deadline_offset != null ? target.activity_deadline_offset : 1)) + '">' +
-      '</div>';
-
-    // Summary template
-    html += '<div class="form-control mb-3">' +
-      '<label class="label pb-1">' +
-        '<span class="label-text text-sm font-medium">Samenvatting template</span>' +
-        '<span class="label-text-alt text-base-content/50">Gebruik {{veldnaam}} voor formulierwaarden</span>' +
+        '<span class="label-text text-sm font-medium">Beschrijving</span>' +
       '</label>' +
       '<input type="text" class="input input-bordered input-sm"' +
         ' id="activitySummaryTemplate-' + esc(tid) + '"' +
         ' value="' + esc(target.activity_summary_template || '') + '"' +
         ' placeholder="Nieuwe aanvraag van {{name}}">' +
+      '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Gebruik {{veldnaam}} voor formulierwaarden</span></label>' +
       '</div>';
 
     // ── User assignment ──────────────────────────────────────────────────────
@@ -3886,16 +4315,20 @@ function renderDetailFormFields() {
     el.innerHTML = html;
 
     // Async: load activity types + odoo users
-    var loadTypes = window.FSV2.api('/activity-types').then(function (res) {
-      var sel = document.getElementById('activityTypeSelect-' + tid);
-      if (!sel) return;
-      sel.innerHTML = '<option value="">\u2014 Geen type \u2014</option>' +
-        (res.data || []).map(function (t) {
-          return '<option value="' + esc(String(t.id)) + '"' +
-            (target.activity_type_id == t.id ? ' selected' : '') + '>' +
-            esc(t.name) + '</option>';
-        }).join('');
-    });
+    function _loadActivityTypes(model, selectedId) {
+      var url = '/activity-types' + (model ? '?model=' + encodeURIComponent(model) : '');
+      return window.FSV2.api(url).then(function (res) {
+        var sel = document.getElementById('activityTypeSelect-' + tid);
+        if (!sel) return;
+        sel.innerHTML = '<option value="">\u2014 Geen type \u2014</option>' +
+          (res.data || []).map(function (t) {
+            return '<option value="' + esc(String(t.id)) + '"' +
+              (selectedId == t.id ? ' selected' : '') + '>' +
+              esc(t.name) + '</option>';
+          }).join('');
+      });
+    }
+    var loadTypes = _loadActivityTypes(_linkedModel, target.activity_type_id);
 
     var loadUsers = window.FSV2.api('/odoo-users').then(function (res) {
       var users = res.data || [];
@@ -4047,6 +4480,7 @@ function renderDetailFormFields() {
     handleSaveMappings:      handleSaveMappings,
     handleAddTarget:         handleAddTarget,
     handleAddTargetWithType: handleAddTargetWithType,
+    renderAddTargetStep2:     renderAddTargetStep2,
     renderAddTargetDialog:   renderAddTargetDialog,
     openHtmlSummaryModal:    openHtmlSummaryModal,
     scheduleHtmlSummaryPreview: scheduleHtmlSummaryPreview,
@@ -4057,6 +4491,7 @@ function renderDetailFormFields() {
     updateChatterPreview:    updateChatterPreview,
     handleSaveChatterComposer: handleSaveChatterComposer,
     renderActivityComposer:  renderActivityComposer,
+    renderActivityLinkCallout: renderActivityLinkCallout,
     handleActivityUserMode:  handleActivityUserMode,
     handleSaveActivityComposer: handleSaveActivityComposer,
     handleDuplicateTarget:   handleDuplicateTarget,
@@ -4067,6 +4502,7 @@ function renderDetailFormFields() {
     handleReorderTarget:      handleReorderTarget,
     toggleStepOpen:          toggleStepOpen,
     applyChainSuggestion:    applyChainSuggestion,
+    removeChainLink:          removeChainLink,
     handleToggleIdentifier:  handleToggleIdentifier,
     fetchDetailFormFields:    fetchDetailFormFields,
     handleRefreshFormFields:  handleRefreshFormFields,

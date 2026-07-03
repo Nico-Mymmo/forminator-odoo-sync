@@ -1,0 +1,2 @@
+ALTER TABLE fs_v2_targets
+  ADD COLUMN IF NOT EXISTS identifier_field VARCHAR(255) DEFAULT NULL;

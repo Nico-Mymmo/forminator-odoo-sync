@@ -37,6 +37,8 @@ import {
   deleteWpConnection,
   getModelDefaults,
   updateModelDefaultFields,
+  updateModelFixedFields,
+  updateModelIdentifierFields,
   getModelLinks,
   upsertModelLinks,
   getOdooModels,
@@ -45,6 +47,7 @@ import {
   listFieldTransforms,
   upsertFieldTransform,
   deleteFieldTransform,
+  getIntegrationWarnings,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -690,6 +693,15 @@ export const routes = {
     }
   },
 
+  'GET /api/integrations/warnings': async (context) => {
+    try {
+      const warnings = await getIntegrationWarnings(context.env);
+      return jsonResponse({ success: true, data: warnings });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
   'POST /api/integrations': async (context) => {
     try {
       const payload = await readJsonBody(context.request);
@@ -814,7 +826,11 @@ export const routes = {
 
       const payload = await readJsonBody(context.request);
       const storedModels = await getOdooModels(context.env);
-      const allowedModels = storedModels.map(m => m.name);
+      // Allow both slug name and technical Odoo model name
+      const allowedModels = storedModels.flatMap(m => [
+        m.name,
+        ...(m.odoo_model && m.odoo_model !== m.name ? [m.odoo_model] : []),
+      ]);
       validateTargetPayload(payload, { allowedModels });
 
       const created = await createTarget(context.env, {
@@ -838,6 +854,7 @@ export const routes = {
         ...(payload.label            !== undefined ? { label:            payload.label            || null } : {}),
         ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
         ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
+        ...(payload.identifier_field !== undefined ? { identifier_field: payload.identifier_field || null } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -1442,7 +1459,9 @@ export const routes = {
 
   'GET /api/activity-types': async (context) => {
     try {
-      const types = await fetchFsv2ActivityTypes(context.env);
+      const url   = new URL(context.request.url);
+      const model = url.searchParams.get('model') || null;
+      const types = await fetchFsv2ActivityTypes(context.env, model);
       return jsonResponse({ success: true, data: types });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);
@@ -1604,6 +1623,40 @@ export const routes = {
   },
 
   /**
+   * PUT /api/settings/model-identifier-fields
+   * Saves the identifier_fields for a single Odoo model.
+   */
+  'PUT /api/settings/model-identifier-fields': async (context) => {
+    try {
+      const body   = await readJsonBody(context.request);
+      const { model, fields } = body;
+      if (!model)                 return jsonResponse({ success: false, error: 'model required' }, 400);
+      if (!Array.isArray(fields)) return jsonResponse({ success: false, error: 'fields must be an array' }, 400);
+      await updateModelIdentifierFields(context.env, model, fields);
+      return jsonResponse({ success: true, data: { model, fields } });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
+   * PUT /api/settings/model-fixed-fields
+   * Saves the fixed_fields for a single Odoo model.
+   */
+  'PUT /api/settings/model-fixed-fields': async (context) => {
+    try {
+      const body   = await readJsonBody(context.request);
+      const { model, fields } = body;
+      if (!model)                 return jsonResponse({ success: false, error: 'model required' }, 400);
+      if (!Array.isArray(fields)) return jsonResponse({ success: false, error: 'fields must be an array' }, 400);
+      await updateModelFixedFields(context.env, model, fields);
+      return jsonResponse({ success: true, data: { model, fields } });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  /**
    * GET /api/settings/model-links
    * Returns the saved model link registry (array of {model_a, model_b, link_field, link_label}).
    */
@@ -1675,8 +1728,16 @@ export const routes = {
         return jsonResponse({ success: false, error: 'model query param is verplicht, bv. ?model=res.partner' }, 400);
       }
 
+      // Resolve slug → actual Odoo model (e.g. 'bedrijf' → 'res.partner')
+      let odooModel = model;
+      try {
+        const allModels = await getOdooModels(context.env);
+        const modelCfg = allModels.find(m => m.name === model);
+        if (modelCfg && modelCfg.odoo_model) odooModel = modelCfg.odoo_model;
+      } catch (_) { /* fallback to raw model param */ }
+
       const rawFields = await executeKw(context.env, {
-        model,
+        model: odooModel,
         method: 'fields_get',
         args: [],
         kwargs: { attributes: ['string', 'type', 'store', 'readonly', 'selection', 'relation'] },
@@ -1695,9 +1756,46 @@ export const routes = {
         }))
         .sort((a, b) => a.label.localeCompare(b.label, 'nl'));
 
-      return jsonResponse({ success: true, data: fields, model });
+      return jsonResponse({ success: true, data: fields, model, odooModel });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
-  }
+  },
+
+  /**
+   * GET /api/odoo/search?model=res.partner&q=Nico&limit=20
+   * Search records of a many2one model for value pickers.
+   */
+  'GET /api/odoo/search': async (context) => {
+    try {
+      const url   = new URL(context.request.url);
+      const model = (url.searchParams.get('model') || '').trim();
+      const q     = (url.searchParams.get('q') || '').trim();
+      const limit = Math.min(parseInt(url.searchParams.get('limit') || '20', 10), 50);
+
+      if (!model) return jsonResponse({ success: false, error: 'model is verplicht' }, 400);
+
+      // Resolve slug → odoo model
+      let odooModel = model;
+      try {
+        const allModels = await getOdooModels(context.env);
+        const cfg = allModels.find(m => m.name === model);
+        if (cfg && cfg.odoo_model) odooModel = cfg.odoo_model;
+      } catch (_) {}
+
+      const domain = q ? [['display_name', 'ilike', q]] : [];
+
+      const records = await executeKw(context.env, {
+        model: odooModel,
+        method: 'search_read',
+        args: [domain],
+        kwargs: { fields: ['id', 'display_name'], limit },
+      });
+
+      const results = (records || []).map(r => ({ id: r.id, label: r.display_name }));
+      return jsonResponse({ success: true, data: results });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
 };

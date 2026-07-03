@@ -34,6 +34,44 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="/shared-navbar.js"></script>
+
+  <style>
+    /* border-base-200 → base-content/20: licht in dark, donker in light — altijd zichtbaar */
+    .border-base-200 { border-color: oklch(var(--bc) / 0.2) !important; }
+    .divide-base-200 > * + * { border-color: oklch(var(--bc) / 0.2) !important; }
+    /* Collapsible details chevron */
+    details > summary { list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary .details-chevron { transition: transform 0.2s ease; }
+    details[open] > summary .details-chevron { transform: rotate(90deg); }
+  
+    /* Quill Snow theme-overrides — volgt DaisyUI kleuren */
+    .ql-toolbar.ql-snow {
+      background: oklch(var(--b2));
+      border-color: oklch(var(--bc) / 0.2);
+      border-radius: 0.5rem 0.5rem 0 0;
+    }
+    .ql-container.ql-snow {
+      background: oklch(var(--b1));
+      border-color: oklch(var(--bc) / 0.2);
+      border-radius: 0 0 0.5rem 0.5rem;
+      color: oklch(var(--bc));
+      font-family: inherit;
+    }
+    .quill-height-wrap { border-radius: 0 0 0.5rem 0.5rem; }
+    .quill-height-wrap .ql-container.ql-snow { border-radius: 0; }
+    .ql-editor { color: oklch(var(--bc)); min-height: 6rem; }
+    .ql-editor.ql-blank::before { color: oklch(var(--bc) / 0.35); font-style: italic; }
+    .ql-snow .ql-stroke { stroke: oklch(var(--bc) / 0.7); }
+    .ql-snow .ql-fill  { fill:   oklch(var(--bc) / 0.7); }
+    .ql-snow .ql-picker-label { color: oklch(var(--bc) / 0.7); }
+    .ql-snow .ql-picker-options { background: oklch(var(--b2)); border-color: oklch(var(--bc) / 0.2); color: oklch(var(--bc)); }
+    .ql-snow .ql-toolbar button:hover .ql-stroke,
+    .ql-snow .ql-toolbar button.ql-active .ql-stroke { stroke: oklch(var(--p)); }
+    .ql-snow .ql-toolbar button:hover .ql-fill,
+    .ql-snow .ql-toolbar button.ql-active .ql-fill  { fill:   oklch(var(--p)); }
+</style>
 </head>
 <body class="bg-base-200">
 
@@ -94,7 +132,6 @@
       </div>
 
       <!-- ─── GLOBAL ALERT ────────────────────────────────────────────── -->
-      <div id="statusAlert" class="alert mb-6" style="display:none;"></div>
 
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <!-- VIEW: LIST                                                       -->
@@ -225,11 +262,9 @@
 
         <!-- Step indicator -->
         <ul class="steps w-full mb-10 text-sm">
-          <li id="wizardStep1" class="step step-primary">Website</li>
+          <li id="wizardStep1" class="step step-primary">Bron</li>
           <li id="wizardStep2" class="step">Formulier</li>
-          <li id="wizardStep3" class="step">Actie</li>
-          <li id="wizardStep4" class="step">Koppeling</li>
-          <li id="wizardStep5" class="step">Notitie</li>
+          <li id="wizardStep3" class="step">Klaar</li>
         </ul>
 
         <!-- ── Step 1: Choose site ──────────────────────────────────── -->
@@ -251,48 +286,28 @@
           <div id="wizardFormsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
         </div>
 
-        <!-- ── Step 3: Choose action (hidden until form selected) ────── -->
-        <div id="wizard-section-actions" style="display:none;" class="mt-10">
-          <div class="divider mb-6"></div>
-          <div class="mb-4">
-            <h3 class="text-lg font-semibold">Wat wil je doen in Odoo?</h3>
-            <p class="text-sm text-base-content/60">Kies wat er in Odoo moet gebeuren wanneer dit formulier wordt ingevuld.</p>
-          </div>
-          <div class="actions-grid grid grid-cols-1 md:grid-cols-3 gap-4"></div>
-        </div>
-
-        <!-- ── Step 4: Mapping + create (hidden until action selected) ── -->
+        <!-- ── Step 3: Name + submit (hidden until source/form selected) ── -->
         <div id="wizard-section-mapping" style="display:none;" class="mt-10">
           <div class="divider mb-6"></div>
 
           <div class="mb-6">
-            <h3 class="text-lg font-semibold mb-1">Veldkoppelingen</h3>
-            <p class="text-sm text-base-content/60">
-              Kies voor elk Odoo-veld welk formulierveld de waarde levert.
-              Voorgestelde koppelingen zijn automatisch ingevuld op basis van veldnamen.
-            </p>
+            <h3 class="text-lg font-semibold mb-1">Naam &amp; afronden</h3>
+            <p class="text-sm text-base-content/60">Geef de integratie een herkenbare naam. De Odoo-koppeling stel je daarna in via de integratiedetails.</p>
           </div>
 
           <!-- Integration name -->
           <div class="card bg-base-100 shadow mb-6">
             <div class="card-body p-5">
               <div class="form-control">
-                <label class="label"><span class="label-text font-semibold">Naam van deze integratie</span></label>
+                <label class="label" for="wizardName"><span class="label-text font-semibold">Naam van deze integratie</span></label>
                 <input
                   id="wizardName"
                   type="text"
                   class="input input-bordered"
-                  placeholder="bijv. OpenVME — Contactformulier — Lead aanmaken"
+                  placeholder="bijv. OpenVME — Contactformulier"
                   required
                 />
               </div>
-            </div>
-          </div>
-
-          <!-- Mapping table (built by renderWizardMapping()) -->
-          <div class="card bg-base-100 shadow mb-6">
-            <div class="card-body p-5">
-              <div id="wizardMappingTable"></div>
             </div>
           </div>
 
@@ -338,25 +353,6 @@
           </button>
         </div>
 
-        <!-- ── Step 5: Optional chatter step (shown after successful submit) ── -->
-        <div id="wizard-section-chatter" style="display:none;" class="mt-10">
-          <div class="divider mb-6"></div>
-          <div class="mb-6 text-center">
-            <div class="text-4xl mb-3">✉️</div>
-            <h3 class="text-lg font-semibold mb-1">Integratie aangemaakt!</h3>
-            <p class="text-sm text-base-content/60">Wil je ook een notitie in de Odoo-chatter plaatsen bij elke nieuwe indiening?</p>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <button type="button" class="btn btn-outline w-full gap-2" data-action="wizard-skip-chatter">
-              <i data-lucide="skip-forward" class="w-5 h-5"></i>
-              Overslaan — afronden
-            </button>
-            <button type="button" class="btn btn-primary w-full gap-2" data-action="wizard-add-chatter">
-              <i data-lucide="message-square-plus" class="w-5 h-5"></i>
-              Ja, voeg chatter-notitie toe
-            </button>
-          </div>
-        </div>
 
       </div><!-- /view-wizard -->
 
@@ -371,47 +367,36 @@
           Terug naar overzicht
         </button>
 
-        <!-- Header card — rendered by renderDetail() -->
+        <!-- Header — rendered by renderDetail() -->
         <div id="detailHeader"></div>
 
-        <!-- Mappings card -->
-        <div class="card bg-base-100 shadow mb-6">
-          <div class="card-body p-6">
-            <h3 class="font-bold text-lg mb-4">Veldkoppelingen</h3>
-            <div id="detailMappingsContainer"></div>
-          </div>
+        <!-- Tabs -->
+        <div role="tablist" class="tabs tabs-bordered mb-6" id="detailTabBar">
+          <button role="tab" class="tab tab-active" data-detail-tab="fields">Formuliervelden</button>
+          <button role="tab" class="tab" data-detail-tab="mapping">Koppeling</button>
+          <button role="tab" class="tab" data-detail-tab="history">Indieningen</button>
         </div>
 
-        <!-- Form fields overview (collapsible) -->
-        <div class="collapse collapse-arrow bg-base-100 shadow mb-6">
-          <input type="checkbox" id="formFieldsCollapseToggle" />
-          <div class="collapse-title font-bold text-lg flex items-center justify-between">
-            <span>
-              <i data-lucide="layout-list" class="w-4 h-4 inline mr-2 -mt-0.5"></i>Formulier velden
-            </span>
-            <button class="btn btn-xs btn-outline gap-1 relative z-[1] mr-8" data-action="refresh-form-fields"
-              title="Velden opnieuw ophalen van WordPress">
+        <div id="detailTabFields" class="bg-base-100 border border-base-200 rounded-box p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-semibold">Formuliervelden</h3>
+            <button class="btn btn-xs btn-outline gap-1" data-action="refresh-form-fields" title="Velden opnieuw ophalen van WordPress">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Verversen
             </button>
           </div>
-          <div class="collapse-content px-6 pb-4">
-            <div id="detailFormFields"></div>
-          </div>
+          <div id="detailFormFields"></div>
         </div>
 
-        <!-- Submission history (collapsible) -->
-        <div class="collapse collapse-arrow bg-base-100 shadow mb-6">
-          <input type="checkbox" />
-          <div class="collapse-title font-semibold">
-            <i data-lucide="clock" class="w-4 h-4 inline mr-2 -mt-0.5"></i>
-            Indieningen &amp; geschiedenis
-          </div>
-          <div class="collapse-content">
-            <div id="detailHistory" class="pt-2"></div>
-          </div>
+        <div id="detailTabMapping" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
+          <h3 class="text-base font-semibold mb-4">Veldkoppelingen</h3>
+          <div id="detailMappingsContainer"></div>
         </div>
 
-      </div><!-- /view-detail -->
+        <div id="detailTabHistory" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
+          <div id="detailHistory"></div>
+        </div>
+
+            </div><!-- /view-detail -->
 
     </div><!-- /container -->
   </div><!-- /padding-top -->
@@ -484,15 +469,35 @@
 
   <dialog id="addTargetDialog" class="modal">
     <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-1">Stap toevoegen</h3>
-      <p class="text-sm opacity-70 mb-4">Kies welk type stap je wilt toevoegen.</p>
-      <div id="addTargetTypeCards" class="grid gap-3">
-        <!-- 4 kaarten gegenereerd door renderAddTargetDialog() -->
+
+      <!-- Stap 1: Object kiezen -->
+      <div id="addTargetStep1">
+        <h3 class="font-bold text-lg mb-1">Stap toevoegen</h3>
+        <p class="text-sm text-base-content/60 mb-4">Wat wil je aanmaken of bijwerken?</p>
+        <div id="addTargetObjectCards" class="grid grid-cols-2 gap-2">
+          <!-- gegenereerd door renderAddTargetDialog() -->
+        </div>
       </div>
-      <div id="addTargetModelRow" class="mt-4" style="display:none">
-        <label class="label label-text text-sm">Odoo-model</label>
-        <select id="addTargetModelPicker" class="select select-bordered w-full"></select>
+
+      <!-- Stap 2: Operatie kiezen -->
+      <div id="addTargetStep2" class="hidden">
+        <div class="flex items-center gap-2 mb-4">
+          <button type="button" class="btn btn-ghost btn-xs gap-1" data-action="add-target-back">
+            <i data-lucide="arrow-left" class="w-3 h-3"></i> Terug
+          </button>
+          <span class="text-sm text-base-content/50" id="addTargetStep2Label"></span>
+        </div>
+        <h3 class="font-bold text-lg mb-1">Operatie</h3>
+        <p class="text-sm text-base-content/60 mb-4">Wat moet er met het record gebeuren?</p>
+        <div id="addTargetOpCards" class="grid gap-2">
+          <!-- gegenereerd door renderAddTargetStep2() -->
+        </div>
+        <div id="addTargetModelRow" class="mt-4 hidden">
+          <label class="label label-text text-sm">Odoo-model</label>
+          <select id="addTargetModelPicker" class="select select-bordered w-full"></select>
+        </div>
       </div>
+
       <div class="modal-action">
         <button class="btn" data-action="close-add-target-dialog">Annuleren</button>
         <button class="btn btn-primary" id="confirmAddTargetBtn"
@@ -509,11 +514,11 @@
         Genereert een HTML-tabel van formuliervelden en schrijft die naar een Odoo-veld.
       </p>
       <div class="form-control mb-4">
-        <label class="label"><span class="label-text font-medium">Odoo-veld (type HTML of Text)</span></label>
+        <p class="label"><span class="label-text font-medium">Odoo-veld (type HTML of Text)</span></p>
         <div id="htmlSummaryOdooFieldPicker"></div>
       </div>
       <div class="form-control mb-4">
-        <label class="label"><span class="label-text font-medium">Welke formuliervelden?</span></label>
+        <p class="label"><span class="label-text font-medium">Welke formuliervelden?</span></p>
         <label class="flex items-center gap-2 cursor-pointer mb-1">
           <input type="radio" name="htmlSummaryScope" value="all" class="radio radio-sm" checked>
           <span class="text-sm">Alle velden</span>
@@ -527,10 +532,10 @@
              style="display:none"></div>
       </div>
       <div class="form-control mb-4">
-        <label class="label"><span class="label-text font-medium">Voorvertoning</span></label>
+        <p class="label"><span class="label-text font-medium">Voorvertoning</span></p>
         <iframe id="htmlSummaryPreviewFrame"
                 sandbox="allow-same-origin"
-                style="width:100%;min-height:80px;border:1px solid hsl(var(--b3));border-radius:0.5rem;background:#fff"
+                style="width:100%;min-height:80px;border:1px solid oklch(var(--bc)/0.2);border-radius:0.5rem;background:oklch(var(--b1))"
                 scrolling="no"></iframe>
       </div>
       <div class="modal-action">

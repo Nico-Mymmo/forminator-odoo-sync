@@ -1,0 +1,132 @@
+<form string="Partners">
+                <div class="alert alert-warning oe_edit_only" role="alert" name="warning_tax" invisible="not same_vat_partner_id">
+                  A partner with the same <span><span class="o_vat_label">Tax ID</span></span> already exists (<field name="same_vat_partner_id"/>), are you sure to create a new one?
+                </div>
+                <div class="alert alert-warning oe_edit_only" role="alert" name="warning_company" invisible="not same_company_registry_partner_id">
+                  A partner with the same <span><span class="o_vat_label">Company Registry</span></span> already exists (<field name="same_company_registry_partner_id"/>), are you sure to create a new one?
+                </div>
+                <div groups="account.group_account_invoice,account.group_account_readonly" class="alert alert-warning" role="alert" style="margin-bottom:0px;" invisible="duplicated_bank_account_partners_count == 0">
+                        One or more Bank Accounts set on this partner are also used by other <bold><button class="alert-link" type="object" name="action_view_partner_with_same_bank" role="button" string="Partners" style="padding: 0;vertical-align: baseline;"/></bold>. Please make sure that this is a wanted behavior.
+                    </div>
+                <sheet>
+                    <div class="oe_button_box" name="button_box"/>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger" invisible="active"/>
+                    <field name="avatar_128" invisible="1"/>
+                    <div class="oe_title mb24">
+                        <field name="is_company" invisible="1"/>
+                        <field name="commercial_partner_id" invisible="1"/>
+                        <field name="active" invisible="1"/>
+                        <field name="company_id" invisible="1"/>
+                        <field name="fiscal_country_codes" invisible="1"/>
+                <field name="country_code" invisible="1"/>
+                        <field name="company_type" widget="radio" options="{'horizontal': true}" invisible="False"/>
+                        <h1>
+                            <field id="company" options="{'line_breaks': False}" widget="text" class="text-break" name="name" default_focus="1" placeholder="e.g. Lumber Inc" invisible="not is_company" required="type == 'contact'"/>
+                            <field id="individual" options="{'line_breaks': False}" widget="text" class="text-break" name="name" default_focus="1" placeholder="e.g. Brandom Freeman" invisible="is_company" required="type == 'contact'"/>
+                        </h1>
+                        <div class="o_row">
+                            <field name="parent_id" widget="res_partner_many2one" placeholder="Company Name..." domain="[('is_company', '=', True)]" context="{'default_is_company': True, 'show_vat': True, 'default_user_id': user_id}" invisible="((is_company and not parent_id) or company_name) and company_name != ''"/>
+                                <field name="company_name" invisible="not company_name or company_name == '' or is_company"/>
+                                <button name="create_company" icon="fa-plus-square" string="Create company" type="object" class="oe_edit_only btn-link" invisible="is_company or company_name == '' or not company_name"/>
+                        </div>
+                    </div>
+
+                    <group>
+                        <group>
+                            <xpath expr="/form[1]/sheet[1]/group[1]/group[2]/field[4]" position="move"/>
+  <span class="o_form_label o_td_label" name="address_name">
+                                <field name="type" invisible="True" readonly="user_ids" required="not is_company" class="fw-bold" groups="account.group_delivery_invoice_address"/>
+                                <field name="type" invisible="1"/>
+            <b invisible="not is_company">Address</b>
+                            </span>
+                            <div class="o_address_format">
+                                <field name="street" placeholder="Street..." class="o_address_street" readonly="type == 'contact' and parent_id" required="1" invisible="True"/>
+                                <field name="street2" placeholder="Street 2..." class="o_address_street" readonly="type == 'contact' and parent_id" invisible="True"/>
+                                <field name="city" placeholder="City" class="o_address_city" readonly="type == 'contact' and parent_id" required="'city' in context.get('required_fields', [])" invisible="True"/>
+                                <field name="state_id" class="o_address_state" placeholder="State" options="{'no_open': True, 'no_quick_create': True}" readonly="type == 'contact' and parent_id" context="{'country_id': country_id, 'default_country_id': country_id, 'zip': zip}" invisible="True"/>
+                                <field name="zip" placeholder="ZIP" class="o_address_zip" readonly="type == 'contact' and parent_id" required="1" invisible="True"/>
+                                <div name="partner_address_country" class="d-flex justify-content-between">
+                                    <field name="country_id" placeholder="Country" class="o_address_country" options="{&quot;no_open&quot;: True, &quot;no_create&quot;: True}" readonly="type == 'contact' and parent_id" required="1" invisible="True"/>
+                                </div>
+                            </div>
+                            <field name="perform_vies_validation" invisible="1" required="True"/>
+                    <field name="x_studio_contact_type" widget="selection_badge" options="{&quot;size&quot;:&quot;sm&quot;}" required="True"/>
+  <field name="x_studio_first_name"/>
+  <label for="vat" string="Tax ID"/>
+                    <div name="vat_vies_container"><xpath expr="//field[@name='vat']" position="move"/>
+                    <span class="text-nowrap ps-2">
+                        <label for="vies_valid" invisible="not perform_vies_validation"/>
+                        <field name="vies_valid" invisible="not perform_vies_validation" class="oe_inline"/>
+                    </span>
+                </div>
+                </group>
+                        <group>
+                            <field name="phone_blacklisted" invisible="1"/>
+                <field name="mobile_blacklisted" invisible="1"/>
+                <label for="phone" class="oe_inline"/>
+                <div class="o_row o_row_readonly">
+                    <button name="phone_action_blacklist_remove" class="fa fa-ban text-danger" title="This phone number is blacklisted for SMS Marketing. Click to unblacklist." type="object" context="{'default_phone': phone}" groups="base.group_user" invisible="not phone_blacklisted"/>
+                    <field name="phone" widget="phone"/>
+                </div>
+            <field name="phone_blacklisted" invisible="1"/>
+                <field name="mobile_blacklisted" invisible="1"/>
+                <label for="mobile" class="oe_inline"/>
+                <div class="o_row o_row_readonly">
+                    <button name="phone_action_blacklist_remove" class="fa fa-ban text-danger" title="This phone number is blacklisted for SMS Marketing. Click to unblacklist." type="object" context="{'default_phone': mobile}" groups="base.group_user" invisible="not mobile_blacklisted"/>
+                    <field name="mobile" widget="phone"/>
+                </div>
+            <field name="phone_sanitized" groups="base.group_no_one" invisible="1"/>
+            <field name="user_ids" invisible="1"/>
+                            <field name="is_blacklisted" invisible="1"/>
+                    <label for="email" class="oe_inline"/>
+                    <div class="o_row o_row_readonly">
+                        <button name="mail_action_blacklist_remove" class="fa fa-ban text-danger" title="This email is blacklisted for mass mailings. Click to unblacklist." type="object" context="{'default_email': email}" groups="base.group_user" invisible="not is_blacklisted"/>
+                        <field name="email" widget="email" context="{'gravatar_image': True}" required="user_ids"/>
+                    </div>
+                <field name="active_lang_count" invisible="True"/>
+                            <field name="lang" invisible="active_lang_count &lt;= 1"/>
+                            </group>
+                    </group>
+
+                    <notebook colspan="4">
+                        <page name="sales_purchases" string="Sales &amp; Purchase" invisible="True">
+                            <group name="container_row_2">
+                                <group string="Sales" name="sale" priority="1">
+                                    <field name="user_id" widget="many2one_avatar_user" domain="[('share', '=', False)]"/>
+                                <field name="team_id" invisible="1"/>
+                <field name="team_id" groups="base.group_no_one" kanban_view_ref="526"/>
+            </group>
+                                <group string="Purchase" name="purchase" priority="2">
+                                </group>
+                                <group string="Fiscal Information" name="fiscal_information" priority="5" groups="account.group_account_invoice,account.group_account_readonly">
+                        <field name="property_account_position_id" options="{'no_create': True, 'no_open': True}"/>
+                    </group>
+                <group name="misc" string="Misc">
+                                    <field name="company_registry" invisible="parent_id"/>
+                                    <field name="citizen_identification" invisible="company_type == 'company'" placeholder="e.g. 123455 555 6"/>
+                <field name="ref" string="Reference"/>
+                                    <field name="company_id" groups="base.group_multi_company" options="{'no_create': True}" readonly="parent_id" force_save="1"/>
+                                    <field name="website_id"/>
+            <field name="industry_id" invisible="not is_company" options="{'no_create': True}"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page name="internal_notes" string="Internal Notes" invisible="True">
+                            <field name="comment" placeholder="Internal notes..."/>
+                        <group groups="sales_team.group_sale_salesman">
+                    <group groups="sale.group_warning_sale" col="2">
+                        <separator string="Warning on the Sales Order" colspan="2"/>
+                        <field name="sale_warn" nolabel="1" colspan="2" required="1"/>
+                        <field name="sale_warn_msg" nolabel="1" string="Message" placeholder="Type a message..." colspan="2" invisible="sale_warn in (False, 'no-message')" required="sale_warn and sale_warn != 'no-message'"/>
+                    </group>
+                </group>
+            </page>
+                    </notebook>
+                </sheet>
+                <div class="oe_chatter">
+                        <field name="message_follower_ids"/>
+                        <field name="activity_ids"/>
+                        <field name="message_ids"/>
+                    </div>
+                <field name="team_id" invisible="1"/>
+                    </form>

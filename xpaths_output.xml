@@ -1,0 +1,149 @@
+<data>
+  <xpath expr="//field[@name='x_studio_tag_ids']" position="replace">
+    <field name="x_studio_support_user_id" string="Support Verantwoordelijke" widget="many2one_avatar_user" options="{&quot;no_create&quot;:true}"/>
+    <field name="create_date" string="Aanmaakdatum" widget="datetime" options="{&quot;show_time&quot;:false}"/>
+    <field name="x_syndicoach_pack" widget="selection_badge" invisible="not x_studio_for_company_id"/>
+  </xpath>
+  <xpath expr="//form[1]/header[1]/field[@name='x_studio_stage_id']" position="attributes">
+    <attribute name="options">{"clickable":"1","fold_field":"x_studio_fold"}</attribute>
+  </xpath>
+  <xpath expr="//form[1]/header[1]/field[@name='x_studio_stage_id']" position="after">
+    <button string="Producten ophalen" name="1117" type="action"/>
+    <button string="Flag" name="1158" type="action"/>
+  </xpath>
+  <xpath expr="//widget[@name='web_ribbon']" position="before">
+    <div name="button_box" class="oe_button_box">
+      <button class="oe_stat_button" icon="fa-bolt" type="action" name="studio_customization.kansen_4373ab58-5ffc-48c4-b4f0-1043580d9b25">
+        <field widget="statinfo" name="x_x_studio_opportunity_actionsheet_ids_crm_lead_count" string="Kansen"/>
+      </button>
+      <button class="oe_stat_button" icon="fa-area-chart" type="action" name="studio_customization.nieuwe_knop_0369b642-4f7d-4474-9d58-c4397babbea1">
+        <field widget="statinfo" name="x_x_studio_estate_stats_as_id_x_estate_stats_count" string="Gebouw Stats"/>
+      </button>
+    </div>
+  </xpath>
+  <xpath expr="//field[@name='x_active']" position="after">
+    <field name="x_flag_banner_html" nolabel="1" colspan="2" force_save="1" readonly="True" invisible="not x_flag_banner_html"/>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/div[not(@name)][1]/h1[1]/field[@name='x_name']" position="attributes">
+    <attribute name="required">False</attribute>
+  </xpath>
+  <xpath expr="//form[1]/sheet[1]/group[@name='studio_group_b18b1a']/group[@name='studio_group_b18b1a_left']/field[@name='x_studio_user_id']" position="attributes">
+    <attribute name="options">{"no_create":true}</attribute>
+    <attribute name="string">Sales Verantwoordelijke</attribute>
+  </xpath>
+  <xpath expr="//group[@name='studio_group_b18b1a_right']" position="inside">
+    <div invisible="x_studio_contact_id" style="width: 100%; border-left: 3px solid #2196f3; background-color: #e8f4fd; padding: 8px 12px; margin-top: 6px; font-size: 12px; color: #0d47a1; border-radius: 4px;" colspan="2" name="studio_div_b4e697">
+    Selecteer een contact of start met typen om een nieuw contact aan te maken. Sommige velden blijven onbewerkbaar zolang er geen contact gekoppeld is. Voeg bij het aanmaken van een nieuw contact zeker het emailadres toe.
+  </div>
+    <field name="x_studio_contact_id" string="Contactpersoon" domain="[(&quot;is_company&quot;, &quot;=&quot;, False)]" options="{&quot;no_open&quot;:false,&quot;no_create&quot;:true,&quot;no_quick_create&quot;:true}" context="{'tree_view_ref': 'studio_customization.res_partner_tree_faf3b20a-bbaa-465d-8e9b-e37da0a95bd3','form_view_ref':'studio_customization.res_partner_form_3de76e8b-2bb3-45e1-972e-7210091bca97','default_x_studio_selection_field_3l2_1hnli05jb': 'Opportunity'}" widget="many2one_avatar_user"/>
+    <field name="x_studio_for_company_id" domain="[(&quot;is_company&quot;, &quot;=&quot;, True)]" string="Gebouw" options="{&quot;no_open&quot;:true,&quot;no_create&quot;:false,&quot;no_quick_create&quot;:true}" force_save="1" readonly="not x_studio_contact_id or ( x_studio_contact_id and x_studio_for_company_id )" context="{'default_company_type':'company','form_view_ref':'studio_customization.res_partner_form_b655abef-3a5e-48f5-9c87-441001470778'}"/>
+    <field name="x_studio_contact_card_html" nolabel="1" colspan="2" force_save="1" readonly="True"/>
+    <field name="x_studio_active_products_html" nolabel="1" colspan="2" force_save="1" readonly="True"/>
+    <div invisible="not x_studio_contact_id or ( x_studio_contact_id and x_studio_for_company_id )" style="width: 100%; border-left: 3px solid #2196f3; background-color: #e8f4fd; padding: 8px 12px; margin-top: 6px; font-size: 12px; color: #0d47a1; border-radius: 4px;" colspan="2" name="studio_div_b4e697">
+    Dit contact is nog niet aan een gebouw gekoppeld. Je kan een bestaand gebouw koppelen of een nieuw gebouw aanmaken. Let op! Dit contact wordt automatisch aan dat gebouw gekoppeld.
+  </div>
+  </xpath>
+  <xpath expr="//group[@name='studio_group_b18b1a']" position="after">
+    <group name="studio_group_44n_1j1bcfvg2">
+      <group name="studio_group_44n_left" string="Meetings">
+        <field name="x_studio_linked_as_meetings_ids" string="Meetings" colspan="4" nolabel="1" force_save="0" readonly="False">
+          <tree>
+            <field name="x_studio_meeting_type" optional="show" string="Type" widget="many2one" options="{&quot;no_create&quot;:true,&quot;no_open&quot;:true}"/>
+            <field name="create_date" optional="show" string="Toegevoegd op" widget="datetime" options="{&quot;show_time&quot;:false}"/>
+            <field name="x_studio_date" optional="show" string="Gepland op"/>
+            <field name="x_studio_user_id" widget="many2one_avatar_user"/>
+            <field name="x_studio_duration" optional="show" string="Gespendeerde Tijd/Min"/>
+            <field name="x_studio_stage_id" optional="show" widget="statusbar" options="{&quot;clickable&quot;:false}"/>
+          </tree>
+        </field>
+      </group>
+      <group name="studio_group_44n_right"/>
+    </group>
+    <notebook name="studio_notebook_184_1j0vd96j6">
+      <page string="Basisgegevens" name="studio_page_184" invisible="False">
+        <group name="studio_group_184">
+          <group name="studio_group_184_left" string="Over het gebouw">
+            <div invisible="x_studio_for_company_id" style="width: 100%; border-left: 3px solid #ff9800; background-color: #fff8e1; padding: 8px 12px; margin-top: 6px; font-size: 12px; color: #e65100; border-radius: 4px;" colspan="2" name="studio_div_b4e697">
+                Er is nog geen gebouw gekoppeld aan dit actieblad.          </div>
+            <div invisible="not x_studio_for_company_id" style="width: 100%; border-left: 3px solid #4caf50; background-color: #f1f8e9; padding: 8px 12px; margin-top: 6px; font-size: 12px; color: #2e7d32; border-radius: 4px;" colspan="2" name="studio_div_b4e697">
+                Gebouw gekoppeld aan dit actieblad.          </div>
+            <field name="x_studio_number_of_apartments" string="Aantal Bewoonbare Kavels" force_save="1" readonly="not x_studio_for_company_id"/>
+            <field name="x_studio_number_of_plots" string="Totaal Aantal Kavels" force_save="1" readonly="not x_studio_for_company_id"/>
+            <field name="x_studio_has_commercial_plots" widget="boolean_toggle" string="Heeft Commerciële Kavels"/>
+            <field name="x_studio_number_of_co_owners" string="Aantal Mede-Eigenaars" force_save="1" readonly="not x_studio_for_company_id"/>
+            <field name="x_studio_hoa_established" widget="boolean_toggle" string="VME reeds opgericht" force_save="1" readonly="not x_studio_for_company_id"/>
+            <field name="x_studio_current_syndic_type" widget="selection_badge" options="{&quot;size&quot;:&quot;sm&quot;}" string="Huidig Type Beheer" force_save="1" readonly="not x_studio_for_company_id"/>
+            <field name="x_studio_current_syndic" domain="[&quot;&amp;&quot;, (&quot;is_company&quot;, &quot;=&quot;, True), (&quot;x_studio_company_type&quot;, &quot;in&quot;, [2])]" invisible="x_studio_current_syndic_type != &quot;pro&quot;" string="Huidige Syndicus" options="{&quot;no_open&quot;:true}" force_save="1" readonly="not x_studio_for_company_id"/>
+          </group>
+          <group name="studio_group_184_right" string="Over de contactpersoon">
+            <div invisible="x_studio_contact_id" style="width: 100%; border-left: 3px solid #ff9800; background-color: #fff8e1; padding: 8px 12px; margin-top: 6px; font-size: 12px; color: #e65100; border-radius: 4px;" colspan="2" name="studio_div_b4e697">
+                Er is nog geen contact gekoppeld aan dit actieblad.          </div>
+            <div invisible="not x_studio_contact_id" style="width: 100%; border-left: 3px solid #4caf50; background-color: #f1f8e9; padding: 8px 12px; margin-top: 6px; font-size: 12px; color: #2e7d32; border-radius: 4px;" colspan="2" name="studio_div_b4e697">
+                Contact gekoppeld aan dit actieblad.          </div>
+            <field name="x_studio_age_group" string="Leeftijdscategorie" widget="selection_badge" force_save="1" readonly="not x_studio_contact_id"/>
+            <field name="x_studio_digital_skill_level" string="Digitale Vaardigheid" widget="selection_badge" force_save="1" readonly="not x_studio_contact_id"/>
+            <field name="x_studio_legal_skill_level" string="Legale Vaardigheid" widget="selection_badge" force_save="1" readonly="not x_studio_contact_id"/>
+            <field name="x_studio_communication_skill_level" string="Communicatie Vaardigheid" widget="selection_badge" force_save="1" readonly="not x_studio_contact_id"/>
+            <field name="x_studio_job_description" options="{&quot;create_name_field&quot;:&quot;x_name&quot;,&quot;no_create&quot;:true,&quot;no_open&quot;:true}" string="Beroep"/>
+          </group>
+        </group>
+        <group name="studio_group_8mh_1j105hbcb">
+          <group name="studio_group_8mh_left" string="Over de bewoners in het gebouw">
+            <field name="x_studio_average_tenant_age" widget="selection_badge" string="Gemiddelde Leeftijd Bewoners" force_save="1" readonly="not x_studio_for_company_id"/>
+          </group>
+          <group name="studio_group_8mh_right"/>
+        </group>
+      </page>
+      <page string="Van Niks Tot In Orde" name="studio_page_2rl_1j105kms9" invisible="False">
+        <group name="studio_group_2rl">
+          <group name="studio_group_2rl_left" string="Over de oprichting">
+            <field name="x_studio_has_registration_number" widget="selection_badge" string="Heeft Ondernemingsnummer" options="{&quot;size&quot;:&quot;md&quot;,&quot;horizontal&quot;:true}"/>
+            <field name="x_studio_has_insurance" widget="selection_badge" options="{&quot;horizontal&quot;:true,&quot;size&quot;:&quot;md&quot;}"/>
+          </group>
+          <group name="studio_group_2rl_right" string="Over de samenwerking">
+            <field name="x_studio_current_way_of_working" options="{&quot;create_name_field&quot;:&quot;x_name&quot;,&quot;size&quot;:&quot;sm&quot;}" widget="selection_badge" string="Huidige Manier Van Werken"/>
+            <field name="x_studio_interpersonal_relationship" string="Onderlinge Verstandhouding" widget="selection_badge"/>
+            <field name="x_studio_communication_methods" widget="many2many_tags" options="{&quot;color_field&quot;: &quot;x_studio_color&quot;,&quot;no_create&quot;:true}"/>
+          </group>
+        </group>
+        <group name="studio_group_9h0_1j1077g68">
+          <group name="studio_group_9h0_left" string="Fiscaliteit">
+            <field name="x_studio_has_operating_account" widget="selection_badge" string="Heeft Werkrekening"/>
+            <field name="x_studio_has_reserve_account" widget="selection_badge" string="Heeft Reserverekening"/>
+            <field name="x_studio_has_doubly_entry_accounting" string="Hanteert Dubbele Boekhouding" widget="selection_badge"/>
+            <field name="x_studio_has_annual_statement" string="De Afrekening" widget="radio" options="{&quot;horizontal&quot;:true,&quot;size&quot;:&quot;sm&quot;}"/>
+            <field name="x_studio_has_advance_payments" string="Vraagt Voorschotten Op" widget="radio" options="{&quot;horizontal&quot;:true,&quot;size&quot;:&quot;sm&quot;}"/>
+            <field name="x_studio_has_allocation_keys" string="Heeft Verdeelsleutels" widget="radio" options="{&quot;horizontal&quot;:true}"/>
+          </group>
+          <group name="studio_group_9h0_right">
+            <field name="x_studio_as_expectations" widget="many2many_checkboxes" string="Verwachtingen"/>
+          </group>
+        </group>
+      </page>
+      <page string="Discovery" name="studio_page_9df_1j10p9bom" invisible="False">
+        <group name="studio_group_9df">
+          <group name="studio_group_9df_left" string="Reden voor contact">
+            <field name="x_studio_entrypoint" invisible="False" string="Ingestroomd via"/>
+            <field name="x_studio_open_question_reason_for_contact" placeholder="Schrijf hier je antwoord." nolabel="1" colspan="2"/>
+          </group>
+          <group name="studio_group_9df_right" string="  ">
+            <div style="border:1px solid #ccc;border-radius:6px;padding:8px 12px;margin-top:6px;font-size:13px" colspan="2" name="studio_div_abf94d">
+              <div style="display:flex;align-items:center;justify-content:space-between" name="studio_div_9f44d8">
+                <span style="flex:1;padding-right:12px">Hoe ziet de VME er juist uit? En waarom heb je ons gecontacteerd?</span>
+              </div>
+              <div style="margin-top:6px;color:#555" name="studio_div_50ba3a">
+                <ul name="studio_ul_ca2337">
+                  <li name="studio_li_3affc3">Uit hoeveel appartementen/kavels bestaat jullie VME?</li>
+                  <li name="studio_li_f39180">Hoe zouden jullie jezelf omschrijven?</li>
+                  <li name="studio_li_a4f4c3">Hoe ziet de verhouding eruit?</li>
+                  <li name="studio_li_88dbb0">Hoe is het bestuur vandaag georganiseerd?</li>
+                  <li name="studio_li_b451f9">Wat speelde mee in jullie beslissing?</li>
+                </ul>
+              </div>
+            </div>
+          </group>
+        </group>
+      </page>
+    </notebook>
+  </xpath>
+</data>

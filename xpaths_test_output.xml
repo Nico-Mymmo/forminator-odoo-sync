@@ -1,0 +1,37 @@
+<data>
+  <!-- Al benoemd — moet ongewijzigd blijven -->
+  <xpath expr="//field[@name='x_studio_tag_ids']" position="replace">
+    <field name="x_studio_support_user_id" widget="many2one_avatar_user"/>
+    <field name="create_date" widget="datetime"/>
+  </xpath>
+
+  <!-- form[1]/header[1] — positioneel, moet vereenvoudigd worden -->
+  <xpath expr="//field[@name='x_studio_stage_id']" position="attributes">
+    <attribute name="options">{"clickable":"1","fold_field":"x_studio_fold"}</attribute>
+  </xpath>
+
+  <!-- Identieke expr nogmaals (after) -->
+  <xpath expr="//field[@name='x_studio_stage_id']" position="after">
+    <button string="Producten ophalen" name="1117" type="action"/>
+  </xpath>
+
+  <!-- Al benoemd via widget[@name] -->
+  <xpath expr="//widget[@name='web_ribbon']" position="before">
+    <div name="button_box_custom" class="oe_button_box"/>
+  </xpath>
+
+  <!-- form[1]/sheet[1]/div[not(@name)][1]/h1[1] — complex positioneel -->
+  <xpath expr="//field[@name='x_name']" position="attributes">
+    <attribute name="required">False</attribute>
+  </xpath>
+
+  <!-- form[1]/sheet[1]/group[@name=...] — positioneel prefix, benoemd suffix -->
+  <xpath expr="//field[@name='x_studio_user_id']" position="attributes">
+    <attribute name="string">Sales Verantwoordelijke</attribute>
+  </xpath>
+
+  <!-- Al benoemd -->
+  <xpath expr="//group[@name='studio_group_b18b1a_right']" position="inside">
+    <field name="x_studio_contact_id" string="Contactpersoon"/>
+  </xpath>
+</data>

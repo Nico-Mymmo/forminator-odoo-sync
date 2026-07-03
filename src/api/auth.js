@@ -7,6 +7,7 @@
 import { getSupabaseClient } from '../lib/database.js';
 import { createSession, invalidateSession } from '../lib/auth/session.js';
 import { verifyPassword } from '../lib/auth/password.js';
+import { navbar } from '../lib/components/navbar.js';
 
 /**
  * POST /api/auth/login
@@ -203,7 +204,8 @@ export async function handleMe({ user }) {
       role: user.role,
       last_login_at: user.last_login_at,
       modules: user.modules
-    }
+    },
+    navbarHtml: navbar(user)
   }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' }

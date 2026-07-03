@@ -18,6 +18,7 @@ import assetManagerModule from './asset-manager/module.js';
 import cxPowerboardModule from './cx_powerboard/module.js';
 import claudeIntegrationModule from './claude-integration/module.js';
 import cxAutomationsModule from './cx-automations/module.js';
+import xpathConverterModule from './xpath-converter/module.js';
 
 /**
  * All registered modules
@@ -36,6 +37,7 @@ export const MODULES = [
   cxPowerboardModule,
   claudeIntegrationModule,
   cxAutomationsModule,
+  xpathConverterModule,
 ];
 
 /**

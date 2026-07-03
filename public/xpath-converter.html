@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>XPath Converter</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    textarea { font-family: 'Courier New', monospace; font-size: 12px; }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <!-- Navbar -->
+  <div class="navbar bg-base-100 border-b border-base-300 px-4">
+    <div class="flex-1">
+      <a href="/" class="btn btn-ghost text-sm font-normal">← Operations Manager</a>
+    </div>
+    <div class="flex-none">
+      <span class="text-sm font-semibold">XPath Converter</span>
+    </div>
+  </div>
+
+  <div class="p-4 max-w-screen-2xl mx-auto">
+
+    <!-- Header -->
+    <div class="mb-4">
+      <h1 class="text-xl font-bold">Odoo XPath Simulator</h1>
+      <p class="text-sm text-base-content/60 mt-1">
+        Plak de base view en het xpath-document. De converter herschrijft positionele verwijzingen
+        (<code class="font-mono bg-base-300 px-1 rounded">field[2]</code>, <code class="font-mono bg-base-300 px-1 rounded">group[1]</code>)
+        naar benoemde predicaten (<code class="font-mono bg-base-300 px-1 rounded">[@name='...']</code>).
+      </p>
+    </div>
+
+    <!-- Inputs -->
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <div class="flex flex-col gap-2">
+        <label class="label py-0">
+          <span class="label-text font-semibold">Base View XML</span>
+          <span class="label-text-alt text-base-content/50">De raw base view (bv. view 125) — <em>niet</em> de gecombineerde arch</span>
+        </label>
+
+        <!-- Ophalen uit Odoo -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <input
+            id="odooModel"
+            type="text"
+            class="input input-bordered input-sm w-48 font-mono text-xs"
+            placeholder="res.partner"
+            value="res.partner"
+          />
+          <select id="odooViewType" class="select select-bordered select-sm text-xs">
+            <option value="form" selected>form</option>
+            <option value="list">list</option>
+            <option value="kanban">kanban</option>
+            <option value="search">search</option>
+          </select>
+          <input
+            id="studioViewId"
+            type="text"
+            class="input input-bordered input-sm w-36 font-mono text-xs"
+            placeholder="Studio View ID"
+            title="Technische → Views → Studio view ID. Vul in voor exacte pre-Studio simulatie."
+          />
+          <button id="fetchArchBtn" class="btn btn-sm btn-outline">↓ Ophalen uit Odoo</button>
+          <span id="fetchArchStatus" class="text-xs text-base-content/50"></span>
+        </div>
+
+        <textarea
+          id="baseViewInput"
+          class="textarea textarea-bordered w-full h-72 resize-y"
+          placeholder="<form string=&quot;...&quot;>&#10;  <sheet>&#10;    ...&#10;  </sheet>&#10;</form>"
+        ></textarea>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <label class="label py-0">
+          <span class="label-text font-semibold">XPath Document</span>
+          <span class="label-text-alt text-base-content/50">Het te converteren bestand (Studio inherit view)</span>
+        </label>
+        <textarea
+          id="xpathDocInput"
+          class="textarea textarea-bordered w-full h-72 resize-y"
+          placeholder="<data>&#10;  <xpath expr=&quot;...&quot; position=&quot;...&quot;>&#10;    ...&#10;  </xpath>&#10;</data>"
+        ></textarea>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex items-center gap-3 mb-4">
+      <button id="convertBtn" class="btn btn-primary">Converteer</button>
+      <button id="copyBtn" class="btn btn-ghost btn-sm hidden">Kopieer output</button>
+      <button id="exportBtn" class="btn btn-ghost btn-sm hidden">⬇ Export voor debug</button>
+      <div id="statusMsg" class="text-sm"></div>
+    </div>
+
+    <!-- Output -->
+    <div id="outputSection" class="hidden flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <label class="label py-0">
+          <span class="label-text font-semibold">Output</span>
+        </label>
+        <div class="flex items-center gap-3">
+          <div id="diffStats" class="text-sm text-base-content/60"></div>
+          <div id="cleanupStats" class="text-sm text-base-content/40"></div>
+        </div>
+      </div>
+      <textarea
+        id="outputArea"
+        class="textarea textarea-bordered w-full h-96 resize-y"
+        readonly
+      ></textarea>
+
+      <!-- Log -->
+      <div id="logSection" class="collapse collapse-arrow bg-base-100 border border-base-300 rounded-lg mt-2">
+        <input type="checkbox" class="peer"/>
+        <div class="collapse-title text-sm font-medium peer-checked:bg-base-200">
+          Conversie log
+        </div>
+        <div class="collapse-content">
+          <pre id="logOutput" class="text-xs mt-2 whitespace-pre-wrap text-base-content/70"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Redundante XPaths -->
+    <div id="redundantSection" class="hidden mt-4">
+      <div class="alert alert-warning py-3 rounded-lg">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3a9 9 0 110 18A9 9 0 0112 3z"/></svg>
+        <div class="flex-1">
+          <p class="font-semibold text-sm" id="redundantTitle"></p>
+          <p class="text-xs mt-0.5">Een xpath voegt een element in, alle opvolgende xpaths gaan over dat element, en de laatste verwijdert het weer — de hele groep heeft netto geen effect.</p>
+        </div>
+        <button id="removeRedundantBtn" class="btn btn-sm btn-warning">Verwijder overbodige XPaths</button>
+      </div>
+      <div id="redundantList" class="bg-base-100 border border-base-300 rounded-lg mt-2 divide-y divide-base-200"></div>
+    </div>
+
+  </div>
+
+  <script>
+  // ── XPath conversion logic (client-side) ────────────────────────────────
+
+  function isElem(node) {
+    return node && node.nodeType === 1;
+  }
+
+  function elementStep(el) {
+    if (!isElem(el)) return [null, false];
+    const tag = el.nodeName;
+    const name = el.getAttribute('name');
+    if (name) return [`${tag}[@name='${name}']`, true];
+
+    const parent = el.parentNode;
+    if (parent && isElem(parent)) {
+      const siblings = Array.from(parent.childNodes).filter(c => isElem(c) && c.nodeName === tag);
+      if (siblings.length === 1) return [tag, false];
+      const pos = siblings.indexOf(el) + 1;
+      return [`${tag}[${pos}]`, false];
+    }
+    return [tag, false];
+  }
+
+  function buildMinimalUniqueXpath(element, treeRoot, doc) {
+    if (!isElem(element)) return null;
+
+    // Build root→target path
+    const ancestors = [];
+    let cur = element;
+    while (cur && cur !== treeRoot) {
+      const [step, isNamed] = elementStep(cur);
+      if (step) ancestors.unshift([step, isNamed]);
+      cur = cur.parentNode;
+    }
+    if (!ancestors.length) return null;
+
+    const namedPositions = ancestors.reduce((acc, [, isNamed], i) => {
+      if (isNamed) acc.push(i);
+      return acc;
+    }, []);
+
+    if (!namedPositions.length) {
+      return '//' + ancestors.map(([s]) => s).join('/');
+    }
+
+    function tryXpath(candidate) {
+      try {
+        const res = doc.evaluate(
+          candidate, treeRoot, null,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null
+        );
+        return res.snapshotLength === 1 && res.snapshotItem(0) === element;
+      } catch { return false; }
+    }
+
+    // Try from each named position (rightmost = closest to target) extending left
+    for (let si = namedPositions.length - 1; si >= 0; si--) {
+      const start = namedPositions[si];
+      const suffix = ancestors.slice(start).map(([s]) => s);
+      const candidate = '//' + suffix.join('/');
+      if (tryXpath(candidate)) return candidate;
+
+      // Not unique — extend leftward
+      for (let ext = start - 1; ext >= 0; ext--) {
+        const extended = '//' + ancestors.slice(ext).map(([s]) => s).join('/');
+        if (tryXpath(extended)) return extended;
+      }
+    }
+
+    return '//' + ancestors.map(([s]) => s).join('/');
+  }
+
+  function applyXpathMutation(liveDoc, xpathEl) {
+    const expr = xpathEl.getAttribute('expr');
+    const position = xpathEl.getAttribute('position') || 'inside';
+    if (!expr) return;
+
+    let target;
+    try {
+      const res = liveDoc.evaluate(
+        expr, liveDoc.documentElement, null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE, null
+      );
+      target = res.singleNodeValue;
+    } catch { return; }
+    if (!target) return;
+
+    const parent = target.parentNode;
+    const children = Array.from(xpathEl.childNodes).filter(isElem);
+
+    const importNode = (n) => liveDoc.importNode(n, true);
+
+    if (position === 'replace') {
+      const ref = target.nextSibling;
+      parent.removeChild(target);
+      children.forEach(child => parent.insertBefore(importNode(child), ref));
+
+    } else if (position === 'inside') {
+      children.forEach(child => target.appendChild(importNode(child)));
+
+    } else if (position === 'after') {
+      const ref = target.nextSibling;
+      children.forEach(child => parent.insertBefore(importNode(child), ref));
+
+    } else if (position === 'before') {
+      children.forEach(child => parent.insertBefore(importNode(child), target));
+
+    } else if (position === 'attributes') {
+      Array.from(xpathEl.childNodes).filter(c => isElem(c) && c.nodeName === 'attribute')
+        .forEach(attrEl => {
+          const attrName = attrEl.getAttribute('name');
+          const val = attrEl.textContent;
+          if (val) target.setAttribute(attrName, val);
+          else target.removeAttribute(attrName);
+        });
+    }
+  }
+
+  // namingXml (optional): the COMBINED post-Studio arch, used only for named lookups
+  //   (existsInBase / parentInBase checks). When provided, baseXml is the true
+  //   pre-Studio arch so liveDoc stripping is NOT needed.
+  // When namingXml is null (manual paste mode), baseXml IS the combined arch and
+  //   stripping is used as an approximation of the pre-Studio state.
+  function convertXpaths(baseXml, xpathDocXml, namingXml = null) {
+    const parser = new DOMParser();
+    const log = [];
+    const changes = [];
+
+    const baseDoc = parser.parseFromString(baseXml, 'text/xml');
+    if (baseDoc.querySelector('parsererror')) {
+      throw new Error('Base view XML ongeldig: ' + baseDoc.querySelector('parsererror').textContent.trim().slice(0, 200));
+    }
+
+    const xpathDoc = parser.parseFromString(xpathDocXml, 'text/xml');
+    if (xpathDoc.querySelector('parsererror')) {
+      throw new Error('XPath document XML ongeldig: ' + xpathDoc.querySelector('parsererror').textContent.trim().slice(0, 200));
+    }
+
+    // origDoc: the combined post-Studio arch, used to verify named xpaths exist
+    // before using them. When namingXml is provided (Studio View ID flow) we use
+    // the combined arch. When not provided (manual paste) we fall back to baseXml.
+    const origDoc = namingXml
+      ? parser.parseFromString(namingXml, 'text/xml')
+      : parser.parseFromString(baseXml, 'text/xml');
+
+    // liveDoc: simulation state. Always starts from baseXml (the pre-Studio arch
+    // when namingXml is provided, or the combined arch approximation otherwise).
+    const liveDoc = parser.parseFromString(baseXml, 'text/xml');
+
+    // Pre-scan: collect all `name` values of elements that are INSERTED by this
+    // xpath document (position inside/after/before/replace with content).
+    // Odoo validates named xpaths against the parent arch BEFORE applying this
+    // view's own xpaths, so these must never be converted to named predicates.
+    const insertedByThisView = new Set();
+    Array.from(xpathDoc.querySelectorAll('xpath[expr]')).forEach(xpathEl => {
+      const position = xpathEl.getAttribute('position') || 'inside';
+      if (position === 'attributes') return; // no new elements
+      xpathEl.querySelectorAll('[name]').forEach(el => {
+        const n = el.getAttribute('name');
+        if (n) insertedByThisView.add(n);
+      });
+    });
+
+    // Stripping: only needed in manual-paste mode (namingXml is null), where
+    // baseXml is the combined arch and liveDoc starts in the post-Studio state.
+    // Without stripping, re-applying Studio's own insert xpaths would duplicate
+    // those elements and corrupt positional indices.
+    // When namingXml IS provided, baseXml is already the pre-Studio arch — no
+    // stripping needed (and stripping would remove legitimate base-view elements).
+    if (!namingXml) {
+      for (const name of insertedByThisView) {
+        try {
+          const safeExpr = name.includes("'")
+            ? `//*[@name=concat('${name.replace(/'/g, "', \"'\", '")}')]`
+            : `//*[@name='${name}']`;
+          const r = liveDoc.evaluate(safeExpr, liveDoc.documentElement, null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+          const el = r.singleNodeValue;
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    // Clone xpath doc for output
+    const outputDoc = parser.parseFromString(xpathDocXml, 'text/xml');
+
+    const inputXpaths = Array.from(xpathDoc.querySelectorAll('xpath[expr]'));
+    const outputXpaths = Array.from(outputDoc.querySelectorAll('xpath[expr]'));
+
+    let changed = 0;
+
+    inputXpaths.forEach((inEl, i) => {
+      const outEl = outputXpaths[i];
+      const originalExpr = inEl.getAttribute('expr');
+      const position = inEl.getAttribute('position') || 'inside';
+
+      log.push(`[${i + 1}/${inputXpaths.length}] position="${position}"`);
+
+      // Evaluate against live tree
+      let target = null;
+      try {
+        const res = liveDoc.evaluate(
+          originalExpr, liveDoc.documentElement, null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE, null
+        );
+        target = res.singleNodeValue;
+      } catch (e) {
+        log.push(`  ⚠️  XPath eval fout: ${e.message}`);
+      }
+
+      if (target) {
+        const candidate = buildMinimalUniqueXpath(target, liveDoc.documentElement, liveDoc);
+        // Count [@name=...] predicates — a conversion is only an improvement if
+        // the candidate has strictly MORE named predicates than the original.
+        // This prevents the converter from replacing a good short xpath with a
+        // longer but equally- (or less-) named one when run on an already-
+        // converted document against a richer combined view.
+        const countNamed = (expr) => (expr.match(/\[@name=/g) || []).length;
+        if (candidate && candidate !== originalExpr && countNamed(candidate) > countNamed(originalExpr)) {
+          // Safety check: only use the named candidate if the element exists in
+          // the ORIGINAL base view. If it was added by an earlier xpath in this
+          // same document, Odoo will reject the named reference during view
+          // validation (it validates named xpaths against the parent arch, before
+          // applying any of this view's own xpaths).
+          // Also block conversion if the target has a name that was inserted by
+          // this very xpath document — even if it appears in origDoc (because
+          // get_views returns the combined arch including this Studio view itself).
+          const targetName = target.getAttribute ? target.getAttribute('name') : null;
+          const existsInBase = !insertedByThisView.has(targetName) && (() => {
+            try {
+              const r = origDoc.evaluate(
+                candidate, origDoc.documentElement, null,
+                XPathResult.FIRST_ORDERED_NODE_TYPE, null
+              );
+              return r.singleNodeValue !== null;
+            } catch { return false; }
+          })();
+
+          if (existsInBase) {
+            outEl.setAttribute('expr', candidate);
+            changed++;
+            changes.push({ from: originalExpr, to: candidate });
+            log.push(`  ✓  ${originalExpr}`);
+            log.push(`     → ${candidate}`);
+          } else {
+            // Target is dynamic (added by earlier xpath in this view). Try to at
+            // least anchor the PARENT by name, keeping only the final positional
+            // step. This prevents cross-view positional ambiguity in the parent
+            // container (e.g. if other inherit views added groups/pages before it)
+            // while still referencing the dynamic child at its runtime index.
+            let usedHybrid = false;
+            const dynParent = target.parentNode;
+            if (dynParent && isElem(dynParent)) {
+              const parentCandidate = buildMinimalUniqueXpath(dynParent, liveDoc.documentElement, liveDoc);
+              // Also block hybrid if the parent itself is a Studio-inserted element —
+              // Odoo validates named xpaths upfront and would reject a named reference
+              // to an element that this same view inserts earlier in the sequence.
+              const parentName = dynParent.getAttribute ? dynParent.getAttribute('name') : null;
+              if (parentCandidate && !(parentName && insertedByThisView.has(parentName))) {
+                const parentInBase = (() => {
+                  try {
+                    const r = origDoc.evaluate(parentCandidate, origDoc.documentElement, null,
+                      XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                    return r.singleNodeValue !== null;
+                  } catch { return false; }
+                })();
+                if (parentInBase) {
+                  const tag = target.nodeName;
+                  const dynSiblings = Array.from(dynParent.childNodes).filter(c => isElem(c) && c.nodeName === tag);
+                  const dynPos = dynSiblings.indexOf(target) + 1;
+                  const lastStep = dynSiblings.length === 1 ? tag : `${tag}[${dynPos}]`;
+                  const hybridExpr = `${parentCandidate}/${lastStep}`;
+                  outEl.setAttribute('expr', hybridExpr);
+                  changed++;
+                  changes.push({ from: originalExpr, to: hybridExpr });
+                  log.push(`  ↻→  ${originalExpr}`);
+                  log.push(`     → ${hybridExpr}  (parent benoemd, ${lastStep} positional)`);
+                  usedHybrid = true;
+                }
+              }
+            }
+            if (!usedHybrid) {
+              log.push(`  ↻  ${originalExpr}  (behouden: element dynamisch toegevoegd, parent ook niet in base view)`);
+            }
+          }
+        } else if (candidate && candidate !== originalExpr) {
+          // Candidate found but doesn't add named predicates — keep original
+          log.push(`  =  ${originalExpr}  (ongewijzigd — kandidaat zou niet verbeteren)`);
+        } else {
+          log.push(`  =  ${originalExpr}  (ongewijzigd)`);
+        }
+      } else {
+        log.push(`  ✗  Geen match: ${originalExpr}`);
+      }
+
+      // Apply mutation to live tree
+      applyXpathMutation(liveDoc, inEl);
+    });
+
+    log.push(`\nKlaar — ${changed}/${inputXpaths.length} expressies herschreven.`);
+
+    const serializer = new XMLSerializer();
+    const outputXml = prettyPrint(serializer.serializeToString(outputDoc));
+
+    return { outputXml, log, changed, total: inputXpaths.length, changes };
+  }
+
+  // ── Redundant XPath detector ─────────────────────────────────────────────
+  // For each xpath in xpathDocXml, simulate against baseXml and record:
+  //   targetName    — name attr of the resolved target element (if any)
+  //   insertedNames — name attrs of the TOP-LEVEL element children inserted
+  //   isRemoval     — position="replace" with no element children
+
+  function analyzeXpathActions(baseXml, xpathDocXml) {
+    const parser = new DOMParser();
+    const liveDoc = parser.parseFromString(baseXml, 'text/xml');
+    if (liveDoc.querySelector('parsererror')) return [];
+    const xpathDoc = parser.parseFromString(xpathDocXml, 'text/xml');
+    if (xpathDoc.querySelector('parsererror')) return [];
+
+    return Array.from(xpathDoc.querySelectorAll('xpath[expr]')).map(xpathEl => {
+      const position = xpathEl.getAttribute('position') || 'inside';
+      const childElements = Array.from(xpathEl.childNodes).filter(isElem);
+
+      let targetName = null;
+      try {
+        const res = liveDoc.evaluate(
+          xpathEl.getAttribute('expr'), liveDoc.documentElement, null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE, null
+        );
+        const t = res.singleNodeValue;
+        targetName = t && t.getAttribute ? t.getAttribute('name') : null;
+      } catch {}
+
+      const insertedNames = new Set(
+        childElements.map(el => el.getAttribute('name')).filter(Boolean)
+      );
+      const isRemoval = position === 'replace' && childElements.length === 0;
+
+      applyXpathMutation(liveDoc, xpathEl);
+
+      return { position, targetName, insertedNames, isRemoval };
+    });
+  }
+
+  // Returns array of { indices: [i, j, ...], name } for groups that can safely
+  // be removed (insert → optional modifications → remove, all consecutive, all
+  // targeting the same named element).
+  function detectRedundantGroups(actions) {
+    const groups = [];
+    const usedIndices = new Set();
+
+    for (let i = 0; i < actions.length; i++) {
+      if (usedIndices.has(i)) continue;
+      const action = actions[i];
+      if (action.insertedNames.size === 0 || action.isRemoval) continue;
+
+      for (const insertedName of action.insertedNames) {
+        if (usedIndices.has(i)) continue;
+
+        const group = [i];
+        let foundRemoval = false;
+
+        for (let j = i + 1; j < actions.length; j++) {
+          const next = actions[j];
+          if (next.targetName !== insertedName) break; // unrelated → stop
+          group.push(j);
+          if (next.isRemoval) { foundRemoval = true; break; }
+        }
+
+        if (foundRemoval && group.every((idx, k) => idx === i + k)) {
+          groups.push({ indices: group, name: insertedName });
+          group.forEach(idx => usedIndices.add(idx));
+          break;
+        }
+      }
+    }
+    return groups;
+  }
+
+  // Remove xpaths at the given indices from xpathDocXml and return pretty XML.
+  function removeXpathsByIndices(xpathDocXml, indices) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xpathDocXml, 'text/xml');
+    const toRemove = new Set(indices);
+    Array.from(doc.querySelectorAll('xpath[expr]')).forEach((el, i) => {
+      if (toRemove.has(i)) el.parentNode.removeChild(el);
+    });
+    return prettyPrint(new XMLSerializer().serializeToString(doc));
+  }
+
+  // Render the redundant groups section.
+  function showRedundantGroups(groups) {
+    const section    = document.getElementById('redundantSection');
+    const titleEl    = document.getElementById('redundantTitle');
+    const listEl     = document.getElementById('redundantList');
+    const statsEl    = document.getElementById('cleanupStats');
+
+    if (groups.length === 0) {
+      section.classList.add('hidden');
+      if (statsEl) statsEl.textContent = '✓ Geen overbodige xpaths';
+      return;
+    }
+    if (statsEl) statsEl.textContent = '';
+
+    titleEl.textContent = `${groups.length} overbodige xpath-groep${groups.length !== 1 ? 'en' : ''} gevonden`;
+
+    listEl.innerHTML = groups.map((g, gi) => {
+      const label = g.indices.length === 1
+        ? `xpath #${g.indices[0] + 1}`
+        : `xpaths #${g.indices[0] + 1}–#${g.indices[g.indices.length - 1] + 1}`;
+      return `
+        <label class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-base-200">
+          <input type="checkbox" class="checkbox checkbox-sm checkbox-warning" data-group-idx="${gi}" checked/>
+          <span class="text-sm">
+            <code class="font-mono text-xs bg-base-200 px-1 rounded">${escHtml(g.name)}</code>
+            — ${label} (${g.indices.length} xpath${g.indices.length !== 1 ? 's' : ''}: toevoegen + ${g.indices.length > 2 ? (g.indices.length - 2) + ' aanpassingen + ' : ''}verwijderen)
+          </span>
+        </label>`;
+    }).join('');
+
+    section.classList.remove('hidden');
+    section._groups = groups;
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Basic pretty-printer: insert newlines + indentation
+  function prettyPrint(xml) {
+    let indent = 0;
+    const tab = '  ';
+    return xml
+      .replace(/></g, '>\n<')
+      .split('\n')
+      .map(line => {
+        line = line.trim();
+        if (!line) return '';
+        if (line.match(/^<\//) || line.match(/^<[^!][^>]*\/>$/)) {
+          if (line.match(/^<\//)) indent = Math.max(0, indent - 1);
+          const result = tab.repeat(indent) + line;
+          if (line.match(/^<[^!][^>]*\/>$/)) { /* self-closing, no change */ }
+          return result;
+        }
+        if (line.match(/^<[^\/!?][^>]*[^\/]>$/)) {
+          const result = tab.repeat(indent) + line;
+          indent++;
+          return result;
+        }
+        return tab.repeat(indent) + line;
+      })
+      .filter(l => l !== '')
+      .join('\n');
+  }
+
+  // ── Pre-Studio arch builder ───────────────────────────────────────────────
+  // Applies all non-Studio inherit views (in priority order) on top of the raw
+  // base view arch, producing the exact DOM state that Odoo has just before the
+  // Studio inherit view runs.
+  //
+  // Each inherit view's arch is an xpath document (<data><xpath ...>...</xpath></data>).
+  // We apply them sequentially using applyXpathMutation, same as Odoo does.
+  // Views that use shorthand inheritance (<field position="...">) are silently
+  // skipped (only <xpath expr="..."> elements are processed).
+
+  function buildPreStudioArch(baseArch, inheritViews) {
+    const parser = new DOMParser();
+    const liveDoc = parser.parseFromString(baseArch, 'text/xml');
+    if (liveDoc.querySelector('parsererror')) return baseArch; // bad XML — return as-is
+
+    let applied = 0;
+    for (const view of inheritViews) {
+      if (!view.arch) continue;
+      try {
+        const viewDoc = parser.parseFromString(view.arch, 'text/xml');
+        if (viewDoc.querySelector('parsererror')) continue;
+        const xpathEls = Array.from(viewDoc.querySelectorAll('xpath[expr]'));
+        for (const xpathEl of xpathEls) {
+          try { applyXpathMutation(liveDoc, xpathEl); } catch (e) { /* ignore */ }
+        }
+        applied++;
+      } catch (e) { /* ignore failed inherit views */ }
+    }
+
+    return new XMLSerializer().serializeToString(liveDoc);
+  }
+
+  // ── UI logic ──────────────────────────────────────────────────────────────
+
+  const convertBtn    = document.getElementById('convertBtn');
+  const copyBtn       = document.getElementById('copyBtn');
+  const exportBtn     = document.getElementById('exportBtn');
+  const statusMsg     = document.getElementById('statusMsg');
+  const outputSection = document.getElementById('outputSection');
+  const outputArea    = document.getElementById('outputArea');
+  const logOutput     = document.getElementById('logOutput');
+  const diffStats     = document.getElementById('diffStats');
+
+  // State opslaan voor export + naming arch
+  let lastRun = null;
+  let namingArch = null; // combined (post-Studio) arch for named lookups
+
+  // ── Ophalen uit Odoo ─────────────────────────────────────────────────────
+
+  document.getElementById('fetchArchBtn').addEventListener('click', async () => {
+    const model       = document.getElementById('odooModel').value.trim();
+    const viewType    = document.getElementById('odooViewType').value;
+    const viewIdRaw   = document.getElementById('studioViewId').value.trim();
+    const statusEl    = document.getElementById('fetchArchStatus');
+    const btn         = document.getElementById('fetchArchBtn');
+
+    if (!model) { statusEl.textContent = 'Vul een model in.'; return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Bezig…';
+    statusEl.textContent = '';
+    namingArch = null;
+
+    try {
+      let url = `/xpath-converter/api/arch?model=${encodeURIComponent(model)}&view_type=${encodeURIComponent(viewType)}`;
+      if (viewIdRaw) url += `&view_id=${encodeURIComponent(viewIdRaw)}`;
+
+      const res = await fetch(url, { credentials: 'include' });
+      if (res.status === 401) { window.location.href = '/'; return; }
+
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        statusEl.textContent = '❌ ' + (json.error || res.statusText);
+        return;
+      }
+
+      if (json.simArch && json.simArch.baseArch) {
+        const { baseArch, inheritViews } = json.simArch;
+        const preStudioArch = buildPreStudioArch(baseArch, inheritViews || []);
+        namingArch = preStudioArch;
+        document.getElementById('baseViewInput').value = preStudioArch;
+        const n = (inheritViews || []).length;
+        statusEl.textContent = `✅ Geladen — base + ${n} inherit views → exacte pre-Studio staat`;
+      } else {
+        namingArch = null;
+        document.getElementById('baseViewInput').value = json.arch;
+        statusEl.textContent = '✅ Geladen';
+      }
+    } catch (err) {
+      statusEl.textContent = '❌ ' + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '↓ Ophalen uit Odoo';
+    }
+  });
+
+  convertBtn.addEventListener('click', () => {
+    const baseXml     = document.getElementById('baseViewInput').value.trim();
+    const xpathDocXml = document.getElementById('xpathDocInput').value.trim();
+
+    if (!baseXml)     { showStatus('Plak eerst de base view XML.', 'error'); return; }
+    if (!xpathDocXml) { showStatus('Plak eerst het xpath-document.', 'error'); return; }
+
+    convertBtn.disabled = true;
+    convertBtn.textContent = 'Bezig…';
+    statusMsg.textContent = '';
+
+    try {
+      const result = convertXpaths(baseXml, xpathDocXml, namingArch);
+      const { outputXml, log, changed, total, changes } = result;
+
+      lastRun = {
+        timestamp: new Date().toISOString(),
+        baseXml,
+        xpathDocXml,
+        namingArch: namingArch || null,
+        outputXml,
+        log: log.join('\n'),
+        changed,
+        total,
+        error: null,
+      };
+
+      outputArea.value = outputXml;
+      logOutput.textContent = log.join('\n');
+      diffStats.textContent = `${changed} van ${total} expressies herschreven`;
+      outputSection.classList.remove('hidden');
+      copyBtn.classList.remove('hidden');
+      exportBtn.classList.remove('hidden');
+
+      // Detecteer redundante groepen op de originele xpathDocXml (indices kloppen 1:1 met output)
+      try {
+        const actions = analyzeXpathActions(baseXml, xpathDocXml);
+        const groups  = detectRedundantGroups(actions);
+        showRedundantGroups(groups);
+        console.log('[cleanup] actions:', actions.length, 'groups:', groups.length, groups);
+      } catch (cleanupErr) {
+        console.error('[cleanup] fout:', cleanupErr);
+        const statsEl = document.getElementById('cleanupStats');
+        if (statsEl) statsEl.textContent = '⚠ cleanup fout (zie console)';
+      }
+
+      if (changes.length > 0) {
+        showStatus(`✅ ${changed} expressie${changed !== 1 ? 's' : ''} vereenvoudigd.`, 'success');
+      } else {
+        showStatus('Alles al benoemd — geen wijzigingen.', 'info');
+      }
+    } catch (err) {
+      lastRun = {
+        timestamp: new Date().toISOString(),
+        baseXml,
+        xpathDocXml,
+        namingArch: namingArch || null,
+        outputXml: null,
+        log: null,
+        changed: 0,
+        total: 0,
+        error: err.message,
+      };
+      exportBtn.classList.remove('hidden');
+      showStatus('❌ ' + err.message, 'error');
+    } finally {
+      convertBtn.disabled = false;
+      convertBtn.textContent = 'Converteer';
+    }
+  });
+
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(outputArea.value).then(() => {
+      copyBtn.textContent = 'Gekopieerd!';
+      setTimeout(() => { copyBtn.textContent = 'Kopieer output'; }, 1500);
+    });
+  });
+
+  exportBtn.addEventListener('click', () => {
+    if (!lastRun) return;
+    const payload = [
+      '=== XPATH CONVERTER DEBUG EXPORT ===',
+      `Tijdstip: ${lastRun.timestamp}`,
+      `Resultaat: ${lastRun.error ? 'FOUT' : `${lastRun.changed}/${lastRun.total} herschreven`}`,
+      '',
+      '=== BASE VIEW XML (simulatiebasis) ===',
+      lastRun.baseXml,
+      '',
+      lastRun.namingArch ? '=== NAMING ARCH (gecombineerde view voor named lookups) ===' : '',
+      lastRun.namingArch ? lastRun.namingArch : '',
+      lastRun.namingArch ? '' : '',
+      '=== XPATH DOCUMENT (input) ===',
+      lastRun.xpathDocXml,
+      '',
+      '=== OUTPUT ===',
+      lastRun.outputXml ?? '(geen output — fout opgetreden)',
+      '',
+      '=== LOG ===',
+      lastRun.log ?? '(geen log)',
+      '',
+      lastRun.error ? `=== FOUT ===\n${lastRun.error}` : '',
+    ].join('\n');
+
+    const blob = new Blob([payload], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `xpath-debug-${lastRun.timestamp.replace(/[:.]/g, '-')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById('removeRedundantBtn').addEventListener('click', () => {
+    const section = document.getElementById('redundantSection');
+    const groups  = section._groups || [];
+    const baseXml = document.getElementById('baseViewInput').value.trim();
+
+    const toRemove = new Set();
+    document.querySelectorAll('[data-group-idx]').forEach(cb => {
+      if (cb.checked) groups[parseInt(cb.dataset.groupIdx)].indices.forEach(i => toRemove.add(i));
+    });
+    if (toRemove.size === 0) return;
+
+    const cleaned = removeXpathsByIndices(outputArea.value, toRemove);
+    outputArea.value = cleaned;
+
+    const actions = analyzeXpathActions(baseXml, cleaned);
+    showRedundantGroups(detectRedundantGroups(actions));
+
+    const n = toRemove.size;
+    showStatus(`✅ ${n} xpath${n !== 1 ? 's' : ''} verwijderd.`, 'success');
+  });
+
+  function showStatus(msg, type) {
+    statusMsg.textContent = msg;
+    statusMsg.className = 'text-sm ' + (
+      type === 'error'   ? 'text-error' :
+      type === 'success' ? 'text-success' :
+                           'text-info'
+    );
+  }
+  </script>
+
+</body>
+</html>
+t-info'
+    );
+  }
+  </script>
+
+</body>
+</html>
