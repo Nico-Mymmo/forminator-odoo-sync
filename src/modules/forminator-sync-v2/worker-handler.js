@@ -830,8 +830,27 @@ async function runSubmissionAttempt(env, {
         const condRaw     = String(lookupFormValue(normalizedForm, target.condition_field) ?? '').trim().toLowerCase();
         const condAllowed = Array.isArray(target.condition_values) ? target.condition_values : [];
 
-        if (condAllowed.length === 0) {
-          // Veld geconfigureerd maar geen toegestane waarden → stap ALTIJD overslaan
+        // Operator 'exists': sla stap over als veld leeg of afwezig is
+        if (condAllowed.length === 1 && condAllowed[0] === '__exists__') {
+          if (!condRaw) {
+            console.log(attemptTag, `condition_exists not met: veld "${target.condition_field}" is leeg — stap overgeslagen.`);
+            const condResult = {
+              submission_id:   submission.id,
+              target_id:       target.id,
+              execution_order: executionOrder,
+              action_result:   'skipped',
+              skipped_reason:  'condition_not_met',
+              odoo_record_id:  null,
+              error_detail:    `Conditie niet voldaan: veld "${target.condition_field}" is leeg of afwezig.`,
+              processed_at:    new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, condResult);
+            targetResults.push(condResult);
+            continue;
+          }
+          console.log(attemptTag, `condition_exists met: veld "${target.condition_field}" = "${condRaw}"`);
+        } else if (condAllowed.length === 0) {
+          // Veld geconfigureerd maar geen toegestane waarden → stap overslaan
           console.warn(attemptTag, `condition_field "${target.condition_field}" is ingesteld maar condition_values is leeg — stap overgeslagen.`);
           const condResult = {
             submission_id:   submission.id,
@@ -848,7 +867,9 @@ async function runSubmissionAttempt(env, {
           continue;
         }
 
-        const condMatch = condAllowed.some((v) => String(v).trim().toLowerCase() === condRaw);
+        const condMatch = condAllowed[0] === '__exists__'
+          ? true
+          : condAllowed.some((v) => String(v).trim().toLowerCase() === condRaw);
         if (!condMatch) {
           console.log(attemptTag, `condition_not_met on target: ${target.id} | field: ${target.condition_field} | value: "${condRaw}" | allowed: ${JSON.stringify(condAllowed)}`);
           const condResult = {

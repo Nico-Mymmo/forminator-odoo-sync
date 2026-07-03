@@ -334,6 +334,25 @@
       var actionIcon = cfg.icon;
       var actionModel = cfg.odoo_model;
 
+      // Stap-badges op basis van targets (meegegeven door API)
+      var _stepsHtml = '';
+      var _rowTargets = Array.isArray(row.targets) ? row.targets : [];
+      if (_rowTargets.length > 0) {
+        _stepsHtml = '<div class="flex flex-wrap items-center gap-1 mb-3">';
+        _rowTargets.forEach(function (t, ti) {
+          var _cfg = getModelCfg(t.odoo_model) || { label: t.odoo_model, badgeClass: 'badge-ghost' };
+          var _modelLbl = _cfg.label || t.odoo_model || '';
+          var _lbl = t.operation_type === 'chatter_message' ? 'Notitie bij ' + _modelLbl
+            : t.operation_type === 'create_activity' ? 'Activiteit bij ' + _modelLbl
+            : _modelLbl;
+          var _bc = (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity')
+            ? 'badge-ghost' : _cfg.badgeClass;
+          if (ti > 0) _stepsHtml += '<i data-lucide="arrow-right" class="w-3 h-3 text-base-content/40 shrink-0"></i>';
+          _stepsHtml += '<span class="badge badge-sm ' + esc(_bc) + '">' + esc(_lbl) + '</span>';
+        });
+        _stepsHtml += '</div>';
+      }
+
       // Flow preview (uses shared FlowBuilder if available)
       var flowHtml = '';
       if (window.FSV2.renderFlowPreview && actionModel) {
@@ -355,7 +374,7 @@
         _warnHtml = `<div class="flex items-center gap-1.5 mb-2" title="${esc(_tooltip)}"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-warning shrink-0"></i><span class="text-xs text-warning">${_totalMissing} verplicht${_totalMissing === 1 ? ' veld ontbreekt' : 'e velden ontbreken'}</span></div>`;
       }
 
-      return `<div class="card bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-200"><div class="card-body p-5"><div class="flex items-start justify-between gap-2 mb-3"><h3 class="font-bold text-sm leading-snug text-base-content">${esc(row.name || 'Integratie')}</h3>${isActive ? '<span class="badge badge-success badge-xs shrink-0 gap-1"><span class="w-1.5 h-1.5 rounded-full bg-current"></span>Actief</span>' : '<span class="badge badge-ghost badge-xs shrink-0">Inactief</span>'}</div><div class="flex items-center gap-1.5 mb-3">${row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '\u2014') + '</p>'}</div>${flowHtml ? '<div class="mb-3">' + flowHtml + '</div>' : ''}${_warnHtml}${updatedAt ? '<p class="text-xs text-base-content/35 mb-2">Bijgewerkt ' + updatedAt + '</p>' : ''}<div class="flex gap-2 pt-3 border-t border-base-100"><button class="btn btn-xs btn-primary flex-1 gap-1" data-action="open-detail" data-id="${esc(row.id)}"><i data-lucide="settings-2" class="w-3 h-3"></i>Beheren</button><button class="btn btn-xs btn-ghost border border-base-200 text-error hover:bg-error/10" data-action="delete-integration" data-id="${esc(row.id)}" data-name="${esc(row.name || 'Integratie')}" title="Verwijderen"><i data-lucide="trash-2" class="w-3 h-3"></i></button></div></div></div>`;
+      return `<div class="card bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-200"><div class="card-body p-5"><div class="flex items-start justify-between gap-2 mb-3"><h3 class="font-bold text-sm leading-snug text-base-content">${esc(row.name || 'Integratie')}</h3>${isActive ? '<span class="badge badge-success badge-xs shrink-0 gap-1"><span class="w-1.5 h-1.5 rounded-full bg-current"></span>Actief</span>' : '<span class="badge badge-ghost badge-xs shrink-0">Inactief</span>'}</div><div class="flex items-center gap-1.5 mb-3">${row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '\u2014') + '</p>'}</div>${_stepsHtml}${flowHtml ? '<div class="mb-3">' + flowHtml + '</div>' : ''}${_warnHtml}${updatedAt ? '<p class="text-xs text-base-content/35 mb-2">Bijgewerkt ' + updatedAt + '</p>' : ''}<div class="flex gap-2 pt-3 border-t border-base-100"><button class="btn btn-xs btn-primary flex-1 gap-1" data-action="open-detail" data-id="${esc(row.id)}"><i data-lucide="settings-2" class="w-3 h-3"></i>Beheren</button><button class="btn btn-xs btn-ghost border border-base-200 text-error hover:bg-error/10" data-action="delete-integration" data-id="${esc(row.id)}" data-name="${esc(row.name || 'Integratie')}" title="Verwijderen"><i data-lucide="trash-2" class="w-3 h-3"></i></button></div></div></div>`;
     }).join('');
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();

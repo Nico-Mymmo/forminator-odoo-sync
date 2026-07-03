@@ -32,7 +32,28 @@ export async function listIntegrations(env) {
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(`Failed to list integrations: ${error.message}`);
-  return ensureArray(data);
+  const integrations = ensureArray(data);
+
+  // Fetch minimal target info for step-badge display in list view
+  const ids = integrations.map((r) => r.id);
+  if (ids.length > 0) {
+    const { data: targets } = await supabase
+      .from(TABLES.targets)
+      .select('integration_id, odoo_model, operation_type, execution_order, order_index')
+      .in('integration_id', ids);
+    const byInteg = {};
+    ensureArray(targets).forEach((t) => {
+      if (!byInteg[t.integration_id]) byInteg[t.integration_id] = [];
+      byInteg[t.integration_id].push(t);
+    });
+    integrations.forEach((row) => {
+      row.targets = (byInteg[row.id] || []).sort(
+        (a, b) => (a.execution_order ?? a.order_index ?? 0) - (b.execution_order ?? b.order_index ?? 0)
+      );
+    });
+  }
+
+  return integrations;
 }
 
 export async function getIntegrationById(env, integrationId) {

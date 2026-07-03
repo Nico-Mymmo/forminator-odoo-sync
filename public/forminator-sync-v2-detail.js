@@ -240,8 +240,20 @@
         stepsHtml = '<div class="flex flex-wrap items-center gap-1.5 mt-2">';
         sortedForHeader.forEach(function (t, i) {
           var cfg = window.FSV2.getModelCfg(t.odoo_model) || { label: t.odoo_model, badgeClass: 'badge-ghost' };
+          var modelLabel = cfg.label || t.odoo_model;
+          var stepLabel;
+          if (t.operation_type === 'chatter_message') {
+            stepLabel = 'Notitie bij ' + modelLabel;
+          } else if (t.operation_type === 'create_activity') {
+            stepLabel = 'Activiteit bij ' + modelLabel;
+          } else {
+            stepLabel = modelLabel;
+          }
+          var badgeClass = t.operation_type === 'chatter_message' ? 'badge-ghost'
+            : t.operation_type === 'create_activity' ? 'badge-ghost'
+            : cfg.badgeClass;
           if (i > 0) stepsHtml += '<i data-lucide="arrow-right" class="w-3 h-3 text-base-content/40 shrink-0"></i>';
-          stepsHtml += '<span class="badge badge-sm ' + esc(cfg.badgeClass) + '">' + esc(cfg.label || t.odoo_model) + '</span>';
+          stepsHtml += '<span class="badge badge-sm ' + esc(badgeClass) + '">' + esc(stepLabel) + '</span>';
         });
         stepsHtml += '</div>';
       }
@@ -468,11 +480,17 @@
           var leg = String(sv || '').match(/^step_(\d+)_id$/);
           return leg ? 'step.' + leg[1] + '.record_id' : (sv || '');
         };
+        // Activiteit slaat koppeling op in activity_res_id_source, niet als mapping
+        var _actResIdSrc = target.operation_type === 'create_activity' ? (target.activity_res_id_source || '') : '';
         var chainSourceRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid])
           ? S().detail._extraRowsByTarget[tid].map(function (r) { return normalizeSv(r.staticValue); })
           : ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [])
               .filter(function (m) { return m.source_type === 'previous_step_output'; })
               .map(function (m) { return normalizeSv(m.source_value); });
+        // Voeg activity_res_id_source toe als die niet al via mappings is opgenomen
+        if (_actResIdSrc && !chainSourceRows.includes(_actResIdSrc)) {
+          chainSourceRows = chainSourceRows.concat([_actResIdSrc]);
+        }
         chainSourceRows.forEach(function (sourceVal) {
           var m = sourceVal.match(/^step\.([^.]+)\.record_id$/);
           if (!m) return;
@@ -623,9 +641,11 @@
 
       // ── Gedragsbalk ─────────────────────────────────────────────────────────
       var _condSummary = target.condition_field
-        ? 'Als ' + esc(target.condition_field) + ' = ' + esc(
-            Array.isArray(target.condition_values) && target.condition_values.length
-              ? target.condition_values.join(' / ') : '?')
+        ? (Array.isArray(target.condition_values) && target.condition_values[0] === '__exists__'
+            ? 'Als ' + esc(target.condition_field) + ' bestaat'
+            : 'Als ' + esc(target.condition_field) + ' = ' + esc(
+                Array.isArray(target.condition_values) && target.condition_values.length
+                  ? target.condition_values.join(' / ') : '?'))
         : 'Geen voorwaarde ingesteld';
 
 
@@ -1341,6 +1361,8 @@
 
     var condVals      = Array.isArray(target.condition_values) ? target.condition_values : [];
     var currentField  = target.condition_field || '';
+    var isExists      = condVals.length === 1 && condVals[0] === '__exists__';
+    var currentOp     = isExists ? 'exists' : 'equals';
     var fieldTransforms = S().fieldTransforms || {};
 
     var fieldOpts = '<option value="">' + esc('\u2014 Geen voorwaarde \u2014') + '</option>';
@@ -1351,7 +1373,23 @@
       fieldOpts += '<option value="' + esc(fid) + '"' + sel + '>' + esc(lbl) + '</option>';
     });
 
-    var valuesHtml = buildCondValuesHtml(tid, currentField, flatFields, fieldTransforms, condVals);
+    var valuesHtml = (currentField && currentOp === 'equals')
+      ? buildCondValuesHtml(tid, currentField, flatFields, fieldTransforms, condVals)
+      : '';
+
+    // Operator-toggle: gelijk aan | bestaat
+    var opToggleHtml = currentField
+      ? '<div class="flex items-center gap-1 flex-wrap">' +
+          '<button type="button" class="btn btn-xs ' + (currentOp === 'equals' ? 'btn-warning' : 'btn-ghost border border-base-200') + '"' +
+            ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="equals">gelijk aan</button>' +
+          '<button type="button" class="btn btn-xs ' + (currentOp === 'exists' ? 'btn-warning' : 'btn-ghost border border-base-200') + '"' +
+            ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="exists">bestaat</button>' +
+        '</div>'
+      : '';
+
+    var existsNoteHtml = (currentField && currentOp === 'exists')
+      ? '<p class="text-xs text-base-content/50 italic">Stap wordt overgeslagen als het veld leeg of afwezig is.</p>'
+      : '';
 
     condEl.innerHTML =
       '<div class="px-4 py-3 border-t border-base-200">' +
@@ -1363,11 +1401,12 @@
                 ' data-change-action="cond-field-changed" data-target-id="' + esc(tid) + '">' +
                 fieldOpts +
               '</select>' +
-              (currentField ? '<span class="text-xs text-base-content/60">gelijk is aan:</span>' : '') +
             '</div>' +
+            (opToggleHtml ? '<div id="stepCondOpArea-' + esc(tid) + '">' + opToggleHtml + '</div>' : '<div id="stepCondOpArea-' + esc(tid) + '"></div>') +
             '<div id="stepCondValuesArea-' + esc(tid) + '">' +
               valuesHtml +
             '</div>' +
+            existsNoteHtml +
             '<div class="flex items-center gap-2">' +
               '<button type="button" class="btn btn-xs btn-warning gap-1"' +
                 ' data-action="save-step-condition" data-target-id="' + esc(tid) + '">' +
@@ -1387,17 +1426,23 @@
   }
 
   function handleCondFieldChanged(tid, fieldId) {
-    var area = document.getElementById('stepCondValuesArea-' + tid);
+    var area    = document.getElementById('stepCondValuesArea-' + tid);
+    var opArea  = document.getElementById('stepCondOpArea-' + tid);
     if (!area) return;
-    var flatFields = buildDetailFlatFields(S().detailFormFields).flatFields;
+    var flatFields = buildDetailFlatFields(S().detailFormFields || []).flatFields;
     var fieldTransforms = S().fieldTransforms || {};
-    area.innerHTML = buildCondValuesHtml(tid, fieldId || '', flatFields, fieldTransforms, []);
-    // Show/hide the "gelijk is aan" label dynamically
-    var lbl = area.previousElementSibling;
-    if (lbl) {
-      var gelijkSpan = lbl.querySelector('span:last-child');
-      if (gelijkSpan) gelijkSpan.style.display = fieldId ? '' : 'none';
+    // Nieuw veld → reset operator naar 'equals' en toon waarden-input
+    if (opArea) {
+      opArea.innerHTML = fieldId
+        ? '<div class="flex items-center gap-1 flex-wrap">' +
+            '<button type="button" class="btn btn-xs btn-warning"' +
+              ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="equals">gelijk aan</button>' +
+            '<button type="button" class="btn btn-xs btn-ghost border border-base-200"' +
+              ' data-action="cond-op-toggle" data-target-id="' + esc(tid) + '" data-op="exists">bestaat</button>' +
+          '</div>'
+        : '';
     }
+    area.innerHTML = fieldId ? buildCondValuesHtml(tid, fieldId, flatFields, fieldTransforms, []) : '';
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: area });
   }
 
@@ -1423,10 +1468,19 @@
       condValues = raw.split(',').map(function (v) { return v.trim(); }).filter(Boolean);
     }
 
-    // Validate: field geselecteerd maar geen waarden → stop en waarschuw
-    if (condField && !condValues.length) {
-      window.FSV2.showAlert('Selecteer minimaal één toegestane waarde voor de voorwaarde, of kies "— Geen voorwaarde —" om te wissen.', 'warning');
-      return;
+    // Lees actieve operator (exists / equals)
+    var opArea = document.getElementById('stepCondOpArea-' + tid);
+    var activeOpBtn = opArea ? opArea.querySelector('button.btn-warning[data-op]') : null;
+    var condOp = activeOpBtn ? activeOpBtn.getAttribute('data-op') : 'equals';
+
+    if (condOp === 'exists') {
+      condValues = ['__exists__'];
+    } else {
+      // Validate: field geselecteerd maar geen waarden → stop en waarschuw
+      if (condField && !condValues.length) {
+        window.FSV2.showAlert('Selecteer minimaal één toegestane waarde voor de voorwaarde, of kies "— Geen voorwaarde —" om te wissen.', 'warning');
+        return;
+      }
     }
 
     await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
@@ -2883,7 +2937,9 @@ function renderDetailFormFields() {
     var temp = Math.max(oA, oB) + 100;  // safe temp (no unique constraint conflict)
 
     // ── Koppelingscontrole ────────────────────────────────────────────────────
-    // Geeft de execution_orders terug van alle stappen waaraan dit target gekoppeld is
+    // Geeft de execution_orders terug van alle stappen waaraan dit target gekoppeld is.
+    // Dekt: chatter (_chatter_record_id), activiteit (activity_res_id_source)
+    // én gewone chain-links (source_type === 'previous_step_output').
     function _linkedOrders(t) {
       var ords = [];
       // Activiteit: activity_res_id_source = 'step.{order}.record_id'
@@ -2891,34 +2947,37 @@ function renderDetailFormFields() {
         var _m = t.activity_res_id_source.match(/^step\.([^.]+)\.record_id$/);
         if (_m) ords.push(Number(_m[1]));
       }
-      // Chatter: _chatter_record_id mappings
+      // Alle mappings met source_type === 'previous_step_output'
+      // (chatter _chatter_record_id én gewone chain-links zoals Contact → Lead)
       var _maps = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[t.id]) || [];
-      _maps.filter(function (m) { return m.odoo_field === '_chatter_record_id'; }).forEach(function (m) {
+      _maps.filter(function (m) { return m.source_type === 'previous_step_output'; }).forEach(function (m) {
         var _sm = (m.source_value || '').match(/^step\.([^.]+)\.record_id$/);
         if (_sm) ords.push(Number(_sm[1]));
       });
       return ords;
     }
 
-    var _isChatAct = function (t) {
-      return t.operation_type === 'chatter_message' || t.operation_type === 'create_activity';
-    };
-
-    if (direction === -1 && _isChatAct(tA)) {
-      // tA beweegt omhoog — mag niet voor zijn eigen gekoppelde stap (tB) komen
-      if (_linkedOrders(tA).includes(oB)) {
-        window.FSV2.showAlert(
-          'Deze stap is gekoppeld aan de vorige stap en kan er niet voor geplaatst worden.', 'error');
-        return;
-      }
+    // Blokkeer elke verplaatsing waarbij een stap voor zijn gekoppelde vorige stap zou komen.
+    // Geldt voor alle staptypes: gewone stappen, chatter én activiteiten.
+    if (direction === -1 && _linkedOrders(tA).includes(oB)) {
+      // tA beweegt omhoog langs tB die een linked step van tA is
+      window.FSV2.showAlert('Deze stap is gekoppeld aan de vorige stap en kan er niet voor geplaatst worden.', 'error');
+      return;
     }
-    if (direction === 1 && _isChatAct(tB)) {
-      // tB beweegt omhoog — mag niet voor zijn eigen gekoppelde stap (tA) komen
-      if (_linkedOrders(tB).includes(oA)) {
-        window.FSV2.showAlert(
-          'De volgende stap is gekoppeld aan deze stap en kan er niet voor geplaatst worden.', 'error');
-        return;
-      }
+    if (direction === -1 && _linkedOrders(tB).includes(oA)) {
+      // tA beweegt omhoog langs tB die tA als linked step heeft
+      window.FSV2.showAlert('De bovenliggende stap is gekoppeld aan deze stap en kan er niet voor geplaatst worden.', 'error');
+      return;
+    }
+    if (direction === 1 && _linkedOrders(tA).includes(oB)) {
+      // tA beweegt omlaag langs tB die een linked step van tA is
+      window.FSV2.showAlert('Deze stap is gekoppeld aan de volgende stap en kan er niet na geplaatst worden.', 'error');
+      return;
+    }
+    if (direction === 1 && _linkedOrders(tB).includes(oA)) {
+      // tB beweegt omhoog langs tA die een linked step van tB is
+      window.FSV2.showAlert('De volgende stap is gekoppeld aan deze stap en kan er niet voor geplaatst worden.', 'error');
+      return;
     }
 
     var VALID_ID_TYPES  = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields', 'odoo_id'];

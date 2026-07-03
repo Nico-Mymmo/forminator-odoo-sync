@@ -562,6 +562,35 @@
         if (condTid) await window.FSV2.handleSaveStepCondition(condTid);
         return;
       }
+      if (action === 'cond-op-toggle') {
+        var _opTid = btn.dataset.targetId;
+        var _op    = btn.dataset.op;
+        if (!_opTid || !_op) return;
+        var _opArea = document.getElementById('stepCondOpArea-' + _opTid);
+        if (_opArea) {
+          _opArea.querySelectorAll('button[data-op]').forEach(function (b) {
+            b.classList.toggle('btn-warning', b.dataset.op === _op);
+            b.classList.toggle('btn-ghost',  b.dataset.op !== _op);
+            b.classList.toggle('border',     b.dataset.op !== _op);
+            b.classList.toggle('border-base-200', b.dataset.op !== _op);
+          });
+        }
+        // Toon of verberg waarden-input op basis van operator
+        var _valArea = document.getElementById('stepCondValuesArea-' + _opTid);
+        if (_valArea) {
+          if (_op === 'exists') {
+            _valArea.innerHTML = '<p class="text-xs text-base-content/50 italic">Stap wordt overgeslagen als het veld leeg of afwezig is.</p>';
+          } else {
+            var _flatFieldsOp = window.FSV2.buildDetailFlatFields
+              ? [] // buildDetailFlatFields is internal; refill via handleCondFieldChanged
+              : [];
+            var _fieldSel = document.getElementById('stepCondField-' + _opTid);
+            var _fid = _fieldSel ? _fieldSel.value : '';
+            if (_fid && window.FSV2.handleCondFieldChanged) window.FSV2.handleCondFieldChanged(_opTid, _fid);
+          }
+        }
+        return;
+      }
       if (action === 'clear-step-condition') {
         var clearTid = btn.dataset.targetId;
         if (!clearTid) return;
