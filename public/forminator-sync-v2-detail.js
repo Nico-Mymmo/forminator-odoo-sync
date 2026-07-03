@@ -633,8 +633,14 @@
         : 'Niet gekoppeld';
 
       // Automatisch ingevuld — static rows uit DB (source_type='static')
+      var _modelCfgAF = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(target.odoo_model) : {};
+      var _fixedNames = (Array.isArray(_modelCfgAF.fixed_fields) ? _modelCfgAF.fixed_fields : [])
+        .map(function (f) { return typeof f === 'string' ? f : (f.name || ''); });
       var _staticMappings = ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [])
-        .filter(function (m) { return m.source_type === 'static' && m.source_value != null && m.source_value !== ''; });
+        .filter(function (m) {
+          return m.source_type === 'static' && m.source_value != null && m.source_value !== ''
+            && _fixedNames.includes(m.odoo_field);
+        });
       var _autoFillHtml = _staticMappings.length > 0
         ? _staticMappings.map(function (m) {
             var odooLbl = esc(m.odoo_field);
@@ -758,8 +764,8 @@
       var formMappingsByField = {};
       var initialExtraRows    = [];
       targetMappings.forEach(function (m) {
-        if (m.source_type === 'form') { formMappingsByField[m.source_value] = m; }
-        else                          { initialExtraRows.push(m); }
+        if (m.source_type === 'form')   { formMappingsByField[m.source_value] = m; }
+        else if (m.source_type !== 'static') { initialExtraRows.push(m); } // static = Automatisch ingevuld, niet in tabel
       });
 
       if (!S().detail._extraRowsByTarget[tid]) {
@@ -783,23 +789,43 @@
           };
         });
 
-        // Inject missing required default_fields as empty template rows
+        // Inject ALL default_fields from model config — required and non-required.
+        // Already-in-DB rows get isDefault + sourceMode stamped on; missing ones are pushed.
         var modelCfgForReq = window.FSV2.getModelCfg(model);
         if (Array.isArray(modelCfgForReq.default_fields)) {
-          var allMappedFields = targetMappings.map(function (m) { return m.odoo_field; });
+          // Fields in fixed_fields are auto-filled and must never appear in the table
+          var _fixedNamesSet = {};
+          (Array.isArray(modelCfgForReq.fixed_fields) ? modelCfgForReq.fixed_fields : []).forEach(function (f) {
+            var n = typeof f === 'string' ? f : (f.name || ''); if (n) _fixedNamesSet[n] = true;
+          });
           modelCfgForReq.default_fields.forEach(function (df) {
-            if (!df.required) return;
-            if (allMappedFields.includes(df.name)) return;
-            if (S().detail._extraRowsByTarget[tid].some(function (r) { return r.odooField === df.name; })) return;
-            var meta = odooCache.find(function (f) { return f.name === df.name; });
+            if (_fixedNamesSet[df.name]) return;  // skip — auto-filled, not user-editable
+            var sourceMode = df.source_mode || 'both';
+            var isReq      = !!df.required;
+            var meta       = odooCache.find(function (f) { return f.name === df.name; });
+            // If already in _extraRowsByTarget (loaded from DB as non-form mapping), stamp it
+            var existing = S().detail._extraRowsByTarget[tid].find(function (r) { return r.odooField === df.name; });
+            if (existing) {
+              existing.isDefault  = true;
+              existing.isRequired = isReq;
+              existing.sourceMode = sourceMode;
+              return;
+            }
+            // Otherwise push (includes form-mapped fields — MappingTable pre-populates col1 from existingForm)
+            // Pre-populate staticValue from existing DB mapping (static or template) so col2 shows the saved value
+            var _dbm = targetMappings.find(function (m) {
+              return m.odoo_field === df.name && (m.source_type === 'static' || m.source_type === 'template');
+            });
             S().detail._extraRowsByTarget[tid].push({
               odooField:     df.name,
               odooLabel:     (meta && meta.label) || df.label || df.name,
-              staticValue:   '',
-              sourceType:    'template',
-              isRequired:    true,
+              staticValue:   _dbm ? (_dbm.source_value || '') : '',
+              sourceType:    _dbm ? _dbm.source_type : 'template',
+              isRequired:    isReq,
+              isDefault:     true,
               isIdentifier:  false,
-              isUpdateField: true,
+              isUpdateField: df.is_update_field !== false,
+              sourceMode:    sourceMode,
             });
           });
         }
@@ -836,13 +862,25 @@
         return;
       }
 
+      var _cfgIdent = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(model) : {};
+      var cfgIdentFields = Array.isArray(_cfgIdent.identifier_fields)
+        ? _cfgIdent.identifier_fields.map(function (f) {
+            var fname = typeof f === 'string' ? f : (f.name || '');
+            var oc    = odooCache.find(function (c) { return c.name === fname; });
+            return { name: fname, label: (oc && oc.label) || (typeof f === 'object' && f.label) || fname };
+          })
+        : [];
+      var cfgActiveIdField = cfgIdentFields.length === 1 ? cfgIdentFields[0].name : '';
+
       window.FSV2.MappingTable.render('det-mc-' + tid, {
         flatFields:           flatFields,
         topLevelFields:       rawFf,
         odooCache:            odooCache,
         odooLoaded:           odooLoaded,
         odooModel:            model,
-        existingFormMappings: formMappingsByField,
+        existingFormMappings: Object.values(formMappingsByField),
+        identifierFields:     cfgIdentFields,
+        activeIdentifierField: cfgActiveIdField,
         extraRows:            S().detail._extraRowsByTarget[tid],
         selectClass:          'detail-ff-select',
         idCheckClass:         'detail-ff-id-check',
@@ -919,6 +957,17 @@
         identSet[r.odooField] = (oc && oc.label) || r.odooLabel || r.odooField;
       }
     });
+    // Also add identifier_fields from model config (so callout shows even before any mapping is saved)
+    var _mcIdent = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(target.odoo_model) : {};
+    if (Array.isArray(_mcIdent.identifier_fields)) {
+      _mcIdent.identifier_fields.forEach(function (f) {
+        var fname = typeof f === 'string' ? f : (f.name || '');
+        if (fname && !identSet[fname]) {
+          var oc = odooCache.find(function (c) { return c.name === fname; });
+          identSet[fname] = (oc && oc.label) || (typeof f === 'object' && f.label) || fname;
+        }
+      });
+    }
     var identFields = Object.keys(identSet).map(function (k) { return { name: k, label: identSet[k] }; });
 
     var _opIcons = { upsert: 'git-merge', update_only: 'pencil', create: 'plus-circle' };
@@ -2599,73 +2648,88 @@ function renderDetailFormFields() {
     var newMappings = [];
     var orderIdx    = 0;
 
-    flatFields.forEach(function (ff) {
-      var fid       = String(ff.field_id);
-      var selEl     = mcEl.querySelector('[name="det-ff-' + tid + '-odoo-' + fid + '"]');
-      var odooField = selEl ? (selEl.value || '') : '';
+    // ── Read mappings from MappingTable DOM (data-map-row rows) ─────────────
+    // MappingTable uses data-map-col="1" (form field), data-map-col="2" (static value),
+    // data-map-col="3" (Odoo field select), data-odoo-field (fixed Odoo field for required rows).
+    mcEl.querySelectorAll('[data-map-row]').forEach(function (tr) {
+      var rowType      = tr.dataset.rowType || 'free';
+      var fixedOdoo    = tr.dataset.odooField || '';
+      var col1         = tr.querySelector('[data-map-col="1"]');
+      var col2el       = tr.querySelector('[data-map-col="2"]');
+      var col3         = tr.querySelector('[data-map-col="3"]');
+      var notUpdEl     = tr.querySelector('[data-map-not-update]');
+
+      var formFid   = (col1 && col1.tagName === 'SELECT') ? (col1.value || '') : '';
+      var staticVal = col2el ? (col2el.value || '').trim() : '';
+      var odooField = fixedOdoo || ((col3 && col3.tagName === 'SELECT') ? (col3.value || '') : '');
+
       if (!odooField) return;
-      var idChk  = Array.from(mcEl.querySelectorAll('input.detail-ff-id-check')).find(function (el) {
-        return el.getAttribute('name') === 'det-' + tid + '-identifier-' + fid;
-      });
-      var updChk = Array.from(mcEl.querySelectorAll('input.detail-ff-upd-check')).find(function (el) {
-        return el.getAttribute('name') === 'det-' + tid + '-update-' + fid;
-      });
+      var isUpdateField = notUpdEl ? !notUpdEl.checked : true;
+      var isIdentifier  = rowType === 'identifier';
 
-      // Collect value_map for choice fields
-      var vmapInputs = mcEl.querySelectorAll('[name^="det-ff-' + tid + '-vmapv-' + fid + '-"]');
-      var valueMap = null;
-      if (vmapInputs.length > 0) {
-        var vmapObj = {};
-        var hasAny  = false;
-        vmapInputs.forEach(function (inp) {
-          var choiceVal = inp.dataset.choiceValue;
-          var odooVal   = (inp.value || '').trim();
-          if (choiceVal && odooVal) { vmapObj[choiceVal] = odooVal; hasAny = true; }
+      if (formFid) {
+        // Collect value_map for choice fields in this row
+        var valueMap = null;
+        var vmapEls = tr.querySelectorAll('[data-choice-value]');
+        if (vmapEls.length) {
+          var vmapObj = {}; var hasAny = false;
+          vmapEls.forEach(function (inp) {
+            var k = inp.dataset.choiceValue; var v = (inp.value || '').trim();
+            if (k && v) { vmapObj[k] = v; hasAny = true; }
+          });
+          if (hasAny) valueMap = vmapObj;
+        }
+        newMappings.push({
+          odoo_field: odooField, source_type: 'form', source_value: formFid,
+          is_identifier: isIdentifier, is_update_field: isUpdateField,
+          is_required: tr.dataset.rowIsRequired === 'true', order_index: orderIdx++,
+          value_map: valueMap,
         });
-        if (hasAny) valueMap = vmapObj;
+      } else if (staticVal) {
+        var srcType = /\{[^}]+\}/.test(staticVal) ? 'template' : 'static';
+        newMappings.push({
+          odoo_field: odooField, source_type: srcType, source_value: staticVal,
+          is_identifier: isIdentifier, is_update_field: isUpdateField,
+          is_required: false, order_index: orderIdx++,
+        });
       }
-
-      newMappings.push({
-        odoo_field: odooField, source_type: 'form', source_value: fid,
-        is_identifier: idChk ? idChk.checked : false,
-        is_update_field: updChk ? updChk.checked : true,
-        is_required: false, order_index: orderIdx++,
-        value_map: valueMap,
-      });
     });
 
+    // ── Chain rows (previous_step_output) — rendered outside the table ──────
     var extraRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
     extraRows.forEach(function (em, i) {
-      var tname = 'det-extra-' + tid + '-' + i;
-      var inpEl = document.getElementById('det-inp-' + tname);
-      var val   = inpEl ? (inpEl.value || '').trim() : (em.staticValue || '');
-      if (!val && em.sourceType !== 'previous_step_output') return;
-      var sourceType  = em.sourceType === 'previous_step_output' ? 'previous_step_output'
-                      : (/\{[^}]+\}/.test(val) ? 'template' : 'static');
-      var sourceValue = em.sourceType === 'previous_step_output' ? (em.staticValue || val) : val;
+      if (em.sourceType !== 'previous_step_output') return;  // table rows handled via DOM above
+      var sourceValue = em.staticValue || '';
       if (!sourceValue) return;
-      // Normalize legacy chain source_value format before validating/saving
-      if (em.sourceType === 'previous_step_output') {
-        var legFix = String(sourceValue).match(/^step_(\d+)_id$/);
-        if (legFix) sourceValue = 'step.' + legFix[1] + '.record_id';
-      }
-      // Skip chain rows still not matching the required pattern after normalization
-      if (em.sourceType === 'previous_step_output' && !/^step\.[^.]+\.record_id$/.test(sourceValue)) {
+      // Normalize legacy chain source_value format
+      var legFix = String(sourceValue).match(/^step_(\d+)_id$/);
+      if (legFix) sourceValue = 'step.' + legFix[1] + '.record_id';
+      if (!/^step\.[^.]+\.record_id$/.test(sourceValue)) {
         console.warn('[FSV2] chain row skipped: invalid source_value', sourceValue, em);
         return;
       }
-      var extraIdChk  = mcEl.querySelector('input[name="det-extra-' + tid + '-identifier-' + i + '"]');
-      var extraUpdChk = mcEl.querySelector('input[name="det-extra-' + tid + '-update-' + i + '"]');
       var chainReqChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-req-' + i + '"]');
       var chainIdChk  = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-id-'  + i + '"]');
-      var isRequired  = em.sourceType === 'previous_step_output'
-        ? (chainReqChk ? chainReqChk.checked : (em.isRequired || false))
-        : false;
       newMappings.push({
-        odoo_field: em.odooField, source_type: sourceType, source_value: sourceValue,
-        is_identifier: em.sourceType === 'previous_step_output' ? (chainIdChk ? chainIdChk.checked : true) : (extraIdChk ? extraIdChk.checked : false),
-        is_update_field: em.sourceType === 'previous_step_output' ? true : (extraUpdChk ? extraUpdChk.checked : true),
-        is_required: isRequired, order_index: orderIdx++,
+        odoo_field: em.odooField, source_type: 'previous_step_output', source_value: sourceValue,
+        is_identifier: chainIdChk ? chainIdChk.checked : true,
+        is_update_field: true,
+        is_required: chainReqChk ? chainReqChk.checked : (em.isRequired || false),
+        order_index: orderIdx++,
+      });
+    });
+
+    // ── Preserve model-level fixed_fields (auto-filled) — not editable in the table ───
+    var _mcfgSave     = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(target.odoo_model) : {};
+    var _fixedForSave = (Array.isArray(_mcfgSave.fixed_fields) ? _mcfgSave.fixed_fields : [])
+      .map(function (f) { return typeof f === 'string' ? f : (f.name || ''); });
+    var existingStaticMappings = ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[tid]) || [])
+      .filter(function (m) { return m.source_type === 'static' && _fixedForSave.includes(m.odoo_field); });
+    existingStaticMappings.forEach(function (m) {
+      newMappings.push({
+        odoo_field: m.odoo_field, source_type: 'static', source_value: m.source_value,
+        is_identifier: false, is_update_field: m.is_update_field !== false,
+        is_required: false, order_index: orderIdx++,
       });
     });
 
