@@ -1834,7 +1834,7 @@ function renderDetailFormFields() {
             (coupled && coupled.length ? '<i data-lucide="link" class="w-3 h-3 shrink-0 text-success"></i>' : '') +
             '<span class="font-semibold text-sm truncate ' + (hidden ? 'opacity-30' : '') + '">' + esc(displayName) + '</span>' +
             '<button class="btn btn-ghost btn-xs btn-square shrink-0 opacity-30 hover:opacity-80" ' +
-              'data-action="start-edit-name" data-field-id="' + esc(fid) + '" title="Alias aanpassen" onclick="event.stopPropagation()">' +
+              'data-action="start-edit-name" data-field-id="' + esc(fid) + '" title="Alias aanpassen">' +
               '<i data-lucide="pencil" class="w-3 h-3"></i>' +
             '</button>' +
             (showFieldId ? '<span class="font-mono text-xs opacity-35 shrink-0">' + esc(fid) + '</span>' : '') +
@@ -1854,7 +1854,7 @@ function renderDetailFormFields() {
                 : '<span class="text-xs opacity-20 block">—</span>') +
             '</div>') +
           // Type + action buttons (right, no propagation)
-          '<div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">' +
+          '<div class="flex items-center gap-1 shrink-0">' +
             '<select class="select select-xs w-36" data-action="save-field-transform" data-field-id="' + esc(fid) + '" data-integration-id="' + integId + '">' +
               TYPE_OPTIONS.map(function (opt) {
                 return '<option value="' + opt[0] + '"' + (currentType === opt[0] ? ' selected' : '') + '>' + opt[1] + '</option>';
@@ -4528,14 +4528,19 @@ function renderDetailFormFields() {
   }
 
   function syncPendingValueMapFromDom() {
-    var rows = window.FSV2.S._pendingValueMapRows;
-    if (Array.isArray(rows)) {
-      rows.forEach(function (row, idx) {
-        var fromEl = document.querySelector('[data-vmap-from="' + idx + '"]');
-        var toEl   = document.querySelector('[data-vmap-to="'   + idx + '"]');
-        if (fromEl) row.from = fromEl.value;
-        if (toEl)   row.to   = toEl.value;
+    // DOM-first: collect ALL rendered vmap rows regardless of current state length.
+    // This prevents data loss when _pendingValueMapRows is shorter than the DOM
+    // (e.g. after a field-type change or when the initial state was empty).
+    var allFromEls = document.querySelectorAll('[data-vmap-from]');
+    if (allFromEls.length > 0) {
+      var newRows = [];
+      allFromEls.forEach(function (fromEl) {
+        var idx = parseInt(fromEl.dataset.vmapFrom, 10);
+        if (isNaN(idx)) return;
+        var toEl = document.querySelector('[data-vmap-to="' + idx + '"]');
+        newRows.push({ from: fromEl.value, to: toEl ? toEl.value : '' });
       });
+      window.FSV2.S._pendingValueMapRows = newRows;
     }
     // Sync catchall
     var catchallEl = document.querySelector('[data-vmap-catchall]');

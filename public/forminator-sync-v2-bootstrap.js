@@ -257,9 +257,6 @@
         S.editingModelIdx = editModelIdx;
         S.editingLinkIdx  = null;
         var editModel = (S.odooModelsCache || [])[editModelIdx] || {};
-        S.editingDefaultFields = Array.isArray(editModel.default_fields)
-          ? editModel.default_fields.map(function (f) { return Object.assign({}, f); })
-          : [];
         S.editingHiddenFields = Array.isArray(editModel.hidden_odoo_fields)
           ? editModel.hidden_odoo_fields.slice()
           : [];
@@ -274,41 +271,18 @@
       }
       if (action === 'cancel-edit-model') {
         S.editingModelIdx = null;
-        S.editingDefaultFields = null;
         S.editingHiddenFields = null;
         window.FSV2.renderLinks();
         return;
       }
-      if (action === 'add-default-field' && !btn.dataset.model) {
-        var nameInp  = document.getElementById('editNewFieldName');
-        var labelInp = document.getElementById('editNewFieldLabel');
-        var reqInp   = document.getElementById('editNewFieldRequired');
-        var fname  = nameInp  ? nameInp.value.trim()  : '';
-        var flabel = labelInp ? labelInp.value.trim() : '';
-        var freq   = reqInp   ? reqInp.checked : false;
-        if (!fname) { window.FSV2.showAlert('Technische naam is verplicht.', 'error'); return; }
-        if (!Array.isArray(S.editingDefaultFields)) S.editingDefaultFields = [];
-        if (S.editingDefaultFields.some(function (f) { return f.name === fname; })) {
-          window.FSV2.showAlert('Veld bestaat al.', 'info'); return;
+      if (action === 'remove-orphan-hidden-field') {
+        var rofName = btn.dataset.fieldName;
+        if (!rofName) return;
+        if (Array.isArray(S.editingHiddenFields)) {
+          var rofIdx = S.editingHiddenFields.indexOf(rofName);
+          if (rofIdx >= 0) S.editingHiddenFields.splice(rofIdx, 1);
         }
-        S.editingDefaultFields.push({ name: fname, label: flabel || fname, required: freq });
         window.FSV2.renderLinks();
-        return;
-      }
-      if (action === 'toggle-default-field-required') {
-        var togIdx = parseInt(btn.dataset.idx, 10);
-        if (!isNaN(togIdx) && Array.isArray(S.editingDefaultFields) && S.editingDefaultFields[togIdx]) {
-          S.editingDefaultFields[togIdx].required = btn.checked;
-          window.FSV2.renderLinks();
-        }
-        return;
-      }
-      if (action === 'remove-default-field' && !btn.dataset.model) {
-        var rmIdx = parseInt(btn.dataset.idx, 10);
-        if (!isNaN(rmIdx) && Array.isArray(S.editingDefaultFields)) {
-          S.editingDefaultFields.splice(rmIdx, 1);
-          window.FSV2.renderLinks();
-        }
         return;
       }
       if (action === 'toggle-field-visibility') {
@@ -316,12 +290,33 @@
         if (!tfName) return;
         if (!Array.isArray(S.editingHiddenFields)) S.editingHiddenFields = [];
         var tfIdx = S.editingHiddenFields.indexOf(tfName);
+        var nowHidden;
         if (tfIdx >= 0) {
-          S.editingHiddenFields.splice(tfIdx, 1); // currently hidden -> show
+          S.editingHiddenFields.splice(tfIdx, 1); nowHidden = false;
         } else {
-          S.editingHiddenFields.push(tfName);     // currently visible -> hide
+          S.editingHiddenFields.push(tfName);     nowHidden = true;
         }
-        window.FSV2.renderLinks();
+        // Update DOM in-place — no full re-render, scroll position preserved
+        btn.className = btn.className
+          .replace(/text-success\/70|text-base-content\/25/g,
+                   nowHidden ? 'text-base-content/25' : 'text-success/70');
+        btn.title = nowHidden ? 'Tonen' : 'Verbergen';
+        var iconEl = btn.querySelector('i[data-lucide]');
+        if (iconEl) {
+          iconEl.setAttribute('data-lucide', nowHidden ? 'eye-off' : 'eye');
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ nodes: [iconEl] });
+        }
+        var rowEl = btn.closest('[data-field-item]');
+        if (rowEl) {
+          var labelSpan = rowEl.querySelector('span.flex-1');
+          if (labelSpan) {
+            if (nowHidden && !labelSpan.className.includes('opacity-35')) labelSpan.className += ' opacity-35';
+            else if (!nowHidden) labelSpan.className = labelSpan.className.replace(/\bopacity-35\b/g, '').trim();
+          }
+        }
+        // Update header badge
+        var hdrBadge = document.querySelector('.hidden-fields-count-badge');
+        if (hdrBadge) hdrBadge.textContent = S.editingHiddenFields.length + ' verborgen';
         return;
       }
       if (action === 'save-odoo-model') {
@@ -332,8 +327,6 @@
         var newLabel  = labelEl ? labelEl.value.trim() : '';
         var newIcon   = iconEl  ? iconEl.value.trim()  : 'box';
         if (!newLabel) { window.FSV2.showAlert('Label is verplicht.', 'error'); return; }
-        var existingDefaultFields = ((S.odooModelsCache || [])[saveIdx] || {}).default_fields || [];
-        var newDefaultFields = Array.isArray(S.editingDefaultFields) ? S.editingDefaultFields : existingDefaultFields;
         var allowChatterEl    = document.getElementById('editModelAllowChatter');
         var allowActivitiesEl = document.getElementById('editModelAllowActivities');
         var newAllowChatter    = allowChatterEl    ? allowChatterEl.checked    : true;
@@ -342,7 +335,7 @@
         var newHiddenFields = Array.isArray(S.editingHiddenFields) ? S.editingHiddenFields : existingHiddenFields;
         var updatedModels = (S.odooModelsCache || []).map(function (m, i) {
           return i === saveIdx
-            ? { name: m.name, label: newLabel, icon: newIcon, default_fields: newDefaultFields,
+            ? { name: m.name, label: newLabel, icon: newIcon, default_fields: m.default_fields,
                 allow_chatter: newAllowChatter, allow_activities: newAllowActivities,
                 odoo_model: m.odoo_model, identifier_fields: m.identifier_fields, fixed_fields: m.fixed_fields,
                 hidden_odoo_fields: newHiddenFields }
@@ -351,7 +344,6 @@
         await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: updatedModels }) });
         S.odooModelsCache = updatedModels;
         S.editingModelIdx = null;
-        S.editingDefaultFields = null;
         S.editingHiddenFields = null;
         window.FSV2.showAlert('Model bijgewerkt.', 'success');
         window.FSV2.renderLinks();
@@ -1153,7 +1145,7 @@
           window.FSV2.S._openFieldConfigPanel = tfpFid;
           window.FSV2.S._expandedValueMapField = null;
           var tfpFt = (window.FSV2.S.fieldTransforms && window.FSV2.S.fieldTransforms[tfpFid]) || null;
-          if (tfpFt && tfpFt.field_type === 'selection') {
+          if (tfpFt && (tfpFt.field_type === 'selection' || tfpFt.field_type === 'many2one')) {
             var tfpVmap = (tfpFt.value_map && typeof tfpFt.value_map === 'object') ? tfpFt.value_map : {};
             window.FSV2.S._pendingCatchall = tfpVmap['__catchall__'] !== undefined ? String(tfpVmap['__catchall__']) : '';
             window.FSV2.S._pendingValueMapRows = buildOrderedValueMapRows(tfpVmap, tfpFt.value_map_order);
@@ -1217,6 +1209,9 @@
         var sfpHasBulk = btn.dataset.hasBulk === '1';
         var sfpHasVmap = btn.dataset.hasVmap === '1';
         if (!sfpFid) return;
+        // Sync DOM → state BEFORE the async IIFE so handleSaveBulkImportDefault
+        // cannot wipe the DOM (via renderDetailFormFields) before we read it.
+        if (sfpHasVmap && window.FSV2.syncPendingValueMapFromDom) window.FSV2.syncPendingValueMapFromDom();
         (async function () {
           // Save bulk default
           if (sfpHasBulk) {
@@ -1225,7 +1220,7 @@
           }
           // Save valuemap (async)
           if (sfpHasVmap) {
-            if (window.FSV2.syncPendingValueMapFromDom) window.FSV2.syncPendingValueMapFromDom();
+            // syncPendingValueMapFromDom already called above (before re-renders)
             var svRows = window.FSV2.S._pendingValueMapRows || [];
             var sfpValueMap = {};
             var sfpOrder = [];
@@ -1488,11 +1483,13 @@
   document.addEventListener('input', function (event) {
     var el = event.target;
 
-    // Default field label edit (settings model editor)
+    // Default field label edit (renderDefaults editor in core.js)
     if (el && el.dataset && el.dataset.action === 'edit-default-field-label') {
+      var dlModel = el.dataset.model;
       var dlIdx = parseInt(el.dataset.idx, 10);
-      if (!isNaN(dlIdx) && Array.isArray(window.FSV2.S.editingDefaultFields) && window.FSV2.S.editingDefaultFields[dlIdx]) {
-        window.FSV2.S.editingDefaultFields[dlIdx].label = el.value;
+      var dlEd = dlModel && window.FSV2.S.modelDefaultsEditors && window.FSV2.S.modelDefaultsEditors[dlModel];
+      if (dlEd && !isNaN(dlIdx) && Array.isArray(dlEd.pendingFields) && dlEd.pendingFields[dlIdx]) {
+        dlEd.pendingFields[dlIdx].label = el.value;
       }
       return;
     }
