@@ -443,12 +443,13 @@
       var opLabels  = { upsert: 'Zoeken \u2014 bijwerken of aanmaken', update_only: 'Alleen bijwerken', create: 'Altijd nieuw aanmaken' };
       var opTypeLbl  = opLabels[target.operation_type] || opLabels.upsert;
       if (target.operation_type === 'chatter_message') {
-        opTypeLbl = 'Notitie in chatter';
-        if (!target.label) stepName = '\uD83D\uDCAC Notitie';
+        var _chLbl = target.odoo_model ? modelLabel(target.odoo_model) : '';
+        opTypeLbl = _chLbl ? ('Notitie bij ' + _chLbl) : 'Notitie in chatter';
+        if (!target.label) stepName = 'Notitie';
       }
       if (target.operation_type === 'create_activity') {
         opTypeLbl = 'Activiteit aanmaken';
-        if (!target.label) stepName = '\uD83D\uDCC5 Activiteit';
+        if (!target.label) stepName = 'Activiteit';
       }
       var policyLbl  = POLICY_LABELS[target.update_policy] || esc(target.update_policy || '');
       var preceding  = sortedTargets.slice(0, idx);
@@ -500,7 +501,7 @@
       html +=   '<div class="card-body p-0">';
 
       // Header row
-      html +=     '<div class="px-5 py-4">';
+      html +=     '<div class="px-5 py-4 cursor-pointer select-none" data-action="toggle-step-open" data-target-id="' + esc(tid) + '">' ;
       html +=       '<div class="flex items-start justify-between gap-2">';
 
       // Left: badge + name + meta
@@ -509,7 +510,9 @@
         html +=           '<span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral text-neutral-content text-sm font-bold shrink-0">' + (idx + 1) + '</span>';
       }
       var actionCfg  = window.FSV2.getModelCfg ? (window.FSV2.getModelCfg(target.odoo_model) || {}) : {};
-      var _cardIcon  = actionCfg.icon || null;
+      var _cardIcon  = target.operation_type === 'chatter_message' ? 'pencil-line'
+                     : target.operation_type === 'create_activity'  ? 'user'
+                     : (actionCfg.icon || null);
       html +=           '<div class="min-w-0">';
       html +=             '<div class="flex items-center gap-2 font-bold text-base leading-snug">' +
                            (_cardIcon ? '<i data-lucide="' + esc(_cardIcon) + '" class="w-4 h-4 shrink-0 opacity-60"></i>' : '') +
@@ -533,32 +536,10 @@
       html +=           '</div>';
       html +=         '</div>';
 
-      // Right: reorder + delete + expand toggle
-      html +=         '<div class="flex items-center gap-0.5 shrink-0 ml-1">';
-      if (!isSingle) {
-        // Reorder: arrow-up/arrow-down (distinct from chevron expand)
-        if (!isFirst) {
-          html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="Omhoog"' +
-            ' data-action="reorder-target-up" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
-            '<i data-lucide="arrow-up" class="w-3.5 h-3.5"></i></button>';
-        } else {
-          html += '<div class="w-7"></div>';
-        }
-        if (!isLast) {
-          html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="Omlaag"' +
-            ' data-action="reorder-target-down" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
-            '<i data-lucide="arrow-down" class="w-3.5 h-3.5"></i></button>';
-        } else {
-          html += '<div class="w-7"></div>';
-        }
-        html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
-        // Delete step button
-        html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 text-error/50 hover:text-error hover:bg-error/10" title="Stap verwijderen"' +
-          ' data-action="delete-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
-          '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
-        html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
-      }
-      // Status icons: filter (if condition set), chain (if coupled), optype
+      // Right: status indicators → safe actions → reorder → [separator] → delete → chevron
+      html +=         '<div class="flex items-center gap-0.5 shrink-0 ml-2">';
+
+      // Status indicators (informational only)
       if (target.condition_field) {
         html += '<span class="inline-flex items-center justify-center w-6 h-6 text-warning" title="Voorwaarde ingesteld">' +
                 '<i data-lucide="filter" class="w-3.5 h-3.5"></i></span>';
@@ -569,19 +550,42 @@
       }
       html += '<span class="inline-flex items-center justify-center w-6 h-6 text-primary" title="' + esc(opTypeLbl) + '">' +
               '<i data-lucide="' + esc(_opIcon) + '" class="w-3.5 h-3.5"></i></span>';
-      if (target.condition_field || chainDeps.length > 0) {
-        html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
+
+      if (!isSingle) {
+        html += '<div class="w-px h-4 bg-base-content/10 mx-1.5"></div>';
+
+        // Copy (safe — no data loss)
+        html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 opacity-50 hover:opacity-100" title="Stap dupliceren"' +
+          ' data-action="duplicate-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+          '<i data-lucide="copy" class="w-3.5 h-3.5"></i></button>';
+
+        // Reorder — only render the arrows that make sense (no phantom spacers)
+        if (!isFirst || !isLast) {
+          html += '<div class="w-px h-4 bg-base-content/10 mx-1.5"></div>';
+        }
+        if (!isFirst) {
+          html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 opacity-50 hover:opacity-100" title="Omhoog"' +
+            ' data-action="reorder-target-up" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+            '<i data-lucide="arrow-up" class="w-3.5 h-3.5"></i></button>';
+        }
+        if (!isLast) {
+          html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 opacity-50 hover:opacity-100" title="Omlaag"' +
+            ' data-action="reorder-target-down" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+            '<i data-lucide="arrow-down" class="w-3.5 h-3.5"></i></button>';
+        }
+
+        // Danger zone separator + delete (far right, clearly destructive)
+        html += '<div class="w-px h-4 bg-base-content/10 mx-1.5"></div>';
+        html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 text-error/35 hover:text-error hover:bg-error/10" title="Stap verwijderen"' +
+          ' data-action="delete-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+          '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
       }
-      // Duplicate step button (always visible)
-      html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="Stap dupliceren"' +
-        ' data-action="duplicate-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
-        '<i data-lucide="copy" class="w-3.5 h-3.5"></i></button>';
-      html += '<div class="w-px h-4 bg-base-300 mx-1"></div>';
-      // Expand/collapse — pure chevron icon, no text label
-      html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0" title="' + (isOpen ? 'Inklappen' : 'Uitklappen') + '"' +
-        ' data-action="toggle-step-open" data-target-id="' + esc(tid) + '">' +
-        '<i data-lucide="' + (isOpen ? 'chevron-up' : 'chevron-down') + '" class="w-4 h-4"></i>' +
-        '</button>';
+
+      // Chevron — visual affordance (whole header is clickable)
+      html += '<div class="w-px h-4 bg-base-content/10 mx-1.5"></div>';
+      html += '<span class="inline-flex items-center justify-center w-6 h-6 text-base-content/30">' +
+              '<i data-lucide="' + (isOpen ? 'chevron-up' : 'chevron-down') + '" class="w-4 h-4"></i></span>';
+
       html +=         '</div>'; // right
 
       html +=       '</div>'; // flex row
@@ -845,6 +849,7 @@
       if (target.operation_type === 'chatter_message') {
         renderChatterComposer(target, tid, sortedTargets);
         renderStepConditionSection(target, tid, flatFields);
+        if (idx > 0) renderChatterLinkCallout(target, tid, sortedTargets);
         return;
       }
       // create_activity: render activity composer instead of MappingTable
@@ -1026,6 +1031,8 @@
     var el = document.getElementById('det-callouts-' + tid);
     if (!el) return;
     if (myIdx <= 0) return;
+    // Chatter and activity steps manage their own callout UI
+    if (target.operation_type === 'chatter_message' || target.operation_type === 'create_activity') return;
 
     var preceding   = sortedTargets.slice(0, myIdx);
     var suggestions = computeChainSuggestions(target, preceding);
@@ -1070,6 +1077,71 @@
     });
     renderDetailMappings();
     window.FSV2.showAlert('Koppeling verwijderd. Sla de stap op om te bevestigen.', 'info');
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // CHATTER LINK CALLOUT — "Koppeling vorige stap" for notitie steps
+  // ────────────────────────────────────────────────────────────────────────────
+
+  function renderChatterLinkCallout(target, tid, sortedTargets) {
+    var calloutsEl = document.getElementById('det-callouts-' + tid);
+    if (!calloutsEl) return;
+
+    var myIdx = sortedTargets.findIndex(function (t) { return String(t.id) === tid; });
+
+    // Filter: only preceding steps with chatter enabled
+    var compatibleSteps = sortedTargets.filter(function (t, idx) {
+      if (idx >= myIdx) return false;
+      if (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity') return false;
+      var cache = (S() && S().odooModelsCache) || [];
+      var mc = cache.find(function (c) { return (c.odoo_model || c.name) === t.odoo_model; });
+      return !mc || mc.allow_chatter !== false;
+    });
+
+    // Load existing _chatter_record_id mappings
+    var targetMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+    var existingIdentifiers = [];
+    targetMappings.filter(function (m) { return m.odoo_field === '_chatter_record_id'; }).forEach(function (m) {
+      var svRaw = String(m.source_value || '');
+      var fmt = svRaw.match(/^step\.([^.]+)\.record_id$/) || svRaw.match(/^step_(\d+)_id$/);
+      if (fmt) existingIdentifiers.push(String(fmt[1]));
+    });
+
+    var div = document.createElement('div');
+    div.className = 'px-3 pb-3 pt-2.5';
+
+    if (!compatibleSteps.length) {
+      div.innerHTML =
+        '<p class="text-xs text-base-content/50 italic">Geen compatibele stappen beschikbaar. ' +
+        'Voeg eerst een stap toe die een record aanmaakt of bijwerkt (met chatter ingeschakeld).</p>';
+    } else {
+      var listItems = '';
+      compatibleSteps.forEach(function (t) {
+        var order   = getTargetOrder(t, 0);
+        var visualN = sortedTargets.indexOf(t) + 1;
+        var lbl     = t.label || modelLabel(t.odoo_model);
+        var mlbl    = modelLabel(t.odoo_model);
+        var isChk   = existingIdentifiers.indexOf(String(order)) !== -1 ||
+                      (existingIdentifiers.length === 0 && compatibleSteps.length === 1);
+        listItems +=
+          '<li class="flex items-center gap-2 px-2.5 py-1.5 border-b border-base-200 last:border-0 bg-base-100 hover:bg-base-200/30">' +
+            '<input type="checkbox" class="checkbox checkbox-xs shrink-0" data-chatter-step="' + esc(tid) + '"' +
+              ' value="' + esc(String(order)) + '"' + (isChk ? ' checked' : '') + '>' +
+            '<div class="flex-1 min-w-0">' +
+              '<span class="font-medium text-xs">' + esc(lbl) + '</span>' +
+              '<span class="text-base-content/40 text-xs ml-1">stap ' + visualN +
+                (mlbl && mlbl !== lbl ? ' · ' + esc(mlbl) : '') + '</span>' +
+            '</div>' +
+          '</li>';
+      });
+      div.innerHTML =
+        '<p class="text-xs text-base-content/50 mb-1.5">Notitie wordt geplaatst op de records van de geselecteerde stap(pen).</p>' +
+        '<ul id="chatterStepList-' + esc(tid) + '" class="border border-base-200 rounded-lg overflow-hidden">' +
+          listItems +
+        '</ul>';
+    }
+
+    calloutsEl.appendChild(div);
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -1471,7 +1543,7 @@
       condition_not_met:              'Stap overgeslagen (conditie niet voldaan)',
     };
     var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error', posted: 'badge-success' };
-    var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt', posted: '\uD83D\uDCAC notitie geplaatst' };
+    var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt', posted: 'notitie geplaatst' };
     var colCount = 5 + listColumns.length;
 
     function buildTimelineRow(sub) {
@@ -1758,25 +1830,9 @@ function renderDetailFormFields() {
         '</button>'
       : '';
 
-    var subSwitcherHtml = submissions.length > 0
-      ? '<div class="flex items-center gap-1 opacity-60 text-xs">' +
-          '<i data-lucide="receipt-text" class="w-3 h-3 shrink-0"></i>' +
-          '<span class="hidden sm:inline">Voorbeeld uit inzending</span>' +
-          '<button class="btn btn-ghost btn-xs btn-square" data-action="preview-sub-prev">' +
-            '<i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>' +
-          '</button>' +
-          '<span class="font-mono tabular-nums">' + esc(String(previewIdx + 1)) + '/' + esc(String(submissions.length)) + '</span>' +
-          '<button class="btn btn-ghost btn-xs btn-square" data-action="preview-sub-next">' +
-            '<i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>' +
-          '</button>' +
-        '</div>'
+    var toolbarHtml = hiddenToggleHtml
+      ? '<div class="flex items-center mb-2">' + hiddenToggleHtml + '</div>'
       : '';
-
-    var toolbarHtml =
-      '<div class="flex items-center justify-between mb-2">' +
-        '<div>' + hiddenToggleHtml + '</div>' +
-        '<div>' + subSwitcherHtml + '</div>' +
-      '</div>';
 
     var fieldsToShow = showHidden
       ? fields
@@ -1813,9 +1869,10 @@ function renderDetailFormFields() {
       var nameBlockHtml;
       if (isEditingName) {
         nameBlockHtml =
-          '<div class="flex items-center gap-1 min-w-0 flex-1" onclick="event.stopPropagation()">' +
+          '<div class="flex items-center gap-1 min-w-0 flex-1">' +
             '<input id="inline-alias-' + esc(fid) + '" type="text" ' +
               'class="input input-xs input-bordered font-mono w-36" ' +
+              'onclick="event.stopPropagation()" ' +
               'value="' + esc(alias) + '" placeholder="' + esc(rawLabel || fid) + '" maxlength="60" ' +
               'onkeydown="if(event.key===\'Enter\'){event.preventDefault();' +
                 'document.querySelector(\'[data-action=save-inline-name][data-field-id=\\\'' + esc(fid) + '\\\']\').click();}' +
@@ -2630,12 +2687,20 @@ function renderDetailFormFields() {
   }
 
   async function handleSaveStepMappings(tid) {
-    var mcEl = document.getElementById('det-mc-' + tid);
-    if (!mcEl) { window.FSV2.showAlert('Editor niet gevonden.', 'error'); return; }
-
     var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
     var target  = targets.find(function (t) { return String(t.id) === tid; });
     if (!target) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
+
+    // Delegate special step types to their own handlers
+    if (target.operation_type === 'chatter_message') {
+      return handleSaveChatterComposer(tid);
+    }
+    if (target.operation_type === 'create_activity') {
+      return handleSaveActivityComposer(tid);
+    }
+
+    var mcEl = document.getElementById('det-mc-' + tid);
+    if (!mcEl) { window.FSV2.showAlert('Editor niet gevonden.', 'error'); return; }
 
     // ─ Persist operation_type if the radio is present in the DOM ───────────────────
     var opRadioEl  = document.querySelector('input[name="det-optype-radio-' + tid + '"]:checked');
@@ -3867,25 +3932,6 @@ function renderDetailFormFields() {
     var el = document.getElementById('det-mc-' + tid);
     if (!el) return;
 
-    var myIdx = sortedTargets.findIndex(function (t) { return String(t.id) === tid; });
-    var compatibleSteps = sortedTargets.filter(function (t, idx) {
-      return idx < myIdx && t.operation_type !== 'chatter_message';
-    });
-
-    var existingIdentifier = null;
-    var targetMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
-    var idMapping = targetMappings.find(function (m) { return m.is_identifier; });
-    if (idMapping) {
-      var svRaw = String(idMapping.source_value || '');
-      var newFmt = svRaw.match(/^step\.([^.]+)\.record_id$/);
-      if (newFmt) {
-        existingIdentifier = newFmt[1];
-      } else {
-        var legFmt = svRaw.match(/^step_(\d+)_id$/);
-        if (legFmt) existingIdentifier = legFmt[1];
-      }
-    }
-
     var currentTemplate   = target.chatter_template || '';
     var COMBINED_PREFIX   = '__COMBINED__:';
     var SUMMARY_PREFIX    = '__SUMMARY__:';
@@ -3916,7 +3962,6 @@ function renderDetailFormFields() {
     var _ffr       = buildDetailFlatFields(S().detailFormFields || []);
     var flatFields = _ffr.flatFields || [];
 
-    // Build display order: saved order first, then remaining fields appended
     var orderedFields;
     if (summaryOrderedIds.length) {
       var _seen = {};
@@ -3935,42 +3980,24 @@ function renderDetailFormFields() {
       orderedFields = flatFields.slice();
     }
 
-    var html = '';
+    // ── 2-column layout ───────────────────────────────────────────────────────
+    var html = '<div class="grid grid-cols-[1fr_340px] gap-5 items-start">';
 
-    // ── Step selector ─────────────────────────────────────────────────────────
-    if (!compatibleSteps.length) {
-      html += '<div class="alert alert-warning text-sm mb-4">' +
-        '<i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>' +
-        '<span>Let op: er is nog geen voorgaande stap beschikbaar. ' +
-        'Voeg eerst een stap toe die een record aanmaakt of bijwerkt.</span>' +
-        '</div>';
-    } else {
-      html += '<div class="form-control mb-3">' +
-        '<label class="label pb-1"><span class="label-text text-sm font-medium">Koppel aan stap</span></label>' +
-        '<select class="select select-bordered select-sm" id="chatterStepSelect-' + esc(tid) + '">';
-      compatibleSteps.forEach(function (t) {
-        var order = getTargetOrder(t, 0);
-        var lbl   = t.label || modelLabel(t.odoo_model);
-        var sel   = (existingIdentifier !== null && String(existingIdentifier) === String(order)) ? ' selected' : '';
-        html += '<option value="' + esc(String(order)) + '"' + sel + '>' + esc(lbl) + ' (stap ' + (order + 1) + ')</option>';
-      });
-      html += '</select>' +
-        '<label class="label pt-0.5"><span class="label-text-alt text-base-content/50">Record-ID van deze stap wordt als ontvanger van de notitie gebruikt.</span></label>' +
-        '</div>';
-    }
+    // ══ LEFT COLUMN ══════════════════════════════════════════════════════════
+    html += '<div class="flex flex-col gap-3 min-w-0">';
 
-    // ── Vrij bericht (Quill) ────────────────────────────────────────────────────
-    html += '<div class="form-control mb-1">' +
+    // Vrij bericht (Quill)
+    html += '<div class="form-control">' +
       '<label class="label pb-1">' +
         '<span class="label-text text-sm font-medium">Vrij bericht <span class="font-normal text-base-content/50">(optioneel)</span></span>' +
-        '<span class="label-text-alt text-base-content/50">Klik op een veld om het in te voegen.</span>' +
+        '<span class="label-text-alt text-base-content/50 text-xs">Klik op een veld om het in te voegen.</span>' +
       '</label>' +
-      '<div id="chatterQuillEditor-' + esc(tid) + '"></div>' +
+      '<div id="chatterQuillEditor-' + esc(tid) + '" class="rounded-lg overflow-hidden border border-base-300"></div>' +
       '</div>';
 
     // Field insertion chips
     if (flatFields.length) {
-      html += '<div class="flex flex-wrap gap-1 mb-3">';
+      html += '<div class="flex flex-wrap gap-1">';
       flatFields.forEach(function (f) {
         var fid = f.field_id || f.fieldId || f.id || f.name || '';
         var lbl = f.label || fid;
@@ -3982,30 +4009,30 @@ function renderDetailFormFields() {
       html += '</div>';
     }
 
-    // ── Formuliersamenvatting toggle ──────────────────────────────────────────
-    html += '<div class="divider text-xs my-2">OF COMBINEER MET</div>';
-    html += '<label class="flex items-center gap-3 cursor-pointer mb-2 select-none">' +
+    // Formuliersamenvatting toggle
+    html += '<div class="divider text-xs my-0">OF COMBINEER MET</div>';
+    html += '<label class="flex items-center gap-3 cursor-pointer select-none">' +
       '<input type="checkbox" class="toggle toggle-sm toggle-primary" id="chatterSummaryToggle-' + esc(tid) + '"' +
         (summaryEnabled ? ' checked' : '') +
-        ' onchange="var p=document.getElementById(\x27chatterSummaryPanel-' + esc(tid) + '\x27);if(p)p.classList.toggle(\x27hidden\x27,!this.checked);window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\'' + esc(tid) + '\')">' +
+        ' onchange="var p=document.getElementById(\x27chatterSummaryPanel-' + esc(tid) + '\x27);if(p)p.classList.toggle(\x27hidden\x27,!this.checked);window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\x27' + esc(tid) + '\x27)">' +
       '<div>' +
         '<div class="text-sm font-medium">Formuliersamenvatting</div>' +
-        '<div class="text-xs text-base-content/50">Selecteer en orden de velden die in de HTML-tabel verschijnen. Je kunt dit combineren met een vrij bericht.</div>' +
+        '<div class="text-xs text-base-content/50">Selecteer en orden de velden die in de HTML-tabel verschijnen.</div>' +
       '</div>' +
       '</label>';
 
-    // ── Summary field panel ───────────────────────────────────────────────────
+    // Summary field panel
     html += '<div id="chatterSummaryPanel-' + esc(tid) + '"' + (!summaryEnabled ? ' class="hidden"' : '') + '>';
     if (orderedFields.length) {
-      html += '<p class="text-xs text-base-content/50 mb-1.5">Vink aan + sleep met ▲▼ om de volgorde en selectie aan te passen. Niets aangevinkt = alle velden.</p>';
-      html += '<ul id="chatterFieldList-' + esc(tid) + '" class="border border-base-200 rounded-lg overflow-hidden mb-3">';
+      html += '<p class="text-xs text-base-content/50 mb-1.5">Vink aan + sleep met ▲▼ om volgorde en selectie aan te passen. Niets aangevinkt = alle velden.</p>';
+      html += '<ul id="chatterFieldList-' + esc(tid) + '" class="border border-base-200 rounded-lg overflow-hidden mb-1">';
       orderedFields.forEach(function (f) {
         var fid = f.field_id || f.fieldId || f.id || f.name || '';
         var lbl = f.label || fid;
         var chk = (!summaryOrderedIds.length || summaryOrderedIds.indexOf(fid) !== -1) ? ' checked' : '';
         html += '<li data-fid="' + esc(fid) + '" class="flex items-center gap-2 px-3 py-1.5 border-b border-base-200 last:border-0 bg-base-100 hover:bg-base-200/40">' +
           '<input type="checkbox" class="checkbox checkbox-xs shrink-0" data-summary-field="' + esc(tid) + '" value="' + esc(fid) + '"' + chk +
-            ' onchange="window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\'' + esc(tid) + '\')">' +
+            ' onchange="window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\x27' + esc(tid) + '\x27)">' +
           '<span class="flex-1 text-sm truncate">' + esc(lbl) + '</span>' +
           '<div class="flex flex-col shrink-0">' +
             '<button type="button" data-action="chatter-field-up" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
@@ -4017,33 +4044,34 @@ function renderDetailFormFields() {
       });
       html += '</ul>';
     } else {
-      html += '<p class="text-sm text-base-content/50 italic mb-3">Geen formuliervelden beschikbaar.</p>';
+      html += '<p class="text-sm text-base-content/50 italic mb-1">Geen formuliervelden beschikbaar.</p>';
     }
     html += '</div>'; // end #chatterSummaryPanel
 
-    // ── Preview ───────────────────────────────────────────────────────────────
-    html += '<div class="mb-3">' +
-      '<div class="text-xs font-semibold text-base-content/60 mb-1.5 uppercase tracking-wide">Voorbeeld in Odoo</div>' +
-      '<div class="border border-base-300 rounded-lg overflow-hidden shadow-sm">' +
-        '<div style="background:#875a7b;padding:6px 12px;display:flex;align-items:center;gap:8px">' +
-          '<div style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.3);display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:bold">FS</div>' +
-          '<div>' +
-            '<div style="color:#fff;font-size:12px;font-weight:600">Forminator Sync</div>' +
-            '<div style="color:rgba(255,255,255,0.7);font-size:10px">Interne notitie</div>' +
-          '</div>' +
-        '</div>' +
-        '<iframe sandbox="allow-same-origin" id="chatterPreviewFrame-' + esc(tid) + '"' +
-          ' class="w-full min-h-[180px]" style="background:#fff;display:block;"></iframe>' +
-      '</div>' +
-      '</div>';
 
-    // ── Save button ───────────────────────────────────────────────────────────
-    html += '<div class="flex justify-end">' +
-      '<button type="button" class="btn btn-primary btn-sm gap-1.5"' +
-        ' data-action="save-chatter-composer" data-target-id="' + esc(tid) + '">' +
-        '<i data-lucide="save" class="w-4 h-4"></i> Opslaan' +
-      '</button>' +
+    html += '</div>'; // end LEFT column
+
+    // ══ RIGHT COLUMN — preview ════════════════════════════════════════════════
+    html += '<div class="flex flex-col sticky top-4">';
+    html += '<div class="flex items-center justify-between mb-1.5">' +
+      '<div class="text-xs font-semibold text-base-content/60 uppercase tracking-wide">Voorbeeld in Odoo</div>' +
+      '<div id="chatterTopNav-' + esc(tid) + '" class="flex items-center gap-1 text-xs text-base-content/40"></div>' +
       '</div>';
+    html += '<div class="border border-base-300 rounded-lg overflow-hidden shadow-sm">' +
+      '<div style="background:#875a7b;padding:6px 12px;display:flex;align-items:center;gap:8px">' +
+        '<div style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.3);display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:bold">FS</div>' +
+        '<div>' +
+          '<div style="color:#fff;font-size:12px;font-weight:600">Forminator Sync</div>' +
+          '<div style="color:rgba(255,255,255,0.7);font-size:10px">Interne notitie</div>' +
+        '</div>' +
+        '<div id="chatterPreviewNav-' + esc(tid) + '" class="ml-auto flex items-center gap-0.5"></div>' +
+      '</div>' +
+      '<iframe sandbox="allow-scripts allow-same-origin" id="chatterPreviewFrame-' + esc(tid) + '"' +
+        ' class="w-full" style="height:80px;background:#fff;display:block;"></iframe>' +
+      '</div>';
+    html += '</div>'; // end RIGHT column
+
+    html += '</div>'; // end grid
 
     el.innerHTML = html;
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
@@ -4065,6 +4093,8 @@ function renderDetailFormFields() {
       });
       if (_qi) {
         window.FSV2._chatterQuills[tid] = _qi;
+        var qlEd = _quillEditorEl.querySelector('.ql-editor');
+        if (qlEd) { qlEd.style.maxHeight = '180px'; qlEd.style.overflowY = 'auto'; }
         _qi.quill.on('text-change', function () {
           if (window.FSV2.scheduleChatterPreview) window.FSV2.scheduleChatterPreview(tid);
         });
@@ -4074,7 +4104,7 @@ function renderDetailFormFields() {
     scheduleChatterPreview(tid);
   }
 
-  function scheduleChatterPreview(tid) {
+    function scheduleChatterPreview(tid) {
     if (_chatterPreviewTimers[tid]) clearTimeout(_chatterPreviewTimers[tid]);
     _chatterPreviewTimers[tid] = setTimeout(function () { updateChatterPreview(tid); }, 150);
   }
@@ -4106,22 +4136,81 @@ function renderDetailFormFields() {
   }
 
   function updateChatterPreview(tid) {
-    var frame = document.getElementById('chatterPreviewFrame-' + tid);
+    var frame  = document.getElementById('chatterPreviewFrame-' + tid);
+    var topNav = document.getElementById('chatterTopNav-' + tid);
     if (!frame) return;
 
+    // ── Submission data ───────────────────────────────────────────────────────
+    var _subs = (S().submissions || []).filter(function (s) { return s.source_payload; });
+    if (!window.FSV2._chatterPreviewSubmIdx) window.FSV2._chatterPreviewSubmIdx = {};
+    var _previewIdx = window.FSV2._chatterPreviewSubmIdx[tid] || 0;
+    if (_previewIdx >= _subs.length) _previewIdx = 0;
+    var _previewSub = _subs[_previewIdx] || null;
+    var realPayload = null;
+    if (_previewSub) {
+      try {
+        realPayload = (typeof _previewSub.source_payload === 'object')
+          ? _previewSub.source_payload
+          : JSON.parse(_previewSub.source_payload);
+      } catch (e) {}
+    }
+
+    // ── Nav HTML helper ───────────────────────────────────────────────────────
+    function _navHtml(dark) {
+      var btnCls = dark
+        ? 'btn btn-xs btn-ghost btn-circle" style="color:rgba(255,255,255,0.7)'
+        : 'btn btn-xs btn-ghost btn-circle opacity-60';
+      var lblStyle = dark ? 'color:rgba(255,255,255,0.7);font-size:10px;font-variant-numeric:tabular-nums'
+                          : 'font-size:11px';
+      if (_subs.length > 1) {
+        return '<button data-action="chatter-preview-nav" data-target-id="' + tid + '" data-dir="-1" class="' + btnCls + '">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>' +
+          '</button>' +
+          '<span style="' + lblStyle + '">inzending ' + (_previewIdx + 1) + '/' + _subs.length + '</span>' +
+          '<button data-action="chatter-preview-nav" data-target-id="' + tid + '" data-dir="1" class="' + btnCls + '">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' +
+          '</button>';
+      } else if (_subs.length === 1 && _previewSub) {
+        var d = new Date(_previewSub.created_at || '');
+        var lbl = isNaN(d) ? 'inzending' : d.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit' });
+        return '<span style="' + lblStyle + '">' + lbl + '</span>';
+      }
+      return dark ? '<span style="' + lblStyle + '">voorbeeldwaarden</span>' : '';
+    }
+
+    if (topNav) topNav.innerHTML = _navHtml(false);
+
+    // ── Sample form values ────────────────────────────────────────────────────
     var sampleForm = {};
     var labelMap   = {};
     var _ff = buildDetailFlatFields(S().detailFormFields || []).flatFields || [];
+
     _ff.forEach(function (f) {
       var k = f.field_id || f.fieldId || f.id || f.name || '';
-      if (k) { sampleForm[k] = _makeSampleValue(f); labelMap[k] = f.label || k; }
+      if (!k) return;
+      labelMap[k] = f.label || k;
+      if (realPayload) {
+        if (realPayload[k] != null && realPayload[k] !== '') { sampleForm[k] = String(realPayload[k]); return; }
+        var normK = k.toLowerCase().replace(/[-_\s]+/g, '_');
+        var matchKey = Object.keys(realPayload).find(function (pk) {
+          return pk.toLowerCase().replace(/[-_\s]+/g, '_') === normK && realPayload[pk] != null && realPayload[pk] !== '';
+        });
+        if (matchKey) { sampleForm[k] = String(realPayload[matchKey]); return; }
+        var prefixKey = Object.keys(realPayload).find(function (pk) {
+          return pk.toLowerCase().replace(/[-_\s]+/g, '_').startsWith(normK + '_') && realPayload[pk] != null && realPayload[pk] !== '';
+        });
+        if (prefixKey) { sampleForm[k] = String(realPayload[prefixKey]); return; }
+      }
+      sampleForm[k] = _makeSampleValue(f);
     });
 
-    // Inline fallback when html-utils not yet loaded
+    // ── Inline fallback summary builder ──────────────────────────────────────
     var _buildInlineSummary = function (ids, form, lblMap) {
       var keys = (ids && ids.length)
         ? ids.filter(function (k) { return form[k] != null && form[k] !== ''; })
-        : Object.keys(form).filter(function (k) { return !['form_id','form_uid','ovme_forminator_id','nonce'].includes(k) && !k.includes('.'); });
+        : Object.keys(form).filter(function (k) {
+            return !['form_id','form_uid','ovme_forminator_id','nonce'].includes(k) && !k.includes('.');
+          });
       if (!keys.length) return '';
       var trs = keys.map(function (k) {
         var lbl = (lblMap && lblMap[k]) || k.replace(/[-_]/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }).replace(/\s+\d+$/, '');
@@ -4136,10 +4225,8 @@ function renderDetailFormFields() {
     };
 
     var _buildHtml = window.FSV2.buildHtmlFormSummary || _buildInlineSummary;
-
     var parts = [];
 
-    // Part 1: vrij bericht — lees HTML van Quill, vervang {veld} door vetgedrukte voorbeeldwaarden
     var _qi    = window.FSV2._chatterQuills && window.FSV2._chatterQuills[tid];
     var rawMsg = _qi ? _qi.getHTML() : '';
     if (rawMsg) {
@@ -4150,7 +4237,6 @@ function renderDetailFormFields() {
       parts.push(msgHtml);
     }
 
-    // Part 2: formuliersamenvatting (alleen als toggle aan staat)
     var toggle = document.getElementById('chatterSummaryToggle-' + tid);
     if (toggle && toggle.checked) {
       var fieldList  = document.getElementById('chatterFieldList-' + tid);
@@ -4167,18 +4253,25 @@ function renderDetailFormFields() {
 
     var html;
     if (parts.length) {
-      html = '<!DOCTYPE html><html><body style="margin:12px 16px;padding:0">' + parts.join('') + '</body></html>';
+      html = '<!DOCTYPE html><html><body style="margin:12px 16px;padding:0;overflow:hidden">' + parts.join('') + '</body></html>';
     } else {
-      html = '<!DOCTYPE html><html><body style="margin:0;padding:16px"><p style="color:#9ca3af;font-family:Arial;font-size:13px;margin:0">Typ een bericht of schakel de samenvatting in om een voorbeeld te zien.</p></body></html>';
+      html = '<!DOCTYPE html><html><body style="margin:0;padding:16px;overflow:hidden"><p style="color:#9ca3af;font-family:Arial;font-size:13px;margin:0">Typ een bericht of schakel de samenvatting in om een voorbeeld te zien.</p></body></html>';
     }
 
     try {
       var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
       if (doc) { doc.open(); doc.write(html); doc.close(); }
+      // Auto-resize: grow to fit content, no upper cap
+      setTimeout(function () {
+        try {
+          var body = frame.contentDocument && frame.contentDocument.body;
+          if (body) frame.style.height = Math.max(body.scrollHeight + 32, 60) + 'px';
+        } catch (e) {}
+      }, 60);
     } catch (e) { /* ignore */ }
   }
 
-  async function handleSaveChatterComposer(tid) {
+    async function handleSaveChatterComposer(tid) {
     var target = ((S().detail && S().detail.targets) || []).find(function (t) { return String(t.id) === tid; });
     if (!target) { window.FSV2.showAlert('Target niet gevonden.', 'error'); return; }
     var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
@@ -4193,7 +4286,6 @@ function renderDetailFormFields() {
 
     var template;
     if (summaryEnabled) {
-      // Lees de geordende, aangevinkte velden uit de <ul>
       var fieldList  = document.getElementById('chatterFieldList-' + tid);
       var pickedIds  = [];
       var labelMap   = {};
@@ -4220,19 +4312,28 @@ function renderDetailFormFields() {
       template = null;
     }
 
-    var stepSel = document.getElementById('chatterStepSelect-' + tid);
-    // Derive odoo_model from the selected preceding step, not from the chatter target itself.
-    // The chatter target's model must always match the model of the step it's posting on.
-    var linkedModel = target.odoo_model; // fallback
-    if (stepSel) {
-      var _selOrder = parseInt(stepSel.value, 10);
-      var _allTargets = (S().detail && S().detail.targets) || [];
-      var _linkedTarget = _allTargets.find(function (t) {
-        return getTargetOrder(t, 0) === _selOrder && t.operation_type !== 'chatter_message';
+    // Read selected steps (multi-checkbox)
+    var stepListEl  = document.getElementById('chatterStepList-' + tid);
+    var selectedOrders = [];
+    if (stepListEl) {
+      stepListEl.querySelectorAll('input[data-chatter-step]:checked').forEach(function (cb) {
+        selectedOrders.push(cb.value);
       });
-      if (_linkedTarget && _linkedTarget.odoo_model) linkedModel = _linkedTarget.odoo_model;
     }
+
+    // Derive odoo_model from first selected step
+    var allTargets  = (S().detail && S().detail.targets) || [];
+    var linkedModel = target.odoo_model;
+    if (selectedOrders.length) {
+      var firstOrder  = parseInt(selectedOrders[0], 10);
+      var firstTarget = allTargets.find(function (t) {
+        return getTargetOrder(t, 0) === firstOrder && t.operation_type !== 'chatter_message';
+      });
+      if (firstTarget && firstTarget.odoo_model) linkedModel = firstTarget.odoo_model;
+    }
+
     try {
+      // 1. Update target metadata
       await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
         method: 'PUT',
         body: JSON.stringify({
@@ -4242,43 +4343,38 @@ function renderDetailFormFields() {
           chatter_subtype_xmlid: 'mail.mt_note',
         }),
       });
-      if (stepSel) {
-        var stepOrder   = stepSel.value;
-        var sourceValue = 'step.' + stepOrder + '.record_id';
-        var existingMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
-        var idMapping = existingMappings.find(function (m) { return m.is_identifier; });
-        if (idMapping) {
-          await window.FSV2.api('/mappings/' + idMapping.id, {
-            method: 'PUT',
-            body: JSON.stringify({
-              odoo_field:      '_chatter_record_id',
-              source_type:     'previous_step_output',
-              source_value:    sourceValue,
-              is_identifier:   true,
-              is_required:     true,
-              is_update_field: false,
-            }),
-          });
-        } else {
-          await window.FSV2.api('/targets/' + tid + '/mappings', {
-            method: 'POST',
-            body: JSON.stringify({
-              odoo_field:      '_chatter_record_id',
-              source_type:     'previous_step_output',
-              source_value:    sourceValue,
-              is_identifier:   true,
-              is_required:     true,
-              is_update_field: false,
-            }),
-          });
-        }
+
+      // 2. Delete ALL existing _chatter_record_id mappings for this target
+      var existingMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+      var oldChatterMappings = existingMappings.filter(function (m) { return m.odoo_field === '_chatter_record_id'; });
+      for (var di = 0; di < oldChatterMappings.length; di++) {
+        await window.FSV2.api('/mappings/' + oldChatterMappings[di].id, { method: 'DELETE' });
       }
+
+      // 3. Create one mapping per selected step
+      for (var si = 0; si < selectedOrders.length; si++) {
+        var stepOrder   = selectedOrders[si];
+        var sourceValue = 'step.' + stepOrder + '.record_id';
+        await window.FSV2.api('/targets/' + tid + '/mappings', {
+          method: 'POST',
+          body: JSON.stringify({
+            odoo_field:      '_chatter_record_id',
+            source_type:     'previous_step_output',
+            source_value:    sourceValue,
+            is_identifier:   si === 0,   // first one is identifier
+            is_required:     true,
+            is_update_field: false,
+          }),
+        });
+      }
+
       window.FSV2.showAlert('Chatter-stap opgeslagen.', 'success');
       await window.FSV2.openDetail(S().activeId);
     } catch (e) {
       window.FSV2.showAlert('Fout bij opslaan: ' + e.message, 'error');
     }
   }
+
 
   // ── ACTIVITY COMPOSER ────────────────────────────────────────────────────
 
