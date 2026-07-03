@@ -76,7 +76,7 @@
                         ? editFields.map(function (f, fi) {
                             return `<div class="flex items-center gap-2 py-1 border-b border-base-200 last:border-0">
                                 <code class="text-xs font-mono w-32 shrink-0 text-base-content/60">${esc(f.name)}</code>
-                                <span class="text-xs flex-1">${esc(f.label || '')}</span>
+                                <input type="text" class="input input-xs input-bordered flex-1 min-w-0" data-action="edit-default-field-label" data-idx="${fi}" value="${esc(f.label || '')}" placeholder="Label">
                                 <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none">
                                     <input type="checkbox" class="checkbox checkbox-xs" data-action="toggle-default-field-required" data-idx="${fi}"${f.required ? ' checked' : ''}>
                                     <span class="${f.required ? 'text-error font-semibold' : 'text-base-content/50'}">Verplicht</span>
@@ -132,6 +132,38 @@
                                         <i data-lucide="plus" class="w-3 h-3"></i> Veld toevoegen
                                     </button>
                                 </div>
+                            </div>
+                            <div class="border border-base-200 rounded-lg p-3 mt-2">
+                                ${(function() {
+                                    var editHF   = Array.isArray(S().editingHiddenFields) ? S().editingHiddenFields : (m.hidden_odoo_fields || []);
+                                    var hiddenSet = {};
+                                    editHF.forEach(function(fn) { hiddenSet[fn] = true; });
+                                    var odooFields = (S().odooFieldsCache || {})[m.name] || [];
+                                    var hdrBadge = editHF.length ? '<span class="badge badge-xs badge-ghost ml-1">' + editHF.length + ' verborgen</span>' : '';
+                                    var hdr = '<p class="text-xs font-semibold text-base-content/60 mb-2 flex items-center gap-1.5">' +
+                                        '<i data-lucide="eye-off" class="w-3 h-3"></i> Velden verbergen/tonen' + hdrBadge + '</p>';
+                                    if (!odooFields.length) {
+                                        return hdr + '<div class="flex items-center gap-2 text-xs text-base-content/40 py-2">' +
+                                            '<span class="loading loading-spinner loading-xs"></span><span>Velden laden…</span></div>';
+                                    }
+                                    var rows = odooFields.map(function(f) {
+                                        var isHidden = !!hiddenSet[f.name];
+                                        return '<div class="flex items-center gap-2 py-1 border-b border-base-200/40 last:border-0 hover:bg-base-200/30 px-1 rounded"' +
+                                            ' data-field-item="' + esc((f.label || f.name).toLowerCase() + ' ' + f.name.toLowerCase()) + '">' +
+                                            '<button type="button"' +
+                                            ' class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 shrink-0 ' + (isHidden ? 'text-base-content/25' : 'text-success/70') + '"' +
+                                            ' data-action="toggle-field-visibility" data-model="' + esc(m.name) + '" data-field-name="' + esc(f.name) + '"' +
+                                            ' title="' + (isHidden ? 'Tonen' : 'Verbergen') + '">' +
+                                            '<i data-lucide="' + (isHidden ? 'eye-off' : 'eye') + '" class="w-3.5 h-3.5"></i></button>' +
+                                            '<span class="text-xs flex-1 min-w-0 ' + (isHidden ? 'opacity-35' : '') + '">' +
+                                            '<span class="font-medium">' + esc(f.label || f.name) + '</span>' +
+                                            '<code class="font-mono text-base-content/40 ml-1.5 text-xs">' + esc(f.name) + '</code>' +
+                                            '</span></div>';
+                                    }).join('');
+                                    return hdr +
+                                        '<input id="hiddenFieldSearch" type="text" placeholder="Zoek veld…" class="input input-xs input-bordered w-full mb-2" autocomplete="off">' +
+                                        '<div class="max-h-52 overflow-y-auto -mx-1 px-1">' + rows + '</div>';
+                                })()}
                             </div>
                         </td>
                     </tr>`;

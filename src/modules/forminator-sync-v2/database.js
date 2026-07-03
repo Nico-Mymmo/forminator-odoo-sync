@@ -849,7 +849,7 @@ export async function getOdooModels(env) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
     .from(TABLES.odooModels)
-    .select('name, odoo_model, label, icon, sort_order, default_fields, fixed_fields, identifier_fields, identifier_type, update_policy, resolver_type')
+    .select('name, odoo_model, label, icon, sort_order, default_fields, fixed_fields, identifier_fields, identifier_type, update_policy, resolver_type, hidden_odoo_fields')
     .order('sort_order', { ascending: true });
   if (error) throw new Error(`Failed to get odoo models: ${error.message}`);
   return ensureArray(data);
@@ -888,11 +888,12 @@ export async function upsertOdooModels(env, models) {
   // Upsert all rows in the new list
   if (models.length > 0) {
     const rows = models.map((m, i) => ({
-      name:           m.name,
-      label:          m.label || m.name,
-      icon:           m.icon || 'box',
-      sort_order:     i,
-      default_fields: Array.isArray(m.default_fields) ? m.default_fields : undefined,
+      name:              m.name,
+      label:             m.label || m.name,
+      icon:              m.icon || 'box',
+      sort_order:        i,
+      default_fields:    Array.isArray(m.default_fields)    ? m.default_fields    : undefined,
+      hidden_odoo_fields: Array.isArray(m.hidden_odoo_fields) ? m.hidden_odoo_fields : [],
     }));
     const { error: upsErr } = await supabase
       .from(TABLES.odooModels)

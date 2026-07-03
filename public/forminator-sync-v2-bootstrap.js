@@ -260,12 +260,22 @@
         S.editingDefaultFields = Array.isArray(editModel.default_fields)
           ? editModel.default_fields.map(function (f) { return Object.assign({}, f); })
           : [];
+        S.editingHiddenFields = Array.isArray(editModel.hidden_odoo_fields)
+          ? editModel.hidden_odoo_fields.slice()
+          : [];
         window.FSV2.renderLinks();
+        // Load Odoo fields for the hidden-fields toggle list
+        if (!S.odooFieldsCache[editModel.name] || !S.odooFieldsCache[editModel.name].length) {
+          window.FSV2.loadOdooFieldsForModel(editModel.name).then(function() {
+            if (S.editingModelIdx !== null) window.FSV2.renderLinks();
+          });
+        }
         return;
       }
       if (action === 'cancel-edit-model') {
         S.editingModelIdx = null;
         S.editingDefaultFields = null;
+        S.editingHiddenFields = null;
         window.FSV2.renderLinks();
         return;
       }
@@ -301,6 +311,19 @@
         }
         return;
       }
+      if (action === 'toggle-field-visibility') {
+        var tfName = btn.dataset.fieldName;
+        if (!tfName) return;
+        if (!Array.isArray(S.editingHiddenFields)) S.editingHiddenFields = [];
+        var tfIdx = S.editingHiddenFields.indexOf(tfName);
+        if (tfIdx >= 0) {
+          S.editingHiddenFields.splice(tfIdx, 1); // currently hidden -> show
+        } else {
+          S.editingHiddenFields.push(tfName);     // currently visible -> hide
+        }
+        window.FSV2.renderLinks();
+        return;
+      }
       if (action === 'save-odoo-model') {
         var saveIdx   = parseInt(btn.dataset.idx, 10);
         var modelName = btn.dataset.name;
@@ -315,17 +338,21 @@
         var allowActivitiesEl = document.getElementById('editModelAllowActivities');
         var newAllowChatter    = allowChatterEl    ? allowChatterEl.checked    : true;
         var newAllowActivities = allowActivitiesEl ? allowActivitiesEl.checked : true;
+        var existingHiddenFields = ((S.odooModelsCache || [])[saveIdx] || {}).hidden_odoo_fields || [];
+        var newHiddenFields = Array.isArray(S.editingHiddenFields) ? S.editingHiddenFields : existingHiddenFields;
         var updatedModels = (S.odooModelsCache || []).map(function (m, i) {
           return i === saveIdx
             ? { name: m.name, label: newLabel, icon: newIcon, default_fields: newDefaultFields,
                 allow_chatter: newAllowChatter, allow_activities: newAllowActivities,
-                odoo_model: m.odoo_model, identifier_fields: m.identifier_fields, fixed_fields: m.fixed_fields }
+                odoo_model: m.odoo_model, identifier_fields: m.identifier_fields, fixed_fields: m.fixed_fields,
+                hidden_odoo_fields: newHiddenFields }
             : m;
         });
         await window.FSV2.api('/settings/odoo-models', { method: 'PUT', body: JSON.stringify({ models: updatedModels }) });
         S.odooModelsCache = updatedModels;
         S.editingModelIdx = null;
         S.editingDefaultFields = null;
+        S.editingHiddenFields = null;
         window.FSV2.showAlert('Model bijgewerkt.', 'success');
         window.FSV2.renderLinks();
         return;
@@ -1459,7 +1486,38 @@
 
   // ── Filter field picker list on search input ───────────────────────────────
   document.addEventListener('input', function (event) {
-    var srch = event.target.closest('.fsp-search');
+    var el = event.target;
+
+    // Default field label edit (settings model editor)
+    if (el && el.dataset && el.dataset.action === 'edit-default-field-label') {
+      var dlIdx = parseInt(el.dataset.idx, 10);
+      if (!isNaN(dlIdx) && Array.isArray(window.FSV2.S.editingDefaultFields) && window.FSV2.S.editingDefaultFields[dlIdx]) {
+        window.FSV2.S.editingDefaultFields[dlIdx].label = el.value;
+      }
+      return;
+    }
+
+    // Identifier field label edit (settings model editor)
+    if (el && el.dataset && el.dataset.action === 'edit-identifier-field-label') {
+      var ilModel = el.dataset.model;
+      var ilIdx   = parseInt(el.dataset.idx, 10);
+      var ilEd    = ilModel && window.FSV2.S.modelIdentifierEditors && window.FSV2.S.modelIdentifierEditors[ilModel];
+      if (ilEd && !isNaN(ilIdx) && Array.isArray(ilEd.pendingIdentifier) && ilEd.pendingIdentifier[ilIdx]) {
+        ilEd.pendingIdentifier[ilIdx].label = el.value;
+      }
+      return;
+    }
+
+    // Hidden field search filter
+    if (el && el.id === 'hiddenFieldSearch') {
+      var q = el.value.toLowerCase();
+      document.querySelectorAll('[data-field-item]').forEach(function(item) {
+        item.style.display = (q && !item.dataset.fieldItem.includes(q)) ? 'none' : '';
+      });
+      return;
+    }
+
+    var srch = el.closest('.fsp-search');
     if (!srch) return;
     window.OpenVME.FieldPicker.filterList(srch.dataset.fspId, srch.value);
   });

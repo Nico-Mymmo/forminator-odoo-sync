@@ -188,6 +188,10 @@
     var topLvl         = cfg.topLevelFields || flatFields;
     var existingForm   = Array.isArray(cfg.existingFormMappings) ? cfg.existingFormMappings : []; // [{odoo_field, source_value, is_identifier, is_update_field}]
     var extraRows      = cfg.extraRows    || [];
+    // Build a filtered Odoo field list: remove hidden fields (per model config)
+    var _hiddenSet = {};
+    (cfg.hiddenOdooFields || []).forEach(function(fn) { if (fn) _hiddenSet[fn] = true; });
+    var filteredOdooCache = odooCache.filter(function(f) { return !_hiddenSet[f.name]; });
     var tid            = String(cfg.targetId || '');
     var alreadyMapped  = cfg.alreadyMappedInOtherSteps || [];
     var identFields    = Array.isArray(cfg.identifierFields) ? cfg.identifierFields : [];
@@ -246,6 +250,14 @@
         isUpdateField: r.isUpdateField !== false,
       });
     });
+
+    // Build set of already-used Odoo fields (for filtering the free-row selects)
+    var _usedOdooSet = {};
+    if (activeIdField) _usedOdooSet[activeIdField] = true;
+    requiredRows.forEach(function(r) { _usedOdooSet[r.odooField] = true; });
+    defaultRows.forEach(function(r) { _usedOdooSet[r.odooField] = true; });
+    chainRowsWithIdx.forEach(function(c) { _usedOdooSet[c.row.odooField] = true; });
+    freeRows.forEach(function(r) { if (r.odooField) _usedOdooSet[r.odooField] = true; });
 
     // Unmapped form fields (for "Overige formuliervelden toevoegen")
     var usedFids = Object.assign({}, claimedFids);
@@ -357,22 +369,67 @@
     function newFreeRowHtml() {
       return `<td class="py-2 pr-2">${ffSelect('')}</td>
         <td class="py-2 pr-2">${col2Input('', '')}</td>
-        <td class="py-2 pr-2">${odooFieldSelect(odooCache, odooLoaded, '', null, ' data-map-col="3"')}</td>
+        <td class="py-2 pr-2">${odooFieldSelect(filteredOdooCache, odooLoaded, '', null, ' data-map-col="3"')}</td>
         <td class="py-2 pl-1"><div class="flex items-center justify-end gap-0">${notUpdateChk(true)}${deleteBtn()}</div></td>`;
     }
 
-    // ── Identifier row ────────────────────────────────────────────────────────
+    // ── Identifier row (or chain-linked identifier) ─────────────────────────────
+    // If a chain link exists for the identifier field, render a locked blue row instead of
+    // the editable purple key row — the value is provided automatically by the chain.
+    var chainIdentRow = chainRowsWithIdx.find(function(c) { return c.row.odooField === activeIdField; });
     var identRowHtml = '';
     if (activeIdField) {
-      identRowHtml = `<tr data-map-row data-row-type="identifier" data-odoo-field="${esc(activeIdField)}" data-row-is-required="false" class="bg-primary/5">
-        <td class="py-2 pr-2">${ffSelect(identMappedFid)}</td>
-        <td class="py-2 pr-2 text-center align-middle">
-          <span class="text-sm text-base-content/20">—</span>
-        </td>
-        <td class="py-2 pr-2">${fixedOdooTag(activeIdField, 'bg-primary/10 border border-primary/20', 'key', ' text-primary')}</td>
-        <td class="py-2 pl-1">${notUpdateChk(true)}</td>
-      </tr>`;
+      if (chainIdentRow) {
+        identRowHtml = `<tr data-row-type="chain-identifier" class="bg-info/5">
+          <td colspan="2" class="py-2 pr-2">
+            <div class="flex items-center gap-1.5 text-xs text-info/70 italic pl-1">
+              <i data-lucide="link-2" class="w-3.5 h-3.5 shrink-0 text-info"></i>
+              <span>Automatisch via koppeling aan vorige stap</span>
+            </div>
+          </td>
+          <td class="py-2 pr-2">${fixedOdooTag(activeIdField, 'bg-info/10 border border-info/20', 'link-2', ' text-info')}</td>
+          <td class="py-2 pl-1">
+            <button type="button" class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 text-error/30 hover:text-error ml-0.5 shrink-0"
+              data-action="remove-chain-link" data-target-id="${esc(tid)}" data-odoo-field="${esc(activeIdField)}"
+              title="Koppeling verwijderen">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+          </td>
+        </tr>`;
+      } else {
+        identRowHtml = `<tr data-map-row data-row-type="identifier" data-odoo-field="${esc(activeIdField)}" data-row-is-required="false" class="bg-primary/5">
+          <td class="py-2 pr-2">${ffSelect(identMappedFid)}</td>
+          <td class="py-2 pr-2 text-center align-middle">
+            <span class="text-sm text-base-content/20">—</span>
+          </td>
+          <td class="py-2 pr-2">${fixedOdooTag(activeIdField, 'bg-primary/10 border border-primary/20', 'key', ' text-primary')}</td>
+          <td class="py-2 pl-1">${notUpdateChk(true)}</td>
+        </tr>`;
+      }
     }
+
+    // ── Other chain rows (non-identifier) ────────────────────────────────────
+    var otherChainRowsHtml = chainRowsWithIdx
+      .filter(function(c) { return c.row.odooField !== activeIdField; })
+      .map(function(c) {
+        var r = c.row;
+        return `<tr data-row-type="chain" class="bg-info/5">
+          <td colspan="2" class="py-2 pr-2">
+            <div class="flex items-center gap-1.5 text-xs text-info/70 italic pl-1">
+              <i data-lucide="link-2" class="w-3.5 h-3.5 shrink-0 text-info"></i>
+              <span>Automatisch via koppeling aan vorige stap</span>
+            </div>
+          </td>
+          <td class="py-2 pr-2">${fixedOdooTag(r.odooField, 'bg-info/10 border border-info/20', 'link-2', ' text-info')}</td>
+          <td class="py-2 pl-1">
+            <button type="button" class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 text-error/30 hover:text-error ml-0.5 shrink-0"
+              data-action="remove-chain-link" data-target-id="${esc(tid)}" data-odoo-field="${esc(r.odooField)}"
+              title="Koppeling verwijderen">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+          </td>
+        </tr>`;
+      }).join('');
 
     // ── Required rows ─────────────────────────────────────────────────────────
     var reqRowsHtml = requiredRows.map(function(r) {
@@ -418,11 +475,15 @@
 
     // ── Free rows ─────────────────────────────────────────────────────────────
     var freeRowsHtml = freeRows.map(function(r) {
+      // For each free row: remove hidden fields AND already-used fields (except this row's own Odoo field)
+      var _rowCache = filteredOdooCache.filter(function(f) {
+        return f.name === r.odooField || !_usedOdooSet[f.name];
+      });
       return `<tr data-map-row data-row-type="free" data-row-is-required="false">
         <td class="py-2 pr-2">${ffSelect(r.formField)}</td>
         <td class="py-2 pr-2">${col2Input(r.odooField, r.fixedValue)}</td>
         <td class="py-2 pr-2">
-          ${odooFieldSelect(odooCache, odooLoaded, r.odooField, null, ' data-map-col="3"')}
+          ${odooFieldSelect(_rowCache, odooLoaded, r.odooField, null, ' data-map-col="3"')}
         </td>
         <td class="py-2 pl-1">
           <div class="flex items-center justify-end gap-0">${notUpdateChk(r.isUpdateField !== false)}${deleteBtn()}</div>
@@ -431,7 +492,7 @@
     }).join('');
 
     // ── Divider between fixed and free rows ───────────────────────────────────
-    var fixedHtml = identRowHtml + reqRowsHtml + defaultRowsHtml;
+    var fixedHtml = identRowHtml + otherChainRowsHtml + reqRowsHtml + defaultRowsHtml;
     var dividerRow = fixedHtml && freeRowsHtml
       ? `<tr><td colspan="4" class="py-0"><div class="my-1 border-t border-base-200"></div></td></tr>`
       : '';
@@ -471,6 +532,7 @@
         </thead>
         <tbody>
           ${identRowHtml}
+          ${otherChainRowsHtml}
           ${reqRowsHtml}
           ${defaultRowsHtml}
           ${dividerRow}

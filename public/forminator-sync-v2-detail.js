@@ -528,15 +528,6 @@
           _stepMissingFields.length + ' verplicht' + (_stepMissingFields.length === 1 ? ' veld ontbreekt' : 'e velden ontbreken') +
           '</span>';
       }
-      if (chainDeps.length > 0) {
-        chainDeps.forEach(function (dep) {
-          html +=           '<span>·</span>' +
-            '<span class="inline-flex items-center gap-1 text-success font-medium">' +
-            '<i data-lucide="link-2" class="w-3 h-3"></i>' +
-            'Gekoppeld aan stap ' + dep.stepNum + (dep.stepName ? ' (' + esc(dep.stepName) + ')' : '') +
-            '</span>';
-        });
-      }
 
       html +=             '</div>';
       html +=           '</div>';
@@ -692,7 +683,7 @@
         html += '<div class="border border-base-200 rounded-xl overflow-hidden">';
         html +=   '<div class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-base-200/60 transition-colors select-none"' +
                     ' data-action="toggle-step-chain" data-target-id="' + esc(tid) + '">' +
-                    '<i data-lucide="link-2" class="w-3.5 h-3.5 shrink-0 ' + (chainDeps.length ? 'text-success' : 'opacity-30') + '"></i>' +
+                    '<i data-lucide="link-2" class="w-3.5 h-3.5 shrink-0 ' + (chainDeps.length ? 'text-info' : 'opacity-30') + '"></i>' +
                     '<span class="text-xs font-medium w-36 shrink-0">Koppeling vorige stap</span>' +
                     '<span class="text-xs flex-1 opacity-50">' + esc(_chainSummary) + '</span>' +
                     '<i data-lucide="chevron-right" class="w-3.5 h-3.5 opacity-30 shrink-0 ml-auto"></i>' +
@@ -789,46 +780,48 @@
           };
         });
 
-        // Inject ALL default_fields from model config — required and non-required.
-        // Already-in-DB rows get isDefault + sourceMode stamped on; missing ones are pushed.
-        var modelCfgForReq = window.FSV2.getModelCfg(model);
-        if (Array.isArray(modelCfgForReq.default_fields)) {
-          // Fields in fixed_fields are auto-filled and must never appear in the table
-          var _fixedNamesSet = {};
-          (Array.isArray(modelCfgForReq.fixed_fields) ? modelCfgForReq.fixed_fields : []).forEach(function (f) {
-            var n = typeof f === 'string' ? f : (f.name || ''); if (n) _fixedNamesSet[n] = true;
+      }
+
+      // Inject ALL default_fields from model config — ALWAYS (idempotent: stamp existing, push missing).
+      // Intentionally outside the init-guard: applyChainSuggestion pre-populates _extraRowsByTarget[tid]
+      // before renderDetailMappings runs, so the guard is false and injection would be skipped otherwise.
+      var modelCfgForReq = window.FSV2.getModelCfg(model);
+      if (Array.isArray(modelCfgForReq.default_fields)) {
+        // Fields in fixed_fields are auto-filled and must never appear in the table
+        var _fixedNamesSet = {};
+        (Array.isArray(modelCfgForReq.fixed_fields) ? modelCfgForReq.fixed_fields : []).forEach(function (f) {
+          var n = typeof f === 'string' ? f : (f.name || ''); if (n) _fixedNamesSet[n] = true;
+        });
+        modelCfgForReq.default_fields.forEach(function (df) {
+          if (_fixedNamesSet[df.name]) return;  // skip — auto-filled, not user-editable
+          var sourceMode = df.source_mode || 'both';
+          var isReq      = !!df.required;
+          var meta       = odooCache.find(function (f) { return f.name === df.name; });
+          // If already in _extraRowsByTarget (chain row, or from DB), stamp it and don't push a duplicate
+          var existing = S().detail._extraRowsByTarget[tid].find(function (r) { return r.odooField === df.name; });
+          if (existing) {
+            existing.isDefault  = true;
+            existing.isRequired = isReq;
+            existing.sourceMode = sourceMode;
+            return;
+          }
+          // Otherwise push (includes form-mapped fields — MappingTable pre-populates col1 from existingForm)
+          // Pre-populate staticValue from existing DB mapping (static or template) so col2 shows the saved value
+          var _dbm = targetMappings.find(function (m) {
+            return m.odoo_field === df.name && (m.source_type === 'static' || m.source_type === 'template');
           });
-          modelCfgForReq.default_fields.forEach(function (df) {
-            if (_fixedNamesSet[df.name]) return;  // skip — auto-filled, not user-editable
-            var sourceMode = df.source_mode || 'both';
-            var isReq      = !!df.required;
-            var meta       = odooCache.find(function (f) { return f.name === df.name; });
-            // If already in _extraRowsByTarget (loaded from DB as non-form mapping), stamp it
-            var existing = S().detail._extraRowsByTarget[tid].find(function (r) { return r.odooField === df.name; });
-            if (existing) {
-              existing.isDefault  = true;
-              existing.isRequired = isReq;
-              existing.sourceMode = sourceMode;
-              return;
-            }
-            // Otherwise push (includes form-mapped fields — MappingTable pre-populates col1 from existingForm)
-            // Pre-populate staticValue from existing DB mapping (static or template) so col2 shows the saved value
-            var _dbm = targetMappings.find(function (m) {
-              return m.odoo_field === df.name && (m.source_type === 'static' || m.source_type === 'template');
-            });
-            S().detail._extraRowsByTarget[tid].push({
-              odooField:     df.name,
-              odooLabel:     (meta && meta.label) || df.label || df.name,
-              staticValue:   _dbm ? (_dbm.source_value || '') : '',
-              sourceType:    _dbm ? _dbm.source_type : 'template',
-              isRequired:    isReq,
-              isDefault:     true,
-              isIdentifier:  false,
-              isUpdateField: df.is_update_field !== false,
-              sourceMode:    sourceMode,
-            });
+          S().detail._extraRowsByTarget[tid].push({
+            odooField:     df.name,
+            odooLabel:     (meta && meta.label) || df.label || df.name,
+            staticValue:   _dbm ? (_dbm.source_value || '') : '',
+            sourceType:    _dbm ? _dbm.source_type : 'template',
+            isRequired:    isReq,
+            isDefault:     true,
+            isIdentifier:  false,
+            isUpdateField: df.is_update_field !== false,
+            sourceMode:    sourceMode,
           });
-        }
+        });
       }
 
       var precedingSteps = sortedTargets.slice(0, idx).map(function (t) {
@@ -881,6 +874,7 @@
         existingFormMappings: Object.values(formMappingsByField),
         identifierFields:     cfgIdentFields,
         activeIdentifierField: cfgActiveIdField,
+        hiddenOdooFields:     (window.FSV2.getModelCfg ? window.FSV2.getModelCfg(model).hidden_odoo_fields : []) || [],
         extraRows:            S().detail._extraRowsByTarget[tid],
         selectClass:          'detail-ff-select',
         idCheckClass:         'detail-ff-id-check',
@@ -970,6 +964,16 @@
     }
     var identFields = Object.keys(identSet).map(function (k) { return { name: k, label: identSet[k] }; });
 
+    // Detect active chain link for this step — if present, the identifier is auto-set by the chain
+    var chainRow = inMemRows.find(function (r) { return r.sourceType === 'previous_step_output'; });
+    if (!chainRow) {
+      var chainDbMapping = dbMappings.find(function (m) { return m.source_type === 'previous_step_output'; });
+      if (chainDbMapping) {
+        var _ocChain = odooCache.find(function (f) { return f.name === chainDbMapping.odoo_field; });
+        chainRow = { odooField: chainDbMapping.odoo_field, odooLabel: (_ocChain && _ocChain.label) || chainDbMapping.odoo_field };
+      }
+    }
+
     var _opIcons = { upsert: 'git-merge', update_only: 'pencil', create: 'plus-circle' };
     var options = [
       { value: 'upsert',      icon: 'git-merge',  label: 'Zoeken + bijwerken of aanmaken' },
@@ -989,7 +993,16 @@
               '</label>';
     });
     html += '</div>';
-    if (identFields.length > 0) {
+    // Zoekcriterium: auto via chain link takes priority; otherwise show configured identifier fields
+    var chainLabel = chainRow ? (chainRow.odooLabel || chainRow.odooField) : '';
+    if (chainRow) {
+      html += '<div class="mt-2 pt-2 border-t border-base-200 flex items-center gap-2 px-1">';
+      html += '<i data-lucide="link-2" class="w-3.5 h-3.5 text-info opacity-70 shrink-0"></i>';
+      html += '<span class="text-xs opacity-50 shrink-0">Zoekcriterium:</span>';
+      html += '<span class="text-xs font-medium">' + esc(chainLabel) + '</span>';
+      html += '<span class="text-xs opacity-40 ml-auto italic">automatisch via koppeling</span>';
+      html += '</div>';
+    } else if (identFields.length > 0) {
       html += '<div class="mt-2 pt-2 border-t border-base-200 flex items-center gap-2 px-1">';
       html += '<i data-lucide="key" class="w-3.5 h-3.5 opacity-40 shrink-0"></i>';
       html += '<span class="text-xs opacity-50 shrink-0">Zoekcriterium:</span>';
@@ -1027,7 +1040,7 @@
         var prevModel = prevT ? modelLabel(prevT.odoo_model) : (s.stepLabel || ('Stap ' + s.stepNum));
         var prevNum   = s.stepNum;
         html += '<div class="flex items-center gap-2 py-1">';
-        html += '<i data-lucide="' + (applied ? 'link-2' : 'unlink') + '" class="w-3.5 h-3.5 shrink-0 ' + (applied ? 'text-success' : 'opacity-30') + '"></i>';
+        html += '<i data-lucide="' + (applied ? 'link-2' : 'unlink') + '" class="w-3.5 h-3.5 shrink-0 ' + (applied ? 'text-info' : 'opacity-30') + '"></i>';
         html += '<span class="text-xs flex-1">Koppel <span class="font-medium">' + esc(s.odooLabel) + '</span> ' +
                 (applied ? '→' : 'aan ID van') +
                 ' <span class="font-medium">' + esc(prevModel) + '</span> (Stap ' + prevNum + ')</span>';

@@ -245,6 +245,7 @@
       default_fields:  defFields,
       fixed_fields:    (cached && Array.isArray(cached.fixed_fields)) ? cached.fixed_fields : [],
       identifier_fields: Array.isArray(cached?.identifier_fields) ? cached.identifier_fields : [],
+      hidden_odoo_fields: Array.isArray(cached?.hidden_odoo_fields) ? cached.hidden_odoo_fields : [],
     };
   }
 
@@ -561,7 +562,9 @@
             : pendingFixed.map(function (f, i) {
                 return `<tr>
                   <td class="py-1.5 min-w-0">
-                    <span class="font-medium text-sm">${esc(f.label || f.name)}</span>
+                    <input type="text" class="input input-xs input-bordered w-36"
+                      data-action="edit-identifier-field-label" data-model="${esc(model)}" data-idx="${i}"
+                      value="${esc(f.label || f.name)}" placeholder="Label">
                     <span class="font-mono text-xs text-base-content/40 ml-1.5">${esc(f.name)}</span>
                   </td>
                   <td class="py-1.5">
