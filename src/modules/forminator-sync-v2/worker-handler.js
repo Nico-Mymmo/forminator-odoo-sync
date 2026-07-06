@@ -1232,36 +1232,37 @@ async function runSubmissionAttempt(env, {
             continue;
           }
 
-          // Add/remove from lists via mailing.contact.subscription
+          // Add/remove from lists via mailing.subscription (junction model; the older
+          // "mailing.contact.subscription" name doesn't exist in this Odoo version)
           if (action === 'add') {
             // Upsert subscriptions
             for (const lid of listIds) {
               const subEx = await executeKw(env, {
-                model: 'mailing.contact.subscription',
+                model: 'mailing.subscription',
                 method: 'search',
                 args: [[['contact_id', '=', contactId], ['list_id', '=', lid]]],
                 kwargs: { limit: 1 },
               });
               if (!subEx || subEx.length === 0) {
                 await executeKw(env, {
-                  model: 'mailing.contact.subscription',
+                  model: 'mailing.subscription',
                   method: 'create',
                   args: [{ contact_id: contactId, list_id: lid, opt_out: false }],
                 });
               } else {
-                await executeKw(env, { model: 'mailing.contact.subscription', method: 'write', args: [[subEx[0]], { opt_out: false }] });
+                await executeKw(env, { model: 'mailing.subscription', method: 'write', args: [[subEx[0]], { opt_out: false }] });
               }
             }
             actionDone = 'created_or_updated';
           } else {
             // remove → set opt_out or delete subscriptions
             const subs = await executeKw(env, {
-              model: 'mailing.contact.subscription',
+              model: 'mailing.subscription',
               method: 'search',
               args: [[['contact_id', '=', contactId], ['list_id', 'in', listIds]]],
             });
             if (subs && subs.length > 0) {
-              await executeKw(env, { model: 'mailing.contact.subscription', method: 'write', args: [subs, { opt_out: true }] });
+              await executeKw(env, { model: 'mailing.subscription', method: 'write', args: [subs, { opt_out: true }] });
             }
             actionDone = 'updated';
           }
