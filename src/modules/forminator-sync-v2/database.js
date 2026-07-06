@@ -85,22 +85,41 @@ export async function listIntegrations(env) {
     });
 
     // Dagstatistieken laatste 30 dagen (voor het grafiekje op de koppelingskaart:
-    // totaal aantal inzendingen + errors per dag).
+    // totaal aantal inzendingen + errors + overgeslagen stappen per dag).
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const { data: statSubs } = await supabase
       .from(TABLES.submissions)
-      .select('integration_id, created_at, status')
+      .select('id, integration_id, created_at, status')
       .in('integration_id', ids)
       .gte('created_at', since);
     const ERROR_STATUSES = ['permanent_failed', 'retry_exhausted'];
     const statsByInteg = {};
+    const submissionMeta = {}; // submission_id -> { integration_id, day } (voor het koppelen van overgeslagen stappen)
     ensureArray(statSubs).forEach((s) => {
       const day = String(s.created_at).slice(0, 10); // YYYY-MM-DD
       if (!statsByInteg[s.integration_id]) statsByInteg[s.integration_id] = {};
-      if (!statsByInteg[s.integration_id][day]) statsByInteg[s.integration_id][day] = { total: 0, errors: 0 };
+      if (!statsByInteg[s.integration_id][day]) statsByInteg[s.integration_id][day] = { total: 0, errors: 0, skipped: 0 };
       statsByInteg[s.integration_id][day].total += 1;
       if (ERROR_STATUSES.includes(s.status)) statsByInteg[s.integration_id][day].errors += 1;
+      submissionMeta[s.id] = { integration_id: s.integration_id, day };
     });
+
+    // Overgeslagen stappen: submission_targets met action_result = 'skipped', gekoppeld
+    // via de dag van de bijbehorende inzending (zelfde bucketing als totaal/errors).
+    const statSubIds = Object.keys(submissionMeta);
+    if (statSubIds.length > 0) {
+      const { data: skippedTargets } = await supabase
+        .from(TABLES.submissionTargets)
+        .select('submission_id')
+        .in('submission_id', statSubIds)
+        .eq('action_result', 'skipped');
+      ensureArray(skippedTargets).forEach((t) => {
+        const meta = submissionMeta[t.submission_id];
+        if (!meta) return;
+        statsByInteg[meta.integration_id][meta.day].skipped += 1;
+      });
+    }
+
     const dayKeys = [];
     for (let i = 29; i >= 0; i--) {
       dayKeys.push(new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
@@ -111,10 +130,11 @@ export async function listIntegrations(env) {
         date: day,
         total: (byDay[day] && byDay[day].total) || 0,
         errors: (byDay[day] && byDay[day].errors) || 0,
+        skipped: (byDay[day] && byDay[day].skipped) || 0,
       }));
       row.stats_30d = row.daily_stats.reduce(
-        (acc, d) => ({ total: acc.total + d.total, errors: acc.errors + d.errors }),
-        { total: 0, errors: 0 }
+        (acc, d) => ({ total: acc.total + d.total, errors: acc.errors + d.errors, skipped: acc.skipped + d.skipped }),
+        { total: 0, errors: 0, skipped: 0 }
       );
     });
   }

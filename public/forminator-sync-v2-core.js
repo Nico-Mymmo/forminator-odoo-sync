@@ -575,8 +575,10 @@
 
   // Mini bar-chart (SVG) voor de laatste 30 dagen -- geen chart-library nodig.
   // Vaste schaal (op basis van max. totaal per dag) zodat 1 inzending altijd dezelfde
-  // hoogte heeft, ook als je switcht tussen "Inzendingen" en "Errors" -- geen vertekend beeld.
+  // hoogte heeft, ook als je switcht tussen metrics -- geen vertekend beeld.
   var FSV2_CHART_FRAME_CLASS = 'rounded-lg border border-base-200 bg-base-200/30 px-2 py-1.5';
+  var FSV2_CHART_METRIC_COLOR = { total: 'text-primary', errors: 'text-error', skipped: 'text-warning' };
+  var FSV2_CHART_METRIC_LABEL = { total: 'Inzendingen', errors: 'Errors', skipped: 'Skip' };
 
   function buildMiniChartSvg(dailyStats, metric) {
     var W = 300, H = 64, gap = 2;
@@ -596,7 +598,7 @@
   }
 
   function chartToggleBtnClass(active, metric) {
-    var color = active ? (metric === 'errors' ? 'text-error' : 'text-primary') : 'text-base-content/40';
+    var color = active ? (FSV2_CHART_METRIC_COLOR[metric] || 'text-primary') : 'text-base-content/40';
     return 'btn btn-ghost btn-xs h-5 min-h-0 px-1 text-[11px] font-normal ' + color + (active ? ' font-semibold' : '');
   }
 
@@ -604,17 +606,18 @@
     var id = row.id;
     var daily = Array.isArray(row.daily_stats) ? row.daily_stats : [];
     var metric = (S.cardChartMetric && S.cardChartMetric[id]) || 'total';
-    var stats30 = row.stats_30d || { total: 0, errors: 0 };
+    var stats30 = row.stats_30d || { total: 0, errors: 0, skipped: 0 };
+    var metrics = ['total', 'errors', 'skipped'];
+    var togglesHtml = metrics.map(function (m, i) {
+      var sep = i > 0 ? '<span class="text-base-content/20 text-[11px]">/</span>' : '';
+      return sep + '<button type="button" class="' + chartToggleBtnClass(metric === m, m) + '" data-action="fsv2-chart-metric" data-id="' + esc(id) + '" data-metric="' + m + '">' + FSV2_CHART_METRIC_LABEL[m] + ' ' + (stats30[m] || 0) + '</button>';
+    }).join('');
     return '<div class="mb-2.5">'
       + '<div class="flex items-center justify-between mb-1">'
       +   '<span class="text-[10px] uppercase tracking-wide text-base-content/35 font-medium">Laatste 30 dagen</span>'
-      +   '<div class="flex items-center gap-1">'
-      +     '<button type="button" class="' + chartToggleBtnClass(metric === 'total', 'total') + '" data-action="fsv2-chart-metric" data-id="' + esc(id) + '" data-metric="total">Inzendingen ' + stats30.total + '</button>'
-      +     '<span class="text-base-content/20 text-[11px]">/</span>'
-      +     '<button type="button" class="' + chartToggleBtnClass(metric === 'errors', 'errors') + '" data-action="fsv2-chart-metric" data-id="' + esc(id) + '" data-metric="errors">Errors ' + stats30.errors + '</button>'
-      +   '</div>'
+      +   '<div class="flex items-center gap-1">' + togglesHtml + '</div>'
       + '</div>'
-      + '<div id="fsv2-chart-' + esc(id) + '" class="' + FSV2_CHART_FRAME_CLASS + ' ' + (metric === 'errors' ? 'text-error' : 'text-primary') + '">' + buildMiniChartSvg(daily, metric) + '</div>'
+      + '<div id="fsv2-chart-' + esc(id) + '" class="' + FSV2_CHART_FRAME_CLASS + ' ' + (FSV2_CHART_METRIC_COLOR[metric] || 'text-primary') + '">' + buildMiniChartSvg(daily, metric) + '</div>'
       + '</div>';
   }
 
@@ -625,7 +628,7 @@
     if (!row) return;
     var container = document.getElementById('fsv2-chart-' + id);
     if (container) {
-      container.className = FSV2_CHART_FRAME_CLASS + ' ' + (metric === 'errors' ? 'text-error' : 'text-primary');
+      container.className = FSV2_CHART_FRAME_CLASS + ' ' + (FSV2_CHART_METRIC_COLOR[metric] || 'text-primary');
       container.innerHTML = buildMiniChartSvg(row.daily_stats || [], metric);
     }
     document.querySelectorAll('[data-action="fsv2-chart-metric"][data-id="' + id + '"]').forEach(function (b) {
