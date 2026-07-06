@@ -108,6 +108,15 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     return;
   }
 
+  // mailing_list targets always write to mailing.contact — not part of the configurable model whitelist,
+  // no identifier type / update policy choice (the composer UI fixes those to mapped_fields / always_overwrite)
+  if (payload.operation_type === 'mailing_list') {
+    if (!hasValue(payload.odoo_model)) {
+      throw createError('mailing_list target vereist een odoo_model.');
+    }
+    return;
+  }
+
   // Use caller-supplied allowedModels (from DB) when available, else fall back to static list
   const modelList = (Array.isArray(allowedModels) && allowedModels.length)
     ? allowedModels

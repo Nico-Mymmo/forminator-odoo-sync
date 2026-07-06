@@ -1571,10 +1571,12 @@ export const routes = {
 
   'GET /api/mailing-lists': async (context) => {
     try {
-      const lists = await executeKw(context.env, 'mailing.list', 'search_read',
-        [[['active', '=', true]]],
-        { fields: ['id', 'name', 'contact_count'], order: 'name asc', limit: 200 }
-      );
+      const lists = await executeKw(context.env, {
+        model: 'mailing.list',
+        method: 'search_read',
+        args: [[['active', '=', true]]],
+        kwargs: { fields: ['id', 'name', 'contact_count'], order: 'name asc', limit: 200 },
+      });
       return jsonResponse({ success: true, data: lists });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);

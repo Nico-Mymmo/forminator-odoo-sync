@@ -471,6 +471,13 @@
         opTypeLbl = 'Activiteit aanmaken';
         if (!target.label) stepName = 'Activiteit';
       }
+      if (target.operation_type === 'mailing_list') {
+        var _mlCfgHdr = parseMailingListConfig(target);
+        var _mlActionLblHdr = _mlCfgHdr.action === 'remove' ? 'Verwijderen' : 'Toevoegen';
+        var _mlModeLblHdr   = _mlCfgHdr.update_mode === 'update_only' ? 'Alleen bijwerken' : 'Bijwerken of aanmaken';
+        opTypeLbl = _mlActionLblHdr + ' — ' + _mlModeLblHdr;
+        if (!target.label) stepName = 'Mailinglijst';
+      }
       var policyLbl  = POLICY_LABELS[target.update_policy] || esc(target.update_policy || '');
       var preceding  = sortedTargets.slice(0, idx);
       var suggestions = (isSingle || target.operation_type === 'chatter_message' || target.operation_type === 'create_activity') ? [] : computeChainSuggestions(target, preceding);
@@ -514,6 +521,7 @@
         create:           'plus-circle',
         chatter_message:  'message-circle',
         create_activity:  'calendar',
+        mailing_list:     'mail',
       };
       var _opIcon = _opIcons[target.operation_type] || 'refresh-cw';
 
@@ -698,7 +706,7 @@
                 '<div id="det-cond-' + esc(tid) + '" style="display:none;"></div>';
       html += '</div>';
 
-      // Callout 2: Gedrag bij verwerking
+      // Callout 2: Gedrag bij verwerking (voor mailing_list: Actie + Modus i.p.v. de generieke upsert-opties)
       html += '<div class="border border-base-200 rounded-xl overflow-hidden">';
       html +=   '<div class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-base-200/60 transition-colors select-none"' +
                   ' data-action="toggle-step-optype" data-target-id="' + esc(tid) + '">' +
@@ -973,6 +981,7 @@
     if (!el) return;
     var currentOpType = target.operation_type || 'upsert';
     if (currentOpType === 'chatter_message' || currentOpType === 'create_activity') return;
+    if (currentOpType === 'mailing_list') { renderMailingListBehaviorSection(target, tid); return; }
 
     var odooCache = (S().odooFieldsCache || {})[target.odoo_model] || [];
     var dbMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
@@ -2416,23 +2425,25 @@ function renderDetailFormFields() {
       { id: 'mailing_list',    icon: 'mail',           label: 'Mailinglijst',     desc: 'Toevoegen/verwijderen uit mailinglijst' },
     ];
 
-    var modelCards = models.map(function (m) {
+    var modelCards = models.map(function (m, i) {
       var isActive = sel === (m.odoo_model || m.name);
       var icon     = m.icon || 'box';
       var label    = m.label || m.odoo_model || m.name;
       var modelId  = m.name;
+      var isOrphan = (i === models.length - 1) && (models.length % 2 === 1);
       return '<button type="button"' +
-        ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + '"' +
+        ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + (isOrphan ? ' col-span-2' : '') + '"' +
         ' data-action="select-target-object" data-object-id="' + esc(modelId) + '">' +
         '<i data-lucide="' + esc(icon) + '" class="w-5 h-5 shrink-0"></i>' +
         '<span class="text-left font-semibold">' + esc(label) + '</span>' +
         '</button>';
     }).join('');
 
-    var specialCards = SPECIAL.map(function (s) {
+    var specialCards = SPECIAL.map(function (s, i) {
       var isActive = sel === s.id;
+      var isOrphan = (i === SPECIAL.length - 1) && (SPECIAL.length % 2 === 1);
       return '<button type="button"' +
-        ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + '"' +
+        ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + (isOrphan ? ' col-span-2' : '') + '"' +
         ' data-action="select-target-object" data-object-id="' + esc(s.id) + '">' +
         '<i data-lucide="' + esc(s.icon) + '" class="w-5 h-5 shrink-0"></i>' +
         '<span class="text-left"><span class="font-semibold">' + esc(s.label) + '</span>' +
@@ -2440,7 +2451,7 @@ function renderDetailFormFields() {
         '</button>';
     }).join('');
 
-    container.innerHTML = modelCards + (models.length ? '<div class="divider my-1"></div>' : '') + specialCards;
+    container.innerHTML = modelCards + (models.length ? '<div class="divider my-1 col-span-2"></div>' : '') + specialCards;
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) {
       lucide.createIcons({ context: container });
@@ -2452,6 +2463,20 @@ function renderDetailFormFields() {
     var container = document.getElementById('addTargetOpCards');
     if (!container) return;
     var dlg = document.getElementById('addTargetDialog');
+    var objId = dlg ? (dlg.dataset.selectedObject || '') : '';
+
+    var titleEl = document.getElementById('addTargetStep2Title');
+    var descEl  = document.getElementById('addTargetStep2Desc');
+
+    if (objId === 'mailing_list') {
+      if (titleEl) titleEl.textContent = 'Mailinglijst';
+      if (descEl)  descEl.textContent  = 'Welke actie en modus voor dit mailingcontact?';
+      renderAddTargetMailingListStep2(dlg, container);
+      return;
+    }
+    if (titleEl) titleEl.textContent = 'Operatie';
+    if (descEl)  descEl.textContent  = 'Wat moet er met het record gebeuren?';
+
     var sel = dlg ? (dlg.dataset.selectedOp || '') : '';
 
     var OPS = [
@@ -2479,8 +2504,56 @@ function renderDetailFormFields() {
     }
   }
 
+  // ── Fase 1, Stap 2 voor mailing_list: Actie (toevoegen/verwijderen) + Modus ─
+  // i.p.v. de generieke upsert/create/update_only-keuze — die is hier niet van
+  // toepassing (het "record" is altijd mailing.contact, niet het gekozen model).
+  function renderAddTargetMailingListStep2(dlg, container) {
+    if (!dlg.dataset.mlAction) dlg.dataset.mlAction = 'add';
+    if (!dlg.dataset.mlMode)   dlg.dataset.mlMode   = 'upsert';
+    dlg.dataset.selectedOp = 'mailing_list'; // altijd geldig: Actie/Modus hebben defaults
+
+    var mlAction = dlg.dataset.mlAction;
+    var mlMode   = dlg.dataset.mlMode;
+
+    var html = '<div class="flex flex-col gap-4">';
+
+    html += '<div class="form-control">' +
+      '<label class="label pt-0 pb-1"><span class="label-text font-semibold">Actie</span></label>' +
+      '<div class="join w-full">' +
+        ['add', 'remove'].map(function (val) {
+          var lbl    = val === 'add' ? 'Toevoegen' : 'Verwijderen';
+          var active = mlAction === val;
+          return '<button type="button" class="btn btn-outline join-item flex-1' + (active ? ' btn-primary' : '') + '"' +
+            ' data-action="add-target-ml-action" data-val="' + val + '">' + lbl + '</button>';
+        }).join('') +
+      '</div>' +
+      '<span class="label-text-alt text-xs opacity-60 mt-1">Contact toevoegen aan, of verwijderen uit, de mailinglijst(en)</span>' +
+    '</div>';
+
+    html += '<div class="form-control">' +
+      '<label class="label pt-0 pb-1"><span class="label-text font-semibold">Modus</span></label>' +
+      '<div class="join w-full">' +
+        [
+          { val: 'upsert',      lbl: 'Bijwerken of aanmaken' },
+          { val: 'update_only', lbl: 'Alleen bijwerken'      },
+        ].map(function (o) {
+          var active = mlMode === o.val;
+          return '<button type="button" class="btn btn-outline join-item flex-1' + (active ? ' btn-primary' : '') + '"' +
+            ' data-action="add-target-ml-mode" data-val="' + o.val + '">' + o.lbl + '</button>';
+        }).join('') +
+      '</div>' +
+      '<span class="label-text-alt text-xs opacity-60 mt-1">Bepaalt of een onbekend mailingcontact wordt aangemaakt</span>' +
+    '</div>';
+
+    html += '</div>';
+    container.innerHTML = html;
+
+    var confirmBtn = document.getElementById('confirmAddTargetBtn');
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+
   // ── Fase 1: Handle confirmed "Stap toevoegen" from intent-picker ───────────
-  async function handleAddTargetWithType(integrationId, objectId, opType) {
+  async function handleAddTargetWithType(integrationId, objectId, opType, extra) {
     var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
     var maxOrder = targets.reduce(function (max, t) {
       return Math.max(max, getTargetOrder(t, 0));
@@ -2584,15 +2657,19 @@ function renderDetailFormFields() {
 
     if (objectId === 'mailing_list') {
       var mlNewOrder = maxOrder + 1;
+      var mlInitAction = (extra && extra.mlAction) || 'add';
+      var mlInitMode   = (extra && extra.mlMode)   || 'upsert';
+      var mlInitCfg    = MAILING_PREFIX + JSON.stringify({ action: mlInitAction, update_mode: mlInitMode, list_ids: [] });
       var mlRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
         method: 'POST',
         body: JSON.stringify({
-          odoo_model:      'mailing.contact',
-          identifier_type: 'mapped_fields',
-          update_policy:   'always_overwrite',
-          operation_type:  'mailing_list',
-          execution_order: mlNewOrder,
-          order_index:     mlNewOrder,
+          odoo_model:       'mailing.contact',
+          identifier_type:  'mapped_fields',
+          update_policy:    'always_overwrite',
+          operation_type:   'mailing_list',
+          execution_order:  mlNewOrder,
+          order_index:      mlNewOrder,
+          chatter_template: mlInitCfg,
         }),
       });
       var mlTargetId = mlRes && mlRes.data && mlRes.data.id;
@@ -2823,6 +2900,9 @@ function renderDetailFormFields() {
     }
     if (target.operation_type === 'create_activity') {
       return handleSaveActivityComposer(tid);
+    }
+    if (target.operation_type === 'mailing_list') {
+      return handleSaveMailingListComposer(tid);
     }
 
     var mcEl = document.getElementById('det-mc-' + tid);
@@ -4824,89 +4904,30 @@ function renderDetailFormFields() {
   // ────────────────────────────────────────────────────────────────────────────
   // MAILINGLIJST COMPOSER
 
-  function renderMailingListComposer(target, tid, sortedTargets) {
-    var el = document.getElementById('det-mc-' + tid);
-    if (!el) return;
+  var MAILING_PREFIX = '__MAILING__:';
 
-    // Parse existing config from chatter_template
-    var rawCfg = (target.chatter_template || '').trim();
-    var MAILING_PREFIX = '__MAILING__:';
+  // Shared parser — Gedragsbalk-callout (Actie/Modus) en composer (lijsten/velden)
+  // lezen allebei dezelfde chatter_template-config.
+  function parseMailingListConfig(target) {
+    var rawCfg = ((target && target.chatter_template) || '').trim();
     var cfg = { action: 'add', update_mode: 'upsert', list_ids: [] };
-    if (rawCfg.startsWith(MAILING_PREFIX)) {
+    if (rawCfg.indexOf(MAILING_PREFIX) === 0) {
       try { cfg = Object.assign(cfg, JSON.parse(rawCfg.slice(MAILING_PREFIX.length))); } catch (_) {}
     }
+    return cfg;
+  }
+
+  // Gedragsbalk-callout content voor mailing_list-stappen: Actie (toevoegen/verwijderen)
+  // + Modus (bijwerken-of-aanmaken/alleen bijwerken) i.p.v. de generieke upsert-radio's.
+  function renderMailingListBehaviorSection(target, tid) {
+    var el = document.getElementById('det-optype-' + tid);
+    if (!el) return;
+    var cfg           = parseMailingListConfig(target);
     var currentAction = cfg.action || 'add';
     var currentMode   = cfg.update_mode || 'upsert';
-    var currentLists  = Array.isArray(cfg.list_ids) ? cfg.list_ids : [];
 
-    // Existing mappings for pre-filling field selectors
-    var existingMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
-
-    // Form fields for selectors
-    var _ffr       = buildDetailFlatFields(S().detailFormFields || []);
-    var formFields = _ffr.flatFields || [];
-
-    function makeFieldSelect(odooField, label, required) {
-      var existing    = existingMappings.find(function (m) { return m.odoo_field === odooField; });
-      var currentType = existing ? (existing.source_type  || 'form') : '';
-      var currentVal  = existing ? (existing.source_value || '')      : '';
-      var formVal     = currentType === 'form'   ? currentVal : '';
-      var staticVal   = currentType === 'static' ? currentVal : '';
-
-      var opts = '<option value="">' + (required ? '— verplicht —' : '— niet koppelen —') + '</option>';
-      formFields.forEach(function (f) {
-        var fid  = f.field_id || f.id || '';
-        var flbl = f.label || fid;
-        opts += '<option value="form:' + esc(fid) + '"' + (formVal === fid ? ' selected' : '') + '>' + esc(flbl) + '</option>';
-      });
-      opts += '<option value="static:" ' + (currentType === 'static' ? 'selected' : '') + '>Vaste waarde…</option>';
-
-      var showStatic = currentType === 'static';
-      return '<tr>' +
-        '<td class="py-1 pr-2 text-xs font-medium w-40">' + esc(label) + (required ? ' <span class="text-error">*</span>' : '') + '</td>' +
-        '<td class="py-1">' +
-          '<select class="select select-bordered select-xs w-full ml-field-select"' +
-            ' data-target-id="' + esc(tid) + '" data-odoo-field="' + esc(odooField) + '">' +
-            opts +
-          '</select>' +
-          '<input type="text" class="input input-bordered input-xs w-full mt-1 ml-static-input' + (showStatic ? '' : ' hidden') + '"' +
-            ' data-odoo-field="' + esc(odooField) + '"' +
-            ' value="' + esc(staticVal) + '" placeholder="Vaste waarde">' +
-        '</td>' +
-      '</tr>';
-    }
-
-    function makeBoolSelect(odooField, label) {
-      var existing    = existingMappings.find(function (m) { return m.odoo_field === odooField; });
-      var currentType = existing ? (existing.source_type  || '') : '';
-      var currentVal  = existing ? (existing.source_value || '') : '';
-      var staticVal   = currentType === 'static' ? currentVal : '';
-      var formVal     = currentType === 'form'   ? currentVal : '';
-
-      var opts = '<option value="">— niet koppelen —</option>';
-      opts += '<option value="static:true"'  + (staticVal === 'true'  ? ' selected' : '') + '>Altijd Ja</option>';
-      opts += '<option value="static:false"' + (staticVal === 'false' ? ' selected' : '') + '>Altijd Nee</option>';
-      formFields.forEach(function (f) {
-        var fid  = f.field_id || f.id || '';
-        var flbl = f.label || fid;
-        opts += '<option value="form:' + esc(fid) + '"' + (formVal === fid ? ' selected' : '') + '>' + esc(flbl) + ' (formulierveld)</option>';
-      });
-
-      return '<tr>' +
-        '<td class="py-1 pr-2 text-xs font-medium w-40">' + esc(label) + '</td>' +
-        '<td class="py-1">' +
-          '<select class="select select-bordered select-xs w-full ml-field-select"' +
-            ' data-target-id="' + esc(tid) + '" data-odoo-field="' + esc(odooField) + '">' +
-            opts +
-          '</select>' +
-        '</td>' +
-      '</tr>';
-    }
-
-    var html = '';
-
-    // Action + Mode toggles
-    html += '<div class="flex flex-wrap gap-4 mb-4">';
+    var html = '<div class="px-3.5 py-2.5 border-t border-base-200 bg-base-200/30">';
+    html += '<div class="flex flex-wrap gap-4">';
 
     html += '<div class="form-control">' +
       '<label class="label pt-0 pb-1"><span class="label-text text-xs font-semibold opacity-60 uppercase tracking-wide">Actie</span></label>' +
@@ -4936,42 +4957,62 @@ function renderDetailFormFields() {
       '<input type="hidden" id="mlMode-' + esc(tid) + '" value="' + esc(currentMode) + '">' +
     '</div>';
 
+    html += '</div>'; // flex-wrap
     html += '</div>';
+    el.innerHTML = html;
+  }
+
+  // Bouwt de extraRows voor de standaard MappingTable-component. De veldenlijst komt
+  // uit de gewone model-registry (fs_v2_odoo_models, via getModelCfg) — mailing.contact
+  // staat daar net als res.partner/crm.lead/x_webinarregistrations in, en is dus op
+  // dezelfde manier beheerbaar via Instellingen > Modellen > Standaardvelden.
+  function buildMailingListExtraRows(target) {
+    var targetMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+    var odooCache       = (S().odooFieldsCache || {})['mailing.contact'] || [];
+    var modelCfg        = window.FSV2.getModelCfg ? window.FSV2.getModelCfg('mailing.contact') : {};
+    var defs            = Array.isArray(modelCfg.default_fields) ? modelCfg.default_fields : [];
+    return defs.map(function (def) {
+      var dbm  = targetMappings.find(function (m) { return m.odoo_field === def.name && m.source_type !== 'form'; });
+      var meta = odooCache.find(function (f) { return f.name === def.name; });
+      return {
+        odooField:     def.name,
+        odooLabel:     (meta && meta.label) || def.label || def.name,
+        staticValue:   dbm ? (dbm.source_value || '') : '',
+        sourceType:    dbm ? dbm.source_type : 'template',
+        isRequired:    !!def.required,
+        isDefault:     true,
+        isIdentifier:  false,
+        isUpdateField: def.name !== 'email',
+        sourceMode:    def.source_mode || 'both',
+      };
+    });
+  }
+
+  function renderMailingListComposer(target, tid, sortedTargets) {
+    var el = document.getElementById('det-mc-' + tid);
+    if (!el) return;
+
+    // Parse existing config from chatter_template — Actie/Modus zelf leven in de
+    // Gedragsbalk-callout (renderMailingListBehaviorSection); hier alleen lijsten/velden.
+    var cfg           = parseMailingListConfig(target);
+    var currentLists  = Array.isArray(cfg.list_ids) ? cfg.list_ids : [];
+
+    var existingMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+
+    var html = '';
 
     // Mailing lists
     html += '<div class="form-control mb-4">' +
       '<label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Mailinglijsten</span></label>' +
-      '<div id="mlLists-' + esc(tid) + '" class="border border-base-200 rounded-lg divide-y divide-base-200 max-h-52 overflow-y-auto">' +
+      '<div id="mlLists-' + esc(tid) + '" class="border border-base-200 rounded-lg divide-y divide-base-200">' +
         '<div class="px-3 py-2 text-xs text-base-content/40">Laden…</div>' +
       '</div>' +
     '</div>';
 
-    // Field mappings
-    html += '<div class="form-control mb-4">' +
-      '<label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Veldkoppelingen</span></label>' +
-      '<div class="overflow-x-auto border border-base-200 rounded-lg">' +
-        '<table class="table table-xs w-full">' +
-          '<thead class="bg-base-200/40"><tr>' +
-            '<th class="py-1.5 text-xs">Mailingveld</th>' +
-            '<th class="py-1.5 text-xs">Formulierveld / waarde</th>' +
-          '</tr></thead>' +
-          '<tbody>' +
-            makeFieldSelect('email',                        'E-mailadres',          true)  +
-            makeFieldSelect('name',                         'Naam (volledig)',       false) +
-            makeFieldSelect('x_studio_first_name',          'Voornaam',             false) +
-            makeFieldSelect('company_name',                 'Bedrijfsnaam',         false) +
-            makeBoolSelect ('x_studio_provider',            'Leverancier')                 +
-            makeBoolSelect ('x_studio_professional_syndic', 'Professionele syndicus')      +
-          '</tbody>' +
-        '</table>' +
-      '</div>' +
-    '</div>';
-
-    // Save button
-    html += '<button type="button" class="btn btn-sm btn-primary gap-2"' +
-      ' data-action="save-mailing-list-composer" data-target-id="' + esc(tid) + '">' +
-      '<i data-lucide="save" class="w-4 h-4"></i> Opslaan' +
-    '</button>';
+    // Veldkoppelingen — zelfde MappingTable-component/experience als de andere stappen.
+    // Geen eigen save-knop hier: de gedeelde voettekstknop ("Koppelingen opslaan") van de
+    // kaart voorkomt dubbele save-functionaliteit — zie handleSaveStepMappings.
+    html += '<div id="det-mc-' + esc(tid) + '-fields" class="mb-2"></div>';
 
     el.innerHTML = html;
 
@@ -4989,7 +5030,7 @@ function renderDetailFormFields() {
             '<input type="checkbox" class="checkbox checkbox-xs ml-list-cb-' + esc(tid) + '"' +
               ' value="' + l.id + '"' + checked + '>' +
             '<span class="text-sm flex-1">' + esc(l.name) + '</span>' +
-            '<span class="text-xs text-base-content/40">' + (l.contact_count || 0) + ' contacten</span>' +
+            '<span class="text-xs text-base-content/40">' + (l.contact_count || 0) + ' contacten</span>' +
           '</label>';
         }).join('');
       }
@@ -4998,13 +5039,26 @@ function renderDetailFormFields() {
       if (listsEl) listsEl.innerHTML = '<div class="px-3 py-2 text-xs text-error/70">Fout bij laden mailinglijsten.</div>';
     });
 
-    // Wire select → show/hide static input
-    el.querySelectorAll('.ml-field-select').forEach(function (sel) {
-      sel.addEventListener('change', function () {
-        var oField      = sel.dataset.odooField;
-        var staticInput = el.querySelector('.ml-static-input[data-odoo-field="' + oField + '"]');
-        if (staticInput) staticInput.classList.toggle('hidden', sel.value !== 'static:');
-      });
+    // Veldkoppelingen via de standaard MappingTable-component.
+    var _ffr       = buildDetailFlatFields(S().detailFormFields || []);
+    var odooCache  = (S().odooFieldsCache || {})['mailing.contact'] || [];
+    var odooLoaded = odooCache.length > 0;
+
+    window.FSV2.MappingTable.render('det-mc-' + tid + '-fields', {
+      flatFields:                _ffr.flatFields,
+      topLevelFields:            _ffr.topLevel,
+      odooCache:                 odooCache,
+      odooLoaded:                odooLoaded,
+      odooModel:                 'mailing.contact',
+      existingFormMappings:      existingMappings.filter(function (m) { return m.source_type === 'form'; }),
+      identifierFields:          [],
+      activeIdentifierField:     '',
+      hiddenOdooFields:          [],
+      extraRows:                 buildMailingListExtraRows(target),
+      targetId:                  tid,
+      alreadyMappedInOtherSteps: [],
+      precedingSteps:            [],
+      stepBadge:                 0,
     });
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ nodes: [el] });
@@ -5033,7 +5087,7 @@ function renderDetailFormFields() {
       return;
     }
 
-    var cfgJson = '__MAILING__:' + JSON.stringify({ action: action, update_mode: updateMode, list_ids: listIds });
+    var cfgJson = MAILING_PREFIX + JSON.stringify({ action: action, update_mode: updateMode, list_ids: listIds });
 
     try {
       await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
@@ -5049,62 +5103,58 @@ function renderDetailFormFields() {
       return;
     }
 
-    // Field mappings from selects
-    var fieldSelects = el.querySelectorAll('.ml-field-select');
-    var fieldsToMap  = [];
-    fieldSelects.forEach(function (sel) {
-      var odooField = sel.dataset.odooField;
-      var val = sel.value;
-      if (!val || val === 'static:') {
-        // static: with text input
-        if (val === 'static:') {
-          var sinp = el.querySelector('.ml-static-input[data-odoo-field="' + odooField + '"]');
-          var sv   = sinp ? sinp.value.trim() : '';
-          if (sv) fieldsToMap.push({ odooField: odooField, sourceType: 'static', sourceValue: sv });
-        }
-        return;
-      }
-      var sourceType, sourceValue;
-      if (val.startsWith('form:')) {
-        sourceType  = 'form';
-        sourceValue = val.slice(5);
-      } else if (val.startsWith('static:')) {
-        sourceType  = 'static';
-        sourceValue = val.slice(7);
-      } else {
-        return;
-      }
-      if (!sourceValue) return;
-      fieldsToMap.push({ odooField: odooField, sourceType: sourceType, sourceValue: sourceValue });
-    });
-
-    // Delete existing mappings, then recreate
-    try { await window.FSV2.api('/targets/' + tid + '/mappings', { method: 'DELETE' }); } catch (_) {}
-
+    // Veldkoppelingen lezen uit de MappingTable-rijen — zelfde DOM-structuur en
+    // extractielogica als handleSaveStepMappings gebruikt voor reguliere stappen.
+    var newMappings = [];
+    var orderIdx    = 0;
     var emailMapped = false;
-    for (var fi = 0; fi < fieldsToMap.length; fi++) {
-      var fm = fieldsToMap[fi];
-      try {
-        await window.FSV2.api('/targets/' + tid + '/mappings', {
-          method: 'POST',
-          body: JSON.stringify({
-            odoo_field:      fm.odooField,
-            source_type:     fm.sourceType,
-            source_value:    fm.sourceValue,
-            is_identifier:   fm.odooField === 'email',
-            is_required:     fm.odooField === 'email',
-            is_update_field: fm.odooField !== 'email',
-            order_index:     fi,
-          }),
+
+    el.querySelectorAll('[data-map-row]').forEach(function (tr) {
+      var fixedOdoo = tr.dataset.odooField || '';
+      var col1      = tr.querySelector('[data-map-col="1"]');
+      var col2el    = tr.querySelector('[data-map-col="2"]');
+      var col3      = tr.querySelector('[data-map-col="3"]');
+      var notUpdEl  = tr.querySelector('[data-map-not-update]');
+
+      var formFid   = (col1 && col1.tagName === 'SELECT') ? (col1.value || '') : '';
+      var staticVal = col2el ? (col2el.value || '').trim() : '';
+      var odooField = fixedOdoo || ((col3 && col3.tagName === 'SELECT') ? (col3.value || '') : '');
+      if (!odooField) return;
+
+      var isUpdateField = notUpdEl ? !notUpdEl.checked : true;
+      var isIdentifier  = odooField === 'email';
+      var isRequired    = odooField === 'email';
+
+      if (formFid) {
+        newMappings.push({
+          odoo_field: odooField, source_type: 'form', source_value: formFid,
+          is_identifier: isIdentifier, is_update_field: isUpdateField,
+          is_required: isRequired, order_index: orderIdx++,
         });
-        if (fm.odooField === 'email') emailMapped = true;
-      } catch (e) {
-        console.warn('mailing mapping failed for', fm.odooField, e);
+        if (odooField === 'email') emailMapped = true;
+      } else if (staticVal) {
+        var srcType = /\{[^}]+\}/.test(staticVal) ? 'template' : 'static';
+        newMappings.push({
+          odoo_field: odooField, source_type: srcType, source_value: staticVal,
+          is_identifier: isIdentifier, is_update_field: isUpdateField,
+          is_required: isRequired, order_index: orderIdx++,
+        });
+        if (odooField === 'email') emailMapped = true;
       }
-    }
+    });
 
     if (!emailMapped) {
       window.FSV2.showAlert('Stel het e-mailadresveld in — de stap kan niet worden uitgevoerd zonder e-mail.', 'error');
+      return;
+    }
+
+    try {
+      await window.FSV2.api('/targets/' + tid + '/mappings', { method: 'DELETE' });
+      await Promise.all(newMappings.map(function (m) {
+        return window.FSV2.api('/targets/' + tid + '/mappings', { method: 'POST', body: JSON.stringify(m) });
+      }));
+    } catch (e) {
+      window.FSV2.showAlert('Fout bij opslaan veldkoppelingen: ' + e.message, 'error');
       return;
     }
 
@@ -5171,7 +5221,7 @@ function renderDetailFormFields() {
     handleOpenImportModal:       handleOpenImportModal,
     handleImportMetaLeads:       handleImportMetaLeads,
     handleAddBulkImportRow:      handleAddBulkImportRow,
-    handleRemoveBulkImportRow:   handleRemoveBulkImportRow,
+    handleRemoveBulkImportRow:      handleRemoveBulkImportRow,
     handleValidateBulkImportRows: handleValidateBulkImportRows,
   });
 })();

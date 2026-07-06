@@ -1168,7 +1168,7 @@ async function runSubmissionAttempt(env, {
           }
 
           // Resolve email from mappings
-          const emailMapping = mappings.find(function(m) { return m.target_field === 'email'; });
+          const emailMapping = mappings.find(function(m) { return m.odoo_field === 'email'; });
           if (!emailMapping) throw createPermanentError('mailing_list stap heeft geen email-mapping.');
           const emailVal = (resolveMappingValue(emailMapping, normalizedForm, contextObject) || '').trim();
           if (!emailVal) {
@@ -1187,19 +1187,21 @@ async function runSubmissionAttempt(env, {
           // Resolve additional field values from mappings
           const mailingVals = {};
           for (const m of mappings) {
-            if (m.target_field === 'email') continue;
+            if (m.odoo_field === 'email') continue;
             const v = resolveMappingValue(m, normalizedForm, contextObject);
             if (v !== null && v !== undefined && v !== '') {
-              mailingVals[m.target_field] = v;
+              mailingVals[m.odoo_field] = v;
             }
           }
           mailingVals.email = emailVal;
 
           // Find or create mailing contact
-          const existing = await executeKw(env, 'mailing.contact', 'search_read',
-            [[['email', '=', emailVal]]],
-            { fields: ['id', 'name', 'list_ids'], limit: 1 }
-          );
+          const existing = await executeKw(env, {
+            model: 'mailing.contact',
+            method: 'search_read',
+            args: [[['email', '=', emailVal]]],
+            kwargs: { fields: ['id', 'name', 'list_ids'], limit: 1 },
+          });
 
           let contactId = null;
           let actionDone = 'skipped';
@@ -1210,11 +1212,11 @@ async function runSubmissionAttempt(env, {
             const updateVals = Object.assign({}, mailingVals);
             delete updateVals.email; // email is the identifier, don't re-write
             if (Object.keys(updateVals).length > 0) {
-              await executeKw(env, 'mailing.contact', 'write', [[contactId], updateVals], {});
+              await executeKw(env, { model: 'mailing.contact', method: 'write', args: [[contactId], updateVals] });
             }
           } else if (updateMode === 'upsert') {
             // Create new contact
-            contactId = await executeKw(env, 'mailing.contact', 'create', [mailingVals], {});
+            contactId = await executeKw(env, { model: 'mailing.contact', method: 'create', args: [mailingVals] });
             if (Array.isArray(contactId)) contactId = contactId[0];
           } else {
             // update_only + no existing contact → skip
@@ -1234,22 +1236,32 @@ async function runSubmissionAttempt(env, {
           if (action === 'add') {
             // Upsert subscriptions
             for (const lid of listIds) {
-              const subEx = await executeKw(env, 'mailing.contact.subscription', 'search',
-                [[['contact_id', '=', contactId], ['list_id', '=', lid]]], { limit: 1 });
+              const subEx = await executeKw(env, {
+                model: 'mailing.contact.subscription',
+                method: 'search',
+                args: [[['contact_id', '=', contactId], ['list_id', '=', lid]]],
+                kwargs: { limit: 1 },
+              });
               if (!subEx || subEx.length === 0) {
-                await executeKw(env, 'mailing.contact.subscription', 'create',
-                  [{ contact_id: contactId, list_id: lid, opt_out: false }], {});
+                await executeKw(env, {
+                  model: 'mailing.contact.subscription',
+                  method: 'create',
+                  args: [{ contact_id: contactId, list_id: lid, opt_out: false }],
+                });
               } else {
-                await executeKw(env, 'mailing.contact.subscription', 'write', [[subEx[0]], { opt_out: false }], {});
+                await executeKw(env, { model: 'mailing.contact.subscription', method: 'write', args: [[subEx[0]], { opt_out: false }] });
               }
             }
             actionDone = 'created_or_updated';
           } else {
             // remove → set opt_out or delete subscriptions
-            const subs = await executeKw(env, 'mailing.contact.subscription', 'search',
-              [[['contact_id', '=', contactId], ['list_id', 'in', listIds]]], {});
+            const subs = await executeKw(env, {
+              model: 'mailing.contact.subscription',
+              method: 'search',
+              args: [[['contact_id', '=', contactId], ['list_id', 'in', listIds]]],
+            });
             if (subs && subs.length > 0) {
-              await executeKw(env, 'mailing.contact.subscription', 'write', [subs, { opt_out: true }], {});
+              await executeKw(env, { model: 'mailing.contact.subscription', method: 'write', args: [subs, { opt_out: true }] });
             }
             actionDone = 'updated';
           }

@@ -395,6 +395,10 @@
         await window.FSV2.handleDeleteIntegration(btn.dataset.id, btn.dataset.name || 'Koppeling');
         return;
       }
+      if (action === 'fsv2-chart-metric') {
+        window.FSV2.updateCardChart(btn.dataset.id, btn.dataset.metric);
+        return;
+      }
       if (action === 'select-folder') {
         var sfId = btn.dataset.folderId;
         S.activeFolderId = sfId === '' ? null : sfId;

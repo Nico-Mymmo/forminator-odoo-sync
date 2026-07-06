@@ -83,6 +83,40 @@ export async function listIntegrations(env) {
     integrations.forEach((row) => {
       row.last_submission_at = lastSubmissionByInteg[row.id] || null;
     });
+
+    // Dagstatistieken laatste 30 dagen (voor het grafiekje op de koppelingskaart:
+    // totaal aantal inzendingen + errors per dag).
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: statSubs } = await supabase
+      .from(TABLES.submissions)
+      .select('integration_id, created_at, status')
+      .in('integration_id', ids)
+      .gte('created_at', since);
+    const ERROR_STATUSES = ['permanent_failed', 'retry_exhausted'];
+    const statsByInteg = {};
+    ensureArray(statSubs).forEach((s) => {
+      const day = String(s.created_at).slice(0, 10); // YYYY-MM-DD
+      if (!statsByInteg[s.integration_id]) statsByInteg[s.integration_id] = {};
+      if (!statsByInteg[s.integration_id][day]) statsByInteg[s.integration_id][day] = { total: 0, errors: 0 };
+      statsByInteg[s.integration_id][day].total += 1;
+      if (ERROR_STATUSES.includes(s.status)) statsByInteg[s.integration_id][day].errors += 1;
+    });
+    const dayKeys = [];
+    for (let i = 29; i >= 0; i--) {
+      dayKeys.push(new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+    }
+    integrations.forEach((row) => {
+      const byDay = statsByInteg[row.id] || {};
+      row.daily_stats = dayKeys.map((day) => ({
+        date: day,
+        total: (byDay[day] && byDay[day].total) || 0,
+        errors: (byDay[day] && byDay[day].errors) || 0,
+      }));
+      row.stats_30d = row.daily_stats.reduce(
+        (acc, d) => ({ total: acc.total + d.total, errors: acc.errors + d.errors }),
+        { total: 0, errors: 0 }
+      );
+    });
   }
 
   return integrations;
