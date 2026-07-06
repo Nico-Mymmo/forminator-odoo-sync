@@ -1,5 +1,37 @@
 # Projectregels — forminator-odoo-sync
 
+## Bestand-editing bij grote/gevoelige bestanden (VERPLICHTE procedure, geldt repo-breed)
+
+**Waarom dit hier staat:** in deze repo is herhaaldelijk bestandscorruptie opgetreden bij het bewerken van grotere bestanden (`database.js`, `worker-handler.js`, `forminator-sync-v2-core.js`, `-detail.js`, `-bootstrap.js`, `validation.js`, `.html`) — niet incidenteel, maar structureel, ongeacht welk bestand. Twee onafhankelijke faalmodi zijn vastgesteld:
+
+1. **De Edit-tool (search-replace) kapt soms de staart van een groot bestand af** buiten de bewerkte regio — zonder foutmelding ("successfully updated" terwijl het bestand kapot is). `node --check` vangt dit meestal wél (unexpected end of input), maar pas ná de schade.
+2. **Python text-mode I/O (`open(path, 'r')`) vertaalt regeleindes automatisch** (universal newlines). Als een bestand al een corrupte `\r\r\n`-sequentie bevat (dubbele CR), interpreteert Python dit als TWEE regeleindes i.p.v. één — dit verdubbelt sluipend alle lege regels door het hele bestand, met 100% geldige JS-syntax (dus `node --check` mist het volledig). Dit gebeurde o.a. met `forminator-sync-v2-core.js`, waarvan zelfs de laatste git-commit deze corrupte bytes al bevatte.
+
+**Procedure — verplicht voor élk bestand > 150 regels, in deze volgorde:**
+
+1. **Gebruik nooit de Edit-tool op bestanden > 150 regels.** Altijd een Python-script via bash, ook voor kleine wijzigingen.
+2. **Baseline vaststellen op byte-niveau, niet aannemen.** Lees zowel de working-tree-file als `git show HEAD:<pad>` in **binary mode** (`rb`) en controleer `data.count(b'\r')`. Hoort **0** te zijn (single-LF-conventie in deze repo). Is dat niet zo — in werkboom, in HEAD, of in beide — dan is dat bestand al besmet; los dat eerst op (stap 3) vóór je je eigenlijke wijziging doet. Vertrouw geen van beide bronnen blind; kies de bron met CR-count 0, of normaliseer eerst.
+3. **CR/CRLF normaliseren uitsluitend op ruwe bytes**, nooit via `open(path, 'r')`:
+   ```python
+   fixed = data.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+   ```
+   Verifieer erna: `fixed.count(b'\r') == 0` en dat het regelaantal (`fixed.count(b'\n')`) plausibel is t.o.v. het origineel (geen verdubbeling/halvering).
+4. **Alle file I/O met expliciete newline-controle, nooit impliciet:**
+   - Lezen: `open(path, 'rb').read().decode('utf-8')` — nooit `open(path, 'r')` zonder `newline=''`.
+   - Schrijven: `open(path, 'w', encoding='utf-8', newline='\n')` — forceer `\n` expliciet, gebruik nooit `newline=None`.
+5. **Wijziging als exacte, geverifieerde string-replace met asserts:**
+   - `assert content.count(old_block) == 1` vóór elke `.replace()`. Faalt de assert → STOP, het bestand is niet wat je denkt (mogelijk al corrupt, of onzichtbare tekens zoals em-dash/curly quotes wijken af) — geen aannames, eerst onderzoeken.
+   - Bouw `old_block` bij voorkeur uit tekst die je letterlijk uit het bestand hebt gelezen/gegrept, niet uit je geheugen overgetypt.
+6. **Verplichte verificatie na ELKE schrijfactie** (niet pas aan het eind van een reeks):
+   - `node --check <bestand>`
+   - `python3 -c "print(open(path,'rb').read().count(b'\r'))"` → moet 0 zijn
+   - `diff <(git show HEAD:<pad>) <pad>` — lees de VOLLEDIGE diff, bevestig dat elke regel herleidbaar is tot een bewuste wijziging. Onverwachte toevoegingen/verwijderingen = corruptie, nooit negeren.
+   - Regelaantal-sanity (`wc -l`) t.o.v. baseline.
+7. **Bij corruptie: herbouwen vanaf schone bron, nooit doorpatchen.** Nooit een kapot bestand "repareren" met een tweede patch bovenop de schade — dat stapelt fouten op. Terug naar de laatst geverifieerde schone bron (stap 2/3) en alle bedoelde wijzigingen in één keer opnieuw toepassen.
+8. **Eén script per bestand per bewerkronde.** Verzamel alle geplande wijzigingen voor hetzelfde bestand en voer ze in één Python-script uit — niet meerdere losse edits na elkaar zonder tussentijdse verificatie.
+
+---
+
 ## Odoo-aanpassingen — geen code, alles via Studio
 
 **Regel:** Alle Odoo-aanpassingen gebeuren via Odoo Studio of de Technische UI (automations, server actions, views). Geen Python-modules, geen custom XML buiten Studio, geen `mymmo_fixes`-aanpassingen. Als iets niet via Studio kan, gaat het naar Dynapps (externe partij, kost geld) — dit is een last resort. Stel altijd een Studio-first oplossing voor, ook als die een compromis is qua UX.
@@ -180,19 +212,33 @@ public/
   forminator-sync-v2.html           — hoofd-HTML, tabs-bordered layout
   forminator-sync-v2-core.js        — FSV2 globals, showAlert(), API helpers
   forminator-sync-v2-bootstrap.js   — event delegation (centrale click listener)
-  forminator-sync-v2-detail.js      — detail-view renderers (header + 3 tabs)
   forminator-sync-v2-mapping-table.js — MappingTable component (window.FSV2.MappingTable)
   forminator-sync-v2-settings.js    — instellingenpagina (modellen + koppelingen)
   forminator-sync-v2-html-utils.js  — buildHtmlFormSummary() (Odoo HTML-tabel)
   forminator-sync-v2-flow-builder.js — pipeline/stap builder
   forminator-sync-v2-wizard.js      — wizard flow
+
+  # Detail-view (voorheen één 5227-regel bestand — 2026-07 opgesplitst i.v.m.
+  # herhaalde bestandscorruptie bij bewerken; zie "Bestand-editing" bovenaan
+  # dit document). Elk bestand exporteert zijn functies via window.FSV2.*;
+  # cross-file calls gaan altijd via window.FSV2.naam(), nooit bare calls.
+  forminator-sync-v2-detail.js                    — shell: renderDetail() (hub), gedeelde helpers
+  forminator-sync-v2-detail-mapping-tab.js        — Koppeling-tab: renderDetailMappings() + stap-gedrag
+  forminator-sync-v2-detail-submissions-tab.js    — Indieningen-tab: renderDetailSubmissions() + replay/cleanup
+  forminator-sync-v2-detail-lifecycle.js          — openDetail() + toggle/run-test/add-target/delete-integration
+  forminator-sync-v2-detail-add-target-wizard.js  — "Stap toevoegen"-dialoog + HTML-summary modal
+  forminator-sync-v2-detail-form-fields-tab.js    — Formuliervelden-tab + veld-meta toggles
+  forminator-sync-v2-detail-bulk-import-export.js — Bulk-import/export composer
+  forminator-sync-v2-detail-chatter-composer.js   — Chatter-bericht stap-composer
+  forminator-sync-v2-detail-activity-composer.js  — Activiteit stap-composer
+  forminator-sync-v2-detail-mailing-list-composer.js — Mailinglijst stap-composer
 ```
+
+**Bij nieuwe functies in een detail-*-bestand die vanuit een ANDER detail-*-bestand aangeroepen moeten worden:** exporteer via `Object.assign(window.FSV2, { naam: naam })` onderaan het bestand (bestaand patroon volgen) en roep aan als `window.FSV2.naam(...)` — nooit een bare call, want elk bestand is zijn eigen IIFE.
 
 ### Bekende valkuilen bij bewerken
 
-- **Edit tool + grote bestanden**: de Edit tool injecteert null bytes bij bestanden boven ~200 regels. Gebruik altijd Python: `open(path,'rb').read().replace(b'\x00',b'').decode('utf-8')`.
-- **CRLF-bestanden**: Python `.find()` en `.replace()` falen als de zoekstring LF heeft maar het bestand CRLF. Gebruik byte-offsets of verifieer encodering eerst.
-- **Syntaxcheck na elke edit**: `node --check public/forminator-sync-v2-*.js`
+- **Grote bestanden (o.a. alle `forminator-sync-v2-*.js`)**: volg de verplichte procedure bovenaan dit document ("Bestand-editing bij grote/gevoelige bestanden") — niet de Edit-tool gebruiken, altijd Python met byte-level newline-controle en verificatie na elke schrijfactie.
 - **`bg-base-50` bestaat niet** in DaisyUI 4 — gebruik `bg-base-200/20`.
 - **Tab-switching**: tabs gebruiken `data-detail-tab` + JS (geen radio inputs). Panelen: `detailTabFields`, `detailTabMapping`, `detailTabHistory`.
 
