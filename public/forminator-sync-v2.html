@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Forminator Sync</title>
+  <title>Koppelingen</title>
 
   <!-- Early theme init -->
   <script>
@@ -84,9 +84,8 @@
       <div class="flex items-center justify-between mb-8">
         <div>
           <div class="flex items-center gap-2 mb-1">
-            <h1 class="text-3xl font-bold">Forminator Sync</h1>
-            <span class="badge badge-primary badge-sm font-mono">v2</span>
-          </div>
+            <h1 class="text-3xl font-bold">Koppelingen</h1>
+                      </div>
           <p class="text-base-content/55 text-sm">WordPress formulieren &rarr; Odoo &mdash; automatisch gesynchroniseerd</p>
         </div>
         <div class="flex items-center gap-2">
@@ -125,7 +124,7 @@
           <!-- New integration CTA (visible on list view only) -->
           <button id="btnNewIntegration" class="btn btn-sm btn-primary" data-action="goto-wizard" type="button">
             <i data-lucide="plus" class="w-4 h-4"></i>
-            <span class="hidden sm:inline">Nieuwe integratie</span>
+            <span class="hidden sm:inline">Nieuwe koppeling</span>
             <span class="sm:hidden">Nieuw</span>
           </button>
         </div>
@@ -137,31 +136,53 @@
       <!-- VIEW: LIST                                                       -->
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <div id="view-list">
+        <div class="flex flex-col lg:flex-row gap-6 items-start">
 
-        <!-- Loading spinner -->
-        <div id="listLoading" class="flex justify-center items-center py-20">
-          <span class="loading loading-spinner loading-lg"></span>
-          <span class="ml-4 text-lg text-base-content/60">Laden...</span>
-        </div>
-
-        <!-- Empty state -->
-        <div id="listEmpty" class="card bg-base-100 shadow-xl" style="display:none;">
-          <div class="card-body items-center text-center py-16">
-            <div class="w-16 h-16 rounded-full bg-base-200 flex items-center justify-center mb-4">
-              <i data-lucide="link-2" class="w-8 h-8 text-base-content/30"></i>
+          <!-- ── Folder sidebar ─────────────────────────────────── -->
+          <aside class="w-full lg:w-60 shrink-0">
+            <div class="flex items-center justify-between mb-2 px-1">
+              <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">Mappen</p>
+              <button class="btn btn-ghost btn-xs" data-action="add-folder" data-parent-id="" title="Nieuwe map">
+                <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
+              </button>
             </div>
-            <h2 class="card-title text-2xl mb-2">Nog geen integraties</h2>
-            <p class="text-base-content/60 mb-6">Maak je eerste koppeling aan in drie stappen.</p>
-            <button class="btn btn-primary" data-action="goto-wizard" type="button">
-              <i data-lucide="plus" class="w-4 h-4"></i>
-              Nieuwe integratie
-            </button>
+            <!-- Populated by renderFolderSidebar() -->
+            <div id="folderTree" class="space-y-0.5 text-sm"></div>
+          </aside>
+
+          <!-- ── Main column ───────────────────────────────────── -->
+          <div class="flex-1 min-w-0 w-full">
+
+            <!-- Filter/sort toolbar — populated by renderListToolbar() -->
+            <div id="listToolbar" class="flex flex-wrap items-center gap-2 mb-4"></div>
+
+            <!-- Loading spinner -->
+            <div id="listLoading" class="flex justify-center items-center py-20">
+              <span class="loading loading-spinner loading-lg"></span>
+              <span class="ml-4 text-lg text-base-content/60">Laden...</span>
+            </div>
+
+            <!-- Empty state -->
+            <div id="listEmpty" class="card bg-base-100 shadow-xl" style="display:none;">
+              <div class="card-body items-center text-center py-16">
+                <div class="w-16 h-16 rounded-full bg-base-200 flex items-center justify-center mb-4">
+                  <i data-lucide="link-2" class="w-8 h-8 text-base-content/30"></i>
+                </div>
+                <h2 class="card-title text-2xl mb-2" id="listEmptyTitle">Nog geen koppelingen</h2>
+                <p class="text-base-content/60 mb-6" id="listEmptyText">Maak je eerste koppeling aan in drie stappen.</p>
+                <button class="btn btn-primary" data-action="goto-wizard" type="button">
+                  <i data-lucide="plus" class="w-4 h-4"></i>
+                  Nieuwe koppeling
+                </button>
+              </div>
+            </div>
+
+            <!-- Integration cards grid -->
+            <div id="listCards" class="grid grid-cols-1 md:grid-cols-2 gap-4" style="display:none;"></div>
+
           </div>
+
         </div>
-
-        <!-- Integration cards grid -->
-        <div id="listCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" style="display:none;"></div>
-
       </div><!-- /view-list -->
 
 
@@ -256,7 +277,7 @@
         </button>
 
         <div class="mb-6">
-          <h2 class="text-3xl font-bold mb-1">Nieuwe integratie</h2>
+          <h2 class="text-3xl font-bold mb-1">Nieuwe koppeling</h2>
           <p class="text-base-content/60">Koppel een formulier aan Odoo in drie stappen</p>
         </div>
 
@@ -292,14 +313,14 @@
 
           <div class="mb-6">
             <h3 class="text-lg font-semibold mb-1">Naam &amp; afronden</h3>
-            <p class="text-sm text-base-content/60">Geef de integratie een herkenbare naam. De Odoo-koppeling stel je daarna in via de integratiedetails.</p>
+            <p class="text-sm text-base-content/60">Geef de koppeling een herkenbare naam. De Odoo-koppeling stel je daarna in via de koppelingsdetails.</p>
           </div>
 
           <!-- Integration name -->
           <div class="card bg-base-100 shadow mb-6">
             <div class="card-body p-5">
               <div class="form-control">
-                <label class="label" for="wizardName"><span class="label-text font-semibold">Naam van deze integratie</span></label>
+                <label class="label" for="wizardName"><span class="label-text font-semibold">Naam van deze koppeling</span></label>
                 <input
                   id="wizardName"
                   type="text"
@@ -319,7 +340,7 @@
             type="button"
           >
             <i data-lucide="check" class="w-4 h-4"></i>
-            Integratie aanmaken
+            Koppeling aanmaken
           </button>
         </div>
 
@@ -328,7 +349,7 @@
           <div class="divider mb-6"></div>
           <div class="mb-6 text-center">
             <div class="text-4xl mb-3">⚡</div>
-            <h3 class="text-lg font-semibold mb-1">Integratie aangemaakt!</h3>
+            <h3 class="text-lg font-semibold mb-1">Koppeling aangemaakt!</h3>
             <p class="text-sm text-base-content/60">Gebruik deze webhook URL in Zapier of een ander systeem.</p>
           </div>
           <div class="card bg-base-100 shadow mb-6">
@@ -349,7 +370,7 @@
           </div>
           <button type="button" class="btn btn-primary w-full gap-2" data-action="wizard-skip-chatter">
             <i data-lucide="check" class="w-5 h-5"></i>
-            Naar integratiedetails
+            Naar koppelingsdetails
           </button>
         </div>
 

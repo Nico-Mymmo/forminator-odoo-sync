@@ -376,7 +376,7 @@
         return;
       }
       if (action === 'goto-list') {
-        await window.FSV2.loadIntegrations();
+        await Promise.all([window.FSV2.loadIntegrations(), window.FSV2.loadFolders(), window.FSV2.loadTags()]);
         window.FSV2.showView('list');
         window.FSV2.renderList();
         return;
@@ -392,7 +392,100 @@
         return;
       }
       if (action === 'delete-integration') {
-        await window.FSV2.handleDeleteIntegration(btn.dataset.id, btn.dataset.name || 'Integratie');
+        await window.FSV2.handleDeleteIntegration(btn.dataset.id, btn.dataset.name || 'Koppeling');
+        return;
+      }
+      if (action === 'select-folder') {
+        var sfId = btn.dataset.folderId;
+        S.activeFolderId = sfId === '' ? null : sfId;
+        window.FSV2.renderList();
+        return;
+      }
+      if (action === 'toggle-folder-expand') {
+        var tfeId = btn.dataset.folderId;
+        S.expandedFolders[tfeId] = !S.expandedFolders[tfeId];
+        window.FSV2.renderFolderSidebar();
+        return;
+      }
+      if (action === 'add-folder') {
+        var nfParentId = btn.dataset.parentId || null;
+        var nfName = window.prompt('Naam van de nieuwe map:');
+        if (!nfName || !nfName.trim()) return;
+        try {
+          await window.FSV2.api('/folders', { method: 'POST', body: JSON.stringify({ name: nfName.trim(), parent_id: nfParentId }) });
+          await window.FSV2.loadFolders();
+          if (nfParentId) S.expandedFolders[nfParentId] = true;
+          window.FSV2.renderFolderSidebar();
+          window.FSV2.showAlert('Map aangemaakt.', 'success');
+        } catch (err) {
+          window.FSV2.showAlert(err.message, 'error');
+        }
+        return;
+      }
+      if (action === 'rename-folder') {
+        var rfId = btn.dataset.folderId;
+        var rfName = window.prompt('Nieuwe naam voor deze map:', btn.dataset.folderName || '');
+        if (!rfName || !rfName.trim()) return;
+        try {
+          await window.FSV2.api('/folders/' + rfId, { method: 'PUT', body: JSON.stringify({ name: rfName.trim() }) });
+          await window.FSV2.loadFolders();
+          window.FSV2.renderFolderSidebar();
+          window.FSV2.showAlert('Map hernoemd.', 'success');
+        } catch (err) {
+          window.FSV2.showAlert(err.message, 'error');
+        }
+        return;
+      }
+      if (action === 'delete-folder') {
+        var dfId = btn.dataset.folderId;
+        var dfName = btn.dataset.folderName || 'deze map';
+        if (!confirm('Map "' + dfName + '" verwijderen?\n\nSubmappen worden ook verwijderd. Koppelingen zelf blijven bestaan, maar verliezen hun map.')) return;
+        try {
+          await window.FSV2.api('/folders/' + dfId, { method: 'DELETE' });
+          if (S.activeFolderId === dfId) S.activeFolderId = null;
+          await Promise.all([window.FSV2.loadFolders(), window.FSV2.loadIntegrations()]);
+          window.FSV2.renderList();
+          window.FSV2.showAlert('Map verwijderd.', 'success');
+        } catch (err) {
+          window.FSV2.showAlert(err.message, 'error');
+        }
+        return;
+      }
+      if (action === 'move-to-folder') {
+        var mtfId = btn.dataset.id;
+        var mtfFolderId = btn.dataset.folderId || null;
+        await window.FSV2.moveIntegrationToFolder(mtfId, mtfFolderId);
+        return;
+      }
+      if (action === 'add-existing-tag') {
+        var aetId = btn.dataset.id;
+        var aetName = btn.dataset.tagName;
+        try {
+          await window.FSV2.api('/integrations/' + aetId + '/tags', { method: 'POST', body: JSON.stringify({ name: aetName }) });
+          await Promise.all([window.FSV2.loadIntegrations(), window.FSV2.loadTags()]);
+          window.FSV2.renderList();
+        } catch (err) {
+          window.FSV2.showAlert(err.message, 'error');
+        }
+        return;
+      }
+      if (action === 'remove-tag') {
+        var rtId = btn.dataset.id;
+        var rtTagId = btn.dataset.tagId;
+        try {
+          await window.FSV2.api('/integrations/' + rtId + '/tags/' + rtTagId, { method: 'DELETE' });
+          await window.FSV2.loadIntegrations();
+          window.FSV2.renderList();
+        } catch (err) {
+          window.FSV2.showAlert(err.message, 'error');
+        }
+        return;
+      }
+      if (action === 'clear-filters') {
+        S.filters.search = '';
+        S.filters.status = 'all';
+        S.filters.tagIds = [];
+        window.FSV2.renderList();
         return;
       }
       if (action === 'wizard-select-site') {
@@ -1145,6 +1238,33 @@
         if (tid && mode && window.FSV2.handleActivityUserMode) window.FSV2.handleActivityUserMode(tid, mode);
         return;
       }
+      if (action === 'ml-action-toggle') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        var val = btn.dataset.val;
+        var hiddenInput = document.getElementById('mlAction-' + tid);
+        if (hiddenInput) hiddenInput.value = val;
+        var mc = document.getElementById('det-mc-' + tid);
+        if (mc) mc.querySelectorAll('[data-action="ml-action-toggle"]').forEach(function (b) {
+          b.classList.toggle('btn-primary', b.dataset.val === val);
+        });
+        return;
+      }
+      if (action === 'ml-mode-toggle') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        var val = btn.dataset.val;
+        var hiddenInput = document.getElementById('mlMode-' + tid);
+        if (hiddenInput) hiddenInput.value = val;
+        var mc = document.getElementById('det-mc-' + tid);
+        if (mc) mc.querySelectorAll('[data-action="ml-mode-toggle"]').forEach(function (b) {
+          b.classList.toggle('btn-primary', b.dataset.val === val);
+        });
+        return;
+      }
+      if (action === 'save-mailing-list-composer') {
+        var tid = btn.dataset.targetId || btn.dataset.targetid;
+        if (tid && window.FSV2.handleSaveMailingListComposer) await window.FSV2.handleSaveMailingListComposer(tid);
+        return;
+      }
       if (action === 'refresh-form-fields') {
         if (window.FSV2.handleRefreshFormFields) await window.FSV2.handleRefreshFormFields();
         return;
@@ -1502,6 +1622,19 @@
   // ── Close field picker on scroll ───────────────────────────────────────────
   document.addEventListener('keydown', function (event) {
     if (event.key !== 'Enter' && event.key !== 'Escape') return;
+
+    if (event.target && event.target.dataset && event.target.dataset.action === 'new-tag-input') {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      var ntiId = event.target.dataset.id;
+      var ntiName = event.target.value.trim();
+      if (!ntiId || !ntiName) return;
+      window.FSV2.api('/integrations/' + ntiId + '/tags', { method: 'POST', body: JSON.stringify({ name: ntiName }) })
+        .then(function () { return Promise.all([window.FSV2.loadIntegrations(), window.FSV2.loadTags()]); })
+        .then(function () { window.FSV2.renderList(); })
+        .catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+      return;
+    }
     var inp = event.target;
     if (!inp || inp.tagName !== 'INPUT') return;
     var fid = inp.id && inp.id.startsWith('alias-inline-') ? inp.id.slice('alias-inline-'.length) : null;
@@ -1525,6 +1658,13 @@
   // ── Filter field picker list on search input ───────────────────────────────
   document.addEventListener('input', function (event) {
     var el = event.target;
+
+    // Zoekveld overzicht koppelingen — enkel de kaarten herrenderen (behoudt focus)
+    if (el && el.id === 'listSearchInput') {
+      S.filters.search = el.value;
+      window.FSV2.renderListCards();
+      return;
+    }
 
     // Default field label edit (renderDefaults editor in core.js)
     if (el && el.dataset && el.dataset.action === 'edit-default-field-label') {
@@ -1567,6 +1707,26 @@
   // tonen we automatisch de waarde-mapping sectie als het een selection- of many2one-veld is.
   document.addEventListener('change', function (event) {
     var inp = event.target;
+
+    // Overzicht koppelingen — status/sorteer-filters + tag-filter
+    if (inp && inp.id === 'listStatusFilter') {
+      S.filters.status = inp.value;
+      window.FSV2.renderList();
+      return;
+    }
+    if (inp && inp.id === 'listSortSelect') {
+      S.filters.sort = inp.value;
+      window.FSV2.renderList();
+      return;
+    }
+    if (inp && inp.dataset && inp.dataset.action === 'toggle-tag-filter') {
+      var ttfTagId = inp.dataset.tagId;
+      var ttfIdx = S.filters.tagIds.indexOf(ttfTagId);
+      if (inp.checked && ttfIdx === -1) S.filters.tagIds.push(ttfTagId);
+      if (!inp.checked && ttfIdx !== -1) S.filters.tagIds.splice(ttfIdx, 1);
+      window.FSV2.renderList();
+      return;
+    }
     // ── set-step-identifier dropdown ──────────────────────────────────────
     if (inp && inp.tagName === 'SELECT' && inp.dataset.action === 'set-step-identifier') {
       var ssiTargetId = inp.dataset.targetId || '';
@@ -1733,6 +1893,8 @@
         window.FSV2.loadIntegrations(),
         window.FSV2.loadModelLinks(),
         window.FSV2.loadOdooModels(),
+        window.FSV2.loadFolders(),
+        window.FSV2.loadTags(),
       ]);
       window.FSV2.showView('list');
       window.FSV2.renderList();

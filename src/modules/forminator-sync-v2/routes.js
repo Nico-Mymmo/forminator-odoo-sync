@@ -48,6 +48,15 @@ import {
   upsertFieldTransform,
   deleteFieldTransform,
   getIntegrationWarnings,
+  listFolders,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  setIntegrationFolder,
+  listTags,
+  getOrCreateTag,
+  attachTagToIntegration,
+  detachTagFromIntegration,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -751,6 +760,89 @@ export const routes = {
   'DELETE /api/integrations/:id': async (context) => {
     try {
       const result = await deleteIntegrationRecord(context.env, context.params?.id);
+      return jsonResponse({ success: true, data: result });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/folders': async (context) => {
+    try {
+      const rows = await listFolders(context.env);
+      return jsonResponse({ success: true, data: rows });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/folders': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      if (!payload.name || !String(payload.name).trim()) {
+        return jsonResponse({ success: false, error: 'Naam is verplicht' }, 400);
+      }
+      const created = await createFolder(context.env, payload);
+      return jsonResponse({ success: true, data: created }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'PUT /api/folders/:id': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const updated = await updateFolder(context.env, context.params?.id, payload);
+      return jsonResponse({ success: true, data: updated });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/folders/:id': async (context) => {
+    try {
+      const result = await deleteFolder(context.env, context.params?.id);
+      return jsonResponse({ success: true, data: result });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'PUT /api/integrations/:id/folder': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const updated = await setIntegrationFolder(context.env, context.params?.id, payload.folder_id || null);
+      return jsonResponse({ success: true, data: updated });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/tags': async (context) => {
+    try {
+      const rows = await listTags(context.env);
+      return jsonResponse({ success: true, data: rows });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/integrations/:id/tags': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const name = String(payload.name || '').trim();
+      if (!name) return jsonResponse({ success: false, error: 'Tagnaam is verplicht' }, 400);
+
+      const tag = await getOrCreateTag(context.env, name, payload.color);
+      await attachTagToIntegration(context.env, context.params?.id, tag.id);
+      return jsonResponse({ success: true, data: tag }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/integrations/:id/tags/:tagId': async (context) => {
+    try {
+      const result = await detachTagFromIntegration(context.env, context.params?.id, context.params?.tagId);
       return jsonResponse({ success: true, data: result });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
@@ -1472,6 +1564,18 @@ export const routes = {
     try {
       const users = await fetchFsv2OdooUsers(context.env);
       return jsonResponse({ success: true, data: users });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, 500);
+    }
+  },
+
+  'GET /api/mailing-lists': async (context) => {
+    try {
+      const lists = await executeKw(context.env, 'mailing.list', 'search_read',
+        [[['active', '=', true]]],
+        { fields: ['id', 'name', 'contact_count'], order: 'name asc', limit: 200 }
+      );
+      return jsonResponse({ success: true, data: lists });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, 500);
     }

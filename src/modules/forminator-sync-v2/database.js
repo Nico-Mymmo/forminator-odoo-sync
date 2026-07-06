@@ -11,6 +11,9 @@ const TABLES = {
   odooModels:      'fs_v2_odoo_models',
   modelLinks:      'fs_v2_model_links',
   fieldTransforms: 'fs_v2_field_transforms',
+  folders:         'fs_v2_folders',
+  tags:            'fs_v2_tags',
+  integrationTags: 'fs_v2_integration_tags',
 };
 
 function getSupabase(env) {
@@ -50,6 +53,35 @@ export async function listIntegrations(env) {
       row.targets = (byInteg[row.id] || []).sort(
         (a, b) => (a.execution_order ?? a.order_index ?? 0) - (b.execution_order ?? b.order_index ?? 0)
       );
+    });
+
+    // Tags per integratie (voor filtering/weergave in het overzicht)
+    const { data: tagLinks } = await supabase
+      .from(TABLES.integrationTags)
+      .select('integration_id, tag:fs_v2_tags(id, name, color)')
+      .in('integration_id', ids);
+    const tagsByInteg = {};
+    ensureArray(tagLinks).forEach((row) => {
+      if (!row.tag) return;
+      if (!tagsByInteg[row.integration_id]) tagsByInteg[row.integration_id] = [];
+      tagsByInteg[row.integration_id].push(row.tag);
+    });
+    integrations.forEach((row) => {
+      row.tags = tagsByInteg[row.id] || [];
+    });
+
+    // Laatste indiening per integratie (t.b.v. sorteren op "laatst gebruikt")
+    const { data: recentSubmissions } = await supabase
+      .from(TABLES.submissions)
+      .select('integration_id, created_at')
+      .in('integration_id', ids)
+      .order('created_at', { ascending: false });
+    const lastSubmissionByInteg = {};
+    ensureArray(recentSubmissions).forEach((s) => {
+      if (!lastSubmissionByInteg[s.integration_id]) lastSubmissionByInteg[s.integration_id] = s.created_at;
+    });
+    integrations.forEach((row) => {
+      row.last_submission_at = lastSubmissionByInteg[row.id] || null;
     });
   }
 
@@ -1028,4 +1060,157 @@ export async function getIntegrationWarnings(env) {
     });
   }
   return warnings;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// MAPPEN  (fs_v2_folders) — geneste boomstructuur voor categorisering
+// ──────────────────────────────────────────────────────────────────────────
+export async function listFolders(env) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.folders)
+    .select('id, name, parent_id, order_index, created_at, updated_at')
+    .order('order_index', { ascending: true });
+
+  if (error) throw new Error(`Failed to list folders: ${error.message}`);
+  return ensureArray(data);
+}
+
+export async function createFolder(env, { name, parent_id }) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.folders)
+    .insert({
+      name: String(name || '').trim(),
+      parent_id: parent_id || null,
+    })
+    .select('id, name, parent_id, order_index, created_at, updated_at')
+    .single();
+
+  if (error) throw new Error(`Failed to create folder: ${error.message}`);
+  return data;
+}
+
+export async function updateFolder(env, folderId, updates) {
+  const supabase = getSupabase(env);
+  const payload = { updated_at: new Date().toISOString() };
+  if (updates.name !== undefined) payload.name = String(updates.name).trim();
+  if (updates.parent_id !== undefined) payload.parent_id = updates.parent_id || null;
+  if (updates.order_index !== undefined) payload.order_index = updates.order_index;
+
+  const { data, error } = await supabase
+    .from(TABLES.folders)
+    .update(payload)
+    .eq('id', folderId)
+    .select('id, name, parent_id, order_index, created_at, updated_at')
+    .single();
+
+  if (error) throw new Error(`Failed to update folder: ${error.message}`);
+  return data;
+}
+
+export async function deleteFolder(env, folderId) {
+  const supabase = getSupabase(env);
+  // Submappen worden cascade verwijderd (FK ON DELETE CASCADE); koppelingen
+  // in deze map(pen) verliezen enkel hun folder_id (FK ON DELETE SET NULL).
+  const { error } = await supabase
+    .from(TABLES.folders)
+    .delete()
+    .eq('id', folderId);
+
+  if (error) throw new Error(`Failed to delete folder: ${error.message}`);
+  return { deleted: true };
+}
+
+export async function setIntegrationFolder(env, integrationId, folderId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.integrations)
+    .update({ folder_id: folderId || null, updated_at: new Date().toISOString() })
+    .eq('id', integrationId)
+    .select('id, folder_id')
+    .single();
+
+  if (error) throw new Error(`Failed to move integration: ${error.message}`);
+  return data;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// TAGS  (fs_v2_tags + fs_v2_integration_tags) — herbruikbare, vrij te maken tags
+// ──────────────────────────────────────────────────────────────────────────
+export async function listTags(env) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.tags)
+    .select('id, name, color, created_at')
+    .order('name', { ascending: true });
+
+  if (error) throw new Error(`Failed to list tags: ${error.message}`);
+  return ensureArray(data);
+}
+
+// Haalt een bestaande tag op (case-insensitief) of maakt hem aan — zo blijven
+// vrij getypte tags herbruikbaar in plaats van duplicaten op te leveren.
+export async function getOrCreateTag(env, name, color) {
+  const supabase = getSupabase(env);
+  const trimmed = String(name || '').trim();
+  if (!trimmed) throw new Error('Tagnaam mag niet leeg zijn');
+
+  const { data: existing, error: findErr } = await supabase
+    .from(TABLES.tags)
+    .select('id, name, color, created_at')
+    .ilike('name', trimmed)
+    .maybeSingle();
+  if (findErr) throw new Error(`Failed to look up tag: ${findErr.message}`);
+  if (existing) return existing;
+
+  const { data: created, error: createErr } = await supabase
+    .from(TABLES.tags)
+    .insert({ name: trimmed, color: color || null })
+    .select('id, name, color, created_at')
+    .single();
+  // Race condition: iemand anders maakte de tag ondertussen ook aan.
+  if (createErr) {
+    const { data: retry, error: retryErr } = await supabase
+      .from(TABLES.tags)
+      .select('id, name, color, created_at')
+      .ilike('name', trimmed)
+      .maybeSingle();
+    if (retry) return retry;
+    throw new Error(`Failed to create tag: ${createErr.message || retryErr?.message}`);
+  }
+  return created;
+}
+
+export async function attachTagToIntegration(env, integrationId, tagId) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.integrationTags)
+    .upsert({ integration_id: integrationId, tag_id: tagId }, { onConflict: 'integration_id,tag_id' });
+
+  if (error) throw new Error(`Failed to attach tag: ${error.message}`);
+  return { attached: true };
+}
+
+export async function detachTagFromIntegration(env, integrationId, tagId) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.integrationTags)
+    .delete()
+    .eq('integration_id', integrationId)
+    .eq('tag_id', tagId);
+
+  if (error) throw new Error(`Failed to detach tag: ${error.message}`);
+  return { detached: true };
+}
+
+export async function listTagsForIntegration(env, integrationId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.integrationTags)
+    .select('tag:fs_v2_tags(id, name, color)')
+    .eq('integration_id', integrationId);
+
+  if (error) throw new Error(`Failed to list integration tags: ${error.message}`);
+  return ensureArray(data).map((row) => row.tag).filter(Boolean);
 }

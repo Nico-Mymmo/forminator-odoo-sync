@@ -22,6 +22,7 @@ import {
 } from './idempotency.js';
 import { classifyFailureType, computeNextRetryAt, getMaxAttemptsTotal } from './retry.js';
 import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage, createActivity, readRecordField } from './odoo-client.js';
+import { executeKw } from '../../lib/odoo.js';
 import { buildHtmlFormSummary } from './html-utils.js';
 
 function createPermanentError(message) {
@@ -1134,6 +1135,154 @@ async function runSubmissionAttempt(env, {
                 skipped_reason: 'pipeline_abort',
                 odoo_record_id: null,
                 error_detail: 'Pipeline aborted by chatter step ' + executionOrder + ': ' + chatterError.message,
+                processed_at: new Date().toISOString()
+              };
+              await createSubmissionTargetResult(env, abortResult);
+              targetResults.push(abortResult);
+            }
+            break;
+          }
+        }
+        continue;
+      }
+
+      // ── mailing_list: add/remove contact from mailing list ────────────────
+      if (opType === 'mailing_list') {
+        try {
+          const rawCfg = (target.chatter_template || '').trim();
+          const MAILING_PREFIX = '__MAILING__:';
+          if (!rawCfg.startsWith(MAILING_PREFIX)) {
+            throw createPermanentError('mailing_list stap heeft geen geldige configuratie (__MAILING__: prefix ontbreekt).');
+          }
+          let mailingCfg;
+          try { mailingCfg = JSON.parse(rawCfg.slice(MAILING_PREFIX.length)); } catch (_e) {
+            throw createPermanentError('mailing_list configuratie is geen geldige JSON.');
+          }
+
+          const listIds    = Array.isArray(mailingCfg.list_ids) ? mailingCfg.list_ids : [];
+          const action     = mailingCfg.action || 'add'; // 'add' | 'remove'
+          const updateMode = mailingCfg.update_mode || 'upsert'; // 'upsert' | 'update_only'
+
+          if (!listIds.length) {
+            throw createPermanentError('mailing_list stap heeft geen mailinglijsten geselecteerd.');
+          }
+
+          // Resolve email from mappings
+          const emailMapping = mappings.find(function(m) { return m.target_field === 'email'; });
+          if (!emailMapping) throw createPermanentError('mailing_list stap heeft geen email-mapping.');
+          const emailVal = (resolveMappingValue(emailMapping, normalizedForm, contextObject) || '').trim();
+          if (!emailVal) {
+            const skipResult = {
+              submission_id: submission.id, target_id: target.id,
+              execution_order: executionOrder, action_result: 'skipped',
+              skipped_reason: 'condition_not_met', odoo_record_id: null,
+              error_detail: 'Email leeg — stap overgeslagen.', processed_at: new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, skipResult);
+            targetResults.push(skipResult);
+            registerTargetOutput(contextObject, target, { action: 'skipped', recordId: null });
+            continue;
+          }
+
+          // Resolve additional field values from mappings
+          const mailingVals = {};
+          for (const m of mappings) {
+            if (m.target_field === 'email') continue;
+            const v = resolveMappingValue(m, normalizedForm, contextObject);
+            if (v !== null && v !== undefined && v !== '') {
+              mailingVals[m.target_field] = v;
+            }
+          }
+          mailingVals.email = emailVal;
+
+          // Find or create mailing contact
+          const existing = await executeKw(env, 'mailing.contact', 'search_read',
+            [[['email', '=', emailVal]]],
+            { fields: ['id', 'name', 'list_ids'], limit: 1 }
+          );
+
+          let contactId = null;
+          let actionDone = 'skipped';
+
+          if (existing && existing.length > 0) {
+            contactId = existing[0].id;
+            // Update contact fields
+            const updateVals = Object.assign({}, mailingVals);
+            delete updateVals.email; // email is the identifier, don't re-write
+            if (Object.keys(updateVals).length > 0) {
+              await executeKw(env, 'mailing.contact', 'write', [[contactId], updateVals], {});
+            }
+          } else if (updateMode === 'upsert') {
+            // Create new contact
+            contactId = await executeKw(env, 'mailing.contact', 'create', [mailingVals], {});
+            if (Array.isArray(contactId)) contactId = contactId[0];
+          } else {
+            // update_only + no existing contact → skip
+            const skipResult = {
+              submission_id: submission.id, target_id: target.id,
+              execution_order: executionOrder, action_result: 'skipped',
+              skipped_reason: 'condition_not_met', odoo_record_id: null,
+              error_detail: 'Mailingcontact niet gevonden (enkel bijwerken-modus).', processed_at: new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, skipResult);
+            targetResults.push(skipResult);
+            registerTargetOutput(contextObject, target, { action: 'skipped', recordId: null });
+            continue;
+          }
+
+          // Add/remove from lists via mailing.contact.subscription
+          if (action === 'add') {
+            // Upsert subscriptions
+            for (const lid of listIds) {
+              const subEx = await executeKw(env, 'mailing.contact.subscription', 'search',
+                [[['contact_id', '=', contactId], ['list_id', '=', lid]]], { limit: 1 });
+              if (!subEx || subEx.length === 0) {
+                await executeKw(env, 'mailing.contact.subscription', 'create',
+                  [{ contact_id: contactId, list_id: lid, opt_out: false }], {});
+              } else {
+                await executeKw(env, 'mailing.contact.subscription', 'write', [[subEx[0]], { opt_out: false }], {});
+              }
+            }
+            actionDone = 'created_or_updated';
+          } else {
+            // remove → set opt_out or delete subscriptions
+            const subs = await executeKw(env, 'mailing.contact.subscription', 'search',
+              [[['contact_id', '=', contactId], ['list_id', 'in', listIds]]], {});
+            if (subs && subs.length > 0) {
+              await executeKw(env, 'mailing.contact.subscription', 'write', [subs, { opt_out: true }], {});
+            }
+            actionDone = 'updated';
+          }
+
+          const targetResult = {
+            submission_id: submission.id, target_id: target.id,
+            execution_order: executionOrder, action_result: actionDone,
+            skipped_reason: null, odoo_record_id: contactId,
+            error_detail: null, processed_at: new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          registerTargetOutput(contextObject, target, { action: actionDone, recordId: contactId });
+          console.log(attemptTag, 'mailing_list done | contact_id:', contactId, '| action:', action);
+        } catch (mailError) {
+          const targetResult = {
+            submission_id: submission.id, target_id: target.id,
+            execution_order: executionOrder, action_result: 'failed',
+            skipped_reason: null, odoo_record_id: null,
+            error_detail: mailError.message, processed_at: new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          console.log(attemptTag, 'mailing_list failed:', mailError.message);
+          if (errStrategy === 'stop_on_error') {
+            for (let j = i + 1; j < sortedTargets.length; j++) {
+              const abortTarget = sortedTargets[j];
+              const abortOrder  = abortTarget.execution_order ?? abortTarget.order_index ?? j;
+              const abortResult = {
+                submission_id: submission.id, target_id: abortTarget.id,
+                execution_order: abortOrder, action_result: 'skipped',
+                skipped_reason: 'pipeline_abort', odoo_record_id: null,
+                error_detail: 'Pipeline aborted by mailing_list step ' + executionOrder + ': ' + mailError.message,
                 processed_at: new Date().toISOString()
               };
               await createSubmissionTargetResult(env, abortResult);

@@ -42,6 +42,18 @@
     odooModelsCache: [],      // [{name, label, icon, default_fields, identifier_type, update_policy, resolver_type}]
     editingModelIdx: null,    // index of model row currently being edited (or null)
     editingLinkIdx:  null,    // index of link row currently being edited (or null)
+
+    // ── Mappen & tags (categorisering/filtering van koppelingen) ──────────
+    folders: [],               // flat list: [{id, name, parent_id, order_index}]
+    tags: [],                  // [{id, name, color}]
+    activeFolderId: null,      // null = "Alle koppelingen"; '__none__' = "Geen map"; anders folder-id
+    expandedFolders: {},       // folderId -> true (uitgeklapt in de boom)
+    filters: {
+      search: '',
+      status: 'all',           // all | active | inactive
+      tagIds: [],               // OR-filter op tag-id's
+      sort: 'created_desc',    // created_desc | created_asc | name_asc | updated_desc | last_used_desc
+    },
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -276,6 +288,24 @@
     }
   }
 
+  async function loadFolders() {
+    try {
+      var body = await api('/folders');
+      S.folders = Array.isArray(body.data) ? body.data : [];
+    } catch (_) {
+      S.folders = [];
+    }
+  }
+
+  async function loadTags() {
+    try {
+      var body = await api('/tags');
+      S.tags = Array.isArray(body.data) ? body.data : [];
+    } catch (_) {
+      S.tags = [];
+    }
+  }
+
   // Default built-in models — shown when DB registry is empty
   var DEFAULT_ODOO_MODELS = [
     { name: 'res.partner', label: 'Contact', icon: 'user',
@@ -295,6 +325,16 @@
         { name: 'x_email', label: 'E-mailadres', required: true  },
       ]
     },
+    { name: 'mailing.contact', label: 'Mailingcontact', icon: 'mail',
+      default_fields: [
+        { name: 'name',                         label: 'Naam',                   required: true  },
+        { name: 'x_studio_first_name',          label: 'Voornaam',               required: false },
+        { name: 'email',                        label: 'E-mailadres',            required: true  },
+        { name: 'company_name',                 label: 'Bedrijfsnaam',           required: false },
+        { name: 'x_studio_provider',            label: 'Leverancier',            required: false },
+        { name: 'x_studio_professional_syndic', label: 'Professionele syndicus', required: false },
+      ]
+    },
   ];
 
   async function loadOdooModels() {
@@ -306,27 +346,263 @@
     }
   }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER: FOLDER SIDEBAR (mappen — categorisering van koppelingen)
+  // ═══════════════════════════════════════════════════════════════════════════
+  function buildFolderTree(folders) {
+    var byId = {};
+    (folders || []).forEach(function (f) { byId[f.id] = Object.assign({}, f, { children: [] }); });
+    var roots = [];
+    (folders || []).forEach(function (f) {
+      var node = byId[f.id];
+      if (f.parent_id && byId[f.parent_id]) byId[f.parent_id].children.push(node);
+      else roots.push(node);
+    });
+    function sortRec(list) {
+      list.sort(function (a, b) { return (a.order_index || 0) - (b.order_index || 0) || String(a.name).localeCompare(String(b.name)); });
+      list.forEach(function (n) { sortRec(n.children); });
+    }
+    sortRec(roots);
+    return roots;
+  }
+
+  function countInFolder(folderId) {
+    return (S.integrations || []).filter(function (i) { return (i.folder_id || null) === folderId; }).length;
+  }
+
+  function renderFolderNode(node, depth) {
+    var isActive = S.activeFolderId === node.id;
+    var isExpanded = !!S.expandedFolders[node.id];
+    var hasChildren = node.children && node.children.length > 0;
+    var count = countInFolder(node.id);
+    var pad = 8 + depth * 14;
+
+    return `<div>
+      <div class="fsv2-folder-drop flex items-center gap-1 rounded-lg py-1 pr-1.5 cursor-pointer hover:bg-base-200 ${isActive ? 'bg-primary/10 text-primary font-medium' : ''}"
+           style="padding-left:${pad}px" data-action="select-folder" data-folder-id="${esc(node.id)}" data-drop-folder-id="${esc(node.id)}">
+        ${hasChildren
+          ? `<button type="button" class="shrink-0 w-4 h-4 flex items-center justify-center" data-action="toggle-folder-expand" data-folder-id="${esc(node.id)}"><i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" class="w-3 h-3"></i></button>`
+          : `<span class="shrink-0 w-4"></span>`}
+        <i data-lucide="folder" class="w-3.5 h-3.5 shrink-0 text-base-content/40"></i>
+        <span class="flex-1 truncate text-sm">${esc(node.name)}</span>
+        <span class="text-xs text-base-content/35">${count}</span>
+        <div class="dropdown dropdown-end shrink-0">
+          <button tabindex="0" type="button" class="btn btn-ghost btn-xs px-1" onclick="event.stopPropagation()"><i data-lucide="more-horizontal" class="w-3.5 h-3.5"></i></button>
+          <ul tabindex="0" class="dropdown-content z-[20] menu menu-xs p-1 shadow-lg bg-base-100 rounded-lg w-40 border border-base-200">
+            <li><a data-action="add-folder" data-parent-id="${esc(node.id)}"><i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>Submap</a></li>
+            <li><a data-action="rename-folder" data-folder-id="${esc(node.id)}" data-folder-name="${esc(node.name)}"><i data-lucide="pencil" class="w-3.5 h-3.5"></i>Hernoemen</a></li>
+            <li><a data-action="delete-folder" data-folder-id="${esc(node.id)}" data-folder-name="${esc(node.name)}" class="text-error"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i>Verwijderen</a></li>
+          </ul>
+        </div>
+      </div>
+      ${hasChildren && isExpanded ? node.children.map(function (c) { return renderFolderNode(c, depth + 1); }).join('') : ''}
+    </div>`;
+  }
+
+  function renderFolderSidebar() {
+    var el = document.getElementById('folderTree');
+    if (!el) return;
+
+    var tree = buildFolderTree(S.folders || []);
+    var allCount = (S.integrations || []).length;
+    var noneCount = countInFolder(null);
+
+    el.innerHTML = `
+      <div class="rounded-lg px-1.5 py-1 cursor-pointer hover:bg-base-200 flex items-center gap-1.5 ${S.activeFolderId === null ? 'bg-primary/10 text-primary font-medium' : ''}" data-action="select-folder" data-folder-id="">
+        <i data-lucide="layout-grid" class="w-3.5 h-3.5 shrink-0 text-base-content/40"></i>
+        <span class="flex-1 truncate text-sm">Alle koppelingen</span>
+        <span class="text-xs text-base-content/35">${allCount}</span>
+      </div>
+      <div class="fsv2-folder-drop rounded-lg px-1.5 py-1 cursor-pointer hover:bg-base-200 flex items-center gap-1.5 ${S.activeFolderId === '__none__' ? 'bg-primary/10 text-primary font-medium' : ''}" data-action="select-folder" data-folder-id="__none__" data-drop-folder-id="">
+        <i data-lucide="inbox" class="w-3.5 h-3.5 shrink-0 text-base-content/40"></i>
+        <span class="flex-1 truncate text-sm">Geen map</span>
+        <span class="text-xs text-base-content/35">${noneCount}</span>
+      </div>
+      <div class="divider my-1"></div>
+      ${tree.length ? tree.map(function (n) { return renderFolderNode(n, 0); }).join('') : '<p class="text-xs text-base-content/40 italic px-1.5 py-2">Nog geen mappen.</p>'}
+    `;
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    wireFolderDrop();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER: FILTER/SORT TOOLBAR
+  // ═══════════════════════════════════════════════════════════════════════════
+  function renderListToolbar() {
+    var el = document.getElementById('listToolbar');
+    if (!el) return;
+
+    var f = S.filters;
+    var tags = S.tags || [];
+    var hasActiveFilters = !!(f.search || f.status !== 'all' || f.tagIds.length);
+
+    var tagChecks = tags.map(function (t) {
+      var checked = f.tagIds.indexOf(t.id) !== -1;
+      return `<li><label class="flex items-center gap-2 px-2 py-1.5 cursor-pointer text-sm rounded hover:bg-base-200">
+        <input type="checkbox" class="checkbox checkbox-xs" data-action="toggle-tag-filter" data-tag-id="${esc(t.id)}"${checked ? ' checked' : ''}>
+        <span class="truncate">${esc(t.name)}</span>
+      </label></li>`;
+    }).join('');
+
+    el.innerHTML = `
+      <input id="listSearchInput" type="text" class="input input-bordered input-sm w-48" placeholder="Zoeken op naam..." value="${esc(f.search)}">
+      <select id="listStatusFilter" class="select select-bordered select-sm">
+        <option value="all"${f.status === 'all' ? ' selected' : ''}>Alle statussen</option>
+        <option value="active"${f.status === 'active' ? ' selected' : ''}>Actief</option>
+        <option value="inactive"${f.status === 'inactive' ? ' selected' : ''}>Inactief</option>
+      </select>
+      <div class="dropdown">
+        <button tabindex="0" type="button" class="btn btn-sm btn-ghost border border-base-300 gap-1.5">
+          <i data-lucide="tag" class="w-3.5 h-3.5"></i>Tags${f.tagIds.length ? ' (' + f.tagIds.length + ')' : ''}
+        </button>
+        <ul tabindex="0" class="dropdown-content z-[10] menu p-1 shadow-lg bg-base-100 rounded-xl w-52 mt-1 border border-base-200 max-h-64 overflow-y-auto flex-nowrap">
+          ${tagChecks || '<li class="px-2 py-1.5 text-xs text-base-content/40 italic">Nog geen tags.</li>'}
+        </ul>
+      </div>
+      <select id="listSortSelect" class="select select-bordered select-sm">
+        <option value="created_desc"${f.sort === 'created_desc' ? ' selected' : ''}>Nieuwste eerst</option>
+        <option value="created_asc"${f.sort === 'created_asc' ? ' selected' : ''}>Oudste eerst</option>
+        <option value="name_asc"${f.sort === 'name_asc' ? ' selected' : ''}>Naam (A-Z)</option>
+        <option value="updated_desc"${f.sort === 'updated_desc' ? ' selected' : ''}>Laatst bewerkt</option>
+        <option value="last_used_desc"${f.sort === 'last_used_desc' ? ' selected' : ''}>Laatst gebruikt</option>
+      </select>
+      ${hasActiveFilters ? '<button type="button" class="btn btn-sm btn-ghost" data-action="clear-filters">Wis filters</button>' : ''}
+    `;
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FILTER + SORT (client-side, op basis van de reeds geladen S.integrations)
+  // ═══════════════════════════════════════════════════════════════════════════
+  function getVisibleIntegrations() {
+    var f = S.filters;
+    var list = (S.integrations || []).slice();
+
+    // Map-scope
+    if (S.activeFolderId === '__none__') {
+      list = list.filter(function (r) { return !r.folder_id; });
+    } else if (S.activeFolderId) {
+      list = list.filter(function (r) { return r.folder_id === S.activeFolderId; });
+    }
+    // Alle koppelingen (activeFolderId === null) → geen mapfilter
+
+    if (f.status === 'active')   list = list.filter(function (r) { return !!r.is_active; });
+    if (f.status === 'inactive') list = list.filter(function (r) { return !r.is_active; });
+
+    if (f.search) {
+      var q = f.search.toLowerCase();
+      list = list.filter(function (r) { return String(r.name || '').toLowerCase().indexOf(q) !== -1; });
+    }
+
+    if (f.tagIds.length) {
+      list = list.filter(function (r) {
+        var rowTagIds = (r.tags || []).map(function (t) { return t.id; });
+        return f.tagIds.some(function (tid) { return rowTagIds.indexOf(tid) !== -1; });
+      });
+    }
+
+    var sorters = {
+      created_desc:   function (a, b) { return new Date(b.created_at) - new Date(a.created_at); },
+      created_asc:    function (a, b) { return new Date(a.created_at) - new Date(b.created_at); },
+      name_asc:       function (a, b) { return String(a.name || '').localeCompare(String(b.name || '')); },
+      updated_desc:   function (a, b) { return new Date(b.updated_at || 0) - new Date(a.updated_at || 0); },
+      last_used_desc: function (a, b) { return new Date(b.last_submission_at || 0) - new Date(a.last_submission_at || 0); },
+    };
+    list.sort(sorters[f.sort] || sorters.created_desc);
+
+    return list;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DRAG & DROP — koppeling-kaart naar map
+  // ═══════════════════════════════════════════════════════════════════════════
+  async function moveIntegrationToFolder(integrationId, folderId) {
+    try {
+      await api('/integrations/' + integrationId + '/folder', {
+        method: 'PUT',
+        body: JSON.stringify({ folder_id: folderId || null }),
+      });
+      var row = (S.integrations || []).find(function (r) { return String(r.id) === String(integrationId); });
+      if (row) row.folder_id = folderId || null;
+      renderList();
+      showAlert('Koppeling verplaatst.', 'success');
+    } catch (err) {
+      showAlert(err.message, 'error');
+    }
+  }
+
+  function wireCardDrag() {
+    document.querySelectorAll('.fsv2-draggable-card').forEach(function (card) {
+      card.addEventListener('dragstart', function (e) {
+        e.dataTransfer.setData('text/plain', card.dataset.id);
+        e.dataTransfer.effectAllowed = 'move';
+      });
+    });
+  }
+
+  function wireFolderDrop() {
+    document.querySelectorAll('.fsv2-folder-drop').forEach(function (dropZone) {
+      dropZone.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        dropZone.classList.add('bg-primary/20');
+      });
+      dropZone.addEventListener('dragleave', function () {
+        dropZone.classList.remove('bg-primary/20');
+      });
+      dropZone.addEventListener('drop', function (e) {
+        e.preventDefault();
+        dropZone.classList.remove('bg-primary/20');
+        var integrationId = e.dataTransfer.getData('text/plain');
+        if (!integrationId) return;
+        var folderId = dropZone.dataset.dropFolderId || null;
+        moveIntegrationToFolder(integrationId, folderId);
+      });
+    });
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER: LIST VIEW
   // ═══════════════════════════════════════════════════════════════════════════
   function renderList() {
     var loading = document.getElementById('listLoading');
+    if (loading) loading.style.display = 'none';
+    renderFolderSidebar();
+    renderListToolbar();
+    renderListCards();
+  }
+
+  function renderListCards() {
     var empty   = document.getElementById('listEmpty');
     var cards   = document.getElementById('listCards');
-    if (!loading || !empty || !cards) return;
+    if (!empty || !cards) return;
 
-    loading.style.display = 'none';
+    var visible = getVisibleIntegrations();
+    var emptyTitleEl = document.getElementById('listEmptyTitle');
+    var emptyTextEl  = document.getElementById('listEmptyText');
 
     if (S.integrations.length === 0) {
+      if (emptyTitleEl) emptyTitleEl.textContent = 'Nog geen koppelingen';
+      if (emptyTextEl)  emptyTextEl.textContent  = 'Maak je eerste koppeling aan in drie stappen.';
       empty.style.display = '';
       cards.style.display = 'none';
+      return;
+    }
+
+    if (visible.length === 0) {
+      if (emptyTitleEl) emptyTitleEl.textContent = 'Geen koppelingen gevonden';
+      if (emptyTextEl)  emptyTextEl.textContent  = 'Pas de filters aan of kies een andere map.';
+      empty.style.display = '';
+      cards.style.display = 'none';
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       return;
     }
 
     empty.style.display = 'none';
     cards.style.display = '';
 
-    cards.innerHTML = S.integrations.map(function (row) {
+    cards.innerHTML = visible.map(function (row) {
       var isActive = row.is_active;
       var cfg = getModelCfg(row.odoo_model);
       var actionLabel = cfg.label;
@@ -334,25 +610,25 @@
       var actionIcon = cfg.icon;
       var actionModel = cfg.odoo_model;
 
-      // Stap-badges op basis van targets (meegegeven door API)
-      var _stepsHtml = '';
-      var _rowTargets = Array.isArray(row.targets) ? row.targets : [];
-      if (_rowTargets.length > 0) {
-        _stepsHtml = '<div class="flex flex-wrap items-center gap-1 mb-3">';
-        _rowTargets.forEach(function (t, ti) {
-          var _cfg = getModelCfg(t.odoo_model) || { label: t.odoo_model, badgeClass: 'badge-ghost' };
-          var _modelLbl = _cfg.label || t.odoo_model || '';
-          var _lbl = t.operation_type === 'chatter_message' ? 'Notitie bij ' + _modelLbl
-            : t.operation_type === 'create_activity' ? 'Activiteit bij ' + _modelLbl
-            : _modelLbl;
-          var _bc = (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity')
-            ? 'badge-ghost' : _cfg.badgeClass;
-          if (ti > 0) _stepsHtml += '<i data-lucide="arrow-right" class="w-3 h-3 text-base-content/40 shrink-0"></i>';
-          _stepsHtml += '<span class="badge badge-sm ' + esc(_bc) + '">' + esc(_lbl) + '</span>';
-        });
-        _stepsHtml += '</div>';
-      }
-
+      // Stap-badges op basis van targets (meegegeven door API)
+      var _stepsHtml = '';
+      var _rowTargets = Array.isArray(row.targets) ? row.targets : [];
+      if (_rowTargets.length > 0) {
+        _stepsHtml = '<div class="flex flex-wrap items-center gap-1 mb-3">';
+        _rowTargets.forEach(function (t, ti) {
+          var _cfg = getModelCfg(t.odoo_model) || { label: t.odoo_model, badgeClass: 'badge-ghost' };
+          var _modelLbl = _cfg.label || t.odoo_model || '';
+          var _lbl = t.operation_type === 'chatter_message' ? 'Notitie bij ' + _modelLbl
+            : t.operation_type === 'create_activity' ? 'Activiteit bij ' + _modelLbl
+            : _modelLbl;
+          var _bc = (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity')
+            ? 'badge-ghost' : _cfg.badgeClass;
+          if (ti > 0) _stepsHtml += '<i data-lucide="arrow-right" class="w-3 h-3 text-base-content/40 shrink-0"></i>';
+          _stepsHtml += '<span class="badge badge-sm ' + esc(_bc) + '">' + esc(_lbl) + '</span>';
+        });
+        _stepsHtml += '</div>';
+      }
+
       // Flow preview (uses shared FlowBuilder if available)
       var flowHtml = '';
       if (window.FSV2.renderFlowPreview && actionModel) {
@@ -365,21 +641,50 @@
       if (_warnings.length) {
         var _totalMissing = _warnings.reduce(function(s, w) { return s + w.missingLabels.length; }, 0);
         var _tooltip = _warnings.map(function (w) {
-          var _fields = w.missingLabels.map(function(lbl, i) {
-            var fn = (w.missingFields || [])[i];
-            return fn && fn !== lbl ? lbl + ' (' + fn + ')' : lbl;
-          });
+          var _fields = w.missingLabels.map(function(lbl, i) {
+            var fn = (w.missingFields || [])[i];
+            return fn && fn !== lbl ? lbl + ' (' + fn + ')' : lbl;
+          });
           return w.targetLabel + ': ' + _fields.join(', ');
         }).join('\n');
         _warnHtml = `<div class="flex items-center gap-1.5 mb-2" title="${esc(_tooltip)}"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-warning shrink-0"></i><span class="text-xs text-warning">${_totalMissing} verplicht${_totalMissing === 1 ? ' veld ontbreekt' : 'e velden ontbreken'}</span></div>`;
       }
 
-      return `<div class="card bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-200"><div class="card-body p-5"><div class="flex items-start justify-between gap-2 mb-3"><h3 class="font-bold text-sm leading-snug text-base-content">${esc(row.name || 'Integratie')}</h3>${isActive ? '<span class="badge badge-success badge-xs shrink-0 gap-1"><span class="w-1.5 h-1.5 rounded-full bg-current"></span>Actief</span>' : '<span class="badge badge-ghost badge-xs shrink-0">Inactief</span>'}</div><div class="flex items-center gap-1.5 mb-3">${row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '\u2014') + '</p>'}</div>${_stepsHtml}${flowHtml ? '<div class="mb-3">' + flowHtml + '</div>' : ''}${_warnHtml}${updatedAt ? '<p class="text-xs text-base-content/35 mb-2">Bijgewerkt ' + updatedAt + '</p>' : ''}<div class="flex gap-2 pt-3 border-t border-base-100"><button class="btn btn-xs btn-primary flex-1 gap-1" data-action="open-detail" data-id="${esc(row.id)}"><i data-lucide="settings-2" class="w-3 h-3"></i>Beheren</button><button class="btn btn-xs btn-ghost border border-base-200 text-error hover:bg-error/10" data-action="delete-integration" data-id="${esc(row.id)}" data-name="${esc(row.name || 'Integratie')}" title="Verwijderen"><i data-lucide="trash-2" class="w-3 h-3"></i></button></div></div></div>`;
+      // Tag-pills + "tag toevoegen" knop
+      var rowTags = Array.isArray(row.tags) ? row.tags : [];
+      var _tagsHtml = `<div class="flex flex-wrap items-center gap-1 mb-3">${rowTags.map(function (t) {
+        return `<span class="badge badge-outline badge-sm gap-1">${esc(t.name)}<button type="button" class="hover:text-error" data-action="remove-tag" data-id="${esc(row.id)}" data-tag-id="${esc(t.id)}">&times;</button></span>`;
+      }).join('')}<div class="dropdown dropdown-bottom">
+        <button tabindex="0" type="button" class="btn btn-ghost btn-xs px-1.5 gap-1 text-base-content/40"><i data-lucide="tag" class="w-3 h-3"></i>+</button>
+        <div tabindex="0" class="dropdown-content z-[10] p-2 shadow-lg bg-base-100 rounded-lg w-48 border border-base-200">
+          <input type="text" class="input input-bordered input-xs w-full mb-1.5" placeholder="Tag toevoegen…" data-action="new-tag-input" data-id="${esc(row.id)}">
+          <div class="flex flex-wrap gap-1 max-h-24 overflow-y-auto">${(S.tags || []).filter(function (t) { return !rowTags.find(function (rt) { return rt.id === t.id; }); }).map(function (t) {
+            return `<button type="button" class="badge badge-ghost badge-sm hover:badge-primary" data-action="add-existing-tag" data-id="${esc(row.id)}" data-tag-name="${esc(t.name)}">${esc(t.name)}</button>`;
+          }).join('')}</div>
+        </div>
+      </div></div>`;
+
+      // "Verplaats naar map" dropdown
+      var flatFolders = [];
+      (function flatten(nodes, depth) {
+        nodes.forEach(function (n) { flatFolders.push({ id: n.id, name: n.name, depth: depth }); flatten(n.children, depth + 1); });
+      })(buildFolderTree(S.folders || []), 0);
+      var _moveHtml = `<div class="dropdown dropdown-top">
+        <button tabindex="0" type="button" class="btn btn-xs btn-ghost border border-base-200" title="Verplaats naar map"><i data-lucide="folder-input" class="w-3 h-3"></i></button>
+        <ul tabindex="0" class="dropdown-content z-[10] menu menu-xs p-1 shadow-lg bg-base-100 rounded-lg w-48 border border-base-200 max-h-56 overflow-y-auto flex-nowrap">
+          <li><a data-action="move-to-folder" data-id="${esc(row.id)}" data-folder-id="">Geen map</a></li>
+          ${flatFolders.map(function (fld) {
+            return `<li><a data-action="move-to-folder" data-id="${esc(row.id)}" data-folder-id="${esc(fld.id)}" style="padding-left:${8 + fld.depth * 12}px">${esc(fld.name)}</a></li>`;
+          }).join('')}
+        </ul>
+      </div>`;
+
+      return `<div class="fsv2-draggable-card card bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-200" draggable="true" data-id="${esc(row.id)}"><div class="card-body p-5"><div class="flex items-start justify-between gap-2 mb-3"><h3 class="font-bold text-sm leading-snug text-base-content">${esc(row.name || 'Koppeling')}</h3>${isActive ? '<span class="badge badge-success badge-xs shrink-0 gap-1"><span class="w-1.5 h-1.5 rounded-full bg-current"></span>Actief</span>' : '<span class="badge badge-ghost badge-xs shrink-0">Inactief</span>'}</div><div class="flex items-center gap-1.5 mb-3">${row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div>${_stepsHtml}${flowHtml ? '<div class="mb-3">' + flowHtml + '</div>' : ''}${_tagsHtml}${_warnHtml}${updatedAt ? '<p class="text-xs text-base-content/35 mb-2">Bijgewerkt ' + updatedAt + '</p>' : ''}<div class="flex gap-2 pt-3 border-t border-base-100"><button class="btn btn-xs btn-primary flex-1 gap-1" data-action="open-detail" data-id="${esc(row.id)}"><i data-lucide="settings-2" class="w-3 h-3"></i>Beheren</button>${_moveHtml}<button class="btn btn-xs btn-ghost border border-base-200 text-error hover:bg-error/10" data-action="delete-integration" data-id="${esc(row.id)}" data-name="${esc(row.name || 'Koppeling')}" title="Verwijderen"><i data-lucide="trash-2" class="w-3 h-3"></i></button></div></div></div>`;
     }).join('');
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    wireCardDrag();
   }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER: CONNECTIONS VIEW
   // ═══════════════════════════════════════════════════════════════════════════
@@ -793,7 +1098,13 @@
     loadIntegrations: loadIntegrations,
     loadModelLinks: loadModelLinks,
     loadOdooModels: loadOdooModels,
+    loadFolders: loadFolders,
+    loadTags: loadTags,
     renderList: renderList,
+    renderListCards: renderListCards,
+    renderFolderSidebar: renderFolderSidebar,
+    renderListToolbar: renderListToolbar,
+    moveIntegrationToFolder: moveIntegrationToFolder,
     renderConnections: renderConnections,
     renderDefaults: renderDefaults,
   };

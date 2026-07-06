@@ -246,6 +246,8 @@
             stepLabel = 'Notitie bij ' + modelLabel;
           } else if (t.operation_type === 'create_activity') {
             stepLabel = 'Activiteit bij ' + modelLabel;
+          } else if (t.operation_type === 'mailing_list') {
+            stepLabel = 'Mailinglijst';
           } else {
             stepLabel = modelLabel;
           }
@@ -885,6 +887,12 @@
         renderActivityLinkCallout(target, tid, sortedTargets);
         return;
       }
+      // mailing_list: render mailing list composer
+      if (target.operation_type === 'mailing_list') {
+        renderMailingListComposer(target, tid, sortedTargets);
+        renderStepConditionSection(target, tid, flatFields);
+        return;
+      }
 
       var _cfgIdent = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(model) : {};
       var cfgIdentFields = Array.isArray(_cfgIdent.identifier_fields)
@@ -1057,8 +1065,8 @@
     var el = document.getElementById('det-callouts-' + tid);
     if (!el) return;
     if (myIdx <= 0) return;
-    // Chatter and activity steps manage their own callout UI
-    if (target.operation_type === 'chatter_message' || target.operation_type === 'create_activity') return;
+    // Chatter, activity and mailing_list steps manage their own callout UI
+    if (target.operation_type === 'chatter_message' || target.operation_type === 'create_activity' || target.operation_type === 'mailing_list') return;
 
     var preceding   = sortedTargets.slice(0, myIdx);
     var suggestions = computeChainSuggestions(target, preceding);
@@ -2405,6 +2413,7 @@ function renderDetailFormFields() {
     var SPECIAL = [
       { id: 'chatter_message', icon: 'message-square', label: 'Chatter-bericht',  desc: 'Bericht in de chatter plaatsen' },
       { id: 'create_activity', icon: 'calendar-check', label: 'Activiteit',        desc: 'Taak inplannen op een record' },
+      { id: 'mailing_list',    icon: 'mail',           label: 'Mailinglijst',     desc: 'Toevoegen/verwijderen uit mailinglijst' },
     ];
 
     var modelCards = models.map(function (m) {
@@ -2567,6 +2576,31 @@ function renderDetailFormFields() {
       if (chatterTargetId) {
         var po = getPipelineOpen(integId);
         po[String(chatterTargetId)] = true;
+        renderDetailMappings();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      }
+      return;
+    }
+
+    if (objectId === 'mailing_list') {
+      var mlNewOrder = maxOrder + 1;
+      var mlRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_model:      'mailing.contact',
+          identifier_type: 'mapped_fields',
+          update_policy:   'always_overwrite',
+          operation_type:  'mailing_list',
+          execution_order: mlNewOrder,
+          order_index:     mlNewOrder,
+        }),
+      });
+      var mlTargetId = mlRes && mlRes.data && mlRes.data.id;
+      window.FSV2.showAlert('Mailinglijst-stap toegevoegd. Stel de configuratie in.', 'success');
+      await openDetail(S().activeId);
+      if (mlTargetId) {
+        var poMl = getPipelineOpen(integrationId);
+        poMl[String(mlTargetId)] = true;
         renderDetailMappings();
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       }
@@ -4787,6 +4821,297 @@ function renderDetailFormFields() {
     if (catchallEl) window.FSV2.S._pendingCatchall = catchallEl.value;
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // MAILINGLIJST COMPOSER
+
+  function renderMailingListComposer(target, tid, sortedTargets) {
+    var el = document.getElementById('det-mc-' + tid);
+    if (!el) return;
+
+    // Parse existing config from chatter_template
+    var rawCfg = (target.chatter_template || '').trim();
+    var MAILING_PREFIX = '__MAILING__:';
+    var cfg = { action: 'add', update_mode: 'upsert', list_ids: [] };
+    if (rawCfg.startsWith(MAILING_PREFIX)) {
+      try { cfg = Object.assign(cfg, JSON.parse(rawCfg.slice(MAILING_PREFIX.length))); } catch (_) {}
+    }
+    var currentAction = cfg.action || 'add';
+    var currentMode   = cfg.update_mode || 'upsert';
+    var currentLists  = Array.isArray(cfg.list_ids) ? cfg.list_ids : [];
+
+    // Existing mappings for pre-filling field selectors
+    var existingMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
+
+    // Form fields for selectors
+    var _ffr       = buildDetailFlatFields(S().detailFormFields || []);
+    var formFields = _ffr.flatFields || [];
+
+    function makeFieldSelect(odooField, label, required) {
+      var existing    = existingMappings.find(function (m) { return m.odoo_field === odooField; });
+      var currentType = existing ? (existing.source_type  || 'form') : '';
+      var currentVal  = existing ? (existing.source_value || '')      : '';
+      var formVal     = currentType === 'form'   ? currentVal : '';
+      var staticVal   = currentType === 'static' ? currentVal : '';
+
+      var opts = '<option value="">' + (required ? '— verplicht —' : '— niet koppelen —') + '</option>';
+      formFields.forEach(function (f) {
+        var fid  = f.field_id || f.id || '';
+        var flbl = f.label || fid;
+        opts += '<option value="form:' + esc(fid) + '"' + (formVal === fid ? ' selected' : '') + '>' + esc(flbl) + '</option>';
+      });
+      opts += '<option value="static:" ' + (currentType === 'static' ? 'selected' : '') + '>Vaste waarde…</option>';
+
+      var showStatic = currentType === 'static';
+      return '<tr>' +
+        '<td class="py-1 pr-2 text-xs font-medium w-40">' + esc(label) + (required ? ' <span class="text-error">*</span>' : '') + '</td>' +
+        '<td class="py-1">' +
+          '<select class="select select-bordered select-xs w-full ml-field-select"' +
+            ' data-target-id="' + esc(tid) + '" data-odoo-field="' + esc(odooField) + '">' +
+            opts +
+          '</select>' +
+          '<input type="text" class="input input-bordered input-xs w-full mt-1 ml-static-input' + (showStatic ? '' : ' hidden') + '"' +
+            ' data-odoo-field="' + esc(odooField) + '"' +
+            ' value="' + esc(staticVal) + '" placeholder="Vaste waarde">' +
+        '</td>' +
+      '</tr>';
+    }
+
+    function makeBoolSelect(odooField, label) {
+      var existing    = existingMappings.find(function (m) { return m.odoo_field === odooField; });
+      var currentType = existing ? (existing.source_type  || '') : '';
+      var currentVal  = existing ? (existing.source_value || '') : '';
+      var staticVal   = currentType === 'static' ? currentVal : '';
+      var formVal     = currentType === 'form'   ? currentVal : '';
+
+      var opts = '<option value="">— niet koppelen —</option>';
+      opts += '<option value="static:true"'  + (staticVal === 'true'  ? ' selected' : '') + '>Altijd Ja</option>';
+      opts += '<option value="static:false"' + (staticVal === 'false' ? ' selected' : '') + '>Altijd Nee</option>';
+      formFields.forEach(function (f) {
+        var fid  = f.field_id || f.id || '';
+        var flbl = f.label || fid;
+        opts += '<option value="form:' + esc(fid) + '"' + (formVal === fid ? ' selected' : '') + '>' + esc(flbl) + ' (formulierveld)</option>';
+      });
+
+      return '<tr>' +
+        '<td class="py-1 pr-2 text-xs font-medium w-40">' + esc(label) + '</td>' +
+        '<td class="py-1">' +
+          '<select class="select select-bordered select-xs w-full ml-field-select"' +
+            ' data-target-id="' + esc(tid) + '" data-odoo-field="' + esc(odooField) + '">' +
+            opts +
+          '</select>' +
+        '</td>' +
+      '</tr>';
+    }
+
+    var html = '';
+
+    // Action + Mode toggles
+    html += '<div class="flex flex-wrap gap-4 mb-4">';
+
+    html += '<div class="form-control">' +
+      '<label class="label pt-0 pb-1"><span class="label-text text-xs font-semibold opacity-60 uppercase tracking-wide">Actie</span></label>' +
+      '<div class="join">' +
+        ['add', 'remove'].map(function (val) {
+          var lbl    = val === 'add' ? 'Toevoegen' : 'Verwijderen';
+          var active = currentAction === val;
+          return '<button type="button" class="btn btn-xs join-item btn-outline' + (active ? ' btn-primary' : '') + '"' +
+            ' data-action="ml-action-toggle" data-target-id="' + esc(tid) + '" data-val="' + val + '">' + lbl + '</button>';
+        }).join('') +
+      '</div>' +
+      '<input type="hidden" id="mlAction-' + esc(tid) + '" value="' + esc(currentAction) + '">' +
+    '</div>';
+
+    html += '<div class="form-control">' +
+      '<label class="label pt-0 pb-1"><span class="label-text text-xs font-semibold opacity-60 uppercase tracking-wide">Modus</span></label>' +
+      '<div class="join">' +
+        [
+          { val: 'upsert',      lbl: 'Bijwerken of aanmaken' },
+          { val: 'update_only', lbl: 'Alleen bijwerken'      },
+        ].map(function (o) {
+          var active = currentMode === o.val;
+          return '<button type="button" class="btn btn-xs join-item btn-outline' + (active ? ' btn-primary' : '') + '"' +
+            ' data-action="ml-mode-toggle" data-target-id="' + esc(tid) + '" data-val="' + o.val + '">' + o.lbl + '</button>';
+        }).join('') +
+      '</div>' +
+      '<input type="hidden" id="mlMode-' + esc(tid) + '" value="' + esc(currentMode) + '">' +
+    '</div>';
+
+    html += '</div>';
+
+    // Mailing lists
+    html += '<div class="form-control mb-4">' +
+      '<label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Mailinglijsten</span></label>' +
+      '<div id="mlLists-' + esc(tid) + '" class="border border-base-200 rounded-lg divide-y divide-base-200 max-h-52 overflow-y-auto">' +
+        '<div class="px-3 py-2 text-xs text-base-content/40">Laden…</div>' +
+      '</div>' +
+    '</div>';
+
+    // Field mappings
+    html += '<div class="form-control mb-4">' +
+      '<label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Veldkoppelingen</span></label>' +
+      '<div class="overflow-x-auto border border-base-200 rounded-lg">' +
+        '<table class="table table-xs w-full">' +
+          '<thead class="bg-base-200/40"><tr>' +
+            '<th class="py-1.5 text-xs">Mailingveld</th>' +
+            '<th class="py-1.5 text-xs">Formulierveld / waarde</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+            makeFieldSelect('email',                        'E-mailadres',          true)  +
+            makeFieldSelect('name',                         'Naam (volledig)',       false) +
+            makeFieldSelect('x_studio_first_name',          'Voornaam',             false) +
+            makeFieldSelect('company_name',                 'Bedrijfsnaam',         false) +
+            makeBoolSelect ('x_studio_provider',            'Leverancier')                 +
+            makeBoolSelect ('x_studio_professional_syndic', 'Professionele syndicus')      +
+          '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
+
+    // Save button
+    html += '<button type="button" class="btn btn-sm btn-primary gap-2"' +
+      ' data-action="save-mailing-list-composer" data-target-id="' + esc(tid) + '">' +
+      '<i data-lucide="save" class="w-4 h-4"></i> Opslaan' +
+    '</button>';
+
+    el.innerHTML = html;
+
+    // Async: load mailing lists
+    window.FSV2.api('/mailing-lists').then(function (res) {
+      var listsEl = document.getElementById('mlLists-' + tid);
+      if (!listsEl) return;
+      var lists = (res && res.data) || [];
+      if (!lists.length) {
+        listsEl.innerHTML = '<div class="px-3 py-2 text-xs text-base-content/40">Geen mailinglijsten gevonden.</div>';
+      } else {
+        listsEl.innerHTML = lists.map(function (l) {
+          var checked = currentLists.indexOf(l.id) !== -1 ? ' checked' : '';
+          return '<label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-200/40">' +
+            '<input type="checkbox" class="checkbox checkbox-xs ml-list-cb-' + esc(tid) + '"' +
+              ' value="' + l.id + '"' + checked + '>' +
+            '<span class="text-sm flex-1">' + esc(l.name) + '</span>' +
+            '<span class="text-xs text-base-content/40">' + (l.contact_count || 0) + ' contacten</span>' +
+          '</label>';
+        }).join('');
+      }
+    }).catch(function () {
+      var listsEl = document.getElementById('mlLists-' + tid);
+      if (listsEl) listsEl.innerHTML = '<div class="px-3 py-2 text-xs text-error/70">Fout bij laden mailinglijsten.</div>';
+    });
+
+    // Wire select → show/hide static input
+    el.querySelectorAll('.ml-field-select').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var oField      = sel.dataset.odooField;
+        var staticInput = el.querySelector('.ml-static-input[data-odoo-field="' + oField + '"]');
+        if (staticInput) staticInput.classList.toggle('hidden', sel.value !== 'static:');
+      });
+    });
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ nodes: [el] });
+  }
+
+  async function handleSaveMailingListComposer(tid) {
+    var target = ((S().detail && S().detail.targets) || []).find(function (t) { return String(t.id) === tid; });
+    if (!target) { window.FSV2.showAlert('Target niet gevonden.', 'error'); return; }
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+
+    var el = document.getElementById('det-mc-' + tid);
+    if (!el) return;
+
+    var actionInput = document.getElementById('mlAction-' + tid);
+    var modeInput   = document.getElementById('mlMode-' + tid);
+    var action      = actionInput ? actionInput.value : 'add';
+    var updateMode  = modeInput   ? modeInput.value   : 'upsert';
+
+    // Selected mailing lists
+    var listCheckboxes = el.querySelectorAll('.ml-list-cb-' + tid + ':checked');
+    var listIds = [];
+    listCheckboxes.forEach(function (cb) { listIds.push(parseInt(cb.value, 10)); });
+
+    if (!listIds.length) {
+      window.FSV2.showAlert('Selecteer minstens één mailinglijst.', 'error');
+      return;
+    }
+
+    var cfgJson = '__MAILING__:' + JSON.stringify({ action: action, update_mode: updateMode, list_ids: listIds });
+
+    try {
+      await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+        method: 'PUT',
+        body: JSON.stringify({
+          odoo_model:       'mailing.contact',
+          operation_type:   'mailing_list',
+          chatter_template: cfgJson,
+        }),
+      });
+    } catch (e) {
+      window.FSV2.showAlert('Fout bij opslaan configuratie: ' + e.message, 'error');
+      return;
+    }
+
+    // Field mappings from selects
+    var fieldSelects = el.querySelectorAll('.ml-field-select');
+    var fieldsToMap  = [];
+    fieldSelects.forEach(function (sel) {
+      var odooField = sel.dataset.odooField;
+      var val = sel.value;
+      if (!val || val === 'static:') {
+        // static: with text input
+        if (val === 'static:') {
+          var sinp = el.querySelector('.ml-static-input[data-odoo-field="' + odooField + '"]');
+          var sv   = sinp ? sinp.value.trim() : '';
+          if (sv) fieldsToMap.push({ odooField: odooField, sourceType: 'static', sourceValue: sv });
+        }
+        return;
+      }
+      var sourceType, sourceValue;
+      if (val.startsWith('form:')) {
+        sourceType  = 'form';
+        sourceValue = val.slice(5);
+      } else if (val.startsWith('static:')) {
+        sourceType  = 'static';
+        sourceValue = val.slice(7);
+      } else {
+        return;
+      }
+      if (!sourceValue) return;
+      fieldsToMap.push({ odooField: odooField, sourceType: sourceType, sourceValue: sourceValue });
+    });
+
+    // Delete existing mappings, then recreate
+    try { await window.FSV2.api('/targets/' + tid + '/mappings', { method: 'DELETE' }); } catch (_) {}
+
+    var emailMapped = false;
+    for (var fi = 0; fi < fieldsToMap.length; fi++) {
+      var fm = fieldsToMap[fi];
+      try {
+        await window.FSV2.api('/targets/' + tid + '/mappings', {
+          method: 'POST',
+          body: JSON.stringify({
+            odoo_field:      fm.odooField,
+            source_type:     fm.sourceType,
+            source_value:    fm.sourceValue,
+            is_identifier:   fm.odooField === 'email',
+            is_required:     fm.odooField === 'email',
+            is_update_field: fm.odooField !== 'email',
+            order_index:     fi,
+          }),
+        });
+        if (fm.odooField === 'email') emailMapped = true;
+      } catch (e) {
+        console.warn('mailing mapping failed for', fm.odooField, e);
+      }
+    }
+
+    if (!emailMapped) {
+      window.FSV2.showAlert('Stel het e-mailadresveld in — de stap kan niet worden uitgevoerd zonder e-mail.', 'error');
+      return;
+    }
+
+    window.FSV2.showAlert('Mailinglijst-stap opgeslagen.', 'success');
+    await window.FSV2.openDetail(S().activeId);
+  }
+
   Object.assign(window.FSV2, {
     renderDetail:            renderDetail,
     syncPendingValueMapFromDom: syncPendingValueMapFromDom,
@@ -4814,6 +5139,8 @@ function renderDetailFormFields() {
     handleSaveChatterComposer: handleSaveChatterComposer,
     renderActivityComposer:  renderActivityComposer,
     renderActivityLinkCallout: renderActivityLinkCallout,
+    renderMailingListComposer:   renderMailingListComposer,
+    handleSaveMailingListComposer: handleSaveMailingListComposer,
     handleActivityUserMode:  handleActivityUserMode,
     handleSaveActivityComposer: handleSaveActivityComposer,
     handleDuplicateTarget:   handleDuplicateTarget,
