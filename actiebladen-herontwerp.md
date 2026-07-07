@@ -75,7 +75,7 @@ De 5 open vragen met gestructureerde vragenlijsten zijn waardevol. Bewaren, wel 
 | `x_studio_kanban_state` | Altijd `false` in de data, nooit gebruikt | Vervangen door Red Flag veld |
 | Automations 1022/1023 ("Bij Aanmaken") | Lege code, doen niets | Implementeren of verwijderen |
 | Alle 4 donuts op kanban | Interactie/Gegevens/Context niet gedefinieerd, Discovery enkel wired. | Verwijderen, ruimte maken voor pakket + gebouw info |
-| "Stats" tab in formulier | Volledig leeg | Verwijderen |
+| "Stats" tab in formulier | Volledig leeg, maar wordt bewaard (beslissing) | Behouden |
 | `x_studio_entrypoint` | Bijna nooit ingevuld (vrijwel altijd `false`) | Automatisch invullen vanuit lead source bij Won |
 | `x_studio_tag_ids` readonly | Waarschijnlijk freeform/manueel gebruik, maar readonly gezet in form → onbruikbaar | Editeerbaar maken |
 | Discovery stage in CS kanban | Pre-sales actiebladen vervuilen de CS-view | Default filter toevoegen |
@@ -329,7 +329,7 @@ Problemen: geen contactnaam, geen gebouw, geen pakket, kanban_state ongebruikt, 
 
 ### Formulier cleanup:
 - "Datavelden" tab: **invisible="True"** → OK, maar eventueel verwijderen
-- "Stats" tab: **volledig leeg** → verwijderen
+- "Stats" tab: **volledig leeg**, maar wordt behouden (beslissing — niet verwijderen)
 - AI-suggestie (`x_studio_ai_suggested_next_step`): **prominenter tonen**, bovenaan Progress tab, niet verstopt
 - Meetings overzicht: goed, behouden maar Opstartsessie-duur tonen (>30 min check)
 
@@ -413,16 +413,6 @@ Huidige filters: Mijn actiebladen, Gearchiveerd. Dat is te weinig.
 
 ---
 
-#### BI-S0-04 — "Stats" tab verwijderen uit formulier
-
-**Wat:** De "Stats" tab in het notebook is volledig leeg.  
-**Hoe:** `invisible="True"` of volledig verwijderen uit view overerving 3564.
-
-**Acceptatiecriteria:**
-- [ ] "Stats" tab niet meer zichtbaar in de formulierweergave
-
----
-
 #### BI-S0-05 — Tags editeerbaar maken in formulier
 
 **Wat:** Tags (`x_studio_tag_ids`) zijn momenteel read-only in de formulierweergave. Ze worden manueel ingevuld door CS.  
@@ -441,7 +431,7 @@ Huidige filters: Mijn actiebladen, Gearchiveerd. Dat is te weinig.
 
 **Acceptatiecriteria:**
 - [x] `x_studio_kanban_state` widget verwijderd uit kanban-tegel
-- [ ] Ruimte ingenomen door Red Flag icoon (BI-S1-03) — nog te doen
+- [x] Ruimte ingenomen door Red Flag icoon (BI-S1-03)
 
 ---
 
@@ -659,16 +649,16 @@ Wat overblijft in Studio:
 - Automation "Bij opslaan - Flagged actieblad" voor `x_color` — blijft
 - Notificatie naar Support Verantwoordelijke: de Operations Manager stuurt een Odoo-activiteit of interne notitie aan bij elke nieuwe vlag
 
-**Escalatieregel:** De cron downgradet nooit. "Vlag verwijderen" blijft een manuele actie door CS.
+**Escalatieregel:** De cron escaleert altijd. Downgraden (vlag automatisch wissen) gebeurt enkel als CS dat per fase/reden bewust aanzet via **Auto-wissen** in `/cx-automations` (zie §14) — staat dat uit, blijft "Vlag verwijderen" een manuele actie.
 
 **Acceptatiecriteria:**
-- [ ] `x_days_since_active` veld beschikbaar op `res.partner` (computed of door cron 61 geschreven)
-- [ ] Supabase tabel `flag_thresholds` aangemaakt met standaardwaarden
-- [ ] Supabase tabel `flag_run_log` aangemaakt (audit)
-- [ ] Operations Manager cron loopt dagelijks en zet flags correct
-- [ ] Escalatie werkt correct: alleen omhoog, nooit omlaag
-- [ ] Geen dubbele vlag-updates bij al-gemarkeerde vlaggen
-- [ ] Drempelwaarden instelbaar via `/cx-automations` module (zie §14)
+- [x] Supabase tabel `flag_thresholds` aangemaakt met standaardwaarden
+- [x] Supabase tabel `flag_run_log` aangemaakt (audit)
+- [x] Operations Manager cron loopt dagelijks en zet flags correct
+- [x] Escalatie werkt correct: alleen omhoog, tenzij Auto-wissen expliciet aanstaat voor die fase/reden
+- [x] Geen dubbele vlag-updates bij al-gemarkeerde vlaggen
+- [x] Drempelwaarden instelbaar via `/cx-automations` module (zie §14)
+- [ ] `x_days_since_active` veld beschikbaar op `res.partner` (computed of door cron 61 geschreven) — niet nodig gebleken, cron leest `x_studio_last_activity` rechtstreeks
 - [ ] Odoo automations A/B/C/D/E verwijderd of uitgeschakeld
 
 ---
@@ -1189,19 +1179,22 @@ public/
 **`flag_thresholds`** — inactiviteitsdrempels per CS-fase
 ```sql
 CREATE TABLE flag_thresholds (
-  id          SERIAL PRIMARY KEY,
-  stage_id    INTEGER NOT NULL UNIQUE,
-  stage_name  TEXT NOT NULL,              -- cache van Odoo-naam
-  yellow_days INTEGER NOT NULL DEFAULT 14,
-  orange_days INTEGER NOT NULL DEFAULT 30,
-  red_days    INTEGER NOT NULL DEFAULT 60,
-  flag_reason TEXT    NOT NULL DEFAULT 'no_activity',
-  updated_at  TIMESTAMPTZ DEFAULT NOW(),
-  updated_by  TEXT
+  id                  SERIAL PRIMARY KEY,
+  stage_id            INTEGER NOT NULL UNIQUE,
+  stage_name          TEXT NOT NULL,              -- cache van Odoo-naam
+  yellow_days         INTEGER NOT NULL DEFAULT 14,
+  orange_days         INTEGER NOT NULL DEFAULT 30,
+  red_days            INTEGER NOT NULL DEFAULT 60,
+  flag_reason         TEXT    NOT NULL DEFAULT 'no_activity',
+  auto_clear_enabled  BOOLEAN NOT NULL DEFAULT false,  -- vlag automatisch wissen zodra niet meer van toepassing
+  updated_at          TIMESTAMPTZ DEFAULT NOW(),
+  updated_by          TEXT
 );
 ```
 
-Standaardseed: 5 (Opstartgesprek), 7 (Opstartsessie Expert), 8 (Basisinstellingen gecontroleerd), 9 (Follow-up validatie). Fasenamen worden bij paginaladen dynamisch herladen vanuit Odoo.
+Standaardseed: 5 (Opstartgesprek), 7 (Opstartsessie Expert), 8 (Basisinstellingen gecontroleerd), 9 (Follow-up validatie). Fasenamen worden bij paginaladen dynamisch herladen vanuit Odoo. `auto_clear_enabled` staat default op `false` per fase — CS zet dit bewust aan per fase/reden.
+
+**Belangrijk — reden bepaalt of een config een actieblad mag aanraken:** deze drempel-rij (`flag_reason`) mag een actieblad enkel escaleren, wissen of het bericht bijwerken als er nog geen vlag staat, óf als de actieve vlag exact voor deze reden gezet is. Een handmatig gezette vlag met een andere reden (bv. `churn_signal`, `manual`) wordt door deze dagen-gebaseerde config niet aangeraakt — geen overschreven bericht, geen ongewenste escalatie. Op termijn komen er drempel-rijen bij voor andere redenen (niet noodzakelijk dagen-gebaseerd); vandaar dat de kolom **Reden** vooraan in de UI-tabel staat.
 
 **`flag_run_log`** — cron-runs
 ```sql
@@ -1240,9 +1233,13 @@ ctx.waitUntil(runFlagCron(env));
 2. Haal CS-stage IDs op uit Odoo (sequence 11–15)
 3. Haal alle actiebladen in die stages op (inclusief `x_flag_reason`, `x_flag_custom_message`)
 4. Haal `x_studio_last_activity` per gebouw op in één batch-call
-5. Per actieblad: bereken `daysSince()` → vergelijk met drempels → alleen escaleren (nooit downgraden)
-6. Bericht dagelijks bijwerken voor elk geflagd actieblad: `[DD/MM/YYYY] Auto: X dagen inactief | <manuele tekst>`. Manuele tekst na ` | ` blijft bewaard.
-7. Log naar `flag_run_log`
+5. Per actieblad: check eerst of de drempel-rij (reden) mag toepassen — enkel als er nog geen vlag staat, of als de actieve vlag exact deze reden heeft. Zo niet: actieblad overslaan, niets schrijven.
+6. Bereken `daysSince()` → vergelijk met drempels:
+   - Hoger niveau dan huidige vlag → escaleren (level + reden + bericht bijwerken)
+   - Lager niveau dan huidige vlag (conditie niet meer van toepassing) → enkel wissen als `auto_clear_enabled` aanstaat voor deze fase/reden; anders niets doen (vlag én bericht blijven bevroren tot manuele opruiming)
+   - Zelfde niveau → enkel bericht verversen indien gewijzigd
+7. Bericht dagelijks bijwerken voor elk geflagd actieblad: `[DD/MM/YYYY] Auto: X dagen inactief | <manuele tekst>`. Manuele tekst na ` | ` blijft bewaard.
+8. Log naar `flag_run_log`
 
 **Technical block pad** (actieblad zonder gekoppeld gebouw):
 - `x_flag_reason = 'technical_block'`
@@ -1252,7 +1249,7 @@ ctx.waitUntil(runFlagCron(env));
 
 ### UI — secties
 
-1. **Vlag-drempelwaarden per fase** — tabel met kolommen Geel / Oranje / Rood / Reden per CS-fase; fasenamen dynamisch uit Odoo; [Opslaan]-knop
+1. **Vlag-drempelwaarden per fase** — tabel met kolommen Reden / Geel / Oranje / Rood / Auto-wissen per CS-fase; fasenamen dynamisch uit Odoo; [Opslaan]-knop
 2. **Technische blokkades** — kaart met badge-teller; tabel met links naar Odoo-records
 3. **Technische blokkade — escalatie** — twee number-inputs (Oranje na X dagen / Rood na Y dagen); [Opslaan]-knop
 4. **Cron-log** — laatste 10 runs; [Nu uitvoeren]-knop
@@ -1271,7 +1268,8 @@ Voeg `technical_block` toe als selectiewaarde bij het veld **`x_flag_reason`** o
 - [x] UI: drempelwaarden per fase instelbaar + validatie oplopend
 - [x] UI: technical-block escalatie instelbaar (oranje/rood na X/Y dagen)
 - [x] UI: lijst actieve technische blokkades met Odoo-links
-- [x] Cron: inactiviteitsvlaggen — escaleert nooit omlaag
+- [x] Cron: inactiviteitsvlaggen — escaleert altijd; downgrade enkel als `auto_clear_enabled` aanstaat voor die fase/reden
+- [x] Cron: drempel-config raakt enkel actiebladen aan zonder vlag, of met een actieve vlag van exact dezelfde reden
 - [x] Cron: bericht dagelijks bijwerken, manuele tekst bewaard
 - [x] Cron: technical_block als reden, level start op attention, escaleert op instelbare drempels
 - [x] Cron: "since"-datum in bericht voor escalatieberekening

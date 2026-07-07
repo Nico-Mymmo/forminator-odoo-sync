@@ -211,18 +211,48 @@ export async function runFlagCron(env) {
       }
 
       // ── Normale inactiviteitslogica ──
-      const partnerId    = blad.x_studio_for_company_id[0];
-      const lastActivity = activityByPartnerId[partnerId] ?? null;
-      const days         = daysSince(lastActivity);
+      const partnerId      = blad.x_studio_for_company_id[0];
+      const lastActivity   = activityByPartnerId[partnerId] ?? null;
+      const days           = daysSince(lastActivity);
+
+      const thresholdReason = thresh.flag_reason || 'no_activity';
+      const currentFlag     = blad.x_flag_level ?? 'none';
+      const currentReason   = blad.x_flag_reason ?? null;
+
+      // Deze drempel-config (dagen-gebaseerd, reden = thresholdReason) mag een
+      // actieblad enkel aanraken als er nog geen vlag staat, of als de actieve
+      // vlag exact voor deze reden gezet is. Een vlag met een andere reden
+      // (bv. handmatig 'churn_signal' of 'manual') wordt hier niet aangeraakt —
+      // geen escalatie, geen auto-clear, geen berichtupdate.
+      if (currentFlag !== 'none' && currentReason !== thresholdReason) {
+        continue;
+      }
 
       let newFlag = 'none';
       if (thresh.red_days > 0 && days != null && days >= thresh.red_days)         newFlag = 'critical';
       else if (thresh.orange_days > 0 && days != null && days >= thresh.orange_days) newFlag = 'urgent';
       else if (thresh.yellow_days > 0 && days != null && days >= thresh.yellow_days) newFlag = 'attention';
 
-      const currentFlag  = blad.x_flag_level ?? 'none';
       const currentLevel = FLAG_ORDER[currentFlag] ?? 0;
       const newLevel     = FLAG_ORDER[newFlag]     ?? 0;
+
+      // ── Conditie niet meer van toepassing (bv. gebouw weer actief) ──
+      // Enkel wissen als auto_clear_enabled aanstaat voor deze fase/reden.
+      // Staat het uit: niets doen — vlag én bericht blijven bevroren op het
+      // moment van de laatste escalatie, tot CS manueel opruimt.
+      if (newLevel < currentLevel) {
+        if (thresh.auto_clear_enabled) {
+          await write(env, {
+            model: 'x_sales_action_sheet',
+            ids: [blad.id],
+            values: { x_flag_level: 'none', x_flag_reason: null },
+          });
+          flags_updated++;
+          log(`Actieblad ${blad.id}: ${currentFlag} → none (auto-clear, ${days ?? '?'}d, niet meer boven drempel)`);
+        }
+        continue;
+      }
+
       const effectiveFlag = newLevel > currentLevel ? newFlag : currentFlag;
 
       // Schrijf als: escalatie of bericht nog niet actueel (andere datum/dagenteller)
@@ -236,9 +266,9 @@ export async function runFlagCron(env) {
         const values = { x_flag_custom_message: updatedMsg };
         if (isEscalating) {
           values.x_flag_level  = newFlag;
-          values.x_flag_reason = thresh.flag_reason || 'no_activity';
+          values.x_flag_reason = thresholdReason;
           flags_updated++;
-          log(`Actieblad ${blad.id}: ${currentFlag} → ${newFlag} (${days ?? '?'}d, reden: ${thresh.flag_reason || 'no_activity'})`);
+          log(`Actieblad ${blad.id}: ${currentFlag} → ${newFlag} (${days ?? '?'}d, reden: ${thresholdReason})`);
         }
 
         await write(env, {

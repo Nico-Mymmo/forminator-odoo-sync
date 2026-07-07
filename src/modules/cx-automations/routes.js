@@ -133,14 +133,15 @@ export async function handleSaveThresholds({ env, request, user }) {
   }
 
   const rows = thresholds.map(t => ({
-    stage_id:    t.stage_id,
-    stage_name:  t.stage_name || String(t.stage_id), // cache voor leesbaarheid in DB
-    yellow_days: Number(t.yellow_days),
-    orange_days: Number(t.orange_days),
-    red_days:    Number(t.red_days),
-    flag_reason: t.flag_reason || 'no_activity',
-    updated_at:  new Date().toISOString(),
-    updated_by:  user?.email || null,
+    stage_id:           t.stage_id,
+    stage_name:         t.stage_name || String(t.stage_id), // cache voor leesbaarheid in DB
+    yellow_days:        Number(t.yellow_days),
+    orange_days:        Number(t.orange_days),
+    red_days:           Number(t.red_days),
+    flag_reason:        t.flag_reason || 'no_activity',
+    auto_clear_enabled: !!t.auto_clear_enabled,
+    updated_at:         new Date().toISOString(),
+    updated_by:         user?.email || null,
   }));
 
   const { error } = await supabase

@@ -45,7 +45,7 @@
                 Opslaan
               </button>
             </div>
-            <p class="text-xs text-base-content/50 mb-5">Dagen zijn gebaseerd op de laatste activiteit van het bijhorende gebouw in OpenVME. De cron loopt dagelijks en escaleert alleen — nooit omlaag. Stel een waarde in op <strong>0</strong> om dat vlag-niveau uit te schakelen voor die fase.</p>
+            <p class="text-xs text-base-content/50 mb-5">Dagen zijn gebaseerd op de laatste activiteit van het bijhorende gebouw in OpenVME. De cron loopt dagelijks en past een fase-config enkel toe als de actieve vlag (nog) geen andere reden heeft. Stel een waarde in op <strong>0</strong> om dat vlag-niveau uit te schakelen voor die fase. De cron escaleert altijd; met <strong>Auto-wissen</strong> aan verdwijnt de vlag ook automatisch zodra de conditie niet meer geldt — staat dat uit, dan blijft de vlag staan tot iemand ze manueel verwijdert.</p>
 
             <div id="thresholdsTable">
               <div class="flex justify-center py-10">

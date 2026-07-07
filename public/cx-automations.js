@@ -7,7 +7,7 @@ lucide.createIcons();
 
 var odooStages = [];   // [{ id, name }] — dynamisch uit Odoo
 var odooReasons = [];  // [{ value, label }] — dynamisch uit Odoo
-var savedThresholds = {}; // { stage_id: { yellow_days, orange_days, red_days, flag_reason } }
+var savedThresholds = {}; // { stage_id: { yellow_days, orange_days, red_days, flag_reason, auto_clear_enabled } }
 
 // ====== Helpers ======
 
@@ -81,6 +81,7 @@ function renderThresholdsTable() {
     var orange = saved.orange_days != null ? saved.orange_days : 30;
     var red    = saved.red_days    != null ? saved.red_days    : 60;
     var reason = saved.flag_reason || 'no_activity';
+    var autoClear = !!saved.auto_clear_enabled;
     var updatedAt = saved.updated_at ? formatDate(saved.updated_at) : '';
     var updatedBy = saved.updated_by || '';
 
@@ -92,6 +93,10 @@ function renderThresholdsTable() {
 
     return '<tr>'
       + '<td class="py-3 pr-4 font-medium text-sm">' + escapeHtml(stage.name) + '</td>'
+      + '<td class="py-3 px-2">'
+      +   '<select class="select select-bordered select-sm threshold-input" '
+      +     'data-stage-id="' + stage.id + '" data-field="flag_reason">'
+      +   reasonOptsForRow + '</select></td>'
       + '<td class="py-3 px-2"><div class="flex items-center gap-1">'
       +   '<input type="number" min="0" max="365" class="input input-bordered input-sm w-20 text-center threshold-input" '
       +     'data-stage-id="' + stage.id + '" data-field="yellow_days" value="' + yellow + '" />'
@@ -104,10 +109,10 @@ function renderThresholdsTable() {
       +   '<input type="number" min="0" max="365" class="input input-bordered input-sm w-20 text-center threshold-input" '
       +     'data-stage-id="' + stage.id + '" data-field="red_days" value="' + red + '" />'
       +   '<span class="text-xs text-base-content/50">d</span></div></td>'
-      + '<td class="py-3 px-2">'
-      +   '<select class="select select-bordered select-sm threshold-input" '
-      +     'data-stage-id="' + stage.id + '" data-field="flag_reason">'
-      +   reasonOptsForRow + '</select></td>'
+      + '<td class="py-3 px-2 text-center">'
+      +   '<input type="checkbox" class="checkbox checkbox-sm threshold-input" '
+      +     'data-stage-id="' + stage.id + '" data-field="auto_clear_enabled"' + (autoClear ? ' checked' : '') + ' />'
+      + '</td>'
       + '<td class="py-3 pl-4 text-xs text-base-content/40">'
       +   (updatedAt ? updatedAt + (updatedBy ? '<br>' + escapeHtml(updatedBy) : '') : '—')
       + '</td>'
@@ -118,10 +123,11 @@ function renderThresholdsTable() {
     + '<table class="table table-sm w-full">'
     + '<thead><tr>'
     + '<th class="text-xs font-semibold text-base-content/60 pb-2">Fase (Odoo)</th>'
+    + '<th class="text-xs font-semibold text-base-content/60 pb-2 px-2">Reden</th>'
     + '<th class="text-xs font-semibold text-warning pb-2 px-2">🟡 Geel</th>'
     + '<th class="text-xs font-semibold text-orange-500 pb-2 px-2">🟠 Oranje</th>'
     + '<th class="text-xs font-semibold text-error pb-2 px-2">🔴 Rood</th>'
-    + '<th class="text-xs font-semibold text-base-content/60 pb-2 px-2">Reden</th>'
+    + '<th class="text-xs font-semibold text-base-content/60 pb-2 px-2" title="Vlag automatisch wissen zodra de conditie niet meer van toepassing is (bv. gebouw weer actief)">Auto-wissen</th>'
     + '<th class="text-xs font-semibold text-base-content/40 pb-2 pl-4">Laatste wijziging</th>'
     + '</tr></thead>'
     + '<tbody>' + rows + '</tbody>'
@@ -174,7 +180,9 @@ async function saveThresholds() {
       var stage = odooStages.find(function(s) { return s.id === stageId; });
       byStage[stageId] = { stage_id: stageId, stage_name: stage ? stage.name : String(stageId) };
     }
-    byStage[stageId][field] = field === 'flag_reason' ? input.value : (parseInt(input.value) || 0);
+    byStage[stageId][field] = field === 'flag_reason' ? input.value
+      : field === 'auto_clear_enabled' ? input.checked
+      : (parseInt(input.value) || 0);
   });
 
   var thresholds = Object.values(byStage);
