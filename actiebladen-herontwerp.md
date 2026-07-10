@@ -854,10 +854,19 @@ def render_checklist_html(rec):
             meeting_type = item_obj.x_auto_complete_meeting_type
             target_stage = item_obj.x_auto_complete_meeting_stage
             meeting_id = False
-            if clickable and meeting_type:
+            if clickable and meeting_type and target_stage:
+                # Uitsluiten van meetings die de doel-fase al bereikt hebben: bij meerdere
+                # meetings van hetzelfde type wil je klikken op de meeting die nog NIET
+                # op de doel-fase staat (die moet je nog manueel vooruit zetten), niet op
+                # een oudere/andere meeting die toevallig al verder staat. Een meeting die
+                # al op de doel-fase staat maar waarvan de lijn toch nog niet is afgevinkt
+                # (gemiste automation-trigger) wordt opgevangen door de retroactieve
+                # meeting-recheck in "Custom | Sync checklist items to lines" (stap 1b),
+                # niet door deze klik-zoekopdracht.
                 existing_meeting = env['x_as_meetings'].search([
                     ('x_studio_for_action_sheet', '=', rec.id),
                     ('x_studio_meeting_type', '=', meeting_type.id),
+                    ('x_studio_stage_id', '!=', target_stage.id),
                 ], order='id desc', limit=1)
                 if existing_meeting:
                     meeting_id = existing_meeting.id
@@ -985,10 +994,19 @@ def render_checklist_html(rec):
             meeting_type = item_obj.x_auto_complete_meeting_type
             target_stage = item_obj.x_auto_complete_meeting_stage
             meeting_id = False
-            if clickable and meeting_type:
+            if clickable and meeting_type and target_stage:
+                # Uitsluiten van meetings die de doel-fase al bereikt hebben: bij meerdere
+                # meetings van hetzelfde type wil je klikken op de meeting die nog NIET
+                # op de doel-fase staat (die moet je nog manueel vooruit zetten), niet op
+                # een oudere/andere meeting die toevallig al verder staat. Een meeting die
+                # al op de doel-fase staat maar waarvan de lijn toch nog niet is afgevinkt
+                # (gemiste automation-trigger) wordt opgevangen door de retroactieve
+                # meeting-recheck in "Custom | Sync checklist items to lines" (stap 1b),
+                # niet door deze klik-zoekopdracht.
                 existing_meeting = env['x_as_meetings'].search([
                     ('x_studio_for_action_sheet', '=', rec.id),
                     ('x_studio_meeting_type', '=', meeting_type.id),
+                    ('x_studio_stage_id', '!=', target_stage.id),
                 ], order='id desc', limit=1)
                 if existing_meeting:
                     meeting_id = existing_meeting.id
@@ -1123,10 +1141,19 @@ def render_checklist_html(rec):
             meeting_type = item_obj.x_auto_complete_meeting_type
             target_stage = item_obj.x_auto_complete_meeting_stage
             meeting_id = False
-            if clickable and meeting_type:
+            if clickable and meeting_type and target_stage:
+                # Uitsluiten van meetings die de doel-fase al bereikt hebben: bij meerdere
+                # meetings van hetzelfde type wil je klikken op de meeting die nog NIET
+                # op de doel-fase staat (die moet je nog manueel vooruit zetten), niet op
+                # een oudere/andere meeting die toevallig al verder staat. Een meeting die
+                # al op de doel-fase staat maar waarvan de lijn toch nog niet is afgevinkt
+                # (gemiste automation-trigger) wordt opgevangen door de retroactieve
+                # meeting-recheck in "Custom | Sync checklist items to lines" (stap 1b),
+                # niet door deze klik-zoekopdracht.
                 existing_meeting = env['x_as_meetings'].search([
                     ('x_studio_for_action_sheet', '=', rec.id),
                     ('x_studio_meeting_type', '=', meeting_type.id),
+                    ('x_studio_stage_id', '!=', target_stage.id),
                 ], order='id desc', limit=1)
                 if existing_meeting:
                     meeting_id = existing_meeting.id
@@ -1272,7 +1299,7 @@ Aan te maken als een gewone server-actie (model: `x_checklist_item`, actie "Pyth
 1. **Al afgevinkt** (`x_done = True`) — zelfde groen gevuld bolletje als een gewoon item, niet klikbaar, `title="Meeting afgerond"`.
 2. **Nooit manueel klikbaar** (`x_auto_complete_meeting_clickable = False`, bv. "Opstarthulp ingepland") — grijs bolletje met een **kruis (×)** erin (`.metro-dot-locked`), ongeacht of er al een meeting bestaat: dit item vinkt zichzelf automatisch af zodra een meeting van het juiste type de doel-fase bereikt, en mag nooit manueel omgezet worden. `title="Wordt automatisch afgevinkt, niet manueel te klikken"`.
 3. **Wél manueel klikbaar toegestaan, maar nog geen geschikte meeting gevonden** (`x_auto_complete_meeting_clickable = True`, geen meeting van het juiste type aanwezig) — **licht grijs, leeg bolletje** (`.metro-dot-waiting`), niet klikbaar. `title="Wordt automatisch afgevinkt zodra de meeting bestaat"`. CS moet dan zelf een meeting aanmaken (normale weg), niet via de kanban-kaart.
-4. **Wél manueel klikbaar toegestaan, en er bestaat al een meeting van het juiste type** (ongeacht de huidige fase van die meeting — ook als die toevallig al op de doel-fase staat maar de checklist dat nog niet had opgepikt) — **actief bolletje met blauwe rand** (`.metro-dot-meeting-clickable`), klikbaar: een klik schrijft rechtstreeks `x_studio_stage_id` van die **bestaande meeting** naar de doel-fase (niet naar `x_done` op de checklist-lijn zelf — dat gebeurt vanzelf via "Custom | Auto-complete checklist item on meeting added", die op die stage-wijziging triggert). Reden: de fase van een bestaande meeting bijwerken is één simpele write; een meeting *aanmaken* vanuit een klik zou extra info vergen (type, datum, ...) die niet zomaar automatisch in te vullen is — dus dat pad wordt niet ondersteund. **Belangrijk (bugfix):** de zoekopdracht naar een bestaande meeting filtert niet langer op "nog niet op de doel-fase" — elke meeting van het juiste type maakt het bolletje klikbaar, ook eentje die toevallig al op de doel-fase staat (dat dekt meteen het scenario waarbij de auto-complete automation een eerdere stage-wijziging gemist had, zie bug-note; een klik forceert dan alsnog de juiste write/trigger).
+4. **Wél manueel klikbaar toegestaan, en er bestaat al een meeting van het juiste type die de doel-fase nog niet bereikt heeft** — **actief bolletje met blauwe rand** (`.metro-dot-meeting-clickable`), klikbaar: een klik schrijft rechtstreeks `x_studio_stage_id` van die **bestaande meeting** naar de doel-fase (niet naar `x_done` op de checklist-lijn zelf — dat gebeurt vanzelf via "Custom | Auto-complete checklist item on meeting added", die op die stage-wijziging triggert). Reden: de fase van een bestaande meeting bijwerken is één simpele write; een meeting *aanmaken* vanuit een klik zou extra info vergen (type, datum, ...) die niet zomaar automatisch in te vullen is — dus dat pad wordt niet ondersteund. **Meerdere meetings van hetzelfde type (bugfix):** de zoekopdracht sluit meetings die de doel-fase al bereikt hebben expliciet uit (`x_studio_stage_id != doel-fase`) — anders kon bij meerdere meetings van hetzelfde type de verkeerde (bv. een oudere, al voorbije) meeting gekozen worden i.p.v. de meeting die nog effectief vooruitgezet moet worden. Een meeting die de doel-fase al bereikt heeft maar waarvan de checklist-lijn toch nog niet is afgevinkt (gemiste automation-trigger) wordt niet via deze klik-zoekopdracht opgevangen, maar via de retroactieve meeting-recheck (stap 1b) in "Custom | Sync checklist items to lines".
 
 Vereist een tweede inline-JS-constante naast `_METRO_OC`: `_METRO_OC_MEETING`, die net als `_METRO_OC` `event.stopPropagation()`/`event.preventDefault()` gebruikt en optimistisch de dot lokaal op "afgevinkt" zet, maar schrijft naar `x_as_meetings.x_studio_stage_id` i.p.v. naar `x_action_sheet_checkli.x_done`.
 
@@ -1371,7 +1398,9 @@ for meeting in records:
 ```
 Geen `.filtered(lambda ...)` gebruikt om op `x_auto_complete_meeting_stage` te filteren — dat zou `meeting` uit de omsluitende `for`-loop vangen (zelfde `forbidden opcode`-probleem als eerder bij de fase-filter in `render_checklist_html`), dus een gewone `for`-loop met een lijst i.p.v. een lambda.
 
-**Trigger uitgebreid:** niet enkel "bij aanmaken", ook **bij bijwerken van `x_studio_stage_id`** (en evt. `x_studio_meeting_type`) op `x_as_meetings` — nodig omdat een meeting vaak eerst aangemaakt wordt in stage "Nieuw" en pas later naar "Gereed" gaat; de checklist mag pas afvinken zodra die stage-eis (indien ingesteld) voldaan is.
+**Trigger uitgebreid:** niet enkel "bij aanmaken", ook **bij bijwerken van zowel `x_studio_stage_id` als `x_studio_meeting_type`** op `x_as_meetings` — nodig omdat een meeting vaak eerst aangemaakt wordt in stage "Nieuw" en pas later naar "Gereed" gaat; de checklist mag pas afvinken zodra die stage-eis (indien ingesteld) voldaan is. **Beide velden zijn verplicht als trigger-veld, niet enkel de fase** (zie bug-note hieronder) — een meeting kan ook eerst zonder type aangemaakt worden en pas later een type toegewezen krijgen; als enkel `x_studio_stage_id` als trigger-veld staat, mist de automation die tweede write volledig, ook al voldoet de meeting op dat moment al aan de conditie.
+
+**Bug gevonden (live check, "meeting zonder type"):** de automation in Odoo bleek enkel `x_studio_stage_id` als trigger-veld te hebben (bevestigd via `base.automation` id 70, `trigger_field_ids`) — `x_studio_meeting_type` stond er, ondanks de bedoeling hierboven, niet bij. Scenario: een meeting werd aangemaakt zonder type, en kreeg pas nadien een type toegewezen zonder dat de fase op datzelfde moment mee veranderde. Die write raakt enkel `x_studio_meeting_type`, dus de automation vuurde niet — het bijhorende checklist-item bleef onterecht op niet-afgevinkt staan, en de kanban-dot (die enkel herberekend wordt als gevolg van deze automation of van een `x_done`-wijziging) bleef stale. **Fix:** in de automation-configuratie (Instellingen → Technisch → Automatiseringen → "Custom | Auto-complete checklist item on meeting added") `x_studio_meeting_type` toevoegen als tweede trigger-veld naast `x_studio_stage_id` — Studio/Technische UI-wijziging, geen code.
 
 Geen `render_checklist_html()`/HTML-write nodig hier — de `x_done`-write triggert automatisch "Custom | Add done date to checklist items when checked", die de `x_done_date` en de HTML al afhandelt.
 
@@ -1384,7 +1413,7 @@ Zelfde uitbreiding toepassen op **"Custom | Sync checklist items to lines"** (st
 **Acceptatiecriteria:**
 - [x] Velden `x_auto_complete_source`, `x_auto_complete_meeting_type`, `x_auto_complete_meeting_stage`, `x_auto_complete_field` aangemaakt op `x_checklist_item` (bevestigd via Odoo)
 - [ ] Nieuw veld `x_auto_complete_meeting_clickable` (boolean, default False) aangemaakt; True gezet op "Opstarthulp gehouden" (id 8), False/leeg op "Opstarthulp ingepland" (id 7) en de rest
-- [ ] "Custom | Auto-complete checklist item on meeting added" aangemaakt (trigger: aanmaken + `x_studio_stage_id`/`x_studio_meeting_type`) en getest (nieuwe meeting → matchend item wordt afgevinkt, met correcte stage-check indien ingesteld)
+- [ ] "Custom | Auto-complete checklist item on meeting added" aangemaakt (trigger: aanmaken + **beide** `x_studio_stage_id` **en** `x_studio_meeting_type` als trigger-veld — niet enkel de fase, zie bug-note) en getest (nieuwe meeting → matchend item wordt afgevinkt, met correcte stage-check indien ingesteld; ook testen: meeting eerst zonder type aanmaken, dan pas het type instellen → moet ook afvinken)
 - [ ] "Custom | Add Checklist-items on Sales Action Sheets" uitgebreid met retroactieve check (incl. stage-filter)
 - [ ] "Custom | Sync checklist items to lines" uitgebreid met dezelfde retroactieve check
 - [ ] Test: meeting van type "Opstartsessie" bestaat al vóór het item aangemaakt wordt → item komt meteen afgevinkt binnen (rekening houdend met een eventuele meeting-stage-eis)

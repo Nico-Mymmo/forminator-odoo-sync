@@ -25,54 +25,40 @@
 
   <style>
     .CodeMirror { height: 100%; font-size: 12.5px; }
-    .app-frame-wrap { background: repeating-conic-gradient(#f3f4f6 0% 25%, #ffffff 0% 50%) 50% / 20px 20px; }
+    .app-frame-wrap { background: #ffffff; }
 
-    /* Fullpage-modus (via deeplink /mini-apps?app=<id>): #appModal wordt niet
-       showModal() maar show() (non-modaal, geen backdrop, geen inert-making van
-       de rest van de pagina) en krijgt deze klasse. Begint op 48px (hoogte van
-       de vaste navbar) zodat die altijd zichtbaar en klikbaar blijft. */
-    #appModal.app-modal-fullpage {
+    /* Kale fullscreen-viewer ("Openen" / deeplink): geen modal, geen tabs --
+       gewoon de app zelf, met enkel de vaste navbar (48px) erboven. */
+    #appFullscreen {
       position: fixed;
       inset: 48px 0 0 0;
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: calc(100vh - 48px);
-      max-width: 100%;
-      max-height: none;
-      border-radius: 0;
+      z-index: 40;
+      flex-direction: column;
+      background: #fff;
     }
-    #appModal.app-modal-fullpage::backdrop { display: none; }
-    #appModal.app-modal-fullpage .modal-box {
-      width: 100%;
-      height: 100%;
-      max-width: 100%;
-      max-height: none;
-      border-radius: 0;
-      margin: 0;
+    /* ID-selector specificity zou anders de Tailwind-.hidden class-selector
+       overrulen (display:flex zou blijven winnen), waardoor de fullscreen-
+       overlay altijd zichtbaar was -- vandaar deze aparte, meer specifieke
+       override i.p.v. display:flex direct in de #appFullscreen-regel. */
+    #appFullscreen:not(.hidden) {
+      display: flex;
     }
   </style>
 </head>
 <body class="bg-base-200" style="overflow-y: scroll;">
   <div id="navbar"></div>
 
-  <div style="padding-top: 48px;">
+  <div id="mainContent" style="padding-top: 48px;">
     <div class="container mx-auto px-6 py-8 max-w-6xl">
 
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="text-2xl font-bold flex items-center gap-2">
-            <i data-lucide="puzzle" class="w-6 h-6"></i>
-            Mini-apps
-          </h1>
-          <p class="text-sm text-base-content/60 mt-1">
-            Upload zelfgemaakte single-file HTML/JS-tooltjes, gebruik ze, en tweak ze rechtstreeks in de browser.
-          </p>
-        </div>
-        <button class="btn btn-primary gap-2" data-action="openUploadModal">
-          <i data-lucide="upload" class="w-4 h-4"></i>
-          Nieuwe mini-app
-        </button>
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          <i data-lucide="puzzle" class="w-6 h-6"></i>
+          Mini-apps
+        </h1>
+        <p class="text-sm text-base-content/60 mt-1">
+          Upload zelfgemaakte single-file HTML/JS-tooltjes, gebruik ze, en tweak ze rechtstreeks in de browser.
+        </p>
       </div>
 
       <!-- ======= Mijn apps ======= -->
@@ -242,6 +228,12 @@
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
+
+  <!-- ======= Fullscreen mini-app viewer ("Openen" / deeplink) ======= -->
+  <div id="appFullscreen" class="hidden">
+    <div id="appFullscreenErrorBanner" class="hidden bg-error/10 border-b border-error/30 text-error text-xs px-3 py-2 max-h-28 overflow-y-auto shrink-0"></div>
+    <iframe id="appFullscreenFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups" allow="clipboard-write"></iframe>
+  </div>
 
   <div id="toastContainer" class="toast toast-end z-50"></div>
 

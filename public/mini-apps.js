@@ -7,10 +7,12 @@ lucide.createIcons();
 
 var apps = [];               // laatst geladen lijst uit GET /api/apps
 var colleagues = null;       // cache van GET /api/apps/colleagues
-var currentApp = null;       // metadata van de app die open staat in appModal
+var currentApp = null;       // metadata van de app die open staat in appModal (bewerken)
 var currentAppContent = '';  // laatst opgehaalde/opgeslagen HTML-inhoud (RAUW, zonder shim)
 var codeEditor = null;       // CodeMirror-instance (lazy, 1x per pagina-load, value wordt herladen)
 var appErrors = [];          // JS-fouten die de draaiende mini-app naar ons doorstuurt (postMessage)
+var activeFrame = null;      // { frame, banner } -- welke iframe/foutbanner-paar nu actief is
+                              // (appModal-bewerkmodus OF de kale appFullscreen-viewer, nooit beide)
 
 // ====== Helpers ======
 
@@ -40,12 +42,13 @@ function showToast(message, type) {
   }
 }
 
-// ====== Mini-app instrumentatie (preview-iframe) ======
+// ====== Mini-app instrumentatie (preview-/fullscreen-iframe) ======
 //
-// De iframe draait met sandbox="allow-scripts allow-forms allow-modals allow-popups"
-// (bewust ZONDER allow-same-origin -- dat zou de sandbox voor srcdoc-content
-// grotendeels ongedaan maken, omdat de iframe dan hetzelfde origin als deze
-// Operations Manager-pagina zou krijgen). Twee gevolgen daarvan lossen we hier op:
+// Beide iframes (de kleine "Bewerken"-modal en de kale fullscreen-viewer) draaien
+// met sandbox="allow-scripts allow-forms allow-modals allow-popups" (bewust ZONDER
+// allow-same-origin -- dat zou de sandbox grotendeels ongedaan maken, omdat de
+// iframe dan hetzelfde origin als deze Operations Manager-pagina zou krijgen).
+// Twee gevolgen daarvan lossen we hier op:
 //  1. localStorage/sessionStorage zijn niet beschikbaar in een opaque-origin iframe
 //     (Chrome gooit een SecurityError) -- we geven een in-memory polyfill mee zodat
 //     apps die dit gebruiken (bv. een theme-toggle) niet meer crashen. Niet-persistent
@@ -54,7 +57,7 @@ function showToast(message, type) {
 //     gebruiker, niet zichtbaar in de UI. We injecteren een kleine shim die
 //     window.onerror / unhandledrejection doorstuurt via postMessage (werkt ook
 //     vanuit een opaque origin, in tegenstelling tot directe DOM-toegang) zodat we
-//     ze als banner boven de preview kunnen tonen.
+//     ze als banner boven de app kunnen tonen.
 //
 // De shim wordt uitsluitend toegevoegd aan wat we in de iframe laden -- de
 // opgeslagen/bewerkte inhoud (currentAppContent, CodeMirror-waarde) blijft altijd
@@ -91,21 +94,21 @@ function instrumentAppHtml(html) {
   return MINI_APP_SHIM + html;
 }
 
-function resetAppErrors() {
+function resetAppErrors(bannerEl) {
   appErrors = [];
-  var banner = document.getElementById('appErrorBanner');
-  banner.classList.add('hidden');
-  banner.innerHTML = '';
+  if (!bannerEl) return;
+  bannerEl.classList.add('hidden');
+  bannerEl.innerHTML = '';
 }
 
-function renderAppErrors() {
-  var banner = document.getElementById('appErrorBanner');
+function renderAppErrors(bannerEl) {
+  if (!bannerEl) return;
   if (appErrors.length === 0) {
-    banner.classList.add('hidden');
+    bannerEl.classList.add('hidden');
     return;
   }
-  banner.classList.remove('hidden');
-  banner.innerHTML = appErrors.map(function(msg) {
+  bannerEl.classList.remove('hidden');
+  bannerEl.innerHTML = appErrors.map(function(msg) {
     return '<div class="flex items-start gap-1.5 py-0.5">'
       + '<i data-lucide="triangle-alert" class="w-3 h-3 mt-0.5 shrink-0"></i>'
       + '<span>' + escapeHtml(msg) + '</span>'
@@ -115,8 +118,7 @@ function renderAppErrors() {
 }
 
 window.addEventListener('message', function(e) {
-  var frame = document.getElementById('appFrame');
-  if (!frame || e.source !== frame.contentWindow) return;
+  if (!activeFrame || e.source !== activeFrame.frame.contentWindow) return;
   var data = e.data;
   if (!data || !data.__miniAppError) return;
 
@@ -127,7 +129,7 @@ window.addEventListener('message', function(e) {
 
   appErrors.push(text);
   if (appErrors.length > 20) appErrors.shift();
-  renderAppErrors();
+  renderAppErrors(activeFrame.banner);
 });
 
 async function apiFetch(url, options) {
@@ -157,6 +159,52 @@ async function renderNavbar() {
   if (window.renderSharedNavbar) window.renderSharedNavbar(data.navbarHtml);
 }
 
+// Extra "Terug"-link naast de Modules-dropdown in de GEDEELDE navbar, enkel
+// zichtbaar tijdens de kale fullscreen-viewer. navbar.js zelf blijft de enige
+// bron van navbar-HTML (CLAUDE.md-regel) -- dit voegt clientside enkel een
+// tijdelijk element toe aan de al gerenderde navbar, geen eigen navbar-kopie.
+function appendNavbarBackLink(container) {
+  if (document.getElementById('miniAppNavbarBack')) return;
+  var a = document.createElement('a');
+  a.id = 'miniAppNavbarBack';
+  // Terug naar de mini-apps-lijst (niet de Operations Manager-homepage).
+  // href is een fallback (bv. midden-klik/nieuw tabblad); de gewone klik
+  // sluit de fullscreen-viewer in-page, zonder herladen.
+  a.href = '/mini-apps';
+  a.className = 'btn btn-sm btn-ghost gap-2 font-normal';
+  a.innerHTML = '<i data-lucide="arrow-left" class="w-4 h-4"></i> Terug';
+  a.addEventListener('click', function(e) {
+    e.preventDefault();
+    closeAppFullscreen();
+  });
+  container.appendChild(a);
+  lucide.createIcons();
+}
+
+function insertNavbarBackLink() {
+  var container = document.querySelector('#navbar header > div:first-child');
+  if (container) {
+    appendNavbarBackLink(container);
+    return;
+  }
+  // Navbar is (nog) niet geinjecteerd -- wachten tot renderNavbar() klaar is.
+  var navbarEl = document.getElementById('navbar');
+  if (!navbarEl) return;
+  var observer = new MutationObserver(function() {
+    var c = document.querySelector('#navbar header > div:first-child');
+    if (c) {
+      appendNavbarBackLink(c);
+      observer.disconnect();
+    }
+  });
+  observer.observe(navbarEl, { childList: true, subtree: true });
+}
+
+function removeNavbarBackLink() {
+  var el = document.getElementById('miniAppNavbarBack');
+  if (el) el.remove();
+}
+
 // ====== Lijst ======
 
 function visibilityBadge(app) {
@@ -170,6 +218,14 @@ function visibilityBadge(app) {
   return `<span class="badge badge-sm badge-ghost gap-1"><i data-lucide="lock" class="w-3 h-3"></i> Privé</span>`;
 }
 
+var ADD_APP_TILE = `
+  <button type="button" class="card border-2 border-dashed border-base-300 bg-transparent hover:border-primary hover:bg-base-100 transition-colors flex items-center justify-center min-h-[132px]" data-action="openUploadModal">
+    <div class="flex flex-col items-center gap-1.5 text-base-content/50 hover:text-primary">
+      <i data-lucide="plus" class="w-6 h-6"></i>
+      <span class="text-sm font-medium">Nieuwe mini-app</span>
+    </div>
+  </button>`;
+
 function renderAppCard(app) {
   var desc = app.description
     ? `<p class="text-xs text-base-content/60 mt-1 line-clamp-2">${escapeHtml(app.description)}</p>`
@@ -178,21 +234,31 @@ function renderAppCard(app) {
     ? ''
     : `<p class="text-xs text-base-content/40 mt-1">van ${escapeHtml(app.ownerName || 'onbekend')}</p>`;
 
+  // "Openen" = kale fullscreen-viewer voor iedereen (eigenaar en gedeeld-met-mij).
+  // "Bewerken" = de kleine modal met tabs (Voorbeeld/Code/Instellingen) -- enkel eigenaar.
+  var editButton = app.isOwner
+    ? `<button class="btn btn-secondary btn-sm gap-2 flex-1" data-action="openApp" data-id="${app.id}" title="Bewerken">
+         <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+         Bewerken
+       </button>`
+    : '';
+
   return `
-    <div class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 transition-colors">
-      <div class="card-body p-4">
+    <div class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 transition-colors h-full">
+      <div class="card-body p-4 h-full">
         <div class="flex items-start justify-between gap-2">
           <h3 class="font-semibold text-sm truncate" title="${escapeHtml(app.title)}">${escapeHtml(app.title)}</h3>
           ${visibilityBadge(app)}
         </div>
         ${desc}
         ${ownerLine}
-        <div class="card-actions mt-3 flex-nowrap">
-          <button class="btn btn-primary btn-sm gap-2 flex-1" data-action="openApp" data-id="${app.id}">
+        <div class="card-actions mt-auto pt-3 flex-nowrap">
+          <button class="btn btn-primary btn-sm gap-2 flex-1" data-action="openAppFullscreen" data-id="${app.id}">
             <i data-lucide="play" class="w-3.5 h-3.5"></i>
             Openen
           </button>
-          <button class="btn btn-ghost btn-sm btn-square" data-action="copyAppLink" data-id="${app.id}" title="Directe link kopi\u00ebren">
+          ${editButton}
+          <button class="btn btn-ghost btn-sm btn-square" data-action="copyAppLink" data-id="${app.id}" title="Directe link kopiëren">
             <i data-lucide="link" class="w-3.5 h-3.5"></i>
           </button>
         </div>
@@ -207,9 +273,7 @@ function renderAppLists() {
   var ownEl = document.getElementById('ownApps');
   var sharedEl = document.getElementById('sharedApps');
 
-  ownEl.innerHTML = own.length
-    ? own.map(renderAppCard).join('')
-    : `<p class="text-sm text-base-content/40 col-span-full">Nog geen eigen mini-apps — upload je eerste hierboven.</p>`;
+  ownEl.innerHTML = own.map(renderAppCard).join('') + ADD_APP_TILE;
 
   sharedEl.innerHTML = shared.length
     ? shared.map(renderAppCard).join('')
@@ -323,7 +387,59 @@ async function submitUpload() {
   }
 }
 
-// ====== App-modal (draaien / tweaken / instellingen) ======
+// ====== Link kopieren ======
+
+function buildAppLink(id) {
+  return location.origin + '/mini-apps?app=' + encodeURIComponent(id);
+}
+
+function copyAppLink(id) {
+  var link = buildAppLink(id);
+  navigator.clipboard.writeText(link).then(function() {
+    showToast('Link gekopieerd — klaar om te bookmarken of te delen', 'success');
+  }, function() {
+    showToast('Kopiëren mislukt. Link: ' + link, 'error');
+  });
+}
+
+// ====== Kale fullscreen-viewer ("Openen" + deeplink) ======
+//
+// Geen tabs, geen instellingen -- gewoon de app zelf, onder de vaste navbar
+// (die een extra "Terug"-link krijgt zolang dit open staat). Dit is de weg voor
+// iedereen die een "af" mini-app wil GEBRUIKEN, of het nu de eigenaar is of
+// iemand waarmee ze gedeeld is. Bewerken/tweaken gaat via de aparte modal
+// (openApp / knop "Bewerken", enkel zichtbaar voor de eigenaar).
+
+async function openAppFullscreen(id) {
+  try {
+    var contentResult = await apiJson(`/mini-apps/api/apps/${id}/content`);
+
+    var frame = document.getElementById('appFullscreenFrame');
+    var banner = document.getElementById('appFullscreenErrorBanner');
+    activeFrame = { frame: frame, banner: banner };
+    resetAppErrors(banner);
+    frame.srcdoc = instrumentAppHtml(contentResult.content);
+
+    document.getElementById('mainContent').classList.add('hidden');
+    document.getElementById('appFullscreen').classList.remove('hidden');
+    insertNavbarBackLink();
+
+    history.replaceState(null, '', '/mini-apps?app=' + encodeURIComponent(id));
+  } catch (err) {
+    showToast('App openen mislukt: ' + err.message, 'error');
+  }
+}
+
+function closeAppFullscreen() {
+  document.getElementById('appFullscreen').classList.add('hidden');
+  document.getElementById('mainContent').classList.remove('hidden');
+  document.getElementById('appFullscreenFrame').srcdoc = 'about:blank';
+  removeNavbarBackLink();
+  activeFrame = null;
+  history.replaceState(null, '', '/mini-apps');
+}
+
+// ====== App-modal ("Bewerken" -- enkel eigenaar: draaien + tweaken + instellingen) ======
 
 function ensureCodeEditor() {
   if (codeEditor) return codeEditor;
@@ -354,21 +470,7 @@ function switchAppTab(tab) {
   }
 }
 
-function buildAppLink(id) {
-  return location.origin + '/mini-apps?app=' + encodeURIComponent(id);
-}
-
-function copyAppLink(id) {
-  var link = buildAppLink(id);
-  navigator.clipboard.writeText(link).then(function() {
-    showToast('Link gekopieerd \u2014 klaar om te bookmarken of te delen', 'success');
-  }, function() {
-    showToast('Kopi\u00ebren mislukt. Link: ' + link, 'error');
-  });
-}
-
-async function openApp(id, opts) {
-  opts = opts || {};
+async function openApp(id) {
   try {
     var meta = await apiJson(`/mini-apps/api/apps/${id}`);
     var contentResult = await apiJson(`/mini-apps/api/apps/${id}/content`);
@@ -382,8 +484,11 @@ async function openApp(id, opts) {
     document.getElementById('appTabCode').classList.toggle('hidden', !meta.isOwner);
     document.getElementById('appTabSettings').classList.toggle('hidden', !meta.isOwner);
 
-    resetAppErrors();
-    document.getElementById('appFrame').srcdoc = instrumentAppHtml(currentAppContent);
+    var frame = document.getElementById('appFrame');
+    var banner = document.getElementById('appErrorBanner');
+    activeFrame = { frame: frame, banner: banner };
+    resetAppErrors(banner);
+    frame.srcdoc = instrumentAppHtml(currentAppContent);
 
     if (meta.isOwner) {
       document.getElementById('settingsTitle').value = meta.title;
@@ -401,33 +506,20 @@ async function openApp(id, opts) {
 
     document.getElementById('appCodeStatus').textContent = `v${meta.version}`;
     switchAppTab('preview');
-
-    var modal = document.getElementById('appModal');
-    modal.classList.toggle('app-modal-fullpage', !!opts.fullPage);
-    if (opts.fullPage) {
-      // Non-modaal: geen browser-backdrop, geen inert-making van de rest van de
-      // pagina -- de navbar (die buiten dit paneel valt, zie CSS) blijft klikbaar.
-      modal.show();
-    } else {
-      modal.showModal();
-    }
+    document.getElementById('appModal').showModal();
     lucide.createIcons();
-    history.replaceState(null, '', '/mini-apps?app=' + encodeURIComponent(id));
   } catch (err) {
     showToast('App openen mislukt: ' + err.message, 'error');
-    history.replaceState(null, '', '/mini-apps');
   }
 }
 
 function closeAppModal() {
-  var modal = document.getElementById('appModal');
-  modal.close();
-  modal.classList.remove('app-modal-fullpage');
+  document.getElementById('appModal').close();
   currentApp = null;
   currentAppContent = '';
-  resetAppErrors();
+  resetAppErrors(document.getElementById('appErrorBanner'));
   document.getElementById('appFrame').srcdoc = 'about:blank';
-  history.replaceState(null, '', '/mini-apps');
+  activeFrame = null;
 }
 
 async function saveAppCode() {
@@ -443,7 +535,8 @@ async function saveAppCode() {
     });
     currentApp = Object.assign(currentApp, updated);
     currentAppContent = content;
-    resetAppErrors();
+    var banner = document.getElementById('appErrorBanner');
+    resetAppErrors(banner);
     document.getElementById('appFrame').srcdoc = instrumentAppHtml(currentAppContent);
     document.getElementById('appCodeStatus').textContent = `v${updated.version} — opgeslagen`;
     showToast('Opgeslagen en herladen.', 'success');
@@ -504,6 +597,7 @@ document.addEventListener('click', function(e) {
     if (action === 'openUploadModal') openUploadModal();
     else if (action === 'closeUploadModal') closeUploadModal();
     else if (action === 'submitUpload') submitUpload();
+    else if (action === 'openAppFullscreen') openAppFullscreen(el.dataset.id);
     else if (action === 'openApp') openApp(el.dataset.id);
     else if (action === 'copyAppLink') copyAppLink(el.dataset.id);
     else if (action === 'copyCurrentAppLink') { if (currentApp) copyAppLink(currentApp.id); }
@@ -522,22 +616,21 @@ document.addEventListener('change', function(e) {
   if (e.target.name === 'settingsVisibility') toggleColleaguesWrap('settingsVisibility', 'settingsColleaguesWrap');
 });
 
+// Escape sluit de kale fullscreen-viewer (die geen eigen sluit-knop heeft).
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  if (!document.getElementById('appFullscreen').classList.contains('hidden')) closeAppFullscreen();
+});
+
 // ====== Init ======
 
 renderNavbar();
 loadApps();
 
-// Directe/bookmarkbare link: /mini-apps?app=<id> opent die app meteen,
-// onafhankelijk van de lijst (zelfde openApp() als vanuit een kaart).
+// Directe/bookmarkbare link: /mini-apps?app=<id> opent die app meteen fullscreen,
+// onafhankelijk van de lijst -- ook voor de eigenaar (bewerken gaat via de losse
+// "Bewerken"-knop in de lijst, niet via de deeplink).
 (function openFromQueryString() {
   var appId = new URLSearchParams(location.search).get('app');
-  if (appId) openApp(appId, { fullPage: true });
+  if (appId) openAppFullscreen(appId);
 })();
-
-// Escape sluit ook de fullpage-variant (show() doet dit -- in tegenstelling tot
-// showModal() -- niet automatisch, want er is geen native modal-gedrag).
-document.addEventListener('keydown', function(e) {
-  if (e.key !== 'Escape') return;
-  var modal = document.getElementById('appModal');
-  if (modal.open && modal.classList.contains('app-modal-fullpage')) closeAppModal();
-});
