@@ -34,7 +34,8 @@ export function navbar(user) {
     'asset_manager': 'hard-drive',
     'cx_powerboard': 'layout-dashboard',
     'wp_form_schemas': 'file-code',
-    'claude_integration': 'bot'
+    'claude_integration': 'bot',
+    'mini_apps': 'puzzle'
   };
 
   // Inline SVG's voor vaste navbar-iconen (onafhankelijk van lucide-init)
@@ -55,6 +56,24 @@ export function navbar(user) {
     settings: svg('<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>', 14),
     monitor: svg('<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>', 14)
   };
+
+  // Iconnaam voor de favorieten-blokjes -- vrije DB-tekst (door de eigenaar
+  // gekozen in de mini-apps-instellingen), dus defensief valideren voor die
+  // in een data-lucide-attribuut belandt. Onbekend/leeg -> 'puzzle'.
+  function safeIconName(name) {
+    return /^[a-z0-9-]+$/.test(String(name || '')) ? name : 'puzzle';
+  }
+
+  // HTML-escape voor user-gecontroleerde strings (bv. mini-app-titels) die we
+  // hier via string-concatenatie in de navbar-HTML plakken.
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
   // ---------- Modules uit user.modules ----------
   const userModules = (user && user.modules) || [];
@@ -137,6 +156,28 @@ export function navbar(user) {
     return '<a href="' + m.route + '" class="btn btn-xs btn-ghost gap-1.5 font-normal text-base-content/70 hover:text-base-content">'
       + icon + utilityLabel(m) + '</a>';
   }).join('');
+
+  // Favoriete mini-apps rechtsboven -- blokjes vlak naast de andere rechtse
+  // knoppen, links uitgelijnd binnen die rechtse sectie (dus naast het
+  // midden, niet tegen de avatar aan). Data komt van user.favoriteMiniApps
+  // (session.js voegt dit toe tijdens validateSession, o.b.v. de tabel
+  // mini_app_favorites) -- navbar.js blijft zelf de enige plek die deze data
+  // omzet naar HTML.
+  // navbarFavorites-container en -divider staan ALTIJD in de HTML (ook leeg,
+  // 0 favorieten -> gewoon geen kinderen, geen zichtbare ruimte-inname) --
+  // zo kan mini-apps.js de "Terug"-link altijd als eerste (meest linkse)
+  // kind in navbarFavorites zetten zonder de rest van de navbar (utility-
+  // knoppen, avatar) van positie te laten verspringen.
+  const favoriteApps = (user && Array.isArray(user.favoriteMiniApps)) ? user.favoriteMiniApps : [];
+  const favoritesMenu = '<div id="navbarFavorites" class="hidden md:flex items-center gap-1">'
+    + favoriteApps.map(function (a) {
+        return '<a href="/mini-apps?app=' + encodeURIComponent(a.id) + '" class="btn btn-xs btn-ghost border border-base-300 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]" title="' + escapeHtml(a.title) + '">'
+          + '<i data-lucide="' + safeIconName(a.icon) + '" class="w-3 h-3"></i>'
+          + '<span class="truncate">' + escapeHtml(a.title) + '</span>'
+          + '</a>';
+      }).join('')
+    + '</div>'
+    + '<div id="navbarFavoritesDivider" class="w-px h-4 bg-base-300 mx-1' + (favoriteApps.length > 0 ? '' : ' hidden') + '"></div>';
 
   // Thema-selector (alle 29 daisyUI-thema's) als sub-lijst in het avatar-menu
   const themeItems = THEMES.map(function (t) {
@@ -269,6 +310,7 @@ export function navbar(user) {
     + '</div>'
     + '<div id="saveIndicator" class="flex items-center gap-1 text-xs text-base-content/50"></div>'
     + '<div class="flex items-center gap-1">'
+    + favoritesMenu
     + (utilityButtons ? '<div class="hidden md:flex items-center gap-1">' + utilityButtons + '<div class="w-px h-4 bg-base-300 mx-1"></div></div>' : '')
     + avatarMenu
     + '</div>'

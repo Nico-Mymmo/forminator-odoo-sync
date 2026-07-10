@@ -15,6 +15,8 @@
  *    PUT    /api/apps/:id              → Metadata bijwerken (owner only)
  *    PUT    /api/apps/:id/content      → HTML-inhoud bijwerken — "tweaken" (owner only)
  *    DELETE /api/apps/:id              → App verwijderen (owner only)
+ *    PUT    /api/apps/:id/favorite     → Favoriet markeren (view-only volstaat)
+ *    DELETE /api/apps/:id/favorite     → Favoriet verwijderen
  *
  * ─── Rechten ─────────────────────────────────────────────────────────────────
  *
@@ -31,7 +33,7 @@ const LOG_PREFIX = '[mini-apps]';
 
 export const MAX_APP_BYTES = 2 * 1024 * 1024; // 2 MB — ruim voldoende voor single-file HTML/JS/CSS
 
-const SELECT_FIELDS = 'id, title, description, owner_user_id, visibility, shared_user_ids, size_bytes, version, created_at, updated_at';
+const SELECT_FIELDS = 'id, title, description, owner_user_id, visibility, shared_user_ids, size_bytes, version, created_at, updated_at, icon';
 
 // ─── Response helpers ────────────────────────────────────────────────────────
 
@@ -49,6 +51,20 @@ function jsonError(message, status = 500, code = undefined) {
 }
 
 const VALID_VISIBILITIES = ['private', 'shared', 'specific'];
+
+// Lucide-iconnamen die de eigenaar mag kiezen in de Instellingen-tab (dropdown).
+// Moet in sync blijven met ICON_OPTIONS in public/mini-apps.js (daar staan ook
+// de Nederlandse labels bij). Vrije DB-kolom, maar hier hard gevalideerd zodat
+// er nooit een willekeurige string in de HTML-attributen (kaart, navbar) belandt.
+const VALID_ICONS = [
+  'puzzle', 'calculator', 'wrench', 'gauge', 'file-text', 'table', 'list-checks',
+  'clipboard-list', 'dollar-sign', 'percent', 'clock', 'calendar', 'map', 'image',
+  'qr-code', 'hash', 'ruler', 'scale', 'banknote', 'receipt', 'timer', 'hourglass',
+  'sparkles', 'wand-2', 'package', 'box', 'folder', 'link', 'globe', 'mail', 'phone',
+  'users', 'building-2', 'briefcase', 'tag', 'gift', 'lightbulb', 'flask-conical',
+  'code', 'terminal', 'database', 'bar-chart-2', 'pie-chart', 'trending-up',
+  'shopping-cart', 'truck', 'file-spreadsheet', 'clipboard-check'
+];
 
 function looksLikeHtml(file) {
   const name = (file?.name || '').toLowerCase();
@@ -74,6 +90,17 @@ async function attachOwnerNames(supabase, apps) {
   return apps.map(a => ({ ...a, ownerName: ownerMap.get(a.owner_user_id) || 'Onbekend' }));
 }
 
+/**
+ * Haalt de set mini_app_id's op die deze user als favoriet heeft gemarkeerd.
+ */
+async function getFavoriteAppIds(supabase, userId) {
+  const { data } = await supabase
+    .from('mini_app_favorites')
+    .select('mini_app_id')
+    .eq('user_id', userId);
+  return new Set((data || []).map(r => r.mini_app_id));
+}
+
 // ─── Route handlers ──────────────────────────────────────────────────────────
 
 export const routes = {
@@ -97,8 +124,15 @@ export const routes = {
       return jsonError('Lijst ophalen mislukt.', 500);
     }
 
-    const withOwners = await attachOwnerNames(supabase, data || []);
-    return jsonOk(withOwners.map(a => ({ ...a, isOwner: a.owner_user_id === user.id })));
+    const [withOwners, favoriteIds] = await Promise.all([
+      attachOwnerNames(supabase, data || []),
+      getFavoriteAppIds(supabase, user.id)
+    ]);
+    return jsonOk(withOwners.map(a => ({
+      ...a,
+      isOwner: a.owner_user_id === user.id,
+      isFavorite: favoriteIds.has(a.id)
+    })));
   },
 
   // ── Collega's voor share-picker ──────────────────────────────────────────
@@ -214,8 +248,11 @@ export const routes = {
     if (!app) return jsonError('App niet gevonden.', 404);
     if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
 
-    const [withOwner] = await attachOwnerNames(supabase, [app]);
-    return jsonOk({ ...withOwner, isOwner: app.owner_user_id === user.id });
+    const [[withOwner], favoriteIds] = await Promise.all([
+      attachOwnerNames(supabase, [app]),
+      getFavoriteAppIds(supabase, user.id)
+    ]);
+    return jsonOk({ ...withOwner, isOwner: app.owner_user_id === user.id, isFavorite: favoriteIds.has(app.id) });
   },
 
   // ── Eén app — HTML-inhoud ────────────────────────────────────────────────
@@ -273,6 +310,12 @@ export const routes = {
       update.shared_user_ids = body.visibility === 'specific'
         ? normalizeSharedUserIds(body.sharedUserIds, user.id)
         : [];
+    }
+    if (body.icon !== undefined) {
+      if (!VALID_ICONS.includes(body.icon)) {
+        return jsonError('Ongeldig icoon.', 400, 'INVALID_ICON');
+      }
+      update.icon = body.icon;
     }
 
     if (Object.keys(update).length === 0) {
@@ -376,6 +419,50 @@ export const routes = {
 
     console.log(`${LOG_PREFIX} DELETE ${app.id} — user ${user.id}`);
     return jsonOk({ id: app.id });
+  },
+
+  // ── Favoriet markeren (view-toegang volstaat) ────────────────────
+  'PUT /api/apps/:id/favorite': async ({ env, user, params }) => {
+    const supabase = getSupabaseClient(env);
+    const { data: app, error: fetchError } = await supabase
+      .from('mini_apps')
+      .select(SELECT_FIELDS)
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchError) return jsonError('App ophalen mislukt.', 500);
+    if (!app) return jsonError('App niet gevonden.', 404);
+    if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
+
+    const { error: favError } = await supabase
+      .from('mini_app_favorites')
+      .upsert({ user_id: user.id, mini_app_id: app.id }, { onConflict: 'user_id,mini_app_id' });
+
+    if (favError) {
+      console.error(`${LOG_PREFIX} favorite error:`, favError.message);
+      return jsonError('Favoriet markeren mislukt.', 500);
+    }
+
+    console.log(`${LOG_PREFIX} FAVORITE ${app.id} — user ${user.id}`);
+    return jsonOk({ id: app.id, isFavorite: true });
+  },
+
+  // ── Favoriet verwijderen ────────────────────
+  'DELETE /api/apps/:id/favorite': async ({ env, user, params }) => {
+    const supabase = getSupabaseClient(env);
+    const { error: unfavError } = await supabase
+      .from('mini_app_favorites')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('mini_app_id', params.id);
+
+    if (unfavError) {
+      console.error(`${LOG_PREFIX} unfavorite error:`, unfavError.message);
+      return jsonError('Favoriet verwijderen mislukt.', 500);
+    }
+
+    console.log(`${LOG_PREFIX} UNFAVORITE ${params.id} — user ${user.id}`);
+    return jsonOk({ id: params.id, isFavorite: false });
   },
 
 };

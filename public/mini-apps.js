@@ -171,18 +171,22 @@ function appendNavbarBackLink(container) {
   // href is een fallback (bv. midden-klik/nieuw tabblad); de gewone klik
   // sluit de fullscreen-viewer in-page, zonder herladen.
   a.href = '/mini-apps';
-  a.className = 'btn btn-sm btn-ghost gap-2 font-normal';
-  a.innerHTML = '<i data-lucide="arrow-left" class="w-4 h-4"></i> Terug';
+  a.className = 'btn btn-xs btn-ghost border border-base-300 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40';
+  a.innerHTML = '<i data-lucide="arrow-left" class="w-3 h-3"></i> Terug';
   a.addEventListener('click', function(e) {
     e.preventDefault();
     closeAppFullscreen();
   });
-  container.appendChild(a);
+  // Als eerste (meest linkse) blokje in de favorietenlijst -- zo verspringen
+  // de utility-knoppen en de avatar rechts ervan niet van positie.
+  container.insertBefore(a, container.firstChild);
+  var divider = document.getElementById('navbarFavoritesDivider');
+  if (divider) divider.classList.remove('hidden');
   lucide.createIcons();
 }
 
 function insertNavbarBackLink() {
-  var container = document.querySelector('#navbar header > div:first-child');
+  var container = document.getElementById('navbarFavorites');
   if (container) {
     appendNavbarBackLink(container);
     return;
@@ -191,7 +195,7 @@ function insertNavbarBackLink() {
   var navbarEl = document.getElementById('navbar');
   if (!navbarEl) return;
   var observer = new MutationObserver(function() {
-    var c = document.querySelector('#navbar header > div:first-child');
+    var c = document.getElementById('navbarFavorites');
     if (c) {
       appendNavbarBackLink(c);
       observer.disconnect();
@@ -203,6 +207,83 @@ function insertNavbarBackLink() {
 function removeNavbarBackLink() {
   var el = document.getElementById('miniAppNavbarBack');
   if (el) el.remove();
+  var container = document.getElementById('navbarFavorites');
+  var divider = document.getElementById('navbarFavoritesDivider');
+  if (container && divider && container.children.length === 0) {
+    divider.classList.add('hidden');
+  }
+}
+
+// ====== Iconen ======
+//
+// Moet in sync blijven met VALID_ICONS in src/modules/mini-apps/routes.js
+// (dezelfde iconnamen, hier met een Nederlands label voor de dropdown).
+
+var ICON_OPTIONS = [
+  { value: 'puzzle', label: 'Puzzelstuk (standaard)' },
+  { value: 'calculator', label: 'Rekenmachine' },
+  { value: 'wrench', label: 'Moersleutel' },
+  { value: 'gauge', label: 'Meter' },
+  { value: 'file-text', label: 'Document' },
+  { value: 'table', label: 'Tabel' },
+  { value: 'list-checks', label: 'Checklist' },
+  { value: 'clipboard-list', label: 'Klembord' },
+  { value: 'dollar-sign', label: 'Dollar' },
+  { value: 'percent', label: 'Percentage' },
+  { value: 'clock', label: 'Klok' },
+  { value: 'calendar', label: 'Kalender' },
+  { value: 'map', label: 'Kaart' },
+  { value: 'image', label: 'Afbeelding' },
+  { value: 'qr-code', label: 'QR-code' },
+  { value: 'hash', label: 'Hekje' },
+  { value: 'ruler', label: 'Liniaal' },
+  { value: 'scale', label: 'Weegschaal' },
+  { value: 'banknote', label: 'Bankbiljet' },
+  { value: 'receipt', label: 'Bonnetje' },
+  { value: 'timer', label: 'Timer' },
+  { value: 'hourglass', label: 'Zandloper' },
+  { value: 'sparkles', label: 'Sterretjes' },
+  { value: 'wand-2', label: 'Toverstok' },
+  { value: 'package', label: 'Pakket' },
+  { value: 'box', label: 'Doos' },
+  { value: 'folder', label: 'Map' },
+  { value: 'link', label: 'Link' },
+  { value: 'globe', label: 'Wereldbol' },
+  { value: 'mail', label: 'E-mail' },
+  { value: 'phone', label: 'Telefoon' },
+  { value: 'users', label: 'Gebruikers' },
+  { value: 'building-2', label: 'Gebouw' },
+  { value: 'briefcase', label: 'Koffer' },
+  { value: 'tag', label: 'Label' },
+  { value: 'gift', label: 'Cadeau' },
+  { value: 'lightbulb', label: 'Lamp' },
+  { value: 'flask-conical', label: 'Kolf' },
+  { value: 'code', label: 'Code' },
+  { value: 'terminal', label: 'Terminal' },
+  { value: 'database', label: 'Database' },
+  { value: 'bar-chart-2', label: 'Staafdiagram' },
+  { value: 'pie-chart', label: 'Taartdiagram' },
+  { value: 'trending-up', label: 'Trend' },
+  { value: 'shopping-cart', label: 'Winkelwagen' },
+  { value: 'truck', label: 'Vrachtwagen' },
+  { value: 'file-spreadsheet', label: 'Spreadsheet' },
+  { value: 'clipboard-check', label: 'Afgevinkt klembord' }
+];
+
+// Vult de dropdown eenmalig -- daarna enkel .value + preview bijwerken per app.
+function initIconSelect() {
+  var select = document.getElementById('settingsIcon');
+  if (!select || select.options.length > 0) return;
+  select.innerHTML = ICON_OPTIONS.map(function(opt) {
+    return `<option value="${opt.value}">${opt.label}</option>`;
+  }).join('');
+}
+
+function updateIconPreview(iconName) {
+  var wrap = document.getElementById('settingsIconPreviewWrap');
+  if (!wrap) return;
+  wrap.innerHTML = `<i data-lucide="${iconName || 'puzzle'}" class="w-4 h-4"></i>`;
+  lucide.createIcons();
 }
 
 // ====== Lijst ======
@@ -243,11 +324,21 @@ function renderAppCard(app) {
        </button>`
     : '';
 
+  // Favoriet: blokje bovenaan in de gedeelde navbar (zie navbar.js +
+  // session.js). Werkt op zowel eigen als gedeelde apps.
+  var favActive = !!app.isFavorite;
+  var favButton = `<button class="btn btn-ghost btn-sm btn-square${favActive ? ' text-error' : ''}" data-action="toggleFavorite" data-id="${app.id}" data-favorite="${favActive ? '1' : '0'}" title="${favActive ? 'Favoriet verwijderen' : 'Als favoriet markeren'}">
+         <i data-lucide="heart" class="w-3.5 h-3.5${favActive ? ' fill-current' : ''}"></i>
+       </button>`;
+
   return `
     <div class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 transition-colors h-full">
       <div class="card-body p-4 h-full">
         <div class="flex items-start justify-between gap-2">
-          <h3 class="font-semibold text-sm truncate" title="${escapeHtml(app.title)}">${escapeHtml(app.title)}</h3>
+          <div class="flex items-center gap-1.5 min-w-0">
+            <i data-lucide="${app.icon || 'puzzle'}" class="w-4 h-4 text-base-content/50 shrink-0"></i>
+            <h3 class="font-semibold text-sm truncate" title="${escapeHtml(app.title)}">${escapeHtml(app.title)}</h3>
+          </div>
           ${visibilityBadge(app)}
         </div>
         ${desc}
@@ -258,6 +349,7 @@ function renderAppCard(app) {
             Openen
           </button>
           ${editButton}
+          ${favButton}
           <button class="btn btn-ghost btn-sm btn-square" data-action="copyAppLink" data-id="${app.id}" title="Directe link kopiëren">
             <i data-lucide="link" class="w-3.5 h-3.5"></i>
           </button>
@@ -422,10 +514,15 @@ async function openAppFullscreen(id) {
 
     document.getElementById('mainContent').classList.add('hidden');
     document.getElementById('appFullscreen').classList.remove('hidden');
+    // Opruimen: enkel relevant voor de allereerste paint van een directe
+    // link (zie de inline <script> in mini-apps.html) -- de klassen hierboven
+    // regelen de zichtbaarheid vanaf nu zelf.
+    document.documentElement.classList.remove('mini-app-deeplink');
     insertNavbarBackLink();
 
     history.replaceState(null, '', '/mini-apps?app=' + encodeURIComponent(id));
   } catch (err) {
+    document.documentElement.classList.remove('mini-app-deeplink');
     showToast('App openen mislukt: ' + err.message, 'error');
   }
 }
@@ -434,6 +531,9 @@ function closeAppFullscreen() {
   document.getElementById('appFullscreen').classList.add('hidden');
   document.getElementById('mainContent').classList.remove('hidden');
   document.getElementById('appFullscreenFrame').srcdoc = 'about:blank';
+  // Anders zou mainContent verborgen blijven (zie html.mini-app-deeplink
+  // #mainContent-regel in mini-apps.html) als deze klasse nog aanstond.
+  document.documentElement.classList.remove('mini-app-deeplink');
   removeNavbarBackLink();
   activeFrame = null;
   history.replaceState(null, '', '/mini-apps');
@@ -493,6 +593,8 @@ async function openApp(id) {
     if (meta.isOwner) {
       document.getElementById('settingsTitle').value = meta.title;
       document.getElementById('settingsDescription').value = meta.description || '';
+      document.getElementById('settingsIcon').value = meta.icon || 'puzzle';
+      updateIconPreview(meta.icon || 'puzzle');
       var radio = document.querySelector(`input[name="settingsVisibility"][value="${meta.visibility}"]`);
       if (radio) radio.checked = true;
       toggleColleaguesWrap('settingsVisibility', 'settingsColleaguesWrap');
@@ -551,6 +653,7 @@ async function saveAppSettings() {
 
   var title = document.getElementById('settingsTitle').value.trim();
   var description = document.getElementById('settingsDescription').value.trim();
+  var icon = document.getElementById('settingsIcon').value;
   var visibility = document.querySelector('input[name="settingsVisibility"]:checked').value;
   var sharedUserIds = visibility === 'specific'
     ? getCheckedColleagueIds(document.getElementById('settingsColleaguesList'))
@@ -562,7 +665,7 @@ async function saveAppSettings() {
     var updated = await apiJson(`/mini-apps/api/apps/${currentApp.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, description, visibility, sharedUserIds })
+      body: JSON.stringify({ title, description, icon, visibility, sharedUserIds })
     });
     currentApp = Object.assign(currentApp, updated);
     document.getElementById('appModalTitle').textContent = updated.title;
@@ -588,6 +691,26 @@ async function deleteApp() {
   }
 }
 
+// ====== Favorieten ======
+//
+// Favoriete mini-apps verschijnen als blokjes rechtsboven in de gedeelde
+// navbar (server-side gerenderd, zie navbar.js + session.js). Na het
+// toggelen herladen we zowel de kaarten als de navbar, zodat het blokje
+// meteen verschijnt/verdwijnt zonder volledige paginaherlaad.
+
+async function toggleFavorite(id, isFavorite) {
+  try {
+    if (isFavorite) {
+      await apiJson(`/mini-apps/api/apps/${id}/favorite`, { method: 'DELETE' });
+    } else {
+      await apiJson(`/mini-apps/api/apps/${id}/favorite`, { method: 'PUT' });
+    }
+    await Promise.all([loadApps(), renderNavbar()]);
+  } catch (err) {
+    showToast('Favoriet wijzigen mislukt: ' + err.message, 'error');
+  }
+}
+
 // ====== Event delegation ======
 
 document.addEventListener('click', function(e) {
@@ -600,6 +723,7 @@ document.addEventListener('click', function(e) {
     else if (action === 'openAppFullscreen') openAppFullscreen(el.dataset.id);
     else if (action === 'openApp') openApp(el.dataset.id);
     else if (action === 'copyAppLink') copyAppLink(el.dataset.id);
+    else if (action === 'toggleFavorite') toggleFavorite(el.dataset.id, el.dataset.favorite === '1');
     else if (action === 'copyCurrentAppLink') { if (currentApp) copyAppLink(currentApp.id); }
     else if (action === 'closeAppModal') closeAppModal();
     else if (action === 'saveAppCode') saveAppCode();
@@ -614,6 +738,26 @@ document.addEventListener('click', function(e) {
 document.addEventListener('change', function(e) {
   if (e.target.name === 'uploadVisibility') toggleColleaguesWrap('uploadVisibility', 'uploadColleaguesWrap');
   if (e.target.name === 'settingsVisibility') toggleColleaguesWrap('settingsVisibility', 'settingsColleaguesWrap');
+  if (e.target.id === 'settingsIcon') updateIconPreview(e.target.value);
+});
+
+// Links naar /mini-apps?app=<id> binnen deze pagina onderscheppen (navbar-
+// favorieten, en eventuele andere links) -- schakel in-page over naar de
+// nieuwe app i.p.v. een volledige paginanavigatie.
+document.addEventListener('click', function(e) {
+  var link = e.target.closest('a[href]');
+  if (!link) return;
+  var url;
+  try {
+    url = new URL(link.href, location.href);
+  } catch (_err) {
+    return;
+  }
+  if (url.pathname !== '/mini-apps') return;
+  var appId = url.searchParams.get('app');
+  if (!appId) return;
+  e.preventDefault();
+  openAppFullscreen(appId);
 });
 
 // Escape sluit de kale fullscreen-viewer (die geen eigen sluit-knop heeft).
@@ -626,6 +770,7 @@ document.addEventListener('keydown', function(e) {
 
 renderNavbar();
 loadApps();
+initIconSelect();
 
 // Directe/bookmarkbare link: /mini-apps?app=<id> opent die app meteen fullscreen,
 // onafhankelijk van de lijst -- ook voor de eigenaar (bewerken gaat via de losse

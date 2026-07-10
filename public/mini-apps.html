@@ -8,6 +8,14 @@
     (function() {
       var t = localStorage.getItem('selectedTheme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
+      // Directe/bookmarked link (?app=<id>): meteen de lege fullscreen-viewer
+      // tonen i.p.v. eerst het lijst-overzicht te flashen -- voorkomt de
+      // korte "flits" naar het overzicht voordat mini-apps.js de
+      // app-inhoud heeft opgehaald en pas dan omschakelt (zie CSS + de
+      // classList-cleanup in openAppFullscreen()/closeAppFullscreen()).
+      if (new URLSearchParams(location.search).get('app')) {
+        document.documentElement.classList.add('mini-app-deeplink');
+      }
     })();
   </script>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
@@ -41,6 +49,16 @@
        overlay altijd zichtbaar was -- vandaar deze aparte, meer specifieke
        override i.p.v. display:flex direct in de #appFullscreen-regel. */
     #appFullscreen:not(.hidden) {
+      display: flex;
+    }
+
+    /* Zie de inline <script> hierboven: bij een directe/bookmarked link
+       tonen we de (nog lege) fullscreen-viewer al voor de eerste paint,
+       i.p.v. het lijst-overzicht dat er anders eerst kort te zien zou zijn. */
+    html.mini-app-deeplink #mainContent {
+      display: none;
+    }
+    html.mini-app-deeplink #appFullscreen.hidden {
       display: flex;
     }
   </style>
@@ -191,6 +209,15 @@
         <div class="form-control mb-3">
           <label class="label pb-1"><span class="label-text text-xs font-semibold">Omschrijving</span></label>
           <input type="text" id="settingsDescription" class="input input-bordered input-sm" />
+        </div>
+        <div class="form-control mb-3">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold">Icoon</span></label>
+          <div class="flex items-center gap-3">
+            <div id="settingsIconPreviewWrap" class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
+              <i data-lucide="puzzle" class="w-4 h-4"></i>
+            </div>
+            <select id="settingsIcon" class="select select-bordered select-sm flex-1"></select>
+          </div>
         </div>
         <div class="form-control mb-4">
           <label class="label pb-1"><span class="label-text text-xs font-semibold">Zichtbaarheid</span></label>

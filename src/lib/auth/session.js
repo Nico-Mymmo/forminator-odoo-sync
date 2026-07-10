@@ -111,6 +111,26 @@ export async function validateSession(env, token) {
   // Attach full user_modules to user (includes is_enabled flag and module data)
   session.user.modules = userModules || [];
 
+  // Favoriete mini-apps (voor de blokjes rechtsboven in de navbar, zie
+  // src/lib/components/navbar.js + supabase/migrations/*_mini_app_favorites.sql).
+  // Enkel apps waar de user nog steeds toegang tot heeft -- een favoriet van
+  // een app die nadien prive gemaakt is (of waarvan de share ingetrokken is)
+  // valt hier automatisch weg i.p.v. als kapotte link te blijven hangen.
+  const { data: favoriteRows } = await supabase
+    .from('mini_app_favorites')
+    .select('mini_apps(id, title, icon, owner_user_id, visibility, shared_user_ids)')
+    .eq('user_id', session.user.id)
+    .order('created_at', { ascending: true });
+
+  session.user.favoriteMiniApps = (favoriteRows || [])
+    .map(row => row.mini_apps)
+    .filter(app => app && (
+      app.owner_user_id === session.user.id ||
+      app.visibility === 'shared' ||
+      (app.visibility === 'specific' && (app.shared_user_ids || []).includes(session.user.id))
+    ))
+    .map(app => ({ id: app.id, title: app.title, icon: app.icon }));
+
   // Build modulePermissions map: { module_code: string[] }
   session.user.modulePermissions = {};
   for (const um of (userModules || [])) {

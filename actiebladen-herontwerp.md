@@ -1181,8 +1181,6 @@ def render_checklist_html(rec):
         )
     return "<div class='metro-checklist'>" + rows + "</div>"
 
-affected_sheets = env['x_sales_action_sheet']
-
 # 1. Nieuwe/actieve items retroactief toevoegen aan actiebladen die al in die fase zitten
 for item in Item.search([('x_active', '=', True)]):
     stage = item.x_stage
@@ -1218,7 +1216,6 @@ for item in Item.search([('x_active', '=', True)]):
                 fieldname_ac = item.x_auto_complete_field
                 if fieldname_ac in rec._fields and rec[fieldname_ac]:
                     new_line.write({'x_done': True})
-            affected_sheets |= rec
 
 # 1b. Retroactieve meeting-recheck: bestaande, nog niet-afgevinkte meeting-items herevalueren
 # tegen de HUIDIGE meeting-stand. Vangt het geval op waarbij een meeting al vroeger de
@@ -1246,7 +1243,6 @@ for item in meeting_items:
         has_meeting = env['x_as_meetings'].search_count(meeting_domain) > 0
         if has_meeting:
             line.write({'x_done': True})
-            affected_sheets |= rec
 
 # 2. Gearchiveerde items: nog niet-afgevinkte lijnen verwijderen (afgevinkte lijnen blijven als historiek)
 inactive_items = Item.search([('x_active', '=', False)])
@@ -1256,11 +1252,14 @@ if inactive_items:
         ('x_done', '=', False),
     ])
     if obsolete_lines:
-        affected_sheets |= obsolete_lines.mapped('x_action_sheet_id')
         obsolete_lines.unlink()
 
-# 3. HTML herberekenen voor elk betrokken actieblad
-for rec in affected_sheets:
+# 3. HTML herberekenen voor alle actiebladen, BEHALVE die in fase Discovery (stage id 1) —
+# dat is veruit de grootste groep en heeft nooit checklist-items (er bestaat geen
+# x_checklist_item met x_stage = Discovery), dus herberekenen daar is pure verspilling.
+# Alle andere fases WEL herberekenen, ook al hebben ze nu geen items — zo blijft dit
+# automatisch correct als er ooit een checklist-item aan een andere fase toegevoegd wordt.
+for rec in Sheet.search([('x_studio_stage_id', '!=', 1)]):
     rec.write({'x_checklist_progress_html': render_checklist_html(rec)})
 ```
 
