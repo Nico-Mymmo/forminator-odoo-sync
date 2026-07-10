@@ -26,6 +26,31 @@
   <style>
     .CodeMirror { height: 100%; font-size: 12.5px; }
     .app-frame-wrap { background: repeating-conic-gradient(#f3f4f6 0% 25%, #ffffff 0% 50%) 50% / 20px 20px; }
+
+    /* Fullpage-modus (via deeplink /mini-apps?app=<id>): #appModal wordt niet
+       showModal() maar show() (non-modaal, geen backdrop, geen inert-making van
+       de rest van de pagina) en krijgt deze klasse. Begint op 48px (hoogte van
+       de vaste navbar) zodat die altijd zichtbaar en klikbaar blijft. */
+    #appModal.app-modal-fullpage {
+      position: fixed;
+      inset: 48px 0 0 0;
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: calc(100vh - 48px);
+      max-width: 100%;
+      max-height: none;
+      border-radius: 0;
+    }
+    #appModal.app-modal-fullpage::backdrop { display: none; }
+    #appModal.app-modal-fullpage .modal-box {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: none;
+      border-radius: 0;
+      margin: 0;
+    }
   </style>
 </head>
 <body class="bg-base-200" style="overflow-y: scroll;">

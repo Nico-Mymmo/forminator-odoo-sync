@@ -367,7 +367,8 @@ function copyAppLink(id) {
   });
 }
 
-async function openApp(id) {
+async function openApp(id, opts) {
+  opts = opts || {};
   try {
     var meta = await apiJson(`/mini-apps/api/apps/${id}`);
     var contentResult = await apiJson(`/mini-apps/api/apps/${id}/content`);
@@ -400,7 +401,16 @@ async function openApp(id) {
 
     document.getElementById('appCodeStatus').textContent = `v${meta.version}`;
     switchAppTab('preview');
-    document.getElementById('appModal').showModal();
+
+    var modal = document.getElementById('appModal');
+    modal.classList.toggle('app-modal-fullpage', !!opts.fullPage);
+    if (opts.fullPage) {
+      // Non-modaal: geen browser-backdrop, geen inert-making van de rest van de
+      // pagina -- de navbar (die buiten dit paneel valt, zie CSS) blijft klikbaar.
+      modal.show();
+    } else {
+      modal.showModal();
+    }
     lucide.createIcons();
     history.replaceState(null, '', '/mini-apps?app=' + encodeURIComponent(id));
   } catch (err) {
@@ -410,7 +420,9 @@ async function openApp(id) {
 }
 
 function closeAppModal() {
-  document.getElementById('appModal').close();
+  var modal = document.getElementById('appModal');
+  modal.close();
+  modal.classList.remove('app-modal-fullpage');
   currentApp = null;
   currentAppContent = '';
   resetAppErrors();
@@ -519,5 +531,13 @@ loadApps();
 // onafhankelijk van de lijst (zelfde openApp() als vanuit een kaart).
 (function openFromQueryString() {
   var appId = new URLSearchParams(location.search).get('app');
-  if (appId) openApp(appId);
+  if (appId) openApp(appId, { fullPage: true });
 })();
+
+// Escape sluit ook de fullpage-variant (show() doet dit -- in tegenstelling tot
+// showModal() -- niet automatisch, want er is geen native modal-gedrag).
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  var modal = document.getElementById('appModal');
+  if (modal.open && modal.classList.contains('app-modal-fullpage')) closeAppModal();
+});
