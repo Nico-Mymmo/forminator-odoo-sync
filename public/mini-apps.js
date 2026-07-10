@@ -187,10 +187,13 @@ function renderAppCard(app) {
         </div>
         ${desc}
         ${ownerLine}
-        <div class="card-actions mt-3">
-          <button class="btn btn-primary btn-sm gap-2 w-full" data-action="openApp" data-id="${app.id}">
+        <div class="card-actions mt-3 flex-nowrap">
+          <button class="btn btn-primary btn-sm gap-2 flex-1" data-action="openApp" data-id="${app.id}">
             <i data-lucide="play" class="w-3.5 h-3.5"></i>
             Openen
+          </button>
+          <button class="btn btn-ghost btn-sm btn-square" data-action="copyAppLink" data-id="${app.id}" title="Directe link kopi\u00ebren">
+            <i data-lucide="link" class="w-3.5 h-3.5"></i>
           </button>
         </div>
       </div>
@@ -351,6 +354,19 @@ function switchAppTab(tab) {
   }
 }
 
+function buildAppLink(id) {
+  return location.origin + '/mini-apps?app=' + encodeURIComponent(id);
+}
+
+function copyAppLink(id) {
+  var link = buildAppLink(id);
+  navigator.clipboard.writeText(link).then(function() {
+    showToast('Link gekopieerd \u2014 klaar om te bookmarken of te delen', 'success');
+  }, function() {
+    showToast('Kopi\u00ebren mislukt. Link: ' + link, 'error');
+  });
+}
+
 async function openApp(id) {
   try {
     var meta = await apiJson(`/mini-apps/api/apps/${id}`);
@@ -386,8 +402,10 @@ async function openApp(id) {
     switchAppTab('preview');
     document.getElementById('appModal').showModal();
     lucide.createIcons();
+    history.replaceState(null, '', '/mini-apps?app=' + encodeURIComponent(id));
   } catch (err) {
     showToast('App openen mislukt: ' + err.message, 'error');
+    history.replaceState(null, '', '/mini-apps');
   }
 }
 
@@ -397,6 +415,7 @@ function closeAppModal() {
   currentAppContent = '';
   resetAppErrors();
   document.getElementById('appFrame').srcdoc = 'about:blank';
+  history.replaceState(null, '', '/mini-apps');
 }
 
 async function saveAppCode() {
@@ -474,6 +493,8 @@ document.addEventListener('click', function(e) {
     else if (action === 'closeUploadModal') closeUploadModal();
     else if (action === 'submitUpload') submitUpload();
     else if (action === 'openApp') openApp(el.dataset.id);
+    else if (action === 'copyAppLink') copyAppLink(el.dataset.id);
+    else if (action === 'copyCurrentAppLink') { if (currentApp) copyAppLink(currentApp.id); }
     else if (action === 'closeAppModal') closeAppModal();
     else if (action === 'saveAppCode') saveAppCode();
     else if (action === 'saveAppSettings') saveAppSettings();
@@ -493,3 +514,10 @@ document.addEventListener('change', function(e) {
 
 renderNavbar();
 loadApps();
+
+// Directe/bookmarkbare link: /mini-apps?app=<id> opent die app meteen,
+// onafhankelijk van de lijst (zelfde openApp() als vanuit een kaart).
+(function openFromQueryString() {
+  var appId = new URLSearchParams(location.search).get('app');
+  if (appId) openApp(appId);
+})();
