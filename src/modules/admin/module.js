@@ -11,9 +11,12 @@ import {
   handleUpdateUserModules,
   handleUpdateUserOdooUid,
   handleToggleUserStatus,
+  handleResetUserPassword,
   handleGetModules,
   handleToggleModule,
-  handleDeleteModule
+  handleDeleteModule,
+  handleGetModuleUsers,
+  handleUpdateModuleUsers
 } from './routes.js';
 
 export default {
@@ -57,10 +60,13 @@ export default {
     'PUT /api/users/:id/modules': handleUpdateUserModules,
     'PUT /api/users/:id/odoo-uid': handleUpdateUserOdooUid,
     'PUT /api/users/:id/toggle': handleToggleUserStatus,
+    'PUT /api/users/:id/password': handleResetUserPassword,
     
     // Modules API
     'GET /api/modules': handleGetModules,
     'PUT /api/modules/:id/toggle': handleToggleModule,
-    'DELETE /api/modules/:id': handleDeleteModule
+    'DELETE /api/modules/:id': handleDeleteModule,
+    'GET /api/modules/:id/users': handleGetModuleUsers,
+    'PUT /api/modules/:id/users': handleUpdateModuleUsers
   }
 };

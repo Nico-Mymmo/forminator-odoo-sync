@@ -1291,7 +1291,7 @@ Vereist een tweede inline-JS-constante naast `_METRO_OC`: `_METRO_OC_MEETING`, d
 **CSS (toevoegen aan het bestaande `<style>`-blok):**
 ```css
 .metro-checklist { display:flex; flex-direction:column; margin-top:4px; padding:6px 8px; }
-.metro-item { position:relative; display:flex; align-items:center; min-height:22px; padding-left:22px; }
+.metro-item { position:relative; isolation:isolate; display:flex; align-items:center; min-height:22px; padding-left:22px; }
 .metro-item:not(.metro-item-last)::after {
     content:''; position:absolute; left:6px; top:16px; bottom:-6px; width:2px; background:#d0d0d0;
 }

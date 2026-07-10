@@ -4,6 +4,9 @@
  */
 
 import { getSupabaseClient } from '../../lib/database.js';
+import { MODULES } from '../registry.js';
+import { hashPassword, generateRandomPassword } from '../../lib/auth/password.js';
+import { invalidateAllUserSessions } from '../../lib/auth/session.js';
 
 /**
  * Get all users with their modules
@@ -284,6 +287,100 @@ export async function handleUpdateUserRole(context) {
 }
 
 /**
+ * Reset (opnieuw instellen) van het wachtwoord van een gebruiker.
+ *
+ * Body optioneel: { newPassword }. Als leeg/ontbrekend wordt er een sterk
+ * wachtwoord gegenereerd en EENMALIG in de response teruggegeven (nooit
+ * opgeslagen of gelogd in plaintext). Alle bestaande sessies van de
+ * gebruiker worden ongeldig gemaakt zodat opnieuw ingelogd moet worden
+ * met het nieuwe wachtwoord.
+ */
+export async function handleResetUserPassword(context) {
+  const { env, user, params, request } = context;
+
+  if (user?.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const userId = params?.id;
+  if (!userId) {
+    return new Response(JSON.stringify({ error: 'User ID required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  let body = {};
+  try {
+    body = await request.json();
+  } catch (_err) {
+    body = {};
+  }
+
+  let newPassword = typeof body.newPassword === 'string' ? body.newPassword.trim() : '';
+  let generated = false;
+
+  if (!newPassword) {
+    newPassword = generateRandomPassword(16);
+    generated = true;
+  } else if (newPassword.length < 8) {
+    return new Response(JSON.stringify({
+      error: 'Wachtwoord moet minstens 8 tekens lang zijn'
+    }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const supabase = getSupabaseClient(env);
+
+  const { data: targetUser, error: fetchError } = await supabase
+    .from('users')
+    .select('id, email')
+    .eq('id', userId)
+    .single();
+
+  if (fetchError || !targetUser) {
+    return new Response(JSON.stringify({ error: 'Gebruiker niet gevonden' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+
+  const { error: updateError } = await supabase
+    .from('users')
+    .update({ password_hash: passwordHash, updated_at: new Date().toISOString() })
+    .eq('id', userId);
+
+  if (updateError) {
+    console.error('[admin] handleResetUserPassword â Supabase error:', updateError.message);
+    return new Response(JSON.stringify({ error: updateError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // Bestaande sessies intrekken â gebruiker moet met het nieuwe wachtwoord opnieuw inloggen
+  await invalidateAllUserSessions(env, userId);
+
+  console.log(`[admin] password reset for user ${userId} (generated=${generated}) by admin ${user.id}`);
+
+  return new Response(JSON.stringify({
+    success: true,
+    generated,
+    newPassword: generated ? newPassword : undefined,
+    email: targetUser.email
+  }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
  * Update user modules
  */
 export async function handleUpdateUserModules(context) {
@@ -458,13 +555,25 @@ export async function handleUpdateUserOdooUid(context) {
   });
 }
 
-// Registry codes that exist in the codebase
-const REGISTRY_CODES = new Set([
-  'home', 'forminator_sync_v2', 'wp_form_schemas', 'project_generator',
-  'admin', 'profile', 'sales_insight_explorer', 'event_operations',
-  'mail_signature_designer', 'asset_manager', 'cx_powerboard', 'claude_integration',
-  'cx_automations',
-]);
+// Registry codes die daadwerkelijk in de codebase geregistreerd zijn.
+// Afgeleid uit registry.js zelf (i.p.v. een handmatig onderhouden lijst) --
+// een hardcoded lijst raakt onvermijdelijk verouderd zodra er een nieuwe
+// module bijkomt (zo werd bv. mini_apps hier aanvankelijk gemist, waardoor
+// hij ten onrechte als "Verouderd" gemarkeerd stond EN via handleDeleteModule
+// verwijderbaar was, ondanks dat hij nog gewoon actief geregistreerd is).
+//
+// BELANGRIJK: dit is een functie, geen top-level const. registry.js importeert
+// (via de module-keten) uiteindelijk ook admin/module.js -> admin/routes.js,
+// wat een circulaire import met registry.js oplevert. Zolang MODULES pas
+// gelezen wordt ZODRA een handler daadwerkelijk draait (request-time) is dat
+// geen probleem -- maar bij het lezen van MODULES.map() op module-load-time
+// (top-level) was registry.js zijn eigen "export const MODULES = [...]" nog
+// niet bereikt tijdens die cyclus, en was MODULES hier nog undefined. Gaf een
+// Worker-brede crash bij elke (re)start: "Cannot read properties of
+// undefined (reading 'map')".
+function getRegistryCodes() {
+  return new Set(MODULES.map(m => m.code));
+}
 
 /**
  * Get all modules
@@ -497,7 +606,7 @@ export async function handleGetModules(context) {
   const normalized = (modules || []).map(m => ({
     ...m,
     isActive: m.is_active ?? m.isActive ?? false,
-    inRegistry: REGISTRY_CODES.has(m.code)
+    inRegistry: getRegistryCodes().has(m.code)
   }));
 
   return new Response(JSON.stringify({ modules: normalized }), {
@@ -597,7 +706,7 @@ export async function handleDeleteModule(context) {
     });
   }
 
-  if (REGISTRY_CODES.has(mod.code)) {
+  if (getRegistryCodes().has(mod.code)) {
     return new Response(JSON.stringify({ error: 'Kan geen actieve module verwijderen' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
@@ -617,6 +726,166 @@ export async function handleDeleteModule(context) {
   }
 
   return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
+ * Lijst alle gebruikers + welke van hen toegang hebben tot deze module.
+ * Tegenhanger van handleUpdateUserModules, maar dan module-centrisch
+ * (vanuit de Modules-tab i.p.v. per-gebruiker in de Gebruikers-tab).
+ */
+export async function handleGetModuleUsers(context) {
+  const { env, user, params } = context;
+
+  if (user?.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const moduleId = params?.id;
+  if (!moduleId) {
+    return new Response(JSON.stringify({ error: 'Module ID required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const supabase = getSupabaseClient(env);
+
+  const { data: allUsersData, error: usersError } = await supabase
+    .from('users')
+    .select('id, email, full_name, is_active')
+    .order('email', { ascending: true });
+
+  if (usersError) {
+    return new Response(JSON.stringify({ error: usersError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const { data: assignments, error: assignError } = await supabase
+    .from('user_modules')
+    .select('user_id, is_enabled')
+    .eq('module_id', moduleId);
+
+  if (assignError) {
+    return new Response(JSON.stringify({ error: assignError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const enabledIds = new Set(
+    (assignments || []).filter(a => a.is_enabled !== false).map(a => a.user_id)
+  );
+
+  const users = (allUsersData || []).map(u => ({
+    id: u.id,
+    email: u.email,
+    fullName: u.full_name || null,
+    isActive: u.is_active,
+    hasAccess: enabledIds.has(u.id)
+  }));
+
+  return new Response(JSON.stringify({ users }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
+ * Zet de volledige set gebruikers die toegang hebben tot deze module.
+ * Body: { userIds: string[] } -- exact deze gebruikers krijgen toegang,
+ * alle anderen worden ontkoppeld (zelfde delete+insert-patroon als
+ * handleUpdateUserModules, maar dan module-centrisch).
+ */
+export async function handleUpdateModuleUsers(context) {
+  const { env, user, params, request } = context;
+
+  if (user?.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const moduleId = params?.id;
+  if (!moduleId) {
+    return new Response(JSON.stringify({ error: 'Module ID required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch (_err) {
+    return new Response(JSON.stringify({ error: 'Ongeldige JSON-body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const userIds = Array.isArray(body.userIds) ? body.userIds : null;
+  if (!userIds) {
+    return new Response(JSON.stringify({ error: 'userIds (array) is verplicht' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const supabase = getSupabaseClient(env);
+
+  const { data: mod, error: modError } = await supabase
+    .from('modules')
+    .select('id')
+    .eq('id', moduleId)
+    .single();
+
+  if (modError || !mod) {
+    return new Response(JSON.stringify({ error: 'Module niet gevonden' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const { error: deleteError } = await supabase
+    .from('user_modules')
+    .delete()
+    .eq('module_id', moduleId);
+
+  if (deleteError) {
+    return new Response(JSON.stringify({ error: deleteError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  if (userIds.length > 0) {
+    const rows = userIds.map(uid => ({
+      user_id: uid,
+      module_id: moduleId,
+      is_enabled: true,
+      granted_by: user.id
+    }));
+
+    const { error: insertError } = await supabase
+      .from('user_modules')
+      .insert(rows);
+
+    if (insertError) {
+      return new Response(JSON.stringify({ error: insertError.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
+  return new Response(JSON.stringify({ success: true, count: userIds.length }), {
     headers: { 'Content-Type': 'application/json' }
   });
 }

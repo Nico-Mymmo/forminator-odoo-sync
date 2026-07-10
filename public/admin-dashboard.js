@@ -171,6 +171,9 @@ function renderModulesTable() {
         '<span class="badge badge-sm ' + (m.isActive ? 'badge-success' : 'badge-ghost') + '">' +
           (m.isActive ? 'Actief' : 'Inactief') +
         '</span>' +
+        '<button class="btn btn-ghost btn-xs" data-action="editModuleUsers" data-id="' + escapeHtml(String(m.id)) + '" data-name="' + escapeHtml(m.name) + '" title="Gebruikers beheren">' +
+          '<i data-lucide="users" class="w-4 h-4"></i>' +
+        '</button>' +
         (m.inRegistry
           ? '<button class="btn btn-ghost btn-xs" data-action="toggleModule" data-id="' + escapeHtml(String(m.id)) + '" data-active="' + (m.isActive ? '1' : '0') + '" title="' + (m.isActive ? 'Deactiveren' : 'Activeren') + '">' +
               '<i data-lucide="' + (m.isActive ? 'toggle-right' : 'toggle-left') + '" class="w-4 h-4"></i>' +
@@ -252,6 +255,9 @@ function renderUsersTable() {
           '</button>' +
           '<button class="btn btn-ghost btn-xs join-item" data-action="editOdooUid" data-id="' + escapeHtml(user.id) + '" data-uid="' + (user.odooUid ?? '') + '" title="Odoo UID">' +
             '<i data-lucide="hash" class="w-3.5 h-3.5"></i>' +
+          '</button>' +
+          '<button class="btn btn-ghost btn-xs join-item" data-action="editPassword" data-id="' + escapeHtml(user.id) + '" data-email="' + escapeHtml(user.email) + '" title="Wachtwoord opnieuw instellen">' +
+            '<i data-lucide="key-round" class="w-3.5 h-3.5"></i>' +
           '</button>' +
           '<button class="btn btn-ghost btn-xs join-item' + (user.isActive ? ' text-error' : '') + '" data-action="toggleStatus" data-id="' + escapeHtml(user.id) + '" title="Status wisselen">' +
             '<i data-lucide="' + (user.isActive ? 'user-x' : 'user-check') + '" class="w-3.5 h-3.5"></i>' +
@@ -369,6 +375,8 @@ function requestStatusToggle(userId) {
 // ====== Modules bewerken (modal) ======
 
 let modulesModalUserId = null;
+let moduleUsersModalId = null;
+let moduleUsersCache = []; // laatst opgehaalde { id, email, fullName, isActive, hasAccess }[] voor de open modal
 
 function openModulesModal(userId) {
   const user = allUsers.find(u => u.id === userId);
@@ -414,6 +422,81 @@ async function saveUserModules() {
     btn.disabled = false;
     btn.textContent = 'Opslaan';
     modulesModalUserId = null;
+  }
+}
+
+// ====== Module-gebruikers bewerken (modal, vanuit de Modules-tab) ======
+
+async function openModuleUsersModal(moduleId, moduleName) {
+  moduleUsersModalId = moduleId;
+  document.getElementById('moduleUsersModalSub').textContent = 'Wie mag "' + moduleName + '" gebruiken?';
+  document.getElementById('moduleUsersSearch').value = '';
+  document.getElementById('moduleUsersModalList').innerHTML =
+    '<div class="flex justify-center py-6"><span class="loading loading-spinner loading-sm"></span></div>';
+  document.getElementById('moduleUsersModal').showModal();
+
+  try {
+    const res = await apiFetch('/admin/api/modules/' + moduleId + '/users');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Serverfout');
+    moduleUsersCache = data.users || [];
+    renderModuleUsersList();
+  } catch (err) {
+    document.getElementById('moduleUsersModalList').innerHTML =
+      '<div class="alert alert-error text-sm"><span>Gebruikers laden mislukt. Probeer het opnieuw.</span></div>';
+    console.error('Module-gebruikers laden mislukt:', err);
+  }
+}
+
+function renderModuleUsersList() {
+  const list = document.getElementById('moduleUsersModalList');
+  if (moduleUsersCache.length === 0) {
+    list.innerHTML = '<p class="text-sm text-base-content/40 py-2">Geen gebruikers gevonden.</p>';
+    return;
+  }
+  list.innerHTML = moduleUsersCache.map(u => {
+    const label = u.fullName ? (u.fullName + ' (' + u.email + ')') : u.email;
+    const searchText = ((u.email || '') + ' ' + (u.fullName || '')).toLowerCase();
+    return '<label class="label cursor-pointer justify-start gap-3 py-1.5 rounded hover:bg-base-200 px-2" data-search="' + escapeHtml(searchText) + '">' +
+      '<input type="checkbox" value="' + escapeHtml(u.id) + '" class="checkbox checkbox-sm"' + (u.hasAccess ? ' checked' : '') + ' />' +
+      '<span class="label-text text-sm' + (u.isActive ? '' : ' text-base-content/40') + '">' + escapeHtml(label) + (u.isActive ? '' : ' (inactief)') + '</span>' +
+    '</label>';
+  }).join('');
+}
+
+function applyModuleUsersSearch() {
+  const q = (document.getElementById('moduleUsersSearch').value || '').trim().toLowerCase();
+  document.querySelectorAll('#moduleUsersModalList label').forEach(label => {
+    label.classList.toggle('hidden', q !== '' && !(label.dataset.search || '').includes(q));
+  });
+}
+
+async function saveModuleUsers() {
+  if (!moduleUsersModalId) return;
+  const btn = document.getElementById('saveModuleUsersBtn');
+  const userIds = Array.from(document.querySelectorAll('#moduleUsersModalList input[type="checkbox"]:checked')).map(cb => cb.value);
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Opslaan\u2026';
+
+  try {
+    const res = await apiFetch('/admin/api/modules/' + moduleUsersModalId + '/users', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIds: userIds })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Serverfout');
+    document.getElementById('moduleUsersModal').close();
+    showToast('Toegang bijgewerkt (' + userIds.length + ' gebruiker' + (userIds.length === 1 ? '' : 's') + ')', 'success');
+    await loadUsers();
+  } catch (err) {
+    console.error('Module-gebruikers bijwerken mislukt:', err);
+    showToast('Opslaan mislukt: ' + err.message + '. Probeer het opnieuw', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Opslaan';
+    moduleUsersModalId = null;
   }
 }
 
@@ -480,6 +563,96 @@ async function saveUserEmailOverrides(userEmail, btn) {
     btn.disabled = false;
     btn.textContent = 'Opslaan';
   }
+}
+
+// ====== Wachtwoord opnieuw instellen (dynamische modal) ======
+
+function editUserPassword(userId, email) {
+  const modal = document.createElement('div');
+  modal.className = 'modal modal-open';
+  modal.innerHTML =
+    '<div class="modal-box max-w-sm">' +
+      '<h3 class="font-bold text-lg mb-1">Wachtwoord opnieuw instellen</h3>' +
+      '<p class="text-sm text-base-content/60 mb-4">Voor <strong>' + escapeHtml(email) + '</strong>. Bestaande sessies van deze gebruiker worden meteen ongeldig gemaakt.</p>' +
+      '<div class="flex flex-col gap-2 mb-3">' +
+        '<label class="flex items-center gap-2 text-sm cursor-pointer">' +
+          '<input type="radio" name="pwMode" value="generate" class="radio radio-sm" checked />' +
+          'Automatisch genereren (aanbevolen)' +
+        '</label>' +
+        '<label class="flex items-center gap-2 text-sm cursor-pointer">' +
+          '<input type="radio" name="pwMode" value="manual" class="radio radio-sm" />' +
+          'Zelf een wachtwoord instellen' +
+        '</label>' +
+      '</div>' +
+      '<label class="form-control w-full mb-1 hidden" id="manualPwWrap">' +
+        '<div class="label"><span class="label-text text-xs font-semibold">Nieuw wachtwoord</span></div>' +
+        '<input id="adminNewPasswordInput" type="text" class="input input-bordered input-sm w-full" placeholder="Minimaal 8 tekens" autocomplete="new-password">' +
+      '</label>' +
+      '<div class="modal-action">' +
+        '<button class="btn btn-primary btn-sm" data-action="saveUserPassword" data-id="' + escapeHtml(userId) + '">Wachtwoord instellen</button>' +
+        '<button class="btn btn-ghost btn-sm" data-action="closeDynModal">Annuleren</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+
+  modal.addEventListener('change', function(e) {
+    if (e.target.name === 'pwMode') {
+      modal.querySelector('#manualPwWrap').classList.toggle('hidden', e.target.value !== 'manual');
+    }
+  });
+}
+
+async function saveUserPassword(userId, btn) {
+  const modal = btn.closest('.modal');
+  const mode = modal.querySelector('input[name="pwMode"]:checked').value;
+  const manualValue = modal.querySelector('#adminNewPasswordInput').value.trim();
+
+  if (mode === 'manual' && !manualValue) {
+    showToast('Vul een wachtwoord in, of kies automatisch genereren', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Bezig\u2026';
+  try {
+    const res = await apiFetch('/admin/api/users/' + userId + '/password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mode === 'manual' ? { newPassword: manualValue } : {})
+    });
+    const json = await res.json();
+    if (!json.success) {
+      const detailMsg = Array.isArray(json.details) && json.details.length > 0
+        ? ': ' + json.details.join(', ')
+        : '';
+      throw new Error((json.error || 'Instellen mislukt') + detailMsg);
+    }
+
+    if (json.generated && json.newPassword) {
+      showGeneratedPassword(modal, json.newPassword);
+    } else {
+      modal.remove();
+      showToast('Wachtwoord bijgewerkt', 'success');
+    }
+  } catch (err) {
+    showToast('Wachtwoord instellen mislukt: ' + err.message + '. Probeer het opnieuw', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Wachtwoord instellen';
+  }
+}
+
+function showGeneratedPassword(modal, password) {
+  modal.querySelector('.modal-box').innerHTML =
+    '<h3 class="font-bold text-lg mb-1">Nieuw wachtwoord</h3>' +
+    '<p class="text-sm text-base-content/60 mb-3">Kopieer dit nu en geef het door \u2014 het wordt hierna niet meer getoond.</p>' +
+    '<div class="join w-full mb-4">' +
+      '<input id="generatedPasswordField" type="text" readonly class="input input-bordered input-sm join-item w-full font-mono" value="' + escapeHtml(password) + '">' +
+      '<button class="btn btn-sm join-item" data-action="copyGeneratedPassword">Kopieer</button>' +
+    '</div>' +
+    '<div class="modal-action">' +
+      '<button class="btn btn-primary btn-sm" data-action="closeDynModal">Sluiten</button>' +
+    '</div>';
+  lucide.createIcons();
 }
 
 // ====== Odoo UID (dynamische modal) ======
@@ -581,6 +754,7 @@ document.getElementById('createUserForm').addEventListener('submit', async funct
 // ====== Zoekveld ======
 
 document.getElementById('userSearch').addEventListener('input', applyUserSearch);
+document.getElementById('moduleUsersSearch').addEventListener('input', applyModuleUsersSearch);
 
 // ====== Centrale event-listeners ======
 
@@ -598,6 +772,13 @@ document.addEventListener('click', function(e) {
   } else if (action === 'closeModulesModal') {
     modulesModalUserId = null;
     document.getElementById('modulesModal').close();
+  } else if (action === 'editModuleUsers') {
+    openModuleUsersModal(el.dataset.id, el.dataset.name);
+  } else if (action === 'saveModuleUsers') {
+    saveModuleUsers();
+  } else if (action === 'closeModuleUsersModal') {
+    moduleUsersModalId = null;
+    document.getElementById('moduleUsersModal').close();
   } else if (action === 'toggleStatus') {
     requestStatusToggle(el.dataset.id);
   } else if (action === 'confirmOk') {
@@ -616,6 +797,17 @@ document.addEventListener('click', function(e) {
     saveUserEmailOverrides(el.dataset.email, el);
   } else if (action === 'saveOdooUid') {
     saveUserOdooUid(el.dataset.id, el);
+  } else if (action === 'editPassword') {
+    editUserPassword(el.dataset.id, el.dataset.email);
+  } else if (action === 'saveUserPassword') {
+    saveUserPassword(el.dataset.id, el);
+  } else if (action === 'copyGeneratedPassword') {
+    const field = document.getElementById('generatedPasswordField');
+    if (field) {
+      navigator.clipboard.writeText(field.value).then(function() {
+        showToast('Gekopieerd naar klembord', 'success');
+      });
+    }
   } else if (action === 'closeDynModal') {
     const m = el.closest('.modal');
     if (m) m.remove();
