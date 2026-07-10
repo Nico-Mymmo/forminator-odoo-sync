@@ -1000,6 +1000,7 @@ export async function handleDisableSanitize({ env }) {
   const TARGETS = [
     { model: 'x_estate_copy_wizard',  field: 'x_studio_overview_html' },
     { model: 'x_contact_copy_wizard', field: 'x_overview_html' },
+    { model: 'x_sales_action_sheet',  field: 'x_checklist_progress_html' },
   ];
 
   const results = [];

@@ -19,6 +19,7 @@ import cxPowerboardModule from './cx_powerboard/module.js';
 import claudeIntegrationModule from './claude-integration/module.js';
 import cxAutomationsModule from './cx-automations/module.js';
 import xpathConverterModule from './xpath-converter/module.js';
+import miniAppsModule from './mini-apps/module.js';
 
 /**
  * All registered modules
@@ -38,6 +39,7 @@ export const MODULES = [
   claudeIntegrationModule,
   cxAutomationsModule,
   xpathConverterModule,
+  miniAppsModule,
 ];
 
 /**

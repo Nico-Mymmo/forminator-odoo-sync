@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini-apps - Operations Manager</title>
+  <script>
+    (function() {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+
+  <!-- CodeMirror — code-editor voor het tweaken van mini-apps -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+
+  <style>
+    .CodeMirror { height: 100%; font-size: 12.5px; }
+    .app-frame-wrap { background: repeating-conic-gradient(#f3f4f6 0% 25%, #ffffff 0% 50%) 50% / 20px 20px; }
+  </style>
+</head>
+<body class="bg-base-200" style="overflow-y: scroll;">
+  <div id="navbar"></div>
+
+  <div style="padding-top: 48px;">
+    <div class="container mx-auto px-6 py-8 max-w-6xl">
+
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h1 class="text-2xl font-bold flex items-center gap-2">
+            <i data-lucide="puzzle" class="w-6 h-6"></i>
+            Mini-apps
+          </h1>
+          <p class="text-sm text-base-content/60 mt-1">
+            Upload zelfgemaakte single-file HTML/JS-tooltjes, gebruik ze, en tweak ze rechtstreeks in de browser.
+          </p>
+        </div>
+        <button class="btn btn-primary gap-2" data-action="openUploadModal">
+          <i data-lucide="upload" class="w-4 h-4"></i>
+          Nieuwe mini-app
+        </button>
+      </div>
+
+      <!-- ======= Mijn apps ======= -->
+      <div class="mb-8">
+        <h2 class="text-sm font-semibold text-base-content/70 mb-3">Mijn apps</h2>
+        <div id="ownApps" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="flex justify-center py-10 col-span-full">
+            <span class="loading loading-spinner loading-md text-primary"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ======= Gedeeld met mij ======= -->
+      <div>
+        <h2 class="text-sm font-semibold text-base-content/70 mb-3">Gedeeld met mij</h2>
+        <div id="sharedApps" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <p class="text-sm text-base-content/40">Nog niets gedeeld met jou.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======= Modal: nieuwe mini-app uploaden ======= -->
+  <dialog id="uploadModal" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-base mb-4">Nieuwe mini-app uploaden</h3>
+
+      <div class="form-control mb-3">
+        <label class="label pb-1"><span class="label-text text-xs font-semibold">Titel</span></label>
+        <input type="text" id="uploadTitle" class="input input-bordered input-sm" placeholder="bv. OGM-generator" />
+      </div>
+
+      <div class="form-control mb-3">
+        <label class="label pb-1"><span class="label-text text-xs font-semibold">Omschrijving (optioneel)</span></label>
+        <input type="text" id="uploadDescription" class="input input-bordered input-sm" placeholder="Waarvoor dient deze app?" />
+      </div>
+
+      <div class="form-control mb-4">
+        <label class="label pb-1"><span class="label-text text-xs font-semibold">HTML-bestand</span></label>
+        <input type="file" id="uploadFile" accept=".html,.htm,text/html" class="file-input file-input-bordered file-input-sm" />
+        <span class="label-text-alt text-base-content/50 mt-1">Eén single-file .html-bestand (met inline JS/CSS), max 2 MB.</span>
+      </div>
+
+      <div class="form-control mb-4">
+        <label class="label pb-1"><span class="label-text text-xs font-semibold">Zichtbaarheid</span></label>
+        <div class="flex flex-col gap-2">
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="radio" name="uploadVisibility" value="private" class="radio radio-sm" checked />
+            <i data-lucide="lock" class="w-3.5 h-3.5"></i> Privé — alleen ik
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="radio" name="uploadVisibility" value="shared" class="radio radio-sm" />
+            <i data-lucide="globe" class="w-3.5 h-3.5"></i> Gedeeld — alle collega's met toegang tot deze module
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="radio" name="uploadVisibility" value="specific" class="radio radio-sm" />
+            <i data-lucide="user-check" class="w-3.5 h-3.5"></i> Gedeeld met specifieke collega's
+          </label>
+        </div>
+      </div>
+
+      <div class="form-control mb-4 hidden" id="uploadColleaguesWrap">
+        <label class="label pb-1"><span class="label-text text-xs font-semibold">Collega's</span></label>
+        <div id="uploadColleaguesList" class="max-h-40 overflow-y-auto border border-base-300 rounded-lg p-2 flex flex-col gap-1">
+          <span class="text-xs text-base-content/40">Laden…</span>
+        </div>
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-primary btn-sm gap-2" id="uploadSubmitBtn" data-action="submitUpload">
+          <i data-lucide="upload" class="w-4 h-4"></i>
+          Uploaden
+        </button>
+        <button class="btn btn-ghost btn-sm" data-action="closeUploadModal">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- ======= Modal: app draaien / tweaken ======= -->
+  <dialog id="appModal" class="modal">
+    <div class="modal-box max-w-5xl w-11/12 h-[85vh] flex flex-col p-0 overflow-hidden">
+
+      <div class="flex items-center justify-between px-5 py-3 border-b border-base-300 shrink-0">
+        <div class="min-w-0">
+          <h3 class="font-bold text-base truncate" id="appModalTitle">—</h3>
+          <p class="text-xs text-base-content/50 truncate" id="appModalSubtitle"></p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button class="btn btn-ghost btn-sm btn-circle" data-action="closeAppModal">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <div role="tablist" class="tabs tabs-bordered px-5 pt-2 shrink-0">
+        <button role="tab" class="tab tab-active" data-app-tab="preview">Voorbeeld</button>
+        <button role="tab" class="tab hidden" data-app-tab="code" id="appTabCode">Code</button>
+        <button role="tab" class="tab hidden" data-app-tab="settings" id="appTabSettings">Instellingen</button>
+      </div>
+
+      <!-- Voorbeeld -->
+      <div id="appPanePreview" class="flex-1 min-h-0 app-frame-wrap flex flex-col">
+        <div id="appErrorBanner" class="hidden bg-error/10 border-b border-error/30 text-error text-xs px-3 py-2 max-h-28 overflow-y-auto shrink-0"></div>
+        <iframe id="appFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups" allow="clipboard-write"></iframe>
+      </div>
+
+      <!-- Code -->
+      <div id="appPaneCode" class="flex-1 min-h-0 hidden flex-col">
+        <div class="flex-1 min-h-0" id="appCodeEditor"></div>
+        <div class="flex items-center justify-between px-4 py-2 border-t border-base-300 shrink-0">
+          <span class="text-xs text-base-content/50" id="appCodeStatus"></span>
+          <button class="btn btn-primary btn-sm gap-2" data-action="saveAppCode">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            Opslaan &amp; herladen
+          </button>
+        </div>
+      </div>
+
+      <!-- Instellingen -->
+      <div id="appPaneSettings" class="flex-1 min-h-0 hidden overflow-y-auto p-5">
+        <div class="form-control mb-3">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold">Titel</span></label>
+          <input type="text" id="settingsTitle" class="input input-bordered input-sm" />
+        </div>
+        <div class="form-control mb-3">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold">Omschrijving</span></label>
+          <input type="text" id="settingsDescription" class="input input-bordered input-sm" />
+        </div>
+        <div class="form-control mb-4">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold">Zichtbaarheid</span></label>
+          <div class="flex flex-col gap-2">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="radio" name="settingsVisibility" value="private" class="radio radio-sm" />
+              <i data-lucide="lock" class="w-3.5 h-3.5"></i> Privé — alleen ik
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="radio" name="settingsVisibility" value="shared" class="radio radio-sm" />
+              <i data-lucide="globe" class="w-3.5 h-3.5"></i> Gedeeld — alle collega's met toegang tot deze module
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="radio" name="settingsVisibility" value="specific" class="radio radio-sm" />
+              <i data-lucide="user-check" class="w-3.5 h-3.5"></i> Gedeeld met specifieke collega's
+            </label>
+          </div>
+        </div>
+        <div class="form-control mb-4 hidden" id="settingsColleaguesWrap">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold">Collega's</span></label>
+          <div id="settingsColleaguesList" class="max-h-40 overflow-y-auto border border-base-300 rounded-lg p-2 flex flex-col gap-1"></div>
+        </div>
+        <div class="flex items-center justify-between border-t border-base-300 pt-4 mt-2">
+          <button class="btn btn-error btn-outline btn-sm gap-2" data-action="deleteApp">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+            App verwijderen
+          </button>
+          <button class="btn btn-primary btn-sm gap-2" data-action="saveAppSettings">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            Opslaan
+          </button>
+        </div>
+      </div>
+
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <div id="toastContainer" class="toast toast-end z-50"></div>
+
+  <script src="/mini-apps.js"></script>
+</body>
+</html>

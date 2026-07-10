@@ -53,8 +53,12 @@ Dit is de meest waardevolle bestaande logica voor de supportpipeline. De cron dr
 
 Dit is de basis voor automatische Red Flags. Het wiel hoeft niet opnieuw uitgevonden te worden.
 
-**Active products HTML (automation 50)**
-Wordt automatisch berekend vanuit sale orders en toont actieve producten per klant: "All in", "Syndicoach", "Opstarthulp", "Bankkoppeling via Ponto", "Peppol integratie". Nuttig voor CS-context, maar **niet de bron voor het Syndicoach-pakket** — de tiers worden apart bijgehouden (zie §4).
+**Productdetectie (cron 82 → server action 1078, + knop → server action 1117)**
+Loopt over de sale-orderlijnen van het gekoppelde gebouw en detecteert welke producten actief zijn (`subscription_state` in progress/renewal voor recurrente producten). Aanvankelijk werd dit ook omgezet in een HTML-lijst (`x_studio_active_products_html`) voor weergave op de kanban-tegel — die weergave is sinds BI-S2-04b verwijderd; de berekening dient nu uitsluitend om de productstatus-chips (OpenVME-pakket, Peppol, bankkoppeling, Opstarthulp) te vullen. Twee triggers naar hetzelfde resultaat:
+- **Automatisch, elk uur:** scheduled action (`ir.cron` id 82, interval 1u) roept server action 1078 aan, die *alle* actiebladen met een contact of gebouw in bulk herberekent. Deze actie zet **ook** `x_color` (paars bij Opstarthulp, anders op basis van `x_flag_level`) — overlapt met de losse automation "Bij opslaan - Flagged actieblad" (id 64 → action 1159, zie BI-S1-06). Niet per se een probleem (idempotent), maar wel dubbel werk.
+- **Manueel, per record:** de knop "Producten ophalen" op het formulier roept server action 1117 aan — dezelfde berekening, maar direct voor het huidige record, voor een instant refresh zonder op de volgende cron-run te wachten.
+
+Nuttig voor CS-context, maar **niet de bron voor het Syndicoach-pakket** — de tiers worden apart bijgehouden (zie §4).
 
 **Dynamisch mailblok systeem (`x_dynamic_mail_block`)**
 Een zelfgebouwd conditional content engine. Blokken hebben `x_condition_field` + `x_condition_value` waarmee de inhoud varieert per contact. Al in gebruik voor Meta Lead- en Syndicoach-flows (intro, onderwerp, contactinstructies). De CS check-in mail en welkomstmail kunnen hierop inpikken — de infrastructuur is er al.
@@ -229,23 +233,41 @@ env['mail.activity'].create({
 **Op lead:** Veld `x_studio_syndicoach_package` toevoegen, zichtbaar in formulier en CRM-pipeline.  
 **Op res.partner VME:** Idem, zodat het op het contact-record blijft staan ook na closing.
 
-### Checklist — M2M model (bevestigd)
+### Checklist — twee-modellen-structuur (herzien, zelfde patroon als pain points)
 
-Model: `x_cs_checklist_item` met velden:
-- `x_name` — omschrijving van het item
-- `x_verplicht` — boolean (verplicht vs. optioneel)
-- `x_stage` — selection (In Configuratie / Follow-up Validatie / ...) voor filtering
+**Beslissing:** niet langer een simpele M2M, maar exact het patroon van de pain points (`x_user_painpoints` master + `x_action_sheet_pain_po` per-actieblad lijn, auto-aangemaakt via automation 29 → action 974). Twee modellen:
 
-M2M veld op actieblad: `x_studio_checklist_done_ids` (many2many → x_cs_checklist_item).
+**Master: `x_checklist_item`**
+- `x_name` — omschrijving
+- `x_type` — selection: `required` (Verplicht) / `dependant` (Afhankelijk) / `optional` (Optioneel) (vervangt de oorspronkelijke boolean `x_verplicht`)
+- `x_dependency_field` — char: technische veldnaam op het actieblad, enkel relevant bij `dependant` (bv. `x_has_peppol`, `x_has_linked_bank_account`)
+- `x_stage` — **many2one → `x_support_stage`**, verplicht, **on delete: beperken (restrict)** (fase-records zijn structurele configuratie, zelden verwijderd — beperken voorkomt dat een fase per ongeluk verdwijnt terwijl er nog checklist-items aan hangen). Hetzelfde stage-model als `x_studio_stage_id` op het actieblad, dus rechtstreeks vergelijkbaar — geen apart sync-veld met stage-keys nodig. Bekende stage-ids: 1 Discovery, 5 Welkomgesprek, 7 Planning Opstarthulp, 8 In Configuratie, 9 Follow-up validatie, 10 Goed Opgestart.
+- `x_studio_sequence` (auto-aangemaakt door de "Aangepast sorteren"-optie in de model-wizard — krijgt altijd de `x_studio_`-prefix, ook al gebruik je voor de rest de veldenbewerker), `x_active`
 
-Auto-advance trigger: `on_create_or_write` → tel verplichte items, als alle afgevinkt → stage = Follow-up Validatie.
+**Per actieblad: `x_action_sheet_checkli`** (technische modelnaam afgekapt door Odoo's karakterlimiet op custom modelnamen — bedoelde naam was `x_action_sheet_checklist_line`, werd automatisch ingekort)
+- `x_name` — **related field** (`related='x_checklist_item_id.x_name'`, `store=True`, alleen-lezen) — toont altijd de actuele naam van het item, live, in de taal van de kijker (zelfde vertaalmechanisme als het brontveld op `x_checklist_item`). **Geen kopie meer** (zie bug-note bij BI-S2-05a: een kopie-op-aanmaakmoment botste met vertalingen — `x_name` op het item is translatable, en enkel de niet-Nederlandse vertalingen waren aangepast bij een hernoeming, waardoor de "sync"-actie in de Nederlandse werkcontext niets te doen vond). `x_action_sheet_id` (m2o → Sales Action Sheet, verplicht, **on delete: cascade** — checklist-lijnen zijn detail-records van het actieblad, ruimen automatisch mee op), `x_checklist_item_id` (m2o → `x_checklist_item`, verplicht, **on delete: beperken (restrict)** — voorkomt dat een master-item verwijderd wordt terwijl er nog historische lijnen naar verwijzen; archiveren via `x_active = False` in plaats van verwijderen)
+- `x_done` — boolean
+- `x_done_date` — datetime, ingevuld door automation zodra `x_done` naar True gaat (bijhouden wanneer een checkpoint afgevinkt werd)
+- `x_stage_id` — many2one → `x_support_stage`, **related field** (`related='x_checklist_item_id.x_stage'`, `store=True`, alleen-lezen) — denormaliseert de fase van het item op de lijn zelf, zodat je erop kan filteren/groeperen zonder een dotted-path domain.
+- `x_studio_sequence` (idem, auto-aangemaakt), `x_active`
 
-Standaard items (aangemaakt bij creatie actieblad, zoals pain points):
+O2m op actieblad: `x_checklist_line_ids` → `x_action_sheet_checkli`. **Alle lijnen blijven zichtbaar op het formulier, over alle fases heen** (geen fase-filter op de o2m) — CS wil de volledige historiek zien, inclusief afgevinkte items uit eerdere fases. Op de kanban-tegel komt later een eigen afgeleide/samengevatte weergave (zelfbouw door CS, buiten scope van deze automation-laag).
+
+**Generalisatie — niet enkel "In Configuratie":** dit model is stage-onafhankelijk opgezet. Hetzelfde `x_checklist_item`-model bevat ook de planning-items voor de fase "Planning Opstarthulp" (stage id 7) — een item "hoort" bij een fase via zijn `x_stage`-veld, en "Custom | Add Checklist-items on Sales Action Sheets" (zie BI-S2-05) laadt bij élke stage-overgang de items die bij de nieuwe fase horen, niet enkel bij "In Configuratie". Nieuwe fases toevoegen = gewoon nieuwe `x_checklist_item`-records aanmaken met de juiste `x_stage`, geen automation-wijziging nodig.
+
+**Drie statussen (herclassificatie t.o.v. het oorspronkelijke idee):**
+- `required` (Verplicht) — komt altijd op het actieblad terecht zodra het In Configuratie ingaat
+- `dependant` (Afhankelijk) — komt enkel op het actieblad als het veld in `x_dependency_field` op dat moment True is (bv. "Bankkoppeling gemaakt" enkel als `x_has_linked_bank_account = True`, "Peppol geactiveerd" enkel als `x_has_peppol = True`) — **dit is wat vroeger "optioneel" heette**
+- `optional` (Optioneel) — nooit automatisch toegevoegd; CS kan dit zelf toevoegen via een editable o2m-lijst met een domeinfilter `[('x_type','=','optional')]` op de item-picker
+
+Standaard items:
 - ✓ Financiële module geactiveerd _(verplicht)_
 - ✓ Eerste facturen & bankafschriften ingegeven _(verplicht)_
 - ✓ Minimaal 2 relevante documenten opgeladen _(verplicht)_
-- ○ Bankkoppeling gemaakt _(optioneel)_
-- ○ Peppol geactiveerd _(optioneel)_
+- ◐ Bankkoppeling gemaakt _(afhankelijk — `x_has_linked_bank_account`)_
+- ◐ Peppol geactiveerd _(afhankelijk — `x_has_peppol`)_
+
+**Auto-instantiatie:** trigger niet bij aanmaken van het actieblad (zoals pain points), maar bij binnenkomst in stage "In Configuratie" (stage id 8) — zie BI-S2-05 voor de volledige server-action-code. Met dedup-check (anders dan de pain-points-automation, die deze niet heeft) omdat een actieblad de fase kan verlaten en later terugkeren.
 
 ### Wijzigen
 
@@ -529,6 +551,7 @@ Huidige filters: Mijn actiebladen, Gearchiveerd. Dat is te weinig.
 - [ ] Sales verantwoordelijke als tweede kleinere avatar behouden
 - [ ] Won-datum compact zichtbaar onderaan
 - [ ] Donut-footer verwijderd
+- [x] Bugfix: activiteit-omschrijving (`activity_summary`) geclampt op 2 lijnen + ellipsis, volledige tekst via hover-tooltip — bestaande `.o_activity_summary`/`.o_activity_title`-CSS matchte niet (dat zijn classes van de `kanban_activity`-widget, niet van het los geplaatste `activity_summary`-veld); opgelost met een eigen wrapper-div (`.activity-summary-clamp`) rond het veld.
 
 ---
 
@@ -667,13 +690,13 @@ Wat overblijft in Studio:
 
 **Wat:** Boolean `x_has_startup_assistance` (product "Opstarthulp" id 37 aanwezig in actieve sale orders).  
 **Waarom:** (1) Bepaalt of stage "Opstarthulp" overgeslagen wordt. (2) Drijft `x_color = 11` (paars) op de kanban-kaart via BI-S1-06.  
-**Detectie:** Boolean wordt gezet **tijdens de berekening van `x_studio_active_products_html`** (automation 50 + server action 1117) — geen aparte automation nodig.  
+**Detectie:** Boolean wordt gezet **tijdens de productdetectie in de server actions** — automatisch elk uur via cron 82 (server action 1078, bulk) en direct bij klikken op "Producten ophalen" (server action 1117, per record) — geen aparte automation nodig.  
 **Prioriteit kaartkleuring:** Opstarthulp (paars) heeft hogere prioriteit dan vlagkleur — zie BI-S1-06.  
 **Automatisering routing:** Bij stage = Intake, als `heeft_opstarthulp = True` → toon sub-status "Opstartsessie inplannen" + maak taak aan.
 
 **Acceptatiecriteria:**
 - [x] Veld `x_has_startup_assistance` aangemaakt (boolean)
-- [x] Boolean correct gezet tijdens automation 50 + server action 1117 (active products berekening)
+- [x] Boolean correct gezet tijdens active products berekening (cron 82 → action 1078, en knop → action 1117)
 - [x] Wijziging boolean triggert x_color update (via BI-S1-06)
 - [ ] Bij Intake + Opstarthulp: taak "Opstartsessie inplannen" wordt aangemaakt
 - [ ] Bij Intake + geen Opstarthulp: stage slaat "Opstarthulp" over
@@ -694,22 +717,678 @@ Wat overblijft in Studio:
 
 ---
 
-#### BI-S2-05 — Configuratie-checklist
+#### BI-S2-04a — Opstarthulp beter markeren (aankoopdatum + kanban-icoon)
 
-**Wat:** Boolean-velden of M2M checklist op actieblad:
-- `x_studio_check_financieel` (verplicht)
-- `x_studio_check_facturen` (verplicht)
-- `x_studio_check_documenten` (verplicht)
-- `x_studio_check_bankkoppeling` (optioneel)
-- `x_studio_check_peppol` (optioneel)
+**Wat:** Los van de sub-status (BI-S2-04): Opstarthulp krijgt een aankoopdatum en wordt visueel duidelijker gemarkeerd op de kanban-tegel.
 
-**Automation:** `on_create_or_write`, filter = alle verplichte checks = True → Stage naar "Follow-up Validatie" + activiteit "Follow-up call" deadline vandaag + 14 dagen.
+**Nieuw veld:** `x_startup_assistance_date` (Date, label "Opstarthulp gekocht op") op `x_sales_action_sheet` — aangemaakt via de Technische UI (geen `x_studio_`-prefix, zelfde patroon als `x_has_startup_assistance`).
+
+**Server actions bijgewerkt (active products-berekening, 1078 + 1117):**
+- Het "📦 Niet-recurrente producten"-blok wordt niet meer getoond in `x_studio_active_products_html` — enkel recurrente producten blijven zichtbaar. De onderliggende berekening van niet-recurrente producten blijft wel nodig, puur voor de Opstarthulp-detectie.
+- Opstarthulp-detectie (product template id 37) levert nu ook de vroegste orderregel-datum op, weggeschreven naar `x_startup_assistance_date`.
+- **Valkuil:** Odoo's `safe_eval`-sandbox kent geen `next()`-builtin (`NameError: name 'next' is not defined`) — een generator-expressie met `next(..., None)` moet vervangen worden door een gewone `for`-loop met `break`.
+- **Retroactieve backfill:** geen apart eenmalig script nodig — "Run Manually" op cron 82 (Technical → Scheduled Actions) laat server action 1078 in één keer over alle actiebladen lopen en vult beide velden overal met terugwerkende kracht correct in.
+
+**Kanban-tegel (view 3725):** nieuw icoon-only chipje (22×22px, zelfde formaat als het vlag-chipje) links van de Syndicoach-pakketbadge in de pakketbalk, enkel zichtbaar bij `x_has_startup_assistance = True`. Icoon: `fa-rocket`. Kleur: paars, dezelfde tint als `x_color = 11` (kleurenkiezer) die al elders op de kaart voor Opstarthulp gebruikt wordt (`background: #f1e6ff`, `border: rgb(170, 90, 255)`, icoon-kleur `#7b3fd6`). Hover toont `x_startup_assistance_date` via de native `title`-tooltip (`t-attf-title`), geen extra JS.
 
 **Acceptatiecriteria:**
-- [ ] Alle 5 checklistitems aanwezig en aanvinkbaar in formulier
-- [ ] Optionele items duidelijk onderscheiden van verplichte
-- [ ] Bij alle verplichte items ✓: automatisch doorschuiven naar Follow-up Validatie
-- [ ] Activiteit "Follow-up call" aangemaakt met deadline +14 dagen
+- [x] Veld `x_startup_assistance_date` aangemaakt (Date, Technische UI, model Sales Action Sheet)
+- [x] Server action 1117 (knop "Producten ophalen") aangepast: boolean + datum correct gezet, niet-recurrente sectie uit de html, `next()`-fix toegepast
+- [x] Server action 1078 (cron 82, bulk) aangepast: idem
+- [x] Retroactieve backfill via "Run Manually" op cron 82 — geen apart script nodig
+- [x] Kanban-chip toegevoegd op view 3725: icoon-only, paars (kleur 11), links van pakketbadge
+- [x] Hover-tooltip toont aankoopdatum
+
+---
+
+#### BI-S2-04b — Productstatus-chips op kanban (OpenVME-pakket, Peppol, Bankkoppeling)
+
+**Wat:** Naast Opstarthulp (BI-S2-04a) krijgen ook het OpenVME-softwarepakket, Peppol-integratie en bankkoppeling een eigen chip op de kanban-tegel, in plaats van de vrije-tekst-HTML-lijst. De volledige `x_studio_active_products_html`-berekening (recurrente + niet-recurrente productenlijst, incl. `render_recurring()`) is hierdoor overbodig geworden en verwijderd uit beide server actions — enkel de detectielogica voor de chips blijft over.
+
+**Productmapping (opgezocht in Odoo):**
+- OpenVME-pakket: Basic=34, Smart=35, Unlimited=36, Early Adopter → "Historic"=26 (categorie "OpenVME Licenties"; qty = aantal kavels)
+- Peppol integratie = 38 (qty niet betekenisvol — waarden variëren wild, waarschijnlijk facturatie-aantal; enkel actief/inactief getoond)
+- Bankkoppeling: huidig product 44 (+ twee ongebruikte legacy-varianten 31/32, voor de zekerheid meegenomen in de detectie); qty = aantal koppelingen
+
+**Nieuwe velden (Technische UI, model Sales Action Sheet):**
+- `x_openvme_package` — Selection: `none` / `basic` / `smart` / `unlimited` / `historic`
+- `x_openvme_package_qty` — Integer (kavels)
+- `x_has_peppol` — Boolean
+- `x_has_linked_bank_account` — Boolean (productneutrale naam — aanvankelijk `x_has_ponto` genoemd, hernoemd bij het aanmaken)
+- `x_linked_bank_account_qty` — Integer
+
+**Server actions 1078 + 1117 — vereenvoudigd:** de `recurring`-tracking en de volledige HTML-opbouw zijn verwijderd. Binnen de bestaande recurrente-productenloop wordt nu gekeken of `tmpl.id` in de pakket-/Peppol-/bankkoppeling-ranges valt, en de bijhorende velden worden weggeschreven. Zonder orderregels blijven de velden gewoon op hun standaardwaarde (`none`/`False`/`0`) — geen aparte lege-lijst-tak meer nodig.
+
+**Kanban-tegel (view 3725) — pakketbalk uitgebreid, alles in dezelfde rij:**
+- OpenVME-pakket: altijd zichtbaar, tekst voluit (bv. "Smart") + wit rondje-badge met het aantal kavels ernaast (behalve bij Unlimited, die toont geen badge). Grijze "OpenVME"-placeholder als geen pakket actief.
+- Peppol: icoon-only chip (`fa-exchange`), altijd zichtbaar — groen als actief, grijs als niet.
+- Bankkoppeling: chip met icoon (`fa-university` actief / `fa-credit-card` inactief) — blauw + wit rondje-badge met aantal koppelingen als actief, grijs zonder badge als niet.
+- Opstarthulp-chip (BI-S2-04a) ook altijd zichtbaar gemaakt (niet enkel bij aanwezig): paars als actief, grijs als niet — zelfde `chip-icon-only`/`chip-inactive`-klassen als Peppol.
+- Syndicoach-pakketbadge: bestaande chip ongewijzigd, enkel de placeholder-tekst hernoemd van "Pakket instellen" naar "Syndicoach" (om verwarring met het nieuwe OpenVME-pakket te vermijden — het zijn en blijven twee volledig losse velden/concepten, geen vervanging van elkaar).
+- Vlag-icoon verhuisd: stond eerst vooraan in de pakketbalk, staat nu enkel nog in de berichtrij (`flag-message-bar`) — die niet langer een ingevulde berichttekst vereist om te tonen, enkel `x_flag_level != 'none'`. Icoon (bel bij `reminder`, anders uitroepteken) staat inline vóór de berichttekst.
+- Alle "actieve" chips (pakketten, Peppol, bankkoppeling actief) kregen een donkere rand in hun eigen accentkleur voor meer visuele definitie — grijze "inactief"-chips blijven bewust vlak/randloos.
+- Basisklasse `.pack-chip` kreeg een vaste `height: 22px` + `box-sizing: border-box` zodat alle chips (icoon-only én tekst-chips) exact even hoog uitlijnen.
+- Kleur Unlimited aangepast van zwarte/navy vulling naar lichtgrijze vulling + donkergrijze tekst/rand — sluit beter aan bij de lichte pastelstijl van Basic/Smart dan de aanvankelijke zwarte versie.
+
+**Overige recurrente producten (Algemene Vergadering, Boekhouding, Professional, Discount):** hebben geen eigen chip en zijn dus niet meer zichtbaar op de kanban-tegel — bewuste scope-keuze, enkel nog raadpleegbaar via de sale order zelf in Odoo.
+
+**`x_studio_active_products_html`:** veld blijft bestaan op het model (niet verwijderd, enkel niet meer bijgewerkt/getoond). De wrapper-div (`studio_div_ef6d47`) — ankerpunt voor de andere xpaths in deze view — bevat voorlopig 3 lege regels (`<br/>`) als tijdelijke placeholder.
+
+**Acceptatiecriteria:**
+- [x] Velden `x_openvme_package`, `x_openvme_package_qty`, `x_has_peppol`, `x_has_linked_bank_account`, `x_linked_bank_account_qty` aangemaakt
+- [x] Server actions 1078 + 1117 vereenvoudigd: HTML-opbouw en `recurring`-tracking verwijderd, enkel detectie blijft
+- [x] Kanban-chips toegevoegd: OpenVME-pakket (+ badge), Peppol, Bankkoppeling (+ badge) — allemaal altijd zichtbaar (kleur actief / grijs inactief)
+- [x] Opstarthulp-chip ook altijd zichtbaar gemaakt (i.p.v. enkel bij aanwezig)
+- [x] Syndicoach-placeholder hernoemd naar "Syndicoach"
+- [x] Vlag-icoon verplaatst naar de berichtrij, niet langer afhankelijk van een ingevulde berichttekst
+- [x] Donkere randjes op alle actieve chips; inactieve chips blijven vlak
+- [x] `x_studio_active_products_html`-weergave verwijderd van de kanban-tegel (veld zelf niet verwijderd)
+- [ ] Chips voor overige recurrente producten (Algemene Vergadering/Boekhouding/Professional) — bewust niet gebouwd, buiten scope
+
+---
+
+#### BI-S2-05 — Configuratie-checklist
+
+**Wat:** Twee-modellen-structuur zoals de pain points (zie §4 "Checklist — twee-modellen-structuur"): master `x_checklist_item` + per-actieblad lijn `x_action_sheet_checkli`, met drie statussen (`required`/`dependant`/`optional`) i.p.v. een simpele boolean, en een `x_done_date` per lijn. **Stage-onafhankelijk:** laadt telkens de items die horen bij de fase waar het actieblad net binnenkomt — dus zowel "Planning Opstarthulp" (stage id 7) als "In Configuratie" (stage id 8), via `x_checklist_item.x_stage`. Geen apart automation-traject per fase nodig.
+
+**"Custom | Add Checklist-items on Sales Action Sheets" — checklist-items laden bij fase-binnenkomst** (elke fase, niet enkel stage 8) — trigger op `x_studio_stage_id`, **geen filter op een specifieke stage-id** (vuurt bij élke fase-wijziging; de `x_stage`-filter in de `search()` hieronder selecteert vanzelf enkel de items van de nieuwe fase):
+```python
+Item = env['x_checklist_item']
+Line = env['x_action_sheet_checkli']
+_METRO_OC = ('(function(){'
+    'var el=event.target;if(!el)return;'
+    'event.stopPropagation();event.preventDefault();'
+    'var lineId=el.dataset.lineId;'
+    'var done=!el.classList.contains("metro-dot-done");'
+    'el.classList.toggle("metro-dot-done",done);'
+    'var lbl=el.nextElementSibling;'
+    'if(lbl)lbl.classList.toggle("metro-label-done",done);'
+    'fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
+    'body:JSON.stringify({jsonrpc:"2.0",method:"call",id:1,params:{model:"x_action_sheet_checkli",'
+    'method:"write",args:[[parseInt(lineId)],{x_done:done}],kwargs:{}}})});'
+    '})()')
+
+_METRO_OC_MEETING = ('(function(){'
+    'var el=event.target;if(!el)return;'
+    'event.stopPropagation();event.preventDefault();'
+    'var meetingId=el.dataset.meetingId;'
+    'var stageId=el.dataset.targetStageId;'
+    'el.classList.remove("metro-dot-meeting-clickable");'
+    'el.classList.add("metro-dot-done");'
+    'el.onclick=null;'
+    'var lbl=el.nextElementSibling;'
+    'if(lbl)lbl.classList.add("metro-label-done");'
+    'fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
+    'body:JSON.stringify({jsonrpc:"2.0",method:"call",id:1,params:{model:"x_as_meetings",'
+    'method:"write",args:[[parseInt(meetingId)],{x_studio_stage_id:parseInt(stageId)}],kwargs:{}}})});'
+    '})()')
+
+def render_checklist_html(rec):
+    stage_id = rec.x_studio_stage_id.id if rec.x_studio_stage_id else False
+    lines = []
+    for l in rec.x_checklist_line_ids:
+        if l.x_stage_id.id == stage_id:
+            lines.append(l)
+    lines = sorted(lines, key=lambda l: l.x_studio_sequence)
+    if not lines:
+        return (
+            "<div class='metro-empty'>"
+            "<img class='metro-empty-img' src='https://forminator-sync.openvme-odoo.workers.dev/assets/uploads/persoon-in-zenhouding-aan-computer-blue.svg'/>"
+            "</div>"
+        )
+    rows = ''
+    total = len(lines)
+    for idx, line in enumerate(lines):
+        done = line.x_done
+        item_obj = line.x_checklist_item_id
+        is_meeting = item_obj.x_auto_complete_source == 'meeting'
+        label_cls = 'metro-label metro-label-done' if done else 'metro-label'
+        item_cls = 'metro-item metro-item-last' if idx == total - 1 else 'metro-item'
+        if not is_meeting:
+            dot_cls = 'metro-dot metro-dot-done' if done else 'metro-dot'
+            dot_html = "<span class='" + dot_cls + "' data-line-id='" + str(line.id) + "' onclick='" + _METRO_OC + "'></span>"
+        elif done:
+            dot_html = "<span class='metro-dot metro-dot-done' title='Meeting afgerond'></span>"
+        else:
+            clickable = item_obj.x_auto_complete_meeting_clickable
+            meeting_type = item_obj.x_auto_complete_meeting_type
+            target_stage = item_obj.x_auto_complete_meeting_stage
+            meeting_id = False
+            if clickable and meeting_type:
+                existing_meeting = env['x_as_meetings'].search([
+                    ('x_studio_for_action_sheet', '=', rec.id),
+                    ('x_studio_meeting_type', '=', meeting_type.id),
+                ], order='id desc', limit=1)
+                if existing_meeting:
+                    meeting_id = existing_meeting.id
+            if not clickable:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-locked' "
+                    "title='Wordt automatisch afgevinkt, niet manueel te klikken'></span>"
+                )
+            elif meeting_id and target_stage:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-meeting-clickable' "
+                    "data-meeting-id='" + str(meeting_id) + "' data-target-stage-id='" + str(target_stage.id) + "' "
+                    "title='Klik om de meeting naar " + target_stage.display_name + " te zetten' onclick='" + _METRO_OC_MEETING + "'></span>"
+                )
+            else:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-waiting' "
+                    "title='Wordt automatisch afgevinkt zodra de meeting bestaat'></span>"
+                )
+        rows += (
+            "<div class='" + item_cls + "'>"
+            + dot_html +
+            "<span class='" + label_cls + "'>" + (line.x_name or '') + "</span>"
+            "</div>"
+        )
+    return "<div class='metro-checklist'>" + rows + "</div>"
+
+for rec in records:
+    stage = rec.x_studio_stage_id
+    if not stage:
+        continue
+    existing_item_ids = set(rec.x_checklist_line_ids.mapped('x_checklist_item_id').ids)
+    for item in Item.search([('x_active', '=', True), ('x_stage', '=', stage.id)]):
+        if item.id in existing_item_ids:
+            continue
+        if item.x_type == 'required':
+            should_add = True
+        elif item.x_type == 'dependant':
+            fieldname = item.x_dependency_field
+            should_add = bool(fieldname and fieldname in rec._fields and rec[fieldname])
+        else:
+            should_add = False  # optional: nooit automatisch
+        if should_add:
+            new_line = Line.create({
+                'x_action_sheet_id': rec.id,
+                'x_checklist_item_id': item.id,
+            })
+            if item.x_auto_complete_source == 'meeting' and item.x_auto_complete_meeting_type:
+                meeting_domain = [
+                    ('x_studio_for_action_sheet', '=', rec.id),
+                    ('x_studio_meeting_type', '=', item.x_auto_complete_meeting_type.id),
+                ]
+                if item.x_auto_complete_meeting_stage:
+                    meeting_domain.append(('x_studio_stage_id', '=', item.x_auto_complete_meeting_stage.id))
+                has_meeting = env['x_as_meetings'].search_count(meeting_domain) > 0
+                if has_meeting:
+                    new_line.write({'x_done': True})
+            elif item.x_auto_complete_source == 'field' and item.x_auto_complete_field:
+                fieldname_ac = item.x_auto_complete_field
+                if fieldname_ac in rec._fields and rec[fieldname_ac]:
+                    new_line.write({'x_done': True})
+    rec.write({'x_checklist_progress_html': render_checklist_html(rec)})
+```
+Werkt voor elke fase met `x_checklist_item`-records: nu al voor "Planning Opstarthulp" (stage id 7) en "In Configuratie" (stage id 8) tegelijk, zonder aparte automation per fase. Dit is de **volledige, definitieve versie** van deze automation (inclusief de HTML-herberekening uit BI-S2-05a en de auto-complete-check uit BI-S2-05b) — BI-S2-05a en BI-S2-05b beschrijven enkel nog de achtergrond/reden, niet een apart te plakken codefragment.
+
+**"Custom | Add done date to checklist items when checked" — `x_done_date` invullen** — automation op `x_action_sheet_checkli`, trigger op `x_done`:
+```python
+Line = env['x_action_sheet_checkli']
+_METRO_OC = ('(function(){'
+    'var el=event.target;if(!el)return;'
+    'event.stopPropagation();event.preventDefault();'
+    'var lineId=el.dataset.lineId;'
+    'var done=!el.classList.contains("metro-dot-done");'
+    'el.classList.toggle("metro-dot-done",done);'
+    'var lbl=el.nextElementSibling;'
+    'if(lbl)lbl.classList.toggle("metro-label-done",done);'
+    'fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
+    'body:JSON.stringify({jsonrpc:"2.0",method:"call",id:1,params:{model:"x_action_sheet_checkli",'
+    'method:"write",args:[[parseInt(lineId)],{x_done:done}],kwargs:{}}})});'
+    '})()')
+
+_METRO_OC_MEETING = ('(function(){'
+    'var el=event.target;if(!el)return;'
+    'event.stopPropagation();event.preventDefault();'
+    'var meetingId=el.dataset.meetingId;'
+    'var stageId=el.dataset.targetStageId;'
+    'el.classList.remove("metro-dot-meeting-clickable");'
+    'el.classList.add("metro-dot-done");'
+    'el.onclick=null;'
+    'var lbl=el.nextElementSibling;'
+    'if(lbl)lbl.classList.add("metro-label-done");'
+    'fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
+    'body:JSON.stringify({jsonrpc:"2.0",method:"call",id:1,params:{model:"x_as_meetings",'
+    'method:"write",args:[[parseInt(meetingId)],{x_studio_stage_id:parseInt(stageId)}],kwargs:{}}})});'
+    '})()')
+
+def render_checklist_html(rec):
+    stage_id = rec.x_studio_stage_id.id if rec.x_studio_stage_id else False
+    lines = []
+    for l in rec.x_checklist_line_ids:
+        if l.x_stage_id.id == stage_id:
+            lines.append(l)
+    lines = sorted(lines, key=lambda l: l.x_studio_sequence)
+    if not lines:
+        return (
+            "<div class='metro-empty'>"
+            "<img class='metro-empty-img' src='https://forminator-sync.openvme-odoo.workers.dev/assets/uploads/persoon-in-zenhouding-aan-computer-blue.svg'/>"
+            "</div>"
+        )
+    rows = ''
+    total = len(lines)
+    for idx, line in enumerate(lines):
+        done = line.x_done
+        item_obj = line.x_checklist_item_id
+        is_meeting = item_obj.x_auto_complete_source == 'meeting'
+        label_cls = 'metro-label metro-label-done' if done else 'metro-label'
+        item_cls = 'metro-item metro-item-last' if idx == total - 1 else 'metro-item'
+        if not is_meeting:
+            dot_cls = 'metro-dot metro-dot-done' if done else 'metro-dot'
+            dot_html = "<span class='" + dot_cls + "' data-line-id='" + str(line.id) + "' onclick='" + _METRO_OC + "'></span>"
+        elif done:
+            dot_html = "<span class='metro-dot metro-dot-done' title='Meeting afgerond'></span>"
+        else:
+            clickable = item_obj.x_auto_complete_meeting_clickable
+            meeting_type = item_obj.x_auto_complete_meeting_type
+            target_stage = item_obj.x_auto_complete_meeting_stage
+            meeting_id = False
+            if clickable and meeting_type:
+                existing_meeting = env['x_as_meetings'].search([
+                    ('x_studio_for_action_sheet', '=', rec.id),
+                    ('x_studio_meeting_type', '=', meeting_type.id),
+                ], order='id desc', limit=1)
+                if existing_meeting:
+                    meeting_id = existing_meeting.id
+            if not clickable:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-locked' "
+                    "title='Wordt automatisch afgevinkt, niet manueel te klikken'></span>"
+                )
+            elif meeting_id and target_stage:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-meeting-clickable' "
+                    "data-meeting-id='" + str(meeting_id) + "' data-target-stage-id='" + str(target_stage.id) + "' "
+                    "title='Klik om de meeting naar " + target_stage.display_name + " te zetten' onclick='" + _METRO_OC_MEETING + "'></span>"
+                )
+            else:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-waiting' "
+                    "title='Wordt automatisch afgevinkt zodra de meeting bestaat'></span>"
+                )
+        rows += (
+            "<div class='" + item_cls + "'>"
+            + dot_html +
+            "<span class='" + label_cls + "'>" + (line.x_name or '') + "</span>"
+            "</div>"
+        )
+    return "<div class='metro-checklist'>" + rows + "</div>"
+
+for line in records:
+    if line.x_done and not line.x_done_date:
+        line.write({'x_done_date': datetime.datetime.utcnow()})
+
+for rec in records.mapped('x_action_sheet_id'):
+    rec.write({'x_checklist_progress_html': render_checklist_html(rec)})
+```
+**Val niet voor `fields.Datetime.now()`** — de `fields`-module (odoo.fields) zit niet in de automation-sandbox (`NameError: name 'fields' is not defined`), enkel de standaard Python `datetime`-module. `datetime.datetime.utcnow()` geeft naive UTC-tijd, wat exact is wat Odoo intern verwacht voor Datetime-velden (zelfde conventie als `fields.Datetime.now()` zou geven, enkel zonder de niet-beschikbare wrapper).
+
+Vult enkel bij de eerste keer aanvinken; bij uit- en terug aanvinken blijft de oorspronkelijke datum staan (bewuste keuze, aanpasbaar als CS liever de laatste aanvink-datum ziet).
+
+**"Custom | Move Action Sheet To Next Stage When Checklist Is Complete" (nog aan te maken, voorstel-naam) — doorschuiven naar Follow-up Validatie** — automation op `x_action_sheet_checkli`, trigger op `x_done`:
+```python
+Sheet = env['x_sales_action_sheet']
+config_stage_id = 8
+followup_stage_id = 9
+
+for rec in records.mapped('x_action_sheet_id'):
+    if rec.x_studio_stage_id.id != config_stage_id:
+        continue
+    lines = rec.x_checklist_line_ids.filtered(
+        lambda l: l.x_checklist_item_id.x_type in ('required', 'dependant')
+    )
+    if lines and all(lines.mapped('x_done')):
+        rec.write({'x_studio_stage_id': followup_stage_id})
+        model_id = env['ir.model'].search([('model', '=', 'x_sales_action_sheet')], limit=1).id
+        env['mail.activity'].create({
+            'res_model_id': model_id,
+            'res_id': rec.id,
+            'activity_type_id': 2,
+            'summary': 'Follow-up call configuratie',
+            'date_deadline': datetime.date.today() + datetime.timedelta(days=14),
+            'user_id': rec.x_studio_support_user_id.id or rec.x_studio_user_id.id or env.uid,
+        })
+```
+Enkel `required` + `dependant` items tellen mee voor de voortgangscheck — `optional` items (ook zelf toegevoegde) blokkeren de doorschuif niet.
+
+Deze automation bewaakt specifiek de overgang In Configuratie → Follow-up Validatie. **Nog niet gebouwd:** een symmetrische variant voor Planning Opstarthulp → In Configuratie (zelfde `all(lines.mapped('x_done'))`-check maar met `config_stage_id`/`followup_stage_id` vervangen door 7/8) — pas toevoegen als CS ook daar een auto-advance wil, niet aangenomen.
+
+**Optioneel item toevoegen:** editable o2m-lijst op het formulier (CS Onboarding tab), met domeinfilter `[('x_type','=','optional')]` op de item-picker — puur Studio/view-instelling, geen code.
+
+**"Custom | Sync checklist items to lines"** — manueel te triggeren server-actie (geen automation/trigger, CS voert dit zelf uit na het toevoegen of archiveren van master-items). **Hernoemen hoeft hier niet meer bij** — `x_action_sheet_checkli.x_name` is een related field geworden (zie §4), dus een hernoeming van het master-item is meteen overal zichtbaar, in elke taal, zonder deze actie. Doet drie dingen: (1) nieuwe/actieve items — voegt ze retroactief toe aan actiebladen die al in de bijhorende fase zitten (zelfde `required`/`dependant`-logica als "Custom | Add Checklist-items on Sales Action Sheets", die enkel bij een stage-*wijziging* vuurt en dus niets doet voor actiebladen die al langer in die fase zitten), (1b) meeting-items retroactief herevalueren — bestaande niet-afgevinkte meeting-items opnieuw checken tegen de huidige meeting-stand (vangt gemiste automation-triggers op, zie bug-note hieronder), (2) gearchiveerde items (`x_active = False`) — verwijdert de bijhorende **nog niet afgevinkte** lijnen (bewuste keuze: al afgevinkte lijnen blijven staan als historiek, net zoals de rest van dit ontwerp historiek nooit stilletjes wist). Herberekent daarna `x_checklist_progress_html` voor elk betrokken actieblad.
+
+```python
+Line = env['x_action_sheet_checkli']
+Item = env['x_checklist_item']
+Sheet = env['x_sales_action_sheet']
+
+_METRO_OC = ('(function(){'
+    'var el=event.target;if(!el)return;'
+    'event.stopPropagation();event.preventDefault();'
+    'var lineId=el.dataset.lineId;'
+    'var done=!el.classList.contains("metro-dot-done");'
+    'el.classList.toggle("metro-dot-done",done);'
+    'var lbl=el.nextElementSibling;'
+    'if(lbl)lbl.classList.toggle("metro-label-done",done);'
+    'fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
+    'body:JSON.stringify({jsonrpc:"2.0",method:"call",id:1,params:{model:"x_action_sheet_checkli",'
+    'method:"write",args:[[parseInt(lineId)],{x_done:done}],kwargs:{}}})});'
+    '})()')
+
+_METRO_OC_MEETING = ('(function(){'
+    'var el=event.target;if(!el)return;'
+    'event.stopPropagation();event.preventDefault();'
+    'var meetingId=el.dataset.meetingId;'
+    'var stageId=el.dataset.targetStageId;'
+    'el.classList.remove("metro-dot-meeting-clickable");'
+    'el.classList.add("metro-dot-done");'
+    'el.onclick=null;'
+    'var lbl=el.nextElementSibling;'
+    'if(lbl)lbl.classList.add("metro-label-done");'
+    'fetch("/web/dataset/call_kw",{method:"POST",headers:{"Content-Type":"application/json"},'
+    'body:JSON.stringify({jsonrpc:"2.0",method:"call",id:1,params:{model:"x_as_meetings",'
+    'method:"write",args:[[parseInt(meetingId)],{x_studio_stage_id:parseInt(stageId)}],kwargs:{}}})});'
+    '})()')
+
+def render_checklist_html(rec):
+    stage_id = rec.x_studio_stage_id.id if rec.x_studio_stage_id else False
+    lines = []
+    for l in rec.x_checklist_line_ids:
+        if l.x_stage_id.id == stage_id:
+            lines.append(l)
+    lines = sorted(lines, key=lambda l: l.x_studio_sequence)
+    if not lines:
+        return (
+            "<div class='metro-empty'>"
+            "<img class='metro-empty-img' src='https://forminator-sync.openvme-odoo.workers.dev/assets/uploads/persoon-in-zenhouding-aan-computer-blue.svg'/>"
+            "</div>"
+        )
+    rows = ''
+    total = len(lines)
+    for idx, line in enumerate(lines):
+        done = line.x_done
+        item_obj = line.x_checklist_item_id
+        is_meeting = item_obj.x_auto_complete_source == 'meeting'
+        label_cls = 'metro-label metro-label-done' if done else 'metro-label'
+        item_cls = 'metro-item metro-item-last' if idx == total - 1 else 'metro-item'
+        if not is_meeting:
+            dot_cls = 'metro-dot metro-dot-done' if done else 'metro-dot'
+            dot_html = "<span class='" + dot_cls + "' data-line-id='" + str(line.id) + "' onclick='" + _METRO_OC + "'></span>"
+        elif done:
+            dot_html = "<span class='metro-dot metro-dot-done' title='Meeting afgerond'></span>"
+        else:
+            clickable = item_obj.x_auto_complete_meeting_clickable
+            meeting_type = item_obj.x_auto_complete_meeting_type
+            target_stage = item_obj.x_auto_complete_meeting_stage
+            meeting_id = False
+            if clickable and meeting_type:
+                existing_meeting = env['x_as_meetings'].search([
+                    ('x_studio_for_action_sheet', '=', rec.id),
+                    ('x_studio_meeting_type', '=', meeting_type.id),
+                ], order='id desc', limit=1)
+                if existing_meeting:
+                    meeting_id = existing_meeting.id
+            if not clickable:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-locked' "
+                    "title='Wordt automatisch afgevinkt, niet manueel te klikken'></span>"
+                )
+            elif meeting_id and target_stage:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-meeting-clickable' "
+                    "data-meeting-id='" + str(meeting_id) + "' data-target-stage-id='" + str(target_stage.id) + "' "
+                    "title='Klik om de meeting naar " + target_stage.display_name + " te zetten' onclick='" + _METRO_OC_MEETING + "'></span>"
+                )
+            else:
+                dot_html = (
+                    "<span class='metro-dot metro-dot-waiting' "
+                    "title='Wordt automatisch afgevinkt zodra de meeting bestaat'></span>"
+                )
+        rows += (
+            "<div class='" + item_cls + "'>"
+            + dot_html +
+            "<span class='" + label_cls + "'>" + (line.x_name or '') + "</span>"
+            "</div>"
+        )
+    return "<div class='metro-checklist'>" + rows + "</div>"
+
+affected_sheets = env['x_sales_action_sheet']
+
+# 1. Nieuwe/actieve items retroactief toevoegen aan actiebladen die al in die fase zitten
+for item in Item.search([('x_active', '=', True)]):
+    stage = item.x_stage
+    if not stage:
+        continue
+    for rec in Sheet.search([('x_studio_stage_id', '=', stage.id)]):
+        existing_item_ids = set(rec.x_checklist_line_ids.mapped('x_checklist_item_id').ids)
+        if item.id in existing_item_ids:
+            continue
+        if item.x_type == 'required':
+            should_add = True
+        elif item.x_type == 'dependant':
+            fieldname = item.x_dependency_field
+            should_add = bool(fieldname and fieldname in rec._fields and rec[fieldname])
+        else:
+            should_add = False
+        if should_add:
+            new_line = Line.create({
+                'x_action_sheet_id': rec.id,
+                'x_checklist_item_id': item.id,
+            })
+            if item.x_auto_complete_source == 'meeting' and item.x_auto_complete_meeting_type:
+                meeting_domain = [
+                    ('x_studio_for_action_sheet', '=', rec.id),
+                    ('x_studio_meeting_type', '=', item.x_auto_complete_meeting_type.id),
+                ]
+                if item.x_auto_complete_meeting_stage:
+                    meeting_domain.append(('x_studio_stage_id', '=', item.x_auto_complete_meeting_stage.id))
+                has_meeting = env['x_as_meetings'].search_count(meeting_domain) > 0
+                if has_meeting:
+                    new_line.write({'x_done': True})
+            elif item.x_auto_complete_source == 'field' and item.x_auto_complete_field:
+                fieldname_ac = item.x_auto_complete_field
+                if fieldname_ac in rec._fields and rec[fieldname_ac]:
+                    new_line.write({'x_done': True})
+            affected_sheets |= rec
+
+# 1b. Retroactieve meeting-recheck: bestaande, nog niet-afgevinkte meeting-items herevalueren
+# tegen de HUIDIGE meeting-stand. Vangt het geval op waarbij een meeting al vroeger de
+# doel-fase bereikte maar de automation "Custom | Auto-complete checklist item on meeting
+# added" dat moment miste (bv. omdat de automation nog niet actief/gefixt was toen de
+# meeting-stage gewijzigd werd) - zonder deze stap blijft zo'n lijn permanent hangen als
+# "wordt automatisch afgevinkt" i.p.v. afgevinkt, want er komt geen nieuwe write-trigger
+# op die meeting meer.
+meeting_items = Item.search([('x_auto_complete_source', '=', 'meeting')])
+for item in meeting_items:
+    if not item.x_auto_complete_meeting_type:
+        continue
+    undone_lines = Line.search([
+        ('x_checklist_item_id', '=', item.id),
+        ('x_done', '=', False),
+    ])
+    for line in undone_lines:
+        rec = line.x_action_sheet_id
+        meeting_domain = [
+            ('x_studio_for_action_sheet', '=', rec.id),
+            ('x_studio_meeting_type', '=', item.x_auto_complete_meeting_type.id),
+        ]
+        if item.x_auto_complete_meeting_stage:
+            meeting_domain.append(('x_studio_stage_id', '=', item.x_auto_complete_meeting_stage.id))
+        has_meeting = env['x_as_meetings'].search_count(meeting_domain) > 0
+        if has_meeting:
+            line.write({'x_done': True})
+            affected_sheets |= rec
+
+# 2. Gearchiveerde items: nog niet-afgevinkte lijnen verwijderen (afgevinkte lijnen blijven als historiek)
+inactive_items = Item.search([('x_active', '=', False)])
+if inactive_items:
+    obsolete_lines = Line.search([
+        ('x_checklist_item_id', 'in', inactive_items.ids),
+        ('x_done', '=', False),
+    ])
+    if obsolete_lines:
+        affected_sheets |= obsolete_lines.mapped('x_action_sheet_id')
+        obsolete_lines.unlink()
+
+# 3. HTML herberekenen voor elk betrokken actieblad
+for rec in affected_sheets:
+    rec.write({'x_checklist_progress_html': render_checklist_html(rec)})
+```
+
+Aan te maken als een gewone server-actie (model: `x_checklist_item`, actie "Python-code uitvoeren"), beschikbaar via het actiemenu (⚙) op de lijst/formulierweergave van dat model — zelfde patroon als de "Eenmalige patches"-knoppen elders in dit project. Geen trigger/automation nodig, CS klikt dit bewust aan na het toevoegen of archiveren van master-items, of wanneer de meeting-status twijfelachtig lijkt.
+
+**Acceptatiecriteria:**
+- [x] Model `x_checklist_item` aangemaakt (master), met de 5 standaarditems en correcte `x_type` (3× required, 2× dependant); `x_stage` als **many2one → `x_support_stage`** (niet selection)
+- [x] Model `x_action_sheet_checkli` aangemaakt, o2m `x_checklist_line_ids` op actieblad; `x_stage_id` als related many2one (`x_checklist_item_id.x_stage`, store=True); `x_name` als related char (`x_checklist_item_id.x_name`, store=True) — live en vertaalbaar, geen kopie meer
+- [x] "Custom | Add Checklist-items on Sales Action Sheets" generalisatie: trigger op élke `x_studio_stage_id`-wijziging (geen stage-filter meer op de trigger zelf), items geladen via `x_stage = stage.id` in de `search()`, met dedup-check
+- [ ] Planning Opstarthulp-items (stage id 7) aanmaakbaar in `x_checklist_item` zodra CS de concrete items kent — geen extra automation nodig
+- [x] "Custom | Add done date to checklist items when checked": `x_done_date` wordt ingevuld bij eerste keer aanvinken (met `datetime.datetime.utcnow()`, niet `fields.Datetime.now()` — zie sandbox-noot hierboven)
+- [ ] "Custom | Move Action Sheet To Next Stage When Checklist Is Complete": bij alle required + dependant items ✓ (fase In Configuratie) → stage naar "Follow-up Validatie" + activiteit "Follow-up call" (+14 dagen)
+- [x] Formulierweergave: alle lijnen zichtbaar over alle fases heen (geen fase-filter), checklist aanvinkbaar, `x_done_date` leesbaar per lijn — samengevatte kanban-weergave is zelfbouw door CS, buiten scope
+- [ ] "Optioneel item toevoegen"-lijst werkt met domeinfilter, blokkeert de doorschuif niet
+- [ ] "Custom | Sync checklist items to lines" server-actie aangemaakt en manueel getest: retroactief toevoegen van nieuwe items, retroactieve meeting-recheck, verwijderen van niet-afgevinkte lijnen bij archiveren
+
+---
+
+#### BI-S2-05a — Checklist metro-line visual op de kanban-kaart
+
+**Wat:** De checklist-voortgang (BI-S2-05) visueel tonen op de kanban-kaart als een "metro-line"/stepper: een verticale lijn met een bolletje per checklist-item, afgevinkt = groen gevuld. **Beslissing: bolletjes zijn rechtstreeks klikbaar op de kaart zelf** (niet enkel doorklikken naar het actieblad) — bewuste keuze ondanks de extra complexiteit/fragiliteit t.o.v. het alternatief. **Faseafhankelijk:** de visual toont enkel de checklist-items van de fase waar het actieblad zich *nu* in bevindt (`line.x_stage_id == rec.x_studio_stage_id`, via een gewone `for`-loop — geen `.filtered(lambda ...)`, want een lambda die `stage_id` uit de omsluitende functie vangt geeft `forbidden opcode(s) in 'lambda': STORE_DEREF, LOAD_CLOSURE` in de safe_eval-sandbox, zelfde categorie als de `next()`-beperking) — sleep je de kaart naar een andere fase, dan herberekent "Custom | Add Checklist-items on Sales Action Sheets" de visual naar wat in die nieuwe fase moet gebeuren (zelfde trigger als een gewone stage-wijziging, drag-and-drop schrijft ook gewoon naar `x_studio_stage_id`). De volledige historiek (alle fases) blijft wel zichtbaar in de editable lijst op het formulier — enkel deze kanban/form-visual is gefilterd op de huidige fase. **Leeg-status:** heeft de huidige fase geen checklist-items, dan toont de visual een illustratie (`persoon-in-zenhouding-aan-computer-blue.svg`) in plaats van een lege lijst.
+
+**Waarom geen rechtstreekse o2m-rendering:** kanban-QWeb-templates kunnen enkel scalaire/relationele ID's van een o2m-veld lezen, niet de onderliggende velden (naam, afgevinkt) van elke lijn zonder een eigen JS-component te bouwen (buiten scope — geen custom modules/JS in dit project). Oplossing: een **berekend HTML-veld** op het actieblad, exact hetzelfde patroon als het vroegere `x_studio_active_products_html`, herberekend door "Custom | Add Checklist-items on Sales Action Sheets" en "Custom | Add done date to checklist items when checked".
+
+**Nieuw veld:** `x_checklist_progress_html` (Html) op `x_sales_action_sheet`, aangemaakt via de veldenbewerker (geen `x_studio_`-prefix).
+
+**Sanitisatie uitschakelen (zelfde patroon als de copy-wizards):**
+- View-niveau: `sanitize="false"` op de `<field>`-tag in de kanban-XML.
+- Server-niveau: `x_sales_action_sheet` / `x_checklist_progress_html` toegevoegd aan de `TARGETS`-array in `handleDisableSanitize` (`src/modules/cx-automations/routes.js`) — knop "Sanitisatie uitschakelen" in cx-automations opnieuw klikken na deployen.
+
+**Klik-mechanisme:** zelfde `_oc`-achtige inline-JS-truc als de copy-wizards — `onclick` op elk bolletje doet een rechtstreekse `/web/dataset/call_kw`-write naar `x_action_sheet_checkli.x_done`, **met verplichte `event.stopPropagation()` + `event.preventDefault()`** (anders opent de klik ook het record, want een klik op een kanban-kaart opent normaal het record). Visuele toggle gebeurt **optimistic** (CSS-klasse lokaal geflipt vóór de RPC-respons) — de HTML op de kaart zelf wordt niet live herberekend na een klik, enkel bij de volgende page load/reload (aanvaard trade-off, geen custom JS-refresh-mechanisme gebouwd).
+
+**HTML-generatie:** een `render_checklist_html(rec)`-functie, gedupliceerd in "Custom | Add Checklist-items on Sales Action Sheets", "Custom | Add done date to checklist items when checked" en "Custom | Sync checklist items to lines" — automations kunnen geen code delen, dus letterlijk dezelfde functie op drie plekken (volledige code: zie BI-S2-05, niet hier herhaald om driftende kopieën te vermijden). **CSS staat los in een `<style>`-blok per view** (niet inline in de gegenereerde HTML) — bewuste keuze zodat dezelfde class-namen (`.metro-dot`, `.metro-item`, ...) op de kanban-kaart en op het formulier elk hun eigen stijl kunnen krijgen (bv. groter/anders op het formulier), zonder de HTML-generatie te moeten aanpassen.
+
+**Meeting-gedreven items: 4 mogelijke dot-states** (zie BI-S2-05b) — een checklist-item met `x_auto_complete_source = 'meeting'` gebruikt géén apart icoon of gestippelde rand meer (verwijderd na feedback dat dit niet duidelijk/mooi genoeg was) — enkel kleur en vorm van het bolletje zelf maken het onderscheid, met een correcte hover-tooltip per state:
+1. **Al afgevinkt** (`x_done = True`) — zelfde groen gevuld bolletje als een gewoon item, niet klikbaar, `title="Meeting afgerond"`.
+2. **Nooit manueel klikbaar** (`x_auto_complete_meeting_clickable = False`, bv. "Opstarthulp ingepland") — grijs bolletje met een **kruis (×)** erin (`.metro-dot-locked`), ongeacht of er al een meeting bestaat: dit item vinkt zichzelf automatisch af zodra een meeting van het juiste type de doel-fase bereikt, en mag nooit manueel omgezet worden. `title="Wordt automatisch afgevinkt, niet manueel te klikken"`.
+3. **Wél manueel klikbaar toegestaan, maar nog geen geschikte meeting gevonden** (`x_auto_complete_meeting_clickable = True`, geen meeting van het juiste type aanwezig) — **licht grijs, leeg bolletje** (`.metro-dot-waiting`), niet klikbaar. `title="Wordt automatisch afgevinkt zodra de meeting bestaat"`. CS moet dan zelf een meeting aanmaken (normale weg), niet via de kanban-kaart.
+4. **Wél manueel klikbaar toegestaan, en er bestaat al een meeting van het juiste type** (ongeacht de huidige fase van die meeting — ook als die toevallig al op de doel-fase staat maar de checklist dat nog niet had opgepikt) — **actief bolletje met blauwe rand** (`.metro-dot-meeting-clickable`), klikbaar: een klik schrijft rechtstreeks `x_studio_stage_id` van die **bestaande meeting** naar de doel-fase (niet naar `x_done` op de checklist-lijn zelf — dat gebeurt vanzelf via "Custom | Auto-complete checklist item on meeting added", die op die stage-wijziging triggert). Reden: de fase van een bestaande meeting bijwerken is één simpele write; een meeting *aanmaken* vanuit een klik zou extra info vergen (type, datum, ...) die niet zomaar automatisch in te vullen is — dus dat pad wordt niet ondersteund. **Belangrijk (bugfix):** de zoekopdracht naar een bestaande meeting filtert niet langer op "nog niet op de doel-fase" — elke meeting van het juiste type maakt het bolletje klikbaar, ook eentje die toevallig al op de doel-fase staat (dat dekt meteen het scenario waarbij de auto-complete automation een eerdere stage-wijziging gemist had, zie bug-note; een klik forceert dan alsnog de juiste write/trigger).
+
+Vereist een tweede inline-JS-constante naast `_METRO_OC`: `_METRO_OC_MEETING`, die net als `_METRO_OC` `event.stopPropagation()`/`event.preventDefault()` gebruikt en optimistisch de dot lokaal op "afgevinkt" zet, maar schrijft naar `x_as_meetings.x_studio_stage_id` i.p.v. naar `x_action_sheet_checkli.x_done`.
+
+**Bug gevonden en gefixt (via live check van de 3 server-acties in Odoo):** `_METRO_OC_MEETING` werd in alle drie de automations gebruikt in `render_checklist_html()` maar nergens gedefinieerd — gaf `NameError: name '_METRO_OC_MEETING' is not defined` zodra de klikbare-meeting-tak bereikt werd (dus zodra een item met `x_auto_complete_meeting_clickable = True` een bestaande, niet-op-doelfase meeting vond). Een onafgevangen exception in automation-code rolt de hele transactie van die run terug, wat het inconsistente beeld verklaarde (sommige actiebladen tonen alles correct, andere blijven met verouderde HTML/namen zitten, afhankelijk van of ze de bug-tak raakten). Fix: `_METRO_OC_MEETING`-definitie toegevoegd, meteen na `_METRO_OC`, in alle drie de automations.
+
+**Tweede bug gevonden (na live her-controle op verzoek van CS, "no change" na de eerste fix):** ook na de `_METRO_OC_MEETING`-fix bleven sommige "Opstarthulp gehouden"-lijnen op non-clickable/wachtend staan terwijl de bijhorende meeting al op de doel-fase stond. Root cause: "Custom | Auto-complete checklist item on meeting added" triggert enkel op een *write* op `x_as_meetings.x_studio_stage_id` — als de meeting-stage al vóór (of buiten) die trigger-flow op de doel-fase gezet was, komt er nooit meer een nieuwe write die de automation opnieuw laat vuren, en blijft de lijn permanent `x_done = False` hangen (gerenderd als "wordt automatisch afgevinkt" i.p.v. afgevinkt). Losstaand van de stale-naam-vraag: de rename-stap (1) zelf was en is correct (geverifieerd via live code-read van actie 1174 na de CS-fix — `_METRO_OC_MEETING` staat er correct in, geen syntaxfout); indien namen na een sync-run toch stale blijven, is de meest waarschijnlijke verklaring dat de sync-actie werd uitgevoerd **vóór** het opslaan van de gefixte code, niet een probleem in de code zelf. Fix voor de meeting-kant: stap 2b hierboven, retroactieve meeting-recheck in "Custom | Sync checklist items to lines" — draai deze actie opnieuw na elke keer dat CS twijfelt of de checklist-status nog klopt met de werkelijke meeting-stand.
+
+**Derde bug gevonden — echte root cause van de "stale namen" (na live vergelijking van Odoo-UI vs. API-data):** `x_checklist_item.x_name` is een **vertaalbaar veld** (`translate=True`). Bij het hernoemen van item 8 ("Opstarthulp afgerond" → "Opstarthulp gehouden") werden enkel de Engelse en Franse vertalingen bijgewerkt — de Nederlandse (BE) waarde, de taal waarin CS werkt én waarin de sync-actie draait, bleef "Opstarthulp afgerond". De stap "hernoemde items" vergeleek `line.x_name != item.x_name` in die Nederlandse context — beide kanten waren dus al gelijk, geen mismatch gevonden, niets fout in de code zelf. Dit verklaart alle voorheen "onverklaarbare" stale lijnen volledig; er was geen transactie-rollback of uitvoeringsprobleem nodig als verklaring.
+
+**Architectuurbeslissing (CS: "we gebruiken vertalingen, dat moet blijven werken"):** in plaats van de kopieer-en-vergelijk-aanpak vertaalbaar te maken (wat zou vereisen dat de sync-actie `ir.translation`-records voor élke geïnstalleerde taal apart kopieert), wordt `x_action_sheet_checkli.x_name` omgezet naar een **related field** — exact hetzelfde patroon als `x_stage_id`: `related='x_checklist_item_id.x_name'`, `store=True`, alleen-lezen. Een related field naar een vertaalbaar brontveld is zelf ook automatisch vertaalbaar en toont altijd de naam in de taal van de kijker, live, zonder ooit stale te kunnen worden. **Gevolg:** de hele "hernoemde items"-stap (voorheen stap 1) is overbodig geworden en is verwijderd uit "Custom | Sync checklist items to lines" (zie code hierboven, nu beginnend bij stap 1 = retroactief toevoegen). Ook de `'x_name': item.x_name`-regel in de `Line.create({...})`-aanroepen is verwijderd — een related+store-veld is niet rechtstreeks beschrijfbaar via `create()`/`write()`, Odoo vult het zelf in op basis van `x_checklist_item_id`. **Deze veldwijziging gebeurt via de veldenbewerker/Studio** (veldtype/related-instelling aanpassen op een bestaand veld — geen code, conform de projectregel bovenaan dit document), niet via een server-actie. Na het omzetten herberekent Odoo automatisch alle bestaande lijnen — de bestaande "stale" lijnen lossen zich vanzelf op, geen aparte opkuisactie nodig.
+
+**Kanban-view:** placeholder `<div name="studio_div_ef6d47"><br/><br/><br/></div>` wordt `<div name="studio_div_ef6d47"><field name="x_checklist_progress_html" sanitize="false"/></div>`, met de `.metro-*`-CSS in het bestaande gedeelde `<style>`-blok van die kanban-view.
+
+**Formulierweergave:** hetzelfde veld kan ook getoond worden op het formulier (bv. Config-tab, boven de "Checklist items"-tabel) met `<field name="x_checklist_progress_html" sanitize="false"/>` — met een **eigen, apart `<style>`-blok** in de formulierweergave (zelfde class-namen, eigen regels), zodat de weergave daar losstaand aangepast kan worden t.o.v. de kanban-kaart.
+
+**CSS (toevoegen aan het bestaande `<style>`-blok):**
+```css
+.metro-checklist { display:flex; flex-direction:column; margin-top:4px; padding:6px 8px; }
+.metro-item { position:relative; display:flex; align-items:center; min-height:22px; padding-left:22px; }
+.metro-item:not(.metro-item-last)::after {
+    content:''; position:absolute; left:6px; top:16px; bottom:-6px; width:2px; background:#d0d0d0;
+}
+.metro-dot {
+    position:absolute; left:0; top:3px; width:14px; height:14px; border-radius:50%;
+    border:2px solid #b0b0b0; background:#fff; cursor:pointer; box-sizing:border-box; z-index:1;
+}
+.metro-dot-done { background:#2e7d32; border-color:#2e7d32; }
+.metro-dot-locked { background:#e0e0e0; border-color:#c4c4c4; cursor:default; }
+.metro-dot-locked::after {
+    content:'\2715'; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    font-size:9px; line-height:1; color:#888;
+}
+.metro-dot-waiting { background:#f0f0f0; border-color:#d8d8d8; cursor:default; }
+.metro-dot-meeting-clickable { background:#fff; border-color:#1565c0; cursor:pointer; }
+.metro-dot-meeting-clickable:hover { background:#e3f2fd; }
+.metro-label { font-size:11px; color:#444; margin-left:6px; line-height:14px; }
+.metro-label-done { color:#999; text-decoration:line-through; }
+.metro-empty { display:flex; align-items:center; justify-content:center; padding:6px 8px; }
+.metro-empty-img { max-width:64px; max-height:64px; opacity:0.85; }
+```
+
+**Acceptatiecriteria:**
+- [x] Route `handleDisableSanitize` uitgebreid met `x_sales_action_sheet`/`x_checklist_progress_html`
+- [ ] Veld `x_checklist_progress_html` (Html) aangemaakt op Sales Action Sheet
+- [ ] "Custom | Add Checklist-items on Sales Action Sheets": `render_checklist_html()` toegevoegd, geschreven na item-laad-loop
+- [ ] "Custom | Add done date to checklist items when checked": `render_checklist_html()` toegevoegd, geschreven per betrokken actieblad na `x_done_date`-loop
+- [ ] "Custom | Sync checklist items to lines": `render_checklist_html()` toegevoegd (stap 4)
+- [ ] Kanban-view: veld met `sanitize="false"` op de anchor-plek, CSS toegevoegd (incl. `.metro-dot-locked`/`.metro-dot-waiting`/`.metro-dot-meeting-clickable`)
+- [ ] "Sanitisatie uitschakelen"-knop opnieuw uitgevoerd na deploy
+- [ ] Test: klik op bolletje → `event.stopPropagation()` voorkomt openen van het record, dot + label togglen lokaal, DB-write bevestigd, status correct na page reload
+- [ ] Test: meeting-item met `x_auto_complete_meeting_clickable = False` toont altijd een grijs bolletje met kruis (×), reageert niet op een klik (geen `data-meeting-id`/`onclick`), ongeacht of er al een meeting bestaat
+- [ ] Test: meeting-item met `x_auto_complete_meeting_clickable = True` en geen geschikte meeting → licht grijs leeg bolletje, niet klikbaar
+- [ ] Test: meeting-item met `x_auto_complete_meeting_clickable = True` en een bestaande meeting (ongeacht huidige fase) → blauw-omrand bolletje, klikbaar, klik zet de meeting naar de doelfase, checklist-item vinkt zichzelf af via "Custom | Auto-complete checklist item on meeting added"
+- [ ] Test: meeting-item zonder bestaande meeting → niet klikbaar, enkel tooltip
+
+---
+
+#### BI-S2-05b — Automatisch afvinken van checklist-items (meetings + velden)
+
+**Wat:** Checklist-items automatisch op `x_done = True` zetten op basis van een externe conditie, in plaats van CS die manueel te laten aanvinken. Twee bronnen nu, generiek opzet zodat er later moeiteloos meer bijkomen: (1) een meeting van een bepaald type wordt aangemaakt op het actieblad (`x_as_meetings`), (2) **later** — een boolean-veld op het actieblad wordt True (nog niet gebouwd, model is al wel voorbereid).
+
+**Nieuwe velden op `x_checklist_item`** (via de veldenbewerker, geen prefix):
+- `x_auto_complete_source` — selection: `none` (default, manueel) / `meeting` / `field` — uitbreidbaar met verdere bronnen later zonder modelwijziging (enkel een nieuwe waarde + nieuwe automation-tak)
+- `x_auto_complete_meeting_type` — many2one → `x_sales_meeting_type`, enkel relevant bij `source = meeting`
+- `x_auto_complete_meeting_stage` — many2one → `x_as_meetings_stage`, **optioneel**: leeg = "elke meeting van dit type is genoeg" (ongeacht fase van de meeting zelf), ingevuld = "de meeting moet exact deze fase bereikt hebben" (bv. stage id 3 "Gereed" voor "meeting afgerond")
+- `x_auto_complete_meeting_clickable` — boolean, default False. **Expliciete opt-in voor klik-gedrag op de kanban-kaart**: als er nog geen meeting bestaat, is de checklist-dot nooit klikbaar (de gebruiker moet de meeting zelf aanmaken — dat is niet via een simpele klik te vervangen). Staat dit veld op True, dan wordt de dot klikbaar zodra er al een meeting van het juiste type bestaat die de doelfase nog niet heeft — een klik zet dan rechtstreeks de fase van die bestaande meeting naar de doelfase. Bewust een expliciete schakelaar i.p.v. afgeleid uit de fase-volgorde (geen sequence-veld op `x_as_meetings_stage`, en fase-volgorde afleiden zou fragiel zijn). **Praktijkvoorbeeld:** item "Opstarthulp ingepland" (doelfase Nieuw) → False, moet altijd via een échte nieuwe meeting; item "Opstarthulp gehouden" (doelfase In behandeling) → True, klikken op de dot verplaatst de bestaande meeting naar die fase.
+- `x_auto_complete_field` — char, technische veldnaam op `x_sales_action_sheet`, enkel relevant bij `source = field` — **losstaand van `x_dependency_field`**: dat laatste bepaalt of een item überhaupt toegevoegd wordt (zichtbaarheid), dit nieuwe veld bepaalt of het automatisch afgevinkt wordt (voortgang). Beide kunnen naar dezelfde technische veldnaam wijzen als dat toevallig samenvalt, maar zijn conceptueel gescheiden — een `required`-item kan evengoed een auto-complete-by-field-regel hebben.
+
+**"Custom | Auto-complete checklist item on meeting added"** — nieuwe automation, model `x_as_meetings`, trigger: bij aanmaken **en** bij bijwerken van `x_studio_stage_id` / `x_studio_meeting_type`:
+
+```python
+Item = env['x_checklist_item']
+Line = env['x_action_sheet_checkli']
+
+for meeting in records:
+    rec = meeting.x_studio_for_action_sheet
+    if not rec or not meeting.x_studio_meeting_type:
+        continue
+    matching_items = Item.search([
+        ('x_auto_complete_source', '=', 'meeting'),
+        ('x_auto_complete_meeting_type', '=', meeting.x_studio_meeting_type.id),
+    ])
+    eligible_item_ids = []
+    for it in matching_items:
+        if not it.x_auto_complete_meeting_stage or it.x_auto_complete_meeting_stage.id == meeting.x_studio_stage_id.id:
+            eligible_item_ids.append(it.id)
+    if not eligible_item_ids:
+        continue
+    lines_to_complete = Line.search([
+        ('x_action_sheet_id', '=', rec.id),
+        ('x_checklist_item_id', 'in', eligible_item_ids),
+        ('x_done', '=', False),
+    ])
+    if lines_to_complete:
+        lines_to_complete.write({'x_done': True})
+```
+Geen `.filtered(lambda ...)` gebruikt om op `x_auto_complete_meeting_stage` te filteren — dat zou `meeting` uit de omsluitende `for`-loop vangen (zelfde `forbidden opcode`-probleem als eerder bij de fase-filter in `render_checklist_html`), dus een gewone `for`-loop met een lijst i.p.v. een lambda.
+
+**Trigger uitgebreid:** niet enkel "bij aanmaken", ook **bij bijwerken van `x_studio_stage_id`** (en evt. `x_studio_meeting_type`) op `x_as_meetings` — nodig omdat een meeting vaak eerst aangemaakt wordt in stage "Nieuw" en pas later naar "Gereed" gaat; de checklist mag pas afvinken zodra die stage-eis (indien ingesteld) voldaan is.
+
+Geen `render_checklist_html()`/HTML-write nodig hier — de `x_done`-write triggert automatisch "Custom | Add done date to checklist items when checked", die de `x_done_date` en de HTML al afhandelt.
+
+**Retroactieve check bij het genereren van items** — als een checklist-item wordt aangemaakt terwijl de onderliggende conditie al voldaan is (bv. de meeting stond er al vóór het item bestond), moet het meteen als afgevinkt aangemaakt worden, niet wachten op een nieuwe meeting. Al verwerkt in de geconsolideerde code van **"Custom | Add Checklist-items on Sales Action Sheets"** in BI-S2-05 (niet hier herhaald, om driftende kopieën te vermijden).
+
+Zelfde uitbreiding toepassen op **"Custom | Sync checklist items to lines"** (stap 2, retroactief nieuwe items toevoegen) — identieke logica, na de `Line.create({...})` in die actie.
+
+**Nog niet gebouwd (bewust, "later"):** een automation die triggert op de daadwerkelijke veldwijziging (bv. `x_has_peppol` → True) en dan het bijhorende `field`-item afvinkt. Het model (`x_auto_complete_source = 'field'` + `x_auto_complete_field`) is al voorbereid; de automation zelf voeg je toe zodra de eerste concrete use-case zich aandient — Odoo's automations ondersteunen meerdere trigger-velden op één automation, dus één generieke automation kan meerdere `field`-items tegelijk bedienen door gewoon extra velden aan de trigger-lijst toe te voegen naarmate er nieuwe `field`-items bijkomen.
+
+**Acceptatiecriteria:**
+- [x] Velden `x_auto_complete_source`, `x_auto_complete_meeting_type`, `x_auto_complete_meeting_stage`, `x_auto_complete_field` aangemaakt op `x_checklist_item` (bevestigd via Odoo)
+- [ ] Nieuw veld `x_auto_complete_meeting_clickable` (boolean, default False) aangemaakt; True gezet op "Opstarthulp gehouden" (id 8), False/leeg op "Opstarthulp ingepland" (id 7) en de rest
+- [ ] "Custom | Auto-complete checklist item on meeting added" aangemaakt (trigger: aanmaken + `x_studio_stage_id`/`x_studio_meeting_type`) en getest (nieuwe meeting → matchend item wordt afgevinkt, met correcte stage-check indien ingesteld)
+- [ ] "Custom | Add Checklist-items on Sales Action Sheets" uitgebreid met retroactieve check (incl. stage-filter)
+- [ ] "Custom | Sync checklist items to lines" uitgebreid met dezelfde retroactieve check
+- [ ] Test: meeting van type "Opstartsessie" bestaat al vóór het item aangemaakt wordt → item komt meteen afgevinkt binnen (rekening houdend met een eventuele meeting-stage-eis)
+- [ ] Test: meeting-item in de metro-line is niet klikbaar en toont het kalender-icoon (zie BI-S2-05a)
 
 ---
 

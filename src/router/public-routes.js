@@ -98,8 +98,20 @@ export async function handlePublicRoutes(request, env, ctx) {
   // Exacte check: startsWith('/assets/') met trailing slash — NIET '/assets'
   // '/assets' (zonder slash) = module-UI, moet de module-router bereiken met auth
   // '/assets/api/*'          = API routes, moeten module-router bereiken met auth
-  // '/assets/*' (met slash)  = publieke bestanden, worden hier geserveerd zonder auth
-  if (pathname.startsWith('/assets/') && !pathname.startsWith('/assets/api/') && request.method === 'GET') {
+  // '/assets/mini-apps/*'    = mini-apps-inhoud in dezelfde R2_ASSETS-bucket, MAG NIET
+  //                            hier publiek geserveerd worden — privacy/sharing-rechten
+  //                            (private/shared/specific) worden alleen in
+  //                            src/modules/mini-apps/routes.js gecontroleerd
+  //                            (GET /api/apps/:id/content). Zonder deze uitzondering
+  //                            zou iedereen elke mini-app rechtstreeks kunnen ophalen
+  //                            via /assets/mini-apps/{id}.html, buiten die check om.
+  // '/assets/*' (met slash)  = overige publieke bestanden, worden hier geserveerd zonder auth
+  if (
+    pathname.startsWith('/assets/') &&
+    !pathname.startsWith('/assets/api/') &&
+    !pathname.startsWith('/assets/mini-apps/') &&
+    request.method === 'GET'
+  ) {
     const key = pathname.slice('/assets/'.length);
 
     if (!validateKey(key)) {
