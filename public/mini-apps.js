@@ -6,6 +6,7 @@ lucide.createIcons();
 // ====== State ======
 
 var apps = [];               // laatst geladen lijst uit GET /api/apps
+var favorites = [];          // laatst geladen, geordende favorietenbalk uit GET /api/apps/favorites
 var colleagues = null;       // cache van GET /api/apps/colleagues
 var currentUser = null;      // { id, name, email } van de ingelogde gebruiker (via renderNavbar), gebruikt voor buildUserShim()
 var isAdmin = false;         // via renderNavbar() -- bepaalt of de Chat-kanalen-beheer-UI zichtbaar is (server-side ook afgedwongen in routes.js)
@@ -534,6 +535,13 @@ function visibilityBadge(app) {
   return `<span class="badge badge-sm badge-ghost gap-1"><i data-lucide="lock" class="w-3 h-3"></i> Privé</span>`;
 }
 
+// Zichtbaar voor IEDEREEN (niet enkel admins) -- verklaart waarom een app die
+// niemand expliciet met jou deelde toch in je lijst verschijnt.
+function globalFavoriteBadge(app) {
+  if (!app.isGlobalFavorite) return '';
+  return `<span class="badge badge-sm badge-warning gap-1" title="Door een admin favoriet gemaakt voor iedereen"><i data-lucide="star" class="w-3 h-3"></i> Voor iedereen</span>`;
+}
+
 var ADD_APP_TILE = `
   <button type="button" class="card border-2 border-dashed border-base-300 bg-transparent hover:border-primary hover:bg-base-100 transition-colors flex items-center justify-center min-h-[132px]" data-action="openUploadModal">
     <div class="flex flex-col items-center gap-1.5 text-base-content/50 hover:text-primary">
@@ -566,6 +574,15 @@ function renderAppCard(app) {
          <i data-lucide="heart" class="w-3.5 h-3.5${favActive ? ' fill-current' : ''}"></i>
        </button>`;
 
+  // Favoriet-voor-iedereen: enkel zichtbaar/bruikbaar voor admins (server-side
+  // ook afgedwongen in routes.js, user.role !== 'admin' -> 403).
+  var globalFavActive = !!app.isGlobalFavorite;
+  var globalFavButton = isAdmin
+    ? `<button class="btn btn-ghost btn-sm btn-square${globalFavActive ? ' text-warning' : ''}" data-action="toggleGlobalFavorite" data-id="${app.id}" data-global-favorite="${globalFavActive ? '1' : '0'}" title="${globalFavActive ? 'Niet meer favoriet voor iedereen' : 'Favoriet maken voor iedereen'}">
+           <i data-lucide="star" class="w-3.5 h-3.5${globalFavActive ? ' fill-current' : ''}"></i>
+         </button>`
+    : '';
+
   return `
     <div class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 transition-colors h-full">
       <div class="card-body p-4 h-full">
@@ -574,7 +591,10 @@ function renderAppCard(app) {
             <i data-lucide="${app.icon || 'puzzle'}" class="w-4 h-4 text-base-content/50 shrink-0"></i>
             <h3 class="font-semibold text-sm truncate" title="${escapeHtml(app.title)}">${escapeHtml(app.title)}</h3>
           </div>
-          ${visibilityBadge(app)}
+          <div class="flex items-center gap-1 shrink-0">
+            ${globalFavoriteBadge(app)}
+            ${visibilityBadge(app)}
+          </div>
         </div>
         ${desc}
         ${ownerLine}
@@ -585,6 +605,7 @@ function renderAppCard(app) {
           </button>
           ${editButton}
           ${favButton}
+          ${globalFavButton}
           <button class="btn btn-ghost btn-sm btn-square" data-action="copyAppLink" data-id="${app.id}" title="Directe link kopiëren">
             <i data-lucide="link" class="w-3.5 h-3.5"></i>
           </button>
@@ -702,6 +723,14 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
     // en pas bij een submit: await window.platform.sendChat(gekozenKanaalId, "Er staat een nieuw item op de lijst!");
 - Totale limiet gedeelde opslag per app: 10 MB en max 500 keys/items samen (kv + collection-items).
 - Maximale bestandsgrootte van de HTML-app zelf: 2 MB.
+- Tips voor een vlotte, snelle gedeelde opslag (elke aanroep is een echte netwerk-round-trip via de bovenliggende pagina naar R2 -- geen gratis synchrone call zoals localStorage):
+    - set()/addItem()/updateItem() herberekenen server-side eerst het quotumverbruik van de HELE app (alle keys + items samen), niet enkel van dat ene item -- vermijd dus een tight loop die per toetsaanslag of per item apart opslaat. Debounce tekstvelden (bv. 400-600ms na de laatste toets) voor je set() aanroept, en voeg meerdere nieuwe items niet snel na elkaar toe als het ook als één actie kan.
+    - list()/listItems() halen ALTIJD alles op (geen server-side filter/paginatie/sortering) -- roep dit niet opnieuw aan bij elke render of in een polling-loop. Haal éénmaal op bij het laden van de app, bewaar het resultaat in een gewone JS-variabele/state, en filter/sorteer lokaal in JavaScript. Wil je verse data van andere gebruikers zien, ververs dan op een trage interval (bv. elke 30-60s) of via een expliciete ververs-knop.
+    - Werk optimistisch: update de UI meteen (voeg het item lokaal toe aan je state) en stuur de sharedStorage-aanroep op de achtergrond, in plaats van te wachten met een spinner tot de round-trip terug is. Faalt de aanroep (bv. na de 15s-timeout), rol de UI-wijziging dan terug en toon een duidelijke foutmelding.
+    - Onafhankelijke aanroepen (bv. meerdere keys/collections tegelijk inladen bij het openen van de app) mag je parallelliseren met Promise.all([...]) i.p.v. na elkaar te awaiten.
+    - Hoort iets logisch bij elkaar (bv. alle instellingen van één gebruiker)? Bewaar dat dan als één kv-key of collection-item met een JSON-waarde i.p.v. een aparte key per veld -- dat is zowel sneller (één round-trip i.p.v. meerdere) als lichter voor het object-quotum (max 500 keys/items samen).
+    - Moet je een grote lijst of een rooster (bv. weken/maanden aan geplande dagen) herberekenen na een wijziging (bv. één vakantiedag, één uitzondering)? Wis en herschrijf dan NIET de volledige lijst -- vergelijk eerst per record wat er al staat tegenover wat er zou moeten staan, en schrijf enkel de records weg die effectief verschillen. Bij een kleine wijziging scheelt dat tientallen tot honderden overbodige opslag-aanroepen t.o.v. alles wissen en opnieuw aanmaken.
+    - Moet een opruimfunctie (bv. verlopen uitzonderingen/afgevinkte items opruimen) de server bijwerken? Werk dan in dezelfde functie ook meteen de lokale JS-state bij (dezelfde wijziging die je naar de server stuurt), i.p.v. nadien alle collecties opnieuw volledig op te halen om weer synchroon te lopen -- dat laatste is typisch de duurste stap van een actie en meestal overbodig als de lokale state al correct is bijgewerkt.
 - Moet de app ook iets versturen OP EEN VAST TIJDSTIP/INTERVAL, ook als niemand die dag de app open heeft (bv. een dagelijkse post om 11u, of een wekelijkse herinnering)? Gebruik window.platform.schedule -- dit draait volledig server-side via een cron (elke 15 min, dus tot 15 min vertraging op het ingestelde tijdstip), los van of de app open staat:
     var taak = await window.platform.schedule.create({
       name: "Dagelijkse update",                          // herkenbare naam, voor jezelf/collega's in de lijst
@@ -1081,9 +1110,12 @@ async function deleteApp() {
 // ====== Favorieten ======
 //
 // Favoriete mini-apps verschijnen als blokjes rechtsboven in de gedeelde
-// navbar (server-side gerenderd, zie navbar.js + session.js). Na het
-// toggelen herladen we zowel de kaarten als de navbar, zodat het blokje
-// meteen verschijnt/verdwijnt zonder volledige paginaherlaad.
+// navbar (server-side gerenderd, zie navbar.js + session.js) EN als
+// herordenbare strip bovenaan deze pagina (renderFavoritesSection hieronder)
+// -- beide tonen dezelfde, door de gebruiker zelf bepaalde volgorde (zie
+// src/modules/mini-apps/lib/favorites.js). Na het toggelen/herordenen
+// herladen we telkens kaarten + strip + navbar, zodat alles meteen
+// verschijnt/verdwijnt/verschuift zonder volledige paginaherlaad.
 
 async function toggleFavorite(id, isFavorite) {
   try {
@@ -1092,9 +1124,90 @@ async function toggleFavorite(id, isFavorite) {
     } else {
       await apiJson(`/mini-apps/api/apps/${id}/favorite`, { method: 'PUT' });
     }
-    await Promise.all([loadApps(), renderNavbar()]);
+    await Promise.all([loadApps(), loadFavorites(), renderNavbar()]);
   } catch (err) {
     showToast('Favoriet wijzigen mislukt: ' + err.message, 'error');
+  }
+}
+
+// Admin only (server-side afgedwongen, zie routes.js) -- favoriet VOOR
+// IEDEREEN, verschijnt bij elke gebruiker in de navbar + Favorieten-strip.
+async function toggleGlobalFavorite(id, isGlobalFavorite) {
+  try {
+    if (isGlobalFavorite) {
+      await apiJson(`/mini-apps/api/apps/${id}/global-favorite`, { method: 'DELETE' });
+    } else {
+      await apiJson(`/mini-apps/api/apps/${id}/global-favorite`, { method: 'PUT' });
+    }
+    await Promise.all([loadApps(), loadFavorites(), renderNavbar()]);
+  } catch (err) {
+    showToast('Favoriet-voor-iedereen wijzigen mislukt: ' + err.message, 'error');
+  }
+}
+
+async function loadFavorites() {
+  try {
+    favorites = await apiJson('/mini-apps/api/apps/favorites');
+    renderFavoritesSection();
+  } catch (err) {
+    // Stil falen -- de strip is een nice-to-have bovenop de gewone lijst,
+    // geen kritiek pad. showToast zou hier enkel ruis toevoegen bij elke load.
+    console.error('Favorieten ophalen mislukt:', err.message);
+  }
+}
+
+function renderFavoritesSection() {
+  var section = document.getElementById('favoritesSection');
+  var strip = document.getElementById('favoritesStrip');
+  if (!section || !strip) return;
+
+  if (favorites.length === 0) {
+    section.classList.add('hidden');
+    return;
+  }
+  section.classList.remove('hidden');
+  strip.innerHTML = favorites.map(function(fav, index) {
+    return `<div class="join">
+      <button class="btn btn-ghost btn-xs join-item" data-action="moveFavorite" data-id="${fav.id}" data-dir="-1"${index === 0 ? ' disabled' : ''} title="Naar links">
+        <i data-lucide="chevron-left" class="w-3 h-3"></i>
+      </button>
+      <button class="btn btn-ghost btn-xs join-item gap-1.5 font-normal" data-action="openAppFullscreen" data-id="${fav.id}">
+        <i data-lucide="${fav.icon || 'puzzle'}" class="w-3.5 h-3.5"></i>
+        ${escapeHtml(fav.title)}
+      </button>
+      <button class="btn btn-ghost btn-xs join-item" data-action="moveFavorite" data-id="${fav.id}" data-dir="1"${index === favorites.length - 1 ? ' disabled' : ''} title="Naar rechts">
+        <i data-lucide="chevron-right" class="w-3 h-3"></i>
+      </button>
+    </div>`;
+  }).join('');
+  lucide.createIcons();
+}
+
+// Optimistisch: de strip verschuift meteen (geen wachten op de round-trip),
+// en rolt terug + herlaadt bij een falende opslag (zie CLAUDE.md-tips over
+// snelle/soepele sharedStorage -- zelfde principe, hier op de eigen API).
+async function moveFavorite(id, dir) {
+  var index = favorites.findIndex(function(f) { return f.id === id; });
+  var targetIndex = index + dir;
+  if (index === -1 || targetIndex < 0 || targetIndex >= favorites.length) return;
+
+  var reordered = favorites.slice();
+  var tmp = reordered[index];
+  reordered[index] = reordered[targetIndex];
+  reordered[targetIndex] = tmp;
+  favorites = reordered;
+  renderFavoritesSection();
+
+  try {
+    await apiJson('/mini-apps/api/apps/favorites/order', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order: favorites.map(function(f) { return f.id; }) })
+    });
+    renderNavbar();
+  } catch (err) {
+    showToast('Volgorde opslaan mislukt: ' + err.message, 'error');
+    await loadFavorites();
   }
 }
 
@@ -1186,6 +1299,8 @@ document.addEventListener('click', function(e) {
     else if (action === 'openApp') openApp(el.dataset.id);
     else if (action === 'copyAppLink') copyAppLink(el.dataset.id);
     else if (action === 'toggleFavorite') toggleFavorite(el.dataset.id, el.dataset.favorite === '1');
+    else if (action === 'toggleGlobalFavorite') toggleGlobalFavorite(el.dataset.id, el.dataset.globalFavorite === '1');
+    else if (action === 'moveFavorite') moveFavorite(el.dataset.id, parseInt(el.dataset.dir, 10));
     else if (action === 'copyCurrentAppLink') { if (currentApp) copyAppLink(currentApp.id); }
     else if (action === 'toggleMailSubscription') toggleMailSubscription();
     else if (action === 'closeAppModal') closeAppModal();
@@ -1238,6 +1353,7 @@ document.addEventListener('keydown', function(e) {
 
 renderNavbar();
 loadApps();
+loadFavorites();
 initIconSelect('settingsIcon');
 initIconSelect('uploadIcon');
 

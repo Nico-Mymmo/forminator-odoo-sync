@@ -74,6 +74,18 @@
  *
  * Rechten-model zit volledig in permissions.js + routes.js — geen subRoles,
  * dit is geen rol-gebaseerde maar een per-record (owner/shared) toegang.
+ *
+ * Favorieten (2026-07-13, zie supabase/migrations/20260713110000_*.sql +
+ * src/modules/mini-apps/lib/favorites.js): naast de bestaande persoonlijke
+ * favoriet (mini_app_favorites, hart-icoon) kan een admin een app ook
+ * GLOBAAL favoriet maken (mini_apps.is_global_favorite, ster-icoon,
+ * PUT/DELETE /api/apps/:id/global-favorite) -- verschijnt dan bij IEDEREEN
+ * in de navbar + Favorieten-strip, en overrulet daarbij bewust de eigen
+ * visibility van de eigenaar (zie canView() in permissions.js). Beide
+ * soorten favorieten samen vormen één balk per gebruiker, vrij herordenbaar
+ * (GET/PUT /api/apps/favorites, /api/apps/favorites/order) -- lib/favorites.js
+ * is de ene plek die de merge/sorteerlogica levert aan zowel session.js
+ * (navbar) als routes.js (Favorieten-sectie in de pagina zelf).
  */
 
 import { routes } from './routes.js';

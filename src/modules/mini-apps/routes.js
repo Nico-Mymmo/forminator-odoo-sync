@@ -81,7 +81,7 @@
 
 import { getSupabaseClient } from '../../lib/database.js';
 import { putAppContent, getAppContent, deleteAppContent } from './lib/r2-client.js';
-import { canView, canEdit, normalizeSharedUserIds } from './permissions.js';
+import { canView, canEdit, normalizeSharedUserIds, isValidUUID } from './permissions.js';
 import {
   listStorage, getStorageValue, setStorageValue, deleteStorageValue,
   listCollectionItems, addCollectionItem, updateCollectionItem, removeCollectionItem, getStorageUsage,
@@ -91,12 +91,13 @@ import { notifyUser, isSubscribed, setSubscription } from './lib/notify.js';
 import { registerChannel, listChannels, deleteChannel, sendChannelMessage } from './lib/chat.js';
 import { validateTaskPayload, MAX_TASKS_PER_APP, computeNextRun, runTaskNow } from './lib/scheduler.js';
 import { validateConditionTaskPayload, MAX_CONDITION_TASKS_PER_APP, runConditionTaskNow } from './lib/condition-scheduler.js';
+import { getOrderedFavorites, saveFavoritesOrder } from './lib/favorites.js';
 
 const LOG_PREFIX = '[mini-apps]';
 
 export const MAX_APP_BYTES = 2 * 1024 * 1024; // 2 MB — ruim voldoende voor single-file HTML/JS/CSS
 
-const SELECT_FIELDS = 'id, title, description, owner_user_id, visibility, shared_user_ids, size_bytes, version, created_at, updated_at, icon';
+const SELECT_FIELDS = 'id, title, description, owner_user_id, visibility, shared_user_ids, size_bytes, version, created_at, updated_at, icon, is_global_favorite';
 
 // ─── Response helpers ────────────────────────────────────────────────────────
 
@@ -321,7 +322,7 @@ export const routes = {
     const { data, error } = await supabase
       .from('mini_apps')
       .select(SELECT_FIELDS)
-      .or(`owner_user_id.eq.${user.id},visibility.eq.shared,shared_user_ids.cs.{${user.id}}`)
+      .or(`owner_user_id.eq.${user.id},visibility.eq.shared,shared_user_ids.cs.{${user.id}},is_global_favorite.eq.true`)
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -336,7 +337,8 @@ export const routes = {
     return jsonOk(withOwners.map(a => ({
       ...a,
       isOwner: a.owner_user_id === user.id,
-      isFavorite: favoriteIds.has(a.id)
+      isFavorite: favoriteIds.has(a.id),
+      isGlobalFavorite: !!a.is_global_favorite
     })));
   },
 
@@ -956,7 +958,12 @@ export const routes = {
       attachOwnerNames(supabase, [app]),
       getFavoriteAppIds(supabase, user.id)
     ]);
-    return jsonOk({ ...withOwner, isOwner: app.owner_user_id === user.id, isFavorite: favoriteIds.has(app.id) });
+    return jsonOk({
+      ...withOwner,
+      isOwner: app.owner_user_id === user.id,
+      isFavorite: favoriteIds.has(app.id),
+      isGlobalFavorite: !!app.is_global_favorite
+    });
   },
 
   // ── Eén app — HTML-inhoud ────────────────────────────────────────────────
@@ -1186,6 +1193,115 @@ export const routes = {
 
     console.log(`${LOG_PREFIX} UNFAVORITE ${params.id} — user ${user.id}`);
     return jsonOk({ id: params.id, isFavorite: false });
+  },
+
+  // ── Favorietenbalk — samengevoegde, geordende lijst (persoonlijk + globaal,
+  // zie lib/favorites.js) — gebruikt door de "Favorieten"-sectie in de
+  // Mini-apps-pagina zelf, dezelfde data/volgorde als de navbar-blokjes.
+  'GET /api/apps/favorites': async ({ env, user }) => {
+    const supabase = getSupabaseClient(env);
+    try {
+      const favorites = await getOrderedFavorites(supabase, user.id);
+      return jsonOk(favorites);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} favorites list error:`, err.message);
+      return jsonError('Favorietenlijst ophalen mislukt.', 500);
+    }
+  },
+
+  // ── Favorietenbalk — nieuwe volgorde opslaan. Materialiseert meteen een
+  // persoonlijke mini_app_favorites-rij voor een tot dan toe enkel globaal
+  // favoriete app (zie lib/favorites.js) -- vanaf dan een gewone favoriet.
+  'PUT /api/apps/favorites/order': async ({ request, env, user }) => {
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+
+    const order = Array.isArray(body.order) ? body.order : null;
+    if (!order || order.length === 0) {
+      return jsonError('order is verplicht en moet een niet-lege array zijn.', 400);
+    }
+    if (!order.every(isValidUUID)) {
+      return jsonError("order mag enkel geldige app-id's bevatten.", 400);
+    }
+
+    const supabase = getSupabaseClient(env);
+
+    // Enkel apps die deze gebruiker ook effectief mag zien mogen in zijn eigen
+    // favorietenbalk-volgorde belanden -- zelfde canView-regel als overal
+    // elders, voorkomt dat iemand willekeurige app-id's binnensmokkelt.
+    const { data: candidateApps, error: candidateError } = await supabase
+      .from('mini_apps')
+      .select(SELECT_FIELDS)
+      .in('id', order);
+
+    if (candidateError) {
+      console.error(`${LOG_PREFIX} favorites order lookup error:`, candidateError.message);
+      return jsonError('Volgorde opslaan mislukt.', 500);
+    }
+    const viewableIds = new Set((candidateApps || []).filter(a => canView(a, user)).map(a => a.id));
+    if (!order.every(id => viewableIds.has(id))) {
+      return jsonError('Eén of meer apps in de volgorde zijn niet (meer) toegankelijk.', 403, 'FORBIDDEN');
+    }
+
+    const { error } = await saveFavoritesOrder(supabase, user.id, order);
+    if (error) {
+      console.error(`${LOG_PREFIX} favorites order save error:`, error.message);
+      return jsonError('Volgorde opslaan mislukt.', 500);
+    }
+
+    console.log(`${LOG_PREFIX} FAVORITES ORDER ${order.length} apps — user ${user.id}`);
+    return jsonOk({ order });
+  },
+
+  // ── Globaal favoriet markeren (admin only) — favoriet voor IEDEREEN, zie
+  // canView() in permissions.js voor het bijhorende zichtbaarheids-effect ──
+  'PUT /api/apps/:id/global-favorite': async ({ env, user, params }) => {
+    if (user.role !== 'admin') {
+      return jsonError('Enkel een admin mag een app favoriet maken voor iedereen.', 403, 'FORBIDDEN');
+    }
+    const supabase = getSupabaseClient(env);
+    const { data: updated, error } = await supabase
+      .from('mini_apps')
+      .update({ is_global_favorite: true })
+      .eq('id', params.id)
+      .select(SELECT_FIELDS)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`${LOG_PREFIX} global-favorite error:`, error.message);
+      return jsonError('Favoriet voor iedereen markeren mislukt.', 500);
+    }
+    if (!updated) return jsonError('App niet gevonden.', 404);
+
+    console.log(`${LOG_PREFIX} GLOBAL FAVORITE ${params.id} — admin ${user.id}`);
+    return jsonOk({ id: params.id, isGlobalFavorite: true });
+  },
+
+  // ── Globaal favoriet verwijderen (admin only) ─────────────────────────────
+  'DELETE /api/apps/:id/global-favorite': async ({ env, user, params }) => {
+    if (user.role !== 'admin') {
+      return jsonError('Enkel een admin mag dit ongedaan maken.', 403, 'FORBIDDEN');
+    }
+    const supabase = getSupabaseClient(env);
+    const { data: updated, error } = await supabase
+      .from('mini_apps')
+      .update({ is_global_favorite: false })
+      .eq('id', params.id)
+      .select(SELECT_FIELDS)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`${LOG_PREFIX} global-favorite remove error:`, error.message);
+      return jsonError('Favoriet-status verwijderen mislukt.', 500);
+    }
+    if (!updated) return jsonError('App niet gevonden.', 404);
+
+    console.log(`${LOG_PREFIX} GLOBAL UNFAVORITE ${params.id} — admin ${user.id}`);
+    return jsonOk({ id: params.id, isGlobalFavorite: false });
   },
 
   // ── Gedeelde opslag — alles ophalen (view-toegang volstaat) ─────────

@@ -14,6 +14,10 @@
 export function canView(app, user) {
   if (!user || !app) return false;
   if (app.owner_user_id === user.id) return true;
+  // Een admin heeft deze app als favoriet voor IEDEREEN gemarkeerd -- dat
+  // overrulet bewust de eigen zichtbaarheidskeuze van de eigenaar, anders zou
+  // "favoriet voor iedereen" niets betekenen voor wie de app niet mocht zien.
+  if (app.is_global_favorite) return true;
   if (app.visibility === 'shared') return true;
   if (app.visibility === 'specific') {
     return Array.isArray(app.shared_user_ids) && app.shared_user_ids.includes(user.id);

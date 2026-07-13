@@ -5,6 +5,7 @@
  */
 
 import { getSupabaseClient } from '../database.js';
+import { getOrderedFavorites } from '../../modules/mini-apps/lib/favorites.js';
 
 /**
  * Create a new session for a user
@@ -113,23 +114,16 @@ export async function validateSession(env, token) {
 
   // Favoriete mini-apps (voor de blokjes rechtsboven in de navbar, zie
   // src/lib/components/navbar.js + supabase/migrations/*_mini_app_favorites.sql).
-  // Enkel apps waar de user nog steeds toegang tot heeft -- een favoriet van
-  // een app die nadien prive gemaakt is (of waarvan de share ingetrokken is)
-  // valt hier automatisch weg i.p.v. als kapotte link te blijven hangen.
-  const { data: favoriteRows } = await supabase
-    .from('mini_app_favorites')
-    .select('mini_apps(id, title, icon, owner_user_id, visibility, shared_user_ids)')
-    .eq('user_id', session.user.id)
-    .order('created_at', { ascending: true });
-
-  session.user.favoriteMiniApps = (favoriteRows || [])
-    .map(row => row.mini_apps)
-    .filter(app => app && (
-      app.owner_user_id === session.user.id ||
-      app.visibility === 'shared' ||
-      (app.visibility === 'specific' && (app.shared_user_ids || []).includes(session.user.id))
-    ))
-    .map(app => ({ id: app.id, title: app.title, icon: app.icon }));
+  // Persoonlijke favorieten + apps die een admin globaal favoriet gemaakt
+  // heeft (mini_apps.is_global_favorite), samengevoegd en gesorteerd op de
+  // door de gebruiker zelf gekozen volgorde -- zie
+  // src/modules/mini-apps/lib/favorites.js (zelfde logica als de
+  // "Favorieten"-sectie in de Mini-apps-pagina zelf, één plek voor de
+  // merge/sorteerlogica). Apps waar de user geen toegang meer toe heeft
+  // (privé gemaakt, share ingetrokken) vallen er automatisch uit, tenzij
+  // alsnog globaal favoriet.
+  const orderedFavorites = await getOrderedFavorites(supabase, session.user.id);
+  session.user.favoriteMiniApps = orderedFavorites.map(f => ({ id: f.id, title: f.title, icon: f.icon }));
 
   // Build modulePermissions map: { module_code: string[] }
   session.user.modulePermissions = {};
