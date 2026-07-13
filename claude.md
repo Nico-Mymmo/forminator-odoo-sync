@@ -425,6 +425,14 @@ export async function handlePatchMijnWizard({ env }) {
 
 Registreer de route in `module.js` en voeg een knop toe in de HTML + handler in de JS (zelfde patroon als de bestaande "Eenmalige patches" in `cx-automations`).
 
+## Gedeelde R2-bucket (env.R2_ASSETS) — elke module moet zichzelf scopen
+
+**Regel:** `env.R2_ASSETS` is ÉÉN bucket (`openvme-assets`) die door meerdere modules gebruikt wordt, elk met een eigen key-prefix: asset-manager (`public/`, `banners/`, `events/`, `logos/`, `uploads/`, `users/{id}/`), mini-apps app-inhoud (`mini-apps/{appId}.html`), mini-apps gedeelde opslag (`mini-apps-storage/{appId}/...`). **Elke module die deze bucket gebruikt moet zijn eigen `.list()`-aanroepen altijd scopen tot zijn eigen prefix(en) — nooit een leeg/onbegrensd prefix rechtstreeks doorgeven aan `R2_ASSETS.list()`.**
+
+Waarom dit hier staat: op 2026-07-13 bleek dat de asset-manager (`GET /api/assets/list`, "Alles"-tab) bij een leeg prefix de HELE bucket ongefilterd terugaf, inclusief mini-apps' eigen app-inhoud en gedeelde-opslag-objecten — die verschenen dan als nep-"bestanden" (bv. `todayShoppersText`, willekeurige UUID's) in de Asset Library. De rechtencontrole zelf werd bovendien enkel uitgevoerd `if (prefix && ...)`, dus een leeg prefix sloeg ook die controle over. Gefixt in `src/modules/asset-manager/routes.js` met een gesloten `ASSET_CATEGORY_PREFIXES`-lijst (nooit een blinde bucket-brede list) + een `FOREIGN_MODULE_PREFIXES`-denylist die `canReadPrefix`/`canWritePrefix` altijd blokkeert, ook voor admin — zie het uitgebreide doc-blok in `src/modules/asset-manager/module.js`.
+
+**Voeg je een nieuwe module toe die `env.R2_ASSETS` gebruikt?** Kies een eigen, unieke prefix, en als de asset-manager ooit iets van jouw prefix zou kunnen tegenkomen bij een bucket-brede list: voeg je prefix toe aan `FOREIGN_MODULE_PREFIXES` in `src/modules/asset-manager/routes.js`.
+
 ## Bestandsstructuur
 
 ```

@@ -18,6 +18,19 @@
  *
  *  env.R2_ASSETS — gedeclareerd in wrangler.jsonc, bucket: openvme-assets
  *  NOOIT env.ASSETS gebruiken — dat is de static files binding
+ *
+ *  BELANGRIJK: deze bucket wordt ook door andere modules gebruikt (mini-apps:
+ *  prefixen "mini-apps/" + "mini-apps-storage/", zie
+ *  src/modules/mini-apps/lib/r2-client.js + lib/storage.js). routes.js kent
+ *  daarom een gesloten eigen namespace (ASSET_CATEGORY_PREFIXES: public/,
+ *  banners/, events/, logos/, uploads/, + users/{id}/) en een expliciete
+ *  FOREIGN_MODULE_PREFIXES-denylist -- GET /api/assets/list mag NOOIT een
+ *  onbegrensd/leeg prefix 1-op-1 doorgeven aan R2_ASSETS.list(), en
+ *  canReadPrefix/canWritePrefix weigeren altijd foreign-module-prefixen, ook
+ *  voor admin. Vóór 2026-07-13 gaf een leeg prefix ("Alles"-tab) de HELE
+ *  bucket ongefilterd terug, waardoor mini-apps' eigen data als "bestanden"
+ *  in de Asset Library verscheen. Nieuwe modules die deze bucket ook gaan
+ *  gebruiken: hun prefix toevoegen aan FOREIGN_MODULE_PREFIXES in routes.js.
  */
 
 import { routes } from './routes.js';

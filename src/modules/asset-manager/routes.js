@@ -31,6 +31,24 @@ const LOG_PREFIX = '[asset-manager]';
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
+// De volledige, gesloten namespace van de asset-manager zelf -- moet exact
+// overeenkomen met de categorie-prefixen in ui.js (Banners/Events/Logos/
+// Overige) + de per-user prefix. Dit is de "eigen map" van de asset-manager:
+// GET /api/assets/list met een leeg prefix ("Alles") mag NOOIT verder kijken
+// dan deze set, en elk expliciet opgegeven prefix moet hierbinnen vallen.
+const ASSET_CATEGORY_PREFIXES = ['public/', 'banners/', 'events/', 'logos/', 'uploads/'];
+
+// Andere modules die dezelfde env.R2_ASSETS-bucket gebruiken (zie
+// src/modules/mini-apps/lib/r2-client.js + lib/storage.js) -- de
+// asset-manager mag hier nooit in lezen of schrijven, ook een admin niet.
+// Nieuwe modules die deze bucket later ook gebruiken: hier toevoegen.
+const FOREIGN_MODULE_PREFIXES = ['mini-apps/', 'mini-apps-storage/'];
+
+function isForeignPrefix(prefix) {
+  const p = String(prefix || '');
+  return FOREIGN_MODULE_PREFIXES.some(fp => p.startsWith(fp));
+}
+
 // ─── Response helpers ────────────────────────────────────────────────────────
 
 function jsonOk(data) {
@@ -67,6 +85,7 @@ function hasUploadAccess(user) {
  */
 function canWritePrefix(user, prefix) {
   if (!user) return false;
+  if (isForeignPrefix(prefix)) return false;
   if (isAdmin(user)) return true;
   if (user.role === 'asset_manager') {
     return prefix.startsWith('uploads/') || prefix.startsWith('users/');
@@ -85,6 +104,7 @@ function canWritePrefix(user, prefix) {
  */
 function canReadPrefix(user, keyOrPrefix) {
   if (!user) return false;
+  if (isForeignPrefix(keyOrPrefix)) return false;
   if (isAdmin(user)) return true;
   if (user.role === 'asset_manager') return true;
   const ownPrefix = buildUserPrefix(user.id);
@@ -110,15 +130,47 @@ export const routes = {
     const cursor = url.searchParams.get('cursor') || undefined;
     const limit  = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 1000);
 
+    // Onvoorwaardelijke rechtencontrole -- voorheen enkel gedaan `if (prefix
+    // && ...)`, waardoor een LEEG prefix (de "Alles"-tab) zowel de
+    // rechtencontrole als elke scoping oversloeg en de HELE R2_ASSETS-bucket
+    // liet zien, inclusief andere modules' objecten (zie FOREIGN_MODULE_PREFIXES).
     if (prefix && !canReadPrefix(user, prefix)) {
       console.error(`${LOG_PREFIX} list forbidden: user ${user?.id} op prefix ${prefix}`);
       return jsonError('Geen toegang tot dit prefix.', 403, 'PREFIX_FORBIDDEN');
     }
 
     try {
-      const result = await listObjects(env, { prefix, cursor, limit });
-      console.log(`${LOG_PREFIX} LIST prefix=${prefix || '/'} count=${result.objects.length} truncated=${result.truncated}`);
-      return jsonOk(result);
+      // Expliciet prefix: ongewijzigd gedrag (enkele R2-call, volledige
+      // cursor-paginering blijft werken zoals voorheen per categorie-tab).
+      if (prefix) {
+        const result = await listObjects(env, { prefix, cursor, limit });
+        console.log(`${LOG_PREFIX} LIST prefix=${prefix} count=${result.objects.length} truncated=${result.truncated}`);
+        return jsonOk(result);
+      }
+
+      // Leeg prefix ("Alles"): NOOIT meer 1-op-1 naar R2 doorgeven.
+      if (!isAdmin(user) && user?.role !== 'asset_manager') {
+        // Gewone user: "Alles" betekent gewoon zijn eigen prefix.
+        const ownPrefix = buildUserPrefix(user.id);
+        const result = await listObjects(env, { prefix: ownPrefix, cursor, limit });
+        console.log(`${LOG_PREFIX} LIST prefix=${ownPrefix} (eigen, "alles") count=${result.objects.length} truncated=${result.truncated}`);
+        return jsonOk(result);
+      }
+
+      // Admin/asset_manager: som van de gekende, eigen categorieën --
+      // begrensd aantal (ASSET_CATEGORY_PREFIXES), dus een vaste, kleine set
+      // parallelle R2-calls, nooit een blinde bucket-brede list(). Geen
+      // cross-prefix cursor-paginering (elke categorie afzonderlijk heeft dat
+      // wel) -- voor de "Alles"-tab volstaat gesorteerd + afgekapt tot limit.
+      const perCategory = await Promise.all(
+        ASSET_CATEGORY_PREFIXES.map(p => listObjects(env, { prefix: p, limit }))
+      );
+      const merged = perCategory.flatMap(r => r.objects);
+      merged.sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0));
+      const truncated = perCategory.some(r => r.truncated) || merged.length > limit;
+      const objects = merged.slice(0, limit);
+      console.log(`${LOG_PREFIX} LIST prefix=/ (alle categorieën) count=${objects.length} truncated=${truncated}`);
+      return jsonOk({ objects, truncated, cursor: null });
     } catch (err) {
       console.error(`${LOG_PREFIX} list error:`, err.message);
       return jsonError('Lijst ophalen mislukt.', 500);
