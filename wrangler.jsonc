@@ -36,7 +36,9 @@
 		"binding": "ASSETS"
 	},
 	"triggers": {
-		"crons": ["*/15 * * * *"]
+		// "*/15 * * * *"  -> bestaande 15-min jobs (cx_powerboard, cx_automations, mini-apps geplande taken)
+		// "*/5 * * * *"   -> NIEUW, apart: mini-apps criteria-taken (condition-scheduler.js), bewust sneller
+		"crons": ["*/15 * * * *", "*/5 * * * *"]
 	},
 	"vars": {
 		// Public-facing base URL — used when generating Claude project instructions

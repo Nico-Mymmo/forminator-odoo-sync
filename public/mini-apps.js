@@ -7,6 +7,8 @@ lucide.createIcons();
 
 var apps = [];               // laatst geladen lijst uit GET /api/apps
 var colleagues = null;       // cache van GET /api/apps/colleagues
+var currentUser = null;      // { id, name, email } van de ingelogde gebruiker (via renderNavbar), gebruikt voor buildUserShim()
+var isAdmin = false;         // via renderNavbar() -- bepaalt of de Chat-kanalen-beheer-UI zichtbaar is (server-side ook afgedwongen in routes.js)
 var currentApp = null;       // metadata van de app die open staat in appModal (bewerken)
 var currentAppContent = '';  // laatst opgehaalde/opgeslagen HTML-inhoud (RAUW, zonder shim)
 var codeEditor = null;       // CodeMirror-instance (lazy, 1x per pagina-load, value wordt herladen)
@@ -58,6 +60,14 @@ function showToast(message, type) {
 //     window.onerror / unhandledrejection doorstuurt via postMessage (werkt ook
 //     vanuit een opaque origin, in tegenstelling tot directe DOM-toegang) zodat we
 //     ze als banner boven de app kunnen tonen.
+//  3. localStorage/sessionStorage zijn dus NIET gedeeld tussen gebruikers en NIET
+//     persistent na een herlaad. Voor apps die kleine data willen bewaren/delen
+//     over gebruikers heen (bv. een teller, een gedeelde checklist) injecteren
+//     we ook window.sharedStorage (get/set/remove/list, Promise-based) -- praat
+//     via postMessage met deze pagina, die de echte opslag doet via
+//     GET/PUT/DELETE /mini-apps/api/apps/:id/storage(/:key), zie
+//     handleMiniAppStorageRequest() hieronder en
+//     src/modules/mini-apps/lib/storage.js voor de quota's.
 //
 // De shim wordt uitsluitend toegevoegd aan wat we in de iframe laden -- de
 // opgeslagen/bewerkte inhoud (currentAppContent, CodeMirror-waarde) blijft altijd
@@ -81,17 +91,84 @@ var MINI_APP_SHIM = '<script>(function(){'
   + 'function relay(kind,detail){try{window.parent.postMessage({__miniAppError:true,kind:kind,detail:detail},"*");}catch(e){}}'
   + 'window.addEventListener("error",function(e){relay("error",{message:e.message,line:e.lineno,col:e.colno});});'
   + 'window.addEventListener("unhandledrejection",function(e){var r=e.reason;relay("promise",{message:(r&&(r.message||String(r)))||"Onbekende fout"});});'
+  + 'function miniAppStorageBridge(){var reqId=0,pending={};'
+  +   'function send(action,extra){return new Promise(function(resolve,reject){'
+  +     'var id=Date.now()+"_"+(reqId++);'
+  +     'pending[id]={resolve:resolve,reject:reject};'
+  +     'setTimeout(function(){if(pending[id]){delete pending[id];reject(new Error("sharedStorage: timeout"));}},15000);'
+  +     'var msg={__miniAppStorage:true,id:id,action:action};'
+  +     'for(var k in extra){msg[k]=extra[k];}'
+  +     'try{window.parent.postMessage(msg,"*");}catch(e){delete pending[id];reject(e);}'
+  +   '});}'
+  +   'window.addEventListener("message",function(e){'
+  +     'var d=e.data;if(!d||!d.__miniAppStorageResult)return;'
+  +     'var p=pending[d.id];if(!p)return;delete pending[d.id];'
+  +     'if(d.ok)p.resolve(d.value);else p.reject(new Error(d.error||"sharedStorage-fout"));'
+  +   '});'
+  +   'window.platform={'
+  +     'listColleagues:function(){return send("listColleagues",{});},'
+  +     'notify:function(to,subject,message){return send("notify",{to:to,subject:subject,message:message});},'
+  +     'listChatChannels:function(){return send("listChatChannels",{});},'
+  +     'sendChat:function(channelId,message){return send("sendChat",{channelId:channelId,message:message});},'
+  +     'schedule:{'
+  +       'create:function(config){return send("scheduleCreate",{config:config});},'
+  +       'list:function(){return send("scheduleList",{});},'
+  +       'update:function(id,config){return send("scheduleUpdate",{scheduleId:id,config:config});},'
+  +       'remove:function(id){return send("scheduleDelete",{scheduleId:id});},'
+  +       'runNow:function(id){return send("scheduleRunNow",{scheduleId:id});}'
+  +     '},'
+  +     'condition:{'
+  +       'create:function(config){return send("conditionCreate",{config:config});},'
+  +       'list:function(){return send("conditionList",{});},'
+  +       'update:function(id,config){return send("conditionUpdate",{taskId:id,config:config});},'
+  +       'remove:function(id){return send("conditionDelete",{taskId:id});},'
+  +       'runNow:function(id){return send("conditionRunNow",{taskId:id});}'
+  +     '}'
+  +   '};'
+  +   'return{'
+  +     'get:function(key){return send("get",{key:key});},'
+  +     'set:function(key,value){return send("set",{key:key,value:String(value)});},'
+  +     'remove:function(key){return send("remove",{key:key});},'
+  +     'list:function(){return send("list",{});},'
+  +     'usage:function(){return send("usage",{});},'
+  +     'listItems:function(collection){return send("listItems",{collection:collection});},'
+  +     'addItem:function(collection,value){return send("addItem",{collection:collection,value:String(value)});},'
+  +     'updateItem:function(collection,itemId,value){return send("updateItem",{collection:collection,itemId:itemId,value:String(value)});},'
+  +     'removeItem:function(collection,itemId){return send("removeItem",{collection:collection,itemId:itemId});}'
+  +   '};'
+  + '}'
+  + 'window.sharedStorage=miniAppStorageBridge();'
   + '})();</'
   + 'script>';
 
+// Zet het daisyUI-thema van DEZE pagina (data-theme, localStorage
+// 'selectedTheme') door naar de iframe, vóór de app zelf iets laadt --
+// een app die ons designsysteem (Tailwind + daisyUI) gebruikt en thema-
+// bewuste kleuren (bg-base-100, text-base-content, ...) volgt hierdoor
+// automatisch het thema dat de gebruiker zelf heeft ingesteld.
+function buildThemeShim() {
+  var theme = localStorage.getItem('selectedTheme') || 'light';
+  return '<script>document.documentElement.setAttribute("data-theme", ' + JSON.stringify(theme) + ');</' + 'script>';
+}
+
+// Injecteert de ingelogde gebruiker als read-only window.currentUser -- vers
+// bij elke load (net als het thema hierboven), NOOIT opgeslagen in de
+// app-inhoud zelf. currentUser kan hier nog null zijn als renderNavbar() nog
+// niet is teruggekomen (race bij de eerste paint); apps moeten daar rekening
+// mee houden (zie BUILD_PROMPT).
+function buildUserShim() {
+  return '<script>window.currentUser = ' + JSON.stringify(currentUser) + ';</' + 'script>';
+}
+
 function instrumentAppHtml(html) {
+  var shim = buildThemeShim() + buildUserShim() + MINI_APP_SHIM;
   if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, function(m) { return m + MINI_APP_SHIM; });
+    return html.replace(/<head[^>]*>/i, function(m) { return m + shim; });
   }
   if (/<html[^>]*>/i.test(html)) {
-    return html.replace(/<html[^>]*>/i, function(m) { return m + MINI_APP_SHIM; });
+    return html.replace(/<html[^>]*>/i, function(m) { return m + shim; });
   }
-  return MINI_APP_SHIM + html;
+  return shim + html;
 }
 
 function resetAppErrors(bannerEl) {
@@ -120,17 +197,170 @@ function renderAppErrors(bannerEl) {
 window.addEventListener('message', function(e) {
   if (!activeFrame || e.source !== activeFrame.frame.contentWindow) return;
   var data = e.data;
-  if (!data || !data.__miniAppError) return;
+  if (!data) return;
 
-  var d = data.detail || {};
-  var text = data.kind === 'promise'
-    ? ('Onverwerkte promise-fout: ' + (d.message || 'onbekend'))
-    : ((d.message || 'Fout') + (d.line ? (' (regel ' + d.line + (d.col ? ':' + d.col : '') + ')') : ''));
+  if (data.__miniAppError) {
+    var d = data.detail || {};
+    var text = data.kind === 'promise'
+      ? ('Onverwerkte promise-fout: ' + (d.message || 'onbekend'))
+      : ((d.message || 'Fout') + (d.line ? (' (regel ' + d.line + (d.col ? ':' + d.col : '') + ')') : ''));
 
-  appErrors.push(text);
-  if (appErrors.length > 20) appErrors.shift();
-  renderAppErrors(activeFrame.banner);
+    appErrors.push(text);
+    if (appErrors.length > 20) appErrors.shift();
+    renderAppErrors(activeFrame.banner);
+    return;
+  }
+
+  if (data.__miniAppStorage) {
+    handleMiniAppStorageRequest(data);
+  }
 });
+
+// ====== Gedeelde opslag — brug tussen iframe (window.sharedStorage) en API ======
+//
+// De iframe praat NOOIT rechtstreeks met /mini-apps/api/... (opaque origin,
+// geen sessie-cookie beschikbaar) -- alle get/set/remove/list-aanvragen komen
+// hier binnen via postMessage (zie window.sharedStorage in MINI_APP_SHIM) en
+// worden hier, met de sessie van DEZE pagina, doorgezet naar de echte API.
+// Isolatie per app: altijd activeFrame.appId gebruiken, nooit een appId uit
+// het bericht zelf overnemen (een gecompromitteerde iframe zou anders een
+// andere app-id kunnen invullen en bij een andere app's opslag kunnen).
+async function handleMiniAppStorageRequest(data) {
+  var frame = activeFrame;
+  function reply(ok, value, error) {
+    if (!frame) return;
+    try {
+      frame.frame.contentWindow.postMessage(
+        { __miniAppStorageResult: true, id: data.id, ok: ok, value: value, error: error },
+        '*'
+      );
+    } catch (_err) { /* iframe intussen weg -- niets meer te doen */ }
+  }
+
+  var appId = frame && frame.appId;
+  if (!appId) { reply(false, null, 'Geen actieve app.'); return; }
+
+  var base = `/mini-apps/api/apps/${appId}/storage`;
+  var collBase = `${base}/collections/${encodeURIComponent(data.collection)}`;
+  try {
+    if (data.action === 'list') {
+      reply(true, await apiJson(base));
+    } else if (data.action === 'get') {
+      var result = await apiJson(`${base}/${encodeURIComponent(data.key)}`);
+      reply(true, result.value);
+    } else if (data.action === 'set') {
+      await apiJson(`${base}/${encodeURIComponent(data.key)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: data.value })
+      });
+      reply(true, null);
+    } else if (data.action === 'remove') {
+      await apiJson(`${base}/${encodeURIComponent(data.key)}`, { method: 'DELETE' });
+      reply(true, null);
+    } else if (data.action === 'usage') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/storage-usage`));
+    } else if (data.action === 'listItems') {
+      reply(true, await apiJson(collBase));
+    } else if (data.action === 'addItem') {
+      reply(true, await apiJson(collBase, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: data.value })
+      }));
+    } else if (data.action === 'updateItem') {
+      reply(true, await apiJson(`${collBase}/${encodeURIComponent(data.itemId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: data.value })
+      }));
+    } else if (data.action === 'removeItem') {
+      await apiJson(`${collBase}/${encodeURIComponent(data.itemId)}`, { method: 'DELETE' });
+      reply(true, null);
+    } else if (data.action === 'listColleagues') {
+      reply(true, await apiJson('/mini-apps/api/apps/colleagues'));
+    } else if (data.action === 'notify') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: data.to, subject: data.subject, message: data.message })
+      }));
+    } else if (data.action === 'listChatChannels') {
+      reply(true, await apiJson('/mini-apps/api/apps/chat-channels'));
+    } else if (data.action === 'sendChat') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/chat-send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: data.channelId, message: data.message })
+      }));
+    } else if (data.action === 'scheduleList') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules`));
+    } else if (data.action === 'scheduleCreate') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data.config)
+      }));
+    } else if (data.action === 'scheduleUpdate') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules/${encodeURIComponent(data.scheduleId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data.config)
+      }));
+    } else if (data.action === 'scheduleDelete') {
+      await apiJson(`/mini-apps/api/apps/${appId}/schedules/${encodeURIComponent(data.scheduleId)}`, { method: 'DELETE' });
+      reply(true, null);
+    } else if (data.action === 'scheduleRunNow') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules/${encodeURIComponent(data.scheduleId)}/run-now`, { method: 'POST' }));
+    } else if (data.action === 'conditionList') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/condition-tasks`));
+    } else if (data.action === 'conditionCreate') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/condition-tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data.config)
+      }));
+    } else if (data.action === 'conditionUpdate') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/condition-tasks/${encodeURIComponent(data.taskId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data.config)
+      }));
+    } else if (data.action === 'conditionDelete') {
+      await apiJson(`/mini-apps/api/apps/${appId}/condition-tasks/${encodeURIComponent(data.taskId)}`, { method: 'DELETE' });
+      reply(true, null);
+    } else if (data.action === 'conditionRunNow') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/condition-tasks/${encodeURIComponent(data.taskId)}/run-now`, { method: 'POST' }));
+    } else {
+      reply(false, null, 'Onbekende actie: ' + data.action);
+    }
+  } catch (err) {
+    reply(false, null, err.message || 'sharedStorage-fout');
+  }
+}
+
+// ====== Instellingen-tab: quotum-indicator voor gedeelde opslag ======
+
+async function refreshStorageUsage(appId) {
+  var label = document.getElementById('settingsStorageLabel');
+  var count = document.getElementById('settingsStorageCount');
+  var bar = document.getElementById('settingsStorageBar');
+  if (!label || !count || !bar) return;
+
+  label.textContent = 'Laden…';
+  count.textContent = '';
+  try {
+    var usage = await apiJson(`/mini-apps/api/apps/${appId}/storage-usage`);
+    var usedKb = (usage.usedBytes / 1024).toFixed(1);
+    var maxMb = (usage.maxBytes / 1024 / 1024).toFixed(0);
+    label.textContent = `${usedKb} KB / ${maxMb} MB gebruikt`;
+    count.textContent = `${usage.objectCount} / ${usage.maxObjects} items`;
+    bar.max = usage.maxBytes;
+    bar.value = usage.usedBytes;
+  } catch (err) {
+    label.textContent = 'Opslag-info niet beschikbaar';
+  }
+}
 
 async function apiFetch(url, options) {
   var res = await fetch(url, Object.assign({ credentials: 'include' }, options || {}));
@@ -156,6 +386,8 @@ async function renderNavbar() {
   var response = await apiFetch('/api/auth/me');
   var data = await response.json();
   if (!data.user) { window.location.href = '/'; return; }
+  currentUser = { id: data.user.id, name: data.user.full_name || data.user.username, email: data.user.email };
+  isAdmin = data.user.role === 'admin';
   if (window.renderSharedNavbar) window.renderSharedNavbar(data.navbarHtml);
 }
 
@@ -270,17 +502,19 @@ var ICON_OPTIONS = [
   { value: 'clipboard-check', label: 'Afgevinkt klembord' }
 ];
 
-// Vult de dropdown eenmalig -- daarna enkel .value + preview bijwerken per app.
-function initIconSelect() {
-  var select = document.getElementById('settingsIcon');
+// Vult een dropdown eenmalig -- daarna enkel .value + preview bijwerken per app.
+// Gebruikt voor zowel de Instellingen-tab (settingsIcon) als de upload-modal
+// (uploadIcon) -- zelfde iconlijst, twee onafhankelijke select-elementen.
+function initIconSelect(selectId) {
+  var select = document.getElementById(selectId);
   if (!select || select.options.length > 0) return;
   select.innerHTML = ICON_OPTIONS.map(function(opt) {
     return `<option value="${opt.value}">${opt.label}</option>`;
   }).join('');
 }
 
-function updateIconPreview(iconName) {
-  var wrap = document.getElementById('settingsIconPreviewWrap');
+function updateIconPreview(iconName, wrapId) {
+  var wrap = document.getElementById(wrapId || 'settingsIconPreviewWrap');
   if (!wrap) return;
   wrap.innerHTML = `<i data-lucide="${iconName || 'puzzle'}" class="w-4 h-4"></i>`;
   lucide.createIcons();
@@ -421,12 +655,115 @@ function toggleColleaguesWrap(radioName, wrapId) {
   }
 }
 
+// ====== Bouw-prompt ======
+//
+// Basisprompt die een gebruiker in een Claude-gesprek kan plakken: Claude
+// stelt dan gerichte vragen over de gewenste mini-app en levert nadien het
+// kant-en-klare .html-bestand terug, klaar om hier te uploaden.
+
+var BUILD_PROMPT = `Ik wil een mini-app (interne tool) bouwen voor de Mini-apps-module van onze Operations Manager.
+
+Begin met een laagdrempelige, open vraag: "Wat zou je graag willen maken, of wat moet de app precies doen?" Ga op basis van mijn antwoord verder in gesprek met gerichte, open vervolgvragen (geen meerkeuze/keuzemenu's) over input, output, berekeningen/regels en gewenste stijl, tot je genoeg weet om te beginnen coderen.
+
+Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening mee):
+- De output is ÉÉN volledig zelfstandig .html-bestand: alle CSS en JavaScript inline in <style>- en <script>-tags in dat ene bestand. Geen losse .css- of .js-bestanden, geen build-stap -- ook niet als tussenstap tijdens het bouwen zelf (bv. via losse bestandstools). Werk je in een omgeving die bestanden kan aanmaken, maak dan GEEN aparte .js/.css-bestanden aan, ook niet tijdelijk -- schrijf alles meteen in het ene .html-bestand. De Mini-apps-module kan enkel dat ene bestand opslaan/serveren; een <script src="..."> of <link href="..."> naar een lokaal bestand geeft altijd een 404 zodra de app draait.
+- Gebruik ons designsysteem, exact zoals de rest van de Operations Manager:
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+  Gebruik Tailwind-utility-classes + daisyUI-componenten (btn, card, input, badge, ...) en Lucide-icons (<i data-lucide="...">, gevolgd door lucide.createIcons() na render).
+- De omgeving zet automatisch het daisyUI-thema (data-theme) dat de gebruiker zelf heeft ingesteld in de Operations Manager. Gebruik daarom overal thema-bewuste daisyUI-kleuren (bv. bg-base-100/200/300, text-base-content, btn-primary/secondary/accent, border-base-300) i.p.v. hardcoded kleuren -- dan volgt jouw app automatisch het gekozen thema.
+- Extra CDN-links mag je aanvullend gebruiken als dat nodig is, dat werkt gewoon.
+- De app draait in een gesandboxte iframe zonder toegang tot de bovenliggende pagina of de sessie van de gebruiker. localStorage/sessionStorage worden vervangen door een in-memory variant die NIET bewaard blijft na een herlaad en NIET gedeeld wordt tussen gebruikers -- ga er dus niet van uit dat opgeslagen data blijft bestaan of zichtbaar is voor anderen.
+- Moet de app kleine of middelgrote data bewaren of delen TUSSEN GEBRUIKERS (bv. een teller, een instelling, een recurring schema per medewerker)? Gebruik dan window.sharedStorage in plaats van localStorage -- die is wél persistent en gedeeld over alle gebruikers die deze mini-app mogen draaien:
+    await window.sharedStorage.set("mijnKey", "een string-waarde");   // opslaan (max 1 MB per key)
+    var waarde = await window.sharedStorage.get("mijnKey");           // string, of null als niet gezet
+    var alles = await window.sharedStorage.list();                    // { key: value, ... } -- alle keys van deze app
+    await window.sharedStorage.remove("mijnKey");
+  Alle methodes geven een Promise terug en werken uitsluitend met string-waarden -- gebruik zelf JSON.stringify/JSON.parse voor objecten of arrays.
+- Moet de app een GEDEELDE LIJST bijhouden waar meerdere gebruikers tegelijk items aan toevoegen/verwijderen (bv. een boodschappenlijst, een to-do-lijst)? Gebruik dan NIET één grote lijst-waarde via set()/get() -- als twee mensen tegelijk opslaan, verliest de een de wijziging van de ander. Gebruik in plaats daarvan de collection-API, waarbij elk item een eigen record is en toevoegen/verwijderen door verschillende mensen nooit botst:
+    var item = await window.sharedStorage.addItem("boodschappen", "melk");   // { id, value } -- id wordt server-side gegenereerd
+    var items = await window.sharedStorage.listItems("boodschappen");        // [{ id, value }, ...]
+    await window.sharedStorage.updateItem("boodschappen", item.id, "melk (aangekocht)"); // item aanpassen MET behoud van id -- bv. iets als "aangekocht" markeren
+    await window.sharedStorage.removeItem("boodschappen", item.id);
+  Wil je iets exporteren/downloaden vanuit de app (bv. de lijst als bestand)? Dat kan gewoon met gangbare browser-JS (Blob + een <a download>-link) -- downloads zijn toegestaan vanuit deze sandbox.
+- Optioneel: await window.sharedStorage.usage() geeft { usedBytes, maxBytes, objectCount, maxObjects } terug -- handig als de app zelf ook een quotum-balkje wil tonen (de Mini-apps-module toont dit trouwens al standaard in de Instellingen-tab).
+- BELANGRIJK, voorkomt een veelgemaakte fout: window.sharedStorage en window.platform (inclusief .schedule/.condition) staan al VOLLEDIG en synchroon klaar vanaf de allereerste regel van je eigen <script>-code -- ze worden door de omgeving in de <head> geïnjecteerd, dus altijd vóór jouw code draait. Geen race, geen "wachten tot ze bestaan" nodig -- schrijf dus NOOIT een eigen polling-/retry-lus (bv. setTimeout-loops die controleren of window.sharedStorage.listItems al een functie is) om hierop te wachten; die is overbodig en kan een echte fout (bv. een typfout in een key/collection-naam) verbergen achter een misleidende "nog niet klaar"-verklaring. De ENIGE uitzondering hierop is window.currentUser (zie hieronder), die wél heel even null kan zijn.
+- De app kent de ingelogde gebruiker: window.currentUser is een kant-en-klaar object { id, name, email } van wie de app nu gebruikt -- geen login/invulveld nodig om te weten "wie ben ik". Kan bij het laden nog null zijn (heel kort, voor de eerste paint) -- check dus of het bestaat voor je het gebruikt (dit is het enige geval waar een korte "wacht tot beschikbaar"-check wél zinvol is).
+- Moet de app iets doen MET/VOOR een specifieke collega (bv. een taak toewijzen, iemand kiezen uit een lijst)? Gebruik var collega's = await window.platform.listColleagues(); -- geeft [{ id, full_name, email }, ...] terug van alle actieve collega's (zelfde lijst als de share-picker in deze module). Gebruik altijd het id-veld om een collega te identificeren in window.sharedStorage, niet de naam (namen kunnen dubbel zijn).
+- Wil de app een e-mail sturen naar de gebruiker zelf of naar een specifieke collega (bv. een herinnering of een bevestiging)? Gebruik window.platform.notify(to, subject, message) -- to is "self" of het id-veld van een collega uit listColleagues(). Geef NOOIT zelf een e-mailadres op -- dat wordt niet ondersteund en genegeerd/geweigerd; de ontvanger wordt altijd server-side herleid. Elke mail krijgt automatisch een voettekst met de appnaam en wie de actie startte, en is beperkt tot een dagelijkse limiet per app -- dus geen bulk-mailtool, enkel gerichte meldingen.
+    await window.platform.notify("self", "Vergeten iets?", "Je hebt nog niet ingevuld welke dagen je naar de winkel gaat.");
+    await window.platform.notify(collega.id, "Boodschappenlijst bijgewerkt", "Er staat weer iets nieuws op de lijst!");
+- Wil de app een bericht sturen naar een Google Chat-KANAAL (geen 1-op-1 DM naar een persoon -- dat wordt nog niet ondersteund)? Gebruik window.platform.listChatChannels() -- geeft [{ id, name }, ...] terug van kanalen die een ADMIN al gekoppeld heeft (via de "Chat-kanalen"-knop in de Mini-apps-lijst -- enkel admins mogen kanalen toevoegen/verwijderen, iedereen mag de lijst gebruiken) -- en window.platform.sendChat(channelId, message).
+  BELANGRIJK: jij (Claude, in dit gesprek) weet NIET welke kanalen vandaag al bestaan -- die lijst staat niet vast en kan na het bouwen van deze app nog wijzigen. Hardcode dus NOOIT een kanaalnaam of -id, en pak NOOIT zomaar "het eerste kanaal" uit de lijst. Haal de lijst altijd live op zodra de app opent, en laat de gebruiker zelf een kanaal kiezen (bv. via een <select>) voor je iets verstuurt. Is de lijst leeg? Toon dan een duidelijke melding dat er nog geen kanaal gekoppeld is en dat een admin dat via de "Chat-kanalen"-knop moet doen -- de app kan zelf geen kanaal aanmaken.
+    var kanalen = await window.platform.listChatChannels();
+    // bv. kanalen renderen als <select><option value="\${k.id}">\${k.name}</option>...</select>,
+    // en pas bij een submit: await window.platform.sendChat(gekozenKanaalId, "Er staat een nieuw item op de lijst!");
+- Totale limiet gedeelde opslag per app: 10 MB en max 500 keys/items samen (kv + collection-items).
+- Maximale bestandsgrootte van de HTML-app zelf: 2 MB.
+- Moet de app ook iets versturen OP EEN VAST TIJDSTIP/INTERVAL, ook als niemand die dag de app open heeft (bv. een dagelijkse post om 11u, of een wekelijkse herinnering)? Gebruik window.platform.schedule -- dit draait volledig server-side via een cron (elke 15 min, dus tot 15 min vertraging op het ingestelde tijdstip), los van of de app open staat:
+    var taak = await window.platform.schedule.create({
+      name: "Dagelijkse update",                          // herkenbare naam, voor jezelf/collega's in de lijst
+      recurrence: { frequency: "daily", time: "11:00" },   // of: { frequency: "weekly", time: "09:00", daysOfWeek: [1,3,5] } (0=zo..6=za)
+                                                             // of: { frequency: "every_n_days", time: "08:30", intervalDays: 14, anchorDate: "2026-07-07" }
+      deliveryMethod: "mail",                               // "mail" of "chat"
+      targetType: "self",                                   // "self" | "colleague" (+ targetUserId) | "channel" (+ targetChannelId, enkel bij "chat")
+      subjectTemplate: "Dagupdate",                          // enkel bij deliveryMethod "mail"
+      messageTemplate: "Vandaag op de lijst:\n{{#each boodschappen}}- {{this.naam}}\n{{/each}}{{#isEmpty boodschappen}}Niets vandaag!{{/isEmpty}}"
+    });
+    var mijnTaken = await window.platform.schedule.list();           // ALLE taken van deze app (ook die van collega's -- transparantie, geen dubbele posts) + { isMine, canManage }
+    await window.platform.schedule.update(taak.id, { ...zelfde velden als bij create... });  // enkel toegestaan als jij de taak maakte of de app-eigenaar bent
+    await window.platform.schedule.remove(taak.id);
+    await window.platform.schedule.runNow(taak.id);                   // test de taak meteen, i.p.v. tot het volgende tijdstip te wachten
+  Het message/subject-template is GEEN JavaScript-expressie maar een eenvoudige, veilige tekst-vervanging (geen eval, geen logica) die alleen mag verwijzen naar data uit window.sharedStorage van DEZE app:
+    {{kv.KEY}}                                    -- een platte sharedStorage-waarde (window.sharedStorage.get/set)
+    {{#each collectieNaam}}...{{this}}/{{this.veld}}...{{/each}}   -- itereert over een collection (this.veld leest een JSON-veld als het item als JSON is opgeslagen)
+    {{#isEmpty collectieNaam}}...{{/isEmpty}}     -- enkel getoond als de collection leeg is (bv. "niemand vandaag")
+    {{#notEmpty collectieNaam}}...{{/notEmpty}}   -- enkel getoond als de collection NIET leeg is
+  targetType "colleague"/"channel" volgen dezelfde regels als notify()/sendChat() hierboven: nooit zelf een e-mailadres/kanaal-id verzinnen, altijd targetUserId uit listColleagues() of targetChannelId uit listChatChannels() gebruiken, en laat de gebruiker zelf kiezen via een <select> i.p.v. iets te hardcoden. Max 20 geplande taken per app.
+- Moet de app iets versturen ZODRA EEN VOORWAARDE WAAR WORDT (bv. "een nieuwe bestelling", "voorraad op"), i.p.v. op een vast tijdstip? Gebruik window.platform.condition -- dit is een APARTE, snellere cron (elke 5 min) die de voorwaarde zelf server-side controleert, dus ook als niemand de app open heeft. Stuurt enkel bij een overgang van niet-waar naar waar (geen herhaalde berichten zolang de voorwaarde waar blijft):
+    var taak = await window.platform.condition.create({
+      name: "Nieuwe bestelling",
+      criteria: { source: "collection", collection: "bestellingen", field: "status", equals: "nieuw" },
+                                                          // of: { source: "kv", key: "voorraadStatus", equals: "op" }
+                                                          // equals/notEquals mogen {{today}}/{{weekday}}/{{weekdayName}}/{{isoWeek}}/{{isoYear}} bevatten
+      deliveryMethod: "chat",                              // "mail" of "chat"
+      targetType: "channel",                               // "self" | "colleague" (+ targetUserId) | "channel" (+ targetChannelId, enkel bij "chat")
+      subjectTemplate: "Nieuwe bestelling",                 // enkel bij deliveryMethod "mail"
+      messageTemplate: "Er is een nieuwe bestelling binnengekomen op {{today}} ({{weekdayName}})."
+    });
+    var mijnCriteriaTaken = await window.platform.condition.list();     // ALLE criteria-taken van deze app + { isMine, canManage, last_condition_met, last_triggered_at }
+    await window.platform.condition.update(taak.id, { ...zelfde velden als bij create... });   // reset de edge-detectie, enkel toegestaan als jij de taak maakte of de app-eigenaar bent
+    await window.platform.condition.remove(taak.id);
+    await window.platform.condition.runNow(taak.id);                   // stuurt het bericht ONMIDDELLIJK, ongeacht of de voorwaarde net "waar geworden" is -- handig om het template te testen
+  Het message/subject-template werkt hetzelfde als bij window.platform.schedule hierboven (logic-less, geen eval), plus twee extra's die ENKEL bij condition-taken beschikbaar zijn (niet bij schedule-taken):
+    {{today}} / {{weekday}} / {{weekdayName}} / {{isoWeek}} / {{isoYear}}   -- server-berekende dag-context op het MOMENT VAN VERSTUREN (Europe/Brussels): datum (YYYY-MM-DD), weekdag (0=zo..6=za), weekdagnaam (NL), ISO-weeknummer/-jaar
+    {{#eachWhere collectieNaam field="veld" equals="waarde"}}...{{/eachWhere}}   -- gefilterde variant van {{#each}}: enkel items waar "veld" gelijk is aan "waarde" (mag zelf {{today}}/{{weekday}}/... bevatten); notEquals="..." kan ook
+    {{rotation.NAAM}}   -- actieve persoon/item van een BEURTROL met vaste interval + optionele uitzonderingen (bv. "wie gaat er vandaag naar de winkel", "wie is on-call"), volledig server-side herberekend. Zet dit op met ÉÉN sharedStorage-key met een gereserveerde naam:
+      await window.sharedStorage.set("__rotation_NAAM__", JSON.stringify({
+        anchorDate: "2026-06-30", intervalDays: 14, items: ["Jan", "Piet", "An"],
+        exceptionsCollection: "afwezigheden", exceptionDateField: "date", exceptionPersonField: "person"   // optioneel: een collection met { date, person } om iemand voor één dag over te slaan (bv. vakantie) -- springt automatisch door naar de volgende in de rotatie
+      }));
+  targetType "colleague"/"channel" volgen dezelfde regels als hierboven. Max 20 criteria-taken per app. window.platform.schedule (vast tijdstip) en window.platform.condition (databeslissing) zijn twee onafhankelijke mechanismes -- kies op basis van OF de app op een vast tijdstip moet sturen OF zodra iets waar wordt, niet allebei door elkaar voor dezelfde taak.
+
+Zodra je voldoende weet: geef me de volledige inhoud van dat ene .html-bestand terug in één codeblok, zodat ik het meteen kan opslaan en uploaden in de Mini-apps-module. Nogmaals: geen aparte .js/.css-bestanden, ook niet als tussenstap -- alles inline in dat ene codeblok.`;
+
+function copyBuildPrompt() {
+  navigator.clipboard.writeText(BUILD_PROMPT).then(function() {
+    showToast('Prompt gekopieerd — plak hem in een Claude-gesprek.', 'success');
+  }, function() {
+    showToast('Kopiëren mislukt.', 'error');
+  });
+}
+
 // ====== Upload-modal ======
 
 async function openUploadModal() {
   document.getElementById('uploadTitle').value = '';
   document.getElementById('uploadDescription').value = '';
   document.getElementById('uploadFile').value = '';
+  document.getElementById('uploadIcon').value = 'puzzle';
+  updateIconPreview('puzzle', 'uploadIconPreviewWrap');
   document.querySelector('input[name="uploadVisibility"][value="private"]').checked = true;
   document.getElementById('uploadColleaguesWrap').classList.add('hidden');
 
@@ -448,6 +785,7 @@ function closeUploadModal() {
 async function submitUpload() {
   var title = document.getElementById('uploadTitle').value.trim();
   var description = document.getElementById('uploadDescription').value.trim();
+  var icon = document.getElementById('uploadIcon').value;
   var file = document.getElementById('uploadFile').files[0];
   var visibility = document.querySelector('input[name="uploadVisibility"]:checked').value;
   var sharedUserIds = visibility === 'specific'
@@ -464,6 +802,7 @@ async function submitUpload() {
     var formData = new FormData();
     formData.append('title', title);
     formData.append('description', description);
+    formData.append('icon', icon);
     formData.append('visibility', visibility);
     formData.append('sharedUserIds', JSON.stringify(sharedUserIds));
     formData.append('file', file);
@@ -508,7 +847,7 @@ async function openAppFullscreen(id) {
 
     var frame = document.getElementById('appFullscreenFrame');
     var banner = document.getElementById('appFullscreenErrorBanner');
-    activeFrame = { frame: frame, banner: banner };
+    activeFrame = { frame: frame, banner: banner, appId: id };
     resetAppErrors(banner);
     frame.srcdoc = instrumentAppHtml(contentResult.content);
 
@@ -568,6 +907,9 @@ function switchAppTab(tab) {
     cm.setValue(currentAppContent);
     setTimeout(function() { cm.refresh(); }, 0);
   }
+  if (tab === 'settings' && currentApp) {
+    refreshStorageUsage(currentApp.id);
+  }
 }
 
 async function openApp(id) {
@@ -586,15 +928,22 @@ async function openApp(id) {
 
     var frame = document.getElementById('appFrame');
     var banner = document.getElementById('appErrorBanner');
-    activeFrame = { frame: frame, banner: banner };
+    activeFrame = { frame: frame, banner: banner, appId: id };
     resetAppErrors(banner);
     frame.srcdoc = instrumentAppHtml(currentAppContent);
+
+    try {
+      var sub = await apiJson(`/mini-apps/api/apps/${id}/mail-subscription`);
+      renderMailSubscriptionToggle(sub.subscribed);
+    } catch (err) {
+      renderMailSubscriptionToggle(true);
+    }
 
     if (meta.isOwner) {
       document.getElementById('settingsTitle').value = meta.title;
       document.getElementById('settingsDescription').value = meta.description || '';
       document.getElementById('settingsIcon').value = meta.icon || 'puzzle';
-      updateIconPreview(meta.icon || 'puzzle');
+      updateIconPreview(meta.icon || 'puzzle', 'settingsIconPreviewWrap');
       var radio = document.querySelector(`input[name="settingsVisibility"][value="${meta.visibility}"]`);
       if (radio) radio.checked = true;
       toggleColleaguesWrap('settingsVisibility', 'settingsColleaguesWrap');
@@ -622,6 +971,43 @@ function closeAppModal() {
   resetAppErrors(document.getElementById('appErrorBanner'));
   document.getElementById('appFrame').srcdoc = 'about:blank';
   activeFrame = null;
+}
+
+// ====== Mail-abonnement per app (in-/uitschrijven persoonlijke mails) ======
+//
+// Zelf-service, elke viewer (niet enkel de eigenaar) -- window.platform.notify()
+// in een mini-app kan altijd geweigerd worden door de ontvanger zelf, los van
+// wie de app gebouwd heeft. Status wordt bij elke openApp() opnieuw opgehaald
+// (geen cache) zodat de knop nooit een verouderde staat toont.
+
+function renderMailSubscriptionToggle(subscribed) {
+  var btn = document.getElementById('mailSubscriptionToggle');
+  if (!btn) return;
+  btn.dataset.subscribed = subscribed ? '1' : '0';
+  btn.innerHTML = subscribed
+    ? '<i data-lucide="bell" class="w-4 h-4"></i>'
+    : '<i data-lucide="bell-off" class="w-4 h-4"></i>';
+  btn.title = subscribed
+    ? 'Je ontvangt persoonlijke mails van deze app — klik om uit te schrijven'
+    : 'Uitgeschreven voor persoonlijke mails van deze app — klik om in te schrijven';
+  lucide.createIcons();
+}
+
+async function toggleMailSubscription() {
+  if (!currentApp) return;
+  var btn = document.getElementById('mailSubscriptionToggle');
+  var next = !(btn && btn.dataset.subscribed === '1');
+  try {
+    await apiJson(`/mini-apps/api/apps/${currentApp.id}/mail-subscription`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscribed: next })
+    });
+    renderMailSubscriptionToggle(next);
+    showToast(next ? 'Ingeschreven voor mails van deze app.' : 'Uitgeschreven voor mails van deze app.', 'success');
+  } catch (err) {
+    showToast('Wijzigen mislukt: ' + err.message, 'error');
+  }
 }
 
 async function saveAppCode() {
@@ -711,6 +1097,80 @@ async function toggleFavorite(id, isFavorite) {
   }
 }
 
+// ====== Chat-kanalen modal ======
+
+async function openChatChannelsModal() {
+  document.getElementById('chatChannelName').value = '';
+  document.getElementById('chatChannelWebhookUrl').value = '';
+  document.getElementById('chatChannelAddWrap').classList.toggle('hidden', !isAdmin);
+  document.getElementById('chatChannelNonAdminNote').classList.toggle('hidden', isAdmin);
+  document.getElementById('chatChannelsModal').showModal();
+  lucide.createIcons();
+  await loadChatChannelsList();
+}
+
+function closeChatChannelsModal() {
+  document.getElementById('chatChannelsModal').close();
+}
+
+async function loadChatChannelsList() {
+  var container = document.getElementById('chatChannelsList');
+  container.innerHTML = '<span class="text-xs text-base-content/40">Laden…</span>';
+  try {
+    var channels = await apiJson('/mini-apps/api/apps/chat-channels');
+    if (channels.length === 0) {
+      container.innerHTML = '<span class="text-xs text-base-content/40">Nog geen kanalen gekoppeld.</span>';
+      return;
+    }
+    container.innerHTML = channels.map(function(c) {
+      var deleteBtn = isAdmin
+        ? `<button class="btn btn-ghost btn-xs btn-circle" data-action="deleteChatChannel" data-id="${c.id}" title="Verwijderen">
+             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+           </button>`
+        : '';
+      return `<div class="flex items-center justify-between bg-base-200/40 rounded-lg px-3 py-1.5">
+        <span class="text-sm">${escapeHtml(c.name)}</span>
+        ${deleteBtn}
+      </div>`;
+    }).join('');
+    lucide.createIcons();
+  } catch (err) {
+    container.innerHTML = '<span class="text-xs text-error">Ophalen mislukt: ' + escapeHtml(err.message) + '</span>';
+  }
+}
+
+async function submitChatChannel() {
+  var name = document.getElementById('chatChannelName').value.trim();
+  var webhookUrl = document.getElementById('chatChannelWebhookUrl').value.trim();
+  if (!name || !webhookUrl) {
+    showToast('Naam en webhook-URL zijn verplicht.', 'error');
+    return;
+  }
+  try {
+    await apiJson('/mini-apps/api/apps/chat-channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, webhookUrl: webhookUrl })
+    });
+    document.getElementById('chatChannelName').value = '';
+    document.getElementById('chatChannelWebhookUrl').value = '';
+    showToast('Kanaal gekoppeld.', 'success');
+    await loadChatChannelsList();
+  } catch (err) {
+    showToast('Koppelen mislukt: ' + err.message, 'error');
+  }
+}
+
+async function deleteChatChannel(id) {
+  try {
+    await apiJson(`/mini-apps/api/apps/chat-channels/${id}`, { method: 'DELETE' });
+    showToast('Kanaal verwijderd.', 'success');
+    await loadChatChannelsList();
+  } catch (err) {
+    showToast('Verwijderen mislukt: ' + err.message, 'error');
+  }
+}
+
 // ====== Event delegation ======
 
 document.addEventListener('click', function(e) {
@@ -718,6 +1178,7 @@ document.addEventListener('click', function(e) {
   if (el) {
     var action = el.dataset.action;
     if (action === 'openUploadModal') openUploadModal();
+    else if (action === 'copyBuildPrompt') copyBuildPrompt();
     else if (action === 'closeUploadModal') closeUploadModal();
     else if (action === 'submitUpload') submitUpload();
     else if (action === 'openAppFullscreen') openAppFullscreen(el.dataset.id);
@@ -725,10 +1186,15 @@ document.addEventListener('click', function(e) {
     else if (action === 'copyAppLink') copyAppLink(el.dataset.id);
     else if (action === 'toggleFavorite') toggleFavorite(el.dataset.id, el.dataset.favorite === '1');
     else if (action === 'copyCurrentAppLink') { if (currentApp) copyAppLink(currentApp.id); }
+    else if (action === 'toggleMailSubscription') toggleMailSubscription();
     else if (action === 'closeAppModal') closeAppModal();
     else if (action === 'saveAppCode') saveAppCode();
     else if (action === 'saveAppSettings') saveAppSettings();
     else if (action === 'deleteApp') deleteApp();
+    else if (action === 'openChatChannelsModal') openChatChannelsModal();
+    else if (action === 'closeChatChannelsModal') closeChatChannelsModal();
+    else if (action === 'submitChatChannel') submitChatChannel();
+    else if (action === 'deleteChatChannel') deleteChatChannel(el.dataset.id);
   }
 
   var tabBtn = e.target.closest('[data-app-tab]');
@@ -738,7 +1204,8 @@ document.addEventListener('click', function(e) {
 document.addEventListener('change', function(e) {
   if (e.target.name === 'uploadVisibility') toggleColleaguesWrap('uploadVisibility', 'uploadColleaguesWrap');
   if (e.target.name === 'settingsVisibility') toggleColleaguesWrap('settingsVisibility', 'settingsColleaguesWrap');
-  if (e.target.id === 'settingsIcon') updateIconPreview(e.target.value);
+  if (e.target.id === 'settingsIcon') updateIconPreview(e.target.value, 'settingsIconPreviewWrap');
+  if (e.target.id === 'uploadIcon') updateIconPreview(e.target.value, 'uploadIconPreviewWrap');
 });
 
 // Links naar /mini-apps?app=<id> binnen deze pagina onderscheppen (navbar-
@@ -770,7 +1237,8 @@ document.addEventListener('keydown', function(e) {
 
 renderNavbar();
 loadApps();
-initIconSelect();
+initIconSelect('settingsIcon');
+initIconSelect('uploadIcon');
 
 // Directe/bookmarkbare link: /mini-apps?app=<id> opent die app meteen fullscreen,
 // onafhankelijk van de lijst -- ook voor de eigenaar (bewerken gaat via de losse

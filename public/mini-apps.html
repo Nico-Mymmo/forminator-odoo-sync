@@ -69,14 +69,20 @@
   <div id="mainContent" style="padding-top: 48px;">
     <div class="container mx-auto px-6 py-8 max-w-6xl">
 
-      <div class="mb-6">
-        <h1 class="text-2xl font-bold flex items-center gap-2">
-          <i data-lucide="puzzle" class="w-6 h-6"></i>
-          Mini-apps
-        </h1>
-        <p class="text-sm text-base-content/60 mt-1">
-          Upload zelfgemaakte single-file HTML/JS-tooltjes, gebruik ze, en tweak ze rechtstreeks in de browser.
-        </p>
+      <div class="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold flex items-center gap-2">
+            <i data-lucide="puzzle" class="w-6 h-6"></i>
+            Mini-apps
+          </h1>
+          <p class="text-sm text-base-content/60 mt-1">
+            Upload zelfgemaakte single-file HTML/JS-tooltjes, gebruik ze, en tweak ze rechtstreeks in de browser.
+          </p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm gap-2 shrink-0" data-action="openChatChannelsModal" title="Google Chat-kanalen koppelen voor window.platform.sendChat">
+          <i data-lucide="message-square" class="w-4 h-4"></i>
+          Chat-kanalen
+        </button>
       </div>
 
       <!-- ======= Mijn apps ======= -->
@@ -103,7 +109,19 @@
   <!-- ======= Modal: nieuwe mini-app uploaden ======= -->
   <dialog id="uploadModal" class="modal">
     <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-base mb-4">Nieuwe mini-app uploaden</h3>
+      <h3 class="font-bold text-base mb-1">Nieuwe mini-app uploaden</h3>
+      <p class="text-xs text-base-content/50 mb-4">Upload een bestaand .html-bestand, of laat Claude er eerst één voor je bouwen.</p>
+
+      <div class="alert bg-base-200 border border-base-300 py-2.5 px-3 mb-4 flex items-start gap-2">
+        <i data-lucide="sparkles" class="w-4 h-4 mt-0.5 shrink-0 text-primary"></i>
+        <div class="flex-1 text-xs leading-relaxed">
+          Nog geen bestand? Kopieer de bouw-prompt en plak hem in een Claude-gesprek -- Claude stelt je een paar vragen en levert het kant-en-klare .html-bestand.
+        </div>
+        <button type="button" class="btn btn-xs btn-primary gap-1 shrink-0" data-action="copyBuildPrompt">
+          <i data-lucide="clipboard" class="w-3 h-3"></i>
+          Kopiëren
+        </button>
+      </div>
 
       <div class="form-control mb-3">
         <label class="label pb-1"><span class="label-text text-xs font-semibold">Titel</span></label>
@@ -113,6 +131,16 @@
       <div class="form-control mb-3">
         <label class="label pb-1"><span class="label-text text-xs font-semibold">Omschrijving (optioneel)</span></label>
         <input type="text" id="uploadDescription" class="input input-bordered input-sm" placeholder="Waarvoor dient deze app?" />
+      </div>
+
+      <div class="form-control mb-3">
+        <label class="label pb-1"><span class="label-text text-xs font-semibold">Icoon</span></label>
+        <div class="flex items-center gap-3">
+          <div id="uploadIconPreviewWrap" class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
+            <i data-lucide="puzzle" class="w-4 h-4"></i>
+          </div>
+          <select id="uploadIcon" class="select select-bordered select-sm flex-1"></select>
+        </div>
       </div>
 
       <div class="form-control mb-4">
@@ -157,6 +185,46 @@
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
 
+  <!-- ======= Modal: Google Chat-kanalen koppelen ======= -->
+  <dialog id="chatChannelsModal" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-base mb-1">Google Chat-kanalen</h3>
+      <p class="text-xs text-base-content/50 mb-4">
+        Mini-apps kunnen berichten sturen naar een gekoppeld kanaal via window.platform.sendChat(). Koppel hier de
+        webhook-URL van een Chat-ruimte (ruimte-titel &rarr; Apps en integraties &rarr; Webhooks &rarr; nieuwe webhook aanmaken).
+        Die URL verlaat de server nooit -- een mini-app kent een kanaal enkel via zijn naam.
+      </p>
+
+      <div id="chatChannelsList" class="flex flex-col gap-1.5 mb-4 max-h-52 overflow-y-auto">
+        <span class="text-xs text-base-content/40">Laden…</span>
+      </div>
+
+      <p id="chatChannelNonAdminNote" class="hidden text-xs text-base-content/40 border-t border-base-300 pt-3">
+        Enkel een admin kan kanalen koppelen of verwijderen.
+      </p>
+
+      <div id="chatChannelAddWrap" class="hidden border-t border-base-300 pt-4">
+        <div class="form-control mb-3">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold">Naam</span></label>
+          <input type="text" id="chatChannelName" class="input input-bordered input-sm" placeholder="bv. algemeen" />
+        </div>
+        <div class="form-control mb-3">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold">Webhook-URL</span></label>
+          <input type="text" id="chatChannelWebhookUrl" class="input input-bordered input-sm" placeholder="https://chat.googleapis.com/v1/spaces/..." />
+        </div>
+        <button class="btn btn-primary btn-sm gap-2" data-action="submitChatChannel">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+          Kanaal koppelen
+        </button>
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-ghost btn-sm" data-action="closeChatChannelsModal">Sluiten</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
   <!-- ======= Modal: app draaien / tweaken ======= -->
   <dialog id="appModal" class="modal">
     <div class="modal-box max-w-5xl w-11/12 h-[85vh] flex flex-col p-0 overflow-hidden">
@@ -167,6 +235,9 @@
           <p class="text-xs text-base-content/50 truncate" id="appModalSubtitle"></p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
+          <button class="btn btn-ghost btn-sm btn-circle" data-action="toggleMailSubscription" id="mailSubscriptionToggle" title="Mailmeldingen van deze app">
+            <i data-lucide="bell" class="w-4 h-4"></i>
+          </button>
           <button class="btn btn-ghost btn-sm btn-circle" data-action="copyCurrentAppLink" title="Directe link kopiëren">
             <i data-lucide="link" class="w-4 h-4"></i>
           </button>
@@ -185,7 +256,7 @@
       <!-- Voorbeeld -->
       <div id="appPanePreview" class="flex-1 min-h-0 app-frame-wrap flex flex-col">
         <div id="appErrorBanner" class="hidden bg-error/10 border-b border-error/30 text-error text-xs px-3 py-2 max-h-28 overflow-y-auto shrink-0"></div>
-        <iframe id="appFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups" allow="clipboard-write"></iframe>
+        <iframe id="appFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" allow="clipboard-write"></iframe>
       </div>
 
       <!-- Code -->
@@ -240,6 +311,17 @@
           <label class="label pb-1"><span class="label-text text-xs font-semibold">Collega's</span></label>
           <div id="settingsColleaguesList" class="max-h-40 overflow-y-auto border border-base-300 rounded-lg p-2 flex flex-col gap-1"></div>
         </div>
+
+        <div class="form-control mb-4" id="settingsStorageWrap">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold flex items-center gap-1.5"><i data-lucide="database" class="w-3.5 h-3.5"></i> Gedeelde opslag</span></label>
+          <div class="flex items-center justify-between text-xs text-base-content/60 mb-1">
+            <span id="settingsStorageLabel">Laden…</span>
+            <span id="settingsStorageCount" class="text-base-content/40"></span>
+          </div>
+          <progress id="settingsStorageBar" class="progress progress-primary w-full" value="0" max="100"></progress>
+          <span class="label-text-alt text-base-content/50 mt-1">Data die deze app opslaat via window.sharedStorage -- gedeeld tussen alle gebruikers die de app mogen draaien.</span>
+        </div>
+
         <div class="flex items-center justify-between border-t border-base-300 pt-4 mt-2">
           <button class="btn btn-error btn-outline btn-sm gap-2" data-action="deleteApp">
             <i data-lucide="trash-2" class="w-4 h-4"></i>
@@ -259,7 +341,7 @@
   <!-- ======= Fullscreen mini-app viewer ("Openen" / deeplink) ======= -->
   <div id="appFullscreen" class="hidden">
     <div id="appFullscreenErrorBanner" class="hidden bg-error/10 border-b border-error/30 text-error text-xs px-3 py-2 max-h-28 overflow-y-auto shrink-0"></div>
-    <iframe id="appFullscreenFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups" allow="clipboard-write"></iframe>
+    <iframe id="appFullscreenFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" allow="clipboard-write"></iframe>
   </div>
 
   <div id="toastContainer" class="toast toast-end z-50"></div>

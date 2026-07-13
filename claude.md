@@ -173,6 +173,7 @@ document.addEventListener('click', e => {
 | cx-powerboard | `/cx-powerboard` | — | `ui.js` | ⚠️ Legacy |
 | wp-form-schemas | `/wp-sites` | — | in `routes.js` | ⚠️ Legacy |
 | claude-integration | `/api/claude` | — | onderdeel van `/insights` | ⚠️ Legacy |
+| mini-apps | `/mini-apps` | `mini_apps` | `public/mini-apps.html` + dedicated JS | ✅ Correct (zie hieronder) |
 
 **Legacy modules NIET aanraken tenzij expliciet gevraagd.** Bij aanpassingen aan legacy `ui.js`: string-concatenatie (+), geen geneste template literals, geen variabelen in inline event handlers. `src/lib/components/navbar.js` is de legacy server-rendered navbar voor deze ui.js-bestanden.
 
@@ -247,6 +248,21 @@ public/
 De volgende bestanden zijn nog legacy (string-concatenatie). **Niet aanraken tenzij expliciet gevraagd**, en dan volledig refactoren naar template literals:
 - `public/forminator-sync-v2-flow-builder.js`
 - `public/forminator-sync-v2-wizard.js`
+
+## mini-apps — geplande vs. criteria-taken (2 aparte "onbemand versturen"-bouwblokken)
+
+Collega's uploaden zelfgemaakte single-file HTML/JS mini-apps (`src/modules/mini-apps/`, route `/mini-apps`). Naast de basis (upload/tweak/delen, gedeelde opslag via `window.sharedStorage`, notify/chat terwijl de app open staat) heeft de module twee mechanismes om een mail/chat te versturen ZONDER dat iemand de app open heeft. Dit zijn BEWUST twee volledig gescheiden bouwblokken — geen gedeelde tabel, geen gedeelde cron, geen gedeelde lib — omdat ze een fundamenteel ander trigger-type hebben:
+
+| | Geplande taken (4de bouwblok) | Criteria-taken (5de bouwblok) |
+|---|---|---|
+| Trigger | Vast tijdstip/interval (dagelijks/wekelijks/`every_n_days`) | Data-voorwaarde die overgaat van niet-waar → waar (edge-triggered) |
+| Tabel | `mini_app_scheduled_tasks` + `_log` | `mini_app_condition_tasks` + `_log` |
+| Lib | `src/modules/mini-apps/lib/scheduler.js` | `src/modules/mini-apps/lib/condition-scheduler.js` |
+| Cron-tak | `"*/15 * * * *"` (`wrangler.jsonc` → `src/index.js#scheduled()`) | `"*/5 * * * *"` (eigen, snellere trigger — apart van de 15-min-tak) |
+| API | `window.platform.schedule.*`, routes `/api/apps/:id/schedules*` | `window.platform.condition.*`, routes `/api/apps/:id/condition-tasks*` |
+| Template-taal | `{{kv.x}}`, `{{#each}}`, `{{#isEmpty}}`, `{{#notEmpty}}` | zelfde + `{{today}}`/`{{weekday}}`/`{{weekdayName}}`/`{{isoWeek}}`/`{{isoYear}}` (server-berekende dag-context, Europe/Brussels), `{{#eachWhere field="x" equals="y"}}`, `{{rotation.NAAM}}` (beurtrol met interval + uitzonderingen, kv-conventie `__rotation_NAAM__`) |
+
+`src/index.js#scheduled()` gebruikt `event.cron` om de twee takken uit elkaar te houden (leeg `event.cron` bij een lokale/handmatige trigger draait voor de zekerheid alles). **Nooit deze twee lib-bestanden samenvoegen of code tussen beide laten delen** — dat is een expliciete architectuurbeslissing (2026-07), niet een toevallige duplicatie: fixed-time en criteria-based zijn twee aparte mentale modellen voor een mini-app-bouwer, en de dag-context/rotation-uitbreidingen zitten bewust enkel in condition-scheduler.js. Beide volgen hetzelfde veiligheidsprincipe: geen eval, geen Function-constructor, geen headless-uitvoering van app-code — enkel declaratieve data (recurrence resp. criteria) + een logic-less template-renderer.
 
 ## Blueprint: Odoo copy-wizard met interactieve veld-selectie
 

@@ -21,3 +21,12 @@ WP_PASSWORD=your_wp_app_password
 # Google Workspace (mail-signature-designer)
 # Volledige service account JSON op één regel — roteer via Google Cloud Console
 GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account","project_id":"...","private_key":"...","client_email":"..."}
+
+# Mini-apps — notify (optioneel, zie src/modules/mini-apps/lib/gmail-send-client.js)
+# IMPERSONATE = de echte mailbox die we domain-wide impersoneren (moet bestaan).
+# FROM = het adres dat de ontvanger ziet -- mag een alternatief e-mailadres/alias
+# van IMPERSONATE zijn (bv. hallo-collega@mymmo.com), voeg dat eerst toe via
+# Admin Console -> Directory -> Gebruikers -> alternatief e-mailadres.
+# Beide default naar nico@mymmo.com als je ze weglaat.
+MINI_APPS_NOTIFY_IMPERSONATE_EMAIL=nico@mymmo.com
+MINI_APPS_NOTIFY_FROM_EMAIL=hallo-collega@mymmo.com

@@ -1,0 +1,20 @@
+-- ============================================================================
+-- Mini-Apps — Gedeelde opslag — VERVANGEN DOOR R2, ZIE OPRUIM-MIGRATIE
+-- ============================================================================
+-- Deze migratie (Postgres-tabel mini_app_storage) IS uitgevoerd, maar de
+-- feature is daarna herzien en verhuisd naar R2 -- zie
+-- src/modules/mini-apps/lib/storage.js. Reden: bij een groter quotum (10 MB
+-- per app) zou dit de 500 MB gratis Supabase-databaseopslag delen met alle
+-- echte bedrijfsdata; Cloudflare R2 heeft 10 GB gratis opslag + geen
+-- egress-kosten en is al de plek waar de app-inhoud zelf staat.
+--
+-- De opruiming (DROP TABLE/FUNCTION) staat in
+-- 20260710160000_drop_mini_app_storage.sql -- voer die uit om de tabel en
+-- bijbehorende trigger-functie te verwijderen.
+--
+-- Dit bestand blijft bewust bestaan (i.p.v. verwijderd) zodat de
+-- migratie-historie geen gat vertoont. Niet meer aanpassen.
+-- ============================================================================
+
+-- (inhoud hierboven beschreven -- zie git-historie voor de oorspronkelijke
+-- CREATE TABLE mini_app_storage als je die ooit nog nodig hebt)
