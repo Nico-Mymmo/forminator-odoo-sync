@@ -132,39 +132,75 @@ function encodeHeaderValue(text) {
   return `=?UTF-8?B?${toBase64(new TextEncoder().encode(text))}?=`;
 }
 
-function buildMimeMessage({ fromEmail, toEmail, subject, textBody }) {
+function buildMimeMessage({ fromEmail, toEmail, subject, textBody, htmlBody }) {
   const from = `"${encodeHeaderValue(FROM_DISPLAY_NAME)}" <${fromEmail}>`;
-  const bodyB64 = wrap76(toBase64(new TextEncoder().encode(textBody)));
+  const textB64 = wrap76(toBase64(new TextEncoder().encode(textBody)));
+
+  // Zonder htmlBody (bv. een toekomstige andere aanroeper van sendEmail()):
+  // gewoon platte tekst, exact zoals voorheen -- geen gedrag gewijzigd.
+  if (!htmlBody) {
+    return [
+      `From: ${from}`,
+      `To: ${toEmail}`,
+      `Subject: ${encodeHeaderValue(subject)}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      textB64
+    ].join('\r\n');
+  }
+
+  // multipart/alternative: mailclients die geen HTML tonen (of de gebruiker
+  // koos platte tekst) vallen terug op het text/plain-deel; de rest krijgt
+  // de opgemaakte HTML-versie te zien. Boundary bevat geen voorspelbare data
+  // (crypto.randomUUID()), kan dus nooit botsen met base64-inhoud.
+  const boundary = `mini-apps-${crypto.randomUUID()}`;
+  const htmlB64 = wrap76(toBase64(new TextEncoder().encode(htmlBody)));
 
   return [
     `From: ${from}`,
     `To: ${toEmail}`,
     `Subject: ${encodeHeaderValue(subject)}`,
     'MIME-Version: 1.0',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
     '',
-    bodyB64
+    textB64,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    htmlB64,
+    '',
+    `--${boundary}--`
   ].join('\r\n');
 }
 
 // ─── Publieke API ────────────────────────────────────────────────────────────
 
 /**
- * Verstuurt een platte-tekst e-mail namens de organisatie.
+ * Verstuurt een e-mail namens de organisatie. Met htmlBody: multipart/
+ * alternative (platte tekst + opgemaakte HTML, mailclient kiest zelf).
+ * Zonder htmlBody: platte tekst, ongewijzigd t.o.v. voorheen.
  *
  * @param {Object} env
  * @param {string} toEmail
  * @param {string} subject
  * @param {string} textBody
+ * @param {string} [htmlBody]
  */
-export async function sendEmail(env, toEmail, subject, textBody) {
+export async function sendEmail(env, toEmail, subject, textBody, htmlBody) {
   const sa = getServiceAccount(env);
   const impersonateEmail = getImpersonateEmail(env);
   const fromEmail = getFromEmail(env);
   const token = await getAccessToken(sa, impersonateEmail, GMAIL_SEND_SCOPE);
 
-  const raw = b64urlFromString(buildMimeMessage({ fromEmail, toEmail, subject, textBody }));
+  const raw = b64urlFromString(buildMimeMessage({ fromEmail, toEmail, subject, textBody, htmlBody }));
 
   const resp = await fetch(
     'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',

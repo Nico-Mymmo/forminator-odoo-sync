@@ -169,10 +169,10 @@ async function attachOwnerNames(supabase, apps) {
 
   const { data: owners } = await supabase
     .from('users')
-    .select('id, full_name, email')
+    .select('id, username, email')
     .in('id', ownerIds);
 
-  const ownerMap = new Map((owners || []).map(o => [o.id, o.full_name || o.email]));
+  const ownerMap = new Map((owners || []).map(o => [o.id, o.username || o.email]));
   return apps.map(a => ({ ...a, ownerName: ownerMap.get(a.owner_user_id) || 'Onbekend' }));
 }
 
@@ -202,12 +202,12 @@ async function attachScheduleDisplayNames(supabase, env, tasks) {
 
   const [usersResult, channels] = await Promise.all([
     userIds.length > 0
-      ? supabase.from('users').select('id, full_name, email').in('id', userIds)
+      ? supabase.from('users').select('id, username, email').in('id', userIds)
       : Promise.resolve({ data: [] }),
     tasks.some(t => t.target_type === 'channel') ? listChannels(env) : Promise.resolve([])
   ]);
 
-  const userMap = new Map((usersResult.data || []).map(u => [u.id, u.full_name || u.email]));
+  const userMap = new Map((usersResult.data || []).map(u => [u.id, u.username || u.email]));
   const channelMap = new Map((channels || []).map(c => [c.id, c.name]));
 
   return tasks.map(t => ({
@@ -232,12 +232,12 @@ async function attachConditionTaskDisplayNames(supabase, env, tasks) {
 
   const [usersResult, channels] = await Promise.all([
     userIds.length > 0
-      ? supabase.from('users').select('id, full_name, email').in('id', userIds)
+      ? supabase.from('users').select('id, username, email').in('id', userIds)
       : Promise.resolve({ data: [] }),
     tasks.some(t => t.target_type === 'channel') ? listChannels(env) : Promise.resolve([])
   ]);
 
-  const userMap = new Map((usersResult.data || []).map(u => [u.id, u.full_name || u.email]));
+  const userMap = new Map((usersResult.data || []).map(u => [u.id, u.username || u.email]));
   const channelMap = new Map((channels || []).map(c => [c.id, c.name]));
 
   return tasks.map(t => ({
@@ -347,17 +347,31 @@ export const routes = {
     const supabase = getSupabaseClient(env);
     const { data, error } = await supabase
       .from('users')
-      .select('id, full_name, email')
+      .select('id, username, email')
       .eq('is_active', true)
-      .neq('id', user.id)
-      .order('full_name', { ascending: true });
+      .neq('id', user.id);
 
     if (error) {
       console.error(`${LOG_PREFIX} colleagues error:`, error.message);
       return jsonError('Gebruikerslijst ophalen mislukt.', 500);
     }
 
-    return jsonOk(data || []);
+    // Garantie voor mini-apps: het veld heet hier nog steeds full_name (zelfde
+    // response-vorm als altijd gedocumenteerd in BUILD_PROMPT, bestaande apps
+    // blijven werken) maar de WAARDE komt van username, niet van de
+    // gelijknamige DB-kolom -- die kan noch door de gebruiker, noch door een
+    // admin ingesteld worden (enkel username, via het profiel) en is dus vaak
+    // leeg/verouderd. E-mail is de laatste terugval, altijd niet-leeg (DB:
+    // users.email is NOT NULL). Sorteren gebeurt op de genormaliseerde
+    // waarde, niet via de DB-query.
+    const normalized = (data || []).map(c => ({
+      id: c.id,
+      email: c.email,
+      full_name: c.username || c.email || 'Onbekend'
+    }));
+    normalized.sort((a, b) => a.full_name.localeCompare(b.full_name));
+
+    return jsonOk(normalized);
   },
 
   // ── Mail-abonnement — status opvragen (view-toegang volstaat) ──────

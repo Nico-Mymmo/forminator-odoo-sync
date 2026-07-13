@@ -29,6 +29,76 @@
 import { getSupabaseClient } from '../../../lib/database.js';
 import { sendEmail } from './gmail-send-client.js';
 
+// ─── HTML-opmaak ─────────────────────────────────────────────────────────────
+// Tabel-layout + inline styles (geen <style>-blok, geen externe CSS) -- de
+// enige manier om er in Gmail/Outlook/etc. betrouwbaar hetzelfde te laten
+// uitzien; klassen of losse stylesheets worden door veel mailclients
+// genegeerd/gestript. Vaste kleuren (geen daisyUI-thema) -- een mail kan geen
+// thema-voorkeur van de ontvanger volgen.
+
+function escapeHtml(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Bouwt de opgemaakte HTML-versie van een notify-mail: header-blok (app-naam),
+ * content-blok (onderwerp + bericht) en footer-blok (dezelfde
+ * herleidbaarheids-tekst als de platte-tekst-versie). subject/message/
+ * appTitle/senderName komen (deels) uit door de mini-app/gebruiker
+ * aangeleverde tekst -- ALTIJD escapen, nooit ongefilterd in de HTML plakken.
+ */
+function buildNotifyHtml({ appTitle, subject, message, senderName }) {
+  const safeAppTitle = escapeHtml(appTitle);
+  const safeSubject = escapeHtml(subject);
+  const safeMessage = escapeHtml(message);
+  const safeSenderName = escapeHtml(senderName);
+
+  return `<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:0;background-color:#f1f5f9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+            <tr>
+              <td style="background-color:#4f46e5;padding:24px 28px;">
+                <div style="font-size:12px;color:#c7d2fe;letter-spacing:0.6px;text-transform:uppercase;font-weight:600;">
+                  Operations Manager &middot; Mini-app
+                </div>
+                <div style="font-size:20px;color:#ffffff;font-weight:700;padding-top:4px;">
+                  ${safeAppTitle}
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px;">
+                <div style="font-size:17px;color:#0f172a;font-weight:600;margin:0 0 12px;line-height:1.4;">
+                  ${safeSubject}
+                </div>
+                <div style="font-size:15px;line-height:1.6;color:#334155;white-space:pre-wrap;">${safeMessage}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 28px 24px;border-top:1px solid #e2e8f0;">
+                <p style="font-size:12px;line-height:1.5;color:#94a3b8;margin:0;">
+                  Automatisch bericht van de mini-app <strong style="color:#64748b;">${safeAppTitle}</strong>,
+                  verstuurd via de Operations Manager op initiatief van ${safeSenderName}.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
 export const MAX_SUBJECT_LENGTH = 200;
 export const MAX_MESSAGE_LENGTH = 5000;
 export const MAX_PER_APP_PER_DAY = 50;
@@ -48,20 +118,20 @@ function notifyError(message, code) {
  */
 async function resolveRecipient(env, sender, to) {
   if (to === 'self') {
-    return { id: sender.id, email: sender.email, full_name: sender.full_name || sender.username };
+    return { id: sender.id, email: sender.email, full_name: sender.username || sender.email };
   }
 
   const supabase = getSupabaseClient(env);
   const { data, error } = await supabase
     .from('users')
-    .select('id, email, full_name, username, is_active')
+    .select('id, email, username, is_active')
     .eq('id', to)
     .maybeSingle();
 
   if (error || !data || !data.is_active) {
     throw notifyError('Onbekende of inactieve ontvanger.', 'INVALID_RECIPIENT');
   }
-  return { id: data.id, email: data.email, full_name: data.full_name || data.username };
+  return { id: data.id, email: data.email, full_name: data.username || data.email };
 }
 
 async function checkRateLimit(env, appId, recipientUserId) {
@@ -184,16 +254,22 @@ export async function notifyUser(env, app, sender, to, subject, message) {
 
   await checkRateLimit(env, app.id, recipient.id);
 
-  const senderName = sender.full_name || sender.username || sender.email;
+  const senderName = sender.username || sender.email;
   const fullSubject = `[Mini-app: ${app.title}] ${subject.trim()}`;
   const fullBody =
     `${message.trim()}\n\n` +
     `---\n` +
     `Dit is een automatisch bericht van de mini-app "${app.title}", ` +
     `verstuurd via de Operations Manager op initiatief van ${senderName}.`;
+  const htmlBody = buildNotifyHtml({
+    appTitle: app.title,
+    subject: subject.trim(),
+    message: message.trim(),
+    senderName
+  });
 
   try {
-    await sendEmail(env, recipient.email, fullSubject, fullBody);
+    await sendEmail(env, recipient.email, fullSubject, fullBody, htmlBody);
   } catch (err) {
     await logNotification(env, {
       appId: app.id,

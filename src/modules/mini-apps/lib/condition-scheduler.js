@@ -494,7 +494,7 @@ export function validateConditionTaskPayload(body) {
 async function fetchAppAndCreator(supabase, appId, creatorUserId) {
   const [{ data: app, error: appErr }, { data: creator, error: creatorErr }] = await Promise.all([
     supabase.from('mini_apps').select('id, title').eq('id', appId).maybeSingle(),
-    supabase.from('users').select('id, email, full_name, username, is_active').eq('id', creatorUserId).maybeSingle()
+    supabase.from('users').select('id, email, username, is_active').eq('id', creatorUserId).maybeSingle()
   ]);
   if (appErr) throw new Error(appErr.message);
   if (creatorErr) throw new Error(creatorErr.message);

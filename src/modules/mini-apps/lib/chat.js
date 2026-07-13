@@ -166,7 +166,7 @@ export async function sendChannelMessage(env, app, sender, channelId, message) {
   const channel = await getChannel(env, channelId.trim());
   await checkRateLimit(env, app.id, channel.id);
 
-  const senderName = sender.full_name || sender.username || sender.email;
+  const senderName = sender.username || sender.email;
   const text =
     `${message.trim()}\n\n` +
     `_Automatisch bericht van de mini-app "${app.title}", verstuurd via de Operations Manager op initiatief van ${senderName}._`;
