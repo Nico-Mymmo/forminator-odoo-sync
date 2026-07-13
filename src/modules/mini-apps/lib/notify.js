@@ -52,11 +52,12 @@ function escapeHtml(str) {
  * appTitle/senderName komen (deels) uit door de mini-app/gebruiker
  * aangeleverde tekst -- ALTIJD escapen, nooit ongefilterd in de HTML plakken.
  */
-function buildNotifyHtml({ appTitle, subject, message, senderName }) {
+function buildNotifyHtml({ appTitle, subject, message, senderName, appLink }) {
   const safeAppTitle = escapeHtml(appTitle);
   const safeSubject = escapeHtml(subject);
   const safeMessage = escapeHtml(message);
   const safeSenderName = escapeHtml(senderName);
+  const safeAppLink = escapeHtml(appLink);
 
   return `<!DOCTYPE html>
 <html>
@@ -81,6 +82,13 @@ function buildNotifyHtml({ appTitle, subject, message, senderName }) {
                   ${safeSubject}
                 </div>
                 <div style="font-size:15px;line-height:1.6;color:#334155;white-space:pre-wrap;">${safeMessage}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 28px 24px;">
+                <a href="${safeAppLink}" style="display:inline-block;background-color:#eef2ff;color:#4338ca;font-size:13px;font-weight:600;text-decoration:none;padding:10px 16px;border-radius:8px;">
+                  Open ${safeAppTitle} &rarr;
+                </a>
               </td>
             </tr>
             <tr>
@@ -255,17 +263,20 @@ export async function notifyUser(env, app, sender, to, subject, message) {
   await checkRateLimit(env, app.id, recipient.id);
 
   const senderName = sender.username || sender.email;
+  const appLink = `${env.APP_BASE_URL}/mini-apps?app=${app.id}`;
   const fullSubject = `[Mini-app: ${app.title}] ${subject.trim()}`;
   const fullBody =
     `${message.trim()}\n\n` +
     `---\n` +
     `Dit is een automatisch bericht van de mini-app "${app.title}", ` +
-    `verstuurd via de Operations Manager op initiatief van ${senderName}.`;
+    `verstuurd via de Operations Manager op initiatief van ${senderName}.\n` +
+    `Open de app: ${appLink}`;
   const htmlBody = buildNotifyHtml({
     appTitle: app.title,
     subject: subject.trim(),
     message: message.trim(),
-    senderName
+    senderName,
+    appLink
   });
 
   try {

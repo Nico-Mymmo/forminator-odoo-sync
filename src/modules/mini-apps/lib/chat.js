@@ -167,9 +167,11 @@ export async function sendChannelMessage(env, app, sender, channelId, message) {
   await checkRateLimit(env, app.id, channel.id);
 
   const senderName = sender.username || sender.email;
+  const appLink = `${env.APP_BASE_URL}/mini-apps?app=${app.id}`;
   const text =
     `${message.trim()}\n\n` +
-    `_Automatisch bericht van de mini-app "${app.title}", verstuurd via de Operations Manager op initiatief van ${senderName}._`;
+    `_Automatisch bericht van de mini-app "${app.title}", verstuurd via de Operations Manager op initiatief van ${senderName}._\n` +
+    `<${appLink}|Open ${app.title}>`;
 
   try {
     const resp = await fetch(channel.webhook_url, {
