@@ -137,7 +137,8 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'removeItem:function(collection,itemId){return send("removeItem",{collection:collection,itemId:itemId});}'
   +   '};'
   + '}'
-  + 'window.sharedStorage=miniAppStorageBridge();'
+  + 'try{Object.defineProperty(window,"sharedStorage",{value:miniAppStorageBridge(),writable:true,configurable:true});}'
+  + 'catch(e){try{window.sharedStorage=miniAppStorageBridge();}catch(e2){}}'
   + '})();</'
   + 'script>';
 
