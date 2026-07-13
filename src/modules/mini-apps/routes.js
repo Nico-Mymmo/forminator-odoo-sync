@@ -84,7 +84,8 @@ import { putAppContent, getAppContent, deleteAppContent } from './lib/r2-client.
 import { canView, canEdit, normalizeSharedUserIds } from './permissions.js';
 import {
   listStorage, getStorageValue, setStorageValue, deleteStorageValue,
-  listCollectionItems, addCollectionItem, updateCollectionItem, removeCollectionItem, getStorageUsage
+  listCollectionItems, addCollectionItem, updateCollectionItem, removeCollectionItem, getStorageUsage,
+  deleteAllStorage
 } from './lib/storage.js';
 import { notifyUser, isSubscribed, setSubscription } from './lib/notify.js';
 import { registerChannel, listChannels, deleteChannel, sendChannelMessage } from './lib/chat.js';
@@ -1120,6 +1121,17 @@ export const routes = {
       console.error(`${LOG_PREFIX} R2 delete error:`, err.message);
       // Ga door met het verwijderen van de metadata, ook als R2-delete faalt —
       // een orphaned R2-object is minder erg dan een onverwijderbare rij.
+    }
+
+    try {
+      await deleteAllStorage(env, app.id);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} shared-storage cleanup error:`, err.message);
+      // Zelfde afweging als hierboven -- een orphaned mini-apps-storage/-object
+      // is minder erg dan een onverwijderbare rij. Deze opslag heeft geen
+      // eigen databaserij/FK (het zijn losse R2-objecten onder
+      // mini-apps-storage/{appId}/), dus zonder deze aanroep zou hij nooit
+      // ergens anders automatisch opgeruimd worden.
     }
 
     const { error: deleteError } = await supabase.from('mini_apps').delete().eq('id', app.id);
