@@ -282,3 +282,19 @@ export async function getStorageUsage(env, appId) {
     maxObjects: MAX_OBJECTS_PER_APP
   };
 }
+
+/**
+ * Verwijdert ALLE gedeelde opslag (kv + collection-items) van één app in
+ * één keer -- gebruikt door routes.js bij DELETE /api/apps/:id, zodat een
+ * verwijderde app geen orphaned R2-objecten achterlaat onder
+ * mini-apps-storage/{appId}/ (dat prefix wordt door niets anders opgeruimd:
+ * het is geen databaserij met een FK/CASCADE, gewoon losse R2-objecten).
+ * R2.delete() aanvaardt tot 1000 keys per aanroep -- ons quotum
+ * (MAX_OBJECTS_PER_APP = 500) blijft daar ruim onder, dus altijd één call.
+ * Idempotent: geen fout als er niets (meer) is om te verwijderen.
+ */
+export async function deleteAllStorage(env, appId) {
+  const objects = await listAppObjects(env, appId);
+  if (objects.length === 0) return;
+  await env.R2_ASSETS.delete(objects.map(o => o.key));
+}
