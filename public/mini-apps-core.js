@@ -107,10 +107,10 @@ var MINI_APP_SHIM = '<script>(function(){'
   + 'window.addEventListener("error",function(e){relay("error",{message:e.message,line:e.lineno,col:e.colno});});'
   + 'window.addEventListener("unhandledrejection",function(e){var r=e.reason;relay("promise",{message:(r&&(r.message||String(r)))||"Onbekende fout"});});'
   + 'function miniAppStorageBridge(){var reqId=0,pending={};'
-  +   'function send(action,extra){return new Promise(function(resolve,reject){'
+  +   'function send(action,extra,timeoutMs){return new Promise(function(resolve,reject){'
   +     'var id=Date.now()+"_"+(reqId++);'
   +     'pending[id]={resolve:resolve,reject:reject};'
-  +     'setTimeout(function(){if(pending[id]){delete pending[id];reject(new Error("sharedStorage: timeout"));}},15000);'
+  +     'setTimeout(function(){if(pending[id]){delete pending[id];reject(new Error("Verzoek verliep (timeout) -- probeer opnieuw."));}},timeoutMs||15000);'
   +     'var msg={__miniAppStorage:true,id:id,action:action};'
   +     'for(var k in extra){msg[k]=extra[k];}'
   +     'try{window.parent.postMessage(msg,"*");}catch(e){delete pending[id];reject(e);}'
@@ -126,7 +126,7 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'listChatChannels:function(){return send("listChatChannels",{});},'
   +     'sendChat:function(channelId,message){return send("sendChat",{channelId:channelId,message:message});},'
   +     'ai:{'
-  +       'ask:function(prompt,options){options=options||{};return send("aiAsk",{prompt:prompt,system:options.system,maxOutputTokens:options.maxOutputTokens});}'
+  +       'ask:function(prompt,options){options=options||{};return send("aiAsk",{prompt:prompt,system:options.system,maxOutputTokens:options.maxOutputTokens},45000);}'
   +     '},'
   +     'schedule:{'
   +       'create:function(config){return send("scheduleCreate",{config:config});},'
@@ -332,11 +332,14 @@ async function handleMiniAppStorageRequest(data) {
         body: JSON.stringify({ channelId: data.channelId, message: data.message })
       }));
     } else if (data.action === 'aiAsk') {
-      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/ai/ask`, {
+      // Enkel de platte tekst teruggeven (niet het hele {text, model}-object) --
+      // window.platform.ai.ask() resolvet met een string, zie BUILD_PROMPT.
+      var aiResult = await apiJson(`/mini-apps/api/apps/${appId}/ai/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: data.prompt, system: data.system, maxOutputTokens: data.maxOutputTokens })
-      }));
+      });
+      reply(true, aiResult.text);
     } else if (data.action === 'scheduleList') {
       reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules`));
     } else if (data.action === 'scheduleCreate') {

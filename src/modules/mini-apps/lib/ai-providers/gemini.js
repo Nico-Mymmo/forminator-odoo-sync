@@ -22,7 +22,13 @@
 
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-export const DEFAULT_MODEL = 'gemini-2.5-flash';
+// gemini-flash-lite-latest (Google-alias, wijst nu naar Gemini 3.1 Flash-Lite)
+// i.p.v. gemini-flash-latest (3.5 Flash): veel ruimere gratis-laag-quotum
+// (honderden requests/dag i.p.v. enkele tientallen) voor licht lagere
+// kwaliteit -- past beter bij de eenvoudige, hoogfrequente taken (samenvatten,
+// classificeren) waarvoor mini-apps dit gebruiken. Zelfde generateContent-
+// REST-endpoint, geen codewijziging verder nodig om te wisselen.
+export const DEFAULT_MODEL = 'gemini-flash-lite-latest';
 
 /**
  * @param {Object} params
@@ -42,7 +48,7 @@ export async function generate({ env, model, prompt, system, maxOutputTokens }) 
   }
 
   const resolvedModel = model || env.GEMINI_MODEL || DEFAULT_MODEL;
-  const url = `${API_BASE}/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const url = `${API_BASE}/${encodeURIComponent(resolvedModel)}:generateContent`;
 
   const body = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -56,7 +62,9 @@ export async function generate({ env, model, prompt, system, maxOutputTokens }) 
   try {
     resp = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Key als header (X-goog-api-key), niet als query-param -- komt zo
+      // nooit in een URL/request-log terecht (bv. Cloudflare-logging).
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body: JSON.stringify(body)
     });
   } catch (err) {

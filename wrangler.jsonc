@@ -47,6 +47,6 @@
 		// Mini-apps AI (window.platform.ai.ask(), zie src/modules/mini-apps/lib/ai.js) —
 		// GEMINI_API_KEY zelf is een secret (wrangler secret put), NIET hier.
 		"AI_PROVIDER": "gemini",
-		"GEMINI_MODEL": "gemini-2.5-flash"
+		"GEMINI_MODEL": "gemini-flash-lite-latest"
 	}
 }
