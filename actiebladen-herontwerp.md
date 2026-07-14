@@ -751,13 +751,62 @@ Wat overblijft in Studio:
 - Bankkoppeling: huidig product 44 (+ twee ongebruikte legacy-varianten 31/32, voor de zekerheid meegenomen in de detectie); qty = aantal koppelingen
 
 **Nieuwe velden (Technische UI, model Sales Action Sheet):**
-- `x_openvme_package` — Selection: `none` / `basic` / `smart` / `unlimited` / `historic`
+- `x_openvme_package` — Selection: `none` / `basic` / `smart` / `unlimited` / `historic` / `pro-invoiced` / `pro-basic` / `pro-smart` / `pro-unlimited` (de vier `pro-*`-waarden later toegevoegd, zie "Pro-varianten" hieronder)
 - `x_openvme_package_qty` — Integer (kavels)
 - `x_has_peppol` — Boolean
 - `x_has_linked_bank_account` — Boolean (productneutrale naam — aanvankelijk `x_has_ponto` genoemd, hernoemd bij het aanmaken)
 - `x_linked_bank_account_qty` — Integer
 
 **Server actions 1078 + 1117 — vereenvoudigd:** de `recurring`-tracking en de volledige HTML-opbouw zijn verwijderd. Binnen de bestaande recurrente-productenloop wordt nu gekeken of `tmpl.id` in de pakket-/Peppol-/bankkoppeling-ranges valt, en de bijhorende velden worden weggeschreven. Zonder orderregels blijven de velden gewoon op hun standaardwaarde (`none`/`False`/`0`) — geen aparte lege-lijst-tak meer nodig.
+
+**Pro-varianten (later toegevoegd) — VME's "in beheer" bij een expert:** naast de gewone `basic`/`smart`/`unlimited`/`historic`-detectie op basis van het abonnement, krijgt het gebouw (`res.partner`, `x_studio_for_company_id` op het actieblad) een aparte behandeling als het van het type "VME in beheer" is:
+- `res.partner.x_studio_company_type` — many2one → `x_company_type` (géén selectie/integer!). Records: id 1 = "VME", id 2 = "Professioneel Syndicus", **id 3 = "VME in beheer"** — enkel id 3 is relevant hier.
+- `res.partner.x_studio_invoiced_by_partner` — boolean, label "Facturatie via Expert".
+
+Logica (toegepast ná de normale pakket-detectie uit de productenloop, vóór de finale `record.write(...)`):
+- `x_studio_company_type.id == 3` **en** `x_studio_invoiced_by_partner = True` → `x_openvme_package` wordt geforceerd naar **`pro-invoiced`**, ongeacht welk abonnement-pakket gedetecteerd werd (facturatie loopt via de expert, dus het onderliggende basic/smart/unlimited-onderscheid is hier niet relevant).
+- `x_studio_company_type.id == 3` **en** `x_studio_invoiced_by_partner = False` → het normaal gedetecteerde pakket (`basic`/`smart`/`unlimited`) krijgt de `pro-`-prefix: **`pro-basic`**/**`pro-smart`**/**`pro-unlimited`**. Is het gedetecteerde pakket `historic` of `none`, dan blijft dat ongewijzigd — er bestaan bewust geen `pro-historic`/`pro-none`-varianten.
+- Is `x_studio_company_type` niet ingevuld of niet id 3 (bv. gewone "VME" of "Professioneel Syndicus"), dan verandert er niets — het bestaande gedrag (`basic`/`smart`/`unlimited`/`historic`/`none`) blijft ongewijzigd.
+
+Toe te voegen code (identiek in beide server actions, net vóór de finale `record.write(...)`, na de productenloop):
+```python
+    if company.x_studio_company_type and company.x_studio_company_type.id == 3:
+        if company.x_studio_invoiced_by_partner:
+            openvme_package = 'pro-invoiced'
+        elif openvme_package in ('basic', 'smart', 'unlimited'):
+            openvme_package = 'pro-' + openvme_package
+```
+`company` verwijst in beide server actions al naar `record.x_studio_for_company_id` (bestaande variabele, hergebruikt).
+
+**Unlimited-bonus — automatische Peppol + gratis bankkoppeling:** wie `unlimited` heeft (inclusief de pro-variant `pro-unlimited`, aangezien dat dezelfde onderliggende pakket-tier is, enkel anders gefactureerd — niet expliciet bevestigd door gebruiker, wel de meest consistente lezing) krijgt automatisch `x_has_peppol = True` en `x_has_linked_bank_account = True`. `x_linked_bank_account_qty` wordt daarbij met exact 1 verhoogd t.o.v. wat de productenloop al detecteerde op basis van échte bankkoppeling-producten op de factuur (additief: 0 gedetecteerde koppelingen → 1, 2 gedetecteerde → 3).
+
+Toe te voegen code (identiek in beide server actions, ná het pro-varianten-blok hierboven, vóór de finale `record.write(...)` — moet ná de pro-varianten-logica staan zodat `openvme_package` op dat moment al eventueel `pro-unlimited` is):
+```python
+    if openvme_package in ('unlimited', 'pro-unlimited'):
+        has_peppol = True
+        has_linked_bank_account = True
+        linked_bank_account_qty += 1
+```
+
+**Kanban-chip voor de vier `pro-*`-waarden (view 3725, pakketbalk):** icoon wisselt naar `fa-briefcase` i.p.v. `fa-building` zodra de waarde met `pro-` begint (JS-ternary in `t-attf-class`, **geen** Python `if/else` — QWeb's `t-attf-*`-interpolatie compileert naar echte JavaScript, dus `.startsWith()` i.p.v. `.startswith()` en `cond ? a : b` i.p.v. `a if cond else b`):
+```xml
+<t t-if="record.x_openvme_package.raw_value and record.x_openvme_package.raw_value != 'none'">
+    <div t-attf-class="pack-chip ovme-#{record.x_openvme_package.raw_value}">
+        <i t-attf-class="fa #{record.x_openvme_package.raw_value.startsWith('pro-') ? 'fa-briefcase' : 'fa-building'}"/>
+        <span><t t-esc="record.x_openvme_package.value"/></span>
+        <span t-if="record.x_openvme_package.raw_value != 'unlimited' and record.x_openvme_package.raw_value != 'pro-unlimited' and record.x_openvme_package.raw_value != 'pro-invoiced'" class="pack-chip-badge"><t t-esc="record.x_openvme_package_qty.value"/></span>
+    </div>
+</t>
+```
+Kwantiteitsbadge nu ook uitgesloten voor `pro-invoiced` (naast `unlimited`/`pro-unlimited`) — die waarde heeft geen betekenisvol aantal (facturatie loopt via de expert, `x_openvme_package_qty` wordt in dat pad niet apart ingevuld), dus een "0"-badge tonen was misleidend.
+
+**CSS-kleuren voor de vier `pro-*`-klassen** (ontbraken aanvankelijk — `ovme-pro-basic`/`ovme-pro-smart`/`ovme-pro-unlimited`/`ovme-pro-invoiced` vielen terug op de kale `.pack-chip`-stijl zonder kleur/rand): `pro-basic`/`pro-smart`/`pro-unlimited` hergebruiken bewust dezelfde kleuren als hun niet-pro tegenhanger (het briefcase-icoon maakt het onderscheid al zichtbaar) — `pro-invoiced` krijgt een eigen, nieuwe indigo/paarse tint (bewust anders dan de Opstarthulp-chip se paars, om verwarring te vermijden):
+```css
+.o_kanban_renderer .ovme-pro-basic { background: #d1fae5; color: #065f46; border: 1px solid #065f46; }
+.o_kanban_renderer .ovme-pro-smart { background: #dbeafe; color: #1e40af; border: 1px solid #1e40af; }
+.o_kanban_renderer .ovme-pro-unlimited { background: #e5e7eb; color: #1f2937; border: 1px solid #1f2937; }
+.o_kanban_renderer .ovme-pro-invoiced { background: #ede9fe; color: #5b21b6; border: 1px solid #5b21b6; }
+```
 
 **Kanban-tegel (view 3725) — pakketbalk uitgebreid, alles in dezelfde rij:**
 - OpenVME-pakket: altijd zichtbaar, tekst voluit (bv. "Smart") + wit rondje-badge met het aantal kavels ernaast (behalve bij Unlimited, die toont geen badge). Grijze "OpenVME"-placeholder als geen pakket actief.

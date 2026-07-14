@@ -356,6 +356,14 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
         exceptionsCollection: "afwezigheden", exceptionDateField: "date", exceptionPersonField: "person"   // optioneel: een collection met { date, person } om iemand voor één dag over te slaan (bv. vakantie) -- springt automatisch door naar de volgende in de rotatie
       }));
   targetType "colleague"/"channel" volgen dezelfde regels als hierboven. Max 20 criteria-taken per app. window.platform.schedule (vast tijdstip) en window.platform.condition (databeslissing) zijn twee onafhankelijke mechanismes -- kies op basis van OF de app op een vast tijdstip moet sturen OF zodra iets waar wordt, niet allebei door elkaar voor dezelfde taak.
+- Moet de app iets laten doen met AI (bv. een tekst samenvatten, iets classificeren, een suggestie/herschrijving genereren)? Gebruik window.platform.ai.ask(prompt, opties) -- stuurt ÉÉN prompt (+ optioneel een system-instructie) server-side naar een AI-model en geeft het antwoord terug, zonder dat de app zelf een API-key nodig heeft:
+    var antwoord = await window.platform.ai.ask("Vat deze tekst samen in 3 bullets: " + tekst);
+    // of met een system-instructie (stijl/rol voor het model) en een striktere lengte-cap op het antwoord:
+    var antwoord2 = await window.platform.ai.ask("Classificeer dit bericht als 'urgent' of 'normaal': " + bericht, {
+      system: "Antwoord met exact één woord: urgent of normaal.",
+      maxOutputTokens: 20   // optioneel, wordt sowieso begrensd server-side
+    });
+  antwoord is een platte string (het model-antwoord). Dit is bewust single-shot (GEEN chatgeschiedenis/multi-turn-geheugen) -- roep het per losse vraag aan, bewaar zelf in window.sharedStorage wat je van eerdere antwoorden wil onthouden. Max 8000 tekens per prompt, max 200 AI-aanroepen per app per dag (kostenbeheersing) -- vang een afgewezen aanroep (bv. daglimiet bereikt) op met een duidelijke foutmelding in de UI i.p.v. stil te falen. Stuur geen wachtwoorden/geheimen in de prompt.
 
 Zodra je voldoende weet: lever het eindresultaat op als een ECHT, downloadbaar .html-bestand (bv. via een artifact/bestand dat ik kan opslaan) -- NIET als platte tekst of enkel een codeblok in de chat. Ik wil dat bestand direct kunnen downloaden en zonder verdere aanpassingen kunnen uploaden in de Mini-apps-module. Nogmaals: geen aparte .js/.css-bestanden, ook niet als tussenstap -- alles inline in dat ene bestand.`;
 

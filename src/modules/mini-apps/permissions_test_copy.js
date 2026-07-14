@@ -43,22 +43,4 @@ export function isValidUUID(value) {
 }
 
 /**
- * Valideert en normaliseert een lijst met te delen user-ids.
- * - Filtert non-UUID/ongeldige entries eruit
- * - Sluit de eigenaar zelf uit (staat impliciet altijd toe)
- * - Dedupliceert
- *
- * @param {Array} rawIds
- * @param {string} ownerUserId
- * @returns {string[]}
- */
-export function normalizeSharedUserIds(rawIds, ownerUserId) {
-  if (!Array.isArray(rawIds)) return [];
-  const unique = new Set();
-  for (const id of rawIds) {
-    if (isValidUUID(id) && id !== ownerUserId) {
-      unique.add(id);
-    }
-  }
-  return Array.from(unique);
-}
+ * Valideert en normaliseert een lijst met te delen u

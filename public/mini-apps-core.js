@@ -125,6 +125,9 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'notify:function(to,subject,message){return send("notify",{to:to,subject:subject,message:message});},'
   +     'listChatChannels:function(){return send("listChatChannels",{});},'
   +     'sendChat:function(channelId,message){return send("sendChat",{channelId:channelId,message:message});},'
+  +     'ai:{'
+  +       'ask:function(prompt,options){options=options||{};return send("aiAsk",{prompt:prompt,system:options.system,maxOutputTokens:options.maxOutputTokens});}'
+  +     '},'
   +     'schedule:{'
   +       'create:function(config){return send("scheduleCreate",{config:config});},'
   +       'list:function(){return send("scheduleList",{});},'
@@ -327,6 +330,12 @@ async function handleMiniAppStorageRequest(data) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channelId: data.channelId, message: data.message })
+      }));
+    } else if (data.action === 'aiAsk') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/ai/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: data.prompt, system: data.system, maxOutputTokens: data.maxOutputTokens })
       }));
     } else if (data.action === 'scheduleList') {
       reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules`));

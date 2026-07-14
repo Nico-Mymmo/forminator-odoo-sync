@@ -27,6 +27,7 @@
  *    PUT    /api/apps/:id/storage/collections/:collection/:itemId → Item in-place wijzigen (view-toegang)
  *    DELETE /api/apps/:id/storage/collections/:collection/:itemId → Item verwijderen (view-toegang)
  *    POST   /api/apps/:id/notify                          → Mail sturen naar zichzelf/een collega (view-toegang, guardrails zie lib/notify.js)
+ *    POST   /api/apps/:id/ai/ask                            → AI-model aanroepen (view-toegang, rate-limit/audit zie lib/ai.js)
  *    GET    /api/apps/:id/mail-subscription               → Ben ik ingeschreven voor mails van deze app? (view-toegang)
  *    PUT    /api/apps/:id/mail-subscription               → In-/uitschrijven (view-toegang, enkel voor jezelf)
  *    GET    /api/apps/chat-channels                       → Lijst Chat-kanalen (id+naam, nooit de webhook-URL)
@@ -61,6 +62,10 @@
  *  ontvanger wordt altijd server-side herleid via de users-tabel (self of
  *  een actieve collega-id) -- een app kan zelf nooit een e-mailadres
  *  opgeven. Zie lib/notify.js voor rate-limits en de audit-log.
+ *  AI (/ai/ask): view-toegang volstaat -- single-shot prompt + optionele
+ *  system-instructie, provider-onafhankelijk (vandaag Gemini, zie
+ *  lib/ai.js/lib/ai-providers/), rate-limit per app per dag + audit-log
+ *  ZONDER de prompt/antwoord-tekst zelf te bewaren (enkel lengtes/tokens).
  *  Chat-kanalen: registreren/verwijderen is ADMIN-ONLY (user.role ===
  *  'admin'); de lijst ophalen en berichten sturen mag elke module-gebruiker
  *  (view-toegang volstaat voor het sturen) -- de webhook-URL zelf verlaat de
@@ -88,6 +93,7 @@ import {
   deleteAllStorage
 } from './lib/storage.js';
 import { notifyUser, isSubscribed, setSubscription } from './lib/notify.js';
+import { askAI } from './lib/ai.js';
 import { registerChannel, listChannels, deleteChannel, sendChannelMessage } from './lib/chat.js';
 import { validateTaskPayload, MAX_TASKS_PER_APP, computeNextRun, runTaskNow } from './lib/scheduler.js';
 import { validateConditionTaskPayload, MAX_CONDITION_TASKS_PER_APP, runConditionTaskNow } from './lib/condition-scheduler.js';
@@ -319,11 +325,18 @@ export const routes = {
   // ── Lijst ─────────────────────────────────────────────────────────────────
   'GET /api/apps': async ({ env, user }) => {
     const supabase = getSupabaseClient(env);
-    const { data, error } = await supabase
-      .from('mini_apps')
-      .select(SELECT_FIELDS)
-      .or(`owner_user_id.eq.${user.id},visibility.eq.shared,shared_user_ids.cs.{${user.id}},is_global_favorite.eq.true`)
-      .order('updated_at', { ascending: false });
+
+    // Admins zien ALLE apps, ook private/specific van anderen (canView() staat
+    // dit ook toe bij losse app-routes -- deze lijst-query gaat NIET via
+    // canView(), dus heeft een eigen bypass nodig, anders zouden andermans
+    // private apps hier al weggefilterd zijn voor canView() ooit aan bod komt).
+    // Voor iedereen die geen admin is: ongewijzigde .or()-filter (enkel eigen
+    // apps + gedeeld-met-mij + globaal favoriet).
+    let query = supabase.from('mini_apps').select(SELECT_FIELDS);
+    if (user.role !== 'admin') {
+      query = query.or(`owner_user_id.eq.${user.id},visibility.eq.shared,shared_user_ids.cs.{${user.id}},is_global_favorite.eq.true`);
+    }
+    const { data, error } = await query.order('updated_at', { ascending: false });
 
     if (error) {
       console.error(`${LOG_PREFIX} list error:`, error.message);
@@ -1594,6 +1607,37 @@ export const routes = {
     } catch (err) {
       const status = err.code ? 400 : 500;
       console.error(`${LOG_PREFIX} notify error:`, err.message);
+      return jsonError(err.message, status, err.code);
+    }
+  },
+
+  // ── AI — single-shot prompt naar een AI-model (view-toegang volstaat) ──
+  'POST /api/apps/:id/ai/ask': async ({ request, env, user, params }) => {
+    const supabase = getSupabaseClient(env);
+    const { data: app, error: fetchError } = await supabase
+      .from('mini_apps')
+      .select(SELECT_FIELDS)
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchError) return jsonError('App ophalen mislukt.', 500);
+    if (!app) return jsonError('App niet gevonden.', 404);
+    if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+
+    try {
+      const result = await askAI(env, app, user, body.prompt, body.system, body.maxOutputTokens);
+      console.log(`${LOG_PREFIX} AI ASK ${app.id} (${result.model}) — user ${user.id}`);
+      return jsonOk({ text: result.text, model: result.model });
+    } catch (err) {
+      const status = err.code ? 400 : 500;
+      console.error(`${LOG_PREFIX} ai ask error:`, err.message);
       return jsonError(err.message, status, err.code);
     }
   },

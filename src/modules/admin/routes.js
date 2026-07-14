@@ -28,7 +28,7 @@ export async function handleGetUsers(context) {
     // Get all users
     const { data: users, error } = await supabase
       .from('users')
-      .select('id, email, username, role, is_active, created_at, odoo_uid')
+      .select('id, email, username, role, is_active, created_at, odoo_uid, last_login_at')
       .order('created_at', { ascending: false });
     
     if (error) {
@@ -73,6 +73,7 @@ export async function handleGetUsers(context) {
       isActive: u.is_active,
       createdAt: u.created_at,
       odooUid: u.odoo_uid ?? null,
+      lastLoginAt: u.last_login_at ?? null,
       modules: userModuleMap[u.id] || []
     }));
     

@@ -245,6 +245,12 @@ function renderUsersTable() {
         '</span>' +
       '</td>' +
       '<td class="text-sm text-base-content/60">' + new Date(user.createdAt).toLocaleDateString('nl-NL') + '</td>' +
+      '<td class="text-sm text-base-content/60">' +
+        (user.lastLoginAt
+          ? new Date(user.lastLoginAt).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })
+          : '<span class="text-base-content/30">Nooit</span>'
+        ) +
+      '</td>' +
       '<td>' +
         '<div class="join">' +
           '<button class="btn btn-ghost btn-xs join-item" data-action="editModules" data-id="' + escapeHtml(user.id) + '" title="Modules bewerken">' +
@@ -279,6 +285,7 @@ function renderUsersTable() {
           '<th>Modules</th>' +
           '<th>Status</th>' +
           '<th>Aangemaakt</th>' +
+          '<th>Laatste login</th>' +
           '<th>Acties</th>' +
         '</tr>' +
       '</thead>' +
