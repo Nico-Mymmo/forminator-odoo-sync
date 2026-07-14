@@ -10,6 +10,7 @@ import {
   handleUpdateUserRole,
   handleUpdateUserModules,
   handleUpdateUserOdooUid,
+  handleUpdateUserUsername,
   handleToggleUserStatus,
   handleResetUserPassword,
   handleGetModules,
@@ -59,6 +60,7 @@ export default {
     'PUT /api/users/:id/role': handleUpdateUserRole,
     'PUT /api/users/:id/modules': handleUpdateUserModules,
     'PUT /api/users/:id/odoo-uid': handleUpdateUserOdooUid,
+    'PUT /api/users/:id/username': handleUpdateUserUsername,
     'PUT /api/users/:id/toggle': handleToggleUserStatus,
     'PUT /api/users/:id/password': handleResetUserPassword,
     

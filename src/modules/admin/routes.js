@@ -28,7 +28,7 @@ export async function handleGetUsers(context) {
     // Get all users
     const { data: users, error } = await supabase
       .from('users')
-      .select('id, email, role, is_active, created_at, odoo_uid')
+      .select('id, email, username, role, is_active, created_at, odoo_uid')
       .order('created_at', { ascending: false });
     
     if (error) {
@@ -68,6 +68,7 @@ export async function handleGetUsers(context) {
     const formattedUsers = users.map(u => ({
       id: u.id,
       email: u.email,
+      username: u.username ?? null,
       role: u.role,
       isActive: u.is_active,
       createdAt: u.created_at,
@@ -541,6 +542,69 @@ export async function handleUpdateUserOdooUid(context) {
     .update({ odoo_uid: odooUid })
     .eq('id', userId)
     .select('id, email, odoo_uid')
+    .single();
+
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true, user: data }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
+ * Set / clear username for a user (admin only, can set for any user)
+ */
+export async function handleUpdateUserUsername(context) {
+  const { env, user, params } = context;
+
+  if (user?.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const userId = params?.id;
+  if (!userId) {
+    return new Response(JSON.stringify({ error: 'User ID required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const body = await context.request.json();
+  const rawUsername = typeof body.username === 'string' ? body.username.trim() : body.username;
+  const username = rawUsername === null || rawUsername === '' ? null : rawUsername;
+
+  const supabase = getSupabaseClient(env);
+
+  // Check if username is already taken by another user
+  if (username) {
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('username', username)
+      .neq('id', userId)
+      .single();
+
+    if (existingUser) {
+      return new Response(JSON.stringify({ error: 'Username already taken' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('users')
+    .update({ username, updated_at: new Date().toISOString() })
+    .eq('id', userId)
+    .select('id, email, username')
     .single();
 
   if (error) {

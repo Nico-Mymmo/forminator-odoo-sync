@@ -256,6 +256,9 @@ function renderUsersTable() {
           '<button class="btn btn-ghost btn-xs join-item" data-action="editOdooUid" data-id="' + escapeHtml(user.id) + '" data-uid="' + (user.odooUid ?? '') + '" title="Odoo UID">' +
             '<i data-lucide="hash" class="w-3.5 h-3.5"></i>' +
           '</button>' +
+          '<button class="btn btn-ghost btn-xs join-item" data-action="editUsername" data-id="' + escapeHtml(user.id) + '" data-username="' + escapeHtml(user.username ?? '') + '" title="Gebruikersnaam">' +
+            '<i data-lucide="user-round-pen" class="w-3.5 h-3.5"></i>' +
+          '</button>' +
           '<button class="btn btn-ghost btn-xs join-item" data-action="editPassword" data-id="' + escapeHtml(user.id) + '" data-email="' + escapeHtml(user.email) + '" title="Wachtwoord opnieuw instellen">' +
             '<i data-lucide="key-round" class="w-3.5 h-3.5"></i>' +
           '</button>' +
@@ -700,6 +703,51 @@ async function saveUserOdooUid(userId, btn) {
   }
 }
 
+// ====== Gebruikersnaam (dynamische modal) ======
+
+function editUserUsername(userId, currentUsername) {
+  const modal = document.createElement('div');
+  modal.className = 'modal modal-open';
+  modal.innerHTML =
+    '<div class="modal-box max-w-sm">' +
+      '<h3 class="font-bold text-lg mb-1">Gebruikersnaam</h3>' +
+      '<p class="text-sm text-base-content/60 mb-4">Stel de gebruikersnaam in voor deze gebruiker. Leeg laten om te wissen.</p>' +
+      '<label class="form-control w-full">' +
+        '<div class="label"><span class="label-text text-xs font-semibold">Gebruikersnaam</span></div>' +
+        '<input id="adminUsernameInput" type="text" class="input input-bordered input-sm w-full" placeholder="bijv. jdoe" value="' + escapeHtml(currentUsername ?? '') + '">' +
+      '</label>' +
+      '<div class="modal-action">' +
+        '<button class="btn btn-primary btn-sm" data-action="saveUsername" data-id="' + escapeHtml(userId) + '">Opslaan</button>' +
+        '<button class="btn btn-ghost btn-sm" data-action="closeDynModal">Annuleren</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+}
+
+async function saveUserUsername(userId, btn) {
+  const modal = btn.closest('.modal');
+  const raw = modal.querySelector('#adminUsernameInput').value.trim();
+  const username = raw === '' ? null : raw;
+  btn.disabled = true;
+  btn.textContent = 'Opslaan…';
+  try {
+    const res = await apiFetch('/admin/api/users/' + userId + '/username', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Opslaan mislukt');
+    modal.remove();
+    showToast('Gebruikersnaam opgeslagen', 'success');
+    await loadUsers();
+  } catch (err) {
+    showToast('Opslaan mislukt: ' + err.message + '. Probeer het opnieuw', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Opslaan';
+  }
+}
+
 // ====== Gebruiker aanmaken ======
 
 document.getElementById('createUserForm').addEventListener('submit', async function(e) {
@@ -797,6 +845,10 @@ document.addEventListener('click', function(e) {
     saveUserEmailOverrides(el.dataset.email, el);
   } else if (action === 'saveOdooUid') {
     saveUserOdooUid(el.dataset.id, el);
+  } else if (action === 'editUsername') {
+    editUserUsername(el.dataset.id, el.dataset.username || null);
+  } else if (action === 'saveUsername') {
+    saveUserUsername(el.dataset.id, el);
   } else if (action === 'editPassword') {
     editUserPassword(el.dataset.id, el.dataset.email);
   } else if (action === 'saveUserPassword') {
