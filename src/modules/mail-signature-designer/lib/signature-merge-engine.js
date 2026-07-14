@@ -13,7 +13,7 @@
  *     – Personal LinkedIn promo
  *
  *  2. MARKETING layer  (marketing_signature_settings singleton)
- *     – Branding: brandColor, brandName, websiteUrl
+ *     – Branding: brandColor
  *     – Active event promotion
  *     – Fallback banner
  *     – Default disclaimer (used when user has none)
@@ -46,6 +46,8 @@
  *  produces identical output. All async data fetching must happen before
  *  calling this function.
  */
+
+import { resolveSelectedCompanies } from './companies.js';
 
 /**
  * Merge three signature data layers into a single compilable pair.
@@ -145,10 +147,11 @@ export function mergeSignatureLayers(
   // Per-user greeting text (default: 'Met vriendelijke groet,')
   const greetingText = u.greeting_text || 'Met vriendelijke groet,';
 
-  // Per-user company name: user override → marketing brandName → 'OpenVME'
-  const company = showCompany
-    ? (u.company_override || m.brandName || 'OpenVME')
-    : '';
+  // Per-user companies: user checkbox selection; empty/unset → default to ALL
+  // known companies (see resolveSelectedCompanies). Hidden entirely when the
+  // user disabled the 'toon' toggle for this section.
+  const selectedCompanies = resolveSelectedCompanies(u.selected_companies);
+  const companies = showCompany ? selectedCompanies : [];
 
   // Email: user override wins (useful for aliases with a display address different from sendAs);
   // otherwise falls back to the authoritative targetEmail.
@@ -167,7 +170,7 @@ export function mergeSignatureLayers(
     photoUrl:     showPhoto ? photoUrl : '',
     greetingText: showGreeting ? greetingText : '',
     showGreeting,
-    company
+    companies
   };
 
   // ── Disclaimer ──────────────────────────────────────────────────────────────
@@ -208,10 +211,8 @@ export function mergeSignatureLayers(
   // The user layer does not touch these fields.
 
   const config = {
-    // ── Branding (marketing layer only, but user may override website per variant)
+    // ── Branding (marketing layer only)
     brandColor:  m.brandColor  || m.primaryColor || '#2563eb',
-    brandName:   m.brandName   || '',
-    websiteUrl:  u.website_url_override || m.websiteUrl || '',
 
     // ── Event promo (marketing layer only, gated by user opt-out)
     eventPromoEnabled: !!(m.eventPromoEnabled && m.eventTitle) && showEventPromo,
@@ -299,7 +300,7 @@ export function mergeForPreview(formUserSettings, marketingConfig, targetEmail) 
 // Keys that belong to the userData object passed to compileSignature().
 // All other override keys are applied to the config object.
 const _USER_DATA_KEYS = new Set([
-  'greetingText', 'showGreeting', 'fullName', 'roleTitle', 'phone', 'company'
+  'greetingText', 'showGreeting', 'fullName', 'roleTitle', 'phone', 'companies'
 ]);
 
 export function applyVariantOverrides(config, userData, overrides) {

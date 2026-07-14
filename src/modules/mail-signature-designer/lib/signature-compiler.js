@@ -37,7 +37,7 @@
  * ─── Section order ────────────────────────────────────────────────────────────
  *
  *  1. Greeting line
- *  2. Identity row (photo | divider | name + role + brand + contact)
+ *  2. Identity row (photo | divider | name + role + contact + company badges)
  *  3. Meeting link row  (user layer – only when meetingLinkEnabled)
  *  4. LinkedIn promo row  (user layer – only when linkedinPromoEnabled)
  *  5. Event promo row    (marketing layer – eventPromoEnabled + eventTitle)
@@ -46,7 +46,9 @@
  *  7. Disclaimer row     (merged layer – user text or marketing default)
  */
 
-const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl', 'brandName', 'websiteUrl'];
+import { COMPANY_DIRECTORY } from './companies.js';
+
+const KNOWN_PLACEHOLDERS = ['fullName', 'roleTitle', 'email', 'phone', 'photoUrl'];
 const PLACEHOLDER_RE = /{{(\w+)}}/g;
 
 /**
@@ -101,8 +103,6 @@ export function compileSignature(config, userData) {
   const resolvedBrandColor = config.brandColor || config.primaryColor || '#2563eb';
 
   const {
-    brandName = 'OpenVME',
-    websiteUrl = 'https://openvme.be',
     showDisclaimer = false,
     disclaimerText = '',
     // Event promo
@@ -147,7 +147,7 @@ export function compileSignature(config, userData) {
     photoUrl:     userData.photoUrl     || '',
     greetingText: userData.greetingText ?? null,    // null = use default
     showGreeting: userData.showGreeting !== false,  // undefined/true → show
-    company:      userData.company      ?? null     // null = use brandName
+    companies:    Array.isArray(userData.companies) ? userData.companies : []
   };
 
   const fontStack = 'Arial, Helvetica, sans-serif';
@@ -180,13 +180,6 @@ export function compileSignature(config, userData) {
     ? `<div style="font-family:${fontStack};font-size:13px;color:${mutedColor};margin-top:2px;">${data.roleTitle}</div>`
     : '';
 
-  // company: per-user resolved name (user override → marketing brandName → 'OpenVME').
-  // Falls back to brandName from config when userData.company is not set (legacy path).
-  const companyDisplay = (data.company !== undefined && data.company !== null) ? data.company : brandName;
-  const brandBlock = companyDisplay
-    ? `<div style="font-family:${fontStack};font-size:13px;color:${brandColor};margin-top:2px;font-weight:600;">${companyDisplay}</div>`
-    : '';
-
   const contactLines = [];
   if (data.phone) {
     contactLines.push(
@@ -198,19 +191,28 @@ export function compileSignature(config, userData) {
       `<div style="font-family:${fontStack};font-size:13px;"><a href="mailto:${data.email}" style="color:${brandColor};text-decoration:none;">${data.email}</a></div>`
     );
   }
-  if (websiteUrl) {
-    const label = websiteUrl.replace(/^https?:\/\//, '');
-    contactLines.push(
-      `<div style="font-family:${fontStack};font-size:13px;"><a href="${websiteUrl}" style="color:${brandColor};text-decoration:none;">${label}</a></div>`
-    );
-  }
 
   const contactBlock = contactLines.length
     ? `<div style="margin-top:8px;">${contactLines.join('')}</div>`
     : '';
 
+  // ── COMPANY BADGES ────────────────────────────────────────────────────────
+  // One square, rounded-corner badge per selected company (logo + name),
+  // each clicking through to that company's homepage. Mirrors the visual
+  // style of the other callout blocks below (light tinted bg, thin border).
+  const companyBadges = data.companies.length
+    ? `<div style="margin-top:10px;">${data.companies.map((key) => {
+        const c = COMPANY_DIRECTORY[key];
+        if (!c) return '';
+        return `<a href="${c.url}" style="display:inline-block;vertical-align:top;margin:0 6px 6px 0;padding:5px 10px 5px 6px;border:1px solid ${dividerColor};border-radius:6px;background-color:${calloutBg};text-decoration:none;">
+          <img src="${c.logoUrl}" alt="${c.name}" width="16" height="16" style="display:inline-block;vertical-align:middle;width:16px;height:16px;border:0;margin-right:6px;" />
+          <span style="font-family:${fontStack};font-size:12px;font-weight:600;color:${baseColor};vertical-align:middle;">${c.name}</span>
+        </a>`;
+      }).join('')}</div>`
+    : '';
+
   const textCell = `<td style="vertical-align:top;${data.photoUrl ? 'padding-left:16px;' : ''}padding-right:16px;">
-    ${nameBlock}${roleBlock}${brandBlock}${contactBlock}
+    ${nameBlock}${roleBlock}${contactBlock}${companyBadges}
   </td>`;
 
   // ── EVENT PROMO CALLOUT ───────────────────────────────────────────────────────

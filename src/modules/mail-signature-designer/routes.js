@@ -861,7 +861,7 @@ export const routes = {
             email:        body.userData.email        ?? userData.email,
             greetingText: body.userData.greetingText ?? userData.greetingText,
             showGreeting: body.userData.showGreeting ?? userData.showGreeting,
-            company:      body.userData.company      ?? userData.company
+            companies:    body.userData.companies    ?? userData.companies
           });
         }
       } else {

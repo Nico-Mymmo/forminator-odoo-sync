@@ -441,8 +441,6 @@ function getFormConfig() {
     bannerImageUrl: data.get('bannerImageUrl') || '',
     bannerLinkUrl:  data.get('bannerLinkUrl')  || '',
     // ── Branding
-    brandName:    data.get('brandName')  || '',
-    websiteUrl:   data.get('websiteUrl') || '',
     brandColor,
     // ── Disclaimer
     showDisclaimer: f.querySelector('[name="showDisclaimer"]')?.checked || false,
@@ -464,8 +462,6 @@ function applyConfigToForm(config) {
   const brandColor = config.brandColor || config.primaryColor || '#2563eb';
 
   // Branding
-  set('brandName',  config.brandName  ?? '');
-  set('websiteUrl', config.websiteUrl ?? '');
   set('brandColor', brandColor);
 
   // Event Amplifier
@@ -603,7 +599,7 @@ async function updatePreview() {
     photoUrl:     '',
     greetingText: 'Met vriendelijke groet,',
     showGreeting: true,
-    company:      config.brandName || 'OpenVME'
+    companies:    ['openvme', 'syndicoach']
   };
 
   try {
@@ -1222,12 +1218,14 @@ function getMySettingsForm() {
     full_name_override:     str('full_name_override')  || null,
     role_title_override:    str('role_title_override') || null,
     phone_override:         str('phone_override')      || null,
-    website_url_override:   str('website_url_override') || null,
     email_display_override: str('email_display_override') || null,
     show_greeting:          bool('show_greeting'),
     greeting_text:          str('greeting_text')    || null,
     show_company:           bool('show_company'),
-    company_override:       str('company_override') || null,
+    selected_companies:     [
+      ...(bool('company_openvme')    ? ['openvme']    : []),
+      ...(bool('company_syndicoach') ? ['syndicoach'] : [])
+    ],
     show_email:             bool('show_email'),
     show_phone:             bool('show_phone'),
     show_photo:             bool('show_photo'),
@@ -1283,9 +1281,16 @@ function applyMySettingsToForm(settings, odooProfile) {
   set('full_name_override',     settings.full_name_override  ?? '');
   set('role_title_override',    settings.role_title_override ?? '');
   set('show_company',           settings.show_company    !== false);  // default true
-  set('company_override',       settings.company_override ?? '');
+  // selected_companies: null/empty → default to both (mirrors server-side
+  // resolveSelectedCompanies default when nothing has been chosen yet).
+  {
+    const selected = Array.isArray(settings.selected_companies) && settings.selected_companies.length
+      ? settings.selected_companies
+      : ['openvme', 'syndicoach'];
+    set('company_openvme',    selected.includes('openvme'));
+    set('company_syndicoach', selected.includes('syndicoach'));
+  }
   set('phone_override',         settings.phone_override      ?? '');
-  set('website_url_override',   settings.website_url_override ?? '');
   set('email_display_override', settings.email_display_override ?? '');
   // Update placeholder to show the actual email this will default to
   const emailInput = f.querySelector('[name="email_display_override"]');
@@ -1652,7 +1657,7 @@ async function updateMyPreview() {
         photoUrl:     (userSettings.show_photo    !== false) ? (_odooProfile?.photoUrl         || '') : '',
         greetingText: (userSettings.show_greeting !== false) ? (userSettings.greeting_text    || 'Met vriendelijke groet,') : '',
         showGreeting: userSettings.show_greeting !== false,
-        company:      (userSettings.show_company  !== false) ? (userSettings.company_override || 'OpenVME') : ''
+        companies:    (userSettings.show_company  !== false) ? (userSettings.selected_companies || []) : []
       }
     };
   } else {
@@ -1668,7 +1673,7 @@ async function updateMyPreview() {
         photoUrl:     (userSettings.show_photo    !== false) ? (_odooProfile?.photoUrl         || '') : '',
         greetingText: (userSettings.show_greeting !== false) ? (userSettings.greeting_text    || 'Met vriendelijke groet,') : '',
         showGreeting: userSettings.show_greeting !== false,
-        company:      (userSettings.show_company  !== false) ? (userSettings.company_override || 'OpenVME') : ''
+        companies:    (userSettings.show_company  !== false) ? (userSettings.selected_companies || []) : []
       }
     };
   }

@@ -295,7 +295,7 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
     'full_name_override', 'role_title_override', 'phone_override',
     'show_name', 'show_role_title', 'show_email', 'show_phone', 'show_photo',
     'greeting_text', 'show_greeting',
-    'company_override', 'show_company',
+    'selected_companies', 'show_company',
     'hidden_event_id',
     'show_disclaimer', 'disclaimer_text',
     'linkedin_promo_enabled', 'linkedin_url', 'linkedin_eyebrow',
@@ -303,7 +303,7 @@ export async function upsertUserSettings(env, userEmail, settings, updatedBy) {
     'quote_enabled', 'quote_text', 'quote_author', 'quote_date',
     'meeting_link_enabled', 'meeting_link_url', 'meeting_link_heading', 'meeting_link_subtext',
     'odoo_email_override', 'google_email_override',
-    'website_url_override', 'email_display_override'
+    'email_display_override'
   ];
   const sanitised = {};
   for (const key of ALLOWED_FIELDS) {

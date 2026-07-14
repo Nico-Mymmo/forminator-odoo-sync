@@ -192,17 +192,26 @@ export function mailSignatureDesignerUI(user) {
                              class="input input-bordered input-xs w-full" />
                     </div>
 
-                    <!-- Bedrijf -->
+                    <!-- Bedrijf/bedrijven -->
                     <div class="flex items-end gap-2">
-                      <label class="flex flex-col items-center gap-0.5 pb-1" title="Bedrijf tonen">
+                      <label class="flex flex-col items-center gap-0.5 pb-1" title="Bedrijf(en) tonen">
                         <span class="text-xs text-base-content/40">toon</span>
                         <input type="checkbox" name="show_company" class="checkbox checkbox-xs checkbox-primary" checked />
                       </label>
                       <div class="flex-1">
                         <div class="label py-0.5"><span class="label-text text-xs">Bedrijf</span></div>
-                        <input type="text" name="company_override" id="my-company"
-                               placeholder="OpenVME"
-                               class="input input-bordered input-xs w-full" />
+                        <div class="flex items-center gap-3 pt-0.5">
+                          <label class="flex items-center gap-1.5 cursor-pointer">
+                            <input type="checkbox" name="company_openvme" id="my-company-openvme"
+                                   class="checkbox checkbox-xs checkbox-primary" checked />
+                            <span class="text-xs">OpenVME</span>
+                          </label>
+                          <label class="flex items-center gap-1.5 cursor-pointer">
+                            <input type="checkbox" name="company_syndicoach" id="my-company-syndicoach"
+                                   class="checkbox checkbox-xs checkbox-primary" checked />
+                            <span class="text-xs">Syndicoach</span>
+                          </label>
+                        </div>
                       </div>
                     </div>
 
@@ -234,14 +243,6 @@ export function mailSignatureDesignerUI(user) {
                                class="input input-bordered input-xs w-full" />
                         <p class="text-xs text-base-content/40 mt-0.5">Laat leeg = eigen Google-email. Voor alias-varianten: vul het alias-emailadres in.</p>
                       </div>
-                    </div>
-
-                    <!-- Website URL -->
-                    <div>
-                      <div class="label py-0.5"><span class="label-text text-xs">Website URL</span></div>
-                      <input type="url" name="website_url_override" id="my-website-url"
-                             placeholder="Laat leeg = marketing URL"
-                             class="input input-bordered input-xs w-full" />
                     </div>
 
                     <!-- Profielfoto -->
@@ -713,18 +714,6 @@ export function mailSignatureDesignerUI(user) {
                   </summary>
 
                   <div class="pt-3 space-y-3">
-
-                    <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-xs">Merknaam</span></div>
-                      <input type="text" name="brandName" placeholder="OpenVME"
-                             class="input input-bordered input-xs" />
-                    </label>
-
-                    <label class="form-control">
-                      <div class="label py-0.5"><span class="label-text text-xs">Website URL</span></div>
-                      <input type="url" name="websiteUrl" placeholder="https://openvme.be"
-                             class="input input-bordered input-xs" />
-                    </label>
 
                     <div class="form-control">
                       <div class="label py-0.5"><span class="label-text text-xs">Primaire kleur</span></div>
