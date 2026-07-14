@@ -99,13 +99,6 @@ function visibilityBadge(app) {
   return `<span class="badge badge-sm badge-ghost gap-1"><i data-lucide="lock" class="w-3 h-3"></i> Privé</span>`;
 }
 
-// Zichtbaar voor IEDEREEN (niet enkel admins) -- verklaart waarom een app die
-// niemand expliciet met jou deelde toch in je lijst verschijnt.
-function globalFavoriteBadge(app) {
-  if (!app.isGlobalFavorite) return '';
-  return `<span class="badge badge-sm badge-warning gap-1" title="Door een admin favoriet gemaakt voor iedereen"><i data-lucide="star" class="w-3 h-3"></i> Voor iedereen</span>`;
-}
-
 var ADD_APP_TILE = `
   <button type="button" class="card border-2 border-dashed border-base-300 bg-transparent hover:border-primary hover:bg-base-100 transition-colors flex items-center justify-center min-h-[132px]" data-action="openUploadModal">
     <div class="flex flex-col items-center gap-1.5 text-base-content/50 hover:text-primary">
@@ -150,9 +143,14 @@ function renderAppCard(app) {
          <i data-lucide="heart" class="w-3.5 h-3.5${favActive ? ' fill-current' : ''}"></i>
        </button>`;
   } else {
+    // Sterretje = favoriet voor iedereen, hartje = enkel voor mezelf favoriet --
+    // dit ene icoon vervangt de losse gele "Voor iedereen"-badge die hier vroeger
+    // stond (redundant: het sterretje zegt al hetzelfde).
+    var mainIcon = globalFavActive ? 'star' : 'heart';
+    var mainColorClass = globalFavActive ? ' text-warning' : (favActive ? ' text-error' : '');
     favoriteControl = `<div class="dropdown dropdown-end">
-         <button type="button" tabindex="0" class="btn btn-ghost btn-sm btn-square${(favActive || globalFavActive) ? ' text-warning' : ''}" title="Favoriet-opties">
-           <i data-lucide="star" class="w-3.5 h-3.5${globalFavActive ? ' fill-current' : ''}"></i>
+         <button type="button" tabindex="0" class="btn btn-ghost btn-sm btn-square${mainColorClass}" title="Favoriet-opties">
+           <i data-lucide="${mainIcon}" class="w-3.5 h-3.5${(globalFavActive || favActive) ? ' fill-current' : ''}"></i>
          </button>
          <ul tabindex="0" class="dropdown-content menu menu-sm z-10 p-2 shadow bg-base-100 rounded-box w-56 border border-base-200">
            <li><a data-action="toggleFavorite" data-id="${app.id}" data-favorite="${favActive ? '1' : '0'}">
@@ -176,7 +174,6 @@ function renderAppCard(app) {
             <h3 class="font-semibold text-sm truncate" title="${escapeHtml(app.title)}">${escapeHtml(app.title)}</h3>
           </div>
           <div class="flex items-center gap-1 shrink-0">
-            ${globalFavoriteBadge(app)}
             ${visibilityBadge(app)}
             ${linkButton}
             ${favoriteControl}
