@@ -198,15 +198,18 @@ export function compileSignature(config, userData) {
 
   // ── COMPANY BADGES ────────────────────────────────────────────────────────
   // One square, rounded-corner badge per selected company (logo + name),
-  // each clicking through to that company's homepage. Mirrors the visual
-  // style of the other callout blocks below (light tinted bg, thin border).
+  // each clicking through to that company's homepage. Deliberately neutral
+  // and very light (no brand-colour fill) — just a faint outline, so the
+  // badges read as a quiet footnote rather than a coloured callout.
+  const companyBadgeBorder = '#e8e8e8';
+  const companyBadgeBg     = '#fafafa';
   const companyBadges = data.companies.length
     ? `<div style="margin-top:10px;">${data.companies.map((key) => {
         const c = COMPANY_DIRECTORY[key];
         if (!c) return '';
-        return `<a href="${c.url}" style="display:inline-block;vertical-align:top;margin:0 6px 6px 0;padding:5px 10px 5px 6px;border:1px solid ${dividerColor};border-radius:6px;background-color:${calloutBg};text-decoration:none;">
-          <img src="${c.logoUrl}" alt="${c.name}" width="16" height="16" style="display:inline-block;vertical-align:middle;width:16px;height:16px;border:0;margin-right:6px;" />
-          <span style="font-family:${fontStack};font-size:12px;font-weight:600;color:${baseColor};vertical-align:middle;">${c.name}</span>
+        return `<a href="${c.url}" target="_blank" rel="noopener" style="display:inline-block;vertical-align:top;margin:0 6px 6px 0;padding:5px 10px 5px 6px;border:1px solid ${companyBadgeBorder};border-radius:6px;background-color:${companyBadgeBg};text-decoration:none;">
+          <img src="${c.logoUrl}" alt="${c.name}" width="16" height="16" style="display:inline-block;vertical-align:middle;width:16px;height:16px;border:0;margin-right:6px;opacity:0.85;" />
+          <span style="font-family:${fontStack};font-size:12px;font-weight:500;color:${mutedColor};vertical-align:middle;">${c.name}</span>
         </a>`;
       }).join('')}</div>`
     : '';
