@@ -999,7 +999,10 @@ export const routes = {
     const content = await getAppContent(env, app.id);
     if (content === null) return jsonError('App-inhoud niet gevonden in opslag.', 404);
 
-    return jsonOk({ content });
+    // isOwner meesturen (naast isAdmin, client-side al bekend via renderNavbar())
+    // zodat de mini-apps-shim window.currentUser.isCreator kan vullen zonder een
+    // aparte /api/apps/:id-call te moeten doen (zie buildUserShim() in mini-apps.js).
+    return jsonOk({ content, isOwner: app.owner_user_id === user.id });
   },
 
   // ── Metadata bijwerken (owner only) ──────────────────────────────────────

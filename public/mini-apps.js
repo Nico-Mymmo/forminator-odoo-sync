@@ -8,7 +8,7 @@ lucide.createIcons();
 var apps = [];               // laatst geladen lijst uit GET /api/apps
 var favorites = [];          // laatst geladen, geordende favorietenbalk uit GET /api/apps/favorites
 var colleagues = null;       // cache van GET /api/apps/colleagues
-var currentUser = null;      // { id, name, email } van de ingelogde gebruiker (via renderNavbar), gebruikt voor buildUserShim()
+var currentUser = null;      // { id, name, email } van de ingelogde gebruiker (via renderNavbar), gebruikt voor buildUserShim() -- die voegt er per-app isCreator/isAdmin/isPrivileged aan toe voor de iframe
 var isAdmin = false;         // via renderNavbar() -- bepaalt of de Chat-kanalen-beheer-UI zichtbaar is (server-side ook afgedwongen in routes.js)
 var currentApp = null;       // metadata van de app die open staat in appModal (bewerken)
 var currentAppContent = '';  // laatst opgehaalde/opgeslagen HTML-inhoud (RAUW, zonder shim)
@@ -158,12 +158,31 @@ function buildThemeShim() {
 // app-inhoud zelf. currentUser kan hier nog null zijn als renderNavbar() nog
 // niet is teruggekomen (race bij de eerste paint); apps moeten daar rekening
 // mee houden (zie BUILD_PROMPT).
-function buildUserShim() {
-  return '<script>window.currentUser = ' + JSON.stringify(currentUser) + ';</' + 'script>';
+// isOwner (van deze specifieke app -- via meta.isOwner bij openApp() of
+// contentResult.isOwner bij openAppFullscreen(), zie routes.js) plus de globale
+// isAdmin (bijgewerkt door renderNavbar()) samen naar de mini-app doorgegeven op
+// window.currentUser, zodat een app-bouwer eenvoudig extra functionaliteit kan
+// tonen voor de maker van de app en/of een Operations Manager-admin:
+//   window.currentUser.isCreator    -- huidige gebruiker is de eigenaar/maker van DEZE app
+//   window.currentUser.isAdmin      -- huidige gebruiker is Operations Manager-admin
+//   window.currentUser.isPrivileged -- isCreator OF isAdmin (kortere check voor "mag beheerhandelingen zien")
+// Deze vlaggen zijn puur voor UI-gemak in de mini-app zelf (bv. een extra
+// "Beheer"-tabblad tonen/verbergen) -- ze vervangen GEEN server-side controle:
+// alles wat écht afgeschermd moet zijn (bv. schrijfacties via window.sharedStorage
+// of window.platform) wordt nog steeds server-side gevalideerd zoals vandaag.
+function buildUserShim(isOwner) {
+  var user = currentUser
+    ? Object.assign({}, currentUser, {
+        isCreator: !!isOwner,
+        isAdmin: isAdmin,
+        isPrivileged: !!isOwner || isAdmin
+      })
+    : null;
+  return '<script>window.currentUser = ' + JSON.stringify(user) + ';</' + 'script>';
 }
 
-function instrumentAppHtml(html) {
-  var shim = buildThemeShim() + buildUserShim() + MINI_APP_SHIM;
+function instrumentAppHtml(html, isOwner) {
+  var shim = buildThemeShim() + buildUserShim(isOwner) + MINI_APP_SHIM;
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, function(m) { return m + shim; });
   }
@@ -560,6 +579,8 @@ function renderAppCard(app) {
 
   // "Openen" = kale fullscreen-viewer voor iedereen (eigenaar en gedeeld-met-mij).
   // "Bewerken" = de kleine modal met tabs (Voorbeeld/Code/Instellingen) -- enkel eigenaar.
+  // Enkel deze twee staan nog in de card-actions-rij zodat ze nooit naar een
+  // tweede lijn wrappen (zie header hierboven voor koppeling/favoriet).
   var editButton = app.isOwner
     ? `<button class="btn btn-secondary btn-sm gap-2 flex-1" data-action="openApp" data-id="${app.id}" title="Bewerken">
          <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
@@ -567,21 +588,39 @@ function renderAppCard(app) {
        </button>`
     : '';
 
-  // Favoriet: blokje bovenaan in de gedeelde navbar (zie navbar.js +
-  // session.js). Werkt op zowel eigen als gedeelde apps.
-  var favActive = !!app.isFavorite;
-  var favButton = `<button class="btn btn-ghost btn-sm btn-square${favActive ? ' text-error' : ''}" data-action="toggleFavorite" data-id="${app.id}" data-favorite="${favActive ? '1' : '0'}" title="${favActive ? 'Favoriet verwijderen' : 'Als favoriet markeren'}">
-         <i data-lucide="heart" class="w-3.5 h-3.5${favActive ? ' fill-current' : ''}"></i>
+  // Koppeling (directe link) verhuisd naar de header-rij, naast de badges.
+  var linkButton = `<button class="btn btn-ghost btn-sm btn-square" data-action="copyAppLink" data-id="${app.id}" title="Directe link kopiëren">
+         <i data-lucide="link" class="w-3.5 h-3.5"></i>
        </button>`;
 
-  // Favoriet-voor-iedereen: enkel zichtbaar/bruikbaar voor admins (server-side
-  // ook afgedwongen in routes.js, user.role !== 'admin' -> 403).
+  // Favoriet (voor mezelf) en favoriet-voor-iedereen (enkel admins, server-side
+  // ook afgedwongen in routes.js, user.role !== 'admin' -> 403) zijn samengevoegd
+  // tot één control: gewone gebruikers zien enkel de hart-knop, admins krijgen
+  // een dropdown met beide opties zodat er geen twee losse knoppen meer nodig zijn.
+  var favActive = !!app.isFavorite;
   var globalFavActive = !!app.isGlobalFavorite;
-  var globalFavButton = isAdmin
-    ? `<button class="btn btn-ghost btn-sm btn-square${globalFavActive ? ' text-warning' : ''}" data-action="toggleGlobalFavorite" data-id="${app.id}" data-global-favorite="${globalFavActive ? '1' : '0'}" title="${globalFavActive ? 'Niet meer favoriet voor iedereen' : 'Favoriet maken voor iedereen'}">
+  var favoriteControl;
+  if (!isAdmin) {
+    favoriteControl = `<button class="btn btn-ghost btn-sm btn-square${favActive ? ' text-error' : ''}" data-action="toggleFavorite" data-id="${app.id}" data-favorite="${favActive ? '1' : '0'}" title="${favActive ? 'Favoriet verwijderen' : 'Als favoriet markeren'}">
+         <i data-lucide="heart" class="w-3.5 h-3.5${favActive ? ' fill-current' : ''}"></i>
+       </button>`;
+  } else {
+    favoriteControl = `<div class="dropdown dropdown-end">
+         <button type="button" tabindex="0" class="btn btn-ghost btn-sm btn-square${(favActive || globalFavActive) ? ' text-warning' : ''}" title="Favoriet-opties">
            <i data-lucide="star" class="w-3.5 h-3.5${globalFavActive ? ' fill-current' : ''}"></i>
-         </button>`
-    : '';
+         </button>
+         <ul tabindex="0" class="dropdown-content menu menu-sm z-10 p-2 shadow bg-base-100 rounded-box w-56 border border-base-200">
+           <li><a data-action="toggleFavorite" data-id="${app.id}" data-favorite="${favActive ? '1' : '0'}">
+             <i data-lucide="heart" class="w-3.5 h-3.5${favActive ? ' fill-current text-error' : ''}"></i>
+             ${favActive ? 'Favoriet verwijderen (voor mij)' : 'Favoriet voor mezelf'}
+           </a></li>
+           <li><a data-action="toggleGlobalFavorite" data-id="${app.id}" data-global-favorite="${globalFavActive ? '1' : '0'}">
+             <i data-lucide="star" class="w-3.5 h-3.5${globalFavActive ? ' fill-current text-warning' : ''}"></i>
+             ${globalFavActive ? 'Niet meer favoriet voor iedereen' : 'Favoriet voor iedereen'}
+           </a></li>
+         </ul>
+       </div>`;
+  }
 
   return `
     <div class="card bg-base-100 shadow-sm border border-base-200 hover:border-primary/40 transition-colors h-full">
@@ -594,6 +633,8 @@ function renderAppCard(app) {
           <div class="flex items-center gap-1 shrink-0">
             ${globalFavoriteBadge(app)}
             ${visibilityBadge(app)}
+            ${linkButton}
+            ${favoriteControl}
           </div>
         </div>
         ${desc}
@@ -604,11 +645,6 @@ function renderAppCard(app) {
             Openen
           </button>
           ${editButton}
-          ${favButton}
-          ${globalFavButton}
-          <button class="btn btn-ghost btn-sm btn-square" data-action="copyAppLink" data-id="${app.id}" title="Directe link kopiëren">
-            <i data-lucide="link" class="w-3.5 h-3.5"></i>
-          </button>
         </div>
       </div>
     </div>`;
@@ -685,7 +721,9 @@ function toggleColleaguesWrap(radioName, wrapId) {
 
 var BUILD_PROMPT = `Ik wil een mini-app (interne tool) bouwen voor de Mini-apps-module van onze Operations Manager.
 
-Begin met een laagdrempelige, open vraag: "Wat zou je graag willen maken, of wat moet de app precies doen?" Ga op basis van mijn antwoord verder in gesprek met gerichte, open vervolgvragen (geen meerkeuze/keuzemenu's) over input, output, berekeningen/regels en gewenste stijl, tot je genoeg weet om te beginnen coderen.
+Begin met een laagdrempelige, open vraag: "Wat zou je graag willen maken, of wat moet de app precies doen?" Ga op basis van mijn antwoord verder in gesprek met gerichte, open vervolgvragen (geen meerkeuze/keuzemenu's) over input, output, berekeningen/regels en gewenste stijl, tot je genoeg weet om te beginnen coderen. Vraag daarbij ook altijd expliciet:
+- Zijn er dingen die ENKEL de maker van de app (of een Operations Manager-admin) moet kunnen doen, die andere gebruikers niet mogen zien of gebruiken (bv. instellingen aanpassen, gevoelige data zien, iets verwijderen of aanpassen voor iedereen)? Gebruik in dat geval window.currentUser.isCreator/.isAdmin/.isPrivileged (zie verderop) om die functionaliteit in de UI te tonen of te verbergen voor wie het niet mag gebruiken.
+- Heeft de gebruiker nood aan wat extra uitleg in de app zelf (bv. een korte intro-tekst bovenaan, tooltips bij minder voor de hand liggende velden, een duidelijke melding bij een leeg scherm met wat te doen)? Vraag dit gericht na in plaats van zomaar overal uitleg bij te schrijven -- te veel tekst kan een simpele tool net onoverzichtelijk maken.
 
 Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening mee):
 - De output is ÉÉN volledig zelfstandig .html-bestand: alle CSS en JavaScript inline in <style>- en <script>-tags in dat ene bestand. Geen losse .css- of .js-bestanden, geen build-stap -- ook niet als tussenstap tijdens het bouwen zelf (bv. via losse bestandstools). Werk je in een omgeving die bestanden kan aanmaken, maak dan GEEN aparte .js/.css-bestanden aan, ook niet tijdelijk -- schrijf alles meteen in het ene .html-bestand. De Mini-apps-module kan enkel dat ene bestand opslaan/serveren; een <script src="..."> of <link href="..."> naar een lokaal bestand geeft altijd een 404 zodra de app draait.
@@ -712,6 +750,7 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
 - Optioneel: await window.sharedStorage.usage() geeft { usedBytes, maxBytes, objectCount, maxObjects } terug -- handig als de app zelf ook een quotum-balkje wil tonen (de Mini-apps-module toont dit trouwens al standaard in de Instellingen-tab).
 - BELANGRIJK, voorkomt een veelgemaakte fout: window.sharedStorage en window.platform (inclusief .schedule/.condition) staan al VOLLEDIG en synchroon klaar vanaf de allereerste regel van je eigen <script>-code -- ze worden door de omgeving in de <head> geïnjecteerd, dus altijd vóór jouw code draait. Geen race, geen "wachten tot ze bestaan" nodig -- schrijf dus NOOIT een eigen polling-/retry-lus (bv. setTimeout-loops die controleren of window.sharedStorage.listItems al een functie is) om hierop te wachten; die is overbodig en kan een echte fout (bv. een typfout in een key/collection-naam) verbergen achter een misleidende "nog niet klaar"-verklaring. De ENIGE uitzondering hierop is window.currentUser (zie hieronder), die wél heel even null kan zijn.
 - De app kent de ingelogde gebruiker: window.currentUser is een kant-en-klaar object { id, name, email } van wie de app nu gebruikt -- geen login/invulveld nodig om te weten "wie ben ik". Kan bij het laden nog null zijn (heel kort, voor de eerste paint) -- check dus of het bestaat voor je het gebruikt (dit is het enige geval waar een korte "wacht tot beschikbaar"-check wél zinvol is).
+- window.currentUser bevat ook drie rol-vlaggen, handig om extra functionaliteit te tonen/verbergen: isCreator (deze gebruiker heeft de app gemaakt/is eigenaar), isAdmin (deze gebruiker is Operations Manager-admin) en isPrivileged (isCreator OF isAdmin -- handige kortere check). Bv.: als (window.currentUser && window.currentUser.isPrivileged) is, een "Beheer"-tabblad of -knop tonen. Dit is puur UI-gemak, geen beveiliging -- gebruik er dus geen gevoelige logica achter die écht afgeschermd moet zijn (dat kan sowieso niet: de app heeft geen toegang tot andermans data, enkel tot zijn eigen window.sharedStorage).
 - Moet de app iets doen MET/VOOR een specifieke collega (bv. een taak toewijzen, iemand kiezen uit een lijst)? Gebruik var collega's = await window.platform.listColleagues(); -- geeft [{ id, full_name, email }, ...] terug van alle actieve collega's (zelfde lijst als de share-picker in deze module). full_name is hier altijd een niet-lege string (het platform valt zelf terug op e-mail/"Onbekend" als iemand geen naam invulde) -- je hoeft dat dus zelf niet af te vangen, wel gewoon gebruiken zoals het is. Gebruik altijd het id-veld om een collega te identificeren in window.sharedStorage, niet de naam (namen kunnen dubbel zijn).
 - Wil de app een e-mail sturen naar de gebruiker zelf of naar een specifieke collega (bv. een herinnering of een bevestiging)? Gebruik window.platform.notify(to, subject, message) -- to is "self" of het id-veld van een collega uit listColleagues(). Geef NOOIT zelf een e-mailadres op -- dat wordt niet ondersteund en genegeerd/geweigerd; de ontvanger wordt altijd server-side herleid. Elke mail krijgt automatisch een voettekst met de appnaam en wie de actie startte, en is beperkt tot een dagelijkse limiet per app -- dus geen bulk-mailtool, enkel gerichte meldingen.
     await window.platform.notify("self", "Vergeten iets?", "Je hebt nog niet ingevuld welke dagen je naar de winkel gaat.");
@@ -776,7 +815,7 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
       }));
   targetType "colleague"/"channel" volgen dezelfde regels als hierboven. Max 20 criteria-taken per app. window.platform.schedule (vast tijdstip) en window.platform.condition (databeslissing) zijn twee onafhankelijke mechanismes -- kies op basis van OF de app op een vast tijdstip moet sturen OF zodra iets waar wordt, niet allebei door elkaar voor dezelfde taak.
 
-Zodra je voldoende weet: geef me de volledige inhoud van dat ene .html-bestand terug in één codeblok, zodat ik het meteen kan opslaan en uploaden in de Mini-apps-module. Nogmaals: geen aparte .js/.css-bestanden, ook niet als tussenstap -- alles inline in dat ene codeblok.`;
+Zodra je voldoende weet: lever het eindresultaat op als een ECHT, downloadbaar .html-bestand (bv. via een artifact/bestand dat ik kan opslaan) -- NIET als platte tekst of enkel een codeblok in de chat. Ik wil dat bestand direct kunnen downloaden en zonder verdere aanpassingen kunnen uploaden in de Mini-apps-module. Nogmaals: geen aparte .js/.css-bestanden, ook niet als tussenstap -- alles inline in dat ene bestand.`;
 
 function copyBuildPrompt() {
   navigator.clipboard.writeText(BUILD_PROMPT).then(function() {
@@ -879,7 +918,7 @@ async function openAppFullscreen(id) {
     var banner = document.getElementById('appFullscreenErrorBanner');
     activeFrame = { frame: frame, banner: banner, appId: id };
     resetAppErrors(banner);
-    frame.srcdoc = instrumentAppHtml(contentResult.content);
+    frame.srcdoc = instrumentAppHtml(contentResult.content, contentResult.isOwner);
 
     document.getElementById('mainContent').classList.add('hidden');
     document.getElementById('appFullscreen').classList.remove('hidden');
@@ -960,7 +999,7 @@ async function openApp(id) {
     var banner = document.getElementById('appErrorBanner');
     activeFrame = { frame: frame, banner: banner, appId: id };
     resetAppErrors(banner);
-    frame.srcdoc = instrumentAppHtml(currentAppContent);
+    frame.srcdoc = instrumentAppHtml(currentAppContent, meta.isOwner);
 
     try {
       var sub = await apiJson(`/mini-apps/api/apps/${id}/mail-subscription`);
@@ -1055,7 +1094,7 @@ async function saveAppCode() {
     currentAppContent = content;
     var banner = document.getElementById('appErrorBanner');
     resetAppErrors(banner);
-    document.getElementById('appFrame').srcdoc = instrumentAppHtml(currentAppContent);
+    document.getElementById('appFrame').srcdoc = instrumentAppHtml(currentAppContent, currentApp && currentApp.isOwner);
     document.getElementById('appCodeStatus').textContent = `v${updated.version} — opgeslagen`;
     showToast('Opgeslagen en herladen.', 'success');
     await loadApps();

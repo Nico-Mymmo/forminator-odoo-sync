@@ -264,6 +264,33 @@ Collega's uploaden zelfgemaakte single-file HTML/JS mini-apps (`src/modules/mini
 
 `src/index.js#scheduled()` gebruikt `event.cron` om de twee takken uit elkaar te houden (leeg `event.cron` bij een lokale/handmatige trigger draait voor de zekerheid alles). **Nooit deze twee lib-bestanden samenvoegen of code tussen beide laten delen** — dat is een expliciete architectuurbeslissing (2026-07), niet een toevallige duplicatie: fixed-time en criteria-based zijn twee aparte mentale modellen voor een mini-app-bouwer, en de dag-context/rotation-uitbreidingen zitten bewust enkel in condition-scheduler.js. Beide volgen hetzelfde veiligheidsprincipe: geen eval, geen Function-constructor, geen headless-uitvoering van app-code — enkel declaratieve data (recurrence resp. criteria) + een logic-less template-renderer.
 
+### Front-end opgesplitst in meerdere bestanden (2026-07)
+
+`public/mini-apps.js` (voorheen 1405 regels, ruim boven de 150-regel-drempel uit
+"Bestand-editing bij grote/gevoelige bestanden") is opgesplitst in 6 bestanden,
+zelfde aanpak als bij forminator-sync-v2 maar zonder IIFE/namespace-laag: het
+origineel gebruikte al platte globale scope (`var`/`function`-declaraties, geen
+`window.FSV2`-achtig patroon), dus de `<script>`-tags in `mini-apps.html` (in
+deze volgorde) volstaan om dezelfde globale state te blijven delen:
+
+```
+mini-apps-core.js            — state, helpers, iframe-instrumentatie, gedeelde
+                                opslag-brug, opslagquotum-indicator,
+                                apiFetch/apiJson, navbar-integratie
+mini-apps-list.js            — iconen-select, badges, renderAppCard/renderAppLists,
+                                loadApps, collega-checkboxes, bouw-prompt
+mini-apps-upload-viewer.js   — upload-modal, link kopiëren, kale fullscreen-viewer
+mini-apps-edit-modal.js      — app-modal ("Bewerken": tabs, code-editor, opslaan,
+                                verwijderen) + mail-abonnement per app
+mini-apps-favorites-chat.js  — favorieten-sectie + chat-kanalen-modal
+mini-apps-bootstrap.js       — event delegation (click/change/keydown) + init
+```
+
+Geen functionele wijzigingen bij deze splitsing (byte-voor-byte reconstructie
+geverifieerd). Bij nieuwe front-end functies: gewoon toevoegen aan het meest
+logische bestand hierboven — geen nieuw bestand tenzij een sectie zelf weer
+richting de 150+ regels groeit.
+
 ## Blueprint: Odoo copy-wizard met interactieve veld-selectie
 
 Dit patroon is volledig uitgewerkt voor `x_estate_copy_wizard` (actie 1042/1041) en `x_contact_copy_wizard` (actie 1164/1163). Gebruik dit als blueprint voor elke nieuwe copy-wizard.
