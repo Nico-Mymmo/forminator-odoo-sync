@@ -96,7 +96,8 @@ function copyAppLink(id) {
 // iemand waarmee ze gedeeld is. Bewerken/tweaken gaat via de aparte modal
 // (openApp / knop "Bewerken", enkel zichtbaar voor de eigenaar).
 
-async function openAppFullscreen(id) {
+async function openAppFullscreen(id, options) {
+  var pushHistory = !options || options.pushHistory !== false;
   try {
     var contentResult = await apiJson(`/mini-apps/api/apps/${id}/content`);
 
@@ -114,14 +115,31 @@ async function openAppFullscreen(id) {
     document.documentElement.classList.remove('mini-app-deeplink');
     insertNavbarBackLink();
 
-    history.replaceState(null, '', '/mini-apps?app=' + encodeURIComponent(id));
+    // pushHistory === false: wordt aangeroepen vanuit de popstate-listener
+    // (mini-apps-bootstrap.js) als reactie op een browser-back/-forward --
+    // de URL staat dan al goed, enkel de UI hierboven moet nog volgen.
+    if (pushHistory) {
+      // Zorg dat er altijd een overzicht-stap in de geschiedenis zit VOOR de
+      // app-stap -- ook bij een directe deeplink (?app=<id>) bij het eerste
+      // laden van de pagina. Zo gaat de browser-back-knop altijd naar het
+      // mini-apps-overzicht, nooit naar de vorige pagina (bv. de Operations
+      // Manager-homepage). Enkel de allereerste keer in een navigatie-keten
+      // vervangen (history.state.miniApps-check) -- anders zou elke
+      // appwissel via de navbar-favorieten een extra overzicht-entry
+      // opstapelen.
+      if (!(history.state && history.state.miniApps)) {
+        history.replaceState({ miniApps: true, view: 'overview' }, '', '/mini-apps');
+      }
+      history.pushState({ miniApps: true, view: 'app', appId: id }, '', '/mini-apps?app=' + encodeURIComponent(id));
+    }
   } catch (err) {
     document.documentElement.classList.remove('mini-app-deeplink');
     showToast('App openen mislukt: ' + err.message, 'error');
   }
 }
 
-function closeAppFullscreen() {
+function closeAppFullscreen(options) {
+  var updateHistory = !options || options.updateHistory !== false;
   document.getElementById('appFullscreen').classList.add('hidden');
   document.getElementById('mainContent').classList.remove('hidden');
   document.getElementById('appFullscreenFrame').srcdoc = 'about:blank';
@@ -130,6 +148,12 @@ function closeAppFullscreen() {
   document.documentElement.classList.remove('mini-app-deeplink');
   removeNavbarBackLink();
   activeFrame = null;
-  history.replaceState(null, '', '/mini-apps');
+  // updateHistory === false: wordt aangeroepen vanuit de popstate-listener --
+  // de browser heeft de geschiedenis dan al zelf teruggespoeld, dus enkel de
+  // UI hierboven opruimen. In alle andere gevallen (Terug-link, Escape-toets)
+  // navigeren we ECHT terug (history.back()) i.p.v. de URL te herschrijven,
+  // zodat de door openAppFullscreen() gepushte entry weer verdwijnt in
+  // plaats van zich op te stapelen.
+  if (updateHistory) history.back();
 }
 

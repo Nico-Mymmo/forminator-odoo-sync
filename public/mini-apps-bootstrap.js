@@ -75,6 +75,21 @@ document.addEventListener('keydown', function(e) {
   if (!document.getElementById('appFullscreen').classList.contains('hidden')) closeAppFullscreen();
 });
 
+// Browser-back/-forward: synchroniseer de fullscreen-viewer met de URL i.p.v.
+// terug te vallen op de vorige pagina buiten /mini-apps (bv. de Operations
+// Manager-homepage). openAppFullscreen()/closeAppFullscreen() in
+// mini-apps-upload-viewer.js pushen/lezen de bijbehorende history-state;
+// hier enkel de UI volgen, niet nogmaals de geschiedenis aanpassen (anders
+// ontstaat een oneindige back/forward-lus).
+window.addEventListener('popstate', function() {
+  var appId = new URLSearchParams(location.search).get('app');
+  if (appId) {
+    if (!activeFrame || activeFrame.appId !== appId) openAppFullscreen(appId, { pushHistory: false });
+  } else if (activeFrame) {
+    closeAppFullscreen({ updateHistory: false });
+  }
+});
+
 // ====== Init ======
 
 renderNavbar();
