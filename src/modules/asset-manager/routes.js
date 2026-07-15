@@ -117,7 +117,7 @@ export const routes = {
 
   // ── UI ──────────────────────────────────────────────────────────────────────
   'GET /': async (context) => {
-    return new Response(assetManagerUI(context.user), {
+    return new Response(assetManagerUI(context.user, context.env), {
       headers: { 'Content-Type': 'text/html' }
     });
   },

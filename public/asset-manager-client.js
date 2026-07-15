@@ -21,7 +21,12 @@
   // STATE
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-  var state          = window.__ASSET_STATE__ || { userRole: 'user', userId: '', canUpload: false, canAdmin: false };
+  var state          = window.__ASSET_STATE__ || { userRole: 'user', userId: '', canUpload: false, canAdmin: false, assetBaseUrl: '' };
+  // Vaste basis voor /assets/-URL's -- env.APP_BASE_URL server-side, met
+  // window.location.origin als terugval. Zonder dit gebruikte de client altijd
+  // het paginadomein, wat op operations.openvme.be (los doorverwijsdomein naar
+  // deze Worker) niet naar de werkende R2-asset-route leidde.
+  var assetBase      = state.assetBaseUrl || window.location.origin;
   var viewMode       = 'grid';    // 'grid' | 'list'
   var activeCategory = '';        // actief prefix
   var activeCursor   = null;
@@ -255,7 +260,7 @@
     var mime = obj.contentType || mimeFromKey(obj.key);
     if (isImageMime(mime)) {
       var img = document.createElement('img');
-      img.src = window.location.origin + '/assets/' + obj.key;
+      img.src = assetBase + '/assets/' + obj.key;
       img.alt = basename(obj.key);
       img.loading = 'lazy';
       img.className = 'w-full h-full object-cover';
@@ -323,7 +328,7 @@
     var mime = obj.contentType || mimeFromKey(obj.key);
     if (isImageMime(mime)) {
       var img = document.createElement('img');
-      img.src = window.location.origin + '/assets/' + obj.key;
+      img.src = assetBase + '/assets/' + obj.key;
       img.alt = '';
       img.loading = 'lazy';
       img.className = 'w-8 h-8 object-cover rounded';
@@ -445,7 +450,7 @@
 
   function renderPreviewContent(obj, container) {
     var mime = obj.contentType || mimeFromKey(obj.key);
-    var url  = window.location.origin + '/assets/' + obj.key;
+    var url  = assetBase + '/assets/' + obj.key;
 
     // Visuele preview
     if (isImageMime(mime)) {
@@ -751,7 +756,7 @@
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   function copyUrl(key) {
-    var url = window.location.origin + '/assets/' + key;
+    var url = assetBase + '/assets/' + key;
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(url)
         .then(function() { showAlert('URL gekopieerd!', 'success'); })

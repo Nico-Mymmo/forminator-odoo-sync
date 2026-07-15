@@ -15,7 +15,16 @@
  *  - subject/message-template: een logic-less template (zie renderTemplate)
  *    die enkel data uit de EIGEN gedeelde opslag van de app leest (lib/
  *    storage.js) -- {{kv.KEY}}, {{#each collectie}}...{{/each}},
- *    {{#isEmpty collectie}}...{{/isEmpty}}, {{#notEmpty collectie}}...{{/notEmpty}}.
+ *    {{#isEmpty collectie}}...{{/isEmpty}}, {{#notEmpty collectie}}...{{/notEmpty}},
+ *    plus (sinds 2026-07, zie git-historie) dezelfde server-berekende dag-
+ *    context als condition-scheduler.js: {{today}}/{{weekday}}/{{weekdayName}}/
+ *    {{isoWeek}}/{{isoYear}} en {{#eachWhere collectie field="x" equals="y"}}.
+ *    Dit was bewust ENKEL bij criteria-taken beschikbaar tot bleek dat een
+ *    vast-tijdstip-taak die "vandaag"-data wil versturen anders afhankelijk
+ *    is van een client-side ververste kv-waarde (die stil verouderd blijft
+ *    als niemand de app die dag opent, ook al vuurt de cron zelf wel op tijd)
+ *    -- zie het incident met de winkeldienst-mini-app. Rotation ({{rotation.*}})
+ *    blijft wel enkel bij condition-scheduler.js, geen vraag naar hier.
  *    Geen eval, geen Function-constructor, geen willekeurige expressies --
  *    enkel string-substitutie, dus geen code-executie-oppervlak.
  *
@@ -160,6 +169,66 @@ function civilWeekday(ymd) {
   return new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d)).getUTCDay(); // 0 = zondag
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function ymdToString(ymd) {
+  return `${ymd.y}-${pad2(ymd.m)}-${pad2(ymd.d)}`;
+}
+
+const WEEKDAY_NAMES_NL = ['zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag'];
+
+/**
+ * ISO-8601 weeknummer + weekjaar voor een civiele datum. Standaardalgoritme
+ * (nearest-Thursday-methode), volledig op UTC-basis -- geen library nodig.
+ * Zelfde implementatie als condition-scheduler.js#isoWeekInfo.
+ */
+function isoWeekInfo(ymd) {
+  const date = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
+  const dayNum = (date.getUTCDay() + 6) % 7; // maandag = 0 .. zondag = 6
+  date.setUTCDate(date.getUTCDate() - dayNum + 3); // dichtstbijzijnde donderdag
+  const isoYear = date.getUTCFullYear();
+  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const isoWeek = 1 + Math.round((date.getTime() - firstThursday.getTime()) / (7 * 86400000));
+  return { isoWeek, isoYear };
+}
+
+/**
+ * Berekent de "dag-context" builtins voor de template-renderer, op basis van
+ * `now` in `timeZone`. Geeft enkel strings terug (template-waarden zijn
+ * altijd strings). Zelfde implementatie als condition-scheduler.js#computeBuiltins.
+ */
+function computeBuiltins(now, timeZone) {
+  const civil = getZonedYMD(now, timeZone);
+  const { isoWeek, isoYear } = isoWeekInfo(civil);
+  return {
+    today: ymdToString(civil),
+    weekday: String(civilWeekday(civil)),
+    weekdayName: WEEKDAY_NAMES_NL[civilWeekday(civil)],
+    isoWeek: String(isoWeek),
+    isoYear: String(isoYear)
+  };
+}
+
+const BUILTIN_NAMES = ['today', 'weekday', 'weekdayName', 'isoWeek', 'isoYear'];
+const BUILTIN_RE = new RegExp(`\\{\\{(${BUILTIN_NAMES.join('|')})\\}\\}`, 'g');
+
+/**
+ * Vult {{today}}/{{weekday}}/... in binnen een template-attribuutwaarde (bv.
+ * equals="{{today}}") -- puur string-substitutie, geen expressie-taal.
+ * Zelfde implementatie als condition-scheduler.js#resolveBuiltinRefs.
+ */
+function resolveBuiltinRefs(raw, builtins) {
+  if (raw === undefined) return undefined;
+  return raw.replace(BUILTIN_RE, (m, name) => {
+    const v = builtins[name];
+    return v === undefined || v === null ? '' : String(v);
+  });
+}
+
 function parseYMD(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return { y, m, d };
@@ -223,30 +292,67 @@ function renderEachInner(innerTemplate, item) {
 }
 
 const BLOCK_RE = /\{\{#(each|isEmpty|notEmpty)\s+([a-zA-Z0-9_-]+)\}\}([\s\S]*?)\{\{\/\1\}\}/;
+const EACH_WHERE_RE = /\{\{#eachWhere\s+([a-zA-Z0-9_-]+)\s+field="([a-zA-Z0-9_-]+)"(?:\s+equals="([^"]*)")?(?:\s+notEquals="([^"]*)")?\}\}([\s\S]*?)\{\{\/eachWhere\}\}/;
 
 /**
- * Rendert een template tegen een context { kv: {key: value}, collections:
- * {naam: [{id, value}, ...]} }. Ondersteunt:
+ * Rendert een template tegen een context { kv, collections, builtins }.
+ * Ondersteunt:
  *   {{kv.KEY}}                                   -- platte waarde
+ *   {{today}} / {{weekday}} / {{weekdayName}} / {{isoWeek}} / {{isoYear}}
+ *     -- server-berekende dag-context (Europe/Brussels)
  *   {{#each collectie}}...{{this}}/{{this.veld}}...{{/each}}
+ *   {{#eachWhere collectie field="x" equals="y"}}...{{/eachWhere}}
+ *     -- gefilterde iteratie (equals/notEquals mogen builtins bevatten, bv.
+ *     equals="{{today}}" -- dit was de ontbrekende stap die de winkeldienst-
+ *     mini-app trof: zonder deze filter kon een vast-tijdstip-taak "vandaag"
+ *     niet uit een collectie halen en moest ze op een client-ververste
+ *     kv-waarde vertrouwen die verouderde als niemand de app die dag opende)
  *   {{#isEmpty collectie}}...{{/isEmpty}}         -- enkel als collectie leeg is
  *   {{#notEmpty collectie}}...{{/notEmpty}}       -- enkel als collectie niet leeg is
- * Geen nesting van blocks in v1 (bewust simpel gehouden -- elke extra
+ * Geen nesting van blocks (bewust simpel gehouden -- elke extra
  * grammatica-laag is extra oppervlak om verkeerd te evalueren). Onbekende/
  * kapotte tags worden stilzwijgend leeg gerenderd, nooit doorgestuurd als
- * ruwe syntax naar de ontvanger.
+ * ruwe syntax naar de ontvanger. Zelfde grammatica als condition-scheduler.js
+ * op dit punt (bewust in sync gehouden), enkel {{rotation.*}} blijft daar
+ * exclusief.
  */
 export function renderTemplate(template, context, maxLength) {
   let out = template;
   const collections = context.collections || {};
   const kv = context.kv || {};
+  const builtins = context.builtins || {};
 
-  // Blocks eerst (each/isEmpty/notEmpty) -- max 100 passes als veiligheidsklep
-  // tegen kapotte/oneindige input (bv. een niet-gesloten tag).
+  // Blocks eerst (each/isEmpty/notEmpty/eachWhere) -- max 100 passes als
+  // veiligheidsklep tegen kapotte/oneindige input (bv. een niet-gesloten tag).
   for (let i = 0; i < 100; i++) {
-    const match = BLOCK_RE.exec(out);
-    if (!match) break;
-    const [full, kind, name, inner] = match;
+    const blockMatch = BLOCK_RE.exec(out);
+    const eachWhereMatch = EACH_WHERE_RE.exec(out);
+    if (!blockMatch && !eachWhereMatch) break;
+
+    if (eachWhereMatch && (!blockMatch || eachWhereMatch.index <= blockMatch.index)) {
+      const [full, name, field, equalsRaw, notEqualsRaw, inner] = eachWhereMatch;
+      const equalsVal = resolveBuiltinRefs(equalsRaw, builtins);
+      const notEqualsVal = resolveBuiltinRefs(notEqualsRaw, builtins);
+      const items = Array.isArray(collections[name]) ? collections[name].slice(0, MAX_EACH_ITEMS) : [];
+      const filtered = items.filter(item => {
+        let parsed;
+        try {
+          parsed = JSON.parse(item.value);
+        } catch (e) {
+          return false;
+        }
+        if (!parsed || typeof parsed !== 'object' || !(field in parsed)) return false;
+        const v = parsed[field] === null || parsed[field] === undefined ? '' : String(parsed[field]);
+        if (equalsVal !== undefined && v !== equalsVal) return false;
+        if (notEqualsVal !== undefined && v === notEqualsVal) return false;
+        return true;
+      });
+      const replacement = filtered.map(item => renderEachInner(inner, item)).join('\n');
+      out = out.slice(0, eachWhereMatch.index) + replacement + out.slice(eachWhereMatch.index + full.length);
+      continue;
+    }
+
+    const [full, kind, name, inner] = blockMatch;
     const items = Array.isArray(collections[name]) ? collections[name].slice(0, MAX_EACH_ITEMS) : [];
 
     let replacement = '';
@@ -257,13 +363,19 @@ export function renderTemplate(template, context, maxLength) {
     } else if (kind === 'notEmpty') {
       replacement = items.length > 0 ? inner : '';
     }
-    out = out.slice(0, match.index) + replacement + out.slice(match.index + full.length);
+    out = out.slice(0, blockMatch.index) + replacement + out.slice(blockMatch.index + full.length);
   }
 
   // Dan de platte {{kv.KEY}}-substituties.
   out = out.replace(/\{\{kv\.([a-zA-Z0-9_-]+)\}\}/g, (m, key) => {
     const v = kv[key];
     return v === null || v === undefined ? '' : String(v);
+  });
+
+  // Dag-context builtins ({{today}}/{{weekday}}/...).
+  out = out.replace(BUILTIN_RE, (m, name) => {
+    const v = builtins[name];
+    return v === undefined || v === null ? '' : String(v);
   });
 
   // Restjes van onherkende {{...}}-syntax nooit doorlaten naar de ontvanger.
@@ -274,15 +386,20 @@ export function renderTemplate(template, context, maxLength) {
 
 /**
  * Bouwt de template-context voor één app: alle platte kv-waarden + alle
- * collections, in één keer opgehaald (bounded door de bestaande opslag-
- * quota's in lib/storage.js -- max 500 objecten per app).
+ * collections (bounded door de bestaande opslag-quota's in lib/storage.js --
+ * max 500 objecten per app), plus de server-berekende dag-context (builtins).
+ * `now`/`timeZone` optioneel (default: huidig moment, Europe/Brussels) zodat
+ * de cron en "Nu testen" altijd tegen dezelfde klok werken -- zelfde patroon
+ * als condition-scheduler.js#buildContext. Geen rotations hier: die blijven
+ * exclusief bij criteria-taken (geen vraag naar bij vast-tijdstip-taken).
  */
-export async function buildContext(env, appId) {
+export async function buildContext(env, appId, now = new Date(), timeZone = ORG_TIMEZONE) {
   const [kv, collections] = await Promise.all([
     listStorage(env, appId),
     listAllCollections(env, appId)
   ]);
-  return { kv, collections };
+  const builtins = computeBuiltins(now, timeZone);
+  return { kv, collections, builtins };
 }
 
 // ─── CRUD-helpers (gebruikt door routes.js) ────────────────────────────────
@@ -372,7 +489,7 @@ async function processTask(env, supabase, task, now) {
 
   try {
     const { app, creator } = await fetchAppAndCreator(supabase, task.mini_app_id, task.created_by_user_id);
-    const context = await buildContext(env, task.mini_app_id);
+    const context = await buildContext(env, task.mini_app_id, now);
 
     if (task.delivery_method === 'mail') {
       const subject = renderTemplate(task.subject_template || '', context, MAX_SUBJECT_TEMPLATE_LENGTH);

@@ -24,9 +24,15 @@
 
 import { navbar } from '../../lib/components/navbar.js';
 
-export function assetManagerUI(user) {
+export function assetManagerUI(user, env) {
   const isAdminOrManager = user?.role === 'admin' || user?.role === 'asset_manager';
   const isAdmin = user?.role === 'admin';
+  // Vaste basis-URL voor asset-links (env.APP_BASE_URL), i.p.v. window.location.origin
+  // client-side. Nodig sinds operations.openvme.be als los domein naar deze Worker
+  // doorwijst: window.location.origin gaf dan operations.openvme.be als prefix, wat
+  // niet correct naar de R2-assets doorroutet. Val terug op lege string zodat de
+  // client zelf window.location.origin gebruikt als APP_BASE_URL niet gezet is.
+  const assetBaseUrl = env?.APP_BASE_URL || '';
 
   return `<!DOCTYPE html>
 <html lang="nl">
@@ -70,10 +76,11 @@ export function assetManagerUI(user) {
 
   <script>
     window.__ASSET_STATE__ = ${JSON.stringify({
-      userRole:  user?.role || 'user',
-      userId:    user?.id   || '',
-      canUpload: isAdminOrManager,
-      canAdmin:  isAdmin,
+      userRole:     user?.role || 'user',
+      userId:       user?.id   || '',
+      canUpload:    isAdminOrManager,
+      canAdmin:     isAdmin,
+      assetBaseUrl: assetBaseUrl,
     })};
   </script>
 
