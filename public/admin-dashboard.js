@@ -96,11 +96,23 @@ function initTheme() {
 
 // ====== Navbar ======
 
+let currentUserEmail = null;
+
 async function renderNavbar() {
   const response = await apiFetch('/api/auth/me');
   const data = await response.json();
   if (!data.user) { window.location.href = '/'; return; }
+  currentUserEmail = data.user.email || null;
   if (window.renderSharedNavbar) window.renderSharedNavbar(data.navbarHtml);
+
+  // Google-werk-e-mailadres-tab is bewust hard op één specifiek account
+  // beperkt (zie GOOGLE_EMAIL_SETTING_ALLOWED_EMAIL in admin/routes.js) --
+  // client-side hier enkel de tab tonen/verbergen, de echte controle zit
+  // server-side.
+  if (currentUserEmail && currentUserEmail.toLowerCase() === 'admin@mymmo.com') {
+    document.getElementById('tabGoogleSettings').classList.remove('hidden');
+    loadGoogleEmailSetting();
+  }
 }
 
 async function logout() {
@@ -877,6 +889,8 @@ document.addEventListener('click', function(e) {
     requestModuleToggle(el.dataset.id, el.dataset.active === '1');
   } else if (action === 'deleteModule') {
     requestModuleDelete(el.dataset.id, el.dataset.name);
+  } else if (action === 'saveGoogleEmailOverride') {
+    saveGoogleEmailOverride();
   }
 });
 
@@ -931,6 +945,44 @@ function requestModuleDelete(moduleId, moduleName) {
 }
 
 // ====== Init ======
+
+// ====== Google-werk-e-mailadres (Drive-koppeling mini-apps) ======
+// Enkel zichtbaar/bruikbaar voor admin@mymmo.com, zie renderNavbar() hierboven
+// en de server-side check in admin/routes.js.
+
+async function loadGoogleEmailSetting() {
+  try {
+    const res = await apiFetch('/admin/api/settings/google-email');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Ophalen mislukt');
+    document.getElementById('googleEmailOverrideInput').value = data.data?.google_email_override || '';
+  } catch (err) {
+    showToast('Google-e-mailadres ophalen mislukt: ' + err.message, 'error');
+  }
+}
+
+async function saveGoogleEmailOverride() {
+  const status = document.getElementById('googleEmailStatus');
+  const email = document.getElementById('googleEmailOverrideInput').value.trim();
+  status.classList.add('hidden');
+  try {
+    const res = await apiFetch('/admin/api/settings/google-email', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Opslaan mislukt');
+    status.textContent = email ? 'Opgeslagen.' : 'Override gewist -- gebruikt weer je login-e-mailadres.';
+    status.className = 'text-xs mt-2 text-success';
+    status.classList.remove('hidden');
+    showToast('Opgeslagen.', 'success');
+  } catch (err) {
+    status.textContent = 'Opslaan mislukt: ' + err.message;
+    status.className = 'text-xs mt-2 text-error';
+    status.classList.remove('hidden');
+  }
+}
 
 initTheme();
 renderNavbar();

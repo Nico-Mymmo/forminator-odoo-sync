@@ -293,6 +293,55 @@ richting de 150+ regels groeit.
 
 ## Blueprint: Odoo copy-wizard met interactieve veld-selectie
 
+## mini-apps — Google Drive-koppeling (GEBOUWD, maar UITGESCHAKELD sinds 2026-07-24)
+
+Er bestaat een volledig werkende `window.platform.drive`-koppeling (lijst/lees/
+maak-aan van Google Drive-bestanden namens de ingelogde gebruiker, via domain-
+wide delegation met het bestaande service-account — `src/modules/mini-apps/
+lib/google-drive-client.js`, routes in `mini-apps/routes.js`, admin-only
+e-mail-override in `admin/routes.js` + `admin-dashboard.html/js`). Getest en
+bevestigd functioneel (lijst/lees werken, domain-wide delegation is
+gewhitelist in de Admin Console).
+
+**Bewust terug volledig dichtgezet**, op verzoek: het risico is dat een
+mini-app Drive-inhoud (contracten, notulen, klantgegevens, ...) ophaalt via
+`drive.read()` en die vervolgens doorgeeft aan `window.platform.ai.ask()` —
+wat op de huidige GRATIS Gemini-laag betekent dat die inhoud door Google
+gebruikt mag worden om hun modellen te trainen. Zolang er geen veilige
+AI-koppeling is (betaalde laag zonder training-gebruik, of een andere
+provider met een data-processing-agreement), mag deze combinatie niet
+mogelijk zijn — en gebruikers/de BUILD_PROMPT mogen zelfs niet weten dat
+Drive-toegang bestaat, om te vermijden dat iemand er toch de vraag naar stelt.
+
+**Hoe het dichtgezet is (niet verwijderd — enkel onbereikbaar/onvindbaar):**
+- `DRIVE_INTEGRATION_ENABLED = false` in `mini-apps/lib/google-drive-client.js`
+  — de drie Drive-routes in `mini-apps/routes.js` en de twee admin-routes in
+  `admin/routes.js` geven hierdoor altijd 404, ongeacht wie het aanroept.
+- `window.platform.drive` bestaat niet meer in de iframe-shim
+  (`mini-apps-core.js`'s `MINI_APP_SHIM`) — een mini-app kan het dus niet
+  eens proberen aanroepen, en `window.platform` toont het niet bij inspectie.
+- De "Bouw-prompt"-knop (`mini-apps-list.js`, `BUILD_PROMPT`) vermeldt Drive
+  niet — Claude (of een andere AI) die een nieuwe mini-app bouwt via die
+  prompt weet dus niet dat de mogelijkheid bestaat.
+- De admin-only "Google-instellingen"-tab in Beheer blijft technisch
+  aanwezig (enkel zichtbaar voor `admin@mymmo.com`) maar elke aanroep ernaar
+  geeft 404 zolang de vlag op `false` staat.
+
+**Om terug te activeren, zodra er een veilige AI-koppeling is:**
+1. `DRIVE_INTEGRATION_ENABLED = true` zetten in `google-drive-client.js`.
+2. De `drive:{...}`-sectie + bijhorende `driveList`/`driveRead`/`driveCreate`-
+   dispatcher-branches terugzetten in `mini-apps-core.js` (zie git-historie
+   van dat bestand rond 2026-07-24 voor de exacte, al geteste code).
+3. De Drive-paragraaf terugzetten in `BUILD_PROMPT` (`mini-apps-list.js`,
+   zelfde git-historie) — en er dan ALSNOG een expliciete waarschuwing aan
+   toevoegen over de combinatie met `window.platform.ai.ask()`, ongeacht
+   welke AI-provider op dat moment gebruikt wordt.
+4. Domain-wide delegation staat al gewhitelist in de Admin Console (Client ID
+   van het service-account, scopes `drive.readonly` + `drive.file`) — die
+   stap hoeft niet opnieuw.
+
+## Blueprint: Odoo copy-wizard met interactieve veld-selectie
+
 Dit patroon is volledig uitgewerkt voor `x_estate_copy_wizard` (actie 1042/1041) en `x_contact_copy_wizard` (actie 1164/1163). Gebruik dit als blueprint voor elke nieuwe copy-wizard.
 
 ### Overzicht

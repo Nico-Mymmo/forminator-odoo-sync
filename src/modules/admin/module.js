@@ -17,7 +17,9 @@ import {
   handleToggleModule,
   handleDeleteModule,
   handleGetModuleUsers,
-  handleUpdateModuleUsers
+  handleUpdateModuleUsers,
+  handleGetGoogleEmailSetting,
+  handleSetGoogleEmailSetting
 } from './routes.js';
 
 export default {
@@ -69,6 +71,11 @@ export default {
     'PUT /api/modules/:id/toggle': handleToggleModule,
     'DELETE /api/modules/:id': handleDeleteModule,
     'GET /api/modules/:id/users': handleGetModuleUsers,
-    'PUT /api/modules/:id/users': handleUpdateModuleUsers
+    'PUT /api/modules/:id/users': handleUpdateModuleUsers,
+
+    // Google-werk-e-mailadres (Drive-koppeling mini-apps) — enkel admin@mymmo.com,
+    // zie de GOOGLE_EMAIL_SETTING_ALLOWED_EMAIL-check in routes.js
+    'GET /api/settings/google-email': handleGetGoogleEmailSetting,
+    'PUT /api/settings/google-email': handleSetGoogleEmailSetting
   }
 };

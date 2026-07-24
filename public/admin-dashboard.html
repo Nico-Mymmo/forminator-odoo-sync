@@ -116,6 +116,27 @@
               </div>
             </div>
           </div>
+
+          <!-- ============ TAB: GOOGLE-INSTELLINGEN (enkel zichtbaar voor admin@mymmo.com) ============ -->
+          <input type="radio" name="admin_tabs" role="tab" class="tab hidden" id="tabGoogleSettings" />
+          <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6" id="googleSettingsPanel">
+            <h2 class="text-base font-semibold mb-1">Google-werk-e-mailadres</h2>
+            <p class="text-sm text-base-content/60 mb-4 max-w-2xl">
+              Bepaalt namens welk Google Workspace-adres de mini-apps Drive-koppeling (window.platform.drive.*)
+              impersoneert wanneer JIJ (admin@mymmo.com) een mini-app gebruikt -- nodig als je Operations Manager-
+              login-e-mailadres niet overeenkomt met je echte Workspace-mailbox. Los van het "Google e-mailadres"-veld
+              bij Mail Signature Designer.
+            </p>
+            <div class="form-control max-w-md mb-3">
+              <label class="label pb-1"><span class="label-text text-xs font-semibold">Google Workspace-e-mailadres</span></label>
+              <input type="email" id="googleEmailOverrideInput" class="input input-bordered input-sm" placeholder="jij@mymmo.com (leeg = je login-e-mailadres)">
+            </div>
+            <button type="button" class="btn btn-primary btn-sm gap-2" id="saveGoogleEmailBtn" data-action="saveGoogleEmailOverride">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              Opslaan
+            </button>
+            <p id="googleEmailStatus" class="text-xs mt-2 hidden"></p>
+          </div>
         </div>
       </div>
     </div>

@@ -45,6 +45,7 @@
  *    PUT    /api/apps/:id/condition-tasks/:taskId                → Taak bewerken (aanmaker of app-eigenaar)
  *    DELETE /api/apps/:id/condition-tasks/:taskId                → Taak verwijderen (aanmaker of app-eigenaar)
  *    POST   /api/apps/:id/condition-tasks/:taskId/run-now         → Taak nu al eens testen -- forceert de send, ongeacht edge-triggering (aanmaker of app-eigenaar)
+ *    GET/POST /api/apps/:id/drive/*                 → UITGESCHAKELD (2026-07-24, zie CLAUDE.md "Google Drive-koppeling mini-apps") -- geeft altijd 404, zie DRIVE_INTEGRATION_ENABLED in lib/google-drive-client.js
  *
  * ─── Rechten ─────────────────────────────────────────────────────────────────
  *
@@ -99,6 +100,8 @@ import { registerChannel, listChannels, deleteChannel, sendChannelMessage } from
 import { validateTaskPayload, MAX_TASKS_PER_APP, computeNextRun, runTaskNow } from './lib/scheduler.js';
 import { validateConditionTaskPayload, MAX_CONDITION_TASKS_PER_APP, runConditionTaskNow } from './lib/condition-scheduler.js';
 import { getOrderedFavorites, saveFavoritesOrder } from './lib/favorites.js';
+import { listDriveFiles, getDriveFile, createDriveFile, DRIVE_INTEGRATION_ENABLED } from './lib/google-drive-client.js';
+import { resolveGoogleEmail } from './lib/user-settings.js';
 
 const LOG_PREFIX = '[mini-apps]';
 
@@ -1423,6 +1426,104 @@ export const routes = {
   },
 
   // ── Gedeelde opslag — alles ophalen (view-toegang volstaat) ─────────
+  // ── Google Drive — bestanden lijsten (view-toegang volstaat, domain-wide
+  // delegation impersoneert de ingelogde gebruiker zelf, zie lib/google-drive-client.js) ──
+  'GET /api/apps/:id/drive/files': async ({ env, user, params, request }) => {
+    const supabase = getSupabaseClient(env);
+    const { data: app, error: fetchError } = await supabase
+      .from('mini_apps')
+      .select(SELECT_FIELDS)
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchError) return jsonError('App ophalen mislukt.', 500);
+    if (!app) return jsonError('App niet gevonden.', 404);
+    if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
+
+    const url = new URL(request.url);
+    const query = url.searchParams.get('q') || undefined;
+    const pageToken = url.searchParams.get('pageToken') || undefined;
+
+    if (!DRIVE_INTEGRATION_ENABLED) return jsonError('Niet gevonden.', 404);
+
+    try {
+      const googleEmail = await resolveGoogleEmail(env, user);
+      const result = await listDriveFiles(env, googleEmail, { query, pageToken });
+      return jsonOk(result);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} drive list error:`, err.message);
+      return jsonError('Drive-bestanden ophalen mislukt.', 502, err.code);
+    }
+  },
+
+  // ── Google Drive — één bestand lezen (view-toegang volstaat) ─────────
+  'GET /api/apps/:id/drive/files/:fileId': async ({ env, user, params }) => {
+    const supabase = getSupabaseClient(env);
+    const { data: app, error: fetchError } = await supabase
+      .from('mini_apps')
+      .select(SELECT_FIELDS)
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchError) return jsonError('App ophalen mislukt.', 500);
+    if (!app) return jsonError('App niet gevonden.', 404);
+    if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
+
+    if (!DRIVE_INTEGRATION_ENABLED) return jsonError('Niet gevonden.', 404);
+
+    try {
+      const googleEmail = await resolveGoogleEmail(env, user);
+      const file = await getDriveFile(env, googleEmail, params.fileId);
+      return jsonOk(file);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} drive get error:`, err.message);
+      return jsonError('Drive-bestand ophalen mislukt.', 502, err.code);
+    }
+  },
+
+  // ── Google Drive — nieuw bestand aanmaken (view-toegang volstaat) ────
+  'POST /api/apps/:id/drive/files': async ({ request, env, user, params }) => {
+    const supabase = getSupabaseClient(env);
+    const { data: app, error: fetchError } = await supabase
+      .from('mini_apps')
+      .select(SELECT_FIELDS)
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchError) return jsonError('App ophalen mislukt.', 500);
+    if (!app) return jsonError('App niet gevonden.', 404);
+    if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+
+    if (typeof body.name !== 'string' || !body.name.trim()) {
+      return jsonError('name (string) is verplicht.', 400);
+    }
+    if (typeof body.content !== 'string') {
+      return jsonError('content (string) is verplicht.', 400);
+    }
+
+    if (!DRIVE_INTEGRATION_ENABLED) return jsonError('Niet gevonden.', 404);
+
+    try {
+      const googleEmail = await resolveGoogleEmail(env, user);
+      const file = await createDriveFile(env, googleEmail, {
+        name: body.name,
+        mimeType: typeof body.mimeType === 'string' ? body.mimeType : undefined,
+        content: body.content
+      });
+      return jsonOk(file);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} drive create error:`, err.message);
+      return jsonError('Drive-bestand aanmaken mislukt.', 502, err.code);
+    }
+  },
+
   'GET /api/apps/:id/storage': async ({ env, user, params }) => {
     const supabase = getSupabaseClient(env);
     const { data: app, error: fetchError } = await supabase

@@ -8,6 +8,9 @@ node_modules/
 # Local Google service account keys
 src/modules/mail-signature-designer/*.json
 
+# Google OAuth client secret JSON (downloaded from Google Cloud Console)
+client_secret_*.json
+
 # Wrangler local cache
 .wrangler/
 

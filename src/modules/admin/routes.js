@@ -7,6 +7,8 @@ import { getSupabaseClient } from '../../lib/database.js';
 import { MODULES } from '../registry.js';
 import { hashPassword, generateRandomPassword } from '../../lib/auth/password.js';
 import { invalidateAllUserSessions } from '../../lib/auth/session.js';
+import { getMiniAppsUserSettings, setGoogleEmailOverride } from '../mini-apps/lib/user-settings.js';
+import { DRIVE_INTEGRATION_ENABLED } from '../mini-apps/lib/google-drive-client.js';
 
 /**
  * Get all users with their modules
@@ -953,4 +955,85 @@ export async function handleUpdateModuleUsers(context) {
   return new Response(JSON.stringify({ success: true, count: userIds.length }), {
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+// ─── Google-werk-e-mailadres (Drive-koppeling mini-apps) ───────────────────
+//
+// BEWUST hard op één specifiek e-mailadres i.p.v. role==='admin' -- deze
+// impersonation-override is gevoelig genoeg (bepaalt namens wie Drive-calls
+// gebeuren) dat de gebruiker expliciet wou dat ENKEL dit ene account het kan
+// instellen, ook al zijn er meerdere admins. Losstaand van
+// mail-signature-designer's eigen google_email_override (zie
+// mini-apps/lib/user-settings.js voor de motivatie van de aparte tabel).
+const GOOGLE_EMAIL_SETTING_ALLOWED_EMAIL = 'admin@mymmo.com';
+
+function isAllowedForGoogleEmailSetting(user) {
+  return user?.email?.toLowerCase() === GOOGLE_EMAIL_SETTING_ALLOWED_EMAIL;
+}
+
+export async function handleGetGoogleEmailSetting(context) {
+  const { env, user } = context;
+  if (!DRIVE_INTEGRATION_ENABLED) {
+    return new Response(JSON.stringify({ error: 'Niet gevonden.' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  if (!isAllowedForGoogleEmailSetting(user)) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  try {
+    const settings = await getMiniAppsUserSettings(env, user.id);
+    return new Response(JSON.stringify({ success: true, data: settings }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (err) {
+    console.error('[admin] get google-email error:', err.message);
+    return new Response(JSON.stringify({ error: 'Ophalen mislukt.' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+export async function handleSetGoogleEmailSetting(context) {
+  const { env, user, request } = context;
+  if (!DRIVE_INTEGRATION_ENABLED) {
+    return new Response(JSON.stringify({ error: 'Niet gevonden.' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  if (!isAllowedForGoogleEmailSetting(user)) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch (_err) {
+    return new Response(JSON.stringify({ error: 'Ongeldige JSON-body.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  try {
+    const result = await setGoogleEmailOverride(env, user.id, body.email);
+    return new Response(JSON.stringify({ success: true, data: result }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (err) {
+    console.error('[admin] set google-email error:', err.message);
+    return new Response(JSON.stringify({ error: err.message || 'Opslaan mislukt.' }), {
+      status: err.code === 'INVALID_EMAIL' ? 400 : 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 }

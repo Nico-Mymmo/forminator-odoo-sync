@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<title>Drive-test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 18px; }
+  h2 { font-size: 14px; margin-top: 24px; color: #555; }
+  button { padding: 6px 12px; margin: 4px 4px 4px 0; cursor: pointer; }
+  input, textarea { width: 100%; box-sizing: border-box; padding: 6px; margin: 4px 0; }
+  pre { background: #f4f4f4; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto; }
+  .ok { color: #1a7f37; }
+  .err { color: #c62828; }
+</style>
+</head>
+<body>
+  <h1>Drive-test mini-app</h1>
+  <p>Test <code>window.platform.drive.*</code> namens de ingelogde gebruiker (<span id="whoami">...</span>).</p>
+
+  <h2>1. Lijst bestanden</h2>
+  <input id="query" placeholder="Zoekterm (optioneel, matcht bestandsnaam)">
+  <button id="btnList">Lijst ophalen</button>
+  <pre id="listOut">nog niet uitgevoerd</pre>
+
+  <h2>2. Lees één bestand</h2>
+  <input id="fileId" placeholder="File ID (kopieer uit lijst hierboven)">
+  <button id="btnRead">Lezen</button>
+  <pre id="readOut">nog niet uitgevoerd</pre>
+
+  <h2>3. Nieuw bestand aanmaken</h2>
+  <input id="createName" placeholder="Bestandsnaam" value="drive-test-vanuit-operations-manager.txt">
+  <textarea id="createContent" rows="3">Dit is een testbestand, aangemaakt via de mini-apps Drive-koppeling.</textarea>
+  <button id="btnCreate">Aanmaken</button>
+  <pre id="createOut">nog niet uitgevoerd</pre>
+
+  <script>
+    document.getElementById('whoami').textContent = (window.currentUser && window.currentUser.email) || 'onbekend (currentUser nog niet geladen?)';
+
+    function show(el, ok, data) {
+      el.className = ok ? 'ok' : 'err';
+      el.textContent = JSON.stringify(data, null, 2);
+    }
+
+    document.getElementById('btnList').addEventListener('click', async function () {
+      var out = document.getElementById('listOut');
+      out.textContent = 'bezig...';
+      try {
+        var result = await window.platform.drive.list(document.getElementById('query').value || undefined);
+        show(out, true, result);
+      } catch (err) {
+        show(out, false, { error: err.message });
+      }
+    });
+
+    document.getElementById('btnRead').addEventListener('click', async function () {
+      var out = document.getElementById('readOut');
+      var fileId = document.getElementById('fileId').value.trim();
+      if (!fileId) { show(out, false, { error: 'Vul eerst een File ID in.' }); return; }
+      out.textContent = 'bezig...';
+      try {
+        var result = await window.platform.drive.read(fileId);
+        show(out, true, result);
+      } catch (err) {
+        show(out, false, { error: err.message });
+      }
+    });
+
+    document.getElementById('btnCreate').addEventListener('click', async function () {
+      var out = document.getElementById('createOut');
+      var name = document.getElementById('createName').value.trim();
+      var content = document.getElementById('createContent').value;
+      if (!name) { show(out, false, { error: 'Vul een bestandsnaam in.' }); return; }
+      out.textContent = 'bezig...';
+      try {
+        var result = await window.platform.drive.create(name, content, 'text/plain');
+        show(out, true, result);
+      } catch (err) {
+        show(out, false, { error: err.message });
+      }
+    });
+  </script>
+</body>
+</html>
