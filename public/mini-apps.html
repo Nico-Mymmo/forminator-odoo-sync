@@ -146,11 +146,18 @@
 
       <div class="form-control mb-3">
         <label class="label pb-1"><span class="label-text text-xs font-semibold">Icoon</span></label>
-        <div class="flex items-center gap-3">
-          <div id="uploadIconPreviewWrap" class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
-            <i data-lucide="puzzle" class="w-4 h-4"></i>
+        <div class="dropdown w-full" id="uploadIconPicker">
+          <div tabindex="0" role="button" id="uploadIconTrigger" class="flex items-center gap-3 border border-base-300 rounded-lg px-3 py-1.5 bg-base-100 hover:border-primary/40 cursor-pointer">
+            <div id="uploadIconPreviewWrap" class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
+              <i data-lucide="puzzle" class="w-4 h-4"></i>
+            </div>
+            <span id="uploadIconTriggerLabel" class="flex-1 text-sm text-left">Puzzelstuk (standaard)</span>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-base-content/40 shrink-0"></i>
           </div>
-          <select id="uploadIcon" class="select select-bordered select-sm flex-1"></select>
+          <div tabindex="0" class="dropdown-content z-30 mt-1 bg-base-100 rounded-lg shadow-lg border border-base-200 p-3 w-80 max-h-72 overflow-y-auto">
+            <div id="uploadIconGrid" class="grid grid-cols-4 gap-1.5"></div>
+          </div>
+          <input type="hidden" id="uploadIcon" value="puzzle" />
         </div>
       </div>
 
@@ -300,11 +307,18 @@
         </div>
         <div class="form-control mb-3">
           <label class="label pb-1"><span class="label-text text-xs font-semibold">Icoon</span></label>
-          <div class="flex items-center gap-3">
-            <div id="settingsIconPreviewWrap" class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
-              <i data-lucide="puzzle" class="w-4 h-4"></i>
+          <div class="dropdown w-full" id="settingsIconPicker">
+            <div tabindex="0" role="button" id="settingsIconTrigger" class="flex items-center gap-3 border border-base-300 rounded-lg px-3 py-1.5 bg-base-100 hover:border-primary/40 cursor-pointer">
+              <div id="settingsIconPreviewWrap" class="w-9 h-9 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
+                <i data-lucide="puzzle" class="w-4 h-4"></i>
+              </div>
+              <span id="settingsIconTriggerLabel" class="flex-1 text-sm text-left">Puzzelstuk (standaard)</span>
+              <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-base-content/40 shrink-0"></i>
             </div>
-            <select id="settingsIcon" class="select select-bordered select-sm flex-1"></select>
+            <div tabindex="0" class="dropdown-content z-30 mt-1 bg-base-100 rounded-lg shadow-lg border border-base-200 p-3 w-80 max-h-72 overflow-y-auto">
+              <div id="settingsIconGrid" class="grid grid-cols-4 gap-1.5"></div>
+            </div>
+            <input type="hidden" id="settingsIcon" value="puzzle" />
           </div>
         </div>
         <div class="form-control mb-4">

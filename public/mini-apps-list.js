@@ -68,21 +68,90 @@ var ICON_OPTIONS = [
   { value: 'clipboard-check', label: 'Afgevinkt klembord' }
 ];
 
-// Vult een dropdown eenmalig -- daarna enkel .value + preview bijwerken per app.
-// Gebruikt voor zowel de Instellingen-tab (settingsIcon) als de upload-modal
-// (uploadIcon) -- zelfde iconlijst, twee onafhankelijke select-elementen.
-function initIconSelect(selectId) {
-  var select = document.getElementById(selectId);
-  if (!select || select.options.length > 0) return;
-  select.innerHTML = ICON_OPTIONS.map(function(opt) {
-    return `<option value="${opt.value}">${opt.label}</option>`;
-  }).join('');
+// ====== Icoon-picker (grid i.p.v. platte <select>) ======
+//
+// Was voorheen een <select id="settingsIcon">/<select id="uploadIcon"> met
+// 48 platte tekst-<option>s -- bij zoveel iconen was dat als lijst nauwelijks
+// van elkaar te onderscheiden (zie screenshot-issue: enkel Nederlandse
+// namen, geen icoon zelf zichtbaar in de lijst). Nu een daisyUI-dropdown met
+// een grid van grotere icoon-knoppen (icoon + label per cel).
+//
+// BELANGRIJK voor backwards compatibility: settingsIcon/uploadIcon blijven
+// bestaan als <input type="hidden">, dus alle bestaande code die gewoon
+// `.value` leest/zet (mini-apps-upload-viewer.js, mini-apps-edit-modal.js)
+// werkt ONGEWIJZIGD verder -- die weet niet eens dat de zichtbare UI een
+// grid is i.p.v. een <select>. Enkel het klikken op een icoon-knop (hieronder,
+// via pickIcon()) en het extern zetten van `.value` + updateIconPreview()
+// (bestaand patroon bij modal-open) moeten de grid-highlight/trigger-label
+// bijwerken -- dat gebeurt hier telkens via renderIconGrid()/
+// updateIconTriggerLabel(), gekoppeld aan dezelfde `wrapId`/`baseId`-naamgeving
+// (bv. "uploadIconPreviewWrap" -> basis-id "uploadIcon").
+
+// Vult het grid eenmalig -- daarna enkel .value + preview/label/highlight
+// bijwerken per app (zie pickIcon() en updateIconPreview() hieronder).
+function initIconSelect(baseId) {
+  var grid = document.getElementById(baseId + 'Grid');
+  if (!grid || grid.children.length > 0) return;
+  var input = document.getElementById(baseId);
+  renderIconGrid(baseId, (input && input.value) || 'puzzle');
 }
 
+function buildIconGridButton(baseId, opt, selectedValue) {
+  var isSelected = opt.value === selectedValue;
+  return `<button type="button" class="btn btn-ghost h-20 w-full flex flex-col items-center justify-center gap-1 p-1 rounded-lg normal-case${isSelected ? ' bg-primary/10 ring-2 ring-primary text-primary' : ''}" data-action="pickIcon" data-picker="${baseId}" data-icon="${opt.value}" title="${escapeHtml(opt.label)}">
+      <i data-lucide="${opt.value}" class="w-6 h-6"></i>
+      <span class="text-[10px] leading-tight text-center line-clamp-2">${escapeHtml(opt.label)}</span>
+    </button>`;
+}
+
+// Grotere iconen (w-6 h-6 i.p.v. de kleine w-4 preview) + het label er telkens
+// bij, expliciet zodat gelijkaardige lucide-iconen (bv. Klembord vs. Afgevinkt
+// klembord) toch voldoende van elkaar te onderscheiden blijven.
+function renderIconGrid(baseId, selectedValue) {
+  var grid = document.getElementById(baseId + 'Grid');
+  if (!grid) return;
+  grid.innerHTML = ICON_OPTIONS.map(function(opt) {
+    return buildIconGridButton(baseId, opt, selectedValue);
+  }).join('');
+  lucide.createIcons();
+}
+
+function updateIconTriggerLabel(baseId, iconValue) {
+  var label = document.getElementById(baseId + 'TriggerLabel');
+  if (!label) return;
+  var opt = ICON_OPTIONS.find(function(o) { return o.value === iconValue; });
+  label.textContent = opt ? opt.label : (iconValue || 'Puzzelstuk (standaard)');
+}
+
+// Aangeroepen via data-action="pickIcon" (zie mini-apps-bootstrap.js) op een
+// grid-knop. Zet de verborgen <input>-waarde + stuurt zelf een 'change'-event
+// -- programmatisch `.value` zetten vuurt in de browser GEEN 'change' af, dus
+// zonder dit expliciet te dispatchen zou de bestaande listener in
+// mini-apps-bootstrap.js (die updateIconPreview() aanroept) niet afgaan.
+function pickIcon(baseId, iconValue) {
+  var input = document.getElementById(baseId);
+  if (!input) return;
+  input.value = iconValue;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  // Sluit de daisyUI-dropdown (die openstaat zolang iets erbinnen focus
+  // heeft) door de focus expliciet weg te halen van de zonet geklikte knop.
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+
+// wrapId volgt altijd het patroon "<baseId>PreviewWrap" (settingsIconPreviewWrap,
+// uploadIconPreviewWrap) -- baseId hieruit afleiden i.p.v. een aparte parameter
+// toevoegen, zodat alle BESTAANDE aanroepen van updateIconPreview() (bij modal-
+// open, en via de 'change'-listener hierboven) ongewijzigd ook de trigger-tekst
+// en de grid-highlight meenemen.
 function updateIconPreview(iconName, wrapId) {
-  var wrap = document.getElementById(wrapId || 'settingsIconPreviewWrap');
-  if (!wrap) return;
-  wrap.innerHTML = `<i data-lucide="${iconName || 'puzzle'}" class="w-4 h-4"></i>`;
+  var effectiveWrapId = wrapId || 'settingsIconPreviewWrap';
+  var wrap = document.getElementById(effectiveWrapId);
+  if (wrap) {
+    wrap.innerHTML = `<i data-lucide="${iconName || 'puzzle'}" class="w-4 h-4"></i>`;
+  }
+  var baseId = effectiveWrapId.replace(/PreviewWrap$/, '');
+  updateIconTriggerLabel(baseId, iconName || 'puzzle');
+  renderIconGrid(baseId, iconName || 'puzzle');
   lucide.createIcons();
 }
 

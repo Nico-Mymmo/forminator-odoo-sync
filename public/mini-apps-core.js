@@ -439,6 +439,49 @@ async function renderNavbar() {
   currentUser = { id: data.user.id, name: data.user.full_name || data.user.username, email: data.user.email };
   isAdmin = data.user.role === 'admin';
   if (window.renderSharedNavbar) window.renderSharedNavbar(data.navbarHtml);
+  // window.renderSharedNavbar() hierboven vervangt de VOLLEDIGE #navbar-HTML
+  // (zie public/shared-navbar.js) -- dat wist ook alles wat we zelf
+  // client-side hadden toegevoegd aan #navbarFavorites: de "Terug"-link
+  // (insertNavbarBackLink(), enkel zichtbaar terwijl een app fullscreen open
+  // staat) EN de favorieten-nudge-tegel. Zonder deze twee opnieuw toe te
+  // voegen verdwijnt "Terug" bijvoorbeeld zodra renderNavbar() ergens
+  // tussendoor wordt aangeroepen terwijl een app nog open staat (bv. net na
+  // confirmFavoriteNudge() -> persistFavoritesOrder() -> renderNavbar()).
+  // window.renderSharedNavbar() hierboven (public/shared-navbar.js) doet
+  // ONDERTUSSEN zelf ook al enhanceNavbarFavoriteLinks()/appendNavbarMoreLink()/
+  // lucide.createIcons() -- dat is nu APP-BREED gedeelde logica (werkt op elke
+  // moderne module, niet enkel hier), dus geen duplicatie meer nodig in dit
+  // mini-apps-eigen bestand. Hier blijft enkel wat ECHT mini-apps-specifiek is:
+  // de "Terug"-link (enkel relevant tijdens de fullscreen-viewer van DEZE
+  // module) en de favorieten-nudge.
+  if (activeFrame) insertNavbarBackLink();
+  renderFavoriteNudge();
+  lucide.createIcons();
+}
+
+// Herordent de BESTAANDE navbar-favoriet-tegels client-side naar de volgorde
+// in `favorites` (optimistisch, voor de persistFavoritesOrder()-round-trip
+// terugkomt) -- gebruikt de "een kind opnieuw toevoegen verplaatst het naar
+// het einde"-truc, dus na de forEach staan ze in exact de goede volgorde.
+// Voegt GEEN nieuwe tegels toe (dat doet renderNavbarFavoriteOptimistic voor
+// een gloednieuwe favoriet); enkel de al aanwezige tegels herschikken.
+function reorderNavbarFavoritesDom() {
+  var container = document.getElementById('navbarFavorites');
+  if (!container) return;
+  favorites.forEach(function(fav) {
+    var el = container.querySelector('[data-fav-id="' + fav.id + '"]');
+    if (el) container.appendChild(el);
+  });
+  // De Terug-link (indien aanwezig) moet ondanks de appendChild-verschuivingen
+  // hierboven het meest linkse blokje blijven.
+  var backLink = document.getElementById('miniAppNavbarBack');
+  if (backLink) container.insertBefore(backLink, container.firstChild);
+  // Het "Meer…"-blokje moet net zo goed het MEEST RECHTSE blokje blijven --
+  // de forEach hierboven verplaatst elke favoriet naar het einde van de
+  // container, wat een reeds aanwezig "Meer…"-blokje anders voorbij zou
+  // steken (en dus middenin de rij zou laten hangen i.p.v. achteraan).
+  var moreLink = document.getElementById('miniAppNavbarMore');
+  if (moreLink) container.appendChild(moreLink);
 }
 
 // Extra "Terug"-link naast de Modules-dropdown in de GEDEELDE navbar, enkel
@@ -525,13 +568,66 @@ function dismissFavoriteNudgeCallout() {
 }
 
 async function confirmFavoriteNudge(id) {
+  var appMeta = (favoriteNudgeApp && favoriteNudgeApp.id === id) ? favoriteNudgeApp : apps.find(function(a) { return a.id === id; });
+  hideFavoriteNudge();
+
+  // Optimistisch: meteen vooraan toevoegen aan de in-memory favorietenlijst en
+  // zowel de in-page strip als de navbar-balk herteken VOOR de round-trip
+  // terugkomt -- anders verschijnt de favoriet pas na een volledige
+  // paginaherlaad (en dan nog achteraan, want de server-volgorde staat pas
+  // bij de volgende renderNavbar()-call goed).
+  var alreadyFavorite = favorites.some(function(f) { return f.id === id; });
+  if (appMeta && !alreadyFavorite) {
+    favorites = [{ id: appMeta.id, title: appMeta.title, icon: appMeta.icon }].concat(favorites);
+    renderFavoritesSection();
+    renderNavbarFavoriteOptimistic(favorites[0]);
+  }
+
   try {
+    // Volgorde is hier belangrijk: eerst als favoriet markeren (de server
+    // voegt een NIEUWE favoriet typisch gewoon ACHTERAAN toe aan de
+    // opgeslagen volgorde) -- daarna EXPLICIET onze eigen volgorde
+    // opslaan (persistFavoritesOrder(), met de nieuwe favoriet vooraan,
+    // exact zoals we 'm hierboven al tonen). Zonder die tweede stap zou de
+    // favoriet, zodra de PUT hieronder + de daaropvolgende
+    // loadFavorites()/renderNavbar() terugkomen, alsnog naar de
+    // server-volgorde (achteraan) verspringen.
     await apiJson(`/mini-apps/api/apps/${id}/favorite`, { method: 'PUT' });
-    hideFavoriteNudge();
-    await Promise.all([loadApps(), loadFavorites(), renderNavbar()]);
+    await persistFavoritesOrder();
+    await loadApps();
   } catch (err) {
     showToast('Favoriet toevoegen mislukt: ' + err.message, 'error');
+    // Rollback: herlaad de echte staat (de optimistische invoeging hierboven
+    // klopt dan niet meer, want de server-aanroep is mislukt).
+    await Promise.all([loadApps(), loadFavorites(), renderNavbar()]);
   }
+}
+
+// Toont de zonet toegevoegde favoriet METEEN als een echte navbar-favoriet-
+// tegel (zelfde opmaak als navbar.js zou renderen), vooraan in de balk --
+// puur om de wachttijd tot de volgende renderNavbar()-round-trip te
+// overbruggen. Wordt hoe dan ook overschreven zodra renderNavbar() de
+// server-waarheid terugkrijgt.
+function renderNavbarFavoriteOptimistic(fav) {
+  var container = document.getElementById('navbarFavorites');
+  if (!container || !fav) return;
+  var existing = container.querySelector('[data-optimistic-fav="' + fav.id + '"]');
+  if (existing) return;
+
+  var a = document.createElement('a');
+  a.href = '/mini-apps?app=' + encodeURIComponent(fav.id);
+  a.dataset.optimisticFav = fav.id;
+  a.dataset.favId = fav.id;   // zodat bindFavoritesDragAndDrop('navbarFavorites') 'm meteen als draggable-tegel herkent
+  a.draggable = true;
+  a.className = 'btn btn-xs btn-ghost border border-base-300 gap-1.5 font-normal text-base-content/70 hover:text-base-content hover:border-primary/40 max-w-[9rem]';
+  a.title = fav.title;
+  a.innerHTML = `<i data-lucide="${fav.icon || 'puzzle'}" class="w-3 h-3"></i><span class="truncate">${escapeHtml(fav.title)}</span>`;
+
+  var backLink = document.getElementById('miniAppNavbarBack');
+  container.insertBefore(a, backLink ? backLink.nextSibling : container.firstChild);
+  var divider = document.getElementById('navbarFavoritesDivider');
+  if (divider) divider.classList.remove('hidden');
+  lucide.createIcons();
 }
 
 function renderFavoriteNudge() {

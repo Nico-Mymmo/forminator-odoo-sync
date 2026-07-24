@@ -41,6 +41,7 @@ document.addEventListener('click', function(e) {
     else if (action === 'deleteChatChannel') deleteChatChannel(el.dataset.id);
     else if (action === 'confirmFavoriteNudge') confirmFavoriteNudge(el.dataset.id);
     else if (action === 'dismissFavoriteNudgeCallout') dismissFavoriteNudgeCallout();
+    else if (action === 'pickIcon') pickIcon(el.dataset.picker, el.dataset.icon);
   }
 
   var tabBtn = e.target.closest('[data-app-tab]');

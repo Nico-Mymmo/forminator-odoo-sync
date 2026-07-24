@@ -195,18 +195,31 @@ async function openAppFullscreen(id, options) {
     // (mini-apps-bootstrap.js) als reactie op een browser-back/-forward --
     // de URL staat dan al goed, enkel de UI hierboven moet nog volgen.
     if (pushHistory) {
-      // Zorg dat er altijd een overzicht-stap in de geschiedenis zit VOOR de
-      // app-stap -- ook bij een directe deeplink (?app=<id>) bij het eerste
-      // laden van de pagina. Zo gaat de browser-back-knop altijd naar het
-      // mini-apps-overzicht, nooit naar de vorige pagina (bv. de Operations
-      // Manager-homepage). Enkel de allereerste keer in een navigatie-keten
-      // vervangen (history.state.miniApps-check) -- anders zou elke
-      // appwissel via de navbar-favorieten een extra overzicht-entry
-      // opstapelen.
+      // Zorg dat er altijd EXACT EEN overzicht-stap in de geschiedenis zit VOOR
+      // de huidige app-stap -- ook bij een directe deeplink (?app=<id>) bij het
+      // eerste laden van de pagina. Zo gaat de browser-back-knop / de
+      // "Terug"-link altijd naar het mini-apps-overzicht, nooit naar een
+      // andere pagina OF (de vorige bug) naar de vorige geopende app.
+      //
+      // Twee gevallen:
+      // 1. Nog geen mini-apps-navigatie bezig (history.state.miniApps ontbreekt):
+      //    dit is de eerste stap in de keten -- overzicht vervangt de huidige
+      //    (niet-mini-apps) entry, app wordt daarna gepusht. Stack: [overzicht, app].
+      // 2. Al in mini-apps-navigatie (overzicht OF een andere app stond al open,
+      //    bv. via een klik op een andere favoriet zonder eerst te sluiten):
+      //    de HUIDIGE entry vervangen (replaceState) i.p.v. een nieuwe app-stap
+      //    bovenop te pushen. Zonder dit stapelden opeenvolgende appwissels
+      //    steeds een extra "app"-entry op (overzicht, appA, appB, appC, ...),
+      //    waardoor "Terug" maar EEN stap terugging -- naar de vorige app in
+      //    plaats van naar het overzicht. Met replaceState blijft de stack
+      //    altijd maximaal [overzicht, huidige-app], dus "Terug" (1x history.back())
+      //    komt altijd meteen op het overzicht uit, nooit op een tussenliggende app.
       if (!(history.state && history.state.miniApps)) {
         history.replaceState({ miniApps: true, view: 'overview' }, '', '/mini-apps');
+        history.pushState({ miniApps: true, view: 'app', appId: id }, '', '/mini-apps?app=' + encodeURIComponent(id));
+      } else {
+        history.replaceState({ miniApps: true, view: 'app', appId: id }, '', '/mini-apps?app=' + encodeURIComponent(id));
       }
-      history.pushState({ miniApps: true, view: 'app', appId: id }, '', '/mini-apps?app=' + encodeURIComponent(id));
     }
   } catch (err) {
     document.documentElement.classList.remove('mini-app-deeplink');
@@ -215,6 +228,13 @@ async function openAppFullscreen(id, options) {
 }
 
 function closeAppFullscreen(options) {
+  // Idempotentie-guard: closeAppFullscreen kan in theorie tweemaal voor
+  // dezelfde "sluit"-gebeurtenis binnenkomen (bv. de Terug-link-klik EN,
+  // even later, de popstate die daaruit voortvloeit) -- zonder guard zou de
+  // tweede aanroep nog een keer history.back() doen (met updateHistory
+  // default true) en zo een stap te ver teruggaan. activeFrame is null
+  // zodra de viewer al dicht is, dus dat is hier de betrouwbare marker.
+  if (!activeFrame && (!options || options.updateHistory !== false)) return;
   var updateHistory = !options || options.updateHistory !== false;
   document.getElementById('appFullscreen').classList.add('hidden');
   document.getElementById('mainContent').classList.remove('hidden');

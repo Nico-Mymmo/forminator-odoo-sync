@@ -77,8 +77,15 @@ function renderFavoritesSection() {
     return;
   }
   section.classList.remove('hidden');
+  // draggable="true" + data-fav-id: sleep-en-neerzet-herordenen (zie
+  // setupFavoritesDragAndDrop hieronder). De pijltjesknoppen blijven ernaast
+  // bestaan als toegankelijk/mobiel-vriendelijk alternatief -- geen van
+  // beide vervangt de andere, ze sturen allebei dezelfde persistFavoritesOrder().
   strip.innerHTML = favorites.map(function(fav, index) {
-    return `<div class="join">
+    return `<div class="join" draggable="true" data-fav-id="${fav.id}">
+      <span class="btn btn-ghost btn-xs join-item cursor-grab active:cursor-grabbing px-1" title="Slepen om te herordenen">
+        <i data-lucide="grip-vertical" class="w-3 h-3 pointer-events-none"></i>
+      </span>
       <button class="btn btn-ghost btn-xs join-item" data-action="moveFavorite" data-id="${fav.id}" data-dir="-1"${index === 0 ? ' disabled' : ''} title="Naar links">
         <i data-lucide="chevron-left" class="w-3 h-3"></i>
       </button>
@@ -108,7 +115,15 @@ async function moveFavorite(id, dir) {
   reordered[targetIndex] = tmp;
   favorites = reordered;
   renderFavoritesSection();
+  reorderNavbarFavoritesDom();
+  await persistFavoritesOrder();
+}
 
+// Gedeeld door moveFavorite (pijltjes) en de drag-and-drop-herordening
+// hieronder -- beide passen eerst `favorites` + de weergave zelf aan
+// (optimistisch), en roepen dit dan aan om op te slaan + terug te rollen bij
+// een fout.
+async function persistFavoritesOrder() {
   try {
     await apiJson('/mini-apps/api/apps/favorites/order', {
       method: 'PUT',
@@ -121,6 +136,168 @@ async function moveFavorite(id, dir) {
     await loadFavorites();
   }
 }
+
+// ====== Favorieten herordenen via slepen (enkel de in-page strip) ======
+//
+// LET OP -- reikwijdte bewust beperkt tot #favoritesStrip. De gedeelde
+// navbar-balk (#navbarFavorites) is app-breed zichtbaar op elke moderne
+// module-pagina, niet enkel hier -- die krijgt daarom zijn EIGEN, onafhankelijke
+// drag-and-drop-afhandeling in public/shared-navbar.js (zodat slepen ook werkt
+// op bv. /admin of /cx-automations, niet enkel binnen deze module). Zonder
+// deze scheiding zouden twee losse dragstart/drop-systemen (hier EN in
+// shared-navbar.js) om dezelfde #navbarFavorites-tegels vechten.
+//
+// #favoritesStrip zelf bestaat enkel op DEZE pagina (de mini-apps-
+// overzichtpagina) en blijft dus terecht module-eigen UI/logica.
+// Event delegation op `document` (niet op #favoritesStrip zelf), want de
+// strip wordt bij elke renderFavoritesSection() volledig herbouwd
+// (innerHTML) -- een rechtstreeks gebonden listener zou na de eerste
+// herteken alweer weg zijn.
+var dragFavoriteId = null;
+
+function bindFavoritesDragAndDrop() {
+  document.addEventListener('dragstart', function(e) {
+    var item = e.target.closest('#favoritesStrip [data-fav-id]');
+    if (!item) return; // ander sleepgedrag elders op de pagina niet blokkeren
+    dragFavoriteId = item.dataset.favId;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', dragFavoriteId); } catch (_err) { /* Firefox-quirk, negeerbaar */ }
+    }
+    item.classList.add('opacity-40');
+  });
+
+  document.addEventListener('dragend', function(e) {
+    var item = e.target.closest('#favoritesStrip [data-fav-id]');
+    if (item) item.classList.remove('opacity-40');
+    dragFavoriteId = null;
+    clearFavoriteDropIndicator();
+  });
+
+  document.addEventListener('dragover', function(e) {
+    if (!dragFavoriteId) return;
+    var target = resolveFavoriteDropTarget(e);
+    if (!target) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    showFavoriteDropIndicator(target, e.clientX);
+  });
+
+  document.addEventListener('drop', function(e) {
+    if (!dragFavoriteId) return;
+    var target = resolveFavoriteDropTarget(e);
+    var draggedId = dragFavoriteId;
+    dragFavoriteId = null;
+    clearFavoriteDropIndicator();
+    if (!target || target.dataset.favId === draggedId) return;
+    e.preventDefault();
+    // VOOR of NA het doelblokje neerzetten, afhankelijk van op welke helft
+    // (links/rechts van het midden) je loslaat -- zo kan je een favoriet
+    // exact TUSSEN twee andere zetten i.p.v. enkel "op" een bestaande tegel
+    // te moeten droppen (die altijd naar dezelfde kant verplaatste).
+    var rect = target.getBoundingClientRect();
+    var placeAfter = (e.clientX - rect.left) > (rect.width / 2);
+    reorderFavoriteByDrag(draggedId, target.dataset.favId, placeAfter);
+  });
+
+  document.addEventListener('dragleave', function(e) {
+    if (!dragFavoriteId) return;
+    // Enkel opruimen als de cursor de HELE strip verlaat (niet enkel een
+    // individuele tegel) -- anders knippert de indicator elke keer de cursor
+    // over de tussenruimte tussen twee tegels beweegt (zie
+    // resolveFavoriteDropTarget hieronder: die tussenruimte hoort net zo goed
+    // bij de dropzone, maar vuurt op zich wel een dragleave van de vorige
+    // tegel af).
+    var related = e.relatedTarget;
+    var stillInsideStrip = related && related.closest && related.closest('#favoritesStrip');
+    if (!stillInsideStrip) clearFavoriteDropIndicator();
+  });
+}
+
+// Geeft de tegel terug waar het (drag/drop-)event bij hoort te horen --
+// zowel wanneer de cursor letterlijk BOVEN een tegel zit, als wanneer die in
+// de tussenruimte TUSSEN twee tegels zit (bv. de flex-gap, of boven de
+// stippellijn-indicator zelf, die zelf geen data-fav-id heeft). Zonder deze
+// fallback viel de dropzone precies uit tussen twee tegels -- exact het
+// gebied waar je een favoriet net TUSSEN twee andere wil neerzetten -- en gaf
+// dat een geflikker (indicator verschijnt/verdwijnt) omdat elke dragover
+// daar zonder geldig doelwit vroegtijdig afbrak.
+function resolveFavoriteDropTarget(e) {
+  var direct = e.target.closest('#favoritesStrip [data-fav-id]');
+  if (direct) return direct;
+  var container = e.target.closest('#favoritesStrip');
+  if (!container) return null;
+  var tiles = container.querySelectorAll('[data-fav-id]');
+  var nearest = null;
+  var nearestDist = Infinity;
+  Array.prototype.forEach.call(tiles, function(tile) {
+    var rect = tile.getBoundingClientRect();
+    var center = rect.left + rect.width / 2;
+    var dist = Math.abs(e.clientX - center);
+    if (dist < nearestDist) { nearestDist = dist; nearest = tile; }
+  });
+  return nearest;
+}
+
+// ====== Visuele "hier komt 'm terecht"-indicator tijdens het slepen ======
+//
+// Bewust een ECHT tussengevoegd flex-kind (geen border/opacity op de tegel
+// zelf) -- zo'n indicator-elementje neemt zelf ruimte in de flex-rij in, wat
+// de buurtegels letterlijk een beetje uit elkaar duwt, in plaats van enkel
+// een rand op een bestaande tegel te tonen (die niet duidelijk maakte TUSSEN
+// welke twee tegels de favoriet precies zou landen). Eén gedeeld element,
+// steeds verplaatst naar de juiste positie i.p.v. telkens een nieuwe aan te
+// maken/verwijderen.
+function getFavoriteDropIndicatorEl() {
+  var el = document.getElementById('favoriteDropIndicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'favoriteDropIndicator';
+    el.setAttribute('aria-hidden', 'true');
+    // border-dashed op een border-l geeft het "verticaal stippellijntje"-effect;
+    // self-stretch laat 'm de volledige hoogte van de rij (navbar-balk of
+    // strip-rij) volgen, ongeacht of dat een <a> of een <div class="join"> is.
+    el.className = 'self-stretch border-l-2 border-dashed border-primary mx-1 shrink-0 rounded-sm';
+    el.style.minHeight = '1.5rem';
+  }
+  return el;
+}
+
+function showFavoriteDropIndicator(target, clientX) {
+  var indicator = getFavoriteDropIndicatorEl();
+  var parent = target.parentElement;
+  if (!parent) return;
+  var rect = target.getBoundingClientRect();
+  var placeAfter = (clientX - rect.left) > (rect.width / 2);
+  parent.insertBefore(indicator, placeAfter ? target.nextSibling : target);
+}
+
+function clearFavoriteDropIndicator() {
+  var el = document.getElementById('favoriteDropIndicator');
+  if (el && el.parentElement) el.parentElement.removeChild(el);
+}
+
+async function reorderFavoriteByDrag(draggedId, targetId, placeAfter) {
+  var fromIndex = favorites.findIndex(function(f) { return f.id === draggedId; });
+  if (fromIndex === -1) return;
+
+  var reordered = favorites.slice();
+  var moved = reordered.splice(fromIndex, 1)[0];
+  var targetIndex = reordered.findIndex(function(f) { return f.id === targetId; });
+  if (targetIndex === -1) return;
+  var insertAt = placeAfter ? targetIndex + 1 : targetIndex;
+  reordered.splice(insertAt, 0, moved);
+  favorites = reordered;
+  // Optimistisch: beide weergaves meteen bijwerken, VOOR de round-trip
+  // (renderFavoritesSection voor de strip, reorderNavbarFavoritesDom voor de
+  // navbar-balk -- zie mini-apps-core.js) -- persistFavoritesOrder() ververst
+  // nadien de navbar sowieso nog eens via renderNavbar() met de servertruth.
+  renderFavoritesSection();
+  reorderNavbarFavoritesDom();
+  await persistFavoritesOrder();
+}
+
+bindFavoritesDragAndDrop();
 
 // ====== Chat-kanalen modal ======
 
