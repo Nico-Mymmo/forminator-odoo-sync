@@ -99,6 +99,14 @@ function visibilityBadge(app) {
   return `<span class="badge badge-sm badge-ghost gap-1"><i data-lucide="lock" class="w-3 h-3"></i> Privé</span>`;
 }
 
+// Externe-URL-apps (app_type === 'url', zie routes.js POST /api/apps/external)
+// tonen een klein badge naast de titel om ze visueel te onderscheiden van
+// gewone "html"-apps (geen code-editor, geen instrumentatie/shim mogelijk).
+function externalUrlBadge(app) {
+  if (app.app_type !== 'url') return '';
+  return `<span class="badge badge-sm badge-outline gap-1" title="Externe app (URL)"><i data-lucide="external-link" class="w-3 h-3"></i></span>`;
+}
+
 var ADD_APP_TILE = `
   <button type="button" class="card border-2 border-dashed border-base-300 bg-transparent hover:border-primary hover:bg-base-100 transition-colors flex items-center justify-center min-h-[132px]" data-action="openUploadModal">
     <div class="flex flex-col items-center gap-1.5 text-base-content/50 hover:text-primary">
@@ -174,6 +182,7 @@ function renderAppCard(app) {
             <h3 class="font-semibold text-sm truncate" title="${escapeHtml(app.title)}">${escapeHtml(app.title)}</h3>
           </div>
           <div class="flex items-center gap-1 shrink-0">
+            ${externalUrlBadge(app)}
             ${visibilityBadge(app)}
             ${linkButton}
             ${favoriteControl}
@@ -211,6 +220,7 @@ function renderAppLists() {
 async function loadApps() {
   try {
     apps = await apiJson('/mini-apps/api/apps');
+    appsLoaded = true;
     renderAppLists();
   } catch (err) {
     showToast('Lijst ophalen mislukt: ' + err.message, 'error');

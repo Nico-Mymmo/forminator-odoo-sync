@@ -30,6 +30,9 @@ var codeEditor = null;       // CodeMirror-instance (lazy, 1x per pagina-load, v
 var appErrors = [];          // JS-fouten die de draaiende mini-app naar ons doorstuurt (postMessage)
 var activeFrame = null;      // { frame, banner } -- welke iframe/foutbanner-paar nu actief is
                               // (appModal-bewerkmodus OF de kale appFullscreen-viewer, nooit beide)
+var appsLoaded = false;       // true zodra loadApps() minstens 1x is teruggekomen (zie favorieten-nudge hieronder)
+var favoritesLoaded = false; // true zodra loadFavorites() minstens 1x is teruggekomen
+var favoriteNudgeApp = null; // { id, title, icon } van de app die nu OPEN staat maar nog geen favoriet is -- null als er niets te nudgen valt
 
 // ====== Helpers ======
 
@@ -491,5 +494,78 @@ function removeNavbarBackLink() {
   if (container && divider && container.children.length === 0) {
     divider.classList.add('hidden');
   }
+}
+
+// ====== Favorieten-nudge ======
+//
+// Wie een mini-app opent die nog GEEN favoriet is (bv. via een doorgestuurde
+// link, of gewoon "Openen" vanuit de gedeeld-met-mij-lijst) krijgt tijdelijk
+// een extra tegel vooraan in de navbar-favorietenbalk (naast de "Terug"-link),
+// met een kleine callout die vraagt om de app aan de favorieten toe te voegen.
+// Bewust GEEN persistente "niet meer tonen"-onthouding: de nudge mag elke
+// keer opnieuw verschijnen, ook als hij eerder werd weggeklikt. De tegel zelf
+// verdwijnt altijd zodra de app sluit (zie closeAppFullscreen), ongeacht of
+// de gebruiker de callout intussen bevestigde of wegklikte.
+function showFavoriteNudge(appMeta) {
+  favoriteNudgeApp = appMeta || null;
+  renderFavoriteNudge();
+}
+
+function hideFavoriteNudge() {
+  favoriteNudgeApp = null;
+  var el = document.getElementById('miniAppFavNudge');
+  if (el) el.remove();
+}
+
+// Enkel de callout wegklikken -- de tegel zelf (die de app nog toont, gewoon
+// nog niet als favoriet) blijft staan tot de app sluit.
+function dismissFavoriteNudgeCallout() {
+  var callout = document.getElementById('miniAppFavNudgeCallout');
+  if (callout) callout.remove();
+}
+
+async function confirmFavoriteNudge(id) {
+  try {
+    await apiJson(`/mini-apps/api/apps/${id}/favorite`, { method: 'PUT' });
+    hideFavoriteNudge();
+    await Promise.all([loadApps(), loadFavorites(), renderNavbar()]);
+  } catch (err) {
+    showToast('Favoriet toevoegen mislukt: ' + err.message, 'error');
+  }
+}
+
+function renderFavoriteNudge() {
+  var container = document.getElementById('navbarFavorites');
+  if (!container) return;
+  var existing = document.getElementById('miniAppFavNudge');
+  if (existing) existing.remove();
+  if (!favoriteNudgeApp) return;
+
+  var wrap = document.createElement('div');
+  wrap.id = 'miniAppFavNudge';
+  wrap.className = 'relative inline-flex';
+  wrap.innerHTML = `<button type="button" class="btn btn-xs btn-ghost border border-dashed border-primary/50 gap-1.5 font-normal text-base-content/70" data-action="confirmFavoriteNudge" data-id="${favoriteNudgeApp.id}" title="Toevoegen aan favorieten">
+      <i data-lucide="${favoriteNudgeApp.icon || 'puzzle'}" class="w-3.5 h-3.5"></i>
+      ${escapeHtml(favoriteNudgeApp.title)}
+    </button>
+    <div id="miniAppFavNudgeCallout" class="absolute top-full left-0 mt-1 z-20 bg-base-100 border border-primary/40 shadow-lg rounded-lg p-2 text-xs w-48 flex items-start gap-1.5">
+      <i data-lucide="heart" class="w-3.5 h-3.5 text-primary shrink-0 mt-0.5"></i>
+      <span class="flex-1">Toevoegen aan je favorieten-balk?</span>
+      <button type="button" class="btn btn-ghost btn-xs btn-circle" data-action="dismissFavoriteNudgeCallout" title="Negeren">
+        <i data-lucide="x" class="w-3 h-3"></i>
+      </button>
+    </div>`;
+
+  // Vooraan, maar NA de "Terug"-link als die er is (zodat die altijd het
+  // meest linkse blokje blijft) -- anders als eerste kind.
+  var backLink = document.getElementById('miniAppNavbarBack');
+  if (backLink) {
+    container.insertBefore(wrap, backLink.nextSibling);
+  } else {
+    container.insertBefore(wrap, container.firstChild);
+  }
+  var divider = document.getElementById('navbarFavoritesDivider');
+  if (divider) divider.classList.remove('hidden');
+  lucide.createIcons();
 }
 

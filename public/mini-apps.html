@@ -129,6 +129,11 @@
         </button>
       </div>
 
+      <div role="tablist" class="tabs tabs-boxed mb-4" id="uploadSourceModeTabs">
+        <button type="button" role="tab" class="tab tab-active" data-action="setUploadSourceMode" data-mode="file" id="uploadSourceModeTabFile">Bestand uploaden</button>
+        <button type="button" role="tab" class="tab" data-action="setUploadSourceMode" data-mode="url" id="uploadSourceModeTabUrl">Externe app (URL)</button>
+      </div>
+
       <div class="form-control mb-3">
         <label class="label pb-1"><span class="label-text text-xs font-semibold">Titel</span></label>
         <input type="text" id="uploadTitle" class="input input-bordered input-sm" placeholder="bv. OGM-generator" />
@@ -149,10 +154,16 @@
         </div>
       </div>
 
-      <div class="form-control mb-4">
+      <div class="form-control mb-4" id="uploadFileWrap">
         <label class="label pb-1"><span class="label-text text-xs font-semibold">HTML-bestand</span></label>
         <input type="file" id="uploadFile" accept=".html,.htm,text/html" class="file-input file-input-bordered file-input-sm" />
         <span class="label-text-alt text-base-content/50 mt-1">Eén single-file .html-bestand (met inline JS/CSS), max 2 MB.</span>
+      </div>
+
+      <div class="form-control mb-4 hidden" id="uploadUrlWrap">
+        <label class="label pb-1"><span class="label-text text-xs font-semibold">URL</span></label>
+        <input type="text" id="uploadExternalUrl" class="input input-bordered input-sm" placeholder="https://mijn-app.lovable.app" />
+        <span class="label-text-alt text-base-content/50 mt-1">Een extern gehoste app (bv. Lovable) -- wordt in een iframe geladen, geen code-editor mogelijk.</span>
       </div>
 
       <div class="form-control mb-4">
@@ -262,7 +273,7 @@
       <!-- Voorbeeld -->
       <div id="appPanePreview" class="flex-1 min-h-0 app-frame-wrap flex flex-col">
         <div id="appErrorBanner" class="hidden bg-error/10 border-b border-error/30 text-error text-xs px-3 py-2 max-h-28 overflow-y-auto shrink-0"></div>
-        <iframe id="appFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" allow="clipboard-write"></iframe>
+        <iframe id="appFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin" allow="clipboard-write"></iframe>
       </div>
 
       <!-- Code -->
@@ -318,6 +329,15 @@
           <div id="settingsColleaguesList" class="max-h-40 overflow-y-auto border border-base-300 rounded-lg p-2 flex flex-col gap-1"></div>
         </div>
 
+        <div class="form-control mb-4 hidden" id="settingsExternalUrlWrap">
+          <label class="label pb-1"><span class="label-text text-xs font-semibold">Externe URL</span></label>
+          <input type="text" id="settingsExternalUrl" class="input input-bordered input-sm" placeholder="https://mijn-app.lovable.app" />
+          <button type="button" class="btn btn-secondary btn-sm gap-2 mt-2 self-start" data-action="saveExternalUrl">
+            <i data-lucide="save" class="w-4 h-4"></i>
+            URL opslaan
+          </button>
+        </div>
+
         <div class="form-control mb-4" id="settingsStorageWrap">
           <label class="label pb-1"><span class="label-text text-xs font-semibold flex items-center gap-1.5"><i data-lucide="database" class="w-3.5 h-3.5"></i> Gedeelde opslag</span></label>
           <div class="flex items-center justify-between text-xs text-base-content/60 mb-1">
@@ -347,7 +367,7 @@
   <!-- ======= Fullscreen mini-app viewer ("Openen" / deeplink) ======= -->
   <div id="appFullscreen" class="hidden">
     <div id="appFullscreenErrorBanner" class="hidden bg-error/10 border-b border-error/30 text-error text-xs px-3 py-2 max-h-28 overflow-y-auto shrink-0"></div>
-    <iframe id="appFullscreenFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" allow="clipboard-write"></iframe>
+    <iframe id="appFullscreenFrame" class="w-full flex-1 border-0" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin" allow="clipboard-write"></iframe>
   </div>
 
   <div id="toastContainer" class="toast toast-end z-50"></div>

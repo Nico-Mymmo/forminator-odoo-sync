@@ -21,6 +21,7 @@ document.addEventListener('click', function(e) {
     else if (action === 'copyBuildPrompt') copyBuildPrompt();
     else if (action === 'closeUploadModal') closeUploadModal();
     else if (action === 'submitUpload') submitUpload();
+    else if (action === 'setUploadSourceMode') setUploadSourceMode(el.dataset.mode);
     else if (action === 'openAppFullscreen') openAppFullscreen(el.dataset.id);
     else if (action === 'openApp') openApp(el.dataset.id);
     else if (action === 'copyAppLink') copyAppLink(el.dataset.id);
@@ -32,11 +33,14 @@ document.addEventListener('click', function(e) {
     else if (action === 'closeAppModal') closeAppModal();
     else if (action === 'saveAppCode') saveAppCode();
     else if (action === 'saveAppSettings') saveAppSettings();
+    else if (action === 'saveExternalUrl') saveExternalUrl();
     else if (action === 'deleteApp') deleteApp();
     else if (action === 'openChatChannelsModal') openChatChannelsModal();
     else if (action === 'closeChatChannelsModal') closeChatChannelsModal();
     else if (action === 'submitChatChannel') submitChatChannel();
     else if (action === 'deleteChatChannel') deleteChatChannel(el.dataset.id);
+    else if (action === 'confirmFavoriteNudge') confirmFavoriteNudge(el.dataset.id);
+    else if (action === 'dismissFavoriteNudgeCallout') dismissFavoriteNudgeCallout();
   }
 
   var tabBtn = e.target.closest('[data-app-tab]');

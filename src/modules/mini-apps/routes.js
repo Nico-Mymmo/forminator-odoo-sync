@@ -8,7 +8,8 @@
  *
  *  API (authenticated — iedereen met module-toegang)
  *    GET    /api/apps                  → Lijst apps die de user mag zien
- *    POST   /api/apps                  → Upload nieuwe mini-app (multipart)
+ *    POST   /api/apps                  → Upload nieuwe mini-app (multipart, app_type='html')
+ *    POST   /api/apps/external         → Registreer een externe-URL mini-app (JSON, app_type='url')
  *    GET    /api/apps/colleagues       → Lijst actieve gebruikers (share-picker)
  *    GET    /api/apps/:id              → Metadata van één app
  *    GET    /api/apps/:id/content      → HTML-inhoud van één app
@@ -103,7 +104,7 @@ const LOG_PREFIX = '[mini-apps]';
 
 export const MAX_APP_BYTES = 2 * 1024 * 1024; // 2 MB — ruim voldoende voor single-file HTML/JS/CSS
 
-const SELECT_FIELDS = 'id, title, description, owner_user_id, visibility, shared_user_ids, size_bytes, version, created_at, updated_at, icon, is_global_favorite';
+const SELECT_FIELDS = 'id, title, description, owner_user_id, visibility, shared_user_ids, size_bytes, version, created_at, updated_at, icon, is_global_favorite, app_type, external_url';
 
 // ─── Response helpers ────────────────────────────────────────────────────────
 
@@ -135,6 +136,16 @@ const VALID_ICONS = [
   'code', 'terminal', 'database', 'bar-chart-2', 'pie-chart', 'trending-up',
   'shopping-cart', 'truck', 'file-spreadsheet', 'clipboard-check'
 ];
+
+function isValidHttpUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (_err) {
+    return false;
+  }
+}
 
 function looksLikeHtml(file) {
   const name = (file?.name || '').toLowerCase();
@@ -965,6 +976,62 @@ export const routes = {
     }
   },
 
+  // ── Registreren van een externe-URL app (geen upload, geen R2) ──────────
+  'POST /api/apps/external': async ({ request, env, user }) => {
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const description = typeof body.description === 'string' ? body.description.trim() || null : null;
+    const visibility = (body.visibility || 'private').toString();
+    const iconRaw = (body.icon || '').toString();
+    const icon = VALID_ICONS.includes(iconRaw) ? iconRaw : 'puzzle';
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+
+    if (!title) {
+      return jsonError('Titel is verplicht.', 400);
+    }
+    if (!VALID_VISIBILITIES.includes(visibility)) {
+      return jsonError('Ongeldige visibility-waarde.', 400, 'INVALID_VISIBILITY');
+    }
+    if (!isValidHttpUrl(url)) {
+      return jsonError('Ongeldige URL — enkel http:// of https:// links zijn toegestaan.', 400, 'INVALID_URL');
+    }
+
+    const sharedUserIds = visibility === 'specific' ? normalizeSharedUserIds(body.sharedUserIds, user.id) : [];
+
+    const supabase = getSupabaseClient(env);
+    const { data: inserted, error: insertError } = await supabase
+      .from('mini_apps')
+      .insert({
+        title,
+        description,
+        owner_user_id: user.id,
+        visibility,
+        shared_user_ids: sharedUserIds,
+        icon,
+        app_type: 'url',
+        external_url: url,
+        r2_key: null,
+        size_bytes: null,
+        version: 1
+      })
+      .select(SELECT_FIELDS)
+      .single();
+
+    if (insertError) {
+      console.error(`${LOG_PREFIX} external insert error:`, insertError.message);
+      return jsonError('Aanmaken van de app mislukt.', 500);
+    }
+
+    console.log(`${LOG_PREFIX} CREATE (external) ${inserted.id} — ${url} — user ${user.id}`);
+    return jsonOk({ ...inserted, isOwner: true });
+  },
+
   // ── Eén app — metadata ───────────────────────────────────────────────────
   'GET /api/apps/:id': async ({ env, user, params }) => {
     const supabase = getSupabaseClient(env);
@@ -1009,13 +1076,20 @@ export const routes = {
     if (!app) return jsonError('App niet gevonden.', 404);
     if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
 
+    if (app.app_type === 'url') {
+      // Externe-URL-app: geen R2-inhoud, de client laadt gewoon app.external_url
+      // rechtstreeks in een iframe (src i.p.v. srcdoc) -- geen instrumentatie/shim
+      // mogelijk op een cross-origin pagina.
+      return jsonOk({ appType: 'url', externalUrl: app.external_url, isOwner: app.owner_user_id === user.id });
+    }
+
     const content = await getAppContent(env, app.id);
     if (content === null) return jsonError('App-inhoud niet gevonden in opslag.', 404);
 
     // isOwner meesturen (naast isAdmin, client-side al bekend via renderNavbar())
     // zodat de mini-apps-shim window.currentUser.isCreator kan vullen zonder een
     // aparte /api/apps/:id-call te moeten doen (zie buildUserShim() in mini-apps.js).
-    return jsonOk({ content, isOwner: app.owner_user_id === user.id });
+    return jsonOk({ appType: 'html', content, isOwner: app.owner_user_id === user.id });
   },
 
   // ── Metadata bijwerken (owner only) ──────────────────────────────────────
@@ -1058,6 +1132,15 @@ export const routes = {
       }
       update.icon = body.icon;
     }
+    if (body.externalUrl !== undefined) {
+      if (app.app_type !== 'url') {
+        return jsonError('externalUrl kan enkel gezet worden op een externe-URL-app.', 400, 'NOT_URL_APP');
+      }
+      if (!isValidHttpUrl(body.externalUrl)) {
+        return jsonError('Ongeldige URL — enkel http:// of https:// links zijn toegestaan.', 400, 'INVALID_URL');
+      }
+      update.external_url = body.externalUrl.trim();
+    }
 
     if (Object.keys(update).length === 0) {
       return jsonError('Niets om bij te werken.', 400);
@@ -1091,6 +1174,9 @@ export const routes = {
     if (fetchError) return jsonError('App ophalen mislukt.', 500);
     if (!app) return jsonError('App niet gevonden.', 404);
     if (!canEdit(app, user)) return jsonError('Alleen de eigenaar mag deze app tweaken.', 403, 'FORBIDDEN');
+    if (app.app_type === 'url') {
+      return jsonError('Deze app is een externe-URL-app — er is geen code om te tweaken.', 400, 'NOT_HTML_APP');
+    }
 
     let body;
     try {
@@ -1152,12 +1238,14 @@ export const routes = {
     if (!app) return jsonError('App niet gevonden.', 404);
     if (!canEdit(app, user)) return jsonError('Alleen de eigenaar mag deze app verwijderen.', 403, 'FORBIDDEN');
 
-    try {
-      await deleteAppContent(env, app.id);
-    } catch (err) {
-      console.error(`${LOG_PREFIX} R2 delete error:`, err.message);
-      // Ga door met het verwijderen van de metadata, ook als R2-delete faalt —
-      // een orphaned R2-object is minder erg dan een onverwijderbare rij.
+    if (app.app_type !== 'url') {
+      try {
+        await deleteAppContent(env, app.id);
+      } catch (err) {
+        console.error(`${LOG_PREFIX} R2 delete error:`, err.message);
+        // Ga door met het verwijderen van de metadata, ook als R2-delete faalt —
+        // een orphaned R2-object is minder erg dan een onverwijderbare rij.
+      }
     }
 
     try {

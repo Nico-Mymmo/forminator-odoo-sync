@@ -52,7 +52,14 @@ async function toggleGlobalFavorite(id, isGlobalFavorite) {
 async function loadFavorites() {
   try {
     favorites = await apiJson('/mini-apps/api/apps/favorites');
+    favoritesLoaded = true;
     renderFavoritesSection();
+    // Kan de nudge-tegel intussen achterhaald zijn (bv. net favoriet gemaakt
+    // vanuit een ander tabblad) -- herteken zodat hij verdwijnt zodra de open
+    // app effectief favoriet is.
+    if (favoriteNudgeApp && favorites.some(function(f) { return f.id === favoriteNudgeApp.id; })) {
+      hideFavoriteNudge();
+    }
   } catch (err) {
     // Stil falen -- de strip is een nice-to-have bovenop de gewone lijst,
     // geen kritiek pad. showToast zou hier enkel ruis toevoegen bij elke load.

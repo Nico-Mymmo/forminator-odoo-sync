@@ -17,10 +17,12 @@ async function openUploadModal() {
   document.getElementById('uploadTitle').value = '';
   document.getElementById('uploadDescription').value = '';
   document.getElementById('uploadFile').value = '';
+  document.getElementById('uploadExternalUrl').value = '';
   document.getElementById('uploadIcon').value = 'puzzle';
   updateIconPreview('puzzle', 'uploadIconPreviewWrap');
   document.querySelector('input[name="uploadVisibility"][value="private"]').checked = true;
   document.getElementById('uploadColleaguesWrap').classList.add('hidden');
+  setUploadSourceMode('file');
 
   document.getElementById('uploadModal').showModal();
   lucide.createIcons();
@@ -37,7 +39,27 @@ function closeUploadModal() {
   document.getElementById('uploadModal').close();
 }
 
+// ====== Bron-modus (bestand vs. externe URL) ======
+//
+// Bewust GEEN aparte modal -- title/description/icon/visibility/sharedUserIds
+// zijn identiek voor beide bronnen, enkel het "hoe krijg ik de inhoud"-veld
+// verschilt (file-input vs. url-input). Zie routes.js: POST /api/apps
+// (multipart, app_type='html') vs. POST /api/apps/external (JSON, app_type='url').
+var uploadSourceMode = 'file';
+
+function setUploadSourceMode(mode) {
+  uploadSourceMode = mode === 'url' ? 'url' : 'file';
+  document.getElementById('uploadSourceModeTabFile').classList.toggle('tab-active', uploadSourceMode === 'file');
+  document.getElementById('uploadSourceModeTabUrl').classList.toggle('tab-active', uploadSourceMode === 'url');
+  document.getElementById('uploadFileWrap').classList.toggle('hidden', uploadSourceMode !== 'file');
+  document.getElementById('uploadUrlWrap').classList.toggle('hidden', uploadSourceMode !== 'url');
+}
+
 async function submitUpload() {
+  if (uploadSourceMode === 'url') {
+    await submitExternalApp();
+    return;
+  }
   var title = document.getElementById('uploadTitle').value.trim();
   var description = document.getElementById('uploadDescription').value.trim();
   var icon = document.getElementById('uploadIcon').value;
@@ -68,6 +90,38 @@ async function submitUpload() {
     await loadApps();
   } catch (err) {
     showToast('Uploaden mislukt: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function submitExternalApp() {
+  var title = document.getElementById('uploadTitle').value.trim();
+  var description = document.getElementById('uploadDescription').value.trim();
+  var icon = document.getElementById('uploadIcon').value;
+  var url = document.getElementById('uploadExternalUrl').value.trim();
+  var visibility = document.querySelector('input[name="uploadVisibility"]:checked').value;
+  var sharedUserIds = visibility === 'specific'
+    ? getCheckedColleagueIds(document.getElementById('uploadColleaguesList'))
+    : [];
+
+  if (!title) { showToast('Vul een titel in.', 'error'); return; }
+  if (!url) { showToast('Vul een URL in.', 'error'); return; }
+
+  var btn = document.getElementById('uploadSubmitBtn');
+  btn.disabled = true;
+
+  try {
+    await apiJson('/mini-apps/api/apps/external', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description, icon, visibility, sharedUserIds, url })
+    });
+    showToast('Externe mini-app toegevoegd.', 'success');
+    closeUploadModal();
+    await loadApps();
+  } catch (err) {
+    showToast('Toevoegen mislukt: ' + err.message, 'error');
   } finally {
     btn.disabled = false;
   }
@@ -105,7 +159,15 @@ async function openAppFullscreen(id, options) {
     var banner = document.getElementById('appFullscreenErrorBanner');
     activeFrame = { frame: frame, banner: banner, appId: id };
     resetAppErrors(banner);
-    frame.srcdoc = instrumentAppHtml(contentResult.content, contentResult.isOwner);
+    if (contentResult.appType === 'url') {
+      // Externe-URL-app: cross-origin, geen instrumentatie/shim mogelijk --
+      // gewoon rechtstreeks laden via src (niet srcdoc).
+      frame.removeAttribute('srcdoc');
+      frame.src = contentResult.externalUrl;
+    } else {
+      frame.removeAttribute('src');
+      frame.srcdoc = instrumentAppHtml(contentResult.content, contentResult.isOwner);
+    }
 
     document.getElementById('mainContent').classList.add('hidden');
     document.getElementById('appFullscreen').classList.remove('hidden');
@@ -114,6 +176,20 @@ async function openAppFullscreen(id, options) {
     // regelen de zichtbaarheid vanaf nu zelf.
     document.documentElement.classList.remove('mini-app-deeplink');
     insertNavbarBackLink();
+
+    // Favorieten-nudge: enkel tonen als de app nog geen favoriet is. apps/
+    // favorites kunnen bij een verse deeplink nog niet geladen zijn (race met
+    // loadApps()/loadFavorites() in mini-apps-bootstrap.js) -- dan eenmalig
+    // zelf ophalen voor we de check doen.
+    if (!appsLoaded) { try { await loadApps(); } catch (_err) { /* stil -- geen kritiek pad */ } }
+    if (!favoritesLoaded) { try { await loadFavorites(); } catch (_err) { /* stil -- geen kritiek pad */ } }
+    var openedAppMeta = apps.find(function(a) { return a.id === id; });
+    var isAlreadyFavorite = favorites.some(function(f) { return f.id === id; });
+    if (openedAppMeta && !isAlreadyFavorite) {
+      showFavoriteNudge(openedAppMeta);
+    } else {
+      hideFavoriteNudge();
+    }
 
     // pushHistory === false: wordt aangeroepen vanuit de popstate-listener
     // (mini-apps-bootstrap.js) als reactie op een browser-back/-forward --
@@ -142,11 +218,16 @@ function closeAppFullscreen(options) {
   var updateHistory = !options || options.updateHistory !== false;
   document.getElementById('appFullscreen').classList.add('hidden');
   document.getElementById('mainContent').classList.remove('hidden');
-  document.getElementById('appFullscreenFrame').srcdoc = 'about:blank';
+  document.getElementById('appFullscreenFrame').removeAttribute('srcdoc');
+  document.getElementById('appFullscreenFrame').src = 'about:blank';
   // Anders zou mainContent verborgen blijven (zie html.mini-app-deeplink
   // #mainContent-regel in mini-apps.html) als deze klasse nog aanstond.
   document.documentElement.classList.remove('mini-app-deeplink');
   removeNavbarBackLink();
+  // De nudge-tegel hoort enkel bij de app die nu net gesloten wordt --
+  // altijd opruimen bij het sluiten, los van of de gebruiker de callout
+  // intussen bevestigde/wegklikte.
+  hideFavoriteNudge();
   activeFrame = null;
   // updateHistory === false: wordt aangeroepen vanuit de popstate-listener --
   // de browser heeft de geschiedenis dan al zelf teruggespoeld, dus enkel de

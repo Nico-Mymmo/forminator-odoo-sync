@@ -72,6 +72,18 @@
  * geen eval, geen Function, pure data-vergelijking (lib/condition-scheduler.js,
  * tabellen mini_app_condition_tasks/mini_app_condition_task_log).
  *
+ * Externe-URL app-type (2026-07-23, zie
+ * supabase/migrations/20260723120000_mini_app_external_url.sql): naast de
+ * standaard "html"-apps (single-file upload naar R2) kan een gebruiker ook
+ * gewoon een externe URL registreren (bv. een Lovable-hosted app), via
+ * POST /api/apps/external i.p.v. de multipart POST /api/apps. Zo'n app heeft
+ * mini_apps.app_type = 'url', geen r2_key, wel external_url, en wordt in de
+ * UI in een iframe geladen via src (niet srcdoc) -- dus geen code-editor,
+ * geen instrumentatie/shim (cross-origin, window.platform is daar sowieso
+ * niet bruikbaar). Metadata/rechten/sharing/favorieten/chat/notify blijven
+ * volledig ongewijzigd -- die logica werkt al generiek op mini_apps-rijen,
+ * ongeacht content-type.
+ *
  * Rechten-model zit volledig in permissions.js + routes.js — geen subRoles,
  * dit is geen rol-gebaseerde maar een per-record (owner/shared) toegang.
  *

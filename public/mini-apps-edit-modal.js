@@ -36,7 +36,7 @@ function switchAppTab(tab) {
   document.getElementById('appPaneCode').classList.toggle('flex', tab === 'code');
   document.getElementById('appPaneSettings').classList.toggle('hidden', tab !== 'settings');
 
-  if (tab === 'code') {
+  if (tab === 'code' && (!currentApp || currentApp.app_type !== 'url')) {
     var cm = ensureCodeEditor();
     cm.setValue(currentAppContent);
     setTimeout(function() { cm.refresh(); }, 0);
@@ -52,19 +52,29 @@ async function openApp(id) {
     var contentResult = await apiJson(`/mini-apps/api/apps/${id}/content`);
 
     currentApp = meta;
-    currentAppContent = contentResult.content;
+    currentAppContent = contentResult.appType === 'url' ? '' : contentResult.content;
 
     document.getElementById('appModalTitle').textContent = meta.title;
     document.getElementById('appModalSubtitle').textContent = meta.description || '';
 
-    document.getElementById('appTabCode').classList.toggle('hidden', !meta.isOwner);
+    // Code-tab heeft geen zin voor een externe-URL-app (geen R2-inhoud om te
+    // tweaken) -- verborgen ongeacht owner-status, in tegenstelling tot de
+    // Instellingen-tab die wel bruikbaar blijft (titel/omschrijving/icoon/
+    // zichtbaarheid/externe-URL zijn nog steeds te bewerken door de eigenaar).
+    document.getElementById('appTabCode').classList.toggle('hidden', !meta.isOwner || meta.app_type === 'url');
     document.getElementById('appTabSettings').classList.toggle('hidden', !meta.isOwner);
 
     var frame = document.getElementById('appFrame');
     var banner = document.getElementById('appErrorBanner');
     activeFrame = { frame: frame, banner: banner, appId: id };
     resetAppErrors(banner);
-    frame.srcdoc = instrumentAppHtml(currentAppContent, meta.isOwner);
+    if (contentResult.appType === 'url') {
+      frame.removeAttribute('srcdoc');
+      frame.src = contentResult.externalUrl;
+    } else {
+      frame.removeAttribute('src');
+      frame.srcdoc = instrumentAppHtml(currentAppContent, meta.isOwner);
+    }
 
     try {
       var sub = await apiJson(`/mini-apps/api/apps/${id}/mail-subscription`);
@@ -87,6 +97,14 @@ async function openApp(id) {
       } catch (err) {
         showToast('Collega-lijst ophalen mislukt: ' + err.message, 'error');
       }
+
+      var externalUrlWrap = document.getElementById('settingsExternalUrlWrap');
+      if (meta.app_type === 'url') {
+        externalUrlWrap.classList.remove('hidden');
+        document.getElementById('settingsExternalUrl').value = meta.external_url || '';
+      } else {
+        externalUrlWrap.classList.add('hidden');
+      }
     }
 
     document.getElementById('appCodeStatus').textContent = `v${meta.version}`;
@@ -103,7 +121,8 @@ function closeAppModal() {
   currentApp = null;
   currentAppContent = '';
   resetAppErrors(document.getElementById('appErrorBanner'));
-  document.getElementById('appFrame').srcdoc = 'about:blank';
+  document.getElementById('appFrame').removeAttribute('srcdoc');
+  document.getElementById('appFrame').src = 'about:blank';
   activeFrame = null;
 }
 
@@ -191,6 +210,32 @@ async function saveAppSettings() {
     document.getElementById('appModalTitle').textContent = updated.title;
     document.getElementById('appModalSubtitle').textContent = updated.description || '';
     showToast('Instellingen opgeslagen.', 'success');
+    await loadApps();
+  } catch (err) {
+    showToast('Opslaan mislukt: ' + err.message, 'error');
+  }
+}
+
+// Externe-URL-apps hebben geen code om te tweaken, maar de URL zelf moet wel
+// aanpasbaar blijven -- apart van saveAppSettings() (dat title/description/
+// icon/visibility regelt) zodat een foute URL-invoer niet meteen ook de rest
+// van de instellingen blokkeert/overschrijft.
+async function saveExternalUrl() {
+  if (!currentApp || currentApp.app_type !== 'url') return;
+  var url = document.getElementById('settingsExternalUrl').value.trim();
+  if (!url) { showToast('Vul een URL in.', 'error'); return; }
+
+  try {
+    var updated = await apiJson(`/mini-apps/api/apps/${currentApp.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ externalUrl: url })
+    });
+    currentApp = Object.assign(currentApp, updated);
+    var frame = document.getElementById('appFrame');
+    frame.removeAttribute('srcdoc');
+    frame.src = currentApp.external_url;
+    showToast('URL opgeslagen en herladen.', 'success');
     await loadApps();
   } catch (err) {
     showToast('Opslaan mislukt: ' + err.message, 'error');
