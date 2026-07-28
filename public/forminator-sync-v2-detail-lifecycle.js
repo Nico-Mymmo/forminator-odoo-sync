@@ -68,9 +68,17 @@
       // For tracker integrations: fetch the short/QR URL + tab-scoped stats
       S()._trackerUrl = null;
       if (detailIntegration && detailIntegration.source_type === 'tracker') {
-        // Reset QR-styling (dot/bg color + optional center logo) to defaults each
-        // time a tracker's detail view is opened fresh (Task 2 — QR styling panel).
-        S()._trackerQrStyle = { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
+        // QR-styling (dot/bg color + optional center logo) is persisted server-side
+        // (qr_dot_color/qr_bg_color/qr_logo_key op fs_v2_integrations, zie
+        // 20260728130000_fsv2_tracker_qr_style.sql) zodat elke gebruiker dezelfde
+        // QR-weergave ziet i.p.v. enkel de browser-sessie die hem instelde.
+        // detailIntegration komt van getIntegrationById (select('*')), dus deze
+        // kolommen zijn al aanwezig zonder extra fetch.
+        S()._trackerQrStyle = {
+          dotColor: detailIntegration.qr_dot_color || '#000000',
+          bgColor: detailIntegration.qr_bg_color || '#ffffff',
+          logoDataUrl: detailIntegration.qr_logo_key ? ('/assets/' + detailIntegration.qr_logo_key) : null
+        };
         window.FSV2.api('/integrations/' + id + '/tracker-url').then(function (r) {
           S()._trackerUrl = r.data || null;
           if (S().activeId === id) window.FSV2.renderDetail();

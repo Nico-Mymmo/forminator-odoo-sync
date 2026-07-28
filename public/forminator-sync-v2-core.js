@@ -607,10 +607,17 @@
     var daily = Array.isArray(row.daily_stats) ? row.daily_stats : [];
     var metric = (S.cardChartMetric && S.cardChartMetric[id]) || 'total';
     var stats30 = row.stats_30d || { total: 0, errors: 0, skipped: 0 };
-    var metrics = ['total', 'errors', 'skipped'];
+    // Trackers hergebruiken de submissions-vormige daily_stats/stats_30d-shape
+    // (zie database.js) om de bestaande sparkline te kunnen hergebruiken, maar
+    // 'errors' is voor trackers altijd 0 (niet relevant) en 'skipped' draagt in
+    // werkelijkheid het aantal QR-scans die dag -- vandaar eigen labels/metrics
+    // hier, anders oogt elke tracker alsof hij voortdurend "Skip" veroorzaakt.
+    var isTracker = row.source_type === 'tracker';
+    var metrics = isTracker ? ['total', 'skipped'] : ['total', 'errors', 'skipped'];
+    var metricLabel = isTracker ? { total: 'Kliks', skipped: 'QR-scans' } : FSV2_CHART_METRIC_LABEL;
     var togglesHtml = metrics.map(function (m, i) {
       var sep = i > 0 ? '<span class="text-base-content/20 text-[11px]">/</span>' : '';
-      return sep + '<button type="button" class="' + chartToggleBtnClass(metric === m, m) + '" data-action="fsv2-chart-metric" data-id="' + esc(id) + '" data-metric="' + m + '">' + FSV2_CHART_METRIC_LABEL[m] + ' ' + (stats30[m] || 0) + '</button>';
+      return sep + '<button type="button" class="' + chartToggleBtnClass(metric === m, m) + '" data-action="fsv2-chart-metric" data-id="' + esc(id) + '" data-metric="' + m + '">' + metricLabel[m] + ' ' + (stats30[m] || 0) + '</button>';
     }).join('');
     return '<div class="mb-2.5">'
       + '<div class="flex items-center justify-between mb-1">'

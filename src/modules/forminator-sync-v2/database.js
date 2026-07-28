@@ -377,8 +377,40 @@ export async function upsertFieldMeta(env, integrationId, meta) {
   return meta;
 }
 
+// Persist de R2-key van het (optionele) QR-center-logo van een tracker
+// (fsv2-tracker-logos/<id>.<ext>, of null om te wissen) -- gebruikt door
+// de tracker-logo upload/delete-routes in routes.js.
+export async function setTrackerQrLogoKey(env, integrationId, qrLogoKey) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.integrations)
+    .update({ qr_logo_key: qrLogoKey, updated_at: new Date().toISOString() })
+    .eq('id', integrationId)
+    .select('qr_logo_key')
+    .single();
+  if (error) throw new Error(`Failed to save qr_logo_key: ${error.message}`);
+  return data;
+}
+
 export async function deleteIntegration(env, integrationId) {
   const supabase = getSupabase(env);
+
+  // Best-effort cleanup van een eventueel gekoppeld QR-logo-object in R2
+  // (fsv2-tracker-logos/ prefix, zie 20260728130000_fsv2_tracker_qr_style.sql
+  // en setTrackerQrLogoKey hieronder). Een storage-fout hier mag de rest van
+  // de cascade-delete niet blokkeren -- enkel loggen.
+  try {
+    const { data: existingForLogo } = await supabase
+      .from(TABLES.integrations)
+      .select('qr_logo_key')
+      .eq('id', integrationId)
+      .maybeSingle();
+    if (existingForLogo?.qr_logo_key && env?.R2_ASSETS) {
+      await env.R2_ASSETS.delete(existingForLogo.qr_logo_key);
+    }
+  } catch (err) {
+    console.error(`Failed to delete tracker QR logo from R2 for integration ${integrationId}: ${err?.message || err}`);
+  }
 
   const resolverDelete = await supabase
     .from(TABLES.resolvers)

@@ -58,6 +58,7 @@ import {
   attachTagToIntegration,
   detachTagFromIntegration,
   getTrackerStats,
+  setTrackerQrLogoKey,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -831,6 +832,105 @@ export const routes = {
           domain: resolvedDomainKey,
         }
       });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // Tracker QR-styling: center-logo upload/verwijderen, persisted in R2 zodat
+  // elke gebruiker dezelfde QR ziet (zie 20260728130000_fsv2_tracker_qr_style.sql).
+  // Kleuren (qr_dot_color/qr_bg_color) lopen via de generieke
+  // 'PUT /api/integrations/:id' hieronder (updateIntegrationRecord whitelist't
+  // ze expliciet) -- geen aparte route nodig daarvoor.
+  'POST /api/integrations/:id/tracker-logo': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const integration = await getIntegrationById(context.env, integrationId);
+      if (!integration) {
+        return jsonResponse({ success: false, error: 'Integration not found' }, 404);
+      }
+      if (integration.source_type !== 'tracker') {
+        return jsonResponse({ success: false, error: 'Integration is not a tracker' }, 400);
+      }
+
+      const body = await readJsonBody(context.request);
+      const dataUrl = String(body?.data_url || '');
+      const match = /^data:([a-zA-Z0-9.+\/-]+);base64,(.+)$/s.exec(dataUrl);
+      if (!match) {
+        return jsonResponse({ success: false, error: 'Invalid image data URL' }, 400);
+      }
+
+      const mimeType = match[1].toLowerCase();
+      const EXT_BY_MIME = {
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'image/jpg': 'jpg',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+      };
+      const ext = EXT_BY_MIME[mimeType];
+      if (!ext) {
+        return jsonResponse({ success: false, error: 'Unsupported image type. Use PNG, JPEG, WEBP or GIF.' }, 400);
+      }
+
+      const MAX_LOGO_BYTES = 3 * 1024 * 1024; // 3 MB — decoratief QR-logo, geen bulk-asset
+      let bytes;
+      try {
+        bytes = Uint8Array.from(atob(match[2]), (c) => c.charCodeAt(0));
+      } catch {
+        return jsonResponse({ success: false, error: 'Invalid base64 image data' }, 400);
+      }
+      if (bytes.length === 0 || bytes.length > MAX_LOGO_BYTES) {
+        return jsonResponse({ success: false, error: 'Image too large (max 3 MB)' }, 400);
+      }
+
+      const newKey = `fsv2-tracker-logos/${integrationId}.${ext}`;
+
+      // Als er al een logo met een ANDERE extensie stond (bv. .png → .jpg
+      // gewisseld), eerst het oude object opruimen zodat er geen orphans
+      // achterblijven in de gedeelde R2_ASSETS-bucket.
+      if (integration.qr_logo_key && integration.qr_logo_key !== newKey) {
+        try {
+          await context.env.R2_ASSETS.delete(integration.qr_logo_key);
+        } catch (err) {
+          console.error(`Failed to delete previous tracker QR logo ${integration.qr_logo_key}: ${err?.message || err}`);
+        }
+      }
+
+      await context.env.R2_ASSETS.put(newKey, bytes, {
+        httpMetadata: { contentType: mimeType },
+      });
+
+      await setTrackerQrLogoKey(context.env, integrationId, newKey);
+
+      return jsonResponse({ success: true, data: { qr_logo_key: newKey } });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/integrations/:id/tracker-logo': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const integration = await getIntegrationById(context.env, integrationId);
+      if (!integration) {
+        return jsonResponse({ success: false, error: 'Integration not found' }, 404);
+      }
+
+      if (integration.qr_logo_key) {
+        try {
+          await context.env.R2_ASSETS.delete(integration.qr_logo_key);
+        } catch (err) {
+          console.error(`Failed to delete tracker QR logo ${integration.qr_logo_key}: ${err?.message || err}`);
+        }
+        await setTrackerQrLogoKey(context.env, integrationId, null);
+      }
+
+      return jsonResponse({ success: true });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

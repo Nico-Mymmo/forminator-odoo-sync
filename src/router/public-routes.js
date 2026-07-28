@@ -37,7 +37,7 @@ function json(body, status = 200) {
  * afhankelijkheid: puur inline HTML+CSS, want dit MOET altijd werken, ook als een
  * externe CDN eventjes onbereikbaar is.
  */
-function trackerErrorPage({ status, heading, message }) {
+export function trackerErrorPage({ status, heading, message }) {
   const html = `<!DOCTYPE html>
 <html lang="nl">
 <head>

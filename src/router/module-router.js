@@ -8,12 +8,27 @@ import { getModuleByRoute, resolveModuleRoute } from '../modules/registry.js';
 import { trackEndpoint } from '../lib/endpoint-tracker.js';
 import { authGate } from './auth-gate.js';
 import { addCorsHeaders } from './cors.js';
+import { trackerErrorPage } from './public-routes.js';
 
 function json(body, status) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+// Onbekende top-level paden (geen module matcht) kunnen op operations.openvme.be
+// EN link.openvme.be terechtkomen -- beide domeinen wijzen naar dezelfde Worker
+// en zijn qua Host-header niet betrouwbaar te onderscheiden (zie de uitgebreide
+// toelichting in public-routes.js bij de tracker-redirect). Voor een gewoon
+// browserbezoek (bv. iemand tikt/deelt een verkeerde/verlopen link.openvme.be/...-
+// URL zonder /t/-prefix) tonen we daarom altijd de merk-consistente "niet gevonden"-
+// pagina i.p.v. kale JSON — dat is voor zowel staff als klanten een betere
+// ervaring, en raakt geen enkele bestaande, wél-gematchte module-route.
+function isBrowserPageRequest(request) {
+  if (request.method !== 'GET') return false;
+  const accept = request.headers.get('Accept') || '';
+  return accept.includes('text/html');
 }
 
 /**
@@ -27,6 +42,13 @@ export async function handleModuleRequest(request, env, ctx) {
 
   const module = getModuleByRoute(pathname);
   if (!module) {
+    if (isBrowserPageRequest(request)) {
+      return trackerErrorPage({
+        status: 404,
+        heading: 'Pagina niet gevonden',
+        message: 'Deze pagina bestaat niet, of de link klopt niet (meer).',
+      });
+    }
     return json({ success: false, error: 'Not Found' }, 404);
   }
 

@@ -1667,6 +1667,14 @@
         window.FSV2.S._trackerQrStyle = window.FSV2.S._trackerQrStyle || { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
         window.FSV2.S._trackerQrStyle.logoDataUrl = null;
         if (window.FSV2.renderDetail) window.FSV2.renderDetail();
+        // Persist verwijdering server-side (R2 + qr_logo_key) zodat andere
+        // gebruikers het logo ook niet meer zien — fire-and-forget.
+        var tqrIntegration = window.FSV2.S.detail && window.FSV2.S.detail.integration;
+        var tqrId = tqrIntegration && tqrIntegration.id;
+        if (tqrId) {
+          window.FSV2.api('/integrations/' + tqrId + '/tracker-logo', { method: 'DELETE' })
+            .catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+        }
         return;
       }
     };
@@ -1881,6 +1889,19 @@
       window.FSV2.S._trackerQrStyle = window.FSV2.S._trackerQrStyle || { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
       window.FSV2.S._trackerQrStyle[tqcKey] = inp.value;
       if (window.FSV2.renderDetail) window.FSV2.renderDetail();
+      // Persist server-side (qr_dot_color/qr_bg_color) via de generieke
+      // integratie-PUT, zodat andere gebruikers dezelfde QR-kleuren zien —
+      // fire-and-forget, blokkeert de UI niet.
+      var tqcIntegration = window.FSV2.S.detail && window.FSV2.S.detail.integration;
+      var tqcId = tqcIntegration && tqcIntegration.id;
+      if (tqcId) {
+        var tqcPayload = {};
+        tqcPayload[tqcKey === 'dotColor' ? 'qr_dot_color' : 'qr_bg_color'] = inp.value;
+        window.FSV2.api('/integrations/' + tqcId, {
+          method: 'PUT',
+          body: JSON.stringify(tqcPayload),
+        }).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+      }
       return;
     }
     // ── Detail-view tracker: QR center logo upload (Task 2) ────────────────
@@ -1892,6 +1913,18 @@
         window.FSV2.S._trackerQrStyle = window.FSV2.S._trackerQrStyle || { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
         window.FSV2.S._trackerQrStyle.logoDataUrl = tqlReader.result;
         if (window.FSV2.renderDetail) window.FSV2.renderDetail();
+        // Persist naar R2 (fsv2-tracker-logos/) zodat andere gebruikers hetzelfde
+        // logo zien. De HUIDIGE render gebruikt bewust de rauwe data-URL (geen
+        // flash/round-trip) — de server-key (/assets/<key>) wordt pas gebruikt
+        // de volgende keer dat dit tracker's detail-view geopend wordt (openDetail).
+        var tqlIntegration = window.FSV2.S.detail && window.FSV2.S.detail.integration;
+        var tqlId = tqlIntegration && tqlIntegration.id;
+        if (tqlId) {
+          window.FSV2.api('/integrations/' + tqlId + '/tracker-logo', {
+            method: 'POST',
+            body: JSON.stringify({ data_url: tqlReader.result }),
+          }).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+        }
       };
       tqlReader.readAsDataURL(tqlFile);
       return;

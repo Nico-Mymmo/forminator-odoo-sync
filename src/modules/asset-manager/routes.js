@@ -42,7 +42,7 @@ const ASSET_CATEGORY_PREFIXES = ['public/', 'banners/', 'events/', 'logos/', 'up
 // src/modules/mini-apps/lib/r2-client.js + lib/storage.js) -- de
 // asset-manager mag hier nooit in lezen of schrijven, ook een admin niet.
 // Nieuwe modules die deze bucket later ook gebruiken: hier toevoegen.
-const FOREIGN_MODULE_PREFIXES = ['mini-apps/', 'mini-apps-storage/'];
+const FOREIGN_MODULE_PREFIXES = ['mini-apps/', 'mini-apps-storage/', 'fsv2-tracker-logos/'];
 
 function isForeignPrefix(prefix) {
   const p = String(prefix || '');
