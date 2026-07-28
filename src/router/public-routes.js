@@ -179,17 +179,45 @@ export async function handlePublicRoutes(request, env, ctx) {
     return new Response(null, { status: 204 });
   }
 
-  // FSV2 tracker-redirect — trackbare korte links/QR-codes op het custom domain
-  // link.openvme.be. Inherent publiek (iemand die een QR-code scant heeft geen
-  // sessie-cookie), dus dit MOET vóór elke sessie-afhankelijke logica draaien.
-  // pathname is '/<slug>' -> slug = '<slug>' (evt. met trailing segmenten genegeerd).
-  if (url.hostname === 'link.openvme.be' && request.method === 'GET') {
-    const slug = pathname.slice(1).split('/')[0];
+  // FSV2 tracker-redirect — trackbare korte links/QR-codes.
+  //
+  // Twee manieren om hier te belanden, BEIDE ondersteund (onafhankelijk van elkaar):
+  //   1) pathname begint met '/t/<slug>' — werkt op ELK hostname dat naar deze
+  //      Worker wijst (incl. het kale workers.dev-adres en operations.openvme.be),
+  //      dit is de betrouwbare methode zolang link.openvme.be nog niet (volledig)
+  //      werkt, want ze hangt NIET af van hostname-detectie.
+  //   2) hostname === link.openvme.be met de slug direct in het pad ('/<slug>',
+  //      geen '/t/'-prefix) — de "mooie" vorm zodra dat domein live is. LET OP:
+  //      als link.openvme.be via eenzelfde geproxyde cross-account CNAME loopt als
+  //      operations.openvme.be, is het NIET zeker dat Cloudflare de originele
+  //      Host-header behoudt (in de praktijk bleek dat voor operations.openvme.be
+  //      niet betrouwbaar) — vandaar dat (1) de primaire, geteste weg is en (2) een
+  //      bonus is die werkt zodra/als de hostname wél correct doorkomt.
+  //
+  // Dit MOET vóór elke sessie-afhankelijke logica draaien: inherent publiek,
+  // iemand die een QR-code scant of een gedeelde link volgt heeft geen sessie-cookie.
+  const requestHost = request.headers.get('Host') || url.hostname;
+  const isTrackerPathPrefix = pathname.startsWith('/t/');
+  const isTrackerHostname = requestHost === 'link.openvme.be';
 
-    // Rechtstreeks bezoek zonder slug (bv. iemand tikt "link.openvme.be" gewoon in)
-    // -> gewoon doorsturen naar de hoofdwebsite, geen foutpagina nodig.
+  if ((isTrackerPathPrefix || isTrackerHostname) && request.method === 'GET') {
+    const slug = isTrackerPathPrefix
+      ? pathname.slice('/t/'.length).split('/')[0]
+      : pathname.slice(1).split('/')[0];
+
+    // Rechtstreeks bezoek zonder slug op het "mooie" domein (bv. iemand tikt
+    // "link.openvme.be" gewoon in) -> doorsturen naar de hoofdwebsite. Bij de
+    // '/t/'-vorm zonder slug ('/t' of '/t/') is er niets zinnigs om naartoe te
+    // sturen, dat toont gewoon de "niet gevonden"-pagina hieronder.
     if (!slug) {
-      return Response.redirect('https://openvme.be', 302);
+      if (isTrackerHostname) {
+        return Response.redirect('https://openvme.be', 302);
+      }
+      return trackerErrorPage({
+        status: 404,
+        heading: 'Link niet gevonden',
+        message: 'Deze link bestaat niet (meer), of is verkeerd overgetypt.',
+      });
     }
 
     let integration;

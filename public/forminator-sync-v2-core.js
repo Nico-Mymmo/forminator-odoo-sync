@@ -754,7 +754,7 @@
       var _dotHtml = isActive
         ? '<span class="w-2 h-2 rounded-full bg-success shrink-0" title="Actief"></span>'
         : '<span class="w-2 h-2 rounded-full bg-base-300 shrink-0" title="Inactief"></span>';
-      var _headerHtml = `<div class="mb-2.5"><div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-1.5 min-w-0">${_dotHtml}<h3 class="font-bold text-sm leading-snug text-base-content truncate" title="${esc(row.name || 'Koppeling')}">${esc(row.name || 'Koppeling')}</h3></div><div class="flex flex-wrap items-center justify-end gap-1 shrink-0">${_tagsHtml}</div></div>${_stepsHtml}${flowHtml ? '<div class="mb-1.5">' + flowHtml + '</div>' : ''}<div class="flex items-center gap-1.5">${row.source_type === 'tracker' ? '<i data-lucide="qr-code" class="w-3 h-3 text-info shrink-0"></i><p class="text-xs text-info font-mono truncate">link.openvme.be/' + esc(row.tracker_slug || '') + '</p>' : row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div></div>`;
+      var _headerHtml = `<div class="mb-2.5"><div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-1.5 min-w-0">${_dotHtml}<h3 class="font-bold text-sm leading-snug text-base-content truncate" title="${esc(row.name || 'Koppeling')}">${esc(row.name || 'Koppeling')}</h3></div><div class="flex flex-wrap items-center justify-end gap-1 shrink-0">${_tagsHtml}</div></div>${_stepsHtml}${flowHtml ? '<div class="mb-1.5">' + flowHtml + '</div>' : ''}<div class="flex items-center gap-1.5">${row.source_type === 'tracker' ? '<i data-lucide="qr-code" class="w-3 h-3 text-info shrink-0"></i><p class="text-xs text-info font-mono truncate flex-1">https://link.openvme.be/t/' + esc(row.tracker_slug || '') + '</p><button type="button" class="btn btn-ghost btn-xs px-1 shrink-0" data-action="copy-tracker-short-url" data-url="https://link.openvme.be/t/' + esc(row.tracker_slug || '') + '" title="Link kopi\u00ebren"><i data-lucide="copy" class="w-3 h-3"></i></button>' : row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div></div>`;
 
       var _bodyHtml = buildCardChartBlock(row);
 
@@ -1159,41 +1159,69 @@
   }
   // ═══════════════════════════════════════════════════════════════════════════
   // TRACKER QR-CODE HELPERS — gedeeld door de wizard, de detail-view en de
-  // stats-tab. Gebruikt de qrcodejs CDN-library (zie <script>-tag in
-  // forminator-sync-v2.html) — geen nieuwe dependency t.o.v. wat al in de app zit.
+  // stats-tab. Gebruikt de qr-code-styling CDN-library (zie <script>-tag in
+  // forminator-sync-v2.html) — vervangt de oude qrcodejs-library omdat die geen
+  // SVG-export en geen logo-in-het-midden ondersteunt (canvas/table-based).
+  // qr-code-styling ondersteunt beide native via .download({extension:'svg'})
+  // en de image/imageOptions-config.
+  //
+  // _trackerQrInstances houdt per containerId de levende QRCodeStyling-instantie
+  // bij, zodat kleur/logo-wijzigingen via .update() kunnen (geen dure volledige
+  // her-constructie) en downloads via de instantie's eigen .download() kunnen
+  // (native PNG/SVG-export, geen canvas/dataURL-hack meer). Omdat de detail-view
+  // bij elke volledige re-render (renderDetail()) een NIEUW #detailTrackerQr-
+  // element in de DOM zet (innerHTML-vervanging van de hele header), wordt de
+  // bestaande instantie na .update() altijd opnieuw in het (mogelijk nieuwe)
+  // containerelement ge-append't — .append() is goedkoop (hergebruikt de al
+  // gerenderde interne node) dus dit blijft in de praktijk instant.
   // ═══════════════════════════════════════════════════════════════════════════
-  function renderTrackerQrCode(containerId, url) {
+  var _trackerQrInstances = {};
+
+  function renderTrackerQrCode(containerId, url, options) {
     var el = document.getElementById(containerId);
     if (!el) return;
-    el.innerHTML = '';
-    if (typeof QRCode === 'undefined' || !url) {
+    options = options || {};
+    var dotColor    = options.dotColor    || '#000000';
+    var bgColor     = options.bgColor     || '#ffffff';
+    var logoDataUrl = options.logoDataUrl || null;
+
+    if (typeof QRCodeStyling === 'undefined' || !url) {
+      el.innerHTML = '';
       el.textContent = url || '';
       return;
     }
-    new QRCode(el, {
-      text: url,
+
+    var qrOptions = {
       width: 160,
       height: 160,
-      correctLevel: QRCode.CorrectLevel.M,
-    });
+      data: url,
+      dotsOptions: { color: dotColor, type: 'square' },
+      backgroundOptions: { color: bgColor },
+      imageOptions: { crossOrigin: 'anonymous', margin: 4 },
+    };
+    if (logoDataUrl) qrOptions.image = logoDataUrl;
+
+    var inst = _trackerQrInstances[containerId];
+    if (inst) {
+      inst.update(qrOptions);
+    } else {
+      inst = new QRCodeStyling(qrOptions);
+      _trackerQrInstances[containerId] = inst;
+    }
+    el.innerHTML = '';
+    inst.append(el);
   }
 
-  function downloadTrackerQrCode(containerId, filename) {
-    var el = document.getElementById(containerId);
-    if (!el) return;
-    var canvas = el.querySelector('canvas');
-    var img    = el.querySelector('img');
-    var dataUrl = canvas ? canvas.toDataURL('image/png') : (img ? img.src : null);
-    if (!dataUrl) {
+  function downloadTrackerQrCode(containerId, filename, extension) {
+    var inst = _trackerQrInstances[containerId];
+    if (!inst) {
       showAlert('QR-code nog niet geladen.', 'warning');
       return;
     }
-    var a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = filename || 'qr-code.png';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    extension = String(extension || 'png').toLowerCase();
+    if (extension !== 'png' && extension !== 'svg') extension = 'png';
+    var name = String(filename || 'qr-code').replace(/\.(png|svg)$/i, '');
+    inst.download({ name: name, extension: extension });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -800,20 +800,35 @@ export const routes = {
         return jsonResponse({ success: false, error: 'Integration is not a tracker' }, 400);
       }
 
-      // TRACKER_BASE_URL is optioneel: zodra het custom domain link.openvme.be echt
-      // werkt (Cloudflare-zone + DNS geregeld), zet je deze var op
-      // "https://link.openvme.be" en alle nieuwe/bestaande korte links wijzen er
-      // automatisch naartoe zonder codewijziging. Zolang die var niet gezet is,
-      // vallen we terug op het huidige worker-domein met een /t/-pad — werkt nu
-      // al zonder extra DNS-setup (zie src/router/public-routes.js).
-      const reqUrl = new URL(context.request.url);
-      const base = context.env?.TRACKER_BASE_URL || `${reqUrl.protocol}//${reqUrl.host}/t`;
+      // TRACKER_DOMAINS: twee domeinen wijzen momenteel/binnenkort naar exact
+      // dezelfde Worker — operations.openvme.be (staff-toegang tot de hele admin-
+      // app, al live) en link.openvme.be (klant-gerichte deelbare korte links/QR,
+      // wordt door devops opgezet via een identieke CNAME). We bouwen GEEN URL op
+      // basis van de inkomende request (reqUrl.host / Host-header) — bij een
+      // geproxyde CNAME vanuit een ander Cloudflare-account bleek dat onbetrouwbaar,
+      // die kwam soms als de interne workers.dev-doelhostname door i.p.v. het
+      // domein dat de gebruiker echt bezocht. In plaats daarvan een expliciete
+      // domain-picker: de gebruiker kiest via ?domain=link|operations, met
+      // 'link' als standaard (klant-gerichte deelbare links, niet de interne
+      // "operations"-branding), onafhankelijk van welk domein hij zelf gebruikt
+      // om op de admin-app in te loggen.
+      const TRACKER_DOMAINS = {
+        link: 'https://link.openvme.be/t',
+        operations: 'https://operations.openvme.be/t',
+      };
+      const requestedDomain = new URL(context.request.url).searchParams.get('domain');
+      const resolvedDomainKey = TRACKER_DOMAINS[requestedDomain] ? requestedDomain : 'link';
+
+      // TRACKER_BASE_URL blijft een ultieme override (bv. voor een toekomstig
+      // ander domein) — wint altijd, ongeacht ?domain=.
+      const base = context.env?.TRACKER_BASE_URL || TRACKER_DOMAINS[resolvedDomainKey];
 
       return jsonResponse({
         success: true,
         data: {
           short_url: `${base}/${integration.tracker_slug}`,
           qr_url: `${base}/${integration.tracker_slug}?src=qr`,
+          domain: resolvedDomainKey,
         }
       });
     } catch (error) {

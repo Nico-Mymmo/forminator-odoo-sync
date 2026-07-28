@@ -68,6 +68,9 @@
       // For tracker integrations: fetch the short/QR URL + tab-scoped stats
       S()._trackerUrl = null;
       if (detailIntegration && detailIntegration.source_type === 'tracker') {
+        // Reset QR-styling (dot/bg color + optional center logo) to defaults each
+        // time a tracker's detail view is opened fresh (Task 2 — QR styling panel).
+        S()._trackerQrStyle = { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
         window.FSV2.api('/integrations/' + id + '/tracker-url').then(function (r) {
           S()._trackerUrl = r.data || null;
           if (S().activeId === id) window.FSV2.renderDetail();

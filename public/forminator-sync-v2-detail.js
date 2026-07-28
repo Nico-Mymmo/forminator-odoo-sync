@@ -265,11 +265,19 @@
       if (integration.source_type === 'tracker') {
         var trackerInfo = S()._trackerUrl;
         if (trackerInfo && trackerInfo.short_url) {
+          var qrStyle = S()._trackerQrStyle || { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
+          var trackerDomain = trackerInfo.domain || 'link';
           webhookBlock =
             '<div class="mt-4 pt-4 border-t border-base-200">' +
-              '<p class="text-xs font-semibold text-base-content/60 mb-1.5 flex items-center gap-1.5">' +
-                '<i data-lucide="qr-code" class="w-3.5 h-3.5 text-info"></i> Korte URL' +
-              '</p>' +
+              '<div class="flex items-center justify-between gap-2 mb-1.5">' +
+                '<p class="text-xs font-semibold text-base-content/60 flex items-center gap-1.5">' +
+                  '<i data-lucide="qr-code" class="w-3.5 h-3.5 text-info"></i> Korte URL' +
+                '</p>' +
+                '<select class="select select-bordered select-xs" data-action="tracker-domain-change" data-id="' + esc(String(integration.id)) + '">' +
+                  '<option value="link"' + (trackerDomain === 'operations' ? '' : ' selected') + '>link.openvme.be</option>' +
+                  '<option value="operations"' + (trackerDomain === 'operations' ? ' selected' : '') + '>operations.openvme.be</option>' +
+                '</select>' +
+              '</div>' +
               '<div class="flex items-center gap-2 mb-3">' +
                 '<code class="flex-1 text-xs bg-base-200 rounded px-2 py-1.5 break-all select-all">' + esc(trackerInfo.short_url) + '</code>' +
                 '<button type="button" class="btn btn-xs btn-ghost shrink-0" id="btnCopyTrackerUrl" title="Kopi\u00ebren">' +
@@ -279,9 +287,31 @@
               '<p class="text-xs text-base-content/60 mb-3">Doel: <span class="break-all">' + esc(integration.destination_url || '\u2014') + '</span></p>' +
               '<div class="flex flex-col items-center gap-2">' +
                 '<div id="detailTrackerQr"></div>' +
-                '<button type="button" class="btn btn-xs btn-outline gap-1" id="btnDownloadTrackerQr">' +
-                  '<i data-lucide="download" class="w-3.5 h-3.5"></i> QR-code downloaden' +
-                '</button>' +
+                '<div class="grid grid-cols-2 gap-2 w-full max-w-xs mt-1">' +
+                  '<div>' +
+                    '<label class="label label-text text-xs py-0.5">Kleur</label>' +
+                    '<input type="color" class="input input-bordered input-xs w-full h-8 p-0.5" data-action="tracker-qr-color-change" data-style-key="dotColor" value="' + esc(qrStyle.dotColor) + '">' +
+                  '</div>' +
+                  '<div>' +
+                    '<label class="label label-text text-xs py-0.5">Achtergrond</label>' +
+                    '<input type="color" class="input input-bordered input-xs w-full h-8 p-0.5" data-action="tracker-qr-color-change" data-style-key="bgColor" value="' + esc(qrStyle.bgColor) + '">' +
+                  '</div>' +
+                '</div>' +
+                '<div class="w-full max-w-xs">' +
+                  '<label class="label label-text text-xs py-0.5">Logo (optioneel)</label>' +
+                  '<input type="file" accept="image/*" class="file-input file-input-bordered file-input-xs w-full" data-action="tracker-qr-logo-change">' +
+                  (qrStyle.logoDataUrl
+                    ? '<button type="button" class="btn btn-ghost btn-xs gap-1 mt-1" data-action="tracker-qr-logo-remove"><i data-lucide="x-circle" class="w-3 h-3"></i>Logo verwijderen</button>'
+                    : '') +
+                '</div>' +
+                '<div class="flex gap-2 mt-1">' +
+                  '<button type="button" class="btn btn-xs btn-outline gap-1" data-action="tracker-qr-download" data-ext="png">' +
+                    '<i data-lucide="download" class="w-3.5 h-3.5"></i> PNG downloaden' +
+                  '</button>' +
+                  '<button type="button" class="btn btn-xs btn-outline gap-1" data-action="tracker-qr-download" data-ext="svg">' +
+                    '<i data-lucide="download" class="w-3.5 h-3.5"></i> SVG downloaden' +
+                  '</button>' +
+                '</div>' +
               '</div>' +
             '</div>';
         } else {
@@ -384,7 +414,11 @@
       if (integration.source_type === 'tracker' && S()._trackerUrl && S()._trackerUrl.short_url) {
         var trackerQrEl = document.getElementById('detailTrackerQr');
         if (trackerQrEl && window.FSV2.renderTrackerQrCode) {
-          window.FSV2.renderTrackerQrCode('detailTrackerQr', S()._trackerUrl.qr_url || S()._trackerUrl.short_url);
+          window.FSV2.renderTrackerQrCode(
+            'detailTrackerQr',
+            S()._trackerUrl.qr_url || S()._trackerUrl.short_url,
+            S()._trackerQrStyle || { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null }
+          );
         }
         var copyTrackerBtn = document.getElementById('btnCopyTrackerUrl');
         if (copyTrackerBtn) {
@@ -396,12 +430,11 @@
             });
           });
         }
-        var downloadTrackerBtn = document.getElementById('btnDownloadTrackerQr');
-        if (downloadTrackerBtn && window.FSV2.downloadTrackerQrCode) {
-          downloadTrackerBtn.addEventListener('click', function () {
-            window.FSV2.downloadTrackerQrCode('detailTrackerQr', (integration.name || 'tracker') + '-qr.png');
-          });
-        }
+        // Domein-select (Task 1) en QR-kleur/logo-panel (Task 2) worden via de
+        // centrale data-action delegation in forminator-sync-v2-bootstrap.js
+        // afgehandeld (tracker-domain-change, tracker-qr-color-change,
+        // tracker-qr-logo-change, tracker-qr-logo-remove, tracker-qr-download) —
+        // geen directe addEventListener hier nodig.
       }
 
       var toggle = document.getElementById('detailActiveToggle');

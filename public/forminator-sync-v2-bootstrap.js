@@ -1634,10 +1634,39 @@
         }
         return;
       }
+      // ── Overzichtskaart: tracker-korte-URL kopiëren (rechtstreeks vanaf de kaart) ──
+      if (action === 'copy-tracker-short-url') {
+        var cardTrackerUrl = btn.dataset.url || '';
+        if (cardTrackerUrl) {
+          navigator.clipboard.writeText(cardTrackerUrl).then(function () {
+            window.FSV2.showAlert('URL gekopieerd.', 'success');
+          }).catch(function () {
+            window.FSV2.showAlert('Kopiëren mislukt — selecteer de URL handmatig.', 'warning');
+          });
+        }
+        return;
+      }
       if (action === 'wizard-download-tracker-qr') {
         if (window.FSV2.downloadTrackerQrCode) {
           window.FSV2.downloadTrackerQrCode('wizardTrackerQr', 'tracker-qr.png');
         }
+        return;
+      }
+      // ── Detail-view tracker QR: PNG/SVG download (Task 2 — QR styling panel) ──
+      if (action === 'tracker-qr-download') {
+        var tqdIntegration = window.FSV2.S.detail && window.FSV2.S.detail.integration;
+        var tqdExt  = btn.dataset.ext || 'png';
+        var tqdName = (tqdIntegration && tqdIntegration.name ? tqdIntegration.name : 'tracker') + '-qr';
+        if (window.FSV2.downloadTrackerQrCode) {
+          window.FSV2.downloadTrackerQrCode('detailTrackerQr', tqdName, tqdExt);
+        }
+        return;
+      }
+      // ── Detail-view tracker QR: remove center logo ─────────────────────────
+      if (action === 'tracker-qr-logo-remove') {
+        window.FSV2.S._trackerQrStyle = window.FSV2.S._trackerQrStyle || { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
+        window.FSV2.S._trackerQrStyle.logoDataUrl = null;
+        if (window.FSV2.renderDetail) window.FSV2.renderDetail();
         return;
       }
     };
@@ -1832,6 +1861,39 @@
       if (drtEd && drtEd.pendingFields && drtEd.pendingFields[drtIdx] !== undefined) {
         drtEd.pendingFields[drtIdx].required = inp.checked;
       }
+      return;
+    }
+    // ── Detail-view tracker: domain picker (Task 1) ────────────────────────
+    if (inp && inp.tagName === 'SELECT' && inp.dataset.action === 'tracker-domain-change') {
+      var tdcId     = inp.dataset.id || '';
+      var tdcDomain = inp.value || 'link';
+      if (!tdcId) return;
+      window.FSV2.api('/integrations/' + tdcId + '/tracker-url?domain=' + encodeURIComponent(tdcDomain)).then(function (r) {
+        window.FSV2.S._trackerUrl = r.data || null;
+        if (window.FSV2.renderDetail) window.FSV2.renderDetail();
+      }).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+      return;
+    }
+    // ── Detail-view tracker: QR dot/background color (Task 2) ─────────────
+    if (inp && inp.type === 'color' && inp.dataset.action === 'tracker-qr-color-change') {
+      var tqcKey = inp.dataset.styleKey;
+      if (!tqcKey) return;
+      window.FSV2.S._trackerQrStyle = window.FSV2.S._trackerQrStyle || { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
+      window.FSV2.S._trackerQrStyle[tqcKey] = inp.value;
+      if (window.FSV2.renderDetail) window.FSV2.renderDetail();
+      return;
+    }
+    // ── Detail-view tracker: QR center logo upload (Task 2) ────────────────
+    if (inp && inp.type === 'file' && inp.dataset.action === 'tracker-qr-logo-change') {
+      var tqlFile = inp.files && inp.files[0];
+      if (!tqlFile) return;
+      var tqlReader = new FileReader();
+      tqlReader.onload = function () {
+        window.FSV2.S._trackerQrStyle = window.FSV2.S._trackerQrStyle || { dotColor: '#000000', bgColor: '#ffffff', logoDataUrl: null };
+        window.FSV2.S._trackerQrStyle.logoDataUrl = tqlReader.result;
+        if (window.FSV2.renderDetail) window.FSV2.renderDetail();
+      };
+      tqlReader.readAsDataURL(tqlFile);
       return;
     }
     if (!inp || inp.tagName !== 'INPUT' || inp.type !== 'hidden') return;
