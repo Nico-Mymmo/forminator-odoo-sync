@@ -51,13 +51,17 @@
     var zapierSelected = !!S().wizard.isZapier;
     var zapierCard = `<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ${zapierSelected ? 'border-primary bg-primary/5' : 'border-transparent hover:border-base-300'}" data-action="wizard-select-zapier"><div class="card-body p-4"><div class="flex items-center gap-2 mb-1">${zapierSelected ? '<i data-lucide="check-circle" class="w-4 h-4 text-primary shrink-0"></i>' : '<i data-lucide="zap" class="w-4 h-4 text-warning shrink-0"></i>'}<p class="font-semibold text-sm">Zapier / Generiek webhook</p></div><p class="text-xs text-base-content/60">Stuur data vanuit Zapier, n8n of een eigen systeem via HTTP POST.</p></div></button>`;
 
+    // Tracker option: trackbare korte link + QR-code, geen Odoo-koppeling nodig
+    var trackerSelected = !!S().wizard.isTracker;
+    var trackerCard = `<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ${trackerSelected ? 'border-primary bg-primary/5' : 'border-transparent hover:border-base-300'}" data-action="wizard-select-tracker"><div class="card-body p-4"><div class="flex items-center gap-2 mb-1">${trackerSelected ? '<i data-lucide="check-circle" class="w-4 h-4 text-primary shrink-0"></i>' : '<i data-lucide="qr-code" class="w-4 h-4 text-info shrink-0"></i>'}<p class="font-semibold text-sm">Tracker (trackbare link/QR)</p></div><p class="text-xs text-base-content/60">Maak een korte, trackbare link + QR-code naar een bestaande mymmo-website.</p></div></button>`;
+
     if (S().sites.length === 0) {
-      grid.innerHTML = zapierCard;
+      grid.innerHTML = zapierCard + trackerCard;
       return;
     }
 
-    grid.innerHTML = zapierCard + S().sites.map(function (s) {
-      var selected = !zapierSelected && S().wizard.site && S().wizard.site.key === s.key;
+    grid.innerHTML = zapierCard + trackerCard + S().sites.map(function (s) {
+      var selected = !zapierSelected && !trackerSelected && S().wizard.site && S().wizard.site.key === s.key;
       return `<button type="button" class="card bg-base-100 shadow text-left hover:shadow-md transition-all border-2 ${selected ? 'border-primary bg-primary/5' : 'border-transparent hover:border-base-300'}" data-action="wizard-select-site" data-key="${esc(s.key)}" data-url="${esc(s.url)}" data-label="${esc(s.label)}"><div class="card-body p-4"><div class="flex items-center gap-2 mb-1">${selected ? '<i data-lucide="check-circle" class="w-4 h-4 text-primary shrink-0"></i>' : '<i data-lucide="globe" class="w-4 h-4 text-base-content/40 shrink-0"></i>'}<p class="font-semibold text-sm">${esc(s.label)}</p></div><p class="text-xs text-base-content/60 truncate">${esc(s.url)}</p>${s.has_token ? '' : '<p class="text-xs text-error mt-1">Geen token geconfigureerd</p>'}</div></button>`;
     }).join('');
   }
@@ -110,7 +114,27 @@
     if (mappingSec) mappingSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function wizardSelectTracker() {
+    S().wizard.isZapier   = false;
+    S().wizard.isTracker  = true;
+    S().wizard.site       = null;
+    S().wizard.action     = null;
+    S().wizard.forms      = [];
+    S().wizard.step       = 2;
+    S().wizard.form       = { form_id: 'tracker', form_name: 'Tracker', fields: [] };
+    renderWizard();
+    var trackerSec = document.getElementById('wizard-section-tracker');
+    if (trackerSec) { trackerSec.style.display = ''; }
+    var mappingSec = document.getElementById('wizard-section-mapping');
+    if (mappingSec) { mappingSec.style.display = ''; }
+    var nameInput = document.getElementById('wizardName');
+    if (nameInput && !nameInput.value) nameInput.value = 'Tracker';
+    if (trackerSec) trackerSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   async function wizardSelectSite(siteKey, siteUrl, siteLabel) {
+    S().wizard.isZapier = false;
+    S().wizard.isTracker = false;
     S().wizard.site = { key: siteKey, url: siteUrl, label: siteLabel };
     S().wizard.form = null;
     S().wizard.action = null;
@@ -156,15 +180,28 @@
     try {
       var name = ((document.getElementById('wizardName') || {}).value || '').trim();
       if (!name) throw new Error('Geef de integratie een naam.');
-      if (!S().wizard.isZapier && !S().wizard.form) throw new Error('Geen formulier geselecteerd.');
+      if (!S().wizard.isZapier && !S().wizard.isTracker && !S().wizard.form) throw new Error('Geen formulier geselecteerd.');
+
+      var destinationUrl = ((document.getElementById('wizardTrackerUrl') || {}).value || '').trim();
+      if (S().wizard.isTracker) {
+        if (!/^https:\/\//i.test(destinationUrl)) {
+          throw new Error('Doel-URL moet beginnen met https://');
+        }
+      }
 
       // Maak de integratie aan (alleen de container)
-      var intPayload = { name: name, odoo_connection_id: 'default' };
-      if (S().wizard.isZapier) {
-        intPayload.source_type = 'generic_webhook';
+      var intPayload = { name: name };
+      if (S().wizard.isTracker) {
+        intPayload.source_type = 'tracker';
+        intPayload.destination_url = destinationUrl;
       } else {
-        intPayload.forminator_form_id = String(S().wizard.form.form_id);
-        intPayload.site_key = S().wizard.site ? S().wizard.site.key : null;
+        intPayload.odoo_connection_id = 'default';
+        if (S().wizard.isZapier) {
+          intPayload.source_type = 'generic_webhook';
+        } else {
+          intPayload.forminator_form_id = String(S().wizard.form.form_id);
+          intPayload.site_key = S().wizard.site ? S().wizard.site.key : null;
+        }
       }
       var intRes = await window.FSV2.api('/integrations', {
         method: 'POST',
@@ -175,12 +212,35 @@
       S().wizard.step = 3;
       S().wizard.createdIntegrationId = integrationId;
       renderWizardSteps();
-      ['sites', 'forms', 'mapping'].forEach(function (s) {
+      ['sites', 'forms', 'mapping', 'tracker'].forEach(function (s) {
         var el = document.getElementById('wizard-section-' + s);
         if (el) el.style.display = 'none';
       });
 
-      if (S().wizard.isZapier) {
+      if (S().wizard.isTracker) {
+        // Toon de trackbare korte URL + QR-code zodat de gebruiker die meteen kan delen/downloaden
+        var trackerResultSection = document.getElementById('wizard-section-tracker-result');
+        try {
+          var turRes = await window.FSV2.api('/integrations/' + integrationId + '/tracker-url');
+          var shortUrl = (turRes.data && turRes.data.short_url) || '';
+          var qrUrl = (turRes.data && turRes.data.qr_url) || '';
+          S().wizard._trackerShortUrl = shortUrl;
+          var shortUrlEl = document.getElementById('wizardTrackerShortUrl');
+          if (shortUrlEl) shortUrlEl.textContent = shortUrl;
+          if (window.FSV2.renderTrackerQrCode && qrUrl) {
+            window.FSV2.renderTrackerQrCode('wizardTrackerQr', qrUrl);
+          }
+        } catch (_) {
+          var shortUrlElFail = document.getElementById('wizardTrackerShortUrl');
+          if (shortUrlElFail) shortUrlElFail.textContent = '(kon URL niet ophalen)';
+        }
+        if (trackerResultSection) {
+          trackerResultSection.style.display = '';
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: trackerResultSection });
+        }
+        await window.FSV2.loadIntegrations();
+        window.FSV2.renderList();
+      } else if (S().wizard.isZapier) {
         // Toon webhook URL zodat de gebruiker die meteen kan kopiëren
         var webhookUrlSection = document.getElementById('wizard-section-webhook-url');
         var webhookUrlEl = document.getElementById('wizardWebhookUrl');
@@ -234,6 +294,7 @@
     renderWizardForms:    renderWizardForms,
     wizardSelectSite:     wizardSelectSite,
     wizardSelectZapier:   wizardSelectZapier,
+    wizardSelectTracker:  wizardSelectTracker,
     wizardSelectForm:     wizardSelectForm,
     submitWizard:         submitWizard,
     wizardSkipChatter:    wizardSkipChatter,

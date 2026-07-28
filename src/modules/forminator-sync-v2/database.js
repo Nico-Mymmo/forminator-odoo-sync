@@ -14,6 +14,7 @@ const TABLES = {
   folders:         'fs_v2_folders',
   tags:            'fs_v2_tags',
   integrationTags: 'fs_v2_integration_tags',
+  trackerHits:     'fs_v2_tracker_hits',
 };
 
 function getSupabase(env) {
@@ -137,6 +138,42 @@ export async function listIntegrations(env) {
         { total: 0, errors: 0, skipped: 0 }
       );
     });
+
+    // Trackers hebben geen submissions — voor source_type === 'tracker' vullen we
+    // dezelfde daily_stats/stats_30d-vorm met fs_v2_tracker_hits, zodat de bestaande
+    // sparkline-rendering op de koppelingskaart ongewijzigd kan blijven werken.
+    // `errors` blijft 0 (trackers falen niet), `skipped` wordt hergebruikt als
+    // "QR-scans die dag" (in plaats van "overgeslagen stappen").
+    const trackerIds = integrations.filter((r) => r.source_type === 'tracker').map((r) => r.id);
+    if (trackerIds.length > 0) {
+      const { data: hitRows } = await supabase
+        .from(TABLES.trackerHits)
+        .select('integration_id, hit_at, origin')
+        .in('integration_id', trackerIds)
+        .gte('hit_at', since);
+      const hitsByInteg = {};
+      ensureArray(hitRows).forEach((h) => {
+        const day = String(h.hit_at).slice(0, 10);
+        if (!hitsByInteg[h.integration_id]) hitsByInteg[h.integration_id] = {};
+        if (!hitsByInteg[h.integration_id][day]) hitsByInteg[h.integration_id][day] = { total: 0, qr: 0 };
+        hitsByInteg[h.integration_id][day].total += 1;
+        if (h.origin === 'qr') hitsByInteg[h.integration_id][day].qr += 1;
+      });
+      integrations.forEach((row) => {
+        if (row.source_type !== 'tracker') return;
+        const byDay = hitsByInteg[row.id] || {};
+        row.daily_stats = dayKeys.map((day) => ({
+          date: day,
+          total: (byDay[day] && byDay[day].total) || 0,
+          errors: 0,
+          skipped: (byDay[day] && byDay[day].qr) || 0,
+        }));
+        row.stats_30d = row.daily_stats.reduce(
+          (acc, d) => ({ total: acc.total + d.total, errors: 0, skipped: acc.skipped + d.skipped }),
+          { total: 0, errors: 0, skipped: 0 }
+        );
+      });
+    }
   }
 
   return integrations;
@@ -177,6 +214,157 @@ export async function updateIntegration(env, integrationId, updates) {
 
   if (error) throw new Error(`Failed to update integration: ${error.message}`);
   return data;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// TRACKERS — trackbare korte links / QR-codes (source_type = 'tracker')
+// ──────────────────────────────────────────────────────────────────────────
+
+const TRACKER_SLUG_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+
+// Korte, URL-veilige slug (7 tekens) — zelfde random-conventie als het
+// bestaande webhook_token (crypto.getRandomValues), maar korter omdat dit
+// zichtbaar in een gedeelde/gescande URL terechtkomt.
+export function generateTrackerSlug(length = 7) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  let slug = '';
+  for (let i = 0; i < length; i++) {
+    slug += TRACKER_SLUG_ALPHABET[bytes[i] % TRACKER_SLUG_ALPHABET.length];
+  }
+  return slug;
+}
+
+export async function getIntegrationByTrackerSlug(env, slug) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.integrations)
+    .select('*')
+    .eq('tracker_slug', slug)
+    .eq('source_type', 'tracker')
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to fetch tracker by slug: ${error.message}`);
+  return data || null;
+}
+
+export async function createTrackerIntegration(env, payload) {
+  const supabase = getSupabase(env);
+  const maxAttempts = 5;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const slug = generateTrackerSlug();
+    const { data, error } = await supabase
+      .from(TABLES.integrations)
+      .insert({
+        name: payload.name,
+        destination_url: payload.destination_url,
+        tracker_slug: slug,
+        source_type: 'tracker',
+        forminator_form_id: null,
+        odoo_connection_id: null,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('*')
+      .single();
+
+    if (!error) return data;
+
+    // 23505 = unique_violation — retry with a fresh slug on collision only.
+    if (error.code === '23505' || /tracker_slug/i.test(error.message || '')) {
+      lastError = error;
+      continue;
+    }
+    throw new Error(`Failed to create tracker integration: ${error.message}`);
+  }
+
+  throw new Error(`Failed to create tracker integration after ${maxAttempts} attempts: ${lastError?.message}`);
+}
+
+export async function logTrackerHit(env, integrationId, { origin, referrer, userAgent } = {}) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase
+    .from(TABLES.trackerHits)
+    .insert({
+      integration_id: integrationId,
+      origin: origin === 'qr' ? 'qr' : 'link',
+      referrer: referrer || null,
+      user_agent: userAgent || null,
+    });
+
+  if (error) throw new Error(`Failed to log tracker hit: ${error.message}`);
+  return true;
+}
+
+function classifyDevice(userAgent) {
+  const ua = String(userAgent || '');
+  if (!ua) return 'unknown';
+  if (/iPad|Tablet(?!.*Mobile)/i.test(ua)) return 'tablet';
+  if (/Mobi|Android|iPhone/i.test(ua)) return 'mobile';
+  return 'desktop';
+}
+
+export async function getTrackerStats(env, integrationId) {
+  const supabase = getSupabase(env);
+
+  const { count: totalAllTime, error: totalError } = await supabase
+    .from(TABLES.trackerHits)
+    .select('id', { count: 'exact', head: true })
+    .eq('integration_id', integrationId);
+  if (totalError) throw new Error(`Failed to count tracker hits: ${totalError.message}`);
+
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: hits, error } = await supabase
+    .from(TABLES.trackerHits)
+    .select('hit_at, origin, referrer, user_agent')
+    .eq('integration_id', integrationId)
+    .gte('hit_at', since)
+    .order('hit_at', { ascending: false });
+  if (error) throw new Error(`Failed to fetch tracker stats: ${error.message}`);
+
+  const rows = ensureArray(hits);
+
+  const byDay = {};
+  const originBreakdown = { qr: 0, link: 0 };
+  const deviceBreakdown = { mobile: 0, desktop: 0, tablet: 0, unknown: 0 };
+
+  rows.forEach((h) => {
+    const day = String(h.hit_at).slice(0, 10);
+    if (!byDay[day]) byDay[day] = { total: 0, qr: 0, link: 0 };
+    byDay[day].total += 1;
+    if (h.origin === 'qr') {
+      byDay[day].qr += 1;
+      originBreakdown.qr += 1;
+    } else {
+      byDay[day].link += 1;
+      originBreakdown.link += 1;
+    }
+    const device = classifyDevice(h.user_agent);
+    deviceBreakdown[device] = (deviceBreakdown[device] || 0) + 1;
+  });
+
+  const dayKeys = [];
+  for (let i = 29; i >= 0; i--) {
+    dayKeys.push(new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+  }
+  const dailyStats = dayKeys.map((day) => ({
+    date: day,
+    total: (byDay[day] && byDay[day].total) || 0,
+    qr: (byDay[day] && byDay[day].qr) || 0,
+    link: (byDay[day] && byDay[day].link) || 0,
+  }));
+
+  return {
+    total_all_time: Number(totalAllTime || 0),
+    total_30d: rows.length,
+    daily_stats: dailyStats,
+    origin_breakdown: originBreakdown,
+    device_breakdown: deviceBreakdown,
+    recent_hits: rows.slice(0, 50),
+  };
 }
 
 export async function upsertFieldMeta(env, integrationId, meta) {

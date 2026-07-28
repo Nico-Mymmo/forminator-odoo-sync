@@ -57,6 +57,7 @@ import {
   getOrCreateTag,
   attachTagToIntegration,
   detachTagFromIntegration,
+  getTrackerStats,
 } from './database.js';
 import { fetchOpenVmeForminatorForms, fetchForminatorFormsBasicAuth } from '../../lib/wordpress.js';
 import {
@@ -761,6 +762,60 @@ export const routes = {
     try {
       const result = await deleteIntegrationRecord(context.env, context.params?.id);
       return jsonResponse({ success: true, data: result });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/integrations/:id/tracker-stats': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const integration = await getIntegrationById(context.env, integrationId);
+      if (!integration) {
+        return jsonResponse({ success: false, error: 'Integration not found' }, 404);
+      }
+      if (integration.source_type !== 'tracker') {
+        return jsonResponse({ success: false, error: 'Integration is not a tracker' }, 400);
+      }
+
+      const stats = await getTrackerStats(context.env, integrationId);
+      return jsonResponse({ success: true, data: stats });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'GET /api/integrations/:id/tracker-url': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const integration = await getIntegrationById(context.env, integrationId);
+      if (!integration) {
+        return jsonResponse({ success: false, error: 'Integration not found' }, 404);
+      }
+      if (integration.source_type !== 'tracker' || !integration.tracker_slug) {
+        return jsonResponse({ success: false, error: 'Integration is not a tracker' }, 400);
+      }
+
+      // TRACKER_BASE_URL is optioneel: zodra het custom domain link.openvme.be echt
+      // werkt (Cloudflare-zone + DNS geregeld), zet je deze var op
+      // "https://link.openvme.be" en alle nieuwe/bestaande korte links wijzen er
+      // automatisch naartoe zonder codewijziging. Zolang die var niet gezet is,
+      // vallen we terug op het huidige worker-domein met een /t/-pad — werkt nu
+      // al zonder extra DNS-setup (zie src/router/public-routes.js).
+      const reqUrl = new URL(context.request.url);
+      const base = context.env?.TRACKER_BASE_URL || `${reqUrl.protocol}//${reqUrl.host}/t`;
+
+      return jsonResponse({
+        success: true,
+        data: {
+          short_url: `${base}/${integration.tracker_slug}`,
+          qr_url: `${base}/${integration.tracker_slug}?src=qr`,
+        }
+      });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

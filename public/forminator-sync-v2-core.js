@@ -162,7 +162,7 @@
   }
 
   function resetWizard() {
-    S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false, isZapier: false };
+    S.wizard = { step: 1, site: null, form: null, action: null, forms: [], formsLoading: false, isZapier: false, isTracker: false };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -754,7 +754,7 @@
       var _dotHtml = isActive
         ? '<span class="w-2 h-2 rounded-full bg-success shrink-0" title="Actief"></span>'
         : '<span class="w-2 h-2 rounded-full bg-base-300 shrink-0" title="Inactief"></span>';
-      var _headerHtml = `<div class="mb-2.5"><div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-1.5 min-w-0">${_dotHtml}<h3 class="font-bold text-sm leading-snug text-base-content truncate" title="${esc(row.name || 'Koppeling')}">${esc(row.name || 'Koppeling')}</h3></div><div class="flex flex-wrap items-center justify-end gap-1 shrink-0">${_tagsHtml}</div></div>${_stepsHtml}${flowHtml ? '<div class="mb-1.5">' + flowHtml + '</div>' : ''}<div class="flex items-center gap-1.5">${row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div></div>`;
+      var _headerHtml = `<div class="mb-2.5"><div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-1.5 min-w-0">${_dotHtml}<h3 class="font-bold text-sm leading-snug text-base-content truncate" title="${esc(row.name || 'Koppeling')}">${esc(row.name || 'Koppeling')}</h3></div><div class="flex flex-wrap items-center justify-end gap-1 shrink-0">${_tagsHtml}</div></div>${_stepsHtml}${flowHtml ? '<div class="mb-1.5">' + flowHtml + '</div>' : ''}<div class="flex items-center gap-1.5">${row.source_type === 'tracker' ? '<i data-lucide="qr-code" class="w-3 h-3 text-info shrink-0"></i><p class="text-xs text-info font-mono truncate">link.openvme.be/' + esc(row.tracker_slug || '') + '</p>' : row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div></div>`;
 
       var _bodyHtml = buildCardChartBlock(row);
 
@@ -1158,6 +1158,45 @@
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
   // ═══════════════════════════════════════════════════════════════════════════
+  // TRACKER QR-CODE HELPERS — gedeeld door de wizard, de detail-view en de
+  // stats-tab. Gebruikt de qrcodejs CDN-library (zie <script>-tag in
+  // forminator-sync-v2.html) — geen nieuwe dependency t.o.v. wat al in de app zit.
+  // ═══════════════════════════════════════════════════════════════════════════
+  function renderTrackerQrCode(containerId, url) {
+    var el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = '';
+    if (typeof QRCode === 'undefined' || !url) {
+      el.textContent = url || '';
+      return;
+    }
+    new QRCode(el, {
+      text: url,
+      width: 160,
+      height: 160,
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+  }
+
+  function downloadTrackerQrCode(containerId, filename) {
+    var el = document.getElementById(containerId);
+    if (!el) return;
+    var canvas = el.querySelector('canvas');
+    var img    = el.querySelector('img');
+    var dataUrl = canvas ? canvas.toDataURL('image/png') : (img ? img.src : null);
+    if (!dataUrl) {
+      showAlert('QR-code nog niet geladen.', 'warning');
+      return;
+    }
+    var a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename || 'qr-code.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // EXPORT
   // ═══════════════════════════════════════════════════════════════════════════
   window.FSV2 = {
@@ -1189,6 +1228,8 @@
     moveIntegrationToFolder: moveIntegrationToFolder,
     renderConnections: renderConnections,
     renderDefaults: renderDefaults,
+    renderTrackerQrCode: renderTrackerQrCode,
+    downloadTrackerQrCode: downloadTrackerQrCode,
   };
 
 }());

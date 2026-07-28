@@ -65,7 +65,14 @@
 
       // For generic_webhook integrations: fetch per-integration webhook URL
       S()._genericWebhookUrl = null;
-      if (detailIntegration && detailIntegration.source_type === 'generic_webhook') {
+      // For tracker integrations: fetch the short/QR URL + tab-scoped stats
+      S()._trackerUrl = null;
+      if (detailIntegration && detailIntegration.source_type === 'tracker') {
+        window.FSV2.api('/integrations/' + id + '/tracker-url').then(function (r) {
+          S()._trackerUrl = r.data || null;
+          if (S().activeId === id) window.FSV2.renderDetail();
+        }).catch(function () {});
+      } else if (detailIntegration && detailIntegration.source_type === 'generic_webhook') {
         window.FSV2.api('/integrations/' + id + '/webhook-url').then(function (r) {
           S()._genericWebhookUrl = (r.data && r.data.webhook_url) ? r.data.webhook_url : null;
           if (S().activeId === id) window.FSV2.renderDetail();

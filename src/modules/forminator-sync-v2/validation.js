@@ -35,6 +35,15 @@ export function validateIntegrationCreatePayload(payload) {
     throw createError('Integration name is required');
   }
 
+  // Tracker integrations (trackable short link / QR code) never write to Odoo:
+  // no Forminator form, no Odoo connection — but a destination_url is required instead.
+  if (payload.source_type === 'tracker') {
+    if (!hasValue(payload.destination_url)) {
+      throw createError('Destination URL is required for tracker integrations');
+    }
+    return;
+  }
+
   // generic_webhook integrations get a synthetic forminator_form_id generated server-side
   if (payload.source_type !== 'generic_webhook') {
     if (!hasValue(payload.forminator_form_id)) {

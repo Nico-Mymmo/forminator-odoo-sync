@@ -5,6 +5,10 @@
  * - /assets/* (R2 publieke bestanden)
  * - /api/auth/login | logout | me
  * - Forminator Sync V2 webhooks (token-auth)
+ * - link.openvme.be/* — FSV2 tracker-redirect (trackbare korte links/QR-codes,
+ *   inherent publiek: iemand die een QR scant heeft geen sessie-cookie).
+ *   link.openvme.be zonder pad (root-bezoek) stuurt door naar https://openvme.be.
+ *   Onbekende/inactieve slugs tonen een branded foutpagina i.p.v. kale tekst.
  *
  * Retourneert een Response als de route hier afgehandeld wordt, anders null.
  *
@@ -17,11 +21,92 @@ import { getModuleByCode, resolveModuleRoute } from '../modules/registry.js';
 import { validateKey } from '../modules/asset-manager/lib/path-utils.js';
 import { getMimeType } from '../modules/asset-manager/lib/mime-types.js';
 import { extractSessionToken } from './auth-gate.js';
+import { getIntegrationByTrackerSlug, logTrackerHit } from '../modules/forminator-sync-v2/database.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
+ * Branded HTML-pagina voor trackable links die niet (meer) werken — link.openvme.be
+ * heeft geen ander doel dan doorsturen/loggen, dus dit is de enige plek waar een
+ * bezoeker ooit echt content van dit domein te zien krijgt. Geen build-stap/CDN-
+ * afhankelijkheid: puur inline HTML+CSS, want dit MOET altijd werken, ook als een
+ * externe CDN eventjes onbereikbaar is.
+ */
+function trackerErrorPage({ status, heading, message }) {
+  const html = `<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${heading} — mymmo</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f8f9fb;
+    color: #1f2430;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+  .card {
+    max-width: 420px;
+    width: 100%;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 32px 28px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    background: #fef3f2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+  h1 { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+  p { font-size: 14px; color: #6b7280; line-height: 1.5; margin: 0 0 20px; }
+  a.btn {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background: #2563eb;
+    padding: 9px 18px;
+    border-radius: 8px;
+    text-decoration: none;
+  }
+  a.btn:hover { background: #1d4ed8; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🔗</div>
+    <h1>${heading}</h1>
+    <p>${message}</p>
+    <a class="btn" href="https://openvme.be">Naar openvme.be</a>
+  </div>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
   });
 }
 
@@ -92,6 +177,63 @@ export async function handlePublicRoutes(request, env, ctx) {
   // Favicon
   if (pathname === '/favicon.ico') {
     return new Response(null, { status: 204 });
+  }
+
+  // FSV2 tracker-redirect — trackbare korte links/QR-codes op het custom domain
+  // link.openvme.be. Inherent publiek (iemand die een QR-code scant heeft geen
+  // sessie-cookie), dus dit MOET vóór elke sessie-afhankelijke logica draaien.
+  // pathname is '/<slug>' -> slug = '<slug>' (evt. met trailing segmenten genegeerd).
+  if (url.hostname === 'link.openvme.be' && request.method === 'GET') {
+    const slug = pathname.slice(1).split('/')[0];
+
+    // Rechtstreeks bezoek zonder slug (bv. iemand tikt "link.openvme.be" gewoon in)
+    // -> gewoon doorsturen naar de hoofdwebsite, geen foutpagina nodig.
+    if (!slug) {
+      return Response.redirect('https://openvme.be', 302);
+    }
+
+    let integration;
+    try {
+      integration = await getIntegrationByTrackerSlug(env, slug);
+    } catch (err) {
+      console.error('[tracker] failed to look up slug:', err.message);
+      return trackerErrorPage({
+        status: 500,
+        heading: 'Er ging iets mis',
+        message: 'Deze link kon momenteel niet verwerkt worden. Probeer het later opnieuw.',
+      });
+    }
+
+    if (!integration) {
+      return trackerErrorPage({
+        status: 404,
+        heading: 'Link niet gevonden',
+        message: 'Deze link bestaat niet (meer), of is verkeerd overgetypt.',
+      });
+    }
+
+    if (!integration.is_active || !integration.destination_url) {
+      return trackerErrorPage({
+        status: 410,
+        heading: 'Link niet meer actief',
+        message: 'Deze link is uitgeschakeld en stuurt niet langer door.',
+      });
+    }
+
+    const origin = url.searchParams.get('src') === 'qr' ? 'qr' : 'link';
+    const logPromise = logTrackerHit(env, integration.id, {
+      origin,
+      referrer: request.headers.get('Referer') || null,
+      userAgent: request.headers.get('User-Agent') || null,
+    }).catch((err) => console.error('[tracker] failed to log hit:', err.message));
+
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(logPromise);
+    } else {
+      await logPromise;
+    }
+
+    return Response.redirect(integration.destination_url, 302);
   }
 
   // Public asset serving — geen auth, vóór module-router

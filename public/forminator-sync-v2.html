@@ -34,6 +34,7 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="/shared-navbar.js"></script>
 
   <style>
@@ -307,6 +308,29 @@
           <div id="wizardFormsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
         </div>
 
+        <!-- ── Step 2b (Tracker): Destination URL ──────────────────────── -->
+        <div id="wizard-section-tracker" style="display:none;" class="mt-10">
+          <div class="divider mb-6"></div>
+          <div class="mb-4">
+            <h3 class="text-lg font-semibold">Doel-URL</h3>
+            <p class="text-sm text-base-content/60">Naar welke bestaande mymmo-pagina moet de korte link/QR-code doorverwijzen?</p>
+          </div>
+          <div class="card bg-base-100 shadow">
+            <div class="card-body p-5">
+              <div class="form-control">
+                <label class="label" for="wizardTrackerUrl"><span class="label-text font-semibold">Doel-URL</span></label>
+                <input
+                  id="wizardTrackerUrl"
+                  type="url"
+                  class="input input-bordered"
+                  placeholder="https://mymmo.com/actie-zomer"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- ── Step 3: Name + submit (hidden until source/form selected) ── -->
         <div id="wizard-section-mapping" style="display:none;" class="mt-10">
           <div class="divider mb-6"></div>
@@ -374,6 +398,39 @@
           </button>
         </div>
 
+        <!-- ── Step 5 (Tracker): Short URL + QR code ───────────────────── -->
+        <div id="wizard-section-tracker-result" style="display:none;" class="mt-10">
+          <div class="divider mb-6"></div>
+          <div class="mb-6 text-center">
+            <div class="text-4xl mb-3">🔗</div>
+            <h3 class="text-lg font-semibold mb-1">Tracker aangemaakt!</h3>
+            <p class="text-sm text-base-content/60">Deel deze korte link of download de QR-code.</p>
+          </div>
+          <div class="card bg-base-100 shadow mb-6">
+            <div class="card-body p-5">
+              <p class="text-xs font-semibold text-base-content/60 mb-1.5 flex items-center gap-1.5">
+                <i data-lucide="link" class="w-3.5 h-3.5"></i> Korte URL
+              </p>
+              <div class="flex items-center gap-2 mb-4">
+                <code id="wizardTrackerShortUrl" class="flex-1 text-xs bg-base-200 rounded px-2 py-1.5 break-all select-all"></code>
+                <button type="button" class="btn btn-xs btn-ghost shrink-0" data-action="wizard-copy-tracker-url" title="Kopiëren">
+                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+              <div class="flex flex-col items-center gap-2">
+                <div id="wizardTrackerQr"></div>
+                <button type="button" class="btn btn-xs btn-outline gap-1" data-action="wizard-download-tracker-qr">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> QR-code downloaden
+                </button>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary w-full gap-2" data-action="wizard-skip-chatter">
+            <i data-lucide="check" class="w-5 h-5"></i>
+            Naar koppelingsdetails
+          </button>
+        </div>
+
 
       </div><!-- /view-wizard -->
 
@@ -396,6 +453,7 @@
           <button role="tab" class="tab tab-active" data-detail-tab="fields">Formuliervelden</button>
           <button role="tab" class="tab" data-detail-tab="mapping">Koppeling</button>
           <button role="tab" class="tab" data-detail-tab="history">Indieningen</button>
+          <button role="tab" class="tab" data-detail-tab="stats" id="detailTabStatsBtn" style="display:none;">Statistieken</button>
         </div>
 
         <div id="detailTabFields" class="bg-base-100 border border-base-200 rounded-box p-6">
@@ -415,6 +473,10 @@
 
         <div id="detailTabHistory" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
           <div id="detailHistory"></div>
+        </div>
+
+        <div id="detailTabStats" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
+          <div id="detailTrackerStats"></div>
         </div>
 
             </div><!-- /view-detail -->
@@ -586,6 +648,7 @@
   <script src="/forminator-sync-v2-detail-chatter-composer.js"></script>
   <script src="/forminator-sync-v2-detail-activity-composer.js"></script>
   <script src="/forminator-sync-v2-detail-mailing-list-composer.js"></script>
+  <script src="/forminator-sync-v2-detail-tracker-stats-tab.js"></script>
   <script src="/forminator-sync-v2-settings.js"></script>
   <script src="/forminator-sync-v2-bootstrap.js"></script>
 

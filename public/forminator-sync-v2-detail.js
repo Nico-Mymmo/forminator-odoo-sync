@@ -262,7 +262,36 @@
       }
 
       var webhookBlock = '';
-      if (integration.source_type === 'generic_webhook') {
+      if (integration.source_type === 'tracker') {
+        var trackerInfo = S()._trackerUrl;
+        if (trackerInfo && trackerInfo.short_url) {
+          webhookBlock =
+            '<div class="mt-4 pt-4 border-t border-base-200">' +
+              '<p class="text-xs font-semibold text-base-content/60 mb-1.5 flex items-center gap-1.5">' +
+                '<i data-lucide="qr-code" class="w-3.5 h-3.5 text-info"></i> Korte URL' +
+              '</p>' +
+              '<div class="flex items-center gap-2 mb-3">' +
+                '<code class="flex-1 text-xs bg-base-200 rounded px-2 py-1.5 break-all select-all">' + esc(trackerInfo.short_url) + '</code>' +
+                '<button type="button" class="btn btn-xs btn-ghost shrink-0" id="btnCopyTrackerUrl" title="Kopi\u00ebren">' +
+                  '<i data-lucide="copy" class="w-3.5 h-3.5"></i>' +
+                '</button>' +
+              '</div>' +
+              '<p class="text-xs text-base-content/60 mb-3">Doel: <span class="break-all">' + esc(integration.destination_url || '\u2014') + '</span></p>' +
+              '<div class="flex flex-col items-center gap-2">' +
+                '<div id="detailTrackerQr"></div>' +
+                '<button type="button" class="btn btn-xs btn-outline gap-1" id="btnDownloadTrackerQr">' +
+                  '<i data-lucide="download" class="w-3.5 h-3.5"></i> QR-code downloaden' +
+                '</button>' +
+              '</div>' +
+            '</div>';
+        } else {
+          webhookBlock =
+            '<div class="mt-4 pt-4 border-t border-base-200">' +
+              '<span class="loading loading-spinner loading-xs"></span>' +
+              '<span class="text-xs text-base-content/60 ml-2">Tracker-URL laden\u2026</span>' +
+            '</div>';
+        }
+      } else if (integration.source_type === 'generic_webhook') {
         // Per-integration webhook URL (Zapier / generic)
         var gwUrl = S()._genericWebhookUrl || null;
         if (gwUrl) {
@@ -319,7 +348,9 @@
                   '</button>' +
                 '</div>' +
                 '<p class="text-sm text-base-content/60">' +
-                (integration.source_type === 'generic_webhook'
+                (integration.source_type === 'tracker'
+                  ? '<span class="badge badge-info badge-sm mr-1">Tracker</span>Trackbare link / QR-code'
+                  : integration.source_type === 'generic_webhook'
                   ? '<span class="badge badge-warning badge-sm mr-1">Zapier / Generic</span>Webhook-integratie'
                   : 'Formulier: <span class="font-mono">' + esc(integration.forminator_form_id || '\u2014') + '</span>') +
                 '</p>' +
@@ -346,6 +377,29 @@
             }).catch(function () {
               window.FSV2.showAlert('Kopi\u00ebren mislukt \u2014 selecteer de URL handmatig.', 'warning');
             });
+          });
+        }
+      }
+
+      if (integration.source_type === 'tracker' && S()._trackerUrl && S()._trackerUrl.short_url) {
+        var trackerQrEl = document.getElementById('detailTrackerQr');
+        if (trackerQrEl && window.FSV2.renderTrackerQrCode) {
+          window.FSV2.renderTrackerQrCode('detailTrackerQr', S()._trackerUrl.qr_url || S()._trackerUrl.short_url);
+        }
+        var copyTrackerBtn = document.getElementById('btnCopyTrackerUrl');
+        if (copyTrackerBtn) {
+          copyTrackerBtn.addEventListener('click', function () {
+            navigator.clipboard.writeText(S()._trackerUrl.short_url).then(function () {
+              window.FSV2.showAlert('URL gekopi\u00eberd.', 'success');
+            }).catch(function () {
+              window.FSV2.showAlert('Kopi\u00ebren mislukt \u2014 selecteer de URL handmatig.', 'warning');
+            });
+          });
+        }
+        var downloadTrackerBtn = document.getElementById('btnDownloadTrackerQr');
+        if (downloadTrackerBtn && window.FSV2.downloadTrackerQrCode) {
+          downloadTrackerBtn.addEventListener('click', function () {
+            window.FSV2.downloadTrackerQrCode('detailTrackerQr', (integration.name || 'tracker') + '-qr.png');
           });
         }
       }
@@ -392,9 +446,43 @@
       }
     }
 
-    window.FSV2.renderDetailMappings();
-    window.FSV2.renderDetailFormFields();
-    window.FSV2.renderDetailSubmissions();
+    // Tab-zichtbaarheid: trackers hebben geen formuliervelden/koppeling/indieningen \u2014
+    // toon in plaats daarvan uitsluitend de Statistieken-tab (omgekeerd voor de andere twee bronnen).
+    var isTrackerIntegration = integration.source_type === 'tracker';
+    var tabBar = document.getElementById('detailTabBar');
+    if (tabBar) {
+      var fieldsBtn  = tabBar.querySelector('[data-detail-tab="fields"]');
+      var mappingBtn = tabBar.querySelector('[data-detail-tab="mapping"]');
+      var historyBtn = tabBar.querySelector('[data-detail-tab="history"]');
+      var statsBtn   = document.getElementById('detailTabStatsBtn');
+      [fieldsBtn, mappingBtn, historyBtn].forEach(function (btn) {
+        if (btn) btn.style.display = isTrackerIntegration ? 'none' : '';
+      });
+      if (statsBtn) statsBtn.style.display = isTrackerIntegration ? '' : 'none';
+
+      var activeTabBtn = tabBar.querySelector('.tab-active');
+      var needsTabSwitch = isTrackerIntegration
+        ? (!activeTabBtn || activeTabBtn.dataset.detailTab !== 'stats')
+        : (activeTabBtn && activeTabBtn.dataset.detailTab === 'stats');
+      if (needsTabSwitch) {
+        var targetTab = isTrackerIntegration ? 'stats' : 'fields';
+        tabBar.querySelectorAll('[data-detail-tab]').forEach(function (t) {
+          t.classList.toggle('tab-active', t.dataset.detailTab === targetTab);
+        });
+        ['fields', 'mapping', 'history', 'stats'].forEach(function (name) {
+          var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
+          if (panel) panel.style.display = name === targetTab ? '' : 'none';
+        });
+      }
+    }
+
+    if (integration.source_type === 'tracker') {
+      if (window.FSV2.renderDetailTrackerStats) window.FSV2.renderDetailTrackerStats();
+    } else {
+      window.FSV2.renderDetailMappings();
+      window.FSV2.renderDetailFormFields();
+      window.FSV2.renderDetailSubmissions();
+    }
 
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }

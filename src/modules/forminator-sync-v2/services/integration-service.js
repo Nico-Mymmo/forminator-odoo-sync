@@ -5,7 +5,8 @@ import {
   hasSuccessfulTestSubmission,
   listIntegrations,
   getIntegrationById,
-  deleteIntegration
+  deleteIntegration,
+  createTrackerIntegration
 } from '../database.js';
 import {
   validateIntegrationCreatePayload,
@@ -19,6 +20,15 @@ export async function listIntegrationSummaries(env) {
 
 export async function createIntegrationRecord(env, payload) {
   validateIntegrationCreatePayload(payload);
+
+  // Tracker integrations (trackable short link / QR code) have their own dedicated
+  // creation path — they generate a unique tracker_slug and never touch Odoo/Forminator.
+  if (payload.source_type === 'tracker') {
+    return createTrackerIntegration(env, {
+      name: payload.name.trim(),
+      destination_url: String(payload.destination_url).trim()
+    });
+  }
 
   const sourceType = payload.source_type || 'forminator';
 
@@ -59,10 +69,16 @@ export async function updateIntegrationRecord(env, integrationId, payload) {
   if (payload.site_key !== undefined) updates.site_key = payload.site_key || null;
 
   if (payload.is_active === true) {
-    const bundle = await getIntegrationBundle(env, integrationId);
-    const successfulTest = await hasSuccessfulTestSubmission(env, integrationId);
-    validateActivationReadiness(bundle, successfulTest);
-    updates.is_active = true;
+    // Trackers never have resolvers/targets (they don't write to Odoo), so the
+    // normal "at least one schrijfdoel" activation-readiness check doesn't apply.
+    if (existing.source_type === 'tracker') {
+      updates.is_active = true;
+    } else {
+      const bundle = await getIntegrationBundle(env, integrationId);
+      const successfulTest = await hasSuccessfulTestSubmission(env, integrationId);
+      validateActivationReadiness(bundle, successfulTest);
+      updates.is_active = true;
+    }
   } else if (payload.is_active === false) {
     updates.is_active = false;
   }

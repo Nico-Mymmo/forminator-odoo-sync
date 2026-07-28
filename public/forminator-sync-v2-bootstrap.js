@@ -67,7 +67,7 @@
       document.querySelectorAll('[data-detail-tab]').forEach(function (t) {
         t.classList.toggle('tab-active', t.dataset.detailTab === tabName);
       });
-      ['fields', 'mapping', 'history'].forEach(function (name) {
+      ['fields', 'mapping', 'history', 'stats'].forEach(function (name) {
         var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
         if (panel) panel.style.display = name === tabName ? '' : 'none';
       });
@@ -498,6 +498,10 @@
       }
       if (action === 'wizard-select-zapier') {
         await window.FSV2.wizardSelectZapier();
+        return;
+      }
+      if (action === 'wizard-select-tracker') {
+        await window.FSV2.wizardSelectTracker();
         return;
       }
       if (action === 'wizard-select-form') {
@@ -1615,6 +1619,24 @@
           }).catch(function () {
             window.FSV2.showAlert('Kopiëren mislukt — selecteer de URL handmatig.', 'warning');
           });
+        }
+        return;
+      }
+      if (action === 'wizard-copy-tracker-url') {
+        var trackerUrlEl = document.getElementById('wizardTrackerShortUrl');
+        var trackerUrlText = (trackerUrlEl && trackerUrlEl.textContent) ? trackerUrlEl.textContent.trim() : '';
+        if (trackerUrlText) {
+          navigator.clipboard.writeText(trackerUrlText).then(function () {
+            window.FSV2.showAlert('URL gekopieerd.', 'success');
+          }).catch(function () {
+            window.FSV2.showAlert('Kopiëren mislukt — selecteer de URL handmatig.', 'warning');
+          });
+        }
+        return;
+      }
+      if (action === 'wizard-download-tracker-qr') {
+        if (window.FSV2.downloadTrackerQrCode) {
+          window.FSV2.downloadTrackerQrCode('wizardTrackerQr', 'tracker-qr.png');
         }
         return;
       }
