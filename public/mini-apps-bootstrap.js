@@ -27,7 +27,6 @@ document.addEventListener('click', function(e) {
     else if (action === 'copyAppLink') copyAppLink(el.dataset.id);
     else if (action === 'toggleFavorite') toggleFavorite(el.dataset.id, el.dataset.favorite === '1');
     else if (action === 'toggleGlobalFavorite') toggleGlobalFavorite(el.dataset.id, el.dataset.globalFavorite === '1');
-    else if (action === 'moveFavorite') moveFavorite(el.dataset.id, parseInt(el.dataset.dir, 10));
     else if (action === 'copyCurrentAppLink') { if (currentApp) copyAppLink(currentApp.id); }
     else if (action === 'toggleMailSubscription') toggleMailSubscription();
     else if (action === 'closeAppModal') closeAppModal();
@@ -42,6 +41,24 @@ document.addEventListener('click', function(e) {
     else if (action === 'confirmFavoriteNudge') confirmFavoriteNudge(el.dataset.id);
     else if (action === 'dismissFavoriteNudgeCallout') dismissFavoriteNudgeCallout();
     else if (action === 'pickIcon') pickIcon(el.dataset.picker, el.dataset.icon);
+    else if (action === 'setAiUsageRange') setMiniAppsAiUsageRange(parseInt(el.dataset.days, 10));
+    // Top-level tabs (Mini-apps / Config) -- zelfde bewezen patroon als de
+    // rest van de app (bv. mail-signature-designer, cx-automations): echte
+    // <button>s + manueel `.tab-active` togglen, GEEN daisyUI CSS-only
+    // radio-tabs. Config is admin-only (zie renderNavbar() in
+    // mini-apps-core.js, die dit tabblad pas onthult voor admins); het
+    // AI-gebruiksrapport laadt pas HIER, bij het echt openen -- eerder zou
+    // Chart.js in een nog verborgen (display:none) tabpanel renderen, met
+    // een canvas van 0x0px.
+    else if (action === 'setMiniAppsMainTab') {
+      var isConfig = el.dataset.tab === 'config';
+      document.querySelectorAll('#miniAppsMainTabs [role="tab"]').forEach(function(btn) {
+        btn.classList.toggle('tab-active', btn === el);
+      });
+      document.getElementById('miniAppsListPanel').classList.toggle('hidden', isConfig);
+      document.getElementById('miniAppsConfigPanel').classList.toggle('hidden', !isConfig);
+      if (isConfig && typeof loadMiniAppsAiUsage === 'function') loadMiniAppsAiUsage();
+    }
   }
 
   var tabBtn = e.target.closest('[data-app-tab]');

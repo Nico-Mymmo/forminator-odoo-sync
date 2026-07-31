@@ -9,16 +9,22 @@
  *
  * Provider-onafhankelijk met opzet: de eigenlijke API-aanroep zit in een apart
  * bestand per provider (./ai-providers/<naam>.js, export `generate()` +
- * `DEFAULT_MODEL`). Vandaag enkel Gemini geregistreerd (gratis laag, zie
- * ai-providers/gemini.js) -- een latere overstap naar Claude of een ander
- * model is een nieuw bestand + één regel in PROVIDERS hieronder, GEEN
- * wijziging aan de rate-limit/audit-logica of aan de mini-app-kant
- * (window.platform.ai.ask() blijft exact hetzelfde werken).
+ * `DEFAULT_MODEL`). Sinds 2026-07 draait dit op Anthropic/Claude (eigen
+ * team-abonnement, geen train-on-data-laag zoals Gemini's gratis tier --
+ * zie ai-providers/anthropic.js). Gemini blijft geregistreerd als fallback/
+ * alternatief (ai-providers/gemini.js) -- wisselen is enkel AI_PROVIDER in
+ * wrangler.jsonc/.env aanpassen, GEEN wijziging aan de rate-limit/audit-
+ * logica of aan de mini-app-kant (window.platform.ai.ask() blijft exact
+ * hetzelfde werken).
  *
  * Guardrails:
  *  - Lengte-caps op prompt/system (geen bulk/misbruik als generieke text-API).
- *  - Rate-limit: max MAX_PER_APP_PER_DAY aanroepen per app per dag (rolling
- *    24u-venster, zelfde patroon als notify.js/chat.js) -- kostenbeheersing.
+ *  - Rate-limit per app: max MAX_PER_APP_PER_DAY aanroepen per app per dag
+ *    (rolling 24u-venster, zelfde patroon als notify.js/chat.js).
+ *  - Rate-limit platform-breed: max MAX_GLOBAL_PER_DAY aanroepen over ALLE
+ *    mini-apps samen per dag (rolling 24u-venster) -- kostenbeheersing op het
+ *    Claude-abonnement zelf, los van hoeveel apps er zijn. Faalt hard met
+ *    RATE_LIMIT_GLOBAL zodra bereikt, ongeacht welke app het aanvraagt.
  *  - maxOutputTokens is altijd begrensd door MAX_OUTPUT_TOKENS_CAP, ongeacht
  *    wat de mini-app zelf opgeeft -- voorkomt één dure aanroep die de hele
  *    daglimiet in kosten opsoupeert.
@@ -32,13 +38,16 @@
  */
 
 import { getSupabaseClient } from '../../../lib/database.js';
+import * as anthropicProvider from './ai-providers/anthropic.js';
 import * as geminiProvider from './ai-providers/gemini.js';
+import { estimateCostUsd } from './ai-pricing.js';
 
 // ─── Provider-registry ───────────────────────────────────────────────────────
 // Nieuwe provider toevoegen: hier één regel bijzetten (en optioneel
 // AI_PROVIDER in wrangler.jsonc/.env aanpassen om hem als standaard te
 // gebruiken) -- de rest van dit bestand blijft ongewijzigd.
 const PROVIDERS = {
+  anthropic: anthropicProvider,
   gemini: geminiProvider
 };
 
@@ -46,6 +55,10 @@ export const MAX_PROMPT_LENGTH = 8000;
 export const MAX_SYSTEM_LENGTH = 2000;
 export const MAX_OUTPUT_TOKENS_CAP = 1024;
 export const MAX_PER_APP_PER_DAY = 200;
+// Platform-brede daglimiet over alle mini-apps samen -- kostenbeheersing op
+// het gedeelde Claude-abonnement. Los van MAX_PER_APP_PER_DAY: die begrenst
+// misbruik door één app, dit begrenst de totale rekening.
+export const MAX_GLOBAL_PER_DAY = 500;
 
 const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -56,7 +69,7 @@ function aiError(message, code) {
 }
 
 function getProvider(env) {
-  const name = (env.AI_PROVIDER || 'gemini').toLowerCase();
+  const name = (env.AI_PROVIDER || 'anthropic').toLowerCase();
   const provider = PROVIDERS[name];
   if (!provider) {
     throw aiError(`Onbekende AI-provider geconfigureerd: ${name}.`, 'UNKNOWN_AI_PROVIDER');
@@ -79,6 +92,20 @@ async function checkRateLimit(env, appId) {
   }
 }
 
+async function checkGlobalRateLimit(env) {
+  const supabase = getSupabaseClient(env);
+  const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+
+  const { count, error } = await supabase
+    .from('mini_app_ai_calls')
+    .select('id', { count: 'exact', head: true })
+    .gte('created_at', since);
+  if (error) throw new Error(error.message);
+  if ((count || 0) >= MAX_GLOBAL_PER_DAY) {
+    throw aiError(`De platform-brede daglimiet van ${MAX_GLOBAL_PER_DAY} AI-aanroepen is bereikt. Probeer morgen opnieuw.`, 'RATE_LIMIT_GLOBAL');
+  }
+}
+
 async function logCall(env, { appId, userId, provider, model, promptChars, responseChars, tokensIn, tokensOut, status, errorMessage }) {
   const supabase = getSupabaseClient(env);
   const { error } = await supabase.from('mini_app_ai_calls').insert({
@@ -90,6 +117,7 @@ async function logCall(env, { appId, userId, provider, model, promptChars, respo
     response_chars: responseChars,
     tokens_in: tokensIn,
     tokens_out: tokensOut,
+    estimated_cost_usd: estimateCostUsd(model, tokensIn, tokensOut),
     status,
     error_message: errorMessage || null
   });
@@ -121,6 +149,7 @@ export async function askAI(env, app, user, prompt, system, maxOutputTokens) {
     MAX_OUTPUT_TOKENS_CAP
   );
 
+  await checkGlobalRateLimit(env);
   await checkRateLimit(env, app.id);
 
   const { name: providerName, generate, DEFAULT_MODEL } = getProvider(env);

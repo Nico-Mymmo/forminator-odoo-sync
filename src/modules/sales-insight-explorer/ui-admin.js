@@ -27,7 +27,7 @@ export function queryBuilderAdminUI(user) {
       </div>
 
       <!-- Tabs -->
-      <div role="tablist" class="tabs tabs-bordered mb-6">
+      <div role="tablist" class="tabs tabs-boxed mb-6">
         <a role="tab" class="tab tab-active" data-tab="users" onclick="switchTab('users', this)">Gebruikers</a>
         <a role="tab" class="tab" data-tab="models" onclick="switchTab('models', this)">Modellen</a>
         <a role="tab" class="tab" data-tab="categories" onclick="switchTab('categories', this)">Categorieën</a>

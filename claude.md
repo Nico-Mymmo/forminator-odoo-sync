@@ -284,12 +284,26 @@ mini-apps-edit-modal.js      — app-modal ("Bewerken": tabs, code-editor, opsla
                                 verwijderen) + mail-abonnement per app
 mini-apps-favorites-chat.js  — favorieten-sectie + chat-kanalen-modal
 mini-apps-bootstrap.js       — event delegation (click/change/keydown) + init
+mini-apps-admin-ai-usage.js  — AI-gebruiksrapport (admin-only, kost/gebruik
+                                per app + per gebruiker, Chart.js-grafiekjes)
 ```
 
 Geen functionele wijzigingen bij deze splitsing (byte-voor-byte reconstructie
 geverifieerd). Bij nieuwe front-end functies: gewoon toevoegen aan het meest
 logische bestand hierboven — geen nieuw bestand tenzij een sectie zelf weer
 richting de 150+ regels groeit.
+
+`mini-apps-admin-ai-usage.js` (2026-07-31) is een BEWUSTE uitzondering op die
+regel (nieuw bestand i.p.v. toevoegen aan een bestaand bestand): het admin-only
+AI-usagerapport (tabellen + Chart.js-grafiekjes over `/mini-apps/api/ai-usage`,
+zie ai.js/ai-pricing.js) is functioneel losstaand van de rest van de module
+(geen enkele andere sectie roept het aan buiten de isAdmin-gate in
+`renderNavbar()` in mini-apps-core.js) en was op zichzelf al >150 regels.
+Dit rapport zat eerst als tab in `public/admin-dashboard.html`, maar is
+verplaatst naar hier zodat admins het rechtstreeks vanuit Mini-apps kunnen
+raadplegen — de server-side route (`GET /api/ai-usage` in
+`src/modules/mini-apps/routes.js`) blijft evengoed admin-gated (403 voor
+niet-admins), dit is dus geen security-by-obscurity, enkel UI-plaatsing.
 
 ## Blueprint: Odoo copy-wizard met interactieve veld-selectie
 

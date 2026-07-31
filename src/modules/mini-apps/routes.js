@@ -65,9 +65,10 @@
  *  een actieve collega-id) -- een app kan zelf nooit een e-mailadres
  *  opgeven. Zie lib/notify.js voor rate-limits en de audit-log.
  *  AI (/ai/ask): view-toegang volstaat -- single-shot prompt + optionele
- *  system-instructie, provider-onafhankelijk (vandaag Gemini, zie
- *  lib/ai.js/lib/ai-providers/), rate-limit per app per dag + audit-log
- *  ZONDER de prompt/antwoord-tekst zelf te bewaren (enkel lengtes/tokens).
+ *  system-instructie, provider-onafhankelijk (vandaag Claude/Anthropic, zie
+ *  lib/ai.js/lib/ai-providers/), rate-limit per app per dag + platform-brede
+ *  daglimiet + audit-log ZONDER de prompt/antwoord-tekst zelf te bewaren
+ *  (enkel lengtes/tokens).
  *  Chat-kanalen: registreren/verwijderen is ADMIN-ONLY (user.role ===
  *  'admin'); de lijst ophalen en berichten sturen mag elke module-gebruiker
  *  (view-toegang volstaat voor het sturen) -- de webhook-URL zelf verlaat de
@@ -95,7 +96,8 @@ import {
   deleteAllStorage
 } from './lib/storage.js';
 import { notifyUser, isSubscribed, setSubscription } from './lib/notify.js';
-import { askAI } from './lib/ai.js';
+import { askAI, MAX_PER_APP_PER_DAY, MAX_GLOBAL_PER_DAY } from './lib/ai.js';
+import { estimateCostUsd } from './lib/ai-pricing.js';
 import { registerChannel, listChannels, deleteChannel, sendChannelMessage } from './lib/chat.js';
 import { validateTaskPayload, MAX_TASKS_PER_APP, computeNextRun, runTaskNow } from './lib/scheduler.js';
 import { validateConditionTaskPayload, MAX_CONDITION_TASKS_PER_APP, runConditionTaskNow } from './lib/condition-scheduler.js';
@@ -1829,6 +1831,103 @@ export const routes = {
       console.error(`${LOG_PREFIX} ai ask error:`, err.message);
       return jsonError(err.message, status, err.code);
     }
+  },
+
+  // ── AI-gebruiksrapport (admin-only) — kosten/gebruik per mini-app en per
+  // gebruiker, over een instelbaar datumvenster (zie lib/ai-pricing.js).
+  // GEEN prompt/antwoord-tekst in de brontabel -- enkel counts/tokens/
+  // kostenschatting. estimated_cost_usd is een SCHATTING (geen caching/
+  // batch-korting verrekend); rijen van vóór de kostenmigratie hebben geen
+  // opgeslagen waarde en worden hier on-the-fly herberekend met de HUIDIGE
+  // prijstabel.
+  'GET /api/ai-usage': async ({ env, user, request }) => {
+    if (user.role !== 'admin') return jsonError('Forbidden', 403, 'FORBIDDEN');
+
+    const url = new URL(request.url);
+    const daysParam = parseInt(url.searchParams.get('days'), 10);
+    const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 90) : 30;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    const supabase = getSupabaseClient(env);
+
+    const [{ data: calls, error: callsErr }, { data: apps, error: appsErr }, { data: users, error: usersErr }] = await Promise.all([
+      supabase
+        .from('mini_app_ai_calls')
+        .select('mini_app_id, user_id, provider, model, tokens_in, tokens_out, estimated_cost_usd, status, created_at')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(20000),
+      supabase.from('mini_apps').select('id, title'),
+      supabase.from('users').select('id, full_name, email')
+    ]);
+
+    if (callsErr || appsErr || usersErr) {
+      return jsonError((callsErr || appsErr || usersErr).message, 500);
+    }
+
+    const appTitleById = new Map((apps || []).map(a => [a.id, a.title]));
+    const userLabelById = new Map((users || []).map(u => [u.id, u.full_name || u.email]));
+
+    const rows = (calls || []).map(c => ({
+      ...c,
+      cost: c.estimated_cost_usd != null ? Number(c.estimated_cost_usd) : (estimateCostUsd(c.model, c.tokens_in, c.tokens_out) || 0)
+    }));
+
+    const totals = { calls: rows.length, failed: 0, cost: 0, tokensIn: 0, tokensOut: 0 };
+    const byApp = new Map();
+    const byUser = new Map();
+    const byDay = new Map();
+
+    for (const r of rows) {
+      if (r.status === 'failed') totals.failed += 1;
+      totals.cost += r.cost;
+      totals.tokensIn += r.tokens_in || 0;
+      totals.tokensOut += r.tokens_out || 0;
+
+      const appKey = r.mini_app_id || 'onbekend';
+      if (!byApp.has(appKey)) {
+        byApp.set(appKey, { id: r.mini_app_id, title: appTitleById.get(r.mini_app_id) || 'Verwijderde app', calls: 0, failed: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
+      }
+      const a = byApp.get(appKey);
+      a.calls += 1;
+      if (r.status === 'failed') a.failed += 1;
+      a.cost += r.cost;
+      a.tokensIn += r.tokens_in || 0;
+      a.tokensOut += r.tokens_out || 0;
+
+      const userKey = r.user_id || 'onbekend';
+      if (!byUser.has(userKey)) {
+        byUser.set(userKey, { id: r.user_id, label: userLabelById.get(r.user_id) || 'Verwijderde gebruiker', calls: 0, failed: 0, cost: 0, tokensIn: 0, tokensOut: 0 });
+      }
+      const u = byUser.get(userKey);
+      u.calls += 1;
+      if (r.status === 'failed') u.failed += 1;
+      u.cost += r.cost;
+      u.tokensIn += r.tokens_in || 0;
+      u.tokensOut += r.tokens_out || 0;
+
+      const dayKey = (r.created_at || '').slice(0, 10);
+      if (!byDay.has(dayKey)) byDay.set(dayKey, { calls: 0, cost: 0 });
+      const day = byDay.get(dayKey);
+      day.calls += 1;
+      day.cost += r.cost;
+    }
+
+    const round = n => Math.round(n * 1_000_000) / 1_000_000;
+    totals.cost = round(totals.cost);
+
+    const sortByCostDesc = (a, b) => b.cost - a.cost;
+
+    return jsonOk({
+      rangeDays: days,
+      since,
+      truncated: rows.length >= 20000,
+      caps: { maxPerAppPerDay: MAX_PER_APP_PER_DAY, maxGlobalPerDay: MAX_GLOBAL_PER_DAY },
+      totals,
+      byApp: Array.from(byApp.values()).map(a => ({ ...a, cost: round(a.cost) })).sort(sortByCostDesc),
+      byUser: Array.from(byUser.values()).map(u => ({ ...u, cost: round(u.cost) })).sort(sortByCostDesc),
+      daily: Array.from(byDay.entries()).map(([date, d]) => ({ date, calls: d.calls, cost: round(d.cost) })).sort((a, b) => a.date.localeCompare(b.date))
+    });
   },
 
   // ── Chat-send — bericht naar een kanaal (view-toegang volstaat) ────

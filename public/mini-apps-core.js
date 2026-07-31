@@ -438,6 +438,15 @@ async function renderNavbar() {
   if (!data.user) { window.location.href = '/'; return; }
   currentUser = { id: data.user.id, name: data.user.full_name || data.user.username, email: data.user.email };
   isAdmin = data.user.role === 'admin';
+  if (isAdmin) {
+    // Onthult enkel het "Config"-tabblad (Chat-kanalen + AI-gebruiksrapport) --
+    // het rapport zelf laadt pas zodra dat tabblad daadwerkelijk geopend wordt
+    // (zie mini-apps-bootstrap.js), niet hier: de grafiekjes in
+    // mini-apps-admin-ai-usage.js renderen anders in een nog verborgen (display:none)
+    // tabpanel, wat Chart.js met een canvas van 0x0 pixels oplevert.
+    var configTab = document.getElementById('tabMiniAppsConfig');
+    if (configTab) configTab.classList.remove('hidden');
+  }
   if (window.renderSharedNavbar) window.renderSharedNavbar(data.navbarHtml);
   // window.renderSharedNavbar() hierboven vervangt de VOLLEDIGE #navbar-HTML
   // (zie public/shared-navbar.js) -- dat wist ook alles wat we zelf
@@ -457,31 +466,6 @@ async function renderNavbar() {
   if (activeFrame) insertNavbarBackLink();
   renderFavoriteNudge();
   lucide.createIcons();
-}
-
-// Herordent de BESTAANDE navbar-favoriet-tegels client-side naar de volgorde
-// in `favorites` (optimistisch, voor de persistFavoritesOrder()-round-trip
-// terugkomt) -- gebruikt de "een kind opnieuw toevoegen verplaatst het naar
-// het einde"-truc, dus na de forEach staan ze in exact de goede volgorde.
-// Voegt GEEN nieuwe tegels toe (dat doet renderNavbarFavoriteOptimistic voor
-// een gloednieuwe favoriet); enkel de al aanwezige tegels herschikken.
-function reorderNavbarFavoritesDom() {
-  var container = document.getElementById('navbarFavorites');
-  if (!container) return;
-  favorites.forEach(function(fav) {
-    var el = container.querySelector('[data-fav-id="' + fav.id + '"]');
-    if (el) container.appendChild(el);
-  });
-  // De Terug-link (indien aanwezig) moet ondanks de appendChild-verschuivingen
-  // hierboven het meest linkse blokje blijven.
-  var backLink = document.getElementById('miniAppNavbarBack');
-  if (backLink) container.insertBefore(backLink, container.firstChild);
-  // Het "Meer…"-blokje moet net zo goed het MEEST RECHTSE blokje blijven --
-  // de forEach hierboven verplaatst elke favoriet naar het einde van de
-  // container, wat een reeds aanwezig "Meer…"-blokje anders voorbij zou
-  // steken (en dus middenin de rij zou laten hangen i.p.v. achteraan).
-  var moreLink = document.getElementById('miniAppNavbarMore');
-  if (moreLink) container.appendChild(moreLink);
 }
 
 // Extra "Terug"-link naast de Modules-dropdown in de GEDEELDE navbar, enkel

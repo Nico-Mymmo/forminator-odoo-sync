@@ -45,8 +45,10 @@
 		// from a local dev environment so that the instructions always point to production.
 		"APP_BASE_URL": "https://forminator-sync.openvme-odoo.workers.dev",
 		// Mini-apps AI (window.platform.ai.ask(), zie src/modules/mini-apps/lib/ai.js) —
-		// GEMINI_API_KEY zelf is een secret (wrangler secret put), NIET hier.
-		"AI_PROVIDER": "gemini",
+		// ANTHROPIC_API_KEY zelf is een secret (wrangler secret put), NIET hier.
+		// Gemini blijft geregistreerd als fallback (AI_PROVIDER: "gemini" + GEMINI_API_KEY secret).
+		"AI_PROVIDER": "anthropic",
+		"ANTHROPIC_MODEL": "claude-sonnet-4-6",
 		"GEMINI_MODEL": "gemini-flash-lite-latest"
 	}
 }
