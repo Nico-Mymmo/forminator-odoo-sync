@@ -132,6 +132,13 @@ Registreer in `src/modules/registry.js` (import + MODULES-array).
 - [ ] Client-side JS: data-attributen + centrale listener voor events
 - [ ] API-routes retourneren JSON; database via `getSupabaseClient(env)`; Odoo via `lib/odoo.js`
 - [ ] Frontend fetch met `credentials: 'include'`; bij 401 → `window.location.href = '/'`
+- [ ] **Module-registratie in de database** (aparte stap, los van `registry.js`!): een rij in
+      `modules` (code/name/route/icon/is_active/is_default/display_order) + auto-grant via
+      `user_modules` voor de doelgroep (zie `20260710120000_mini_apps_module.sql` als patroon).
+      Zonder dit blijft de module onzichtbaar in navbar/homedashboard, ook als `registry.js`
+      correct is bijgewerkt — `user.modules` (session) komt uit deze tabellen, niet uit de
+      registry. Ontbrak initieel bij `campaign_funnels` (2026-07-31), rechtgezet in
+      `20260731170000_campaign_funnels_module_registration.sql`.
 
 ## UI-regels
 
@@ -156,6 +163,17 @@ document.addEventListener('click', e => {
 **REGEL 4 — Worker-routes retourneren altijd JSON.** Enige uitzondering: `GET /` van een module serveert HTML via `ASSETS.fetch()`.
 
 **REGEL 5 — Auth in frontend:** elke fetch met `credentials: 'include'`; bij 401 redirect naar `/`. De navbar zit als plain HTML in elke pagina.
+
+**REGEL 6 — Tabs altijd `tabs-boxed`, nooit `tabs-bordered`.** Referentie-patroon: `src/modules/mail-signature-designer/ui.js`:
+
+```html
+<div role="tablist" class="tabs tabs-boxed mb-5 w-fit">
+  <button role="tab" class="tab tab-active" data-detail-tab="naam">Label</button>
+  <button role="tab" class="tab" data-detail-tab="andere-naam">Ander label</button>
+</div>
+```
+
+`tabs-active`-toggling via data-attributen + centrale listener (REGEL 3), nooit inline `onclick` (dat mag enkel in de legacy `ui.js`-bestanden). Dit is herhaaldelijk fout gegaan (`tabs-bordered` gebruikt i.p.v. `tabs-boxed`, bv. `campaign-funnels.html` 2026-07-31) — bij twijfel over tab-styling altijd eerst een bestaande `tabs-boxed`-implementatie opzoeken en 1:1 overnemen, niet een andere daisyUI-tabsvariant kiezen.
 
 ## Modules — status
 

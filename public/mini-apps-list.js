@@ -447,10 +447,55 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
     });
   antwoord is een platte string (het model-antwoord). Dit is bewust single-shot (GEEN chatgeschiedenis/multi-turn-geheugen) -- roep het per losse vraag aan, bewaar zelf in window.sharedStorage wat je van eerdere antwoorden wil onthouden. Max 8000 tekens per prompt, max 200 AI-aanroepen per app per dag (kostenbeheersing) -- vang een afgewezen aanroep (bv. daglimiet bereikt) op met een duidelijke foutmelding in de UI i.p.v. stil te falen. Stuur geen wachtwoorden/geheimen in de prompt.
 
+- Moet de app data uit Odoo (ons CRM/ERP) tonen? Dat kan UITSLUITEND via queries die een admin vooraf in de Sales Insight Explorer-module heeft klaargezet en expliciet gedeeld met mini-apps -- nooit rechtstreeks Odoo, en altijd enkel LEZEN (geen schrijfacties). Gebruik window.platform.odoo.listQueries() om te zien welke queries beschikbaar zijn -- geeft een array [{ id, name, description, base_model, parameters }] terug, waarbij parameters de placeholders zijn die jij zelf mag invullen (bv. [{ name: "datum", label: "Datum" }]). Gebruik window.platform.odoo.runQuery(queryId, params) om er één uit te voeren -- params is een gewoon object met een waarde per gedeclareerde parameter (bv. { datum: "2026-07-31" }, of {} als de query geen parameters heeft) -- en geeft { records, meta, query_info } terug, waarbij records de eigenlijke Odoo-data is.
+    var queries = await window.platform.odoo.listQueries();
+    // laat de gebruiker zelf een query kiezen als er meerdere zijn, toon een duidelijke melding als de lijst leeg is
+    var resultaat = await window.platform.odoo.runQuery(queries[0].id, { datum: "2026-07-31" });
+    console.log(resultaat.records);
+  Is er geen enkele query gedeeld, of past geen enkele bij wat ik nodig heb? Zeg dat dan expliciet i.p.v. Odoo-veldnamen te verzinnen -- in dat geval moet een admin eerst in Sales Insight Explorer een passende query maken en delen. BELANGRIJK: window.platform.odoo werkt pas zodra deze app ECHT in de Mini-apps-module draait (na uploaden) -- niet tijdens dit gesprek, dus jij (Claude) kan dit hier niet zelf uittesten. Heb ik je hieronder een live voorbeeldresultaat van een specifieke query meegegeven? Gebruik dan EXACT die veldnamen in je code -- verzin er zelf geen bij.
+
 Zodra je voldoende weet: lever het eindresultaat op als een ECHT, downloadbaar .html-bestand (bv. via een artifact/bestand dat ik kan opslaan) -- NIET als platte tekst of enkel een codeblok in de chat. Ik wil dat bestand direct kunnen downloaden en zonder verdere aanpassingen kunnen uploaden in de Mini-apps-module. Nogmaals: geen aparte .js/.css-bestanden, ook niet als tussenstap -- alles inline in dat ene bestand.`;
 
-function copyBuildPrompt() {
-  navigator.clipboard.writeText(BUILD_PROMPT).then(function() {
+// Gedeelde Odoo-queries (Sales Insight Explorer, is_shared_mini_apps=true) voor
+// de "Bouw-prompt"-select. Deze lijst-/preview-aanroepen gaan naar de
+// module-brede varianten (GEEN appId, zie src/modules/mini-apps/routes.js) --
+// op dit moment bestaat de mini-app immers nog niet.
+async function loadBuildPromptQueryOptions() {
+  var wrap = document.getElementById('buildPromptQueryWrap');
+  var select = document.getElementById('buildPromptQuerySelect');
+  if (!wrap || !select) return;
+
+  var queries = (await apiJson('/mini-apps/api/apps/odoo-queries')).queries || [];
+  select.innerHTML = '<option value="">Geen</option>' + queries.map(function(q) {
+    return '<option value="' + q.id + '">' + q.name.replace(/"/g, '&quot;') + '</option>';
+  }).join('');
+  wrap.style.display = queries.length ? '' : 'none';
+}
+
+async function copyBuildPrompt() {
+  var select = document.getElementById('buildPromptQuerySelect');
+  var queryId = select ? select.value : '';
+  var promptText = BUILD_PROMPT;
+
+  if (queryId) {
+    try {
+      var preview = await apiJson('/mini-apps/api/apps/odoo-queries/' + encodeURIComponent(queryId) + '/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params: {} })
+      });
+      var records = preview.records || [];
+      var fields = records.length ? Object.keys(records[0]) : [];
+      promptText += '\n\n---\nLive voorbeeldresultaat van de gekozen Odoo-query "' + preview.query_info.name + '" (id "' + preview.query_info.id + '"), zonder parameters uitgevoerd:\n'
+        + 'Velden per record: ' + (fields.length ? fields.join(', ') : '(geen resultaten om velden uit af te leiden)') + '\n'
+        + 'Voorbeeldresultaat (eerste rijen):\n```json\n' + JSON.stringify(records.slice(0, 5), null, 2) + '\n```\n'
+        + 'Gebruik deze exacte veldnamen wanneer je window.platform.odoo.runQuery("' + preview.query_info.id + '", ...) verwerkt in de app.';
+    } catch (err) {
+      showToast('Live voorbeeld ophalen mislukt (' + err.message + ') — prompt wordt zonder voorbeeld gekopieerd.', 'warning');
+    }
+  }
+
+  navigator.clipboard.writeText(promptText).then(function() {
     showToast('Prompt gekopieerd — plak hem in een Claude-gesprek.', 'success');
   }, function() {
     showToast('Kopiëren mislukt.', 'error');

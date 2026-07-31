@@ -144,6 +144,10 @@ var MINI_APP_SHIM = '<script>(function(){'
   +       'update:function(id,config){return send("conditionUpdate",{taskId:id,config:config});},'
   +       'remove:function(id){return send("conditionDelete",{taskId:id});},'
   +       'runNow:function(id){return send("conditionRunNow",{taskId:id});}'
+  +     '},'
+  +     'odoo:{'
+  +       'listQueries:function(){return send("odooListQueries",{});},'
+  +       'runQuery:function(queryId,params){return send("odooRunQuery",{queryId:queryId,params:params||{}},30000);}'
   +     '}'
   +   '};'
   +   'return{'
@@ -381,6 +385,14 @@ async function handleMiniAppStorageRequest(data) {
       reply(true, null);
     } else if (data.action === 'conditionRunNow') {
       reply(true, await apiJson(`/mini-apps/api/apps/${appId}/condition-tasks/${encodeURIComponent(data.taskId)}/run-now`, { method: 'POST' }));
+    } else if (data.action === 'odooListQueries') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/odoo-queries`));
+    } else if (data.action === 'odooRunQuery') {
+      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/odoo-queries/${encodeURIComponent(data.queryId)}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params: data.params })
+      }));
     } else {
       reply(false, null, 'Onbekende actie: ' + data.action);
     }

@@ -33,6 +33,17 @@ async function openUploadModal() {
   } catch (err) {
     showToast('Collega-lijst ophalen mislukt: ' + err.message, 'error');
   }
+
+  // Zie mini-apps-list.js voor loadBuildPromptQueryOptions()/copyBuildPrompt() --
+  // laadt de lijst van via Sales Insight Explorer gedeelde Odoo-queries voor de
+  // "Bouw-prompt"-select hierboven. Faalt dit (bv. geen queries gedeeld), dan
+  // blijft de select gewoon verborgen -- geen blokkerende fout voor de rest van
+  // de upload-modal.
+  try {
+    await loadBuildPromptQueryOptions();
+  } catch (err) {
+    console.error('[mini-apps] build-prompt query-lijst ophalen mislukt:', err.message);
+  }
 }
 
 function closeUploadModal() {

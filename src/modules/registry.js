@@ -20,6 +20,7 @@ import claudeIntegrationModule from './claude-integration/module.js';
 import cxAutomationsModule from './cx-automations/module.js';
 import xpathConverterModule from './xpath-converter/module.js';
 import miniAppsModule from './mini-apps/module.js';
+import campaignFunnelsModule from './campaign-funnels/module.js';
 
 /**
  * All registered modules
@@ -40,6 +41,7 @@ export const MODULES = [
   cxAutomationsModule,
   xpathConverterModule,
   miniAppsModule,
+  campaignFunnelsModule,
 ];
 
 /**

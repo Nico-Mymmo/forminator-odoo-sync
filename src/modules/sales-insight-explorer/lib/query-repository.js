@@ -136,6 +136,10 @@ export async function listQueries(env, options = {}) {
     query = query.eq('source', options.source);
   }
   
+  if (options.is_shared_mini_apps !== undefined) {
+    query = query.eq('is_shared_mini_apps', options.is_shared_mini_apps);
+  }
+  
   // Apply pagination
   const limit = options.limit || 100;
   const offset = options.offset || 0;
@@ -170,7 +174,9 @@ export async function updateQuery(env, id, updates) {
     name: updates.name,
     description: updates.description,
     query_definition: updates.query_definition,
-    complexity_hint: updates.complexity_hint
+    complexity_hint: updates.complexity_hint,
+    is_shared_mini_apps: updates.is_shared_mini_apps,
+    mini_app_parameters: updates.mini_app_parameters
   };
   
   // Remove undefined values

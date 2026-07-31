@@ -31,6 +31,7 @@ export function queryBuilderAdminUI(user) {
         <a role="tab" class="tab tab-active" data-tab="users" onclick="switchTab('users', this)">Gebruikers</a>
         <a role="tab" class="tab" data-tab="models" onclick="switchTab('models', this)">Modellen</a>
         <a role="tab" class="tab" data-tab="categories" onclick="switchTab('categories', this)">Categorieën</a>
+        <a role="tab" class="tab" data-tab="miniapps" onclick="switchTab('miniapps', this)">Mini-app queries</a>
       </div>
 
       <!-- Toast container -->
@@ -157,6 +158,42 @@ export function queryBuilderAdminUI(user) {
         <div id="categoriesList" class="space-y-3"></div>
       </div>
 
+      <!-- TAB: MINI-APP QUERIES -->
+      <div id="tab-miniapps" style="display:none;">
+        <div class="alert mb-6">
+          <i data-lucide="info" class="w-5 h-5 shrink-0"></i>
+          <div class="text-sm">
+            Enkel opgeslagen queries die hier als <strong>gedeeld</strong> gemarkeerd zijn, zijn
+            beschikbaar voor mini-apps via <code>window.platform.odoo</code> — uitsluitend read-only.
+            Parameters (bv. <code>datum</code>) worden binnen de query gebruikt als <code>&#123;&#123;param.datum&#125;&#125;</code>
+            in een filterwaarde en moeten hier één per regel gedeclareerd worden als <code>naam|label</code>.
+          </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl">
+          <div class="card-body p-0">
+            <div id="loadingMiniAppQueries" class="flex items-center gap-3 p-6">
+              <span class="loading loading-spinner loading-sm"></span>
+              <span class="text-sm text-base-content/60">Laden...</span>
+            </div>
+            <div id="miniAppQueriesErrorMsg" class="alert alert-error m-4" style="display:none;"></div>
+            <div id="miniAppQueriesWrap" style="display:none;">
+              <table class="table table-sm w-full">
+                <thead>
+                  <tr class="border-b border-base-200">
+                    <th>Query</th>
+                    <th class="text-center">Gedeeld voor mini-apps</th>
+                    <th>Parameters (naam|label per regel)</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="miniAppQueriesTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -230,6 +267,7 @@ export function queryBuilderAdminUI(user) {
     let allModels     = [];
     let currentBaseFields = [];
     let allCatModels  = [];
+    let allMiniAppQueries = [];
 
     // ── Tabs ──────────────────────────────────────────────────────────────────
     function switchTab(tab, el) {
@@ -238,8 +276,10 @@ export function queryBuilderAdminUI(user) {
       document.getElementById('tab-users').style.display      = tab === 'users'      ? '' : 'none';
       document.getElementById('tab-models').style.display     = tab === 'models'     ? '' : 'none';
       document.getElementById('tab-categories').style.display = tab === 'categories' ? '' : 'none';
+      document.getElementById('tab-miniapps').style.display    = tab === 'miniapps'    ? '' : 'none';
       if (tab === 'models' && allModels.length === 0) loadModels();
       if (tab === 'categories') initCategoriesTab();
+      if (tab === 'miniapps' && allMiniAppQueries.length === 0) loadMiniAppQueries();
     }
 
     // ── Load users ────────────────────────────────────────────────────────────
@@ -347,6 +387,103 @@ export function queryBuilderAdminUI(user) {
       } catch (e) {
         toast('Fout: ' + e.message, 'error');
         toggleEl.checked = !isAdmin;
+      }
+    }
+
+    // ── Mini-app queries (gedeeld voor mini-apps) ────────────────────────────
+    async function loadMiniAppQueries() {
+      document.getElementById('loadingMiniAppQueries').style.display = 'flex';
+      document.getElementById('miniAppQueriesWrap').style.display = 'none';
+      try {
+        const res  = await fetch('/insights/api/sales-insights/query/list');
+        const data = await res.json();
+        document.getElementById('loadingMiniAppQueries').style.display = 'none';
+        if (!data.success) throw new Error(data.error?.message);
+        allMiniAppQueries = data.data.queries;
+        renderMiniAppQueries(allMiniAppQueries);
+        document.getElementById('miniAppQueriesWrap').style.display = 'block';
+      } catch (e) {
+        document.getElementById('loadingMiniAppQueries').style.display = 'none';
+        const err = document.getElementById('miniAppQueriesErrorMsg');
+        err.textContent = 'Fout bij laden: ' + e.message;
+        err.style.display = 'flex';
+      }
+    }
+
+    function paramsToText(params) {
+      return (params || []).map(p => p.name + '|' + (p.label || p.name)).join('\n');
+    }
+
+    function textToParams(text) {
+      return text.split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+        const [name, label] = line.split('|').map(s => (s || '').trim());
+        return { name, label: label || name, type: 'string', default: null };
+      }).filter(p => p.name);
+    }
+
+    function renderMiniAppQueries(queries) {
+      const tbody = document.getElementById('miniAppQueriesTableBody');
+      if (!queries.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-base-content/40 py-6">Geen opgeslagen queries gevonden</td></tr>';
+        return;
+      }
+      tbody.innerHTML = queries.map(q => \`
+        <tr class="hover">
+          <td>
+            <div class="font-semibold text-sm">\${q.name}</div>
+            <div class="text-xs text-base-content/50">\${q.description || ''}</div>
+            <div class="text-xs text-base-content/40 font-mono">\${q.base_model}</div>
+          </td>
+          <td class="text-center">
+            <input type="checkbox" class="toggle toggle-sm toggle-success"
+              \${q.is_shared_mini_apps ? 'checked' : ''}
+              onchange="toggleQueryShared('\${q.id}', this.checked, this)" />
+          </td>
+          <td>
+            <textarea class="textarea textarea-bordered textarea-xs w-full font-mono" rows="2"
+              id="miniapp-params-\${q.id}" placeholder="bv. datum|Datum">\${paramsToText(q.mini_app_parameters)}</textarea>
+          </td>
+          <td class="text-right">
+            <button class="btn btn-xs btn-outline" onclick="saveQueryParams('\${q.id}')">Opslaan</button>
+          </td>
+        </tr>
+      \`).join('');
+    }
+
+    async function toggleQueryShared(queryId, enable, toggleEl) {
+      try {
+        const res = await fetch(\`/insights/api/sales-insights/query/\${queryId}/mini-apps-sharing\`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_shared_mini_apps: enable })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        const q = allMiniAppQueries.find(x => x.id === queryId);
+        if (q) q.is_shared_mini_apps = enable;
+        toast(enable ? 'Query gedeeld met mini-apps' : 'Query niet langer gedeeld', 'success');
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
+        toggleEl.checked = !enable;
+      }
+    }
+
+    async function saveQueryParams(queryId) {
+      const textEl = document.getElementById('miniapp-params-' + queryId);
+      const mini_app_parameters = textToParams(textEl.value);
+      try {
+        const res = await fetch(\`/insights/api/sales-insights/query/\${queryId}/mini-apps-sharing\`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mini_app_parameters })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        const q = allMiniAppQueries.find(x => x.id === queryId);
+        if (q) q.mini_app_parameters = mini_app_parameters;
+        toast('Parameters opgeslagen', 'success');
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
       }
     }
 

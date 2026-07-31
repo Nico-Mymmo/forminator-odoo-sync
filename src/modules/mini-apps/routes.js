@@ -46,6 +46,10 @@
  *    DELETE /api/apps/:id/condition-tasks/:taskId                → Taak verwijderen (aanmaker of app-eigenaar)
  *    POST   /api/apps/:id/condition-tasks/:taskId/run-now         → Taak nu al eens testen -- forceert de send, ongeacht edge-triggering (aanmaker of app-eigenaar)
  *    GET/POST /api/apps/:id/drive/*                 → UITGESCHAKELD (2026-07-24, zie CLAUDE.md "Google Drive-koppeling mini-apps") -- geeft altijd 404, zie DRIVE_INTEGRATION_ENABLED in lib/google-drive-client.js
+ *    GET    /api/apps/:id/odoo-queries                      → Gedeelde Sales Insight Explorer queries (view-toegang, zie ../sales-insight-explorer/lib/mini-app-bridge.js)
+ *    POST   /api/apps/:id/odoo-queries/:queryId/run             → Query uitvoeren (view-toegang, read-only, enkel is_shared_mini_apps=true)
+ *    GET    /api/apps/odoo-queries                            → Zelfde lijst, module-breed (geen appId) -- enkel voor de "Bouw-prompt"-flow
+ *    POST   /api/apps/odoo-queries/:queryId/preview                → Preview draaien zonder appId -- idem, enkel voor de "Bouw-prompt"-flow
  *
  * ─── Rechten ─────────────────────────────────────────────────────────────────
  *
@@ -104,6 +108,7 @@ import { validateConditionTaskPayload, MAX_CONDITION_TASKS_PER_APP, runCondition
 import { getOrderedFavorites, saveFavoritesOrder } from './lib/favorites.js';
 import { listDriveFiles, getDriveFile, createDriveFile, DRIVE_INTEGRATION_ENABLED } from './lib/google-drive-client.js';
 import { resolveGoogleEmail } from './lib/user-settings.js';
+import { listSharedQueries, runSharedQuery } from '../sales-insight-explorer/lib/mini-app-bridge.js';
 
 const LOG_PREFIX = '[mini-apps]';
 
@@ -1957,6 +1962,100 @@ export const routes = {
     } catch (err) {
       const status = err.code ? 400 : 500;
       console.error(`${LOG_PREFIX} chat-send error:`, err.message);
+      return jsonError(err.message, status, err.code);
+    }
+  },
+
+  // ── Odoo-queries — read-only bridge naar gedeelde Sales Insight Explorer
+  // queries (view-toegang volstaat). Enkel queries die een admin daar als
+  // is_shared_mini_apps=true heeft gemarkeerd zijn hier zichtbaar/draaibaar
+  // -- zie src/modules/sales-insight-explorer/lib/mini-app-bridge.js voor
+  // de enige plek die dat afdwingt.
+  'GET /api/apps/:id/odoo-queries': async ({ env, user, params }) => {
+    const supabase = getSupabaseClient(env);
+    const { data: app, error: fetchError } = await supabase
+      .from('mini_apps')
+      .select(SELECT_FIELDS)
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchError) return jsonError('App ophalen mislukt.', 500);
+    if (!app) return jsonError('App niet gevonden.', 404);
+    if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
+
+    try {
+      const queries = await listSharedQueries(env);
+      return jsonOk({ queries });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} odoo-queries list error:`, err.message);
+      return jsonError(err.message, 500);
+    }
+  },
+
+  'POST /api/apps/:id/odoo-queries/:queryId/run': async ({ request, env, user, params }) => {
+    const supabase = getSupabaseClient(env);
+    const { data: app, error: fetchError } = await supabase
+      .from('mini_apps')
+      .select(SELECT_FIELDS)
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchError) return jsonError('App ophalen mislukt.', 500);
+    if (!app) return jsonError('App niet gevonden.', 404);
+    if (!canView(app, user)) return jsonError('Geen toegang tot deze app.', 403, 'FORBIDDEN');
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      body = {};
+    }
+
+    try {
+      const result = await runSharedQuery(env, params.queryId, body.params || {}, { preview: body.preview !== false });
+      console.log(`${LOG_PREFIX} ODOO-QUERY RUN ${app.id} -> ${params.queryId} — user ${user.id}`);
+      return jsonOk(result);
+    } catch (err) {
+      const status = err.code ? 400 : 500;
+      console.error(`${LOG_PREFIX} odoo-queries run error:`, err.message);
+      return jsonError(err.message, status, err.code);
+    }
+  },
+
+  // ── Odoo-queries — module-brede varianten (GEEN app-id) ──────────────
+  // Enkel bedoeld voor de "Bouw-prompt"-flow in mini-apps-list.js: op dat
+  // moment bestaat de mini-app nog niet (je bent hem nog aan het bouwen
+  // met Claude), dus er is geen appId om aan canView() te toetsen. Elke
+  // ingelogde gebruiker met module-toegang (zelfde vertrouwensniveau als
+  // GET /api/apps/chat-channels hierboven) mag de gedeelde-queries-lijst
+  // zien en één keer een preview draaien. Forceert altijd preview=true --
+  // dit is uitsluitend voor "hoe ziet de data eruit", nooit voor een volle
+  // export.
+  'GET /api/apps/odoo-queries': async ({ env }) => {
+    try {
+      const queries = await listSharedQueries(env);
+      return jsonOk({ queries });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} odoo-queries (module-wide) list error:`, err.message);
+      return jsonError(err.message, 500);
+    }
+  },
+
+  'POST /api/apps/odoo-queries/:queryId/preview': async ({ request, env, user, params }) => {
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      body = {};
+    }
+
+    try {
+      const result = await runSharedQuery(env, params.queryId, body.params || {}, { preview: true });
+      console.log(`${LOG_PREFIX} ODOO-QUERY PREVIEW ${params.queryId} — user ${user.id}`);
+      return jsonOk(result);
+    } catch (err) {
+      const status = err.code ? 400 : 500;
+      console.error(`${LOG_PREFIX} odoo-queries preview error:`, err.message);
       return jsonError(err.message, status, err.code);
     }
   },

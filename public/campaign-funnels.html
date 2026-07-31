@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ad & Sales Campaigns</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+</head>
+<body class="bg-base-200">
+  <div id="navbar"></div>
+
+  <div id="mainContent" style="padding-top: 48px;">
+  <main class="max-w-7xl mx-auto p-4 md:p-6">
+
+    <!-- Lijstweergave -->
+    <section id="viewList">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h1 class="text-2xl font-bold">Ad & Sales Campaigns</h1>
+          <p class="text-sm text-base-content/60">Funnels van marktonderzoek tot go-to-market</p>
+        </div>
+        <button class="btn btn-primary btn-sm gap-2" data-action="openNewFunnelModal">
+          <i data-lucide="plus" class="w-4 h-4"></i> Nieuwe funnel
+        </button>
+      </div>
+      <div id="funnelList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </section>
+
+    <!-- Detailweergave -->
+    <section id="viewDetail" class="hidden">
+      <button class="btn btn-ghost btn-sm gap-2 mb-3" data-action="backToList">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i> Terug naar overzicht
+      </button>
+
+      <div class="card bg-base-100 border border-base-300 mb-4">
+        <div class="card-body p-4">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <input id="funnelNameInput" class="input input-ghost text-xl font-bold w-full px-0" />
+              <textarea id="funnelDescInput" class="textarea textarea-ghost w-full px-0 text-sm" rows="2" placeholder="Omschrijving..."></textarea>
+            </div>
+            <div class="flex flex-col items-end gap-2">
+              <select id="funnelStatusInput" class="select select-bordered select-sm">
+                <option value="concept">Concept</option>
+                <option value="lopend">Lopend</option>
+                <option value="live">Live</option>
+                <option value="gearchiveerd">Gearchiveerd</option>
+              </select>
+              <div class="flex gap-2">
+                <button class="btn btn-sm btn-primary" data-action="saveFunnelHeader">Opslaan</button>
+                <button class="btn btn-sm btn-error btn-outline" data-action="deleteFunnel">Verwijderen</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div role="tablist" class="tabs tabs-boxed mb-4 w-fit">
+        <button role="tab" class="tab tab-active" data-detail-tab="onderzoek">1. Onderzoek</button>
+        <button role="tab" class="tab" data-detail-tab="inzichten">2. Inzichten</button>
+      </div>
+
+      <!-- Tab: Onderzoek-inbox -->
+      <div id="detailTabOnderzoek">
+        <div class="card bg-base-100 border border-base-300 mb-4">
+          <div class="card-body p-4">
+            <h3 class="font-semibold mb-2">Nieuwe onderzoeksnotitie</h3>
+            <p class="text-xs text-base-content/60 mb-2">Citaten, observaties, eigen ideeën, actieblad-input — los toevoegen, we groeperen ze later tot Inzichten.</p>
+            <textarea id="inboxContentInput" class="textarea textarea-bordered w-full mb-2" rows="2" placeholder="Bv. \"ik weet niet of de gekozen leverancier de goedkoopste was\""></textarea>
+            <div class="flex gap-2 items-center">
+              <select id="inboxTypeInput" class="select select-bordered select-sm">
+                <option value="">Type (optioneel)</option>
+                <option value="reality_check">Reality check</option>
+                <option value="gebruikersonderzoek">Gebruikersonderzoek</option>
+                <option value="eigen_idee">Eigen idee</option>
+                <option value="actieblad">Actieblad</option>
+                <option value="developer_input">Developer-input</option>
+              </select>
+              <button class="btn btn-primary btn-sm gap-2 ml-auto" data-action="addInboxItem">
+                <i data-lucide="plus" class="w-4 h-4"></i> Toevoegen
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold text-base-content/80">Inbox <span id="inboxCount" class="badge badge-ghost badge-sm ml-1"></span></h3>
+          <button class="btn btn-secondary btn-sm gap-2" data-action="runAiGrouping">
+            <i data-lucide="sparkles" class="w-4 h-4"></i> Groepeer met AI
+          </button>
+        </div>
+        <div id="inboxList" class="space-y-2 mb-6"></div>
+
+        <div id="proposalSection" class="hidden">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold text-base-content/80">AI-voorstel — controleer en keur goed</h3>
+            <div class="flex gap-2">
+              <button class="btn btn-ghost btn-sm" data-action="discardProposal">Verwerpen</button>
+              <button class="btn btn-primary btn-sm gap-2" data-action="confirmProposal">
+                <i data-lucide="check" class="w-4 h-4"></i> Bevestig groepen
+              </button>
+            </div>
+          </div>
+          <div id="proposalGroups" class="space-y-4"></div>
+          <div id="proposalLeftover" class="mt-4"></div>
+        </div>
+      </div>
+
+      <!-- Tab: Inzichten -->
+      <div id="detailTabInzichten" class="hidden">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-semibold text-base-content/80">Inzichten</h2>
+          <button class="btn btn-outline btn-sm gap-2" data-action="openNewSwimlaneModal">
+            <i data-lucide="plus" class="w-4 h-4"></i> Inzicht
+          </button>
+        </div>
+        <div id="swimlaneGrid" class="space-y-6 overflow-x-auto"></div>
+      </div>
+    </section>
+  </main>
+  </div>
+  <!-- /padding-top -->
+
+  <!-- Modal: nieuwe funnel -->
+  <dialog id="modalNewFunnel" class="modal">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg mb-3">Nieuwe funnel</h3>
+      <input id="newFunnelName" type="text" placeholder="Naam (bv. Technisch beheer)" class="input input-bordered w-full mb-2" />
+      <textarea id="newFunnelDesc" placeholder="Korte omschrijving" class="textarea textarea-bordered w-full" rows="3"></textarea>
+      <div class="modal-action">
+        <button class="btn" data-action="closeModal" data-modal="modalNewFunnel">Annuleren</button>
+        <button class="btn btn-primary" data-action="createFunnel">Aanmaken</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <!-- Modal: nieuw inzicht -->
+  <dialog id="modalNewSwimlane" class="modal">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg mb-3">Nieuw inzicht</h3>
+      <p class="text-xs text-base-content/60 mb-2">Meestal ontstaat een Inzicht via AI-groepering van de onderzoek-inbox — dit is voor een uitzondering die je meteen manueel wil aanmaken.</p>
+      <input id="newSwimlaneTitle" type="text" placeholder="Kernboodschap (bv. Reactief i.p.v. preventief beheer)" class="input input-bordered w-full mb-2" />
+      <textarea id="newSwimlaneDesc" placeholder="Korte omschrijving" class="textarea textarea-bordered w-full" rows="3"></textarea>
+      <div class="modal-action">
+        <button class="btn" data-action="closeModal" data-modal="modalNewSwimlane">Annuleren</button>
+        <button class="btn btn-primary" data-action="createSwimlane">Aanmaken</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <!-- Modal: kaart toevoegen/bewerken -->
+  <dialog id="modalCard" class="modal">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg mb-3" id="modalCardTitle">Kaart</h3>
+      <textarea id="cardContentInput" placeholder="Tekst van de kaart" class="textarea textarea-bordered w-full mb-2" rows="4"></textarea>
+      <input id="cardTypeInput" type="text" placeholder="Type/tag (optioneel, bv. reality_check, feature, touchpoint)" class="input input-bordered w-full mb-2" />
+      <input id="cardSourceInput" type="text" placeholder="Bron/link (optioneel, vooral bij onderbouwing)" class="input input-bordered w-full" />
+      <div class="modal-action justify-between">
+        <button class="btn btn-error btn-outline btn-sm hidden" id="cardDeleteBtn" data-action="deleteCard">Verwijderen</button>
+        <div class="flex gap-2 ml-auto">
+          <button class="btn" data-action="closeModal" data-modal="modalCard">Annuleren</button>
+          <button class="btn btn-primary" data-action="saveCard">Opslaan</button>
+        </div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <div id="toastRoot" class="toast toast-end z-50"></div>
+
+  <script src="/campaign-funnels.js"></script>
+</body>
+</html>

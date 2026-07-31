@@ -31,7 +31,8 @@ import {
   saveQuery, 
   getQueryById, 
   listQueries, 
-  deleteQuery 
+  deleteQuery, 
+  updateQuery 
 } from './lib/query-repository.js';
 import { normalizeToExportResult } from './lib/export/export-normalizer.js';
 import exportRegistry from './lib/export/export-registry.js';
@@ -767,7 +768,9 @@ async function listSavedQueries(context) {
       source: q.source,
       complexity_hint: q.complexity_hint,
       created_at: q.created_at,
-      updated_at: q.updated_at
+      updated_at: q.updated_at,
+      is_shared_mini_apps: q.is_shared_mini_apps || false,
+      mini_app_parameters: Array.isArray(q.mini_app_parameters) ? q.mini_app_parameters : []
     }));
     
     console.log(`✅ Found ${summary.length} queries`);
@@ -2363,6 +2366,36 @@ async function updateModel(context) {
 }
 
 /**
+ * PATCH /api/sales-insights/query/:id/mini-apps-sharing
+ * Admin only. Toggle whether a saved query is exposed read-only to
+ * mini-apps, and manage its whitelist of runtime parameters
+ * ({{param.NAAM}} placeholders a mini-app may fill in).
+ *
+ * Body:
+ * - is_shared_mini_apps: boolean (optional)
+ * - mini_app_parameters: Array<{name, label, type, default}> (optional)
+ */
+async function updateQueryMiniAppsSharing(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  try {
+    const { request, env, params } = context;
+    const id = params?.id;
+    const body = await request.json();
+    const updates = {};
+    if (body.is_shared_mini_apps !== undefined) updates.is_shared_mini_apps = !!body.is_shared_mini_apps;
+    if (body.mini_app_parameters !== undefined) updates.mini_app_parameters = Array.isArray(body.mini_app_parameters) ? body.mini_app_parameters : [];
+    if (Object.keys(updates).length === 0) {
+      return new Response(JSON.stringify({ success: false, error: { message: 'No valid fields to update' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    const data = await updateQuery(env, id, updates);
+    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
  * DELETE /api/sales-insights/models/:id
  * Admin only. Soft-delete (sets is_active = false).
  */
@@ -2769,5 +2802,6 @@ export const routes = {
   'POST /api/sales-insights/query/instantiate-preset': instantiatePreset,
   'GET /api/sales-insights/query/list': listSavedQueries,
   'POST /api/sales-insights/query/run/:id': runSavedQuery,
-  'POST /api/sales-insights/query/run/:id/export': exportSavedQuery
+  'POST /api/sales-insights/query/run/:id/export': exportSavedQuery,
+  'PATCH /api/sales-insights/query/:id/mini-apps-sharing': updateQueryMiniAppsSharing
 };

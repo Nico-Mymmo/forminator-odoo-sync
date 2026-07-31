@@ -170,6 +170,14 @@
         </button>
       </div>
 
+      <div class="form-control mb-4" id="buildPromptQueryWrap" style="display:none;">
+        <label class="label pb-1"><span class="label-text text-xs font-semibold">Optioneel: gedeelde Odoo-query meegeven</span></label>
+        <select id="buildPromptQuerySelect" class="select select-bordered select-xs w-full">
+          <option value="">Geen</option>
+        </select>
+        <label class="label pt-1"><span class="label-text-alt text-xs text-base-content/50">Kies je een query, dan draait die één keer live mee in de gekopieerde prompt zodat Claude de echte veldnamen/voorbeelddata al kent.</span></label>
+      </div>
+
       <div role="tablist" class="tabs tabs-boxed mb-4" id="uploadSourceModeTabs">
         <button type="button" role="tab" class="tab tab-active" data-action="setUploadSourceMode" data-mode="file" id="uploadSourceModeTabFile">Bestand uploaden</button>
         <button type="button" role="tab" class="tab" data-action="setUploadSourceMode" data-mode="url" id="uploadSourceModeTabUrl">Externe app (URL)</button>
