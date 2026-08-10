@@ -31,9 +31,11 @@ document.addEventListener('click', function(e) {
     else if (action === 'toggleMailSubscription') toggleMailSubscription();
     else if (action === 'closeAppModal') closeAppModal();
     else if (action === 'saveAppCode') saveAppCode();
+    else if (action === 'generateUpdatePrompt') generateUpdatePrompt();
     else if (action === 'saveAppSettings') saveAppSettings();
     else if (action === 'saveExternalUrl') saveExternalUrl();
     else if (action === 'deleteApp') deleteApp();
+    else if (action === 'deleteAppDirect') deleteAppDirect(el.dataset.id, el.dataset.title);
     else if (action === 'openChatChannelsModal') openChatChannelsModal();
     else if (action === 'closeChatChannelsModal') closeChatChannelsModal();
     else if (action === 'submitChatChannel') submitChatChannel();

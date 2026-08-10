@@ -533,6 +533,169 @@ export async function handlePatchMijnWizard({ env }) {
 
 Registreer de route in `module.js` en voeg een knop toe in de HTML + handler in de JS (zelfde patroon als de bestaande "Eenmalige patches" in `cx-automations`).
 
+## Schema-cache (Sales Insight Explorer) — nooit een doodlopende "Schema not available"
+
+De volledige module draait op één KV-sleutel: `sales_insights:schema:current`
+(`src/modules/sales-insight-explorer/lib/schema-service.js`). Die stond op een TTL van
+**1 uur**. Gevolg: precies één uur na de laatste handmatige "Schema verversen" gaf élke
+route die het schema nodig heeft — valideren, opslaan, uitvoeren, exporteren, delen met
+mini-apps — een 503 `SCHEMA_NOT_AVAILABLE` met de tekst "Please refresh schema first".
+Voor de gebruiker onverklaarbaar: hij weet niet dat er een cache bestaat, en de enige
+uitweg was een knop in een beheer-tabblad.
+
+**Regel:** gebruik in nieuwe code altijd `ensureSchema(env)`, nooit `getCachedSchema(env)`
+gevolgd door een foutmelding. `ensureSchema()` geeft de cache terug als die er is, en bouwt
+ze anders zelf op (introspectie + capabilities + terugschrijven), met een single-flight-guard
+per isolate zodat gelijktijdige requests niet allemaal naar Odoo gaan. Ze gooit enkel bij een
+ECHTE fout (Odoo onbereikbaar) — dat is dan ook de enige situatie waarin een gebruiker nog
+een schema-foutmelding hoort te zien.
+
+Overige afspraken:
+
+- TTL staat op één plek: `SCHEMA_CACHE_TTL_SECONDS` (30 dagen). Niet opnieuw hardcoden.
+- Schrijf de cache altijd via `cacheSchema(env, schema, capabilities)` — niet met een eigen
+  `MAPPINGS_KV.put()`. Dat ging eerder mis: `cacheSchema()` schreef `capabilities` helemaal
+  niet mee, terwijl alle consumers `cached.capabilities` lezen; enkel de refresh-route deed
+  het correct met een losse put. `ensureSchema()` repareert zo'n oude rij nu zelf.
+- `getCachedSchema()` blijft bestaan voor de drie plekken die bewust willen weten óf er een
+  cache is (cache-hit-respons van `GET /schema`, de oude-vs-nieuwe vergelijking in
+  `POST /schema/refresh`, de phase0-test).
+- "Schema verversen" (`POST /schema/refresh`) blijft de manier om na een Studio-wijziging
+  verse veldinformatie op te halen — dat is nu een bewuste actie, geen noodzakelijk ritueel.
+
+---
+
+## Odoo-data in mini-apps — één zoekopdracht, één vinkje (2026-08)
+
+**Regel:** er bestaat GEEN apart concept "mini-app-query" en geen apart beheerscherm om te
+delen. Een gebruiker bewaart in de Sales Insight Explorer-wizard een zoekopdracht
+("Mijn zoekopdrachten", tabel `saved_searches`) en vinkt in DIEZELFDE opslaan-actie
+eventueel "Ook beschikbaar voor mini-apps" aan (admin-only, `renderMiniAppShareCheckbox()`
+in `public/semantic-wizard.js`).
+
+| Wat | Waar |
+|---|---|
+| Gebruikersgericht object (bewaren/bijwerken/verwijderen/delen) | `saved_searches` |
+| Afgeleid uitvoerartefact dat mini-apps draaien | `sales_insight_queries` (rij waarnaar `saved_searches.mini_app_query_id` verwijst) |
+| Enige plek die dat artefact aanmaakt/bijwerkt/verwijdert | `src/modules/sales-insight-explorer/lib/saved-search-sharing.js` |
+| Enige poort die een mini-app door laat | `lib/mini-app-bridge.js` (`is_shared_mini_apps = true`) |
+| Schema-verkenning voor een AI-gesprek (token-auth, read-only) | `lib/mini-app-discovery.js` + `GET /insights/api/sales-insights/mini-app-discovery/queries[/:id]` |
+
+Gevolgen die bewust zo zijn:
+
+- **Wijzigen volgt automatisch mee.** Bij elke save van een gedeelde zoekopdracht wordt de
+  afgeleide `query_definition` volledig herschreven vanuit de payload die de wizard net
+  uitvoerde. Mini-apps verwijzen naar een query via haar id (`window.platform.odoo.runQuery(id, ...)`),
+  dus er hoeft niets in een mini-app aangepast te worden. Er is nergens een tweede kopie
+  van de query.
+- **Verwijderen/uitvinken haalt de toegang weg.** `DELETE /api/sales-insights/saved-searches/:id`
+  en `share_with_mini_apps: false` verwijderen de afgeleide rij. De FK staat op
+  `ON DELETE SET NULL`, dus een zoekopdracht blijft bestaan als het artefact langs een
+  andere weg verdwijnt.
+- **`{{param.NAAM}}`-placeholders zijn deterministisch afgeleid** (`autoDetectMiniAppParameters()`),
+  niet handmatig instelbaar. Snelle periodes worden bij het delen omgezet naar een relatieve
+  `time_scope` (`buildShareablePayload()` in `semantic-wizard.js`), anders bevriest een gedeelde
+  query op de datum van vandaag.
+- **Prompts bevatten geen momentopname van data meer.** "Kopieer bouw-prompt" en
+  "Prompt: bijwerken met query" vragen een discovery-token aan
+  (`POST /mini-apps/api/apps/odoo-discovery-token`) en zetten de URL's in de prompt
+  (`odooDiscoveryPromptSection()` in `public/mini-apps-core.js`), inclusief de twee
+  VERPLICHTE fallbacks die de gegenereerde app moet bevatten ("Deze query is niet meer
+  beschikbaar" / "Onbekende/ontbrekende velden in het resultaat").
+- **Discovery-tokens** (`mini_app_discovery_tokens`) volgen dezelfde aanpak als de sessies in
+  deze repo: random token in de database, 7 dagen geldig, alleen lezen, geen HMAC/JWT-secret.
+  Ze zijn bereikbaar buiten de auth-gate via `src/router/public-routes.js` en ontsluiten enkel
+  STRUCTUUR + max 5 voorbeeldrijen van queries die op dat moment gedeeld zijn — nooit een
+  schrijfpad, nooit niet-gedeelde queries.
+
+**Vervallen (niet opnieuw invoeren):** de knop "Bewaar als mini-app-query" en
+`saveAsMiniAppQuery()` in de wizard, `PATCH /api/sales-insights/query/:id/mini-apps-sharing`,
+de deel-toggle + het `naam|label`-tekstvak in het Beheer-tabblad (dat tabblad is nu een
+read-only overzicht met enkel een verwijder-actie voor oude losse rijen),
+`GET /api/apps/odoo-queries` en `POST /api/apps/odoo-queries/:queryId/preview` (module-brede
+varianten zonder appId) plus de query-select in de upload-modal.
+
+---
+
+## Sales Insight Explorer — één graaf, één cascade-motor (2026-08)
+
+**Regel:** er is exact ÉÉN plek die weet welke modellen bestaan en hoe ze aan elkaar hangen
+(`src/modules/sales-insight-explorer/lib/graph/graph-nodes.js` + `graph-edges.js`), en exact ÉÉN
+plek die data ophaalt (`lib/graph/cascade-executor.js`). Zowel de wizard
+(`POST /insights/api/sales-insights/semantic/run`) als mini-apps
+(`lib/mini-app-bridge.js#runSharedQuery` → `window.platform.odoo.runQuery()`) roepen diezelfde
+`executeCascade()` aan. **Nooit een tweede uitvoeringspad naast dit ene bouwen** — dat is precies
+wat hiervoor fout ging: de wizard liep op 13 hand-geschreven enrichment-bestanden en mini-apps op
+`query-executor.js`, met twee verschillende resultaatvormen.
+
+| Wat | Waar |
+|---|---|
+| Welke modellen bestaan + hun gedrag (label, icoon, naamveld, datumvelden, `baseDomain`, `heavyFields`, `maxRecords`, `canBeRoot`) | `lib/graph/graph-nodes.js` |
+| Hoe modellen koppelen (één declaratie per koppeling, tegenrichting automatisch afgeleid) | `lib/graph/graph-edges.js` |
+| Vorm + validatie van een query | `lib/graph/cascade-models.js` (`version: 2`, `root` + recursieve `cascade`) |
+| Uitvoering (de enige traversal-code) | `lib/graph/cascade-executor.js` |
+| Serialisatie naar de client | `lib/graph/graph-service.js` + `GET /insights/api/sales-insights/graph` |
+
+Afspraken die bewust zo zijn:
+
+- **Een node ≠ een Odoo-model.** Hetzelfde model kan twee rollen hebben: `res.partner` =
+  gebouwen/VME's (`is_company = true`) en `res.partner:contact` = contactpersonen
+  (`is_company = false`). Node-keys zijn gelijk aan de modelnaam behalve bij zo'n rol-splitsing
+  (`<model>:<rol>`); gebruik `odooModelOf()` (server) / `odooModelOfNode()` (client) zodra je met
+  Odoo of met de Supabase-config praat. Hetzelfde model mag dus meerdere keren in één pad staan;
+  wat verboden is, is dezelfde EDGE twee keer in één pad (lus).
+- **Model-quirks zijn declaratief, geen code.** `crm.lead` toont ook gearchiveerde leads,
+  `mail.message` beperkt zich tot echte berichten, `res.partner` splitst op `is_company`: dat
+  staat in `node.baseDomain`. Zet zulke regels nooit opnieuw als `if (model === '...')` in een
+  route.
+- **`field` van een edge leeft ALTIJD op het `from`-model.** De tegenrichting (`fk_reverse`) wordt
+  daaruit afgeleid. Dit is de kern van de bug die de oude motor had: bij een many2one werd gezocht
+  op `id in <bron-id's>` i.p.v. op de FK-waarden ÚIT de bronrecords.
+- **Vier koppelingstypes, geen vijfde zonder noodzaak:** `relation` (echte Odoo-relatie),
+  `value_match` (join op veldwaarde — `x_web_visitor.x_studio_email` ↔ `res.partner.email`, want
+  daar bestaat geen FK), `mail` (het `model`/`res_model` + `res_id`-patroon, automatisch voor elke
+  data-node) en `composite` (een edge die uit bestaande hops bestaat). Composite wordt ALLEEN
+  gebruikt waar Odoo geen directe koppeling heeft én de weg ondubbelzinnig is: vandaag enkel
+  `crm.lead → res.partner` (gebouw), want `crm.lead.partner_id` wijst naar de contactpersoon en
+  het gebouw hangt aan diens `commercial_partner_id`. **Bewust GEEN composite
+  touchpoint → contactpersoon:** die verbinding loopt over de visitor, en een touchpoint is geen
+  vertrekpunt — een gebruiker start bij de web visitor en haalt daar twee losse takken op.
+- **`canBeRoot` bepaalt de vertrekpunten** (leads, contactpersonen, gebouwen, web visitors,
+  actiebladen). Touchpoints, chatter en activiteiten zijn cascade-doelen maar geen startpunt. Elk
+  nieuw model dat in de graaf komt, krijgt die vlag expliciet mee.
+- **Guards zijn node-metadata, geen per-geval code:** `heavyFields` (zware HTML/JSON-velden
+  vereisen een filter), `maxRecords` (cap per stap, met een nette `STEP_TOO_LARGE`-melding) en
+  id-batching in blokken van `ID_BATCH_SIZE` (500). Nooit meer `limit: false` met alle bron-id's
+  in één domain.
+- **Filters en periodes werken op ELKE stap**, niet enkel op het basismodel. De periode van het
+  basismodel gaat als `root.time_scope` mee (niet als twee losse `>=`/`<=`-filters), want dat is
+  wat een mini-app kan overrulen via het bestaande `period_override`-parametertype.
+- **`query-executor.js` doet enkel nog het basismodel + aggregaties.** Een `QueryDefinition` met
+  `relations` wordt daar expliciet geweigerd (`RELATIONS_NOT_SUPPORTED`). Voeg daar nooit opnieuw
+  traversal-code toe.
+- **De client heeft geen eigen kopie van de graaf.** `public/semantic-wizard.js` vult
+  `MODEL_CONFIG`/`GRAPH` via `loadGraph()`. De vroegere hardcoded `MODEL_CONFIG`, `GRAPH_EDGES` en
+  `RELATION_META` mogen niet terugkomen. `buildPayload()` wandelt de wizard-toestand generiek
+  langs de graaf; een nieuwe node/edge werkt automatisch zonder wijziging in de front-end.
+- **Resultaatvorm:** rijen van het basismodel, met per cascade-stap een geneste `__alias`-sleutel
+  (array, of één object/`null` bij een many2one). Aliassen komen uit `edge.as` en zijn met opzet
+  dezelfde namen als vroeger (`__leads`, `__touchpoints`, `__chatter`, ...).
+
+**Vervallen (niet opnieuw invoeren):** de 13 enrichment-bestanden (`lead-enrichment.js`,
+`chatter-enrichment.js`, `activity-enrichment.js` en de 10 paar-specifieke),
+`semantic-query-executor.js`, de twaalf `if`-blokken in de oude `runSemanticQuery()`, de blokkade
+op relaties naar `crm.lead` (die verwees naar `x_sales_action_sheet.lead_id`, een veld dat nooit
+heeft bestaan — de echte koppeling is `x_studio_as_opportunity_ids`, een many2many), en
+`enrichWithRelations`/`executeRelationTraversal`/`buildTraversalDomain` in `query-executor.js`.
+Die bestanden zijn nergens meer geïmporteerd; ze mogen met één `git rm` weg.
+
+**Tests (draaien zonder Odoo-verbinding, via een fake-Odoo op echte record-vormen):**
+`node src/modules/sales-insight-explorer/tests/cascade-executor-test.mjs` en
+`node src/modules/sales-insight-explorer/tests/wizard-payload-test.mjs`. Breid deze uit bij elke
+nieuwe edge of node.
+
+---
+
 ## Gedeelde R2-bucket (env.R2_ASSETS) — elke module moet zichzelf scopen
 
 **Regel:** `env.R2_ASSETS` is ÉÉN bucket (`openvme-assets`) die door meerdere modules gebruikt wordt, elk met een eigen key-prefix: asset-manager (`public/`, `banners/`, `events/`, `logos/`, `uploads/`, `users/{id}/`), mini-apps app-inhoud (`mini-apps/{appId}.html`), mini-apps gedeelde opslag (`mini-apps-storage/{appId}/...`). **Elke module die deze bucket gebruikt moet zijn eigen `.list()`-aanroepen altijd scopen tot zijn eigen prefix(en) — nooit een leeg/onbegrensd prefix rechtstreeks doorgeven aan `R2_ASSETS.list()`.**
@@ -562,6 +725,7 @@ src/
   modules/
     registry.js             — MODULES + getModuleByRoute + resolveModuleRoute
     {module}/module.js      — definitie + routes
+    sales-insight-explorer/lib/graph/  — graaf + cascade-motor (zie hierboven)
 public/                     — statische UI per module
 supabase/migrations/        — YYYYMMDDHHMMSS_naam.sql
 ```

@@ -187,6 +187,41 @@ async function saveAppCode() {
   }
 }
 
+// Genereert een prompt om de mini-app in een apart Claude-gesprek bij te
+// werken. Bewust dezelfde aanpak als copyBuildPrompt() in mini-apps-list.js:
+// GEEN momentopname van de Odoo-data in de tekst, maar de huidige broncode +
+// een kortlevend discovery-token waarmee Claude de ACTUELE structuur van de
+// gedeelde queries zelf opvraagt (zie odooDiscoveryPromptSection() in
+// mini-apps-core.js). Dat is precies wat je bij "bijwerken" nodig hebt: de
+// query is meestal net gewijzigd, dus een meegestuurde snapshot zou per
+// definitie het oude beeld zijn.
+async function generateUpdatePrompt() {
+  if (!currentApp) return;
+
+  var promptText = 'Ik heb een bestaande mini-app ("' + currentApp.title + '") voor de Mini-apps-module van onze Operations Manager, die Odoo-data ophaalt via window.platform.odoo.runQuery(). '
+    + 'De onderliggende gedeelde zoekopdracht is mogelijk aangepast (extra veld, andere filter, andere naam) of is niet langer gedeeld. '
+    + 'Werk de app bij zodat hij klopt met de HUIDIGE staat, en verander verder niets aan de app dan nodig.\n\n'
+    + 'Kijk eerst met de discovery-URL hieronder na welke queries er nu bestaan en welke velden ze teruggeven, vergelijk dat met wat de code hieronder verwacht, en zeg expliciet wat er veranderd is voor je iets aanpast.\n\n'
+    + 'Huidige broncode van de app (één zelfstandig .html-bestand; lever het bijgewerkte bestand op dezelfde manier terug -- één compleet .html-bestand, geen losse .js/.css):\n'
+    + '```html\n' + currentAppContent + '\n```\n';
+
+  try {
+    var tokenInfo = await requestOdooDiscoveryToken();
+    promptText += '\n' + odooDiscoveryPromptSection(tokenInfo, {
+      extra: 'Gebruikt de app nu een query-id dat in de lijst hierboven niet meer voorkomt? Laat de app dan de eerste fallback tonen ("Deze query is niet meer beschikbaar") en zeg mij welk id verdwenen is -- vervang het niet op eigen initiatief door een andere query.'
+    });
+  } catch (err) {
+    showToast('Discovery-token aanmaken mislukt: ' + err.message, 'error');
+    return;
+  }
+
+  navigator.clipboard.writeText(promptText).then(function() {
+    showToast('Prompt gekopieerd -- plak hem in een Claude-gesprek om de app bij te werken.', 'success');
+  }, function() {
+    showToast('Kopiëren mislukt.', 'error');
+  });
+}
+
 async function saveAppSettings() {
   if (!currentApp) return;
 
@@ -250,6 +285,26 @@ async function deleteApp() {
     await apiJson(`/mini-apps/api/apps/${currentApp.id}`, { method: 'DELETE' });
     showToast('App verwijderd.', 'success');
     closeAppModal();
+    await loadApps();
+  } catch (err) {
+    showToast('Verwijderen mislukt: ' + err.message, 'error');
+  }
+}
+
+// Verwijderen rechtstreeks vanuit de kaart in de lijst, ONAFHANKELIJK van
+// currentApp/de bewerk-modal. Nodig omdat een app met kapotte/ontbrekende
+// R2-inhoud (bv. een afgebroken upload) niet te openen/bewerken is -- en
+// deleteApp() hierboven leunt op currentApp, dat pas gezet wordt zodra
+// openApp() slaagt. Zonder deze knop is zo'n kapotte app dan onverwijderbaar
+// via de UI. Server-side blijft canEdit(app, user) de echte poort (zie
+// DELETE /api/apps/:id in routes.js) -- deze knop staat client-side enkel
+// bij app.isOwner (zie renderAppCard()), maar dat is puur UI-gemak.
+async function deleteAppDirect(id, title) {
+  if (!confirm(`Deze mini-app ("${title}") definitief verwijderen?`)) return;
+
+  try {
+    await apiJson(`/mini-apps/api/apps/${id}`, { method: 'DELETE' });
+    showToast('App verwijderd.', 'success');
     await loadApps();
   } catch (err) {
     showToast('Verwijderen mislukt: ' + err.message, 'error');

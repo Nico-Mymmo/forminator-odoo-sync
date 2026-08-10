@@ -13,7 +13,9 @@
 import { 
   introspectSchema, 
   getCachedSchema, 
+  ensureSchema,
   cacheSchema, 
+  SCHEMA_CACHE_TTL_SECONDS,
   invalidateSchemaCache,
   detectSchemaChanges
 } from './lib/schema-service.js';
@@ -34,26 +36,29 @@ import {
   deleteQuery, 
   updateQuery 
 } from './lib/query-repository.js';
+import {
+  syncSharedQueryForSavedSearch,
+  removeSharedQueryForSavedSearch
+} from './lib/saved-search-sharing.js';
+import {
+  validateDiscoveryToken,
+  describeSharedQuery,
+  describeAllSharedQueries
+} from './lib/mini-app-discovery.js';
 import { normalizeToExportResult } from './lib/export/export-normalizer.js';
 import exportRegistry from './lib/export/export-registry.js';
 import jsonExporter from './lib/export/export-json.js';
 import xlsxExporter from './lib/export/export-xlsx.js';
 import { queryBuilderUI } from './ui.js';
 import { runPhase0Validation } from './tests/phase0-validation.js';
-import { searchRead } from '../../lib/odoo.js';
-import { enrichWithLeads } from './lib/lead-enrichment.js';
-import { enrichWithChatter } from './lib/chatter-enrichment.js';
-import { enrichWithActivities } from './lib/activity-enrichment.js';
-import { enrichPartnersWithLeads } from './lib/partner-lead-enrichment.js';
-import { enrichPartnersWithActionSheets } from './lib/partner-actionsheet-enrichment.js';
-import { enrichVisitorsWithTouchpoints } from './lib/visitor-touchpoint-enrichment.js';
-import { enrichVisitorsWithLeads as enrichVisitorsWithLeadsFn } from './lib/visitor-lead-enrichment.js';
-import { enrichTouchpointsWithVisitor } from './lib/touchpoint-visitor-enrichment.js';
-import { enrichActiesheetsWithPartner } from './lib/actionsheet-partner-enrichment.js';
-import { enrichLeadsWithPartner } from './lib/lead-partner-enrichment.js';
-import { enrichLeadsWithActionSheets } from './lib/lead-actionsheet-enrichment.js';
-import { enrichLeadsWithVisitors } from './lib/lead-visitor-enrichment.js';
-import { enrichVisitorsWithPartner } from './lib/visitor-partner-enrichment.js';
+import { searchRead, executeKw } from '../../lib/odoo.js';
+// Graph-driven querysysteem: één graaf, één cascade-motor, voor de wizard EN
+// voor mini-apps (via lib/mini-app-bridge.js). De 13 hand-geschreven
+// enrichment-bestanden die hier vroeger geimporteerd werden zijn vervangen door
+// declaraties in lib/graph/graph-nodes.js + lib/graph/graph-edges.js.
+import { executeCascade, CascadeError } from './lib/graph/cascade-executor.js';
+import { isCascadeQuery, collectAliases } from './lib/graph/cascade-models.js';
+import { getGraph } from './lib/graph/graph-service.js';
 import { requireAuth } from '../../lib/auth/middleware.js';
 import { leadWebActivity, listWebVisitors } from './web-activity-routes.js';
 import { getSupabaseClient } from '../../lib/database.js';
@@ -97,7 +102,7 @@ async function getSchema(context) {
             capabilities: cached.capabilities || {},
             presets,
             cached_at: cached.cached_at,
-            cache_ttl: 3600,
+            cache_ttl: SCHEMA_CACHE_TTL_SECONDS,
             from_cache: true
           }
         }), {
@@ -117,18 +122,15 @@ async function getSchema(context) {
     const capabilitiesMap = await detectAllCapabilities(env, schema);
     const capabilities = serializeCapabilities(capabilitiesMap);
     
-    // Cache the result
+    // Cache the result -- via cacheSchema(), zodat de TTL op één plek staat
+    // (SCHEMA_CACHE_TTL_SECONDS) en het formaat gelijk blijft met ensureSchema().
     const cacheData = {
       schema,
       capabilities,
       cached_at: new Date().toISOString()
     };
     
-    await env.MAPPINGS_KV.put(
-      'sales_insights:schema:current',
-      JSON.stringify(cacheData),
-      { expirationTtl: 3600 }
-    );
+    await cacheSchema(env, schema, capabilities);
     
     console.log('✅ Schema introspection complete');
     
@@ -144,7 +146,7 @@ async function getSchema(context) {
         capabilities,
         presets,
         cached_at: cacheData.cached_at,
-        cache_ttl: 3600,
+        cache_ttl: SCHEMA_CACHE_TTL_SECONDS,
         from_cache: false
       }
     }), {
@@ -218,18 +220,9 @@ async function refreshSchema(context) {
       });
     }
     
-    // Cache new schema
-    const cacheData = {
-      schema: newSchema,
-      capabilities,
-      cached_at: new Date().toISOString()
-    };
-    
-    await env.MAPPINGS_KV.put(
-      'sales_insights:schema:current',
-      JSON.stringify(cacheData),
-      { expirationTtl: 3600 }
-    );
+    // Cache new schema -- via cacheSchema(), zodat de TTL op één plek staat
+    // (SCHEMA_CACHE_TTL_SECONDS) en het formaat gelijk blijft met ensureSchema().
+    await cacheSchema(env, newSchema, capabilities);
     
     console.log('✅ Schema refresh complete');
     
@@ -320,12 +313,12 @@ async function validateQueryEndpoint(context) {
     }
     
     // Get schema and capabilities
-    const cached = await getCachedSchema(env);
+    const cached = await ensureSchema(env);
     if (!cached || !cached.schema) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Schema not available. Please fetch schema first.',
+          message: 'Schema kon niet opgebouwd worden (Odoo onbereikbaar?). Probeer het opnieuw of ververs het schema handmatig.',
           code: 'SCHEMA_NOT_AVAILABLE'
         }
       }), {
@@ -406,12 +399,12 @@ async function runQuery(context) {
     console.log(`🚀 Executing query: ${query.base_model} (mode: ${mode})`);
     
     // Get schema and capabilities
-    const cached = await getCachedSchema(env);
+    const cached = await ensureSchema(env);
     if (!cached || !cached.schema) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Schema not available. Please fetch schema first.',
+          message: 'Schema kon niet opgebouwd worden (Odoo onbereikbaar?). Probeer het opnieuw of ververs het schema handmatig.',
           code: 'SCHEMA_NOT_AVAILABLE'
         }
       }), {
@@ -525,12 +518,12 @@ async function saveQueryEndpoint(context) {
     // MANDATORY VALIDATION
     console.log('🔍 Validating query before save...');
     
-    const cached = await getCachedSchema(env);
+    const cached = await ensureSchema(env);
     if (!cached) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Schema not available. Please refresh schema first.',
+          message: 'Schema kon niet opgebouwd worden (Odoo onbereikbaar?). Probeer het opnieuw of ververs het schema handmatig.',
           code: 'SCHEMA_NOT_AVAILABLE'
         }
       }), {
@@ -541,7 +534,7 @@ async function saveQueryEndpoint(context) {
     
     const validation = validateQuery(query, cached.schema, cached.capabilities);
     
-    if (!validation.valid) {
+    if (!validation.is_valid) {
       console.log('❌ Validation failed - query NOT saved');
       return new Response(JSON.stringify({
         success: false,
@@ -557,7 +550,7 @@ async function saveQueryEndpoint(context) {
     }
     
     // Assess complexity
-    const complexity = assessQueryComplexity(query, cached.capabilities);
+    const complexity = assessQueryComplexity(query, cached.schema, cached.capabilities[query.base_model] || {});
     
     // Save to database
     console.log('💾 Saving validated query...');
@@ -634,12 +627,12 @@ async function instantiatePreset(context) {
     // Get current schema and presets
     console.log('🔍 Fetching preset:', preset_id);
     
-    const cached = await getCachedSchema(env);
+    const cached = await ensureSchema(env);
     if (!cached) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Schema not available. Please refresh schema first.',
+          message: 'Schema kon niet opgebouwd worden (Odoo onbereikbaar?). Probeer het opnieuw of ververs het schema handmatig.',
           code: 'SCHEMA_NOT_AVAILABLE'
         }
       }), {
@@ -671,7 +664,7 @@ async function instantiatePreset(context) {
     console.log('🔍 Re-validating preset...');
     const validation = validateQuery(preset.query, cached.schema, cached.capabilities);
     
-    if (!validation.valid) {
+    if (!validation.is_valid) {
       console.log('❌ Preset is no longer valid - cannot instantiate');
       return new Response(JSON.stringify({
         success: false,
@@ -857,12 +850,12 @@ async function runSavedQuery(context) {
     console.log(`🚀 Executing saved query: ${savedQuery.name}`);
     
     // Get schema and capabilities
-    const cached = await getCachedSchema(env);
+    const cached = await ensureSchema(env);
     if (!cached || !cached.schema) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Schema not available. Please fetch schema first.',
+          message: 'Schema kon niet opgebouwd worden (Odoo onbereikbaar?). Probeer het opnieuw of ververs het schema handmatig.',
           code: 'SCHEMA_NOT_AVAILABLE'
         }
       }), {
@@ -1005,12 +998,12 @@ async function exportSavedQuery(context) {
     console.log(`  Found query: "${savedQuery.name}"`);
     
     // Step 2: Get schema and capabilities
-    const cached = await getCachedSchema(env);
+    const cached = await ensureSchema(env);
     if (!cached || !cached.schema) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Schema not available. Please fetch schema first.',
+          message: 'Schema kon niet opgebouwd worden (Odoo onbereikbaar?). Probeer het opnieuw of ververs het schema handmatig.',
           code: 'SCHEMA_NOT_AVAILABLE'
         }
       }), {
@@ -1456,12 +1449,12 @@ async function previewSemanticQuery(context) {
     console.log('✅ Semantic validation passed');
     
     // Step 2: Get schema
-    const cached = await getCachedSchema(env);
+    const cached = await ensureSchema(env);
     if (!cached || !cached.schema) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Schema not available. Please refresh schema first.',
+          message: 'Schema kon niet opgebouwd worden (Odoo onbereikbaar?). Probeer het opnieuw of ververs het schema handmatig.',
           code: 'SCHEMA_NOT_AVAILABLE'
         }
       }), {
@@ -1551,553 +1544,134 @@ async function previewSemanticQuery(context) {
 }
 
 /**
+ * GET /api/sales-insights/graph
+ *
+ * De volledige graaf (nodes + edges) waarmee de wizard de spiderweb tekent en
+ * bepaalt welke cascade-stappen mogelijk zijn. Eén source of truth: de client
+ * heeft geen eigen kopie meer, dus de UI kan per definitie niets aanbieden dat
+ * de server niet kan uitvoeren.
+ */
+async function getGraphDefinition() {
+  return new Response(JSON.stringify({ success: true, data: getGraph() }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+/**
  * POST /api/sales-insights/semantic/run
- * 
- * SIMPLIFIED: Thin translator from wizard payload to Odoo searchRead
- * 
- * No semantic executor. No DSL. Just translation:
- * - wizard payload → Odoo domain + fields → searchRead
- * 
- * Body:
- * {
- *   base_model: 'x_sales_action_sheet',
- *   fields: ['id', 'x_name', 'create_date'],
- *   filters: [
- *     { field: 'create_date', operator: '>=', value: '2026-01-01' }
- *   ]
- * }
+ *
+ * Dunne wrapper rond executeCascade(). Alle uitvoeringslogica zit in
+ * lib/graph/cascade-executor.js -- exact dezelfde functie die mini-apps
+ * gebruiken via lib/mini-app-bridge.js#runSharedQuery(). Een zoekopdracht die
+ * hier draait geeft in een mini-app dus per definitie hetzelfde resultaat.
+ *
+ * Verwacht een cascade-query (version: 2), zie lib/graph/cascade-models.js.
+ *
+ * Wat hier vroeger stond en nu declaratief in de graaf zit:
+ * - de blokkade op relaties naar crm.lead (die verwees naar een veld
+ *   `x_sales_action_sheet.lead_id` dat nooit heeft bestaan -- de echte
+ *   koppeling is x_studio_as_opportunity_ids, een many2many);
+ * - twaalf if-blokken die elk een eigen enrichment-functie inschakelden;
+ * - de model-quirks (crm.lead ook gearchiveerd, res.partner is_company,
+ *   mail.message message_type) -> node.baseDomain;
+ * - de "zware HTML-velden vereisen een filter"-guard -> node.heavyFields.
  */
 async function runSemanticQuery(context) {
   const { request, env } = context;
-  
+
   try {
     const payload = await request.json();
-    
-    console.log('📦 Received wizard payload:', JSON.stringify(payload, null, 2));
-    
-    // STEP 1: Validate no forbidden lead relations (BLOCKER)
-    if (payload.base_model === 'x_sales_action_sheet') {
-      // Check for forbidden relations to crm.lead
-      if (payload.relations && Array.isArray(payload.relations)) {
-        for (const relation of payload.relations) {
-          if (relation.path) {
-            for (const step of relation.path) {
-              if (step.target_model === 'crm.lead') {
-                return new Response(JSON.stringify({
-                  success: false,
-                  error: {
-                    message: 'Relations to crm.lead are not allowed. Use lead_enrichment instead.',
-                    code: 'INVALID_LEAD_RELATION',
-                    explanation: 'x_sales_action_sheet.lead_id does not exist. Use two-phase lead enrichment.',
-                    hint: 'Enable lead enrichment in the wizard instead of using relations.'
-                  }
-                }), {
-                  status: 400,
-                  headers: { 'Content-Type': 'application/json' }
-                });
-              }
-            }
-          }
-        }
-      }
 
-      // Check for forbidden fields with model: 'lead'
-      if (payload.fields && Array.isArray(payload.fields)) {
-        for (const field of payload.fields) {
-          if (typeof field === 'object' && (field.model === 'lead' || field.model === 'crm.lead')) {
-            return new Response(JSON.stringify({
-              success: false,
-              error: {
-                message: 'Fields with model "lead" or "crm.lead" are not allowed. Use lead_enrichment instead.',
-                code: 'INVALID_LEAD_FIELD',
-                explanation: 'Lead fields cannot be fetched via relations. Use two-phase lead enrichment.',
-                hint: 'Enable lead enrichment in the wizard to fetch lead data.'
-              }
-            }), {
-              status: 400,
-              headers: { 'Content-Type': 'application/json' }
-            });
-          }
-        }
-      }
-    }
-    
-    // STEP 2: Extract base model
-    const model = payload.base_model;
-    if (!model) {
+    if (!isCascadeQuery(payload)) {
       return new Response(JSON.stringify({
         success: false,
         error: {
-          message: 'Missing required field: base_model',
-          code: 'MISSING_BASE_MODEL'
+          message: 'Deze zoekopdracht heeft een verouderde vorm en kan niet meer uitgevoerd worden. Bouw ze opnieuw op in de wizard.',
+          code: 'UNSUPPORTED_QUERY_FORMAT',
+          hint: 'Verwacht een cascade-query met version: 2 en een root-node.'
         }
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // STEP 3: Extract fields (default to ['id'] if empty)
-    // Handle both string format and {model, field} object format
-    let fields;
-    if (Array.isArray(payload.fields) && payload.fields.length > 0) {
-      // Check if fields are objects with 'field' property or plain strings
-      if (typeof payload.fields[0] === 'object' && payload.fields[0].field) {
-        // Extract field names from {model, field} objects
-        fields = payload.fields
-          .filter(f => f.model === model) // Only base model fields for search_read
-          .map(f => f.field);
-      } else {
-        // Already plain strings
-        fields = payload.fields;
-      }
-    } else {
-      fields = ['id'];
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Guard: verwijder duidelijk verkeerde veldnamen vóór de Odoo-call.
-    // Odoo Studio-velden beginnen altijd met 'x_'. Alles met 's_studio_' prefix
-    // is een typo (ooit verkeerd aangemaakt). Deduplicate ook meteen.
-    const seenFields = new Set();
-    fields = fields.filter(f => {
-      if (!f || f.startsWith('s_studio_')) {
-        console.warn(`[runSemanticQuery] Veld '${f}' gefilterd — ongeldige prefix (waarschijnlijk stale Supabase data)`);
-        return false;
-      }
-      if (seenFields.has(f)) return false;
-      seenFields.add(f);
-      return true;
-    });
-
-    // Guard: x_web_visitor met HTML-blob velden vereist filters.
-    // x_studio_visitor_timeline_html / x_studio_visitor_kpi_html / x_studio_pages_json
-    // zijn grote HTML-aggregaties per record. Odoo.sh's proxy crasht (Bad Gateway)
-    // als deze velden voor duizenden records tegelijk worden opgevraagd.
-    // Oplossing: blokkeer de query als er geen tijdsfilter of ander filter aanwezig is.
-    if (model === 'x_web_visitor') {
-      const HEAVY_VISITOR_FIELDS = new Set([
-        'x_studio_visitor_timeline_html',
-        'x_studio_visitor_kpi_html',
-        'x_studio_pages_json'
-      ]);
-      const heavyFieldsRequested = fields.filter(f => HEAVY_VISITOR_FIELDS.has(f));
-      if (heavyFieldsRequested.length > 0) {
-        // Controleer of er minstens één filter aanwezig is (tijdsfilter, source site, bounce, ...)
-        // Nota: domain is nog niet gebouwd op dit punt — controleer payload.filters
-        const hasFilter = Array.isArray(payload.filters) && payload.filters.length > 0;
-        if (!hasFilter && !isVerifyMode) {
-          return new Response(JSON.stringify({
-            success: false,
-            error: {
-              message: `De velden ${heavyFieldsRequested.join(', ')} bevatten grote HTML-data per bezoeker. Voeg een filter toe (bijv. een tijdsperiode of source site) om het aantal records te beperken — anders crasht de query bij grote datasets.`,
-              code: 'QUERY_TOO_BROAD',
-              hint: 'Voeg een tijdsfilter toe (bijv. "eerste bezoek" van de laatste 30 dagen) of filter op source site om het resultaat te beperken.',
-              heavy_fields: heavyFieldsRequested
-            }
-          }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-      }
-    }
-    
-    // STEP 3: Translate filters to Odoo domain
-    const domain = [];
-
-    // crm.lead archives lost leads (active=false) — without this Odoo silently excludes them
-    if (model === 'crm.lead') {
-      domain.push(['active', 'in', [true, false]]);
-    }
-
-    if (Array.isArray(payload.filters)) {
-      for (const filter of payload.filters) {
-        // Simple translation: { field, operator, value } → [field, operator, value]
-        if (filter.field && filter.operator && filter.value !== undefined) {
-          domain.push([filter.field, filter.operator, filter.value]);
-        }
-      }
-    }
-    
-    // Lead enrichment op actiebladen vereist x_studio_as_opportunity_ids in de primaire query
-    // zodat enrichWithLeads direct de juiste lead-IDs heeft (betrouwbaarder dan inverse field).
-    if (payload.lead_enrichment?.enabled && model === 'x_sales_action_sheet') {
-      if (!fields.includes('x_studio_as_opportunity_ids')) {
-        fields.push('x_studio_as_opportunity_ids');
-      }
-    }
-
-    // Touchpoint → Visitor enrichment vereist x_studio_visitor in de primaire query
-    if (payload.touchpoint_visitor_enrichment?.enabled && model === 'x_ad_touchpoint') {
-      if (!fields.includes('x_studio_visitor')) {
-        fields.push('x_studio_visitor');
-      }
-    }
-
-    console.log('🔄 Translated to Odoo call:');
-    console.log('  model:', model);
-    console.log('  domain:', JSON.stringify(domain));
-    console.log('  fields:', JSON.stringify(fields));
-    
-    // Initialize execution notes for transparency
-    const notes = [];
-    notes.push(`Primary query: ${model} with ${domain.length} filters`);
-    
-    // STEP 4: Call searchRead — verify mode uses limit 25 + id desc, otherwise no limit
     const isVerifyMode = payload._verify_mode === true;
-    let records = await searchRead(env, {
-      model,
-      domain,
-      fields,
-      limit: isVerifyMode ? 25 : false,
-      ...(isVerifyMode ? { order: 'id desc' } : {})
+
+    const result = await executeCascade(payload, env, {
+      preview: payload._preview === true,
+      ...(isVerifyMode ? { limitOverride: 25, orderOverride: 'id desc' } : {})
     });
-    
-    console.log(`✅ searchRead returned ${records.length} records`);
-    notes.push(`Primary query returned ${records.length} records`);
-    
-    // STEP 5: Enrichments (lead, chatter, activities)
-    let enrichmentMeta = null;
-    let chatterMeta = null;
-    let activitiesMeta = null;
 
-    // 5a: Lead enrichment
-    if (payload.lead_enrichment && payload.lead_enrichment.enabled) {
-      try {
-        const enriched = await enrichWithLeads(
-          records,
-          payload.lead_enrichment,
-          env,
-          notes
-        );
-        records = enriched.records;
-        enrichmentMeta = enriched.meta;
-      } catch (error) {
-        if (error.code === 'SECONDARY_QUERY_TRUNCATED') {
-          return new Response(JSON.stringify({
-            success: false,
-            error: {
-              message: error.message,
-              code: 'SECONDARY_QUERY_TRUNCATED',
-              hint: 'Voeg meer specifieke lead-filters toe om de resultaatset te beperken',
-              mode: payload.lead_enrichment.mode
-            }
-          }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-        throw error;
-      }
-    }
-
-    // 5b: Chatter enrichment (mail.message) — model meegeven voor generieke werking
-    if (payload.chatter_enrichment && payload.chatter_enrichment.enabled) {
-      const chatterResult = await enrichWithChatter(
-        records,
-        { ...payload.chatter_enrichment, odoo_model: model },
-        env,
-        notes
-      );
-      records = chatterResult.records;
-      chatterMeta = chatterResult.meta;
-    }
-
-    // 5c: Activity enrichment (mail.activity) — model meegeven voor generieke werking
-    if (payload.activity_enrichment && payload.activity_enrichment.enabled) {
-      const activityResult = await enrichWithActivities(
-        records,
-        { ...payload.activity_enrichment, odoo_model: model },
-        env,
-        notes
-      );
-      records = activityResult.records;
-      activitiesMeta = activityResult.meta;
-    }
-
-    // 5d: Partner → Leads enrichment (alleen voor res.partner)
-    let partnerLeadMeta = null;
-    if (payload.partner_lead_enrichment && payload.partner_lead_enrichment.enabled && model === 'res.partner') {
-      const partnerLeadResult = await enrichPartnersWithLeads(
-        records,
-        payload.partner_lead_enrichment,
-        env,
-        notes
-      );
-      records = partnerLeadResult.records;
-      partnerLeadMeta = partnerLeadResult.meta;
-    }
-
-    // 5e: Partner → Actiebladen enrichment (alleen voor res.partner)
-    let partnerActionsheetMeta = null;
-    if (payload.partner_actionsheet_enrichment && payload.partner_actionsheet_enrichment.enabled && model === 'res.partner') {
-      const partnerAsResult = await enrichPartnersWithActionSheets(
-        records,
-        payload.partner_actionsheet_enrichment,
-        env,
-        notes
-      );
-      records = partnerAsResult.records;
-      partnerActionsheetMeta = partnerAsResult.meta;
-    }
-
-    // 5f: Web Visitor → Touchpoints enrichment (alleen voor x_web_visitor)
-    let visitorTouchpointMeta = null;
-    if (payload.visitor_touchpoint_enrichment?.enabled && model === 'x_web_visitor') {
-      const vtResult = await enrichVisitorsWithTouchpoints(
-        records,
-        payload.visitor_touchpoint_enrichment,
-        env,
-        notes
-      );
-      records = vtResult.records;
-      visitorTouchpointMeta = vtResult.meta;
-    }
-
-    // 5g: Web Visitor → Leads enrichment (alleen voor x_web_visitor)
-    let visitorLeadMeta = null;
-    if (payload.visitor_lead_enrichment?.enabled && model === 'x_web_visitor') {
-      const vlResult = await enrichVisitorsWithLeadsFn(
-        records,
-        payload.visitor_lead_enrichment,
-        env,
-        notes
-      );
-      records = vlResult.records;
-      visitorLeadMeta = vlResult.meta;
-    }
-
-    // 5h: Ad Touchpoint → Visitor enrichment (alleen voor x_ad_touchpoint)
-    let touchpointVisitorMeta = null;
-    if (payload.touchpoint_visitor_enrichment?.enabled && model === 'x_ad_touchpoint') {
-      const tvResult = await enrichTouchpointsWithVisitor(
-        records,
-        payload.touchpoint_visitor_enrichment,
-        env,
-        notes
-      );
-      records = tvResult.records;
-      touchpointVisitorMeta = tvResult.meta;
-    }
-
-    // 5i: Actieblad → Partner enrichment (res.partner als submodel van x_sales_action_sheet)
-    let actionsheetPartnerMeta = null;
-    if (payload.actionsheet_partner_enrichment?.enabled && model === 'x_sales_action_sheet') {
-      const apResult = await enrichActiesheetsWithPartner(
-        records,
-        payload.actionsheet_partner_enrichment,
-        env,
-        notes
-      );
-      records = apResult.records;
-      actionsheetPartnerMeta = apResult.meta;
-
-      // Stap 5i-b: Leads als L2 van Partners (crm.lead omgeleid via res.partner)
-      if (payload.actionsheet_partner_enrichment.lead_enrichment?.enabled) {
-        const apLeadCfg = payload.actionsheet_partner_enrichment.lead_enrichment;
-        const pIds = [];
-        for (const rec of records) {
-          if (rec.__partner?.id && !pIds.includes(rec.__partner.id)) pIds.push(rec.__partner.id);
-        }
-        if (pIds.length) {
-          const leadDomain = [['partner_id', 'in', pIds], ['type', '=', 'opportunity'], ['active', 'in', [true, false]]];
-          if (apLeadCfg.filters?.won_status?.length) {
-            leadDomain.push(['won_status', 'in', apLeadCfg.filters.won_status]);
-          }
-          const partnerLeadsAP = await searchRead(env, {
-            model: 'crm.lead',
-            domain: leadDomain,
-            fields: ['id', 'name', 'won_status', 'stage_id', 'partner_id'],
-            limit: false
-          });
-          notes.push(`Actieblad→Partner→Lead: ${partnerLeadsAP.length} leads voor ${pIds.length} partners`);
-          const leadsByPartner = {};
-          for (const lead of partnerLeadsAP) {
-            const pid = Array.isArray(lead.partner_id) ? lead.partner_id[0] : lead.partner_id;
-            if (!leadsByPartner[pid]) leadsByPartner[pid] = [];
-            leadsByPartner[pid].push(lead);
-          }
-          records = records.map(rec => {
-            if (!rec.__partner) return rec;
-            return { ...rec, __partner: { ...rec.__partner, __leads: leadsByPartner[rec.__partner.id] || [] } };
-          });
-        }
-      }
-    }
-
-    // 5i-c: Partners als L2 van Leads (res.partner omgeleid via crm.lead)
-    let leadPartnerMeta = null;
-    if (payload.lead_enrichment?.partner_enrichment?.enabled && model === 'x_sales_action_sheet') {
-      const lpResult = await enrichLeadsWithPartner(
-        records,
-        payload.lead_enrichment.partner_enrichment,
-        env,
-        notes
-      );
-      records = lpResult.records;
-      leadPartnerMeta = lpResult.meta;
-    }
-
-    // 5j: Lead → Actiebladen enrichment (x_sales_action_sheet als submodel van crm.lead)
-    let leadActionsheetMeta = null;
-    if (payload.lead_actionsheet_enrichment?.enabled && model === 'crm.lead') {
-      const laResult = await enrichLeadsWithActionSheets(
-        records,
-        payload.lead_actionsheet_enrichment,
-        env,
-        notes
-      );
-      records = laResult.records;
-      leadActionsheetMeta = laResult.meta;
-    }
-
-    // 5k: Lead → Web Visitor enrichment (werkt op elk basismodel met __leads)
-    // Trigger: lead_enrichment.visitor_enrichment.enabled
-    // Haalt x_web_visitor op per lead via many2many reverse lookup.
-    // Optioneel ook x_ad_touchpoint per visitor (visitor_enrichment.touchpoint_enrichment).
-    let leadVisitorMeta = null;
-    if (payload.lead_enrichment?.visitor_enrichment?.enabled) {
-      const lvResult = await enrichLeadsWithVisitors(
-        records,
-        payload.lead_enrichment.visitor_enrichment,
-        env,
-        notes
-      );
-      records = lvResult.records;
-      leadVisitorMeta = lvResult.meta;
-    }
-
-    // 5l: Visitor → Partner enrichment (alleen voor x_web_visitor als basismodel)
-    // Koppeling via e-mail: x_web_visitor.x_studio_email → res.partner.email
-    let visitorPartnerMeta = null;
-    if (payload.visitor_partner_enrichment?.enabled && model === 'x_web_visitor') {
-      const vpResult = await enrichVisitorsWithPartner(
-        records,
-        payload.visitor_partner_enrichment,
-        env,
-        notes
-      );
-      records = vpResult.records;
-      visitorPartnerMeta = vpResult.meta;
-    }
-
-    // Check if export is requested
     const exportFormat = payload.export;
-    
-    if (exportFormat && (exportFormat === 'xlsx' || exportFormat === 'json')) {
-      // EXPORT PATH: Return downloadable file
-      console.log(`📤 Exporting to ${exportFormat}`);
-      
-      // Build field list (include __leads if enrichment was enabled)
-      let exportFields = fields.map(f => ({ field: f, model, alias: f }));
-      
-      // CRITICAL: Add synthetic __leads field if lead enrichment was used
-      if (enrichmentMeta) {
+    if (exportFormat === 'xlsx' || exportFormat === 'json') {
+      console.log(`📤 Exporteren naar ${exportFormat}`);
+
+      // Basisvelden + één synthetisch veld per cascade-alias, zodat de
+      // export-laag de geneste __alias-arrays als kolom meeneemt.
+      const exportFields = result.meta.fields.map((f) => ({
+        field: f,
+        model: result.meta.model,
+        alias: f
+      }));
+      for (const entry of collectAliases(payload)) {
+        if (entry.depth !== 1) continue;
         exportFields.push({
-          field: '__leads',
-          model: 'x_sales_action_sheet',
-          alias: '__leads',
+          field: entry.alias,
+          model: result.meta.model,
+          alias: entry.alias,
           type: 'json',
           source: 'derived',
           is_synthetic: true,
-          description: 'CRM leads enriched via two-phase set operations'
+          description: `Gekoppelde records via ${entry.edge}`
         });
       }
-      
-      // Normalize to ExportResult
-      const result = {
-        records,
-        meta: {
-          model,
-          domain,
-          fields,
-          count: records.length,
-          execution_method: enrichmentMeta ? 'two_phase_derived' : 'searchRead',
-          execution_path: 'search_read',
-          preview_mode: false,
-          notes,
-          ...(enrichmentMeta || {})
-        },
-        query_definition: {
-          base_model: model,
-          fields: exportFields
-        },
-        schema_context: {
-          schema_version: 'semantic_wizard_v1'
-        }
-      };
-      
-      const exportResult = normalizeToExportResult(result, {
-        id: 'semantic_query',
-        name: `Semantic Query - ${model}`
+
+      const exportResult = normalizeToExportResult({
+        records: result.records,
+        meta: { ...result.meta, preview_mode: false, execution_path: 'cascade' },
+        query_definition: { base_model: result.meta.model, fields: exportFields },
+        schema_context: { schema_version: 'cascade_v2' }
+      }, {
+        id: 'cascade_query',
+        name: `Cascade Query - ${result.meta.label}`
       });
-      
-      // Export to requested format
+
       const exportedContent = exportRegistry.export(exportFormat, exportResult);
-      const mimeType = exportRegistry.getMimeType(exportFormat);
-      const fileExtension = exportRegistry.getFileExtension(exportFormat);
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-      const filename = `semantic_query_${model}_${timestamp}${fileExtension}`;
-      
-      console.log(`✅ Export complete: ${filename}`);
-      
+      const filename = `sales_insight_${result.meta.model}_${timestamp}${exportRegistry.getFileExtension(exportFormat)}`;
+
       return new Response(exportedContent, {
         headers: {
-          'Content-Type': mimeType,
+          'Content-Type': exportRegistry.getMimeType(exportFormat),
           'Content-Disposition': `attachment; filename="${filename}"`,
-          'X-Record-Count': String(records.length)
+          'X-Record-Count': String(result.records.length)
         }
       });
     }
-    
-    // NORMAL PATH: Return JSON results
-    const anyEnrichment = enrichmentMeta || chatterMeta || activitiesMeta || partnerLeadMeta
-      || partnerActionsheetMeta || visitorTouchpointMeta || visitorLeadMeta || touchpointVisitorMeta
-      || actionsheetPartnerMeta || leadPartnerMeta || leadVisitorMeta || visitorPartnerMeta;
+
     return new Response(JSON.stringify({
       success: true,
-      data: {
-        records,
-        meta: {
-          model,
-          domain,
-          fields,
-          count: records.length,
-          execution_method: anyEnrichment ? 'multi_phase' : 'searchRead',
-          notes,
-          ...(enrichmentMeta        ? { lead_enrichment:                enrichmentMeta }        : {}),
-          ...(chatterMeta           ? { chatter_enrichment:             chatterMeta }           : {}),
-          ...(activitiesMeta        ? { activity_enrichment:            activitiesMeta }        : {}),
-          ...(partnerLeadMeta       ? { partner_lead_enrichment:        partnerLeadMeta }       : {}),
-          ...(partnerActionsheetMeta ? { partner_actionsheet_enrichment: partnerActionsheetMeta } : {}),
-          ...(visitorTouchpointMeta ? { visitor_touchpoint_enrichment:  visitorTouchpointMeta } : {}),
-          ...(visitorLeadMeta           ? { visitor_lead_enrichment:            visitorLeadMeta }           : {}),
-          ...(touchpointVisitorMeta     ? { touchpoint_visitor_enrichment:      touchpointVisitorMeta }     : {}),
-          ...(actionsheetPartnerMeta    ? { actionsheet_partner_enrichment:     actionsheetPartnerMeta }    : {}),
-          ...(leadPartnerMeta           ? { lead_partner_enrichment:            leadPartnerMeta }           : {}),
-          ...(leadVisitorMeta           ? { lead_visitor_enrichment:            leadVisitorMeta }           : {}),
-          ...(visitorPartnerMeta        ? { visitor_partner_enrichment:         visitorPartnerMeta }        : {})
-        }
-      }
-    }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
+      data: { records: result.records, meta: result.meta }
+    }), { headers: { 'Content-Type': 'application/json' } });
+
   } catch (error) {
-    console.error('❌ Semantic query failed:', error);
-    
-    // If Odoo error, return it directly
+    if (error instanceof CascadeError) {
+      console.warn('⚠️ Cascade-query geweigerd:', error.code, error.message);
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: error.message,
+          code: error.code,
+          ...(error.validation_errors ? { validation_errors: error.validation_errors } : {}),
+          ...(error.heavy_fields ? { heavy_fields: error.heavy_fields } : {}),
+          ...(error.cap ? { cap: error.cap } : {})
+        }
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    console.error('❌ Cascade-query mislukt:', error);
     return new Response(JSON.stringify({
       success: false,
-      error: {
-        message: error.message,
-        code: 'ODOO_ERROR',
-        stack: error.stack
-      }
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+      error: { message: error.message, code: 'ODOO_ERROR', stack: error.stack }
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }
 
@@ -2230,7 +1804,7 @@ async function getInformationSets(context) {
   try {
     const supabase = getSupabaseClient(env);
     let query = supabase.from('information_sets')
-      .select('id, label, description, model, is_submodel_only, sort_order, information_set_fields(id, field_key, label, description, sort_order)')
+      .select('id, label, description, model, is_submodel_only, sort_order, information_set_fields(id, field_key, label, description, sort_order, strip_html, selection_map)')
       .eq('is_active', true).order('sort_order');
     if (model) query = query.eq('model', model);
     const { data, error } = await query;
@@ -2275,11 +1849,11 @@ async function createInformationSetField(context) {
   const { request, env } = context;
   try {
     const body = await request.json();
-    const { set_id, field_key, label, description, sort_order } = body;
+    const { set_id, field_key, label, description, sort_order, strip_html } = body;
     if (!set_id || !field_key) return new Response(JSON.stringify({ success: false, error: { message: 'set_id and field_key are required' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_set_fields')
-      .insert({ set_id, field_key, label: label || null, description: description || null, sort_order: sort_order || 99 })
+      .insert({ set_id, field_key, label: label || null, description: description || null, sort_order: sort_order || 99, strip_html: strip_html === true })
       .select().single();
     if (error) throw new Error(error.message);
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
@@ -2366,32 +1940,72 @@ async function updateModel(context) {
 }
 
 /**
- * PATCH /api/sales-insights/query/:id/mini-apps-sharing
- * Admin only. Toggle whether a saved query is exposed read-only to
- * mini-apps, and manage its whitelist of runtime parameters
- * ({{param.NAAM}} placeholders a mini-app may fill in).
+ * PATCH /api/sales-insights/query/:id
+ * Bewerkt een bestaande opgeslagen query IN PLACE (zelfde id blijft
+ * behouden) -- dit is bewust de manier om een query uit te breiden (bv.
+ * een veld toevoegen) zonder dat mini-apps die deze query gebruiken
+ * opnieuw geconfigureerd moeten worden: mini-apps verwijzen altijd naar
+ * een query via het id (window.platform.odoo.runQuery(queryId, ...)), niet
+ * naar een kopie van de velden/filters, dus is_shared_mini_apps en
+ * mini_app_parameters blijven ongewijzigd en de volgende runQuery()-call
+ * geeft gewoon de uitgebreide data terug.
  *
  * Body:
- * - is_shared_mini_apps: boolean (optional)
- * - mini_app_parameters: Array<{name, label, type, default}> (optional)
+ * - query: QueryDefinition (required) -- wordt opnieuw volledig gevalideerd
+ *   tegen de huidige schema/capabilities, net als bij POST .../query/save
+ * - name: string (optional)
+ * - description: string (optional)
  */
-async function updateQueryMiniAppsSharing(context) {
-  const deny = guardSalesInsightAdmin(context);
-  if (deny) return deny;
+async function updateQueryDefinition(context) {
+  const { request, env, params } = context;
   try {
-    const { request, env, params } = context;
     const id = params?.id;
     const body = await request.json();
-    const updates = {};
-    if (body.is_shared_mini_apps !== undefined) updates.is_shared_mini_apps = !!body.is_shared_mini_apps;
-    if (body.mini_app_parameters !== undefined) updates.mini_app_parameters = Array.isArray(body.mini_app_parameters) ? body.mini_app_parameters : [];
-    if (Object.keys(updates).length === 0) {
-      return new Response(JSON.stringify({ success: false, error: { message: 'No valid fields to update' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+
+    if (!body.query) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: { message: 'Missing required field: query', code: 'MISSING_QUERY' }
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
-    const data = await updateQuery(env, id, updates);
-    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
-  } catch (e) {
-    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+
+    const existing = await getQueryById(env, id);
+    if (!existing) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: { message: `Query not found: ${id}`, code: 'QUERY_NOT_FOUND' }
+      }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const cached = await ensureSchema(env);
+    if (!cached) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: { message: 'Schema kon niet opgebouwd worden (Odoo onbereikbaar?). Probeer het opnieuw of ververs het schema handmatig.', code: 'SCHEMA_NOT_AVAILABLE' }
+      }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const validation = validateQuery(body.query, cached.schema, cached.capabilities);
+    if (!validation.is_valid) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: { message: 'Query validation failed', code: 'VALIDATION_FAILED', validation_errors: validation.errors }
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const complexity = assessQueryComplexity(body.query, cached.schema, cached.capabilities[body.query.base_model] || {});
+    const updates = { query_definition: body.query, complexity_hint: complexity.guidance_level };
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.description !== undefined) updates.description = body.description;
+
+    const savedQuery = await updateQuery(env, id, updates);
+    return new Response(JSON.stringify({ success: true, data: savedQuery }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (error) {
+    console.error('❌ Update query failed:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: { message: error.message, code: 'UPDATE_FAILED' }
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }
 
@@ -2538,9 +2152,73 @@ async function updateInformationSetField(context) {
     const updates = {};
     if (body.label !== undefined)       updates.label       = body.label;
     if (body.description !== undefined) updates.description = body.description;
+    if (body.strip_html !== undefined)  updates.strip_html  = body.strip_html === true;
+    if (body.selection_map !== undefined) updates.selection_map = body.selection_map;
     const supabase = getSupabaseClient(env);
     const { data, error } = await supabase.from('information_set_fields').update(updates).eq('id', id).select().single();
     if (error) throw new Error(error.message);
+    return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * POST /api/sales-insights/information-set-fields/:id/selection-map
+ *
+ * Haalt de waarde->label-mapping van een Odoo selection-veld ÉÉNMALIG op via
+ * fields_get() en slaat ze op information_set_fields.selection_map.
+ * cascade-executor.js#applySelectionMap() past die mapping nadien toe op elke
+ * query die dit veld ophaalt (root.selection_maps / step.selection_maps,
+ * gevuld door de wizard uit exact deze kolom) -- geen herhaalde Odoo-call per
+ * query, enkel deze ene keer per veld, met een expliciete "ververs"-knop in de
+ * admin-tab "Categorieën" als Odoo Studio de opties ooit wijzigt.
+ */
+async function fetchFieldSelectionMap(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  try {
+    const { env, params } = context;
+    const id = params?.id;
+    const supabase = getSupabaseClient(env);
+
+    const { data: field, error: fieldError } = await supabase
+      .from('information_set_fields')
+      .select('id, field_key, set_id, information_sets(model)')
+      .eq('id', id)
+      .single();
+    if (fieldError) throw new Error(fieldError.message);
+    const model = field?.information_sets?.model;
+    if (!model) {
+      return new Response(JSON.stringify({ success: false, error: { message: 'Veld of bijhorend model niet gevonden' } }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // De labels van een selectieveld komen standaard terug in de taal van de
+    // API-gebruiker (env.UID) -- meestal Engels voor een technische
+    // integratie-user. Deze admin-tab is Nederlandstalig, dus vraag de
+    // Nederlandse vertaling expliciet op via de context. (nl_BE: dit is een
+    // Belgische Odoo-omgeving; zet dit naar nl_NL als die taal in plaats
+    // daarvan geïnstalleerd is.)
+    const fieldsData = await executeKw(env, {
+      model,
+      method: 'fields_get',
+      args: [[field.field_key]],
+      kwargs: { attributes: ['type', 'selection'], context: { lang: 'nl_BE' } }
+    });
+    const fieldDef = fieldsData && fieldsData[field.field_key];
+    if (!fieldDef) {
+      return new Response(JSON.stringify({ success: false, error: { message: `Veld "${field.field_key}" bestaat niet (meer) op ${model}` } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (fieldDef.type !== 'selection' || !Array.isArray(fieldDef.selection)) {
+      return new Response(JSON.stringify({ success: false, error: { message: `"${field.field_key}" is geen selectieveld (type: ${fieldDef.type})` } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const selectionMap = {};
+    for (const [value, label] of fieldDef.selection) selectionMap[String(value)] = label;
+
+    const { data, error } = await supabase.from('information_set_fields').update({ selection_map: selectionMap }).eq('id', id).select().single();
+    if (error) throw new Error(error.message);
+
     return new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
   } catch (e) {
     return new Response(JSON.stringify({ success: false, error: { message: e.message } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
@@ -2581,11 +2259,18 @@ async function listSavedSearches(context) {
     const supabase = getSupabaseClient(env);
     const { data, error } = await supabase
       .from('saved_searches')
-      .select('id, name, wizard_state, created_at, updated_at')
+      .select('id, name, wizard_state, mini_app_query_id, created_at, updated_at')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return new Response(JSON.stringify({ success: true, data: data || [] }), {
+    // is_shared_mini_apps is afgeleid, niet apart opgeslagen: een zoekopdracht
+    // is gedeeld zodra ze naar een afgeleide query verwijst (zie
+    // lib/saved-search-sharing.js). Zo bestaat er maar EEN waarheid.
+    const rows = (data || []).map(s => ({
+      ...s,
+      is_shared_mini_apps: !!s.mini_app_query_id
+    }));
+    return new Response(JSON.stringify({ success: true, data: rows }), {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (e) {
@@ -2604,20 +2289,60 @@ async function createSavedSearch(context) {
   const { env, user, request } = context;
   try {
     const body = await request.json();
-    const { name, wizard_state } = body ?? {};
+    const { name, wizard_state, share_with_mini_apps, query } = body ?? {};
     if (!name?.trim()) {
       return new Response(JSON.stringify({ success: false, error: { message: 'name is verplicht' } }), {
         status: 400, headers: { 'Content-Type': 'application/json' }
       });
     }
+
+    // Delen met mini-apps zit BEWUST in dezelfde actie als het opslaan zelf --
+    // geen apart scherm, geen aparte query. Enkel een Sales Insight-admin mag
+    // die vlag zetten; wie dat niet is, bewaart gewoon zijn zoekopdracht.
+    if (share_with_mini_apps === true) {
+      const deny = guardSalesInsightAdmin(context);
+      if (deny) return deny;
+    }
+
+    let miniAppQueryId = null;
+    if (share_with_mini_apps === true) {
+      try {
+        const sync = await syncSharedQueryForSavedSearch(env, {
+          currentQueryId: null,
+          share: true,
+          query,
+          name: name.trim()
+        });
+        miniAppQueryId = sync.mini_app_query_id;
+      } catch (e) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: { message: e.message, code: e.code || 'SHARING_FAILED', validation_errors: e.validation_errors }
+        }), { status: e.code === 'SCHEMA_NOT_AVAILABLE' ? 503 : 400, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
     const supabase = getSupabaseClient(env);
     const { data, error } = await supabase
       .from('saved_searches')
-      .insert({ user_id: user.id, name: name.trim(), wizard_state: wizard_state || {} })
+      .insert({
+        user_id: user.id,
+        name: name.trim(),
+        wizard_state: wizard_state || {},
+        mini_app_query_id: miniAppQueryId
+      })
       .select()
       .single();
-    if (error) throw new Error(error.message);
-    return new Response(JSON.stringify({ success: true, data }), {
+    if (error) {
+      // Rollback: laat geen verweesde gedeelde query achter als de
+      // zoekopdracht zelf niet bewaard raakte.
+      await removeSharedQueryForSavedSearch(env, miniAppQueryId);
+      throw new Error(error.message);
+    }
+    return new Response(JSON.stringify({
+      success: true,
+      data: { ...data, is_shared_mini_apps: !!data.mini_app_query_id }
+    }), {
       status: 201, headers: { 'Content-Type': 'application/json' }
     });
   } catch (e) {
@@ -2637,16 +2362,66 @@ async function updateSavedSearch(context) {
   const id = params?.id;
   try {
     const body = await request.json();
+    const supabase = getSupabaseClient(env);
+
+    // Huidige rij eerst lezen: we moeten weten of deze zoekopdracht al gedeeld
+    // is (mini_app_query_id) voordat we beslissen of er een afgeleide query
+    // aangemaakt, bijgewerkt of verwijderd moet worden.
+    const { data: current, error: currentError } = await supabase
+      .from('saved_searches')
+      .select('id, name, mini_app_query_id')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (currentError) throw new Error(currentError.message);
+    if (!current) {
+      return new Response(JSON.stringify({ success: false, error: { message: 'Niet gevonden of geen toegang' } }), {
+        status: 404, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const updates = {};
     if (body.name !== undefined) updates.name = body.name.trim();
     if (body.wizard_state !== undefined) updates.wizard_state = body.wizard_state;
+
+    const wantsSharingChange = body.share_with_mini_apps !== undefined;
+    const alreadyShared = !!current.mini_app_query_id;
+
+    if ((wantsSharingChange && body.share_with_mini_apps === true) || (alreadyShared && body.query)) {
+      const deny = guardSalesInsightAdmin(context);
+      if (deny) return deny;
+    }
+
+    // Naamwijziging van een gedeelde zoekopdracht ook doortrekken: die naam is
+    // wat een mini-app te zien krijgt in window.platform.odoo.listQueries().
+    const renamesShared = alreadyShared && !body.query && updates.name !== undefined && updates.name !== current.name;
+
+    // De afgeleide query wordt bij elke save herschreven vanuit de meegestuurde
+    // payload -- zo volgt de mini-app-kant automatisch mee met een gewijzigde
+    // zoekopdracht, zonder dat er iets in de mini-app zelf aangepast moet worden.
+    if (wantsSharingChange || (alreadyShared && body.query) || renamesShared) {
+      try {
+        const sync = await syncSharedQueryForSavedSearch(env, {
+          currentQueryId: current.mini_app_query_id,
+          share: wantsSharingChange ? !!body.share_with_mini_apps : undefined,
+          query: body.query,
+          name: updates.name !== undefined ? updates.name : current.name
+        });
+        updates.mini_app_query_id = sync.mini_app_query_id;
+      } catch (e) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: { message: e.message, code: e.code || 'SHARING_FAILED', validation_errors: e.validation_errors }
+        }), { status: e.code === 'SCHEMA_NOT_AVAILABLE' ? 503 : 400, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
     if (!Object.keys(updates).length) {
       return new Response(JSON.stringify({ success: false, error: { message: 'Geen updates opgegeven' } }), {
         status: 400, headers: { 'Content-Type': 'application/json' }
       });
     }
     updates.updated_at = new Date().toISOString();
-    const supabase = getSupabaseClient(env);
     const { data, error } = await supabase
       .from('saved_searches')
       .update(updates)
@@ -2660,7 +2435,10 @@ async function updateSavedSearch(context) {
         status: 404, headers: { 'Content-Type': 'application/json' }
       });
     }
-    return new Response(JSON.stringify({ success: true, data }), {
+    return new Response(JSON.stringify({
+      success: true,
+      data: { ...data, is_shared_mini_apps: !!data.mini_app_query_id }
+    }), {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (e) {
@@ -2679,12 +2457,25 @@ async function deleteSavedSearchRoute(context) {
   const id = params?.id;
   try {
     const supabase = getSupabaseClient(env);
+    // Eerst opzoeken of er een afgeleide, gedeelde query aan hangt: die moet
+    // mee verdwijnen, zodat mini-app-toegang automatisch stopt wanneer de
+    // gebruiker zijn zoekopdracht verwijdert.
+    const { data: current } = await supabase
+      .from('saved_searches')
+      .select('mini_app_query_id')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
     const { error } = await supabase
       .from('saved_searches')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id);
     if (error) throw new Error(error.message);
+
+    await removeSharedQueryForSavedSearch(env, current?.mini_app_query_id || null);
+
     return new Response(JSON.stringify({ success: true }), {
       headers: { 'Content-Type': 'application/json' }
     });
@@ -2758,6 +2549,155 @@ async function getSourceSites(context) {
 /**
  * Route definitions
  */
+/**
+ * DELETE /api/sales-insights/query/:id
+ *
+ * Verwijdert een opgeslagen query definitief. Admin-only.
+ *
+ * Normaal gesproken hoort niemand deze route nodig te hebben: een gedeelde
+ * query is een AFGELEIDE rij van een opgeslagen zoekopdracht en verdwijnt
+ * automatisch wanneer die zoekopdracht verwijderd wordt of het deel-vinkje
+ * uitgaat (zie lib/saved-search-sharing.js). Deze route bestaat voor de losse,
+ * oudere rijen die nog uit het vroegere "mini-app-query"-mechanisme stammen en
+ * aan geen enkele zoekopdracht hangen -- die kunnen hier opgeruimd worden.
+ *
+ * saved_searches.mini_app_query_id staat op ON DELETE SET NULL, dus een
+ * zoekopdracht die toevallig nog naar deze rij verwees blijft bestaan en staat
+ * daarna simpelweg niet meer gedeeld.
+ */
+async function deleteSavedQueryEndpoint(context) {
+  const deny = guardSalesInsightAdmin(context);
+  if (deny) return deny;
+  try {
+    const { env, params } = context;
+    const id = params?.id;
+    const existing = await getQueryById(env, id);
+    if (!existing) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: { message: `Query niet gevonden: ${id}`, code: 'QUERY_NOT_FOUND' }
+      }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    }
+    await deleteQuery(env, id);
+    return new Response(JSON.stringify({ success: true, data: { id, name: existing.name } }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('\u274c Delete query failed:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: { message: error.message, code: 'DELETE_FAILED' }
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+// ============================================================
+// Mini-app discovery (token-auth, GEEN sessie)
+//
+// Deze twee routes bestaan zodat een AI-gesprek dat een mini-app bouwt of
+// bijwerkt de structuur van gedeelde queries zelf kan opvragen, in plaats van
+// dat er een statische momentopname in een gekopieerde prompt gebakken wordt.
+// Ze worden bereikt via src/router/public-routes.js (dus buiten de auth-gate
+// om) en zijn uitsluitend leesbaar met een geldig, kortlevend discovery-token
+// -- zie lib/mini-app-discovery.js voor de grenzen van dat token.
+//
+// Wat hier NIET gebeurt: echt data ophalen voor een draaiende mini-app. Dat
+// blijft window.platform.odoo.runQuery() met de sessie van de ingelogde
+// gebruiker (src/modules/mini-apps/routes.js).
+// ============================================================
+function discoveryTokenFromRequest(request) {
+  const url = new URL(request.url);
+  const fromQuery = url.searchParams.get('token');
+  if (fromQuery) return fromQuery;
+  const auth = request.headers.get('Authorization') || '';
+  const [scheme, value] = auth.split(' ');
+  if (scheme === 'Bearer' && value) return value;
+  return null;
+}
+
+async function guardDiscoveryToken(context) {
+  const token = discoveryTokenFromRequest(context.request);
+  const check = await validateDiscoveryToken(context.env, token);
+  if (check.valid) return null;
+  const expired = check.reason === 'TOKEN_EXPIRED';
+  return new Response(JSON.stringify({
+    success: false,
+    error: {
+      message: expired
+        ? 'Dit discovery-token is verlopen. Vraag in de Mini-apps-module een nieuwe bouw-/bijwerk-prompt aan.'
+        : 'Ongeldig of ontbrekend discovery-token.',
+      code: check.reason || 'INVALID_TOKEN'
+    }
+  }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+}
+
+/**
+ * GET /api/sales-insights/mini-app-discovery/queries?token=...
+ * Alle queries die op dit moment gedeeld zijn met mini-apps, met hun
+ * structuur (veldnamen zoals ze in een record terugkomen + parameters).
+ * Geen voorbeeldrijen -- vraag daarvoor de detail-route van de query op.
+ */
+async function discoveryListQueries(context) {
+  const deny = await guardDiscoveryToken(context);
+  if (deny) return deny;
+  try {
+    const queries = await describeAllSharedQueries(context.env);
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        queries,
+        count: queries.length,
+        usage: 'Een mini-app draait een query met window.platform.odoo.runQuery(id, params). Deze lijst is enkel bedoeld om te weten welke queries bestaan en welke velden ze teruggeven.'
+      }
+    }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (error) {
+    console.error('\u274c Discovery list failed:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: { message: error.message, code: 'DISCOVERY_FAILED' }
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+/**
+ * GET /api/sales-insights/mini-app-discovery/queries/:id?token=...&sample=0
+ * Eén gedeelde query: structuur + (standaard) een klein live voorbeeldresultaat.
+ * sample=0 slaat het voorbeeld over en spreekt Odoo dus niet aan.
+ */
+async function discoveryGetQuery(context) {
+  const deny = await guardDiscoveryToken(context);
+  if (deny) return deny;
+  try {
+    const { request, env, params } = context;
+    const url = new URL(request.url);
+    const sampleParam = url.searchParams.get('sample');
+    const wantsSample = !(sampleParam === '0' || sampleParam === 'false');
+
+    const described = await describeSharedQuery(env, params?.id, { sample: wantsSample });
+    if (!described) {
+      // Bewust hetzelfde antwoord voor "bestaat niet" en "niet (meer) gedeeld":
+      // een mini-app/model hoeft die twee niet te kunnen onderscheiden, en de
+      // gevraagde fallback in de app is in beide gevallen dezelfde melding.
+      return new Response(JSON.stringify({
+        success: false,
+        error: {
+          message: 'Deze query bestaat niet (meer) of is niet gedeeld met mini-apps.',
+          code: 'QUERY_NOT_AVAILABLE'
+        }
+      }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ success: true, data: described }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('\u274c Discovery detail failed:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: { message: error.message, code: 'DISCOVERY_FAILED' }
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
 export const routes = {
   'GET /': queryBuilderPage,
   'GET /app.js': serveAppJS,
@@ -2774,6 +2714,7 @@ export const routes = {
   'PATCH /api/sales-insights/information-sets/:id': updateInformationSet,
   'DELETE /api/sales-insights/information-sets/:id': deleteInformationSet,
   'PATCH /api/sales-insights/information-set-fields/:id': updateInformationSetField,
+  'POST /api/sales-insights/information-set-fields/:id/selection-map': fetchFieldSelectionMap,
   'DELETE /api/sales-insights/information-set-fields/:id': deleteInformationSetField,
   'GET /api/sales-insights/saved-searches': listSavedSearches,
   'POST /api/sales-insights/saved-searches': createSavedSearch,
@@ -2785,6 +2726,7 @@ export const routes = {
   'PATCH /api/sales-insights/models/:id': updateModel,
   'DELETE /api/sales-insights/models/:id': deactivateModel,
   'GET /api/sales-insights/test/phase0': runPhase0Tests,
+  'GET /api/sales-insights/graph': getGraphDefinition,
   'GET /api/sales-insights/schema': getSchema,
   'GET /api/sales-insights/stages': getCrmStages,
   'GET /api/sales-insights/source-sites': getSourceSites,
@@ -2803,5 +2745,9 @@ export const routes = {
   'GET /api/sales-insights/query/list': listSavedQueries,
   'POST /api/sales-insights/query/run/:id': runSavedQuery,
   'POST /api/sales-insights/query/run/:id/export': exportSavedQuery,
-  'PATCH /api/sales-insights/query/:id/mini-apps-sharing': updateQueryMiniAppsSharing
+  'PATCH /api/sales-insights/query/:id': updateQueryDefinition,
+  'DELETE /api/sales-insights/query/:id': deleteSavedQueryEndpoint,
+  // Token-auth, bereikbaar zonder sessie via src/router/public-routes.js
+  'GET /api/sales-insights/mini-app-discovery/queries': discoveryListQueries,
+  'GET /api/sales-insights/mini-app-discovery/queries/:id': discoveryGetQuery
 };

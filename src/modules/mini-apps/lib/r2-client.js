@@ -36,14 +36,36 @@ export async function putAppContent(env, appId, htmlContent) {
 /**
  * Leest de HTML-inhoud van een mini-app uit R2.
  *
+ * NOOIT ongevangen laten falen: een R2-object dat wél bestaat maar
+ * beschadigd/onvolledig is (bv. door een afgebroken upload) kan
+ * env.R2_ASSETS.get() laten GOOIEN in plaats van gewoon `null`
+ * teruggeven (gezien 2026-08, lokale wrangler dev: "R2 error response
+ * does not contain the CF-R2-Error header" -> unhandled 500 i.p.v. een
+ * nette 404). We behandelen elke fout hier hetzelfde als "niet gevonden"
+ * -- de aanroepende route (GET /api/apps/:id/content) verwacht toch al
+ * `null` als signaal voor "App-inhoud niet gevonden in opslag." (404),
+ * dus dit voorkomt een crash zonder de bestaande foutafhandeling elders
+ * te moeten aanpassen.
+ *
  * @param {Object} env
  * @param {string} appId
- * @returns {Promise<string|null>} null als het object niet bestaat
+ * @returns {Promise<string|null>} null als het object niet bestaat OF niet leesbaar is
  */
 export async function getAppContent(env, appId) {
-  const obj = await env.R2_ASSETS.get(buildAppKey(appId));
+  let obj;
+  try {
+    obj = await env.R2_ASSETS.get(buildAppKey(appId));
+  } catch (err) {
+    console.error(`[mini-apps] R2 get() mislukt voor app ${appId}:`, err.message);
+    return null;
+  }
   if (!obj) return null;
-  return await obj.text();
+  try {
+    return await obj.text();
+  } catch (err) {
+    console.error(`[mini-apps] R2 object.text() mislukt voor app ${appId}:`, err.message);
+    return null;
+  }
 }
 
 /**

@@ -117,7 +117,7 @@ function mapValue(value, operator) {
  * @param {Object} timeScope - TimeScope object
  * @returns {Array} Array of Odoo conditions
  */
-function translateTimeScope(timeScope) {
+export function translateTimeScope(timeScope) {
   const conditions = [];
   
   if (timeScope.mode === 'absolute') {

@@ -42,14 +42,32 @@ import { getSupabaseClient } from '../../../lib/database.js';
  * @returns {Promise<SavedQuery>}
  * @throws {Error} If database operation fails
  */
+/**
+ * Het vertrekpunt van een query_definition: `root.node` in de cascade-vorm
+ * (version 2). De oude, vlakke `base_model`-vorm wordt nog gelezen zodat een
+ * bestaande rij niet crasht bij het uitlezen, maar wordt niet meer aangemaakt.
+ *
+ * @param {Object} definition
+ * @returns {string|null}
+ */
+function extractBaseModel(definition) {
+  if (!definition || typeof definition !== 'object') return null;
+  if (definition.root && typeof definition.root === 'object' && definition.root.node) {
+    return definition.root.node;
+  }
+  return definition.base_model || null;
+}
+
 export async function saveQuery(env, queryData) {
   const supabase = getSupabaseClient(env);
   
-  // Extract base_model from query_definition
-  const baseModel = queryData.query_definition.base_model;
+  // Extract base_model from query_definition. In de cascade-vorm (version 2)
+  // is dat de node-key van het vertrekpunt (bv. 'crm.lead' of
+  // 'res.partner:contact'); de kolom blijft puur informatief/filterbaar.
+  const baseModel = extractBaseModel(queryData.query_definition);
   
   if (!baseModel) {
-    throw new Error('query_definition.base_model is required');
+    throw new Error('query_definition mist een vertrekpunt (root.node)');
   }
   
   // Prepare row data
@@ -190,7 +208,7 @@ export async function updateQuery(env, id, updates) {
   
   // Update base_model if query_definition changed
   if (allowedUpdates.query_definition) {
-    allowedUpdates.base_model = allowedUpdates.query_definition.base_model;
+    allowedUpdates.base_model = extractBaseModel(allowedUpdates.query_definition);
   }
   
   const { data, error } = await supabase

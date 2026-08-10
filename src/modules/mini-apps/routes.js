@@ -48,8 +48,7 @@
  *    GET/POST /api/apps/:id/drive/*                 → UITGESCHAKELD (2026-07-24, zie CLAUDE.md "Google Drive-koppeling mini-apps") -- geeft altijd 404, zie DRIVE_INTEGRATION_ENABLED in lib/google-drive-client.js
  *    GET    /api/apps/:id/odoo-queries                      → Gedeelde Sales Insight Explorer queries (view-toegang, zie ../sales-insight-explorer/lib/mini-app-bridge.js)
  *    POST   /api/apps/:id/odoo-queries/:queryId/run             → Query uitvoeren (view-toegang, read-only, enkel is_shared_mini_apps=true)
- *    GET    /api/apps/odoo-queries                            → Zelfde lijst, module-breed (geen appId) -- enkel voor de "Bouw-prompt"-flow
- *    POST   /api/apps/odoo-queries/:queryId/preview                → Preview draaien zonder appId -- idem, enkel voor de "Bouw-prompt"-flow
+ *    POST   /api/apps/odoo-discovery-token                     → Kortlevend read-only token voor de discovery-endpoints (bouw-/bijwerk-prompt)
  *
  * ─── Rechten ─────────────────────────────────────────────────────────────────
  *
@@ -109,6 +108,7 @@ import { getOrderedFavorites, saveFavoritesOrder } from './lib/favorites.js';
 import { listDriveFiles, getDriveFile, createDriveFile, DRIVE_INTEGRATION_ENABLED } from './lib/google-drive-client.js';
 import { resolveGoogleEmail } from './lib/user-settings.js';
 import { listSharedQueries, runSharedQuery } from '../sales-insight-explorer/lib/mini-app-bridge.js';
+import { createDiscoveryToken, DISCOVERY_TOKEN_TTL_DAYS } from '../sales-insight-explorer/lib/mini-app-discovery.js';
 
 const LOG_PREFIX = '[mini-apps]';
 
@@ -2012,7 +2012,12 @@ export const routes = {
     }
 
     try {
-      const result = await runSharedQuery(env, params.queryId, body.params || {}, { preview: body.preview !== false });
+      // Standaard VOLLEDIGE resultaten, geen preview-cap (50 rijen) -- een
+      // draaiende mini-app is de eigenlijke consumptie van de query, geen
+      // testrun zoals in de wizard. Enkel expliciet preview:true (bv. een
+      // toekomstige "toon voorbeeld"-knop in een mini-app) valt terug op de
+      // preview-limiet uit lib/graph/cascade-executor.js.
+      const result = await runSharedQuery(env, params.queryId, body.params || {}, { preview: body.preview === true });
       console.log(`${LOG_PREFIX} ODOO-QUERY RUN ${app.id} -> ${params.queryId} — user ${user.id}`);
       return jsonOk(result);
     } catch (err) {
@@ -2022,41 +2027,46 @@ export const routes = {
     }
   },
 
-  // ── Odoo-queries — module-brede varianten (GEEN app-id) ──────────────
-  // Enkel bedoeld voor de "Bouw-prompt"-flow in mini-apps-list.js: op dat
-  // moment bestaat de mini-app nog niet (je bent hem nog aan het bouwen
-  // met Claude), dus er is geen appId om aan canView() te toetsen. Elke
-  // ingelogde gebruiker met module-toegang (zelfde vertrouwensniveau als
-  // GET /api/apps/chat-channels hierboven) mag de gedeelde-queries-lijst
-  // zien en één keer een preview draaien. Forceert altijd preview=true --
-  // dit is uitsluitend voor "hoe ziet de data eruit", nooit voor een volle
-  // export.
-  'GET /api/apps/odoo-queries': async ({ env }) => {
+  // ── Discovery-token voor de bouw-/bijwerk-prompt ──────────
+  //
+  // Een mini-app wordt gebouwd/bijgewerkt in een APART AI-gesprek, buiten deze
+  // applicatie om. Vroeger bakten de prompt-knoppen daarom een statische
+  // momentopname (veldnamen + voorbeeldrijen) in de gekopieerde tekst. In
+  // plaats daarvan geven we nu een URL + dit kortlevende token mee, zodat het
+  // model de actuele structuur zelf kan opvragen met een gewone HTTP-fetch --
+  // zonder sessie-cookie, read-only, en enkel voor queries die op dat moment
+  // gedeeld zijn (zie ../sales-insight-explorer/lib/mini-app-discovery.js).
+  //
+  // Elke ingelogde gebruiker met module-toegang mag er een aanvragen -- zelfde
+  // vertrouwensniveau als GET /api/apps/chat-channels: het token ontsluit
+  // niets wat die gebruiker niet ook via een mini-app kan zien.
+  'POST /api/apps/odoo-discovery-token': async ({ env, user }) => {
     try {
+      const { token, expires_at } = await createDiscoveryToken(env, user.id);
+      const base = (env.APP_BASE_URL || '').replace(/\/$/, '');
+      const listUrl = `${base}/insights/api/sales-insights/mini-app-discovery/queries?token=${token}`;
+      const queryUrlTemplate = `${base}/insights/api/sales-insights/mini-app-discovery/queries/QUERY_ID?token=${token}`;
+      console.log(`${LOG_PREFIX} DISCOVERY TOKEN uitgegeven — user ${user.id}`);
+      // De queries zelf hier ook meegeven (niet enkel de URL ernaartoe) --
+      // zonder dit moet het bouw-gesprek altijd eerst een aparte fetch doen
+      // voor het simpelste geval "welke data bestaat er eigenlijk", en heeft
+      // het tot dan toe geen idee wat bv. "Actiebladen" betekent. Bewust enkel
+      // de summary (naam/omschrijving/basismodel/parameters, geen velden) --
+      // dezelfde lichte call als listSharedQueries() elders, geen N losse
+      // Odoo-aanroepen. Voor de veldenstructuur van een specifieke query blijft
+      // stap 2 (query_url_template) hieronder nodig.
       const queries = await listSharedQueries(env);
-      return jsonOk({ queries });
+      return jsonOk({
+        token,
+        expires_at,
+        ttl_days: DISCOVERY_TOKEN_TTL_DAYS,
+        list_url: listUrl,
+        query_url_template: queryUrlTemplate,
+        queries
+      });
     } catch (err) {
-      console.error(`${LOG_PREFIX} odoo-queries (module-wide) list error:`, err.message);
+      console.error(`${LOG_PREFIX} discovery-token error:`, err.message);
       return jsonError(err.message, 500);
-    }
-  },
-
-  'POST /api/apps/odoo-queries/:queryId/preview': async ({ request, env, user, params }) => {
-    let body;
-    try {
-      body = await request.json();
-    } catch (_err) {
-      body = {};
-    }
-
-    try {
-      const result = await runSharedQuery(env, params.queryId, body.params || {}, { preview: true });
-      console.log(`${LOG_PREFIX} ODOO-QUERY PREVIEW ${params.queryId} — user ${user.id}`);
-      return jsonOk(result);
-    } catch (err) {
-      const status = err.code ? 400 : 500;
-      console.error(`${LOG_PREFIX} odoo-queries preview error:`, err.message);
-      return jsonError(err.message, status, err.code);
     }
   },
 

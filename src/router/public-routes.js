@@ -5,6 +5,11 @@
  * - /assets/* (R2 publieke bestanden)
  * - /api/auth/login | logout | me
  * - Forminator Sync V2 webhooks (token-auth)
+ * - Mini-app discovery (token-auth): /insights/api/sales-insights/mini-app-discovery/*
+ *   -- laat een AI-gesprek dat een mini-app bouwt/bijwerkt de STRUCTUUR van
+ *   gedeelde Sales Insight Explorer-queries opvragen zonder sessie-cookie.
+ *   Read-only, kortlevend token, enkel gedeelde queries. Zie
+ *   src/modules/sales-insight-explorer/lib/mini-app-discovery.js.
  * - link.openvme.be/* — FSV2 tracker-redirect (trackbare korte links/QR-codes,
  *   inherent publiek: iemand die een QR scant heeft geen sessie-cookie).
  *   link.openvme.be zonder pad (root-bezoek) stuurt door naar https://openvme.be.
@@ -166,6 +171,28 @@ async function dispatchV2Webhook(request, env, ctx, pathname) {
 }
 
 /**
+ * Mini-app discovery -- dispatch naar de sales-insight-explorer module zonder
+ * sessie. De handler valideert zelf het discovery-token (query-parameter
+ * ?token=... of Authorization: Bearer ...) en geeft 401 bij een ongeldig of
+ * verlopen token; deze functie doet dus bewust geen eigen auth-check, ze
+ * levert alleen de route af. Enkel GET -- er is geen schrijfpad.
+ */
+async function dispatchMiniAppDiscovery(request, env, ctx, pathname) {
+  const module = getModuleByCode('sales_insight_explorer');
+  if (!module) {
+    return json({ success: false, error: 'Sales Insight Explorer module unavailable' }, 500);
+  }
+
+  const resolved = resolveModuleRoute(module, request.method, pathname);
+  if (!resolved) {
+    return json({ success: false, error: 'Discovery route not found' }, 404);
+  }
+
+  const context = { request, env, ctx, user: null, params: resolved.params };
+  return await resolved.handler(context);
+}
+
+/**
  * Probeer een publieke route af te handelen.
  *
  * @returns {Promise<Response|null>} Response of null (niet publiek → door naar auth-gate/module-router)
@@ -318,6 +345,14 @@ export async function handlePublicRoutes(request, env, ctx) {
         'ETag': object.etag || ''
       }
     });
+  }
+
+  // Mini-app discovery (token-auth, geen sessie) -- zie dispatchMiniAppDiscovery
+  if (
+    pathname.startsWith('/insights/api/sales-insights/mini-app-discovery/') &&
+    request.method === 'GET'
+  ) {
+    return await dispatchMiniAppDiscovery(request, env, ctx, pathname);
   }
 
   // Auth endpoints

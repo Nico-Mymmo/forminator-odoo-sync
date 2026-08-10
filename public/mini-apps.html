@@ -170,14 +170,6 @@
         </button>
       </div>
 
-      <div class="form-control mb-4" id="buildPromptQueryWrap" style="display:none;">
-        <label class="label pb-1"><span class="label-text text-xs font-semibold">Optioneel: gedeelde Odoo-query meegeven</span></label>
-        <select id="buildPromptQuerySelect" class="select select-bordered select-xs w-full">
-          <option value="">Geen</option>
-        </select>
-        <label class="label pt-1"><span class="label-text-alt text-xs text-base-content/50">Kies je een query, dan draait die één keer live mee in de gekopieerde prompt zodat Claude de echte veldnamen/voorbeelddata al kent.</span></label>
-      </div>
-
       <div role="tablist" class="tabs tabs-boxed mb-4" id="uploadSourceModeTabs">
         <button type="button" role="tab" class="tab tab-active" data-action="setUploadSourceMode" data-mode="file" id="uploadSourceModeTabFile">Bestand uploaden</button>
         <button type="button" role="tab" class="tab" data-action="setUploadSourceMode" data-mode="url" id="uploadSourceModeTabUrl">Externe app (URL)</button>
@@ -337,10 +329,16 @@
         <div class="flex-1 min-h-0" id="appCodeEditor"></div>
         <div class="flex items-center justify-between px-4 py-2 border-t border-base-300 shrink-0">
           <span class="text-xs text-base-content/50" id="appCodeStatus"></span>
-          <button class="btn btn-primary btn-sm gap-2" data-action="saveAppCode">
-            <i data-lucide="save" class="w-4 h-4"></i>
-            Opslaan &amp; herladen
-          </button>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-outline btn-sm gap-2" data-action="generateUpdatePrompt" title="Kopieert een prompt met de huidige code + een tijdelijke leeslink waarmee Claude zelf de actuele Odoo-queries opvraagt, klaar om de app te laten bijwerken">
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              Prompt: bijwerken met query
+            </button>
+            <button class="btn btn-primary btn-sm gap-2" data-action="saveAppCode">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              Opslaan &amp; herladen
+            </button>
+          </div>
         </div>
       </div>
 

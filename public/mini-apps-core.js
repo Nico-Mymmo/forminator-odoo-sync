@@ -44,14 +44,17 @@ function escapeHtml(s) {
 
 function showToast(message, type) {
   var container = document.getElementById('toastContainer');
-  var cls = type === 'error' ? 'alert-error' : type === 'success' ? 'alert-success' : 'alert-info';
+  var cls = type === 'error' ? 'alert-error' : type === 'success' ? 'alert-success' : type === 'warning' ? 'alert-warning' : 'alert-info';
   var toast = document.createElement('div');
   toast.className = 'alert ' + cls + ' text-sm py-2 px-4';
   var span = document.createElement('span');
   span.textContent = message;
   toast.appendChild(span);
   container.appendChild(toast);
-  if (type !== 'error') {
+  // 'warning' blijft net als 'error' staan tot de gebruiker ze sluit -- een
+  // afgekapte-resultaten-melding (zie odooRunQuery hieronder) mag niet na 3s
+  // stil verdwijnen zoals een gewone info-toast.
+  if (type !== 'error' && type !== 'warning') {
     setTimeout(function() { toast.remove(); }, 3000);
   } else {
     var close = document.createElement('button');
@@ -388,11 +391,21 @@ async function handleMiniAppStorageRequest(data) {
     } else if (data.action === 'odooListQueries') {
       reply(true, await apiJson(`/mini-apps/api/apps/${appId}/odoo-queries`));
     } else if (data.action === 'odooRunQuery') {
-      reply(true, await apiJson(`/mini-apps/api/apps/${appId}/odoo-queries/${encodeURIComponent(data.queryId)}/run`, {
+      var odooRunResult = await apiJson(`/mini-apps/api/apps/${appId}/odoo-queries/${encodeURIComponent(data.queryId)}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ params: data.params })
-      }));
+      });
+      // Uniforme afkap-waarschuwing: de tekst komt uit cascade-executor.js
+      // (dezelfde motor als de Sales Insight Explorer-wizard) en wordt hier
+      // altijd als toast getoond in de host-pagina -- ongeacht of de mini-app
+      // zelf iets met result.meta doet in zijn eigen renderResults(). Zo mist
+      // een gebruiker een afkap nooit, ook niet in een app die er geen UI voor
+      // heeft voorzien.
+      if (odooRunResult && odooRunResult.meta && odooRunResult.meta.truncated && odooRunResult.meta.truncated_message) {
+        showToast(odooRunResult.meta.truncated_message, 'warning');
+      }
+      reply(true, odooRunResult);
     } else {
       reply(false, null, 'Onbekende actie: ' + data.action);
     }
@@ -661,3 +674,93 @@ function renderFavoriteNudge() {
   lucide.createIcons();
 }
 
+// ============================================================================
+// Odoo-discovery voor de bouw-/bijwerk-prompt
+//
+// Een mini-app wordt gebouwd/bijgewerkt in een APART Claude-gesprek. Vroeger
+// bakten de prompt-knoppen daarom een momentopname van een query (veldnamen +
+// een paar voorbeeldrijen) in de gekopieerde tekst -- die was verouderd zodra
+// de query nadien wijzigde, en ze zei niets over welke andere queries bestaan.
+//
+// In plaats daarvan vragen we hier een kortlevend, read-only discovery-token
+// aan en zetten we de bijbehorende URL's in de prompt. Het model haalt de
+// actuele structuur dan zelf op tijdens het gesprek. Het token geeft enkel
+// toegang tot de STRUCTUUR van gedeelde queries -- echt data ophalen blijft
+// window.platform.odoo.runQuery() met de sessie van de ingelogde gebruiker.
+// ============================================================================
+async function requestOdooDiscoveryToken() {
+  return await apiJson('/mini-apps/api/apps/odoo-discovery-token', { method: 'POST' });
+}
+
+// De tekstblok die aan elke prompt (bouwen én bijwerken) wordt toegevoegd.
+// Bevat de URL's, de vervaldatum en -- belangrijk -- de VERPLICHTE
+// fallback-patronen die de gegenereerde app moet bevatten.
+function odooDiscoveryPromptSection(tokenInfo, options) {
+  options = options || {};
+  var expires = tokenInfo.expires_at ? new Date(tokenInfo.expires_at).toLocaleDateString('nl-BE') : 'binnenkort';
+  var queryOverview = [];
+  if (Array.isArray(tokenInfo.queries) && tokenInfo.queries.length > 0) {
+    queryOverview.push('Beschikbare gedeelde queries (naam -- omschrijving -- basismodel):');
+    tokenInfo.queries.forEach(function(q) {
+      queryOverview.push('  - ' + q.name + (q.description ? ' -- ' + q.description : '') + ' (' + q.base_model + ')');
+    });
+    queryOverview.push('Dit is enkel een overzicht zodat je weet wat er bestaat (bv. wat "' + tokenInfo.queries[0].name + '" precies is) -- de exacte veldnamen haal je nog steeds op via stap 2 hieronder voor de query die je effectief gaat gebruiken.');
+  } else {
+    queryOverview.push('Er zijn momenteel GEEN queries gedeeld met mini-apps. Zeg dat expliciet: er moet eerst in Sales Insight Explorer een zoekopdracht bewaard en aangevinkt worden als "ook beschikbaar voor mini-apps".');
+  }
+  var lines = [
+    '--- ODOO-QUERIES OPVRAGEN (doe dit zelf, tijdens dit gesprek) ---',
+    '',
+    'Welke Odoo-data beschikbaar is, moet je NIET aan mij vragen en niet verzinnen: haal het op met een gewone HTTP-GET.',
+    '',
+  ].concat(queryOverview).concat([
+    '',
+    '1) Alle beschikbare (gedeelde) queries met hun veldnamen en parameters:',
+    '   ' + tokenInfo.list_url,
+    '2) Eén specifieke query, inclusief een klein live voorbeeldresultaat (vervang QUERY_ID door de id uit stap 1):',
+    '   ' + tokenInfo.query_url_template,
+    '   Enkel de structuur, zonder Odoo aan te spreken? Voeg &sample=0 toe.',
+    '',
+    'Dit token is read-only, geeft enkel de queries die met mini-apps gedeeld zijn, en verloopt op ' + expires + '.',
+    'Kan je zelf geen URL\'s ophalen in dit gesprek? Zeg dat dan expliciet en vraag mij om de inhoud van bovenstaande link te plakken -- verzin geen veldnamen.',
+    'Geeft de lijst niets terug (geen enkele gedeelde query), of past geen enkele query bij wat ik nodig heb? Zeg dat dan expliciet: dan moet er eerst in Sales Insight Explorer een zoekopdracht bewaard en aangevinkt worden als "ook beschikbaar voor mini-apps".',
+    '',
+    'De app zelf haalt data ALTIJD op met window.platform.odoo.runQuery(queryId, params) -- nooit via de discovery-URL hierboven (die is enkel voor jou, nu, om te weten hoe de query eruitziet) en nooit rechtstreeks bij Odoo.',
+    '',
+    'Vorm van het resultaat: { records: [...] }. Elk record is een rij van het basismodel. Gekoppelde modellen hangen als GENESTE sleutels met dubbele underscore aan dat record (bv. record.__contactpersonen is een array, record.__gebouw is één object of null) en kunnen zelf weer geneste __-sleutels bevatten. De discovery-URL hierboven geeft per query exact welke sleutels bestaan en of ze een array of één object zijn (veld "shape").',
+    '',
+    'Twee dingen die de VELDNAMEN EN -VORM in het resultaat beinvloeden, en dus ook je "NODIGE_VELDEN"-controle hieronder:',
+    '  - Studio-prefixen (x_ en x_studio_) worden er automatisch afgehaald: "x_studio_has_reserve_account" komt binnen als "has_reserve_account". Gebruik dus de KORTE naam, ook in NODIGE_VELDEN.',
+    '  - Een geneste relatie (record.__iets) komt binnen als [id, "naam"] -- net als Odoo’s eigen many2one-velden -- als er voor die relatie GEEN extra velden gekozen zijn (enkel id + naam). Zijn er wel extra velden gekozen, of hangt er zelf nog een cascade onder, dan blijft het een volledig object ({id, naam, ...}). De discovery-URL toont per query welke vorm van toepassing is.',
+    '  - Een veld dat op een record ONTBREEKT had de waarde false (leeg/niet aangevinkt/niet ingevuld) -- weggelaten om de payload compact te houden, net omdat dit vaak naar een AI gaat. Lees een optioneel veld dus altijd als `record.veld || standaardwaarde`, nooit met een aanname dat de key bestaat.',
+    '',
+    'VERPLICHT in de app-code (twee fallbacks, geen dynamisch schema-systeem nodig -- gewoon deze twee simpele controles):',
+    '',
+    '  // 1. Query bestaat niet meer / is niet langer gedeeld',
+    '  var resultaat;',
+    '  try {',
+    '    resultaat = await window.platform.odoo.runQuery(QUERY_ID, {});',
+    '  } catch (err) {',
+    '    toonMelding("Deze query is niet meer beschikbaar. Vraag een beheerder om ze opnieuw te delen in Sales Insight Explorer.");',
+    '    return;',
+    '  }',
+    '',
+    '  // 2. Resultaat mist een veld dat de app nodig heeft (bv. na een wijziging aan de query)',
+    '  // Check dit tegen resultaat.meta.fields, NIET tegen de sleutels van een',
+    '  // los record: een veld dat gewoon false is op elk opgehaald record staat',
+    '  // nergens in de records maar hoort wel degelijk bij de query (zie hierboven).',
+    '  // resultaat.meta.fields is de vaste lijst van velden die de query ophaalt,',
+    '  // ongeacht of ze op een specifiek record leeg waren.',
+    '  var NODIGE_VELDEN = ["veld_a", "veld_b"];   // exact de sleutels die deze app gebruikt',
+    '  var beschikbareVelden = (resultaat && resultaat.meta && resultaat.meta.fields) || [];',
+    '  var ontbreekt = NODIGE_VELDEN.filter(function(f) { return beschikbareVelden.indexOf(f) === -1; });',
+    '  if (ontbreekt.length > 0) {',
+    '    toonMelding("Onbekende/ontbrekende velden in het resultaat: " + ontbreekt.join(", ") + ". De onderliggende zoekopdracht is waarschijnlijk aangepast.");',
+    '    return;',
+    '  }',
+    '',
+    'Beide meldingen moeten ZICHTBAAR in de UI staan (geen console.log, geen stille fout, geen crash), en de app moet verder bruikbaar blijven.'
+  ]);
+  if (options.extra) lines.push('', options.extra);
+  return lines.join('\n');
+}

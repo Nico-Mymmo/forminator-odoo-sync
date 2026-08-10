@@ -1,15 +1,23 @@
 /**
- * Query Execution Engine
- * 
- * Executes QueryDefinitions against Odoo using capability-aware path selection.
- * Dynamically chooses between read_group, search_read, or multi-pass execution.
- * 
- * SPEC COMPLIANCE:
- * - Iteration 2: Query execution
- * - Capability-aware execution
- * - RelationTraversal step-by-step execution
- * - No SQL assumptions
- * 
+ * Query Execution Engine — enkel nog basisqueries en aggregaties
+ *
+ * Voert een QueryDefinition uit tegen Odoo met capability-bewuste padkeuze
+ * (read_group / search_read / multi_pass) voor het BASISMODEL.
+ *
+ * RELATIES HOREN HIER NIET MEER. Alles wat gekoppelde records ophaalt loopt via
+ * lib/graph/cascade-executor.js, de enige traversal-motor. De vroegere
+ * RelationTraversal-code in dit bestand is verwijderd omdat ze structureel fout
+ * was en een andere resultaatvorm opleverde dan de wizard en mini-apps nodig
+ * hebben:
+ *  - many2one werd uitgevoerd als `id in <bron-id's>` i.p.v. op de FK-waarden
+ *    uit de bronrecords (dus willekeurig verkeerde records);
+ *  - de groepering per ouder gebeurde op een veld dat op het doelrecord niet
+ *    bestaat, en de link met het basisrecord was vanaf stap 2 verloren;
+ *  - het resultaat was een platte scalaire kolom (`alias.field`) i.p.v. geneste
+ *    kindrecords per ouder.
+ * Een query met `relations` wordt daarom expliciet geweigerd i.p.v. stil iets
+ * verkeerds te doen.
+ *
  * @module modules/sales-insight-explorer/lib/query-executor
  */
 
@@ -40,7 +48,14 @@ import { validateQuery } from './query-validator.js';
  */
 export async function executeQuery(query, schema, capabilities, env, options = {}) {
   const { preview = false } = options;
-  
+
+  // Relaties horen bij de cascade-motor, niet hier (zie de module-doc).
+  if (Array.isArray(query.relations) && query.relations.length > 0) {
+    const err = new Error('Gekoppelde modellen lopen via de cascade-motor (lib/graph/cascade-executor.js), niet via query-executor.js. Bouw de zoekopdracht opnieuw op in de wizard.');
+    err.code = 'RELATIONS_NOT_SUPPORTED';
+    throw err;
+  }
+
   // Validate query first (gatekeeper)
   const validation = validateQuery(query, schema, capabilities);
   if (!validation.is_valid) {
@@ -127,37 +142,14 @@ function selectExecutionPath(query, modelCaps, notes) {
       return 'multi_pass';
     }
     
-    // Check if relations are simple enough for read_group
-    const hasComplexRelations = (query.relations || []).some(r => r.path.length > 1);
-    if (hasComplexRelations) {
-      notes.push('Complex relations detected - using multi_pass for aggregations');
-      return 'multi_pass';
-    }
-    
     notes.push('Using read_group for aggregations');
     return 'read_group';
   }
   
-  // Path B: search_read
-  // Conditions:
-  // - No aggregations
-  // - Simple or no relations
-  // - Within capability limits
-  if (!query.relations || query.relations.length === 0) {
-    notes.push('Simple query without relations - using search_read');
-    return 'search_read';
-  }
-  
-  const maxDepth = Math.max(...query.relations.map(r => r.path.length));
-  if (maxDepth <= modelCaps.max_relation_depth && maxDepth <= 1) {
-    notes.push('Simple relations - using search_read with post-processing');
-    return 'search_read';
-  }
-  
-  // Path C: multi_pass
-  // All other cases
-  notes.push(`Multi-pass execution required (relation depth: ${maxDepth}, max: ${modelCaps.max_relation_depth})`);
-  return 'multi_pass';
+  // Path B: search_read — geen aggregaties, geen relaties (die bestaan hier niet
+  // meer, zie de guard in executeQuery)
+  notes.push('Simple query - using search_read');
+  return 'search_read';
 }
 
 /**
@@ -257,12 +249,7 @@ async function executeViaSearchRead(query, schema, env, notes) {
     .filter(f => f.model === query.base_model)
     .map(f => f.field);
   
-  // Add relation fields that we need to traverse
-  const relationFields = (query.relations || [])
-    .filter(r => r.path.length === 1 && r.path[0].relation_type === 'many2one')
-    .map(r => r.path[0].relation_field);
-  
-  const allFields = [...new Set([...baseFields, ...relationFields])];
+  const allFields = [...new Set(baseFields)];
   
   notes.push(`search_read: domain=${JSON.stringify(domain)}, fields=${allFields.join(',')}`);
   
@@ -278,13 +265,7 @@ async function executeViaSearchRead(query, schema, env, notes) {
     }
   });
   
-  // If no relations, just map fields to aliases
-  if (!query.relations || query.relations.length === 0) {
-    return results.map(row => mapFieldsToAliases(row, query.fields));
-  }
-  
-  // Execute relation traversals
-  return await enrichWithRelations(results, query, schema, env, notes);
+  return results.map(row => mapFieldsToAliases(row, query.fields));
 }
 
 /**
@@ -308,12 +289,7 @@ async function executeViaMultiPass(query, schema, capabilities, env, notes) {
     .filter(f => f.model === query.base_model)
     .map(f => f.field);
   
-  // Add ID and relation fields
-  const relationFields = (query.relations || [])
-    .filter(r => r.path.length > 0)
-    .map(r => r.path[0].relation_field);
-  
-  const allFields = [...new Set(['id', ...baseFields, ...relationFields])];
+  const allFields = [...new Set(['id', ...baseFields])];
   
   const baseRecords = await executeKw(env, {
     model: query.base_model,
@@ -333,287 +309,14 @@ async function executeViaMultiPass(query, schema, capabilities, env, notes) {
     return [];
   }
   
-  // Step 2: Execute relation traversals
-  const enrichedRecords = await enrichWithRelations(baseRecords, query, schema, env, notes);
+  const mapped = baseRecords.map(row => mapFieldsToAliases(row, query.fields));
   
-  // Step 3: Apply aggregations if needed (client-side)
+  // Step 2: Apply aggregations if needed (client-side)
   if (query.aggregations && query.aggregations.length > 0) {
-    return applyClientSideAggregations(enrichedRecords, query, notes);
+    return applyClientSideAggregations(mapped, query, notes);
   }
   
-  return enrichedRecords;
-}
-
-/**
- * Enrich records with relation data
- * 
- * @param {Array} baseRecords - Base model records
- * @param {Object} query - QueryDefinition
- * @param {Object} schema - SchemaSnapshot
- * @param {Object} env - Worker environment
- * @param {Array} notes - Execution notes
- * @returns {Promise<Array>}
- */
-async function enrichWithRelations(baseRecords, query, schema, env, notes) {
-  if (!query.relations || query.relations.length === 0) {
-    return baseRecords.map(row => mapFieldsToAliases(row, query.fields));
-  }
-  
-  // Execute each relation traversal
-  const relationData = new Map();
-  
-  for (const relation of query.relations) {
-    notes.push(`Executing relation traversal: ${relation.alias}`);
-    
-    const relatedData = await executeRelationTraversal(
-      relation,
-      baseRecords,
-      query,
-      schema,
-      env,
-      notes
-    );
-    
-    relationData.set(relation.alias, relatedData);
-  }
-  
-  // Merge base records with relation data
-  return baseRecords.map(baseRow => {
-    const record = mapFieldsToAliases(baseRow, query.fields.filter(f => f.model === query.base_model));
-    
-    // Add relation fields
-    for (const [alias, relData] of relationData) {
-      const relationFields = query.fields.filter(f => f.model === alias);
-      
-      const relatedRecord = relData.get(baseRow.id);
-      if (relatedRecord) {
-        for (const field of relationFields) {
-          const fieldAlias = field.alias || `${alias}.${field.field}`;
-          record[fieldAlias] = relatedRecord[field.field];
-        }
-      }
-    }
-    
-    return record;
-  });
-}
-
-/**
- * Execute single relation traversal
- * 
- * Steps through relation path and applies aggregation
- * 
- * @param {Object} relation - RelationTraversal
- * @param {Array} baseRecords - Source records
- * @param {Object} query - Full QueryDefinition
- * @param {Object} schema - SchemaSnapshot
- * @param {Object} env - Worker environment
- * @param {Array} notes - Execution notes
- * @returns {Promise<Map>} Map of base record ID to related data
- */
-async function executeRelationTraversal(relation, baseRecords, query, schema, env, notes) {
-  const resultMap = new Map();
-  
-  // Step through relation path
-  let currentRecords = baseRecords.map(r => ({ id: r.id, source_id: r.id }));
-  
-  for (const [stepIdx, step] of relation.path.entries()) {
-    notes.push(`Relation ${relation.alias} step ${stepIdx + 1}: ${step.from_model}.${step.relation_field} -> ${step.target_model}`);
-    
-    const currentIds = currentRecords.map(r => r.id).filter(id => id != null);
-    
-    if (currentIds.length === 0) {
-      notes.push(`No IDs to traverse at step ${stepIdx + 1}`);
-      break;
-    }
-    
-    // Build domain for this traversal step
-    const traversalDomain = buildTraversalDomain(step, currentIds);
-    
-    // Get fields needed for this relation
-    const relationFields = query.fields
-      .filter(f => f.model === relation.alias)
-      .map(f => f.field);
-    
-    // Always include ID
-    const fields = [...new Set(['id', step.relation_field, ...relationFields])];
-    
-    // Fetch related records
-    const relatedRecords = await executeKw(env, {
-      model: step.target_model,
-      method: 'search_read',
-      args: [traversalDomain],
-      kwargs: {
-        fields,
-        limit: 10000 // Large limit for relations
-      }
-    });
-    
-    notes.push(`Found ${relatedRecords.length} records at step ${stepIdx + 1}`);
-    
-    // Apply filters if specified on this relation
-    let filteredRecords = relatedRecords;
-    if (relation.filters && relation.filters.length > 0) {
-      filteredRecords = applyClientSideFilters(relatedRecords, relation.filters);
-      notes.push(`Filtered to ${filteredRecords.length} records`);
-    }
-    
-    // Update currentRecords for next step
-    if (stepIdx < relation.path.length - 1) {
-      currentRecords = filteredRecords.map(r => ({
-        id: r.id,
-        source_id: r.source_id || r.id
-      }));
-    } else {
-      // Last step - apply aggregation
-      const aggregated = applyRelationAggregation(
-        filteredRecords,
-        currentRecords,
-        step,
-        relation.aggregation,
-        notes
-      );
-      
-      // Map back to source IDs
-      for (const [sourceId, value] of aggregated) {
-        resultMap.set(sourceId, value);
-      }
-    }
-  }
-  
-  return resultMap;
-}
-
-/**
- * Build domain for relation traversal step
- * 
- * @param {Object} step - RelationPath step
- * @param {Array} sourceIds - IDs from previous step
- * @returns {Array} Odoo domain
- */
-function buildTraversalDomain(step, sourceIds) {
-  switch (step.relation_type) {
-    case 'many2one':
-      // Source records have foreign key pointing to target
-      // Domain: id IN (values from source records)
-      return [['id', 'in', sourceIds]];
-      
-    case 'one2many':
-    case 'many2many':
-      // Target records point back to source
-      // Domain: relation_field IN (source IDs)
-      return [[step.relation_field, 'in', sourceIds]];
-      
-    default:
-      throw new Error(`Unknown relation type: ${step.relation_type}`);
-  }
-}
-
-/**
- * Apply aggregation to relation traversal results
- * 
- * @param {Array} relatedRecords - Records from traversal
- * @param {Array} sourceRecords - Original source records
- * @param {Object} step - Current relation step
- * @param {string} aggregation - Aggregation type
- * @param {Array} notes - Execution notes
- * @returns {Map} Map of source ID to aggregated value
- */
-function applyRelationAggregation(relatedRecords, sourceRecords, step, aggregation, notes) {
-  const resultMap = new Map();
-  
-  if (!aggregation) {
-    aggregation = step.relation_type === 'many2one' ? 'first' : 'count';
-  }
-  
-  notes.push(`Applying aggregation: ${aggregation}`);
-  
-  // Group related records by source ID
-  const grouped = new Map();
-  for (const record of relatedRecords) {
-    const sourceId = record[step.relation_field];
-    if (!grouped.has(sourceId)) {
-      grouped.set(sourceId, []);
-    }
-    grouped.get(sourceId).push(record);
-  }
-  
-  // Apply aggregation
-  for (const sourceRecord of sourceRecords) {
-    const relatedGroup = grouped.get(sourceRecord.id) || [];
-    
-    let value;
-    
-    switch (aggregation) {
-      case 'first':
-        value = relatedGroup.length > 0 ? relatedGroup[0] : null;
-        break;
-        
-      case 'count':
-        value = relatedGroup.length;
-        break;
-        
-      case 'exists':
-        value = relatedGroup.length > 0;
-        break;
-        
-      case 'sum':
-      case 'avg':
-      case 'min':
-      case 'max':
-        // These require a numeric field - not implemented in this iteration
-        value = null;
-        notes.push(`Warning: Numeric aggregation ${aggregation} not yet implemented`);
-        break;
-        
-      default:
-        value = relatedGroup;
-    }
-    
-    resultMap.set(sourceRecord.source_id, value);
-  }
-  
-  return resultMap;
-}
-
-/**
- * Apply client-side filters to records
- * 
- * @param {Array} records - Records to filter
- * @param {Array} filters - Filter conditions
- * @returns {Array} Filtered records
- */
-function applyClientSideFilters(records, filters) {
-  return records.filter(record => {
-    return filters.every(filter => {
-      const value = record[filter.field];
-      
-      switch (filter.operator) {
-        case '=':
-          return value === filter.value;
-        case '!=':
-          return value !== filter.value;
-        case '>':
-          return value > filter.value;
-        case '>=':
-          return value >= filter.value;
-        case '<':
-          return value < filter.value;
-        case '<=':
-          return value <= filter.value;
-        case 'in':
-          return Array.isArray(filter.value) && filter.value.includes(value);
-        case 'not in':
-          return Array.isArray(filter.value) && !filter.value.includes(value);
-        case 'is set':
-          return value != null && value !== false;
-        case 'is not set':
-          return value == null || value === false;
-        default:
-          return true;
-      }
-    });
-  });
+  return mapped;
 }
 
 /**

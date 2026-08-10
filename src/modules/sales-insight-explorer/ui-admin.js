@@ -31,7 +31,7 @@ export function queryBuilderAdminUI(user) {
         <a role="tab" class="tab tab-active" data-tab="users" onclick="switchTab('users', this)">Gebruikers</a>
         <a role="tab" class="tab" data-tab="models" onclick="switchTab('models', this)">Modellen</a>
         <a role="tab" class="tab" data-tab="categories" onclick="switchTab('categories', this)">Categorieën</a>
-        <a role="tab" class="tab" data-tab="miniapps" onclick="switchTab('miniapps', this)">Mini-app queries</a>
+        <a role="tab" class="tab" data-tab="miniapps" onclick="switchTab('miniapps', this)">Gedeelde queries</a>
       </div>
 
       <!-- Toast container -->
@@ -158,17 +158,28 @@ export function queryBuilderAdminUI(user) {
         <div id="categoriesList" class="space-y-3"></div>
       </div>
 
-      <!-- TAB: MINI-APP QUERIES -->
+      <!-- TAB: GEDEELDE QUERIES (read-only overzicht) -->
       <div id="tab-miniapps" style="display:none;">
         <div class="alert mb-6">
           <i data-lucide="info" class="w-5 h-5 shrink-0"></i>
           <div class="text-sm">
-            Enkel opgeslagen queries die hier als <strong>gedeeld</strong> gemarkeerd zijn, zijn
-            beschikbaar voor mini-apps via <code>window.platform.odoo</code> — uitsluitend read-only.
-            Parameters (bv. <code>datum</code>) worden binnen de query gebruikt als <code>&#123;&#123;param.datum&#125;&#125;</code>
-            in een filterwaarde en moeten hier één per regel gedeclareerd worden als <code>naam|label</code>.
+            <strong>Dit is een overzicht, geen beheerscherm.</strong> Delen gebeurt in de wizard zelf:
+            bewaar een zoekopdracht en vink daar <em>&ldquo;Ook beschikbaar voor mini-apps&rdquo;</em> aan.
+            Pas je die zoekopdracht later aan, dan volgen de mini-apps automatisch mee; verwijder je ze
+            of vink je het uit, dan verdwijnt de toegang mee.
+            Mini-apps gebruiken deze queries via <code>window.platform.odoo</code> — uitsluitend read-only.
+            De parameters hieronder worden automatisch afgeleid uit de zoekopdracht en zijn hier niet aanpasbaar.
+            Verwijderen is enkel bedoeld om oude, losse queries op te ruimen die nog uit het vroegere
+            mini-app-query-mechanisme stammen.
           </div>
+          <button class="btn btn-sm btn-outline shrink-0" onclick="refreshSalesInsightSchema(this)">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i>Schema verversen
+          </button>
         </div>
+        <p class="text-xs text-base-content/50 mb-4">
+          Krijg je bij het opslaan/bewerken van een query de fout "Schema not available"?
+          Klik dan hierboven op "Schema verversen" en probeer het opnieuw.
+        </p>
 
         <div class="card bg-base-100 shadow-xl">
           <div class="card-body p-0">
@@ -182,8 +193,8 @@ export function queryBuilderAdminUI(user) {
                 <thead>
                   <tr class="border-b border-base-200">
                     <th>Query</th>
-                    <th class="text-center">Gedeeld voor mini-apps</th>
-                    <th>Parameters (naam|label per regel)</th>
+                    <th>Parameters (automatisch afgeleid)</th>
+                    <th>Laatst gewijzigd</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -391,6 +402,28 @@ export function queryBuilderAdminUI(user) {
     }
 
     // ── Mini-app queries (gedeeld voor mini-apps) ────────────────────────────
+    async function refreshSalesInsightSchema(btn) {
+      const origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>Verversen...';
+      try {
+        const res = await fetch('/insights/api/sales-insights/schema/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        toast('Schema geverst -- opslaan/bewerken van queries zou nu moeten werken.', 'success');
+      } catch (e) {
+        toast('Schema verversen mislukt: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = origText;
+        if (window.lucide) lucide.createIcons();
+      }
+    }
+
     async function loadMiniAppQueries() {
       document.getElementById('loadingMiniAppQueries').style.display = 'flex';
       document.getElementById('miniAppQueriesWrap').style.display = 'none';
@@ -399,7 +432,9 @@ export function queryBuilderAdminUI(user) {
         const data = await res.json();
         document.getElementById('loadingMiniAppQueries').style.display = 'none';
         if (!data.success) throw new Error(data.error?.message);
-        allMiniAppQueries = data.data.queries;
+        // Enkel de queries die effectief gedeeld zijn: niet-gedeelde
+        // opgeslagen queries horen hier niet thuis (delen gebeurt in de wizard).
+        allMiniAppQueries = (data.data.queries || []).filter(q => q.is_shared_mini_apps);
         renderMiniAppQueries(allMiniAppQueries);
         document.getElementById('miniAppQueriesWrap').style.display = 'block';
       } catch (e) {
@@ -411,20 +446,14 @@ export function queryBuilderAdminUI(user) {
     }
 
     function paramsToText(params) {
-      return (params || []).map(p => p.name + '|' + (p.label || p.name)).join('\n');
-    }
-
-    function textToParams(text) {
-      return text.split('\n').map(line => line.trim()).filter(Boolean).map(line => {
-        const [name, label] = line.split('|').map(s => (s || '').trim());
-        return { name, label: label || name, type: 'string', default: null };
-      }).filter(p => p.name);
+      if (!params || params.length === 0) return '—';
+      return params.map(p => (p.label || p.name) + ' (' + p.name + ')').join(', ');
     }
 
     function renderMiniAppQueries(queries) {
       const tbody = document.getElementById('miniAppQueriesTableBody');
       if (!queries.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-base-content/40 py-6">Geen opgeslagen queries gevonden</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-base-content/40 py-6">Nog geen zoekopdracht gedeeld met mini-apps. Deel er een via de wizard: bewaar een zoekopdracht en vink \\'Ook beschikbaar voor mini-apps\\' aan.</td></tr>';
         return;
       }
       tbody.innerHTML = queries.map(q => \`
@@ -433,55 +462,30 @@ export function queryBuilderAdminUI(user) {
             <div class="font-semibold text-sm">\${q.name}</div>
             <div class="text-xs text-base-content/50">\${q.description || ''}</div>
             <div class="text-xs text-base-content/40 font-mono">\${q.base_model}</div>
+            <div class="text-xs text-base-content/30 font-mono">id: \${q.id}</div>
           </td>
-          <td class="text-center">
-            <input type="checkbox" class="toggle toggle-sm toggle-success"
-              \${q.is_shared_mini_apps ? 'checked' : ''}
-              onchange="toggleQueryShared('\${q.id}', this.checked, this)" />
-          </td>
-          <td>
-            <textarea class="textarea textarea-bordered textarea-xs w-full font-mono" rows="2"
-              id="miniapp-params-\${q.id}" placeholder="bv. datum|Datum">\${paramsToText(q.mini_app_parameters)}</textarea>
-          </td>
+          <td class="text-xs text-base-content/60">\${paramsToText(q.mini_app_parameters)}</td>
+          <td class="text-xs text-base-content/50">\${q.updated_at ? new Date(q.updated_at).toLocaleString('nl-BE') : '—'}</td>
           <td class="text-right">
-            <button class="btn btn-xs btn-outline" onclick="saveQueryParams('\${q.id}')">Opslaan</button>
+            <button class="btn btn-xs btn-outline btn-error" onclick="deleteSharedQuery('\${q.id}', '\${(q.name || '').replace(/'/g, "\\\\'")}')">Verwijderen</button>
           </td>
         </tr>
       \`).join('');
     }
 
-    async function toggleQueryShared(queryId, enable, toggleEl) {
+    // Verwijdert een gedeelde query definitief. Bedoeld voor oude, losse rijen
+    // die aan geen enkele opgeslagen zoekopdracht hangen -- hangt er wél een
+    // zoekopdracht aan, dan blijft die bestaan en staat ze daarna simpelweg
+    // niet meer gedeeld (mini_app_query_id wordt NULL).
+    async function deleteSharedQuery(queryId, name) {
+      if (!confirm('Query "' + name + '" definitief verwijderen? Mini-apps die ze gebruiken krijgen daarna de melding dat de query niet meer beschikbaar is.')) return;
       try {
-        const res = await fetch(\`/insights/api/sales-insights/query/\${queryId}/mini-apps-sharing\`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ is_shared_mini_apps: enable })
-        });
+        const res = await fetch(\`/insights/api/sales-insights/query/\${queryId}\`, { method: 'DELETE' });
         const data = await res.json();
         if (!data.success) throw new Error(data.error?.message);
-        const q = allMiniAppQueries.find(x => x.id === queryId);
-        if (q) q.is_shared_mini_apps = enable;
-        toast(enable ? 'Query gedeeld met mini-apps' : 'Query niet langer gedeeld', 'success');
-      } catch (e) {
-        toast('Fout: ' + e.message, 'error');
-        toggleEl.checked = !enable;
-      }
-    }
-
-    async function saveQueryParams(queryId) {
-      const textEl = document.getElementById('miniapp-params-' + queryId);
-      const mini_app_parameters = textToParams(textEl.value);
-      try {
-        const res = await fetch(\`/insights/api/sales-insights/query/\${queryId}/mini-apps-sharing\`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mini_app_parameters })
-        });
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error?.message);
-        const q = allMiniAppQueries.find(x => x.id === queryId);
-        if (q) q.mini_app_parameters = mini_app_parameters;
-        toast('Parameters opgeslagen', 'success');
+        allMiniAppQueries = allMiniAppQueries.filter(x => x.id !== queryId);
+        renderMiniAppQueries(allMiniAppQueries);
+        toast('Query verwijderd', 'success');
       } catch (e) {
         toast('Fout: ' + e.message, 'error');
       }
@@ -587,6 +591,7 @@ export function queryBuilderAdminUI(user) {
       if (action === 'catMoveUp')      catMoveOrder(id, -1);
       if (action === 'catMoveDown')    catMoveOrder(id, 1);
       if (action === 'catSaveField')   catSaveField(id);
+      if (action === 'catFetchSelectionMap') catFetchSelectionMap(id);
       if (action === 'catDeleteField') catDeleteField(id);
       if (action === 'catAddField')    catAddField(id);
       if (action === 'openNewCategoryForm') openNewCategoryForm();
@@ -679,14 +684,21 @@ export function queryBuilderAdminUI(user) {
       const sel = document.getElementById('catModelSelect');
       if (sel.options.length <= 1) {
         try {
-          const res  = await fetch('/insights/api/sales-insights/models-config');
+          // Categorieën horen bij een ECHT Odoo-model (information_sets.model),
+          // niet bij het interne id uit de legacy 'models'-tabel (dat gebruikt
+          // underscores i.p.v. punten, bv. 'crm_lead' i.p.v. 'crm.lead') -- vandaar
+          // de graaf zelf als bron, exact zoals de wizard dat ook doet. Dat geeft
+          // er ook de res.partner / res.partner:contact-nuance gratis bij: beide
+          // node-keys staan er apart in, met hetzelfde onderliggende model (ze
+          // delen dus bewust dezelfde categorieën).
+          const res  = await fetch('/insights/api/sales-insights/graph');
           const data = await res.json();
           if (data.success) {
-            allCatModels = data.data.models;
-            allCatModels.forEach(m => {
+            allCatModels = Object.values(data.data.nodes);
+            allCatModels.forEach(node => {
               const opt = document.createElement('option');
-              opt.value = m.id;
-              opt.textContent = m.label + ' (' + m.id + ')';
+              opt.value = node.model;
+              opt.textContent = node.label + ' (' + node.key + ')';
               sel.appendChild(opt);
             });
           }
@@ -728,14 +740,45 @@ export function queryBuilderAdminUI(user) {
         const fields = s.information_set_fields || [];
         const isFirst = idx === 0;
         const isLast  = idx === sets.length - 1;
-        const fieldsHtml = fields.map(f =>
-          '<div class="flex items-center gap-2 py-0.5" id="field-row-' + f.id + '">'
+        const fieldsHtml = fields.map(f => {
+          // Selectieveld-mapping (information_set_fields.selection_map): eenmalig
+          // bij Odoo opgehaald via fields_get() (zie catFetchSelectionMap()), dus
+          // hier enkel tonen + een knop om ze (opnieuw) op te halen -- geen
+          // per-query Odoo-call.
+          const selMap = f.selection_map && typeof f.selection_map === 'object' ? f.selection_map : null;
+          const selMapSummary = selMap
+            ? Object.entries(selMap).map(([k, v]) => k + '=' + v).join(', ')
+            : null;
+          const selMapLine = '<div class="flex items-center gap-2 pl-[9.5rem] -mt-0.5 mb-0.5">'
+            + (selMapSummary
+                ? '<span class="text-xs text-base-content/50 font-mono truncate" title="' + selMapSummary.replace(/"/g, '&quot;') + '">' + selMapSummary + '</span>'
+                : '<span class="text-xs text-base-content/30 italic">geen selectiewaarden opgehaald</span>')
+            + '<button class="btn btn-xs btn-ghost text-primary shrink-0" data-action="catFetchSelectionMap" data-id="' + f.id + '" title="Selectiewaarden (opnieuw) ophalen uit Odoo">'
+            + (selMapSummary ? '&#8635;' : '&#8681; ophalen')
+            + '</button>'
+            + '</div>';
+          return '<div class="flex items-center gap-2 py-0.5" id="field-row-' + f.id + '">'
           + '<span class="font-mono text-xs w-36 shrink-0">' + f.field_key + '</span>'
           + '<input type="text" class="input input-xs input-bordered flex-1 min-w-0" id="field-label-' + f.id + '" value="' + (f.label || '').replace(/"/g, '&quot;') + '" placeholder="Label" />'
+          + '<label class="flex items-center gap-1 shrink-0 cursor-pointer" title="HTML-opmaak in dit veld negeren (zie lib/html-strip.js) -- voor Odoo html-velden waar de opmaak zelf geen extra informatie draagt">'
+          // data-action/data-id i.p.v. een inline onchange="fn('...')": deze
+          // hele pagina is zelf één grote template literal (zie de return
+          // bovenaan dit bestand), dus een quote-escape hier wordt bij het
+          // opbouwen van de pagina een TWEEDE keer ontsnapt en breekt de
+          // uiteindelijke script-tag. Vandaar overal in dit bestand dezelfde
+          // data-action/data-id plus centrale click-dispatcher (zie hieronder).
+          // Checkboxen vuren ook een click-event dat naar document toe
+          // bubbelt, dus die bestaande dispatcher (die catSaveField al kent,
+          // zie de vinkje-knop verderop) is meteen ook hier bruikbaar:
+          // klikken op de checkbox slaat meteen op, geen aparte knopklik nodig.
+          + '<input type="checkbox" class="checkbox checkbox-xs" id="field-strip-html-' + f.id + '" data-action="catSaveField" data-id="' + f.id + '"' + (f.strip_html ? ' checked' : '') + ' />'
+          + '<span class="text-xs text-base-content/50">strip html</span>'
+          + '</label>'
           + '<button class="btn btn-xs btn-ghost text-primary shrink-0" data-action="catSaveField" data-id="' + f.id + '" title="Opslaan">&#10003;</button>'
           + '<button class="btn btn-xs btn-ghost text-error shrink-0" data-action="catDeleteField" data-id="' + f.id + '" title="Verwijder">&#x2715;</button>'
           + '</div>'
-        ).join('');
+          + selMapLine;
+        }).join('');
         const addFieldRow = '<div class="flex gap-2 mt-2">'
           + '<input type="text" class="input input-xs input-bordered w-36" id="new-field-key-' + s.id + '" placeholder="Veldnaam (Odoo)" />'
           + '<input type="text" class="input input-xs input-bordered flex-1" id="new-field-label-' + s.id + '" placeholder="Label" />'
@@ -866,15 +909,35 @@ export function queryBuilderAdminUI(user) {
 
     async function catSaveField(fieldId) {
       const label = document.getElementById('field-label-' + fieldId)?.value?.trim();
+      const stripHtml = document.getElementById('field-strip-html-' + fieldId)?.checked === true;
       try {
         const res  = await fetch('/insights/api/sales-insights/information-set-fields/' + fieldId, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ label: label || null })
+          body: JSON.stringify({ label: label || null, strip_html: stripHtml })
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error?.message);
         toast('Veld opgeslagen', 'success');
+      } catch (e) {
+        toast('Fout: ' + e.message, 'error');
+      }
+    }
+
+    async function catFetchSelectionMap(fieldId) {
+      // loadCategories() bouwt de hele lijst opnieuw op (list.innerHTML = ...),
+      // wat de aangeklikte knop uit de DOM haalt en de focus terug naar <body>
+      // stuurt -- de browser springt dan naar de top van de pagina. Bewaar en
+      // herstel daarom expliciet de scrollpositie; dubbele requestAnimationFrame
+      // zodat dit pas gebeurt NA de layout-pass van lucide.createIcons().
+      const scrollY = window.scrollY;
+      try {
+        const res  = await fetch('/insights/api/sales-insights/information-set-fields/' + fieldId + '/selection-map', { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error?.message);
+        toast('Selectiewaarden opgehaald', 'success');
+        await loadCategories();
+        requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, scrollY)));
       } catch (e) {
         toast('Fout: ' + e.message, 'error');
       }

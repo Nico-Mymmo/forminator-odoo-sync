@@ -28,140 +28,98 @@ let touchpointFilterValuesCache = null;
 const savedSearchPeriodOverrides = {};
 
 // ============================================================================
-// MODEL CONFIGURATIE (hardcoded koppelingen)
+// GRAAF — opgehaald bij de server, GEEN hardcoded kopie meer
 // ============================================================================
-const MODEL_CONFIG = {
-  'x_sales_action_sheet': {
-    label: 'Actiebladen',
-    icon: 'file-text',
-    nameField: 'x_name',
-    dateFields: [{ field: 'create_date', label: 'Aanmaakdatum' }],
-    extraFilters: ['apartments']
-  },
-  'mail.message': {
-    label: 'Chatter Berichten',
-    icon: 'message-square',
-    nameField: 'preview',
-    dateFields: [{ field: 'date', label: 'Datum' }],
-    extraFilters: []
-  },
-  'mail.activity': {
-    label: 'Activiteiten',
-    icon: 'check-square',
-    nameField: 'summary',
-    dateFields: [{ field: 'date_deadline', label: 'Deadline' }],
-    extraFilters: []
-  },
-  'res.partner': {
-    label: "Partners (VME's & Syndici)",
-    icon: 'building-2',
-    nameField: 'name',
-    dateFields: [{ field: 'create_date', label: 'Aanmaakdatum' }],
-    extraFilters: ['partner_type', 'company_status']
-  },
-  'crm.lead': {
-    label: 'Leads',
-    icon: 'users',
-    nameField: 'name',
-    dateFields: [
-      { field: 'create_date',            label: 'Aanmaakdatum' },
-      { field: 'date_last_stage_update', label: 'Laatste stage update' },
-      { field: 'date_closed',            label: 'Afsluitdatum' }
-    ],
-    extraFilters: ['won_status', 'stages']
-  },
-  'x_web_visitor': {
-    label: 'Web Visitors',
-    icon: 'globe',
-    nameField: 'x_name',
-    dateFields: [
-      { field: 'x_studio_first_seen', label: 'Eerste bezoek' },
-      { field: 'x_studio_last_seen',  label: 'Laatste bezoek' }
-    ],
-    extraFilters: ['source_site', 'bounce']
-  },
-  'x_ad_touchpoint': {
-    label: 'Ad Touchpoints',
-    icon: 'mouse-pointer-click',
-    nameField: 'x_name',
-    dateFields: [
-      { field: 'x_studio_timestamp', label: 'Tijdstip klik' }
-    ],
-    extraFilters: ['ad_filters']
-  }
-};
+// Nodes en koppelingen komen uit GET /insights/api/sales-insights/graph, dat op
+// zijn beurt src/modules/sales-insight-explorer/lib/graph/graph-nodes.js en
+// graph-edges.js serialiseert. Daardoor kan deze UI per definitie niets
+// aanbieden dat de server niet kan uitvoeren -- vroeger stonden hier drie
+// hardcoded kopieën (MODEL_CONFIG, GRAPH_EDGES, RELATION_META) die los
+// evolueerden van wat de backend echt deed.
+//
+// Een node-key is meestal gelijk aan de Odoo-modelnaam, behalve waar hetzelfde
+// model twee rollen heeft: 'res.partner' = gebouwen/VME's (is_company = true) en
+// 'res.partner:contact' = contactpersonen (is_company = false). Gebruik
+// odooModelOfNode() zodra je met Odoo of met de Supabase-config praat.
+let MODEL_CONFIG = {};
+let GRAPH = { version: 2, nodes: {}, edges: [], roots: [] };
+// Moet gelijk blijven aan DEFAULT_ROOT_LIMIT in
+// lib/graph/cascade-executor.js -- enkel voor het label in de UI, de
+// server bepaalt de echte default zelf als root.limit niet meegegeven wordt.
+const DEFAULT_RESULT_LIMIT_LABEL = 1000;
+let _edgeByPair = {};
 
-// ============================================================================
-// MODEL GRAPH — één centrale definitie van alle koppelingen (bidirectioneel)
-// ============================================================================
-// Elke edge geldt in beide richtingen. a/b zijn symmetrisch — volgorde is irrelevant.
-// COMM_MODELS (mail.message, mail.activity) worden altijd onder hun parent getoond.
-const GRAPH_EDGES = [
-  // Data-koppelingen
-  { a: 'x_ad_touchpoint',      b: 'x_web_visitor',        via: 'x_studio_visitor',            type: 'many2one'  },
-  { a: 'x_web_visitor',        b: 'crm.lead',             via: 'x_studio_lead_ids',           type: 'many2many' },
-  { a: 'crm.lead',             b: 'x_sales_action_sheet', via: 'x_studio_as_opportunity_ids', type: 'many2many' },
-  { a: 'crm.lead',             b: 'res.partner',          via: 'partner_id',                  type: 'many2one'  },
-  { a: 'x_sales_action_sheet', b: 'res.partner',          via: 'x_studio_for_company_id',     type: 'many2one'  },
-  // Comm-koppelingen (mail.message + mail.activity hangen aan elk data-model)
-  { a: 'x_ad_touchpoint',      b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
-  { a: 'x_ad_touchpoint',      b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
-  { a: 'x_web_visitor',        b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
-  { a: 'x_web_visitor',        b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
-  { a: 'crm.lead',             b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
-  { a: 'crm.lead',             b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
-  { a: 'x_sales_action_sheet', b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
-  { a: 'x_sales_action_sheet', b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
-  { a: 'res.partner',          b: 'mail.message',         via: 'message_ids',                 type: 'one2many'  },
-  { a: 'res.partner',          b: 'mail.activity',        via: 'activity_ids',                type: 'one2many'  },
-];
+/** @param {string} nodeKey @returns {string} de Odoo-modelnaam achter een node */
+function odooModelOfNode(nodeKey) {
+  const node = MODEL_CONFIG[nodeKey];
+  if (node && node.model) return node.model;
+  return String(nodeKey || '').split(':')[0];
+}
+
+/** @returns {string|null} edge-id voor een richting, of null als die niet bestaat */
+function edgeIdFor(fromKey, toKey) {
+  const e = _edgeByPair[fromKey + '>' + toKey];
+  return e ? e.id : null;
+}
+
+/** @returns {Object|null} de edge-declaratie voor een richting */
+function edgeFor(fromKey, toKey) {
+  return _edgeByPair[fromKey + '>' + toKey] || null;
+}
+
+async function loadGraph() {
+  const res = await fetch('/insights/api/sales-insights/graph', { credentials: 'include' });
+  if (res.status === 401) { window.location.href = '/'; return; }
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error?.message || 'Graaf kon niet geladen worden');
+
+  GRAPH = data.data;
+  MODEL_CONFIG = {};
+  for (const [key, node] of Object.entries(GRAPH.nodes)) {
+    MODEL_CONFIG[key] = {
+      model: node.model,
+      label: node.label,
+      icon: node.icon,
+      nameField: node.nameField,
+      canBeRoot: node.canBeRoot,
+      dateFields: node.dateFields || [],
+      extraFilters: node.extraFilters || [],
+      heavyFields: node.heavyFields || []
+    };
+  }
+  _edgeByPair = {};
+  for (const e of GRAPH.edges) _edgeByPair[e.from + '>' + e.to] = e;
+}
 
 /**
- * Geeft alle directe buren van een model terug vanuit de graph.
- * @param {string} model - het model waarvoor je buren wilt
- * @param {string[]} exclude - modellen die uitgesloten moeten worden
+ * Alle directe buren van een node volgens de graaf.
+ * @param {string} model - node-key
+ * @param {string[]} exclude - node-keys die uitgesloten moeten worden
  * @returns {string[]}
  */
 function getNeighbors(model, exclude = []) {
   const excSet = new Set(exclude);
   const result = [];
-  for (const e of GRAPH_EDGES) {
-    if (e.a === model && !excSet.has(e.b)) result.push(e.b);
-    else if (e.b === model && !excSet.has(e.a)) result.push(e.a);
+  for (const e of GRAPH.edges) {
+    if (e.from === model && !excSet.has(e.to) && !result.includes(e.to)) result.push(e.to);
   }
   return result;
 }
 
-
-
-// Relatie-metadata: welk Odoo-veld koppelt elk submodel (voor labels op verbindingslijnen)
-const RELATION_META = {
-  'x_sales_action_sheet': {
-    'crm.lead':       { via: 'x_studio_as_opportunity_ids',   type: 'many2many', short: 'm↔m' },
-    'mail.message':   { via: 'message_ids',                   type: 'one2many',  short: '1→n' },
-    'mail.activity':  { via: 'activity_ids',                  type: 'one2many',  short: '1→n' }
-  },
-  'res.partner': {
-    'crm.lead':             { via: 'partner_id (inverse)',              type: 'one2many',  short: '1→n' },
-    'x_sales_action_sheet': { via: 'x_studio_for_company_id (inverse)', type: 'one2many',  short: '1→n' },
-    'mail.message':         { via: 'message_ids',                       type: 'one2many',  short: '1→n' },
-    'mail.activity':        { via: 'activity_ids',                      type: 'one2many',  short: '1→n' }
-  },
-  'crm.lead': {
-    'x_sales_action_sheet': { via: 'x_studio_as_opportunity_ids (inverse)', type: 'many2many', short: 'm↔m' },
-    'mail.message':   { via: 'message_ids',        type: 'one2many',  short: '1→n' },
-    'mail.activity':  { via: 'activity_ids',        type: 'one2many',  short: '1→n' }
-  },
-  'x_web_visitor': {
-    'x_ad_touchpoint': { via: 'x_studio_visitor (inverse)', type: 'one2many',  short: '1→n' },
-    'crm.lead':        { via: 'x_studio_lead_ids',          type: 'many2many', short: 'm↔m' },
-    'mail.message':    { via: 'message_ids',                type: 'one2many',  short: '1→n' },
-    'mail.activity':   { via: 'activity_ids',               type: 'one2many',  short: '1→n' }
-  },
-  'x_ad_touchpoint': {
-    'x_web_visitor': { via: 'x_studio_visitor', type: 'many2one', short: 'n→1' }
-  }
-};
+/**
+ * Kort label voor de verbindingslijn in de spiderweb (n→1, 1→n, m↔m, ...).
+ * @returns {string|null}
+ */
+function relationShort(fromKey, toKey) {
+  const e = edgeFor(fromKey, toKey) || edgeFor(toKey, fromKey);
+  if (!e) return null;
+  if (e.type === 'many2one') return 'n→1';
+  if (e.type === 'one2many') return '1→n';
+  if (e.type === 'many2many') return 'm↔m';
+  if (e.type === 'value_match') return '=@=';
+  if (e.type === 'composite') return '→→';
+  return null;
+}
 
 // Spider diagram: global state
 const COMM_MODELS = new Set(['mail.message', 'mail.activity']);
@@ -203,6 +161,7 @@ class WizardState {
     this._saveSearchName = undefined;    // undefined = hidden, string = input visible
     this._renamingSearchId = null;       // id of saved search being renamed
     this._editingFromSavedSearch = null; // { id, name, snapshot } wanneer bezig met bewerken
+    this._shareWithMiniApps = false;     // vinkje "ook beschikbaar voor mini-apps" bij het opslaan
     // Web visitor filters
     this.webVisitorFilter = { sourceSites: [], possibleBounce: 'exclude', instantBounce: 'exclude' };
     this._allSourceSites = [];           // alle beschikbare sites (voor vergelijking in buildPayload)
@@ -211,6 +170,14 @@ class WizardState {
     this.adTouchpointFilter = { sources: [], mediums: [], campaigns: [] };
     this._adFilters = { sources: [], mediums: [], campaigns: [] }; // alle beschikbare waarden
     this._adFiltersInitialized = false;
+    // Resultaatlimiet op het basismodel: null/false = server-default
+    // (DEFAULT_ROOT_LIMIT in cascade-executor.js).
+    this.resultLimit = null;             // custom numerieke limiet, of null voor de default
+    this.resultLimitUnlimited = false;   // true = tot de modelgrens (node.maxRecords)
+    // Sorteerveld voor het basismodel -- bepaalt welke records een cap
+    // overhoudt. null = automatisch (server kiest: actief datumfilter, anders
+    // eerste dateField, anders id) -- zie cascade-executor.js.
+    this.resultSortField = null;
   }
 
   selectModel(model) {
@@ -301,7 +268,10 @@ class WizardState {
       apartmentsFilter: { ...this.apartmentsFilter },
       webVisitorFilter:    { ...this.webVisitorFilter },
       adTouchpointFilter:  { ...this.adTouchpointFilter },
-      aiPresetId:          this.aiPresetId
+      aiPresetId:          this.aiPresetId,
+      resultLimit:          this.resultLimit,
+      resultLimitUnlimited: this.resultLimitUnlimited,
+      resultSortField:      this.resultSortField
     };
   }
 
@@ -326,6 +296,9 @@ class WizardState {
       this._adFiltersInitialized = true;
     }
     if (snap.aiPresetId !== undefined) this.aiPresetId = snap.aiPresetId;
+    if (snap.resultLimit !== undefined) this.resultLimit = snap.resultLimit;
+    if (snap.resultLimitUnlimited !== undefined) this.resultLimitUnlimited = snap.resultLimitUnlimited;
+    if (snap.resultSortField !== undefined) this.resultSortField = snap.resultSortField;
   }
 
   resolvedTimeFilter() {
@@ -345,287 +318,292 @@ class WizardState {
     return { from: null, to: null, field };
   }
 
-  buildPayload() {
-    const model = this.selectedModel || 'x_sales_action_sheet';
-    const modelCfgForPayload = MODEL_CONFIG[model] || {};
+  // ==========================================================================
+  // CASCADE-PAYLOAD
+  // ==========================================================================
+  // Eén generieke bouwer i.p.v. twaalf `if (model === '...')`-takken die elk een
+  // eigen enrichment-sleutel zetten. De wizard-toestand (welke nodes staan aan,
+  // via welk pad, met welke velden en filters) wordt hier gewoon langs de graaf
+  // gewandeld en als cascade-boom uitgeschreven. Een nieuwe node/edge in de
+  // graaf werkt hierdoor automatisch, zonder wijziging in dit bestand.
 
-    // Base fields: from DB config (if loaded), otherwise fall back to hardcoded nameField
-    const dbModel = modelsConfigCache[model];
-    const dbBaseFields = dbModel?.base_fields;
-    const baseFieldEntries = (Array.isArray(dbBaseFields) && dbBaseFields.length > 0)
-      ? dbBaseFields.map(bf => ({ model, field: bf.field }))
-      : [{ model, field: modelCfgForPayload.nameField || 'name' }];
+  /** Staat deze node aan in de wizard? (crm.lead heeft historisch zijn eigen vlag) */
+  _nodeEnabled(key) {
+    if (key === 'crm.lead' && this.leadEnrichment.enabled) return true;
+    return !!this.submodelSets[key + '_enabled'];
+  }
 
-    const payload = {
-      base_model: model,
-      fields: [...baseFieldEntries],
-      filters: []
-    };
+  /**
+   * Hangt `key` als cascade-stap onder `parentKey`?
+   * - onder de root: aan én niet omgeleid naar een ander pad
+   * - dieper: expliciet omgeleid naar deze ouder (submodelPaths) of aangevinkt
+   *   als sub-submodel van deze ouder (subSubmodels)
+   */
+  _isSelectedUnder(key, parentKey, isRootParent) {
+    if (isRootParent) {
+      const path = this.submodelPaths[key];
+      return this._nodeEnabled(key) && (!path || path === 'direct');
+    }
+    const sub = this.subSubmodels[parentKey] || {};
+    if (sub[key + '_enabled']) return true;
+    return this._nodeEnabled(key) && this.submodelPaths[key] === parentKey;
+  }
 
-    const sets = informationSetsCache[model] || [];
-    sets.forEach(set => {
-      if (this.informationSets[set.id]) {
-        (set.information_set_fields || []).forEach(f => {
-          payload.fields.push({ model, field: f.field_key });
-        });
-      }
-    });
+  /**
+   * Veldkeuze voor een node: de basisvelden uit de Supabase-config plus de
+   * velden van de aangevinkte informatiesets. Voor de root gelden
+   * `informationSets`, voor cascade-stappen `submodelSets` (met de bestaande
+   * fallback: is er geen enkele set individueel aangevinkt, neem ze dan alle).
+   */
+  _nodeFields(key, isRoot) {
+    const fields = [];
+    const push = (f) => { if (f && !fields.includes(f)) fields.push(f); };
 
-    const tf = this.resolvedTimeFilter();
-    if (tf.from && tf.field) payload.filters.push({ model, field: tf.field, operator: '>=', value: tf.from });
-    if (tf.to   && tf.field) payload.filters.push({ model, field: tf.field, operator: '<=', value: tf.to });
-
-    if ((modelCfgForPayload.extraFilters || []).includes('apartments')) {
-      if (this.apartmentsFilter.min !== null) payload.filters.push({ model, field: 'x_studio_number_of_apartments', operator: '>=', value: parseInt(this.apartmentsFilter.min, 10) });
-      if (this.apartmentsFilter.max !== null) payload.filters.push({ model, field: 'x_studio_number_of_apartments', operator: '<=', value: parseInt(this.apartmentsFilter.max, 10) });
-      if (this.apartmentsFilter.include_zero === false) payload.filters.push({ model, field: 'x_studio_number_of_apartments', operator: '>', value: 0 });
+    const dbModel = modelsConfigCache[key];
+    const dbBaseFields = dbModel && dbModel.base_fields;
+    if (Array.isArray(dbBaseFields) && dbBaseFields.length > 0) {
+      dbBaseFields.forEach((bf) => push(bf.field));
+    } else {
+      push((MODEL_CONFIG[key] || {}).nameField || 'name');
     }
 
-    // res.partner filters (altijd is_company=true + opt-out voor type/status)
-    if (model === 'res.partner') {
-      payload.filters.push({ model, field: 'is_company', operator: '=', value: true });
-      // Alleen filter toevoegen als het een SUBSET is (niet alles geselecteerd)
+    const sets = informationSetsCache[key] || [];
+    if (isRoot) {
+      sets.forEach((set) => {
+        if (!this.informationSets[set.id]) return;
+        (set.information_set_fields || []).forEach((f) => push(f.field_key));
+      });
+    } else {
+      const anySelected = sets.some((s) => !!this.submodelSets[s.id]);
+      sets.forEach((set) => {
+        if (anySelected && !this.submodelSets[set.id]) return;
+        (set.information_set_fields || []).forEach((f) => push(f.field_key));
+      });
+    }
+    return fields;
+  }
+
+  /**
+   * Welke van de geselecteerde velden (zelfde selectielogica als _nodeFields())
+   * hun HTML-opmaak gestript willen zien -- ingesteld per informatieset-veld
+   * (information_set_fields.strip_html, zie admin-tab "Categorieën" in
+   * ui-admin.js), niet per query. cascade-executor.js past dit toe vlak vóór
+   * het resultaat teruggaat.
+   */
+  _nodeStripHtmlFields(key, isRoot) {
+    const fields = [];
+    const push = (f) => { if (f && !fields.includes(f)) fields.push(f); };
+    const sets = informationSetsCache[key] || [];
+    if (isRoot) {
+      sets.forEach((set) => {
+        if (!this.informationSets[set.id]) return;
+        (set.information_set_fields || []).forEach((f) => { if (f.strip_html) push(f.field_key); });
+      });
+    } else {
+      const anySelected = sets.some((s) => !!this.submodelSets[s.id]);
+      sets.forEach((set) => {
+        if (anySelected && !this.submodelSets[set.id]) return;
+        (set.information_set_fields || []).forEach((f) => { if (f.strip_html) push(f.field_key); });
+      });
+    }
+    return fields;
+  }
+
+  /**
+   * Waarde->label-mappings voor de geselecteerde velden die zo'n mapping
+   * hebben (information_set_fields.selection_map, eenmalig opgehaald in de
+   * admin-tab "Categorieën" via fields_get() -- zie ui-admin.js en routes.js).
+   * Zelfde selectielogica als _nodeFields()/_nodeStripHtmlFields().
+   * cascade-executor.js#applySelectionMap() past dit toe vlak vóór het
+   * resultaat teruggaat.
+   */
+  _nodeSelectionMaps(key, isRoot) {
+    const maps = {};
+    const collect = (set) => {
+      (set.information_set_fields || []).forEach((f) => {
+        if (f.selection_map && typeof f.selection_map === 'object') maps[f.field_key] = f.selection_map;
+      });
+    };
+    const sets = informationSetsCache[key] || [];
+    if (isRoot) {
+      sets.forEach((set) => { if (this.informationSets[set.id]) collect(set); });
+    } else {
+      const anySelected = sets.some((s) => !!this.submodelSets[s.id]);
+      sets.forEach((set) => {
+        if (anySelected && !this.submodelSets[set.id]) return;
+        collect(set);
+      });
+    }
+    return maps;
+  }
+
+  /**
+   * Filters voor een node, afgeleid van de `extraFilters` die de graaf voor die
+   * node declareert. Deze functie geldt voor ELKE plek waar de node voorkomt --
+   * ook diep in een cascade. Dat was vroeger onmogelijk: filters bestonden enkel
+   * op het basismodel.
+   *
+   * Model-quirks (crm.lead ook gearchiveerd, res.partner is_company,
+   * mail.message message_type) zitten NIET hier maar in node.baseDomain op de
+   * server.
+   */
+  _nodeFilters(key, isRoot) {
+    const cfg = MODEL_CONFIG[key] || {};
+    const extra = cfg.extraFilters || [];
+    const filters = [];
+
+    if (extra.includes('apartments')) {
+      if (this.apartmentsFilter.min !== null) filters.push({ field: 'x_studio_number_of_apartments', operator: '>=', value: parseInt(this.apartmentsFilter.min, 10) });
+      if (this.apartmentsFilter.max !== null) filters.push({ field: 'x_studio_number_of_apartments', operator: '<=', value: parseInt(this.apartmentsFilter.max, 10) });
+      if (this.apartmentsFilter.include_zero === false) filters.push({ field: 'x_studio_number_of_apartments', operator: '>', value: 0 });
+    }
+
+    if (extra.includes('partner_type')) {
       if (this.partnerFilter.companyTypes.length > 0 && this.partnerFilter.companyTypes.length < 3) {
-        payload.filters.push({ model, field: 'x_studio_company_type', operator: 'in', value: this.partnerFilter.companyTypes });
+        filters.push({ field: 'x_studio_company_type', operator: 'in', value: this.partnerFilter.companyTypes });
       }
+    }
+    if (extra.includes('company_status')) {
       const allStatuses = ['Free Trial', 'Active', 'Inactive', 'Internal', 'Blocked'];
       if (this.partnerFilter.companyStatuses.length > 0 && this.partnerFilter.companyStatuses.length < allStatuses.length) {
-        payload.filters.push({ model, field: 'x_studio_company_status', operator: 'in', value: this.partnerFilter.companyStatuses });
+        filters.push({ field: 'x_studio_company_status', operator: 'in', value: this.partnerFilter.companyStatuses });
       }
     }
 
-    // Direct lead filters (when crm.lead is the root model)
-    if ((modelCfgForPayload.extraFilters || []).includes('won_status')) {
-      // Always filter on type = opportunity for crm.lead
-      payload.filters.push({ model, field: 'type', operator: '=', value: 'opportunity' });
+    if (extra.includes('won_status')) {
+      // type = opportunity blijft bewust beperkt tot het vertrekpunt: als leads
+      // ergens diep in een cascade hangen, wil je ze niet stil wegfilteren.
+      if (isRoot) filters.push({ field: 'type', operator: '=', value: 'opportunity' });
       const allWon = ['won', 'lost', 'pending'];
       const selectedWon = this.leadEnrichment.filters.won_status;
-      // Only add filter if not all statuses selected
       if (selectedWon.length > 0 && selectedWon.length < allWon.length) {
-        payload.filters.push({ model, field: 'won_status', operator: 'in', value: selectedWon });
+        filters.push({ field: 'won_status', operator: 'in', value: selectedWon });
       }
-      // Only add stage filter if not all stages selected
+    }
+    if (extra.includes('stages')) {
       const totalStages = this._totalStages || 0;
       const selectedStages = this.leadEnrichment.filters.stage_ids;
       if (selectedStages.length > 0 && (totalStages === 0 || selectedStages.length < totalStages)) {
-        payload.filters.push({ model, field: 'stage_id', operator: 'in', value: selectedStages });
+        filters.push({ field: 'stage_id', operator: 'in', value: selectedStages });
       }
     }
 
-    // Lead enrichment: alleen als leads als DIRECT L1-node actief is (niet omgeleid via partner)
-    const _leadIsViaPartner = model === 'x_sales_action_sheet' && this.submodelPaths['crm.lead'] === 'res.partner';
-    if (this.leadEnrichment.enabled && !_leadIsViaPartner) {
-      payload.lead_enrichment = { enabled: true, mode: this.leadEnrichment.mode, filters: {} };
-      const allWonSub = ['won', 'lost', 'pending'];
-      if (this.leadEnrichment.filters.won_status.length > 0 && this.leadEnrichment.filters.won_status.length < allWonSub.length) {
-        payload.lead_enrichment.filters.won_status = this.leadEnrichment.filters.won_status;
-      }
-      const totalStagesSub = this._totalStages || 0;
-      const selectedStagesSub = this.leadEnrichment.filters.stage_ids;
-      if (selectedStagesSub.length > 0 && (totalStagesSub === 0 || selectedStagesSub.length < totalStagesSub)) {
-        payload.lead_enrichment.filters.stage_ids = selectedStagesSub;
-      }
-      if (this.leadEnrichment.property_groups.length)      payload.lead_enrichment.property_groups    = this.leadEnrichment.property_groups;
-      // Web Visitors (L2) en Ad Touchpoints (L3) — backend visitor enrichment
-      if (this.submodelSets['x_web_visitor_enabled'] || this.submodelSets['x_ad_touchpoint_enabled']) {
-        const veFilters = {};
-        if (this.webVisitorFilter.possibleBounce !== 'include') veFilters.possible_bounce = this.webVisitorFilter.possibleBounce;
-        if (this.webVisitorFilter.instantBounce  !== 'include') veFilters.instant_bounce  = this.webVisitorFilter.instantBounce;
-        payload.lead_enrichment.visitor_enrichment = {
-          enabled: true,
-          touchpoint_enrichment: { enabled: !!this.submodelSets['x_ad_touchpoint_enabled'] },
-          ...(Object.keys(veFilters).length ? { filters: veFilters } : {})
-        };
-      }
-      // Partners als L2 van leads (partner_enrichment binnen lead_enrichment)
-      const _partnerIsViaLead = model === 'x_sales_action_sheet'
-        && this.submodelSets['res.partner_enabled']
-        && this.submodelPaths['res.partner'] === 'crm.lead';
-      if (_partnerIsViaLead) {
-        const _pSets = informationSetsCache['res.partner'] || [];
-        const _pAny = _pSets.some(function(s) { return !!wizardState.submodelSets[s.id]; });
-        const _pFields = [];
-        _pSets.forEach(function(set) {
-          if (!_pAny || wizardState.submodelSets[set.id]) {
-            (set.information_set_fields || []).forEach(function(f) {
-              if (!_pFields.includes(f.field_key)) _pFields.push(f.field_key);
-            });
-          }
-        });
-        payload.lead_enrichment.partner_enrichment = { enabled: true, link_field: 'partner_id', fields: _pFields };
-      }
-    }
-
-    // Chatter enrichment (mail.message submodel)
-    if (this.submodelSets['mail.message_enabled']) {
-      payload.chatter_enrichment = { enabled: true };
-    }
-
-    // Activity enrichment (mail.activity submodel)
-    if (this.submodelSets['mail.activity_enabled']) {
-      payload.activity_enrichment = { enabled: true, include_done: false };
-    }
-
-    // Actieblad → Partner enrichment
-    if (model === 'x_sales_action_sheet' && this.submodelSets['res.partner_enabled']) {
-      const _partnerVia = this.submodelPaths['res.partner'] || 'direct';
-      if (_partnerVia === 'direct') {
-        // Directe koppeling actieblad → partner
-        // Partner-velden komen uit informationSetsCache['res.partner'], geselecteerd via submodelSets.
-        // Fallback: als geen enkele set individueel geselecteerd is, neem alle sets.
-        const partnerSets = informationSetsCache['res.partner'] || [];
-        const anySetsSelected = partnerSets.some(function(s) { return !!wizardState.submodelSets[s.id]; });
-        const partnerFields = [];
-        partnerSets.forEach(function(set) {
-          if (!anySetsSelected || wizardState.submodelSets[set.id]) {
-            (set.information_set_fields || []).forEach(function(f) {
-              if (!partnerFields.includes(f.field_key)) partnerFields.push(f.field_key);
-            });
-          }
-        });
-        payload.actionsheet_partner_enrichment = { enabled: true, fields: partnerFields };
-        // Leads als L2 van partners (crm.lead omgeleid via res.partner)
-        if (this.submodelPaths['crm.lead'] === 'res.partner' && this.leadEnrichment.enabled) {
-          payload.actionsheet_partner_enrichment.lead_enrichment = { enabled: true, filters: {} };
-          const allWonAP = ['won', 'lost', 'pending'];
-          if (this.leadEnrichment.filters.won_status.length > 0 && this.leadEnrichment.filters.won_status.length < allWonAP.length) {
-            payload.actionsheet_partner_enrichment.lead_enrichment.filters.won_status = this.leadEnrichment.filters.won_status;
-          }
-        }
-      }
-      // Als _partnerVia === 'crm.lead': partner_enrichment zit al in lead_enrichment hierboven
-    }
-
-    // Partner enrichments (res.partner als startmodel)
-    if (model === 'res.partner') {
-      if (this.submodelSets['crm.lead_enabled']) {
-        const pGroups = this.leadEnrichment.property_groups.length
-          ? this.leadEnrichment.property_groups : [];
-        payload.partner_lead_enrichment = {
-          enabled: true,
-          property_groups: pGroups,
-          filters: {}
-        };
-        const allWon = ['won', 'lost', 'pending'];
-        if (this.leadEnrichment.filters.won_status.length > 0 &&
-            this.leadEnrichment.filters.won_status.length < allWon.length) {
-          payload.partner_lead_enrichment.filters.won_status = this.leadEnrichment.filters.won_status;
-        }
-        // L2: sub-enrichments voor leads
-        const leadSubs = this.subSubmodels['crm.lead'] || {};
-        if (leadSubs['mail.message_enabled']) {
-          payload.partner_lead_enrichment.chatter_enrichment = { enabled: true };
-        }
-        if (leadSubs['mail.activity_enabled']) {
-          payload.partner_lead_enrichment.activity_enrichment = { enabled: true };
-        }
-      }
-      if (this.submodelSets['x_sales_action_sheet_enabled']) {
-        if (this.submodelPaths['x_sales_action_sheet'] === 'crm.lead') {
-          // Actiebladen via leads (partner → lead → actieblad via x_studio_as_opportunity_ids)
-          if (!payload.partner_lead_enrichment) {
-            payload.partner_lead_enrichment = { enabled: true, property_groups: [], filters: {} };
-          }
-          payload.partner_lead_enrichment.lead_actionsheet_enrichment = { enabled: true };
-        } else {
-          // Directe link: partner → actieblad (via x_studio_for_company_id)
-          payload.partner_actionsheet_enrichment = { enabled: true };
-          const asSubs = this.subSubmodels['x_sales_action_sheet'] || {};
-          if (asSubs['mail.message_enabled']) {
-            payload.partner_actionsheet_enrichment.chatter_enrichment = { enabled: true };
-          }
-          if (asSubs['mail.activity_enabled']) {
-            payload.partner_actionsheet_enrichment.activity_enrichment = { enabled: true };
-          }
-          if (asSubs['crm.lead_enabled']) {
-            payload.partner_actionsheet_enrichment.lead_enrichment = { enabled: true, filters: {} };
-          }
-        }
-      }
-    }
-
-    // x_web_visitor enrichments
-    if (model === 'x_web_visitor') {
-      // Source site filter (opt-out: alleen als subset geselecteerd)
-      const allSites = this._allSourceSites;
-      const selectedSites = this.webVisitorFilter.sourceSites;
+    if (extra.includes('source_site')) {
+      const allSites = this._allSourceSites || [];
+      const selectedSites = this.webVisitorFilter.sourceSites || [];
       if (allSites.length > 0 && selectedSites.length > 0 && selectedSites.length < allSites.length) {
-        payload.filters.push({ model, field: 'x_studio_source_site', operator: 'in', value: selectedSites });
-      }
-      // Bounce filters
-      if (this.webVisitorFilter.possibleBounce === 'exclude') {
-        payload.filters.push({ model, field: 'x_studio_possible_bounce', operator: '=', value: false });
-      } else if (this.webVisitorFilter.possibleBounce === 'only') {
-        payload.filters.push({ model, field: 'x_studio_possible_bounce', operator: '=', value: true });
-      }
-      if (this.webVisitorFilter.instantBounce === 'exclude') {
-        payload.filters.push({ model, field: 'x_studio_instant_bounce', operator: '=', value: false });
-      } else if (this.webVisitorFilter.instantBounce === 'only') {
-        payload.filters.push({ model, field: 'x_studio_instant_bounce', operator: '=', value: true });
-      }
-      // Touchpoint submodel
-      if (this.submodelSets['x_ad_touchpoint_enabled']) {
-        payload.visitor_touchpoint_enrichment = { enabled: true };
-      }
-      // Lead submodel (via x_studio_lead_ids)
-      if (this.submodelSets['crm.lead_enabled']) {
-        payload.visitor_lead_enrichment = { enabled: true, filters: {} };
-        const allWon = ['won', 'lost', 'pending'];
-        const selWon = this.leadEnrichment.filters.won_status;
-        if (selWon.length > 0 && selWon.length < allWon.length) {
-          payload.visitor_lead_enrichment.filters.won_status = selWon;
-        }
-      }
-      // Partner submodel (via e-mail: x_studio_email → res.partner.email)
-      if (this.submodelSets['res.partner_enabled']) {
-        const partnerSets = informationSetsCache['res.partner'] || [];
-        const anySetsSelected = partnerSets.some(s => !!this.submodelSets[s.id]);
-        const partnerFields = [];
-        partnerSets.forEach(set => {
-          if (!anySetsSelected || this.submodelSets[set.id]) {
-            (set.information_set_fields || []).forEach(f => {
-              if (!partnerFields.includes(f.field_key)) partnerFields.push(f.field_key);
-            });
-          }
-        });
-        payload.visitor_partner_enrichment = { enabled: true, fields: partnerFields };
+        filters.push({ field: 'x_studio_source_site', operator: 'in', value: selectedSites });
       }
     }
-
-    // crm.lead → Actiebladen enrichment
-    if (model === 'crm.lead' && this.submodelSets['x_sales_action_sheet_enabled']) {
-      payload.lead_actionsheet_enrichment = { enabled: true };
+    if (extra.includes('bounce')) {
+      if (this.webVisitorFilter.possibleBounce === 'exclude') filters.push({ field: 'x_studio_possible_bounce', operator: '=', value: false });
+      else if (this.webVisitorFilter.possibleBounce === 'only') filters.push({ field: 'x_studio_possible_bounce', operator: '=', value: true });
+      if (this.webVisitorFilter.instantBounce === 'exclude') filters.push({ field: 'x_studio_instant_bounce', operator: '=', value: false });
+      else if (this.webVisitorFilter.instantBounce === 'only') filters.push({ field: 'x_studio_instant_bounce', operator: '=', value: true });
     }
 
-    // x_ad_touchpoint filters (opt-out: alleen als subset geselecteerd)
-    if (model === 'x_ad_touchpoint') {
-      const all = this._adFilters;
-      const sel = this.adTouchpointFilter;
+    if (extra.includes('ad_filters')) {
+      const all = this._adFilters || { sources: [], mediums: [], campaigns: [] };
+      const sel = this.adTouchpointFilter || { sources: [], mediums: [], campaigns: [] };
       if (all.sources.length && sel.sources.length && sel.sources.length < all.sources.length) {
-        payload.filters.push({ model, field: 'x_studio_source', operator: 'in', value: sel.sources });
+        filters.push({ field: 'x_studio_source', operator: 'in', value: sel.sources });
       }
       if (all.mediums.length && sel.mediums.length && sel.mediums.length < all.mediums.length) {
-        payload.filters.push({ model, field: 'x_studio_medium', operator: 'in', value: sel.mediums });
+        filters.push({ field: 'x_studio_medium', operator: 'in', value: sel.mediums });
       }
       if (all.campaigns.length && sel.campaigns.length && sel.campaigns.length < all.campaigns.length) {
-        payload.filters.push({ model, field: 'x_studio_campaign_name', operator: 'in', value: sel.campaigns });
+        filters.push({ field: 'x_studio_campaign_name', operator: 'in', value: sel.campaigns });
       }
     }
 
-    // x_ad_touchpoint enrichments
-    if (model === 'x_ad_touchpoint') {
-      if (this.submodelSets['x_web_visitor_enabled']) {
-        payload.touchpoint_visitor_enrichment = { enabled: true };
-        // L2: leads voor bezoekers (flat state)
-        if (this.submodelSets['crm.lead_enabled']) {
-          payload.touchpoint_visitor_enrichment.lead_enrichment = { enabled: true };
-        }
-      }
+    return filters;
+  }
+
+  /** Cascade-stappen onder een node, recursief. */
+  _buildCascade(parentKey, isRootParent, usedEdges, depth) {
+    if (depth > 4) return [];
+    const steps = [];
+
+    for (const neighbour of getNeighbors(parentKey)) {
+      if (!this._isSelectedUnder(neighbour, parentKey, isRootParent)) continue;
+      const edge = edgeIdFor(parentKey, neighbour);
+      if (!edge || usedEdges.has(edge)) continue;
+
+      const nextUsed = new Set(usedEdges);
+      nextUsed.add(edge);
+
+      const step = {
+        edge,
+        fields: this._nodeFields(neighbour, false),
+        filters: this._nodeFilters(neighbour, false)
+      };
+      const stepStripHtmlFields = this._nodeStripHtmlFields(neighbour, false);
+      if (stepStripHtmlFields.length) step.strip_html_fields = stepStripHtmlFields;
+      const stepSelectionMaps = this._nodeSelectionMaps(neighbour, false);
+      if (Object.keys(stepSelectionMaps).length) step.selection_maps = stepSelectionMaps;
+      const children = this._buildCascade(neighbour, false, nextUsed, depth + 1);
+      if (children.length) step.cascade = children;
+      steps.push(step);
+    }
+
+    return steps;
+  }
+
+  /**
+   * Bouw de cascade-query (version 2) die naar /semantic/run gaat en die -- als
+   * de zoekopdracht gedeeld wordt -- letterlijk hetzelfde object is dat een
+   * mini-app later uitvoert.
+   */
+  buildPayload() {
+    const root = this.selectedModel || 'x_sales_action_sheet';
+
+    const rootStripHtmlFields = this._nodeStripHtmlFields(root, true);
+    const rootSelectionMaps = this._nodeSelectionMaps(root, true);
+    const payload = {
+      version: 2,
+      root: {
+        node: root,
+        fields: this._nodeFields(root, true),
+        filters: this._nodeFilters(root, true),
+        ...(rootStripHtmlFields.length ? { strip_html_fields: rootStripHtmlFields } : {}),
+        ...(Object.keys(rootSelectionMaps).length ? { selection_maps: rootSelectionMaps } : {})
+      },
+      cascade: this._buildCascade(root, true, new Set(), 1)
+    };
+
+    // De periode van het basismodel als time_scope i.p.v. twee losse filters:
+    // dat is wat een mini-app later kan overrulen (parametertype
+    // period_override, zie lib/mini-app-bridge.js).
+    const tf = this.resolvedTimeFilter();
+    if (tf.field && (tf.from || tf.to)) {
+      payload.root.time_scope = {
+        field: tf.field,
+        mode: 'absolute',
+        ...(tf.from ? { from: tf.from } : {}),
+        ...(tf.to ? { to: tf.to } : {})
+      };
+    }
+
+    // Resultaatlimiet: default (geen root.limit) volgt de server-default
+    // (DEFAULT_ROOT_LIMIT in cascade-executor.js); 'unlimited' laat de
+    // server tot de modelgrens (node.maxRecords) ophalen.
+    if (this.resultLimitUnlimited) {
+      payload.root.limit = 'unlimited';
+    } else if (typeof this.resultLimit === 'number' && this.resultLimit > 0) {
+      payload.root.limit = this.resultLimit;
+    }
+
+    // Zonder expliciete keuze bepaalt de server zelf de sortering (actief
+    // datumfilter, anders eerste dateField, anders id) -- zie
+    // cascade-executor.js. Hier enkel meesturen als de gebruiker bewust een
+    // veld koos.
+    if (this.resultSortField) {
+      payload.root.order = { field: this.resultSortField, direction: 'desc' };
     }
 
     if (this.aiPresetId && aiExportPresetsCache) {
       const preset = aiExportPresetsCache.find(p => p.id === this.aiPresetId);
-      if (preset?.instruction) {
+      if (preset && preset.instruction) {
         payload.ai_context = { preset_id: preset.id, preset_label: preset.label, instruction: preset.instruction };
       }
     }
@@ -650,6 +628,8 @@ class WizardState {
     this._adFilters = { sources: [], mediums: [], campaigns: [] }; this._adFiltersInitialized = false;
     this.aiPresetId = null; this._expandedSet = null; this._showAddSet = false; this._showAddField = null; this._previewSet = null; this._adminOpen = false;
     this._saveSearchName = undefined; this._renamingSearchId = null; this._editingFromSavedSearch = null;
+    this._shareWithMiniApps = false;
+    this.resultLimit = null; this.resultLimitUnlimited = false; this.resultSortField = null;
   }
 }
 const wizardState = new WizardState();
@@ -657,13 +637,21 @@ const wizardState = new WizardState();
 // ============================================================================
 // SUPABASE DATA FETCHING
 // ============================================================================
-async function fetchInformationSets(model) {
-  if (informationSetsCache[model]) return informationSetsCache[model];
+/**
+ * Informatiesets (veldgroepen) voor een NODE. De sets zelf horen bij een
+ * Odoo-model, dus twee rol-varianten van hetzelfde model (gebouwen en
+ * contactpersonen) delen dezelfde sets en dus ook dezelfde set-selectie in de
+ * wizard. Gecacht per node-key zodat alle bestaande lookups op node-key blijven
+ * werken.
+ */
+async function fetchInformationSets(nodeKey) {
+  if (informationSetsCache[nodeKey]) return informationSetsCache[nodeKey];
+  const odooModel = odooModelOfNode(nodeKey);
   try {
-    const res = await fetch(`/insights/api/sales-insights/information-sets?model=${encodeURIComponent(model)}`);
+    const res = await fetch(`/insights/api/sales-insights/information-sets?model=${encodeURIComponent(odooModel)}`);
     const data = await res.json();
     if (!data.success) throw new Error(data.error?.message);
-    informationSetsCache[model] = data.data.sets;
+    informationSetsCache[nodeKey] = data.data.sets;
     return data.data.sets;
   } catch (e) { console.warn('fetchInformationSets error:', e.message); return []; }
 }
@@ -686,6 +674,13 @@ async function fetchModelsConfig() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error?.message);
     (data.data.models || []).forEach(m => { modelsConfigCache[m.odoo_model] = m; });
+    // Rol-varianten (bv. 'res.partner:contact') delen de config van hun model,
+    // zodat lookups op node-key overal blijven werken.
+    for (const [nodeKey, cfg] of Object.entries(MODEL_CONFIG)) {
+      if (!modelsConfigCache[nodeKey] && modelsConfigCache[cfg.model]) {
+        modelsConfigCache[nodeKey] = modelsConfigCache[cfg.model];
+      }
+    }
     return modelsConfigCache;
   } catch (e) { console.warn('fetchModelsConfig error:', e.message); return {}; }
 }
@@ -742,17 +737,78 @@ async function fetchSavedSearches() {
 
 function invalidateSavedSearches() { savedSearchesCache = null; }
 
+// Bouwt de payload die meegestuurd wordt wanneer deze zoekopdracht (ook)
+// beschikbaar moet zijn voor mini-apps. Dit is dezelfde payload die de wizard
+// naar /semantic/run stuurt, met EEN correctie: snelle periodes ("deze maand",
+// "dit kwartaal", ...) bakt buildPayload() in als een ABSOLUTE time_scope.
+// Dat is juist voor de zoekopdracht die je NU uitvoert, maar fout voor een
+// query die een mini-app later opnieuw draait -- die zou anders voor altijd
+// bevroren blijven op de datum van vandaag. We zetten dat hier om naar een
+// relatieve time_scope (bestaand mechanisme, zie odoo-domain-translator.js
+// calculateRelativeDateRange()) die bij elke aanroep opnieuw vanaf "nu"
+// berekend wordt -- de mini-app moet daarvoor zelf niets meegeven.
+function buildShareablePayload() {
+  const payload = wizardState.buildPayload();
+  const tf = wizardState.timeFilter;
+  if (tf.mode === 'quick' && tf.quickPeriod) {
+    const relativeByPeriod = {
+      week:    { relative_amount: 7, relative_unit: 'days' },
+      month:   { relative_amount: 1, relative_unit: 'months' },
+      quarter: { relative_amount: 3, relative_unit: 'months' },
+      year:    { relative_amount: 1, relative_unit: 'years' }
+    };
+    const rel = relativeByPeriod[tf.quickPeriod];
+    const resolved = wizardState.resolvedTimeFilter();
+    if (rel && resolved.field) {
+      payload.root.time_scope = {
+        field: resolved.field,
+        mode: 'relative',
+        relative_amount: rel.relative_amount,
+        relative_unit: rel.relative_unit,
+        relative_direction: 'past'
+      };
+    }
+  }
+  return payload;
+}
+
+// Toont de foutboodschap van een mislukte save. Delen kan falen om redenen die
+// het gewone opslaan niet heeft (query niet geldig als gedeelde query, schema
+// niet beschikbaar) -- die moeten leesbaar zijn i.p.v. een generieke melding.
+async function reportSaveFailure(res, fallback) {
+  let message = fallback;
+  try {
+    const result = await res.json();
+    if (result?.error?.message) message = result.error.message;
+    if (Array.isArray(result?.error?.validation_errors) && result.error.validation_errors.length > 0) {
+      message += '\n\n' + result.error.validation_errors
+        .map(e => '- ' + (e.message || JSON.stringify(e))).join('\n');
+    }
+  } catch (_e) { /* geen JSON-body: val terug op de generieke melding */ }
+  alert(message);
+}
+
 async function saveCurrentSearch() {
   const name = (wizardState._saveSearchName || '').trim();
   if (!name) { alert('Geef een naam op voor deze zoekopdracht.'); return; }
   const snapshot = wizardState.toSnapshot();
+  const share = IS_ADMIN && wizardState._shareWithMiniApps === true;
+  // Delen zit in DEZELFDE actie als opslaan: geen apart scherm, geen aparte
+  // query. De server maakt/actualiseert op basis van share_with_mini_apps de
+  // afgeleide, uitvoerbare query (zie lib/saved-search-sharing.js).
   const res = await fetch('/insights/api/sales-insights/saved-searches', {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, wizard_state: snapshot })
+    body: JSON.stringify({
+      name,
+      wizard_state: snapshot,
+      share_with_mini_apps: share,
+      query: share ? buildShareablePayload() : undefined
+    })
   });
-  if (!res.ok) { alert('Opslaan mislukt.'); return; }
+  if (!res.ok) { await reportSaveFailure(res, 'Opslaan mislukt.'); return; }
   wizardState._saveSearchName = undefined;
+  wizardState._shareWithMiniApps = false;
   invalidateSavedSearches();
   renderWizard();
 }
@@ -771,7 +827,13 @@ async function renameSavedSearch(id, newName) {
 }
 
 async function deleteSavedSearch(id) {
-  if (!confirm('Zoekopdracht verwijderen?')) return;
+  // Is deze zoekopdracht gedeeld met mini-apps, zeg dat er dan bij: het
+  // verwijderen haalt ook die toegang weg (de afgeleide query verdwijnt mee).
+  const s = savedSearchesCache?.find(x => x.id === id);
+  const msg = s?.is_shared_mini_apps
+    ? 'Zoekopdracht verwijderen? Ze is gedeeld met mini-apps -- die toegang verdwijnt mee en mini-apps die ze gebruiken tonen daarna "Deze query is niet meer beschikbaar".'
+    : 'Zoekopdracht verwijderen?';
+  if (!confirm(msg)) return;
   await fetch(`/insights/api/sales-insights/saved-searches/${id}`, {
     method: 'DELETE', credentials: 'include'
   });
@@ -786,8 +848,10 @@ function editSavedSearch(id) {
   wizardState._editingFromSavedSearch = {
     id: s.id,
     name: s.name,
-    snapshot: JSON.parse(JSON.stringify(s.wizard_state))
+    snapshot: JSON.parse(JSON.stringify(s.wizard_state)),
+    wasShared: !!s.is_shared_mini_apps
   };
+  wizardState._shareWithMiniApps = !!s.is_shared_mini_apps;
   wizardState.loadSnapshot(s.wizard_state);
   wizardState.currentStep = 1;
   renderWizard();
@@ -815,11 +879,18 @@ async function runSavedSearch(id) {
   // In de wizard gebeurt dit tijdens het renderen van de submodel-stap;
   // bij direct uitvoeren slaan we die stap over en moeten we prefetchen.
   const modelsToFetch = new Set([snapshot.selectedModel || 'x_sales_action_sheet']);
+  const addIfNode = function(key) {
+    const nodeKey = key.slice(0, -'_enabled'.length);
+    // Enkel node-keys uit de graaf; de overige sleutels zijn set-id's.
+    if (MODEL_CONFIG[nodeKey]) modelsToFetch.add(nodeKey);
+  };
   Object.entries(snapshot.submodelSets || {}).forEach(function([key, val]) {
-    if (!val || !key.endsWith('_enabled')) return;
-    const model = key.slice(0, -'_enabled'.length);
-    // Alleen echte Odoo-modelnames (bevatten punt of beginnen met x_)
-    if (model.includes('.') || model.startsWith('x_')) modelsToFetch.add(model);
+    if (val && key.endsWith('_enabled')) addIfNode(key);
+  });
+  Object.values(snapshot.subSubmodels || {}).forEach(function(children) {
+    Object.entries(children || {}).forEach(function([key, val]) {
+      if (val && key.endsWith('_enabled')) addIfNode(key);
+    });
   });
   await Promise.all(Array.from(modelsToFetch).map(function(m) { return fetchInformationSets(m); }));
 
@@ -837,14 +908,26 @@ async function saveSavedSearchChanges() {
   const editing = wizardState._editingFromSavedSearch;
   if (!editing) return;
   const snapshot = wizardState.toSnapshot();
+  const share = IS_ADMIN ? wizardState._shareWithMiniApps === true : undefined;
+  // Bij het BIJWERKEN sturen we de payload altijd mee zolang deze zoekopdracht
+  // gedeeld is of wordt: de server herschrijft dan de afgeleide query, zodat
+  // mini-apps die ze gebruiken automatisch de gewijzigde velden/filters zien
+  // bij hun volgende aanroep -- zonder dat er iets in de mini-app zelf moet
+  // veranderen.
+  const needsQuery = share === true || (share === undefined && editing.wasShared);
   const res = await fetch(`/insights/api/sales-insights/saved-searches/${editing.id}`, {
     method: 'PATCH', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ wizard_state: snapshot })
+    body: JSON.stringify({
+      wizard_state: snapshot,
+      share_with_mini_apps: share,
+      query: needsQuery ? buildShareablePayload() : undefined
+    })
   });
-  if (!res.ok) { alert('Opslaan mislukt.'); return; }
+  if (!res.ok) { await reportSaveFailure(res, 'Opslaan mislukt.'); return; }
   invalidateSavedSearches();
   wizardState._editingFromSavedSearch = null;
+  wizardState._shareWithMiniApps = false;
   renderWizard();
 }
 
@@ -853,6 +936,7 @@ function cancelEditSavedSearch() {
   if (!editing) return;
   wizardState.loadSnapshot(editing.snapshot);
   wizardState._editingFromSavedSearch = null;
+  wizardState._shareWithMiniApps = false;
   wizardState.currentStep = 1;
   renderWizard();
 }
@@ -914,6 +998,17 @@ async function saveNewField(formData) {
   return data.data;
 }
 
+// Leesbaar label voor een sorteerveld op een saved-search-kaart (zie
+// renderStep1() hieronder) -- id/write_date zijn generiek, de rest komt uit de
+// dateFields die de node zelf declareert (graph-nodes.js).
+function sortFieldLabel(model, field) {
+  if (!field) return null;
+  if (field === 'id') return 'Id';
+  if (field === 'write_date') return 'Laatst bijgewerkt';
+  const df = (MODEL_CONFIG[model]?.dateFields || []).find(d => d.field === field);
+  return df ? df.label : field;
+}
+
 // ============================================================================
 // RENDERING: Progress bar
 // ============================================================================
@@ -928,7 +1023,11 @@ function renderProgressBar() {
 async function renderStep1() {
   const [modelsConfig, savedSearches] = await Promise.all([fetchModelsConfig(), fetchSavedSearches()]);
   // Toon alleen modellen met can_be_startpoint !== false
-  const startpointEntries = Object.entries(MODEL_CONFIG).filter(([key]) => {
+  // Vertrekpunt = de graaf beslist (node.canBeRoot), met de Supabase-config als
+  // extra opt-out. Touchpoints, chatter en activiteiten zijn wel cascade-doelen
+  // maar geen startpunt.
+  const startpointEntries = Object.entries(MODEL_CONFIG).filter(([key, cfg]) => {
+    if (cfg.canBeRoot === false) return false;
     const dbModel = modelsConfig[key];
     if (!dbModel) return true; // Niet in DB → tonen als fallback
     return dbModel.can_be_startpoint !== false;
@@ -966,10 +1065,25 @@ async function renderStep1() {
             ` : `
               <div class="flex items-start justify-between gap-3 mb-2">
                 <div class="min-w-0">
-                  <div class="font-semibold text-sm truncate">${s.name}</div>
+                  <div class="font-semibold text-sm truncate flex items-center gap-2">
+                    <span class="truncate">${s.name}</span>
+                    ${s.is_shared_mini_apps ? `<span class="badge badge-primary badge-xs shrink-0" title="Mini-apps mogen deze zoekopdracht read-only uitvoeren">mini-apps</span>` : ''}
+                  </div>
                   <div class="text-xs text-base-content/40 flex items-center gap-1 mt-0.5">
                     <i data-lucide="database" class="w-3 h-3"></i>${modelLabel}
                   </div>
+                  ${(() => {
+                    const rl = s.wizard_state?.resultLimit;
+                    const rlUnlimited = s.wizard_state?.resultLimitUnlimited === true;
+                    const rsf = s.wizard_state?.resultSortField;
+                    const limitLabel = rlUnlimited
+                      ? 'Onbeperkt (tot modelgrens)'
+                      : (typeof rl === 'number' && rl > 0 ? `Top ${rl.toLocaleString()}` : `Top ${DEFAULT_RESULT_LIMIT_LABEL} (standaard)`);
+                    const sortLabel = sortFieldLabel(s.wizard_state?.selectedModel, rsf) || 'automatisch';
+                    return `<div class="text-xs text-base-content/40 flex items-center gap-1 mt-0.5" title="Bij een afkap gelden deze instellingen, zie Stap 3 → Resultaatlimiet">
+                      <i data-lucide="arrow-down-narrow-wide" class="w-3 h-3"></i>${limitLabel} · sortering: ${sortLabel}
+                    </div>`;
+                  })()}
                 </div>
                 <div class="flex gap-1 shrink-0">
                   <button class="btn btn-xs btn-ghost" title="Naam wijzigen" onclick="wizardState._renamingSearchId='${s.id}'; renderWizard();">
@@ -1323,12 +1437,10 @@ async function renderStep2() {
     const mx = Math.round((sx + dx) / 2);
     const my = Math.round((sy + dy) / 2);
     if (on) svgLines += `<circle cx="${mx}" cy="${my}" r="4" fill="${colorOn}" opacity="0.35" data-s="${srcKey}" data-d="${dstKey}"/>`;
-    const meta = (RELATION_META[srcKey] || {})[dstKey]
-               || (RELATION_META[dstKey] || {})[srcKey]
-               || null;
-    if (meta) {
+    const short = relationShort(srcKey, dstKey);
+    if (short) {
       const labelOpacity = on ? '0.55' : '0.22';
-      svgLines += `<text x="${mx}" y="${my - (on ? 12 : 10)}" text-anchor="middle" fill="${col}" font-size="9" font-family="monospace" opacity="${labelOpacity}" style="pointer-events:none;user-select:none;">${meta.short}</text>`;
+      svgLines += `<text x="${mx}" y="${my - (on ? 12 : 10)}" text-anchor="middle" fill="${col}" font-size="9" font-family="monospace" opacity="${labelOpacity}" style="pointer-events:none;user-select:none;">${short}</text>`;
     }
   }
 
@@ -2383,6 +2495,18 @@ async function renderStep3() {
   const model = wizardState.selectedModel || 'x_sales_action_sheet';
   const modelCfg = MODEL_CONFIG[model] || {};
   const dateFields = modelCfg.dateFields || [{ field: 'create_date', label: 'Aanmaakdatum' }];
+  const rootMaxRecords = (GRAPH.nodes[model] && GRAPH.nodes[model].maxRecords) || 5000;
+  const rootModelLabel = ((GRAPH.nodes[model] && GRAPH.nodes[model].label) || modelCfg.label || model).toLowerCase();
+  // Keuzelijst voor "Sorteren op" -- id en write_date zijn generieke Odoo-velden
+  // op elk model, aangevuld met de dateFields die deze node zelf declareert
+  // (dezelfde lijst als de datumfilter hierboven gebruikt).
+  const resultSortFieldOptions = [
+    { field: 'id', label: 'Id (aanmaakvolgorde)' },
+    { field: 'write_date', label: 'Laatst bijgewerkt' },
+    ...dateFields
+      .filter(df => df.field !== 'id' && df.field !== 'write_date')
+      .map(df => ({ field: df.field, label: df.label }))
+  ];
   const tf = wizardState.timeFilter;
   const presets = await fetchAiExportPresets();
   let crmStages = [];
@@ -2710,6 +2834,40 @@ async function renderStep3() {
 
         </div>
 
+        <!-- Resultaatlimiet -->
+        <div class="divider mt-6">Resultaatlimiet</div>
+        <div class="bg-base-200/60 rounded-xl p-4 mb-2">
+          <label class="cursor-pointer flex items-start gap-3 mb-3">
+            <input type="checkbox" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+              ${wizardState.resultLimitUnlimited ? 'checked' : ''}
+              onchange="wizardState.resultLimitUnlimited = this.checked; renderWizard();" />
+            <span class="text-sm leading-tight">
+              Onbeperkt
+              <span class="block text-xs text-base-content/50">
+                Haalt tot de modelgrens van ${rootMaxRecords.toLocaleString()} ${rootModelLabel} op i.p.v. de standaardlimiet van ${DEFAULT_RESULT_LIMIT_LABEL}. Kan trager zijn bij grote resultaten.
+              </span>
+            </span>
+          </label>
+          ${!wizardState.resultLimitUnlimited ? `
+            <div class="form-control max-w-xs">
+              <label class="label py-1"><span class="label-text text-xs font-semibold">Maximum aantal resultaten</span></label>
+              <input type="number" min="1" class="input input-bordered input-sm" placeholder="Standaard: ${DEFAULT_RESULT_LIMIT_LABEL}"
+                value="${wizardState.resultLimit || ''}"
+                onchange="wizardState.resultLimit = this.value ? parseInt(this.value, 10) : null; renderWizard();" />
+            </div>` : ''}
+          <div class="form-control max-w-xs mt-3">
+            <label class="label py-1"><span class="label-text text-xs font-semibold">Sorteren op</span></label>
+            <select class="select select-bordered select-sm"
+              onchange="wizardState.resultSortField = this.value || null; renderWizard();">
+              <option value="" ${!wizardState.resultSortField ? 'selected' : ''}>
+                Automatisch${tf.field ? ' (huidig datumfilter: ' + (dateFields.find(function(d){return d.field===tf.field;})?.label || tf.field) + ')' : ' (id)'}
+              </option>
+              ${resultSortFieldOptions.map(o => `<option value="${o.field}" ${wizardState.resultSortField === o.field ? 'selected' : ''}>${o.label}</option>`).join('')}
+            </select>
+          </div>
+          <p class="text-xs text-base-content/40 mt-2">Bij een afkap worden altijd de nieuwste records op dit veld getoond (aflopend gesorteerd), nooit de oudste.</p>
+        </div>
+
         ${partnerTypeHtml}
         ${companyStatusHtml}
         ${sourceSiteHtml}
@@ -2744,6 +2902,7 @@ async function renderStep3() {
               </button>
               <button class="btn btn-sm btn-ghost" onclick="wizardState._saveSearchName=undefined; renderWizard();">Annuleren</button>
             </div>
+            ${renderMiniAppShareCheckbox()}
           ` : `
             <button class="btn btn-outline btn-sm gap-2" onclick="wizardState._saveSearchName=''; renderWizard();">
               <i data-lucide="bookmark-plus" class="w-4 h-4"></i>Opslaan als zoekopdracht
@@ -2753,6 +2912,34 @@ async function renderStep3() {
 
       </div>
     </div>`;
+}
+
+// Het vinkje waarmee een admin, IN DEZELFDE actie als het opslaan zelf,
+// aanduidt dat mini-apps deze zoekopdracht mogen gebruiken. Bewust hier en
+// nergens anders: er is geen apart beheerscherm en geen aparte "mini-app-query"
+// meer. Enkel zichtbaar voor een Sales Insight-admin (globale rol admin of
+// module-rol admin); de server dwingt dezelfde eis nog eens af.
+//
+// Werkt op ELK model: schema-service.js haalt Studio-modellen (x_...)
+// dynamisch op via ir.model (zie getDefaultModels() daar), en
+// saved-search-sharing.js herbouwt het schema automatisch éénmalig als het
+// enige validatieprobleem een onbekend basismodel is -- een nieuw
+// Studio-model werkt dus zonder handmatige "Schema verversen"-stap.
+function renderMiniAppShareCheckbox() {
+  if (!IS_ADMIN) return '';
+  return `
+    <label class="cursor-pointer flex items-start gap-3 mt-3">
+      <input type="checkbox" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+        ${wizardState._shareWithMiniApps ? 'checked' : ''}
+        onchange="wizardState._shareWithMiniApps = this.checked;" />
+      <span class="text-sm leading-tight">
+        Ook beschikbaar voor mini-apps
+        <span class="block text-xs text-base-content/50">
+          Mini-apps kunnen deze zoekopdracht dan read-only uitvoeren. Pas je ze later aan,
+          dan volgen die mini-apps automatisch mee; verwijder je ze, dan verdwijnt de toegang mee.
+        </span>
+      </span>
+    </label>`;
 }
 
 // ============================================================================
@@ -2805,6 +2992,13 @@ async function renderWizard() {
     <div class="alert bg-warning/10 border border-warning/30 rounded-xl mb-4 flex items-center gap-3 py-3 px-4">
       <i data-lucide="pencil" class="w-4 h-4 text-warning shrink-0"></i>
       <span class="text-sm flex-1">Je bewerkt <strong>${editing.name}</strong></span>
+      ${IS_ADMIN ? `
+        <label class="cursor-pointer flex items-center gap-2 shrink-0" title="Mini-apps mogen deze zoekopdracht read-only uitvoeren">
+          <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+            ${wizardState._shareWithMiniApps ? 'checked' : ''}
+            onchange="wizardState._shareWithMiniApps = this.checked;" />
+          <span class="text-xs">Beschikbaar voor mini-apps</span>
+        </label>` : ''}
       <button class="btn btn-xs btn-warning gap-1" onclick="saveSavedSearchChanges()">
         <i data-lucide="save" class="w-3 h-3"></i>Wijzigingen opslaan
       </button>
@@ -3107,8 +3301,22 @@ function sanitizeWebActivityFields(data) {
   return { ...data, [rowKey]: sanitized };
 }
 
-function buildExportMeta(payload) {
-  const model = payload.base_model;
+/**
+ * Eén veldsleutel zonder Studio-prefix -- enkel nog nodig om
+ * information_set_fields.field_key (nog steeds de RUWE Odoo-naam) te matchen
+ * met de KORTE namen die al in data.meta.fields staan (cascade-executor.js
+ * strip die daar zelf al af, zie stripFieldPrefixes() aldaar). De records en
+ * meta.fields zelf hoeven hier niet meer gestript te worden -- dat is al
+ * gebeurd vóór het resultaat de server verlaat.
+ */
+function _exportStripPrefix(key) {
+  if (key.startsWith('x_studio_')) return key.slice('x_studio_'.length);
+  if (key.startsWith('x_')) return key.slice('x_'.length);
+  return key;
+}
+
+function buildExportMeta(payload, data) {
+  const model = (payload.root && payload.root.node) || null;
   const modelCfg = MODEL_CONFIG[model] || {};
   const tf = wizardState.resolvedTimeFilter();
   const selectedSets = (informationSetsCache[model] || [])
@@ -3117,12 +3325,35 @@ function buildExportMeta(payload) {
 
   const preset = aiExportPresetsCache?.find(p => p.id === wizardState.aiPresetId);
 
+  // Schema/legende: labels voor de veldsleutels zoals ze ECHT in de records
+  // staan (na prefix-strippen), zodat een lezer (mens of AI) niet zelf
+  // "x_studio_has_reserve_account" -> "Heeft reserverekening" moet raden.
+  // Enkel zinvol als er ook effectief data is (buildExportMeta wordt ook
+  // gebruikt vóór de query draait, in het verify-scherm).
+  let fieldSchema = null;
+  let legend = null;
+  if (data && Array.isArray(data.meta?.fields)) {
+    // data.meta.fields komt al KORT (prefix-gestript) van de server; de
+    // labels in information_set_fields staan nog onder de RUWE Odoo-naam,
+    // vandaar _exportStripPrefix() enkel hier, om de twee te matchen.
+    const fieldLabels = {};
+    (informationSetsCache[model] || []).forEach((s) => {
+      (s.information_set_fields || []).forEach((f) => {
+        if (f.label) fieldLabels[_exportStripPrefix(f.field_key)] = f.label;
+      });
+    });
+    fieldSchema = data.meta.fields.map((key) => ({ key, label: fieldLabels[key] || key }));
+    legend = 'Velden die op een record ONTBREKEN hadden de waarde false (leeg/niet aangevinkt/niet ingevuld) -- weggelaten om het bestand compact te houden (zie cascade-executor.js#omitFalseValues, geldt overal: wizard-export, resultatenscherm en mini-apps). Een aanwezige key betekent altijd een echte waarde.';
+  }
+
   return {
     _export_meta: {
       generated_at: new Date().toISOString(),
       model: { id: model, label: modelCfg.label || model },
       period: tf.from ? { from: tf.from, to: tf.to, field: tf.field } : null,
       field_groups: selectedSets,
+      ...(fieldSchema ? { fields: fieldSchema } : {}),
+      ...(legend ? { legend } : {}),
       lead_enrichment: wizardState.leadEnrichment.enabled ? {
         enabled: true,
         won_status_filter: wizardState.leadEnrichment.filters.won_status,
@@ -3214,8 +3445,13 @@ function renderResultsModal(data) {
   const { records } = data;
   const count = records.length;
 
-  // Build preview: first 3 records, only non-internal cols, max 4 cols
-  const allCols = count > 0 ? Object.keys(records[0]).filter(k => !k.startsWith('__')) : [];
+  // Build preview: first 3 records, only non-internal cols, max 4 cols.
+  // data.meta.fields (niet Object.keys(records[0])!) is de canonieke lijst:
+  // een veld dat op record 0 toevallig false was (dus weggelaten, zie
+  // cascade-executor.js#omitFalseValues) mag niet uit de kolomlijst vallen.
+  const allCols = Array.isArray(data.meta?.fields)
+    ? data.meta.fields.filter(k => !k.startsWith('__'))
+    : (count > 0 ? Object.keys(records[0]).filter(k => !k.startsWith('__')) : []);
   const previewCols = allCols.slice(0, 4);
   const previewRows = records.slice(0, 3);
 
@@ -3255,6 +3491,14 @@ function renderResultsModal(data) {
     + '</div>'
     + '<button class="btn btn-ghost btn-sm btn-circle ml-auto" onclick="closeResultsModal()">✕</button>'
     + '</div>'
+
+    // Uniforme afkap-waarschuwing -- dezelfde tekst (data.meta.truncated_message)
+    // die een mini-app krijgt via lib/mini-app-bridge.js#runSharedQuery(), hier
+    // getoond in de wizard-resultaten i.p.v. dat de wizard zwijgt over een
+    // stille afkap zoals voorheen.
+    + (data.meta && data.meta.truncated_message
+        ? '<div class="alert alert-warning text-xs py-2 px-3 mb-3"><i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i><span>' + data.meta.truncated_message + '</span></div>'
+        : '')
 
     + '<div class="divider my-2 text-xs">Downloaden</div>'
     + presetHtml
@@ -3332,8 +3576,10 @@ async function exportVerifyData() {
     const tf = wizardState.resolvedTimeFilter();
     const tfField = tf?.field || 'create_date';
 
-    const originalTimeFilters = (payload.filters || []).filter(function(f) { return f.field === tfField; });
-    payload.filters = (payload.filters || []).filter(function(f) { return f.field !== tfField; });
+    // Verificatie kijkt naar de laatste 25 records ongeacht periode: de
+    // time_scope van het basismodel gaat er dus uit, overige filters blijven.
+    const originalTimeFilters = payload.root && payload.root.time_scope ? [payload.root.time_scope] : [];
+    if (payload.root) delete payload.root.time_scope;
     payload._verify_mode = true;
 
     if (btn) btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Ophalen...';
@@ -3350,11 +3596,18 @@ async function exportVerifyData() {
 
     const processedData = result.data || { records: [] };
     const records = processedData.records || [];
-    const model = payload.base_model || 'data';
+    const model = (payload.root && payload.root.node) || 'data';
     const modelCfg = MODEL_CONFIG[model] || {};
 
-    // Hoofd-velden (geen __ prefix)
-    const allRecordKeys = records.length ? Object.keys(records[0]).filter(function(k) { return !k.startsWith('__'); }) : [];
+    // Hoofd-velden (geen __ prefix). processedData.meta.fields (niet
+    // Object.keys(records[0])!) is de canonieke lijst -- anders valt een veld
+    // dat op record 0 toevallig false was (dus weggelaten, zie
+    // cascade-executor.js#omitFalseValues) hier stil uit de fill-stats, net op
+    // het moment dat dit rapport net dát soort "bijna altijd leeg"-velden
+    // hoort te tonen.
+    const allRecordKeys = Array.isArray(processedData.meta?.fields)
+      ? processedData.meta.fields.filter(function(k) { return !k.startsWith('__'); })
+      : (records.length ? Object.keys(records[0]).filter(function(k) { return !k.startsWith('__'); }) : []);
     // L2 submodel-sleutels (__ prefix op hoofdrecord) — bijv. __leads, __messages
     const subModelKeys = records.length ? Object.keys(records[0]).filter(function(k) { return k.startsWith('__'); }) : [];
 
@@ -3453,16 +3706,15 @@ async function exportVerifyData() {
       .map(function(s) { return { id: s.id, label: s.label, description: s.description }; });
 
     // Gevraagde modellen: hoofdmodel + L2 + L3
-    const subModelMeta = {
-      '__leads':       { model: 'crm.lead',             label: 'Leads' },
-      '__messages':    { model: 'mail.message',          label: 'Chatberichten' },
-      '__activities':  { model: 'mail.activity',         label: 'Activiteiten' },
-      '__partners':    { model: 'res.partner',           label: 'Partners (direct)' },
-      '__partner':     { model: 'res.partner',           label: 'Partner' },
-      '__visitors':    { model: 'x_web_visitor',         label: 'Web Visitors' },
-      '__touchpoints': { model: 'x_ad_touchpoint',       label: 'Ad Touchpoints' },
-      '__actionsheets':{ model: 'x_sales_action_sheet',  label: 'Actiebladen' }
-    };
+    // Alias -> model/label komt uit de graaf: elke edge declareert onder welke
+    // `as`-sleutel zijn resultaten hangen. Geen hardcoded lijst meer die
+    // achterloopt zodra er een koppeling bijkomt.
+    const subModelMeta = {};
+    (GRAPH.edges || []).forEach(function(e) {
+      if (!e.as || subModelMeta[e.as]) return;
+      const node = MODEL_CONFIG[e.to] || {};
+      subModelMeta[e.as] = { model: node.model || e.to, label: node.label || e.to };
+    });
     const requestedModels = [{ model: model, label: modelCfg.label || model, fields: allRecordKeys }];
     subModelKeys.forEach(function(l2key) {
       const meta = subModelMeta[l2key] || { model: l2key, label: l2key };
@@ -3512,7 +3764,8 @@ async function exportVerifyData() {
       query_config: exportMeta._export_meta,
       requested_models: requestedModels,
       field_groups: selectedSets,
-      applied_filters: payload.filters || [],
+      applied_filters: (payload.root && payload.root.filters) || [],
+      cascade: payload.cascade || [],
       original_time_filters_skipped: originalTimeFilters,
       field_fill_stats: fieldFillStats,
       records_fetched: records.length
@@ -3580,10 +3833,15 @@ async function exportSemanticQuery(format) {
       if (!result.success) throw new Error(result.error?.message || 'Query failed');
       const data = result.data;
 
-      const exportMeta = buildExportMeta(payload);
+      const exportMeta = buildExportMeta(payload, data);
+      // data.records komt al compact van de server (cascade-executor.js
+      // strip false-velden en Studio-prefixen zelf, overal -- niet enkel voor
+      // deze export). Hier resteert enkel: geen json-stringify(...,null,2)
+      // meer, want de insprong kost op een export van deze omvang al gauw 20%
+      // aan bytes voor pure whitespace, zonder dat een AI daar iets aan heeft.
       const exportData = { ...exportMeta, ...data };
 
-      const model = payload.base_model;
+      const model = payload.root.node;
       const tf = wizardState.resolvedTimeFilter();
       const periodStr = tf.from ? `_${tf.from}_${tf.to}` : '';
       const preset = aiExportPresetsCache?.find(p => p.id === wizardState.aiPresetId);
@@ -3596,7 +3854,7 @@ async function exportSemanticQuery(format) {
           : 'Analyseer de JSON-data in dit bestand en geef een beknopte samenvatting van de inhoud. '
             + 'Gebruik de _export_meta voor context over het model, de geselecteerde veldcategorieën en eventuele filters. '
             + 'Bespreek patronen, opvallende waarden en ontbrekende data.';
-        const jsonStr = JSON.stringify(exportData, null, 2);
+        const jsonStr = JSON.stringify(exportData);
         const mdContent = aiInstruction + '\n\n---\n\n## Export-data\n\n```json\n' + jsonStr + '\n```\n';
         const filename = model + periodStr + presetStr + '_' + new Date().toISOString().slice(0,10) + '.md';
         const blob = new Blob([mdContent], { type: 'text/markdown' });
@@ -3610,7 +3868,7 @@ async function exportSemanticQuery(format) {
       }
 
       const filename = `${model}${periodStr}${presetStr}_${new Date().toISOString().slice(0,10)}.json`;
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = filename;
@@ -3647,6 +3905,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (loadingEl) loadingEl.style.display = 'none';
     if (mainEl)    mainEl.style.display    = 'block';
 
+    // De graaf eerst: MODEL_CONFIG en de cascade-keuzes hangen ervan af.
+    await loadGraph();
     await Promise.all([fetchAiExportPresets(), fetchModelsConfig()]);
     if (aiExportPresetsCache?.length > 0) {
       const geen = aiExportPresetsCache.find(p => p.label === 'Geen preset');

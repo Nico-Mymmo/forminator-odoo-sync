@@ -52,7 +52,7 @@ import { executeKw } from '../../../lib/odoo.js';
  * @returns {Promise<SchemaSnapshot>}
  */
 export async function introspectSchema(env, modelNames = null) {
-  const targetModels = modelNames || getDefaultModels();
+  const targetModels = modelNames || await getDefaultModels(env);
   const models = {};
   const errors = {}; // Track errors per model
   
@@ -294,24 +294,62 @@ function generateSchemaVersion() {
 }
 
 /**
- * Get default models to introspect
- * 
- * Focuses on key sales-related models
- * 
- * @returns {Array<string>}
+ * Vaste kern van standaard-Odoo-modellen die de wizard kent (crm.lead,
+ * res.partner, ...) -- deze zijn niet Studio-specifiek en dus niet via
+ * ir.model te onderscheiden van de duizenden andere ingebouwde Odoo-modellen,
+ * dus blijven ze een expliciete lijst. x_-modellen (Studio custom models)
+ * horen hier NIET bij: die worden hieronder dynamisch opgehaald, zodat een
+ * NIEUW Studio-model (bv. x_web_visitor, x_ad_touchpoint, of iets dat later
+ * in Studio wordt aangemaakt) automatisch meegenomen wordt zonder code-
+ * wijziging hier.
  */
-function getDefaultModels() {
-  return [
-    'x_sales_action_sheet',       // Sales Action Sheets (PRIMARY MODEL) ✓ Exists (415 records)
-    'x_user_painpoints',          // Pain points master data ✓ Exists (14 records)
-    'crm.lead',                   // Opportunities/Leads
-    'res.partner',                // Customers/Contacts
-    'crm.stage',                  // CRM Stages
-    'mail.activity',              // Activities
-    'calendar.event',             // Meetings/Events
-    'sale.order',                 // Sales Orders (if available)
-    'product.product'             // Products (if available)
-  ];
+const FIXED_NATIVE_MODELS = [
+  'crm.lead',       // Opportunities/Leads
+  'res.partner',    // Customers/Contacts
+  'crm.stage',       // CRM Stages
+  'mail.activity',   // Activities
+  'mail.message',    // Chatter-berichten (kan als relatie/basismodel gekozen worden)
+  'calendar.event',  // Meetings/Events
+  'sale.order',      // Sales Orders (if available)
+  'product.product'  // Products (if available)
+];
+
+/**
+ * Get default models to introspect.
+ *
+ * Voorheen een hardcoded lijst die enkel de modellen kende die er waren op
+ * het moment dat deze functie geschreven werd -- x_web_visitor/x_ad_touchpoint
+ * zaten er bv. nooit in, waardoor delen van een zoekopdracht op die modellen
+ * altijd faalde met "Model 'x_...' not found in schema", ook nadat het model
+ * al lang in Odoo Studio bestond. Nu: ALLE Studio-modellen (technische naam
+ * begint met "x_") worden dynamisch opgehaald via ir.model, plus de vaste
+ * kern van standaard-Odoo-modellen hierboven. Een nieuw Studio-model is dus
+ * bij de volgende schema-opbouw automatisch mee -- geen code-wijziging nodig.
+ *
+ * @param {Object} env - Cloudflare Worker environment
+ * @returns {Promise<Array<string>>}
+ */
+async function getDefaultModels(env) {
+  let studioModels = [];
+  try {
+    const results = await executeKw(env, {
+      model: 'ir.model',
+      method: 'search_read',
+      args: [[]],
+      kwargs: { fields: ['model'], limit: 5000 }
+    });
+    // Server-side domain-filteren op "x_" is nodeloos foutgevoelig (SQL LIKE
+    // interpreteert "_" zelf al als jokerteken) -- gewoon alles ophalen
+    // (enkel het "model"-veld, dus licht) en hier exact filteren.
+    studioModels = (results || [])
+      .map((r) => r.model)
+      .filter((name) => typeof name === 'string' && name.startsWith('x_'));
+  } catch (error) {
+    console.warn('[schema-service] Kon Studio-modellen niet dynamisch ophalen, val terug op vaste lijst:', error.message);
+    studioModels = ['x_sales_action_sheet', 'x_user_painpoints', 'x_web_visitor', 'x_ad_touchpoint'];
+  }
+
+  return Array.from(new Set([...studioModels, ...FIXED_NATIVE_MODELS]));
 }
 
 /**
@@ -404,18 +442,37 @@ export function detectSchemaChanges(oldSchema, newSchema) {
   return changes;
 }
 
+export const SCHEMA_CACHE_KEY = 'sales_insights:schema:current';
+
+/**
+ * TTL van de schema-cache in KV.
+ *
+ * Stond hier oorspronkelijk op 3600 (1 uur). Gevolg: één uur na de laatste
+ * handmatige "Schema verversen" gaf ELKE route die het schema nodig heeft
+ * (valideren, opslaan, uitvoeren, exporteren, delen met mini-apps) een
+ * doodlopende 503 "Schema not available. Please refresh schema first." --
+ * terwijl een gebruiker geen enkele reden heeft om te weten dat er zoiets als
+ * een schema-cache bestaat. Dat is waarom dat "telkens opnieuw" moest.
+ *
+ * Nu 30 dagen, in combinatie met ensureSchema() hieronder dat een lege cache
+ * zelf opvult. Verse veldinformatie na een Studio-wijziging haal je nog steeds
+ * op met de expliciete "Schema verversen"-knop (POST /schema/refresh), die de
+ * cache invalideert en detectSchemaChanges() draait.
+ */
+export const SCHEMA_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 /**
  * Cache schema snapshot in KV
- * 
+ *
  * @param {Object} env - Worker environment
  * @param {SchemaSnapshot} schema - Schema to cache
- * @param {number} [ttl=3600] - TTL in seconds (default 1 hour)
+ * @param {Object} [capabilities] - Geserialiseerde capabilities per model
+ * @param {number} [ttl=SCHEMA_CACHE_TTL_SECONDS] - TTL in seconden
  */
-export async function cacheSchema(env, schema, ttl = 3600) {
-  const cacheKey = 'sales_insights:schema:current';
-  
-  await env.MAPPINGS_KV.put(cacheKey, JSON.stringify({
+export async function cacheSchema(env, schema, capabilities = null, ttl = SCHEMA_CACHE_TTL_SECONDS) {
+  await env.MAPPINGS_KV.put(SCHEMA_CACHE_KEY, JSON.stringify({
     schema,
+    capabilities: capabilities || {},
     cached_at: new Date().toISOString()
   }), {
     expirationTtl: ttl
@@ -424,15 +481,73 @@ export async function cacheSchema(env, schema, ttl = 3600) {
 
 /**
  * Retrieve cached schema from KV
- * 
+ *
+ * Let op: geeft `null` terug als de cache leeg/verlopen is. Gebruik in nieuwe
+ * code ensureSchema() -- dat vult een lege cache zelf op in plaats van de
+ * aanroeper met een foutmelding op te zadelen.
+ *
  * @param {Object} env - Worker environment
- * @returns {Promise<{schema: SchemaSnapshot, cached_at: string}|null>}
+ * @returns {Promise<{schema: SchemaSnapshot, capabilities: Object, cached_at: string}|null>}
  */
 export async function getCachedSchema(env) {
-  const cacheKey = 'sales_insights:schema:current';
-  
-  const cached = await env.MAPPINGS_KV.get(cacheKey, 'json');
+  const cached = await env.MAPPINGS_KV.get(SCHEMA_CACHE_KEY, 'json');
   return cached;
+}
+
+// Single-flight per isolate: zien meerdere gelijktijdige requests tegelijk een
+// leeg cache-slot, dan mag er maar ÉÉN introspectie-run naar Odoo gaan.
+let schemaBuildInFlight = null;
+
+/**
+ * Geef schema + capabilities terug, en bouw ze op als de cache leeg is.
+ *
+ * Dit is de functie die elke route/lib hoort te gebruiken. Ze maakt het
+ * verschil tussen "de cache is verlopen" (technisch detail, mag de gebruiker
+ * niet merken) en "Odoo is onbereikbaar of geeft een fout" (echte fout, wordt
+ * doorgegooid zodat de aanroeper ze kan tonen).
+ *
+ * Ontbreken de capabilities in een oudere cache-rij (die werden vroeger niet
+ * meegeschreven door cacheSchema()), dan worden ze hier bijgerekend en
+ * teruggeschreven -- zonder het schema opnieuw te introspecteren.
+ *
+ * @param {Object} env - Worker environment
+ * @returns {Promise<{schema: SchemaSnapshot, capabilities: Object, cached_at: string}>}
+ * @throws {Error} als het schema niet opgebouwd kan worden (bv. Odoo onbereikbaar)
+ */
+export async function ensureSchema(env) {
+  const cached = await getCachedSchema(env);
+
+  if (cached && cached.schema && cached.capabilities && Object.keys(cached.capabilities).length > 0) {
+    return cached;
+  }
+
+  if (cached && cached.schema) {
+    const { detectAllCapabilities, serializeCapabilities } = await import('./capability-detection.js');
+    const capabilities = serializeCapabilities(await detectAllCapabilities(env, cached.schema));
+    await cacheSchema(env, cached.schema, capabilities);
+    return { schema: cached.schema, capabilities, cached_at: cached.cached_at };
+  }
+
+  if (schemaBuildInFlight) return await schemaBuildInFlight;
+
+  schemaBuildInFlight = (async () => {
+    console.log('[schema-service] cache leeg -- schema wordt automatisch opgebouwd');
+    const schema = await introspectSchema(env);
+    if (!schema || !schema.models || Object.keys(schema.models).length === 0) {
+      throw new Error('Schema kon niet opgebouwd worden: Odoo gaf geen enkel model terug.');
+    }
+    const { detectAllCapabilities, serializeCapabilities } = await import('./capability-detection.js');
+    const capabilities = serializeCapabilities(await detectAllCapabilities(env, schema));
+    await cacheSchema(env, schema, capabilities);
+    console.log(`[schema-service] schema opgebouwd en gecacheerd (${Object.keys(schema.models).length} modellen)`);
+    return { schema, capabilities, cached_at: new Date().toISOString() };
+  })();
+
+  try {
+    return await schemaBuildInFlight;
+  } finally {
+    schemaBuildInFlight = null;
+  }
 }
 
 /**
