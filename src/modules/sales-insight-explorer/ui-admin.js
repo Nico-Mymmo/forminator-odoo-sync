@@ -165,6 +165,10 @@ export function queryBuilderAdminUI(user) {
           <div class="text-sm">
             <strong>Dit is een overzicht, geen beheerscherm.</strong> Delen gebeurt in de wizard zelf:
             bewaar een zoekopdracht en vink daar <em>&ldquo;Ook beschikbaar voor mini-apps&rdquo;</em> aan.
+            Wil je dat een los AI-gesprek deze query ook mag ontdekken om er een mini-app mee te
+            bouwen, vink daarnaast <em>&ldquo;Ook beschikbaar voor AI&rdquo;</em> aan (badge
+            <span class="badge badge-primary badge-xs">mini-app/AI</span> hieronder) — zonder die vlag
+            blijft een query enkel uitvoerbaar door een al bestaande mini-app.
             Pas je die zoekopdracht later aan, dan volgen de mini-apps automatisch mee; verwijder je ze
             of vink je het uit, dan verdwijnt de toegang mee.
             Mini-apps gebruiken deze queries via <code>window.platform.odoo</code> — uitsluitend read-only.
@@ -459,7 +463,12 @@ export function queryBuilderAdminUI(user) {
       tbody.innerHTML = queries.map(q => \`
         <tr class="hover">
           <td>
-            <div class="font-semibold text-sm">\${q.name}</div>
+            <div class="font-semibold text-sm flex items-center gap-2">
+              \${q.name}
+              \${q.is_shared_ai
+                ? '<span class="badge badge-primary badge-xs" title="Ook zichtbaar in de AI-discovery voor het bouwen van nieuwe mini-apps">mini-app/AI</span>'
+                : '<span class="badge badge-ghost badge-xs" title="Enkel uitvoerbaar door een mini-app, niet zichtbaar voor AI-discovery">mini-app</span>'}
+            </div>
             <div class="text-xs text-base-content/50">\${q.description || ''}</div>
             <div class="text-xs text-base-content/40 font-mono">\${q.base_model}</div>
             <div class="text-xs text-base-content/30 font-mono">id: \${q.id}</div>

@@ -356,7 +356,7 @@ function omitFalseValues(value) {
  *
  * @returns {Promise<Array<Object>>}
  */
-async function batchedSearchRead(env, { model, keys, domainFor, fields, cap, order }) {
+async function batchedSearchRead(env, { model, keys, domainFor, fields, cap, order, context }) {
   const rows = [];
   for (const part of chunk(keys, ID_BATCH_SIZE)) {
     const batch = await searchRead(env, {
@@ -364,7 +364,8 @@ async function batchedSearchRead(env, { model, keys, domainFor, fields, cap, ord
       domain: domainFor(part),
       fields,
       limit: cap ? cap + 1 : undefined,
-      ...(order ? { order } : {})
+      ...(order ? { order } : {}),
+      ...(context ? { context } : {})
     });
     rows.push(...batch);
     if (cap && rows.length > cap) break;
@@ -446,11 +447,25 @@ async function runHop(env, edge, sourceIds, spec) {
     // Het koppelveld leeft op het BRONmodel: lees de FK-waarden uit de
     // bronrecords en zoek het doel op die waarden. Dit is precies de stap die
     // de oude motor oversloeg.
+    //
+    // context: { active_test: false } is hier BEWUST nodig, los van
+    // spec.extraDomain verderop: bij een many2many-veld (bv.
+    // x_studio_as_opportunity_ids) berekent Odoo de veldwaarde zelf via een
+    // interne search die de active_test uit de AANROEP-CONTEXT gebruikt --
+    // NIET via het domain dat wij aan de latere zoekopdracht op het
+    // doelmodel meegeven. Zonder dit worden gearchiveerde doelrecords (bv.
+    // verloren leads, active=false) al op DIT punt stilzwijgend uit de
+    // many2many-waarde weggelaten, nog voor targetNode.baseDomain ("active
+    // in [true, false]") ook maar de kans krijgt om ze mee te nemen -- exact
+    // de bug waarbij verloren leads nooit in __leads verschenen. Voor een
+    // many2one-veld is dit een no-op (de FK-waarde is een gewone kolom, geen
+    // berekend veld, en wordt sowieso altijd teruggegeven).
     const sourceRows = await batchedSearchRead(env, {
       model: sourceModel,
       keys: sourceIds,
       domainFor: (ids) => [['id', 'in', ids]],
-      fields: ['id', edge.field]
+      fields: ['id', edge.field],
+      context: { active_test: false }
     });
 
     const targetIds = new Set();

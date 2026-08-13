@@ -763,6 +763,7 @@ async function listSavedQueries(context) {
       created_at: q.created_at,
       updated_at: q.updated_at,
       is_shared_mini_apps: q.is_shared_mini_apps || false,
+      is_shared_ai: q.is_shared_ai || false,
       mini_app_parameters: Array.isArray(q.mini_app_parameters) ? q.mini_app_parameters : []
     }));
     
@@ -2266,9 +2267,24 @@ async function listSavedSearches(context) {
     // is_shared_mini_apps is afgeleid, niet apart opgeslagen: een zoekopdracht
     // is gedeeld zodra ze naar een afgeleide query verwijst (zie
     // lib/saved-search-sharing.js). Zo bestaat er maar EEN waarheid.
+    //
+    // is_shared_ai zit WEL apart op de afgeleide rij zelf (sales_insight_queries
+    // .is_shared_ai), dus die moet er expliciet bij opgehaald worden voor elke
+    // zoekopdracht die een mini_app_query_id heeft.
+    const sharedIds = (data || []).map(s => s.mini_app_query_id).filter(Boolean);
+    let aiFlagsById = new Map();
+    if (sharedIds.length > 0) {
+      const { data: aiRows, error: aiError } = await supabase
+        .from('sales_insight_queries')
+        .select('id, is_shared_ai')
+        .in('id', sharedIds);
+      if (aiError) throw new Error(aiError.message);
+      aiFlagsById = new Map((aiRows || []).map(r => [r.id, !!r.is_shared_ai]));
+    }
     const rows = (data || []).map(s => ({
       ...s,
-      is_shared_mini_apps: !!s.mini_app_query_id
+      is_shared_mini_apps: !!s.mini_app_query_id,
+      is_shared_ai: s.mini_app_query_id ? (aiFlagsById.get(s.mini_app_query_id) || false) : false
     }));
     return new Response(JSON.stringify({ success: true, data: rows }), {
       headers: { 'Content-Type': 'application/json' }
@@ -2289,7 +2305,7 @@ async function createSavedSearch(context) {
   const { env, user, request } = context;
   try {
     const body = await request.json();
-    const { name, wizard_state, share_with_mini_apps, query } = body ?? {};
+    const { name, wizard_state, share_with_mini_apps, share_with_ai, query } = body ?? {};
     if (!name?.trim()) {
       return new Response(JSON.stringify({ success: false, error: { message: 'name is verplicht' } }), {
         status: 400, headers: { 'Content-Type': 'application/json' }
@@ -2298,8 +2314,9 @@ async function createSavedSearch(context) {
 
     // Delen met mini-apps zit BEWUST in dezelfde actie als het opslaan zelf --
     // geen apart scherm, geen aparte query. Enkel een Sales Insight-admin mag
-    // die vlag zetten; wie dat niet is, bewaart gewoon zijn zoekopdracht.
-    if (share_with_mini_apps === true) {
+    // die vlag zetten (en de aparte AI-vlag); wie dat niet is, bewaart gewoon
+    // zijn zoekopdracht.
+    if (share_with_mini_apps === true || share_with_ai === true) {
       const deny = guardSalesInsightAdmin(context);
       if (deny) return deny;
     }
@@ -2310,6 +2327,7 @@ async function createSavedSearch(context) {
         const sync = await syncSharedQueryForSavedSearch(env, {
           currentQueryId: null,
           share: true,
+          shareAi: share_with_ai === true,
           query,
           name: name.trim()
         });
@@ -2341,7 +2359,11 @@ async function createSavedSearch(context) {
     }
     return new Response(JSON.stringify({
       success: true,
-      data: { ...data, is_shared_mini_apps: !!data.mini_app_query_id }
+      data: {
+        ...data,
+        is_shared_mini_apps: !!data.mini_app_query_id,
+        is_shared_ai: !!data.mini_app_query_id && share_with_ai === true
+      }
     }), {
       status: 201, headers: { 'Content-Type': 'application/json' }
     });
@@ -2385,9 +2407,14 @@ async function updateSavedSearch(context) {
     if (body.wizard_state !== undefined) updates.wizard_state = body.wizard_state;
 
     const wantsSharingChange = body.share_with_mini_apps !== undefined;
+    const wantsAiChange = body.share_with_ai !== undefined;
     const alreadyShared = !!current.mini_app_query_id;
 
-    if ((wantsSharingChange && body.share_with_mini_apps === true) || (alreadyShared && body.query)) {
+    if (
+      (wantsSharingChange && body.share_with_mini_apps === true) ||
+      (wantsAiChange && body.share_with_ai === true) ||
+      (alreadyShared && body.query)
+    ) {
       const deny = guardSalesInsightAdmin(context);
       if (deny) return deny;
     }
@@ -2399,11 +2426,12 @@ async function updateSavedSearch(context) {
     // De afgeleide query wordt bij elke save herschreven vanuit de meegestuurde
     // payload -- zo volgt de mini-app-kant automatisch mee met een gewijzigde
     // zoekopdracht, zonder dat er iets in de mini-app zelf aangepast moet worden.
-    if (wantsSharingChange || (alreadyShared && body.query) || renamesShared) {
+    if (wantsSharingChange || wantsAiChange || (alreadyShared && body.query) || renamesShared) {
       try {
         const sync = await syncSharedQueryForSavedSearch(env, {
           currentQueryId: current.mini_app_query_id,
           share: wantsSharingChange ? !!body.share_with_mini_apps : undefined,
+          shareAi: wantsAiChange ? !!body.share_with_ai : undefined,
           query: body.query,
           name: updates.name !== undefined ? updates.name : current.name
         });
@@ -2435,9 +2463,23 @@ async function updateSavedSearch(context) {
         status: 404, headers: { 'Content-Type': 'application/json' }
       });
     }
+    // is_shared_ai staat op de afgeleide rij zelf, niet op saved_searches --
+    // hier expliciet ophalen zodat de wizard direct de effectieve waarde
+    // terugkrijgt (ook als deze aanroep enkel de naam wijzigde, niet de
+    // AI-vlag).
+    let isSharedAi = false;
+    if (data.mini_app_query_id) {
+      const { data: aiRow, error: aiError } = await supabase
+        .from('sales_insight_queries')
+        .select('is_shared_ai')
+        .eq('id', data.mini_app_query_id)
+        .maybeSingle();
+      if (aiError) throw new Error(aiError.message);
+      isSharedAi = !!aiRow?.is_shared_ai;
+    }
     return new Response(JSON.stringify({
       success: true,
-      data: { ...data, is_shared_mini_apps: !!data.mini_app_query_id }
+      data: { ...data, is_shared_mini_apps: !!data.mini_app_query_id, is_shared_ai: isSharedAi }
     }), {
       headers: { 'Content-Type': 'application/json' }
     });

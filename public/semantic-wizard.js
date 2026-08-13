@@ -162,6 +162,7 @@ class WizardState {
     this._renamingSearchId = null;       // id of saved search being renamed
     this._editingFromSavedSearch = null; // { id, name, snapshot } wanneer bezig met bewerken
     this._shareWithMiniApps = false;     // vinkje "ook beschikbaar voor mini-apps" bij het opslaan
+    this._shareWithAi = false;           // vinkje "ook beschikbaar voor AI" -- enkel zinvol als _shareWithMiniApps aanstaat
     // Web visitor filters
     this.webVisitorFilter = { sourceSites: [], possibleBounce: 'exclude', instantBounce: 'exclude' };
     this._allSourceSites = [];           // alle beschikbare sites (voor vergelijking in buildPayload)
@@ -629,6 +630,7 @@ class WizardState {
     this.aiPresetId = null; this._expandedSet = null; this._showAddSet = false; this._showAddField = null; this._previewSet = null; this._adminOpen = false;
     this._saveSearchName = undefined; this._renamingSearchId = null; this._editingFromSavedSearch = null;
     this._shareWithMiniApps = false;
+    this._shareWithAi = false;
     this.resultLimit = null; this.resultLimitUnlimited = false; this.resultSortField = null;
   }
 }
@@ -793,9 +795,13 @@ async function saveCurrentSearch() {
   if (!name) { alert('Geef een naam op voor deze zoekopdracht.'); return; }
   const snapshot = wizardState.toSnapshot();
   const share = IS_ADMIN && wizardState._shareWithMiniApps === true;
+  // AI-vlag enkel zinvol (en enkel meegestuurd) als er ook effectief gedeeld
+  // wordt met mini-apps -- zonder mini-app-toegang is er niets voor AI om te
+  // ontdekken.
+  const shareAi = share && wizardState._shareWithAi === true;
   // Delen zit in DEZELFDE actie als opslaan: geen apart scherm, geen aparte
-  // query. De server maakt/actualiseert op basis van share_with_mini_apps de
-  // afgeleide, uitvoerbare query (zie lib/saved-search-sharing.js).
+  // query. De server maakt/actualiseert op basis van share_with_mini_apps /
+  // share_with_ai de afgeleide, uitvoerbare query (zie lib/saved-search-sharing.js).
   const res = await fetch('/insights/api/sales-insights/saved-searches', {
     method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -803,12 +809,14 @@ async function saveCurrentSearch() {
       name,
       wizard_state: snapshot,
       share_with_mini_apps: share,
+      share_with_ai: shareAi,
       query: share ? buildShareablePayload() : undefined
     })
   });
   if (!res.ok) { await reportSaveFailure(res, 'Opslaan mislukt.'); return; }
   wizardState._saveSearchName = undefined;
   wizardState._shareWithMiniApps = false;
+  wizardState._shareWithAi = false;
   invalidateSavedSearches();
   renderWizard();
 }
@@ -849,9 +857,11 @@ function editSavedSearch(id) {
     id: s.id,
     name: s.name,
     snapshot: JSON.parse(JSON.stringify(s.wizard_state)),
-    wasShared: !!s.is_shared_mini_apps
+    wasShared: !!s.is_shared_mini_apps,
+    wasSharedAi: !!s.is_shared_ai
   };
   wizardState._shareWithMiniApps = !!s.is_shared_mini_apps;
+  wizardState._shareWithAi = !!s.is_shared_ai;
   wizardState.loadSnapshot(s.wizard_state);
   wizardState.currentStep = 1;
   renderWizard();
@@ -909,6 +919,7 @@ async function saveSavedSearchChanges() {
   if (!editing) return;
   const snapshot = wizardState.toSnapshot();
   const share = IS_ADMIN ? wizardState._shareWithMiniApps === true : undefined;
+  const shareAi = IS_ADMIN ? wizardState._shareWithAi === true : undefined;
   // Bij het BIJWERKEN sturen we de payload altijd mee zolang deze zoekopdracht
   // gedeeld is of wordt: de server herschrijft dan de afgeleide query, zodat
   // mini-apps die ze gebruiken automatisch de gewijzigde velden/filters zien
@@ -921,6 +932,7 @@ async function saveSavedSearchChanges() {
     body: JSON.stringify({
       wizard_state: snapshot,
       share_with_mini_apps: share,
+      share_with_ai: shareAi,
       query: needsQuery ? buildShareablePayload() : undefined
     })
   });
@@ -928,6 +940,7 @@ async function saveSavedSearchChanges() {
   invalidateSavedSearches();
   wizardState._editingFromSavedSearch = null;
   wizardState._shareWithMiniApps = false;
+  wizardState._shareWithAi = false;
   renderWizard();
 }
 
@@ -937,6 +950,7 @@ function cancelEditSavedSearch() {
   wizardState.loadSnapshot(editing.snapshot);
   wizardState._editingFromSavedSearch = null;
   wizardState._shareWithMiniApps = false;
+  wizardState._shareWithAi = false;
   wizardState.currentStep = 1;
   renderWizard();
 }
@@ -1067,7 +1081,10 @@ async function renderStep1() {
                 <div class="min-w-0">
                   <div class="font-semibold text-sm truncate flex items-center gap-2">
                     <span class="truncate">${s.name}</span>
-                    ${s.is_shared_mini_apps ? `<span class="badge badge-primary badge-xs shrink-0" title="Mini-apps mogen deze zoekopdracht read-only uitvoeren">mini-apps</span>` : ''}
+                    ${s.is_shared_mini_apps ? (s.is_shared_ai
+                      ? `<span class="badge badge-primary badge-xs shrink-0" title="Mini-apps mogen deze zoekopdracht read-only uitvoeren, en ze is zichtbaar in de AI-discovery voor het bouwen van nieuwe mini-apps">mini-app/AI</span>`
+                      : `<span class="badge badge-primary badge-xs shrink-0" title="Mini-apps mogen deze zoekopdracht read-only uitvoeren">mini-app</span>`
+                    ) : ''}
                   </div>
                   <div class="text-xs text-base-content/40 flex items-center gap-1 mt-0.5">
                     <i data-lucide="database" class="w-3 h-3"></i>${modelLabel}
@@ -2928,18 +2945,53 @@ async function renderStep3() {
 function renderMiniAppShareCheckbox() {
   if (!IS_ADMIN) return '';
   return `
-    <label class="cursor-pointer flex items-start gap-3 mt-3">
-      <input type="checkbox" class="checkbox checkbox-sm checkbox-primary mt-0.5"
-        ${wizardState._shareWithMiniApps ? 'checked' : ''}
-        onchange="wizardState._shareWithMiniApps = this.checked;" />
-      <span class="text-sm leading-tight">
-        Ook beschikbaar voor mini-apps
-        <span class="block text-xs text-base-content/50">
-          Mini-apps kunnen deze zoekopdracht dan read-only uitvoeren. Pas je ze later aan,
-          dan volgen die mini-apps automatisch mee; verwijder je ze, dan verdwijnt de toegang mee.
+    <div class="mt-3">
+      <label class="cursor-pointer flex items-start gap-3">
+        <input type="checkbox" class="checkbox checkbox-sm checkbox-primary mt-0.5 js-share-mini-apps"
+          ${wizardState._shareWithMiniApps ? 'checked' : ''}
+          onchange="wizardState._shareWithMiniApps = this.checked; syncShareAiFromMiniAppsCheckbox(this);" />
+        <span class="text-sm leading-tight">
+          Ook beschikbaar voor mini-apps
+          <span class="block text-xs text-base-content/50">
+            Mini-apps kunnen deze zoekopdracht dan read-only uitvoeren. Pas je ze later aan,
+            dan volgen die mini-apps automatisch mee; verwijder je ze, dan verdwijnt de toegang mee.
+          </span>
         </span>
-      </span>
-    </label>`;
+      </label>
+      <label class="cursor-pointer flex items-start gap-3 mt-2 ml-7">
+        <input type="checkbox" class="checkbox checkbox-sm checkbox-primary mt-0.5 js-share-ai"
+          ${wizardState._shareWithAi ? 'checked' : ''}
+          ${wizardState._shareWithMiniApps ? '' : 'disabled'}
+          onchange="wizardState._shareWithAi = this.checked;" />
+        <span class="text-sm leading-tight">
+          Ook beschikbaar voor AI
+          <span class="block text-xs text-base-content/50">
+            Wordt dan ook getoond in de AI-discovery waarmee een los AI-gesprek nieuwe mini-apps kan
+            bouwen/bijwerken. Enkel mogelijk zolang ze ook gedeeld is met mini-apps.
+          </span>
+        </span>
+      </label>
+    </div>`;
+}
+
+/**
+ * Houdt het "Ook beschikbaar voor AI"-vinkje in sync met het bijbehorende
+ * "Ook beschikbaar voor mini-apps"-vinkje: uitschakelen + uitvinken zodra
+ * mini-app-toegang uitstaat (AI-discovery zonder mini-app-toegang is zinloos).
+ * Scoped via closest('div') i.p.v. een globaal element-id, zodat dit werkt
+ * ongeacht welk van de (mogelijk meerdere, tegelijk gerenderde) checkbox-paren
+ * het betreft.
+ * @param {HTMLInputElement} miniAppsCheckboxEl
+ */
+function syncShareAiFromMiniAppsCheckbox(miniAppsCheckboxEl) {
+  const wrap = miniAppsCheckboxEl.closest('div');
+  const aiBox = wrap ? wrap.querySelector('.js-share-ai') : null;
+  if (!aiBox) return;
+  aiBox.disabled = !miniAppsCheckboxEl.checked;
+  if (!miniAppsCheckboxEl.checked) {
+    aiBox.checked = false;
+    wizardState._shareWithAi = false;
+  }
 }
 
 // ============================================================================
@@ -2993,12 +3045,21 @@ async function renderWizard() {
       <i data-lucide="pencil" class="w-4 h-4 text-warning shrink-0"></i>
       <span class="text-sm flex-1">Je bewerkt <strong>${editing.name}</strong></span>
       ${IS_ADMIN ? `
-        <label class="cursor-pointer flex items-center gap-2 shrink-0" title="Mini-apps mogen deze zoekopdracht read-only uitvoeren">
-          <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
-            ${wizardState._shareWithMiniApps ? 'checked' : ''}
-            onchange="wizardState._shareWithMiniApps = this.checked;" />
-          <span class="text-xs">Beschikbaar voor mini-apps</span>
-        </label>` : ''}
+        <div class="flex items-center gap-3 shrink-0">
+          <label class="cursor-pointer flex items-center gap-2" title="Mini-apps mogen deze zoekopdracht read-only uitvoeren">
+            <input type="checkbox" class="checkbox checkbox-xs checkbox-primary js-share-mini-apps"
+              ${wizardState._shareWithMiniApps ? 'checked' : ''}
+              onchange="wizardState._shareWithMiniApps = this.checked; syncShareAiFromMiniAppsCheckbox(this);" />
+            <span class="text-xs">Beschikbaar voor mini-apps</span>
+          </label>
+          <label class="cursor-pointer flex items-center gap-2" title="Ook zichtbaar in de AI-discovery voor het bouwen van nieuwe mini-apps">
+            <input type="checkbox" class="checkbox checkbox-xs checkbox-primary js-share-ai"
+              ${wizardState._shareWithAi ? 'checked' : ''}
+              ${wizardState._shareWithMiniApps ? '' : 'disabled'}
+              onchange="wizardState._shareWithAi = this.checked;" />
+            <span class="text-xs">+ AI</span>
+          </label>
+        </div>` : ''}
       <button class="btn btn-xs btn-warning gap-1" onclick="saveSavedSearchChanges()">
         <i data-lucide="save" class="w-3 h-3"></i>Wijzigingen opslaan
       </button>
@@ -3817,6 +3878,81 @@ async function exportVerifyData() {
   }
 }
 
+/**
+ * CSV-veldwaarde escapen (RFC4126-achtig, geen library nodig voor deze
+ * beperkte set): quotes verdubbelen en het geheel tussen quotes zetten zodra
+ * er een komma, quote of regeleinde in zit.
+ * @param {*} value
+ * @returns {string}
+ */
+function _csvEscape(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+/**
+ * Eén waarde plat naar een CSV-cel: Odoo many2one-tupels ([id, "Naam"])
+ * worden enkel hun naam (het id staat toch al apart op de relevante
+ * id-kolom waar dat telt), overige arrays worden "; "-gescheiden, objecten
+ * worden compacte JSON, en regeleindes in tekst worden een " / " -- een
+ * newline zou een CSV-rij anders over meerdere tekstregels laten lopen.
+ * @param {*} v
+ * @returns {*}
+ */
+function _flattenTableValue(v) {
+  if (v === null || v === undefined) return '';
+  if (Array.isArray(v)) {
+    if (v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'string') return v[1];
+    return v.map(_flattenTableValue).join('; ');
+  }
+  if (typeof v === 'object') return JSON.stringify(v);
+  if (typeof v === 'string') return v.replace(/\s*\n\s*/g, ' / ').replace(/[ \t]+/g, ' ').trim();
+  return v;
+}
+
+/**
+ * Bouwt een CSV-tabel uit de records -- dit is de "AI-compact"-vorm: één
+ * header-rij met veldlabels i.p.v. de veldnaam op ELK record te herhalen
+ * (zoals de volledige JSON-export doet). Op een steekproef van 250
+ * actiebladen scheelde dit ~15% t.o.v. de sparse JSON-vorm, zonder de
+ * lookup-table/hex-code-aanpak die overwogen maar verworpen is (die klein
+ * voordeel woog niet op tegen het risico dat een AI codes verkeerd
+ * terugmapt over veel records heen). Kolommen die niet in fieldSchema zitten
+ * (bv. een cascade-alias als __leads) komen als extra kolom achteraan mee,
+ * zodat er t.o.v. de volledige JSON geen data stilzwijgend verdwijnt.
+ *
+ * Enkel voor de AI-gerichte .md-export -- de gewone JSON-download blijft de
+ * volledige, leesbare (en sparse) vorm.
+ *
+ * @param {Object} exportMeta - resultaat van buildExportMeta()
+ * @param {Object} data - ExportResult van de server (records/rows + meta)
+ * @returns {string}
+ */
+function buildAiCompactCsv(exportMeta, data) {
+  const rowKey = data?.records ? 'records' : data?.rows ? 'rows' : null;
+  const records = rowKey ? data[rowKey] : [];
+  const fieldSchema = exportMeta?._export_meta?.fields
+    || (data?.meta?.fields || []).map((k) => ({ key: k, label: k }));
+  const baseColumns = fieldSchema.map((f) => f.key);
+  const baseLabels = fieldSchema.map((f) => f.label || f.key);
+
+  const extraKeys = [];
+  const seenExtra = new Set();
+  records.forEach((r) => Object.keys(r || {}).forEach((k) => {
+    if (!baseColumns.includes(k) && !seenExtra.has(k)) { seenExtra.add(k); extraKeys.push(k); }
+  }));
+
+  const columns = [...baseColumns, ...extraKeys];
+  const headerRow = [...baseLabels, ...extraKeys];
+
+  const lines = [headerRow.map(_csvEscape).join(',')];
+  for (const record of records) {
+    lines.push(columns.map((key) => _csvEscape(_flattenTableValue(record ? record[key] : undefined))).join(','));
+  }
+  return lines.join('\n');
+}
+
 async function exportSemanticQuery(format) {
   if (format !== 'xlsx' && format !== 'json' && format !== 'md') return;
   try {
@@ -3834,11 +3970,6 @@ async function exportSemanticQuery(format) {
       const data = result.data;
 
       const exportMeta = buildExportMeta(payload, data);
-      // data.records komt al compact van de server (cascade-executor.js
-      // strip false-velden en Studio-prefixen zelf, overal -- niet enkel voor
-      // deze export). Hier resteert enkel: geen json-stringify(...,null,2)
-      // meer, want de insprong kost op een export van deze omvang al gauw 20%
-      // aan bytes voor pure whitespace, zonder dat een AI daar iets aan heeft.
       const exportData = { ...exportMeta, ...data };
 
       const model = payload.root.node;
@@ -3848,14 +3979,21 @@ async function exportSemanticQuery(format) {
       const presetStr = preset && preset.label !== 'Geen preset' ? `_${preset.label.replace(/\s+/g,'-')}` : '';
 
       if (format === 'md') {
-        // MD-export: AI-instructie als eerste tekst, dan data als JSON-codeblok
+        // MD-export = de AI-gerichte vorm: AI-instructie eerst, dan de data
+        // als CSV-tabel i.p.v. JSON-per-record. Eén header-rij met veldlabels
+        // i.p.v. de veldnaam op elk record te herhalen scheelt op een
+        // steekproef van 250 records ~15% tekens/tokens t.o.v. de sparse
+        // JSON-vorm -- zie buildAiCompactCsv() hierboven voor de afweging.
         const aiInstruction = preset?.instruction && preset.label !== 'Geen preset'
           ? preset.instruction
-          : 'Analyseer de JSON-data in dit bestand en geef een beknopte samenvatting van de inhoud. '
-            + 'Gebruik de _export_meta voor context over het model, de geselecteerde veldcategorieën en eventuele filters. '
-            + 'Bespreek patronen, opvallende waarden en ontbrekende data.';
-        const jsonStr = JSON.stringify(exportData);
-        const mdContent = aiInstruction + '\n\n---\n\n## Export-data\n\n```json\n' + jsonStr + '\n```\n';
+          : 'Analyseer de tabel in dit bestand en geef een beknopte samenvatting van de inhoud. '
+            + 'Gebruik de _export_meta-context hieronder voor het model, de geselecteerde veldcategorieën en eventuele filters. '
+            + 'Bespreek patronen, opvallende waarden en ontbrekende data (een lege cel betekent dat dat veld geen waarde had).';
+        const metaStr = JSON.stringify(exportMeta._export_meta, null, 2);
+        const csvTable = buildAiCompactCsv(exportMeta, data);
+        const mdContent = aiInstruction
+          + '\n\n---\n\n## Context (_export_meta)\n\n```json\n' + metaStr + '\n```\n'
+          + '\n## Data (CSV, één rij per record; lege cel = geen waarde)\n\n```csv\n' + csvTable + '\n```\n';
         const filename = model + periodStr + presetStr + '_' + new Date().toISOString().slice(0,10) + '.md';
         const blob = new Blob([mdContent], { type: 'text/markdown' });
         const url = window.URL.createObjectURL(blob);
@@ -3867,8 +4005,12 @@ async function exportSemanticQuery(format) {
         return;
       }
 
+      // Gewone JSON-download: volledige, leesbare vorm met insprong -- dit is
+      // voor een mens die de data zelf wil inkijken/verwerken, geen AI-context
+      // waar elke byte telt. De compacte vorm (geen whitespace) is enkel voor
+      // de AI-gerichte .md-export hierboven.
       const filename = `${model}${periodStr}${presetStr}_${new Date().toISOString().slice(0,10)}.json`;
-      const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = filename;

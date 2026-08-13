@@ -92,11 +92,27 @@ export const DECLARED_EDGES = [
     inverseAs: '__visitors'
   },
   {
+    // BEWUST GEEN gewone `relation` (die leest de veldWAARDE op het from-model
+    // via fk_forward -- en dat is precies het probleem): deze many2many heeft
+    // aan BEIDE kanten een echt, apart opgeslagen Odoo-veld op hetzelfde
+    // koppeltabel (x_crm_lead_x_sales_action_sheet_rel), niet één veld dat
+    // z'n tegenrichting automatisch afleidt. Rechtstreeks de veldWAARDE lezen
+    // (`record.x_studio_as_opportunity_ids`) past Odoo's active_test toe op de
+    // gekoppelde leads en laat verloren/inactieve leads dan stilzwijgend weg --
+    // zelfs met context active_test:false blijft dit op zijn minst fragiel
+    // gebleken. Een domain-zoekopdracht op het veld (`zoek crm.lead waar
+    // x_studio_opportunity_actionsheet_ids dit actieblad bevat`) query't
+    // rechtstreeks de koppeltabel en is NIET onderhevig aan die filtering --
+    // dat is exact hoe we bevestigd hebben dat lead 11343 wél aan actieblad
+    // 861 hangt, terwijl de veldwaarde op het actieblad leeg toonde.
+    // Vandaar: BEIDE richtingen als fk_reverse (domain-search op het EIGEN
+    // veld van het model dat bevraagd wordt), nooit fk_forward.
     from: 'x_sales_action_sheet',
     to: 'crm.lead',
     kind: 'relation',
     type: 'many2many',
     field: 'x_studio_as_opportunity_ids',
+    reverseField: 'x_studio_opportunity_actionsheet_ids',
     label: 'Gekoppelde Leads',
     as: '__leads',
     inverseLabel: 'Actiebladen',
@@ -230,6 +246,38 @@ function buildEdgeIndex() {
 
   for (const decl of DECLARED_EDGES) {
     if (decl.kind === 'composite') continue; // in tweede ronde, hops moeten bestaan
+
+    if (decl.kind === 'relation' && decl.reverseField) {
+      // Dubbel opgeslagen many2many (echt veld aan BEIDE kanten, zie het
+      // uitgebreide commentaar bij de declaratie hierboven): beide richtingen
+      // zijn een domain-zoekopdracht op het EIGEN veld van het model dat
+      // bevraagd wordt -- dus altijd fk_reverse, nooit fk_forward.
+      index.set(edgeId(decl.from, decl.to), {
+        id: edgeId(decl.from, decl.to),
+        from: decl.from,
+        to: decl.to,
+        as: decl.as,
+        label: decl.label,
+        mode: 'fk_reverse',
+        field: decl.reverseField,
+        type: decl.type,
+        fieldType: decl.type,
+        cardinality: decl.type === 'many2one' ? 'one' : 'many'
+      });
+      index.set(edgeId(decl.to, decl.from), {
+        id: edgeId(decl.to, decl.from),
+        from: decl.to,
+        to: decl.from,
+        as: decl.inverseAs,
+        label: decl.inverseLabel,
+        mode: 'fk_reverse',
+        field: decl.field,
+        type: invertRelationType(decl.type),
+        fieldType: decl.type,
+        cardinality: 'many'
+      });
+      continue;
+    }
 
     if (decl.kind === 'relation') {
       index.set(edgeId(decl.from, decl.to), {

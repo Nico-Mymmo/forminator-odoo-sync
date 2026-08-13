@@ -52,6 +52,10 @@ class SharingError extends Error {
  * @param {boolean|undefined} input.share - true = delen, false = niet delen,
  *        undefined = laat de deelstatus zoals ze is (maar werk een reeds
  *        gedeelde query wel bij met de nieuwe definitie)
+ * @param {boolean|undefined} input.shareAi - true = ook zichtbaar voor
+ *        AI-discovery, false = niet (meer), undefined = laat de AI-vlag
+ *        zoals ze is. Enkel zinvol als de query gedeeld is/wordt met
+ *        mini-apps -- zie is_shared_ai op sales_insight_queries.
  * @param {Object} [input.query] - QueryDefinition zoals de wizard ze uitvoert
  * @param {string} input.name - Naam van de zoekopdracht (wordt de naam die een
  *        mini-app te zien krijgt)
@@ -65,6 +69,10 @@ export async function syncSharedQueryForSavedSearch(env, input) {
   const query = input.query;
   const name = (input.name || '').trim() || 'Zoekopdracht';
   const description = input.description === undefined ? null : input.description;
+  // AI-vlag is los van de deelstatus zelf: undefined = "niet aangeraakt"
+  // (bestaande waarde blijft staan), true/false = expliciet gezet.
+  const wantsAiChange = input.shareAi !== undefined;
+  const aiFlag = input.shareAi === true;
 
   // Niet (langer) delen -> afgeleide rij weg, toegang verdwijnt mee.
   if (share === false) {
@@ -85,7 +93,9 @@ export async function syncSharedQueryForSavedSearch(env, input) {
   if (!isCascadeQuery(query)) {
     if (share !== true && currentQueryId) {
       // Enkel een naamwijziging o.i.d. zonder query -> naam meenemen, definitie laten staan.
-      await updateQuery(env, currentQueryId, { name, description });
+      const nameOnlyUpdates = { name, description };
+      if (wantsAiChange) nameOnlyUpdates.is_shared_ai = aiFlag;
+      await updateQuery(env, currentQueryId, nameOnlyUpdates);
       return { mini_app_query_id: currentQueryId, parameters: [], changed: true };
     }
     throw new SharingError(
@@ -132,6 +142,10 @@ export async function syncSharedQueryForSavedSearch(env, input) {
     is_shared_mini_apps: true,
     mini_app_parameters: detected.parameters
   };
+  // Enkel meesturen als de aanroeper de AI-vlag expliciet zet -- anders blijft
+  // de bestaande waarde van een al gedeelde query ongemoeid (updateQuery
+  // negeert velden die niet in de updates zitten).
+  if (wantsAiChange) payload.is_shared_ai = aiFlag;
 
   if (currentQueryId) {
     const existing = await getQueryById(env, currentQueryId);
@@ -154,7 +168,8 @@ export async function syncSharedQueryForSavedSearch(env, input) {
   });
   await updateQuery(env, created.id, {
     is_shared_mini_apps: true,
-    mini_app_parameters: detected.parameters
+    mini_app_parameters: detected.parameters,
+    is_shared_ai: aiFlag
   });
   console.log('[saved-search-sharing] afgeleide query aangemaakt:', created.id);
 

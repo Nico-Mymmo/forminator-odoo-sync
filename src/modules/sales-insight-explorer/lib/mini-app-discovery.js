@@ -11,10 +11,13 @@
  * token mee, en vraagt het model de gegevens zelf op tijdens het gesprek.
  *
  * Grenzen van dit mechanisme (bewust smal):
- * - Enkel LEZEN, en enkel van queries die op het moment van de aanroep
- *   gedeeld zijn met mini-apps (is_shared_mini_apps = true). Een query die
- *   ondertussen niet meer gedeeld/verwijderd is, is hier onmiddellijk
- *   onvindbaar.
+ * - Enkel LEZEN, en enkel van queries die op het moment van de aanroep zowel
+ *   gedeeld zijn met mini-apps (is_shared_mini_apps = true) ALS expliciet
+ *   opengesteld voor AI-discovery (is_shared_ai = true) -- twee aparte
+ *   vlaggen op sales_insight_queries: een query kan gedeeld zijn met
+ *   mini-apps zonder in dit AI-gesprek zichtbaar te zijn. Een query die
+ *   ondertussen niet meer gedeeld/AI-opengesteld/verwijderd is, is hier
+ *   onmiddellijk onvindbaar.
  * - Het token is GEEN vervanging van de sessie waarmee een live mini-app
  *   echt data ophaalt: dat blijft window.platform.odoo.runQuery() met de
  *   sessie van de ingelogde gebruiker (zie ../../mini-apps/routes.js). Dit
@@ -193,7 +196,7 @@ export function describeQueryFields(queryDefinition) {
  */
 export async function describeSharedQuery(env, queryId, options = {}) {
   const saved = await getQueryById(env, queryId);
-  if (!saved || !saved.is_shared_mini_apps) return null;
+  if (!saved || !saved.is_shared_mini_apps || !saved.is_shared_ai) return null;
 
   const described = describeQueryFields(saved.query_definition);
   const { fields, cascade } = described;

@@ -116,11 +116,27 @@ var MINI_APP_SHIM = '<script>(function(){'
   +   'function send(action,extra,timeoutMs){return new Promise(function(resolve,reject){'
   +     'var id=Date.now()+"_"+(reqId++);'
   +     'pending[id]={resolve:resolve,reject:reject};'
-  +     'setTimeout(function(){if(pending[id]){delete pending[id];reject(new Error("Verzoek verliep (timeout) -- probeer opnieuw."));}},timeoutMs||15000);'
+  +     'setTimeout(function(){if(pending[id]){delete pending[id];'
+  +       'var err=new Error("Verzoek verliep (timeout na "+Math.round((timeoutMs||15000)/1000)+"s) -- probeer opnieuw of splits de aanroep op.");'
+  +       'err.code="timeout";err.timeoutMs=timeoutMs||15000;reject(err);}},timeoutMs||15000);'
   +     'var msg={__miniAppStorage:true,id:id,action:action};'
   +     'for(var k in extra){msg[k]=extra[k];}'
   +     'try{window.parent.postMessage(msg,"*");}catch(e){delete pending[id];reject(e);}'
   +   '});}'
+  +   // AI-timeout schaalt mee met de gevraagde output-lengte -- een aanroep die
+  +   // legitiem 8000 tokens moet genereren duurt gewoon langer dan een korte
+  +   // classificatie, en een vaste timeout kapte die eerder af vóór de server
+  +   // (die zelf geen eigen timeout op deze aanroep heeft) de kans kreeg om te
+  +   // voltooien. Vuistregel: 20s basis (netwerk + guardrails/rate-limit-checks
+  +   // + audit-log) + ~15ms per gevraagd output-token, met een ondergrens van
+  +   // 45s (oud gedrag voor kleine aanroepen) en een bovengrens van 3 minuten
+  +   // (zodat een écht vastgelopen aanroep de mini-app niet oneindig laat hangen).
+  +   // Bij ~8000 tokens (het scenario uit de bugmelding) komt dit op ~143s i.p.v.
+  +   // de vaste 45s van voorheen.
+  +   'function aiAskTimeoutMs(maxOutputTokens){'
+  +     'var tokens=(typeof maxOutputTokens==="number"&&maxOutputTokens>0)?maxOutputTokens:8192;'
+  +     'return Math.max(45000,Math.min(180000,20000+tokens*15));'
+  +   '}'
   +   'window.addEventListener("message",function(e){'
   +     'var d=e.data;if(!d||!d.__miniAppStorageResult)return;'
   +     'var p=pending[d.id];if(!p)return;delete pending[d.id];'
@@ -132,7 +148,7 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'listChatChannels:function(){return send("listChatChannels",{});},'
   +     'sendChat:function(channelId,message){return send("sendChat",{channelId:channelId,message:message});},'
   +     'ai:{'
-  +       'ask:function(prompt,options){options=options||{};return send("aiAsk",{prompt:prompt,system:options.system,maxOutputTokens:options.maxOutputTokens},45000);}'
+  +       'ask:function(prompt,options){options=options||{};return send("aiAsk",{prompt:prompt,system:options.system,maxOutputTokens:options.maxOutputTokens},aiAskTimeoutMs(options.maxOutputTokens));}'
   +     '},'
   +     'schedule:{'
   +       'create:function(config){return send("scheduleCreate",{config:config});},'

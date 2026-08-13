@@ -51,9 +51,26 @@ const PROVIDERS = {
   gemini: geminiProvider
 };
 
-export const MAX_PROMPT_LENGTH = 8000;
+// Prompt-cap is in TOKENS, niet tekens -- er zit geen echte tokenizer in deze
+// Cloudflare Worker, dus estimateTokens() hieronder gebruikt een ruwe
+// vuistregel (±4 tekens per token, gangbaar voor Engels/Nederlands proza).
+// Dat is een guardrail tegen misbruik/bulk, geen exacte facturatie-check --
+// de echte tokencount komt van de provider zelf (result.tokensIn, zie
+// logCall hieronder).
+export const MAX_PROMPT_TOKENS = 25000;
 export const MAX_SYSTEM_LENGTH = 2000;
-export const MAX_OUTPUT_TOKENS_CAP = 1024;
+
+/**
+ * Ruwe schatting van het aantal tokens in een tekst (±4 tekens/token).
+ * Enkel voor de pre-call guardrail hierboven -- geen vervanging van de
+ * echte tokencount die de provider teruggeeft.
+ * @param {string} text
+ * @returns {number}
+ */
+function estimateTokens(text) {
+  return Math.ceil((text || '').length / 4);
+}
+export const MAX_OUTPUT_TOKENS_CAP = 8192;
 export const MAX_PER_APP_PER_DAY = 200;
 // Platform-brede daglimiet over alle mini-apps samen -- kostenbeheersing op
 // het gedeelde Claude-abonnement. Los van MAX_PER_APP_PER_DAY: die begrenst
@@ -137,8 +154,8 @@ async function logCall(env, { appId, userId, provider, model, promptChars, respo
  * @returns {Promise<{ text: string, model: string }>}
  */
 export async function askAI(env, app, user, prompt, system, maxOutputTokens) {
-  if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > MAX_PROMPT_LENGTH) {
-    throw aiError(`prompt is verplicht en max ${MAX_PROMPT_LENGTH} tekens.`, 'INVALID_PROMPT');
+  if (typeof prompt !== 'string' || !prompt.trim() || estimateTokens(prompt) > MAX_PROMPT_TOKENS) {
+    throw aiError(`prompt is verplicht en max ${MAX_PROMPT_TOKENS} tokens (ruwe schatting: ±4 tekens/token).`, 'INVALID_PROMPT');
   }
   if (system != null && (typeof system !== 'string' || system.length > MAX_SYSTEM_LENGTH)) {
     throw aiError(`system is optioneel maar max ${MAX_SYSTEM_LENGTH} tekens.`, 'INVALID_SYSTEM');
