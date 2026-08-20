@@ -100,6 +100,7 @@ import {
 } from './lib/storage.js';
 import { notifyUser, isSubscribed, setSubscription } from './lib/notify.js';
 import { askAI, MAX_PER_APP_PER_DAY, MAX_GLOBAL_PER_DAY } from './lib/ai.js';
+import { serializeAiError, httpStatusForAiError } from './lib/ai-errors.js';
 import { estimateCostUsd } from './lib/ai-pricing.js';
 import { registerChannel, listChannels, deleteChannel, sendChannelMessage } from './lib/chat.js';
 import { validateTaskPayload, MAX_TASKS_PER_APP, computeNextRun, runTaskNow } from './lib/scheduler.js';
@@ -1807,7 +1808,27 @@ export const routes = {
     }
   },
 
-  // ── AI — single-shot prompt naar een AI-model (view-toegang volstaat) ──
+  // ── AI — prompt naar een AI-model (view-toegang volstaat) ──
+  // Twee transportvormen op exact dezelfde server-logica (askAI doet in beide
+  // gevallen guardrails -> rate-limit -> provider -> audit-log):
+  //
+  //   body.stream !== true  -> gewone JSON: { text, json, model, usage }
+  //   body.stream === true  -> text/event-stream (SSE) met de events
+  //                            `open`, `delta`, `done` en `error`
+  //
+  // Waarom de SSE-variant bestaat: de providers streamen sinds 2026-08 altijd
+  // (zie lib/ai-providers/anthropic.js). Door die deltas ook naar de browser
+  // door te sturen, krijgt de postMessage-brug in public/mini-apps-core.js
+  // continu verkeer te zien en kan die zijn onmogelijke "hoe lang gaat dit in
+  // totaal duren?"-timeout vervangen door een inactiviteits-timeout. Dat is wat
+  // de drie keer opgetrokken timeout-cap (45s -> 180s -> 300s) overbodig maakt.
+  // Zie ONTWERP-ai-aanroep-architectuur.md §1 en §5.
+  //
+  // LET OP bij de SSE-variant: de HTTP-status is per definitie al 200 zodra de
+  // stream begint, dus fouten (ook rate-limits) komen als een `error`-EVENT met
+  // hetzelfde foutobject als de JSON-route (serializeAiError). De brug maakt
+  // daar weer een echte Error met .code/.retryable/.retryAfterMs van, zodat een
+  // mini-app geen verschil merkt tussen de twee transportvormen.
   'POST /api/apps/:id/ai/ask': async ({ request, env, user, params }) => {
     const supabase = getSupabaseClient(env);
     const { data: app, error: fetchError } = await supabase
@@ -1827,15 +1848,122 @@ export const routes = {
       return jsonError('Ongeldige JSON-body.', 400);
     }
 
-    try {
-      const result = await askAI(env, app, user, body.prompt, body.system, body.maxOutputTokens);
-      console.log(`${LOG_PREFIX} AI ASK ${app.id} (${result.model}) — user ${user.id}`);
-      return jsonOk({ text: result.text, model: result.model });
-    } catch (err) {
-      const status = err.code ? 400 : 500;
-      console.error(`${LOG_PREFIX} ai ask error:`, err.message);
-      return jsonError(err.message, status, err.code);
+    const askOptions = {
+      prompt: body.prompt,
+      system: body.system,
+      maxOutputTokens: body.maxOutputTokens,
+      model: body.model,
+      schema: body.schema,
+      cacheSystem: body.cacheSystem === true,
+      // request.signal reflects of de INKOMENDE HTTP-verbinding (host-pagina ->
+      // deze Worker) nog leeft. Zonder dit door te geven aan askAI() (die het op
+      // zijn beurt aan de provider doorgeeft, zie ai-providers/anthropic.js)
+      // liep de aanroep naar Claude gewoon door -- en bleef die dus GEWOON
+      // tokens verbruiken -- ook nadat de host-pagina de verbinding had
+      // afgebroken (bv. omdat de mini-app-brug lokaal opgaf na een stall-
+      // timeout en een NIEUWE aanroep startte). Dit is de servant-kant van de
+      // fix; public/mini-apps-core.js's aiAbort-actie is de client-kant die
+      // deze verbinding daadwerkelijk sluit zodra de brug lokaal opgeeft.
+      signal: request.signal
+    };
+
+    // ─── Niet-streamende variant (ongewijzigd contract) ─────────────────────
+    if (body.stream !== true) {
+      try {
+        const result = await askAI(env, app, user, askOptions);
+        console.log(`${LOG_PREFIX} AI ASK ${app.id} (${result.model}) — user ${user.id}`);
+        return jsonOk({
+          text: result.text,
+          json: result.json,
+          model: result.model,
+          usage: result.usage,
+          stopReason: result.stopReason
+        });
+      } catch (err) {
+        // Correcte statuscode per foutsoort i.p.v. het oude "alles met een code
+        // is een 400" -- een rate-limit (429, mét Retry-After) en een bug in de
+        // prompt (400) zagen er voorheen voor de client identiek uit.
+        const status = httpStatusForAiError(err);
+        const payload = serializeAiError(err);
+        console.error(`${LOG_PREFIX} ai ask error [${payload.code}]:`, err.message);
+        const headers = { 'Content-Type': 'application/json' };
+        if (status === 429 && payload.retryAfterMs != null) {
+          headers['Retry-After'] = String(Math.ceil(payload.retryAfterMs / 1000));
+        }
+        return new Response(JSON.stringify({ success: false, ...payload }), { status, headers });
+      }
     }
+
+    // ─── Streamende variant (SSE) ──────────────────────────────────────────
+    // De Response wordt METEEN teruggegeven met een nog-open ReadableStream;
+    // het eigenlijke werk loopt daarna verder in de floating async-functie
+    // hieronder. Dat is het standaardpatroon in een Worker: zolang de client
+    // verbonden is en de stream open staat, is er GEEN wall-clock-limiet (de
+    // 30s-limiet die vaak aangehaald wordt is CPU-tijd -- wachten op een
+    // externe API kost geen CPU). ctx.waitUntil() is hier expliciet NIET
+    // gebruikt: dat verlengt maar 30s en is bedoeld voor werk ná de respons.
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+
+    // Schrijfacties serialiseren in één keten: onDelta wordt synchroon vanuit de
+    // provider aangeroepen en mag niet awaiten, dus zonder deze keten kunnen
+    // twee writes elkaar overlappen op dezelfde writer (runtime-fout).
+    let writeChain = Promise.resolve();
+    const sendEvent = (event, data) => {
+      writeChain = writeChain
+        .then(() => writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)))
+        .catch(() => { /* client weg -- verder schrijven is zinloos, niet fataal */ });
+      return writeChain;
+    };
+
+    (async () => {
+      try {
+        // Direct een `open`-event: zo weet de host-pagina dat de stream leeft,
+        // ook als het eerste token van het model nog tientallen seconden weg is
+        // (grote prompt = lange time-to-first-token).
+        await sendEvent('open', { model: body.model || null });
+
+        const result = await askAI(env, app, user, {
+          ...askOptions,
+          onDelta: (delta) => { sendEvent('delta', { delta }); }
+        });
+
+        await sendEvent('done', {
+          text: result.text,
+          json: result.json,
+          model: result.model,
+          usage: result.usage,
+          stopReason: result.stopReason,
+          requestId: result.requestId
+        });
+        console.log(`${LOG_PREFIX} AI ASK stream ${app.id} (${result.model}) — user ${user.id}`);
+      } catch (err) {
+        const payload = serializeAiError(err);
+        console.error(`${LOG_PREFIX} ai ask stream error [${payload.code}]:`, err.message);
+        // partialText meegeven wanneer de provider al tekst had: bij
+        // AI_TRUNCATED of AI_STALLED kan een mini-app daar nog iets mee doen
+        // i.p.v. alles weg te gooien (vroeger ging die tekst altijd verloren).
+        await sendEvent('error', {
+          ...payload,
+          ...(typeof err.partialText === 'string' && err.partialText ? { partialText: err.partialText } : {})
+        });
+      } finally {
+        try { await writeChain; } catch (_err) { /* al gemeld */ }
+        try { await writer.close(); } catch (_err) { /* stream al dicht */ }
+      }
+    })();
+
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        // Voorkomt dat een tussenliggende proxy de SSE-chunks opspaart -- dat
+        // zou precies de continue stroom bytes wegnemen waar dit ontwerp op
+        // gebouwd is.
+        'X-Accel-Buffering': 'no'
+      }
+    });
   },
 
   // ── AI-gebruiksrapport (admin-only) — kosten/gebruik per mini-app en per

@@ -449,14 +449,57 @@ Technische vereisten voor de uiteindelijke app (belangrijk, hou hier rekening me
         exceptionsCollection: "afwezigheden", exceptionDateField: "date", exceptionPersonField: "person"   // optioneel: een collection met { date, person } om iemand voor één dag over te slaan (bv. vakantie) -- springt automatisch door naar de volgende in de rotatie
       }));
   targetType "colleague"/"channel" volgen dezelfde regels als hierboven. Max 20 criteria-taken per app. window.platform.schedule (vast tijdstip) en window.platform.condition (databeslissing) zijn twee onafhankelijke mechanismes -- kies op basis van OF de app op een vast tijdstip moet sturen OF zodra iets waar wordt, niet allebei door elkaar voor dezelfde taak.
-- Moet de app iets laten doen met AI (bv. een tekst samenvatten, iets classificeren, een suggestie/herschrijving genereren)? Gebruik window.platform.ai.ask(prompt, opties) -- stuurt ÉÉN prompt (+ optioneel een system-instructie) server-side naar een AI-model en geeft het antwoord terug, zonder dat de app zelf een API-key nodig heeft. BELANGRIJK (herhaling van hierboven, want dit is waar het telt): dit draait op het team's eigen Claude/Anthropic-abonnement (geen gratis train-on-data-laag), maar blijf toch terughoudend met gevoelige bedrijfsinformatie in de prompt die je hier opbouwt (klantgegevens, interne cijfers, wachtwoorden, strategie, persoonsgegevens, ...):
+- Moet de app iets laten doen met AI (bv. samenvatten, classificeren, herschrijven, ideeen genereren)? Gebruik window.platform.ai -- de aanroep loopt server-side, de app heeft zelf GEEN API-key nodig. BELANGRIJK (herhaling van hierboven, want dit is waar het telt): dit draait op het team's eigen Claude/Anthropic-abonnement (geen gratis train-on-data-laag), maar blijf toch terughoudend met gevoelige bedrijfsinformatie in de prompt die je hier opbouwt (klantgegevens, interne cijfers, wachtwoorden, strategie, persoonsgegevens, ...).
+
+  (1) VRIJE TEKST -- ask() geeft een string terug:
     var antwoord = await window.platform.ai.ask("Vat deze tekst samen in 3 bullets: " + tekst);
-    // of met een system-instructie (stijl/rol voor het model) en een striktere lengte-cap op het antwoord:
-    var antwoord2 = await window.platform.ai.ask("Classificeer dit bericht als 'urgent' of 'normaal': " + bericht, {
-      system: "Antwoord met exact één woord: urgent of normaal.",
-      maxOutputTokens: 20   // optioneel, wordt sowieso begrensd server-side
+    var label = await window.platform.ai.ask("Classificeer als 'urgent' of 'normaal': " + bericht, {
+      system: "Antwoord met exact een woord: urgent of normaal.",
+      model: "claude-haiku-4-5",   // classificatie = weinig output -> sneller en ~5x goedkoper
+      maxOutputTokens: 200
     });
-  antwoord is een platte string (het model-antwoord). Dit is bewust single-shot (GEEN chatgeschiedenis/multi-turn-geheugen) -- roep het per losse vraag aan, bewaar zelf in window.sharedStorage wat je van eerdere antwoorden wil onthouden. Max 25000 tokens per prompt (ruwe schatting: ±4 tekens/token), max 200 AI-aanroepen per app per dag (kostenbeheersing) -- vang een afgewezen aanroep (bv. daglimiet bereikt) op met een duidelijke foutmelding in de UI i.p.v. stil te falen. Stuur geen wachtwoorden/geheimen in de prompt.
+
+  (2) GESTRUCTUREERDE DATA -- gebruik ALTIJD ask.json() met een schema. Vis NOOIT zelf JSON uit tekst:
+    var data = await window.platform.ai.ask.json("Haal naam en bedrag uit elke regel: " + tekst, {
+      model: "claude-sonnet-5",
+      schema: {
+        type: "object", additionalProperties: false, required: ["items"],
+        properties: { items: { type: "array", items: {
+          type: "object", additionalProperties: false, required: ["naam", "bedrag"],
+          properties: { naam: { type: "string" }, bedrag: { type: "number" } }
+        } } }
+      }
+    });
+    // data is een GEPARST object; het model KAN geen ongeldige JSON teruggeven.
+    Schrijf dus geen eigen JSON-parser met reguliere expressies, geen NDJSON-regels-parsen, geen "probeer eerst een array, dan regel per regel"-fallback. Die aanpak is fragiel en precies wat dit vervangt.
+    Let op WELKE schema-keywords werken: type / properties / required / items / enum / additionalProperties / description WEL. maxItems / minItems / maxLength / minLength / minimum / maximum / pattern NIET -- die worden stil verwijderd, dus ze dwingen niets af. Moet een waarde echt begrensd zijn: gebruik enum (bv. een vaste lijst als indexnummers). Lengtes en aantallen zet je in "description" EN klem je zelf af in JS met slice().
+
+  (3) FOUTEN -- elke fout heeft een stabiele err.code. Match NOOIT op de fouttekst met een reguliere expressie:
+    try { var r = await window.platform.ai.ask(prompt, opties); }
+    catch (err) {
+      if (err.retryable) { /* wacht err.retryAfterMs (of ~2s) en probeer opnieuw */ }
+      else if (err.code === "AI_TRUNCATED")           { /* antwoord afgekapt: vraag meer maxOutputTokens of verklein de batch */ }
+      else if (err.code === "AI_RATE_LIMIT_APP")       { /* daglimiet van DEZE app -- stop de wachtrij, morgen opnieuw */ }
+      else if (err.code === "AI_RATE_LIMIT_PLATFORM")  { /* daglimiet over ALLE mini-apps -- stop volledig */ }
+      else { /* echte bug: toon err.message in de UI en log err naar de console */ }
+    }
+    Overige codes: AI_STALLED en AI_STREAM_INTERRUPTED (verbinding viel stil, retryable), AI_PROVIDER_RATE_LIMITED en AI_PROVIDER_OVERLOADED (limiet/drukte bij het model zelf, retryable), AI_INVALID_PROMPT / AI_INVALID_SCHEMA / AI_INVALID_MODEL (fout in de app, opnieuw proberen helpt niet), AI_NOT_CONFIGURED, AI_REFUSED. err.message is leesbaar Nederlands en mag rechtstreeks in een toast.
+
+  (4) LANGE AANROEPEN -- de aanroep streamt, dus je hoeft NOOIT een timeout in te stellen of bij te stellen. Toon echte voortgang i.p.v. een spinner die niets weet:
+    await window.platform.ai.ask(prompt, { onProgress: function (i) { toonStatus(i.text.length + " tekens ontvangen..."); } });
+
+  (5) BATCHES -- lees dit als de app meerdere records door de AI haalt:
+    * maxOutputTokens is een PLAFOND, geen budget. Je betaalt de tokens die het model werkelijk genereert, niet het plafond dat je vroeg. Krap zetten bespaart dus niets en levert alleen AI_TRUNCATED op: een volledig betaalde, weggegooide aanroep. Vraag ruim.
+    * Zet batch-grootte en maxOutputTokens nooit als twee losse getallen -- die gaan elkaar tegenspreken. Leid de batch-grootte af uit het budget:
+        batch_max = Math.floor((8192 - 500) / geschatte_tokens_per_record)
+        maxOutputTokens = aantal_in_batch * geschatte_tokens_per_record + 500
+    * Krijg je toch AI_TRUNCATED: halveer de batch en probeer de helften apart (minder records = minder output, dus dat is een deterministische oplossing). Doe dit UITSLUITEND bij AI_TRUNCATED -- nooit bij een rate-limit of een verbindingsfout.
+    * Splits naar OUTPUTPROFIEL i.p.v. alles in een dure aanroep te proppen: goedkope classificatie (weinig output, claude-haiku-4-5) in grote batches, tekstgeneratie (claude-sonnet-5) in kleine batches.
+    * Genereer geen output die de gebruiker vrijwel nooit bekijkt. Detailtekst die pas in een dialoog verschijnt, haal je OP AANVRAAG op voor dat ene record -- niet vooruit voor de hele batch.
+    * ask.full() geeft { text, json, model, usage, stopReason } terug. Gebruik usage.tokensOut om je schatting per record te METEN en die daarna bij te stellen, i.p.v. het getal te blijven gokken.
+
+  Toegestane modellen: "claude-sonnet-5" (samenvatten, analyseren, schrijven) en "claude-haiku-4-5" (classificeren en andere taken met weinig output). Een ander model geeft AI_INVALID_MODEL. Laat je model weg, dan krijg je de standaard (sonnet).
+  Dit is bewust single-shot (GEEN chatgeschiedenis/multi-turn-geheugen) -- roep het per losse vraag aan, bewaar zelf in window.sharedStorage wat je van eerdere antwoorden wil onthouden. Grenzen: max 25000 tokens per prompt (ruwe schatting: plus-minus 4 tekens per token), max 8192 output-tokens per aanroep, max 200 AI-aanroepen per app per dag (kostenbeheersing). Vang een afgewezen aanroep altijd op met een duidelijke foutmelding in de UI i.p.v. stil te falen. Stuur geen wachtwoorden of geheimen in de prompt.
 
 - Moet de app data uit Odoo (ons CRM/ERP) tonen? Dat kan UITSLUITEND via zoekopdrachten die iemand in de Sales Insight Explorer-module bewaard heeft en daar aangevinkt heeft als "ook beschikbaar voor mini-apps" -- nooit rechtstreeks Odoo, en altijd enkel LEZEN (geen schrijfacties). Welke dat zijn en welke velden ze teruggeven, vraag je hieronder ZELF op via de meegegeven discovery-URL; verzin nooit veldnamen. Let op: de discovery-URL toont ENKEL queries die daar óók expliciet "ook beschikbaar voor AI" hebben aangevinkt (los vinkje, naast "ook beschikbaar voor mini-apps") -- staat een query niet in de discovery-lijst, dan is ze niet AI-opengesteld, ook al gebruikt een bestaande mini-app ze mogelijk al. In de app zelf gebruik je:
     var queries = await window.platform.odoo.listQueries();          // [{ id, name, description, base_model, parameters }] -- laat de gebruiker kiezen als er meerdere zinvol zijn

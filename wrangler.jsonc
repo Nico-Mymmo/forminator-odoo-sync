@@ -47,8 +47,17 @@
 		// Mini-apps AI (window.platform.ai.ask(), zie src/modules/mini-apps/lib/ai.js) —
 		// ANTHROPIC_API_KEY zelf is een secret (wrangler secret put), NIET hier.
 		// Gemini blijft geregistreerd als fallback (AI_PROVIDER: "gemini" + GEMINI_API_KEY secret).
+		//
+		// ANTHROPIC_MODEL is de STANDAARD voor aanroepen die zelf geen model
+		// opgeven. Let op de voorrangsorde in ai-providers/anthropic.js:
+		// model (van de mini-app, begrensd door MODEL_ALLOWLIST) > ANTHROPIC_MODEL
+		// > DEFAULT_MODEL. Deze waarde stond op claude-sonnet-4-6 en overschreef
+		// daarmee de nieuwe DEFAULT_MODEL; gelijkgezet op claude-sonnet-5
+		// (goedkoper op input, 1M context, 128k output). Zet hier UITSLUITEND een
+		// model dat ook in MODEL_ALLOWLIST staat, anders kan een mini-app het
+		// niet expliciet kiezen terwijl het wel de stille standaard is.
 		"AI_PROVIDER": "anthropic",
-		"ANTHROPIC_MODEL": "claude-sonnet-4-6",
+		"ANTHROPIC_MODEL": "claude-sonnet-5",
 		"GEMINI_MODEL": "gemini-flash-lite-latest"
 	}
 }

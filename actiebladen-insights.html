@@ -1,0 +1,2636 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Actiebladen Insights</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  html, body { height: 100%; }
+  body { overflow-y: auto; }
+  .chart-wrap { position: relative; height: 260px; }
+  .chart-wrap canvas { max-height: 260px; }
+  .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .fade-in { animation: fadeIn .25s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  #toastContainer { position: fixed; bottom: 1rem; right: 1rem; z-index: 100; display: flex; flex-direction: column; gap: .5rem; max-width: 22rem; }
+  .qa-row + .qa-row { border-top: 1px solid; border-color: hsl(var(--fallback-b3, var(--b3)) / 1); padding-top: .75rem; margin-top: .75rem; }
+  .insights-report p { margin-bottom: .5rem; }
+  .insights-report ul { list-style: disc; padding-left: 1.1rem; margin-bottom: .5rem; }
+</style>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="toastContainer"></div>
+
+  <!-- NAVBAR -->
+  <div class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6 sticky top-0 z-30">
+    <div class="flex-1 flex items-center gap-2">
+      <i data-lucide="clipboard-list" class="w-6 h-6 text-primary"></i>
+      <span class="text-lg font-semibold">Actiebladen Insights</span>
+    </div>
+    <div class="flex-none flex items-center gap-2">
+      <span id="lastAnalyzedLabel" class="text-xs text-base-content/60 hidden sm:inline"></span>
+      <div class="dropdown dropdown-end">
+        <button tabindex="0" class="btn btn-ghost btn-sm btn-square" title="Instellingen">
+          <i data-lucide="settings-2" class="w-4 h-4"></i>
+        </button>
+        <div tabindex="0" class="dropdown-content z-40 mt-2 card card-compact bg-base-100 border border-base-300 shadow-lg w-72 p-3">
+          <label class="label pb-1"><span class="label-text text-xs">Aantal op te halen actiebladen</span></label>
+          <input id="aantalInput" type="number" min="10" max="20000" step="10" value="1000" class="input input-sm input-bordered w-full" />
+          <p class="text-[11px] text-base-content/50 mt-1">Enkel NIEUWE of INHOUDELIJK GEWIJZIGDE actiebladen (t.o.v. de vorige samenvatting) gaan effectief naar de AI, in kleine batches van max 10 -- reeds samengevatte items komen uit het geheugen.</p>
+          <button id="refetchBtn" class="btn btn-sm btn-outline mt-3">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Lijst opnieuw ophalen
+          </button>
+          <button id="clearCacheBtn" class="btn btn-sm btn-ghost text-error mt-1">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Cache wissen (forceer volledige herzien)
+          </button>
+        </div>
+      </div>
+      <button id="digestTestBtn" class="btn btn-ghost btn-sm" title="Vat slechts 1 batch (max 10 actiebladen) samen -- handig om snel te testen zonder de hele wachtrij te verwerken">
+        <i data-lucide="flask-conical" class="w-4 h-4"></i>
+        Test 1 batch
+      </button>
+      <button id="digestBtn" class="btn btn-outline btn-sm" title="Vat nieuwe/gewijzigde actiebladen samen (kleine batches, geen trends-analyse)">
+        <i data-lucide="file-text" class="w-4 h-4"></i>
+        <span id="digestBtnLabel">Samenvatten</span>
+      </button>
+    </div>
+  </div>
+
+  <main class="container mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
+
+    <!-- ERROR BANNER (fallbacks) -->
+    <div id="fatalBanner" class="alert alert-error shadow hidden">
+      <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+      <span id="fatalBannerText"></span>
+    </div>
+
+    <!-- LOADING STATE -->
+    <div id="loadingState" class="flex flex-col items-center justify-center py-24 gap-3 text-base-content/60">
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+      <span class="text-sm">Actiebladen ophalen...</span>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="mainContent" class="hidden space-y-6">
+
+      <!-- KPI SWITCHER -->
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <h3 class="text-sm font-semibold text-base-content/70">Kerncijfers</h3>
+            <div role="tablist" class="tabs tabs-boxed tabs-sm">
+              <a role="tab" class="tab kpi-view-tab tab-active" data-view="themas">Thema's</a>
+              <a role="tab" class="tab kpi-view-tab" data-view="sales">Sales pipeline</a>
+              <a role="tab" class="tab kpi-view-tab" data-view="actieblad">Actieblad pipeline</a>
+            </div>
+          </div>
+          <span class="text-xs font-semibold text-base-content/50 uppercase tracking-wide block mb-2">Verwachtingen <span class="font-normal text-base-content/40">(klik om te filteren)</span></span>
+          <div id="expectationsSummaryContainer" class="mb-4"></div>
+          <span class="text-xs font-semibold text-base-content/50 uppercase tracking-wide block mb-2">Verdeling <span class="font-normal text-base-content/40">(klik om te filteren)</span></span>
+          <div id="kpiCardsContainer" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+        </div>
+      </div>
+
+      <!-- AI ANALYSE -->
+      <div class="card bg-base-100 border border-base-300 shadow-sm">
+        <div class="card-body p-5">
+          <div class="flex items-center gap-2 mb-1">
+            <i data-lucide="lightbulb" class="w-5 h-5 text-primary"></i>
+            <h2 class="card-title text-base">AI-analyse</h2>
+          </div>
+          <p class="text-xs text-base-content/50 mb-2">
+            Geen losse samenvatting per actieblad -- dit is één analyse over een door jou gekozen SELECTIE actiebladen (zie "Analyse subset creëren" onderaan): patronen, prioritering en suggesties voor waar we als bedrijf op moeten inzetten. Kleinere selecties = goedkopere AI-aanroep.
+          </p>
+          <div id="trendsScopeLabel" class="text-xs text-base-content/50 mb-2 hidden"></div>
+          <div role="tablist" class="tabs tabs-bordered mb-3">
+            <a role="tab" class="tab ai-tab tab-active" data-tab="trends">Trends en aandachtspunten</a>
+            <a role="tab" class="tab ai-tab" data-tab="priority">Prioritering</a>
+            <a role="tab" class="tab ai-tab" data-tab="focus">Waar op in te zetten</a>
+            <a role="tab" class="tab ai-tab" data-tab="suggestions">Suggesties</a>
+          </div>
+          <div id="insightsContent" class="text-sm leading-relaxed text-base-content/80 insights-report">
+            <div class="flex flex-col items-start gap-2 py-2">
+              <span>Nog geen analyse beschikbaar. Stel hieronder een selectie samen om te analyseren.</span>
+              <button class="btn btn-sm btn-primary btn-outline" onclick="document.getElementById('subsetBuilderCard').scrollIntoView({behavior:'smooth'})">
+                <i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5"></i> Ga naar de subset-selectie
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CHARTS -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="card bg-base-100 border border-base-300 lg:col-span-2">
+          <div class="card-body p-4">
+            <h3 class="text-sm font-semibold text-base-content/70 mb-1">Trend per maand</h3>
+            <div class="chart-wrap">
+              <canvas id="trendChart"></canvas>
+              <p id="trendChartEmpty" class="hidden text-sm text-base-content/40 absolute inset-0 flex items-center justify-center"></p>
+            </div>
+          </div>
+        </div>
+        <div class="card bg-base-100 border border-base-300">
+          <div class="card-body p-4">
+            <h3 class="text-sm font-semibold text-base-content/70 mb-1">Pipeline-status</h3>
+            <div class="chart-wrap">
+              <canvas id="pipelineChart"></canvas>
+              <p id="pipelineChartEmpty" class="hidden text-sm text-base-content/40 absolute inset-0 flex items-center justify-center"></p>
+            </div>
+          </div>
+        </div>
+        <div class="card bg-base-100 border border-base-300 lg:col-span-3">
+          <div class="card-body p-4">
+            <h3 class="text-sm font-semibold text-base-content/70 mb-1">Meest voorkomende thema's (uit AI-samenvattingen)</h3>
+            <div class="chart-wrap" style="height:220px">
+              <canvas id="tagChart"></canvas>
+              <p id="tagChartEmpty" class="hidden text-sm text-base-content/40 absolute inset-0 flex items-center justify-center"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUBSET BUILDER: parameters instellen + resulterende lijst -->
+      <div id="subsetBuilderCard" class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <div class="flex items-center gap-2 mb-1">
+            <i data-lucide="sliders-horizontal" class="w-5 h-5 text-primary"></i>
+            <h3 class="text-sm font-semibold text-base-content/70">Analyse subset creëren</h3>
+          </div>
+          <p class="text-xs text-base-content/50 mb-3">
+            Stel hieronder de parameters in voor de actiebladen die je wil analyseren, op basis van de velden die we uit de Sales Insight-export kennen (fase, pipeline-status, periode, tekst). Dit lijstje breiden we later verder uit (bv. bedrijfsgrootte, pakket, ...). Vink hieronder in de resulterende lijst aan welke actiebladen effectief mee moeten in de AI-analyse.
+          </p>
+
+          <!-- PARAMETERS -->
+          <div class="flex flex-wrap items-center gap-2 mb-3 p-2 bg-base-200 rounded-lg">
+            <div class="dropdown">
+              <button tabindex="0" class="btn btn-sm btn-outline bg-base-100">
+                <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+                <span id="stageFilterLabel">Alle fases</span>
+              </button>
+              <div tabindex="0" id="stageFilterDropdown" class="dropdown-content z-40 mt-2 card bg-base-100 border border-base-300 shadow-lg p-3 w-56 max-h-72 overflow-y-auto">
+                <!-- filled dynamically -->
+              </div>
+            </div>
+
+            <select id="periodFilter" class="select select-sm select-bordered">
+              <option value="all">Alle periodes</option>
+              <option value="3">Laatste 3 maanden</option>
+              <option value="6">Laatste 6 maanden</option>
+              <option value="12">Laatste 12 maanden</option>
+            </select>
+
+            <select id="pipelineFilter" class="select select-sm select-bordered">
+              <option value="all">Alle pipeline-statussen</option>
+              <option value="geen_lead">Nog puur discovery</option>
+              <option value="in_pipeline">In pipeline</option>
+              <option value="gewonnen">Gewonnen</option>
+              <option value="verloren">Verloren</option>
+            </select>
+
+            <label class="input input-sm input-bordered flex items-center gap-2 grow max-w-xs">
+              <i data-lucide="search" class="w-3.5 h-3.5 opacity-50"></i>
+              <input id="searchInput" type="text" class="grow" placeholder="Zoek op naam of klant..." />
+            </label>
+
+            <button id="clearFiltersBtn" class="btn btn-sm btn-ghost">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i> Wis parameters
+            </button>
+          </div>
+
+          <div id="advancedFiltersRow" class="hidden flex flex-wrap items-center gap-2 mb-3"></div>
+
+          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <h4 class="text-xs font-semibold text-base-content/60 uppercase tracking-wide">Actiebladen in deze selectie</h4>
+            <span id="tableCount" class="text-xs text-base-content/50"></span>
+          </div>
+
+          <!-- SELECTIE-TOOLBAR: subset kiezen voor de trends-analyse -->
+          <div class="flex items-center flex-wrap gap-2 mb-3 p-2 bg-base-200 rounded-lg">
+            <span id="selectionCountLabel" class="text-xs font-medium">0 geselecteerd</span>
+            <button id="selectAllFilteredBtn" class="btn btn-xs btn-outline">Selecteer alles (gefilterd)</button>
+            <button id="selectDigestedBtn" class="btn btn-xs btn-outline">Selecteer alles met samenvatting</button>
+            <button id="clearSelectionBtn" class="btn btn-xs btn-ghost">Wis selectie</button>
+            <div class="grow"></div>
+            <button id="trendsSelectionBtn" class="btn btn-sm btn-primary" disabled>
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Analyseer trends van selectie
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th class="w-8"><input id="selectAllCheckbox" type="checkbox" class="checkbox checkbox-sm" title="Selecteer alles zichtbaar" /></th>
+                  <th>Naam</th>
+                  <th>Klant</th>
+                  <th>Fase actieblad</th>
+                  <th>Pipeline</th>
+                  <th>Datum</th>
+                  <th>Samenvatting</th>
+                  <th>Kern (AI)</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+          <div id="tableEmptyState" class="hidden text-center py-10 text-base-content/50 text-sm">
+            Geen actiebladen gevonden voor deze parameters.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- DETAIL DIALOG -->
+  <dialog id="detailDialog" class="modal">
+    <div class="modal-box max-w-2xl">
+      <form method="dialog">
+        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </form>
+      <div id="detailContent" class="space-y-4"></div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <!-- PROGRESS DIALOG -->
+  <dialog id="progressDialog" class="modal">
+    <div class="modal-box max-w-sm text-center">
+      <span class="loading loading-spinner loading-lg text-primary mb-3"></span>
+      <p id="progressText" class="text-sm text-base-content/70">Analyse starten...</p>
+      <progress id="progressBar" class="progress progress-primary w-full mt-3" value="0" max="100"></progress>
+    </div>
+  </dialog>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  // Vangnet voor fouten die buiten de gerichte try/catches hierbeneden
+  // vallen (bv. een onverwachte bug) -- zonder dit bleef de pagina soms
+  // gewoon "hangen" zonder enige melding. Toont een generieke toast + logt
+  // het volledige object naar de console voor verder debuggen (F12).
+  window.addEventListener("unhandledrejection", function (e) {
+    var detail = (e.reason && e.reason.message) ? e.reason.message.toString().slice(0, 300) : "onbekende fout";
+    console.error("[Actiebladen Insights] unhandledrejection", e.reason);
+    if (document.getElementById("toastContainer")) {
+      showToast("Onverwachte fout: " + detail + " (zie browserconsole - F12 - voor details)", "error");
+    }
+  });
+
+  // ---------- CONSTANTS ----------
+  var QUERY_ID = "2ab3d9c2-0cbf-443b-9c32-8cb0706b7aec";
+  // Basisvelden op het actieblad zelf -- gecontroleerd tegen resultaat.meta.fields
+  // (zie fetchRecords). __leads/__verwachtingen zijn cascade-aliassen, GEEN
+  // gewone velden, en staan dus bewust niet in deze lijst (die check geldt
+  // enkel voor de vlakke basisvelden van de query).
+  var NODIGE_VELDEN = [
+    "name", "create_date", "for_company_id", "stage_id",
+    "open_question_reason_for_contact", "open_question_current_situation",
+    "open_question_expected_solution", "open_question_running_costs",
+    "open_question_self_management", "open_question_technical_management"
+  ];
+  var DIGEST_CACHE_KEY = "recordDigestsV1";     // { [actiebladId]: {gist, tags} } -- kleine samenvatting per record, zodat een ongewijzigd actieblad nooit twee keer naar de AI moet
+  var TRENDS_CACHE_KEY = "trendsReportV1";       // laatste trends-analyse (tekst) + metadata
+  // Input-cap van window.platform.ai.ask is 25000 tokens (~100.000 tekens,
+  // ruwe schatting ±4 tekens/token) -- we mikken op ruim onder die grens per
+  // aanroep zodat er marge blijft voor de systeem-instructie en het antwoord
+  // niet in de knel komt met MAX_PROMPT_TOKENS.
+  var DIGEST_BATCH_MAX_CHARS = 90000;
+
+  // ---------- STATE ----------
+  var state = {
+    records: [],                // genormaliseerde actiebladen incl. pipeline-info
+    digestsById: {},             // cache: { [id]: {gist, tags: [...], sig} } -- sig = digestSignature() op het moment van de laatste samenvatting
+    pendingDigestIds: [],        // ids die (nog) geen geldige samenvatting hebben -- nieuw of inhoudelijk gewijzigd sinds vorige keer
+    selectedIds: {},             // { [id]: true } -- door de gebruiker gekozen subset voor de trends-analyse
+    trendsReportText: "",
+    trendsScope: null,           // beschrijving van de laatst geanalyseerde subset (bv. "12 van 340 geselecteerd")
+    lastAnalyzedAt: null,
+    totalDigested: 0,
+    filters: {
+      stages: null, period: "all", pipeline: "all", search: "",
+      // Nieuw: klikbare filters vanuit de Kerncijfers-tegels/badges. Elke
+      // waarde is een array van geselecteerde labels (OR binnen die
+      // dimensie) of null = geen filter op die dimensie. Combineert AND
+      // met elkaar en met de bestaande parameters hierboven.
+      expectations: null, themes: null, salesBuckets: null, actiebladBuckets: null
+    },
+    optionalFieldsAvailable: { syndicoachPack: false, openvmePackage: false, hasStartupAssistance: false, parentExpert: false },
+    kpiView: "themas",           // welke KPI-weergave actief is: themas | sales | actieblad
+    aiTab: "trends",             // welk AI-tabblad actief is: trends | priority | focus | suggestions
+    charts: {},
+    chartColors: null
+  };
+
+  // ---------- UTIL ----------
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  }
+  // ---------- KLIKBARE KERNCIJFERS-FILTERS ----------
+  // Generieke infrastructuur waarmee Kerncijfers-tegels/badges (thema's,
+  // verwachtingen, sales-/actieblad-pipeline-tegels) rechtstreeks een
+  // filter in de subset-builder onderaan aan/uit zetten. `filterKey` is
+  // altijd de exacte sleutel in state.filters (bv. "themes",
+  // "expectations", "salesBuckets", "actiebladBuckets"); `value` is het
+  // label dat ook door applyFilters vergeleken wordt (zie daar). Meerdere
+  // waarden binnen 1 dimensie = OR; meerdere dimensies tegelijk = AND.
+  function isFilterActive(filterKey, value) {
+    var arr = filterKey && state.filters[filterKey];
+    return !!(arr && arr.indexOf(value) !== -1);
+  }
+  function clickAttrs(filterKey, value) {
+    if (!filterKey) return "";
+    return ' data-filter-key="' + escapeHtml(filterKey) + '" data-filter-value="' + escapeHtml(value) + '" role="button" tabindex="0"';
+  }
+  function toggleArrayFilter(filterKey, value) {
+    var current = state.filters[filterKey];
+    var arr = current ? current.slice() : [];
+    var idx = arr.indexOf(value);
+    if (idx === -1) arr.push(value); else arr.splice(idx, 1);
+    state.filters[filterKey] = arr.length > 0 ? arr : null;
+    renderAll();
+  }
+  function trimText(s, max) {
+    s = (s || "").toString().trim();
+    if (s.length > max) return s.slice(0, max) + "…";
+    return s;
+  }
+  // Platte-tekst-velden uit Odoo bevatten soms letterlijke newlines (en dubbele
+  // spaties/tabs) -- die breken het "één actieblad per regel"-formaat dat we
+  // in de digest-prompt gebruiken (de AI raakt de kolom-per-regel-structuur
+  // kwijt zodra een veld zelf een newline bevat, wat de meest waarschijnlijke
+  // oorzaak was van vrijwel-totale batch-mislukking op grote datasets).
+  // Altijd EERST platmaken, dan pas inkorten met trimText.
+  function flattenForPrompt(s, max) {
+    var flat = (s || "").toString().replace(/\s*[\r\n]+\s*/g, " / ").replace(/[ \t]+/g, " ").trim();
+    return trimText(flat, max);
+  }
+  function fmtDate(d) {
+    if (!d) return "–";
+    var dt = new Date(d);
+    if (isNaN(dt.getTime())) return "–";
+    return dt.toLocaleDateString("nl-BE", { day: "2-digit", month: "short", year: "numeric" });
+  }
+  function fmtDateTime(d) {
+    if (!d) return "–";
+    var dt = new Date(d);
+    if (isNaN(dt.getTime())) return "–";
+    return dt.toLocaleDateString("nl-BE", { day: "2-digit", month: "short", year: "numeric" }) + " " +
+      dt.toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" });
+  }
+  function monthKey(d) {
+    var dt = new Date(d);
+    if (isNaN(dt.getTime())) return null;
+    return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0");
+  }
+  function monthLabel(key) {
+    var parts = key.split("-");
+    var dt = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
+    return dt.toLocaleDateString("nl-BE", { month: "short", year: "2-digit" });
+  }
+  function showToast(message, type) {
+    type = type || "info";
+    var el = document.createElement("div");
+    el.className = "alert alert-" + type + " shadow-lg text-sm fade-in items-start";
+    el.innerHTML = "<span class=\"whitespace-pre-wrap break-words\">" + escapeHtml(message) + "</span>" +
+      "<button type=\"button\" class=\"btn btn-ghost btn-xs btn-circle toast-close\">✕</button>";
+    document.getElementById("toastContainer").appendChild(el);
+    var duration = type === "error" ? 20000 : 5000;
+    var dismiss = function () {
+      el.style.transition = "opacity .3s";
+      el.style.opacity = "0";
+      setTimeout(function () { el.remove(); }, 300);
+    };
+    el.querySelector(".toast-close").addEventListener("click", dismiss);
+    setTimeout(dismiss, duration);
+  }
+  // Logt de volledige fout naar de browserconsole (F12 -> Console) EN geeft
+  // een korte, tonbare boodschap terug voor in een toast -- zonder dit was
+  // een mislukte AI-/Odoo-aanroep een compleet stille black box: de toast
+  // zei enkel "er ging iets mis", zonder dat er ergens de échte reden
+  // (netwerkfout, timeout, AI-limiet, kapotte JSON, ...) te zien was.
+  function logError(context, err) {
+    console.error("[Actiebladen Insights] " + context, err);
+    var msg = (err && err.message) ? err.message.toString() : "";
+    return msg ? msg.slice(0, 300) : "onbekende fout (zie browserconsole - F12 - voor details)";
+  }
+  // De omgeving belooft dat window.platform/window.sharedStorage synchroon
+  // klaarstaan vóór onze code draait -- maar áls dat ooit toch niet zo is
+  // (bv. een trage/mislukte injectie), geven deze checks een duidelijke,
+  // gerichte Error i.p.v. een cryptische "Cannot read properties of
+  // undefined (reading 'odoo')" die niks zegt over de échte oorzaak. Ze
+  // gooien bewust een Error (i.p.v. zelf een toast te tonen), zodat de
+  // bestaande try/catch + logError op de aanroepplek dit gewoon meepikt.
+  function assertPlatformReady() {
+    if (!window.platform) throw new Error("window.platform is niet beschikbaar in deze sessie (platform-koppeling niet geladen).");
+  }
+  function assertOdooReady() {
+    assertPlatformReady();
+    if (!window.platform.odoo) throw new Error("window.platform.odoo is niet beschikbaar in deze sessie.");
+  }
+  function assertAiReady() {
+    assertPlatformReady();
+    if (!window.platform.ai) throw new Error("window.platform.ai is niet beschikbaar in deze sessie.");
+  }
+  function assertSharedStorageReady() {
+    if (!window.sharedStorage) throw new Error("window.sharedStorage is niet beschikbaar in deze sessie.");
+  }
+  // Extra vangnet specifiek bij het OPSTARTEN: als de platform-injectie
+  // toch een fractie trager is dan gedocumenteerd, geeft dit een paar korte
+  // herkansingen vóór we de gebruiker met een foutmelding confronteren.
+  async function waitForPlatformReady(maxRetries, delayMs) {
+    maxRetries = maxRetries || 5;
+    delayMs = delayMs || 200;
+    for (var i = 0; i < maxRetries; i++) {
+      if (window.platform && window.platform.odoo && window.platform.ai && window.sharedStorage) return true;
+      await new Promise(function (resolve) { setTimeout(resolve, delayMs); });
+    }
+    return !!(window.platform && window.platform.odoo && window.platform.ai && window.sharedStorage);
+  }
+  function refreshIcons() {
+    if (window.lucide) window.lucide.createIcons();
+  }
+  function getRel(v) {
+    if (!v) return null;
+    if (Array.isArray(v)) return { id: v[0], name: v[1] || "Onbekend" };
+    if (typeof v === "object") return { id: v.id, name: v.name || v.x_name || "Onbekend" };
+    return null;
+  }
+  // Zelfde defensieve gedachte als getRel, maar voor cascade-ARRAYS (bv.
+  // __verwachtingen) waar we enkel het label nodig hebben, niet het id.
+  // Odoo/de query kan een item hier op meerdere manieren teruggeven --
+  // {id, name}/{id, x_name}, [id, naam] (net als many2one), of een platte
+  // string -- dus alle drie afvangen i.p.v. te gokken op één vorm.
+  function extractLabel(item) {
+    if (!item) return null;
+    if (typeof item === "string") { var s = item.trim(); return s || null; }
+    if (Array.isArray(item)) { var t = (item[1] || "").toString().trim(); return t || null; }
+    if (typeof item === "object") { var n = (item.name || item.x_name || "").toString().trim(); return n || null; }
+    return null;
+  }
+  function pipelineBadgeClass(status) {
+    if (status === "gewonnen") return "badge-success";
+    if (status === "verloren") return "badge-error";
+    if (status === "in_pipeline") return "badge-warning";
+    return "badge-ghost";
+  }
+  function pipelineLabel(status) {
+    if (status === "gewonnen") return "Gewonnen";
+    if (status === "verloren") return "Verloren";
+    if (status === "in_pipeline") return "In pipeline";
+    return "Nog discovery";
+  }
+  function tagBadgeClass(name) {
+    var palette = ["badge-primary", "badge-secondary", "badge-accent", "badge-info"];
+    var h = 0;
+    for (var i = 0; i < (name || "").length; i++) h = (h * 31 + name.charCodeAt(i)) % 997;
+    return palette[h % palette.length];
+  }
+
+  function toRgba(colorStr, alpha) {
+    if (!colorStr) return colorStr;
+    var m = colorStr.match(/rgba?\(([^)]+)\)/);
+    if (!m) return colorStr;
+    var parts = m[1].split(",").map(function (s) { return s.trim(); });
+    return "rgba(" + parts[0] + ", " + parts[1] + ", " + parts[2] + ", " + alpha + ")";
+  }
+
+  function getChartColors() {
+    if (state.chartColors) return state.chartColors;
+    var probe = document.createElement("div");
+    probe.style.position = "absolute";
+    probe.style.opacity = "0";
+    probe.innerHTML =
+      '<span class="text-primary" data-k="primary"></span>' +
+      '<span class="text-secondary" data-k="secondary"></span>' +
+      '<span class="text-accent" data-k="accent"></span>' +
+      '<span class="text-success" data-k="success"></span>' +
+      '<span class="text-warning" data-k="warning"></span>' +
+      '<span class="text-error" data-k="error"></span>' +
+      '<span class="text-info" data-k="info"></span>' +
+      '<span class="text-base-content" data-k="content"></span>' +
+      '<span class="border-base-300" data-k="border"></span>';
+    document.body.appendChild(probe);
+    var colors = {};
+    probe.querySelectorAll("[data-k]").forEach(function (el) {
+      var k = el.getAttribute("data-k");
+      var cs = getComputedStyle(el);
+      colors[k] = k === "border" ? cs.borderColor : cs.color;
+    });
+    probe.remove();
+    state.chartColors = colors;
+    return colors;
+  }
+
+  // ---------- FATAL ERROR ----------
+  function showFatal(message) {
+    document.getElementById("loadingState").classList.add("hidden");
+    document.getElementById("mainContent").classList.add("hidden");
+    var banner = document.getElementById("fatalBanner");
+    banner.classList.remove("hidden");
+    document.getElementById("fatalBannerText").textContent = message;
+    refreshIcons();
+  }
+
+  // ---------- PIPELINE HELPERS ----------
+  // De crm.lead-cascade (__leads) is de sales pipeline. Per lead bepalen we
+  // een outcome (won / lost / open) en per actieblad kijken we naar AL zijn
+  // leads samen (niet enkel de meest recente):
+  //   - Won   : zodra minstens 1 lead won is (ongeacht de rest)
+  //   - Open  : geen won-lead, maar minstens 1 lead nog open/pending
+  //   - Lost  : geen won-lead, geen open-lead, en er is minstens 1 lead
+  //             (dus ALLE leads zijn lost)
+  //   - geen_lead : geen enkele lead aan dit actieblad gekoppeld
+  // won_status komt rechtstreeks van Odoo -- we kennen de exacte waarden niet
+  // op voorhand, dus we matchen defensief op een paar gangbare varianten
+  // i.p.v. één exacte string te verwachten.
+  function isWonValue(v) {
+    return /won|gewonnen/i.test(String(v || ""));
+  }
+  function isLostValue(v) {
+    return /lost|verloren/i.test(String(v || ""));
+  }
+  function leadOutcome(l) {
+    if (isWonValue(l.wonStatus) || l.probability === 100) return "won";
+    if (isLostValue(l.wonStatus) || l.active === false) return "lost";
+    return "open";
+  }
+  function getLatestLead(leads) {
+    if (!Array.isArray(leads) || leads.length === 0) return null;
+    return leads.slice().sort(function (a, b) {
+      return new Date(b.createDate || 0) - new Date(a.createDate || 0);
+    })[0];
+  }
+  // De meest recente NIET-afgesloten lead -- gebruikt om de sales-substage
+  // (MQL/SQL/Demo/...) te bepalen van een actieblad dat "in pipeline" is.
+  function latestOpenLead(leads) {
+    var opens = (leads || []).filter(function (l) { return leadOutcome(l) === "open"; });
+    if (opens.length === 0) return null;
+    return opens.slice().sort(function (a, b) {
+      return new Date(b.createDate || 0) - new Date(a.createDate || 0);
+    })[0];
+  }
+  function derivePipeline(leads) {
+    if (!Array.isArray(leads) || leads.length === 0) return "geen_lead";
+    var outcomes = leads.map(leadOutcome);
+    if (outcomes.indexOf("won") !== -1) return "gewonnen";
+    if (outcomes.indexOf("open") !== -1) return "in_pipeline";
+    return "verloren"; // geen won, geen open -> alles wat overblijft is lost
+  }
+  // De 8 sales-pipeline-emmers zoals gevraagd: "niet in sales pipeline" en
+  // won/lost zijn afgeleid (derivePipeline), de tussenliggende fases komen
+  // van de crm.stage-naam van de meest recente NOG OPEN lead (leads die al
+  // won of lost zijn horen niet meer bij een tussenfase).
+  var SALES_STAGE_NAMES = ["MQL", "SQL", "Demo", "Follow Up", "Conversion"];
+  function salesPipelineBucket(rec) {
+    if (rec.pipelineStatus === "gewonnen") return "Won";
+    if (rec.pipelineStatus === "verloren") return "Lost";
+    if (rec.pipelineStatus === "geen_lead") return "Niet in sales pipeline";
+    var latest = latestOpenLead(rec.leads);
+    var stageName = latest && latest.stage ? latest.stage.name : null;
+    var match = SALES_STAGE_NAMES.filter(function (s) { return stageName && s.toLowerCase() === stageName.toLowerCase(); })[0];
+    return match || "Andere fase (in pipeline)";
+  }
+  var SALES_PIPELINE_ORDER = ["Niet in sales pipeline", "MQL", "SQL", "Demo", "Follow Up", "Conversion", "Won", "Lost"];
+  // Actieblad-pipeline is nu 3 hoofdblokken i.p.v. 1 platte lijst van 7 fases:
+  // Discovery (incl. "Geen fase") | In opzet (4 tussenfases, compact) | Goed opgestart.
+  var ACTIEBLAD_DISCOVERY_STAGES = ["Discovery", "Geen fase"];
+  var ACTIEBLAD_INOPZET_STAGES = ["Welkomgesprek", "Planning Opstarthulp", "In Configuratie", "Follow-up validatie"];
+  var ACTIEBLAD_DONE_STAGE = "Goed Opgestart";
+  // "Nog in discovery" = fase Discovery zelf, of nog helemaal geen fase --
+  // dit is dezelfde groepering als het "Discovery"-hoofdblok. Gebruikt om
+  // opstarthulp% en de openvme-pakketverdeling te beperken tot actiebladen
+  // die de discovery-fase al voorbij zijn (die velden worden pas ingevuld
+  // ná discovery, dus meetellen tijdens discovery vertekent het beeld).
+  function isInDiscovery(rec) {
+    var name = rec.sheetStage ? rec.sheetStage.name : "Geen fase";
+    return ACTIEBLAD_DISCOVERY_STAGES.indexOf(name) !== -1;
+  }
+  // Zelfde soort "welk hoofdblok/tegel" mapping als salesPipelineBucket
+  // hierboven, maar voor de actieblad-pipeline-indeling -- gebruikt door
+  // renderActiebladPipelineView (welke tegel toont welk aantal) EN door
+  // applyFilters (klik op een tegel = filter op exact deze bucket-waarde).
+  function actiebladPipelineBucket(rec) {
+    var name = rec.sheetStage ? rec.sheetStage.name : "Geen fase";
+    if (ACTIEBLAD_DISCOVERY_STAGES.indexOf(name) !== -1) return "Discovery";
+    if (ACTIEBLAD_INOPZET_STAGES.indexOf(name) !== -1) return name;
+    if (name === ACTIEBLAD_DONE_STAGE) return ACTIEBLAD_DONE_STAGE;
+    return "Andere fase";
+  }
+  // Vaste, betekenisvolle volgorde (i.p.v. gesorteerd op aantal) voor de
+  // twee pakket-verdelingen, zoals gevraagd. Ruwe Odoo-waarden worden
+  // genormaliseerd (lowercase, "_"/"-" -> spatie) zodat "pro_inv"/"pro-inv"/
+  // "Pro Inv" allemaal op dezelfde vaste positie "pro inv" terechtkomen.
+  var OPENVME_PACKAGE_ORDER = ["basic", "smart", "unlimited", "pro inv", "historic"];
+  var SYNDICOACH_PACK_ORDER = ["assistant", "coach", "captain"];
+  function normalizePackageKey(raw) {
+    return (raw || "").toString().toLowerCase().replace(/[_-]+/g, " ").trim();
+  }
+  function capWords(s) {
+    return (s || "").toString().replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+  // Bouwt de vaste-volgorde-lijst [label, count] uit een { normalizedKey: count }
+  // object: eerst de gekende categorieën in de vaste volgorde (ook als 0),
+  // dan onbekende/nieuwe waarden (gesorteerd op aantal, zodat niets stil
+  // verdwijnt als er ooit een nieuw pakket-type bijkomt), en de "geen
+  // pakket"-emmer altijd als allerlaatste segment.
+  function orderedPackageEntries(dataObj, order, noneLabel) {
+    dataObj = dataObj || {};
+    var used = {};
+    var ordered = order.map(function (key) {
+      used[key] = true;
+      return [capWords(key), dataObj[key] || 0];
+    });
+    var extras = Object.keys(dataObj)
+      .filter(function (k) { return !used[k] && k !== noneLabel; })
+      .sort(function (a, b) { return dataObj[b] - dataObj[a]; })
+      .map(function (k) { return [capWords(k), dataObj[k]]; });
+    return ordered.concat(extras, [[noneLabel, dataObj[noneLabel] || 0]]);
+  }
+  // Horizontale, segmentgewijze balk ("hoeveel ruimte neemt elke categorie
+  // in") i.p.v. een donut -- vaste kleur per positie in `entries`, met de
+  // "geen pakket"-emmer altijd neutraal grijs (colors.content).
+  function segmentedBarHtml(entries) {
+    var colors = getChartColors();
+    var palette = [colors.primary, colors.info, colors.success, colors.warning, colors.secondary, colors.accent, colors.error];
+    var total = entries.reduce(function (s, e) { return s + e[1]; }, 0);
+    if (total === 0) return '<p class="text-sm text-base-content/40 italic">Nog geen data voor dit veld.</p>';
+    var withColor = entries.map(function (e, i) {
+      var isNone = /^geen /i.test(e[0]);
+      return { label: e[0], count: e[1], color: isNone ? colors.content : palette[i % palette.length] };
+    }).filter(function (x) { return x.count > 0; });
+    var bar = withColor.map(function (x) {
+      var pct = (x.count / total * 100);
+      return '<div class="h-full rounded-full" style="width:' + pct.toFixed(2) + '%; background-color:' + x.color + ';" title="' + escapeHtml(x.label) + ': ' + x.count + '"></div>';
+    }).join("");
+    var legend = withColor.map(function (x) {
+      return '<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color:' + x.color + '"></span>' + escapeHtml(x.label) + ' <b class="font-semibold">' + x.count + '</b></span>';
+    }).join("");
+    return '<div class="flex w-full h-7 gap-[3px]">' + bar + '</div>' +
+      '<div class="flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5 text-xs text-base-content/70">' + legend + '</div>';
+  }
+  function normalizeLead(l) {
+    if (!l || typeof l !== "object") return null;
+    return {
+      id: l.id,
+      name: l.name || ("Lead #" + l.id),
+      createDate: l.create_date || null,
+      active: l.active !== false,
+      stage: getRel(l.stage_id),
+      wonStatus: l.won_status || null,
+      probability: typeof l.probability === "number" ? l.probability : null,
+      expectedRevenue: typeof l.expected_revenue === "number" ? l.expected_revenue : null,
+      dateOpen: l.date_open || null,
+      dateClosed: l.date_closed || null,
+      dayOpen: typeof l.day_open === "number" ? l.day_open : null,
+      priority: l.priority || null
+    };
+  }
+
+  // ---------- NORMALIZATION ----------
+  function normalizeRecord(r) {
+    var leads = (Array.isArray(r.__leads) ? r.__leads : []).map(normalizeLead).filter(Boolean);
+    // x_as_expectations-cascade: korte, door de prospect (of intake-gesprek)
+    // aangevinkte/ingevulde verwachtingen. Optioneel/defensief net als __leads
+    // -- geen fatale check nodig, gewoon lege lijst als de cascade ontbreekt.
+    var expectations = (Array.isArray(r.__verwachtingen) ? r.__verwachtingen : [])
+      .map(extractLabel)
+      .filter(Boolean);
+    return {
+      id: r.id,
+      name: r.name || r.x_name || ("Actieblad #" + r.id),
+      createDate: r.create_date || null,
+      active: r.active === true,
+      sheetStage: getRel(r.stage_id),
+      company: getRel(r.for_company_id),
+      leads: leads,
+      pipelineStatus: derivePipeline(leads),
+      expectations: expectations,
+      // Optionele velden -- kunnen ontbreken (zie OPTIONELE_VELDEN_MAP in
+      // fetchRecords / state.optionalFieldsAvailable) als de gedeelde query
+      // ooit zonder deze velden gedeeld wordt. Missing/false op Odoo-niveau
+      // wordt hier consistent null resp. false.
+      syndicoachPack: r.syndicoach_pack || null,
+      openvmePackage: r.openvme_package || null,
+      hasStartupAssistance: r.has_startup_assistance === true,
+      parentExpert: getRel(r.calculated_parent_expert),
+      q1: r.open_question_reason_for_contact || "",
+      q2: r.open_question_current_situation || "",
+      q3: r.open_question_expected_solution || "",
+      q4: r.open_question_running_costs || "",
+      q5: r.open_question_self_management || "",
+      q6: r.open_question_technical_management || ""
+    };
+  }
+  function hasContent(rec) {
+    return [rec.q1, rec.q2, rec.q3, rec.q4, rec.q5, rec.q6].some(function (t) { return t && t.trim().length > 0; });
+  }
+
+  // ---------- FETCH ----------
+  async function fetchRecords() {
+    var aantal = parseInt(document.getElementById("aantalInput").value, 10) || 1000;
+    var resultaat;
+    try {
+      assertOdooReady();
+      resultaat = await window.platform.odoo.runQuery(QUERY_ID, { aantal: aantal });
+    } catch (err) {
+      var detail = logError("fetchRecords / runQuery", err);
+      showFatal("Deze query is niet meer beschikbaar, of het ophalen mislukte om een andere reden. Vraag een beheerder om ze opnieuw te delen in Sales Insight Explorer als dit blijft duren. Technische details: " + detail);
+      return null;
+    }
+    var beschikbareVelden = (resultaat && resultaat.meta && resultaat.meta.fields) || [];
+    var ontbreekt = NODIGE_VELDEN.filter(function (f) { return beschikbareVelden.indexOf(f) === -1; });
+    if (ontbreekt.length > 0) {
+      showFatal("Onbekende/ontbrekende velden in het resultaat: " + ontbreekt.join(", ") + ". De onderliggende zoekopdracht is waarschijnlijk aangepast.");
+      return null;
+    }
+    if (resultaat && resultaat.meta && resultaat.meta.truncated_message) {
+      showToast(resultaat.meta.truncated_message, "warning");
+    } else if (resultaat && resultaat.meta && typeof resultaat.meta.total === "number" && (resultaat.records || []).length < resultaat.meta.total) {
+      showToast("Slechts " + (resultaat.records || []).length + " van " + resultaat.meta.total + " actiebladen opgehaald -- verhoog \"Aantal op te halen\" voor de volledige set.", "warning");
+    }
+    // Optionele velden (niet in NODIGE_VELDEN -- de app blijft volledig
+    // bruikbaar zonder deze, enkel de bijhorende verdeling in de
+    // "Actieblad pipeline"-tab toont dan een duidelijke "niet beschikbaar"-
+    // melding i.p.v. de hele app te blokkeren, zie renderActiebladPipelineView).
+    var OPTIONELE_VELDEN_MAP = {
+      syndicoachPack: "syndicoach_pack",
+      openvmePackage: "openvme_package",
+      hasStartupAssistance: "has_startup_assistance",
+      parentExpert: "calculated_parent_expert"
+    };
+    var optionalFieldsAvailable = {};
+    Object.keys(OPTIONELE_VELDEN_MAP).forEach(function (k) {
+      optionalFieldsAvailable[k] = beschikbareVelden.indexOf(OPTIONELE_VELDEN_MAP[k]) !== -1;
+    });
+    return { records: (resultaat.records || []).map(normalizeRecord), optionalFieldsAvailable: optionalFieldsAvailable };
+  }
+
+  // Bepaalt welke actiebladen (nog) een samenvatting nodig hebben: nieuw (nog
+  // geen cache-entry), of inhoudelijk gewijzigd (signature komt niet meer
+  // overeen met wat er bij de laatste samenvatting werd vastgelegd). Records
+  // zonder ingevulde open vragen slaan we altijd meteen over (geen AI nodig).
+  function markPendingDigest(records) {
+    var pending = [];
+    records.filter(hasContent).forEach(function (rec) {
+      var cached = state.digestsById[rec.id];
+      if (!cached || cached.failed || cached.sig !== digestSignature(rec)) pending.push(rec.id);
+    });
+    state.pendingDigestIds = pending;
+  }
+
+  // ---------- AI: DIGEST PER RECORD (compact, gecached) ----------
+  // Doel: NOOIT een individuele samenvatting tonen in de UI (dat wilden we
+  // net weg) -- dit is puur een klein, intern "geheugentje" per actieblad
+  // (kern + een paar thema-tags) zodat een heranalyse een al gezien record
+  // niet opnieuw naar de AI hoeft te sturen. De echte analyse zit in de
+  // trends-stap hieronder, die deze digests (oud + nieuw) samenvoegt.
+  // Vaste sleutels per open vraag -- gebruikt zowel om de prompt op te
+  // bouwen als om de AI te vertellen onder welke keys ze de per-vraag-
+  // samenvatting moet teruggeven (zie fetchPerQuestion). Enkel AANWEZIGE vragen
+  // komen in de prompt terecht -- geen "Reden: " voor een leeg veld, en de
+  // AI wordt niet gevraagd iets te verzinnen voor een vraag die niemand
+  // beantwoord heeft.
+  // Placeholder-gist voor een record waarvan de samenvatting definitief
+  // mislukte. Staat hier (niet bij digestIds) omdat mergeDigest hem nodig heeft
+  // om te beslissen of een record als "klaar" mag tellen.
+  var DIGEST_FAILED_GIST = "(AI-samenvatting mislukt voor dit item -- wordt bij de volgende \"Samenvatten\" opnieuw geprobeerd)";
+
+  var DIGEST_QUESTION_FIELDS = [
+    ["reason", "Reden", "q1", 400],
+    ["situation", "Situatie", "q2", 400],
+    ["solution", "Oplossing", "q3", 400],
+    ["costs", "Kosten", "q4", 250],
+    ["self_management", "Zelfbeheer", "q5", 250],
+    ["technical_management", "Tech.beheer", "q6", 250]
+  ];
+  function formatRecordForDigest(rec) {
+    var parts = DIGEST_QUESTION_FIELDS
+      .filter(function (f) { return rec[f[2]] && rec[f[2]].trim(); })
+      .map(function (f) { return f[1] + ": " + flattenForPrompt(rec[f[2]], f[3]); });
+    // Verwachtingen (x_as_expectations) horen inhoudelijk bij de intake en
+    // zijn vaak een directe hint voor het thema/de nood -- meenemen in zowel
+    // de prompt als (via hergebruik in digestSignature) de wijzigingsdetectie.
+    if (Array.isArray(rec.expectations) && rec.expectations.length) {
+      parts.push("Verwachtingen: " + rec.expectations.map(function (e) { return flattenForPrompt(e, 80); }).join("; "));
+    }
+    return "[" + rec.id + "] " + parts.join(" | ");
+  }
+
+  // Een record wordt enkel als "gewijzigd" gemarkeerd wanneer de open-
+  // vragen-inhoud zelf anders is dan toen de laatste samenvatting gemaakt
+  // werd -- NIET bij een fase-/pipeline-wijziging of eender welke andere
+  // Odoo-wijziging die niets met de open vragen te maken heeft.
+  // formatRecordForDigest() bevat exact die inhoud, dus die string herbruiken
+  // als "vingerafdruk" is voldoende en vermijdt een aparte hash-functie.
+  function digestSignature(rec) {
+    return formatRecordForDigest(rec);
+  }
+
+  // ---------- BATCH-GROOTTES PER OUTPUTPROFIEL ----------
+  // Tot 2026-08 was er ÉÉN batch-grootte (25) voor ÉÉN aanroep die per record
+  // alles tegelijk vroeg: een algemene samenvatting + tot 6 per-vraag-
+  // samenvattingen + thema-tags. Dat is ~250 output-tokens per record, dus
+  // 6.000+ per batch -- vandaar maxOutputTokens: 8192 en vandaar de aanroepen
+  // van 2-4 minuten die de clientside timeout in de brug telkens deden
+  // aflopen. De oplossing was niet een kleinere batch of een grotere timeout,
+  // maar de aanroep opsplitsen naar OUTPUTPROFIEL:
+  //
+  //   fase A  classificatie   thema-tags, als INDEX in THEME_MASTER_LIST
+  //                           (~6 output-tokens/record)  -> Haiku, groot batchen
+  //   fase B  samenvatting    enkel de gist (~50 tokens/record) -> Sonnet, streamt
+  //   fase C  per-vraag       enkel bij het OPENEN van een record (openDetail)
+  //
+  // Waarom fase C op aanvraag: perQuestion was ~75% van alle output-tokens en
+  // wordt NERGENS in de aggregatie gebruikt -- niet in generateTrendsReport
+  // (die leest enkel gist + tags), niet in computeStats (enkel tags), niet in
+  // renderTable (enkel gist). Het verschijnt uitsluitend in openDetail(), voor
+  // één record, op het moment dat een mens erop klikt. Vooruit betalen voor 6
+  // samenvattingen per record die vrijwel nooit bekeken worden, was de
+  // eigenlijke kostenpost.
+  // ─── Tokenbudget: batch-grootte wordt AFGELEID, niet los gekozen ──────────
+  // Hier ging het de eerste keer mis: SUMMARY_BATCH_MAX_RECORDS (40) en de
+  // gevraagde maxOutputTokens (batch.length * 90 + 400 = 4.000) waren twee
+  // ONAFHANKELIJKE getallen, en die spraken elkaar tegen -- 40 records pasten
+  // niet in 4.000 tokens, dus AI_TRUNCATED. Twee losse constanten die
+  // consistent MOETEN zijn, zijn een bug die wacht om te gebeuren. Daarom is
+  // de batch-grootte nu een GEVOLG van het budget:
+  //
+  //     batch_max = (platformcap - overhead) / tokens_per_record
+  //
+  // Daarmee kan de gevraagde ruimte per definitie niet meer kleiner zijn dan
+  // wat de batch nodig heeft.
+  //
+  // En het conceptuele punt: `max_tokens` is een PLAFOND, geen reservering. Je
+  // betaalt de tokens die het model werkelijk genereert, niet het plafond dat
+  // je vroeg. Een krap plafond bespaart dus NIETS en levert alleen
+  // afkap-risico op. Ruim vragen is gratis; te krap vragen kost een hele
+  // mislukte (en volledig betaalde) aanroep.
+  //
+  // MAX_OUTPUT_TOKENS_CAP in src/modules/mini-apps/lib/ai.js begrenst dit
+  // server-side; die waarde staat hier bewust nog eens expliciet, want de
+  // afleiding hieronder klopt alleen als ze gelijk zijn.
+  var PLATFORM_MAX_OUTPUT_TOKENS = 8192;
+  var JSON_OVERHEAD_TOKENS = 500;
+
+  // Ruime schattingen per record, inclusief het JSON-omhulsel ({"id":...,...},).
+  // Fase A is een handvol getallen; fase B is ~30 woorden Nederlands (±60
+  // tokens) plus overhead -- 200 geeft daar ruim 3x marge op. De ECHTE, gemeten
+  // waarde wordt na elke run gerapporteerd (zie measuredTokensPerRecord), dus
+  // deze getallen zijn vanaf nu bij te stellen op data i.p.v. op gevoel.
+  var CLASSIFY_TOKENS_PER_RECORD = 25;
+  var SUMMARY_TOKENS_PER_RECORD = 200;
+
+  function batchMaxFor(tokensPerRecord) {
+    return Math.max(1, Math.floor((PLATFORM_MAX_OUTPUT_TOKENS - JSON_OVERHEAD_TOKENS) / tokensPerRecord));
+  }
+  function outputBudgetFor(recordCount, tokensPerRecord) {
+    return Math.min(PLATFORM_MAX_OUTPUT_TOKENS, recordCount * tokensPerRecord + JSON_OVERHEAD_TOKENS);
+  }
+
+  var CLASSIFY_BATCH_MAX_RECORDS = batchMaxFor(CLASSIFY_TOKENS_PER_RECORD);  // 307
+  var SUMMARY_BATCH_MAX_RECORDS = batchMaxFor(SUMMARY_TOKENS_PER_RECORD);    // 38
+
+  // Gemeten output-tokens per record uit de laatste run -- puur observatie,
+  // gebruikt in de afsluitende toast zodat de constanten hierboven op cijfers
+  // bijgesteld kunnen worden i.p.v. op wat er net misliep.
+  var summaryUsageSamples = [];
+
+  // Modellen komen uit de server-side allowlist (MODEL_ALLOWLIST in
+  // src/modules/mini-apps/lib/ai.js) -- een andere waarde geeft
+  // AI_INVALID_MODEL, geen stille duurdere aanroep.
+  var MODEL_CLASSIFY = "claude-haiku-4-5";
+  var MODEL_SUMMARY = "claude-sonnet-5";
+
+  function buildBatches(records, maxRecords, maxChars) {
+    maxChars = maxChars || DIGEST_BATCH_MAX_CHARS;
+    var batches = [], current = [], currentLen = 0;
+    records.forEach(function (rec) {
+      var len = formatRecordForDigest(rec).length;
+      if (current.length > 0 && (currentLen + len > maxChars || current.length >= maxRecords)) {
+        batches.push(current); current = []; currentLen = 0;
+      }
+      current.push(rec); currentLen += len;
+    });
+    if (current.length) batches.push(current);
+    return batches;
+  }
+
+  // Vaste, herbruikbare themalijst -- representatief voor typische noden bij
+  // VME-beheer en de oplossingen die OpenVME daarvoor biedt (zelfbeheer-
+  // ondersteuning, digitaal platform, transparante facturatie, opstarthulp,
+  // ...). Bewust een GESLOTEN kernlijst i.p.v. vrije tags: met 700+
+  // actiebladen in het archief wil je vaste, vergelijkbare categorieën zien
+  // (dezelfde nood mag niet als "kostenvraag", "kosten", "te duur" uit elkaar
+  // vallen). De AI mag bij hoge uitzondering een nieuw thema toevoegen
+  // (voorvoegsel "Nieuw: ", zie classifyBatch/themesFromIndices) als er ECHT niets past -- zo
+  // blijft de lijst zelf aanvulbaar zonder de vergelijkbaarheid te verliezen.
+  // Dit is een eerste versie op basis van de open vragen/velden die we tot
+  // nu toe zagen -- gerust bijsturen als een categorie niet (meer) klopt.
+  var THEME_MASTER_LIST = [
+    "Kosten & tarieven", "Transparantie financiën", "Zelfbeheer vs. syndicus",
+    "Ontevredenheid beheerder", "Opstart- & overnamebegeleiding", "Technisch onderhoud",
+    "Administratie & AV", "Communicatie mede-eigenaars", "Digitaal platform",
+    "Verzekering & juridisch", "Interesse/verkennend", "Prijssimulatie/offerte"
+  ];
+  // Toont eerst alle themes uit de vaste lijst in vaste volgorde (ook bij 0
+  // -- zo zie je in één oogopslag welk thema wél/niet leeft in het archief),
+  // daarna eventuele "Nieuw: ..."-thema's gesorteerd op aantal, zodat niets
+  // stil verdwijnt als er toch een nieuwe categorie opduikt.
+  function orderedThemeEntries(byTagObj) {
+    byTagObj = byTagObj || {};
+    var used = {};
+    var ordered = THEME_MASTER_LIST.map(function (name) {
+      used[name] = true;
+      return [name, byTagObj[name] || 0];
+    });
+    var extras = Object.keys(byTagObj)
+      .filter(function (k) { return !used[k]; })
+      .sort(function (a, b) { return byTagObj[b] - byTagObj[a]; })
+      .map(function (k) { return [k, byTagObj[k]]; });
+    return ordered.concat(extras);
+  }
+
+  // ---------- JSON-SCHEMA'S ----------
+  // window.platform.ai.ask.json() geeft deze schema's door aan de provider, die
+  // ze met constrained decoding AFDWINGT (Anthropic: output_config.format).
+  // Daarmee verdwijnt de hele zelfgeschreven parserlaag: extractJsonObjects()
+  // met zijn regex-fallback, de failedLines-boekhouding en het "record kwam niet
+  // terug in het antwoord"-pad bestonden alleen omdat we tekst vroegen en op
+  // formaat hoopten.
+  //
+  // LET OP -- niet elk JSON-Schema-keyword mag hier: Anthropic's constrained
+  // decoding ondersteunt GEEN pure validatie-constraints (`maxItems`,
+  // `maxLength`, `minimum`, `maximum`, `pattern`, ...). Een schema met
+  // `maxItems` gaf een harde 400: "For 'array' type, property 'maxItems' is not
+  // supported". De provider strippt zulke keywords sinds 2026-08 zelf
+  // (sanitizeSchemaForStructuredOutput in ai-providers/anthropic.js) en zet ze
+  // als notitie in de description, dus een schema met zo'n constraint werkt nog
+  // -- maar het wordt dan niet HARD afgedwongen. Daarom hieronder bewust:
+  //  * `enum` waar een waarde echt begrensd moet zijn (enum IS ondersteund en
+  //    is sterker dan minimum/maximum: het somt de geldige thema-indices op).
+  //  * lengtes/aantallen enkel in de description, want de code klemt ze toch al
+  //    af (themesFromIndices -> slice(0,3), gist -> slice(0,400),
+  //    sanitizePerQuestion -> slice(0,220)). Die clamps waren er al vóór de
+  //    schema's en blijven de echte garantie.
+  //
+  // Twee tokenbesparingen zitten IN het schema i.p.v. in de prompt:
+  //  * `t` is een array van INDICES in THEME_MASTER_LIST, geen labels. "Opstart-
+  //    & overnamebegeleiding" is ~9 output-tokens, `4` is er één. Bij 3 tags x
+  //    100 records scheelt dat ~2.400 tokens per batch. Belangrijker nog: een
+  //    enum van getallen maakt spellingdrift STRUCTUREEL onmogelijk, waar de
+  //    oude prompt er drie zinnen aan besteedde ("Gebruik LETTERLIJK een van
+  //    deze labels (geen eigen spelling/variatie)").
+  //  * korte sleutelnamen (`t`, `n`) -- die staan in élk object van het antwoord.
+  function classifySchema() {
+    // Geldige thema-indices als expliciete enum i.p.v. minimum/maximum: enum is
+    // wél ondersteund én strenger (het model kan geen index buiten de lijst
+    // kiezen, ook niet per ongeluk).
+    var themeIndices = THEME_MASTER_LIST.map(function (_name, i) { return i; });
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["items"],
+      properties: {
+        items: {
+          type: "array",
+          description: "Eén object per actieblad, in dezelfde volgorde als de invoer.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            // Alle velden verplicht (ook `n`): zo hoeft er niet gegokt te worden
+            // of optionele properties toegelaten zijn bij constrained decoding.
+            // `n` mag gewoon leeg zijn -- themesFromIndices negeert een lege
+            // of enkel-witruimte-waarde.
+            required: ["id", "t", "n"],
+            properties: {
+              id: { type: "integer", description: "Het id van het actieblad, exact zoals tussen [ ] in de invoer." },
+              t: {
+                type: "array",
+                description: "1 tot 3 thema-nummers, meest passend eerst.",
+                items: { type: "integer", enum: themeIndices }
+              },
+              // Ontsnappingsroute voor een nood die ECHT niet in de vaste lijst
+              // past, zodat de lijst aanvulbaar blijft zonder de
+              // vergelijkbaarheid van de vaste categorieën te breken.
+              n: {
+                type: "string",
+                description: "Leeg (\"\") als er een passend thema in de lijst staat. Alleen anders: een eigen kort label van max 40 tekens."
+              }
+            }
+          }
+        }
+      }
+    };
+  }
+
+  function summarySchema() {
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["items"],
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id", "gist"],
+            properties: {
+              id: { type: "integer", description: "Het id van het actieblad, exact zoals tussen [ ] in de invoer." },
+              // BEWUST geen "(± 400 tekens)" meer: dat was een tegenstrijdig
+              // signaal (30 woorden is ~200 tekens) en gaf het model licenties
+              // om langer te schrijven dan gevraagd. De 400 is enkel nog een
+              // defensieve clamp in de code, geen instructie aan het model.
+              gist: { type: "string", description: "Max 30 woorden." }
+            }
+          }
+        }
+      }
+    };
+  }
+
+  // Fase C: enkel de aanwezige vragen als sleutel in het schema zetten. Zo is
+  // "verzin niets voor een vraag die niemand beantwoord heeft" een structurele
+  // eigenschap i.p.v. een instructie die het model kan negeren.
+  function perQuestionSchema(presentKeys) {
+    var props = {};
+    presentKeys.forEach(function (k) {
+      props[k] = { type: "string", description: "Max 20 woorden (± 220 tekens)." };
+    });
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: presentKeys,
+      properties: props
+    };
+  }
+
+  // ---------- RETRY OP FOUTCODE, NIET OP FOUTTEKST ----------
+  // Vervangt isTimeoutError() (regex op Nederlandse foutteksten) en de
+  // timeout-halvering in digestBatchResilient(). Die halvering bestond enkel om
+  // de clientside timeout-cap te omzeilen; nu de keten streamt en een echte
+  // AI_STALLED/AI_TRUNCATED/AI_PROVIDER_* code teruggeeft, is een gerichte
+  // retry op UITSLUITEND retrybare fouten correct én veel goedkoper.
+  //
+  // err.retryAfterMs komt uit de retry-after-header van de provider -- dus bij
+  // een echte Anthropic-rate-limit wachten we wat Anthropic vraagt, i.p.v. de
+  // vaste 1.200 ms die daar gegarandeerd te kort voor was.
+  function isFatalQuotaError(err) {
+    return err && (err.code === "AI_RATE_LIMIT_APP" || err.code === "AI_RATE_LIMIT_PLATFORM");
+  }
+
+  async function withRetry(label, fn, maxAttempts) {
+    maxAttempts = maxAttempts || 3;
+    var lastErr = null;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        logError(label + " (poging " + attempt + "/" + maxAttempts + ", code " + (err && err.code) + ")", err);
+        // Daglimiet bereikt of een echte bug (ongeldige prompt/schema/model):
+        // opnieuw proberen is zinloos en verbruikt enkel meer quota.
+        if (isFatalQuotaError(err) || !err || err.retryable !== true) throw err;
+        if (attempt === maxAttempts) throw err;
+        var waitMs = (typeof err.retryAfterMs === "number" && err.retryAfterMs > 0)
+          ? Math.min(err.retryAfterMs, 60000)
+          : 1000 * attempt;
+        await new Promise(function (resolve) { setTimeout(resolve, waitMs); });
+      }
+    }
+    throw lastErr;
+  }
+
+  // ---------- FASE A: CLASSIFICATIE (thema-tags) ----------
+  var CLASSIFY_SYSTEM = "Je classificeert Nederlandse CRM-discovery-notities tegen een vaste themalijst. Je antwoordt uitsluitend met het gevraagde JSON-object.";
+
+  function themeListForPrompt() {
+    return THEME_MASTER_LIST.map(function (name, i) { return i + " = " + name; }).join("\n");
+  }
+
+  async function classifyBatch(batch) {
+    assertAiReady();
+    var prompt = "Hieronder staan actiebladen (CRM discovery-notities: open vragen + eventuele verwachtingen, enkel wat aanwezig is).\n\n" +
+      "Kies per actieblad 1 tot 3 thema's die het best passen bij de nood/situatie, uit deze vaste lijst met typische noden bij VME-beheer en de oplossingen die OpenVME daarvoor biedt:\n" +
+      themeListForPrompt() + "\n\n" +
+      "Geef per actieblad het NUMMER van elk gekozen thema in \"t\". Past er ECHT niets uit de lijst (zeldzame uitzondering, niet als gemakkelijkheidsoplossing)? Kies dan het nummer dat er nog het dichtst bij komt en zet daarnaast een eigen kort label in \"n\".\n\n" +
+      "Actiebladen:\n" + batch.map(formatRecordForDigest).join("\n");
+
+    var result = await window.platform.ai.ask.json(prompt, {
+      system: CLASSIFY_SYSTEM,
+      schema: classifySchema(),
+      model: MODEL_CLASSIFY,
+      maxOutputTokens: outputBudgetFor(batch.length, CLASSIFY_TOKENS_PER_RECORD)
+    });
+    return (result && result.items) || [];
+  }
+
+  // ---------- FASE B: SAMENVATTING (gist) ----------
+  var SUMMARY_SYSTEM = "Je vat Nederlandse CRM-discovery-notities samen voor een operations/sales-manager. Bondig maar inhoudelijk: behoud concrete details (reden, bedrag, aantal, specifiek probleem). Je antwoordt uitsluitend met het gevraagde JSON-object.";
+
+  async function summarizeBatch(batch, onProgress) {
+    assertAiReady();
+    var prompt = "Schrijf voor elk actieblad hieronder (CRM discovery-notitie: open vragen + eventuele verwachtingen, enkel wat aanwezig is) één samenvatting van max 30 woorden in \"gist\": de kern EN de belangrijkste context van het hele actieblad. Kort mag, maar verlies geen essentiële details (concrete reden, bedrag, aantal, specifiek probleem). Betrek de verwachtingen erin als ze aanwezig zijn.\n\n" +
+      "Actiebladen:\n" + batch.map(formatRecordForDigest).join("\n");
+
+    // ask.full i.p.v. ask.json: we willen ook usage.tokensOut, zodat het
+    // werkelijke aantal output-tokens per record MEETBAAR wordt in plaats van
+    // een aanname in een comment.
+    var result = await window.platform.ai.ask.full(prompt, {
+      system: SUMMARY_SYSTEM,
+      schema: summarySchema(),
+      model: MODEL_SUMMARY,
+      maxOutputTokens: outputBudgetFor(batch.length, SUMMARY_TOKENS_PER_RECORD),
+      // Streamt zichtbaar door: elke delta is bovendien een levensteken voor de
+      // stall-timer in de brug, wat de oude totaalduur-timeout overbodig maakt.
+      onProgress: onProgress
+    });
+    var tokensOut = result && result.usage && result.usage.tokensOut;
+    if (Number.isFinite(tokensOut) && batch.length > 0) {
+      summaryUsageSamples.push(tokensOut / batch.length);
+      console.info("[Actiebladen Insights] fase B: " + tokensOut + " output-tokens voor " +
+        batch.length + " records = " + (tokensOut / batch.length).toFixed(1) +
+        " per record (budget: " + SUMMARY_TOKENS_PER_RECORD + ")");
+    }
+    return (result && result.json && result.json.items) || [];
+  }
+
+  // ---------- BATCH SPLITSEN BIJ AI_TRUNCATED ----------
+  // Belangrijk onderscheid met de VERWIJDERDE digestBatchResilient(): die
+  // splitste op een TIMEOUT, en een timeout zei niets over de oorzaak -- dat
+  // was gokken, en het maskeerde het echte probleem (geen streaming).
+  //
+  // Splitsen op AI_TRUNCATED is het tegenovergestelde: die code betekent
+  // letterlijk "de output van deze batch paste niet in het gevraagde plafond",
+  // en de batch halveren halveert de output. Dat is een deterministisch
+  // antwoord op een exact gemeten oorzaak, niet een poging om er onderuit te
+  // komen. Opnieuw proberen met dezelfde batch is hier zinloos (vandaar
+  // retryable:false op AI_TRUNCATED) -- kleiner proberen is de enige zinnige
+  // reactie, en die kan de app zelf nemen zonder de gebruiker lastig te vallen.
+  //
+  // Diepte begrensd (en minimaal 1 record per stuk) zodat dit nooit een
+  // oneindige splitsingsketen wordt: bij één record dat alsnog afkapt, komt de
+  // fout gewoon naar boven -- dan is er echt iets anders aan de hand.
+  var MAX_SPLIT_DEPTH = 4;
+
+  async function runSplittingOnTruncation(batch, runOne, depth) {
+    depth = depth || 0;
+    try {
+      return await runOne(batch);
+    } catch (err) {
+      if (err && err.code === "AI_TRUNCATED" && batch.length > 1 && depth < MAX_SPLIT_DEPTH) {
+        var mid = Math.ceil(batch.length / 2);
+        console.info("[Actiebladen Insights] AI_TRUNCATED bij " + batch.length +
+          " records -- gesplitst in " + mid + " + " + (batch.length - mid));
+        var links = await runSplittingOnTruncation(batch.slice(0, mid), runOne, depth + 1);
+        var rechts = await runSplittingOnTruncation(batch.slice(mid), runOne, depth + 1);
+        return links.concat(rechts);
+      }
+      throw err;
+    }
+  }
+
+  // ---------- FASE C: PER-VRAAG-SAMENVATTING, OP AANVRAAG ----------
+  // Wordt aangeroepen vanuit openDetail() voor ÉÉN record, en het resultaat gaat
+  // in dezelfde cache als de rest. ~150 output-tokens: onmerkbaar snel, en
+  // betaald door wie er effectief naar kijkt.
+  async function fetchPerQuestion(rec) {
+    assertAiReady();
+    var present = DIGEST_QUESTION_FIELDS.filter(function (f) { return rec[f[2]] && rec[f[2]].trim(); });
+    if (present.length === 0) return {};
+
+    var prompt = "Hieronder de antwoorden op de open vragen van één CRM-actieblad. Vat ELK antwoord apart samen in max 20 woorden: de kern van wat er effectief gezegd werd, geen halve zin die enkel een thema noemt.\n\n" +
+      present.map(function (f) { return f[1] + " (" + f[0] + "): " + flattenForPrompt(rec[f[2]], f[3]); }).join("\n");
+
+    return await window.platform.ai.ask.json(prompt, {
+      system: SUMMARY_SYSTEM,
+      schema: perQuestionSchema(present.map(function (f) { return f[0]; })),
+      model: MODEL_SUMMARY,
+      maxOutputTokens: present.length * 60 + 200
+    }) || {};
+  }
+
+  // ---------- AI: TRENDS OVER HET GEHEEL ----------
+  async function generateTrendsReport(records, digestsById, stats, onProgress) {
+    assertAiReady();
+    var lines = [];
+    records.forEach(function (rec) {
+      var d = digestsById[rec.id];
+      if (!d) return;
+      lines.push("[" + rec.id + "] (" + pipelineLabel(rec.pipelineStatus) + ") " + d.gist + (Array.isArray(d.tags) && d.tags.length ? " -- tags: " + d.tags.join(", ") : ""));
+    });
+
+    var prompt = "Dit zijn discovery-actiebladen van een bedrijf (elk = eerste contact/vraag van een prospect), met per item een korte AI-kern, thema-tags en de huidige status in de salespipeline (nog geen lead / in pipeline / gewonnen / verloren).\n\n" +
+      "Geaggregeerde cijfers:\n" +
+      "Totaal actiebladen: " + stats.total + " (waarvan " + stats.withContentCount + " met ingevulde open vragen)\n" +
+      "Pipeline-status: " + JSON.stringify(stats.byPipeline) + "\n" +
+      "Fase van het actieblad: " + JSON.stringify(stats.bySheetStage) + "\n" +
+      "Meest voorkomende thema-tags: " + JSON.stringify(stats.byTag) + "\n" +
+      "Aantal per maand (laatste maanden): " + JSON.stringify(stats.byMonth) + "\n\n" +
+      "Per-actieblad kernen:\n" + lines.join("\n") + "\n\n" +
+      "Schrijf een beknopte analyse in het Nederlands voor een operations/sales-manager, met deze secties (gebruik exact deze kopjes als platte tekst, geen markdown-headers):\n" +
+      "TRENDS EN PATRONEN: wat valt op over tijd, per thema, per pipeline-uitkomst (bv. welke soort vragen leiden vaker tot een gewonnen deal of net tot niets)?\n" +
+      "PRIORITERING: welke soort leads/actiebladen verdienen nu het meeste aandacht, en waarom?\n" +
+      "WAAR OP INZETTEN: concrete aanbevelingen voor waar het bedrijf als geheel op zou moeten focussen (bv. een thema dat veel voorkomt maar zelden tot een deal leidt, of net omgekeerd).\n" +
+      "SUGGESTIES: 3 tot 5 concrete, uitvoerbare actiepunten.\n" +
+      "Elk punt onder een kopje op een eigen regel beginnend met \"- \". Geen inleiding, geen samenvatting van de ruwe cijfers zelf (die staan al hierboven).";
+
+    // Blijft bewust vrije tekst (geen schema): dit is een leesbaar rapport met
+    // vier vaste kopjes dat parseTrendsReportSections() opsplitst, geen
+    // gestructureerde data. Wel expliciet Sonnet (analytisch redeneren over de
+    // hele set) en streamend, zodat de voortgangsbalk iets echt kan tonen.
+    var antwoord = await window.platform.ai.ask(prompt, {
+      system: "Je bent een scherpe, beknopte data-analist/sales-strateeg die schrijft voor een operations manager. Nederlands, geen fluff, concreet.",
+      model: MODEL_SUMMARY,
+      maxOutputTokens: 4000,
+      onProgress: onProgress
+    });
+    return antwoord.trim();
+  }
+
+  // ---------- ANALYSIS FLOW ----------
+  function setProgress(pct, text) {
+    document.getElementById("progressBar").value = pct;
+    document.getElementById("progressText").textContent = text;
+  }
+
+  // Verwerkt een lijst record-ids in TWEE fasen (zie de batch-grootte-comment
+  // hierboven): eerst goedkope classificatie in grote batches, daarna de
+  // duurdere samenvattingen in kleinere. De classificatie loopt eerst en
+  // volledig, zodat de thema-tegels in Kerncijfers zich al vullen terwijl de
+  // samenvattingen nog bezig zijn -- die tags zijn wat computeStats/applyFilters
+  // nodig hebben, de gist enkel wat de tabel toont.
+  //
+  // Muteert state.digestsById + state.pendingDigestIds; roept zelf geen
+  // trends-stap aan en slaat zelf niets op (dat doet de aanroeper).
+  var DIGEST_QUESTION_KEYS = DIGEST_QUESTION_FIELDS.map(function (f) { return f[0]; });
+  function sanitizePerQuestion(raw) {
+    var out = {};
+    if (!raw || typeof raw !== "object") return out;
+    DIGEST_QUESTION_KEYS.forEach(function (k) {
+      if (raw[k]) out[k] = raw[k].toString().slice(0, 220);
+    });
+    return out;
+  }
+
+  // Indices uit fase A terug naar labels. Een index buiten de lijst kan door het
+  // schema (integer met minimum/maximum) niet voorkomen, maar we filteren
+  // defensief zodat een latere schemawijziging nooit `undefined` als thema geeft.
+  function themesFromIndices(indices, newTheme) {
+    var out = [];
+    // Eerst ontdubbelen/filteren, PAS DAARNA aftoppen op 3 (de slice staat
+    // onderaan). Omgekeerd zou een dubbele index een geldig thema verdringen:
+    // [1,1,2] zou dan 2 thema's opleveren i.p.v. 2 unieke uit 3 posities.
+    (Array.isArray(indices) ? indices : []).forEach(function (i) {
+      var name = THEME_MASTER_LIST[i];
+      if (name && out.indexOf(name) === -1) out.push(name);
+    });
+    if (newTheme && typeof newTheme === "string" && newTheme.trim()) {
+      var label = "Nieuw: " + newTheme.trim().slice(0, 40);
+      if (out.indexOf(label) === -1) out.push(label);
+    }
+    return out.slice(0, 3);
+  }
+
+  // Eén plek die een digest-entry bijwerkt zonder de andere fase te
+  // overschrijven: fase A schrijft `tags`, fase B `gist`, fase C `perQuestion`.
+  // `sig` wordt pas gezet als er ZOWEL een geldige gist als tags zijn -- anders
+  // zou een record na enkel fase A al als "klaar" tellen en nooit meer een
+  // samenvatting krijgen (dat is precies het patroon waar markPendingDigest op
+  // afgaat).
+  function mergeDigest(rec, patch) {
+    var existing = state.digestsById[rec.id] || {};
+    var merged = {
+      gist: patch.gist !== undefined ? patch.gist : existing.gist,
+      tags: patch.tags !== undefined ? patch.tags : (existing.tags || []),
+      perQuestion: patch.perQuestion !== undefined ? patch.perQuestion : (existing.perQuestion || {})
+    };
+    if (patch.failed) {
+      merged.failed = true;
+    } else if (merged.gist && merged.gist !== DIGEST_FAILED_GIST && merged.tags && merged.tags.length) {
+      merged.sig = digestSignature(rec);
+    } else if (existing.sig) {
+      merged.sig = existing.sig;
+    }
+    state.digestsById[rec.id] = merged;
+  }
+  async function digestIds(ids, onProgress) {
+    var idSet = {};
+    ids.forEach(function (id) { idSet[id] = true; });
+    var toDigest = state.records.filter(function (r) { return idSet[r.id] && hasContent(r); });
+
+    summaryUsageSamples = [];
+    var classifyBatches = buildBatches(toDigest, CLASSIFY_BATCH_MAX_RECORDS);
+    var summaryBatches = buildBatches(toDigest, SUMMARY_BATCH_MAX_RECORDS);
+    var totalSteps = classifyBatches.length + summaryBatches.length;
+    var step = 0;
+
+    var failedBatches = 0;
+    var quotaError = null;   // AI_RATE_LIMIT_APP/PLATFORM -> hele wachtrij stoppen
+    var lastError = null;
+
+    function report(label) {
+      if (onProgress) onProgress(step, totalSteps, label);
+    }
+
+    // ── Fase A: classificatie (thema-tags, indices, Haiku) ──────────────────
+    for (var a = 0; a < classifyBatches.length; a++) {
+      if (quotaError) break;
+      var cb = classifyBatches[a];
+      report("Thema's bepalen (batch " + (a + 1) + " van " + classifyBatches.length + ", " + cb.length + " actiebladen)");
+      try {
+        var items = await runSplittingOnTruncation(cb, function (part) {
+          return withRetry("classifyBatch", function () { return classifyBatch(part); });
+        });
+        var byId = {};
+        items.forEach(function (it) { if (it && it.id !== undefined) byId[it.id] = it; });
+        cb.forEach(function (rec) {
+          var it = byId[rec.id];
+          if (it) mergeDigest(rec, { tags: themesFromIndices(it.t, it.n) });
+        });
+      } catch (errA) {
+        failedBatches++;
+        lastError = errA;
+        if (isFatalQuotaError(errA)) { quotaError = errA; break; }
+      }
+      step++;
+    }
+
+    // ── Fase B: samenvattingen (gist, Sonnet, streamend) ────────────────────
+    for (var b = 0; b < summaryBatches.length; b++) {
+      if (quotaError) break;
+      var sb = summaryBatches[b];
+      var baseLabel = "Samenvatten (batch " + (b + 1) + " van " + summaryBatches.length + ", " + sb.length + " actiebladen)";
+      report(baseLabel);
+      try {
+        var summaries = await runSplittingOnTruncation(sb, (function (label) {
+          return function (part) {
+            return withRetry("summarizeBatch", function () {
+              return summarizeBatch(part, function (info) {
+                // Voortgang uit de STREAM. Dit is tegelijk het levensteken dat
+                // de stall-timer in de brug reset -- vroeger stond hier niets en
+                // zat de gebruiker minuten naar een spinner te kijken die niets
+                // wist, terwijl de timeout-cap op de achtergrond afliep.
+                report(label + " -- " + info.text.length + " tekens ontvangen");
+              });
+            });
+          };
+        })(baseLabel));
+        var sById = {};
+        summaries.forEach(function (it) { if (it && it.id !== undefined) sById[it.id] = it; });
+        sb.forEach(function (rec) {
+          var it = sById[rec.id];
+          if (it) mergeDigest(rec, { gist: (it.gist || "").toString().slice(0, 400) });
+          // Een record dat niet in het antwoord zat krijgt GEEN placeholder: het
+          // blijft zonder gist en dus in pendingDigestIds staan, en wordt de
+          // volgende keer gewoon opnieuw meegenomen. Het oude "kapotte regel"-
+          // pad is verdwenen -- het schema dwingt de vorm af, dus een half
+          // geparseerd record kan niet meer bestaan.
+        });
+      } catch (errB) {
+        failedBatches++;
+        lastError = errB;
+        if (isFatalQuotaError(errB)) { quotaError = errB; break; }
+        sb.forEach(function (rec) { mergeDigest(rec, { gist: DIGEST_FAILED_GIST, failed: true }); });
+      }
+      step++;
+    }
+
+    state.totalDigested = Object.keys(state.digestsById).length;
+    markPendingDigest(state.records);
+    var measured = summaryUsageSamples.length
+      ? summaryUsageSamples.reduce(function (a, b) { return a + b; }, 0) / summaryUsageSamples.length
+      : null;
+    return {
+      batchCount: totalSteps,
+      digestedCount: toDigest.length,
+      failedBatches: failedBatches,
+      quotaError: quotaError,
+      lastError: lastError,
+      measuredTokensPerRecord: measured
+    };
+  }
+
+  // STAP 1: enkel samenvatten (geen trends) -- de knop die de gebruiker
+  // meermaals per dag kan indrukken zonder telkens de duurdere trends-stap
+  // mee te betalen.
+  // onlyOneBatch=true (de "Test 1 batch"-knop): verwerkt enkel de eerste
+  // SUMMARY_BATCH_MAX_RECORDS openstaande records, handig om snel te testen
+  // zonder meteen de volledige wachtrij te versturen.
+  // onlyOneBatch=false: verwerkt ALLE openstaande (nieuwe/gewijzigde) records.
+  async function runDigestStep(onlyOneBatch) {
+    var digestBtn = document.getElementById("digestBtn");
+    var testBtn = document.getElementById("digestTestBtn");
+    digestBtn.disabled = true;
+    testBtn.disabled = true;
+    var dialog = document.getElementById("progressDialog");
+    dialog.showModal();
+    setProgress(3, "Actiebladen ophalen...");
+
+    var fetchResult = await fetchRecords();
+    if (!fetchResult) { dialog.close(); digestBtn.disabled = false; testBtn.disabled = false; return; }
+    state.records = fetchResult.records;
+    state.optionalFieldsAvailable = fetchResult.optionalFieldsAvailable;
+    markPendingDigest(state.records);
+
+    if (state.pendingDigestIds.length === 0) {
+      dialog.close();
+      digestBtn.disabled = false;
+      testBtn.disabled = false;
+      showToast("Geen nieuwe of gewijzigde actiebladen -- niets om samen te vatten.", "success");
+      renderAll();
+      return;
+    }
+
+    var idsToDigest = state.pendingDigestIds.slice();
+    var totalPendingBeforeRun = idsToDigest.length;
+    if (onlyOneBatch) idsToDigest = idsToDigest.slice(0, SUMMARY_BATCH_MAX_RECORDS);
+
+    // De voortgangstekst komt nu UIT digestIds (welke fase, welke batch, en bij
+    // de streamende samenvatting zelfs hoeveel tekens al binnen zijn) i.p.v. uit
+    // een label dat hier verzonnen werd.
+    var result = await digestIds(idsToDigest, function (i, total, label) {
+      setProgress(5 + Math.round((i / Math.max(1, total)) * 90), (label || "Bezig") + "...");
+    });
+
+    setProgress(98, "Opslaan...");
+    await saveState();
+    dialog.close();
+    digestBtn.disabled = false;
+    testBtn.disabled = false;
+
+    var remaining = totalPendingBeforeRun - result.digestedCount;
+    // Melding per FOUTCODE i.p.v. een regex op de fouttekst (/limiet|limit/i).
+    // Elk van deze gevallen vraagt een andere actie van de gebruiker; vroeger
+    // kwamen ze allemaal aan als dezelfde onbruikbare string.
+    if (result.quotaError) {
+      showToast(result.quotaError.code === "AI_RATE_LIMIT_PLATFORM"
+        ? "De platform-brede AI-daglimiet is bereikt (over alle mini-apps samen). Morgen opnieuw proberen voor de rest."
+        : "Deze app heeft haar eigen AI-daglimiet bereikt. Morgen opnieuw proberen voor de rest.", "warning");
+    } else if (result.failedBatches > 0) {
+      showToast(describeAiFailure(result.lastError, result.failedBatches + " van de " + result.batchCount + " AI-aanroep(en) mislukte(n). "), "error");
+    } else if (onlyOneBatch && remaining > 0) {
+      showToast("Testbatch klaar: " + result.digestedCount + " actiebladen samengevat. Nog " + remaining + " te gaan -- klik \"Samenvatten\" voor de rest.", "success");
+    } else {
+      showToast(result.digestedCount + " actiebladen samengevat in " + result.batchCount +
+        " AI-aanroepen (thema's per " + CLASSIFY_BATCH_MAX_RECORDS + ", samenvattingen per " +
+        SUMMARY_BATCH_MAX_RECORDS + ")" +
+        (result.measuredTokensPerRecord != null
+          ? ". Gemeten: " + result.measuredTokensPerRecord.toFixed(0) + " output-tokens per actieblad (budget " + SUMMARY_TOKENS_PER_RECORD + ")."
+          : "."), "success");
+    }
+    renderAll();
+  }
+
+  // Zet een foutcode om in een boodschap die zegt wat de gebruiker eraan kan
+  // DOEN. Dit is waarvoor het foutcontract bestaat: "Verzoek verliep (timeout)"
+  // gaf geen enkele aanwijzing, en de app kon niet meer doen dan die string
+  // doorgeven. Zie src/modules/mini-apps/lib/ai-errors.js voor alle codes.
+  function describeAiFailure(err, prefix) {
+    err = err || {};
+    prefix = prefix || "";
+    if (err.code === "AI_TRUNCATED") {
+      // De app splitst bij AI_TRUNCATED zelf de batch (runSplittingOnTruncation).
+      // Komt deze melding er tóch, dan paste zelfs één record niet -- en dan is
+      // verder splitsen zinloos.
+      return prefix + "Het antwoord werd afgekapt op de output-limiet, ook na het opsplitsen van de batch tot het minimum. Er zit vermoedelijk een actieblad met extreem veel tekst tussen, of SUMMARY_TOKENS_PER_RECORD staat te laag. Zie de browserconsole (F12) voor de gemeten tokens per record.";
+    }
+    if (err.code === "AI_STALLED" || err.code === "AI_STREAM_INTERRUPTED") {
+      return prefix + "De verbinding met het AI-model viel stil. Dit is doorgaans tijdelijk -- klik gewoon opnieuw voor de rest.";
+    }
+    if (err.code === "AI_PROVIDER_RATE_LIMITED" || err.code === "AI_PROVIDER_OVERLOADED") {
+      return prefix + "Het AI-model gaf een eigen rate-limit of was tijdelijk overbelast (dit is NIET onze daglimiet). Even wachten en opnieuw proberen.";
+    }
+    if (err.code === "AI_RATE_LIMIT_PLATFORM") {
+      return prefix + "De platform-brede AI-daglimiet over alle mini-apps samen is bereikt. Morgen opnieuw.";
+    }
+    if (err.code === "AI_RATE_LIMIT_APP") {
+      return prefix + "Deze app heeft haar eigen AI-daglimiet bereikt. Morgen opnieuw.";
+    }
+    if (err.code === "AI_INVALID_MODEL" || err.code === "AI_INVALID_SCHEMA" || err.code === "AI_INVALID_PROMPT" || err.code === "AI_INVALID_SYSTEM") {
+      return prefix + "Dit is een fout in de app zelf (" + err.code + "): " + (err.message || "") + " -- meld dit aan de beheerder, opnieuw proberen helpt niet.";
+    }
+    if (err.code === "AI_NOT_CONFIGURED") {
+      return prefix + "De AI-koppeling is niet geconfigureerd op de server. Meld dit aan de beheerder.";
+    }
+    if (err.code === "AI_REFUSED") {
+      return prefix + "Het AI-model weigerde te antwoorden op deze inhoud.";
+    }
+    return prefix + "Foutcode: " + (err.code || "onbekend") + ". " + (err.message || "") + " (zie browserconsole - F12 - voor details)";
+  }
+
+  // STAP 2: trends-analyse over een door de gebruiker gekozen SUBSET -- dit
+  // is de dure/rijke AI-aanroep (1 prompt met alle kernen samen), dus
+  // bewust losgekoppeld van het samenvatten en enkel op wat de gebruiker
+  // effectief selecteert (kleinere set = goedkopere aanroep).
+  async function runTrendsForSelection() {
+    var ids = Object.keys(state.selectedIds).filter(function (id) { return state.selectedIds[id]; }).map(function (id) { return parseInt(id, 10); });
+    if (ids.length === 0) {
+      showToast("Selecteer eerst één of meer actiebladen in de tabel.", "warning");
+      return;
+    }
+    var idSet = {};
+    ids.forEach(function (id) { idSet[id] = true; });
+    var subset = state.records.filter(function (r) { return idSet[r.id]; });
+
+    var btn = document.getElementById("trendsSelectionBtn");
+    btn.disabled = true;
+    var dialog = document.getElementById("progressDialog");
+    dialog.showModal();
+    setProgress(5, "Selectie voorbereiden...");
+
+    // Items uit de selectie die nog geen (geldige) samenvatting hebben eerst
+    // even meenemen -- enkel voor DEZE subset, niet de hele dataset, zodat
+    // de kost evenredig blijft met wat de gebruiker koos.
+    var needsDigestFirst = subset.filter(hasContent).filter(function (rec) {
+      var cached = state.digestsById[rec.id];
+      return !cached || cached.failed || cached.sig !== digestSignature(rec);
+    }).map(function (r) { return r.id; });
+
+    if (needsDigestFirst.length > 0) {
+      await digestIds(needsDigestFirst, function (i, total, label) {
+        setProgress(5 + Math.round((i / Math.max(1, total)) * 40), "Selectie eerst samenvatten -- " + (label || "bezig") + "...");
+      });
+    }
+
+    setProgress(60, "Trends en patronen analyseren voor de selectie (" + subset.length + " actiebladen)...");
+    var stats = computeStats(subset, { stages: null, period: "all", pipeline: "all", search: "" });
+    var trendsErrorDetail = null;
+    try {
+      // withRetry hier ook: een 429/529 van de provider halverwege een dure
+      // analyse hoort geen handmatige herstart te vragen.
+      state.trendsReportText = await withRetry("generateTrendsReport", function () {
+        return generateTrendsReport(subset, state.digestsById, stats, function (info) {
+          // Echte voortgang: de analyse streamt binnen, dus de balk kan mee
+          // bewegen i.p.v. op 60% te blijven staan tot alles klaar is.
+          setProgress(60 + Math.min(35, Math.round(info.text.length / 120)), "Trends-analyse ontvangen (" + info.text.length + " tekens)...");
+        });
+      });
+      state.trendsScope = subset.length + " van " + state.records.length + " actiebladen (handmatige selectie)";
+    } catch (err) {
+      logError("generateTrendsReport", err);
+      trendsErrorDetail = describeAiFailure(err, "");
+      state.trendsReportText = "Trends-analyse is momenteel niet beschikbaar. " + trendsErrorDetail;
+    }
+    state.lastAnalyzedAt = new Date().toISOString();
+
+    setProgress(97, "Opslaan...");
+    await saveState();
+
+    dialog.close();
+    btn.disabled = false;
+    if (trendsErrorDetail) {
+      showToast("Trends-analyse mislukt: " + trendsErrorDetail, "error");
+    } else {
+      showToast("Trends-analyse voltooid voor de gekozen selectie van " + subset.length + " actiebladen.", "success");
+    }
+    renderAll();
+  }
+
+  // ---------- PERSISTENTIE (één kv-key per stuk, zoals de bestaande snapshot-aanpak) ----------
+  async function saveState() {
+    try {
+      assertSharedStorageReady();
+      await Promise.all([
+        window.sharedStorage.set(DIGEST_CACHE_KEY, JSON.stringify(state.digestsById)),
+        window.sharedStorage.set(TRENDS_CACHE_KEY, JSON.stringify({
+          text: state.trendsReportText,
+          generatedAt: state.lastAnalyzedAt,
+          totalDigested: state.totalDigested,
+          scope: state.trendsScope
+        }))
+      ]);
+    } catch (err) {
+      showToast("Kon resultaat niet opslaan: " + logError("saveState", err), "error");
+    }
+  }
+
+  async function loadState() {
+    try {
+      assertSharedStorageReady();
+      var raw = await Promise.all([
+        window.sharedStorage.get(DIGEST_CACHE_KEY),
+        window.sharedStorage.get(TRENDS_CACHE_KEY)
+      ]);
+      if (raw[0]) { try { state.digestsById = JSON.parse(raw[0]) || {}; } catch (e) { logError("loadState / parse digests cache", e); } }
+      if (raw[1]) {
+        try {
+          var trends = JSON.parse(raw[1]);
+          state.trendsReportText = trends.text || "";
+          state.lastAnalyzedAt = trends.generatedAt || null;
+          state.totalDigested = trends.totalDigested || 0;
+          state.trendsScope = trends.scope || null;
+        } catch (e) { logError("loadState / parse trends cache", e); }
+      }
+    } catch (err) {
+      // geen cache beschikbaar -- normale eerste-gebruik-situatie, maar wel
+      // loggen voor het geval het toch een echte fout was (bv. sharedStorage
+      // tijdelijk niet bereikbaar) i.p.v. gewoon "geen cache".
+      logError("loadState", err);
+    }
+  }
+
+  async function clearCache() {
+    if (!confirm("Volledige AI-cache wissen? De volgende samenvatting stuurt dan ALLE actiebladen opnieuw naar de AI (meer AI-aanroepen dan een normale heranalyse).")) return;
+    state.digestsById = {};
+    state.trendsReportText = "";
+    state.trendsScope = null;
+    state.lastAnalyzedAt = null;
+    state.totalDigested = 0;
+    state.pendingDigestIds = [];
+    state.selectedIds = {};
+    try {
+      assertSharedStorageReady();
+      await Promise.all([
+        window.sharedStorage.remove(DIGEST_CACHE_KEY),
+        window.sharedStorage.remove(TRENDS_CACHE_KEY)
+      ]);
+      markPendingDigest(state.records);
+      showToast("Cache gewist.", "success");
+    } catch (err) {
+      showToast("Cache wissen mislukt: " + logError("clearCache", err), "error");
+    }
+    renderAll();
+  }
+
+  // ---------- STATS ----------
+  function avgOf(arr, fn) {
+    if (!arr || arr.length === 0) return null;
+    var sum = 0;
+    arr.forEach(function (x) { sum += fn(x); });
+    return sum / arr.length;
+  }
+
+  function computeStats(records, filters) {
+    var filtered = applyFilters(records, filters);
+    var byPipeline = { geen_lead: 0, in_pipeline: 0, gewonnen: 0, verloren: 0 };
+    var bySalesPipeline = {}, bySheetStage = {}, byMonth = {}, byTag = {};
+    var bySyndicoachPack = {}, byOpenvmePackage = {}, byParentExpert = {}, byExpectation = {}, startupAssistanceCount = 0, nonDiscoveryCount = 0;
+    var withContentCount = 0;
+    var wonRecords = [], lostRecords = [];
+    filtered.forEach(function (rec) {
+      byPipeline[rec.pipelineStatus] = (byPipeline[rec.pipelineStatus] || 0) + 1;
+      var salesBucket = salesPipelineBucket(rec);
+      bySalesPipeline[salesBucket] = (bySalesPipeline[salesBucket] || 0) + 1;
+      var stageName = rec.sheetStage ? rec.sheetStage.name : "Geen fase";
+      bySheetStage[stageName] = (bySheetStage[stageName] || 0) + 1;
+      if (rec.syndicoachPack) {
+        var normSp = normalizePackageKey(rec.syndicoachPack);
+        var spKey = normSp === "none" ? "Geen pack" : normSp;
+        bySyndicoachPack[spKey] = (bySyndicoachPack[spKey] || 0) + 1;
+      } else {
+        bySyndicoachPack["Geen pack"] = (bySyndicoachPack["Geen pack"] || 0) + 1;
+      }
+      // Opstarthulp% en openvme-pakket zijn pas betekenisvol NA discovery
+      // (die velden worden doorgaans nog niet ingevuld tijdens discovery) --
+      // actiebladen die nog in discovery zitten tellen hier dus niet mee,
+      // ook niet als "geen pakket".
+      if (!isInDiscovery(rec)) {
+        nonDiscoveryCount++;
+        if (rec.hasStartupAssistance) startupAssistanceCount++;
+        var normPkg = normalizePackageKey(rec.openvmePackage);
+        var pkgKey = (!rec.openvmePackage || normPkg === "none") ? "Geen pakket" : normPkg;
+        byOpenvmePackage[pkgKey] = (byOpenvmePackage[pkgKey] || 0) + 1;
+      }
+      if (rec.parentExpert && rec.parentExpert.name) byParentExpert[rec.parentExpert.name] = (byParentExpert[rec.parentExpert.name] || 0) + 1;
+      if (Array.isArray(rec.expectations)) {
+        rec.expectations.forEach(function (e) { byExpectation[e] = (byExpectation[e] || 0) + 1; });
+      }
+      var mk = monthKey(rec.createDate);
+      if (mk) byMonth[mk] = (byMonth[mk] || 0) + 1;
+      if (hasContent(rec)) {
+        withContentCount++;
+        var d = state.digestsById[rec.id];
+        if (d && Array.isArray(d.tags)) {
+          d.tags.forEach(function (t) { if (t) byTag[t] = (byTag[t] || 0) + 1; });
+        }
+      }
+      if (rec.pipelineStatus === "gewonnen") wonRecords.push(rec);
+      if (rec.pipelineStatus === "verloren") lostRecords.push(rec);
+    });
+    // Conversie-cijfers: gemiddeld aantal leads per "won"-actieblad + de
+    // gemiddelde won-ratio (hoeveel van de leads op dat actieblad uiteindelijk
+    // won waren), en gemiddeld aantal leads per "volledig lost"-actieblad
+    // (per definitie 100% lost, dus geen ratio nodig -- enkel de leads-hoeveelheid
+    // is hier het interessante getal: 1 lost lead is anders dan 5 lost leads).
+    var wonAvgLeads = avgOf(wonRecords, function (r) { return r.leads.length; });
+    var wonAvgRatio = avgOf(wonRecords, function (r) {
+      var total = r.leads.length;
+      if (!total) return 0;
+      var wonCount = r.leads.filter(function (l) { return leadOutcome(l) === "won"; }).length;
+      return wonCount / total;
+    });
+    var lostAvgLeads = avgOf(lostRecords, function (r) { return r.leads.length; });
+    return {
+      total: records.length,
+      filteredCount: filtered.length,
+      withContentCount: withContentCount,
+      byPipeline: byPipeline, bySalesPipeline: bySalesPipeline, bySheetStage: bySheetStage, byMonth: byMonth, byTag: byTag,
+      bySyndicoachPack: bySyndicoachPack, byOpenvmePackage: byOpenvmePackage, byParentExpert: byParentExpert, byExpectation: byExpectation, startupAssistanceCount: startupAssistanceCount, nonDiscoveryCount: nonDiscoveryCount,
+      wonCount: wonRecords.length, lostCount: lostRecords.length,
+      wonAvgLeads: wonAvgLeads, wonAvgRatio: wonAvgRatio, lostAvgLeads: lostAvgLeads,
+      filtered: filtered
+    };
+  }
+
+  function applyFilters(records, filters) {
+    filters = filters || state.filters;
+    return records.filter(function (rec) {
+      if (filters.stages && filters.stages.length > 0) {
+        var stageName = rec.sheetStage ? rec.sheetStage.name : "Geen fase";
+        if (filters.stages.indexOf(stageName) === -1) return false;
+      }
+      if (filters.period && filters.period !== "all") {
+        var months = parseInt(filters.period, 10);
+        var cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - months);
+        if (!rec.createDate || new Date(rec.createDate) < cutoff) return false;
+      }
+      if (filters.pipeline && filters.pipeline !== "all") {
+        if (rec.pipelineStatus !== filters.pipeline) return false;
+      }
+      if (filters.search && filters.search.trim()) {
+        var q = filters.search.trim().toLowerCase();
+        var hay = (rec.name + " " + (rec.company ? rec.company.name : "")).toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      // Klikbare Kerncijfers-filters (OR binnen elke dimensie, AND tussen
+      // dimensies) -- zie toggleArrayFilter/isFilterActive/clickAttrs.
+      if (filters.expectations && filters.expectations.length > 0) {
+        var recExp = rec.expectations || [];
+        if (!filters.expectations.some(function (e) { return recExp.indexOf(e) !== -1; })) return false;
+      }
+      if (filters.themes && filters.themes.length > 0) {
+        var dg = state.digestsById[rec.id];
+        var recTags = (dg && Array.isArray(dg.tags)) ? dg.tags : [];
+        if (!filters.themes.some(function (t) { return recTags.indexOf(t) !== -1; })) return false;
+      }
+      if (filters.salesBuckets && filters.salesBuckets.length > 0) {
+        if (filters.salesBuckets.indexOf(salesPipelineBucket(rec)) === -1) return false;
+      }
+      if (filters.actiebladBuckets && filters.actiebladBuckets.length > 0) {
+        if (filters.actiebladBuckets.indexOf(actiebladPipelineBucket(rec)) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  // ---------- RENDER ----------
+  function renderAll() {
+    document.getElementById("loadingState").classList.add("hidden");
+    document.getElementById("mainContent").classList.remove("hidden");
+
+    renderLastAnalyzed();
+    renderStageFilterOptions();
+
+    var stats = computeStats(state.records, state.filters);
+    renderExpectationsSummary(stats);
+    renderKpiSwitcher(stats);
+    renderActiveAdvancedFilters();
+    renderInsights();
+    renderCharts(stats);
+    renderTable(stats.filtered);
+    refreshIcons();
+  }
+
+  function renderLastAnalyzed() {
+    var label = document.getElementById("lastAnalyzedLabel");
+    var digestBtnLabel = document.getElementById("digestBtnLabel");
+    if (state.lastAnalyzedAt) {
+      label.textContent = "Laatste trends-analyse: " + fmtDateTime(state.lastAnalyzedAt);
+    } else {
+      label.textContent = "";
+    }
+    var pendingCount = state.pendingDigestIds.length;
+    digestBtnLabel.textContent = pendingCount > 0 ? "Samenvatten (" + pendingCount + ")" : "Samenvatten";
+    document.getElementById("digestBtn").classList.toggle("btn-outline", pendingCount === 0);
+    document.getElementById("digestBtn").classList.toggle("btn-warning", pendingCount > 0);
+    document.getElementById("digestTestBtn").disabled = pendingCount === 0;
+  }
+
+  // Kleine KPI-kaart als HTML-snippet -- gedeeld door de thema's/actieblad-views.
+  function kpiCardHtml(label, value, extraClass, filterKey, filterValue) {
+    var fv = filterValue !== undefined ? filterValue : label;
+    var selected = filterKey && isFilterActive(filterKey, fv);
+    var cardCls = "card border transition-colors " + (selected ? "bg-primary/10 border-primary ring-1 ring-primary" : "bg-base-200/60 border-base-300") + (filterKey ? " cursor-pointer hover:border-primary/50" : "");
+    return '<div class="' + cardCls + '"' + clickAttrs(filterKey, fv) + '>' +
+      '<div class="card-body p-3">' +
+      '<span class="text-xs text-base-content/60">' + escapeHtml(label) + '</span>' +
+      '<span class="text-xl font-bold ' + (extraClass || "") + '">' + value + '</span>' +
+      '</div></div>';
+  }
+
+  // Compacte mini-tegel voor een sales-substage (MQL/SQL/Demo/Follow Up/
+  // Conversion, eventueel + "Andere fase") -- meerdere naast elkaar binnen
+  // ÉÉN kaart, in plaats van elk een eigen volle KPI-kaart. filterValue kan
+  // afwijken van het weergegeven label (bv. tegel "Andere fase" filtert op
+  // de effectieve bucket-sleutel "Andere fase (in pipeline)").
+  function subStageTileHtml(label, value, filterKey, filterValue) {
+    var fv = filterValue !== undefined ? filterValue : label;
+    var selected = filterKey && isFilterActive(filterKey, fv);
+    var cls = "border rounded-lg px-2 py-1.5 text-center transition-colors " +
+      (selected ? "bg-primary/10 border-primary ring-1 ring-primary" : "bg-base-100 border-base-300") +
+      (filterKey ? " cursor-pointer hover:border-primary/50" : "");
+    return '<div class="' + cls + '"' + clickAttrs(filterKey, fv) + '>' +
+      '<div class="text-[10px] uppercase tracking-wide text-base-content/50 truncate" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div>' +
+      '<div class="text-base font-bold">' + value + '</div>' +
+      '</div>';
+  }
+
+  function fmtAvg(n, decimals) {
+    if (n === null || n === undefined || isNaN(n)) return "–";
+    return n.toFixed(decimals != null ? decimals : 1);
+  }
+  function fmtPct(n) {
+    if (n === null || n === undefined || isNaN(n)) return "–";
+    return Math.round(n * 100) + "%";
+  }
+
+  // Open-ended categorie-verdeling (pack/expert-namen zijn niet vooraf gekend
+  // en kunnen om het even hoeveel distincte waarden hebben) -- flex-wrap
+  // badges i.p.v. een vaste kolommen-grid zoals de sales-substages.
+  function distBadgeHtml(label, count, filterKey) {
+    var selected = filterKey && isFilterActive(filterKey, label);
+    var cls = "badge badge-lg gap-1.5 font-normal whitespace-nowrap transition-colors " +
+      (selected ? "badge-primary" : "bg-base-100 border border-base-300") +
+      (filterKey ? " cursor-pointer" : "");
+    return '<span class="' + cls + '"' + clickAttrs(filterKey, label) + '>' +
+      escapeHtml(label) + '<b class="font-bold">' + count + '</b></span>';
+  }
+  function distributionSectionHtml(title, entriesObj, unavailable, filterKey) {
+    var entries = Object.keys(entriesObj || {}).map(function (k) { return [k, entriesObj[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
+    var body;
+    if (unavailable) {
+      body = '<p class="text-sm text-base-content/40 italic">Dit veld staat nog niet in de gedeelde query -- vraag een beheerder om het toe te voegen in Sales Insight Explorer en opnieuw te delen.</p>';
+    } else if (entries.length === 0) {
+      body = '<p class="text-sm text-base-content/40 italic">Nog geen data voor dit veld.</p>';
+    } else {
+      body = '<div class="flex flex-wrap gap-2">' + entries.map(function (e) { return distBadgeHtml(e[0], e[1], filterKey); }).join("") + '</div>';
+    }
+    return '<div><h4 class="text-xs font-semibold text-base-content/60 uppercase tracking-wide mb-1.5">' + escapeHtml(title) + '</h4>' + body + '</div>';
+  }
+
+  // De "sales"-KPI-view is qua opbouw anders dan de andere twee (3 ongelijke
+  // hoofdblokken i.p.v. een uniforme kaartjes-grid), dus die krijgt eigen
+  // opmaak i.p.v. de gedeelde kpiCardHtml-grid.
+  function renderSalesPipelineView(stats) {
+    var notInPipeline = stats.byPipeline.geen_lead || 0;
+    var inPipelineTotal = stats.byPipeline.in_pipeline || 0;
+
+    var subStagesHtml = SALES_STAGE_NAMES.map(function (name) {
+      return subStageTileHtml(name, stats.bySalesPipeline[name] || 0, "salesBuckets");
+    }).join("");
+    var otherOpenCount = stats.bySalesPipeline["Andere fase (in pipeline)"] || 0;
+    if (otherOpenCount > 0) subStagesHtml += subStageTileHtml("Andere fase", otherOpenCount, "salesBuckets", "Andere fase (in pipeline)");
+
+    var notInPipelineSelected = isFilterActive("salesBuckets", "Niet in sales pipeline");
+    var wonSelected = isFilterActive("salesBuckets", "Won");
+    var lostSelected = isFilterActive("salesBuckets", "Lost");
+
+    return '' +
+      '<div class="flex flex-col lg:flex-row gap-3 items-stretch">' +
+
+        // Niet in pipeline (klikbaar)
+        '<div class="card border transition-colors lg:w-52 cursor-pointer hover:border-primary/50 ' +
+          (notInPipelineSelected ? "bg-primary/10 border-primary ring-1 ring-primary" : "bg-base-200/60 border-base-300") + '"' +
+          clickAttrs("salesBuckets", "Niet in sales pipeline") + '>' +
+          '<div class="card-body p-3 justify-center">' +
+            '<span class="text-xs text-base-content/60">Niet in pipeline</span>' +
+            '<span class="text-2xl font-bold">' + notInPipeline + '</span>' +
+          '</div>' +
+        '</div>' +
+
+        // In pipeline (met de 5 subfases compact naast elkaar, elk klikbaar)
+        '<div class="card bg-base-200/60 border border-base-300 flex-1">' +
+          '<div class="card-body p-3">' +
+            '<div class="flex items-center justify-between mb-2">' +
+              '<span class="text-xs text-base-content/60">In pipeline</span>' +
+              '<span class="text-xl font-bold text-warning">' + inPipelineTotal + '</span>' +
+            '</div>' +
+            '<div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">' + subStagesHtml + '</div>' +
+          '</div>' +
+        '</div>' +
+
+        // Conversie: won vs full lost, met gemiddeldes (Won/Lost-getal klikbaar)
+        '<div class="card bg-base-200/60 border border-base-300 lg:w-72">' +
+          '<div class="card-body p-3">' +
+            '<span class="text-xs text-base-content/60 block mb-1.5">Conversie</span>' +
+            '<div class="flex gap-3">' +
+              '<div class="flex-1 rounded-lg -m-1 p-1 transition-colors cursor-pointer hover:bg-success/10' + (wonSelected ? " bg-success/15 ring-1 ring-success" : "") + '"' + clickAttrs("salesBuckets", "Won") + '>' +
+                '<div class="flex items-baseline gap-1.5">' +
+                  '<span class="text-xl font-bold text-success">' + stats.wonCount + '</span>' +
+                  '<span class="text-xs text-base-content/50">Won</span>' +
+                '</div>' +
+                '<div class="text-[11px] text-base-content/50 leading-tight mt-0.5">' +
+                  'gem. ' + fmtAvg(stats.wonAvgLeads) + ' leads/actieblad<br/>' +
+                  'gem. ' + fmtPct(stats.wonAvgRatio) + ' daarvan won' +
+                '</div>' +
+              '</div>' +
+              '<div class="w-px bg-base-300"></div>' +
+              '<div class="flex-1 rounded-lg -m-1 p-1 transition-colors cursor-pointer hover:bg-error/10' + (lostSelected ? " bg-error/15 ring-1 ring-error" : "") + '"' + clickAttrs("salesBuckets", "Lost") + '>' +
+                '<div class="flex items-baseline gap-1.5">' +
+                  '<span class="text-xl font-bold text-error">' + stats.lostCount + '</span>' +
+                  '<span class="text-xs text-base-content/50">Lost</span>' +
+                '</div>' +
+                '<div class="text-[11px] text-base-content/50 leading-tight mt-0.5">' +
+                  'gem. ' + fmtAvg(stats.lostAvgLeads) + ' leads/actieblad<br/>' +
+                  '(allemaal lost)' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+      '</div>';
+  }
+
+  // "Actieblad pipeline"-view: 3 hoofdblokken (Discovery | In opzet | Goed
+  // opgestart) + daaronder de aanvullende verdelingen (syndicoach-pack,
+  // openvme-pakket, opstarthulp-percentage, syndicoach). Los van
+  // renderSalesPipelineView omdat de onderliggende databron en groepering
+  // helemaal anders zijn (actieblad-fase i.p.v. sales-pipeline-status).
+  function renderActiebladPipelineView(stats) {
+    var discoveryCount = ACTIEBLAD_DISCOVERY_STAGES.reduce(function (sum, name) { return sum + (stats.bySheetStage[name] || 0); }, 0);
+    var inOpzetTotal = ACTIEBLAD_INOPZET_STAGES.reduce(function (sum, name) { return sum + (stats.bySheetStage[name] || 0); }, 0);
+    var subStagesHtml = ACTIEBLAD_INOPZET_STAGES.map(function (name) {
+      return subStageTileHtml(name, stats.bySheetStage[name] || 0, "actiebladBuckets");
+    }).join("");
+    var doneCount = stats.bySheetStage[ACTIEBLAD_DONE_STAGE] || 0;
+
+    // Elke fasenaam die niet in één van de 3 gekende buckets valt (bv. een
+    // nieuwe fase die later aan het actieblad-stadium toegevoegd wordt) mag
+    // niet stilzwijgend verdwijnen -- toon die som als extra tegel.
+    var knownNames = ACTIEBLAD_DISCOVERY_STAGES.concat(ACTIEBLAD_INOPZET_STAGES, [ACTIEBLAD_DONE_STAGE]);
+    var otherTotal = Object.keys(stats.bySheetStage)
+      .filter(function (n) { return knownNames.indexOf(n) === -1; })
+      .reduce(function (sum, n) { return sum + stats.bySheetStage[n]; }, 0);
+    if (otherTotal > 0) subStagesHtml += subStageTileHtml("Andere fase", otherTotal, "actiebladBuckets");
+
+    var discoverySelected = isFilterActive("actiebladBuckets", "Discovery");
+    var doneSelected = isFilterActive("actiebladBuckets", ACTIEBLAD_DONE_STAGE);
+
+    var topRow = '' +
+      '<div class="flex flex-col lg:flex-row gap-3 items-stretch">' +
+
+        '<div class="card border transition-colors lg:w-52 cursor-pointer hover:border-primary/50 ' +
+          (discoverySelected ? "bg-primary/10 border-primary ring-1 ring-primary" : "bg-base-200/60 border-base-300") + '"' +
+          clickAttrs("actiebladBuckets", "Discovery") + '>' +
+          '<div class="card-body p-3 justify-center">' +
+            '<span class="text-xs text-base-content/60">Discovery</span>' +
+            '<span class="text-2xl font-bold">' + discoveryCount + '</span>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card bg-base-200/60 border border-base-300 flex-1">' +
+          '<div class="card-body p-3">' +
+            '<div class="flex items-center justify-between mb-2">' +
+              '<span class="text-xs text-base-content/60">In opzet</span>' +
+              '<span class="text-xl font-bold text-warning">' + inOpzetTotal + '</span>' +
+            '</div>' +
+            '<div class="grid grid-cols-2 sm:grid-cols-5 gap-1.5">' + subStagesHtml + '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card border transition-colors lg:w-52 cursor-pointer hover:border-primary/50 ' +
+          (doneSelected ? "bg-primary/10 border-primary ring-1 ring-primary" : "bg-base-200/60 border-base-300") + '"' +
+          clickAttrs("actiebladBuckets", ACTIEBLAD_DONE_STAGE) + '>' +
+          '<div class="card-body p-3 justify-center">' +
+            '<span class="text-xs text-base-content/60">Goed opgestart</span>' +
+            '<span class="text-2xl font-bold text-success">' + doneCount + '</span>' +
+          '</div>' +
+        '</div>' +
+
+      '</div>';
+
+    var avail = state.optionalFieldsAvailable;
+    var startupPct = stats.nonDiscoveryCount ? (stats.startupAssistanceCount / stats.nonDiscoveryCount) : 0;
+    var startupBlock = '<div>' +
+      '<h4 class="text-xs font-semibold text-base-content/60 uppercase tracking-wide mb-1.5">Opstarthulp</h4>' +
+      (!avail.hasStartupAssistance
+        ? '<p class="text-sm text-base-content/40 italic">Dit veld staat nog niet in de gedeelde query -- vraag een beheerder om het toe te voegen in Sales Insight Explorer en opnieuw te delen.</p>'
+        : (stats.nonDiscoveryCount === 0
+          ? '<p class="text-sm text-base-content/40 italic">Nog geen actiebladen buiten discovery.</p>'
+          : '<div class="flex items-baseline gap-2">' +
+              '<span class="text-2xl font-bold text-primary">' + fmtPct(startupPct) + '</span>' +
+              '<span class="text-xs text-base-content/50">' + stats.startupAssistanceCount + ' van ' + stats.nonDiscoveryCount + ' actiebladen (buiten discovery)</span>' +
+            '</div>')) +
+      '</div>';
+
+    var openvmeEntries = orderedPackageEntries(stats.byOpenvmePackage, OPENVME_PACKAGE_ORDER, "Geen pakket");
+    var openvmeBlock = '<div>' +
+      '<h4 class="text-xs font-semibold text-base-content/60 uppercase tracking-wide mb-2">OpenVME-pakket <span class="font-normal text-base-content/40">(buiten discovery)</span></h4>' +
+      (!avail.openvmePackage
+        ? '<p class="text-sm text-base-content/40 italic">Dit veld staat nog niet in de gedeelde query -- vraag een beheerder om het toe te voegen in Sales Insight Explorer en opnieuw te delen.</p>'
+        : segmentedBarHtml(openvmeEntries)) +
+      '</div>';
+
+    var syndicoachPackEntries = orderedPackageEntries(stats.bySyndicoachPack, SYNDICOACH_PACK_ORDER, "Geen pack");
+    var syndicoachPackBlock = '<div>' +
+      '<h4 class="text-xs font-semibold text-base-content/60 uppercase tracking-wide mb-2">Syndicoach-pack</h4>' +
+      (!avail.syndicoachPack
+        ? '<p class="text-sm text-base-content/40 italic">Dit veld staat nog niet in de gedeelde query -- vraag een beheerder om het toe te voegen in Sales Insight Explorer en opnieuw te delen.</p>'
+        : segmentedBarHtml(syndicoachPackEntries)) +
+      '</div>';
+
+    var distRow = '<div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">' +
+      startupBlock +
+      distributionSectionHtml("Syndicoach", stats.byParentExpert, !avail.parentExpert) +
+      openvmeBlock +
+      syndicoachPackBlock +
+    '</div>';
+
+    return topRow + distRow;
+  }
+
+  // Verwachtingen (x_as_expectations) komen rechtstreeks uit Odoo, niet uit
+  // de AI-samenvatting -- daarom altijd tonen, ook zonder dat er ooit
+  // "Samenvatten" is gedraaid. Los bovenaan de Kerncijfers-kaart, dus
+  // onafhankelijk van welk Kerncijfers-tabblad (Thema's/Sales/Actieblad)
+  // actief is.
+  function renderExpectationsSummary(stats) {
+    var container = document.getElementById("expectationsSummaryContainer");
+    if (!container) return;
+    container.innerHTML = distributionSectionHtml("Verwachtingen", stats.byExpectation, false, "expectations");
+  }
+
+  // Toont, boven de subset-tabel, een verwijderbaar chipje per actief
+  // klik-filter (vanuit Verwachtingen of een Kerncijfers-tegel) -- zonder
+  // dit zou het niet duidelijk zijn WAAROM de tabel plots een subset toont.
+  // Klikken op een chip roept dezelfde toggleArrayFilter aan (verwijdert 'm,
+  // want hij staat al aan), dus geen apart verwijder-mechanisme nodig.
+  var ADVANCED_FILTER_LABELS = {
+    expectations: "Verwachting", themes: "Thema",
+    salesBuckets: "Sales pipeline", actiebladBuckets: "Actieblad pipeline"
+  };
+  function renderActiveAdvancedFilters() {
+    var container = document.getElementById("advancedFiltersRow");
+    if (!container) return;
+    var chips = [];
+    Object.keys(ADVANCED_FILTER_LABELS).forEach(function (key) {
+      var arr = state.filters[key];
+      if (!arr || !arr.length) return;
+      var prefix = ADVANCED_FILTER_LABELS[key];
+      arr.forEach(function (val) {
+        chips.push('<span class="badge badge-primary gap-1.5 cursor-pointer"' + clickAttrs(key, val) + '>' +
+          escapeHtml(prefix) + ': ' + escapeHtml(val) + ' <span class="opacity-70">✕</span></span>');
+      });
+    });
+    if (chips.length === 0) {
+      container.classList.add("hidden");
+      container.innerHTML = "";
+      return;
+    }
+    container.classList.remove("hidden");
+    container.innerHTML = '<span class="text-xs text-base-content/50 self-center">Extra filters (via Kerncijfers):</span>' + chips.join("");
+  }
+
+  function renderKpiSwitcher(stats) {
+    var container = document.getElementById("kpiCardsContainer");
+    var view = state.kpiView || "themas";
+    var html = "";
+
+    // Layout verschilt per view: enkel "themas" is een uniforme kaartjes-
+    // grid. "sales" en "actieblad" zijn elk eigen ongelijke hoofdblokken
+    // (zie renderSalesPipelineView / renderActiebladPipelineView).
+    container.classList.toggle("grid", view === "themas");
+    container.classList.toggle("grid-cols-2", view === "themas");
+    container.classList.toggle("sm:grid-cols-4", view === "themas");
+
+    if (view === "themas") {
+      if (state.totalDigested === 0) {
+        html = '<div class="col-span-full text-sm text-base-content/40 italic py-2">Nog geen thema-tags -- vat eerst actiebladen samen (AI-tags komen uit die stap).</div>';
+      } else {
+        var tagEntries = orderedThemeEntries(stats.byTag);
+        html = tagEntries.map(function (pair) {
+          var isExtra = THEME_MASTER_LIST.indexOf(pair[0]) === -1;
+          return kpiCardHtml(pair[0], pair[1], isExtra ? "text-info" : "", "themes");
+        }).join("");
+      }
+    } else if (view === "sales") {
+      html = renderSalesPipelineView(stats);
+    } else if (view === "actieblad") {
+      html = renderActiebladPipelineView(stats);
+    }
+    container.innerHTML = html;
+    document.querySelectorAll(".kpi-view-tab").forEach(function (tab) {
+      tab.classList.toggle("tab-active", tab.dataset.view === view);
+    });
+  }
+
+  // Elk AI-tabblad komt overeen met exact 1 sectie in het door de AI
+  // gegenereerde rapport (zie generateTrendsReport's vaste kopjes). We
+  // parsen het rapport 1x per render in 4 losse HTML-brokken en tonen enkel
+  // het actieve tabblad -- zo blijft de lay-out altijd overzichtelijk, ook
+  // bij een lange analyse.
+  var AI_TABS = [
+    { key: "trends", title: "TRENDS EN PATRONEN" },
+    { key: "priority", title: "PRIORITERING" },
+    { key: "focus", title: "WAAR OP INZETTEN" },
+    { key: "suggestions", title: "SUGGESTIES" }
+  ];
+
+  function parseTrendsReportSections(text) {
+    var sections = {};
+    var titles = AI_TABS.map(function (t) { return t.title; });
+    titles.forEach(function (title, idx) {
+      var re = new RegExp(title + "\\s*:?", "i");
+      var m = text.match(re);
+      if (!m) return;
+      var startOfBody = m.index + m[0].length;
+      var nextIdx = text.length;
+      titles.slice(idx + 1).forEach(function (nextTitle) {
+        var nm = text.match(new RegExp(nextTitle + "\\s*:?", "i"));
+        if (nm && nm.index > startOfBody && nm.index < nextIdx) nextIdx = nm.index;
+      });
+      var body = text.slice(startOfBody, nextIdx).trim();
+      var lines = body.split("\n").map(function (l) { return l.replace(/^[-*]\s*/, "").trim(); }).filter(Boolean);
+      sections[AI_TABS[idx].key] = lines.length > 1
+        ? "<ul>" + lines.map(function (l) { return "<li>" + escapeHtml(l) + "</li>"; }).join("") + "</ul>"
+        : "<p>" + escapeHtml(body) + "</p>";
+    });
+    return sections;
+  }
+
+  function renderInsights() {
+    var el = document.getElementById("insightsContent");
+    var scopeLabel = document.getElementById("trendsScopeLabel");
+    if (state.trendsScope) {
+      scopeLabel.textContent = "Analyse over: " + state.trendsScope;
+      scopeLabel.classList.remove("hidden");
+    } else {
+      scopeLabel.classList.add("hidden");
+    }
+    document.querySelectorAll(".ai-tab").forEach(function (tab) {
+      tab.classList.toggle("tab-active", tab.dataset.tab === state.aiTab);
+    });
+    if (!state.trendsReportText) {
+      el.innerHTML =
+        '<div class="flex flex-col items-start gap-2 py-2">' +
+        '<span>Nog geen analyse beschikbaar. Stel hieronder een selectie samen om te analyseren.</span>' +
+        '<button class="btn btn-sm btn-primary btn-outline" onclick="document.getElementById(\'subsetBuilderCard\').scrollIntoView({behavior:\'smooth\'})">' +
+        '<i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5"></i> Ga naar de subset-selectie</button></div>';
+      refreshIcons();
+      return;
+    }
+    var sections = parseTrendsReportSections(state.trendsReportText);
+    if (Object.keys(sections).length === 0) {
+      // AI heeft niet de gevraagde kopjes gebruikt -- toon de ruwe tekst
+      // ongeacht welk tabblad actief is, beter dan een lege tab.
+      el.innerHTML = "<p>" + escapeHtml(state.trendsReportText) + "</p>";
+      return;
+    }
+    el.innerHTML = sections[state.aiTab] || '<p class="text-base-content/40 italic">Geen inhoud voor dit onderdeel in de laatste analyse.</p>';
+  }
+
+  function renderStageFilterOptions() {
+    var dropdown = document.getElementById("stageFilterDropdown");
+    var stages = {};
+    state.records.forEach(function (r) {
+      var name = r.sheetStage ? r.sheetStage.name : "Geen fase";
+      stages[name] = true;
+    });
+    var names = Object.keys(stages).sort();
+    if (dropdown.dataset.built === "1") return;
+    dropdown.dataset.built = "1";
+    dropdown.innerHTML = names.map(function (name) {
+      return '<label class="flex items-center gap-2 py-1 cursor-pointer text-sm">' +
+        '<input type="checkbox" class="checkbox checkbox-sm stage-checkbox" value="' + escapeHtml(name) + '" checked />' +
+        '<span>' + escapeHtml(name) + '</span></label>';
+    }).join("");
+    dropdown.querySelectorAll(".stage-checkbox").forEach(function (cb) {
+      cb.addEventListener("change", onStageFilterChange);
+    });
+  }
+
+  function onStageFilterChange() {
+    var dropdown = document.getElementById("stageFilterDropdown");
+    var all = Array.from(dropdown.querySelectorAll(".stage-checkbox"));
+    var checked = all.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+    state.filters.stages = checked.length === all.length ? null : checked;
+    var label = document.getElementById("stageFilterLabel");
+    label.textContent = state.filters.stages ? (checked.length + " fase(s)") : "Alle fases";
+    renderAll();
+  }
+
+  function destroyChart(key) {
+    if (state.charts[key]) { state.charts[key].destroy(); state.charts[key] = null; }
+  }
+
+  // Toont/verbergt een "geen data"-melding NAAST de canvas i.p.v. de canvas
+  // zelf te vervangen via innerHTML -- dat laatste verwijdert het
+  // <canvas>-element permanent uit de DOM, waardoor een VOLGENDE renderCharts()
+  // (bv. na een filter of een nieuwe analyse) getElementById(...) null laat
+  // teruggeven en crasht op .parentElement. Canvas en melding blijven dus
+  // allebei altijd bestaan; enkel zichtbaarheid wisselt.
+  function setChartEmpty(canvasId, message) {
+    var canvas = document.getElementById(canvasId);
+    var empty = document.getElementById(canvasId + "Empty");
+    if (canvas) canvas.classList.toggle("hidden", !!message);
+    if (empty) {
+      empty.textContent = message || "";
+      empty.classList.toggle("hidden", !message);
+    }
+  }
+
+  function renderCharts(stats) {
+    if (typeof Chart === "undefined") {
+      ["trendChart", "pipelineChart", "tagChart"].forEach(function (id) {
+        setChartEmpty(id, "Grafiekbibliotheek kon niet geladen worden.");
+      });
+      return;
+    }
+    var colors = getChartColors();
+
+    // trend chart -- last up to 12 months present in stage-filtered data (ignores period filter, respects stage filter)
+    destroyChart("trend");
+    var trendFilters = { stages: state.filters.stages, period: "all", pipeline: "all", search: "" };
+    var trendRecords = applyFilters(state.records, trendFilters);
+    var byMonth = {};
+    trendRecords.forEach(function (r) {
+      var mk = monthKey(r.createDate);
+      if (mk) byMonth[mk] = (byMonth[mk] || 0) + 1;
+    });
+    var monthKeys = Object.keys(byMonth).sort().slice(-12);
+    var trendCtx = document.getElementById("trendChart");
+    if (monthKeys.length === 0) {
+      setChartEmpty("trendChart", "Geen datagegevens.");
+    } else {
+      setChartEmpty("trendChart", null);
+      state.charts.trend = new Chart(trendCtx, {
+        type: "line",
+        data: {
+          labels: monthKeys.map(monthLabel),
+          datasets: [{
+            label: "Actiebladen",
+            data: monthKeys.map(function (k) { return byMonth[k]; }),
+            borderColor: colors.primary, backgroundColor: toRgba(colors.primary, 0.18),
+            tension: 0.3, fill: true, pointRadius: 3
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: colors.content }, grid: { color: colors.border } },
+            y: { ticks: { color: colors.content, precision: 0 }, grid: { color: colors.border }, beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    // pipeline-status chart
+    destroyChart("pipeline");
+    var pipelineCtx = document.getElementById("pipelineChart");
+    var pipelineOrder = ["geen_lead", "in_pipeline", "gewonnen", "verloren"];
+    var pipelinePalette = { geen_lead: colors.content, in_pipeline: colors.warning, gewonnen: colors.success, verloren: colors.error };
+    var pipelineEntries = pipelineOrder.filter(function (k) { return stats.byPipeline[k] > 0; });
+    if (pipelineEntries.length === 0) {
+      setChartEmpty("pipelineChart", "Geen datagegevens.");
+    } else {
+      setChartEmpty("pipelineChart", null);
+      state.charts.pipeline = new Chart(pipelineCtx, {
+        type: "doughnut",
+        data: {
+          labels: pipelineEntries.map(pipelineLabel),
+          datasets: [{
+            data: pipelineEntries.map(function (k) { return stats.byPipeline[k]; }),
+            backgroundColor: pipelineEntries.map(function (k) { return pipelinePalette[k]; })
+          }]
+        },
+        options: { plugins: { legend: { position: "bottom", labels: { color: colors.content, boxWidth: 12, font: { size: 11 } } } } }
+      });
+    }
+
+    // tag chart (uit AI-digests, i.p.v. één AI-categorie per record zoals voorheen)
+    destroyChart("tag");
+    var tagCtx = document.getElementById("tagChart");
+    var tagEntries = Object.entries(stats.byTag).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12);
+    if (tagEntries.length === 0) {
+      setChartEmpty("tagChart", "Nog geen analyse beschikbaar.");
+    } else {
+      setChartEmpty("tagChart", null);
+      state.charts.tag = new Chart(tagCtx, {
+        type: "bar",
+        data: {
+          labels: tagEntries.map(function (e) { return e[0]; }),
+          datasets: [{ data: tagEntries.map(function (e) { return e[1]; }), backgroundColor: colors.primary }]
+        },
+        options: {
+          indexAxis: "y",
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: colors.content, precision: 0 }, grid: { color: colors.border }, beginAtZero: true },
+            y: { ticks: { color: colors.content, font: { size: 11 } }, grid: { display: false } }
+          }
+        }
+      });
+    }
+  }
+
+  function isPendingDigest(id) {
+    return state.pendingDigestIds.indexOf(id) !== -1;
+  }
+
+  function digestStatusBadge(rec) {
+    if (!hasContent(rec)) return '<span class="badge badge-ghost badge-sm">Geen open vraag</span>';
+    var d = state.digestsById[rec.id];
+    if (d && d.failed) return '<span class="badge badge-error badge-sm">Mislukt -- opnieuw proberen</span>';
+    if (isPendingDigest(rec.id)) return '<span class="badge badge-warning badge-sm">Nog samenvatten</span>';
+    return '<span class="badge badge-success badge-sm badge-outline">Samengevat</span>';
+  }
+
+  function updateSelectionUi() {
+    var count = Object.keys(state.selectedIds).filter(function (id) { return state.selectedIds[id]; }).length;
+    document.getElementById("selectionCountLabel").textContent = count + " geselecteerd";
+    document.getElementById("trendsSelectionBtn").disabled = count === 0;
+  }
+
+  function renderTable(filtered) {
+    var tbody = document.getElementById("tableBody");
+    var emptyState = document.getElementById("tableEmptyState");
+    document.getElementById("tableCount").textContent = filtered.length + " van " + state.records.length;
+    updateSelectionUi();
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = "";
+      emptyState.classList.remove("hidden");
+      return;
+    }
+    emptyState.classList.add("hidden");
+
+    var sorted = filtered.slice().sort(function (a, b) {
+      return new Date(b.createDate || 0) - new Date(a.createDate || 0);
+    });
+
+    tbody.innerHTML = sorted.map(function (rec) {
+      var d = state.digestsById[rec.id];
+      var pipelineBadge = '<span class="badge badge-sm ' + pipelineBadgeClass(rec.pipelineStatus) + '">' + pipelineLabel(rec.pipelineStatus) + '</span>';
+      var gist = d && d.gist ? escapeHtml(d.gist) : '<span class="text-base-content/30">–</span>';
+      var checked = state.selectedIds[rec.id] ? " checked" : "";
+      return '<tr class="hover" data-id="' + rec.id + '">' +
+        '<td><input type="checkbox" class="checkbox checkbox-sm row-select-checkbox" data-id="' + rec.id + '"' + checked + ' /></td>' +
+        '<td class="font-medium cursor-pointer">' + escapeHtml(rec.name) + '</td>' +
+        '<td class="text-base-content/70 cursor-pointer">' + escapeHtml(rec.company ? rec.company.name : "–") + '</td>' +
+        '<td class="cursor-pointer">' + escapeHtml(rec.sheetStage ? rec.sheetStage.name : "–") + '</td>' +
+        '<td class="cursor-pointer">' + pipelineBadge + '</td>' +
+        '<td class="whitespace-nowrap text-base-content/70 cursor-pointer">' + fmtDate(rec.createDate) + '</td>' +
+        '<td class="cursor-pointer">' + digestStatusBadge(rec) + '</td>' +
+        '<td class="max-w-xs line-clamp-2 text-base-content/70 cursor-pointer">' + gist + '</td>' +
+        '</tr>';
+    }).join("");
+
+    tbody.querySelectorAll("td.cursor-pointer").forEach(function (td) {
+      td.addEventListener("click", function () { openDetail(parseInt(td.closest("tr").dataset.id, 10)); });
+    });
+    tbody.querySelectorAll(".row-select-checkbox").forEach(function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var id = parseInt(cb.dataset.id, 10);
+        if (cb.checked) state.selectedIds[id] = true; else delete state.selectedIds[id];
+        updateSelectionUi();
+      });
+    });
+  }
+
+  // Fase C wordt hier getriggerd: de per-vraag-samenvattingen worden pas
+  // opgehaald wanneer iemand dit record effectief OPENT, en daarna gecached als
+  // alle andere digest-data. Zie de batch-grootte-comment bovenaan voor waarom
+  // dit niet meer vooruit voor de hele batch gebeurt (~75% van alle
+  // output-tokens, voor iets dat vrijwel nooit bekeken werd).
+  //
+  // Bewust GEEN await in openDetail zelf: het dialoog opent onmiddellijk met
+  // alles wat er al is, en de AI-regels verschijnen erna. Een tweede klik op
+  // hetzelfde record terwijl de aanroep loopt wordt afgevangen met
+  // perQuestionInFlight.
+  var perQuestionInFlight = {};
+
+  async function loadPerQuestionFor(rec) {
+    if (perQuestionInFlight[rec.id]) return;
+    var cached = state.digestsById[rec.id];
+    if (cached && cached.perQuestion && Object.keys(cached.perQuestion).length > 0) return;
+    if (!hasContent(rec)) return;
+
+    perQuestionInFlight[rec.id] = true;
+    var container = document.getElementById("perQuestionStatus");
+    if (container) container.textContent = "AI-toelichting per vraag ophalen...";
+    try {
+      var raw = await withRetry("fetchPerQuestion #" + rec.id, function () { return fetchPerQuestion(rec); }, 2);
+      mergeDigest(rec, { perQuestion: sanitizePerQuestion(raw) });
+      await saveState();
+      // Alleen hertekenen als de gebruiker nog naar DIT record kijkt.
+      var dialog = document.getElementById("detailDialog");
+      if (dialog && dialog.open && String(dialog.dataset.recordId) === String(rec.id)) openDetail(rec.id);
+    } catch (err) {
+      logError("fetchPerQuestion #" + rec.id, err);
+      var c2 = document.getElementById("perQuestionStatus");
+      if (c2) c2.textContent = describeAiFailure(err, "AI-toelichting per vraag mislukt. ");
+    } finally {
+      delete perQuestionInFlight[rec.id];
+    }
+  }
+
+  function openDetail(id) {
+    var rec = state.records.find(function (r) { return r.id === id; });
+    if (!rec) return;
+    var d = state.digestsById[id];
+    var qaRows = [
+      ["reason", "Reden voor contact", rec.q1],
+      ["situation", "Huidige situatie", rec.q2],
+      ["solution", "Verwachte oplossing", rec.q3],
+      ["costs", "Lopende kosten", rec.q4],
+      ["self_management", "Zelfbeheer", rec.q5],
+      ["technical_management", "Technisch beheer", rec.q6]
+    ].filter(function (row) { return row[2] && row[2].trim(); });
+
+    var html = '<div class="flex items-start justify-between gap-2">' +
+      '<div><h3 class="text-lg font-semibold">' + escapeHtml(rec.name) + '</h3>' +
+      '<p class="text-sm text-base-content/60">' + escapeHtml(rec.company ? rec.company.name : "Geen klant") + ' • ' + escapeHtml(rec.sheetStage ? rec.sheetStage.name : "Geen fase") + ' • ' + fmtDate(rec.createDate) + '</p></div>' +
+      '</div>';
+
+    html += '<div class="flex items-center gap-2 flex-wrap">' +
+      '<span class="badge ' + pipelineBadgeClass(rec.pipelineStatus) + '">' + pipelineLabel(rec.pipelineStatus) + '</span>' +
+      (d && Array.isArray(d.tags) ? d.tags.map(function (t) { return '<span class="badge badge-outline ' + tagBadgeClass(t) + '">' + escapeHtml(t) + '</span>'; }).join("") : "") +
+      '</div>';
+
+    if (Array.isArray(rec.expectations) && rec.expectations.length > 0) {
+      html += '<div><p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">Verwachtingen</p>' +
+        '<div class="flex flex-wrap gap-1.5">' + rec.expectations.map(function (e) { return '<span class="badge badge-ghost">' + escapeHtml(e) + '</span>'; }).join("") + '</div></div>';
+    }
+
+    if (rec.leads.length > 0) {
+      html += '<div class="text-sm bg-base-200 rounded-lg p-3 space-y-1">' +
+        rec.leads.map(function (l) {
+          var outcome = leadOutcome(l);
+          var outcomeBadge = '<span class="badge badge-xs ' + (outcome === "won" ? "badge-success" : outcome === "lost" ? "badge-error" : "badge-warning") + '">' + (outcome === "won" ? "Won" : outcome === "lost" ? "Lost" : "Open") + '</span>';
+          return '<div class="flex items-center gap-2"><span class="font-medium">' + escapeHtml(l.name) + '</span>' + outcomeBadge +
+            (l.stage ? ' — ' + escapeHtml(l.stage.name) : '') +
+            (l.expectedRevenue != null ? ' — € ' + l.expectedRevenue.toLocaleString("nl-BE") : '') +
+            (l.dayOpen != null ? ' — ' + l.dayOpen + ' dagen open' : '') + '</div>';
+        }).join("") + '</div>';
+    }
+
+    if (d && d.gist) {
+      html += '<div class="bg-base-200 rounded-lg p-3">' +
+        '<p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">' + (d.failed ? "Samenvatting mislukt" : "Algemene samenvatting (AI)") + '</p>' +
+        '<p class="text-sm ' + (d.failed ? "text-error" : "italic") + '">' + escapeHtml(d.gist) + '</p></div>';
+    }
+
+    var hasPerQuestion = !!(d && d.perQuestion && Object.keys(d.perQuestion).length > 0);
+    if (qaRows.length > 0 && !hasPerQuestion) {
+      html += '<p id="perQuestionStatus" class="text-xs text-base-content/50 italic"></p>';
+    }
+
+    html += '<div class="divide-y divide-base-300">' + qaRows.map(function (row) {
+      var key = row[0], label = row[1], text = row[2];
+      var perQ = d && d.perQuestion ? d.perQuestion[key] : null;
+      return '<div class="qa-row"><p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">' + escapeHtml(label) + '</p>' +
+        '<p class="text-sm whitespace-pre-wrap">' + escapeHtml(text) + '</p>' +
+        (perQ ? '<p class="text-xs text-primary/80 italic mt-1">AI: ' + escapeHtml(perQ) + '</p>' : '') +
+        '</div>';
+    }).join("") + '</div>';
+
+    if (qaRows.length === 0) {
+      html += '<p class="text-sm text-base-content/40 italic">Geen open vragen ingevuld op dit actieblad.</p>';
+    }
+
+    var dialogEl = document.getElementById("detailDialog");
+    dialogEl.dataset.recordId = String(rec.id);
+    document.getElementById("detailContent").innerHTML = html;
+    if (!dialogEl.open) dialogEl.showModal();
+    refreshIcons();
+
+    // Fase C op aanvraag: niet awaiten -- het dialoog staat er al, de AI-regels
+    // komen erbij zodra ze binnen zijn (loadPerQuestionFor hertekent dan zelf).
+    if (!hasPerQuestion && qaRows.length > 0) loadPerQuestionFor(rec);
+  }
+
+  // ---------- EVENTS ----------
+  // Eén gedelegeerde listener voor ALLE klikbare Kerncijfers-tegels/badges
+  // (thema's, verwachtingen, sales-/actieblad-pipeline-tegels) EN de
+  // verwijderbare chips in advancedFiltersRow -- ze delen allemaal dezelfde
+  // data-filter-key/data-filter-value-attributen (zie clickAttrs), dus 1
+  // handler i.p.v. losse listeners na elke innerHTML-vervanging.
+  document.addEventListener("click", function (e) {
+    var el = e.target.closest("[data-filter-key]");
+    if (!el) return;
+    var key = el.dataset.filterKey;
+    var value = el.dataset.filterValue;
+    if (!key || value === undefined) return;
+    toggleArrayFilter(key, value);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var el = e.target.closest("[data-filter-key]");
+    if (!el) return;
+    e.preventDefault();
+    toggleArrayFilter(el.dataset.filterKey, el.dataset.filterValue);
+  });
+  document.querySelectorAll(".kpi-view-tab").forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      state.kpiView = tab.dataset.view;
+      renderKpiSwitcher(computeStats(state.records, state.filters));
+    });
+  });
+  document.querySelectorAll(".ai-tab").forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      state.aiTab = tab.dataset.tab;
+      renderInsights();
+    });
+  });
+  document.getElementById("digestBtn").addEventListener("click", function () { runDigestStep(false); });
+  document.getElementById("digestTestBtn").addEventListener("click", function () { runDigestStep(true); });
+  document.getElementById("trendsSelectionBtn").addEventListener("click", runTrendsForSelection);
+  document.getElementById("refetchBtn").addEventListener("click", async function () {
+    document.getElementById("loadingState").classList.remove("hidden");
+    document.getElementById("mainContent").classList.add("hidden");
+    document.getElementById("stageFilterDropdown").dataset.built = "";
+    await init(true);
+  });
+  document.getElementById("clearCacheBtn").addEventListener("click", clearCache);
+  document.getElementById("selectAllFilteredBtn").addEventListener("click", function () {
+    var filtered = applyFilters(state.records, state.filters);
+    filtered.forEach(function (r) { state.selectedIds[r.id] = true; });
+    renderAll();
+  });
+  document.getElementById("selectDigestedBtn").addEventListener("click", function () {
+    var filtered = applyFilters(state.records, state.filters);
+    filtered.forEach(function (r) { if (state.digestsById[r.id] && !isPendingDigest(r.id)) state.selectedIds[r.id] = true; });
+    renderAll();
+  });
+  document.getElementById("clearSelectionBtn").addEventListener("click", function () {
+    state.selectedIds = {};
+    renderAll();
+  });
+  document.getElementById("selectAllCheckbox").addEventListener("change", function (e) {
+    var filtered = applyFilters(state.records, state.filters);
+    if (e.target.checked) {
+      filtered.forEach(function (r) { state.selectedIds[r.id] = true; });
+    } else {
+      filtered.forEach(function (r) { delete state.selectedIds[r.id]; });
+    }
+    renderAll();
+  });
+  document.getElementById("periodFilter").addEventListener("change", function (e) {
+    state.filters.period = e.target.value; renderAll();
+  });
+  document.getElementById("pipelineFilter").addEventListener("change", function (e) {
+    state.filters.pipeline = e.target.value; renderAll();
+  });
+  var searchDebounce;
+  document.getElementById("searchInput").addEventListener("input", function (e) {
+    clearTimeout(searchDebounce);
+    var val = e.target.value;
+    searchDebounce = setTimeout(function () { state.filters.search = val; renderAll(); }, 250);
+  });
+  document.getElementById("clearFiltersBtn").addEventListener("click", function () {
+    state.filters = {
+      stages: null, period: "all", pipeline: "all", search: "",
+      expectations: null, themes: null, salesBuckets: null, actiebladBuckets: null
+    };
+    document.getElementById("periodFilter").value = "all";
+    document.getElementById("pipelineFilter").value = "all";
+    document.getElementById("searchInput").value = "";
+    document.getElementById("stageFilterLabel").textContent = "Alle fases";
+    document.querySelectorAll(".stage-checkbox").forEach(function (cb) { cb.checked = true; });
+    renderAll();
+  });
+
+  // ---------- INIT ----------
+  async function init(skipCacheReload) {
+    try {
+      var platformReady = await waitForPlatformReady();
+      if (!platformReady) {
+        logError("init / platform not ready", new Error("window.platform, window.platform.odoo, window.platform.ai of window.sharedStorage bleef onbeschikbaar na enkele korte herkansingen."));
+        showFatal("De platform-koppeling (window.platform/window.sharedStorage) is niet geladen in deze sessie. Herlaad de pagina, of open de app opnieuw vanuit de Mini-apps-lijst. Blijft dit zich herhalen, meld dit aan een beheerder -- dit is een omgevingsprobleem, geen fout van deze app.");
+        return;
+      }
+      var fetchResult = await fetchRecords();
+      if (!fetchResult) return;
+      state.records = fetchResult.records;
+      state.optionalFieldsAvailable = fetchResult.optionalFieldsAvailable;
+      if (!skipCacheReload) await loadState();
+      markPendingDigest(state.records);
+      state.selectedIds = {};
+      renderAll();
+    } catch (err) {
+      var detail = logError("init", err);
+      showFatal("Onverwachte fout bij het laden van de app. Technische details: " + detail);
+    }
+  }
+
+  init();
+});
+</script>
+</body>
+</html>

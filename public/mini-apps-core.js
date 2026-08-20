@@ -33,6 +33,11 @@ var activeFrame = null;      // { frame, banner } -- welke iframe/foutbanner-paa
 var appsLoaded = false;       // true zodra loadApps() minstens 1x is teruggekomen (zie favorieten-nudge hieronder)
 var favoritesLoaded = false; // true zodra loadFavorites() minstens 1x is teruggekomen
 var favoriteNudgeApp = null; // { id, title, icon } van de app die nu OPEN staat maar nog geen favoriet is -- null als er niets te nudgen valt
+var aiAbortControllers = {}; // requestId (van de aiAsk-boodschap uit de iframe) -> AbortController van de LOPENDE ai/ask-fetch.
+                              // Zie streamMiniAppAiAsk() en de 'aiAbort'-actie in handleMiniAppStorageRequest():
+                              // zonder dit bleef een aanroep gewoon doorlopen (en tokens verbruiken) nadat de
+                              // brug in de iframe er lokaal al bij weggelopen was (stall/hard-timeout), waardoor
+                              // elke retry BOVENOP de nog levende vorige aanroep kwam i.p.v. hem te vervangen.
 
 // ====== Helpers ======
 
@@ -112,7 +117,7 @@ var MINI_APP_SHIM = '<script>(function(){'
   + 'function relay(kind,detail){try{window.parent.postMessage({__miniAppError:true,kind:kind,detail:detail},"*");}catch(e){}}'
   + 'window.addEventListener("error",function(e){relay("error",{message:e.message,line:e.lineno,col:e.colno});});'
   + 'window.addEventListener("unhandledrejection",function(e){var r=e.reason;relay("promise",{message:(r&&(r.message||String(r)))||"Onbekende fout"});});'
-  + 'function miniAppStorageBridge(){var reqId=0,pending={};'
+  + 'function miniAppStorageBridge(){var reqId=0,pending={},aiPending={};'
   +   'function send(action,extra,timeoutMs){return new Promise(function(resolve,reject){'
   +     'var id=Date.now()+"_"+(reqId++);'
   +     'pending[id]={resolve:resolve,reject:reject};'
@@ -123,20 +128,116 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'for(var k in extra){msg[k]=extra[k];}'
   +     'try{window.parent.postMessage(msg,"*");}catch(e){delete pending[id];reject(e);}'
   +   '});}'
-  +   // AI-timeout schaalt mee met de gevraagde output-lengte -- een aanroep die
-  +   // legitiem 8000 tokens moet genereren duurt gewoon langer dan een korte
-  +   // classificatie, en een vaste timeout kapte die eerder af vóór de server
-  +   // (die zelf geen eigen timeout op deze aanroep heeft) de kans kreeg om te
-  +   // voltooien. Vuistregel: 20s basis (netwerk + guardrails/rate-limit-checks
-  +   // + audit-log) + ~15ms per gevraagd output-token, met een ondergrens van
-  +   // 45s (oud gedrag voor kleine aanroepen) en een bovengrens van 3 minuten
-  +   // (zodat een écht vastgelopen aanroep de mini-app niet oneindig laat hangen).
-  +   // Bij ~8000 tokens (het scenario uit de bugmelding) komt dit op ~143s i.p.v.
-  +   // de vaste 45s van voorheen.
-  +   'function aiAskTimeoutMs(maxOutputTokens){'
-  +     'var tokens=(typeof maxOutputTokens==="number"&&maxOutputTokens>0)?maxOutputTokens:8192;'
-  +     'return Math.max(45000,Math.min(180000,20000+tokens*15));'
+  // ── AI-brug: INACTIVITEITS-timeout i.p.v. een totaalduur-gok ─────────────
+  // Hier stond tot 2026-08 aiAskTimeoutMs(): een timeout die meeschaalde met
+  // het GEVRAAGDE aantal output-tokens (45s -> 180s -> 300s, drie keer op
+  // gevoel opgetrokken telkens nadat er iets misliep). Dat was structureel
+  // ongokbaar: de duur hangt af van wat er WERKELIJK gegenereerd wordt, niet
+  // van het gevraagde maximum. Erger nog: die timeout annuleerde niets -- de
+  // fetch in de host-pagina liep door, de Worker liep door, Claude genereerde
+  // door, en het antwoord kwam aan bij een promise die niemand meer vasthield.
+  // Rate-limit en kosten verbruikt, resultaat weggegooid.
+  //
+  // Sinds de providers streamen (stream:true, zie
+  // src/modules/mini-apps/lib/ai-providers/anthropic.js) komt er continu
+  // verkeer binnen: de host-pagina leest de SSE-stream en relayt elke delta
+  // hierheen als een `__miniAppAiEvent`-bericht. Daardoor is de onmogelijke
+  // vraag "hoe lang gaat dit in totaal duren?" vervangen door de meetbare
+  // vraag "is er de laatste AI_STALL_MS iets gebeurd?" -- een waarde die niet
+  // meebeweegt met de gevraagde output-lengte en dus nooit meer bijgesteld
+  // hoeft te worden. AI_HARD_MS is enkel een noodrem tegen een oneindig
+  // hangende promise, geen begrenzing van normaal gedrag.
+  //
+  // De provider zelf breekt al na 60s stilte af (AI_STALL_TIMEOUT_MS in
+  // lib/ai.js) en meldt dat als AI_STALLED; deze 90s zit daar bewust ruim
+  // boven, zodat de SERVER de fout meldt (met foutcode en audit-log) en deze
+  // brug alleen ingrijpt als zelfs de server niets meer laat horen.
+  // LET OP: geen '+' voor deze commentaarregels -- anders breekt de
+  // string-concatenatie hieronder (elke '+' gevolgd door enkel commentaar
+  // wordt een unary plus op de volgende regel, die dan NaN oplevert i.p.v.
+  // gewoon samen te voegen).
+  // AI_HARD_MS was 900000 (15 min) -- opgetrokken naar 30 min sinds
+  // MAX_OUTPUT_TOKENS_CAP in lib/ai.js van 8192 naar 32000 ging: bij een
+  // aanroep die effectief tegen dat nieuwe plafond aan genereert, duurt het
+  // GENEREREN zelf (niet de inactiviteit -- AI_STALL_MS blijft ongewijzigd,
+  // dat gaat over stilte, niet totale duur) merkbaar langer, en de oude 15
+  // minuten was daar te krap voor. Dit blijft een pure noodrem tegen een
+  // oneindig hangende promise, geen normale-gedrag-limiet.
+  // AI_STALL_MS opgetrokken van 90000 naar 120000: dit is een BACKSTOP-timer,
+  // bedoeld voor het geval de SSE-relay tussen Worker en browser doodgaat
+  // zonder dat de Worker dat zelf merkt (die heeft zijn EIGEN, gezaghebbende
+  // inactiviteits-guard van 60s -- AI_STALL_TIMEOUT_MS in lib/ai.js -- die al
+  // correct rapporteert EN de aanroep naar Claude afbreekt zodra die stil valt).
+  // Deze 90s->120s-marge voorkwam vroeger niet dat de brug een AL LEVENDE,
+  // gewoon nog bezig zijnde aanroep (bv. een grote batch die nog niet klaar is
+  // met haar eerste zichtbare stukje tekst) verkeerd als "gestald" bestempelde.
+  +   'var AI_STALL_MS=120000,AI_HARD_MS=1800000;'
+  // Echte Error met het volledige foutcontract erop (zie
+  // src/modules/mini-apps/lib/ai-errors.js). err.message blijft leesbaar
+  // Nederlands, zodat bestaande catch-blokken die enkel err.message in een
+  // toast zetten ongewijzigd blijven werken -- maar err.code/.retryable/
+  // .retryAfterMs maken het nu mogelijk om GERICHT te reageren i.p.v. reguliere
+  // expressies op foutteksten los te laten.
+  +   'function aiError(p){p=p||{};var e=new Error(p.error||"Onbekende AI-fout.");'
+  +     'e.name="AiError";e.code=p.code||"AI_INTERNAL";e.retryable=!!p.retryable;'
+  +     'e.phase=p.phase||"bridge";'
+  +     'if(p.retryAfterMs!=null)e.retryAfterMs=p.retryAfterMs;'
+  +     'if(p.providerStatus!=null)e.providerStatus=p.providerStatus;'
+  +     'if(p.requestId)e.requestId=p.requestId;'
+  +     'if(p.stopReason)e.stopReason=p.stopReason;'
+  +     'if(p.partialText)e.partialText=p.partialText;'
+  +     'return e;}'
+  // KRITIEKE FIX (2026-08): vóór deze wijziging gaf de brug bij een lokale
+  // stall/hard-timeout enkel LOKAAL op (finish()+reject()) -- de eigenlijke
+  // fetch in de host-pagina, en de Worker-aanroep naar Claude daarachter,
+  // liepen gewoon door, onzichtbaar, nog steeds tokens verbruikend. Omdat de
+  // aanroep-laag (Actiebladen Insights' withRetry) een AFGEWEZEN promise
+  // hierna als "mislukt, probeer opnieuw" behandelde, startte ELKE retry een
+  // VOLLEDIG NIEUWE aanroep BOVENOP de nog levende vorige -- vandaar meerdere
+  // gelijktijdige, groeiende "ask"-requests in de Network-tab die nooit
+  // afgebroken werden. `abortHost()` stuurt nu een expliciete `aiAbort`-actie
+  // naar de host zodra de brug lokaal opgeeft (bij stall of hard-timeout, NOOIT
+  // bij een normale onDone/onError -- die betekenen dat de host al klaar is),
+  // die de fetch écht annuleert (zie handleMiniAppStorageRequest/
+  // streamMiniAppAiAsk hieronder) én -- via request.signal, doorgegeven aan
+  // askAI() in routes.js -- de aanroep naar Claude zelf afbreekt. Zo vervangt
+  // een retry de vorige poging, in plaats van ernaast te lopen.
+  +   'function aiSend(o){'
+  +     'return new Promise(function(resolve,reject){'
+  +       'var id=Date.now()+"_"+(reqId++);'
+  +       'var stallTimer=null,hardTimer=null,finished=false,text="";'
+  +       'function finish(){finished=true;'
+  +         'if(stallTimer)clearTimeout(stallTimer);if(hardTimer)clearTimeout(hardTimer);'
+  +         'delete aiPending[id];}'
+  +       'function abortHost(){try{window.parent.postMessage({__miniAppStorage:true,id:"a_"+id,action:"aiAbort",abortId:id},"*");}catch(e){}}'
+  +       'function bump(){if(finished)return;if(stallTimer)clearTimeout(stallTimer);'
+  +         'stallTimer=setTimeout(function(){if(finished)return;abortHost();finish();'
+  +           'reject(aiError({error:"De AI-aanroep liet "+Math.round(AI_STALL_MS/1000)+"s lang niets meer horen -- afgebroken door de brug (de onderliggende aanroep is nu ook echt geannuleerd, niet enkel losgelaten).",code:"AI_STALLED",retryable:true,partialText:text}));'
+  +         '},AI_STALL_MS);}'
+  +       'aiPending[id]={'
+  +         'onOpen:function(){bump();},'
+  +         'onDelta:function(d){bump();text+=d;'
+  +           'if(typeof o.onProgress==="function"){try{o.onProgress({text:text,delta:d});}catch(err){}}},'
+  +         'onDone:function(p){finish();resolve(p||{});},'
+  +         'onError:function(p){finish();reject(aiError(p));}};'
+  +       'hardTimer=setTimeout(function(){if(finished)return;abortHost();finish();'
+  +         'reject(aiError({error:"De AI-aanroep is na "+Math.round(AI_HARD_MS/60000)+" minuten afgebroken (noodrem van de brug, aanroep ook effectief geannuleerd).",code:"AI_STALLED",retryable:false,partialText:text}));'
+  +       '},AI_HARD_MS);'
+  +       'bump();'
+  +       'var msg={__miniAppStorage:true,id:id,action:"aiAsk",prompt:o.prompt,system:o.system,'
+  +         'maxOutputTokens:o.maxOutputTokens,model:o.model,schema:o.schema,cacheSystem:o.cacheSystem};'
+  +       'try{window.parent.postMessage(msg,"*");}'
+  +       'catch(err){finish();reject(aiError({error:"De host-pagina is niet bereikbaar: "+err.message,code:"AI_BRIDGE_UNAVAILABLE"}));}'
+  +     '});'
   +   '}'
+  +   'window.addEventListener("message",function(e){'
+  +     'var d=e.data;if(!d||!d.__miniAppAiEvent)return;'
+  +     'var h=aiPending[d.id];if(!h)return;'
+  +     'if(d.event==="open")h.onOpen();'
+  +     'else if(d.event==="delta")h.onDelta(d.delta||"");'
+  +     'else if(d.event==="done")h.onDone(d.payload);'
+  +     'else if(d.event==="error")h.onError(d.payload);'
+  +   '});'
   +   'window.addEventListener("message",function(e){'
   +     'var d=e.data;if(!d||!d.__miniAppStorageResult)return;'
   +     'var p=pending[d.id];if(!p)return;delete pending[d.id];'
@@ -147,9 +248,32 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'notify:function(to,subject,message){return send("notify",{to:to,subject:subject,message:message});},'
   +     'listChatChannels:function(){return send("listChatChannels",{});},'
   +     'sendChat:function(channelId,message){return send("sendChat",{channelId:channelId,message:message});},'
-  +     'ai:{'
-  +       'ask:function(prompt,options){options=options||{};return send("aiAsk",{prompt:prompt,system:options.system,maxOutputTokens:options.maxOutputTokens},aiAskTimeoutMs(options.maxOutputTokens));}'
-  +     '},'
+  // window.platform.ai -- ask() resolvet nog steeds met een STRING, precies
+  // zoals vroeger, zodat bestaande mini-apps niets hoeven te wijzigen en toch
+  // meteen van het streamende transport profiteren. Nieuw en puur additief:
+  //   options.onProgress({text, delta})  voortgang tijdens het genereren
+  //                                      (een echte voortgangsbalk i.p.v. een
+  //                                      spinner die niets weet)
+  //   ai.ask.full(prompt, options)       resolvet met {text, json, model,
+  //                                      usage, stopReason} i.p.v. enkel tekst
+  //   ai.ask.json(prompt, {schema})      resolvet met een GEPARST object dat de
+  //                                      provider tegen het JSON-schema
+  //                                      gedwongen heeft -- geen zelfgeschreven
+  //                                      regex/NDJSON-parser meer nodig
+  //   options.model                      moet in MODEL_ALLOWLIST (lib/ai.js)
+  //                                      staan; bv. claude-haiku-4-5 voor
+  //                                      goedkope classificatie
+  +     'ai:(function(){'
+  +       'function opts(prompt,options){options=options||{};return{prompt:prompt,system:options.system,'
+  +         'maxOutputTokens:options.maxOutputTokens,model:options.model,schema:options.schema,'
+  +         'cacheSystem:options.cacheSystem,onProgress:options.onProgress};}'
+  +       'function ask(prompt,options){return aiSend(opts(prompt,options)).then(function(r){return r.text;});}'
+  +       'ask.full=function(prompt,options){return aiSend(opts(prompt,options));};'
+  +       'ask.json=function(prompt,options){options=options||{};'
+  +         'if(!options.schema)return Promise.reject(aiError({error:"ai.ask.json() vereist options.schema (een JSON-schema).",code:"AI_INVALID_SCHEMA"}));'
+  +         'return aiSend(opts(prompt,options)).then(function(r){return r.json;});};'
+  +       'return{ask:ask};'
+  +     '})(),'
   +     'schedule:{'
   +       'create:function(config){return send("scheduleCreate",{config:config});},'
   +       'list:function(){return send("scheduleList",{});},'
@@ -289,6 +413,137 @@ window.addEventListener('message', function(e) {
 // Isolatie per app: altijd activeFrame.appId gebruiken, nooit een appId uit
 // het bericht zelf overnemen (een gecompromitteerde iframe zou anders een
 // andere app-id kunnen invullen en bij een andere app's opslag kunnen).
+// ====== AI-brug (streamend) — host-kant =====================================
+//
+// De enige actie uit het iframe met een STREAMEND antwoord. De Worker-route
+// POST /api/apps/:id/ai/ask?stream levert server-sent events; die worden hier
+// gelezen en per stuk doorgestuurd naar het iframe als `__miniAppAiEvent`.
+//
+// Waarom dit bestaat (zie ONTWERP-ai-aanroep-architectuur.md §1): met een
+// niet-streamende fetch kwamen er NUL bytes tot het volledige antwoord af was,
+// waardoor de brug onmogelijk kon weten of Claude nog werkte of de verbinding
+// dood was. De enige timeout stond daarom clientside en was een gok op de
+// totaalduur -- drie keer opgetrokken (45s -> 180s -> 300s) en nog steeds fout,
+// want hij annuleerde de serveraanroep niet eens. Nu levert elke delta een
+// meetbaar levensteken en volstaat een inactiviteits-timeout.
+//
+// Isolatie per app: net als bij handleMiniAppStorageRequest komt appId ALTIJD
+// van activeFrame, nooit uit het bericht zelf.
+async function streamMiniAppAiAsk(frame, appId, data) {
+  function post(event, payload, delta) {
+    if (!frame) return;
+    try {
+      frame.frame.contentWindow.postMessage(
+        { __miniAppAiEvent: true, id: data.id, event: event, delta: delta, payload: payload },
+        '*'
+      );
+    } catch (_err) { /* iframe intussen weg -- niets meer te doen */ }
+  }
+
+  // AbortController voor DEZE specifieke aanroep, geregistreerd onder het id dat
+  // de iframe-brug meegaf (data.id) -- zie de 'aiAbort'-actie in
+  // handleMiniAppStorageRequest() hieronder. Zonder dit had een stall/hard-
+  // timeout in de brug (MINI_APP_SHIM) geen enkele manier om de ECHTE fetch (en,
+  // via request.signal in routes.js, de ECHTE aanroep naar Claude) alsnog af te
+  // breken -- die liep gewoon door terwijl de brug al lokaal had opgegeven en de
+  // aanroeper (bv. withRetry() in een mini-app) alweer een NIEUWE poging deed.
+  var controller = new AbortController();
+  aiAbortControllers[data.id] = controller;
+  function cleanupController() {
+    if (aiAbortControllers[data.id] === controller) delete aiAbortControllers[data.id];
+  }
+
+  var res;
+  try {
+    res = await apiFetch(`/mini-apps/api/apps/${appId}/ai/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: data.prompt,
+        system: data.system,
+        maxOutputTokens: data.maxOutputTokens,
+        model: data.model,
+        schema: data.schema,
+        cacheSystem: data.cacheSystem,
+        stream: true
+      }),
+      signal: controller.signal
+    });
+  } catch (err) {
+    cleanupController();
+    if (err && err.name === 'AbortError') return; // bewust geannuleerd (aiAbort) -- de brug heeft al lokaal afgehandeld, niets meer te posten
+    post('error', { error: 'Kon de AI-aanroep niet starten: ' + err.message, code: 'AI_BRIDGE_UNAVAILABLE', retryable: true, phase: 'bridge' });
+    return;
+  }
+
+  // Een foutstatus vóór de stream begint (403 geen toegang, 404 app weg, 429
+  // rate-limit als die al vóór het streamen geraakt wordt): gewone JSON-body,
+  // die het foutcontract al bevat.
+  if (!res.ok || !res.body) {
+    cleanupController();
+    var errBody = null;
+    try { errBody = await res.json(); } catch (_err) { /* geen JSON -- val terug */ }
+    post('error', (errBody && errBody.code)
+      ? errBody
+      : { error: (errBody && errBody.error) || ('Fout ' + res.status), code: 'AI_INTERNAL', retryable: false, phase: 'bridge' });
+    return;
+  }
+
+  var reader = res.body.getReader();
+  var decoder = new TextDecoder();
+  var buffer = '';
+  var settled = false;
+
+  try {
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      // Chunks breken willekeurig af (ook midden in een regel of een
+      // UTF-8-teken) -- daarom bufferen op '\n\n' en decoderen met
+      // {stream:true}, nooit per chunk apart.
+      buffer += decoder.decode(chunk.value, { stream: true });
+      var sep;
+      while ((sep = buffer.indexOf('\n\n')) !== -1) {
+        var raw = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        var eventName = 'message';
+        var dataLines = [];
+        raw.split('\n').forEach(function (line) {
+          if (line.indexOf('event:') === 0) eventName = line.slice(6).trim();
+          else if (line.indexOf('data:') === 0) dataLines.push(line.slice(5).trim());
+        });
+        if (dataLines.length === 0) continue;
+        var parsed;
+        try { parsed = JSON.parse(dataLines.join('\n')); } catch (_err) { continue; }
+
+        if (eventName === 'delta') {
+          post('delta', null, parsed.delta || '');
+        } else if (eventName === 'open') {
+          post('open', parsed);
+        } else if (eventName === 'done') {
+          settled = true;
+          post('done', parsed);
+        } else if (eventName === 'error') {
+          settled = true;
+          post('error', parsed);
+        }
+      }
+    }
+  } catch (err) {
+    settled = true;
+    cleanupController();
+    if (err && err.name === 'AbortError') return; // bewust geannuleerd (aiAbort) -- niets meer te posten, de brug wist dit al lokaal
+    post('error', { error: 'De verbinding met de server brak af tijdens de AI-aanroep: ' + err.message, code: 'AI_STREAM_INTERRUPTED', retryable: true, phase: 'bridge' });
+    return;
+  }
+
+  cleanupController();
+  if (!settled) {
+    // Stream dicht zonder done/error: netwerk weggevallen of Worker gestopt.
+    post('error', { error: 'De verbinding met de server brak af tijdens de AI-aanroep.', code: 'AI_STREAM_INTERRUPTED', retryable: true, phase: 'bridge' });
+  }
+}
+
 async function handleMiniAppStorageRequest(data) {
   var frame = activeFrame;
   function reply(ok, value, error) {
@@ -358,14 +613,22 @@ async function handleMiniAppStorageRequest(data) {
         body: JSON.stringify({ channelId: data.channelId, message: data.message })
       }));
     } else if (data.action === 'aiAsk') {
-      // Enkel de platte tekst teruggeven (niet het hele {text, model}-object) --
-      // window.platform.ai.ask() resolvet met een string, zie BUILD_PROMPT.
-      var aiResult = await apiJson(`/mini-apps/api/apps/${appId}/ai/ask`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: data.prompt, system: data.system, maxOutputTokens: data.maxOutputTokens })
-      });
-      reply(true, aiResult.text);
+      // AI loopt NIET via reply()/apiJson: het is de enige actie met een
+      // streamend antwoord. streamMiniAppAiAsk() hieronder leest de SSE en
+      // stuurt open/delta/done/error als aparte __miniAppAiEvent-berichten naar
+      // het iframe -- zie de AI-brug in MINI_APP_SHIM bovenaan dit bestand.
+      await streamMiniAppAiAsk(frame, appId, data);
+      return;
+    } else if (data.action === 'aiAbort') {
+      // Verstuurd door de brug (MINI_APP_SHIM's abortHost()) zodra ZIJ lokaal
+      // opgeeft op een aiAsk-aanroep (stall/hard-timeout) -- dit annuleert de
+      // ECHTE, nog lopende fetch (en, via request.signal in routes.js, de
+      // ECHTE aanroep naar Claude) i.p.v. die onzichtbaar te laten doorlopen.
+      // Geen reply nodig: de brug wacht hier niet op, ze heeft haar promise al
+      // lokaal afgehandeld.
+      var ctrl = aiAbortControllers[data.abortId];
+      if (ctrl) { try { ctrl.abort(); } catch (_err) { /* al afgebroken/klaar */ } }
+      return;
     } else if (data.action === 'scheduleList') {
       reply(true, await apiJson(`/mini-apps/api/apps/${appId}/schedules`));
     } else if (data.action === 'scheduleCreate') {
@@ -462,11 +725,33 @@ async function apiFetch(url, options) {
   return res;
 }
 
+// Foutobject uit een API-respons -> echte Error MET het volledige contract.
+// Vóór 2026-08 deed dit `new Error(body.error)` en verdween body.code hier
+// stil: zowel lib/ai.js als de providers zetten netjes een foutcode, maar die
+// stierf in deze functie. Mini-apps konden daarna enkel nog reguliere
+// expressies op Nederlandse foutteksten loslaten (Actiebladen Insights deed
+// letterlijk /timeout|verliep/i en /limiet|limit/i) om onderscheid te maken
+// tussen een timeout, een rate-limit van de provider, onze eigen daglimiet en
+// een echte bug. Dit is de reparatie die de hele foutcontract-keten pas laat
+// werken -- zie src/modules/mini-apps/lib/ai-errors.js.
+function apiErrorFrom(body, status) {
+  var err = new Error((body && body.error) || ('Fout ' + status));
+  if (body && body.code) err.code = body.code;
+  if (body && typeof body.retryable === 'boolean') err.retryable = body.retryable;
+  if (body && body.retryAfterMs != null) err.retryAfterMs = body.retryAfterMs;
+  if (body && body.phase) err.phase = body.phase;
+  if (body && body.providerStatus != null) err.providerStatus = body.providerStatus;
+  if (body && body.requestId) err.requestId = body.requestId;
+  if (body && body.stopReason) err.stopReason = body.stopReason;
+  err.httpStatus = status;
+  return err;
+}
+
 async function apiJson(url, options) {
   var res = await apiFetch(url, options);
   var body = await res.json();
   if (!res.ok || body.success === false) {
-    throw new Error(body.error || ('Fout ' + res.status));
+    throw apiErrorFrom(body, res.status);
   }
   return body.data;
 }

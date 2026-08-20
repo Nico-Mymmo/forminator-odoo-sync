@@ -704,6 +704,76 @@ Waarom dit hier staat: op 2026-07-13 bleek dat de asset-manager (`GET /api/asset
 
 **Voeg je een nieuwe module toe die `env.R2_ASSETS` gebruikt?** Kies een eigen, unieke prefix, en als de asset-manager ooit iets van jouw prefix zou kunnen tegenkomen bij een bucket-brede list: voeg je prefix toe aan `FOREIGN_MODULE_PREFIXES` in `src/modules/asset-manager/routes.js`.
 
+## mini-apps AI — streamend, met een canoniek foutcontract (2026-08)
+
+**Regel 1 — de AI-providers streamen ALTIJD (`stream: true`). Voeg nooit een niet-streamend pad toe, en los een "te langzame AI-aanroep" nooit op door een timeout op te trekken.**
+
+Waarom dit hier staat: tussen 2026-07 en 2026-08 is de clientside timeout in `public/mini-apps-core.js` drie keer opgetrokken (45s vast → 180s → 300s), elke keer op basis van wat er net misliep. Dat kon niet werken, om drie redenen die alle drie in de code zaten:
+
+1. **De enige timeout in de keten stond clientside en annuleerde niets.** `send()` verwijderde enkel zijn `pending`-entry. De fetch in de host-pagina, de Worker, en Claude liepen door; rate-limit en kosten werden verbruikt; het antwoord kwam aan bij een promise die niemand meer vasthield en werd stil weggegooid (`if(!p)return;`).
+2. **Er was geen signaal om een timeout op te baseren.** Een niet-streamende `fetch` naar `/v1/messages` levert nul bytes tot het antwoord volledig af is. "Claude werkt nog" en "de verbinding is dood" waren dus per definitie niet te onderscheiden. De formule schaalde bovendien mee met het *gevraagde* maximum aantal output-tokens, terwijl de duur van het *werkelijk gegenereerde* aantal afhangt.
+3. **Alle faalmodi kwamen als dezelfde string aan**, omdat `apiJson()` de `code` uit de server-response liet vallen.
+
+**Wat er nu geldt:**
+
+- `lib/ai-providers/*.js` streamen SSE en breken zelf af bij **inactiviteit** (`AI_STALL_TIMEOUT_MS` in `lib/ai.js`, 60s) — niet op totaalduur. Die waarde hangt van niets af en hoeft nooit bijgesteld te worden.
+- `POST /api/apps/:id/ai/ask` heeft twee transportvormen op dezelfde logica: gewone JSON, of `text/event-stream` bij `body.stream === true` (events `open`/`delta`/`done`/`error`).
+- De brug in `mini-apps-core.js` leest die SSE en relayt elke delta naar het iframe als `__miniAppAiEvent`. De shim gebruikt daarop een **stall-timer** (`AI_STALL_MS`, 90s) plus een ruime noodrem (`AI_HARD_MS`, 15 min) die er alleen is om een oneindig hangende promise te voorkomen.
+- **Een Cloudflare Worker heeft geen wall-clock-limiet zolang de client verbonden is.** De vaak geciteerde 30s is CPU-tijd; wachten op een externe API kost geen CPU. Er was dus nooit een platformlimiet die dit veroorzaakte.
+- `ctx.waitUntil()` verlengt maar **30 seconden** na de respons. Een fire-and-forget + polling-patroon vraagt daarom een Durable Object, Queue of Workflow — voor werk dat langer dan ~10 min duurt of onbemand moet lopen is Anthropic's **Message Batches API** het juiste gereedschap (50% goedkoper, submit → poll), gehangen aan `lib/scheduler.js`. Bouw daar geen eigen job-framework voor.
+
+**Regel 2 — foutcodes komen uit `lib/ai-errors.js` en mogen door geen enkele laag vertaald, ingeslikt of vervangen worden door tekst.**
+
+De codes (`AI_STALLED`, `AI_TRUNCATED`, `AI_PROVIDER_RATE_LIMITED`, `AI_RATE_LIMIT_APP`, `AI_RATE_LIMIT_PLATFORM`, ...) reizen ongewijzigd van provider → `lib/ai.js` → `routes.js` → brug → `window.platform.ai.ask()`, waar ze als `err.code` / `err.retryable` / `err.retryAfterMs` beschikbaar zijn. `err.message` blijft leesbaar Nederlands voor de UI, maar is **nooit** de informatiedrager voor code.
+
+**Verboden in mini-app-code:** reguliere expressies op foutteksten om te bepalen wat er misging (`/timeout|verliep/i`, `/limiet|limit/i`). Dat was de enige mogelijkheid vóór deze wijziging en is nu een bug. Gebruik `err.code`.
+
+**Regel 3 — vraag gestructureerde output met een schema; parse nooit JSON uit tekst.**
+
+`ai.ask.json(prompt, {schema})` gebruikt `output_config.format` (Anthropic) resp. `responseSchema` (Gemini): constrained decoding, dus gegarandeerd geldige JSON. Zelfgeschreven NDJSON-/regex-parsers met per-regel-foutboekhouding zijn daarmee overbodig. Zet een gesloten antwoordruimte als `enum` in het schema — of, bij een vaste lijst, als **integer-index** in die lijst (labels als output kosten tokens en drijven weg qua spelling).
+
+**Let op welke JSON-Schema-keywords mogen.** Anthropic's constrained decoding ondersteunt de pure validatie-constraints NIET: `maxItems` gaf in productie een harde 400 ("For 'array' type, property 'maxItems' is not supported"), en hetzelfde geldt voor `maxLength`, `minLength`, `minimum`, `maximum`, `pattern`, `uniqueItems`, `min/maxProperties`, `default` en `examples`. `sanitizeSchemaForStructuredOutput()` in `ai-providers/anthropic.js` strippt die nu automatisch en zet ze als notitie achter de `description` — precies wat Anthropic's eigen SDK's doen — dus een schema mét zo'n keyword werkt nog, maar wordt niet hard afgedwongen. Gevolg voor jouw code: **klem grenzen altijd zelf af in JS** (`slice`) en gebruik `enum` waar een waarde écht begrensd moet zijn; `enum` is ondersteund en strenger dan `minimum`/`maximum`. Structurele keywords (`type`, `properties`, `required`, `items`, `enum`, `additionalProperties`, `$ref`, `oneOf`/`anyOf`/`allOf`) worden bewust NIET gestript: die stil weghalen zou de betekenis van het schema veranderen, en een leesbare `AI_PROVIDER_BAD_REQUEST` is beter dan een schema dat iets anders doet dan er staat.
+
+**Regel 4 — kies het model per taak, uit `MODEL_ALLOWLIST` in `lib/ai.js`.**
+
+`claude-haiku-4-5` voor classificatie (weinig output, gesloten antwoordruimte, ~5× goedkoper), `claude-sonnet-5` voor samenvatten/analyseren. De allowlist is bewust server-side: de daglimiet telt *aanroepen*, niet euro's, dus zonder allowlist kan een mini-app de kostenbeheersing omzeilen door een duur model te kiezen. Opus staat er niet in.
+
+**Regel 5 — splits een AI-aanroep op naar outputprofiel, niet naar "kleinere batches".**
+
+Bij een batch-taak die zowel goedkope classificatie als dure tekst produceert: aparte aanroepen. En genereer output die maar één record per keer bekeken wordt (bv. detail-uitleg in een dialoog) **op aanvraag**, niet vooruit voor de hele batch. In Actiebladen Insights was `perQuestion` ~75% van de output-tokens en werd het uitsluitend in `openDetail()` gebruikt — dat vooruit betalen voor alle records was de eigenlijke oorzaak van de trage, dure aanroepen.
+
+**`max_tokens` is een PLAFOND, geen reservering — en leid je batch-grootte eruit af.** Je betaalt de tokens die het model werkelijk genereert, niet het plafond dat je vroeg. Een krap plafond bespaart dus niets en levert alleen `AI_TRUNCATED` op: een volledig betaalde, weggegooide aanroep. Vraag ruim.
+
+En zet batch-grootte en tokenbudget nooit als twee losse constanten: dat ging in Actiebladen Insights meteen mis (40 records per batch naast een gevraagd budget van `40 * 90 + 400` = 4.000 tokens — die spraken elkaar tegen, dus afkapping). Leid de batch-grootte af uit het budget:
+
+```js
+batch_max = floor((PLATFORM_MAX_OUTPUT_TOKENS - overhead) / tokens_per_record)
+budget    = min(PLATFORM_MAX_OUTPUT_TOKENS, aantal * tokens_per_record + overhead)
+```
+
+Dan kan het gevraagde budget per constructie niet kleiner zijn dan wat de batch nodig heeft. Meet daarna het ECHTE verbruik (`ai.ask.full()` geeft `usage.tokensOut`) en stel `tokens_per_record` bij op die cijfers — niet op wat er net misliep.
+
+**Splitsen mag alleen op `AI_TRUNCATED`, nooit op een timeout.** Bij `AI_TRUNCATED` betekent de fout letterlijk "deze output paste niet", dus halveren van de batch halveert de output: een deterministisch antwoord op een gemeten oorzaak (zie `runSplittingOnTruncation()` in de app, met dieptegrens). Splitsen op een timeout is het tegenovergestelde — dat was de oude `digestBatchResilient()`, die gokte en het ontbreken van streaming maskeerde. Voer dat niet opnieuw in.
+
+Prompt-caching (`cacheSystem: true`) is beschikbaar maar loont alleen bij een **grote, echt identieke** prefix: minimum 1.024 tokens voor Sonnet 5 (4.096 voor Haiku), daaronder wordt het stil overgeslagen. Voor batch-prompts waarvan de inhoud per aanroep verschilt levert het niets op — gebruik het voor een groot vast referentiedocument, niet als reflex.
+
+**Tests (draaien zonder netwerk/Anthropic-key, met een gestubde `fetch` resp. een nagebootst iframe-window):**
+`node src/modules/mini-apps/tests/ai-provider-stream-test.mjs` (SSE-parser, chunk-grenzen, stall, `stop_reason`, alle foutcodes) en
+`node src/modules/mini-apps/tests/ai-bridge-shim-test.mjs` (de geïnjecteerde shim echt uitvoeren: `ask()` geeft nog een string,
+`ask.json()`, het foutcontract, en dat de stall-timer op elke delta reset) en
+`node src/modules/mini-apps/tests/actiebladen-digest-logic-test.mjs` (de tweefasen-digestlogica van de mini-app: thema-indices,
+`mergeDigest`/`sig`-semantiek, batching, tokenbudget, splitsen bij afkapping) en
+`node src/modules/mini-apps/tests/build-prompt-test.mjs` (BUILD_PROMPT vs. wat het platform werkelijk kan — zie Regel 6).
+Breid deze uit bij elke wijziging aan de brug, een provider, het digest-ontwerp of de bouw-prompt.
+
+**Regel 6 — wijzig je iets aan `window.platform.ai`, dan wijzig je `BUILD_PROMPT` mee.**
+
+`BUILD_PROMPT` in `public/mini-apps-list.js` is wat een collega kopieert om een AI een nieuwe mini-app te laten bouwen. Alles wat daar niet in staat, wordt in élke nieuwe app fout gedaan — die prompt is dus geen documentatie achteraf maar onderdeel van de API. Bij de herziening van 2026-08 stond er nog het oude contract in (`ask()` met alleen `system`/`maxOutputTokens`), waardoor elke gegenereerde app opnieuw JSON uit tekst zou vissen en op foutteksten zou matchen.
+
+`node src/modules/mini-apps/tests/build-prompt-test.mjs` klinkt de prompt vast aan de bron: elke `AI_*`-code die de prompt noemt moet in `lib/ai-errors.js` bestaan, de codes die een mini-app moet afhandelen moeten in de prompt staan, elke `platform.ai`-methode uit de shim moet gedocumenteerd zijn, en de genoemde grenzen (25000 / 8192 / 200) worden uit `lib/ai.js` gelezen. Voeg je een methode of code toe, dan faalt die test tot de prompt bijgewerkt is.
+
+Volledige onderbouwing: `ONTWERP-ai-aanroep-architectuur.md`.
+
 ## Bestandsstructuur
 
 ```

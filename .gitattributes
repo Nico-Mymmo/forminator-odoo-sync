@@ -1,0 +1,23 @@
+# Regeleindes — voorkomt de CRLF-vervuiling die op 2026-08-13 196 bestanden in
+# de werkboom raakte (zie CLAUDE.md, "Bestand-editing bij grote/gevoelige
+# bestanden"). Zonder dit bestand hangt het van de editor/tool af of er CRLF
+# geschreven wordt: git ziet dan een volledig herschreven bestand terwijl er
+# inhoudelijk niets veranderde, en een `git commit -a` zou 196 bestanden
+# herschrijven. Dat maakt bovendien elke echte diff onleesbaar.
+#
+# `text=auto eol=lf` = git normaliseert bij het committen naar LF en checkt LF
+# uit, op elk platform. Dit is de enige plek waar de single-LF-conventie van
+# deze repo nu ook technisch afgedwongen wordt.
+* text=auto eol=lf
+
+# Uitzonderingen: binaire bestanden nooit aanraken.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.docx binary
+*.xlsx binary
+*.pdf binary

@@ -212,6 +212,28 @@ export const DECLARED_EDGES = [
     as: '__verwachtingen',
     inverseLabel: 'Actiebladen',
     inverseAs: '__actiebladen'
+  },
+  {
+    // Pijnpunt-scores: een echt one2many (geen dubbel-opgeslagen many2many
+    // zoals bij Leads hierboven), dus gewoon fk_forward -- `field` leeft op
+    // x_sales_action_sheet zelf. Elke rij (x_action_sheet_pain_po) draagt zijn
+    // eigen x_studio_pain_point_id (many2one -> x_user_painpoints) en
+    // x_studio_score; die twee komen als kale Odoo-tuple/waarde mee -- geen
+    // aparte edge naar x_user_painpoints nodig om de pijnpunt-naam op te halen
+    // (zelfde patroon als stage_id/lost_reason_id op de crm.lead-tak van
+    // __leads). Beide velden zijn NIET afhankelijk van de veldkeuze in de
+    // wizard: x_action_sheet_pain_po.mandatoryFields in graph-nodes.js dwingt
+    // ze altijd mee, en het baseDomain van diezelfde node filtert onbeoordeeld
+    // + score '0' er altijd uit -- zie het commentaar daar.
+    from: 'x_sales_action_sheet',
+    to: 'x_action_sheet_pain_po',
+    kind: 'relation',
+    type: 'one2many',
+    field: 'x_studio_action_sheet_pain_points_scores',
+    label: 'Pijnpunt-scores',
+    as: '__painpoints',
+    inverseLabel: 'Actieblad',
+    inverseAs: '__actieblad'
   }
 ];
 

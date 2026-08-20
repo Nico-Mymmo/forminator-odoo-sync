@@ -2,7 +2,7 @@
  * Mini-Apps — AI (server-side aanroep van een AI-model namens een mini-app)
  *
  * Laat een mini-app een AI-model aanroepen via window.platform.ai.ask(prompt,
- * {system, maxOutputTokens}) in de iframe-shim (zie public/mini-apps-core.js)
+ * {system, maxOutputTokens, ...}) in de iframe-shim (zie public/mini-apps-core.js)
  * en POST /api/apps/:id/ai/ask in routes.js. Zelfde opzet als lib/notify.js/
  * lib/chat.js: guardrails + rate-limit + audit-log in dit ene bestand, de
  * route zelf blijft dun.
@@ -14,8 +14,29 @@
  * zie ai-providers/anthropic.js). Gemini blijft geregistreerd als fallback/
  * alternatief (ai-providers/gemini.js) -- wisselen is enkel AI_PROVIDER in
  * wrangler.jsonc/.env aanpassen, GEEN wijziging aan de rate-limit/audit-
- * logica of aan de mini-app-kant (window.platform.ai.ask() blijft exact
- * hetzelfde werken).
+ * logica of aan de mini-app-kant.
+ *
+ * ─── Herziening 2026-08: streaming, schema's, modelkeuze, foutcontract ──────
+ * Wat er veranderd is en waarom (volledige onderbouwing in
+ * ONTWERP-ai-aanroep-architectuur.md):
+ *
+ *  1. De providers STREAMEN nu altijd. Deze laag geeft een `onDelta`-callback
+ *     door zodat routes.js de tekst als SSE kan doorsturen naar de host-pagina.
+ *     Daarmee verdwijnt de reden voor de clientside timeout-cap in
+ *     mini-apps-core.js (45s -> 180s -> 300s, drie keer op gevoel opgetrokken):
+ *     er is nu continu verkeer, dus een INACTIVITEITS-timeout volstaat en die
+ *     hoeft nooit meer bijgesteld te worden.
+ *  2. Rate-limit en guardrails gebeuren VOORAF (ongewijzigd), maar het
+ *     audit-log gebeurt nu ook correct bij een halverwege afgebroken stream --
+ *     inclusief de tokens die dan al verbruikt zijn.
+ *  3. `schema` (gestructureerde output) wordt doorgegeven aan de provider. Een
+ *     mini-app hoeft geen JSON meer uit tekst te vissen met reguliere
+ *     expressies.
+ *  4. `model` mag door de mini-app gekozen worden, maar ALLEEN uit een
+ *     server-side allowlist (MODEL_ALLOWLIST) -- anders kan een mini-app
+ *     ongemerkt naar het duurste model grijpen en is kostenbeheersing weg.
+ *     Dit maakt het mogelijk om classificatie op Haiku te doen (~5x goedkoper)
+ *     en enkel het echte samenvatwerk op Sonnet.
  *
  * Guardrails:
  *  - Lengte-caps op prompt/system (geen bulk/misbruik als generieke text-API).
@@ -23,24 +44,22 @@
  *    (rolling 24u-venster, zelfde patroon als notify.js/chat.js).
  *  - Rate-limit platform-breed: max MAX_GLOBAL_PER_DAY aanroepen over ALLE
  *    mini-apps samen per dag (rolling 24u-venster) -- kostenbeheersing op het
- *    Claude-abonnement zelf, los van hoeveel apps er zijn. Faalt hard met
- *    RATE_LIMIT_GLOBAL zodra bereikt, ongeacht welke app het aanvraagt.
+ *    Claude-abonnement zelf, los van hoeveel apps er zijn.
  *  - maxOutputTokens is altijd begrensd door MAX_OUTPUT_TOKENS_CAP, ongeacht
- *    wat de mini-app zelf opgeeft -- voorkomt één dure aanroep die de hele
- *    daglimiet in kosten opsoupeert.
+ *    wat de mini-app zelf opgeeft.
+ *  - Model uit MODEL_ALLOWLIST, schema begrensd op grootte.
  *  - Volledige audit-log in mini_app_ai_calls, ook bij een gefaalde aanroep --
  *    bewust ZONDER de prompt/antwoord-tekst zelf op te slaan (enkel lengtes/
- *    tokencounts), zie de migratie voor de motivatie.
+ *    tokencounts/foutcode), zie de migratie voor de motivatie.
  *  - Dit is bewust single-shot (één prompt + optionele system-instructie),
- *    geen multi-turn/chat-geheugen -- eenvoudiger te beveiligen/beheersen,
- *    en dekt de meeste mini-app-taken (samenvatten, classificeren,
- *    herschrijven, ideeën genereren).
+ *    geen multi-turn/chat-geheugen.
  */
 
 import { getSupabaseClient } from '../../../lib/database.js';
 import * as anthropicProvider from './ai-providers/anthropic.js';
 import * as geminiProvider from './ai-providers/gemini.js';
 import { estimateCostUsd } from './ai-pricing.js';
+import { AI_ERROR_CODES, AI_ERROR_PHASES, aiError } from './ai-errors.js';
 
 // ─── Provider-registry ───────────────────────────────────────────────────────
 // Nieuwe provider toevoegen: hier één regel bijzetten (en optioneel
@@ -49,6 +68,21 @@ import { estimateCostUsd } from './ai-pricing.js';
 const PROVIDERS = {
   anthropic: anthropicProvider,
   gemini: geminiProvider
+};
+
+// Welke modellen een mini-app zelf mag kiezen via ai.ask(..., {model}).
+// Bewust een ALLOWLIST en geen vrij tekstveld: zonder dit kan een mini-app
+// (of iemand die er een prompt in typt) naar Opus/Fable grijpen en de
+// platform-brede kostenbeheersing omzeilen -- de daglimiet telt AANROEPEN, niet
+// euro's, dus 500 Opus-aanroepen is een heel andere rekening dan 500
+// Haiku-aanroepen.
+//
+// De keuze per taak (zie ONTWERP §3.4): Haiku voor classificatie met een
+// gesloten antwoordruimte (weinig output-tokens, 5x goedkoper), Sonnet voor
+// begrijpend samenvatten en analyseren. Opus staat er bewust NIET in.
+export const MODEL_ALLOWLIST = {
+  anthropic: ['claude-sonnet-5', 'claude-haiku-4-5'],
+  gemini: ['gemini-flash-lite-latest', 'gemini-flash-latest']
 };
 
 // Prompt-cap is in TOKENS, niet tekens -- er zit geen echte tokenizer in deze
@@ -70,26 +104,52 @@ export const MAX_SYSTEM_LENGTH = 2000;
 function estimateTokens(text) {
   return Math.ceil((text || '').length / 4);
 }
-export const MAX_OUTPUT_TOKENS_CAP = 8192;
+// Was 8192 tot 2026-08 -- dat was GEEN Anthropic-limiet maar een eigen,
+// veel te krappe guardrail (claude-sonnet-5 ondersteunt tot 128k
+// output-tokens, zie ai-providers/anthropic.js). Elke mini-app die
+// meerdere records/objecten per aanroep liet samenvatten (zie bv. de
+// Actiebladen Insights-batches) moest daardoor het beschikbare budget per
+// aanroep zo krap begroten dat een normale schommeling in antwoordlengte al
+// AI_TRUNCATED opleverde -- met als gevolg dat een AL BETAALDE, deels
+// gestreamde aanroep werd weggegooid en de batch (opnieuw, opnieuw betaald)
+// gesplitst moest worden. Vragen om meer output-tokens kost niets extra
+// zolang het model minder schrijft dan het plafond (je betaalt de WERKELIJKE
+// output, zie logCall() hieronder) -- dit hoger zetten is dus zuivere winst,
+// geen kostenrisico. 32000 geeft ruim de 4x lucht die de meeste mini-apps
+// nodig hebben, terwijl een enkele aanroep nog binnen een redelijke duur
+// blijft gegeven de client-side noodrem (AI_HARD_MS in mini-apps-core.js,
+// mee opgetrokken bij deze wijziging).
+export const MAX_OUTPUT_TOKENS_CAP = 32000;
 export const MAX_PER_APP_PER_DAY = 200;
 // Platform-brede daglimiet over alle mini-apps samen -- kostenbeheersing op
 // het gedeelde Claude-abonnement. Los van MAX_PER_APP_PER_DAY: die begrenst
 // misbruik door één app, dit begrenst de totale rekening.
 export const MAX_GLOBAL_PER_DAY = 500;
 
-const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+// Maximale grootte van een meegegeven JSON-schema (als string). Een schema komt
+// uit mini-app-code en gaat mee in élke aanroep; een absurd groot schema zou
+// stil de prompt-ruimte opeten en de provider-aanroep laten falen met een
+// onbegrijpelijke fout.
+export const MAX_SCHEMA_CHARS = 8000;
 
-function aiError(message, code) {
-  const err = new Error(message);
-  err.code = code;
-  return err;
-}
+// Inactiviteits-timeout die we aan de provider doorgeven. Dit is GEEN
+// totaalduur-limiet: het is "hoelang mag het stil zijn". Zie de uitgebreide
+// motivatie in ai-providers/anthropic.js -- dit is de waarde die de oude,
+// telkens opgetrokken clientside cap vervangt en die niet meebeweegt met de
+// gevraagde output-lengte.
+export const AI_STALL_TIMEOUT_MS = 60000;
+
+const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function getProvider(env) {
   const name = (env.AI_PROVIDER || 'anthropic').toLowerCase();
   const provider = PROVIDERS[name];
   if (!provider) {
-    throw aiError(`Onbekende AI-provider geconfigureerd: ${name}.`, 'UNKNOWN_AI_PROVIDER');
+    throw aiError(
+      AI_ERROR_CODES.UNKNOWN_PROVIDER,
+      `Onbekende AI-provider geconfigureerd: ${name}.`,
+      { phase: AI_ERROR_PHASES.GUARDRAIL }
+    );
   }
   return { name, ...provider };
 }
@@ -105,7 +165,11 @@ async function checkRateLimit(env, appId) {
     .gte('created_at', since);
   if (error) throw new Error(error.message);
   if ((count || 0) >= MAX_PER_APP_PER_DAY) {
-    throw aiError(`Deze app heeft de daglimiet van ${MAX_PER_APP_PER_DAY} AI-aanroepen bereikt.`, 'RATE_LIMIT_APP');
+    throw aiError(
+      AI_ERROR_CODES.RATE_LIMIT_APP,
+      `Deze app heeft de daglimiet van ${MAX_PER_APP_PER_DAY} AI-aanroepen bereikt.`,
+      { phase: AI_ERROR_PHASES.RATELIMIT }
+    );
   }
 }
 
@@ -119,11 +183,19 @@ async function checkGlobalRateLimit(env) {
     .gte('created_at', since);
   if (error) throw new Error(error.message);
   if ((count || 0) >= MAX_GLOBAL_PER_DAY) {
-    throw aiError(`De platform-brede daglimiet van ${MAX_GLOBAL_PER_DAY} AI-aanroepen is bereikt. Probeer morgen opnieuw.`, 'RATE_LIMIT_GLOBAL');
+    throw aiError(
+      AI_ERROR_CODES.RATE_LIMIT_PLATFORM,
+      `De platform-brede daglimiet van ${MAX_GLOBAL_PER_DAY} AI-aanroepen is bereikt. Probeer morgen opnieuw.`,
+      { phase: AI_ERROR_PHASES.RATELIMIT }
+    );
   }
 }
 
-async function logCall(env, { appId, userId, provider, model, promptChars, responseChars, tokensIn, tokensOut, status, errorMessage }) {
+async function logCall(env, {
+  appId, userId, provider, model, promptChars, responseChars,
+  tokensIn, tokensOut, cacheReadTokens, cacheWriteTokens,
+  status, errorMessage, errorCode, stopReason, durationMs
+}) {
   const supabase = getSupabaseClient(env);
   const { error } = await supabase.from('mini_app_ai_calls').insert({
     mini_app_id: appId,
@@ -134,9 +206,14 @@ async function logCall(env, { appId, userId, provider, model, promptChars, respo
     response_chars: responseChars,
     tokens_in: tokensIn,
     tokens_out: tokensOut,
-    estimated_cost_usd: estimateCostUsd(model, tokensIn, tokensOut),
+    cache_read_tokens: cacheReadTokens ?? null,
+    cache_write_tokens: cacheWriteTokens ?? null,
+    estimated_cost_usd: estimateCostUsd(model, tokensIn, tokensOut, cacheReadTokens, cacheWriteTokens),
     status,
-    error_message: errorMessage || null
+    error_message: errorMessage || null,
+    error_code: errorCode || null,
+    stop_reason: stopReason || null,
+    duration_ms: Number.isFinite(durationMs) ? Math.round(durationMs) : null
   });
   if (error) {
     // Loggen mag nooit de eigenlijke aanroep blokkeren -- enkel console.error.
@@ -145,20 +222,67 @@ async function logCall(env, { appId, userId, provider, model, promptChars, respo
 }
 
 /**
- * @param {Object} env
- * @param {Object} app     Volledige mini_apps-rij
- * @param {Object} user    Huidige gebruiker (context.user) -- degene die de actie triggert
- * @param {string} prompt
- * @param {string} [system]
- * @param {number} [maxOutputTokens]
- * @returns {Promise<{ text: string, model: string }>}
+ * Valideert alles wat een mini-app meegeeft, vóór er ook maar één token
+ * betaald wordt. Aparte functie zodat askAI() leesbaar blijft en zodat de
+ * guardrails op één plek staan (ze bepalen samen wat een mini-app maximaal kan
+ * aanrichten).
+ *
+ * @param {Object} providerName
+ * @param {Object} options
+ * @returns {{prompt: string, system: string|undefined, maxOutputTokens: number, model: string|undefined, schema: Object|undefined}}
  */
-export async function askAI(env, app, user, prompt, system, maxOutputTokens) {
+function validateRequest(providerName, { prompt, system, maxOutputTokens, model, schema }) {
   if (typeof prompt !== 'string' || !prompt.trim() || estimateTokens(prompt) > MAX_PROMPT_TOKENS) {
-    throw aiError(`prompt is verplicht en max ${MAX_PROMPT_TOKENS} tokens (ruwe schatting: ±4 tekens/token).`, 'INVALID_PROMPT');
+    throw aiError(
+      AI_ERROR_CODES.INVALID_PROMPT,
+      `prompt is verplicht en max ${MAX_PROMPT_TOKENS} tokens (ruwe schatting: ±4 tekens/token).`,
+      { phase: AI_ERROR_PHASES.GUARDRAIL }
+    );
   }
   if (system != null && (typeof system !== 'string' || system.length > MAX_SYSTEM_LENGTH)) {
-    throw aiError(`system is optioneel maar max ${MAX_SYSTEM_LENGTH} tekens.`, 'INVALID_SYSTEM');
+    throw aiError(
+      AI_ERROR_CODES.INVALID_SYSTEM,
+      `system is optioneel maar max ${MAX_SYSTEM_LENGTH} tekens.`,
+      { phase: AI_ERROR_PHASES.GUARDRAIL }
+    );
+  }
+
+  let resolvedModel;
+  if (model != null) {
+    const allowed = MODEL_ALLOWLIST[providerName] || [];
+    if (typeof model !== 'string' || allowed.indexOf(model) === -1) {
+      throw aiError(
+        AI_ERROR_CODES.INVALID_MODEL,
+        `model '${model}' is niet toegestaan. Toegestane modellen voor provider ${providerName}: ${allowed.join(', ')}.`,
+        { phase: AI_ERROR_PHASES.GUARDRAIL }
+      );
+    }
+    resolvedModel = model;
+  }
+
+  let resolvedSchema;
+  if (schema != null) {
+    if (typeof schema !== 'object' || Array.isArray(schema)) {
+      throw aiError(AI_ERROR_CODES.INVALID_SCHEMA, 'schema moet een JSON-schema-object zijn.', {
+        phase: AI_ERROR_PHASES.GUARDRAIL
+      });
+    }
+    let serialized;
+    try {
+      serialized = JSON.stringify(schema);
+    } catch (_err) {
+      throw aiError(AI_ERROR_CODES.INVALID_SCHEMA, 'schema is niet serialiseerbaar naar JSON.', {
+        phase: AI_ERROR_PHASES.GUARDRAIL
+      });
+    }
+    if (serialized.length > MAX_SCHEMA_CHARS) {
+      throw aiError(
+        AI_ERROR_CODES.INVALID_SCHEMA,
+        `schema is te groot (${serialized.length} tekens, max ${MAX_SCHEMA_CHARS}).`,
+        { phase: AI_ERROR_PHASES.GUARDRAIL }
+      );
+    }
+    resolvedSchema = schema;
   }
 
   const boundedMaxOutputTokens = Math.min(
@@ -166,44 +290,112 @@ export async function askAI(env, app, user, prompt, system, maxOutputTokens) {
     MAX_OUTPUT_TOKENS_CAP
   );
 
+  return {
+    prompt: prompt.trim(),
+    system: system ? system.trim() : undefined,
+    maxOutputTokens: boundedMaxOutputTokens,
+    model: resolvedModel,
+    schema: resolvedSchema
+  };
+}
+
+/**
+ * Roept het AI-model aan namens een mini-app: guardrails -> rate-limits ->
+ * provider -> audit-log.
+ *
+ * De provider streamt altijd; `onDelta` is optioneel en wordt door routes.js
+ * gebruikt om de tekst als SSE door te sturen. Zonder `onDelta` gedraagt deze
+ * functie zich naar buiten toe exact als vroeger (één Promise met het volledige
+ * antwoord), zodat de gewone JSON-route ongewijzigd blijft werken.
+ *
+ * @param {Object} env
+ * @param {Object} app     Volledige mini_apps-rij
+ * @param {Object} user    Huidige gebruiker (context.user) -- degene die de actie triggert
+ * @param {Object} options
+ * @param {string} options.prompt
+ * @param {string} [options.system]
+ * @param {number} [options.maxOutputTokens]
+ * @param {string} [options.model]                 Moet in MODEL_ALLOWLIST staan
+ * @param {Object} [options.schema]                JSON-schema -> gegarandeerd geldige JSON
+ * @param {boolean} [options.cacheSystem]
+ * @param {(delta: string, info: Object) => void} [options.onDelta]
+ * @param {AbortSignal} [options.signal]
+ * @returns {Promise<{text: string, json: Object|null, model: string, usage: Object, stopReason: string|null, requestId: string|null}>}
+ */
+export async function askAI(env, app, user, options = {}) {
+  const { name: providerName, generate, DEFAULT_MODEL } = getProvider(env);
+  const validated = validateRequest(providerName, options);
+
   await checkGlobalRateLimit(env);
   await checkRateLimit(env, app.id);
 
-  const { name: providerName, generate, DEFAULT_MODEL } = getProvider(env);
+  const startedAt = Date.now();
 
   try {
     const result = await generate({
       env,
-      prompt: prompt.trim(),
-      system: system ? system.trim() : undefined,
-      maxOutputTokens: boundedMaxOutputTokens
+      prompt: validated.prompt,
+      system: validated.system,
+      maxOutputTokens: validated.maxOutputTokens,
+      model: validated.model,
+      schema: validated.schema,
+      cacheSystem: options.cacheSystem === true,
+      onDelta: typeof options.onDelta === 'function' ? options.onDelta : undefined,
+      signal: options.signal,
+      stallTimeoutMs: AI_STALL_TIMEOUT_MS
     });
 
     await logCall(env, {
       appId: app.id,
       userId: user.id,
       provider: providerName,
-      model: result.model || DEFAULT_MODEL,
-      promptChars: prompt.length,
+      model: result.model || validated.model || DEFAULT_MODEL,
+      promptChars: validated.prompt.length,
       responseChars: result.text.length,
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
-      status: 'ok'
+      cacheReadTokens: result.cacheReadTokens,
+      cacheWriteTokens: result.cacheWriteTokens,
+      status: 'ok',
+      stopReason: result.stopReason,
+      durationMs: Date.now() - startedAt
     });
 
-    return { text: result.text, model: result.model || DEFAULT_MODEL };
+    return {
+      text: result.text,
+      json: result.json ?? null,
+      model: result.model || validated.model || DEFAULT_MODEL,
+      usage: {
+        tokensIn: result.tokensIn,
+        tokensOut: result.tokensOut,
+        cacheReadTokens: result.cacheReadTokens,
+        cacheWriteTokens: result.cacheWriteTokens
+      },
+      stopReason: result.stopReason || null,
+      requestId: result.requestId || null
+    };
   } catch (err) {
+    // Ook bij een fout de tokens loggen die de provider al gerapporteerd heeft
+    // (bv. bij AI_TRUNCATED: die aanroep is volledig betaald). Vóór deze
+    // wijziging werd hier altijd null/0 gelogd, waardoor het kostenrapport de
+    // duurste mislukkingen -- precies degene die we onderzochten -- als gratis
+    // toonde.
     await logCall(env, {
       appId: app.id,
       userId: user.id,
       provider: providerName,
-      model: DEFAULT_MODEL,
-      promptChars: prompt.length,
-      responseChars: 0,
-      tokensIn: null,
-      tokensOut: null,
+      model: validated.model || DEFAULT_MODEL,
+      promptChars: validated.prompt.length,
+      responseChars: typeof err.partialText === 'string' ? err.partialText.length : 0,
+      tokensIn: Number.isFinite(err.tokensIn) ? err.tokensIn : null,
+      tokensOut: Number.isFinite(err.tokensOut) ? err.tokensOut : null,
+      cacheReadTokens: null,
+      cacheWriteTokens: null,
       status: 'failed',
-      errorMessage: err.message
+      errorMessage: err.message,
+      errorCode: err.code || null,
+      stopReason: err.stopReason || null,
+      durationMs: Date.now() - startedAt
     });
     throw err;
   }

@@ -192,6 +192,62 @@ export const NODES = {
     maxRecords: DEFAULT_MAX_RECORDS_PER_STEP
   },
 
+  'x_action_sheet_pain_po': {
+    key: 'x_action_sheet_pain_po',
+    model: 'x_action_sheet_pain_po',
+    label: 'Pijnpunt-scores',
+    icon: 'heart-pulse',
+    nameField: 'x_name',
+    // Geen vertrekpunt: een score-rij zegt op zichzelf niets, enkel zinvol als
+    // cascade-doel vanuit x_sales_action_sheet.x_studio_action_sheet_pain_points_scores
+    // (one2many). Elke rij koppelt één pijnpunt (x_studio_pain_point_id) aan één
+    // actieblad met een score 0-5 (x_studio_score, leeg = nog niet beoordeeld).
+    //
+    // Bewust NIET overgelaten aan de veldkeuze/filter van de wizard (zoals
+    // eerst opgezet -- "die twee worden als gewone velden opgevraagd in de
+    // cascade-stap"): in de praktijk vergeet je dat, of weet je niet dat het
+    // moet, en dan komen alle scores mee zonder score-veld. Daarom hier als
+    // model-quirk afgedwongen, zelfde patroon als het active-filter op
+    // x_sales_action_sheet hierboven:
+    //  - baseDomain filtert onbeoordeeld (leeg) EN score '0' altijd weg --
+    //    op verzoek van Nico blijven enkel de score-rijen 1-5 over, ongeacht
+    //    wat de wizard-gebruiker als filter instelt (of vergeet in te stellen);
+    //  - mandatoryFields dwingt x_studio_pain_point_id + x_studio_score altijd
+    //    mee in de output, ongeacht de veldkeuze in de wizard (zie
+    //    mandatoryFields() hieronder in dit bestand).
+    canBeRoot: false,
+    baseDomain: [['x_studio_score', 'not in', [false, '0']]],
+    mandatoryFields: ['x_studio_pain_point_id', 'x_studio_score'],
+    dateFields: [],
+    extraFilters: [],
+    heavyFields: [],
+    maxRecords: DEFAULT_MAX_RECORDS_PER_STEP
+  },
+
+  'x_user_painpoints': {
+    key: 'x_user_painpoints',
+    model: 'x_user_painpoints',
+    label: 'Pijnpunten',
+    icon: 'heart-pulse',
+    nameField: 'x_name',
+    // GEEN vertrekpunt (terug op false -- eerder even canBeRoot:true gemaakt
+    // voor een aparte catalogus-query, maar dat is niet hoe Nico dit wil):
+    // pijnpunten hangen aan een actieblad vast, je haalt ze op als onderdeel
+    // van een actieblad-query, of je haalt ze niet op. Enkel zinvol als
+    // cascade-doel vanuit x_action_sheet_pain_po.x_studio_pain_point_id
+    // hierboven (many2one), en dan meteen als kaal [id, naam]-koppel op dat
+    // scorerecord -- geen aparte catalogus-tak, geen id_only_fields-mechanisme
+    // voor dit pad. Redundantie van de naam over meerdere scorerecords is
+    // bewust aanvaard (simpliciteit > compactheid in de query-JSON); de
+    // mini-app beperkt zelf hoeveel van die data in de AI-boodschap belandt.
+    canBeRoot: false,
+    baseDomain: [],
+    dateFields: [],
+    extraFilters: [],
+    heavyFields: [],
+    maxRecords: DEFAULT_MAX_RECORDS_PER_STEP
+  },
+
   'mail.message': {
     key: 'mail.message',
     model: 'mail.message',
@@ -251,12 +307,21 @@ export function rootNodes() {
 
 /**
  * Velden die voor een node altijd meegehaald moeten worden, ongeacht de
- * veldkeuze van de gebruiker (id + naamveld, zodat elk resultaat leesbaar is).
+ * veldkeuze van de gebruiker: id + naamveld (zodat elk resultaat leesbaar is),
+ * plus -- optioneel -- de eigen `node.mandatoryFields` van die node. Dat laatste
+ * is voor een node waar een specifiek veld structureel nutteloos is zonder een
+ * ander veld erbij (bv. x_action_sheet_pain_po: een score zonder te weten
+ * welk pijnpunt het is, is zinloos) -- zie het commentaar bij
+ * x_action_sheet_pain_po hierboven.
  * @param {string} nodeKey
  * @returns {Array<string>}
  */
 export function mandatoryFields(nodeKey) {
   const node = NODES[nodeKey];
   if (!node) return ['id'];
-  return node.nameField ? ['id', node.nameField] : ['id'];
+  const out = node.nameField ? ['id', node.nameField] : ['id'];
+  if (Array.isArray(node.mandatoryFields)) {
+    node.mandatoryFields.forEach((f) => { if (!out.includes(f)) out.push(f); });
+  }
+  return out;
 }
