@@ -154,6 +154,34 @@ function getProvider(env) {
   return { name, ...provider };
 }
 
+/**
+ * Wachttijd op een daglimiet-telling. Waarom dit bestaat:
+ *
+ * De twee tellingen hieronder zijn `count(*)` op mini_app_ai_calls -- een tabel
+ * die bij ELKE AI-aanroep een rij bijkrijgt, dus ook bij elke
+ * samenvattingsbatch van een mini-app. Ze staan VOOR de aanroep naar de
+ * provider, en ze hadden geen enkele bovengrens op hun duur: werd de telling
+ * traag, dan bleef de hele AI-route stil hangen zonder fout, zonder log en
+ * zonder timeout -- de mini-app zag alleen een open stream waar niets uit kwam
+ * (precies het beeld uit de diagnose van 21/08: "stream staat OPEN, 60s geen
+ * fragment"). Een daglimiet is een BEWAKING, geen kernfunctie: hem even niet
+ * kunnen controleren mag nooit betekenen dat er niets meer werkt. Vandaar: max
+ * RATE_LIMIT_TIMEOUT_MS wachten, en daarna doorgaan met een luide logregel
+ * (fail-open). De audit-log (logCall) blijft ongewijzigd, dus het gebruik blijft
+ * volledig traceerbaar -- ook de aanroepen die deze controle oversloegen.
+ */
+const RATE_LIMIT_TIMEOUT_MS = 4000;
+
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} duurde langer dan ${ms}ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
 async function checkRateLimit(env, appId) {
   const supabase = getSupabaseClient(env);
   const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
@@ -326,8 +354,40 @@ export async function askAI(env, app, user, options = {}) {
   const { name: providerName, generate, DEFAULT_MODEL } = getProvider(env);
   const validated = validateRequest(providerName, options);
 
-  await checkGlobalRateLimit(env);
-  await checkRateLimit(env, app.id);
+  /* Voortgangslogging (wrangler tail). Deze route kan op drie heel
+     verschillende plekken lang stil vallen -- de daglimiet-tellingen in
+     Supabase, de aanroep naar Claude zelf, of het wegschrijven van de
+     audit-regel -- en dat was van buitenaf niet te onderscheiden: de mini-app
+     zag enkel "geen fragment ontvangen". Elke stap krijgt daarom een regel met
+     een tijdstip erbij; het `t=`-getal is de tijd sinds het begin van deze
+     aanroep. */
+  const t0 = Date.now();
+  /* Dezelfde stap ook naar de AANROEPER (routes.js stuurt ze als `stage`-event
+     mee in de SSE-stream). Zonder dit was het serververloop enkel te zien in
+     `wrangler tail`; nu staat het gewoon in de diagnose van de mini-app zelf,
+     bij de gebruiker die het probleem heeft. */
+  const naarClient = typeof options.onStage === 'function' ? options.onStage : null;
+  const stap = (wat) => (naarClient && naarClient(wat, Date.now() - t0), console.log(`[mini-apps ai] ${wat} (t=${Date.now() - t0}ms, app ${app.id}, model ${validated.model || DEFAULT_MODEL}, prompt ${validated.prompt.length} tekens${validated.schema ? ', met schema' : ''})`));
+
+  stap('daglimieten nakijken');
+  /* Samen i.p.v. na elkaar (het waren twee onafhankelijke tellingen die niets
+     van elkaar nodig hebben), en met een plafond op de wachttijd -- zie
+     RATE_LIMIT_TIMEOUT_MS hierboven voor het volledige waarom. Een echte
+     limiet-fout (AI_RATE_LIMIT_*) moet WEL blijven werken: die gooit een
+     aiError met een code, en die laten we door. Enkel een trage of kapotte
+     telling wordt overgeslagen. */
+  try {
+    await withTimeout(
+      Promise.all([checkGlobalRateLimit(env), checkRateLimit(env, app.id)]),
+      RATE_LIMIT_TIMEOUT_MS,
+      'daglimiet-telling'
+    );
+    stap('daglimieten in orde, aanroep naar de provider vertrekt');
+  } catch (err) {
+    if (err && err.code) throw err; // echte limiet bereikt -- blijft fataal
+    console.warn(`[mini-apps ai] daglimiet-controle OVERGESLAGEN: ${err.message}. De aanroep gaat door; het gebruik wordt nog altijd gelogd (mini_app_ai_calls). Blijft dit zich herhalen, dan is de telling op mini_app_ai_calls te traag geworden -- overweeg een index op (created_at) en (mini_app_id, created_at), of een teller in KV i.p.v. count(*).`);
+    stap('daglimieten NIET gecontroleerd (te traag), aanroep naar de provider vertrekt toch');
+  }
 
   const startedAt = Date.now();
 
@@ -341,10 +401,12 @@ export async function askAI(env, app, user, options = {}) {
       schema: validated.schema,
       cacheSystem: options.cacheSystem === true,
       onDelta: typeof options.onDelta === 'function' ? options.onDelta : undefined,
+      onProviderEvent: stap,
       signal: options.signal,
       stallTimeoutMs: AI_STALL_TIMEOUT_MS
     });
 
+    stap(`antwoord volledig: ${result.text.length} tekens, ${result.tokensOut || '?'} out-tokens, stop_reason ${result.stopReason || '?'} -- audit-regel wegschrijven`);
     await logCall(env, {
       appId: app.id,
       userId: user.id,

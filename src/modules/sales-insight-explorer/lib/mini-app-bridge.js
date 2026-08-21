@@ -289,7 +289,13 @@ export async function runSharedQuery(env, queryId, params = {}, options = {}) {
   // functie die routes.js#runSemanticQuery aanroept. Er is geen tweede
   // uitvoeringspad meer waarin een mini-app stil enrichments zou missen.
   const preview = options.preview !== false;
-  const result = await executeCascade(resolvedDefinition, env, { preview });
+  /* offset: laat een mini-app een grote set in stukken ophalen (zie
+     meta.has_more/meta.next_offset in cascade-executor.js). Bewust GEEN
+     mini_app_parameter: het is geen eigenschap van de bewaarde zoekopdracht
+     maar van de manier waarop een app ze uitvoert -- de query zelf, haar
+     filters en haar limiet blijven exact zoals de auteur ze bewaarde. */
+  const offset = Number.isFinite(options.offset) && options.offset > 0 ? Math.floor(options.offset) : 0;
+  const result = await executeCascade(resolvedDefinition, env, { preview, offset });
 
   return {
     records: result.records,

@@ -460,7 +460,15 @@ async function runHop(env, edge, sourceIds, spec) {
     // de bug waarbij verloren leads nooit in __leads verschenen. Voor een
     // many2one-veld is dit een no-op (de FK-waarde is een gewone kolom, geen
     // berekend veld, en wordt sowieso altijd teruggegeven).
-    const sourceRows = await batchedSearchRead(env, {
+    /* spec.sourceRows: al gelezen door runSteps() voor alle zustersteppen samen
+       (zie daar). Alleen bruikbaar als die rijen dit koppelveld effectief
+       bevatten -- anders gewoon zelf lezen, zoals voorheen. Een veld met waarde
+       false komt in Odoo's antwoord wél voor, dus 'in' op de eerste rij is een
+       betrouwbare test. */
+    const canReuse = Array.isArray(spec.sourceRows)
+      && spec.sourceRows.length > 0
+      && Object.prototype.hasOwnProperty.call(spec.sourceRows[0], edge.field);
+    const sourceRows = canReuse ? spec.sourceRows : await batchedSearchRead(env, {
       model: sourceModel,
       keys: sourceIds,
       domainFor: (ids) => [['id', 'in', ids]],
@@ -648,9 +656,49 @@ async function traverseEdge(env, edge, sourceIds, spec) {
 // Cascade
 // ============================================================================
 
+/**
+ * De FK-veldnaam die een stap op het OUDERmodel zou gaan lezen, of null.
+ *
+ * Enkel voor elementaire fk_forward-edges die rechtstreeks van deze ouder
+ * vertrekken -- samengestelde edges lezen hun tussenhops zelf en blijven
+ * buiten het delen hieronder.
+ */
+function forwardSourceField(step, parentNodeKey) {
+  let edge;
+  try { edge = getEdge(step.edge); } catch (_err) { return null; }
+  if (edge.mode !== 'fk_forward') return null;
+  if (edge.from !== parentNodeKey) return null;
+  return edge.field;
+}
+
 async function runSteps(env, steps, parentNodeKey, parentRecords, ctx) {
   if (!Array.isArray(steps) || steps.length === 0) return;
   if (parentRecords.length === 0) return;
+
+  /* ─── Eén bron-lezing voor alle zustersteppen ───────────────────────────
+     Elke fk_forward-stap las tot nu toe ZELF de ouderrecords opnieuw op om de
+     FK-waarden te kennen: bij vier stappen (leads, verwachtingen, pijnpunten,
+     gebouw) werden dezelfde 823 actiebladen dus vier keer opgehaald en vier
+     keer geparsed -- acht subrequests en het viervoudige CPU-werk, zichtbaar
+     in de Worker-logs als vier keer "x_sales_action_sheet.search_read -> 500 /
+     323 items". Hier gebeurt dat één keer, met alle benodigde FK-velden samen;
+     runHop() krijgt de rijen mee via spec.sourceRows.
+     Belangrijk: dezelfde context { active_test: false } als in runHop(), anders
+     laat Odoo bij een many2many-veld gearchiveerde doelrecords (bv. verloren
+     leads) al bij het BEREKENEN van de veldwaarde weg. */
+  let sharedSourceRows = null;
+  const sharedFields = [...new Set(steps.map((s) => forwardSourceField(s, parentNodeKey)).filter(Boolean))];
+  if (sharedFields.length > 1) {
+    const started = Date.now();
+    sharedSourceRows = await batchedSearchRead(env, {
+      model: odooModelOf(parentNodeKey),
+      keys: parentRecords.map((r) => r.id),
+      domainFor: (ids) => [['id', 'in', ids]],
+      fields: ['id', ...sharedFields],
+      context: { active_test: false }
+    });
+    ctx.notes.push(`Bron-lezing gedeeld: ${sharedSourceRows.length} ${odooModelOf(parentNodeKey)}-rijen met ${sharedFields.length} koppelvelden in één keer (${Date.now() - started} ms), i.p.v. één lezing per stap`);
+  }
 
   for (const step of steps) {
     const edge = getEdge(step.edge);
@@ -680,7 +728,7 @@ async function runSteps(env, steps, parentNodeKey, parentRecords, ctx) {
       env,
       edge,
       parentRecords.map((r) => r.id),
-      { fields, extraDomain, cap, alias, stripHtmlFields, selectionMaps }
+      { fields, extraDomain, cap, alias, stripHtmlFields, selectionMaps, sourceRows: sharedSourceRows }
     );
 
     for (const parent of parentRecords) {
@@ -714,6 +762,9 @@ async function runSteps(env, steps, parentNodeKey, parentRecords, ctx) {
  * @param {Object} [options]
  * @param {boolean} [options.preview=false] - beperk het basismodel tot PREVIEW_LIMIT rijen
  * @param {number} [options.limitOverride] - harde limiet op het basismodel (bv. verify-modus)
+ * @param {number} [options.offset=0] - sla de eerste N basisrecords over, zodat een
+ *   consument een grote set in stukken kan ophalen (zie meta.offset/meta.has_more).
+ *   De sortering is deterministisch, dus opeenvolgende stukken overlappen niet.
  * @param {string} [options.orderOverride]
  * @returns {Promise<{records: Array<Object>, meta: Object}>}
  *
@@ -775,12 +826,19 @@ export async function executeCascade(query, env, options = {}) {
   const ctx = { steps: [], notes: [] };
   ctx.notes.push(`Basismodel ${node.label} (${node.model}) met ${domain.length} domain-condities, limiet ${limit}${isUnlimited ? ` (onbeperkt, begrensd op modelgrens ${node.maxRecords})` : ''}, sortering "${order}"`);
 
+  /* Paginering op het basismodel. Nodig omdat één aanroep met de volledige set
+     (823 actiebladen + leads + verwachtingen + pijnpunten + gebouw) op Workers
+     Free tegen de 10 ms CPU per aanroep loopt -- de consument haalt de set nu in
+     stukken op en de Worker doet per aanroep evenredig minder parse-werk. */
+  const offset = Math.max(0, typeof options.offset === 'number' ? Math.floor(options.offset) : 0);
+
   const started = Date.now();
   let records = await searchRead(env, {
     model: node.model,
     domain,
     fields,
     limit: limit + 1,
+    offset,
     order
   });
 
@@ -798,7 +856,7 @@ export async function executeCascade(query, env, options = {}) {
     ? `Er zijn meer dan ${limit} ${node.label.toLowerCase()} die aan deze filter voldoen — dit toont enkel de ${limit} meest recente${isUnlimited ? ` (de modelgrens van ${node.maxRecords})` : ''}. Verfijn je filter${isUnlimited ? '' : ', verhoog de limiet, of kies "onbeperkt"'} om meer te zien.`
     : null;
 
-  ctx.notes.push(`Basismodel gaf ${records.length} records${truncated ? ' (afgekapt op de limiet)' : ''}`);
+  ctx.notes.push(`Basismodel gaf ${records.length} records${truncated ? ' (afgekapt op de limiet)' : ''}${offset ? `, vanaf record ${offset + 1}` : ''}`);
 
   await runSteps(env, query.cascade, rootSpec.node, records, ctx);
 
@@ -827,6 +885,12 @@ export async function executeCascade(query, env, options = {}) {
       truncated,
       truncated_message: truncatedMessage,
       limit,
+      offset,
+      /* has_more: er zijn NOG records na dit stuk. Bij paginering is dat geen
+         waarschuwing maar de normale "haal het volgende stuk op"-vlag; bij een
+         aanroep zonder offset betekent het hetzelfde als truncated. */
+      has_more: truncated,
+      next_offset: truncated ? offset + records.length : null,
       limit_mode: isUnlimited ? 'unlimited' : (typeof rootSpec.limit === 'number' && rootSpec.limit > 0 ? 'custom' : 'default'),
       order,
       execution_method: 'cascade',

@@ -41,8 +41,19 @@
  */
 export const DEFAULT_MAX_RECORDS_PER_STEP = 5000;
 
-/** Aantal id's/waarden dat maximaal in één Odoo-domain gaat (zie cascade-executor). */
-export const ID_BATCH_SIZE = 500;
+/**
+ * Aantal id's/waarden dat maximaal in één Odoo-domain gaat (zie cascade-executor).
+ *
+ * Stond op 500. Waarom dat te klein bleek: een many2many-stap (bv.
+ * x_studio_action_sheet_pain_points_scores over 823 actiebladen) levert al
+ * ~12.000 doel-id's op, en dat werden dus 24 aparte search_read-aanroepen voor
+ * ÉÉN stap. Op Workers Free zijn er maximaal 50 subrequests én 10 ms CPU per
+ * aanroep: die 24 antwoorden apart parsen was mee de oorzaak van
+ * "Worker exceeded CPU time limit" op /odoo-queries/:id/run. Odoo heeft geen
+ * moeite met 2000 id's in één `id in [...]`-domain (het is een POST met JSON,
+ * geen URL-lengte), en één groot antwoord parst goedkoper dan vier kleine.
+ */
+export const ID_BATCH_SIZE = 2000;
 
 export const NODES = {
   'x_sales_action_sheet': {

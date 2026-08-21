@@ -215,7 +215,10 @@ var MINI_APP_SHIM = '<script>(function(){'
   +           'reject(aiError({error:"De AI-aanroep liet "+Math.round(AI_STALL_MS/1000)+"s lang niets meer horen -- afgebroken door de brug (de onderliggende aanroep is nu ook echt geannuleerd, niet enkel losgelaten).",code:"AI_STALLED",retryable:true,partialText:text}));'
   +         '},AI_STALL_MS);}'
   +       'aiPending[id]={'
-  +         'onOpen:function(){bump();},'
+  +         'onOpen:function(){bump();'
+  +           'if(typeof o.onOpen==="function"){try{o.onOpen();}catch(err){}}},'
+  +         'onStage:function(p){bump();'
+  +           'if(typeof o.onStage==="function"){try{o.onStage((p&&p.stage)||"",(p&&p.elapsedMs)||0);}catch(err){}}},'
   +         'onDelta:function(d){bump();text+=d;'
   +           'if(typeof o.onProgress==="function"){try{o.onProgress({text:text,delta:d});}catch(err){}}},'
   +         'onDone:function(p){finish();resolve(p||{});},'
@@ -234,6 +237,7 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'var d=e.data;if(!d||!d.__miniAppAiEvent)return;'
   +     'var h=aiPending[d.id];if(!h)return;'
   +     'if(d.event==="open")h.onOpen();'
+  +     'else if(d.event==="stage")h.onStage(d.payload);'
   +     'else if(d.event==="delta")h.onDelta(d.delta||"");'
   +     'else if(d.event==="done")h.onDone(d.payload);'
   +     'else if(d.event==="error")h.onError(d.payload);'
@@ -254,6 +258,20 @@ var MINI_APP_SHIM = '<script>(function(){'
   //   options.onProgress({text, delta})  voortgang tijdens het genereren
   //                                      (een echte voortgangsbalk i.p.v. een
   //                                      spinner die niets weet)
+  //   options.onOpen()                   de serveraanroep is vertrokken EN de
+  //                                      stream staat open -- komt vóór het
+  //                                      eerste fragment. Onmisbaar om onderscheid
+  //                                      te maken tussen "de aanroep vertrok niet"
+  //                                      en "de aanroep loopt, het model denkt nog":
+  //                                      zonder dit signaal zien beide er in een
+  //                                      mini-app identiek uit (stilte).
+  //   options.onStage(stage, elapsedMs)  waar de SERVER zit zolang er nog geen
+  //                                      token is: "daglimieten nakijken",
+  //                                      "POST naar de provider", "stream
+  //                                      begonnen". Zet dit in de diagnose van
+  //                                      je app -- dan hoeft niemand met
+  //                                      `wrangler tail` mee te kijken om te
+  //                                      weten waar een stille aanroep hangt.
   //   ai.ask.full(prompt, options)       resolvet met {text, json, model,
   //                                      usage, stopReason} i.p.v. enkel tekst
   //   ai.ask.json(prompt, {schema})      resolvet met een GEPARST object dat de
@@ -266,7 +284,7 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     'ai:(function(){'
   +       'function opts(prompt,options){options=options||{};return{prompt:prompt,system:options.system,'
   +         'maxOutputTokens:options.maxOutputTokens,model:options.model,schema:options.schema,'
-  +         'cacheSystem:options.cacheSystem,onProgress:options.onProgress};}'
+  +         'cacheSystem:options.cacheSystem,onProgress:options.onProgress,onOpen:options.onOpen,onStage:options.onStage};}'
   +       'function ask(prompt,options){return aiSend(opts(prompt,options)).then(function(r){return r.text;});}'
   +       'ask.full=function(prompt,options){return aiSend(opts(prompt,options));};'
   +       'ask.json=function(prompt,options){options=options||{};'
@@ -290,7 +308,7 @@ var MINI_APP_SHIM = '<script>(function(){'
   +     '},'
   +     'odoo:{'
   +       'listQueries:function(){return send("odooListQueries",{});},'
-  +       'runQuery:function(queryId,params){return send("odooRunQuery",{queryId:queryId,params:params||{}},30000);}'
+  +       'runQuery:function(queryId,params,options){return send("odooRunQuery",{queryId:queryId,params:params||{},offset:(options&&options.offset)||0,paged:!!(options&&options.paged)},30000);}'
   +     '}'
   +   '};'
   +   'return{'
@@ -516,7 +534,12 @@ async function streamMiniAppAiAsk(frame, appId, data) {
         var parsed;
         try { parsed = JSON.parse(dataLines.join('\n')); } catch (_err) { continue; }
 
-        if (eventName === 'delta') {
+        if (eventName === 'stage') {
+          // Serververloop (zie onStage in routes.js): geen inhoud, maar wel een
+          // levensteken -- dus ook een reden om de stall-timer van de brug te
+          // verzetten (dat doet de brug in haar onStage).
+          post('stage', parsed);
+        } else if (eventName === 'delta') {
           post('delta', null, parsed.delta || '');
         } else if (eventName === 'open') {
           post('open', parsed);
@@ -673,7 +696,7 @@ async function handleMiniAppStorageRequest(data) {
       var odooRunResult = await apiJson(`/mini-apps/api/apps/${appId}/odoo-queries/${encodeURIComponent(data.queryId)}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ params: data.params })
+        body: JSON.stringify({ params: data.params, offset: data.offset || 0 })
       });
       // Uniforme afkap-waarschuwing: de tekst komt uit cascade-executor.js
       // (dezelfde motor als de Sales Insight Explorer-wizard) en wordt hier
@@ -681,7 +704,13 @@ async function handleMiniAppStorageRequest(data) {
       // zelf iets met result.meta doet in zijn eigen renderResults(). Zo mist
       // een gebruiker een afkap nooit, ook niet in een app die er geen UI voor
       // heeft voorzien.
-      if (odooRunResult && odooRunResult.meta && odooRunResult.meta.truncated && odooRunResult.meta.truncated_message) {
+      // Uitzondering: een app die zelf pagineert (options.paged, zie de shim
+      // hierboven) krijgt bij ELK stuk truncated=true, want er volgt nog een
+      // stuk. Die app leest meta.has_more/meta.next_offset zelf; de
+      // afkap-toast zou dan bij elk stuk opnieuw verschijnen en precies het
+      // omgekeerde beweren van wat er gebeurt (er wordt niets afgekapt, er
+      // wordt verder gehaald).
+      if (!data.paged && odooRunResult && odooRunResult.meta && odooRunResult.meta.truncated && odooRunResult.meta.truncated_message) {
         showToast(odooRunResult.meta.truncated_message, 'warning');
       }
       reply(true, odooRunResult);
@@ -1027,6 +1056,7 @@ function odooDiscoveryPromptSection(tokenInfo, options) {
     'Geeft de lijst niets terug (geen enkele gedeelde query), of past geen enkele query bij wat ik nodig heb? Zeg dat dan expliciet: dan moet er eerst in Sales Insight Explorer een zoekopdracht bewaard en aangevinkt worden als "ook beschikbaar voor mini-apps".',
     '',
     'De app zelf haalt data ALTIJD op met window.platform.odoo.runQuery(queryId, params) -- nooit via de discovery-URL hierboven (die is enkel voor jou, nu, om te weten hoe de query eruitziet) en nooit rechtstreeks bij Odoo.',
+    'Grote sets in stukken ophalen (VERPLICHT vanaf ~200 rijen, of zodra de query gekoppelde modellen meebrengt): runQuery(queryId, {aantal: 150}, {offset: 0, paged: true}), en zolang result.meta.has_more waar is opnieuw met {offset: result.meta.next_offset, paged: true}. Elke aanroep bouwt maar een stuk van het resultaat op en blijft zo binnen de CPU-limiet per aanroep -- een enkele aanroep over de hele set geeft anders een serverfout (503, HTML in plaats van JSON). Toon tussentijds hoeveel rijen er al binnen zijn; met paged:true blijft de afkap-waarschuwing weg, want die geldt dan niet.',
     '',
     'Vorm van het resultaat: { records: [...] }. Elk record is een rij van het basismodel. Gekoppelde modellen hangen als GENESTE sleutels met dubbele underscore aan dat record (bv. record.__contactpersonen is een array, record.__gebouw is één object of null) en kunnen zelf weer geneste __-sleutels bevatten. De discovery-URL hierboven geeft per query exact welke sleutels bestaan en of ze een array of één object zijn (veld "shape").',
     '',

@@ -190,7 +190,7 @@ async function* readSseEvents(body, onActivity) {
  */
 export async function generate({
   env, model, prompt, system, maxOutputTokens, schema, cacheSystem,
-  onDelta, signal, stallTimeoutMs
+  onDelta, signal, stallTimeoutMs, onProviderEvent
 }) {
   const apiKey = env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -265,8 +265,10 @@ export async function generate({
     else signal.addEventListener('abort', onCallerAbort, { once: true });
   }
 
+  const melden = typeof onProviderEvent === 'function' ? onProviderEvent : () => {};
   let resp;
   armStallTimer();
+  melden(`POST naar ${API_URL} (max_tokens ${maxOutputTokens})`);
   try {
     resp = await fetch(API_URL, {
       method: 'POST',
@@ -301,6 +303,7 @@ export async function generate({
   // request-id altijd bewaren: dit is het enige nummer waarmee Anthropic-support
   // een aanroep kan terugvinden, en het hoort dus ook bij een fout thuis.
   const requestId = resp.headers.get('request-id') || null;
+  melden(`provider antwoordde met status ${resp.status} (request-id ${requestId || 'geen'})`);
 
   if (!resp.ok) {
     disarmStallTimer();
@@ -342,6 +345,16 @@ export async function generate({
   let cacheWriteTokens = null;
   let stopReason = null;
   let sawMessageStop = false;
+  /* Wat de stream ons effectief stuurde. Nodig omdat de vorige versie ENKEL
+     `delta.text` las: kwam de inhoud in een ander soort delta binnen, dan bleef
+     `text` leeg en gebeurde er verder niets zichtbaars -- geen fragment, geen
+     fout, minuten stilte, en achteraf een kale "geen bruikbaar antwoord".
+     Precies dat beeld gaf de diagnose van 21/08: status 200, message_start met
+     15.876 in-tokens, en daarna niets. Deze twee tellers maken dat voortaan
+     zichtbaar in de foutmelding zelf. */
+  const blokTypes = [];
+  let denkTekens = 0;
+  let laatsteDenkMelding = 0;
 
   try {
     for await (const { event, data } of readSseEvents(resp.body, armStallTimer)) {
@@ -368,11 +381,40 @@ export async function generate({
         cacheWriteTokens = usage.cache_creation_input_tokens ?? null;
         // Sommige antwoorden melden hier al output_tokens (meestal 0/1).
         if (usage.output_tokens != null) tokensOut = usage.output_tokens;
+        melden(`stream begonnen (message_start, ${tokensIn ?? '?'} in-tokens${cacheReadTokens ? `, ${cacheReadTokens} uit cache` : ''})`);
+      } else if (type === 'content_block_start') {
+        /* Welk soort blok begint hier: text, thinking, tool_use, ... Dit stond
+           er niet, en dat was precies het gat: een `thinking`-blok ziet er in de
+           stream identiek uit aan stilte zolang je enkel naar delta.text kijkt. */
+        const bt = data?.content_block?.type || 'onbekend';
+        blokTypes.push(bt);
+        melden(`blok begonnen: ${bt}`);
       } else if (type === 'content_block_delta') {
-        // text_delta = gewone tekst; input_json_delta hoort bij tool use (niet
-        // gebruikt). Bij structured outputs komt de JSON gewoon als text_delta.
-        const piece = data?.delta?.text || '';
+        const dlt = data?.delta || {};
+        const dtype = dlt.type || 'onbekend';
+        /* Alle vormen waarin inhoud kan binnenkomen:
+           - text_delta         gewone tekst (en, bij structured outputs, de JSON)
+           - input_json_delta   JSON in stukken (`partial_json`) -- de vorm die
+                                de API gebruikt wanneer de uitvoer via een
+                                schema/tool afgedwongen wordt
+           - thinking_delta     redeneerstappen; die horen NIET in het antwoord,
+                                maar zijn wel een levensteken: een model dat een
+                                minuut nadenkt hoort niet als "stilte" te tellen. */
+        if (dtype === 'thinking_delta' || typeof dlt.thinking === 'string') {
+          denkTekens += (dlt.thinking || '').length;
+          // Hoogstens één melding per 2s, anders overstemt dit de logs.
+          if (Date.now() - laatsteDenkMelding > 2000) {
+            laatsteDenkMelding = Date.now();
+            melden(`model denkt nog (${denkTekens} tekens redenering, nog geen antwoord)`);
+          }
+          armStallTimer();
+          continue;
+        }
+        const piece = typeof dlt.text === 'string' && dlt.text
+          ? dlt.text
+          : (typeof dlt.partial_json === 'string' ? dlt.partial_json : '');
         if (piece) {
+          if (!text) melden(`eerste inhoudsfragment ontvangen (${dtype})`);
           text += piece;
           if (onDelta) {
             try {
@@ -485,9 +527,14 @@ export async function generate({
   }
 
   if (!text) {
+    /* Met de blok-types en het aantal denk-tekens erbij is dit geen raadsel meer:
+       "blokken: thinking" betekent dat het model enkel geredeneerd heeft,
+       "blokken: (geen)" dat er echt niets kwam. */
     throw aiError(
       AI_ERROR_CODES.EMPTY_RESPONSE,
-      `Claude gaf geen bruikbaar antwoord terug${stopReason ? ` (${stopReason})` : ''}.`,
+      `Claude gaf geen bruikbaar antwoord terug${stopReason ? ` (${stopReason})` : ''}`
+        + ` -- blokken: ${blokTypes.length ? blokTypes.join(', ') : '(geen)'}`
+        + `${denkTekens ? `, ${denkTekens} tekens redenering` : ''}.`,
       { phase: AI_ERROR_PHASES.PROVIDER, requestId, stopReason }
     );
   }

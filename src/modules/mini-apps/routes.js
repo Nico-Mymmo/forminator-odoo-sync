@@ -1926,7 +1926,13 @@ export const routes = {
 
         const result = await askAI(env, app, user, {
           ...askOptions,
-          onDelta: (delta) => { sendEvent('delta', { delta }); }
+          onDelta: (delta) => { sendEvent('delta', { delta }); },
+          // Serververloop live meesturen: waar de route zich bevindt terwijl er
+          // nog geen enkel token is (daglimieten nakijken, POST naar de
+          // provider, stream begonnen). Een mini-app kan dat in haar eigen
+          // diagnose zetten, zodat "er komt niets" niet langer betekent dat er
+          // iemand met `wrangler tail` moet meekijken om te weten waar het hangt.
+          onStage: (stage, elapsedMs) => { sendEvent('stage', { stage, elapsedMs }); }
         });
 
         await sendEvent('done', {
@@ -2145,7 +2151,13 @@ export const routes = {
       // testrun zoals in de wizard. Enkel expliciet preview:true (bv. een
       // toekomstige "toon voorbeeld"-knop in een mini-app) valt terug op de
       // preview-limiet uit lib/graph/cascade-executor.js.
-      const result = await runSharedQuery(env, params.queryId, body.params || {}, { preview: body.preview === true });
+      // offset: paginering van het basismodel (zie cascade-executor.js). Een
+      // mini-app haalt een grote set in stukken op -- noodzakelijk sinds de
+      // volledige set met alle cascade-stappen tegen de CPU-limiet per aanroep
+      // liep. Geen queryparameter: het verandert de zoekopdracht niet, enkel
+      // welk stuk van het resultaat deze aanroep opbouwt.
+      const offset = Number.isFinite(body.offset) && body.offset > 0 ? Math.floor(body.offset) : 0;
+      const result = await runSharedQuery(env, params.queryId, body.params || {}, { preview: body.preview === true, offset });
       console.log(`${LOG_PREFIX} ODOO-QUERY RUN ${app.id} -> ${params.queryId} — user ${user.id}`);
       return jsonOk(result);
     } catch (err) {
