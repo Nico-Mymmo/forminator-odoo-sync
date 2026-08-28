@@ -226,8 +226,15 @@ export async function handlePublicRoutes(request, env, ctx) {
   const requestHost = request.headers.get('Host') || url.hostname;
   const isTrackerPathPrefix = pathname.startsWith('/t/');
   const isTrackerHostname = requestHost === 'link.openvme.be';
+  // link.openvme.be/assets/* moet NIET als trackbare slug ('assets') behandeld
+  // worden -- dit domein dient ook als publieke basis-URL voor afbeeldingen/
+  // bestanden uit de asset-manager (env.BASE_ASSET_URL), naast zijn rol als
+  // korte-link/QR-domein. Zonder deze uitzondering viel elk /assets/*-verzoek op
+  // dit hostname in de tracker-lookup hieronder (slug 'assets' bestaat niet ->
+  // 404-foutpagina i.p.v. het bestand).
+  const isAssetPath = pathname.startsWith('/assets/');
 
-  if ((isTrackerPathPrefix || isTrackerHostname) && request.method === 'GET') {
+  if ((isTrackerPathPrefix || (isTrackerHostname && !isAssetPath)) && request.method === 'GET') {
     const slug = isTrackerPathPrefix
       ? pathname.slice('/t/'.length).split('/')[0]
       : pathname.slice(1).split('/')[0];

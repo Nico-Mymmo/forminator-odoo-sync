@@ -1,0 +1,2672 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ontdek je Syndicoach-formule</title>
+<style>
+/* Alle CSS is genest onder #sc-calc. Je thema kan niets breken, en omgekeerd. */
+#sc-calc{
+  --sc-blue:#0f5c8c; --sc-blue-dark:#0b4468; --sc-blue-soft:#e8f2f8;
+  --sc-mint:#8ce8cb; --sc-mint-dark:#4ec7a2;
+  --sc-ink:#12384f; --sc-muted:#6b8697; --sc-line:#e3ebf0; --sc-shade:#f6f9fb;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  color:var(--sc-ink); line-height:1.5; max-width:680px; margin:0 auto; padding:8px;
+  -webkit-font-smoothing:antialiased;
+}
+#sc-calc *,#sc-calc *::before,#sc-calc *::after{box-sizing:border-box}
+#sc-calc h1,#sc-calc h2,#sc-calc p,#sc-calc ul,#sc-calc li{margin:0;padding:0;list-style:none}
+#sc-calc .sc-svg{display:block}
+#sc-calc .sc-card{background:#fff;border:1px solid var(--sc-line);border-radius:18px;padding:24px 24px 20px;box-shadow:0 10px 28px -20px rgba(15,92,140,.4)}
+
+/* stepper */
+#sc-calc .sc-steps{display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:24px}
+#sc-calc .sc-dot{width:9px;height:9px;border-radius:50%;background:#dde6ec;transition:.25s}
+#sc-calc .sc-dot.is-done{background:var(--sc-blue)}
+#sc-calc .sc-dot.is-active{width:26px;border-radius:99px;background:var(--sc-blue)}
+
+/* vraag */
+#sc-calc .sc-q{display:flex;align-items:flex-start;gap:9px;font-size:1.18rem;font-weight:700;color:var(--sc-ink);letter-spacing:-.01em;position:relative;z-index:1}
+#sc-calc .sc-q .sc-ico{color:var(--sc-blue);flex:0 0 auto;position:relative;top:3px}
+#sc-calc .sc-help{color:var(--sc-muted);font-size:.87rem;margin-top:4px;position:relative;z-index:1}
+
+/* keuzekaarten */
+#sc-calc .sc-opts{display:grid;gap:8px;margin-top:16px}
+#sc-calc .sc-opt{display:flex;gap:12px;align-items:center;text-align:left;width:100%;
+  border:1.5px solid var(--sc-line);background:#fff;border-radius:12px;padding:13px 15px;cursor:pointer;transition:.14s;font:inherit;color:inherit}
+#sc-calc .sc-opt:hover{border-color:#b9d3e2;background:#fbfdfe}
+#sc-calc .sc-opt.is-sel{border-color:var(--sc-blue);background:var(--sc-blue-soft)}
+#sc-calc .sc-opt-ico{width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:#eef4f8;display:grid;place-items:center;color:var(--sc-blue)}
+#sc-calc .sc-opt.is-sel .sc-opt-ico{background:#fff}
+#sc-calc .sc-opt-txt{flex:1 1 auto;min-width:0}
+#sc-calc .sc-opt-t{display:block;font-weight:650;font-size:.95rem}
+#sc-calc .sc-opt-d{display:block;font-size:.83rem;color:var(--sc-muted);margin-top:1px}
+#sc-calc .sc-check{align-self:center;width:20px;height:20px;flex:0 0 20px;border-radius:50%;border:1.5px solid #cfdde6;display:grid;place-items:center;color:transparent}
+#sc-calc .sc-opt.sc-multi .sc-check{border-radius:6px}
+#sc-calc .sc-opt.is-sel .sc-check{background:var(--sc-blue);border-color:var(--sc-blue);color:#fff}
+
+/* keuzetegels, met ruimte voor een afbeelding (svg) per tegel. Standaard 2
+   naast elkaar (sc-tiles); sc-tiles-3 zet er 3 op een rij voor vragen met
+   drie opties. */
+#sc-calc .sc-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+#sc-calc .sc-tiles.sc-tiles-3{grid-template-columns:repeat(3,1fr)}
+#sc-calc .sc-tile{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;
+  border:1.5px solid var(--sc-line);background:#fff;border-radius:16px;padding:20px 12px 16px;cursor:pointer;transition:.14s;font:inherit;color:inherit}
+#sc-calc .sc-tile:hover{border-color:#b9d3e2;background:#fbfdfe}
+#sc-calc .sc-tile.is-sel{border-color:var(--sc-blue);background:var(--sc-blue-soft)}
+#sc-calc .sc-tile-img{width:108px;height:108px;flex:0 0 auto;display:grid;place-items:center}
+#sc-calc .sc-tiles-3 .sc-tile{padding:16px 8px 12px}
+#sc-calc .sc-tiles-3 .sc-tile-img{width:82px;height:82px}
+#sc-calc .sc-tile-img svg{width:100%;height:100%;display:block}
+#sc-calc .sc-tile-t{font-weight:650;font-size:.92rem;line-height:1.25}
+#sc-calc .sc-tile-d{font-size:.79rem;color:var(--sc-muted);line-height:1.35}
+#sc-calc .sc-tile-check{position:absolute;top:10px;right:10px;width:20px;height:20px;border-radius:50%;
+  border:1.5px solid #cfdde6;background:#fff;display:grid;place-items:center;color:transparent}
+#sc-calc .sc-tile.is-sel .sc-tile-check{background:var(--sc-blue);border-color:var(--sc-blue);color:#fff}
+@media (max-width:640px){#sc-calc .sc-tiles.sc-tiles-3{grid-template-columns:1fr 1fr}}
+@media (max-width:480px){#sc-calc .sc-tiles{grid-template-columns:1fr}}
+
+/* slider */
+#sc-calc .sc-slider{padding:26px 2px 2px;text-align:center}
+#sc-calc .sc-kv{font-size:2.7rem;font-weight:800;color:var(--sc-blue);line-height:1;letter-spacing:-.03em}
+#sc-calc .sc-kv-u{font-size:1rem;color:var(--sc-muted);margin-left:7px}
+#sc-calc input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:99px;background:#e3ebf0;margin:24px 0 6px;outline:none}
+#sc-calc input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:2px solid var(--sc-blue);cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+#sc-calc input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:2px solid var(--sc-blue);cursor:pointer}
+#sc-calc .sc-ends{display:flex;justify-content:space-between;font-size:.78rem;color:var(--sc-muted)}
+
+/* gebouw-illustratie die met de kavel-slider meegroeit/krimpt */
+#sc-calc .sc-bldg{display:flex;justify-content:center;margin-top:26px;margin-bottom:14px;position:relative;z-index:0}
+#sc-calc .sc-bldg-img{width:230px;height:230px;display:grid;place-items:end center;transform-origin:bottom center}
+#sc-calc .sc-bldg-recap{margin-top:18px;margin-bottom:6px}
+#sc-calc .sc-bldg-img.sc-bldg-sm{width:130px;height:130px}
+#sc-calc .sc-tile-ico-fb{width:64px;height:64px;border-radius:50%;background:#eef4f8;display:grid;place-items:center;color:var(--sc-blue)}
+/* De wrap liep vroeger met een negatieve marge 24px aan elke kant buiten de tekstkolom, om extra
+   breedte te winnen. Dat betekende ook dat de ballonnetjes tot tegen (en op smallere kolommen over)
+   de rand van de kaart kwamen. Hij blijft nu netjes binnen de kolom; de ruimte wordt in de plaats
+   gewonnen door kleinere ballonnetjes en een compactere slinger. */
+/* --- Podium ---------------------------------------------------------------
+   Een absolute laag over de kaart, precies zo breed als de tekstkolom. De stappen zetten in hun eigen
+   body enkel lege "slots" met de juiste hoogte; het podium meet die slots op en schuift het gebouw en
+   de ballonnetjes ernaartoe. Zo bepaalt de gewone documentflow nog altijd de hoogte van de kaart,
+   terwijl de bewegende elementen erboven blijven leven. */
+#sc-calc .sc-card{position:relative}
+#sc-calc .sc-stage{position:absolute;left:24px;right:24px;top:0;bottom:0;pointer-events:none;z-index:2;
+  opacity:1;transition:opacity .45s ease;
+  --sc-ease-settle:cubic-bezier(.22,.72,.24,1); --sc-ease-pop:cubic-bezier(.2,1.42,.34,1);
+  /* verplaatsen: eerst een kleine terugtrek (anticipatie), dan glijden, dan zacht doorschieten */
+  --sc-ease-move:cubic-bezier(.42,-0.10,.58,1.08);
+  /* Vertrekken en aankomen horen niet dezelfde curve te volgen. Wie wegvliegt, komt traag los en
+     versnelt (ease in) -- die beweging hoeft nergens te landen. Wie ergens moet gaan staan, vertrekt
+     kordaat en remt af (ease out), met een haartje doorschot op het einde. Dezelfde symmetrische
+     curve voor allebei is precies wat een reeks bewegingen monotoon maakt. */
+  --sc-ease-vertrek:cubic-bezier(.58,.02,.92,.36);
+  --sc-ease-aankomst:cubic-bezier(.14,.78,.24,1.03)}
+#sc-calc .sc-stage.is-hidden{opacity:0}
+/* bij de allereerste opbouw mag er niets bewegen: het gebouw hoort meteen te staan waar het hoort,
+   niet vanuit de hoek naar binnen te zweven */
+#sc-calc .sc-stage.is-instant .sc-orbit-tile,#sc-calc .sc-stage.is-instant .sc-stage-bldg{transition:none!important}
+/* de stap-body wisselt in één keer; een korte fade maakt van die wissel een overgang i.p.v. een knip */
+#sc-calc .sc-fade-in{animation:sc-body-in .3s ease var(--sc-body-delay,0s) both}
+@keyframes sc-body-in{from{opacity:0;transform:translate3d(0,8px,0)}to{opacity:1;transform:none}}
+/* De vraag en haar hulpzin wisselen bij élke stap, altijd op dezelfde plek en in het grootste
+   lettertype van de kaart. Schuiven ze mee omhoog met de rest, dan trekt net dát de aandacht, terwijl
+   het de rustpunten van de bladspiegel zouden moeten zijn. Deze tegenbeweging (-8px waar de body +8px
+   doet) heft de verschuiving precies op: de titel blijft stilstaan en wisselt enkel, trager dan de
+   rest, van de ene tekst naar de andere. */
+#sc-calc .sc-fade-in .sc-q,#sc-calc .sc-fade-in .sc-help{
+  animation:sc-q-in .52s ease var(--sc-body-delay,0s) both}
+@keyframes sc-q-in{from{opacity:0;transform:translate3d(0,-8px,0)}to{opacity:1;transform:none}}
+#sc-calc .sc-slot{width:100%;pointer-events:none}
+/* de achtergelaten kopie van een blok dat aan de onderrand hing: ligt over de kaart, onder het podium,
+   en raakt niets aan */
+#sc-calc .sc-spook{position:absolute;pointer-events:none;z-index:1}
+/* Het gebouw hangt aan de ONDERkant van het podium, niet aan de bovenkant: top:100% zet zijn nulpunt
+   op de onderrand, en --y is de (negatieve) afstand daarboven. Wisselt de kaart van hoogte, dan schuift
+   die onderrand mee en blijft het gebouw er op dezelfde afstand van staan -- het staat op de grond
+   i.p.v. aan het plafond te hangen. De ballonnetjes en de tekst blijven wél aan de bovenkant hangen,
+   want die horen bij de tekstflow, die vanaf boven wordt opgebouwd. */
+#sc-calc .sc-stage-bldg{position:absolute;left:0;top:100%;width:300px;height:300px;
+  display:grid;place-items:end center;
+  transform:translate3d(var(--x,0px),var(--y,0px),0) translate(-50%,-100%) scale(var(--k,1));
+  transform-origin:50% 100%;
+  transition:transform .82s var(--sc-ease-move),opacity .5s ease}
+#sc-calc .sc-stage-bldg-in{width:100%;height:100%;display:grid;place-items:end center;
+  transform-origin:bottom center}
+#sc-calc .sc-stage-bldg svg{width:100%;height:100%;display:block}
+#sc-calc .sc-stage-lines{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;
+  opacity:1;transition:opacity .35s ease}
+#sc-calc .sc-stage-lines.is-off{opacity:0}
+@media (max-width:640px){
+  #sc-calc .sc-stage{display:none}
+  #sc-calc .sc-slot{display:none}
+}
+#sc-calc .sc-onlymob{display:none}
+@media (max-width:640px){#sc-calc .sc-onlymob{display:block}}
+
+
+/* --- Ballonnetjes ---------------------------------------------------------
+   De tegel zelf is enkel een ankerpunt zonder eigen vorm: de blob erbinnen draagt de vorm en
+   groeit/kantelt, de tekst blijft ongeschaald en dus scherp. Alles beweegt uitsluitend met
+   transform en opacity -- nooit width/height/max-height. Dat laatste was de oorzaak van het
+   "verspringen" bij hover: elke breedtewijziging herbrak de tekst en deed de regels verschuiven. */
+/* De plaats van een ballonnetje zit volledig in de transform (--x/--y), niet in left/top. Verhuizen
+   naar een andere stap is daardoor gewoon een transform-transitie: het glijdt, het springt niet. --k
+   is de schaal (1 in het diagram, kleiner in de herinneringsstrook bovenaan). */
+#sc-calc .sc-orbit-tile{position:absolute;left:0;top:0;width:112px;
+  display:flex;flex-direction:column;align-items:center;
+  background:none;border:0;padding:0;margin:0;cursor:pointer;font:inherit;color:inherit;text-align:center;
+  --k:1;
+  transform:translate3d(var(--x,0px),var(--y,0px),0)
+            translate3d(var(--push-x,0px),var(--push-y,0px),0)
+            translate3d(0,var(--in-y,0px),0)
+            translate(-50%,-50%) scale(var(--k));
+  /* Duur en vertraging worden per beweging vanuit JS gezet (transitionDuration/-Delay). Ze mogen
+     NIET uit een custom property komen: verandert die tegelijk met de waarde die moet bewegen, dan
+     slaat de browser de transitie over en springt het ballonnetje. Verplaatsing en fade krijgen
+     dezelfde vertraging, zodat een ballonnetje als één beweging vertrekt. */
+  transition:transform .78s var(--sc-ease-move),opacity .5s ease;
+  z-index:2;pointer-events:auto;-webkit-tap-highlight-color:transparent}
+/* onderweg naar het podium: nog niet zichtbaar */
+/* nog niet binnen: onzichtbaar, kleiner en een tikje lager, zodat het straks naar boven toe
+   op zijn plaats komt i.p.v. zomaar te verschijnen */
+#sc-calc .sc-orbit-tile.is-in{opacity:0;--k:.55;--in-y:16px}
+/* niet aangeduid, dus vanaf de herinneringsstrook onzichtbaar (blijft in de DOM zodat terugkeren
+   naar stap 2 gewoon weer een transitie is) */
+#sc-calc .sc-orbit-tile.is-off{opacity:0;pointer-events:none;--k:.5}
+/* herinneringsstrook: klein, tekst weg; bij hover groeit het ballonnetje naar leesbaar formaat */
+/* in de strook groeit een ballonnetje naar onder open, de vrije ruimte boven het gebouw in:
+   het schaalt om zijn bovenrand i.p.v. om zijn midden, zodat het de herinneringsregel erboven niet
+   overdekt */
+#sc-calc .sc-orbit-tile.is-mini{--k:var(--kmini,.62);transform-origin:50% 0}
+#sc-calc .sc-orbit-tile.is-mini .sc-orbit-txt{opacity:0;transition:opacity .3s ease}
+#sc-calc .sc-orbit-tile.is-mini:hover,#sc-calc .sc-orbit-tile.is-mini:focus-visible{--k:1;z-index:8}
+#sc-calc .sc-orbit-tile.is-mini:hover .sc-orbit-txt,
+#sc-calc .sc-orbit-tile.is-mini:focus-visible .sc-orbit-txt{opacity:1;transition:opacity .4s ease .1s}
+/* in de strook komt de groei van --k; de blob mag dan niet ook nog eens apart opschalen */
+#sc-calc .sc-orbit-tile.is-mini:hover .sc-orbit-blobin,
+#sc-calc .sc-orbit-tile.is-mini:focus-visible .sc-orbit-blobin{transform:rotate(var(--tilt,0deg)) scale(1)}
+#sc-calc .sc-orbit-tile.is-mini:hover .sc-orbit-txt,
+#sc-calc .sc-orbit-tile.is-mini:focus-visible .sc-orbit-txt{transform:translateX(-50%) translateY(0)}
+/* Aparte laag voor de boog. De verplaatsing zelf zit op de tegel (een transitie); een tweede
+   transform op hetzelfde element zou die transitie overrulen -- vandaar deze tussenlaag, die enkel
+   de uitwijking loodrecht op de baan draagt. */
+#sc-calc .sc-peb-arc{display:flex;flex-direction:column;align-items:center;width:100%}
+#sc-calc .sc-orbit-tile:focus-visible{outline:none}
+#sc-calc .sc-orbit-tile:focus-visible .sc-orbit-blobin{box-shadow:0 0 0 3px var(--sc-blue-soft),0 10px 22px rgba(15,92,140,.18)}
+
+/* de blob: eigen grillige border-radius + eigen kanteling per item (inline gezet vanuit
+   BEHOEFTEN_OPTS), zodat geen twee ballonnetjes dezelfde vorm hebben */
+/* Twee lagen: de buitenste laag zweeft (CSS-animatie), de binnenste draagt de vorm en groeit bij
+   hover. Dat moet gescheiden blijven: een lopende keyframe-animatie op transform overschrijft elke
+   gewone transform-regel, dus zolang het zweven op hetzelfde element zat, gebeurde er bij hover
+   zichtbaar niets. */
+#sc-calc .sc-orbit-blob{position:relative;width:112px;height:112px;flex:0 0 auto;
+  animation:sc-orbit-float var(--float-dur,9s) ease-in-out var(--float-delay,0s) infinite}
+#sc-calc .sc-orbit-tile:hover .sc-orbit-blob,#sc-calc .sc-orbit-tile:focus-visible .sc-orbit-blob{
+  animation-play-state:paused}
+#sc-calc .sc-orbit-blobin{position:absolute;inset:0;display:grid;place-items:center;
+  background:#fff;border:1.5px solid var(--sc-line);border-radius:var(--blob,50%);
+  box-shadow:0 3px 12px rgba(15,92,140,.08);
+  transform:rotate(var(--tilt,0deg)) scale(1);
+  /* de groeirichting hangt af van waar het ballonnetje staat: aan de rand groeit het naar binnen,
+     zodat het nooit tegen (of over) de rand van de kaart aan groeit */
+  transform-origin:var(--org-x,50%) var(--org-y,50%);
+  transition:transform .78s var(--sc-ease-settle),box-shadow .5s ease,border-color .45s ease,background .45s ease}
+/* Zolang je erop blijft staan, groeit een ballonnetje door. De curve doet het meeste werk in de eerste
+   fractie -- dat blijft de directe reactie op je muis -- en kruipt daarna nog traag verder. Haal je de
+   muis er meteen weer af, dan is het bij die eerste sprong gebleven en komt het gewoon terug. */
+#sc-calc .sc-orbit-tile:hover .sc-orbit-blobin,#sc-calc .sc-orbit-tile:focus-visible .sc-orbit-blobin{
+  transform:rotate(var(--tilt,0deg)) scale(1.58);
+  box-shadow:0 20px 38px rgba(15,92,140,.22);border-color:#c4dbe8;
+  transition:transform 1.5s cubic-bezier(.12,.8,.2,1),box-shadow .5s ease,border-color .45s ease}
+/* In de strook bovenaan is er minder plaats, dus daar blijft het bij de oude, kortere sprong */
+#sc-calc .sc-orbit-tile.is-mini:hover .sc-orbit-blobin,#sc-calc .sc-orbit-tile.is-mini:focus-visible .sc-orbit-blobin{
+  transform:rotate(var(--tilt,0deg)) scale(1.42);
+  transition:transform .62s var(--sc-ease-pop),box-shadow .5s ease,border-color .45s ease}
+#sc-calc .sc-orbit-tile.is-sel .sc-orbit-blobin{border-color:var(--sc-blue);background:var(--sc-blue-soft)}#sc-calc .sc-orbit-tile.is-sel .sc-tile-check{background:var(--sc-blue);border-color:var(--sc-blue);color:#fff}
+/* de illustratie draait de kanteling van de blob terug uit: de tekening staat dus altijd recht,
+   enkel de omtrek is scheef. De svg zelf wordt nooit aangepast. */
+#sc-calc .sc-orbit-img{width:88px;height:88px;display:grid;place-items:center;
+  transform:rotate(calc(-1 * var(--tilt,0deg)))}
+#sc-calc .sc-orbit-img svg{width:100%;height:100%;display:block}
+#sc-calc .sc-orbit-ico{width:66px;height:66px;border-radius:50%;background:#eef4f8;display:grid;place-items:center;
+  color:var(--sc-blue);transform:rotate(calc(-1 * var(--tilt,0deg)))}
+
+/* tekstblok hangt onder de blob en schuift mee naar onder wanneer de blob groeit (louter transform) */
+#sc-calc .sc-orbit-txt{position:absolute;left:50%;top:100px;width:136px;
+  /* in rust staat het tekstblok stil; --txt-y geldt enkel in de hover-regel verderop (stond die var
+     ook hier, dan zakte de chip in rust al mee naar onder) */
+  transform:translateX(-50%) translateY(0);
+  transition:transform .62s var(--sc-ease-pop);pointer-events:none}
+#sc-calc .sc-orbit-chip{display:block;width:136px;background:#fff;border:1.5px solid var(--sc-line);
+  border-radius:11px;padding:5px 8px;box-shadow:0 3px 8px rgba(15,92,140,.1);
+  transition:box-shadow .45s ease,border-color .45s ease}
+#sc-calc .sc-orbit-tile:hover .sc-orbit-chip{box-shadow:0 8px 18px rgba(15,92,140,.16);border-color:#c4dbe8}
+#sc-calc .sc-orbit-tile.is-sel .sc-orbit-chip{border-color:var(--sc-blue)}
+#sc-calc .sc-orbit-chip-t{display:block;font-weight:600;font-size:.74rem;line-height:1.25;overflow-wrap:break-word;hyphens:auto}
+/* subtekst: een apart zwevend paneeltje. Vast van formaat, dus het herbreekt nooit; het verschijnt
+   met opacity + een klein verticaal schuifje. --sub-x wordt per ballonnetje gezet zodat het paneel
+   binnen de kaart blijft, ook bij de buitenste ballonnetjes. */
+#sc-calc .sc-orbit-sub{position:absolute;top:100%;left:50%;width:224px;margin-top:8px;
+  transform:translateX(-50%) translate3d(var(--sub-x,0px),5px,0) scale(.97);transform-origin:50% 0;
+  background:#fff;border:1.5px solid var(--sc-line);border-radius:12px;padding:8px 12px;
+  box-shadow:0 12px 26px rgba(15,92,140,.16);
+  font-weight:500;font-size:.7rem;line-height:1.45;color:var(--sc-muted);text-align:center;
+  opacity:0;visibility:hidden;
+  transition:opacity .3s ease,transform .5s var(--sc-ease-pop),visibility 0s linear .5s}
+#sc-calc .sc-orbit-tile:hover .sc-orbit-sub,#sc-calc .sc-orbit-tile:focus-visible .sc-orbit-sub{
+  opacity:1;visibility:visible;
+  transform:translateX(-50%) translate3d(var(--sub-x,0px),0,0) scale(1);
+  transition:opacity .34s ease .04s,transform .58s var(--sc-ease-pop),visibility 0s}
+#sc-calc .sc-orbit-tile:hover,#sc-calc .sc-orbit-tile:focus-visible{z-index:7}
+#sc-calc .sc-orbit-tile:hover .sc-orbit-txt,#sc-calc .sc-orbit-tile:focus-visible .sc-orbit-txt{
+  transform:translateX(-50%) translateY(var(--txt-y,22px))}
+/* het vinkje zit in de schalende laag, dus het blijft bij hover aan de rand van de blob kleven
+   i.p.v. ergens in het midden te blijven hangen */
+#sc-calc .sc-orbit-tile .sc-tile-check{top:9px;right:7px;width:19px;height:19px;z-index:2;
+  transition:background .3s ease,border-color .3s ease}
+/* zolang er ergens gehoverd wordt duwen de buren weg met een lichte overshoot; laat je de muis los,
+   dan valt alles terug met de rustigere settle-curve, zodat het uitdempt i.p.v. terugklapt */
+#sc-calc .is-hovering .sc-orbit-tile{transition-timing-function:cubic-bezier(.16,1.22,.36,1)}
+@keyframes sc-orbit-float{
+  0%{transform:translate3d(0,0,0)}
+  33%{transform:translate3d(1.5px,-3px,0)}
+  66%{transform:translate3d(-1.5px,2px,0)}
+  100%{transform:translate3d(0,0,0)}
+}
+/* --- herinneringsstrook en antwoordrij ------------------------------------- */
+#sc-calc .sc-recall{font-size:.76rem;color:var(--sc-muted);text-align:center;margin:2px 0 0;
+  letter-spacing:.01em}
+#sc-calc .sc-recall-mob{font-size:.8rem;color:var(--sc-muted);margin:2px 0 12px}
+/* de antwoorden staan als ballonnetjes op een rij; de rij is zelf het positioneringskader, zodat
+   dezelfde plaatsings- en duwlogica als op het podium hergebruikt kan worden */
+/* --- het gebouw boven de vraag (stap 3 en 4) --------------------------------
+   Staat los van de vak-samenvatting: eerst de vraag (net als op elke andere stap), dan het gebouw,
+   dan de antwoorden. Kleiner en gecentreerd, want het is hier illustratie, geen hoofdrol. */
+#sc-calc .sc-recap-bldg{width:min(100%,210px);height:180px;margin:20px auto 18px}
+@media (max-width:640px){#sc-calc .sc-recap-bldg{display:none}}
+
+/* --- samenvatting van eerdere antwoorden, onderaan de stap ------------------
+   Enkel vakken die al een antwoord dragen worden getekend -- geen lege plekhouders meer -- en het
+   geheel staat smaller dan de kaart en gecentreerd, met ruim wat lucht er rond, zodat de ballonnetjes
+   niet tegen de rand van hun vak botsen. */
+#sc-calc .sc-recap{width:min(100%,440px);margin:28px auto 4px}
+#sc-calc .sc-recap-l{text-align:center;font-size:.68rem;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase;color:#9db3c0;margin-bottom:12px}
+#sc-calc .sc-recap-row{display:flex;justify-content:center;gap:22px}
+#sc-calc .sc-recap-row > .sc-topbox{flex:1 1 0;max-width:210px}
+#sc-calc .sc-topbox{position:relative;min-width:0;
+  border:1.5px solid var(--sc-line);border-radius:18px;background:#fbfdfe;
+  transition:opacity .42s ease,border-color .42s ease}
+#sc-calc .sc-topbox-l{position:absolute;left:0;right:0;top:14px;padding:0 16px;text-align:center;
+  font-size:.62rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#9db3c0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:640px){#sc-calc .sc-recap{display:none}}
+/* de subtitel staat in de chip en is altijd zichtbaar; de langere toelichting komt er bij hover onder */
+#sc-calc .sc-orbit-chip-d{display:block;font-weight:500;font-size:.66rem;line-height:1.3;
+  color:var(--sc-muted);margin-top:2px;overflow-wrap:break-word}
+@media (max-width:640px){
+  #sc-calc .sc-recall{display:none}
+  #sc-calc .sc-orbit-chip-d{font-size:.8rem;margin-top:1px}
+}
+/* "Wij hebben andere uitdagingen" is geen gelijkwaardige tegel maar een uitweg: rechts uitgelijnd
+   (op dezelfde lijn als de Volgende-knop eronder), klein, mager, zonder icoon. */
+#sc-calc .sc-diagram-geen{margin-top:4px;display:flex;justify-content:flex-end}
+#sc-calc .sc-geen-btn{display:inline-flex;align-items:center;gap:9px;
+  background:none;border:0;padding:6px 2px;cursor:pointer;font:inherit;
+  font-size:.86rem;font-weight:400;color:var(--sc-muted);
+  transition:color .3s ease}
+#sc-calc .sc-geen-btn:hover{color:var(--sc-ink)}
+#sc-calc .sc-geen-box{width:16px;height:16px;border-radius:5px;border:1.5px solid #cfdde6;background:#fff;
+  display:grid;place-items:center;color:transparent;flex:0 0 auto;
+  transition:background .25s ease,border-color .25s ease,color .25s ease}
+#sc-calc .sc-geen-btn.is-sel{color:var(--sc-blue)}
+#sc-calc .sc-geen-btn.is-sel .sc-geen-box{background:var(--sc-blue);border-color:var(--sc-blue);color:#fff}
+@media (hover:none){
+  #sc-calc .sc-orbit-blob{animation:none}
+}
+@media (max-width:640px){
+  #sc-calc .sc-orbit-tile{position:relative;transform:none!important;width:100%;flex-direction:row;
+    align-items:center;justify-content:flex-start;text-align:left;margin-bottom:10px;
+    border:1.5px solid var(--sc-line);border-radius:14px;padding:10px 12px;background:#fff}
+  #sc-calc .sc-orbit-tile.is-sel{border-color:var(--sc-blue);background:var(--sc-blue-soft)}
+  #sc-calc .sc-peb-arc{display:contents}
+  #sc-calc .sc-orbit-blob{position:static;width:42px;height:42px;animation:none}
+  /* statisch, zodat het vinkje verderop t.o.v. de hele rij gepositioneerd wordt en niet t.o.v. de
+     kleine illustratie */
+  #sc-calc .sc-orbit-blobin{position:static;width:100%;height:100%;
+    border:0;background:none!important;box-shadow:none!important;border-radius:0;transform:none!important}
+  #sc-calc .sc-orbit-img,#sc-calc .sc-orbit-ico{width:40px;height:40px;transform:none}
+  #sc-calc .sc-orbit-txt{position:static;transform:none!important;width:auto;flex:1 1 auto;
+    margin-left:12px;padding-right:28px}
+  #sc-calc .sc-orbit-chip{width:auto;border:0;box-shadow:none!important;padding:0;background:none;text-align:left}
+  #sc-calc .sc-orbit-chip-t{font-size:.9rem}
+  #sc-calc .sc-orbit-sub{position:static;width:auto;margin:3px 0 0;padding:0;border:0;background:none;
+    box-shadow:none;opacity:1;visibility:visible;transform:none!important;text-align:left;font-size:.82rem}
+  #sc-calc .sc-diagram-geen{margin-top:10px}
+  #sc-calc .sc-orbit-tile .sc-tile-check{position:absolute;top:50%;right:12px;left:auto;
+    width:20px;height:20px;transform:translateY(-50%)!important}
+}
+#sc-calc .sc-bldg-img svg{width:100%;height:100%;display:block}
+/* Het gebouw dat een niveau wint of verliest, doet dat met anticipatie en uitdempen: eerst een korte
+   tegenbeweging, dan de sprong, dan een paar kleiner wordende naveringen. De schaal is bewust
+   niet-uniform (squash-and-stretch) en het draaipunt ligt op de grond, zodat het gebouw op zijn
+   fundering blijft staan i.p.v. te "zwellen".
+   LET OP: deze drie regels staan na .sc-land en winnen dus altijd van de landings-animatie -- die
+   deelde vroeger dezelfde specificiteit en at de pop op zodra ze ooit was aangezet. */
+#sc-calc .sc-stage-bldg-in.sc-land{animation:sc-bldg-land .5s ease-out}
+@keyframes sc-bldg-land{0%{transform:scale(1,1)}45%{transform:scale(1.015,.982)}100%{transform:scale(1,1)}}
+#sc-calc .sc-bldg-img.sc-pop,#sc-calc .sc-stage-bldg-in.sc-pop{animation:sc-bldg-pop .5s cubic-bezier(.31,1.7,.6,1)}
+#sc-calc .sc-bldg-img.sc-grow,#sc-calc .sc-stage-bldg-in.sc-grow{animation:sc-bldg-grow .66s cubic-bezier(.3,.86,.32,1)}
+#sc-calc .sc-bldg-img.sc-shrink,#sc-calc .sc-stage-bldg-in.sc-shrink{animation:sc-bldg-shrink .6s cubic-bezier(.3,.86,.32,1)}
+/* De sprong van niveau 4 naar 5 gaat niet de hoogte in maar de breedte: er komt een vleugel naast.
+   Daarom draait die beweging rond de linkeronderhoek van de tekening i.p.v. het midden -- anders zou
+   het gebouw ook naar links uitzetten en dat leest als opblazen, niet als aanbouwen. De 23% is
+   opgemeten: de tekening begint op x=471 van een viewBox van 2048 breed, en die viewBox loopt door
+   preserveAspectRatio="xMidYMax meet" precies over de volle breedte van het kader. */
+#sc-calc .sc-bldg-img.sc-grow-x,#sc-calc .sc-stage-bldg-in.sc-grow-x{
+  transform-origin:var(--sc-bldg-ox,23%) 100%;animation:sc-bldg-grow-x .66s cubic-bezier(.3,.86,.32,1)}
+#sc-calc .sc-bldg-img.sc-shrink-x,#sc-calc .sc-stage-bldg-in.sc-shrink-x{
+  transform-origin:var(--sc-bldg-ox,23%) 100%;animation:sc-bldg-shrink-x .6s cubic-bezier(.3,.86,.32,1)}
+#sc-calc .sc-bldg-img.sc-comm,#sc-calc .sc-stage-bldg-in.sc-comm{
+  transform-origin:var(--sc-bldg-ox,23%) 100%;animation:sc-bldg-comm .58s cubic-bezier(.3,.86,.32,1)}
+@keyframes sc-bldg-pop{
+  0%{transform:scale(.88)}
+  40%{transform:scale(1.1)}
+  70%{transform:scale(.97)}
+  100%{transform:scale(1)}
+}
+/* groeien: door de knieën, dan omhoog schieten, dan uitdempen. De uitslagen zijn bewust klein: het
+   moet aanvoelen alsof het gebouw er even doorheen veert, niet alsof het van rubber is. */
+@keyframes sc-bldg-grow{
+  0%{transform:scale(1,1)}
+  13%{transform:scale(1.03,.955)}
+  40%{transform:scale(.967,1.053)}
+  62%{transform:scale(1.017,.98)}
+  80%{transform:scale(.994,1.008)}
+  92%{transform:scale(1.002,.997)}
+  100%{transform:scale(1,1)}
+}
+/* krimpen: eerst even rekken, dan inzakken, dan uitdempen */
+@keyframes sc-bldg-shrink{
+  0%{transform:scale(1,1)}
+  13%{transform:scale(.977,1.037)}
+  42%{transform:scale(1.036,.95)}
+  64%{transform:scale(.987,1.018)}
+  82%{transform:scale(1.005,.994)}
+  100%{transform:scale(1,1)}
+}
+/* breder worden: eerst samentrekken naar links, dan naar rechts uitschieten */
+@keyframes sc-bldg-grow-x{
+  0%{transform:scale(1,1)}
+  13%{transform:scale(.963,1.019)}
+  40%{transform:scale(1.046,.975)}
+  62%{transform:scale(.986,1.011)}
+  80%{transform:scale(1.006,.995)}
+  92%{transform:scale(.998,1.002)}
+  100%{transform:scale(1,1)}
+}
+/* smaller worden: eerst even naar rechts uitrekken, dan terugtrekken */
+@keyframes sc-bldg-shrink-x{
+  0%{transform:scale(1,1)}
+  13%{transform:scale(1.031,.983)}
+  42%{transform:scale(.959,1.029)}
+  64%{transform:scale(1.012,.992)}
+  82%{transform:scale(.996,1.003)}
+  100%{transform:scale(1,1)}
+}
+/* commerciële kavels aan/uit: linksonderaan ploppen een winkeldeur en een luifel in de tekening. Het
+   gebouw zet zich eerst schrap (kort optrekken), vangt dan de landing op met een korte indeuking naar
+   die hoek toe, en dempt uit. Kleinere uitslag dan bij een niveauwissel: er verandert een detail, niet
+   het hele gebouw. */
+@keyframes sc-bldg-comm{
+  0%{transform:scale(1,1)}
+  12%{transform:scale(.986,1.016)}
+  36%{transform:scale(1.03,.964)}
+  58%{transform:scale(.99,1.013)}
+  78%{transform:scale(1.005,.995)}
+  100%{transform:scale(1,1)}
+}
+
+/* nav */
+#sc-calc .sc-nav{display:flex;align-items:center;justify-content:space-between;margin-top:22px;padding-top:16px;border-top:1px solid var(--sc-line)}
+#sc-calc .sc-nav[hidden]{display:none}
+#sc-calc .sc-back{background:none;border:0;color:var(--sc-muted);font:inherit;font-size:.9rem;cursor:pointer;padding:8px 2px;display:inline-flex;gap:6px;align-items:center;
+  transition:opacity .34s ease,transform .46s cubic-bezier(.42,-0.10,.58,1.08),color .14s ease}
+#sc-calc .sc-back:hover{color:var(--sc-blue)}
+/* verdwijnt niet, maar schuift naar links weg en laat zijn plaats in de rij staan */
+#sc-calc .sc-back.is-weg{opacity:0;transform:translate3d(-12px,0,0);pointer-events:none}
+/* een opschrift dat verandert wipt weg en komt van onderen terug; de tekst wisselt terwijl ze weg is */
+#sc-calc .sc-nav-lbl{display:inline-block}
+#sc-calc .sc-nav-lbl.is-swap{animation:sc-lbl-swap .34s ease}
+@keyframes sc-lbl-swap{
+  0%{opacity:1;transform:translate3d(0,0,0)}
+  36%{opacity:0;transform:translate3d(0,-6px,0)}
+  38%{opacity:0;transform:translate3d(0,7px,0)}
+  100%{opacity:1;transform:translate3d(0,0,0)}
+}
+#sc-calc .sc-next{background:var(--sc-mint);border:0;color:var(--sc-blue-dark);font:inherit;font-weight:700;font-size:.94rem;
+  padding:12px 20px;border-radius:11px;cursor:pointer;display:inline-flex;gap:8px;align-items:center;transition:.14s}
+#sc-calc .sc-next:hover:not(:disabled){background:var(--sc-mint-dark)}
+#sc-calc .sc-next:disabled{opacity:.4;cursor:not-allowed}
+#sc-calc .sc-next.sc-solid{background:var(--sc-blue);color:#fff}
+#sc-calc .sc-next.sc-solid:hover:not(:disabled){background:var(--sc-blue-dark)}
+
+/* resultaat */
+#sc-calc .sc-hero{text-align:center;padding-bottom:18px;border-bottom:1px solid var(--sc-line);margin-bottom:18px}
+#sc-calc .sc-eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--sc-muted);font-weight:700}
+#sc-calc .sc-formule{font-size:2rem;font-weight:800;color:var(--sc-blue);line-height:1.1;margin:5px 0 0;letter-spacing:-.025em}
+#sc-calc .sc-tagline{font-size:.98rem;color:var(--sc-muted);margin-top:6px}
+#sc-calc .sc-sub{font-size:.75rem;text-transform:uppercase;letter-spacing:.07em;color:var(--sc-muted);font-weight:700;margin-bottom:8px}
+#sc-calc .sc-incl{display:grid;gap:6px;margin-bottom:22px}
+#sc-calc .sc-incl li{display:flex;gap:9px;font-size:.92rem;align-items:flex-start}
+#sc-calc .sc-incl svg{flex:0 0 auto;position:relative;top:3px;color:var(--sc-mint-dark)}
+
+/* pakket-vak: 'wat zit er allemaal in dit pakket', als apart kader i.p.v. losse lijst */
+#sc-calc .sc-pakket-box{border:1.5px solid var(--sc-line);border-radius:14px;padding:16px 18px 6px;
+  background:#fbfdfe;margin-bottom:22px}
+#sc-calc .sc-pakket-box .sc-incl{margin-bottom:10px}
+
+/* twee CTA's i.p.v. een prijs: offerte aanvragen (primair) of een gesprek plannen (secundair) */
+#sc-calc .sc-cta-group{display:flex;flex-direction:column;gap:10px;margin-top:22px}
+#sc-calc .sc-cta-group .sc-next{width:100%;justify-content:center}
+#sc-calc .sc-cta-secondary{width:100%;background:#fff;border:1.5px solid var(--sc-blue);color:var(--sc-blue);
+  font:inherit;font-weight:700;font-size:.94rem;padding:12px 20px;border-radius:11px;cursor:pointer;
+  display:inline-flex;justify-content:center;gap:8px;align-items:center;transition:.14s}
+#sc-calc .sc-cta-secondary:hover:not(:disabled){background:var(--sc-blue-soft)}
+#sc-calc .sc-cta-secondary:disabled{opacity:.4;cursor:not-allowed}
+#sc-calc .sc-resultaat-foot{display:flex;align-items:center;justify-content:space-between;
+  margin-top:14px;flex-wrap:wrap;gap:8px}
+#sc-calc .sc-resultaat-foot .sc-alt{margin-top:0}
+
+/* contactvoorkeur: e-mail / telefoon / beide */
+#sc-calc .sc-radiogroup{display:flex;gap:8px;flex-wrap:wrap}
+#sc-calc .sc-radio{display:flex;align-items:center;gap:6px;border:1.5px solid var(--sc-line);
+  border-radius:999px;padding:7px 14px;font-size:.86rem;cursor:pointer;transition:.14s}
+#sc-calc .sc-radio input{accent-color:var(--sc-blue);width:14px;height:14px}
+#sc-calc .sc-radio:has(input:checked){border-color:var(--sc-blue);background:var(--sc-blue-soft);
+  color:var(--sc-blue-dark)}
+
+/* prijsblok */
+#sc-calc .sc-jaren{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+#sc-calc .sc-jaar{border:1.5px solid var(--sc-line);border-radius:12px;padding:13px 15px;background:#fff}
+#sc-calc .sc-jaar.is-lead{border-color:var(--sc-blue);background:var(--sc-blue-soft)}
+#sc-calc .sc-jaar-l{font-size:.78rem;color:var(--sc-muted);font-weight:600}
+#sc-calc .sc-jaar-n{font-size:1.5rem;font-weight:800;color:var(--sc-blue);letter-spacing:-.02em;line-height:1.2;margin-top:2px}
+#sc-calc .sc-jaar-s{font-size:.76rem;color:var(--sc-muted)}
+#sc-calc .sc-rows{border:1px solid var(--sc-line);border-radius:12px;overflow:hidden;background:var(--sc-shade)}
+#sc-calc .sc-row2{display:flex;justify-content:space-between;gap:12px;padding:9px 14px;font-size:.87rem;border-bottom:1px solid var(--sc-line)}
+#sc-calc .sc-row2:last-child{border-bottom:0}
+#sc-calc .sc-row2 span:first-child{color:var(--sc-muted)}
+#sc-calc .sc-row2 b{white-space:nowrap;font-weight:650}
+#sc-calc .sc-row2.is-tool{background:#fff}
+#sc-calc .sc-caveat{font-size:.8rem;color:var(--sc-muted);margin-top:9px}
+
+/* form */
+#sc-calc .sc-field{margin-bottom:11px}
+#sc-calc .sc-field label{display:block;font-size:.84rem;font-weight:600;margin-bottom:4px}
+#sc-calc input[type=text],#sc-calc input[type=email],#sc-calc input[type=tel],#sc-calc select,#sc-calc textarea{
+  width:100%;border:1.5px solid var(--sc-line);border-radius:10px;padding:11px 13px;font:inherit;font-size:.94rem;color:var(--sc-ink);background:#fff;transition:.14s}
+#sc-calc input:focus,#sc-calc select:focus,#sc-calc textarea:focus{outline:none;border-color:var(--sc-blue);box-shadow:0 0 0 3px rgba(15,92,140,.1)}
+#sc-calc textarea{min-height:70px;resize:vertical}
+#sc-calc .sc-row{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+#sc-calc .sc-consent{display:flex;gap:9px;align-items:flex-start;font-size:.8rem;color:var(--sc-muted);margin-top:4px}
+#sc-calc .sc-comm-toggle{display:inline-flex;gap:8px;align-items:center;margin-top:14px;padding:0;border:0;background:none;cursor:pointer;font:inherit;font-size:.82rem;color:var(--sc-muted);text-align:left}
+#sc-calc .sc-comm-toggle .sc-comm-check{width:16px;height:16px;flex:0 0 16px;border-radius:5px;border:1.5px solid #cfdde6;display:grid;place-items:center;color:transparent;transition:background .15s,border-color .15s}
+#sc-calc .sc-comm-toggle:hover .sc-comm-check{border-color:#b9d3e2}
+#sc-calc .sc-comm-toggle.is-on{color:var(--sc-ink)}
+#sc-calc .sc-comm-toggle.is-on .sc-comm-check{background:var(--sc-blue);border-color:var(--sc-blue);color:#fff}
+#sc-calc .sc-consent input{margin-top:3px;flex:0 0 auto;accent-color:var(--sc-blue);width:16px;height:16px}
+#sc-calc .sc-err{color:#c0392b;font-size:.83rem;margin-top:8px;display:none}
+#sc-calc .sc-err.is-on{display:block}
+#sc-calc .sc-alt{font-size:.84rem;color:var(--sc-muted);text-align:center;margin-top:14px}
+#sc-calc .sc-alt button{background:none;border:0;color:var(--sc-blue);font:inherit;font-size:inherit;text-decoration:underline;cursor:pointer;padding:0}
+#sc-calc .sc-done{text-align:center;padding:10px 0}
+#sc-calc .sc-done-ico{width:54px;height:54px;border-radius:50%;background:var(--sc-mint);display:grid;place-items:center;margin:0 auto 14px;color:var(--sc-blue-dark)}
+#sc-calc .sc-note{font-size:.8rem;color:var(--sc-muted);margin-top:10px}
+#sc-calc .sc-spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sc-rot .7s linear infinite}
+@keyframes sc-rot{to{transform:rotate(360deg)}}
+#sc-calc .sc-fade{animation:sc-in .24s ease both}
+@keyframes sc-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (max-width:560px){
+  #sc-calc .sc-card{padding:19px 16px 16px;border-radius:15px}
+  #sc-calc .sc-row,#sc-calc .sc-jaren{grid-template-columns:1fr}
+  #sc-calc .sc-formule{font-size:1.65rem}
+  #sc-calc .sc-q{font-size:1.06rem}
+  #sc-calc .sc-bldg-img{width:170px;height:170px}
+}
+@media (prefers-reduced-motion:reduce){#sc-calc *{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="sc-calc" role="region" aria-label="Syndicoach formule-finder">
+  <div class="sc-card" id="sc-card">
+    <div class="sc-steps" id="sc-steps" aria-hidden="true"></div>
+    <!-- Het podium. Dit blok wordt NOOIT opnieuw opgebouwd: het gebouw en de zeven ballonnetjes
+         blijven dezelfde DOM-elementen van de eerste tot de laatste stap, en verhuizen enkel met een
+         transform. Daardoor kan de overgang tussen stappen vloeien i.p.v. te knipperen. -->
+    <div class="sc-stage" id="sc-stage"></div>
+    <div id="sc-body" aria-live="polite"></div>
+    <!-- De balk onderaan hoort NIET in de body: die wordt bij elke stap opnieuw opgebouwd, en dan
+         verdwijnt en verschijnt de balk mee. Hier blijft het dezelfde knoppenrij van begin tot eind;
+         ze schuift enkel mee met de hoogte van de body erboven en wisselt haar opschriften. -->
+    <div class="sc-nav" id="sc-nav" hidden></div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ==========================================================================
+   0. ICONEN. Inline SVG, stroke = currentColor. Geen externe requests.
+   ========================================================================== */
+var P = {
+  building: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 6h1M14 6h1M9 10h1M14 10h1M9 14h1M14 14h1"/><path d="M10 22v-4h4v4"/>',
+  users:    '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  list:     '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h6"/>',
+  compass:  '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>',
+  check:    '<path d="m5 12 5 5L20 7"/>',
+  mail:     '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/>',
+  shuffle:  '<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="m4 4 5 5"/>',
+  target:   '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  euro:     '<path d="M4 10h12M4 14h12"/><path d="M19 5.5A7.5 7.5 0 0 0 8 12a7.5 7.5 0 0 0 11 6.5"/>',
+  usercheck:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 11 2 2 4-4"/>',
+  group:    '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20v-1.5A4.5 4.5 0 0 1 7.5 14h3A4.5 4.5 0 0 1 15 18.5V20"/><path d="M17 14h.5A3.5 3.5 0 0 1 21 17.5V20"/>',
+  cap:      '<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
+  chat:     '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5z"/>',
+  elevator: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 7v10"/><path d="m9 10 3-3 3 3"/><path d="m9 14 3 3 3-3"/>',
+  wrench:   '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94L14.7 6.3z"/>',
+  hardhat:  '<path d="M2 18h20"/><path d="M4 18v-4a8 8 0 0 1 16 0v4"/><path d="M10 6V4a2 2 0 0 1 4 0v2"/>',
+  file:     '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/>',
+  store:    '<path d="M3 9V6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v3"/><path d="M3 9h18l-1 11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1L3 9z"/><path d="M9 21v-6h6v6"/>',
+  leaf:     '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6"/>',
+  zap:      '<path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>',
+  scale:    '<path d="M12 3v18"/><path d="M6 7h12"/><path d="m6 7-3 6h6z"/><path d="m18 7-3 6h6z"/><path d="M8 21h8"/>',
+  phone:    '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.2 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  briefcase:'<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M2 13h20"/>',
+  anchor:   '<circle cx="12" cy="5" r="3"/><path d="M12 22V8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/>',
+  arrowr:   '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+  arrowl:   '<path d="M19 12H5"/><path d="m11 18-6-6 6-6"/>'
+};
+function ico(n, size){
+  var s = size || 20;
+  return '<svg class="sc-svg" width="'+s+'" height="'+s+'" viewBox="0 0 24 24" fill="none" '+
+    'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" '+
+    'aria-hidden="true" focusable="false">'+(P[n]||'')+'</svg>';
+}
+
+/* ---- Tegel-illustraties (stap 2) ----------------------------------------
+   Inline SVG-code per tegel, geen <img src="...">. Zo blijft de calculator
+   vrij van externe requests en werkt hij ook offline/in preview. Vervang de
+   waarde van ILL.<key> gewoon door nieuwe <svg>...</svg>-markup als je de
+   illustraties later wil bijwerken. */
+var ILL_KANTELVOGEL = <svg></svg>';
+var ILL = {
+  geen: /* mens wacht voor computer */ '<svg></svg>',
+  zelf: /* twee personen geven high five */ '<svg></svg>',
+  professional: /* gebruiker voor computer met kantelvogel */ ILL_KANTELVOGEL,
+  zelf_ondersteund: /* persoon in zenhouding aan computer */ '<svg></svg>',
+  professioneel: /* gebruiker voor computer met kantelvogel, zelfde beeld als hierboven */ ILL_KANTELVOGEL
+};
+/* Illustraties bij de behoeften-items (stap 2). Nog niet voor elk item aangeleverd:
+   ontbrekende items vallen terug op hun lijn-icoon (zie tileBehoefte()). */
+var ITEM_ILL = {
+  sfeer: /* burenruzie */ '<svg></g></svg>',
+  werken: /* lopendewerkenopvolgen */ '<svg></svg>',
+  relatie: /* slechterelatiemetsyndicus */ '<svg></svg>',
+  boekhouding: /* achterstalligeboekhouding */ '<svg></svg>',
+};
+
+/* ---- Gebouw-illustratie (stap 1) ----------------------------------------
+   4 niveaus, geen <img src="...">, zelfde inline-svg aanpak als ILL hierboven.
+   BOUW_NIVEAUS bepaalt welk niveau bij welk aantal kavels hoort. */
+var BOUW_ILL = {
+  1: '<svg></g></svg>',
+  2: '<svg ></g></svg>',
+  3: '<svg></g></svg>',
+  4: '<svg></g></svg>',
+  5: '<svg></g></svg>'
+};
+var BOUW_ILL_COMM = {
+  1: '<svg></g></svg>',
+  2: '<svg></g></svg>',
+  3: '<svg></g></svg>',
+  4: '<svg></g></svg>',
+  5: '<svg></g></svg>'
+};
+function bouwIll(level, commercieel){ return (commercieel ? BOUW_ILL_COMM : BOUW_ILL)[level] || BOUW_ILL[level]; }
+var BEHOEFTEN_PIN_IDS = ['installaties','werken','dossiers','boekhouding','orde','sfeer','relatie'];
+function svgHasPins(svg, ids){ return ids.every(function(id){ return svg.indexOf('id="pin-'+id+'"') > -1; }); }
+function pinCx(svg, id){
+  var m = svg.match(new RegExp('id="pin-'+id+'"[^>]*cx="([\\-0-9.]+)"'));
+  return m ? parseFloat(m[1]) : null;
+}
+
+var BOUW_NIVEAUS = [ {max:5, level:1}, {max:15, level:2}, {max:25, level:3}, {max:39, level:4}, {max:Infinity, level:5} ];
+function bouwNiveau(kavels){
+  for(var i=0;i<BOUW_NIVEAUS.length;i++){ if(kavels <= BOUW_NIVEAUS[i].max) return BOUW_NIVEAUS[i].level; }
+  return 5;
+}
+
+/* ==========================================================================
+   1. CONFIGURATIE. Het enige deel dat je normaal aanpast.
+   ========================================================================== */
+var CFG = {
+
+  /* 'worker' = rechtstreeks naar de Cloudflare Worker
+     'forminator' = via het verborgen Forminator-formulier op deze pagina
+     'both' = beide (aanbevolen om te starten) */
+  SUBMIT_MODE: 'both',
+
+  WORKER_URL: 'https://JOUW-WORKER-HOST/forminator-v2/api/integrations/VUL_INTEGRATIE_ID_IN/webhook',
+  WORKER_TOKEN: 'VUL_WEBHOOK_TOKEN_IN',
+  FORMINATOR_FORM_ID: '0000',
+  REDIRECT_URL: '',
+  VERSION: '2026.08-v24',
+
+  /* ---------- PRIJSMODEL ----------
+     Geijkt op de offerte "Syndicoach Captain Template": bij 6 kavels komt dit
+     model exact op de cijfers uit die offerte uit. Alle waarden hieronder zijn
+     voorstellen, te bevestigen door Syndicoach. */
+  BTW: 0.21,
+  TOON_INCL_BTW: true,
+  TARIEF: { captain: 80, coach: 90 },      /* per uur, excl. btw */
+  UREN: {
+    captain: {
+      beheer_pm: function(k){ return 0.5 + 0.08 * k; },  /* 6 kavels = 1,0 u/maand */
+      av:        function(k){ return 6 + 0.35 * k; },    /* 6 kavels = 8 u */
+      opstart:   function(k){ return 12 + 0.85 * k; }    /* 6 kavels = 17 u */
+    },
+    coach: {
+      coaching_pj: function(k){ return 4 + 0.35 * k; },  /* 6 kavels = 6 u/jaar */
+      opstart:     function(k){ return 3 + 0.35 * k; }   /* 6 kavels = 5 u */
+    },
+    assistant: { opstart: function(k){ return 2; } }     /* opstarthulp op vraag */
+  },
+  COMPLEX_FACTOR: {
+    laag:   { recurrent:1.00, opstart:1.00 },
+    midden: { recurrent:1.15, opstart:1.20 },
+    hoog:   { recurrent:1.30, opstart:1.40 }
+  },
+  /* OpenVME per kavel per maand, excl. btw. Basic en Unlimited: te bevestigen. */
+  LICENTIE: {
+    basic:     { pm_kavel:6,  label:'OpenVME Basic' },
+    smart:     { pm_kavel:9,  label:'OpenVME Smart' },
+    unlimited: { pm_kavel:12, label:'OpenVME Unlimited' },
+    captain:   { pm_kavel:4,  label:'OpenVME' }
+  },
+  KOPPELING_PM_VME: { bank:5, peppol:2 },
+  MIN_KAVELS: 2,
+  GROOT_VANAF: 60          /* daarboven geen cijfer, alleen "op maat" */
+};
+
+/* ==========================================================================
+   2. STATE
+   ========================================================================== */
+var S = { step:0, kavels:8, bldgLevel:null, commercieel:false, beheerNu:null, beheerWens:null, complex:[],
+          formule:null, override:false, prijs:null,
+          email:'', naam:'', tel:'', consent:false, contact:'', ctaActie:'', extra:{}, t0:Date.now() };
+
+/* ==========================================================================
+   3. VRAGEN
+   ========================================================================== */
+/* De antwoorden van stap 3 t/m 5 zijn dezelfde ballonnetjes als in het diagram: eigen vorm, eigen
+   kanteling, eigen zweeftempo. `t` is de titel, `d` de subtitel eronder. Meer tekst krijgt een
+   antwoord niet: een derde laag die er bij hover nog eens bovenop komt, leidt af van de keuze zelf.
+   In het diagram (BEHOEFTEN_OPTS) is `sub` wél de enige omschrijving en verschijnt die bij hover. */
+var BEHEER_NU_OPTS = [
+  { v:'geen',         t:'Geen syndicus', vak:'Vandaag geen syndicus',
+    d:'Niemand heeft die rol vandaag op zich genomen.',
+    blob:'66% 34% 38% 62% / 41% 60% 40% 59%', tilt:-3.5, fdur:9.4,  fdel:2.1 },
+  { v:'zelf',         t:'We doen het zelf', vak:'Vandaag in eigen beheer',
+    d:'Een of meerdere mede-eigenaars regelen het beheer.',
+    blob:'34% 66% 61% 39% / 63% 38% 62% 37%', tilt:3,    fdur:10.6, fdel:4.8 },
+  { v:'professional', t:'Al een professional', vak:'Vandaag een externe syndicus',
+    d:'Jullie werken vandaag met een externe syndicus.',
+    blob:'59% 41% 33% 67% / 36% 65% 35% 64%', tilt:-2,   fdur:8.7,  fdel:0.9 }
+];
+
+var BEHEER_WENS_OPTS = [
+  { v:'zelf_ondersteund', t:'Zelfbeheer met steun', vak:'Liefst zelf, met steun',
+    d:'Jullie blijven zelf aan het roer, een Syndicoach kijkt mee.',
+    blob:'38% 62% 65% 35% / 60% 34% 66% 40%', tilt:3.5,  fdur:11.2, fdel:3.3 },
+  { v:'professioneel',    t:'Volledig uit handen', vak:'Liefst uit handen',
+    d:'Een Syndicoach neemt de rol van syndicus over.',
+    blob:'64% 36% 36% 64% / 38% 63% 37% 62%', tilt:-4,   fdur:9.1,  fdel:6.2 }
+];
+
+var BEHOEFTEN_OPTS = [
+  { v:'installaties', w:2, ico:'wrench', t:'Technisch beheer',
+    sub:'Lift, verwarming, garages of gemeenschappelijke installaties die opvolging vragen.',
+    blob:'70% 30% 34% 66% / 38% 64% 36% 62%', tilt:-4,   fdur:8.5,  fdel:1.2 },
+  { v:'werken',       w:2, ico:'hardhat',t:'Werken en premies',
+    sub:'Renovaties of herstellingen die gepland, gebudgetteerd en aangevraagd moeten worden.',
+    blob:'32% 68% 68% 32% / 62% 30% 70% 38%', tilt:3.2,  fdur:9.7,  fdel:3.4 },
+  { v:'dossiers',     w:2, ico:'file',   t:'Aanslepende dossiers',
+    sub:'Een geschil, schadegeval of klacht dat al een tijd blijft aanslepen.',
+    blob:'64% 36% 30% 70% / 70% 42% 58% 30%', tilt:-2.2, fdur:11,   fdel:0.6 },
+  { v:'boekhouding',  w:2, ico:'euro',   t:'Boekhouding',
+    sub:'Afrekeningen, voorschotten of het reservefonds die niet volledig bij zijn.',
+    blob:'38% 62% 62% 38% / 32% 68% 32% 68%', tilt:4,    fdur:9,    fdel:5.1 },
+  { v:'orde',         w:2, ico:'list',   t:'VME op orde zetten',
+    sub:'Basisadministratie zoals verzekering, basisakte of reglement die niet in orde is.',
+    blob:'72% 28% 44% 56% / 42% 33% 67% 58%', tilt:-3,   fdur:10.4, fdel:2.3 },
+  { v:'sfeer',        w:1, ico:'chat',   t:'Sfeer in het gebouw',
+    sub:'Spanningen tussen bewoners die het overleg en de beslissingen bemoeilijken.',
+    blob:'30% 70% 60% 40% / 66% 40% 60% 34%', tilt:1.8,  fdur:8.8,  fdel:6.7 },
+  { v:'relatie',      w:1, ico:'shuffle',t:'Relatie met de syndicus',
+    sub:'Moeilijke communicatie of weinig opvolging door wie het beheer vandaag doet.',
+    blob:'62% 38% 36% 64% / 36% 70% 30% 64%', tilt:-4.5, fdur:12,   fdel:4 },
+  { v:'geen',         w:0, ico:'leaf',   t:'Wij hebben andere uitdagingen', exclusive:true }
+];
+
+var FORMULES = {
+  assistant:{ naam:'Assistant', ico:'briefcase',
+    tagline:'Jullie beheren zelf, wij staan klaar.',
+    incl:['Het OpenVME-platform: boekhouding, AV, documenten',
+          'Advies van een Syndicoach op afroep',
+          'Opstarthulp als je dat wil'] },
+  coach:{ naam:'Coach', ico:'compass',
+    tagline:'Jullie beslissen, wij zorgen dat je niets mist.',
+    incl:['Vast overleg, tweemaandelijks',
+          'Proactieve opvolging van je dossiers',
+          'Begeleiding bij AV en beslissingen',
+          'OpenVME Smart met bank- en Peppol-koppeling'] },
+  captain:{ naam:'Captain', ico:'anchor',
+    tagline:'Wij zijn je syndicus, jullie blijven aan boord.',
+    incl:['Syndicoach als syndicus in het KBO',
+          'Volledig financieel beheer en boekhouding',
+          'Organisatie van de AV en technische opvolging',
+          'Maandelijks overleg met de RvME'] }
+};
+
+/* ==========================================================================
+   4. PRIJSMODEL
+   ========================================================================== */
+function complexNiveau(){
+  var sc = 0;
+  S.complex.forEach(function(v){
+    BEHOEFTEN_OPTS.forEach(function(o){ if(o.v === v) sc += o.w; });
+  });
+  return { score:sc, niveau: sc >= 3 ? 'hoog' : (sc >= 1 ? 'midden' : 'laag') };
+}
+
+/* ---- welke formule past? --------------------------------------------------
+   Vroeger was dit een trap van losse als-dan-regels, waarbij één antwoord de rest overrulede. Dat is
+   moeilijk te verdiepen: elke nieuwe nuance vraagt een nieuwe regel, en je ziet niet meer waarom
+   iemand ergens uitkomt. Nu telt alles mee in één score, opgebouwd uit vier bronnen:
+
+     omvang        het aantal kavels, in trappen
+     uitdagingen   de aangeduide ballonnetjes, elk met hun eigen gewicht (w)
+     gebouw        commerciële ruimtes vragen aparte afspraken
+     antwoorden    hoe het beheer vandaag loopt, en hoe men het liefst zou werken
+
+   Twee drempels maken er een formule van. Alle getallen staan in FORMULE_WEGING, zodat je aan de
+   verhoudingen kan draaien zonder de logica aan te raken; formuleScore() geeft de volledige opbouw
+   terug, en die gaat mee in de payload. Zo kan je op echte inzendingen zien hoe de verdeling loopt
+   en de drempels bijstellen met cijfers in de hand i.p.v. op gevoel.
+
+   Let op de bovengrens op de uitdagingen: zonder die grens zou wie alles aanvinkt (samen 12 punten)
+   automatisch bovenaan uitkomen, ongeacht de omvang van het gebouw. */
+var FORMULE_WEGING = {
+  /* de hoogste trap waar het aantal kavels boven zit, telt */
+  kavels: [ {vanaf:0, p:0}, {vanaf:12, p:1}, {vanaf:24, p:2}, {vanaf:40, p:4}, {vanaf:60, p:5} ],
+  uitdagingMax: 6,                                              /* plafond op de som van de w's */
+  commercieel: 1,
+  beheerNu:  { geen:3, zelf:1, professional:0 },
+  beheerWens:{ zelf_ondersteund:0, professioneel:5 },
+  /* vanaf coach hoort er begeleiding bij, vanaf captain nemen we het beheer over */
+  drempel: { coach:5, captain:11 }
+};
+function formuleScore(){
+  var d = { kavels:0, uitdagingen:0, commercieel:0, beheerNu:0, beheerWens:0 };
+  FORMULE_WEGING.kavels.forEach(function(t){ if(S.kavels >= t.vanaf) d.kavels = t.p; });
+  d.uitdagingen = Math.min(FORMULE_WEGING.uitdagingMax, complexNiveau().score);
+  d.commercieel = S.commercieel ? FORMULE_WEGING.commercieel : 0;
+  d.beheerNu    = FORMULE_WEGING.beheerNu[S.beheerNu] || 0;
+  d.beheerWens  = FORMULE_WEGING.beheerWens[S.beheerWens] || 0;
+  d.totaal = d.kavels + d.uitdagingen + d.commercieel + d.beheerNu + d.beheerWens;
+  d.formule = d.totaal >= FORMULE_WEGING.drempel.captain ? 'captain'
+            : d.totaal >= FORMULE_WEGING.drempel.coach   ? 'coach' : 'assistant';
+  return d;
+}
+function kiesFormule(){ return formuleScore().formule; }
+
+function licentieTier(f){
+  if(f === 'captain') return 'captain';
+  if(f === 'coach') return 'smart';
+  return complexNiveau().niveau === 'laag' ? 'basic' : 'smart';
+}
+
+/* Ronden op 50 of 100 zodat het cijfer eruitziet als wat het is: een richtprijs. */
+function rond(n){ return n >= 2000 ? Math.round(n/100)*100 : Math.round(n/50)*50; }
+
+function bereken(){
+  var k = Math.max(CFG.MIN_KAVELS, S.kavels), f = S.formule;
+  var c = complexNiveau(), cf = CFG.COMPLEX_FACTOR[c.niveau];
+  var tier = licentieTier(f), btw = CFG.TOON_INCL_BTW ? 1 + CFG.BTW : 1;
+  var r = { kavels:k, formule:f, complex:c, licentie_tier:tier, uren:{} };
+
+  /* tool: licentie per kavel + vaste koppelingen, altijd apart getoond */
+  var kop = (f === 'coach' || (f === 'assistant' && tier !== 'basic'))
+            ? CFG.KOPPELING_PM_VME.bank + CFG.KOPPELING_PM_VME.peppol : 0;
+  r.tool_pm_excl = CFG.LICENTIE[tier].pm_kavel * k + kop;
+  r.tool_pm = r.tool_pm_excl * btw;
+
+  if(f === 'captain'){
+    var t = CFG.TARIEF.captain, u = CFG.UREN.captain;
+    r.uren.beheer_pm = u.beheer_pm(k) * cf.recurrent;
+    r.uren.av        = u.av(k)        * cf.recurrent;
+    r.uren.opstart   = u.opstart(k)   * cf.opstart;
+    r.beheer_pj_excl  = (r.uren.beheer_pm * 12 + r.uren.av) * t;
+    r.opstart_excl    = r.uren.opstart * t;
+  } else if(f === 'coach'){
+    var t2 = CFG.TARIEF.coach, u2 = CFG.UREN.coach;
+    r.uren.coaching_pj = u2.coaching_pj(k) * cf.recurrent;
+    r.uren.opstart     = u2.opstart(k)     * cf.opstart;
+    r.beheer_pj_excl  = r.uren.coaching_pj * t2;
+    r.opstart_excl    = r.uren.opstart * t2;
+  } else {
+    r.uren.opstart   = CFG.UREN.assistant.opstart(k);
+    r.beheer_pj_excl = 0;
+    r.opstart_excl   = r.uren.opstart * CFG.TARIEF.coach;
+    r.opstart_optioneel = true;
+  }
+
+  r.beheer_pj = r.beheer_pj_excl * btw;
+  r.opstart   = r.opstart_excl * btw;
+  r.jaar1     = r.beheer_pj + r.opstart + r.tool_pm * 12;
+  r.jaar2     = r.beheer_pj + r.tool_pm * 12;
+  if(r.opstart_optioneel) r.jaar1 = r.jaar2;   /* opstarthulp is een keuze */
+  r.pkpm      = r.jaar2 / k / 12;
+  return r;
+}
+
+/* ==========================================================================
+   5. HELPERS
+   ========================================================================== */
+var $ = function(i){ return document.getElementById(i); };
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(m){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
+function eur(n){ return '€ ' + Math.round(n).toLocaleString('nl-BE'); }
+function num(n){ return String(Math.round(n*10)/10); }
+function u1(n){ return (Math.round(n*10)/10).toLocaleString('nl-BE'); }
+function validEmail(e){ return /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(e); }
+
+function tileCard(o, sel){
+  return '<button type="button" class="sc-tile'+(sel?' is-sel':'')+
+    '" data-v="'+esc(o.v)+'" aria-pressed="'+(sel?'true':'false')+'">'+
+    '<span class="sc-tile-check">'+ico('check',12)+'</span>'+
+    '<span class="sc-tile-img">'+(ILL[o.v]||'')+'</span>'+
+    '<span class="sc-tile-t">'+esc(o.t)+'</span>'+
+    (o.d?'<span class="sc-tile-d">'+esc(o.d)+'</span>':'')+'</button>';
+}
+function tileBehoefte(o, sel){
+  var img = ITEM_ILL[o.v] ? ITEM_ILL[o.v] : '<span class="sc-tile-ico-fb">'+ico(o.ico,34)+'</span>';
+  return '<button type="button" class="sc-tile sc-tile-behoefte'+(sel?' is-sel':'')+
+    '" data-v="'+esc(o.v)+'" data-g="nood" aria-pressed="'+(sel?'true':'false')+'">'+
+    '<span class="sc-tile-check">'+ico('check',12)+'</span>'+
+    '<span class="sc-tile-img">'+img+'</span>'+
+    '<span class="sc-tile-t">'+esc(o.t)+'</span></button>';
+}
+function optCard(o, sel, multi){
+  return '<button type="button" class="sc-opt'+(multi?' sc-multi':'')+(sel?' is-sel':'')+
+    '" data-v="'+esc(o.v)+'" aria-pressed="'+(sel?'true':'false')+'">'+
+    '<span class="sc-opt-ico">'+ico(o.ico,18)+'</span>'+
+    '<span class="sc-opt-txt"><span class="sc-opt-t">'+esc(o.t)+'</span>'+
+    (o.d?'<span class="sc-opt-d">'+esc(o.d)+'</span>':'')+'</span>'+
+    '<span class="sc-check">'+ico('check',12)+'</span></button>';
+}
+function q(icon, tekst, help){
+  return '<div class="sc-q"><span class="sc-ico">'+ico(icon)+'</span><span>'+esc(tekst)+'</span></div>'+
+         (help?'<div class="sc-help">'+esc(help)+'</div>':'');
+}
+/* nav() tekent niets meer: het noteert enkel wat de blijvende balk onderaan moet tonen. De stappen
+   roepen het aan waar ze vroeger de markup invoegden, zodat elke stap nog altijd zelf zegt wat er
+   onderaan hoort te staan. */
+var NAV_CFG = null;
+function nav(backLabel, nextLabel, enabled, solid){
+  NAV_CFG = { back:backLabel || 'Vorige', next:nextLabel || 'Volgende', enabled:!!enabled, solid:!!solid };
+  return '';
+}
+/* Een opschrift dat verandert, wipt weg en komt van onderen terug -- dezelfde beweging als de rest
+   van de kaart, alleen kleiner. De tekst wisselt op het moment dat ze onzichtbaar is. */
+function navLabel(el, tekst){
+  if(!el || el.textContent === tekst) return;
+  if(!el.textContent){ el.textContent = tekst; return; }   /* eerste opbouw: gewoon zetten */
+  el.classList.remove('is-swap');
+  void el.offsetWidth;
+  el.classList.add('is-swap');
+  clearTimeout(el._scSwapT);
+  el._scSwapT = setTimeout(function(){ el.textContent = tekst; }, 130);
+}
+function navRender(){
+  var host = $('sc-nav');
+  if(!host) return;
+  if(!NAV_CFG){ host.hidden = true; host.innerHTML = ''; return; }   /* stappen met een eigen balk in hun body */
+  if(!host.firstChild){
+    host.innerHTML =
+      '<button type="button" class="sc-back" id="sc-back">'+ico('arrowl',16)+
+        '<span class="sc-nav-lbl"></span></button>'+
+      '<button type="button" class="sc-next" id="sc-next">'+
+        '<span class="sc-nav-lbl"></span>'+ico('arrowr',17)+'</button>';
+  }
+  host.hidden = false;
+  var back = host.querySelector('.sc-back'), next = host.querySelector('.sc-next');
+  var weg = S.step === 0;
+  back.classList.toggle('is-weg', weg);        /* schuift weg, blijft in de rij staan */
+  back.tabIndex = weg ? -1 : 0;
+  back.setAttribute('aria-hidden', weg ? 'true' : 'false');
+  navLabel(back.querySelector('.sc-nav-lbl'), NAV_CFG.back);
+  next.classList.toggle('sc-solid', NAV_CFG.solid);
+  next.disabled = !NAV_CFG.enabled;
+  navLabel(next.querySelector('.sc-nav-lbl'), NAV_CFG.next);
+}
+function dots(){
+  if(S.step >= STAP_BOLLETJES){ $('sc-steps').innerHTML = ''; return; }
+  var h = '';
+  for(var i=0;i<STAP_BOLLETJES;i++) h += '<span class="sc-dot'+(i===S.step?' is-active':(i<S.step?' is-done':''))+'"></span>';
+  $('sc-steps').innerHTML = h;
+}
+
+/* ==========================================================================
+   6. STAPPEN
+   ========================================================================== */
+function stepKavels(){
+  S.bldgLevel = bouwNiveau(S.kavels);
+  return q('building','Wat is de grootte van het gebouw?','Geef het aantal bewoonbare kavels in. Garages en bergingen hoef je niet mee te tellen.')+
+    '<button type="button" class="sc-comm-toggle'+(S.commercieel?' is-on':'')+'" id="sc-commercieel" aria-pressed="'+(S.commercieel?'true':'false')+'">'+
+      '<span class="sc-comm-check">'+ico('check',10)+'</span>'+
+      '<span>Het gebouw heeft commerciële kavels (winkels, kantoren, ...)</span></button>'+
+    /* het gebouw zelf staat op het podium; hier houdt een slot enkel de ruimte vrij */
+    '<div class="sc-slot" data-slot="bldg" style="height:250px"></div>'+
+    '<div class="sc-onlymob sc-bldg"><div class="sc-bldg-img sc-mob-bldg">'+stripPins(bouwIll(S.bldgLevel, S.commercieel))+'</div></div>'+
+    '<div class="sc-slider" data-bodem>'+
+      '<div><span class="sc-kv" id="sc-kv">'+S.kavels+'</span><span class="sc-kv-u" id="sc-kv-u">kavels</span></div>'+
+      '<input type="range" id="sc-range" min="2" max="60" step="1" value="'+S.kavels+'" aria-label="Aantal kavels">'+
+      '<div class="sc-ends"><span>2</span><span>60+</span></div>'+
+    '</div>'+
+    nav(null,'Volgende',true);
+}
+/* `groep` bepaalt bij welke vraag een ballonnetje hoort ('nood' voor het diagram, 'nu' of 'wens'
+   voor de antwoorden). Nodig omdat ze sinds de vakken bovenaan allemaal tegelijk op het podium leven:
+   zonder groep zou een klik op een herinnerd ballonnetje het antwoord van de huidige vraag veranderen,
+   en zou syncSel de selectie van de andere groepen wissen. */
+function orbitTile(o, sel, extra, groep){
+  var img = (ITEM_ILL[o.v] || ILL[o.v]) ? (ITEM_ILL[o.v] || ILL[o.v])
+                                        : '<span class="sc-orbit-ico">'+ico(o.ico,28)+'</span>';
+  var style = '--blob:'+o.blob+';--tilt:'+o.tilt+'deg;--float-dur:'+o.fdur+'s;--float-delay:-'+o.fdel+'s';
+  return '<button type="button" class="sc-orbit-tile'+(sel?' is-sel':'')+(extra?' '+extra:'')+
+    '" data-v="'+esc(o.v)+'"'+(groep?' data-g="'+esc(groep)+'"':'')+
+    ' aria-pressed="'+(sel?'true':'false')+'" style="'+esc(style)+'">'+
+    '<span class="sc-peb-arc">'+
+      '<span class="sc-orbit-blob"><span class="sc-orbit-blobin">'+
+          '<span class="sc-tile-check">'+ico('check',11)+'</span>'+
+          '<span class="sc-orbit-img">'+img+'</span></span></span>'+
+      '<span class="sc-orbit-txt">'+
+        '<span class="sc-orbit-chip"><span class="sc-orbit-chip-t">'+esc(o.t)+'</span>'+
+          (o.d?'<span class="sc-orbit-chip-d">'+esc(o.d)+'</span>':'')+'</span>'+
+        (o.sub?'<span class="sc-orbit-sub">'+esc(o.sub)+'</span>':'')+
+      '</span>'+
+    '</span></button>';
+}
+function geenBtn(o, sel){
+  return '<button type="button" class="sc-geen-btn'+(sel?' is-sel':'')+
+    '" data-v="'+esc(o.v)+'" data-g="nood" aria-pressed="'+(sel?'true':'false')+'">'+
+    '<span class="sc-geen-box">'+ico('check',10)+'</span>'+esc(o.t)+'</button>';
+}
+function stepAssessment(){
+  var svg = bouwIll(S.bldgLevel, S.commercieel);
+  var hasPins = svgHasPins(svg, BEHOEFTEN_PIN_IDS);
+  var geen = BEHOEFTEN_OPTS.filter(function(o){ return o.v === 'geen'; })[0];
+  var h = q('list','Wat speelt er in jullie gebouw?','Vink aan wat er speelt. Dat bepaalt hoeveel opvolging jullie gebouw vraagt.');
+
+  if(hasPins){
+    /* Op het podium staan het gebouw en de zeven ballonnetjes; het slot houdt hier enkel de hoogte
+       vrij. Op smalle schermen staat het podium uit en valt de stap terug op een gestapelde lijst. */
+    h += '<div id="sc-opts">'+
+      '<div class="sc-slot" data-slot="orbit" style="height:566px"></div>'+
+      '<div class="sc-onlymob">'+
+        '<div class="sc-bldg"><div class="sc-bldg-img sc-mob-bldg">'+stripPins(svg)+'</div></div>'+
+        BEHOEFTEN_OPTS.filter(function(o){ return !o.exclusive; })
+          .map(function(o){ return orbitTile(o, S.complex.indexOf(o.v)>-1, '', 'nood'); }).join('')+
+      '</div>'+
+      '<div class="sc-diagram-geen">'+geenBtn(geen, S.complex.indexOf('geen')>-1)+'</div>'+
+    '</div>';
+  } else {
+    h += '<div class="sc-bldg sc-bldg-recap"><div class="sc-bldg-img sc-bldg-sm">'+stripPins(svg)+'</div></div>'+
+      '<div class="sc-tiles sc-tiles-behoeften" id="sc-opts">';
+    BEHOEFTEN_OPTS.forEach(function(o){ h += tileBehoefte(o, S.complex.indexOf(o.v)>-1); });
+    h += '</div>';
+  }
+  return h+nav(null,'Volgende', S.complex.length>0);
+}
+/* De stappen na het diagram delen dezelfde opbouw: bovenaan een strook met links de vakken en rechts
+   het gebouw, daaronder de vraag en de antwoorden als ballonnetjes op een rij. De vakken, het gebouw
+   en de antwoordrij zijn hier enkel lege kaders/slots: de ballonnetjes zelf staan op het podium, zodat
+   ze van de rij naar hun vak kunnen vliegen i.p.v. te verdwijnen en elders opnieuw te verschijnen.
+   ANTW_GROEPEN legt vast welke vraag bij welk vak hoort. */
+var ANTW_GROEPEN = [
+  { g:'nu',    stap:2, box:1, opts:BEHEER_NU_OPTS,
+    lees:function(){ return S.beheerNu; } },
+  { g:'wens',  stap:3, box:2, opts:BEHEER_WENS_OPTS,
+    lees:function(){ return S.beheerWens; } }
+];
+function antwGroep(stap){
+  return ANTW_GROEPEN.filter(function(gr){ return gr.stap === stap; })[0];
+}
+function gekozenNood(){
+  return BEHOEFTEN_OPTS.filter(function(o){ return S.complex.indexOf(o.v) > -1 && !o.exclusive; });
+}
+/* Hoogte van rij 1: één rij ballonnetjes volstaat tot vier uitdagingen, daarboven twee. Zonder
+   uitdagingen blijft er enkel een regel tekst over en mag het vak laag zijn. */
+function topStrookHoogte(n){ return n <= 4 ? 136 : 196; }
+var TOP_RIJ2_H = 104;        /* rij 2 draagt één ballonnetje per vak */
+/* Het opschrift van een antwoordvak: het `vak`-veld van het gekozen antwoord. Zolang de vraag nog niet
+   gepasseerd is, blijft het vak leeg -- en dus zonder opschrift. */
+function vakOpschrift(gr){
+  if(S.step <= gr.stap) return '';
+  var keuze = gr.lees();
+  if(!keuze) return '';
+  var o = gr.opts.filter(function(x){ return x.v === keuze; })[0];
+  return (o && o.vak) || (o && o.t) || '';
+}
+function recapVak(i, label, n){
+  return '<div class="sc-topbox" data-box="'+i+'" style="height:'+topStrookHoogte(n)+'px">'+
+    '<span class="sc-topbox-l">'+esc(label)+'</span>'+
+    '</div>';
+}
+/* Een los slot voor het gebouw, vlak bij de vraag -- dezelfde volgorde als elke andere stap: eerst de
+   vraag, dan de illustratie, dan de antwoorden. Staat niet langer samen met de vak-samenvatting. */
+function topBldg(){
+  return '<div class="sc-slot sc-recap-bldg" data-slot="bldg"></div>';
+}
+/* Onderaan een lichte samenvatting van wat je eerder aanduidde. Enkel vakken die al een antwoord
+   dragen worden getekend -- geen lege plekhouders meer die enkel ruimte innemen -- dus op deze
+   allereerste vraagstap kan de samenvatting best leeg blijven (voor stap 3: enkel de uitdagingen als
+   die er zijn; het antwoord op de vraag die net gesteld wordt hoort hier nog niet thuis). */
+function recapStrook(){
+  var gek = gekozenNood(), boxen = '', open = 0;
+  if(gek.length){ boxen += recapVak(0, 'Wat er speelt in jullie gebouw', gek.length); open++; }
+  ANTW_GROEPEN.forEach(function(gr){
+    if(gr.box == null || !(S.step > gr.stap)) return;
+    var keuze = gr.lees();
+    if(!keuze) return;
+    /* Het opschrift van een vak is het gegeven antwoord zelf, als zin: 'Vandaag geen syndicus'. */
+    boxen += recapVak(gr.box, vakOpschrift(gr), 1);
+    open++;
+  });
+  if(!open) return '';
+  return '<div class="sc-recap"><div class="sc-recap-l">Wat je eerder aangaf</div>'+
+    '<div class="sc-recap-row">'+boxen+'</div></div>';
+}
+function stepMetPodium(icon, vraag, help, opts, gekozen, nextLabel, solid){
+  var gek = gekozenNood();
+  var namen = gek.map(function(o){ return o.t.toLowerCase(); });
+  var herinnering = gek.length ? 'Wat er speelt in jullie gebouw: '+namen.join(' · ') : '';
+  var gr = antwGroep(S.step);
+  return q(icon, vraag, help)+
+    topBldg()+
+    '<div class="sc-onlymob sc-bldg"><div class="sc-bldg-img sc-bldg-sm sc-mob-bldg">'+
+      stripPins(bouwIll(S.bldgLevel, S.commercieel))+'</div></div>'+
+    '<div class="sc-slot" data-slot="ans" style="height:230px"></div>'+
+    '<div class="sc-onlymob">'+
+      opts.map(function(o){ return orbitTile(o, gekozen === o.v, '', gr ? gr.g : ''); }).join('')+
+    '</div>'+
+    (herinnering ? '<div class="sc-onlymob sc-recall-mob">'+esc(herinnering)+'</div>' : '')+
+    recapStrook()+
+    nav(null, nextLabel || 'Volgende', !!gekozen, solid);
+}
+function stepBeheerNu(){
+  return stepMetPodium('users','Hoe wordt jullie gebouw vandaag beheerd?', null,
+    BEHEER_NU_OPTS, S.beheerNu);
+}
+/* de laatste vraag voor het resultaat, vandaar de afwijkende knop onderaan */
+function stepBeheerWens(){
+  return stepMetPodium('compass','Hoe zie je het beheer het liefst geregeld?',
+    'Er is geen fout antwoord, dit stuurt vooral de vorm van onze hulp.',
+    BEHEER_WENS_OPTS, S.beheerWens, 'Toon mijn formule', true);
+}
+
+function prijsBlok(p){
+  if(S.kavels >= CFG.GROOT_VANAF){
+    return '<div class="sc-jaren"><div class="sc-jaar is-lead" style="grid-column:1/-1">'+
+      '<div class="sc-jaar-l">Richtprijs</div><div class="sc-jaar-n">Op maat</div>'+
+      '<div class="sc-jaar-s">Bij deze grootte rekenen we het liever samen met jou uit.</div></div></div>';
+  }
+  var btwTxt = CFG.TOON_INCL_BTW ? 'incl. btw' : 'excl. btw';
+  var h = '';
+
+  if(p.formule === 'assistant'){
+    h += '<div class="sc-jaren"><div class="sc-jaar is-lead" style="grid-column:1/-1">'+
+      '<div class="sc-jaar-l">Vanaf</div>'+
+      '<div class="sc-jaar-n">'+eur(p.tool_pm)+' / maand</div>'+
+      '<div class="sc-jaar-s">voor '+p.kavels+' kavels, ongeveer '+eur(p.pkpm)+' per kavel</div></div></div>';
+    h += '<div class="sc-rows">'+
+      '<div class="sc-row2 is-tool"><span>'+esc(CFG.LICENTIE[p.licentie_tier].label)+' (de tool)</span><b>'+eur(p.tool_pm)+' / maand</b></div>'+
+      '<div class="sc-row2"><span>Beheer door Syndicoach</span><b>jullie doen het zelf</b></div>'+
+      '<div class="sc-row2"><span>Opstarthulp, optioneel</span><b>vanaf '+eur(p.opstart)+'</b></div>'+
+      '<div class="sc-row2"><span>Advies op afroep</span><b>per 20 minuten</b></div></div>';
+  } else {
+    h += '<div class="sc-jaren">'+
+      '<div class="sc-jaar"><div class="sc-jaar-l">Jaar 1, met opstart</div>'+
+        '<div class="sc-jaar-n">'+eur(rond(p.jaar1))+'</div><div class="sc-jaar-s">eenmalig hoger</div></div>'+
+      '<div class="sc-jaar is-lead"><div class="sc-jaar-l">Vanaf jaar 2</div>'+
+        '<div class="sc-jaar-n">'+eur(rond(p.jaar2))+'</div>'+
+        '<div class="sc-jaar-s">ongeveer '+eur(p.pkpm)+' per kavel/maand</div></div></div>';
+    h += '<div class="sc-rows">'+
+      '<div class="sc-row2"><span>Beheer, per jaar</span><b>'+eur(rond(p.beheer_pj))+'</b></div>'+
+      '<div class="sc-row2"><span>Opstart, eenmalig in jaar 1</span><b>'+eur(rond(p.opstart))+'</b></div>'+
+      '<div class="sc-row2 is-tool"><span>'+esc(CFG.LICENTIE[p.licentie_tier].label)+' (de tool, apart)</span><b>'+eur(p.tool_pm)+' / maand</b></div></div>';
+  }
+  h += '<div class="sc-caveat">Richtprijs '+btwTxt+', afgeleid van je antwoorden. '+
+       'Het echte bedrag hangt af van hoeveel uur je gebouw vraagt, en dat kunnen we pas zeggen als we het kennen. '+
+       'Wij rekenen per gewerkt uur, niet met een forfait per kavel.</div>';
+  return h;
+}
+
+/* Geen prijs meer op deze stap: enkel de gekozen formule, wat erin zit, en een manier om contact
+   op te nemen. bereken() draait nog altijd -- de bedragen gaan gewoon mee in de payload voor sales,
+   ze worden alleen niet meer getoond aan de bezoeker (zie payload(), calc_jaar1/calc_jaar2/...). */
+function stepResultaat(){
+  if(!S.override) S.formule = kiesFormule();
+  S.prijs = bereken();
+  var F = FORMULES[S.formule];
+
+  var h = '<div class="sc-fade">'+
+    '<div class="sc-hero"><div class="sc-eyebrow">Dit past bij jullie</div>'+
+      '<div class="sc-formule">'+esc(F.naam)+'</div>'+
+      '<div class="sc-tagline">'+esc(F.tagline)+'</div></div>';
+
+  h += '<div class="sc-pakket-box"><div class="sc-sub">Wat zit er in dit pakket</div><ul class="sc-incl">';
+  F.incl.forEach(function(i){ h += '<li>'+ico('check',16)+'<span>'+esc(i)+'</span></li>'; });
+  h += '</ul></div>';
+
+  h += '<div style="margin-top:4px">'+ q('mail','Vraag je offerte op maat',
+        'Wij rekenen je gebouw exact door. Laat je gegevens achter, dan nemen we contact op -- via mail of telefonisch, net wat jij liever hebt.')+
+    '<div style="margin-top:14px">'+
+      '<div class="sc-row">'+
+        '<div class="sc-field"><label for="sc-naam">Naam</label><input type="text" id="sc-naam" autocomplete="name" value="'+esc(S.naam)+'"></div>'+
+        '<div class="sc-field"><label for="sc-email">E-mail</label><input type="email" id="sc-email" autocomplete="email" required value="'+esc(S.email)+'" placeholder="jij@voorbeeld.be"></div>'+
+      '</div>'+
+      '<div class="sc-row">'+
+        '<div class="sc-field"><label for="sc-tel">Telefoon</label><input type="tel" id="sc-tel" autocomplete="tel" value="'+esc(S.tel)+'"></div>'+
+        '<div class="sc-field"><label for="sc-postcode">Postcode</label><input type="text" id="sc-postcode" inputmode="numeric" autocomplete="postal-code" value="'+esc(S.extra.postcode||'')+'"></div>'+
+      '</div>'+
+      '<div class="sc-field"><label>Hoe neem je liefst contact op?</label><div class="sc-radiogroup">'+
+        [['email','E-mail'],['telefoon','Telefoon'],['beide','Beide']].map(function(o){
+          return '<label class="sc-radio"><input type="radio" name="sc-contact" value="'+o[0]+'"'+(S.contact===o[0]?' checked':'')+'><span>'+o[1]+'</span></label>';
+        }).join('')+
+      '</div></div>'+
+      '<label class="sc-consent"><input type="checkbox" id="sc-consent"'+(S.consent?' checked':'')+'>'+
+        '<span>Ja, neem contact met me op. Uitschrijven kan met één klik.</span></label>'+
+      '<div class="sc-err" id="sc-err"></div></div></div>';
+
+  h += '<div class="sc-cta-group">'+
+      '<button type="button" class="sc-next sc-solid" id="sc-next">Vraag offerte op maat'+ico('arrowr',17)+'</button>'+
+      '<button type="button" class="sc-cta-secondary" id="sc-gesprek">Plan liever een gesprek in</button>'+
+    '</div>'+
+    '<div class="sc-resultaat-foot"><button type="button" class="sc-back" id="sc-back">'+ico('arrowl',16)+'Vorige</button>'+
+       '<span class="sc-alt">Past een andere formule beter? <button type="button" id="sc-alt">Vergelijk de drie</button></span></div></div>';
+  return h;
+}
+
+function stepAlt(){
+  var h = '<div class="sc-fade">'+q('shuffle','Kies zelf je formule')+'<div class="sc-opts" id="sc-opts">';
+  ['assistant','coach','captain'].forEach(function(k){
+    h += optCard({ v:k, ico:FORMULES[k].ico, t:FORMULES[k].naam, d:FORMULES[k].tagline }, S.formule===k, false);
+  });
+  return h+'</div>'+nav('Terug','Verder met deze formule', true, true)+'</div>';
+}
+
+function stepExtra(){
+  var e = S.extra;
+  return '<div class="sc-fade"><div class="sc-done" style="padding-bottom:0">'+
+      '<div class="sc-done-ico">'+ico('check',28)+'</div>'+
+      '<div class="sc-formule" style="font-size:1.3rem">Aanvraag binnen</div>'+
+      '<div class="sc-help">We mailen je offerte naar '+esc(S.email)+'.</div></div>'+
+    '<div style="margin-top:22px">'+
+      q('target','Wil je een offerte die meteen klopt?','Vul aan wat je weet. Overslaan mag.')+
+      '<div style="margin-top:14px">'+
+      '<div class="sc-row">'+
+        '<div class="sc-field"><label for="e-vme">VME of gebouw</label><input type="text" id="e-vme" value="'+esc(e.vme||'')+'"></div>'+
+        '<div class="sc-field"><label for="e-adres">Adres</label><input type="text" id="e-adres" value="'+esc(e.adres||'')+'"></div>'+
+      '</div>'+
+      '<div class="sc-row">'+
+        '<div class="sc-field"><label for="e-post">Postcode</label><input type="text" id="e-post" inputmode="numeric" value="'+esc(e.postcode||'')+'"></div>'+
+        '<div class="sc-field"><label for="e-bouw">Bouwjaar</label><input type="text" id="e-bouw" inputmode="numeric" value="'+esc(e.bouwjaar||'')+'" placeholder="bv. 1978"></div>'+
+      '</div>'+
+      '<div class="sc-row">'+
+        '<div class="sc-field"><label for="e-rol">Jouw rol</label><select id="e-rol">'+
+          ['','Mede-eigenaar','Eigenaar-syndicus','Lid RvME','Makelaar of ontwikkelaar','Andere']
+          .map(function(o){ return '<option value="'+esc(o)+'"'+(e.rol===o?' selected':'')+'>'+(o||'Kies')+'</option>'; }).join('')+'</select></div>'+
+        '<div class="sc-field"><label for="e-syndicus">Huidige syndicus</label><select id="e-syndicus">'+
+          ['','Professionele syndicus','Eigenaar-syndicus','Geen of vacant','Weet ik niet']
+          .map(function(o){ return '<option value="'+esc(o)+'"'+(e.syndicus===o?' selected':'')+'>'+(o||'Kies')+'</option>'; }).join('')+'</select></div>'+
+      '</div>'+
+      '<div class="sc-field"><label for="e-start">Wanneer wil je overstappen?</label><select id="e-start">'+
+        ['','Zo snel mogelijk','Bij de volgende AV','Binnen 6 maanden','We verkennen nog']
+        .map(function(o){ return '<option value="'+esc(o)+'"'+(e.start===o?' selected':'')+'>'+(o||'Kies')+'</option>'; }).join('')+'</select></div>'+
+      '<div class="sc-field"><label for="e-vraag">Iets dat we moeten weten?</label>'+
+        '<textarea id="e-vraag" maxlength="600"></textarea></div></div></div>'+
+    '<div class="sc-nav"><button type="button" class="sc-back" id="sc-skip">Overslaan</button>'+
+      '<button type="button" class="sc-next sc-solid" id="sc-next">Versturen'+ico('arrowr',17)+'</button></div>'+
+    '<div class="sc-err" id="sc-err"></div></div>';
+}
+
+function stepKlaar(){
+  return '<div class="sc-fade sc-done">'+
+    '<div class="sc-done-ico">'+ico('check',28)+'</div>'+
+    '<div class="sc-formule" style="font-size:1.3rem">Bedankt'+(S.naam?', '+esc(S.naam.split(' ')[0]):'')+'</div>'+
+    '<p class="sc-help">Je offerte vertrekt binnen één werkdag naar '+esc(S.email)+'.</p>'+
+    '<p class="sc-note">Dringend? (+32) 03 657 28 50 of info@syndicoach.be</p></div>';
+}
+
+/* ==========================================================================
+   7. RENDER
+   ========================================================================== */
+/* De volgorde van de stappen staat op één plek, en de nummers krijgen een naam. Ze zaten vroeger als
+   losse getallen door de hele code (S.step === 6, go(8), i<6 ...); bij het schrappen van een vraag
+   moest je ze dan allemaal terugvinden. Wie er nu een stap uithaalt of bijzet, past deze twee regels
+   aan en de rest volgt. */
+var VIEWS = [stepKavels, stepAssessment, stepBeheerNu, stepBeheerWens, stepResultaat, stepAlt, stepExtra, stepKlaar];
+var STAP = { KAVELS:0, DIAGRAM:1, BEHEER:2, WENS:3, RESULTAAT:4, ALT:5, EXTRA:6, KLAAR:7 };
+var STAP_BOLLETJES = STAP.RESULTAAT + 1;   /* tot en met het resultaat staan er bolletjes bovenaan */
+
+function render(){
+  var prevMode = STAGE.mode;
+  var body = $('sc-body');
+  var oudeH = (body && prevMode) ? body.offsetHeight : 0;
+  var spook = oudeH ? bodemSpook(body) : null;   /* kopie van wat aan de onderrand hing, vóór de wissel */
+  dots();
+  NAV_CFG = null;
+  $('sc-body').innerHTML = VIEWS[S.step]();
+  navRender();            /* de stap heeft via nav() gezegd wat er onderaan hoort te staan */
+  bind();
+  stageApply(prevMode);   /* na het invoegen van de body: de slots zijn nu meetbaar */
+  kaderHoogte(oudeH, spook);   /* en pas daarna het kader: stageApply heeft de slots al op maat gezet */
+  syncStage();            /* de ballonnetjes op het podium overleven de render en dragen hun eigen stand */
+}
+/* ---- kader en gebouw bewegen als één ------------------------------------
+   De kaart is zo hoog als haar inhoud, en die wisselt in één keer -- dus sprong ze vroeger meteen naar
+   de nieuwe maat. Nu loopt de hoogte mee, met exact dezelfde duur en curve als de verplaatsing van het
+   gebouw. Dat is geen schoonheidsfoutje maar de kern: het gebouw hangt aan de onderrand (top:100%), dus
+   zolang hoogte en gebouw in de pas lopen, blijft alles wat aan de bovenkant hangt precies staan waar
+   het hoort, en groeit of krimpt het gebouw samen met het kader.
+   Tijdens de beweging staat overflow op hidden: anders zou de inhoud tijdens het groeien even buiten
+   de afgeronde rand van de kaart hangen. */
+/* ---- wat aan de onderrand hangt -------------------------------------------
+   Alles met data-bodem hoort op een vaste afstand van de ONDERkant van de kaart te blijven, net als het
+   gebouw. In de documentflow hangt zo'n blok aan de bovenkant, dus tijdens een hoogtewissel geven we
+   het een tegenverschuiving: precies het verschil tussen de huidige en de eindhoogte, met dezelfde
+   curve en duur als het kader. Zo blijft het aan de onderrand kleven terwijl die rand beweegt.
+   Voor het blok dat vertrekt (het is uit de body verdwenen op het moment dat die opnieuw is opgebouwd)
+   laten we een spook achter: een kopie die absoluut over de kaart ligt, met de rand mee naar beneden
+   zakt en ondertussen wegvaagt. */
+function bodemSpook(body){
+  var card = $('sc-card'), el = body && body.querySelector('[data-bodem]');
+  if(!card || !el) return null;
+  var cr = card.getBoundingClientRect(), r = el.getBoundingClientRect();
+  if(!r.height) return null;
+  var g = document.createElement('div');
+  g.className = 'sc-spook';
+  g.style.left = (r.left - cr.left)+'px';
+  g.style.top = (r.top - cr.top)+'px';
+  g.style.width = r.width+'px';
+  var kopie = el.cloneNode(true);
+  /* een kopie mag geen id's meenemen: dan zou $('sc-range') het spook aanspreken i.p.v. de echte */
+  var metId = kopie.querySelectorAll('[id]');
+  for(var i=0;i<metId.length;i++) metId[i].removeAttribute('id');
+  if(kopie.id) kopie.removeAttribute('id');
+  g.appendChild(kopie);
+  card.appendChild(g);
+  return g;
+}
+function spookWeg(g){ if(g && g.parentNode) g.parentNode.removeChild(g); }
+function kaderHoogte(oudeH, spook){
+  var body = $('sc-body');
+  if(!body || !oudeH){ spookWeg(spook); return; }
+  var nieuweH = body.offsetHeight;
+  if(!nieuweH || Math.abs(nieuweH - oudeH) < 5){ spookWeg(spook); return; }
+  var dur = STAGE.kaderDur || scT(.5), ease = STAGE.kaderEase || SC_EASE_MOVE;
+  var wacht = STAGE.kaderWacht || 0;
+  var verschil = oudeH - nieuweH;          /* positief als de kaart krimpt */
+  var spookFade = dur*1.9;                 /* vaagt trager weg dan hij zakt */
+  var bodem = body.querySelectorAll('[data-bodem]');
+  clearTimeout(body._scKaderT);
+  body.style.transition = 'none';
+  body.style.overflow = 'hidden';
+  body.style.height = oudeH + 'px';
+  for(var i=0;i<bodem.length;i++){
+    bodem[i].style.transition = 'none';
+    bodem[i].style.transform = 'translate3d(0,'+verschil+'px,0)';
+  }
+  void body.offsetHeight;                    /* deze stand als beginpunt vastleggen */
+  requestAnimationFrame(function(){
+    body.style.transition = 'height ' + dur + 's ' + ease + ' ' + wacht + 's';
+    body.style.height = nieuweH + 'px';
+    for(var j=0;j<bodem.length;j++){
+      bodem[j].style.transition = 'transform ' + dur + 's ' + ease + ' ' + wacht + 's';
+      bodem[j].style.transform = 'translate3d(0,0,0)';
+    }
+    if(spook){
+      /* het wegvagen duurt langer dan de verschuiving: hij zakt mee met de rand en verdwijnt pas
+         onderweg, i.p.v. meteen op te lossen */
+      spook.style.transition = 'transform ' + dur + 's ' + ease + ' ' + wacht + 's,opacity ' +
+                               spookFade.toFixed(2) + 's ease ' + wacht + 's';
+      spook.style.transform = 'translate3d(0,'+(-verschil)+'px,0)';
+      spook.style.opacity = '0';
+    }
+  });
+  if(spook) setTimeout(function(){ spookWeg(spook); }, (wacht + spookFade)*1000 + 80);
+  /* daarna weer aan de gewone documentflow overlaten: een vaste hoogte zou een tekst die later nog
+     hertekent (of een venster dat versmalt) afknippen */
+  body._scKaderT = setTimeout(function(){
+    body.style.transition = ''; body.style.height = ''; body.style.overflow = '';
+    for(var k=0;k<bodem.length;k++){ bodem[k].style.transition = ''; bodem[k].style.transform = ''; }
+  }, (wacht + dur)*1000 + 80);
+}
+/* De podium-ballonnetjes worden nooit opnieuw opgebouwd, dus hun aangevinkt-zijn moet na elke render
+   opnieuw uit de toestand afgeleid worden -- anders houdt een ballonnetje een vinkje over van een
+   antwoord dat intussen veranderd is. */
+function syncStage(){
+  var st = $('sc-stage');
+  if(!st) return;
+  Array.prototype.forEach.call(st.querySelectorAll('.sc-orbit-tile[data-g]'), function(el){
+    var g = el.getAttribute('data-g'), v = el.getAttribute('data-v'), sel;
+    if(g === 'nood') sel = S.complex.indexOf(v) > -1;
+    else {
+      var gr = ANTW_GROEPEN.filter(function(x){ return x.g === g; })[0];
+      sel = !!gr && gr.lees() === v;
+    }
+    el.classList.toggle('is-sel', !!sel);
+    el.setAttribute('aria-pressed', sel ? 'true' : 'false');
+  });
+}
+function go(n){
+  S.step = n; render();
+  try{ var el = $('sc-calc'); if(el && el.getBoundingClientRect().top < 0) el.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){}
+}
+
+/* Ankerpunten van de slinger, in de volgorde waarin het oog ze afleest: linkerflank, dan de vijf
+   bovenaan van links naar rechts, dan de rechterflank. `kx` is de horizontale plaats als fractie van
+   de bruikbare halve breedte (schaalt dus mee met de kolombreedte), `y` staat in px vanaf de bovenrand
+   van het diagram (de hoogte is vast, 460px).
+   De y-waarden verspringen bewust op en neer: dat lichte zigzag laat de zeven ballonnetjes de breedte
+   vullen zonder dat de buitenste twee tot tegen de rand geduwd moeten worden om botsing te vermijden.
+   De flanken staan iets naar binnen (|kx| < 1) zodat de slinger aan de uiteinden naar binnen krult
+   i.p.v. plat af te lopen. */
+var ORBIT_ANCHORS = [
+  { kx:-0.81, y:388 },
+  { kx:-0.87, y:232 },
+  { kx:-0.72, y: 76 },
+  { kx: 0.00, y:116 },
+  { kx: 0.72, y: 80 },
+  { kx: 0.87, y:234 },
+  { kx: 0.81, y:390 }
+];
+var ORBIT_INSET = 34;      /* lucht tussen ballonnetje en de rand van de tekstkolom */
+var ORBIT_PUSH_MAX = 30;   /* hoeveel het naaste ballonnetje wegduwt bij hover */
+var ORBIT_PUSH_REACH = 480;
+var ORBIT_LINE_GAP = 26;   /* minimale gewenste afstand tussen twee verbindingslijntjes */
+var ORBIT_GROW_EXTRA = 47;  /* hoeveel px een blob bij hover in totaal groeit (112px * (1.42 - 1)) */
+
+
+/* ==========================================================================
+   PODIUM
+   Het gebouw en de zeven ballonnetjes leven in #sc-stage en worden nooit opnieuw opgebouwd. Elke stap
+   zet in zijn eigen body enkel lege "slots" met de juiste hoogte; het podium meet die op en schuift
+   zijn elementen ernaartoe met een transform-transitie. Daardoor glijdt het gebouw van stap 1 naar
+   stap 2 en verhuizen de aangeduide ballonnetjes naar een strook bovenaan i.p.v. te verdwijnen.
+   ========================================================================== */
+var STAGE = { built:false, mode:null, tiles:[], antw:null, run:0 };
+
+function stripPins(svg){ return svg.replace(/id="pin-/g, 'data-pin="'); }
+
+function stageBuild(){
+  if(STAGE.built) return;
+  var st = $('sc-stage');
+  if(!st) return;
+  st.innerHTML =
+    '<svg class="sc-stage-lines is-off" id="sc-stage-lines"></svg>'+
+    '<div class="sc-stage-bldg" id="sc-stage-bldg"><div class="sc-stage-bldg-in" id="sc-bldg-img"></div></div>'+
+    BEHOEFTEN_OPTS.filter(function(o){ return !o.exclusive; })
+      .map(function(o){ return orbitTile(o, false, 'is-in', 'nood'); }).join('')+
+    /* de antwoorden van stap 3 t/m 5 wonen óók op het podium: alleen zo kan het gekozen ballonnetje
+       bij "Volgende" naar zijn vak bovenaan vliegen i.p.v. te verdwijnen en daar opnieuw op te duiken */
+    ANTW_GROEPEN.map(function(gr){
+      return gr.opts.map(function(o){ return orbitTile(o, false, 'is-in', gr.g); }).join('');
+    }).join('');
+  STAGE.tiles = Array.prototype.slice.call(st.querySelectorAll('.sc-orbit-tile[data-g="nood"]'));
+  STAGE.antw = {};
+  ANTW_GROEPEN.forEach(function(gr){
+    STAGE.antw[gr.g] = Array.prototype.slice.call(st.querySelectorAll('.sc-orbit-tile[data-g="'+gr.g+'"]'));
+  });
+  STAGE.built = true;
+  stageBldg();
+}
+function stageBldg(){
+  var el = $('sc-bldg-img');
+  if(!el) return;
+  el.innerHTML = bouwIll(S.bldgLevel, S.commercieel);
+  STAGE.lvl = S.bldgLevel; STAGE.comm = S.commercieel;
+}
+/* Alle eenmalige gebouw-animaties lopen via dezelfde weg. Belangrijk: eerst élke andere animatieklasse
+   weg. Bleef er eentje hangen (dat gebeurde met sc-land na een stapovergang), dan won die van de
+   nieuwe klasse en zag je de sprong niet meer. Na afloop ruimen we zelf op. */
+var SC_BLDG_ANIM = ['sc-pop','sc-land','sc-grow','sc-shrink','sc-grow-x','sc-shrink-x','sc-comm'];
+/* Waar de linkeronderhoek van de tekening ligt, als deel van de kaderbreedte. Het gebouw staat niet
+   tegen de rand van zijn viewBox, en die marge verschilt per niveau. We meten ze liefst live op (zie
+   bldgInkt hieronder, die dat toch al doet voor de hoogte); staat het podium verborgen -- op smalle
+   schermen is dat zo -- dan valt hij terug op deze opgemeten tabel. Nieuwe tekeningen? Meet de
+   linkerrand van het gebouw en deel door de breedte van de viewBox. */
+var BOUW_LINKS = { 1:.311, 2:.282, 3:.230, 4:.230, 5:.230 };
+function bldgOrigin(el){
+  if(!el) return;
+  var f = BOUW_LINKS[S.bldgLevel];
+  var m = bldgInkt();
+  if(m && m.l > 0.02 && m.l < 0.5) f = m.l;    /* een meting die nergens op slaat negeren we */
+  if(f) el.style.setProperty('--sc-bldg-ox', (f*100).toFixed(1)+'%');
+}
+function bldgAnim(el, cls){
+  if(!el) return;
+  bldgOrigin(el);
+  SC_BLDG_ANIM.forEach(function(c){ el.classList.remove(c); });
+  void el.offsetWidth;              /* forceer reflow zodat de animatie herstart */
+  el.classList.add(cls);
+  if(el._scAnimEnd) el.removeEventListener('animationend', el._scAnimEnd);
+  el._scAnimEnd = function(ev){
+    if(ev.target !== el) return;
+    el.classList.remove(cls);
+    el.removeEventListener('animationend', el._scAnimEnd);
+    el._scAnimEnd = null;
+  };
+  el.addEventListener('animationend', el._scAnimEnd);
+}
+function stageBldgPop(){ bldgAnim($('sc-bldg-img'), 'sc-pop'); }
+
+/* Groeien/krimpen van het gebouw op de kavel-slider. De tekening zelf wisselt niet op tel nul maar op
+   het dieptepunt van de anticipatie: op dat moment zit het gebouw in elkaar gedrukt en valt de wissel
+   nauwelijks op -- de sprong erna leest als één beweging i.p.v. als een plaatje dat verspringt.
+   Sleept iemand snel over meerdere niveaus, dan schuift de wissel gewoon mee op. */
+var SC_BLDG_SWAP_T = null;
+/* Tot en met niveau 4 wordt het gebouw hoger; op niveau 5 komt er een vleugel naast en groeit het in
+   de breedte. De beweging volgt die as, anders klopt de anticipatie niet met wat je ziet gebeuren.
+   Verandert er later iets aan de tekeningen, dan is dit het enige dat je moet bijstellen. */
+var BOUW_BREEDTEGROEI = 5;   /* eerste niveau dat naast zich groeit i.p.v. omhoog */
+function bldgAs(van, naar){ return Math.max(van, naar) >= BOUW_BREEDTEGROEI ? '-x' : ''; }
+function bldgFlush(){
+  if(!SC_BLDG_SWAP_T) return;
+  clearTimeout(SC_BLDG_SWAP_T); SC_BLDG_SWAP_T = null;
+  stageBldg(); mobBldg(false);
+}
+/* De tekening wisselt niet op tel nul maar op het dieptepunt van de anticipatie: op dat moment zit het
+   gebouw samengedrukt en valt de wissel nauwelijks op -- wat erna komt leest als één beweging i.p.v.
+   als een plaatje dat verspringt. Klikt of sleept iemand snel door, dan schuift de wissel mee op. */
+function bldgSwapNa(ms){
+  clearTimeout(SC_BLDG_SWAP_T);
+  SC_BLDG_SWAP_T = setTimeout(function(){
+    SC_BLDG_SWAP_T = null;
+    stageBldg();      /* het gebouw op het podium */
+    mobBldg(false);   /* en de kopie voor smalle schermen */
+  }, ms);
+}
+function bldgNiveauWissel(van, naar){
+  var cls = (naar < van ? 'sc-shrink' : 'sc-grow') + bldgAs(van, naar);
+  bldgAnim($('sc-bldg-img'), cls);
+  bldgAnim(document.querySelector('#sc-body .sc-mob-bldg'), cls);
+  bldgSwapNa(88);
+}
+function bldgCommWissel(){
+  bldgAnim($('sc-bldg-img'), 'sc-comm');
+  bldgAnim(document.querySelector('#sc-body .sc-mob-bldg'), 'sc-comm');
+  bldgSwapNa(72);   /* net na het schrap zetten, zodat de landing de plop opvangt */
+}
+
+/* ---- waar staat de tekening werkelijk in haar kader? -----------------------
+   Een gebouw-svg heeft lucht boven zich, en hoe kleiner het gebouw hoe meer: bij niveau 1 is meer dan
+   de helft van het kader leeg. Nemen we dat kader als maat, dan zakt het gebouw diep in de kaart en
+   gaapt er een gat boven. We meten daarom eenmalig per niveau waar de inkt begint en eindigt, als
+   fractie van de hoogte van het svg-element. Die fractie is schaal-onafhankelijk, dus ze klopt ook
+   terwijl het gebouw nog aan het glijden of veren is. Mislukt de meting, dan valt alles terug op het
+   volle kader en staat alles gewoon zoals vroeger. */
+var BLDG_BOX = 300;          /* het kader waarin de svg getekend wordt, vóór schaling met --k */
+var BLDG_INKT = {};
+function bldgInkt(){
+  var key = S.bldgLevel+'|'+(S.commercieel?1:0);
+  if(BLDG_INKT[key]) return BLDG_INKT[key];
+  var vol = { t:0, b:1, h:1, l:0, r:1 };
+  var wrap = $('sc-bldg-img'), svg = wrap && wrap.querySelector('svg');
+  if(!svg) return vol;
+  var r = svg.getBoundingClientRect();
+  if(!r.height || !r.width) return vol;
+  var top = Infinity, bot = -Infinity, lft = Infinity, rgt = -Infinity;
+  var nodes = svg.querySelectorAll('path,rect,circle,ellipse,line,polyline,polygon,image,text');
+  for(var i=0;i<nodes.length;i++){
+    var n = nodes[i], cs;
+    try{ cs = getComputedStyle(n); }catch(e){ continue; }
+    if(cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue;
+    var vult  = cs.fill   && cs.fill   !== 'none' && parseFloat(cs.fillOpacity)   !== 0;
+    var lijnt = cs.stroke && cs.stroke !== 'none' && parseFloat(cs.strokeOpacity) !== 0;
+    if(!vult && !lijnt) continue;                 /* onzichtbare hulpvormen tellen niet mee */
+    var b = n.getBoundingClientRect();
+    if(!b.width && !b.height) continue;
+    if(b.height > r.height*0.985 && b.width > r.width*0.985) continue;   /* een achtergrondvlak */
+    if(b.top < top) top = b.top;
+    if(b.bottom > bot) bot = b.bottom;
+    if(b.left < lft) lft = b.left;
+    if(b.right > rgt) rgt = b.right;
+  }
+  if(!isFinite(top) || !isFinite(bot) || bot - top < r.height*0.1) return vol;
+  var m = { t:(top - r.top)/r.height, b:(bot - r.top)/r.height };
+  m.h = m.b - m.t;
+  m.l = isFinite(lft) ? (lft - r.left)/r.width : 0;
+  m.r = isFinite(rgt) ? (rgt - r.left)/r.width : 1;
+  BLDG_INKT[key] = m;
+  return m;
+}
+/* de maatvoering van het gebouw in de stappen met de strook bovenaan. De schaal ligt vast (zo blijft
+   een gebouw van 40 kavels zichtbaar groter dan een van 4); de hoogte van het slot volgt uit de
+   werkelijke hoogte van de tekening, plus lucht boven en onder. */
+var RECAP_BLDG_PAD = 16;     /* lucht tussen de tekening en de rand van haar kolom */
+
+/* de gemeten omvang van een ballonnetje t.o.v. zijn ankerpunt. Bewust met offsetWidth/offsetHeight
+   (layoutmaten) i.p.v. getBoundingClientRect: die laatste zit onder de transform, en tijdens een
+   overgang tussen stappen staat die halverwege een schaal. */
+function pebExtent(el){
+  var blob = el.querySelector('.sc-orbit-blob'), txt = el.querySelector('.sc-orbit-txt'),
+      chip = el.querySelector('.sc-orbit-chip');
+  var bw = (blob && blob.offsetWidth) || 112;
+  var cw = (chip && chip.offsetWidth) || 136, ch = (chip && chip.offsetHeight) || 40;
+  var half = Math.max(bw/2 + 5, cw/2);   /* +5: de kanteling steekt een paar px buiten de blob */
+  return { l:-half, r:half, t:-(bw/2 + 5), b:((txt && txt.offsetTop) || 100) + ch - bw/2 };
+}
+
+/* ==========================================================================
+   Bewegingsprincipes (ontleend aan klassieke animatie)
+   - Anticipatie en uitdempen zitten in de easing-curve: ze trekt eerst een tikje terug voor ze
+     vertrekt, en schiet op het einde licht door voor ze tot rust komt.
+   - Bogen: niets in de natuur beweegt in een rechte lijn. Een CSS-transitie interpoleert wél recht,
+     dus leggen we er een extra, optelbare (composite:'add') animatie overheen die het ballonnetje
+     onderweg loodrecht op zijn baan laat uitwijken. Het pad wordt zo een boog.
+   - Overlappende actie: de tekst onder een ballonnetje vertrekt een fractie later en komt dus een
+     fractie later aan -- ze sleept na.
+   Werkt de Web Animations API met optelbare animaties niet, dan valt alles terug op de gewone
+   transitie: dan beweegt het recht, en dat is geen probleem. */
+/* ---- tempo ---------------------------------------------------------------
+   Eén knop voor het hele ritme van een stapovergang. Alles wat hieronder een duur of een vertraging is,
+   loopt langs t() of ts() en schaalt dus mee. Lager = vinniger, hoger = trager; 1 is het oude tempo.
+   Verhoudingen blijven gelijk, dus de choreografie (wie eerst vertrekt, wie nasleept) blijft staan. */
+var SC_TEMPO = 0.46;
+function scT(sec){ return +(sec*SC_TEMPO).toFixed(3); }
+function scTs(sec){ return scT(sec)+'s'; }
+/* Dezelfde curves als in de stylesheet. Ze staan hier nog eens omdat een inline transition-timing-function
+   die uit een custom property komt niet in elke browser even betrouwbaar doorrekent. Pas je er één aan,
+   pas dan ook haar tegenhanger bij --sc-ease-* aan. */
+var SC_EASE_MOVE     = 'cubic-bezier(.42,-0.10,.58,1.08)';
+var SC_EASE_VERTREK  = 'cubic-bezier(.58,.02,.92,.36)';
+var SC_EASE_AANKOMST = 'cubic-bezier(.14,.78,.24,1.03)';
+var SC_EASE_POP      = 'cubic-bezier(.2,1.42,.34,1)';
+/* De curve voor het kader dat groter of kleiner wordt. Ze trekt eerst 2,5% de andere kant op en schiet
+   op het einde een half procent door -- bij een hoogteverschil van 200px is dat een terugtrek van vijf
+   pixels. Meer moet het niet zijn: het kader is de achtergrond, niet de act. Alles wat aan die hoogte
+   hangt (het gebouw aan de onderrand, de balk eronder, de inhoud die meeschuift) krijgt exact dezelfde
+   curve, anders zwemmen ze los van elkaar. */
+var SC_EASE_KADER    = 'cubic-bezier(.55,-0.22,.4,1.1)';
+function pebArc(el, dx, dy, durMs, delayMs){
+  var layer = el.querySelector('.sc-peb-arc');
+  if(!layer || !layer.animate) return;
+  var dist = Math.sqrt(dx*dx + dy*dy);
+  if(dist < 60) return;                       /* korte sprongetjes hoeven geen boog */
+  var amp = Math.min(30, 8 + dist*0.07);
+  /* loodrecht op de baan uitwijken, en altijd naar boven toe: dat leest als een worp, niet als een dip */
+  var nx = -dy/dist, ny = dx/dist;
+  if(ny > 0){ nx = -nx; ny = -ny; }
+  try{
+    layer.animate([
+      { transform:'translate3d(0,0,0)' },
+      { transform:'translate3d('+(nx*amp).toFixed(1)+'px,'+(ny*amp).toFixed(1)+'px,0)', offset:.5 },
+      { transform:'translate3d(0,0,0)' }
+    ], { duration:durMs, delay:delayMs||0, easing:'ease-in-out' });
+  }catch(e){}
+}
+/* het gebouw veert bij het landen even in: squash-and-stretch, maar heel ingehouden. Ook dit gebeurt
+   op een aparte laag, om dezelfde reden als hierboven. */
+function bldgSettle(el, durMs, delayMs){
+  if(!el) return;
+  setTimeout(function(){ bldgAnim(el, 'sc-land'); }, (delayMs || 0) + durMs*0.55);
+}
+
+/* Hover-gedrag van een groep ballonnetjes: het gehoverde groeit en komt bovenaan, de buren wijken uit
+   met een kracht die met de afstand afneemt en een vertraging die met de afstand oploopt (een
+   rimpeling i.p.v. zeven tegels die synchroon opschuiven). De buren mogen elkaar overlappen. */
+function pebWireHover(scope, list, onEnter, onLeave){
+  list.forEach(function(me){
+    var el = me.el;
+    if(el._scEnter) el.removeEventListener('mouseenter', el._scEnter);
+    if(el._scLeave) el.removeEventListener('mouseleave', el._scLeave);
+    el._scEnter = function(){
+      scope.classList.add('is-hovering');
+      list.forEach(function(o){
+        if(o.el === el) return;
+        var dx = o.x - me.x, dy = o.y - me.y, d = Math.sqrt(dx*dx+dy*dy) || 1;
+        var f = Math.max(0, 1 - d/ORBIT_PUSH_REACH);
+        var mag = ORBIT_PUSH_MAX * Math.pow(f, 1.35);
+        var pd = (d/2600).toFixed(3)+'s';
+        o.el.style.setProperty('--push-x', ((dx/d)*mag).toFixed(1)+'px');
+        o.el.style.setProperty('--push-y', ((dy/d)*mag).toFixed(1)+'px');
+        o.el.style.transitionDuration = '.78s,.5s';
+        o.el.style.transitionTimingFunction = '';   /* een vertrek- of aankomstcurve hoort hier niet */
+        o.el.style.transitionDelay = pd + ',' + pd;
+      });
+      if(onEnter) onEnter();
+    };
+    el._scLeave = function(){
+      scope.classList.remove('is-hovering');
+      list.forEach(function(o){
+        o.el.style.setProperty('--push-x','0px');
+        o.el.style.setProperty('--push-y','0px');
+        o.el.style.transitionDelay = '0s,0s';
+      });
+      if(onLeave) onLeave();
+    };
+    el.addEventListener('mouseenter', el._scEnter);
+    el.addEventListener('mouseleave', el._scLeave);
+  });
+}
+
+/* Een korte sprong hoort niet even lang te duren als een lange. Geven we alles dezelfde duur, dan
+   kruipt wat dichtbij ligt en jaagt wat ver moet -- en leest de hele groep als één blok dat verschuift.
+   De duur groeit dus mee met de afstand, maar sublineair (wortel): een worp over dubbele afstand duurt
+   geen dubbele tijd. */
+function pebDuur(el, x, y, basis){
+  var b = parseFloat(basis || '.8');
+  if(!el._scHome) return b.toFixed(2)+'s';
+  var dx = x - el._scHome.x, dy = y - el._scHome.y;
+  var d = Math.sqrt(dx*dx + dy*dy);
+  var f = 0.6 + 0.55*Math.sqrt(Math.min(d, 520)/520);
+  return Math.max(scT(.34), Math.min(b*1.12, b*f)).toFixed(2)+'s';
+}
+/* De cadans van een groep loopt niet gelijkmatig: bij een vaste tussenstap tikt de reeks als een
+   metronoom. De eerste vertrekken ruimer na elkaar, de laatste sluiten dichter aan -- de groep haalt
+   zichzelf in en komt samen aan. */
+function pebCadans(i, n, stap){
+  if(!stap || n < 2) return 0;
+  var t = i/(n-1);
+  return stap*(n-1)*(1 - Math.pow(1-t, 1.85));
+}
+/* een ballonnetje op zijn plaats zetten. `home` wordt bijgehouden omdat de duwberekening met die vaste
+   punten rekent en niet met gemeten posities: anders zou het zweven zichzelf voeden en gaan trillen. */
+function pebPlace(el, x, y, move, delay, arc, fade, ease){
+  if(arc && el._scHome){
+    var durMs = parseFloat(move || '.78') * 1000;
+    pebArc(el, x - el._scHome.x, y - el._scHome.y, durMs, (delay||0)*1000);
+  }
+  el._scHome = { x:x, y:y };
+  var d = (delay || 0).toFixed(3)+'s';
+  el.style.transitionDuration = (move || scTs(.78)) + ',' + (fade || scTs(.5));
+  el.style.transitionDelay = d + ',' + d;
+  /* geen curve meegegeven? dan geldt weer die uit de stylesheet */
+  el.style.transitionTimingFunction = ease ? (ease + ',ease') : '';
+  el.style.setProperty('--x', Math.round(x)+'px');
+  el.style.setProperty('--y', Math.round(y)+'px');
+  el.style.setProperty('--push-x','0px');
+  el.style.setProperty('--push-y','0px');
+}
+/* De allereerste plaatsing van een ballonnetje mag niet bewegen: zonder deze stap zou het van (0,0),
+   de linkerbovenhoek van het podium, komen aanvliegen. We zetten de waarde dan eerst zonder overgang
+   en laten pas daarna de gewone plaatsing (met haar duur en vertraging) los. */
+function pebZet(el, x, y, move, delay, arc, fade, ease){
+  if(!el._scHome){
+    el.style.transitionDuration = '0s,0s';
+    el.style.transitionDelay = '0s,0s';
+    el._scHome = { x:x, y:y };
+    el.style.setProperty('--x', Math.round(x)+'px');
+    el.style.setProperty('--y', Math.round(y)+'px');
+    void el.offsetWidth;
+  }
+  pebPlace(el, x, y, move, delay, arc, fade, ease);
+}
+/* is-in weghalen is wat een ballonnetje zichtbaar maakt. Dat moet in een volgend frame gebeuren: in
+   hetzelfde frame als de plaatsing zou de browser beide veranderingen samen doorrekenen en zou het
+   opengroeien niet te zien zijn. */
+function pebToon(el){
+  if(!el.classList.contains('is-in')) return;
+  requestAnimationFrame(function(){ el.classList.remove('is-in'); });
+}
+/* De eerste opbouw mag niet bewegen: waarden zetten met de transities uit, één reflow forceren zodat
+   de browser die stand als beginpunt neemt, en daarna pas weer aanzetten. */
+function stageInstant(fn){
+  var st = $('sc-stage');
+  if(!st){ fn(); return; }
+  st.classList.add('is-instant');
+  fn();
+  void st.offsetWidth;
+  st.classList.remove('is-instant');
+}
+/* groeirichting + hoe ver het tekstblok meezakt, afhankelijk van waar het ballonnetje staat: aan de
+   rand groeit het naar binnen, zodat het nooit tegen de rand van de kaart aan groeit. */
+function pebGrowDir(el, x, y, w, h, ext){
+  var fx = Math.max(0, Math.min(1, (x - (-ext.l)) / Math.max(1, w - ext.r + ext.l)));
+  var fy = Math.max(0, Math.min(1, (y - (-ext.t)) / Math.max(1, h - ext.b + ext.t)));
+  var ox = 50 + 34*(2*fx - 1), oy = 50 + 20*(2*fy - 1);
+  el.style.setProperty('--org-x', ox.toFixed(1)+'%');
+  el.style.setProperty('--org-y', oy.toFixed(1)+'%');
+  el.style.setProperty('--txt-y', Math.round(ORBIT_GROW_EXTRA * (1 - oy/100))+'px');
+  var sub = el.querySelector('.sc-orbit-sub');
+  if(sub){
+    var sw = sub.offsetWidth || 224, half = sw/2, pad = 6, shift = 0;
+    if(x - half < pad) shift = pad - (x - half);
+    else if(x + half > w - pad) shift = (w - pad) - (x + half);
+    el.style.setProperty('--sub-x', Math.round(shift)+'px');
+  }
+}
+
+/* welke vakken hebben in deze stap iets te tonen? Vak 0 altijd, vak 1 en 2 zodra hun vraag beantwoord
+   én gepasseerd is. Moet exact overeenkomen met wat topStrook() als markup zet. */
+/* Hoogte van de antwoordrij. Ze moet niet alleen de ballonnetjes dragen maar ook wat er bij hover
+   onder uitklapt: de chip zakt mee naar onder en daaronder verschijnt het toelichtingspaneel. Reken je
+   die ruimte niet mee, dan schuift dat paneel over de knoppenbalk en dekt het "Volgende" af. */
+function antwSlotHoogte(gr){
+  var tiles = (STAGE.antw && STAGE.antw[gr.g]) || [];
+  if(!tiles.length) return 230;
+  var top = 0, onder = 0, sub = 0;
+  tiles.forEach(function(el){
+    var ext = pebExtent(el);
+    if(-ext.t > top) top = -ext.t;
+    if(ext.b > onder) onder = ext.b;
+    var s = el.querySelector('.sc-orbit-sub');
+    if(s && s.offsetHeight > sub) sub = s.offsetHeight;
+  });
+  return Math.round(top + 8 + onder + ORBIT_GROW_EXTRA + (sub ? sub + 10 : 0) + 8);
+}
+
+/* ---- de strook bovenaan: drie vakken --------------------------------------
+   De vakken zelf staan in de stap-body (ze moeten hoogte innemen en een kader tonen); de
+   ballonnetjes wonen op het podium en worden hierheen geschoven. */
+var VAK_PAD_X = 20, VAK_PAD_TOP = 36, VAK_PAD_BOT = 18, VAK_K_MAX = 0.60;
+function vakRect(sr, i){
+  var e = document.querySelector('#sc-body .sc-topbox[data-box="'+i+'"]');
+  if(!e) return null;
+  var r = e.getBoundingClientRect();
+  if(r.width < 24) return null;                 /* een dichtgeklapt vak is geen bestemming */
+  return { x:r.left - sr.left, y:r.top - sr.top, w:r.width, h:r.height };
+}
+/* een groepje ballonnetjes netjes over een vak verdelen: één rij tot vier stuks, daarboven twee. De
+   schaal volgt uit de ruimte die elk zo krijgt, zodat het vak zo goed mogelijk gevuld raakt. */
+function vakPlaats(rect, tiles, sw, sh, plan, start){
+  var n = tiles.length, lijst = [];
+  if(!n) return lijst;
+  var rijen = n <= 4 ? 1 : 2;
+  var perRij = Math.ceil(n/rijen);
+  var cw = (rect.w - 2*VAK_PAD_X)/perRij;
+  var ch = (rect.h - VAK_PAD_TOP - VAK_PAD_BOT)/rijen;
+  var k = Math.max(.24, Math.min(VAK_K_MAX, (cw - 8)/112, (ch - 4)/112));
+  tiles.forEach(function(el, i){
+    var rij = Math.floor(i/perRij), kol = i % perRij;
+    var inRij = Math.min(perRij, n - rij*perRij);
+    var x = rect.x + rect.w/2 + (kol - (inRij-1)/2)*cw;
+    var cy = rect.y + VAK_PAD_TOP + ch*(rij + 0.5);
+    var y = cy + 56*(1 - k);        /* is-mini schaalt om de bovenrand: dit zet de blob op cy */
+    el.style.setProperty('--kmini', k.toFixed(3));
+    el.classList.add('is-mini');
+    el.classList.remove('is-off');
+    pebZet(el, x, y, pebDuur(el, x, y, plan.tileDur), start + pebCadans(i, n, plan.tileStagger||0),
+           plan.arc, null, SC_EASE_AANKOMST);
+    pebGrowDir(el, x, y, sw, sh, pebExtent(el));
+    /* de groei zit hier in --k op de tegel zelf, dus het tekstblok hoeft niet apart mee te zakken */
+    el.style.setProperty('--txt-y','0px');
+    if(el.classList.contains('is-in')) pebToon(el);
+    lijst.push({ el:el, x:x, y:y });
+  });
+  return lijst;
+}
+/* wat niet aangeduid is reist mee naar het vak en lost onderweg op -- het verdwijnt niet ter plaatse.
+   Deze groep gaat nergens staan, dus ze remt ook niet af: traag los en dan wegversnellen. */
+function vakLos(tiles, rect, sw, sh, plan){
+  var n = tiles.length;
+  tiles.forEach(function(el, i){
+    var x = rect ? rect.x + rect.w/2 : sw/2, y = rect ? rect.y + rect.h/2 : 60;
+    el.classList.add('is-mini');
+    pebZet(el, x, y, pebDuur(el, x, y, plan.tileDur),
+           plan.offStart + pebCadans(i, n, plan.tileStagger||0),
+           plan.arc, scTs(.72), SC_EASE_VERTREK);
+    el.classList.add('is-off');
+  });
+}
+/* de antwoorden van de huidige vraag, op een rij onder de vraag */
+function antwRij(st, sr, sw, sh, gr, plan){
+  var tiles = (STAGE.antw && STAGE.antw[gr.g]) || [], lijst = [];
+  var slot = document.querySelector('#sc-body [data-slot="ans"]');
+  if(!tiles.length || !slot) return lijst;
+  var r = slot.getBoundingClientRect();
+  var rx = r.left - sr.left, ry = r.top - sr.top, rw = r.width;
+  var ext = pebExtent(tiles[0]);
+  var breed = ext.r - ext.l, gap = 34, pad = Math.max(-ext.l + 8, 70);
+  var stepX = breed + gap;
+  if(tiles.length > 1 && stepX*(tiles.length-1) > rw - 2*pad) stepX = (rw - 2*pad)/(tiles.length-1);
+  var x0 = tiles.length > 1 ? rx + rw/2 - stepX*(tiles.length-1)/2 : rx + rw/2;
+  var y = ry - ext.t + 8;
+  var start = (plan.ansDelay || 0);
+  tiles.forEach(function(el, i){
+    var x = x0 + i*stepX;
+    el.classList.remove('is-mini','is-off');
+    el.style.setProperty('--kmini','1');
+    pebZet(el, x, y, scTs(.62), start + pebCadans(i, tiles.length, scT(.075)), plan.arc, null,
+           SC_EASE_POP);
+    pebGrowDir(el, x, y, sw, sh, ext);
+    pebToon(el);
+    lijst.push({ el:el, x:x, y:y });
+  });
+  return lijst;
+}
+/* een groep die nog niet aan de beurt is: onzichtbaar klaarzetten op de plek waar ze straks
+   verschijnt, zodat ze daar ter plekke opengroeit i.p.v. uit een hoek aan te komen vliegen */
+function antwParkeer(tiles, sr, sw, sh){
+  var slot = document.querySelector('#sc-body [data-slot="ans"]');
+  var x = sw/2, y = sh - 60;
+  if(slot){ var r = slot.getBoundingClientRect(); x = r.left - sr.left + r.width/2; y = r.top - sr.top + 70; }
+  tiles.forEach(function(el){
+    el.classList.remove('is-mini','is-off');
+    el.classList.add('is-in');
+    pebZet(el, x, y, scTs(.4), 0, false);
+  });
+}
+/* Een ballonnetje dat van de antwoordrij naar een vak verhuist, sleept zijn oude hover-listeners mee.
+   Die kennen nog de oude buren en zouden die blijven wegduwen. Vandaar: eerst alles losmaken, daarna
+   enkel de rij opnieuw bedraden. In de vakken staan ze te dicht op elkaar om te duwen -- daar volstaat
+   het dat het gehoverde ballonnetje groeit en bovenop komt. */
+function pebLosHover(el){
+  if(el._scEnter) el.removeEventListener('mouseenter', el._scEnter);
+  if(el._scLeave) el.removeEventListener('mouseleave', el._scLeave);
+  el._scEnter = null; el._scLeave = null;
+  el.style.setProperty('--push-x','0px');
+  el.style.setProperty('--push-y','0px');
+}
+/* alles van de strook in één keer: vak 0 met de uitdagingen, vak 1 en 2 met de gegeven antwoorden,
+   en de antwoorden van de vraag die nú op het scherm staat. */
+function stageVakken(st, sr, sw, sh, plan){
+  var rij = [];
+  var alles = STAGE.tiles.slice();
+  ANTW_GROEPEN.forEach(function(gr){ alles = alles.concat((STAGE.antw && STAGE.antw[gr.g]) || []); });
+  alles.forEach(pebLosHover);
+  st.classList.remove('is-hovering');
+
+  var v0 = vakRect(sr, 0);
+  var gekozen = STAGE.tiles.filter(function(el){ return S.complex.indexOf(el.getAttribute('data-v')) > -1; });
+  var rest = STAGE.tiles.filter(function(el){ return gekozen.indexOf(el) < 0; });
+  if(v0 && gekozen.length) vakPlaats(v0, gekozen, sw, sh, plan, plan.tileStart);
+  rest.sort(function(a,b){ return (a._scHome ? a._scHome.x : 0) - (b._scHome ? b._scHome.x : 0); });
+  vakLos(rest, v0, sw, sh, plan);
+
+  ANTW_GROEPEN.forEach(function(gr){
+    var tiles = (STAGE.antw && STAGE.antw[gr.g]) || [];
+    if(!tiles.length) return;
+    if(gr.stap === S.step){ rij = rij.concat(antwRij(st, sr, sw, sh, gr, plan)); return; }
+    var keuze = gr.lees();
+    var vak = (gr.box != null && S.step > gr.stap && keuze) ? vakRect(sr, gr.box) : null;
+    if(!vak){ antwParkeer(tiles, sr, sw, sh); return; }
+    var gek = tiles.filter(function(el){ return el.getAttribute('data-v') === keuze; });
+    var weg = tiles.filter(function(el){ return gek.indexOf(el) < 0; });
+    vakPlaats(vak, gek, sw, sh, plan, plan.tileStart);
+    vakLos(weg, vak, sw, sh, plan);
+  });
+  pebWireHover(st, rij);
+}
+
+function stageApply(prevMode){
+  var st = $('sc-stage');
+  if(!st) return;
+  stageBuild();
+  /* stapt iemand door terwijl de wissel van de tekening nog in de wacht staat, dan halen we die naar
+     voren: anders zou hij midden in de stapovergang alsnog afgaan */
+  bldgFlush();
+  /* het gebouw op het podium moet het huidige niveau/variant tonen: de slider kan het onderweg
+     veranderd hebben, en bij het openen van een stap kan de stand verschillen van wat er staat */
+  if(STAGE.lvl !== S.bldgLevel || STAGE.comm !== S.commercieel) stageBldg();
+  var mode = S.step === STAP.KAVELS ? 'kavel' : S.step === STAP.DIAGRAM ? 'orbit'
+           : (S.step >= STAP.BEHEER && S.step <= STAP.WENS) ? 'recap' : 'none';
+  var lines = $('sc-stage-lines');
+  STAGE.run++;
+  STAGE.mode = mode;
+  st.classList.toggle('is-hidden', mode === 'none');
+  if(lines) lines.classList.toggle('is-off', mode !== 'orbit');
+  if(mode === 'none' || window.innerWidth <= 640) return;
+
+  /* ---- het tempo van deze overgang ----------------------------------------
+     Elke wissel is een reeks zetten na elkaar, niet één beweging tegelijk. Van stap 2 naar 3 is de
+     hoofdbeweging "alles gaat naar boven": de ballonnetjes krimpen en trekken naar de strook, het
+     gebouw schuift daar achteraan, en pas in de ruimte die zo vrijkomt verschijnen de vraag en de
+     antwoorden. Terug van 3 naar 2 loopt dezelfde reeks in omgekeerde volgorde: eerst zakt het
+     gebouw, dan komen de ballonnetjes terug naar hun plaats, en pas als die staan tekenen de
+     lijntjes zich weer. */
+  var first = !prevMode;
+  var naarBoven  = prevMode === 'orbit'  && mode === 'recap';
+  var terugOpen  = prevMode === 'recap'  && mode === 'orbit';
+  var plan = { bldgDelay:scT(0), bldgDur:scTs(.82), tileStart:scT(0), tileStagger:scT(.055), tileDur:scTs(.8),
+               offStart:scT(0), bodyDelay:scT(0), ansDelay:scT(.06), lineDelay:scT(900), arc:!first };
+  if(first)          plan = { bldgDelay:0, bldgDur:'0s', tileStart:0, tileStagger:0, tileDur:'0s',
+                              offStart:0, bodyDelay:0, ansDelay:0, lineDelay:0, arc:false };
+  else if(naarBoven) plan.bldgDelay = scT(.2), plan.tileStart = scT(0), plan.offStart = scT(.03), plan.bodyDelay = scT(.28), plan.ansDelay = scT(.46),
+                     plan.bldgEase = SC_EASE_AANKOMST;
+  else if(terugOpen) plan.bldgDelay = scT(0), plan.tileStart = scT(.14), plan.offStart = scT(.3), plan.bodyDelay = scT(.1),
+                     plan.lineDelay = scT(1020), plan.tileEase = SC_EASE_AANKOMST;
+  /* stap 1 <-> 2 is de grote hoogtewissel. Kader, gebouw en de balk eronder delen daar dezelfde curve,
+     met de lichte terugtrek vooraf -- ze zijn één beweging, geen drie die toevallig samenvallen. */
+  else if(prevMode === 'kavel' && mode === 'orbit') plan.tileStart = scT(.18), plan.tileStagger = scT(.075),
+                     plan.bldgEase = SC_EASE_KADER;
+  else if(prevMode === 'orbit' && mode === 'kavel') plan.bodyDelay = scT(.16), plan.bldgEase = SC_EASE_KADER;
+  else if(mode === 'recap' && prevMode === 'recap') plan.tileStagger = 0, plan.tileDur = scTs(.5), plan.bodyDelay = 0, plan.ansDelay = scT(.05),
+                     plan.bldgEase = SC_EASE_KADER;
+
+  STAGE.plan = plan;
+  var body = $('sc-body');
+  if(body && !first){
+    body.classList.remove('sc-fade-in');
+    void body.offsetWidth;
+    body.style.setProperty('--sc-body-delay', plan.bodyDelay + 's');
+    body.classList.add('sc-fade-in');
+  }
+
+  /* ---- eerst de slots op maat, dan pas meten ------------------------------
+     De hoogte van het gebouw-slot volgt uit de werkelijke hoogte van de tekening, en die van de
+     antwoordrij uit de ruimte die een ballonnetje bij hover nodig heeft. Zouden we die pas na de
+     meting zetten, dan mikten alle bewegingen op de oude stand. */
+  var inkt = bldgInkt();
+  var grNu = antwGroep(S.step);
+  if(mode === 'recap'){
+    var aSlot = document.querySelector('#sc-body [data-slot="ans"]');
+    if(aSlot && grNu) aSlot.style.height = antwSlotHoogte(grNu)+'px';
+  }
+
+  var sr = st.getBoundingClientRect(), sw = sr.width, sh = sr.height;
+  function slot(name){
+    var e = document.querySelector('#sc-body [data-slot="'+name+'"]');
+    if(!e) return null;
+    var r = e.getBoundingClientRect();
+    return { top:r.top - sr.top, bottom:r.bottom - sr.top, h:r.height,
+             left:r.left - sr.left, w:r.width };
+  }
+  var bldg = $('sc-stage-bldg');
+  var os0 = slot('orbit'), bs = slot('bldg');
+  /* Het gebouw staat in elke stap ergens anders en in een ander formaat. We zetten enkel de doelwaarden;
+     de transform-transitie op het element doet het glijden. In de stappen met de strook mikken we op
+     de bovenrand van de tekening zelf (inkt.t), niet op de bovenrand van het lege kader: anders zou de
+     lucht boven een klein gebouw als een gat in de bladspiegel blijven staan. */
+  var bTarget = null;
+  if(mode === 'orbit' && os0)   bTarget = { x:sw/2, y:os0.top + os0.h - 56, k:1 };
+  else if(mode === 'recap' && bs){
+    /* Het gebouw staat nu in de rechterkolom van de strook. We schalen het zodat de tékening (niet het
+       lege kader eromheen) in dat vak past, en zetten ze er dan midden in -- horizontaal én verticaal.
+       De marges van de tekening in haar viewBox verschillen per niveau, dus dat rekenen we uit de
+       gemeten inkt i.p.v. met vaste getallen. */
+    var teken = { h:Math.max(.05, inkt.h), w:Math.max(.05, inkt.r - inkt.l) };
+    var kRec = Math.min((bs.w - RECAP_BLDG_PAD*2)/(teken.w*BLDG_BOX),
+                        (bs.h - RECAP_BLDG_PAD*2)/(teken.h*BLDG_BOX));
+    kRec = Math.max(.3, Math.min(.85, kRec));
+    var midX = bs.left + bs.w/2, midY = bs.top + bs.h/2;
+    bTarget = {
+      k: kRec,
+      /* --x is het midden van het 300px-kader; de tekening zit daar niet per se gecentreerd in */
+      x: midX - ((inkt.l + inkt.r)/2 - .5)*BLDG_BOX*kRec,
+      /* --y is de onderrand van dat kader; zo komt het midden van de tekening op het midden van het vak */
+      y: midY + (2 - inkt.t - inkt.b)/2*BLDG_BOX*kRec
+    };
+  }
+  else if(bs){
+    var kKavel = Math.max(.4, Math.min(1, (bs.h - 6)/BLDG_BOX));
+    /* de grondlijn van de tekening op de onderrand van het slot, niet de onderrand van het kader */
+    bTarget = { x:sw/2, y: bs.bottom - 2 + (1 - inkt.b)*BLDG_BOX*kKavel, k:kKavel };
+  }
+
+  function zetten(){
+    if(bTarget && bldg){
+      bldg.style.setProperty('--x', Math.round(bTarget.x)+'px');
+      /* omgerekend naar afstand tot de onderrand (zie top:100% in de stylesheet) */
+      bldg.style.setProperty('--y', Math.round(bTarget.y - sh)+'px');
+      bldg.style.setProperty('--k', bTarget.k.toFixed(3));
+      bldg.style.transitionDuration = plan.bldgDur;
+      bldg.style.transitionDelay = plan.bldgDelay + 's';
+      /* Het gebouw volgt de ballonnetjes achterna en moet ergens gaan staan: het remt dus af i.p.v.
+         symmetrisch te glijden. Op de terugweg vertrekt het als eerste en mag de anticipatie van de
+         gewone verplaatsingscurve wel. */
+      bldg.style.transitionTimingFunction = plan.bldgEase ? (plan.bldgEase + ',ease') : '';
+      /* het kader neemt deze timing letterlijk over -- duur, vertraging én curve -- zodat hoogte en
+         gebouw in de pas blijven lopen */
+      STAGE.kaderDur = parseFloat(plan.bldgDur);
+      STAGE.kaderWacht = plan.bldgDelay || 0;
+      STAGE.kaderEase = plan.bldgEase || SC_EASE_MOVE;
+      if(!first && (naarBoven || terugOpen)) bldgSettle($('sc-bldg-img'), parseFloat(plan.bldgDur)*1000, plan.bldgDelay*1000);
+    }
+    if(mode === 'kavel'){
+      /* De terugweg gaat naar binnen én naar beneden: de onderste ballonnetjes vertrekken eerst en de
+         beweging werkt zich naar boven op. Ze gaan nergens staan maar verdwijnen in het gebouw: geen
+         afremmen, wel wegversnellen. De duur volgt de afstand -- zetten we die gelijk, dan komen ze
+         allemaal op hetzelfde moment in het midden aan en moet het verste ballonnetje het hardst
+         vliegen. Het wegvagen duurt langer dan de vlucht, zodat ze zichtbaar in het gebouw krimpen
+         i.p.v. onderweg al op te lossen. */
+      var doelX = sw/2, doelY = (bs ? bs.bottom - 120 : sh/2);
+      var orde = STAGE.tiles.map(function(el){
+        return { el:el, y:(el._scHome ? el._scHome.y : 0) };
+      }).sort(function(a, b){ return b.y - a.y; });
+      var nUit = orde.length;
+      orde.forEach(function(o, rang){
+        var el = o.el;
+        el.classList.add('is-in');
+        el.classList.remove('is-mini','is-off');
+        var dur = pebDuur(el, doelX, doelY, scTs(.62));
+        pebZet(el, doelX, doelY, dur, plan.tileStart + rang*scT(.06), plan.arc,
+               (parseFloat(dur)*1.7).toFixed(2)+'s',
+               prevMode === 'orbit' ? SC_EASE_VERTREK : null);
+      });
+      ANTW_GROEPEN.forEach(function(gr){ antwParkeer((STAGE.antw && STAGE.antw[gr.g]) || [], sr, sw, sh); });
+      return;
+    }
+    if(mode === 'recap'){
+      stageVakken(st, sr, sw, sh, plan);
+      return;
+    }
+    var os = slot('orbit');
+    if(!os) return;
+    STAGE.tiles.forEach(function(el){ el.classList.remove('is-mini','is-off'); });
+    ANTW_GROEPEN.forEach(function(gr){ antwParkeer((STAGE.antw && STAGE.antw[gr.g]) || [], sr, sw, sh); });
+    orbitLayout(st, sw, sh, os, prevMode !== 'orbit', bTarget, plan);
+  }
+  if(first) stageInstant(zetten); else zetten();
+}
+
+/* ==========================================================================
+   Het diagram van stap 2: zeven ballonnetjes in een hoefijzer rond het gebouw, elk met een gestippeld
+   lijntje naar zijn eigen pin in de tekening.
+   ========================================================================== */
+function orbitLayout(st, sw, sh, os, entering, bTarget, plan){
+  plan = plan || { tileStart:0, tileStagger:scT(.055), tileDur:scTs(.8), lineDelay:scT(900), arc:false };
+  var runId = STAGE.run;
+  var linesSvg = $('sc-stage-lines');
+  linesSvg.setAttribute('width', sw);
+  linesSvg.setAttribute('height', sh);
+  var bldgEl = $('sc-stage-bldg');
+  var sr = st.getBoundingClientRect();
+  var cx = bTarget ? bTarget.x : sw/2;
+  /* De pinnen worden niet rechtstreeks opgemeten: op dit moment glijdt het gebouw nog naar zijn nieuwe
+     plaats, dus een meting zou de halve animatie opleveren. We meten de stand van elke pin t.o.v. het
+     ongeschaalde kader (delen door de schaal die het gebouw nu heeft) en rekenen daarmee de plaats uit
+     die de pin in de eindstand zal hebben. */
+  var br = bldgEl.getBoundingClientRect();
+  var kNow = (br.width/300) || 1;
+  var bcx = br.left + br.width/2 - sr.left, bcy = br.bottom - sr.top;
+  var bTx = bTarget ? bTarget.x : bcx, bTy = bTarget ? bTarget.y : bcy, bTk = bTarget ? bTarget.k : kNow;
+
+  var pins = BEHOEFTEN_PIN_IDS.map(function(id, idx){
+    var pinEl = bldgEl.querySelector('#pin-'+id);
+    var tileEl = st.querySelector('.sc-orbit-tile[data-v="'+id+'"]');
+    if(!pinEl || !tileEl) return null;
+    var pr = pinEl.getBoundingClientRect();
+    var ox = (pr.left + pr.width/2 - sr.left - bcx)/kNow, oy = (pr.top + pr.height/2 - sr.top - bcy)/kNow;
+    var px = bTx + ox*bTk, py = bTy + oy*bTk;
+    /* vaste, lichtjes wisselende uitbuiging per lijntje voor een organisch "freehand" effect --
+       stabiel per pin (niet elke render opnieuw willekeurig) zodat het niet knippert bij hertekenen */
+    var bend = (idx % 2 === 0 ? 1 : -1) * (9 + (idx*7) % 11);
+    return { tileEl:tileEl, blobEl:tileEl.querySelector('.sc-orbit-blobin'), px:px, py:py, bend:bend };
+  }).filter(Boolean);
+  var n = pins.length;
+  if(!n) return;
+
+  var ext = pebExtent(pins[0].tileEl);
+  var halfW = (ext.r - ext.l)/2 + 3, halfH = (ext.b - ext.t)/2 + 3;
+
+  var usable = Math.max(60, sw/2 - Math.max(-ext.l, ext.r) - ORBIT_INSET);
+  var targets = ORBIT_ANCHORS.slice(0, n).map(function(a){
+    return { x: cx + a.kx*usable, y: os.top + a.y };
+  });
+
+  /* Veiligheidsnet. Bij deze ankers hoort dit niets meer te doen, maar legt een thema andere
+     lettergroottes op (hogere chips), dan mag er nooit overlap of uitsteek ontstaan. De toets is
+     rechthoekig, niet cirkelvormig: twee vierkant-achtige ballonnetjes raken elkaar op de diagonaal
+     nog terwijl hun hart-tot-hart-afstand ruim genoeg lijkt. */
+  var minX = -ext.l + 2, maxX = sw - ext.r - 2;
+  var minY = os.top - ext.t + 2, maxY = os.top + os.h - ext.b - 2;
+  for(var pass=0; pass<60; pass++){
+    var moved = false;
+    for(var gi=0; gi<n; gi++){
+      for(var gj=gi+1; gj<n; gj++){
+        var a = targets[gi], b = targets[gj];
+        var ddx = b.x-a.x, ddy = b.y-a.y;
+        var ox = 2*halfW - Math.abs(ddx), oy = 2*halfH - Math.abs(ddy);
+        if(ox > 0 && oy > 0){
+          /* duw langs de as die het snelst uit elkaar leidt; langs de diagonaal duwen zou de rijen
+             van de bedoelde compositie door elkaar halen */
+          if(ox <= oy){ var sx = (ddx < 0 ? -1 : 1) * (ox/2 + 1); a.x -= sx; b.x += sx; }
+          else { var sy = (ddy < 0 ? -1 : 1) * (oy/2 + 1); a.y -= sy; b.y += sy; }
+          moved = true;
+        }
+      }
+    }
+    for(var gk=0; gk<n; gk++){
+      var t = targets[gk], px0 = t.x, py0 = t.y;
+      t.x = Math.max(minX, Math.min(maxX, t.x));
+      t.y = Math.max(minY, Math.min(maxY, t.y));
+      if(t.x !== px0 || t.y !== py0) moved = true;
+    }
+    if(!moved) break;
+  }
+
+  function permute(arr){
+    if(arr.length <= 1) return [arr];
+    var out = [];
+    arr.forEach(function(item, i){
+      var rest = arr.slice(0,i).concat(arr.slice(i+1));
+      permute(rest).forEach(function(p){ out.push([item].concat(p)); });
+    });
+    return out;
+  }
+  function segCross(a1,a2,b1,b2){
+    function ccw(a,b,c){ return (c.y-a.y)*(b.x-a.x) > (b.y-a.y)*(c.x-a.x); }
+    return ccw(a1,b1,b2) !== ccw(a2,b1,b2) && ccw(a1,a2,b1) !== ccw(a1,a2,b2);
+  }
+  function pointSegDist(p, a, b){
+    var vx = b.x-a.x, vy = b.y-a.y, wx = p.x-a.x, wy = p.y-a.y;
+    var len2 = vx*vx + vy*vy;
+    var tt = len2 ? Math.max(0, Math.min(1, (wx*vx + wy*vy)/len2)) : 0;
+    var dx = wx - tt*vx, dy = wy - tt*vy;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+  function segDist(a1,a2,b1,b2){
+    if(segCross(a1,a2,b1,b2)) return 0;
+    return Math.min(pointSegDist(a1,b1,b2), pointSegDist(a2,b1,b2),
+                    pointSegDist(b1,a1,a2), pointSegDist(b2,a1,a2));
+  }
+  /* Uitputtende zoektocht naar de koppeling pin->ankerpunt. Bij zeven punten zijn alle 5040 volgordes
+     in een oogwenk te proberen, en meetkundig bestaat er voor twee puntenreeksen altijd wel een
+     kruisingsvrije koppeling. Niet kruisen is echter niet genoeg: twee lijnen die op een paar px van
+     elkaar lopen kruisen alsnog zodra de ballonnetjes zweven of bij hover verschuiven. Daarom weegt de
+     score ook de onderlinge afstand, en pas als alles ruim genoeg ligt beslist de "logische waaier":
+     pins gerangschikt op hun hoek t.o.v. het zwaartepunt van alle pins, vanaf linksonder met de klok
+     mee over de bovenkant naar rechtsonder -- dezelfde route die de slinger zelf aflegt. */
+  var pinCxx = pins.reduce(function(s,p){ return s+p.px; }, 0)/n;
+  var pinCyy = pins.reduce(function(s,p){ return s+p.py; }, 0)/n;
+  function fanAngle(p){
+    var a = Math.atan2(p.py-pinCyy, p.px-pinCxx) * 180/Math.PI;
+    return (a - 90 + 360) % 360;
+  }
+  var pxOrder = pins.map(function(p,i){ return i; }).sort(function(a,b){ return fanAngle(pins[a])-fanAngle(pins[b]); });
+  var rankOfPin = new Array(n);
+  pxOrder.forEach(function(pinIdx, rank){ rankOfPin[pinIdx] = rank; });
+
+  var perms = permute(targets.map(function(_,i){ return i; }));
+  var bestPerm = perms[0], bestCross = Infinity, bestScore = Infinity;
+  for(var pi=0; pi<perms.length; pi++){
+    var perm = perms[pi], cross = 0;
+    for(var i=0; i<n; i++){
+      for(var j=i+1; j<n; j++){
+        if(segCross({x:pins[i].px,y:pins[i].py}, targets[perm[i]], {x:pins[j].px,y:pins[j].py}, targets[perm[j]])) cross++;
+      }
+    }
+    if(cross > bestCross) continue;
+    var pen = 0;
+    for(var qa=0; qa<n; qa++){
+      for(var qb=qa+1; qb<n; qb++){
+        var gap = segDist({x:pins[qa].px,y:pins[qa].py}, targets[perm[qa]],
+                          {x:pins[qb].px,y:pins[qb].py}, targets[perm[qb]]);
+        if(gap < ORBIT_LINE_GAP){ var e = ORBIT_LINE_GAP - gap; pen += e*e; }
+      }
+    }
+    var cost = 0;
+    for(var k=0; k<n; k++){ var dd = rankOfPin[k]-perm[k]; cost += dd*dd; }
+    var score = pen*4 + cost;
+    if(cross < bestCross || score < bestScore){ bestCross = cross; bestScore = score; bestPerm = perm; }
+  }
+
+  var list = [];
+  /* van links naar rechts vertrekken, als pionnen die na elkaar verzet worden */
+  var xOrder = pins.map(function(p,i){ return i; }).sort(function(a,b){ return targets[bestPerm[a]].x - targets[bestPerm[b]].x; });
+  var rankOfTile = new Array(n);
+  xOrder.forEach(function(idx, rank){ rankOfTile[idx] = rank; });
+  pins.forEach(function(p, i){
+    var t = targets[bestPerm[i]];
+    p.home = t;
+    var rank = rankOfTile[i];
+    /* Komen ze terug van de herinneringsstrook, dan gaan ze ergens staan en remmen ze dus af, in
+       dezelfde ongelijke cadans als op de heenweg. Vanuit stap 1 waaieren ze open en houden ze de
+       gewone verplaatsingscurve met haar kleine terugtrek. */
+    var vertraag = plan.tileEase
+      ? pebCadans(rank, n, plan.tileStagger || 0)
+      : rank*(plan.tileStagger || 0);
+    var dur = plan.tileEase
+      ? pebDuur(p.tileEl, t.x, t.y, plan.tileDur || '.78s')
+      : (plan.tileDur || (entering ? scTs(.7) : scTs(.78)));
+    pebPlace(p.tileEl, t.x, t.y, dur, (plan.tileStart || 0) + vertraag, plan.arc, null, plan.tileEase);
+    pebGrowDir(p.tileEl, t.x, t.y, sw, sh, ext);
+    list.push({ el:p.tileEl, x:t.x, y:t.y });
+  });
+
+  /* Bij het binnenkomen staan ze eerst onzichtbaar, ietsje kleiner en een tikje lager klaar; ze komen
+     daarna één voor één naar boven op hun plaats. De vertraging per ballonnetje zit al in --push-delay
+     (zie pebPlace), zodat verplaatsen en opkomen exact hetzelfde tempo volgen. */
+  if(entering){
+    pins.forEach(function(p){ p.tileEl.classList.add('is-in'); });
+    void st.offsetWidth;
+    requestAnimationFrame(function(){
+      if(runId !== STAGE.run) return;
+      pins.forEach(function(p){ p.tileEl.classList.remove('is-in'); });
+    });
+  } else {
+    pins.forEach(function(p){ p.tileEl.classList.remove('is-in'); });
+  }
+
+  var lineHtml = '';
+  pins.forEach(function(p, i){
+    lineHtml += '<path data-i="'+i+'" d="" fill="none" stroke="#a9c7dc" stroke-width="1.4" stroke-dasharray="0.5 5" stroke-linecap="round"/>'+
+                '<circle cx="'+p.px+'" cy="'+p.py+'" r="2.3" fill="#a9c7dc" opacity="0"/>';
+  });
+  linesSvg.innerHTML = lineHtml;
+  var lineEls = linesSvg.querySelectorAll('path');
+  var dotEls = linesSvg.querySelectorAll('circle');
+
+  /* Naregeling op de kromming: de kruisingsvrije koppeling is gerekend op rechte verbindingen, maar er
+     worden gebogen lijntjes getekend, en twee bijna-parallelle lijnen kunnen door hun uitbuiging tóch
+     kruisen. Zolang twee krommen elkaar snijden of te dicht bij elkaar komen, halveren we hun
+     uitbuiging; bij uitbuiging 0 valt een kromme samen met haar rechte verbinding, en die kruisen per
+     constructie niet -- dus dit eindigt altijd. */
+  function restEnd(p){
+    var t = p.home, r = p.blobEl ? p.blobEl.getBoundingClientRect() : null;
+    var half = r ? r.width/2 : 56;
+    var dx = t.x-p.px, dy = t.y-p.py, dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    var pull = Math.min(half + 7, dist*0.62);
+    return { x: t.x - (dx/dist)*pull, y: t.y - (dy/dist)*pull, dx:dx, dy:dy, dist:dist };
+  }
+  function curvePts(p, bend){
+    var e = restEnd(p);
+    var mx = (p.px+e.x)/2, my = (p.py+e.y)/2;
+    var nx = -e.dy/e.dist, ny = e.dx/e.dist;
+    var cxp = mx + nx*bend, cyp = my + ny*bend;
+    var out = [];
+    for(var k=0;k<=28;k++){
+      var u = k/28, iu = 1-u;
+      out.push({ x: iu*iu*p.px + 2*iu*u*cxp + u*u*e.x, y: iu*iu*p.py + 2*iu*u*cyp + u*u*e.y });
+    }
+    return out;
+  }
+  function tooClose(A,B){
+    for(var a=0;a<A.length-1;a++) for(var b=0;b<B.length-1;b++)
+      if(segCross(A[a],A[a+1],B[b],B[b+1])) return true;
+    for(var i2=0;i2<A.length;i2++) for(var j2=0;j2<B.length;j2++){
+      var dx2 = A[i2].x-B[j2].x, dy2 = A[i2].y-B[j2].y;
+      if(dx2*dx2 + dy2*dy2 < 196) return true; /* < 14px van elkaar */
+    }
+    return false;
+  }
+  for(var relax=0; relax<6; relax++){
+    var curves = pins.map(function(p){ return curvePts(p, p.bend); });
+    var clash = false;
+    for(var ci=0; ci<n; ci++){
+      for(var cj=ci+1; cj<n; cj++){
+        if(tooClose(curves[ci], curves[cj])){ pins[ci].bend *= 0.5; pins[cj].bend *= 0.5; clash = true; }
+      }
+    }
+    if(!clash) break;
+  }
+
+  /* De lijntjes hangen letterlijk aan de ballonnetjes: elk frame wordt het echte, actuele middelpunt
+     van de blob opgemeten en het lijntje bijgewerkt, zodat het meebeweegt met het zweven, het groeien
+     bij hover en de duw van de buren. `reveal` laat een lijntje bij het binnenkomen van de stap groeien
+     vanaf het ballonnetje naar het gebouw: we splitsen de bezier op parameter u (de Casteljau) en
+     tekenen enkel het stuk dat al "geschreven" is. */
+  var reveal = { t0: (entering ? now() + (plan.lineDelay || 900) : 0), dur: 460, stagger: 70 };
+  var revOrder = pins.map(function(p,i){ return i; }).sort(function(a,b){ return pins[a].home.x - pins[b].home.x; });
+  var revRank = new Array(n);
+  revOrder.forEach(function(idx, rank){ revRank[idx] = rank; });
+
+  function updateLine(i){
+    var p = pins[i], path = lineEls[i], dot = dotEls[i];
+    if(!path) return;
+    var r = 1;
+    if(reveal.t0){
+      r = (now() - reveal.t0 - revRank[i]*reveal.stagger) / reveal.dur;
+      r = Math.max(0, Math.min(1, r));
+    }
+    if(r <= 0){ path.setAttribute('d',''); if(dot) dot.setAttribute('opacity','0'); return; }
+    var tr = (p.blobEl || p.tileEl).getBoundingClientRect();
+    var bx = tr.left + tr.width/2 - sr.left, by = tr.top + tr.height/2 - sr.top;
+    var dx = bx-p.px, dy = by-p.py, dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    var pullback = Math.min(tr.width/2 + 7, dist*0.62);
+    var ex = bx - (dx/dist)*pullback, ey = by - (dy/dist)*pullback;
+    var mx = (p.px+ex)/2, my = (p.py+ey)/2;
+    var nx = -dy/dist, ny = dx/dist;
+    var ccx = mx + nx*p.bend, ccy = my + ny*p.bend;
+    if(r >= 1){
+      path.setAttribute('d', 'M'+p.px+' '+p.py+' Q '+ccx+' '+ccy+' '+ex+' '+ey);
+    } else {
+      /* enkel het laatste stuk (vanaf het ballonnetje) is al getekend */
+      var u = 1 - r, iu = 1 - u;
+      var sx = iu*iu*p.px + 2*iu*u*ccx + u*u*ex, sy = iu*iu*p.py + 2*iu*u*ccy + u*u*ey;
+      var c2x = ccx + u*(ex-ccx), c2y = ccy + u*(ey-ccy);
+      path.setAttribute('d', 'M'+sx+' '+sy+' Q '+c2x+' '+c2y+' '+ex+' '+ey);
+    }
+    if(dot) dot.setAttribute('opacity', r >= 0.995 ? '1' : '0');
+  }
+  pins.forEach(function(p,i){ updateLine(i); });
+
+  /* De lus draait zolang dit diagram in beeld staat: de ballonnetjes blijven traag zweven, dus de
+     lijntjes moeten blijven volgen. Hij stopt zichzelf zodra de stap wisselt of er een nieuwe lay-out
+     gebeurt. Bij "reduce motion" staat het zweven uit en volstaat tekenen tijdens hover. */
+  var reduce = false;
+  try{ reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  var rafId = null, stopTimer = null;
+  function tick(){
+    if(runId !== STAGE.run || !st.parentNode){ rafId = null; return; }
+    pins.forEach(function(p,i){ updateLine(i); });
+    rafId = requestAnimationFrame(tick);
+  }
+  function startTicking(){ if(stopTimer){ clearTimeout(stopTimer); stopTimer = null; } if(!rafId) tick(); }
+  function stopTickingSoon(){
+    if(!reduce) return;
+    if(stopTimer) clearTimeout(stopTimer);
+    stopTimer = setTimeout(function(){ if(rafId){ cancelAnimationFrame(rafId); rafId = null; } }, 700);
+  }
+  startTicking();
+  pebWireHover(st, list, startTicking, stopTickingSoon);
+}
+function now(){ return (window.performance && performance.now) ? performance.now() : +new Date(); }
+
+var _scResizeBound = false;
+function stageResizeBind(){
+  if(_scResizeBound) return;
+  _scResizeBound = true;
+  scGutter();
+  window.addEventListener('resize', function(){
+    if(!STAGE.built) return;
+    stageApply(STAGE.mode);      /* zelfde modus: herplaatsen zonder de intro-choreografie */
+  });
+}
+/* ---- de sprong van de paginascrollbar wegnemen ----------------------------
+   Elke stap is een andere hoogte. Wordt de pagina daardoor korter dan het venster, dan verdwijnt de
+   scrollbar, wordt het venster een pixel of vijftien breder, en schaalt de kaart mee -- precies
+   terwijl er een animatie loopt. Dat is het schokje. scrollbar-gutter:stable houdt die strook altijd
+   vrij, ook als er niets te scrollen valt, zodat de breedte nooit verspringt. Kan de browser dat niet,
+   dan vragen we in de plaats een altijd zichtbare scrollbar: ook dan blijft de breedte gelijk.
+   Dit is het enige dat de calculator buiten #sc-calc aanraakt. Zet SC_GUTTER op false om het te laten. */
+var SC_GUTTER = true;
+function scGutter(){
+  if(!SC_GUTTER) return;
+  var d = document.documentElement;
+  if(!d) return;
+  if(window.CSS && CSS.supports && CSS.supports('scrollbar-gutter','stable')) d.style.scrollbarGutter = 'stable';
+  else if(!d.style.overflowY) d.style.overflowY = 'scroll';
+}
+/* Selectie zichtbaar maken op alle kopieën tegelijk: de ballonnetjes op het podium, de gestapelde
+   lijst voor smalle schermen en de antwoordrij staan in verschillende containers. `groep` is nodig
+   sinds alle ballonnetjes samen op het podium leven: zonder die grens zou het aanduiden van een
+   antwoord de herinnerde uitdagingen bovenaan ontvinken (en omgekeerd). */
+function syncSel(vals, enableNext, groep){
+  var card = $('sc-card');
+  if(!card) return;
+  Array.prototype.forEach.call(card.querySelectorAll('[data-v]'), function(el){
+    if(!el.classList.contains('sc-orbit-tile') && !el.classList.contains('sc-opt') &&
+       !el.classList.contains('sc-tile') && !el.classList.contains('sc-geen-btn')) return;
+    var g = el.getAttribute('data-g');
+    if(groep && g && g !== groep) return;
+    var sel = vals.indexOf(el.getAttribute('data-v')) > -1;
+    el.classList.toggle('is-sel', sel);
+    el.setAttribute('aria-pressed', sel ? 'true' : 'false');
+  });
+  var nextBtn = $('sc-next');
+  if(nextBtn) nextBtn.disabled = !enableNext;
+}
+function mobBldg(pop){
+  var el = document.querySelector('#sc-body .sc-mob-bldg');
+  if(!el) return;
+  el.innerHTML = stripPins(bouwIll(S.bldgLevel, S.commercieel));
+  if(pop) bldgAnim(el, 'sc-pop');
+}
+function bind(){
+  stageResizeBind();
+  var range = $('sc-range');
+  if(range) range.addEventListener('input', function(){
+    S.kavels = parseInt(range.value,10);
+    $('sc-kv').textContent = S.kavels;
+    $('sc-kv-u').textContent = S.kavels >= 60 ? 'kavels of meer' : 'kavels';
+    var nieuwNiveau = bouwNiveau(S.kavels);
+    if(nieuwNiveau !== S.bldgLevel){
+      var vorigNiveau = S.bldgLevel;
+      S.bldgLevel = nieuwNiveau;
+      bldgNiveauWissel(vorigNiveau, nieuwNiveau);
+    }
+  });
+
+  var commercieel = $('sc-commercieel');
+  if(commercieel) commercieel.addEventListener('click', function(){
+    S.commercieel = !S.commercieel;
+    commercieel.classList.toggle('is-on', S.commercieel);
+    commercieel.setAttribute('aria-pressed', S.commercieel ? 'true' : 'false');
+    bldgCommWissel();
+  });
+
+  /* De klikafhandeling hangt aan de kaart, niet aan de stap-body: de ballonnetjes van het diagram
+     staan immers op het podium, buiten die body. Eenmalig, dus geen dubbele listeners bij re-render. */
+  var card = $('sc-card');
+  if(card && !card._scClick){
+    card._scClick = true;
+    card.addEventListener('click', function(ev){
+      var b = ev.target.closest ? ev.target.closest('.sc-opt, .sc-tile, .sc-orbit-tile, .sc-geen-btn') : null;
+      if(!b) return;
+      var v = b.getAttribute('data-v');
+      if(v == null) return;
+      /* een ballonnetje uit een ander vak (een herinnerde uitdaging, een eerder antwoord) is hier
+         enkel nog een herinnering: aanwijzen mag, aanklikken doet niets */
+      var g = b.getAttribute('data-g');
+      var hoort = antwGroep(S.step);
+      if(g && g !== (S.step === STAP.DIAGRAM ? 'nood' : (hoort ? hoort.g : g))) return;
+      if(S.step === STAP.DIAGRAM){
+        var opt = BEHOEFTEN_OPTS.filter(function(o){ return o.v === v; })[0];
+        if(!opt) return;
+        if(opt.exclusive){
+          S.complex = (S.complex.length === 1 && S.complex[0] === v) ? [] : [v];
+        } else {
+          S.complex = S.complex.filter(function(x){
+            return !BEHOEFTEN_OPTS.filter(function(o){ return o.v === x; })[0].exclusive; });
+          var i = S.complex.indexOf(v);
+          if(i > -1) S.complex.splice(i,1); else S.complex.push(v);
+        }
+        syncSel(S.complex, S.complex.length > 0, 'nood');
+        return;   /* geen re-render: dat zou het element onder de muis vernietigen en de hover-animatie afbreken */
+      }
+      if(S.step === STAP.BEHEER){ S.beheerNu   = v; syncSel([v], true, 'nu');   return; }
+      if(S.step === STAP.WENS)  { S.beheerWens = v; syncSel([v], true, 'wens'); return; }
+      if(S.step === STAP.ALT)   { S.formule  = v; S.override = true; render(); }
+    });
+  }
+
+  var back = $('sc-back');
+  if(back && !back._scBound){
+    back._scBound = true;   /* de blijvende balk overleeft elke render: niet elke keer opnieuw koppelen */
+    back.addEventListener('click', function(){ go(S.step === STAP.ALT ? STAP.RESULTAAT : Math.max(0, S.step-1)); });
+  }
+  var alt = $('sc-alt');
+  if(alt) alt.addEventListener('click', function(){ go(STAP.ALT); });
+  var skip = $('sc-skip');
+  if(skip) skip.addEventListener('click', function(){ go(STAP.KLAAR); });
+
+  var next = $('sc-next');
+  if(next && !next._scBound){
+    next._scBound = true;
+    next.addEventListener('click', function(){
+      if(S.step === STAP.RESULTAAT) return submitLead(next, 'offerte');
+      if(S.step === STAP.EXTRA)     return submitExtra(next);
+      if(S.step === STAP.ALT)       return go(STAP.RESULTAAT);
+      go(S.step + 1);
+    });
+  }
+  /* de tweede CTA op de resultaatstap: voorlopig hetzelfde formulier, enkel met een ander intent-
+     vlaggetje (calc_gewenst_actie) -- klaar om later aan een echte scheduler te koppelen. */
+  var gesprek = $('sc-gesprek');
+  if(gesprek && !gesprek._scBound){
+    gesprek._scBound = true;
+    gesprek.addEventListener('click', function(){ submitLead(gesprek, 'gesprek'); });
+  }
+  var contactRadios = document.querySelectorAll('#sc-body input[name="sc-contact"]');
+  contactRadios.forEach(function(r){ r.addEventListener('change', function(){ S.contact = r.value; }); });
+}
+
+/* ==========================================================================
+   8. PAYLOAD EN VERZENDEN
+   ========================================================================== */
+function payload(fase){
+  var p = S.prijs || {}, c = complexNiveau(), uu = p.uren || {}, sc = formuleScore();
+  function lbl(arr, v){ var m = arr.filter(function(o){ return o.v === v; })[0]; return m ? m.t : ''; }
+  return {
+    form_id: CFG.FORMINATOR_FORM_ID,
+    form_title: 'Syndicoach formule-finder',
+    calc_fase: fase,
+    calc_versie: CFG.VERSION,
+    calc_source_url: (location && location.href) || '',
+    calc_duur_sec: String(Math.round((Date.now() - S.t0)/1000)),
+
+    calc_email: S.email, calc_naam: S.naam, calc_telefoon: S.tel,
+    calc_consent: S.consent ? 'ja' : 'nee',
+    calc_contactvoorkeur: S.contact || '',
+    calc_gewenst_actie: S.ctaActie || '',
+
+    calc_kavels: String(S.kavels),
+    calc_commercieel: S.commercieel ? 'ja' : 'nee',
+    calc_beheer_nu: S.beheerNu || '',
+    calc_beheer_nu_label: lbl(BEHEER_NU_OPTS, S.beheerNu),
+    calc_beheer_wens: S.beheerWens || '',
+    calc_beheer_wens_label: lbl(BEHEER_WENS_OPTS, S.beheerWens),
+    calc_complexiteit_items: S.complex.join(', '),
+    calc_complexiteit_score: String(c.score),
+    calc_complexiteit_niveau: c.niveau,
+
+    calc_formule: S.formule || '',
+    calc_formule_label: S.formule ? FORMULES[S.formule].naam : '',
+    calc_formule_advies: kiesFormule(),
+    calc_formule_gewijzigd: S.override ? 'ja' : 'nee',
+    /* de opbouw van de score gaat mee: op echte inzendingen zie je zo hoe de verdeling loopt en of
+       de drempels in FORMULE_WEGING nog kloppen */
+    calc_score_totaal: String(sc.totaal),
+    calc_score_kavels: String(sc.kavels),
+    calc_score_uitdagingen: String(sc.uitdagingen),
+    calc_score_commercieel: String(sc.commercieel),
+    calc_score_beheer_nu: String(sc.beheerNu),
+    calc_score_beheer_wens: String(sc.beheerWens),
+
+    calc_licentie_tier: p.licentie_tier || '',
+    calc_tool_pm: p.tool_pm ? num(p.tool_pm) : '',
+    calc_uren_opstart: uu.opstart ? num(uu.opstart) : '',
+    calc_uren_beheer_pm: uu.beheer_pm ? num(uu.beheer_pm) : '',
+    calc_uren_av: uu.av ? num(uu.av) : '',
+    calc_uren_coaching_pj: uu.coaching_pj ? num(uu.coaching_pj) : '',
+    calc_beheer_pj_excl: p.beheer_pj_excl ? String(Math.round(p.beheer_pj_excl)) : '',
+    calc_opstart_excl: p.opstart_excl ? String(Math.round(p.opstart_excl)) : '',
+    calc_jaar1: p.jaar1 ? String(Math.round(p.jaar1)) : '',
+    calc_jaar2: p.jaar2 ? String(Math.round(p.jaar2)) : '',
+    calc_prijs_kavel_pm: p.pkpm ? num(p.pkpm) : '',
+
+    calc_vme_naam: S.extra.vme || '', calc_adres: S.extra.adres || '',
+    calc_postcode: S.extra.postcode || '', calc_bouwjaar: S.extra.bouwjaar || '',
+    calc_rol: S.extra.rol || '', calc_huidige_syndicus: S.extra.syndicus || '',
+    calc_overstap_termijn: S.extra.start || '', calc_opmerking: S.extra.vraag || ''
+  };
+}
+
+/* Buffer: mislukt verzenden, dan bewaren en opnieuw proberen bij de volgende
+   paginaweergave. Zo verlies je geen leads aan een netwerkhik. */
+var BUF = 'sc_calc_queue_v1';
+function queue(d){ try{ var qq = JSON.parse(localStorage.getItem(BUF)||'[]');
+  qq.push({t:Date.now(), d:d}); localStorage.setItem(BUF, JSON.stringify(qq.slice(-10))); }catch(e){} }
+function flushQueue(){
+  var qq; try{ qq = JSON.parse(localStorage.getItem(BUF)||'[]'); }catch(e){ return; }
+  if(!qq.length) return;
+  localStorage.removeItem(BUF);
+  qq.forEach(function(it){ postWorker(it.d).catch(function(){ queue(it.d); }); });
+}
+
+function postWorker(d){
+  if(!CFG.WORKER_URL || CFG.WORKER_URL.indexOf('JOUW-WORKER-HOST') > -1){
+    console.warn('[sc-calc] WORKER_URL niet ingevuld. Payload:', d);
+    return Promise.resolve({skipped:true});
+  }
+  var url = CFG.WORKER_URL + (CFG.WORKER_TOKEN
+    ? (CFG.WORKER_URL.indexOf('?') > -1 ? '&' : '?') + 'token=' + encodeURIComponent(CFG.WORKER_TOKEN) : '');
+  return fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, keepalive:true,
+    body: JSON.stringify({ form_id:d.form_id, form_title:d.form_title, form_fields:d })
+  }).then(function(r){ if(!r.ok) throw new Error('worker '+r.status); return r.json().catch(function(){ return {}; }); });
+}
+
+function postForminator(d){
+  var form = document.querySelector('form[data-sc-forminator]') ||
+             document.querySelector('#forminator-module-'+CFG.FORMINATOR_FORM_ID+' form') ||
+             document.querySelector('.forminator-custom-form');
+  if(!form){ console.warn('[sc-calc] geen Forminator-formulier gevonden'); return Promise.resolve({skipped:true}); }
+  Object.keys(d).forEach(function(k){
+    var el = form.querySelector('[data-sc="'+k+'"]') || form.querySelector('[name="'+k+'"]');
+    if(el){ el.value = d[k];
+      try{ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }catch(e){}
+    } else { console.info('[sc-calc] Forminator-veld ontbreekt:', k); }
+  });
+  var btn = form.querySelector('button[type=submit], .forminator-button-submit');
+  if(btn) btn.click(); else if(form.requestSubmit) form.requestSubmit(); else form.submit();
+  return Promise.resolve({submitted:true});
+}
+
+function send(d){
+  var jobs = [];
+  if(CFG.SUBMIT_MODE === 'worker' || CFG.SUBMIT_MODE === 'both') jobs.push(postWorker(d));
+  if(CFG.SUBMIT_MODE === 'forminator' || CFG.SUBMIT_MODE === 'both') jobs.push(postForminator(d));
+  if(!jobs.length) return Promise.resolve();
+  return Promise.allSettled(jobs).then(function(res){
+    if(!res.some(function(r){ return r.status === 'fulfilled'; })){ queue(d); throw new Error('mislukt'); }
+    return true;
+  });
+}
+
+function busy(btn, on, label){
+  btn.disabled = on;
+  btn.innerHTML = on ? '<span class="sc-spin" aria-hidden="true"></span> Versturen' : label;
+}
+
+function submitLead(btn, actie){
+  S.naam    = ($('sc-naam')||{}).value || '';
+  S.email   = (($('sc-email')||{}).value || '').trim();
+  S.tel     = ($('sc-tel')||{}).value || '';
+  S.extra.postcode = ($('sc-postcode')||{}).value || S.extra.postcode || '';
+  var gekozenContact = document.querySelector('input[name="sc-contact"]:checked');
+  S.contact = gekozenContact ? gekozenContact.value : S.contact;
+  S.consent = !!($('sc-consent')||{}).checked;
+  S.ctaActie = actie || 'offerte';
+  var err = $('sc-err');
+  if(!validEmail(S.email)){ err.textContent = 'Vul een geldig e-mailadres in -- ook als je liever gebeld wordt, hebben we dit nodig om je dossier terug te vinden.'; err.classList.add('is-on'); if($('sc-email')) $('sc-email').focus(); return; }
+  if(!S.consent){ err.textContent = 'We hebben je akkoord nodig om contact met je op te nemen.'; err.classList.add('is-on'); return; }
+  err.classList.remove('is-on');
+  var terug = btn.innerHTML;   /* werkt voor beide CTA-knoppen, elk met hun eigen label/icoon */
+  busy(btn, true);
+  send(payload('lead')).then(function(){ go(7); }).catch(function(){
+    busy(btn, false, terug);
+    err.textContent = 'Versturen lukte niet meteen. We bewaren je aanvraag en proberen opnieuw, of mail ons op info@syndicoach.be.';
+    err.classList.add('is-on');
+  });
+}
+
+function submitExtra(btn){
+  S.extra = { vme:($('e-vme')||{}).value||'', adres:($('e-adres')||{}).value||'',
+    postcode:($('e-post')||{}).value||'', bouwjaar:($('e-bouw')||{}).value||'',
+    rol:($('e-rol')||{}).value||'', syndicus:($('e-syndicus')||{}).value||'',
+    start:($('e-start')||{}).value||'', vraag:($('e-vraag')||{}).value||'' };
+  busy(btn, true);
+  send(payload('aanvulling')).then(function(){ go(8); klaarRedirect(); }).catch(function(){ go(8); });
+}
+function klaarRedirect(){ if(CFG.REDIRECT_URL) setTimeout(function(){ location.href = CFG.REDIRECT_URL; }, 2500); }
+
+/* ==========================================================================
+   9. START
+   ========================================================================== */
+render();
+flushQueue();
+window.SC = { state:S, cfg:CFG, bereken:bereken, kiesFormule:kiesFormule, payload:payload, go:go, u1:u1 };
+})();
+</script>
+</body>
+</html>

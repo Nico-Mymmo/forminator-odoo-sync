@@ -24,15 +24,44 @@
 
 import { navbar } from '../../lib/components/navbar.js';
 
-export function assetManagerUI(user, env) {
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function assetManagerUI(user, env, dynamicCategories = []) {
   const isAdminOrManager = user?.role === 'admin' || user?.role === 'asset_manager';
   const isAdmin = user?.role === 'admin';
-  // Vaste basis-URL voor asset-links (env.APP_BASE_URL), i.p.v. window.location.origin
-  // client-side. Nodig sinds operations.openvme.be als los domein naar deze Worker
-  // doorwijst: window.location.origin gaf dan operations.openvme.be als prefix, wat
-  // niet correct naar de R2-assets doorroutet. Val terug op lege string zodat de
-  // client zelf window.location.origin gebruikt als APP_BASE_URL niet gezet is.
-  const assetBaseUrl = env?.APP_BASE_URL || '';
+  // Vaste basis-URL voor asset-links (env.BASE_ASSET_URL -- link.openvme.be, zie
+  // src/router/public-routes.js), i.p.v. window.location.origin client-side. Nodig
+  // sinds operations.openvme.be als los domein naar deze Worker doorwijst:
+  // window.location.origin gaf dan operations.openvme.be als prefix, wat niet
+  // correct naar de R2-assets doorroutet. APP_BASE_URL blijft de terugval (was de
+  // vorige waarde hiervoor) -- val uiteindelijk terug op lege string zodat de client
+  // zelf window.location.origin gebruikt als geen van beide gezet is.
+  const assetBaseUrl = env?.BASE_ASSET_URL || env?.APP_BASE_URL || '';
+  const isAdminForFolders = user?.role === 'admin';
+
+  // Extra, door gebruikers aangemaakte categorieën (Supabase), naast de 5
+  // hardcoded hierboven -- zie routes.js getDynamicCategories().
+  const dynamicCategoryListItems = dynamicCategories.map(cat => `
+            <li>
+              <a data-prefix="${escapeHtml(cat.prefix)}" class="gap-2">
+                <i data-lucide="folder" class="w-4 h-4"></i> ${escapeHtml(cat.label)}
+              </a>
+            </li>`).join('');
+
+  const dynamicCategoryTabs = dynamicCategories.map(cat =>
+    `<button data-prefix="${escapeHtml(cat.prefix)}" class="btn btn-sm btn-ghost cat-tab">${escapeHtml(cat.label)}</button>`
+  ).join('');
+
+  const dynamicCategoryOptions = dynamicCategories.map(cat =>
+    `<option value="${escapeHtml(cat.prefix)}">${escapeHtml(cat.label)}</option>`
+  ).join('');
 
   return `<!DOCTYPE html>
 <html lang="nl">
@@ -134,7 +163,13 @@ export function assetManagerUI(user, env) {
               <a data-prefix="uploads/" class="gap-2" id="cat-uploads">
                 <i data-lucide="folder" class="w-4 h-4"></i> Overige
               </a>
-            </li>
+            </li>${dynamicCategoryListItems}
+            ${isAdminForFolders ? `
+            <li>
+              <a id="add-folder-btn" class="gap-2 text-primary">
+                <i data-lucide="folder-plus" class="w-4 h-4"></i> Nieuwe map
+              </a>
+            </li>` : ''}
           </ul>
         </aside>
 
@@ -147,7 +182,10 @@ export function assetManagerUI(user, env) {
             <button data-prefix="banners/" class="btn btn-sm btn-ghost cat-tab">Banners</button>
             <button data-prefix="events/" class="btn btn-sm btn-ghost cat-tab">Events</button>
             <button data-prefix="logos/" class="btn btn-sm btn-ghost cat-tab">Logos</button>
-            <button data-prefix="uploads/" class="btn btn-sm btn-ghost cat-tab">Overige</button>
+            <button data-prefix="uploads/" class="btn btn-sm btn-ghost cat-tab">Overige</button>${dynamicCategoryTabs}
+            ${isAdminForFolders ? `<button id="add-folder-btn-mobile" class="btn btn-sm btn-outline btn-primary gap-1">
+              <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i> Nieuwe map
+            </button>` : ''}
           </div>
 
           <!-- Toolbar: zoek + sort + view toggle + count -->
@@ -251,7 +289,7 @@ export function assetManagerUI(user, env) {
             <option value="banners/">Banners</option>
             <option value="events/">Events</option>
             <option value="logos/">Logos</option>
-            <option value="uploads/" selected>Overige</option>
+            <option value="uploads/" selected>Overige</option>${dynamicCategoryOptions}
             <option value="_custom">Aangepast pad...</option>
           </select>
         </label>
@@ -332,7 +370,7 @@ export function assetManagerUI(user, env) {
           <option value="banners/">Banners</option>
           <option value="events/">Events</option>
           <option value="logos/">Logos</option>
-          <option value="uploads/">Overige</option>
+          <option value="uploads/">Overige</option>${dynamicCategoryOptions}
           <option value="_custom">Aangepast pad...</option>
         </select>
       </label>
@@ -342,6 +380,31 @@ export function assetManagerUI(user, env) {
       </label>
       <div class="modal-action">
         <button id="move-confirm-btn" class="btn btn-primary btn-sm">Verplaatsen</button>
+        <form method="dialog"><button class="btn btn-ghost btn-sm">Annuleren</button></form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
+  <!-- Nieuwe map modal -->
+  <dialog id="asset-folder-modal" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+        <i data-lucide="folder-plus" class="w-5 h-5"></i> Nieuwe map
+      </h3>
+      <label class="form-control">
+        <div class="label"><span class="label-text">Naam</span></div>
+        <input id="folder-label-input" type="text" placeholder="Contracten"
+               class="input input-bordered input-sm w-full" maxlength="80" />
+        <div class="label">
+          <span class="label-text-alt text-base-content/40">Prefix: <span id="folder-slug-preview" class="font-mono">-</span></span>
+        </div>
+      </label>
+      <p id="folder-modal-error" class="text-error text-xs mt-1" style="display:none;"></p>
+      <div class="modal-action">
+        <button id="folder-confirm-btn" class="btn btn-primary btn-sm gap-1">
+          <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i> Aanmaken
+        </button>
         <form method="dialog"><button class="btn btn-ghost btn-sm">Annuleren</button></form>
       </div>
     </div>

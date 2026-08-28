@@ -190,7 +190,7 @@ async function* readSseEvents(body, onActivity) {
  */
 export async function generate({
   env, model, prompt, system, maxOutputTokens, schema, cacheSystem,
-  onDelta, signal, stallTimeoutMs, onProviderEvent
+  onDelta, signal, stallTimeoutMs, onProviderEvent, thinking
 }) {
   const apiKey = env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -218,6 +218,25 @@ export async function generate({
       ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
       : system;
   }
+  /* ─── Redeneren (extended thinking) uitdrukkelijk UIT ─────────────────────
+     Waarom dit hier staat, in detail, want het heeft ons een avond gekost: de
+     diagnose van 21/08 toonde status 200, `message_start` met 15.876 in-tokens,
+     dan `content_block_start` van het type **thinking** -- en daarna 20+
+     seconden geen enkele delta, ook geen redeneerfragment. De mini-app zag dus
+     een open stream zonder inhoud, en de brug kapte na twee minuten af.
+     Bij de nieuwere modellen staat redeneren AAN wanneer je er niets over zegt,
+     en dan gaat het (grote) max_tokens-budget eerst naar een denkblok. Voor
+     deze aanroepen is dat in alle opzichten verkeerd: we vragen een JSON-object
+     volgens een schema, we willen die redenering niet zien, we betalen ze wel,
+     en ze duwt het eigenlijke antwoord voorbij elke redelijke wachttijd.
+     Wil je het ooit terug: geef `thinking: true` mee, en zet er dan een ruimere
+     stall-timeout naast -- een denkend model stuurt lang niets bruikbaars.
+     Kent een model dit veld niet (400 met "thinking" in de melding), dan gaat
+     de aanroep hieronder nog één keer zonder dat veld. */
+  body.thinking = thinking === true
+    ? { type: 'enabled', budget_tokens: Math.max(1024, Math.floor(maxOutputTokens / 2)) }
+    : { type: 'disabled' };
+
   if (schema) {
     // Structured outputs: constrained decoding, dus GEGARANDEERD geldige JSON
     // volgens dit schema. Vervangt de zelfgeparste NDJSON-tekst (regex +
@@ -268,18 +287,31 @@ export async function generate({
   const melden = typeof onProviderEvent === 'function' ? onProviderEvent : () => {};
   let resp;
   armStallTimer();
-  melden(`POST naar ${API_URL} (max_tokens ${maxOutputTokens})`);
+  melden(`POST naar ${API_URL} (max_tokens ${maxOutputTokens}, redeneren ${body.thinking && body.thinking.type === 'enabled' ? 'aan' : 'uit'})`);
+  const doePost = () => fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': ANTHROPIC_VERSION
+    },
+    body: JSON.stringify(body),
+    signal: controller.signal
+  });
   try {
-    resp = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': ANTHROPIC_VERSION
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    resp = await doePost();
+    /* Kent dit model het thinking-veld niet? Dan één keer zonder, i.p.v. de
+       aanroeper met een cryptieke 400 opzadelen. Enkel bij een 400 die het veld
+       ook echt noemt -- elke andere 400 hoort gewoon gemeld te worden. */
+    if (resp.status === 400 && body.thinking) {
+      let melding = '';
+      try { melding = (await resp.clone().json())?.error?.message || ''; } catch (_e) { /* geen JSON */ }
+      if (/thinking/i.test(melding)) {
+        melden(`model kent het thinking-veld niet (${melding.slice(0, 120)}) -- opnieuw zonder`);
+        delete body.thinking;
+        resp = await doePost();
+      }
+    }
   } catch (err) {
     disarmStallTimer();
     if (abortedByCaller) {
@@ -352,7 +384,30 @@ export async function generate({
      Precies dat beeld gaf de diagnose van 21/08: status 200, message_start met
      15.876 in-tokens, en daarna niets. Deze twee tellers maken dat voortaan
      zichtbaar in de foutmelding zelf. */
+  /* Bovengrens op "de stream leeft, maar er komt geen bruikbare inhoud".
+     De stall-timer alleen dekt dit NIET: die wordt bij elk SSE-event opnieuw
+     gewapend, en ping-events of een lang denkblok houden hem dus eeuwig warm --
+     precies waarom de aanroep van 21/08 minuten kon blijven staan zonder fout
+     en zonder inhoud. Deze timer loopt vanaf message_start tot het eerste
+     bruikbare fragment, en maakt van dat stille geval een NETTE, leesbare fout
+     in plaats van een hangende app. */
+  const FIRST_CONTENT_TIMEOUT_MS = 90000;
+  let geenInhoudTimer = null;
+  let geenInhoud = false;
+  const armFirstContentTimer = () => {
+    if (geenInhoudTimer) return;
+    geenInhoudTimer = setTimeout(() => {
+      geenInhoud = true;
+      try { controller.abort(); } catch (_err) { /* al afgebroken */ }
+    }, FIRST_CONTENT_TIMEOUT_MS);
+  };
+  const disarmFirstContentTimer = () => {
+    if (geenInhoudTimer) clearTimeout(geenInhoudTimer);
+    geenInhoudTimer = null;
+  };
+
   const blokTypes = [];
+  const gemeldeTypes = new Set();
   let denkTekens = 0;
   let laatsteDenkMelding = 0;
 
@@ -382,6 +437,7 @@ export async function generate({
         // Sommige antwoorden melden hier al output_tokens (meestal 0/1).
         if (usage.output_tokens != null) tokensOut = usage.output_tokens;
         melden(`stream begonnen (message_start, ${tokensIn ?? '?'} in-tokens${cacheReadTokens ? `, ${cacheReadTokens} uit cache` : ''})`);
+        armFirstContentTimer();
       } else if (type === 'content_block_start') {
         /* Welk soort blok begint hier: text, thinking, tool_use, ... Dit stond
            er niet, en dat was precies het gat: een `thinking`-blok ziet er in de
@@ -413,8 +469,15 @@ export async function generate({
         const piece = typeof dlt.text === 'string' && dlt.text
           ? dlt.text
           : (typeof dlt.partial_json === 'string' ? dlt.partial_json : '');
+        /* Een deltavorm die we niet kennen mag nooit stil blijven: dan lijkt het
+           wéér alsof er niets gebeurt terwijl er data op de lijn staat. Eén
+           melding per soort, met de veldnamen erbij. */
+        if (!piece && !gemeldeTypes.has(dtype)) {
+          gemeldeTypes.add(dtype);
+          melden(`deltavorm zonder bruikbare inhoud: ${dtype} (velden: ${Object.keys(dlt).join(', ') || 'geen'})`);
+        }
         if (piece) {
-          if (!text) melden(`eerste inhoudsfragment ontvangen (${dtype})`);
+          if (!text) { disarmFirstContentTimer(); melden(`eerste inhoudsfragment ontvangen (${dtype})`); }
           text += piece;
           if (onDelta) {
             try {
@@ -435,7 +498,18 @@ export async function generate({
     }
   } catch (err) {
     disarmStallTimer();
+    disarmFirstContentTimer();
     if (err && err.name === 'AiError') throw err;
+    if (geenInhoud) {
+      /* Het geval van 21/08, nu met naam en toenaam i.p.v. een hangende app. */
+      throw aiError(
+        AI_ERROR_CODES.EMPTY_RESPONSE,
+        `Claude hield de verbinding ${Math.round(FIRST_CONTENT_TIMEOUT_MS / 1000)}s open zonder één bruikbaar fragment te sturen`
+          + ` -- blokken: ${blokTypes.length ? blokTypes.join(', ') : '(geen)'}`
+          + `${denkTekens ? `, ${denkTekens} tekens redenering` : ''}. Aanroep afgebroken.`,
+        { phase: AI_ERROR_PHASES.STREAM, requestId, stopReason }
+      );
+    }
     if (abortedByCaller) {
       throw aiError(AI_ERROR_CODES.ABORTED, 'AI-aanroep afgebroken door de aanroeper.', {
         phase: AI_ERROR_PHASES.STREAM,
@@ -489,6 +563,8 @@ export async function generate({
     stallErr2.partialText = text;
     throw stallErr2;
   }
+
+  disarmFirstContentTimer();
 
   if (!sawMessageStop) {
     // De stream eindigde zonder message_stop: het antwoord is per definitie

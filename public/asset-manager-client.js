@@ -77,6 +77,13 @@
   var viewListBtn  = document.getElementById('view-list-btn');
   var sortSelect   = document.getElementById('sort-select');
   var categoryMenu = document.getElementById('category-menu');
+  var addFolderBtn       = document.getElementById('add-folder-btn');
+  var addFolderBtnMobile = document.getElementById('add-folder-btn-mobile');
+  var folderModal        = document.getElementById('asset-folder-modal');
+  var folderLabelInput   = document.getElementById('folder-label-input');
+  var folderSlugPreview  = document.getElementById('folder-slug-preview');
+  var folderModalError   = document.getElementById('folder-modal-error');
+  var folderConfirmBtn   = document.getElementById('folder-confirm-btn');
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // HELPERS
@@ -156,6 +163,55 @@
       btn.className = 'btn btn-sm cat-tab ' +
         (btn.dataset.prefix === prefix ? 'btn-primary' : 'btn-ghost');
     });
+  }
+
+  // Client-side voorvertoning van de slug -- de server bepaalt de
+  // definitieve, gevalideerde prefix (zelfde regels, best-effort hier).
+  function slugifyLabel(label) {
+    return String(label || '')
+      .toLowerCase()
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function openFolderModal() {
+    if (!folderModal) return;
+    if (folderLabelInput) folderLabelInput.value = '';
+    if (folderSlugPreview) folderSlugPreview.textContent = '-';
+    if (folderModalError) { folderModalError.style.display = 'none'; folderModalError.textContent = ''; }
+    if (folderModal.showModal) folderModal.showModal();
+    if (folderLabelInput) folderLabelInput.focus();
+  }
+
+  function confirmCreateFolder() {
+    var label = folderLabelInput ? folderLabelInput.value.trim() : '';
+    if (!label) {
+      if (folderModalError) { folderModalError.textContent = 'Naam is verplicht.'; folderModalError.style.display = ''; }
+      return;
+    }
+    if (folderConfirmBtn) folderConfirmBtn.disabled = true;
+
+    fetch('/assets/api/assets/create-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: label }),
+    })
+      .then(function(res) { return res.json(); })
+      .then(function(json) {
+        if (folderConfirmBtn) folderConfirmBtn.disabled = false;
+        if (!json.success) {
+          if (folderModalError) { folderModalError.textContent = json.error || 'Map aanmaken mislukt.'; folderModalError.style.display = ''; }
+          return;
+        }
+        if (folderModal.close) folderModal.close();
+        showAlert('Map "' + json.data.label + '" aangemaakt. Pagina wordt herladen...', 'success');
+        setTimeout(function() { window.location.reload(); }, 900);
+      })
+      .catch(function(err) {
+        if (folderConfirmBtn) folderConfirmBtn.disabled = false;
+        if (folderModalError) { folderModalError.textContent = 'Netwerkfout: ' + err.message; folderModalError.style.display = ''; }
+      });
   }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -858,6 +914,17 @@
 
     // Move
     if (moveConfirmBtn) moveConfirmBtn.addEventListener('click', confirmMove);
+
+    // Nieuwe map
+    if (addFolderBtn) addFolderBtn.addEventListener('click', openFolderModal);
+    if (addFolderBtnMobile) addFolderBtnMobile.addEventListener('click', openFolderModal);
+    if (folderLabelInput) {
+      folderLabelInput.addEventListener('input', function() {
+        var slug = slugifyLabel(folderLabelInput.value);
+        if (folderSlugPreview) folderSlugPreview.textContent = slug ? (slug + '/') : '-';
+      });
+    }
+    if (folderConfirmBtn) folderConfirmBtn.addEventListener('click', confirmCreateFolder);
 
     // Paginering
     if (nextBtn) {

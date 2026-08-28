@@ -12,6 +12,7 @@
  *    DELETE /api/assets/delete        → Verwijder bestand (role-gated)
  *    POST /api/assets/rename          → Hernoem bestand (admin only)
  *    POST /api/assets/move            → Verplaats bestand (admin only)
+ *    POST /api/assets/create-folder    → Nieuwe categorie/map aanmaken (admin only)
  *
  * ─── Role semantics ────────────────────────────────────────────────────────
  *
@@ -24,6 +25,7 @@ import { assetManagerUI } from './ui.js';
 import { validateKey, sanitizeFilename, buildUserPrefix, isWithinPrefix, normalizePrefix } from './lib/path-utils.js';
 import { isAllowedMimeType, getMimeType } from './lib/mime-types.js';
 import { listObjects, putObject, deleteObject, headObject, copyObject } from './lib/r2-client.js';
+import { getSupabaseClient } from '../../lib/database.js';
 
 const LOG_PREFIX = '[asset-manager]';
 
@@ -47,6 +49,29 @@ const FOREIGN_MODULE_PREFIXES = ['mini-apps/', 'mini-apps-storage/', 'fsv2-track
 function isForeignPrefix(prefix) {
   const p = String(prefix || '');
   return FOREIGN_MODULE_PREFIXES.some(fp => p.startsWith(fp));
+}
+
+// ─── Dynamische categorieën (Supabase) ─────────────────────────────────────
+// Naast de 5 hardcoded categorieën hierboven kunnen admins vanuit de UI extra
+// top-level mappen aanmaken (POST /api/assets/create-folder). Die staan in
+// asset_manager_categories (supabase/migrations/20260827090000_asset_manager_categories.sql).
+
+async function getDynamicCategories(env) {
+  try {
+    const supabase = getSupabaseClient(env);
+    const { data, error } = await supabase
+      .from('asset_manager_categories')
+      .select('prefix, label')
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error(`${LOG_PREFIX} getDynamicCategories error:`, error.message);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error(`${LOG_PREFIX} getDynamicCategories error:`, err.message);
+    return [];
+  }
 }
 
 // ─── Response helpers ────────────────────────────────────────────────────────
@@ -117,7 +142,8 @@ export const routes = {
 
   // ── UI ──────────────────────────────────────────────────────────────────────
   'GET /': async (context) => {
-    return new Response(assetManagerUI(context.user, context.env), {
+    const dynamicCategories = await getDynamicCategories(context.env);
+    return new Response(assetManagerUI(context.user, context.env, dynamicCategories), {
       headers: { 'Content-Type': 'text/html' }
     });
   },
@@ -162,8 +188,10 @@ export const routes = {
       // parallelle R2-calls, nooit een blinde bucket-brede list(). Geen
       // cross-prefix cursor-paginering (elke categorie afzonderlijk heeft dat
       // wel) -- voor de "Alles"-tab volstaat gesorteerd + afgekapt tot limit.
+      const dynamicCategories = await getDynamicCategories(env);
+      const allCategoryPrefixes = ASSET_CATEGORY_PREFIXES.concat(dynamicCategories.map(cat => cat.prefix));
       const perCategory = await Promise.all(
-        ASSET_CATEGORY_PREFIXES.map(p => listObjects(env, { prefix: p, limit }))
+        allCategoryPrefixes.map(p => listObjects(env, { prefix: p, limit }))
       );
       const merged = perCategory.flatMap(r => r.objects);
       merged.sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0));
@@ -246,8 +274,9 @@ export const routes = {
 
     try {
       const result = await putObject(env, key, body, { contentType: detectedMime, customMetadata });
-      // Dynamische URL — nooit hardcoded domein
-      const origin    = new URL(request.url).origin;
+      // Publieke basis-URL: env.BASE_ASSET_URL (link.openvme.be) als die gezet is,
+      // anders het request-origin als terugval -- nooit hardcoded domein.
+      const origin    = (env.BASE_ASSET_URL || new URL(request.url).origin).replace(/\/$/, '');
       const publicUrl = `${origin}/assets/${key}`;
       console.log(`${LOG_PREFIX} UPLOAD ${key} — ${result.size} bytes — user ${user.id}`);
       return jsonOk({ key, url: publicUrl, size: result.size, contentType: detectedMime });
@@ -316,6 +345,88 @@ export const routes = {
     } catch (err) {
       console.error(`${LOG_PREFIX} rename error:`, err.message);
       return jsonError('Hernoemen mislukt.', 500);
+    }
+  },
+
+  'POST /api/assets/create-folder': async (context) => {
+    const { request, env, user } = context;
+
+    if (!isAdmin(user)) {
+      return jsonError('Alleen admins mogen nieuwe mappen aanmaken.', 403, 'FORBIDDEN');
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_err) {
+      return jsonError('Ongeldige JSON-body.', 400);
+    }
+
+    const label = String(body?.label || '').trim();
+    if (!label) return jsonError('Naam is verplicht.', 400);
+    if (label.length > 80) return jsonError('Naam is te lang (max 80 tekens).', 400);
+
+    // Slug: lowercase, diakritische tekens weg, alleen a-z0-9 en koppeltekens.
+    const slug = label
+      .toLowerCase()
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    if (!slug) return jsonError('Naam levert geen geldige mapnaam op.', 400, 'SLUG_INVALID');
+
+    const prefix = normalizePrefix(slug);
+
+    if (!validateKey(prefix)) {
+      return jsonError('Ongeldige mapnaam.', 400, 'KEY_INVALID');
+    }
+    if (isForeignPrefix(prefix) || prefix === 'users/' || prefix === 'system/' || ASSET_CATEGORY_PREFIXES.includes(prefix)) {
+      return jsonError('Deze naam is gereserveerd of bestaat al.', 409, 'PREFIX_RESERVED');
+    }
+
+    try {
+      const supabase = getSupabaseClient(env);
+
+      const { data: existing } = await supabase
+        .from('asset_manager_categories')
+        .select('prefix')
+        .eq('prefix', prefix)
+        .maybeSingle();
+      if (existing) {
+        return jsonError('Deze map bestaat al.', 409, 'KEY_EXISTS');
+      }
+
+      const { data: inserted, error: insertError } = await supabase
+        .from('asset_manager_categories')
+        .insert({ prefix, label, created_by: user.id })
+        .select('id, prefix, label')
+        .single();
+
+      if (insertError) {
+        if (insertError.code === '23505') {
+          return jsonError('Deze map bestaat al.', 409, 'KEY_EXISTS');
+        }
+        throw insertError;
+      }
+
+      try {
+        // Zero-byte placeholder zodat de lege prefix meteen zichtbaar is in R2-listings.
+        await putObject(env, `${prefix}.keep`, new Uint8Array(0), {
+          contentType: 'application/octet-stream',
+          customMetadata: { module: 'asset_manager', purpose: 'folder-placeholder', createdBy: user.id },
+        });
+      } catch (r2Err) {
+        // Rij en R2 uit sync -- ruim de Supabase-rij op i.p.v. een zombie-categorie te laten staan.
+        console.error(`${LOG_PREFIX} create-folder R2 placeholder failed, rolling back DB row:`, r2Err.message);
+        await supabase.from('asset_manager_categories').delete().eq('id', inserted.id);
+        return jsonError('Map aanmaken mislukt (opslag).', 500);
+      }
+
+      console.log(`${LOG_PREFIX} CREATE-FOLDER ${prefix} ("${label}") — user ${user.id}`);
+      return jsonOk({ prefix, label });
+    } catch (err) {
+      console.error(`${LOG_PREFIX} create-folder error:`, err.message);
+      return jsonError('Map aanmaken mislukt.', 500);
     }
   },
 
