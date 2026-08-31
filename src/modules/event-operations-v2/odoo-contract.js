@@ -847,6 +847,19 @@ export function toOdooEventValues(input = {}) {
   }
 
   if (has('hero_image_url')) values[EVENT_FIELDS.HERO_IMAGE_URL] = input.hero_image_url || false;
+  // Merk. Alleen schrijven als er een geldige waarde is: het veld bestaat
+  // pas sinds kort, en een lege waarde geldt als `both`.
+  if (has('brand')) {
+    const brand = String(input.brand || '').trim().toLowerCase();
+    if (brand === '') {
+      values[EVENT_FIELDS.BRAND] = false;
+    } else if (EVENT_BRANDS.includes(brand)) {
+      values[EVENT_FIELDS.BRAND] = brand;
+    } else {
+      throw new Error(`Onbekend merk: ${input.brand}. Verwacht een van ${EVENT_BRANDS.join(', ')}.`);
+    }
+  }
+
   if (has('seo_title')) values[EVENT_FIELDS.SEO_TITLE] = input.seo_title || false;
   if (has('seo_description')) values[EVENT_FIELDS.SEO_DESCRIPTION] = input.seo_description || false;
 

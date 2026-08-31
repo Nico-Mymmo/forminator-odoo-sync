@@ -22,16 +22,6 @@ final class Mymmo_Events_Settings {
     }
 
     public static function register(): void {
-        // De rewrite rules hangen af van de overname-schakelaar, dus die
-        // moeten opnieuw na het opslaan.
-        add_action('update_option_mymmo_events_take_over_urls', static function () {
-            Mymmo_Events_Router::register_rewrite_rules();
-            flush_rewrite_rules();
-        });
-        add_action('update_option_mymmo_events_event_base', static function () {
-            Mymmo_Events_Router::register_rewrite_rules();
-            flush_rewrite_rules();
-        });
 
         $fields = [
             'mymmo_events_api_base' => ['type' => 'string', 'default' => '', 'sanitize_callback' => 'esc_url_raw'],
@@ -40,7 +30,7 @@ final class Mymmo_Events_Settings {
             'mymmo_events_event_base' => ['type' => 'string', 'default' => MYMMO_EVENTS_DEFAULT_EVENT_BASE, 'sanitize_callback' => [self::class, 'sanitize_base']],
             'mymmo_events_archive_base' => ['type' => 'string', 'default' => MYMMO_EVENTS_DEFAULT_ARCHIVE_BASE, 'sanitize_callback' => [self::class, 'sanitize_base']],
             'mymmo_events_timezone' => ['type' => 'string', 'default' => 'Europe/Brussels', 'sanitize_callback' => 'sanitize_text_field'],
-            'mymmo_events_take_over_urls' => ['type' => 'boolean', 'default' => false, 'sanitize_callback' => [self::class, 'sanitize_bool']],
+            'mymmo_events_fallback_routing' => ['type' => 'boolean', 'default' => true, 'sanitize_callback' => [self::class, 'sanitize_bool']],
         ];
 
         foreach ($fields as $name => $args) {
@@ -124,15 +114,6 @@ final class Mymmo_Events_Settings {
                 als de verbinding wegvalt.
             </p>
 
-            <?php if (!get_option('mymmo_events_take_over_urls', false)) : ?>
-                <div class="notice notice-info inline" style="margin:1em 0">
-                    <p>
-                        De detailpagina's komen nu nog van The Events Calendar. De shortcodes en de
-                        kalender werken al; zet <em>Detailpagina's overnemen</em> aan wanneer je wil omschakelen.
-                    </p>
-                </div>
-            <?php endif; ?>
-
             <?php if (isset($_GET['mymmo_purged'])) : ?>
                 <div class="notice notice-success is-dismissible"><p>Cache leeggemaakt.</p></div>
             <?php endif; ?>
@@ -213,19 +194,20 @@ final class Mymmo_Events_Settings {
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">Detailpagina's overnemen</th>
+                        <th scope="row">Eventpagina's opvangen</th>
                         <td>
                             <label>
-                                <input type="checkbox" name="mymmo_events_take_over_urls" value="1"
-                                    <?php checked((bool) get_option('mymmo_events_take_over_urls', false)); ?> />
-                                Laat deze plugin <code>/<?php echo esc_html((string) get_option('mymmo_events_event_base', MYMMO_EVENTS_DEFAULT_EVENT_BASE)); ?>/{slug}/</code> renderen
+                                <input type="checkbox" name="mymmo_events_fallback_routing" value="1"
+                                    <?php checked(Mymmo_Events_Router::fallback_enabled()); ?> />
+                                Onbekende <code>/<?php echo esc_html((string) get_option('mymmo_events_event_base', MYMMO_EVENTS_DEFAULT_EVENT_BASE)); ?>/{slug}/</code>-URL's door deze plugin laten renderen
                             </label>
                             <p class="description">
-                                <strong>Laat dit uit tot je klaar bent om om te schakelen.</strong>
-                                The Events Calendar bezit dit pad vandaag. Zet je het aan, dan geeft
-                                elke slug die de Operations Manager niet kent een 404 — ook events die
-                                in WordPress nog wel bestaan. Zo kan je de kalender eerst in gebruik
-                                nemen terwijl de detailpagina's nog van The Events Calendar komen.
+                                Deze plugin claimt geen URL's. Hij komt <strong>alleen</strong> in actie als
+                                WordPress zelf niets vindt. Bestaat er nog een pagina van The Events Calendar,
+                                dan blijft die ongewijzigd; kent alleen de Operations Manager het event, dan
+                                renderen wij het. Kent niemand het, dan blijft het een gewone 404.
+                                Je kan dit dus veilig aan laten staan tijdens de overgang — er valt niets te breken
+                                en er hoeven geen permalinks bewaard te worden.
                             </p>
                         </td>
                     </tr>

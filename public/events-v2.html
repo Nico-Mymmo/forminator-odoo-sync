@@ -34,6 +34,10 @@
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 
+  <!-- Editor voor de redactionele inhoud van de publieke eventpagina -->
+  <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
+
   <script src="/shared-navbar.js"></script>
 
   <style>
@@ -226,6 +230,27 @@
     details > summary::-webkit-details-marker { display: none; }
     .tabular { font-variant-numeric: tabular-nums; }
     .row-selected { background: oklch(var(--p) / 0.08); }
+
+    /* Quill in DaisyUI */
+    .ql-toolbar.ql-snow {
+      border-color: oklch(var(--bc) / 0.2);
+      border-top-left-radius: var(--rounded-btn, 0.5rem);
+      border-top-right-radius: var(--rounded-btn, 0.5rem);
+      background: oklch(var(--b2));
+    }
+    .ql-container.ql-snow {
+      border-color: oklch(var(--bc) / 0.2);
+      border-bottom-left-radius: var(--rounded-btn, 0.5rem);
+      border-bottom-right-radius: var(--rounded-btn, 0.5rem);
+      font-family: inherit;
+      font-size: 0.9375rem;
+      background: oklch(var(--b1));
+    }
+    .ql-editor { min-height: 11rem; }
+    .ql-editor.ql-blank::before { color: oklch(var(--bc) / 0.4); font-style: normal; }
+    .ql-snow .ql-stroke { stroke: oklch(var(--bc) / 0.7); }
+    .ql-snow .ql-fill { fill: oklch(var(--bc) / 0.7); }
+    .ql-snow .ql-picker-label { color: oklch(var(--bc) / 0.8); }
 
     /* De navbar staat position:fixed met 48px hoogte (src/lib/components/navbar.js),
        dus de pagina moet die ruimte zelf reserveren. */
@@ -428,6 +453,14 @@
         <label class="form-control">
           <span class="label-text text-sm mb-1">Capaciteit (0 = onbeperkt)</span>
           <input id="newCapacity" type="number" min="0" value="0" class="input input-bordered input-sm" />
+        </label>
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Merk</span>
+          <select id="newBrand" class="select select-bordered select-sm">
+            <option value="both">Beide sites</option>
+            <option value="openvme">Alleen OpenVME</option>
+            <option value="syndicoach">Alleen Syndicoach</option>
+          </select>
         </label>
         <label class="form-control sm:col-span-2">
           <span class="label-text text-sm mb-1">Samenvatting</span>

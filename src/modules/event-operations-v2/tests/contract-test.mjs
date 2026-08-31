@@ -356,6 +356,20 @@ test('lege startdatum wordt geweigerd', () => {
   assert.throws(() => toOdooEventValues({ starts_at: null }), /verplicht/);
 });
 
+test('merk wordt weggeschreven, en rommel wordt geweigerd', () => {
+  assert.equal(toOdooEventValues({ brand: 'syndicoach' })[EVENT_FIELDS.BRAND], 'syndicoach');
+  assert.equal(toOdooEventValues({ brand: 'BOTH' })[EVENT_FIELDS.BRAND], 'both');
+  // Leeg wist het veld; leeg geldt daarna als `both`.
+  assert.equal(toOdooEventValues({ brand: '' })[EVENT_FIELDS.BRAND], false);
+  assert.throws(() => toOdooEventValues({ brand: 'mymmo' }), /Onbekend merk/);
+});
+
+test('redactionele inhoud gaat naar x_studio_webinar_info', () => {
+  const values = toOdooEventValues({ body_html: '<p>Hallo</p>' });
+  assert.equal(values[EVENT_FIELDS.BODY], '<p>Hallo</p>');
+  assert.equal(toOdooEventValues({ body_html: '' })[EVENT_FIELDS.BODY], false);
+});
+
 // ─── Slug ─────────────────────────────────────────────────────────────────────
 
 test('slugify werkt op echte eventtitels', () => {

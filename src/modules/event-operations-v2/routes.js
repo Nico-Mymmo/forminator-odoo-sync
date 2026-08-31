@@ -21,6 +21,7 @@ import {
   setPublicationState,
   setEventActive,
   duplicateEvent,
+  deleteEvent,
   listEventTypes,
   getStages
 } from './lib/events-service.js';
@@ -264,6 +265,16 @@ export const routes = {
     const id = eventIdFrom(context.params);
     const event = await duplicateEvent(context.env, id, context.user);
     return json({ success: true, data: event }, 201);
+  }),
+
+  /**
+   * DELETE /events-v2/api/events/:id
+   * Definitief verwijderen. Weigert als er inschrijvingen aan hangen.
+   */
+  'DELETE /api/events/:id': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const data = await deleteEvent(context.env, id, context.user);
+    return json({ success: true, data });
   }),
 
   /**

@@ -412,7 +412,12 @@ export async function createEvent(env, input, actor = null) {
 
   const slug = await ensureUniqueSlug(env, input.slug || input.title);
 
-  const values = toOdooEventValues({ ...input, slug });
+  const createInput = { ...input, slug };
+  if (Object.prototype.hasOwnProperty.call(createInput, 'brand') && !(await brandFieldAvailable(env))) {
+    delete createInput.brand;
+  }
+
+  const values = toOdooEventValues(createInput);
 
   // Een nieuw event begint altijd als concept, ongeacht wat de client
   // stuurt. x_studio_stage_id is bovendien verplicht in Odoo.
@@ -450,6 +455,13 @@ export async function updateEvent(env, id, input, actor = null) {
 
   if (Object.prototype.hasOwnProperty.call(patch, 'slug') && patch.slug !== current.slug) {
     patch.slug = await ensureUniqueSlug(env, patch.slug || current.title, eventId);
+  }
+
+  // Het merkveld bestaat pas sinds kort in Odoo. Bestaat het niet, dan
+  // laten we het stil weg in plaats van de hele wijziging te laten falen.
+  if (Object.prototype.hasOwnProperty.call(patch, 'brand') && !(await brandFieldAvailable(env))) {
+    console.warn(`${LOG_PREFIX} merk niet opgeslagen: ${EVENT_FIELDS.BRAND} bestaat niet in Odoo`);
+    delete patch.brand;
   }
 
   const values = toOdooEventValues(patch);
@@ -575,11 +587,62 @@ export async function duplicateEvent(env, id, actor = null) {
       online_url: source.online_url,
       capacity: source.registration.capacity ?? 0,
       registration_enabled: source.registration.enabled,
+      brand: source.brand,
       seo_title: source.seo?.title,
       seo_description: source.seo?.description
     },
     actor
   );
+}
+
+/**
+ * Een event definitief verwijderen uit Odoo.
+ *
+ * Alleen als er geen inschrijvingen aan hangen: die zouden verweesd
+ * achterblijven, en dat is niet te herstellen. Zijn er inschrijvingen, dan
+ * is annuleren of archiveren de juiste actie — dat zegt de foutmelding ook.
+ *
+ * @param {Object} env
+ * @param {number} id
+ * @param {Object} [actor]
+ * @returns {Promise<{ deleted: true, id: number }>}
+ */
+export async function deleteEvent(env, id, actor = null) {
+  const eventId = Number(id);
+  const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
+
+  if (!event) {
+    throw new ValidationError(`Event ${eventId} niet gevonden`, { status: 404 });
+  }
+
+  const registrations = await executeKw(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    method: 'search_count',
+    args: [[[REGISTRATION_FIELDS.EVENT, '=', eventId]]]
+  });
+
+  if (Number(registrations) > 0) {
+    throw new ValidationError(
+      `Dit event heeft ${registrations} inschrijving(en) en kan niet verwijderd worden. ` +
+      'Annuleer het event, of archiveer het als je het uit de lijst wil.',
+      { status: 409 }
+    );
+  }
+
+  // Wie het deed vastleggen vóór het verwijderen: daarna is er geen record
+  // meer om een chatterbericht op te zetten.
+  const who = actor?.email || actor?.name || 'onbekende gebruiker';
+  console.log(`${LOG_PREFIX} event ${eventId} "${event.title}" verwijderd door ${who}`);
+
+  await executeKw(env, {
+    model: ODOO_MODELS.EVENT,
+    method: 'unlink',
+    args: [[eventId]]
+  });
+
+  await invalidateEvents(env);
+
+  return { deleted: true, id: eventId };
 }
 
 /**

@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Events
  * Description:       Kalender, eventpagina's en inschrijvingen, rechtstreeks uit de OpenVME Operations Manager. Geen dubbele events in WordPress.
- * Version:           1.1.3
+ * Version:           1.2.0
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -27,7 +27,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_EVENTS_VERSION', '1.1.3');
+define('MYMMO_EVENTS_VERSION', '1.2.0');
 define('MYMMO_EVENTS_FILE', __FILE__);
 define('MYMMO_EVENTS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_EVENTS_URL', plugin_dir_url(__FILE__));
@@ -56,17 +56,10 @@ function mymmo_events_bootstrap(): void {
 add_action('plugins_loaded', 'mymmo_events_bootstrap');
 
 /**
- * Bij activeren de rewrite rules registreren en meteen doorspoelen,
- * anders geeft /event/{slug}/ een 404 tot iemand de permalinks opslaat.
+ * Er zijn geen rewrite rules om door te spoelen: de plugin gebruikt
+ * terugval-routing en claimt geen enkele URL. Zie class-router.php.
  */
-function mymmo_events_activate(): void {
-    Mymmo_Events_Router::register_rewrite_rules();
-    flush_rewrite_rules();
-}
-register_activation_hook(__FILE__, 'mymmo_events_activate');
-
 function mymmo_events_deactivate(): void {
-    flush_rewrite_rules();
     Mymmo_Events_Cache::purge_all();
 }
 register_deactivation_hook(__FILE__, 'mymmo_events_deactivate');

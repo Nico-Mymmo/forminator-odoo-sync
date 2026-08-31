@@ -25,6 +25,12 @@ final class Mymmo_Events_Shortcodes {
     }
 
     public static function register_assets(): void {
+        // Op een eventpagina staat al vast dat we assets nodig hebben: de
+        // router heeft bij template_redirect (prioriteit 5) al beslist, en
+        // dat is vóór wp_enqueue_scripts. Zo komen de stijlen in de head
+        // terecht in plaats van in de footer.
+        $on_event_page = Mymmo_Events_Router::is_event_request();
+
         wp_register_style(
             'mymmo-events',
             MYMMO_EVENTS_URL . 'assets/css/mymmo-events.css',
@@ -38,6 +44,10 @@ final class Mymmo_Events_Shortcodes {
             MYMMO_EVENTS_VERSION,
             true
         );
+
+        if ($on_event_page) {
+            self::need_assets();
+        }
     }
 
     /** Alleen laden op pagina's die de plugin echt gebruiken. */
@@ -47,8 +57,13 @@ final class Mymmo_Events_Shortcodes {
         wp_enqueue_script('mymmo-events');
     }
 
+    /**
+     * Vangnet: een shortcode die pas tijdens het renderen van de content
+     * langskomt, na wp_enqueue_scripts. Dan laadt WordPress de stijl in de
+     * footer — minder mooi, maar beter dan geen stijl.
+     */
     public static function maybe_enqueue(): void {
-        if (Mymmo_Events_Router::is_event_request() && !self::$assets_needed) {
+        if (!self::$assets_needed && Mymmo_Events_Router::is_event_request()) {
             self::need_assets();
         }
     }

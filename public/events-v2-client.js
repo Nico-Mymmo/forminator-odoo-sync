@@ -29,6 +29,7 @@
     selectedId: null,
     detail: null,
     registrations: { rows: [], total: 0, page: 1, totalPages: 1, loading: false },
+    bodyEditor: null,
     view: 'calendar',
     calendar: null,
     loading: false
@@ -509,10 +510,30 @@
           '<span class="label-text text-xs opacity-70 mb-1">Samenvatting (nodig om te publiceren)</span>' +
           '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="summary">' +
           esc(event.summary) + '</textarea></label>' +
-        '<label class="label justify-start cursor-pointer gap-2 sm:col-span-2">' +
+        '<label class="form-control">' +
+          '<span class="label-text text-xs opacity-70 mb-1">Merk</span>' +
+          '<select class="select select-bordered select-sm" data-field="brand">' +
+            ['both', 'openvme', 'syndicoach'].map(function (value) {
+              var labels = { both: 'Beide sites', openvme: 'Alleen OpenVME', syndicoach: 'Alleen Syndicoach' };
+              return '<option value="' + value + '"' +
+                ((event.brand || 'both') === value ? ' selected' : '') + '>' + labels[value] + '</option>';
+            }).join('') +
+          '</select>' +
+        '</label>' +
+        '<label class="label justify-start cursor-pointer gap-2">' +
           '<input type="checkbox" class="checkbox checkbox-sm" data-field="registration_enabled"' +
           (event.registration.enabled ? ' checked' : '') + ' />' +
           '<span class="label-text text-sm">Inschrijven toegestaan</span></label>' +
+      '</div>' +
+
+      // Redactionele inhoud van de publieke eventpagina. Gaat naar
+      // x_studio_webinar_info in Odoo.
+      '<div class="mt-3">' +
+        '<div class="flex items-center justify-between mb-1">' +
+          '<span class="label-text text-xs opacity-70">Inhoud van de eventpagina</span>' +
+          '<span class="text-xs opacity-50">verschijnt op /event/' + esc(event.slug || '…') + '/</span>' +
+        '</div>' +
+        '<div id="bodyEditor"></div>' +
       '</div>' +
 
       '<details class="mt-3 border border-base-200 rounded">' +
@@ -553,6 +574,8 @@
           : '') +
         '<button class="btn btn-sm btn-ghost" data-action="show-public" data-event-id="' + event.id + '"' +
           (event.slug ? '' : ' disabled') + '>Publieke JSON</button>' +
+        '<button class="btn btn-sm btn-ghost text-error ml-auto" data-action="delete-event" data-event-id="' + event.id + '"' +
+          ' title="Alleen mogelijk zolang er geen inschrijvingen zijn">Verwijderen</button>' +
       '</div>' +
 
       // Herkomst van de fase en het moment van de laatste wijziging in Odoo.
@@ -562,11 +585,80 @@
         ' &middot; laatst gewijzigd ' + esc(formatWhen(event.write_date)) +
       '</p>';
 
+    setupBodyEditor(event);
+
     if (window.lucide) window.lucide.createIcons();
 
     // Inschrijvingen apart laden: het paneel moet meteen staan, ook als
     // Odoo er even over doet.
     loadRegistrations(event.id, 1);
+  }
+
+  /**
+   * De editor voor de pagina-inhoud.
+   *
+   * Elke paneelrender bouwt een nieuwe Quill: het DOM eronder is vervangen,
+   * dus de oude instantie wijst naar een node die niet meer bestaat. We
+   * laten de referentie expliciet vallen zodat er niets naar de oude
+   * toolbar blijft verwijzen.
+   */
+  function setupBodyEditor(event) {
+    var host = el('bodyEditor');
+    if (!host || typeof Quill === 'undefined') return;
+
+    state.bodyEditor = null;
+
+    state.bodyEditor = new Quill(host, {
+      theme: 'snow',
+      placeholder: 'Waar gaat dit event over? Dit is wat bezoekers op de eventpagina lezen.',
+      modules: {
+        toolbar: [
+          [{ header: [2, 3, false] }],
+          ['bold', 'italic', 'underline'],
+          [{ list: 'ordered' }, { list: 'bullet' }],
+          ['link', 'blockquote'],
+          ['clean']
+        ]
+      }
+    });
+
+    if (event.body_html) {
+      // Bestaande HTML uit Odoo laden zonder hem te laten herschrijven.
+      state.bodyEditor.clipboard.dangerouslyPasteHTML(event.body_html);
+    }
+  }
+
+  /** De inhoud uit de editor, of null als er niets staat. */
+  function bodyHtmlFromEditor() {
+    if (!state.bodyEditor) return undefined;
+
+    var html = state.bodyEditor.root.innerHTML.trim();
+    // Quill laat een lege paragraaf staan; die hoort niet in Odoo.
+    if (html === '' || html === '<p><br></p>' || html === '<p></p>') return null;
+    return html;
+  }
+
+  async function deleteEvent(id) {
+    var event = state.detail;
+    var name = event ? event.title : 'dit event';
+
+    if (!window.confirm('Event "' + name + '" definitief verwijderen uit Odoo?\n\nDit kan niet ongedaan gemaakt worden.')) {
+      return;
+    }
+
+    try {
+      await api('/events/' + id, { method: 'DELETE' });
+      toast('Event verwijderd', 'success');
+
+      state.selectedId = null;
+      state.detail = null;
+      el('panel-content').classList.add('hidden');
+      el('panel-empty-state').classList.remove('hidden');
+
+      await loadEvents();
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   function collectFields() {
@@ -588,6 +680,12 @@
       }
       payload[name] = value;
     });
+
+    var body = bodyHtmlFromEditor();
+    if (body !== undefined) {
+      payload.body_html = body;
+    }
+
     return payload;
   }
 
@@ -850,6 +948,7 @@
       registration_enabled: true
     };
     if (el('newType').value) body.event_type_id = Number(el('newType').value);
+    if (el('newBrand')) body.brand = el('newBrand').value;
 
     try {
       var result = await api('/events', { method: 'POST', body: body });
@@ -892,6 +991,7 @@
       case 'show-public': showPublic(id); break;
       case 'reload-registrations': loadRegistrations(id, state.registrations.page); break;
       case 'add-registration': addRegistration(id); break;
+      case 'delete-event': deleteEvent(id); break;
       case 'reg-prev':
         if (state.registrations.page > 1) loadRegistrations(id, state.registrations.page - 1);
         break;

@@ -44,21 +44,18 @@ en stuurt hij met een 301 door naar de actuele URL.
 Laat het pad op `event` staan. Wijzig je het toch, sla dan de permalinks
 opnieuw op (Instellingen → Permalinks).
 
-### Gefaseerd omschakelen
+### Naast The Events Calendar
 
-De instelling **Detailpagina's overnemen** staat standaard **uit**. The Events
-Calendar bezit `/event/{slug}/` vandaag; zou de plugin dat pad meteen
-overnemen, dan geeft elke slug die de Operations Manager niet kent een 404 —
-ook events die in WordPress nog wel bestaan.
+De plugin **claimt geen URL's**. Hij registreert geen rewrite rules en komt alleen in actie
+als WordPress zelf niets vindt op `/event/{slug}/`:
 
-Daardoor kan je in twee stappen omschakelen:
+- bestaat er nog een The Events Calendar-pagina? die blijft, ongewijzigd
+- bestaat die niet, maar kent de Operations Manager het event? dan rendert deze plugin
+- kent niemand het? dan blijft het een gewone 404
 
-1. Plugin actief, schakelaar **uit**. De kalender en de lijst komen al uit de
-   Operations Manager en linken naar de bestaande pagina's van The Events
-   Calendar. Niets breekt.
-2. Als alle events in de Operations Manager staan en gepubliceerd zijn:
-   schakelaar **aan**, en The Events Calendar deactiveren. De rewrite rules
-   worden automatisch doorgespoeld.
+Daardoor kan je de plugin gerust activeren op een live site: er valt niets te breken en er
+hoeven geen permalinks bewaard te worden. Deactiveer je The Events Calendar later, dan neemt
+de Operations Manager die URL's automatisch over.
 
 ## Shortcodes
 
@@ -145,6 +142,18 @@ Ga daarna één keer naar Instellingen → Permalinks en klik Opslaan. Dat is al
 je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
+
+**1.2.0**
+- Terugval-routing in plaats van een alles-of-niets-schakelaar. De plugin claimt geen URL's
+  meer en komt alleen in actie waar WordPress een 404 zou geven. Bestaande The Events
+  Calendar-pagina's blijven dus werken, ook met de plugin actief. Geen rewrite rules, geen
+  permalinks bewaren, niets dat kan breken.
+
+**1.1.3**
+- Cacheduur standaard van 300 naar 60 seconden. Dat is de enige vertraging tussen
+  publiceren in de Operations Manager en zichtbaar worden op de site. Kort mag: een
+  verversing stuurt de vorige ETag mee, dus een onveranderd antwoord komt terug als 304
+  zonder inhoud. Bestaande installaties houden hun ingestelde waarde — pas die zelf aan.
 
 **1.1.2**
 - Opgelost: de kalender bleef leeg door een 503. `format('c')` gaf een `+` in de
