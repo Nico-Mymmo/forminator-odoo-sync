@@ -58,6 +58,9 @@
 		// niet expliciet kiezen terwijl het wel de stille standaard is.
 		"AI_PROVIDER": "anthropic",
 		"ANTHROPIC_MODEL": "claude-sonnet-5",
-		"GEMINI_MODEL": "gemini-flash-lite-latest"
+		"GEMINI_MODEL": "gemini-flash-lite-latest",
+		"EVENTS_PUBLIC_ORIGINS": "https://openvme.be,https://syndicoach.be",
+		"BASE_ASSET_URL": "https://link.openvme.be",
+		"EVENTS_SHARED_CANONICAL_ORIGIN": "https://openvme.be"
 	}
 }

@@ -565,3 +565,42 @@
     animation-duration: 0.01ms !important;
   }
 }
+
+.mymmo-ev-notice--info {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--mymmo-ev-accent) 30%, white);
+  background: color-mix(in srgb, var(--mymmo-ev-accent) 6%, white);
+  color: color-mix(in srgb, var(--mymmo-ev-accent) 75%, black);
+}
+
+/* ── Debugpaneel (alleen beheerders, met ?mymmo_debug=1) ─────────────────── */
+
+.mymmo-ev-debug {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px dashed var(--mymmo-ev-danger);
+  border-radius: var(--mymmo-ev-radius);
+  background: #fffbfb;
+  font-size: 0.8125rem;
+}
+.mymmo-ev-debug__title {
+  margin: 0 0 0.6rem;
+  font-weight: 700;
+  color: var(--mymmo-ev-danger);
+}
+.mymmo-ev-debug__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75rem;
+  font-size: 0.75rem;
+}
+.mymmo-ev-debug__table th,
+.mymmo-ev-debug__table td {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--mymmo-ev-line);
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.mymmo-ev-debug__table th { background: var(--mymmo-ev-subtle); white-space: nowrap; }
+.mymmo-ev-debug__hint { margin: 0; color: var(--mymmo-ev-muted); }

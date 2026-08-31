@@ -205,3 +205,29 @@ export const EVENT_TYPE_PRESENTATION = {
 };
 
 export const EVENT_TYPE_FALLBACK_COLOR = '#475569';
+
+/**
+ * Merken. Een event hoort bij openvme, bij syndicoach, of bij beide.
+ *
+ * Komt uit het Odoo-veld `x_studio_brand` (selection). Bestaat dat veld nog
+ * niet, dan wordt er niet gefilterd en ziet elke site alles — zie
+ * `brandFieldAvailable()` in lib/events-service.js.
+ *
+ * Een LEEG merk geldt als `both`. Dat houdt de kalender werkend zolang de
+ * velden nog niet ingevuld zijn, maar het betekent ook dat een event zonder
+ * merk op beide sites verschijnt. Vul het veld dus vóór je de tweede site
+ * live zet.
+ */
+export const EVENT_BRAND = {
+  OPENVME: 'openvme',
+  SYNDICOACH: 'syndicoach',
+  BOTH: 'both'
+};
+
+export const EVENT_BRANDS = Object.values(EVENT_BRAND);
+
+/** Merken van een site: het eigen merk plus de gedeelde events. */
+export function brandsVisibleTo(brand) {
+  if (!brand || brand === EVENT_BRAND.BOTH) return null; // null = geen filter
+  return [brand, EVENT_BRAND.BOTH];
+}

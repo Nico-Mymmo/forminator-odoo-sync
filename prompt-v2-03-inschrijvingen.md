@@ -55,6 +55,25 @@ De WordPress-plugin is al gebouwd en post naar
 
 Dat contract staat vast — pas de plugin niet aan om het endpoint makkelijker te maken.
 
+
+## Let op: twee merken
+
+Sinds de plugin gebouwd is, zijn er twee sites: openvme.be en syndicoach.be. Een event
+hoort bij `openvme`, bij `syndicoach` of bij `both`, via het Odoo-veld `x_studio_brand`
+(selection). Het merk van een site komt uit de sitesleutel:
+`EVENTS_PUBLIC_SITE_KEYS = "openvme:KEY1,syndicoach:KEY2"`.
+
+Wat dat voor deze fase betekent:
+
+- Het inschrijf-endpoint moet dezelfde merkcontrole doen als de detailroute. Een site mag
+  geen inschrijving aanmaken op een event van het andere merk, ook niet met een
+  rechtstreekse POST. `handleEventDetail` heeft die controle al — hergebruik hem, herhaal
+  hem niet.
+- `brandFieldAvailable(env)` in `lib/events-service.js` controleert of het Studio-veld al
+  bestaat. Bestaat het niet, dan wordt er niet gefilterd. Ga daar niet omheen.
+- Een leeg merk geldt als `both`. Dat is opzettelijk, zodat de kalender blijft werken
+  zolang de velden niet ingevuld zijn.
+
 ## Wat je implementeert
 
 ### 1. `POST /events-v2/public/v1/events/:slug/register`

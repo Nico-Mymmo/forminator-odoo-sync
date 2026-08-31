@@ -242,7 +242,11 @@ final class Mymmo_Events_Router {
         if ($description !== '') {
             printf("<meta name=\"description\" content=\"%s\" />\n", esc_attr($description));
         }
-        printf("<link rel=\"canonical\" href=\"%s\" />\n", esc_url($permalink));
+        // Een gedeeld event bestaat op beide sites op hetzelfde pad. De API
+        // geeft dan een canonical naar de hoofdsite mee; zonder dat is het
+        // dubbele content.
+        $canonical = !empty($event['canonical_url']) ? (string) $event['canonical_url'] : $permalink;
+        printf("<link rel=\"canonical\" href=\"%s\" />\n", esc_url($canonical));
         printf("<meta property=\"og:type\" content=\"event\" />\n");
         printf("<meta property=\"og:title\" content=\"%s\" />\n", esc_attr((string) ($event['title'] ?? '')));
         if ($description !== '') {

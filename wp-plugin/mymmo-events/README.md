@@ -134,3 +134,33 @@ seconden. Klik **Cache leegmaken** om het meteen te zien.
 
 Zet `WP_DEBUG` aan om de fouten in `debug.log` te zien; alles wordt gelogd met
 het voorvoegsel `[mymmo-events]`.
+
+## Bijwerken
+
+Upload de nieuwe zip via Plugins → Nieuwe plugin → Plugin uploaden. WordPress ziet dat de
+plugin al bestaat en biedt **Vervang huidige met geüploade** aan. Je instellingen blijven
+staan: die zitten in de database, niet in de bestanden.
+
+Ga daarna één keer naar Instellingen → Permalinks en klik Opslaan. Dat is alleen nodig als
+je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
+
+## Versies
+
+**1.1.2**
+- Opgelost: de kalender bleef leeg door een 503. `format('c')` gaf een `+` in de
+  querystring, en daar betekent `+` een spatie; de API kreeg een onleesbare datum. De
+  parameters gaan nu als `…Z` de deur uit, en de API negeert een onleesbare grens in
+  plaats van te falen.
+- Debugmodus: `?mymmo_debug=1` op een pagina met een shortcode toont, alleen voor
+  beheerders, welk verzoek er ging, met welke parameters en waar het antwoord vandaan kwam.
+
+**1.1.0**
+- Merken: een event hoort bij openvme, syndicoach of beide. Het merk komt uit de
+  sitesleutel (`merk:sleutel`), dus een site kan de events van het andere merk niet opvragen.
+- Canonical voor gedeelde events, zodat twee sites geen dubbele content opleveren.
+- De kalender opent op de eerstvolgende maand met events in plaats van op de huidige maand.
+- Diagnosepaneel in de instellingen: wat de API echt teruggeeft, per maand geteld.
+- Events zonder slug worden niet meer getoond — die hebben geen pagina.
+- Gefaseerd omschakelen: `/event/{slug}/` overnemen is nu een expliciete instelling.
+
+**1.0.0** — eerste versie.

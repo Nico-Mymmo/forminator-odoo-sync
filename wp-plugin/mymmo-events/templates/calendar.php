@@ -31,6 +31,13 @@ $link = static fn (string $month): string => esc_url(add_query_arg('mymmo_month'
      data-type="<?php echo esc_attr((string) ($data['type'] ?? '')); ?>"
      data-format="<?php echo esc_attr((string) ($data['format'] ?? '')); ?>">
 
+    <?php if (!empty($data['jumped'])) : ?>
+        <p class="mymmo-ev-notice mymmo-ev-notice--info">
+            <?php echo mymmo_events_icon('calendar'); ?>
+            Er staan deze maand geen events. Dit is de eerstvolgende maand met events.
+        </p>
+    <?php endif; ?>
+
     <?php if (!empty($data['stale'])) : ?>
         <p class="mymmo-ev-notice"><?php echo mymmo_events_icon('alert'); ?>Deze kalender is even niet ververst.</p>
     <?php endif; ?>

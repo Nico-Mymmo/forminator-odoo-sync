@@ -23,6 +23,8 @@ import {
   assertNoForbiddenFields,
   stageToState,
   parseStageMapOverride,
+  parseBoundaryDatetime,
+  eventBrand,
   EVENT_FIELDS,
   FORBIDDEN_FIELDS
 } from '../odoo-contract.js';
@@ -246,6 +248,83 @@ test('event type krijgt de bestaande tribe-slug en een vaste kleur', () => {
 
 test('publiek DTO geeft null als url zonder slug', () => {
   assert.equal(toPublicEventDto(base).url, null);
+});
+
+// ─── Datumgrenzen uit de querystring ──────────────────────────────────────────
+
+test('een ISO-grens met Z wordt Odoo-formaat', () => {
+  assert.equal(parseBoundaryDatetime('2026-10-25T23:00:00Z'), '2026-10-25 23:00:00');
+});
+
+test('een ISO-grens met offset wordt naar UTC omgezet', () => {
+  assert.equal(parseBoundaryDatetime('2026-10-26T01:00:00+02:00'), '2026-10-25 23:00:00');
+});
+
+test('de plus-val wordt herstelt: een spatie waar een + hoorde te staan', () => {
+  // In een querystring betekent `+` een spatie. WordPress' add_query_arg
+  // encodeert waarden niet, dus dit is precies wat er binnenkomt.
+  assert.equal(parseBoundaryDatetime('2026-10-25T23:00:00 00:00'), '2026-10-25 23:00:00');
+  assert.equal(parseBoundaryDatetime('2026-10-26T01:00:00 02:00'), '2026-10-25 23:00:00');
+});
+
+test('Odoo-formaat blijft Odoo-formaat', () => {
+  assert.equal(parseBoundaryDatetime('2026-10-25 23:00:00'), '2026-10-25 23:00:00');
+});
+
+test('alleen een datum wordt middernacht UTC', () => {
+  assert.equal(parseBoundaryDatetime('2026-10-25'), '2026-10-25 00:00:00');
+});
+
+test('onleesbare of lege grenzen worden genegeerd, niet doorgegeven', () => {
+  // Dit is een publiek endpoint: rommel mag nooit in een Odoo-domein komen,
+  // want dan gooit Odoo en wordt het een 503 zonder aanwijzing.
+  assert.equal(parseBoundaryDatetime('gisteren'), null);
+  assert.equal(parseBoundaryDatetime(''), null);
+  assert.equal(parseBoundaryDatetime(null), null);
+  assert.equal(parseBoundaryDatetime(undefined), null);
+  assert.equal(parseBoundaryDatetime('2026-99-99T99:99:99Z'), null);
+});
+
+// ─── Merk ─────────────────────────────────────────────────────────────────────
+
+test('merk komt uit x_studio_brand', () => {
+  assert.equal(eventBrand({ x_studio_brand: 'openvme' }), 'openvme');
+  assert.equal(eventBrand({ x_studio_brand: 'syndicoach' }), 'syndicoach');
+  assert.equal(eventBrand({ x_studio_brand: 'both' }), 'both');
+});
+
+test('een leeg of onbekend merk geldt als both', () => {
+  // Zo blijft de kalender werken zolang de velden niet ingevuld zijn.
+  assert.equal(eventBrand({ x_studio_brand: false }), 'both');
+  assert.equal(eventBrand({}), 'both');
+  assert.equal(eventBrand({ x_studio_brand: 'iets anders' }), 'both');
+});
+
+test('merk is hoofdletterongevoelig en tolerant voor spaties', () => {
+  assert.equal(eventBrand({ x_studio_brand: '  OpenVME ' }), 'openvme');
+});
+
+test('alleen een gedeeld event krijgt een canonical naar de hoofdsite', () => {
+  const shared = toPublicEventDto(
+    { ...base, x_studio_slug: 'gedeeld', x_studio_brand: 'both' },
+    { sharedCanonicalOrigin: 'https://openvme.be' }
+  );
+  assert.equal(shared.canonical_url, 'https://openvme.be/event/gedeeld/');
+
+  const own = toPublicEventDto(
+    { ...base, x_studio_slug: 'eigen', x_studio_brand: 'syndicoach' },
+    { sharedCanonicalOrigin: 'https://openvme.be' }
+  );
+  assert.equal(own.canonical_url, null);
+});
+
+test('zonder ingestelde hoofdsite blijft de canonical leeg', () => {
+  const shared = toPublicEventDto({ ...base, x_studio_slug: 'gedeeld', x_studio_brand: 'both' }, {});
+  assert.equal(shared.canonical_url, null);
+});
+
+test('het merk zit in het publieke DTO, zodat de site kan filteren', () => {
+  assert.equal(toPublicEventDto({ ...base, x_studio_brand: 'syndicoach' }).brand, 'syndicoach');
 });
 
 // ─── Odoo-values ──────────────────────────────────────────────────────────────

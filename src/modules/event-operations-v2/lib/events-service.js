@@ -14,6 +14,7 @@
  */
 
 import { searchRead, executeKw, create, write, messagePost } from '../../../lib/odoo.js';
+import { brandsVisibleTo, EVENT_BRAND } from '../constants.js';
 import {
   ODOO_MODELS,
   EVENT_FIELDS,
@@ -27,7 +28,8 @@ import {
   toOdooEventValues,
   assertNoForbiddenFields,
   stageToState,
-  parseStageMapOverride
+  parseStageMapOverride,
+  parseBoundaryDatetime
 } from '../odoo-contract.js';
 import {
   LOG_PREFIX,
@@ -169,6 +171,39 @@ async function stageIdsForStates(env, stateCodes) {
   return stages.filter((st) => wanted.has(st.state)).map((st) => st.id);
 }
 
+/**
+ * Bestaat het Studio-veld voor het merk al?
+ *
+ * Het veld wordt met de hand in Odoo aangemaakt. Tot dat gebeurd is mag de
+ * module er niet op filteren en niet naar vragen — een searchRead met een
+ * onbekend veld gooit, en dan is de hele kalender stuk. Daarom eerst
+ * kijken, en het antwoord cachen.
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function brandFieldAvailable(env) {
+  const { value } = await readThrough(
+    env,
+    { namespace: CACHE_NS.STAGES, parts: ['brand-field'], ttlSeconds: CACHE_TTL.STAGES },
+    async () => {
+      try {
+        const fields = await executeKw(env, {
+          model: ODOO_MODELS.EVENT,
+          method: 'fields_get',
+          args: [[EVENT_FIELDS.BRAND]],
+          kwargs: { attributes: ['type'] }
+        });
+        return { available: Boolean(fields && fields[EVENT_FIELDS.BRAND]) };
+      } catch (error) {
+        console.warn(`${LOG_PREFIX} kon niet nagaan of ${EVENT_FIELDS.BRAND} bestaat:`, error?.message);
+        return { available: false };
+      }
+    }
+  );
+
+  return value.available === true;
+}
+
 async function buildEventDomain(env, filters = {}) {
   const domain = [];
 
@@ -182,14 +217,26 @@ async function buildEventDomain(env, filters = {}) {
     const ids = await stageIdsForStates(env, filters.publication_states);
     domain.push([EVENT_FIELDS.STAGE, 'in', ids.length > 0 ? ids : [0]]);
   }
+  // Merkfilter. Alleen als het veld bestaat EN er een merk gevraagd is.
+  // Een leeg merk in Odoo geldt als `both`, dus die moet expliciet mee.
+  if (filters.brand && filters.brand !== EVENT_BRAND.BOTH) {
+    const visible = brandsVisibleTo(filters.brand);
+    if (visible && (await brandFieldAvailable(env))) {
+      domain.push('|', [EVENT_FIELDS.BRAND, 'in', visible], [EVENT_FIELDS.BRAND, '=', false]);
+    }
+  }
   if (filters.event_type_id) {
     domain.push([EVENT_FIELDS.EVENT_TYPE, '=', Number(filters.event_type_id)]);
   }
-  if (filters.from) {
-    domain.push([EVENT_FIELDS.STARTS_AT, '>=', filters.from]);
+  // Altijd normaliseren: een onleesbare grens wordt genegeerd in plaats van
+  // doorgegeven aan Odoo, want daar wordt het een uitzondering.
+  const from = parseBoundaryDatetime(filters.from);
+  if (from) {
+    domain.push([EVENT_FIELDS.STARTS_AT, '>=', from]);
   }
-  if (filters.to) {
-    domain.push([EVENT_FIELDS.STARTS_AT, '<=', filters.to]);
+  const to = parseBoundaryDatetime(filters.to);
+  if (to) {
+    domain.push([EVENT_FIELDS.STARTS_AT, '<=', to]);
   }
   if (filters.q) {
     domain.push([EVENT_FIELDS.TITLE, 'ilike', String(filters.q)]);
@@ -229,7 +276,10 @@ export async function listEvents(env, options = {}) {
     cacheTtl = CACHE_TTL.ADMIN_LIST
   } = options;
 
-  const fields = detail ? EVENT_DETAIL_FIELDS : EVENT_LIST_FIELDS;
+  const baseFields = detail ? EVENT_DETAIL_FIELDS : EVENT_LIST_FIELDS;
+  const fields = (await brandFieldAvailable(env))
+    ? [...baseFields, EVENT_FIELDS.BRAND]
+    : [...baseFields];
   assertNoForbiddenFields(fields, 'listEvents');
 
   const domain = await buildEventDomain(env, filters);
@@ -315,7 +365,10 @@ export async function getEvent(env, selector, options = {}) {
     throw new ValidationError('getEvent vereist een id of een slug');
   }
 
-  assertNoForbiddenFields(EVENT_DETAIL_FIELDS, 'getEvent');
+  const detailFields = (await brandFieldAvailable(env))
+    ? [...EVENT_DETAIL_FIELDS, EVENT_FIELDS.BRAND]
+    : [...EVENT_DETAIL_FIELDS];
+  assertNoForbiddenFields(detailFields, 'getEvent');
 
   const { value, cached } = await readThrough(
     env,
@@ -329,7 +382,7 @@ export async function getEvent(env, selector, options = {}) {
       const records = await searchRead(env, {
         model: ODOO_MODELS.EVENT,
         domain,
-        fields: [...EVENT_DETAIL_FIELDS],
+        fields: detailFields,
         limit: 1,
         context: { active_test: false }
       });

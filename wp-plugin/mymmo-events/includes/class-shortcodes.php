@@ -79,9 +79,13 @@ final class Mymmo_Events_Shortcodes {
         $grid_start = $first->modify('-' . ((int) $first->format('N') - 1) . ' days');
         $grid_end = $last->modify('+' . (7 - (int) $last->format('N')) . ' days');
 
+        // BELANGRIJK: geen format('c'). Dat geeft "…+00:00", en WordPress'
+        // add_query_arg encodeert waarden niet — dus die `+` gaat letterlijk
+        // de querystring in, waar hij een SPATIE betekent. De API kreeg dan
+        // "…T23:00:00 00:00" en gaf een 503. Altijd 'Z' gebruiken.
         $events = Mymmo_Events_Api_Client::get_events([
-            'from' => $grid_start->setTimezone(new DateTimeZone('UTC'))->format('c'),
-            'to' => $grid_end->setTimezone(new DateTimeZone('UTC'))->format('c'),
+            'from' => mymmo_events_utc_param($grid_start),
+            'to' => mymmo_events_utc_param($grid_end),
             'type' => $atts['type'],
             'format' => $atts['format'],
             'include_past' => true,
@@ -98,8 +102,11 @@ final class Mymmo_Events_Shortcodes {
             $by_day[$start->format('Y-m-d')][] = $event;
         }
 
-        return mymmo_events_render('calendar', [
+        $this_month = (new DateTimeImmutable('now', mymmo_events_timezone()))->format('Y-m');
+
+        $output = mymmo_events_render('calendar', [
             'month' => $month,
+            'jumped' => $month !== $this_month && !isset($_GET['mymmo_month']),
             'first' => $first,
             'last' => $last,
             'grid_start' => $grid_start,
@@ -109,6 +116,17 @@ final class Mymmo_Events_Shortcodes {
             'format' => (string) $atts['format'],
             'stale' => Mymmo_Events_Api_Client::served_stale(),
             'empty' => $events === [],
+        ]);
+
+        return $output . self::debug_panel([
+            'Gevraagde maand' => $month,
+            'Venster van' => $grid_start->format('Y-m-d H:i:s T') . ' → ' . $grid_end->format('Y-m-d H:i:s T'),
+            'Naar de API (UTC)' => mymmo_events_utc_param($grid_start)
+                . ' → ' . mymmo_events_utc_param($grid_end),
+            'Events terug' => count($events),
+            'Dagen met events' => implode(', ', array_keys($by_day)) ?: '(geen)',
+            'Weergavetijdzone' => mymmo_events_timezone()->getName(),
+            'Servertijd nu' => (new DateTimeImmutable('now', mymmo_events_timezone()))->format('Y-m-d H:i:s T'),
         ]);
     }
 
@@ -140,6 +158,9 @@ final class Mymmo_Events_Shortcodes {
             'layout' => (string) $atts['layout'] === 'cards' ? 'cards' : 'rows',
             'show_past' => $show_past,
             'stale' => Mymmo_Events_Api_Client::served_stale(),
+        ]) . self::debug_panel([
+            'Events terug' => count($events),
+            'Verleden meegenomen' => $show_past ? 'ja' : 'nee',
         ]);
     }
 
@@ -175,7 +196,60 @@ final class Mymmo_Events_Shortcodes {
         return mymmo_events_render('single', ['event' => $event]);
     }
 
-    /** "JJJJ-MM" uit de shortcode of uit ?mymmo_month=, anders deze maand. */
+    /**
+     * Debugpaneel onder de shortcode-uitvoer.
+     *
+     * Alleen voor beheerders en alleen met ?mymmo_debug=1 in de URL. Toont
+     * exact welk verzoek de shortcode deed, met welke parameters, wat eruit
+     * kwam en of het uit de cache kwam. De cache staat in debugmodus uit,
+     * anders debug je de cache in plaats van de API.
+     */
+    private static function debug_panel(array $context = []): string {
+        if (!Mymmo_Events_Api_Client::debug_enabled()) {
+            return '';
+        }
+
+        $rows = '';
+        foreach (Mymmo_Events_Api_Client::log() as $entry) {
+            $rows .= '<tr>'
+                . '<td><code>' . esc_html((string) $entry['path']) . '</code></td>'
+                . '<td><code>' . esc_html(wp_json_encode($entry['params'])) . '</code></td>'
+                . '<td>' . esc_html((string) $entry['outcome'])
+                . ($entry['status'] ? ' (' . esc_html((string) $entry['status']) . ')' : '') . '</td>'
+                . '<td>' . esc_html($entry['items'] === null ? '—' : (string) $entry['items']) . '</td>'
+                . '</tr>';
+        }
+
+        $extra = '';
+        foreach ($context as $label => $value) {
+            $extra .= '<tr><th>' . esc_html((string) $label) . '</th><td><code>'
+                . esc_html(is_scalar($value) ? (string) $value : (string) wp_json_encode($value))
+                . '</code></td></tr>';
+        }
+
+        return '<div class="mymmo-ev mymmo-ev-debug">'
+            . '<p class="mymmo-ev-debug__title">Mymmo Events — debug (alleen zichtbaar voor beheerders)</p>'
+            . ($extra !== '' ? '<table class="mymmo-ev-debug__table"><tbody>' . $extra . '</tbody></table>' : '')
+            . '<table class="mymmo-ev-debug__table"><thead><tr>'
+            . '<th>Endpoint</th><th>Parameters</th><th>Herkomst</th><th>Items</th>'
+            . '</tr></thead><tbody>' . ($rows !== '' ? $rows : '<tr><td colspan="4">Geen verzoeken.</td></tr>')
+            . '</tbody></table>'
+            . '<p class="mymmo-ev-debug__hint">Komt hier 1 item maar staat de kalender leeg, dan valt het event '
+            . 'buiten het gevraagde venster of buiten de getoonde maand. Staat er 0 en geeft de diagnose in de '
+            . 'instellingen wel resultaat, dan zit er een cache tussen: deze pagina zelf, of een pagina-cache.</p>'
+            . '</div>';
+    }
+
+    /**
+     * Welke maand toont de kalender?
+     *
+     * Volgorde: ?mymmo_month= uit de URL, dan de shortcode-parameter, dan de
+     * maand van het EERSTVOLGENDE event, en pas als laatste deze maand.
+     *
+     * Die derde stap is belangrijk: staan er deze maand geen events maar
+     * verderop wel, dan lijkt de kalender leeg terwijl er niets fout is. Dan
+     * moet de bezoeker zelf gaan bladeren, en dat doet niemand.
+     */
     private static function resolve_month(string $requested): string {
         $from_query = isset($_GET['mymmo_month']) ? sanitize_text_field(wp_unslash($_GET['mymmo_month'])) : '';
 
@@ -185,6 +259,14 @@ final class Mymmo_Events_Shortcodes {
             }
         }
 
-        return (new DateTimeImmutable('now', mymmo_events_timezone()))->format('Y-m');
+        $this_month = (new DateTimeImmutable('now', mymmo_events_timezone()))->format('Y-m');
+
+        $next = Mymmo_Events_Api_Client::get_next_event();
+        if (is_array($next) && preg_match('/^\d{4}-\d{2}$/', (string) $next['month'])) {
+            // Nooit terug in de tijd springen.
+            return $next['month'] > $this_month ? $next['month'] : $this_month;
+        }
+
+        return $this_month;
     }
 }

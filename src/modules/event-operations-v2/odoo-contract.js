@@ -20,6 +20,8 @@ import {
   PUBLIC_EVENT_PATH,
   PUBLICATION_STATE,
   STAGE_NAME_TO_STATE,
+  EVENT_BRAND,
+  EVENT_BRANDS,
   EVENT_TYPE_PRESENTATION,
   EVENT_TYPE_FALLBACK_COLOR,
   LOG_PREFIX
@@ -66,6 +68,8 @@ export const EVENT_FIELDS = {
   HERO_IMAGE_URL: 'x_studio_hero_image_url',
   SEO_TITLE: 'x_studio_seo_title',
   SEO_DESCRIPTION: 'x_studio_seo_description',
+  // Optioneel: bestaat pas als het Studio-veld is aangemaakt.
+  BRAND: 'x_studio_brand',
   VIDEO_URL: 'x_studio_vimeo_url',
   THUMBNAIL_URL: 'x_studio_vimeo_thumbnail_url',
   RECAP_BODY: 'x_studio_followup_html',
@@ -296,6 +300,57 @@ export function toOdooDatetime(value) {
   return `${iso.slice(0, 10)} ${iso.slice(11, 19)}`;
 }
 
+/**
+ * Een datumgrens uit een publieke queryparameter omzetten naar het formaat
+ * dat Odoo verwacht.
+ *
+ * Nooit een ruwe parameterwaarde in een Odoo-domein zetten: dit is een
+ * publiek endpoint, en Odoo gooit op een datum die het niet begrijpt. Dat
+ * werd dan een 503 waar niemand iets aan kon zien.
+ *
+ * Repareert ook de klassieke `+`-val: in een querystring betekent `+` een
+ * SPATIE. Een client die "2026-10-25T23:00:00+00:00" ongeëncodeerd
+ * meestuurt — wat WordPress' add_query_arg doet — komt hier binnen als
+ * "2026-10-25T23:00:00 00:00". Die vorm herstellen we.
+ *
+ * @param {string|null|undefined} raw
+ * @returns {string|null} Odoo-datetime, of null als het onbruikbaar is
+ */
+export function parseBoundaryDatetime(raw) {
+  if (raw === null || raw === undefined) return null;
+
+  const value = String(raw).trim();
+  if (value === '') return null;
+
+  const candidates = [value];
+
+  // "...T23:00:00 00:00" → "...T23:00:00+00:00"
+  const mangled = value.match(/^(.*T\d{2}:\d{2}:\d{2}) (\d{2}:\d{2})$/);
+  if (mangled) {
+    candidates.push(`${mangled[1]}+${mangled[2]}`);
+  }
+
+  // "2026-10-25 23:00:00" zonder tijdzone: als UTC lezen, zoals Odoo doet.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    candidates.push(`${value.replace(' ', 'T')}Z`);
+  }
+
+  // Alleen een datum.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    candidates.push(`${value}T00:00:00Z`);
+  }
+
+  for (const candidate of candidates) {
+    const date = new Date(candidate);
+    if (!Number.isNaN(date.getTime())) {
+      return toOdooDatetime(date);
+    }
+  }
+
+  console.warn(`${LOG_PREFIX} datumgrens genegeerd, niet te lezen: ${JSON.stringify(value)}`);
+  return null;
+}
+
 function brusselsParts(date) {
   const parts = new Intl.DateTimeFormat(LOCALE, {
     timeZone: TIMEZONE,
@@ -351,6 +406,22 @@ export function computeEndsAt(startsAtIso, durationMinutes) {
   if (Number.isNaN(start.getTime())) return null;
   const minutes = int(durationMinutes, DEFAULT_DURATION_MINUTES) || DEFAULT_DURATION_MINUTES;
   return new Date(start.getTime() + minutes * 60 * 1000).toISOString();
+}
+
+// ─── Merk ────────────────────────────────────────────────────────────────────
+
+/**
+ * Het merk van een event. Een lege waarde geldt als `both`, zodat de
+ * kalender blijft werken zolang de velden nog niet ingevuld zijn.
+ *
+ * @param {Object} record
+ * @returns {'openvme'|'syndicoach'|'both'}
+ */
+export function eventBrand(record) {
+  const raw = record?.[EVENT_FIELDS.BRAND];
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+
+  return EVENT_BRANDS.includes(value) ? value : EVENT_BRAND.BOTH;
 }
 
 // ─── Presentatie van het event type ──────────────────────────────────────────
@@ -542,6 +613,7 @@ export function toEventDto(record, extra = {}) {
     slug: str(record[EVENT_FIELDS.SLUG]),
     summary: str(record[EVENT_FIELDS.SUMMARY]),
     active: record[EVENT_FIELDS.ACTIVE] !== false,
+    brand: eventBrand(record),
     // Uit de stage, niet uit een apart statusveld.
     publication_state: stageToState(record[EVENT_FIELDS.STAGE], extra.stageOverrides),
     stage: {
@@ -649,7 +721,20 @@ export function toPublicEventDto(record, options = {}) {
       capacity: internal.registration.capacity,
       seats_left: internal.registration.seats_left
     },
-    url: internal.slug ? `${PUBLIC_EVENT_PATH}/${internal.slug}/` : null
+    url: internal.slug ? `${PUBLIC_EVENT_PATH}/${internal.slug}/` : null,
+    brand: internal.brand,
+    /**
+     * Absolute canonical voor een GEDEELD event.
+     *
+     * Een event met merk `both` bestaat op beide sites op hetzelfde pad. Zonder
+     * canonical is dat dubbele content. `options.sharedCanonicalOrigin` komt uit
+     * env.EVENTS_SHARED_CANONICAL_ORIGIN; is die niet gezet, dan blijft dit null
+     * en gebruikt de site zijn eigen URL.
+     */
+    canonical_url:
+      internal.brand === EVENT_BRAND.BOTH && internal.slug && options.sharedCanonicalOrigin
+        ? `${String(options.sharedCanonicalOrigin).replace(/\/$/, '')}${PUBLIC_EVENT_PATH}/${internal.slug}/`
+        : null
   };
 
   if (options.detail) {

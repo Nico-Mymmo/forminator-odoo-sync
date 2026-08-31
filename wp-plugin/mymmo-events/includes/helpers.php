@@ -36,6 +36,24 @@ function mymmo_events_date(?string $iso): ?DateTimeImmutable {
     }
 }
 
+/**
+ * Een tijdstip als parameter voor de API: UTC met een 'Z', nooit met een
+ * numerieke offset.
+ *
+ * `format('c')` geeft "2026-10-25T23:00:00+00:00". WordPress' add_query_arg
+ * urlencodeert waarden niet, dus die `+` komt letterlijk in de querystring
+ * terecht — en daar betekent `+` een SPATIE. De API las dan
+ * "2026-10-25T23:00:00 00:00", gaf dat door aan Odoo, en dat werd een 503.
+ *
+ * Met 'Z' zit er geen enkel teken in dat encoding nodig heeft.
+ *
+ * @param DateTimeImmutable $moment
+ * @return string bv. "2026-10-25T23:00:00Z"
+ */
+function mymmo_events_utc_param(DateTimeImmutable $moment): string {
+    return $moment->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z');
+}
+
 /** Nederlandse maand- en dagnamen, los van de serverlocale. */
 const MYMMO_EVENTS_MONTHS = [
     1 => 'januari', 'februari', 'maart', 'april', 'mei', 'juni',

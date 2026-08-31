@@ -106,6 +106,11 @@ final class Mymmo_Events_Settings {
             $test = Mymmo_Events_Api_Client::test_connection();
         }
 
+        $diag = null;
+        if (isset($_GET['mymmo_diag']) && check_admin_referer('mymmo_events_diag')) {
+            $diag = Mymmo_Events_Api_Client::diagnose();
+        }
+
         $site_key = (string) get_option('mymmo_events_site_key', '');
         $masked = $site_key !== ''
             ? str_repeat('•', max(0, strlen($site_key) - 4)) . substr($site_key, -4)
@@ -255,10 +260,95 @@ final class Mymmo_Events_Settings {
                 <a class="button" href="<?php echo esc_url(wp_nonce_url(add_query_arg('mymmo_test', '1', admin_url('options-general.php?page=' . self::PAGE)), 'mymmo_events_test')); ?>">
                     Verbinding testen
                 </a>
+                <a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(add_query_arg('mymmo_diag', '1', admin_url('options-general.php?page=' . self::PAGE)), 'mymmo_events_diag')); ?>">
+                    Diagnose uitvoeren
+                </a>
                 <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=mymmo_events_purge'), 'mymmo_events_purge')); ?>">
                     Cache leegmaken
                 </a>
             </p>
+        <?php if (is_array($diag)) : ?>
+            <hr />
+            <h2>Diagnose</h2>
+
+            <?php if (empty($diag['ok'])) : ?>
+                <div class="notice notice-error inline"><p><?php echo esc_html((string) $diag['error']); ?></p></div>
+                <?php if (!empty($diag['raw'])) : ?>
+                    <pre style="max-height:12em;overflow:auto;background:#f6f7f7;padding:.75em"><?php echo esc_html(substr((string) $diag['raw'], 0, 2000)); ?></pre>
+                <?php endif; ?>
+            <?php else : ?>
+                <table class="widefat striped" style="max-width:52em">
+                    <tbody>
+                        <tr><th style="width:16em">Antwoord</th><td>HTTP <?php echo esc_html((string) $diag['status']); ?> in <?php echo esc_html((string) $diag['duration_ms']); ?> ms</td></tr>
+                        <tr><th>Contractversie</th><td><?php echo esc_html((string) $diag['shape_version']); ?></td></tr>
+                        <tr>
+                            <th>Merk van deze sleutel</th>
+                            <td>
+                                <?php if (!empty($diag['brand'])) : ?>
+                                    <code><?php echo esc_html((string) $diag['brand']); ?></code>
+                                <?php else : ?>
+                                    geen &mdash; deze site ziet alle merken
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr><th>Events met een pagina</th><td><strong><?php echo esc_html((string) $diag['total']); ?></strong>, waarvan <?php echo esc_html((string) $diag['upcoming']); ?> nog te komen</td></tr>
+                        <tr>
+                            <th>Deze maand (<?php echo esc_html((string) $diag['this_month']); ?>)</th>
+                            <td>
+                                <?php echo esc_html((string) $diag['in_this_month']); ?>
+                                <?php if ((int) $diag['in_this_month'] === 0 && (int) $diag['upcoming'] > 0) : ?>
+                                    &mdash; <em>daarom lijkt de kalender leeg; hij opent op de eerstvolgende maand met events</em>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php if ((int) $diag['skipped_without_slug'] > 0) : ?>
+                            <tr>
+                                <th>Overgeslagen</th>
+                                <td>
+                                    <strong><?php echo esc_html((string) $diag['skipped_without_slug']); ?></strong> gepubliceerde events <em>zonder slug</em>.
+                                    Die hebben geen pagina en worden daarom niet getoond. Publiceer ze opnieuw
+                                    via de Operations Manager, dan wordt er een slug afgeleid.
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+
+                <?php if (!empty($diag['months'])) : ?>
+                    <h3>Per maand</h3>
+                    <p>
+                        <?php foreach ($diag['months'] as $month => $count) : ?>
+                            <a class="button button-small" style="margin:0 .25em .25em 0"
+                               href="<?php echo esc_url(add_query_arg('mymmo_month', $month, mymmo_events_archive_url())); ?>">
+                                <?php echo esc_html((string) $month); ?> <span class="count">(<?php echo esc_html((string) $count); ?>)</span>
+                            </a>
+                        <?php endforeach; ?>
+                    </p>
+                <?php endif; ?>
+
+                <h3>Wat de API teruggeeft</h3>
+                <div style="max-height:26em;overflow:auto">
+                    <table class="widefat striped">
+                        <thead><tr><th>ID</th><th>Titel</th><th>Slug</th><th>Wanneer</th><th>Type</th><th>Merk</th></tr></thead>
+                        <tbody>
+                            <?php if ($diag['rows'] === []) : ?>
+                                <tr><td colspan="6">De API geeft geen enkel event terug. Staat er iets op <em>Gepubliceerd</em> in de Operations Manager, en heeft het een slug?</td></tr>
+                            <?php endif; ?>
+                            <?php foreach ($diag['rows'] as $row) : ?>
+                                <tr<?php echo $row['past'] ? ' style="opacity:.55"' : ''; ?>>
+                                    <td><?php echo esc_html((string) $row['id']); ?></td>
+                                    <td><?php echo esc_html($row['title']); ?></td>
+                                    <td><code><?php echo esc_html($row['slug']); ?></code></td>
+                                    <td><?php echo esc_html($row['when']); ?></td>
+                                    <td><?php echo esc_html($row['type']); ?></td>
+                                    <td><?php echo esc_html($row['brand']); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
         </div>
         <?php
     }
