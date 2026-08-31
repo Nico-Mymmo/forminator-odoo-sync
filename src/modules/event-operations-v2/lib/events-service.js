@@ -25,11 +25,14 @@ import {
   toEventDto,
   toEventTypeDto,
   toOdooEventValues,
-  assertNoForbiddenFields
+  assertNoForbiddenFields,
+  stageToState,
+  parseStageMapOverride
 } from '../odoo-contract.js';
 import {
   LOG_PREFIX,
   PUBLICATION_STATE,
+  PUBLICATION_STATES,
   REGISTRATION_STATE,
   CACHE_NS,
   CACHE_TTL
@@ -91,11 +94,93 @@ export async function getRegistrationCounts(env, eventIds) {
   return counts;
 }
 
-function buildEventDomain(filters = {}) {
+/**
+ * Alle stages uit Odoo, met per stage de statuscode die eruit volgt.
+ *
+ * De stage IS de publicatiestatus, dus dit is de brug tussen een code
+ * ('published') en het Odoo-record dat we moeten wegschrijven.
+ *
+ * @param {Object} env
+ * @returns {Promise<{ stages: Object[], idByState: Object, stateById: Object }>}
+ */
+export async function getStages(env) {
+  const overrides = parseStageMapOverride(env?.EVENT_STAGE_MAP);
+
+  const { value } = await readThrough(
+    env,
+    { namespace: CACHE_NS.STAGES, parts: ['all'], ttlSeconds: CACHE_TTL.STAGES },
+    async () => {
+      const records = await searchRead(env, {
+        model: ODOO_MODELS.EVENT_STAGE,
+        domain: [],
+        fields: [EVENT_STAGE_FIELDS.ID, EVENT_STAGE_FIELDS.NAME, EVENT_STAGE_FIELDS.SEQUENCE],
+        order: `${EVENT_STAGE_FIELDS.SEQUENCE} asc, ${EVENT_STAGE_FIELDS.ID} asc`
+      });
+
+      return { records: Array.isArray(records) ? records : [] };
+    }
+  );
+
+  const stages = [];
+  const idByState = {};
+  const stateById = {};
+
+  for (const record of value.records) {
+    const id = Number(record[EVENT_STAGE_FIELDS.ID]);
+    const name = record[EVENT_STAGE_FIELDS.NAME];
+    const stateCode = stageToState([id, name], overrides);
+
+    stages.push({ id, name, state: stateCode });
+    stateById[id] = stateCode;
+    // Bij meerdere stages met dezelfde code wint de eerste: dat is de
+    // stage waar we naartoe schrijven.
+    if (!idByState[stateCode]) idByState[stateCode] = id;
+  }
+
+  return { stages, idByState, stateById };
+}
+
+/**
+ * Statuscode → Odoo stage-id.
+ * @returns {Promise<number>}
+ */
+export async function resolveStageId(env, stateCode) {
+  const { idByState, stages } = await getStages(env);
+  const id = idByState[stateCode];
+
+  if (!id) {
+    const available = stages.map((st) => `${st.name} (${st.state})`).join(', ') || 'geen';
+    throw new ValidationError(
+      `Er is geen stage in Odoo die overeenkomt met "${stateCode}". Aanwezig: ${available}.`,
+      { status: 409 }
+    );
+  }
+  return id;
+}
+
+/**
+ * Stage-id's die bij een statuscode horen. Meerdere stages kunnen op
+ * dezelfde code uitkomen, dus dit is een lijst.
+ * @returns {Promise<number[]>}
+ */
+async function stageIdsForStates(env, stateCodes) {
+  const { stages } = await getStages(env);
+  const wanted = new Set(stateCodes);
+  return stages.filter((st) => wanted.has(st.state)).map((st) => st.id);
+}
+
+async function buildEventDomain(env, filters = {}) {
   const domain = [];
 
+  // Status is geen veld meer maar een stage, dus filteren gebeurt op de
+  // stage-id's die bij die code horen.
   if (filters.publication_state) {
-    domain.push([EVENT_FIELDS.PUBLICATION_STATE, '=', filters.publication_state]);
+    const ids = await stageIdsForStates(env, [filters.publication_state]);
+    domain.push([EVENT_FIELDS.STAGE, 'in', ids.length > 0 ? ids : [0]]);
+  }
+  if (Array.isArray(filters.publication_states) && filters.publication_states.length > 0) {
+    const ids = await stageIdsForStates(env, filters.publication_states);
+    domain.push([EVENT_FIELDS.STAGE, 'in', ids.length > 0 ? ids : [0]]);
   }
   if (filters.event_type_id) {
     domain.push([EVENT_FIELDS.EVENT_TYPE, '=', Number(filters.event_type_id)]);
@@ -147,7 +232,7 @@ export async function listEvents(env, options = {}) {
   const fields = detail ? EVENT_DETAIL_FIELDS : EVENT_LIST_FIELDS;
   assertNoForbiddenFields(fields, 'listEvents');
 
-  const domain = buildEventDomain(filters);
+  const domain = await buildEventDomain(env, filters);
   const includeArchived = filters.include_archived === true;
 
   const { value, cached } = await readThrough(
@@ -274,26 +359,11 @@ export async function createEvent(env, input, actor = null) {
 
   const slug = await ensureUniqueSlug(env, input.slug || input.title);
 
-  const values = toOdooEventValues({
-    ...input,
-    slug,
-    // Een nieuw event begint altijd als concept, ongeacht wat de client stuurt.
-    publication_state: PUBLICATION_STATE.DRAFT
-  });
+  const values = toOdooEventValues({ ...input, slug });
 
-  // x_studio_stage_id is verplicht in Odoo; val terug op de eerste fase.
-  if (!values[EVENT_FIELDS.STAGE]) {
-    const stages = await searchRead(env, {
-      model: ODOO_MODELS.EVENT_STAGE,
-      domain: [],
-      fields: [EVENT_STAGE_FIELDS.ID],
-      order: `${EVENT_STAGE_FIELDS.SEQUENCE} asc, ${EVENT_STAGE_FIELDS.ID} asc`,
-      limit: 1
-    });
-    if (Array.isArray(stages) && stages.length > 0) {
-      values[EVENT_FIELDS.STAGE] = stages[0].id;
-    }
-  }
+  // Een nieuw event begint altijd als concept, ongeacht wat de client
+  // stuurt. x_studio_stage_id is bovendien verplicht in Odoo.
+  values[EVENT_FIELDS.STAGE] = await resolveStageId(env, PUBLICATION_STATE.DRAFT);
 
   const id = await create(env, { model: ODOO_MODELS.EVENT, values });
   console.log(`${LOG_PREFIX} event ${id} aangemaakt (slug=${slug})`);
@@ -345,8 +415,12 @@ export async function updateEvent(env, id, input, actor = null) {
 }
 
 /**
- * Publicatiestatus wijzigen, met afdwinging van de toegestane overgangen
- * en een publiceercontrole die zegt WAT er mist.
+ * Publicatiestatus wijzigen. Schrijft de bijhorende STAGE in Odoo, want
+ * de stage IS de status — Odoo's kanban en de website blijven daardoor
+ * automatisch gelijk.
+ *
+ * Dwingt de toegestane overgangen af en geeft bij publiceren een controle
+ * die zegt WAT er mist.
  *
  * @returns {Promise<Object>}
  */
@@ -359,6 +433,20 @@ export async function setPublicationState(env, id, nextState, actor = null) {
 
   assertPublicationTransition(current.publication_state, nextState);
 
+  // Bestaande events uit Odoo hebben geen slug. Bij publiceren leiden we er
+  // een af uit de titel in plaats van te weigeren — dat is de enige reden
+  // dat je hem met de hand zou moeten invullen.
+  if (nextState === PUBLICATION_STATE.PUBLISHED && !current.slug) {
+    const slug = await ensureUniqueSlug(env, current.title, eventId);
+    await write(env, {
+      model: ODOO_MODELS.EVENT,
+      ids: [eventId],
+      values: { [EVENT_FIELDS.SLUG]: slug }
+    });
+    current.slug = slug;
+    console.log(`${LOG_PREFIX} slug afgeleid voor event ${eventId}: ${slug}`);
+  }
+
   if (nextState === PUBLICATION_STATE.PUBLISHED) {
     const { ready, missing } = checkPublishReadiness(current);
     if (!ready) {
@@ -369,16 +457,18 @@ export async function setPublicationState(env, id, nextState, actor = null) {
     }
   }
 
+  const stageId = await resolveStageId(env, nextState);
+
   await write(env, {
     model: ODOO_MODELS.EVENT,
     ids: [eventId],
-    values: { [EVENT_FIELDS.PUBLICATION_STATE]: nextState }
+    values: { [EVENT_FIELDS.STAGE]: stageId }
   });
 
   await logToChatter(
     env,
     eventId,
-    `Publicatiestatus: ${current.publication_state} → ${nextState}`,
+    `Fase: ${current.stage?.name || current.publication_state} → ${nextState}`,
     actor
   );
   await invalidateEvents(env);

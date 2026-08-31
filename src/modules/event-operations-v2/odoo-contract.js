@@ -17,7 +17,12 @@ import {
   EVENT_FORMAT,
   CAPACITY_UNLIMITED,
   DEFAULT_DURATION_MINUTES,
-  PUBLIC_EVENT_PATH
+  PUBLIC_EVENT_PATH,
+  PUBLICATION_STATE,
+  STAGE_NAME_TO_STATE,
+  EVENT_TYPE_PRESENTATION,
+  EVENT_TYPE_FALLBACK_COLOR,
+  LOG_PREFIX
 } from './constants.js';
 
 export const ODOO_MODELS = {
@@ -43,7 +48,7 @@ export const EVENT_FIELDS = {
   BODY: 'x_studio_webinar_info',
   SUMMARY: 'x_studio_summary',
   SLUG: 'x_studio_slug',
-  PUBLICATION_STATE: 'x_studio_publication_state',
+  // De publicatiestatus KOMT UIT DE STAGE. Zie stageToState().
   STAGE: 'x_studio_stage_id',
   // x_event_type_id is de ENIGE echte event-type-relatie. Geverifieerd:
   // x_studio_event_type en x_studio_many2one_field_4p8_1jhb7es30 zijn leeg
@@ -129,7 +134,10 @@ export const FORBIDDEN_FIELDS = Object.freeze([
   'x_studio_date',
   // Bestaat niet op dit model; v1 gebruikte deze naam met een
   // runtime-detectie eromheen. Gebruik EVENT_FIELDS.EVENT_TYPE.
-  'x_webinar_event_type_id'
+  'x_webinar_event_type_id',
+  // Vervangen door x_studio_stage_id: de stage IS de publicatiestatus.
+  // Twee velden voor hetzelfde gegeven is twee waarheden.
+  'x_studio_publication_state'
 ]);
 
 /**
@@ -160,7 +168,7 @@ export const EVENT_LIST_FIELDS = Object.freeze([
   EVENT_FIELDS.STARTS_AT,
   EVENT_FIELDS.DURATION_MINUTES,
   EVENT_FIELDS.SUMMARY,
-  EVENT_FIELDS.PUBLICATION_STATE,
+  EVENT_FIELDS.STAGE,
   EVENT_FIELDS.EVENT_TYPE,
   EVENT_FIELDS.LOCATION,
   EVENT_FIELDS.ONLINE_URL,
@@ -178,7 +186,6 @@ export const EVENT_DETAIL_FIELDS = Object.freeze([
   EVENT_FIELDS.BODY,
   EVENT_FIELDS.CO_HOST,
   EVENT_FIELDS.TAGS,
-  EVENT_FIELDS.STAGE,
   EVENT_FIELDS.SEO_TITLE,
   EVENT_FIELDS.SEO_DESCRIPTION,
   EVENT_FIELDS.VIDEO_URL,
@@ -346,6 +353,102 @@ export function computeEndsAt(startsAtIso, durationMinutes) {
   return new Date(start.getTime() + minutes * 60 * 1000).toISOString();
 }
 
+// ─── Presentatie van het event type ──────────────────────────────────────────
+
+/**
+ * Slug en kleur voor een event type, voor gebruik op de website.
+ *
+ * De slug volgt de bestaande tribe_events_cat-taxonomie waar we die
+ * kennen, zodat categorie-URL's blijven werken; anders wordt hij uit de
+ * naam afgeleid.
+ *
+ * @param {string|null} name
+ * @returns {{ slug: string|null, color: string }}
+ */
+export function eventTypePresentation(name) {
+  if (!name) return { slug: null, color: EVENT_TYPE_FALLBACK_COLOR };
+
+  const key = String(name).trim().toLowerCase();
+  const preset = EVENT_TYPE_PRESENTATION[key];
+  if (preset) return { slug: preset.slug, color: preset.color };
+
+  const slug = key
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, 'en')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return { slug: slug || null, color: EVENT_TYPE_FALLBACK_COLOR };
+}
+
+// ─── Stage → publicatiestatus ────────────────────────────────────────────────
+
+/** Naam normaliseren voor de vergelijking: kleine letters, geen accenten. */
+function normalizeStageName(name) {
+  return String(name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * De publicatiestatus van een event, afgeleid uit `x_studio_stage_id`.
+ *
+ * De stage in Odoo IS de levenscyclus: Odoo's kanban en de website lezen
+ * dezelfde waarde. Er is bewust geen tweede statusveld.
+ *
+ * Matcht op de genormaliseerde stagenaam, dus zowel "Published" als
+ * "Gepubliceerd" werkt. Een onbekende stage valt terug op draft — dan is
+ * het event onzichtbaar op de website, wat het veiligste is bij twijfel.
+ *
+ * @param {Array|number|false} stageValue - ruwe many2one-waarde
+ * @param {Object} [overrides] - { [stageId]: stateCode }, uit env.EVENT_STAGE_MAP
+ * @returns {string} PUBLICATION_STATE-waarde
+ */
+export function stageToState(stageValue, overrides = null) {
+  const stageId = m2oId(stageValue);
+
+  if (overrides && stageId && overrides[stageId]) {
+    return overrides[stageId];
+  }
+
+  const name = normalizeStageName(m2oName(stageValue));
+  if (!name) {
+    return PUBLICATION_STATE.DRAFT;
+  }
+
+  const mapped = STAGE_NAME_TO_STATE[name];
+  if (mapped) return mapped;
+
+  console.warn(
+    `${LOG_PREFIX} onbekende stage "${m2oName(stageValue)}" (id ${stageId}); ` +
+    'val terug op draft. Voeg de naam toe aan STAGE_NAME_TO_STATE of zet env.EVENT_STAGE_MAP.'
+  );
+  return PUBLICATION_STATE.DRAFT;
+}
+
+/**
+ * env.EVENT_STAGE_MAP ("1:draft,2:published") → { 1: 'draft', 2: 'published' }
+ *
+ * @param {string|undefined} raw
+ * @returns {Object|null}
+ */
+export function parseStageMapOverride(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+
+  const map = {};
+  for (const pair of raw.split(',')) {
+    const [idPart, codePart] = pair.split(':').map((x) => String(x || '').trim());
+    const id = Number.parseInt(idPart, 10);
+    if (Number.isInteger(id) && id > 0 && codePart) {
+      map[id] = codePart;
+    }
+  }
+  return Object.keys(map).length > 0 ? map : null;
+}
+
 // ─── Afgeleid format ──────────────────────────────────────────────────────────
 
 /**
@@ -390,7 +493,13 @@ export function seatsLeft(capacity, taken) {
  * @returns {{ open: boolean, reason: string|null }}
  */
 export function registrationStatus(dto, now = new Date()) {
-  if (dto.publication_state !== 'published') {
+  if (dto.publication_state === PUBLICATION_STATE.CANCELLED) {
+    return { open: false, reason: 'cancelled' };
+  }
+  if (dto.publication_state === PUBLICATION_STATE.DONE) {
+    return { open: false, reason: 'event_done' };
+  }
+  if (dto.publication_state !== PUBLICATION_STATE.PUBLISHED) {
     return { open: false, reason: 'not_published' };
   }
   if (!dto.registration.enabled) {
@@ -433,7 +542,12 @@ export function toEventDto(record, extra = {}) {
     slug: str(record[EVENT_FIELDS.SLUG]),
     summary: str(record[EVENT_FIELDS.SUMMARY]),
     active: record[EVENT_FIELDS.ACTIVE] !== false,
-    publication_state: str(record[EVENT_FIELDS.PUBLICATION_STATE]) || 'draft',
+    // Uit de stage, niet uit een apart statusveld.
+    publication_state: stageToState(record[EVENT_FIELDS.STAGE], extra.stageOverrides),
+    stage: {
+      id: m2oId(record[EVENT_FIELDS.STAGE]),
+      name: m2oName(record[EVENT_FIELDS.STAGE])
+    },
     format: deriveFormat(record),
     starts_at: startsAt,
     ends_at: computeEndsAt(startsAt, durationMinutes),
@@ -469,10 +583,6 @@ export function toEventDto(record, extra = {}) {
     dto.co_host = {
       id: m2oId(record[EVENT_FIELDS.CO_HOST]),
       name: m2oName(record[EVENT_FIELDS.CO_HOST])
-    };
-    dto.stage = {
-      id: m2oId(record[EVENT_FIELDS.STAGE]),
-      name: m2oName(record[EVENT_FIELDS.STAGE])
     };
     dto.seo = {
       title: str(record[EVENT_FIELDS.SEO_TITLE]),
@@ -519,12 +629,15 @@ export function toPublicEventDto(record, options = {}) {
     slug: internal.slug,
     title: internal.title,
     summary: internal.summary,
-    type: {
-      id: internal.event_type.id,
-      name: internal.event_type.name,
-      slug: options.typeSlug ?? null,
-      color: options.typeColor ?? null
-    },
+    type: (() => {
+      const presentation = eventTypePresentation(internal.event_type.name);
+      return {
+        id: internal.event_type.id,
+        name: internal.event_type.name,
+        slug: options.typeSlug ?? presentation.slug,
+        color: options.typeColor ?? presentation.color
+      };
+    })(),
     format: internal.format,
     starts_at: internal.starts_at,
     ends_at: internal.ends_at,
@@ -536,7 +649,7 @@ export function toPublicEventDto(record, options = {}) {
       capacity: internal.registration.capacity,
       seats_left: internal.registration.seats_left
     },
-    url: internal.slug ? `${PUBLIC_EVENT_PATH}/${internal.slug}` : null
+    url: internal.slug ? `${PUBLIC_EVENT_PATH}/${internal.slug}/` : null
   };
 
   if (options.detail) {
@@ -601,6 +714,10 @@ export function toEventTypeDto(record) {
 /**
  * Zet een (partiele) DTO om naar Odoo-values.
  *
+ * De publicatiestatus zit hier NIET in: die is een stage, en de
+ * code-naar-stage-id-vertaling vraagt een Odoo-lookup. Zie
+ * setPublicationState in lib/events-service.js.
+ *
  * Alleen aanwezige sleutels worden meegenomen, zodat dit ook voor PATCH
  * werkt. Wordt `starts_at` gezet, dan gaan de afgeleide weergavevelden
  * automatisch mee — dat is de hele reden dat deze functie bestaat.
@@ -616,7 +733,6 @@ export function toOdooEventValues(input = {}) {
   if (has('slug')) values[EVENT_FIELDS.SLUG] = input.slug || false;
   if (has('summary')) values[EVENT_FIELDS.SUMMARY] = input.summary || false;
   if (has('body_html')) values[EVENT_FIELDS.BODY] = input.body_html || false;
-  if (has('publication_state')) values[EVENT_FIELDS.PUBLICATION_STATE] = input.publication_state;
   if (has('active')) values[EVENT_FIELDS.ACTIVE] = Boolean(input.active);
 
   if (has('event_type_id')) {

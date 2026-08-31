@@ -11,12 +11,12 @@
 
 import {
   LOG_PREFIX,
-  PUBLICATION_STATE,
   PAGINATION,
   CACHE_TTL,
   PUBLIC_RATE_LIMIT,
   PUBLIC_SHAPE_VERSION,
-  EVENT_FORMAT
+  EVENT_FORMAT,
+  PUBLIC_VISIBLE_STATES
 } from './constants.js';
 import { toPublicEventDto, EVENT_FIELDS } from './odoo-contract.js';
 import { listEvents, getEvent, listEventTypes } from './lib/events-service.js';
@@ -179,8 +179,10 @@ async function handleEventList(request, env) {
   const includePast = p.get('include_past') === '1';
   const format = p.get('format');
 
+  // Gepubliceerd EN afgerond: een afgelopen event houdt zijn pagina, want
+  // daar hangt de recap aan. Zie PUBLIC_VISIBLE_STATES.
   const filters = {
-    publication_state: PUBLICATION_STATE.PUBLISHED
+    publication_states: PUBLIC_VISIBLE_STATES
   };
   if (p.get('type')) filters.event_type_id = Number.parseInt(p.get('type'), 10);
   if (format && Object.values(EVENT_FORMAT).includes(format)) filters.format = format;
@@ -214,11 +216,20 @@ async function handleEventList(request, env) {
   return { payload, cached, ttl: CACHE_TTL.PUBLIC_LIST };
 }
 
-async function handleEventDetail(request, env, slug) {
-  const { event, raw, cached } = await getEvent(env, { slug }, { cacheTtl: CACHE_TTL.PUBLIC_DETAIL });
+/**
+ * Een event opzoeken op slug, of op Odoo-id als de segmentwaarde puur
+ * numeriek is.
+ *
+ * Dat tweede pad bestaat voor de bestaande links: The Events Calendar
+ * gebruikt vandaag `/event/{slug}/?owid={id}`, en zo blijft een oude link
+ * werken ook als de slug intussen gewijzigd is.
+ */
+async function handleEventDetail(request, env, key) {
+  const selector = /^\d+$/.test(key) ? { id: Number.parseInt(key, 10) } : { slug: key };
+  const { event, raw, cached } = await getEvent(env, selector, { cacheTtl: CACHE_TTL.PUBLIC_DETAIL });
 
   if (!event || !raw) return null;
-  if (event.publication_state !== PUBLICATION_STATE.PUBLISHED) return null;
+  if (!PUBLIC_VISIBLE_STATES.includes(event.publication_state)) return null;
 
   const dto = toPublicPayload(raw, {
     registrationCount: event.registration.count,

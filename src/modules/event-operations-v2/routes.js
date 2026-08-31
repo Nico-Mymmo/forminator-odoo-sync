@@ -11,7 +11,8 @@
  *    cache-invalidatie en het chatterbericht altijd meelopen
  */
 
-import { LOG_PREFIX, PUBLICATION_STATE, PAGINATION } from './constants.js';
+import { LOG_PREFIX, PUBLICATION_STATE, PAGINATION, CACHE_NS } from './constants.js';
+import { invalidateNamespace, invalidateEvents } from './lib/cache.js';
 import {
   listEvents,
   getEvent,
@@ -20,7 +21,8 @@ import {
   setPublicationState,
   setEventActive,
   duplicateEvent,
-  listEventTypes
+  listEventTypes,
+  getStages
 } from './lib/events-service.js';
 import { ValidationError, normalizePagination } from './lib/validation.js';
 import { toPublicEventDto } from './odoo-contract.js';
@@ -146,6 +148,15 @@ export const routes = {
       per_page: url.searchParams.get('per_page')
     });
 
+    // De beheerkant leest altijd rechtstreeks uit Odoo (ADMIN_LIST-TTL is 0).
+    // `fresh=1` gooit daarbovenop de stage- en publieke cache leeg, zodat de
+    // verversknop ook een hernoemde of nieuwe fase in Odoo meteen oppikt.
+    if (url.searchParams.get('fresh') === '1') {
+      await invalidateNamespace(context.env, CACHE_NS.STAGES);
+      await invalidateNamespace(context.env, CACHE_NS.EVENT_TYPES);
+      await invalidateEvents(context.env);
+    }
+
     const { events, total, cached } = await listEvents(context.env, {
       filters: buildFilters(url),
       limit: perPage,
@@ -213,6 +224,16 @@ export const routes = {
     return json({ success: true, data: event });
   }),
 
+  /**
+   * POST /events-v2/api/events/:id/done
+   * Event afronden. De pagina blijft publiek staan voor de recap.
+   */
+  'POST /api/events/:id/done': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.DONE, context.user);
+    return json({ success: true, data: event });
+  }),
+
   'POST /api/events/:id/cancel': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
     const event = await setPublicationState(context.env, id, PUBLICATION_STATE.CANCELLED, context.user);
@@ -243,6 +264,16 @@ export const routes = {
   'GET /api/event-types': withErrors(async (context) => {
     const { types, cached } = await listEventTypes(context.env);
     return json({ success: true, data: types }, 200, cacheHeader(cached));
+  }),
+
+  /**
+   * GET /events-v2/api/stages
+   * De Odoo-stages met de statuscode die eruit volgt. Handig om te zien
+   * of een stage niet herkend wordt.
+   */
+  'GET /api/stages': withErrors(async (context) => {
+    const { stages } = await getStages(context.env);
+    return json({ success: true, data: stages });
   }),
 
   /**

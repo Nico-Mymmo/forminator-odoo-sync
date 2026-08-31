@@ -1,0 +1,567 @@
+/**
+ * Mymmo Events
+ *
+ * Alle kleuren en maten staan als custom properties op .mymmo-ev, zodat het
+ * thema ze kan overschrijven zonder deze file aan te raken.
+ *
+ * Typografie wordt BEWUST geërfd van het thema (Rethink Sans voor tekst,
+ * Gelica voor koppen op openvme.be). De plugin laadt zelf geen fonts: dan
+ * blijft de site consistent en scheelt het requests.
+ *
+ * Geen framework, geen buildstap, geen jQuery.
+ */
+
+.mymmo-ev {
+  /* Afgeleid van openvme.be */
+  --mymmo-ev-ink: #1f2937;
+  --mymmo-ev-text: #4b5563;
+  --mymmo-ev-muted: #6b7280;
+  --mymmo-ev-faint: #9ca3af;
+
+  --mymmo-ev-surface: #ffffff;
+  --mymmo-ev-subtle: #f8fafc;
+  --mymmo-ev-line: #e5e7eb;
+  --mymmo-ev-line-soft: #f1f5f9;
+
+  --mymmo-ev-accent: #0d9488;
+  --mymmo-ev-accent-soft: #99f6e4;
+  --mymmo-ev-accent-ink: #0369a1;
+  --mymmo-ev-danger: #b91c1c;
+  --mymmo-ev-danger-soft: #fee2e2;
+  --mymmo-ev-success: #047857;
+  --mymmo-ev-success-soft: #d1fae5;
+
+  --mymmo-ev-radius: 10px;
+  --mymmo-ev-radius-sm: 6px;
+  --mymmo-ev-gap: 1rem;
+  --mymmo-ev-maxw: 46rem;
+
+  color: var(--mymmo-ev-text);
+  font-family: inherit;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mymmo-ev *,
+.mymmo-ev *::before,
+.mymmo-ev *::after { box-sizing: border-box; }
+
+.mymmo-ev h1, .mymmo-ev h2, .mymmo-ev h3 {
+  color: var(--mymmo-ev-ink);
+  font-family: inherit;
+  text-wrap: balance;
+}
+
+.mymmo-ev-icon {
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+  vertical-align: -0.125em;
+}
+
+.mymmo-ev a { color: inherit; }
+
+.mymmo-ev-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--mymmo-ev-accent-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+.mymmo-ev-link:hover { text-decoration: underline; }
+.mymmo-ev-link .mymmo-ev-icon { transition: transform 0.15s ease; }
+.mymmo-ev-link:hover .mymmo-ev-icon { transform: translateX(2px); }
+
+.mymmo-ev-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius-sm);
+  background: var(--mymmo-ev-surface);
+  color: var(--mymmo-ev-ink);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.mymmo-ev-btn:hover { background: var(--mymmo-ev-subtle); }
+.mymmo-ev-btn:active { transform: translateY(1px); }
+
+.mymmo-ev-btn--primary {
+  background: var(--mymmo-ev-accent-soft);
+  border-color: transparent;
+  color: var(--mymmo-ev-accent-ink);
+}
+.mymmo-ev-btn--primary:hover { background: #7ce9d4; }
+
+.mymmo-ev :focus-visible {
+  outline: 2px solid var(--mymmo-ev-accent-ink);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ── Labels ──────────────────────────────────────────────────────────────── */
+
+.mymmo-ev-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mymmo-ev-pill-color, #475569) 12%, white);
+  color: color-mix(in srgb, var(--mymmo-ev-pill-color, #475569) 80%, black);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.mymmo-ev-pill__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--mymmo-ev-pill-color, #475569);
+}
+
+.mymmo-ev-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--mymmo-ev-muted);
+  white-space: nowrap;
+}
+.mymmo-ev-tag--muted { color: var(--mymmo-ev-faint); font-weight: 500; }
+.mymmo-ev-tag--urgent { color: var(--mymmo-ev-danger); }
+
+/* ── Meldingen ───────────────────────────────────────────────────────────── */
+
+.mymmo-ev-notice,
+.mymmo-ev-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px dashed var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius);
+  background: var(--mymmo-ev-subtle);
+  color: var(--mymmo-ev-muted);
+  font-size: 0.9375rem;
+}
+
+.mymmo-ev-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--mymmo-ev-radius);
+  font-size: 0.9375rem;
+  margin-bottom: 1.25rem;
+}
+.mymmo-ev-alert--success { background: var(--mymmo-ev-success-soft); color: var(--mymmo-ev-success); }
+.mymmo-ev-alert--error { background: var(--mymmo-ev-danger-soft); color: var(--mymmo-ev-danger); }
+.mymmo-ev-alert .mymmo-ev-icon { width: 1.2em; height: 1.2em; margin-top: 0.15em; }
+
+/* ── Lijst ───────────────────────────────────────────────────────────────── */
+
+.mymmo-ev-list__month {
+  margin: 2rem 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--mymmo-ev-line);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mymmo-ev-faint);
+}
+.mymmo-ev-list__month:first-child { margin-top: 0; }
+
+.mymmo-ev-card {
+  display: flex;
+  gap: 1.25rem;
+  padding: 1.25rem 0;
+  border-bottom: 1px solid var(--mymmo-ev-line-soft);
+}
+.mymmo-ev-card:last-child { border-bottom: 0; }
+.mymmo-ev-card.is-past { opacity: 0.62; }
+
+.mymmo-ev-card__date {
+  flex: 0 0 3.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  line-height: 1.1;
+}
+.mymmo-ev-card__dow,
+.mymmo-ev-card__month {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mymmo-ev-faint);
+}
+.mymmo-ev-card__day {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--mymmo-ev-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.mymmo-ev-card__body { min-width: 0; flex: 1 1 auto; }
+.mymmo-ev-card__when {
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--mymmo-ev-muted);
+}
+.mymmo-ev-card__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.3125rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.mymmo-ev-card__title a { text-decoration: none; }
+.mymmo-ev-card__title a:hover { color: var(--mymmo-ev-accent-ink); }
+
+.mymmo-ev-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  margin: 0 0 0.6rem;
+}
+.mymmo-ev-card__summary {
+  margin: 0 0 0.6rem;
+  font-size: 0.9375rem;
+  max-width: var(--mymmo-ev-maxw);
+}
+.mymmo-ev-card__cta { margin: 0; font-size: 0.9375rem; }
+
+/* Kaartweergave */
+.mymmo-ev-list--cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); }
+.mymmo-ev-list--cards .mymmo-ev-list__month { grid-column: 1 / -1; }
+.mymmo-ev-card--cards {
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.15rem;
+  border: 1px solid var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius);
+  background: var(--mymmo-ev-surface);
+}
+.mymmo-ev-card--cards .mymmo-ev-card__date { flex-direction: row; gap: 0.4rem; align-items: baseline; }
+.mymmo-ev-card--cards .mymmo-ev-card__day { font-size: 1.25rem; }
+
+/* ── Kalender ────────────────────────────────────────────────────────────── */
+
+.mymmo-ev-calendar__bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.mymmo-ev-calendar__nav { display: flex; gap: 0.35rem; }
+.mymmo-ev-calendar__title {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 600;
+}
+
+.mymmo-ev-navbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius-sm);
+  background: var(--mymmo-ev-surface);
+  color: var(--mymmo-ev-ink);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+}
+.mymmo-ev-navbtn:hover { background: var(--mymmo-ev-subtle); }
+.mymmo-ev-navbtn--text { font-size: 0.8125rem; }
+
+.mymmo-ev-grid {
+  border: 1px solid var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius);
+  overflow: hidden;
+  background: var(--mymmo-ev-surface);
+}
+
+.mymmo-ev-grid__head,
+.mymmo-ev-grid__body {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.mymmo-ev-grid__head {
+  background: var(--mymmo-ev-subtle);
+  border-bottom: 1px solid var(--mymmo-ev-line);
+}
+.mymmo-ev-grid__head span {
+  padding: 0.55rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mymmo-ev-faint);
+  text-align: center;
+}
+
+.mymmo-ev-day {
+  min-height: 6.25rem;
+  padding: 0.35rem;
+  border-right: 1px solid var(--mymmo-ev-line-soft);
+  border-bottom: 1px solid var(--mymmo-ev-line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.mymmo-ev-day:nth-child(7n) { border-right: 0; }
+.mymmo-ev-day:nth-last-child(-n+7) { border-bottom: 0; }
+
+.mymmo-ev-day__num {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--mymmo-ev-muted);
+  font-variant-numeric: tabular-nums;
+  align-self: flex-start;
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--mymmo-ev-radius-sm);
+}
+
+/* Buiten de maand */
+.mymmo-ev-day.is-outside { background: var(--mymmo-ev-subtle); }
+.mymmo-ev-day.is-outside .mymmo-ev-day__num { color: var(--mymmo-ev-faint); }
+
+/* Voorbij */
+.mymmo-ev-day.is-past { background: #fbfcfd; }
+.mymmo-ev-day.is-past .mymmo-ev-day__num { color: var(--mymmo-ev-faint); }
+.mymmo-ev-day.is-past .mymmo-ev-chip { opacity: 0.6; }
+
+/* Vandaag */
+.mymmo-ev-day.is-today { background: color-mix(in srgb, var(--mymmo-ev-accent) 4%, white); }
+.mymmo-ev-day.is-today .mymmo-ev-day__num {
+  background: var(--mymmo-ev-accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.mymmo-ev-chip {
+  display: block;
+  padding: 0.3rem 0.4rem;
+  border-radius: var(--mymmo-ev-radius-sm);
+  background: color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 13%, white);
+  color: color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 82%, black);
+  text-decoration: none;
+  line-height: 1.25;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.mymmo-ev-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgb(15 23 42 / 0.12);
+}
+.mymmo-ev-chip__type {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mymmo-ev-chip__time {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.mymmo-ev-chip__time em { font-style: normal; font-weight: 700; }
+.mymmo-ev-chip.is-full { text-decoration: line-through; }
+
+/* Op smalle schermen wordt de maand een dagenlijst: een raster van zeven
+   kolommen is op een telefoon onleesbaar, en horizontaal schuiven is erger. */
+@media (max-width: 46rem) {
+  .mymmo-ev-grid__head { display: none; }
+  .mymmo-ev-grid { border: 0; border-radius: 0; }
+  .mymmo-ev-grid__body { display: block; }
+  .mymmo-ev-day {
+    min-height: 0;
+    border: 0;
+    border-bottom: 1px solid var(--mymmo-ev-line-soft);
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    background: none !important;
+  }
+  /* Lege dagen weglaten: dat is de hele winst op mobiel. */
+  .mymmo-ev-day:not(.has-events) { display: none; }
+  .mymmo-ev-day__num { flex: 0 0 2rem; text-align: center; }
+  .mymmo-ev-day > .mymmo-ev-chip { flex: 1 1 auto; }
+}
+
+/* ── Eventpagina ─────────────────────────────────────────────────────────── */
+
+.mymmo-ev-single__back { margin: 0 0 1rem; font-size: 0.875rem; }
+.mymmo-ev-single__back a { color: var(--mymmo-ev-muted); text-decoration: none; }
+.mymmo-ev-single__back a:hover { color: var(--mymmo-ev-accent-ink); }
+
+.mymmo-ev-single__hero { margin: 0 0 1.5rem; }
+.mymmo-ev-single__hero img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 22rem;
+  object-fit: cover;
+  border-radius: var(--mymmo-ev-radius);
+}
+
+.mymmo-ev-single__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+  margin: 0 0 0.75rem;
+}
+.mymmo-ev-single__title {
+  margin: 0 0 1.25rem;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.mymmo-ev-facts {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  margin: 0 0 1.25rem;
+  padding: 1.15rem;
+  border: 1px solid var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius);
+  background: var(--mymmo-ev-subtle);
+}
+.mymmo-ev-facts__item { min-width: 0; }
+.mymmo-ev-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.2rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mymmo-ev-faint);
+}
+.mymmo-ev-facts dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--mymmo-ev-ink);
+}
+.mymmo-ev-facts__sub { font-weight: 500; color: var(--mymmo-ev-muted); }
+
+.mymmo-ev-single__ics { margin: 0 0 1.75rem; font-size: 0.9375rem; }
+
+.mymmo-ev-single__content { max-width: var(--mymmo-ev-maxw); }
+.mymmo-ev-single__content > *:first-child { margin-top: 0; }
+.mymmo-ev-single__content img { max-width: 100%; height: auto; }
+.mymmo-ev-single__content h2 { font-size: 1.375rem; margin-top: 2rem; }
+.mymmo-ev-single__content h3 { font-size: 1.125rem; margin-top: 1.5rem; }
+.mymmo-ev-single__content a { color: var(--mymmo-ev-accent-ink); }
+
+.mymmo-ev-single__recap {
+  max-width: var(--mymmo-ev-maxw);
+  margin: 0 0 1.75rem;
+  padding: 1.25rem;
+  border: 1px solid var(--mymmo-ev-line);
+  border-left: 3px solid var(--mymmo-ev-accent);
+  border-radius: var(--mymmo-ev-radius);
+  background: var(--mymmo-ev-subtle);
+}
+.mymmo-ev-single__recap h2 { margin: 0 0 0.75rem; font-size: 1.125rem; }
+
+.mymmo-ev-single__speakers { max-width: var(--mymmo-ev-maxw); margin: 1.75rem 0; }
+.mymmo-ev-single__speakers h2 { font-size: 1.125rem; margin-bottom: 0.5rem; }
+.mymmo-ev-single__speakers ul { margin: 0; padding-left: 1.1rem; }
+
+/* ── Formulier ───────────────────────────────────────────────────────────── */
+
+.mymmo-ev-register {
+  max-width: var(--mymmo-ev-maxw);
+  margin: 2.5rem 0 0;
+  padding: 1.5rem;
+  border: 1px solid var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius);
+  background: var(--mymmo-ev-surface);
+  scroll-margin-top: 6rem;
+}
+.mymmo-ev-register__title { margin: 0 0 0.35rem; font-size: 1.375rem; font-weight: 700; }
+.mymmo-ev-register__intro { margin: 0 0 1.25rem; font-size: 0.9375rem; }
+
+.mymmo-ev-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.mymmo-ev-form__row { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+
+.mymmo-ev-field { display: block; }
+.mymmo-ev-field__label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--mymmo-ev-ink);
+}
+.mymmo-ev-field__label em { color: var(--mymmo-ev-danger); font-style: normal; }
+
+.mymmo-ev-field input,
+.mymmo-ev-field textarea {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius-sm);
+  background: var(--mymmo-ev-subtle);
+  color: var(--mymmo-ev-ink);
+  font: inherit;
+  font-size: 0.9375rem;
+}
+.mymmo-ev-field input:focus,
+.mymmo-ev-field textarea:focus {
+  background: var(--mymmo-ev-surface);
+  border-color: var(--mymmo-ev-accent);
+}
+.mymmo-ev-field textarea { resize: vertical; min-height: 5rem; }
+
+.mymmo-ev-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-size: 0.9375rem;
+}
+.mymmo-ev-check input { margin-top: 0.25rem; }
+
+.mymmo-ev-form__fine { margin: 0; font-size: 0.75rem; color: var(--mymmo-ev-faint); }
+
+/* Honeypot: uit het zicht, maar niet display:none — sommige bots slaan
+   dat over, en screenreaders krijgen aria-hidden op de wrapper. */
+.mymmo-ev-hp {
+  position: absolute !important;
+  left: -9999px !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-ev *, .mymmo-ev *::before, .mymmo-ev *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

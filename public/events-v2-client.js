@@ -112,9 +112,11 @@
     return new Date(naive.getTime() - offsetMinutes * 60000).toISOString();
   }
 
+  /** De fase komt uit x_studio_stage_id in Odoo; hier alleen de weergave. */
   var STATE_BADGE = {
     draft: { label: 'Concept', cls: 'badge-ghost' },
     published: { label: 'Gepubliceerd', cls: 'badge-success' },
+    done: { label: 'Afgerond', cls: 'badge-info' },
     cancelled: { label: 'Geannuleerd', cls: 'badge-error' }
   };
 
@@ -126,6 +128,8 @@
 
   var REASON_TEXT = {
     not_published: 'niet gepubliceerd',
+    cancelled: 'geannuleerd',
+    event_done: 'event is afgerond',
     disabled: 'inschrijven staat uit',
     not_yet_open: 'inschrijfvenster nog niet open',
     closed: 'inschrijfvenster gesloten',
@@ -133,18 +137,30 @@
     full: 'volzet'
   };
 
-  /** Vaste kleur per event type, zodat de kalender herkenbaar blijft. */
-  var TYPE_PALETTE = ['--p', '--s', '--a', '--in', '--su', '--wa', '--er'];
+  /**
+   * Vaste kleur per event type, in de zachte tint die v1 gebruikt: een
+   * lichte vulling met gewone tekstkleur erop. Niet fel, want er staan
+   * meerdere chips per dagcel.
+   */
+  var TYPE_TOKENS = ['--p', '--in', '--su', '--wa', '--a', '--s', '--n'];
 
-  function typeColor(typeId) {
-    if (!typeId) return 'oklch(var(--bc) / 0.35)';
-    if (!state.typeColorById[typeId]) {
-      var index = state.types.findIndex(function (t) { return t.id === typeId; });
-      var token = TYPE_PALETTE[(index < 0 ? 0 : index) % TYPE_PALETTE.length];
-      state.typeColorById[typeId] = 'oklch(var(' + token + '))';
-    }
-    return state.typeColorById[typeId];
+  function typeStyle(typeId) {
+    var index = state.types.findIndex(function (t) { return t.id === typeId; });
+    var token = TYPE_TOKENS[(index < 0 ? TYPE_TOKENS.length - 1 : index) % TYPE_TOKENS.length];
+    return {
+      bg: 'oklch(var(' + token + ') / 0.15)',
+      text: 'oklch(var(--bc))',
+      accent: 'oklch(var(' + token + '))'
+    };
   }
+
+  /** Status zit in het bolletje, niet in de vulkleur. */
+  var STATUS_DOT = {
+    draft: 'oklch(var(--n))',
+    published: 'oklch(var(--su))',
+    done: 'oklch(var(--in))',
+    cancelled: 'oklch(var(--er))'
+  };
 
   // ─── API ───────────────────────────────────────────────────────────────────
 
@@ -185,8 +201,9 @@
 
   // ─── Laden ─────────────────────────────────────────────────────────────────
 
-  function buildQuery() {
+  function buildQuery(forceFresh) {
     var params = new URLSearchParams();
+    if (forceFresh) params.set('fresh', '1');
     [
       ['state', el('filterState').value],
       ['type', el('filterType').value],
@@ -200,12 +217,12 @@
     return params.toString();
   }
 
-  async function loadEvents() {
+  async function loadEvents(forceFresh) {
     if (state.loading) return;
     state.loading = true;
 
     try {
-      var result = await api('/events?' + buildQuery());
+      var result = await api('/events?' + buildQuery(forceFresh));
       state.events = result.payload.data || [];
 
       var pagination = result.payload.pagination || {};
@@ -233,70 +250,86 @@
     return state.events
       .filter(function (event) { return Boolean(event.starts_at); })
       .map(function (event) {
-        var color = typeColor(event.event_type.id);
-        var cancelled = event.publication_state === 'cancelled';
-        var draft = event.publication_state === 'draft';
+        var style = typeStyle(event.event_type.id);
 
         return {
           id: String(event.id),
           title: event.title || '(zonder titel)',
           start: event.starts_at,
           end: event.ends_at || undefined,
-          backgroundColor: cancelled ? 'oklch(var(--b3))' : color,
-          borderColor: 'transparent',
-          textColor: cancelled ? 'oklch(var(--bc) / 0.5)' : 'oklch(var(--b1))',
-          extendedProps: { event: event, draft: draft, cancelled: cancelled }
+          extendedProps: { event: event, style: style }
         };
       });
   }
 
+  var PERSON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"'
+    + ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'
+    + '<path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+
+  /**
+   * Chipinhoud zoals v1: het event TYPE als kop, daaronder tijd en aantal
+   * inschrijvingen. De volledige titel staat in de tooltip.
+   *
+   * Bewust niet de titel als kop: die past niet in een dagcel en liep in
+   * de eerste versie over de buurcel heen.
+   */
   function renderEventContent(arg) {
     var event = arg.event.extendedProps.event;
     var format = FORMAT_META[event.format] || FORMAT_META.online;
-    var capacity = event.registration.capacity;
-    var seats = capacity === null
-      ? String(event.registration.count)
-      : event.registration.count + '/' + capacity;
+    var label = event.event_type.name || event.title || 'Event';
+
+    var count = event.registration.count;
     var full = event.registration.seats_left === 0;
+    var seats = event.registration.capacity === null
+      ? String(count)
+      : count + '/' + event.registration.capacity;
 
     var wrap = document.createElement('div');
-    wrap.className = 'evt-chip';
+    wrap.className = 'fc-event-card';
+    wrap.title = (event.title || '') + ' — ' + format.label
+      + (event.location.name ? ' (' + event.location.name + ')' : '');
+
     wrap.innerHTML =
-      '<div class="evt-chip-title">' + esc(event.title || '(zonder titel)') + '</div>' +
-      '<div class="evt-chip-meta">' +
-        '<span>' + esc(formatTime(event.starts_at)) + '</span>' +
-        '<span>&middot;</span>' +
-        '<span title="' + esc(format.label) + '">' + esc(format.label.charAt(0)) + '</span>' +
-        '<span>&middot;</span>' +
-        '<span' + (full ? ' style="text-decoration:underline"' : '') + '>' + esc(seats) + '</span>' +
+      '<span class="status-dot"></span>' +
+      '<div class="event-type-label">' + esc(label) + '</div>' +
+      '<div class="event-detail-row">' +
+        '<span class="event-time">' + esc(formatTime(event.starts_at)) + '</span>' +
+        (count > 0 || event.registration.capacity !== null
+          ? '<span class="event-reg' + (full ? ' is-full' : '') + '">' + PERSON_SVG + esc(seats) + '</span>'
+          : '') +
       '</div>';
 
     return { domNodes: [wrap] };
   }
 
   /**
-   * Status zit in de rand, niet in de vulkleur: de vulkleur is het event
-   * type. Zo zie je in een oogopslag welk soort event het is EN of het
-   * al live staat.
+   * Vulkleur = event type, bolletje = status. Concept krijgt een stippellijn
+   * en geannuleerd een doorhaling, zodat je die twee ook zonder kleur ziet.
    */
   function styleCalendarEvent(arg) {
     var props = arg.event.extendedProps;
+    var event = props.event;
     var node = arg.el;
 
-    if (props.draft) {
-      node.style.outline = '1px dashed oklch(var(--bc) / 0.45)';
+    node.style.setProperty('--event-bg', props.style.bg);
+    node.style.setProperty('--event-text', props.style.text);
+    node.style.setProperty('--status-dot', STATUS_DOT[event.publication_state] || STATUS_DOT.draft);
+
+    if (event.publication_state === 'draft') {
+      node.style.outline = '1px dashed oklch(var(--bc) / 0.35)';
       node.style.outlineOffset = '-1px';
-      node.style.opacity = '0.75';
-    } else if (props.cancelled) {
-      node.style.outline = '1px solid oklch(var(--er) / 0.6)';
-      node.style.outlineOffset = '-1px';
+    } else if (event.publication_state === 'cancelled') {
       node.style.textDecoration = 'line-through';
+      node.style.opacity = '0.7';
+    } else if (event.publication_state === 'done') {
+      node.style.opacity = '0.8';
     }
 
-    if (props.event.active === false) {
+    if (event.active === false) {
       node.style.opacity = '0.45';
     }
-    if (props.event.id === state.selectedId) {
+    if (event.id === state.selectedId) {
       node.classList.add('evt-selected');
     }
   }
@@ -327,7 +360,7 @@
       displayEventTime: false,
       height: 640,
       fixedWeekCount: true,
-      dayMaxEvents: 3,
+      dayMaxEvents: 2,
       firstDay: 1,
       locale: 'nl',
       timeZone: BRUSSELS,
@@ -475,7 +508,7 @@
           '<span class="label-text text-xs opacity-70 mb-1">Samenvatting (nodig om te publiceren)</span>' +
           '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="summary">' +
           esc(event.summary) + '</textarea></label>' +
-        '<label class="label cursor-pointer gap-2 sm:col-span-2">' +
+        '<label class="label justify-start cursor-pointer gap-2 sm:col-span-2">' +
           '<input type="checkbox" class="checkbox checkbox-sm" data-field="registration_enabled"' +
           (event.registration.enabled ? ' checked' : '') + ' />' +
           '<span class="label-text text-sm">Inschrijven toegestaan</span></label>' +
@@ -499,16 +532,32 @@
 
       '<div class="flex flex-wrap gap-2 mt-4">' +
         '<button class="btn btn-sm btn-primary" data-action="save" data-event-id="' + event.id + '">Opslaan</button>' +
+        // Alleen de overgangen die vanuit deze fase toegestaan zijn.
+        (event.publication_state === 'draft' || event.publication_state === 'done'
+          ? '<button class="btn btn-sm btn-success" data-action="publish" data-event-id="' + event.id + '">' +
+            (event.publication_state === 'done' ? 'Heropenen' : 'Publiceren') + '</button>'
+          : '') +
         (event.publication_state === 'published'
-          ? '<button class="btn btn-sm btn-outline" data-action="unpublish" data-event-id="' + event.id + '">Depubliceren</button>'
-          : '<button class="btn btn-sm btn-success" data-action="publish" data-event-id="' + event.id + '">Publiceren</button>') +
+          ? '<button class="btn btn-sm btn-outline" data-action="unpublish" data-event-id="' + event.id + '">Depubliceren</button>' +
+            '<button class="btn btn-sm btn-info btn-outline" data-action="done" data-event-id="' + event.id + '">Afronden</button>'
+          : '') +
+        (event.publication_state === 'cancelled'
+          ? '<button class="btn btn-sm btn-outline" data-action="unpublish" data-event-id="' + event.id + '">Terug naar concept</button>'
+          : '') +
         '<button class="btn btn-sm btn-ghost" data-action="duplicate" data-event-id="' + event.id + '">Dupliceren</button>' +
         (event.publication_state !== 'cancelled'
           ? '<button class="btn btn-sm btn-ghost text-error" data-action="cancel-event" data-event-id="' + event.id + '">Annuleren</button>'
           : '') +
         '<button class="btn btn-sm btn-ghost" data-action="show-public" data-event-id="' + event.id + '"' +
           (event.slug ? '' : ' disabled') + '>Publieke JSON</button>' +
-      '</div>';
+      '</div>' +
+
+      // Herkomst van de fase en het moment van de laatste wijziging in Odoo.
+      // Handig om te zien of je een wijziging in Odoo al terugziet.
+      '<p class="text-xs opacity-50 mt-3">' +
+        'Fase in Odoo: <span class="font-mono">' + esc(event.stage ? event.stage.name : '—') + '</span>' +
+        ' &middot; laatst gewijzigd ' + esc(formatWhen(event.write_date)) +
+      '</p>';
 
     if (window.lucide) window.lucide.createIcons();
   }
@@ -685,11 +734,12 @@
       case 'save': saveEvent(id); break;
       case 'publish': transition(id, 'publish', 'Gepubliceerd'); break;
       case 'unpublish': transition(id, 'unpublish', 'Terug naar concept'); break;
+      case 'done': transition(id, 'done', 'Afgerond'); break;
       case 'cancel-event': transition(id, 'cancel', 'Geannuleerd'); break;
       case 'duplicate': duplicate(id); break;
       case 'show-public': showPublic(id); break;
       case 'public-close': el('publicDialog').close(); break;
-      case 'reload': loadEvents(); break;
+      case 'reload': loadEvents(true); break;
       case 'view-calendar': switchView('calendar'); break;
       case 'view-list': switchView('list'); break;
       case 'new-event':
@@ -753,10 +803,11 @@
   async function loadHealth() {
     try {
       var result = await api('/health');
-      el('healthBadge').className = 'badge badge-success badge-sm';
-      el('healthBadge').textContent = result.payload.data.phase;
+      el('healthBadge').className = 'badge badge-ghost badge-xs gap-1';
+      el('healthBadge').textContent = 'verbonden';
+      el('healthBadge').title = result.payload.data.phase;
     } catch (_) {
-      el('healthBadge').className = 'badge badge-error badge-sm';
+      el('healthBadge').className = 'badge badge-error badge-xs';
       el('healthBadge').textContent = 'module niet bereikbaar';
     }
   }

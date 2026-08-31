@@ -21,6 +21,8 @@ import {
   toPublicEventDto,
   toOdooEventValues,
   assertNoForbiddenFields,
+  stageToState,
+  parseStageMapOverride,
   EVENT_FIELDS,
   FORBIDDEN_FIELDS
 } from '../odoo-contract.js';
@@ -92,7 +94,7 @@ const base = {
   x_studio_event_datetime: '2026-12-16 14:00:00',
   x_studio_event_duration_minutes: 30,
   x_studio_capacity: 0,
-  x_studio_publication_state: 'published',
+  x_studio_stage_id: [2, 'Published'],
   x_studio_registration_enabled: true,
   x_event_type_id: [3, 'Q&A'],
   x_studio_live_event_location: false,
@@ -136,9 +138,54 @@ test('vrije plaatsen zakken niet onder nul', () => {
 // ─── Inschrijfstatus ──────────────────────────────────────────────────────────
 
 test('inschrijving dicht als event niet gepubliceerd is', () => {
-  const dto = toEventDto({ ...base, x_studio_publication_state: 'draft' });
+  const dto = toEventDto({ ...base, x_studio_stage_id: [1, 'Draft'] });
   assert.equal(dto.registration.status.open, false);
   assert.equal(dto.registration.status.reason, 'not_published');
+});
+
+// ─── Stage is de publicatiestatus ─────────────────────────────────────────────
+
+test('stage-id 1 t/m 4 uit Odoo geven de vier statussen', () => {
+  assert.equal(stageToState([1, 'Draft']), 'draft');
+  assert.equal(stageToState([2, 'Published']), 'published');
+  assert.equal(stageToState([3, 'Done']), 'done');
+  assert.equal(stageToState([4, 'Cancelled']), 'cancelled');
+});
+
+test('stagenamen matchen ook in het Nederlands en met accenten', () => {
+  assert.equal(stageToState([9, 'Gepubliceerd']), 'published');
+  assert.equal(stageToState([9, 'Geannuleerd']), 'cancelled');
+  assert.equal(stageToState([9, 'Afgerond']), 'done');
+  assert.equal(stageToState([9, '  CONCEPT  ']), 'draft');
+});
+
+test('onbekende of ontbrekende stage valt terug op draft', () => {
+  assert.equal(stageToState([99, 'Iets nieuws']), 'draft');
+  assert.equal(stageToState(false), 'draft');
+});
+
+test('env.EVENT_STAGE_MAP overschrijft de naamherkenning', () => {
+  const overrides = parseStageMapOverride('99:published, 98:done');
+  assert.equal(stageToState([99, 'Iets nieuws'], overrides), 'published');
+  assert.equal(stageToState([98, 'Nog iets'], overrides), 'done');
+  assert.equal(parseStageMapOverride(''), null);
+  assert.equal(parseStageMapOverride('rommel'), null);
+});
+
+test('het DTO geeft de stage mee, zodat je in de UI ziet welke fase het is', () => {
+  const dto = toEventDto({ ...base, x_studio_stage_id: [3, 'Done'] });
+  assert.equal(dto.publication_state, 'done');
+  assert.deepEqual(dto.stage, { id: 3, name: 'Done' });
+});
+
+test('afgerond en geannuleerd sluiten de inschrijving met hun eigen reden', () => {
+  assert.equal(toEventDto({ ...base, x_studio_stage_id: [3, 'Done'] }).registration.status.reason, 'event_done');
+  assert.equal(toEventDto({ ...base, x_studio_stage_id: [4, 'Cancelled'] }).registration.status.reason, 'cancelled');
+});
+
+test('het oude statusveld mag niet meer gebruikt worden', () => {
+  assert.ok(FORBIDDEN_FIELDS.includes('x_studio_publication_state'));
+  assert.throws(() => assertNoForbiddenFields(['x_studio_publication_state']), /nooit gebruikt/);
 });
 
 test('inschrijving dicht als het event al begonnen is', () => {
@@ -180,7 +227,21 @@ test('publiek DTO lekt de online link NOOIT', () => {
 
 test('publiek DTO bouwt de website-URL uit de slug', () => {
   const pub = toPublicEventDto({ ...base, x_studio_slug: 'q-and-a-16-12' });
-  assert.equal(pub.url, '/events/q-and-a-16-12');
+  // Enkelvoud met sluitende slash: exact de vorm die The Events Calendar
+  // vandaag gebruikt, zodat bestaande links blijven werken.
+  assert.equal(pub.url, '/event/q-and-a-16-12/');
+});
+
+test('event type krijgt de bestaande tribe-slug en een vaste kleur', () => {
+  const qa = toPublicEventDto({ ...base, x_event_type_id: [3, 'Q&A'] });
+  assert.equal(qa.type.slug, 'qa');
+  assert.ok(/^#[0-9A-Fa-f]{6}$/.test(qa.type.color));
+
+  const opleiding = toPublicEventDto({ ...base, x_event_type_id: [5, 'Groepsopleiding'] });
+  assert.equal(opleiding.type.slug, 'opleiding');
+
+  const onbekend = toPublicEventDto({ ...base, x_event_type_id: [9, 'Nieuw Soort Sessie'] });
+  assert.equal(onbekend.type.slug, 'nieuw-soort-sessie');
 });
 
 test('publiek DTO geeft null als url zonder slug', () => {
@@ -280,6 +341,18 @@ test('verboden statusovergang geeft 409', () => {
     () => assertPublicationTransition('cancelled', 'published'),
     (err) => err.status === 409
   );
+  assert.throws(
+    () => assertPublicationTransition('draft', 'done'),
+    (err) => err.status === 409
+  );
+});
+
+test('de vier statussen hebben de bedoelde overgangen', () => {
+  assertPublicationTransition('draft', 'published');
+  assertPublicationTransition('published', 'done');
+  assertPublicationTransition('published', 'cancelled');
+  assertPublicationTransition('done', 'published');
+  assertPublicationTransition('cancelled', 'draft');
 });
 
 test('dezelfde status is geen fout', () => {
