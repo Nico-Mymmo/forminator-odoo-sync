@@ -541,6 +541,18 @@
             '<button class="btn btn-xs" data-action="unarchive" data-event-id="' + event.id + '">Terughalen</button>' +
           '</div>'
         : '') +
+      // Sinds kort is een host verplicht om te PUBLICEREN, maar events die al
+      // gepubliceerd stonden voor die regel bestond kunnen nog zonder host
+      // staan (zie PROMPT-events-v2-dropdown-en-openstaand.md, punt A). Zonder
+      // host faalt de Odoo-mailtemplate stil bij verzending -- beter hier
+      // zichtbaar dan pas als een mail niet aankomt.
+      (event.publication_state === 'published' && !event.host.id
+        ? '<div class="alert alert-error py-2 text-sm mb-3">' +
+            '<i data-lucide="alert-triangle" class="w-4 h-4"></i>' +
+            '<span>Dit event is gepubliceerd maar heeft geen host. ' +
+              'De Odoo-mailtemplates hebben een host nodig als afzender en falen zonder een.</span>' +
+          '</div>'
+        : '') +
       '<div class="flex items-start justify-between gap-2">' +
         '<div class="min-w-0">' +
           '<h2 class="font-semibold text-lg leading-tight">' + esc(event.title || '(zonder titel)') + '</h2>' +
@@ -691,7 +703,12 @@
           : '') +
         '<div class="dropdown dropdown-top dropdown-end ml-auto">' +
           '<button class="btn btn-sm btn-ghost btn-square" tabindex="0">⋯</button>' +
-          '<ul class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow border border-base-200 w-52 z-50">' +
+          // tabindex="0" is VERPLICHT hier: DaisyUI 4 opent/sluit dit menu puur via
+          // CSS op :focus-within van de .dropdown-container. Zonder tabindex is dit
+          // <ul>-element (en de <a>'s erin) niet focusbaar, dus verlaat de focus het
+          // menu vóór een klik landt en verdwijnt het menu voor de click vuurt. Zie
+          // PROMPT-events-v2-dropdown-en-openstaand.md.
+          '<ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow border border-base-200 w-52 z-50">' +
             '<li><a data-action="duplicate" data-event-id="' + event.id + '">Dupliceren</a></li>' +
             '<li><a data-action="show-public" data-event-id="' + event.id + '">Publieke JSON</a></li>' +
             (event.publication_state !== 'cancelled'
@@ -1328,6 +1345,17 @@
 
     var action = trigger.getAttribute('data-action');
     var id = Number(trigger.getAttribute('data-event-id'));
+
+    // Met tabindex="0" op de dropdown-content (zie renderDetail) blijft de focus
+    // na een klik binnen het ⋯-menu staan, dus het menu blijft open. Dat leest
+    // als "er gebeurde niets", ook als de actie wel lukte. Eenmalig centraal
+    // hier blur()en zodra vaststaat dat het om een item uit zo'n menu gaat -- dit
+    // moet VOOR de dialogen (removeDialog/composerDialog) geopend worden, anders
+    // pikt de browser de focus-verschuiving van blur() op als sluiting van net
+    // die dialoog. blur() zelf raakt <dialog>-elementen niet, dus dat is veilig.
+    if (trigger.closest('.dropdown-content') && document.activeElement) {
+      document.activeElement.blur();
+    }
 
     switch (action) {
       case 'select-event': selectEvent(id); break;

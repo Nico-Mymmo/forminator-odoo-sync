@@ -128,6 +128,39 @@ export async function findExistingRegistration(env, eventId, partnerId) {
   return list.length > 0 ? Number(list[0].id) : null;
 }
 
+/**
+ * Zelfde vraag als findExistingRegistration, maar op het ingevulde e-mailadres
+ * in plaats van een partner-id. Bestaat uitsluitend om VOOR de aanmaak parallel
+ * te kunnen draaien met resolvePartnerByEmail (zie createRegistration): die
+ * laatste moet éérst de partner opzoeken/aanmaken voor er een partnerId is, dus
+ * findExistingRegistration(partnerId) kan daar niet los van staan. Deze functie
+ * wel, want het ingetypte e-mailadres is al bekend voor er iets over de partner
+ * bekend is.
+ *
+ * Dit is een VOORCONTROLE, geen vervanging: de gezaghebbende controle blijft de
+ * partnerId-gebaseerde findExistingRegistration ná het aanmaken (de wedloop-
+ * compensatie in createRegistration), want die vangt ook een partner die via
+ * een ander e-mailadres al stond ingeschreven.
+ *
+ * @returns {Promise<number|null>} het id van de bestaande inschrijving
+ */
+async function findExistingRegistrationByEmail(env, eventId, email) {
+  const rows = await searchRead(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    domain: [
+      [REGISTRATION_FIELDS.EVENT, '=', Number(eventId)],
+      [REGISTRATION_FIELDS.SUBMITTED_EMAIL, '=ilike', email],
+      [REGISTRATION_FIELDS.STATE, '!=', REGISTRATION_STATE.CANCELLED]
+    ],
+    fields: [REGISTRATION_FIELDS.ID],
+    order: 'id asc',
+    limit: 2
+  });
+
+  const list = Array.isArray(rows) ? rows : [];
+  return list.length > 0 ? Number(list[0].id) : null;
+}
+
 // ─── Aanmaken ─────────────────────────────────────────────────────────────────
 
 function buildDisplayName(input, email) {
@@ -163,28 +196,32 @@ export async function createRegistration(env, options) {
   }
 
   try {
-    // De contactpersoon eerst: het e-mailadres is de identiteit, en we
-    // hebben zijn id nodig om op dubbels te controleren.
-    const partner = await resolvePartnerByEmail(env, email, {
-      name: buildDisplayName(input, email),
-      phone: input?.phone,
-      company: input?.company
-    });
+    const capacity = event.registration?.capacity ?? null;
 
-    const existing = await findExistingRegistration(env, eventId, partner.partnerId);
-    if (existing) {
+    // Drie onafhankelijke lezingen vóór de create: de partner opzoeken/aanmaken,
+    // een voorcontrole op dubbele inschrijving (via het ingetypte e-mailadres,
+    // zie findExistingRegistrationByEmail hierboven) en de capaciteitscontrole.
+    // Geen van de drie heeft de uitkomst van een ander nodig, dus na elkaar
+    // uitvoeren kost alleen extra rondetijd naar Odoo.
+    const [partner, existingBySubmittedEmail, takenBeforeCreate] = await Promise.all([
+      resolvePartnerByEmail(env, email, {
+        name: buildDisplayName(input, email),
+        phone: input?.phone,
+        company: input?.company
+      }),
+      findExistingRegistrationByEmail(env, eventId, email),
+      capacity !== null ? countRegistrations(env, eventId) : Promise.resolve(null)
+    ]);
+
+    if (existingBySubmittedEmail) {
       throw new ValidationError('Je bent al ingeschreven voor dit event.', {
         status: 409,
-        details: { registration_id: existing }
+        details: { registration_id: existingBySubmittedEmail }
       });
     }
 
-    const capacity = event.registration?.capacity ?? null;
-    if (capacity !== null) {
-      const taken = await countRegistrations(env, eventId);
-      if (taken >= capacity) {
-        throw new ValidationError('Dit event is volzet.', { status: 409 });
-      }
+    if (capacity !== null && takenBeforeCreate >= capacity) {
+      throw new ValidationError('Dit event is volzet.', { status: 409 });
     }
 
     const values = {

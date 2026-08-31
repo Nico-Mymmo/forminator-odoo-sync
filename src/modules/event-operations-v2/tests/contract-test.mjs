@@ -9,6 +9,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   fromOdooDatetime,
   toOdooDatetime,
@@ -456,6 +457,95 @@ test('paginering heeft een echt plafond', () => {
   assert.deepEqual(normalizePagination({ page: '3', per_page: '5000' }), { page: 3, perPage: 100, offset: 200 });
   assert.deepEqual(normalizePagination({}), { page: 1, perPage: 25, offset: 0 });
   assert.deepEqual(normalizePagination({ page: '-2' }), { page: 1, perPage: 25, offset: 0 });
+});
+
+// ─── Statische UI-tests ─────────────────────────────────────────────────────
+//
+// Grove tests, en dat is hier precies goed: dit zijn CSS- en delegatie-
+// contracten die je niet in een unit-test kan nabootsen, en de fout is
+// onzichtbaar tot iemand handmatig klikt. Zie
+// PROMPT-events-v2-dropdown-en-openstaand.md. Draaien vanuit de repo-root
+// (zie het commando bovenaan dit bestand), zodat deze relatieve paden kloppen.
+
+const CLIENT_JS_PATH = 'public/events-v2-client.js';
+const HTML_PATH = 'public/events-v2.html';
+const clientJs = readFileSync(CLIENT_JS_PATH, 'utf8');
+const html = readFileSync(HTML_PATH, 'utf8');
+
+test('elke dropdown-content heeft tabindex="0"', () => {
+  // DaisyUI 4 opent/sluit een dropdown puur via CSS op :focus-within. Zonder
+  // tabindex="0" op de .dropdown-content is dat element (en de <a>'s erin)
+  // niet focusbaar, en verlaat de focus het menu vóór een klik landt -- de
+  // exacte bug uit dit prompt-bestand. Geldt voor beide bestanden, mocht de
+  // markup ooit naar de .html verhuizen.
+  const tagPattern = /<[a-zA-Z][a-zA-Z0-9]*\s[^>]*class="[^"]*dropdown-content[^"]*"[^>]*>/g;
+
+  for (const [path, source] of [[CLIENT_JS_PATH, clientJs], [HTML_PATH, html]]) {
+    const matches = source.match(tagPattern) || [];
+    for (const tag of matches) {
+      assert.match(
+        tag,
+        /tabindex="0"/,
+        `${path}: dropdown-content zonder tabindex="0": ${tag}`
+      );
+    }
+  }
+});
+
+test('elke data-action heeft een handler, en elke click-case wordt gebruikt', () => {
+  // Niet elke data-action hoort in de click-delegatiehandler: formuliervelden
+  // (filter-search, filter-change, toggle-attendance, hero-upload) lopen via
+  // de 'change'/'input'-listeners, en 'section' via de 'toggle'-listener op
+  // <details> -- de click-handler slaat INPUT/SELECT/TEXTAREA bewust over.
+  // Deze test telt daarom alle vier de listeners mee als 'gebruikt', maar
+  // controleert de 'elke case wordt gebruikt'-eis specifiek op de
+  // click-switch, want dat is de handler die deze bug had.
+
+  const dataActionValues = new Set();
+  for (const source of [clientJs, html]) {
+    for (const m of source.matchAll(/data-action="([a-zA-Z0-9_-]+)"/g)) {
+      dataActionValues.add(m[1]);
+    }
+  }
+  assert.ok(dataActionValues.size > 0, 'geen data-action-attributen gevonden -- test is stuk');
+
+  const switchMatch = clientJs.match(/switch \(action\) \{[\s\S]*?\n  \}/);
+  assert.ok(switchMatch, 'de click-delegatiehandler (switch (action) { ... }) is niet gevonden');
+  const switchBody = switchMatch[0];
+
+  const clickCases = new Set();
+  for (const m of switchBody.matchAll(/case '([a-zA-Z0-9_-]+)':/g)) {
+    clickCases.add(m[1]);
+  }
+  assert.ok(clickCases.size > 0, 'geen cases in de click-switch gevonden -- test is stuk');
+
+  const otherListenerActions = new Set();
+  for (const m of clientJs.matchAll(/action === '([a-zA-Z0-9_-]+)'/g)) {
+    otherListenerActions.add(m[1]);
+  }
+  for (const m of clientJs.matchAll(/getAttribute\('data-action'\) !== '([a-zA-Z0-9_-]+)'/g)) {
+    otherListenerActions.add(m[1]);
+  }
+  for (const m of clientJs.matchAll(/closest\('\[data-action="([a-zA-Z0-9_-]+)"\]'\)/g)) {
+    otherListenerActions.add(m[1]);
+  }
+
+  const handled = new Set([...clickCases, ...otherListenerActions]);
+
+  for (const action of dataActionValues) {
+    assert.ok(
+      handled.has(action),
+      `data-action="${action}" komt voor in de markup maar heeft nergens een handler ` +
+        '(geen case in de click-switch, geen check in change/input/toggle)'
+    );
+  }
+
+  for (const action of clickCases) {
+    assert.ok(
+      dataActionValues.has(action),
+      `case '${action}' in de click-switch wordt nergens als data-action gebruikt`
+    );
+  }
 });
 
 console.log(`\n${passed} tests geslaagd${process.exitCode ? ' — MET FOUTEN' : ''}`);

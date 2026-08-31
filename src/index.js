@@ -10,6 +10,7 @@ import { handlePublicRoutes } from './router/public-routes.js';
 import { handleModuleRequest } from './router/module-router.js';
 import { handleCxWinDetection } from './modules/cx_powerboard/cron/win-detection.js';
 import { runFlagCron } from './modules/cx-automations/cron.js';
+import { runAutoDoneCron } from './modules/event-operations-v2/lib/cron.js';
 import { runDueScheduledTasks } from './modules/mini-apps/lib/scheduler.js';
 import { runDueConditionTasks } from './modules/mini-apps/lib/condition-scheduler.js';
 
@@ -74,6 +75,11 @@ export default {
       ctx.waitUntil(
         runDueScheduledTasks(env).catch(err =>
           console.error('[scheduled][mini_apps] CRASH:', err?.message, err?.stack)
+        )
+      );
+      ctx.waitUntil(
+        runAutoDoneCron(env).catch(err =>
+          console.error('[scheduled][event-operations-v2][auto-done] CRASH:', err?.message, err?.stack)
         )
       );
     }

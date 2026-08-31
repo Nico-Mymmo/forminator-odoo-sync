@@ -60,6 +60,10 @@
 		"ANTHROPIC_MODEL": "claude-sonnet-5",
 		"GEMINI_MODEL": "gemini-flash-lite-latest",
 		"EVENTS_PUBLIC_ORIGINS": "https://openvme.be,https://syndicoach.be",
+		// Event Operations v2 -- auto-done cron (draait mee in de 15-min-cron-tak,
+		// zie src/modules/event-operations-v2/lib/cron.js). Standaard AAN; zet op
+		// "0" om 'm zonder deploy uit te zetten (Cloudflare-dashboard volstaat).
+		"EVENTS_V2_AUTO_DONE_CRON": "1",
 		"BASE_ASSET_URL": "https://link.openvme.be",
 		"EVENTS_SHARED_CANONICAL_ORIGIN": "https://openvme.be"
 	}
