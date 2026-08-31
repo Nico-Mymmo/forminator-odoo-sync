@@ -663,7 +663,14 @@ export async function setEventActive(env, id, active, actor = null) {
     values: { [EVENT_FIELDS.ACTIVE]: Boolean(active) }
   });
 
-  await logToChatter(env, eventId, active ? 'Gedearchiveerd' : 'Gearchiveerd', actor);
+  await logToChatter(
+    env,
+    eventId,
+    active
+      ? 'Teruggehaald uit het archief — staat weer in de lijst en, als het gepubliceerd is, op de website'
+      : 'Gearchiveerd — niet meer op de website, inschrijvingen blijven bewaard',
+    actor
+  );
   await invalidateEvents(env);
 
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
@@ -716,7 +723,7 @@ export async function duplicateEvent(env, id, actor = null) {
  * @param {Object} [actor]
  * @returns {Promise<{ deleted: true, id: number }>}
  */
-export async function deleteEvent(env, id, actor = null) {
+export async function deleteEvent(env, id, actor = null, { cascade = false } = {}) {
   const eventId = Number(id);
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
 
@@ -724,24 +731,67 @@ export async function deleteEvent(env, id, actor = null) {
     throw new ValidationError(`Event ${eventId} niet gevonden`, { status: 404 });
   }
 
-  const registrations = await executeKw(env, {
-    model: ODOO_MODELS.REGISTRATION,
-    method: 'search_count',
-    args: [[[REGISTRATION_FIELDS.EVENT, '=', eventId]]]
-  });
+  const registrationDomain = [[REGISTRATION_FIELDS.EVENT, '=', eventId]];
+  const registrationCount = Number(
+    await executeKw(env, {
+      model: ODOO_MODELS.REGISTRATION,
+      method: 'search_count',
+      args: [registrationDomain],
+      // Ook de gearchiveerde: anders is een gearchiveerde inschrijving
+      // onzichtbaar voor deze controle en verwijderen we hem stil mee.
+      kwargs: { context: { active_test: false } }
+    })
+  ) || 0;
 
-  if (Number(registrations) > 0) {
+  // Odoo's veld x_studio_linked_webinar staat op `set null`. Zouden we het
+  // event zomaar verwijderen, dan blijven de inschrijvingen bestaan met een
+  // leeg webinarveld — en juist dat veld lezen de mailautomations. Die
+  // deelnemers krijgen dan nooit meer iets, zonder foutmelding.
+  //
+  // Daarom: weigeren, tenzij er expliciet om cascade gevraagd wordt.
+  if (registrationCount > 0 && !cascade) {
     throw new ValidationError(
-      `Dit event heeft ${registrations} inschrijving(en) en kan niet verwijderd worden. ` +
-      'Annuleer het event, of archiveer het als je het uit de lijst wil.',
-      { status: 409 }
+      `Dit event heeft ${registrationCount} inschrijving(en). Verwijder je het event, dan ` +
+      'blijven die in Odoo staan zonder event eraan — en dan krijgen die deelnemers geen ' +
+      'mails meer. Archiveer het event liever: dan blijft alles bewaard en kan je het ' +
+      'altijd terughalen. Wil je het toch weg, verwijder dan de inschrijvingen mee.',
+      { status: 409, details: { registrations: registrationCount, can_cascade: true } }
     );
+  }
+
+  const who = actor?.email || actor?.name || 'onbekende gebruiker';
+
+  if (registrationCount > 0) {
+    // Eerst de inschrijvingen, dan het event: andersom laat Odoo ze even
+    // zonder event staan.
+    const rows = await searchRead(env, {
+      model: ODOO_MODELS.REGISTRATION,
+      domain: registrationDomain,
+      fields: [REGISTRATION_FIELDS.ID],
+      limit: false,
+      context: { active_test: false }
+    });
+
+    const ids = (Array.isArray(rows) ? rows : [])
+      .map((row) => Number(row.id))
+      .filter((value) => Number.isInteger(value) && value > 0);
+
+    if (ids.length > 0) {
+      await executeKw(env, {
+        model: ODOO_MODELS.REGISTRATION,
+        method: 'unlink',
+        args: [ids]
+      });
+      console.log(`${LOG_PREFIX} ${ids.length} inschrijving(en) van event ${eventId} verwijderd door ${who}`);
+    }
   }
 
   // Wie het deed vastleggen vóór het verwijderen: daarna is er geen record
   // meer om een chatterbericht op te zetten.
-  const who = actor?.email || actor?.name || 'onbekende gebruiker';
-  console.log(`${LOG_PREFIX} event ${eventId} "${event.title}" verwijderd door ${who}`);
+  console.log(
+    `${LOG_PREFIX} event ${eventId} "${event.title}" verwijderd door ${who}` +
+    (registrationCount > 0 ? ` (met ${registrationCount} inschrijving(en))` : '')
+  );
 
   await executeKw(env, {
     model: ODOO_MODELS.EVENT,
@@ -751,7 +801,7 @@ export async function deleteEvent(env, id, actor = null) {
 
   await invalidateEvents(env);
 
-  return { deleted: true, id: eventId };
+  return { deleted: true, id: eventId, registrations_deleted: registrationCount };
 }
 
 /**

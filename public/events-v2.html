@@ -569,6 +569,48 @@
     </div>
   </dialog>
 
+  <!-- Verwijderen of archiveren: drie uitkomsten, dus geen confirm() -->
+  <dialog id="removeDialog" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-semibold text-lg mb-1">Wat doe je met dit event?</h3>
+      <p class="text-sm opacity-70 mb-4" id="removeIntro"></p>
+
+      <div class="flex flex-col gap-2">
+        <button class="btn btn-sm btn-primary justify-start gap-2" data-action="remove-archive">
+          <i data-lucide="archive" class="w-4 h-4"></i>
+          <span class="text-left">
+            <span class="block">Archiveren</span>
+            <span class="block text-xs opacity-70 font-normal">
+              Verdwijnt uit de lijst en van de website. Alles blijft bewaard en je kan het altijd terughalen.
+            </span>
+          </span>
+        </button>
+
+        <button class="btn btn-sm btn-outline justify-start gap-2" data-action="remove-cancel-event" id="removeCancelBtn">
+          <i data-lucide="ban" class="w-4 h-4"></i>
+          <span class="text-left">
+            <span class="block">Annuleren</span>
+            <span class="block text-xs opacity-70 font-normal">
+              Blijft bestaan als geannuleerd event. Inschrijven gaat dicht.
+            </span>
+          </span>
+        </button>
+
+        <button class="btn btn-sm btn-ghost text-error justify-start gap-2" data-action="remove-delete">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+          <span class="text-left">
+            <span class="block">Definitief verwijderen</span>
+            <span class="block text-xs opacity-70 font-normal" id="removeDeleteHint"></span>
+          </span>
+        </button>
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-sm btn-ghost" data-action="remove-close">Niets doen</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Pagina opmaken, met live voorbeeld -->
   <dialog id="composerDialog" class="modal">
     <div class="modal-box max-w-6xl p-0 overflow-hidden">

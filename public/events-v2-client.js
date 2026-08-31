@@ -534,6 +534,13 @@
 
     // ── Kop: altijd zichtbaar ────────────────────────────────────────────
     var header =
+      (event.active === false
+        ? '<div class="alert alert-warning py-2 text-sm mb-3">' +
+            '<i data-lucide="archive" class="w-4 h-4"></i>' +
+            '<span>Dit event is gearchiveerd. Het staat niet op de website en niet in de gewone lijst.</span>' +
+            '<button class="btn btn-xs" data-action="unarchive" data-event-id="' + event.id + '">Terughalen</button>' +
+          '</div>'
+        : '') +
       '<div class="flex items-start justify-between gap-2">' +
         '<div class="min-w-0">' +
           '<h2 class="font-semibold text-lg leading-tight">' + esc(event.title || '(zonder titel)') + '</h2>' +
@@ -688,9 +695,12 @@
             '<li><a data-action="duplicate" data-event-id="' + event.id + '">Dupliceren</a></li>' +
             '<li><a data-action="show-public" data-event-id="' + event.id + '">Publieke JSON</a></li>' +
             (event.publication_state !== 'cancelled'
-              ? '<li><a class="text-error" data-action="cancel-event" data-event-id="' + event.id + '">Annuleren</a></li>'
+              ? '<li><a data-action="cancel-event" data-event-id="' + event.id + '">Annuleren</a></li>'
               : '') +
-            '<li><a class="text-error" data-action="delete-event" data-event-id="' + event.id + '">Verwijderen</a></li>' +
+            (event.active === false
+              ? '<li><a data-action="unarchive" data-event-id="' + event.id + '">Terughalen uit archief</a></li>'
+              : '<li><a data-action="archive" data-event-id="' + event.id + '">Archiveren</a></li>') +
+            '<li><a class="text-error" data-action="remove-event" data-event-id="' + event.id + '">Verwijderen…</a></li>' +
           '</ul>' +
         '</div>' +
       '</div>' +
@@ -878,27 +888,119 @@
     }
   }
 
-  async function deleteEvent(id) {
+  // ─── Verwijderen, archiveren of annuleren ──────────────────────────────────
+
+  /**
+   * Eén venster met drie uitkomsten.
+   *
+   * Waarom geen confirm(): dat kan maar ja of nee. Verwijderen was daardoor
+   * de enige zichtbare uitweg, terwijl archiveren bijna altijd het antwoord
+   * is — dat is omkeerbaar en het bewaart alles.
+   */
+  async function openRemoveDialog(eventId) {
     var event = state.detail;
-    var name = event ? event.title : 'dit event';
+    if (!event || event.id !== eventId) return;
 
-    if (!window.confirm('Event "' + name + '" definitief verwijderen uit Odoo?\n\nDit kan niet ongedaan gemaakt worden.')) {
-      return;
-    }
+    // Het aantal inschrijvingen bepaalt wat verwijderen betekent.
+    var count = event.registration.count || 0;
 
+    el('removeIntro').textContent = count > 0
+      ? 'Dit event heeft ' + count + ' inschrijving' + (count === 1 ? '' : 'en') + '. Archiveren is bijna altijd wat je wil: alles blijft bewaard.'
+      : 'Dit event heeft nog geen inschrijvingen.';
+
+    el('removeDeleteHint').textContent = count > 0
+      ? 'Verwijdert het event én de ' + count + ' inschrijving' + (count === 1 ? '' : 'en') + '. Niet terug te draaien.'
+      : 'Niet terug te draaien.';
+
+    var cancelBtn = el('removeCancelBtn');
+    cancelBtn.classList.toggle('hidden', event.publication_state === 'cancelled');
+
+    el('removeDialog').setAttribute('data-event-id', String(eventId));
+    el('removeDialog').showModal();
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  function removeDialogEventId() {
+    return Number(el('removeDialog').getAttribute('data-event-id'));
+  }
+
+  async function archiveEvent(eventId, archived) {
     try {
-      await api('/events/' + id, { method: 'DELETE' });
-      toast('Event verwijderd', 'success');
-
-      state.selectedId = null;
-      state.detail = null;
-      el('panel-content').classList.add('hidden');
-      el('panel-empty-state').classList.remove('hidden');
-
+      var result = await api('/events/' + eventId + '/' + (archived ? 'archive' : 'unarchive'), { method: 'POST' });
+      state.detail = result.payload.data;
+      state.listCache = {};
+      renderDetail();
       await loadEvents();
+      toast(archived ? 'Event gearchiveerd' : 'Event teruggehaald', 'success');
     } catch (error) {
       reportError(error);
     }
+  }
+
+  /**
+   * Definitief verwijderen. De server weigert met een 409 als er
+   * inschrijvingen zijn; die uitkomst vangen we op en vragen dan expliciet
+   * om ook de inschrijvingen mee te verwijderen.
+   */
+  async function deleteEventForGood(eventId) {
+    var event = state.detail;
+    var name = event ? event.title : 'dit event';
+    var count = event ? (event.registration.count || 0) : 0;
+
+    var question = count > 0
+      ? 'Event "' + name + '" én ' + count + ' inschrijving' + (count === 1 ? '' : 'en') +
+        ' definitief verwijderen uit Odoo?\n\nDit kan niet ongedaan gemaakt worden. ' +
+        'Wil je de gegevens bewaren, kies dan Archiveren.'
+      : 'Event "' + name + '" definitief verwijderen uit Odoo?\n\nDit kan niet ongedaan gemaakt worden.';
+
+    if (!window.confirm(question)) return;
+
+    try {
+      var path = '/events/' + eventId + (count > 0 ? '?cascade=1' : '');
+      var result = await api(path, { method: 'DELETE' });
+      await afterDelete(result.payload.data.registrations_deleted || 0);
+    } catch (error) {
+      // Blijkt er toch een inschrijving te zijn die we niet zagen: nog één
+      // keer met cascade, expliciet bevestigd.
+      var serverCount = error.details && error.details.registrations;
+
+      if (error.status === 409 && serverCount) {
+        var retry = 'Er zijn intussen ' + serverCount + ' inschrijving' +
+          (serverCount === 1 ? '' : 'en') + '. Die mee verwijderen?';
+        if (!window.confirm(retry)) return;
+
+        try {
+          var second = await api('/events/' + eventId + '?cascade=1', { method: 'DELETE' });
+          await afterDelete(second.payload.data.registrations_deleted || 0);
+          return;
+        } catch (cascadeError) {
+          reportError(cascadeError);
+          return;
+        }
+      }
+
+      reportError(error);
+    }
+  }
+
+  async function afterDelete(removedRegistrations) {
+    el('removeDialog').close();
+
+    toast(
+      removedRegistrations
+        ? 'Event en ' + removedRegistrations + ' inschrijving(en) verwijderd'
+        : 'Event verwijderd',
+      'success'
+    );
+
+    state.selectedId = null;
+    state.detail = null;
+    state.listCache = {};
+    el('panel-content').classList.add('hidden');
+    el('panel-empty-state').classList.remove('hidden');
+
+    await loadEvents();
   }
 
   function collectFields() {
@@ -1076,7 +1178,11 @@
 
   function reportError(error) {
     var text = error.message;
-    if (error.details && error.details.length) text += ' (' + error.details.join(', ') + ')';
+    // details is soms een lijst (wat er mist om te publiceren) en soms een
+    // object (bv. het aantal inschrijvingen). Alleen de lijst hoort in de tekst.
+    if (Array.isArray(error.details) && error.details.length) {
+      text += ' (' + error.details.join(', ') + ')';
+    }
     toast(text, 'error');
   }
 
@@ -1234,7 +1340,19 @@
       case 'show-public': showPublic(id); break;
       case 'reload-registrations': loadRegistrations(id, state.registrations.page); break;
       case 'add-registration': addRegistration(id); break;
-      case 'delete-event': deleteEvent(id); break;
+      case 'remove-event': openRemoveDialog(id); break;
+      case 'archive': archiveEvent(id, true); break;
+      case 'unarchive': archiveEvent(id, false); break;
+      case 'remove-close': el('removeDialog').close(); break;
+      case 'remove-archive':
+        el('removeDialog').close();
+        archiveEvent(removeDialogEventId(), true);
+        break;
+      case 'remove-cancel-event':
+        el('removeDialog').close();
+        transition(removeDialogEventId(), 'cancel', 'Geannuleerd');
+        break;
+      case 'remove-delete': deleteEventForGood(removeDialogEventId()); break;
       case 'open-composer': openComposer(id); break;
       case 'composer-save': saveComposer(id); break;
       case 'composer-close': el('composerDialog').close(); break;

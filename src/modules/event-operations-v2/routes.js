@@ -280,7 +280,14 @@ export const routes = {
    */
   'DELETE /api/events/:id': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
-    const data = await deleteEvent(context.env, id, context.user);
+    const url = new URL(context.request.url);
+
+    // ?cascade=1 verwijdert de inschrijvingen mee. Bewust expliciet: zonder
+    // die vlag weigert de service, want anders blijven inschrijvingen in
+    // Odoo staan zonder event eraan.
+    const cascade = url.searchParams.get('cascade') === '1';
+
+    const data = await deleteEvent(context.env, id, context.user, { cascade });
     return json({ success: true, data });
   }),
 
