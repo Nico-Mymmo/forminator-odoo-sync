@@ -36,27 +36,43 @@ function escapeHtml(str) {
 export function assetManagerUI(user, env, dynamicCategories = []) {
   const isAdminOrManager = user?.role === 'admin' || user?.role === 'asset_manager';
   const isAdmin = user?.role === 'admin';
-  // Vaste basis-URL voor asset-links (env.BASE_ASSET_URL -- link.openvme.be, zie
-  // src/router/public-routes.js), i.p.v. window.location.origin client-side. Nodig
-  // sinds operations.openvme.be als los domein naar deze Worker doorwijst:
-  // window.location.origin gaf dan operations.openvme.be als prefix, wat niet
-  // correct naar de R2-assets doorroutet. APP_BASE_URL blijft de terugval (was de
-  // vorige waarde hiervoor) -- val uiteindelijk terug op lege string zodat de client
-  // zelf window.location.origin gebruikt als geen van beide gezet is.
-  const assetBaseUrl = env?.BASE_ASSET_URL || env?.APP_BASE_URL || '';
+  // Vaste basis-URL voor asset-links (env.APP_BASE_URL), i.p.v. window.location.origin
+  // client-side. Nodig sinds operations.openvme.be als los domein naar deze Worker
+  // doorwijst: window.location.origin gaf dan operations.openvme.be als prefix, wat
+  // niet correct naar de R2-assets doorroutet. Val terug op lege string zodat de
+  // client zelf window.location.origin gebruikt als APP_BASE_URL niet gezet is.
+  //
+  // BEWUST NIET link.openvme.be hier: dat domein is enkel een 302-doorstuurlaag
+  // (zie public-routes.js) en serveert zelf geen bytes -- de bytes blijven altijd
+  // via dit (workers.dev / operations.openvme.be) adres lopen. Alle bestaande,
+  // reeds gedeelde /assets/-links blijven zo werken; link.openvme.be/assets/... is
+  // een extra, kortere/gebrande ALIAS erbovenop, geen vervanging.
+  const assetBaseUrl = env?.APP_BASE_URL || '';
   const isAdminForFolders = user?.role === 'admin';
 
   // Extra, door gebruikers aangemaakte categorieën (Supabase), naast de 5
   // hardcoded hierboven -- zie routes.js getDynamicCategories().
+  // Elke door de gebruiker aangemaakte top-level categorie krijgt een lege
+  // "dynamic-cat-actions"-placeholder (data-prefix/data-label) waar client.js
+  // na het laden een kebab-menu (link-domein + verwijderen) in inject --
+  // dezelfde dropdown-logica als op een submap-tegel (renderFolderKebabMenu).
+  // De 5 hardcoded categorieën hierboven krijgen bewust geen kebab: die kan
+  // je niet verwijderen (zie ASSET_CATEGORY_PREFIXES in routes.js).
   const dynamicCategoryListItems = dynamicCategories.map(cat => `
             <li>
-              <a data-prefix="${escapeHtml(cat.prefix)}" class="gap-2">
-                <i data-lucide="folder" class="w-4 h-4"></i> ${escapeHtml(cat.label)}
-              </a>
+              <div class="flex items-center gap-1">
+                <a data-prefix="${escapeHtml(cat.prefix)}" class="gap-2 flex-1 min-w-0">
+                  <i data-lucide="folder" class="w-4 h-4"></i> ${escapeHtml(cat.label)}
+                </a>
+                <span class="dynamic-cat-actions shrink-0" data-prefix="${escapeHtml(cat.prefix)}" data-label="${escapeHtml(cat.label)}"></span>
+              </div>
             </li>`).join('');
 
   const dynamicCategoryTabs = dynamicCategories.map(cat =>
-    `<button data-prefix="${escapeHtml(cat.prefix)}" class="btn btn-sm btn-ghost cat-tab">${escapeHtml(cat.label)}</button>`
+    `<span class="inline-flex items-center gap-0.5 shrink-0">
+      <button data-prefix="${escapeHtml(cat.prefix)}" class="btn btn-sm btn-ghost cat-tab">${escapeHtml(cat.label)}</button>
+      <span class="dynamic-cat-actions" data-prefix="${escapeHtml(cat.prefix)}" data-label="${escapeHtml(cat.label)}"></span>
+    </span>`
   ).join('');
 
   const dynamicCategoryOptions = dynamicCategories.map(cat =>
@@ -132,6 +148,11 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
       <!-- ── ALERT ─────────────────────────────────────────────────────── -->
       <div id="asset-alert" class="mb-4" style="display:none;"></div>
 
+      <!-- ── BREADCRUMB (submap-navigatie) ────────────────────────────── -->
+      <div id="asset-breadcrumb" class="text-sm breadcrumbs mb-3 px-0 py-0 min-h-0" style="display:none;">
+        <ul id="asset-breadcrumb-list"></ul>
+      </div>
+
       <!-- ── HOOFD LAYOUT: sidebar + content ───────────────────────────── -->
       <div class="flex gap-6 items-start">
 
@@ -174,7 +195,7 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
         </aside>
 
         <!-- ─ Content zone ────────────────────────────────────────────── -->
-        <section class="flex-1 min-w-0">
+        <section id="asset-content-section" class="flex-1 min-w-0">
 
           <!-- Mobile: categorie tabs -->
           <div id="mobile-category-tabs" class="flex gap-1 overflow-x-auto pb-1 sm:hidden mb-3">
@@ -216,6 +237,21 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
               </button>
             </div>
 
+            <!-- Nieuwe submap in de huidig geopende map (enkel zichtbaar buiten "Alles") -->
+            <button id="asset-new-subfolder-btn" class="btn btn-sm btn-ghost gap-1" style="display:none;">
+              <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i> Nieuwe map hier
+            </button>
+
+            <!-- Link-domein van de huidig geopende map (enkel zichtbaar buiten "Alles") -->
+            <div id="asset-brand-control" class="flex items-center gap-1.5" style="display:none;">
+              <i data-lucide="link" class="w-3.5 h-3.5 opacity-40"></i>
+              <select id="asset-brand-select" class="select select-xs select-bordered">
+                <option value="">Overerven</option>
+                <option value="openvme">OpenVME</option>
+                <option value="syndicoach">Syndicoach</option>
+              </select>
+            </div>
+
             <!-- Bestandsteller -->
             <span id="asset-count" class="badge badge-ghost text-xs ml-auto"></span>
           </div>
@@ -236,7 +272,8 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
           </div>
 
           <!-- ─ List view ─────────────────────────────────────────────── -->
-          <div id="asset-list-view" class="card bg-base-100 shadow-sm overflow-x-auto" style="display:none;">
+          <div id="asset-list-view" class="card bg-base-100 shadow-sm" style="display:none;">
+            <div class="overflow-x-auto">
             <table class="table table-zebra w-full">
               <thead>
                 <tr>
@@ -252,6 +289,7 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
                 <!-- gevuld door client JS -->
               </tbody>
             </table>
+            </div>
           </div>
 
           <!-- Paginering -->
@@ -389,9 +427,10 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
   <!-- Nieuwe map modal -->
   <dialog id="asset-folder-modal" class="modal">
     <div class="modal-box max-w-md">
-      <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+      <h3 id="folder-modal-title" class="font-bold text-lg mb-1 flex items-center gap-2">
         <i data-lucide="folder-plus" class="w-5 h-5"></i> Nieuwe map
       </h3>
+      <p id="folder-modal-location" class="text-xs text-base-content/50 mb-3 font-mono" style="display:none;"></p>
       <label class="form-control">
         <div class="label"><span class="label-text">Naam</span></div>
         <input id="folder-label-input" type="text" placeholder="Contracten"

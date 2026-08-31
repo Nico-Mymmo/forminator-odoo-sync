@@ -33,12 +33,17 @@ function r2Error(operation, err) {
  * @param {string} [options.prefix]
  * @param {string} [options.cursor]
  * @param {number} [options.limit=50]
- * @returns {Promise<{ objects: Array, truncated: boolean, cursor: string|null }>}
+ * @param {string} [options.delimiter]  Doorgeven als '/' voor folder-scoped listing:
+ *                                       geeft dan enkel de directe kinderen van `prefix`
+ *                                       terug (objecten + delimitedPrefixes), i.p.v.
+ *                                       alles recursief onder `prefix`.
+ * @returns {Promise<{ objects: Array, truncated: boolean, cursor: string|null, delimitedPrefixes: string[] }>}
  */
-export async function listObjects(env, { prefix, cursor, limit = 50 } = {}) {
+export async function listObjects(env, { prefix, cursor, limit = 50, delimiter } = {}) {
   const opts = { limit: Math.min(Number(limit) || 50, 1000) };
   if (prefix) opts.prefix = prefix;
   if (cursor) opts.cursor = cursor;
+  if (delimiter) opts.delimiter = delimiter;
 
   try {
     const result = await env.R2_ASSETS.list(opts);
@@ -54,6 +59,7 @@ export async function listObjects(env, { prefix, cursor, limit = 50 } = {}) {
       objects,
       truncated: result.truncated,
       cursor:    result.truncated ? result.cursor : null,
+      delimitedPrefixes: result.delimitedPrefixes || [],
     };
   } catch (err) {
     throw r2Error('list', err);

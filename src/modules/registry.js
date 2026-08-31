@@ -13,6 +13,7 @@ import adminModule from './admin/module.js';
 import profileModule from './profile/module.js';
 import salesInsightExplorerModule from './sales-insight-explorer/module.js';
 import eventOperationsModule from './event-operations/module.js';
+import eventOperationsV2Module from './event-operations-v2/module.js';
 import mailSignatureDesignerModule from './mail-signature-designer/module.js';
 import assetManagerModule from './asset-manager/module.js';
 import cxPowerboardModule from './cx_powerboard/module.js';
@@ -34,6 +35,7 @@ export const MODULES = [
   profileModule,
   salesInsightExplorerModule,
   eventOperationsModule,
+  eventOperationsV2Module,
   mailSignatureDesignerModule,
   assetManagerModule,
   cxPowerboardModule,

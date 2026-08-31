@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Events</title>
+
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('selectedTheme') || 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (_) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+
+  <script>
+    (function () {
+      var orig = console.warn;
+      console.warn = function () {
+        var first = arguments[0];
+        if (first && String(first).includes('cdn.tailwindcss.com')) return;
+        orig.apply(console, arguments);
+      };
+    })();
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+
+  <script src="/shared-navbar.js"></script>
+
+  <style>
+    /* FullCalendar in DaisyUI — overgenomen uit de v1-module zodat de
+       kalender er identiek uitziet. Alleen maandweergave. */
+    .fc {
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: oklch(var(--b1));
+      --fc-border-color: oklch(var(--bc) / 0.06);
+      --fc-today-bg-color: oklch(var(--p) / 0.03);
+      border-radius: var(--rounded-box, 1rem);
+    }
+    #fullcalendar {
+      border-radius: var(--rounded-box, 1rem);
+      overflow: hidden;
+      background-color: oklch(var(--b1));
+    }
+    .fc .fc-scrollgrid {
+      border-radius: calc(var(--rounded-box, 1rem) - 0.125rem);
+      overflow: hidden;
+      border-color: oklch(var(--bc) / 0.08);
+    }
+    .fc .fc-view-harness { min-height: 34rem; }
+    .fc .fc-toolbar { padding: 0.75rem 0; margin-bottom: 1rem; }
+    .fc-toolbar-title { font-size: 1.125rem; font-weight: 600; color: oklch(var(--bc)); }
+    .fc .fc-button {
+      background-color: oklch(var(--b1)) !important;
+      border: 1px solid oklch(var(--bc) / 0.2) !important;
+      color: oklch(var(--bc)) !important;
+      text-transform: none !important;
+      font-weight: 500 !important;
+      font-size: 0.875rem !important;
+      padding: 0.375rem 0.75rem !important;
+      border-radius: var(--rounded-btn, 0.5rem) !important;
+      box-shadow: none !important;
+      transition: all 0.2s ease !important;
+      outline: none !important;
+      height: 2rem !important;
+      line-height: 1 !important;
+    }
+    .fc .fc-button:hover {
+      background-color: oklch(var(--bc) / 0.08) !important;
+      border-color: oklch(var(--bc) / 0.3) !important;
+    }
+    .fc .fc-button:focus { outline: none !important; box-shadow: none !important; }
+    .fc .fc-button:disabled { opacity: 0.4 !important; }
+    .fc .fc-col-header-cell {
+      background-color: transparent;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: oklch(var(--bc) / 0.5);
+      padding: 0.5rem 0;
+    }
+    .fc .fc-daygrid-day-number {
+      font-size: 0.8125rem;
+      color: oklch(var(--bc) / 0.7);
+      padding: 0.35rem 0.5rem;
+    }
+    .fc .fc-day-today .fc-daygrid-day-number {
+      font-weight: 700;
+      color: oklch(var(--p));
+    }
+    .fc .fc-daygrid-event {
+      border-radius: 0.375rem;
+      padding: 0;
+      margin: 0.125rem 0.25rem;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    .fc .fc-daygrid-event:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px oklch(var(--bc) / 0.15);
+    }
+    .fc .fc-daygrid-event.evt-selected {
+      outline: 2px solid oklch(var(--p));
+      outline-offset: 1px;
+    }
+    .fc .fc-daygrid-more-link {
+      font-size: 0.6875rem;
+      color: oklch(var(--bc) / 0.6);
+      font-weight: 500;
+    }
+    .evt-chip { padding: 0.2rem 0.4rem; font-size: 0.6875rem; line-height: 1.25; }
+    .evt-chip-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .evt-chip-meta { opacity: 0.85; font-size: 0.625rem; display: flex; gap: 0.25rem; align-items: center; }
+
+    .border-base-200 { border-color: oklch(var(--bc) / 0.2) !important; }
+    details > summary { list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    .tabular { font-variant-numeric: tabular-nums; }
+    .row-selected { background: oklch(var(--p) / 0.08); }
+  </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <div id="navbar"></div>
+
+  <div class="max-w-[1600px] mx-auto px-4 py-6">
+
+    <!-- Kop met weergavewissel -->
+    <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
+      <div>
+        <h1 class="text-2xl font-semibold flex items-center gap-2">
+          <i data-lucide="calendar-days" class="w-6 h-6 text-primary"></i>
+          Events
+          <span class="badge badge-outline badge-sm">v2</span>
+        </h1>
+        <p class="text-sm opacity-70 mt-1">
+          Odoo is de enige database. Deze module bewaart zelf niets.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="join">
+          <button class="btn btn-sm join-item btn-active" data-action="view-calendar" id="btnViewCalendar">
+            <i data-lucide="calendar" class="w-4 h-4"></i> Kalender
+          </button>
+          <button class="btn btn-sm join-item" data-action="view-list" id="btnViewList">
+            <i data-lucide="list" class="w-4 h-4"></i> Lijst
+          </button>
+        </div>
+        <span id="healthBadge" class="badge badge-ghost badge-sm">verbinden…</span>
+        <button class="btn btn-sm btn-ghost gap-1" data-action="reload">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i> Verversen
+        </button>
+        <button class="btn btn-sm btn-primary gap-1" data-action="new-event">
+          <i data-lucide="plus" class="w-4 h-4"></i> Nieuw event
+        </button>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-base-100 border border-base-200 rounded-lg p-3 mb-4">
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="form-control">
+          <span class="label-text text-xs opacity-70 mb-1">Status</span>
+          <select id="filterState" class="select select-bordered select-sm w-40" data-action="filter-change">
+            <option value="">Alle</option>
+            <option value="draft">Concept</option>
+            <option value="published">Gepubliceerd</option>
+            <option value="cancelled">Geannuleerd</option>
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text text-xs opacity-70 mb-1">Event type</span>
+          <select id="filterType" class="select select-bordered select-sm w-44" data-action="filter-change">
+            <option value="">Alle</option>
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text text-xs opacity-70 mb-1">Vorm</span>
+          <select id="filterFormat" class="select select-bordered select-sm w-36" data-action="filter-change">
+            <option value="">Alle</option>
+            <option value="online">Online</option>
+            <option value="onsite">Op locatie</option>
+            <option value="hybrid">Hybride</option>
+          </select>
+        </label>
+        <label class="form-control flex-1 min-w-[12rem]">
+          <span class="label-text text-xs opacity-70 mb-1">Zoeken op titel</span>
+          <input id="filterQ" type="search" class="input input-bordered input-sm w-full"
+                 placeholder="bv. Q&amp;A" data-action="filter-search" />
+        </label>
+        <label class="label cursor-pointer gap-2">
+          <input id="filterArchived" type="checkbox" class="checkbox checkbox-sm" data-action="filter-change" />
+          <span class="label-text text-sm">Gearchiveerd</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Legende: status is de rand, event type is de kleur -->
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4 text-xs">
+      <span class="opacity-60 font-medium uppercase tracking-wide">Status</span>
+      <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-success"></span> Gepubliceerd</span>
+      <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-base-300 border border-base-content/30"></span> Concept</span>
+      <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-error"></span> Geannuleerd</span>
+      <span class="opacity-40">|</span>
+      <span class="opacity-60 font-medium uppercase tracking-wide">Vorm</span>
+      <span class="flex items-center gap-1.5"><i data-lucide="monitor" class="w-3.5 h-3.5"></i> Online</span>
+      <span class="flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i> Op locatie</span>
+      <span class="flex items-center gap-1.5"><i data-lucide="shuffle" class="w-3.5 h-3.5"></i> Hybride</span>
+      <span class="opacity-40 ml-auto" id="cacheBadge"></span>
+    </div>
+
+    <!-- Werkblad: kalender 7/12 + detailpaneel 5/12, zoals v1 -->
+    <div class="grid grid-cols-12 gap-6">
+
+      <div class="col-span-12 lg:col-span-7">
+        <!-- Kalenderweergave -->
+        <div id="calendarWorkspace">
+          <div class="card bg-base-100 shadow-xl">
+            <div class="card-body p-4 overflow-hidden rounded-box relative min-h-[34rem]">
+              <div id="calendarLoadingState" class="absolute inset-4 z-10 p-3 space-y-3">
+                <div class="flex items-center gap-2">
+                  <span class="loading loading-dots loading-sm text-primary"></span>
+                  <span class="text-sm text-base-content/70">Kalender laden…</span>
+                </div>
+                <div class="grid grid-cols-7 gap-2">
+                  <div class="skeleton h-6"></div><div class="skeleton h-6"></div><div class="skeleton h-6"></div>
+                  <div class="skeleton h-6"></div><div class="skeleton h-6"></div><div class="skeleton h-6"></div>
+                  <div class="skeleton h-6"></div>
+                </div>
+                <div class="grid grid-cols-7 gap-2">
+                  <div class="skeleton h-20"></div><div class="skeleton h-20"></div><div class="skeleton h-20"></div>
+                  <div class="skeleton h-20"></div><div class="skeleton h-20"></div><div class="skeleton h-20"></div>
+                  <div class="skeleton h-20"></div>
+                </div>
+                <div class="grid grid-cols-7 gap-2">
+                  <div class="skeleton h-20"></div><div class="skeleton h-20"></div><div class="skeleton h-20"></div>
+                  <div class="skeleton h-20"></div><div class="skeleton h-20"></div><div class="skeleton h-20"></div>
+                  <div class="skeleton h-20"></div>
+                </div>
+              </div>
+              <div id="fullcalendar"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lijstweergave -->
+        <div id="listWorkspace" class="hidden">
+          <div class="card bg-base-100 shadow-xl">
+            <div class="card-body p-0">
+              <div class="flex items-center justify-between px-4 py-3 border-b border-base-200">
+                <span id="listSummary" class="text-sm opacity-70">Laden…</span>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Event</th><th>Wanneer</th><th>Type</th><th>Vorm</th><th>Status</th>
+                      <th class="text-right">Inschr.</th>
+                    </tr>
+                  </thead>
+                  <tbody id="eventRows"></tbody>
+                </table>
+              </div>
+              <div id="pager" class="flex items-center justify-between px-4 py-2 border-t border-base-200 hidden">
+                <button class="btn btn-xs btn-ghost" data-action="page-prev">Vorige</button>
+                <span id="pagerLabel" class="text-xs opacity-70 tabular"></span>
+                <button class="btn btn-xs btn-ghost" data-action="page-next">Volgende</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detailpaneel -->
+      <div class="col-span-12 lg:col-span-5">
+        <div class="card bg-base-100 shadow-xl sticky top-4 overflow-visible">
+          <div class="card-body">
+            <div id="panel-empty-state" class="text-center py-12">
+              <i data-lucide="mouse-pointer-click" class="w-12 h-12 mx-auto text-base-content/30 mb-2"></i>
+              <p class="text-base-content/60">Kies een event in de kalender.</p>
+            </div>
+            <div id="panel-content" class="hidden"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Nieuw event -->
+  <dialog id="createDialog" class="modal">
+    <div class="modal-box max-w-xl">
+      <h3 class="font-semibold text-lg mb-1">Nieuw event</h3>
+      <p class="text-sm opacity-70 mb-4">
+        Wordt als concept in Odoo aangemaakt. De slug volgt uit de titel.
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label class="form-control sm:col-span-2">
+          <span class="label-text text-sm mb-1">Titel <span class="text-error">*</span></span>
+          <input id="newTitle" type="text" class="input input-bordered input-sm" />
+        </label>
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Start <span class="text-error">*</span></span>
+          <input id="newStartsAt" type="datetime-local" class="input input-bordered input-sm" />
+        </label>
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Duur (minuten)</span>
+          <input id="newDuration" type="number" min="1" max="1440" value="60" class="input input-bordered input-sm" />
+        </label>
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Event type</span>
+          <select id="newType" class="select select-bordered select-sm"></select>
+        </label>
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Capaciteit (0 = onbeperkt)</span>
+          <input id="newCapacity" type="number" min="0" value="0" class="input input-bordered input-sm" />
+        </label>
+        <label class="form-control sm:col-span-2">
+          <span class="label-text text-sm mb-1">Samenvatting</span>
+          <textarea id="newSummary" rows="2" class="textarea textarea-bordered textarea-sm"></textarea>
+        </label>
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Locatie (leeg = online)</span>
+          <input id="newLocation" type="text" class="input input-bordered input-sm" />
+        </label>
+        <label class="form-control">
+          <span class="label-text text-sm mb-1">Online link</span>
+          <input id="newOnlineUrl" type="url" class="input input-bordered input-sm" placeholder="https://…" />
+        </label>
+      </div>
+
+      <p id="createError" class="text-sm text-error mt-3 hidden"></p>
+
+      <div class="modal-action">
+        <button class="btn btn-sm btn-ghost" data-action="create-cancel">Annuleren</button>
+        <button class="btn btn-sm btn-primary" data-action="create-submit">Aanmaken</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Publieke respons, zoals de WordPress-plugin die ziet -->
+  <dialog id="publicDialog" class="modal">
+    <div class="modal-box max-w-3xl">
+      <h3 class="font-semibold text-lg mb-1">Publieke respons</h3>
+      <p class="text-sm opacity-70 mb-3">
+        Exact wat de WordPress-plugin krijgt. De online link hoort hier <b>niet</b> in te staan.
+      </p>
+      <div id="publicLeakCheck" class="mb-3"></div>
+      <pre id="publicJson" class="bg-base-200 rounded p-3 text-xs overflow-auto max-h-[55vh]"></pre>
+      <div class="modal-action">
+        <button class="btn btn-sm" data-action="public-close">Sluiten</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toastContainer" class="toast toast-top toast-end z-50"></div>
+
+  <script src="/events-v2-client.js"></script>
+</body>
+</html>

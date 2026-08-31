@@ -44,15 +44,6 @@
 		// Public-facing base URL — used when generating Claude project instructions
 		// from a local dev environment so that the instructions always point to production.
 		"APP_BASE_URL": "https://forminator-sync.openvme-odoo.workers.dev",
-		// Publieke basis-URL specifiek voor /assets/*-links (afbeeldingen, uploads, ...).
-		// Los van APP_BASE_URL, want die wordt ook gebruikt voor mini-apps-deeplinks
-		// (link.openvme.be/mini-apps?... zou daar de tracker-routing in public-routes.js
-		// raken, die elk pad-segment als trackbare slug interpreteert op dit hostname).
-		// Zie src/router/public-routes.js (asset-serving is expliciet uitgezonderd van
-		// de tracker-hostname-check) en src/modules/event-operations/services/recap-service.js
-		// (bestond al langer als env.BASE_ASSET_URL-override daar, nu ook gebruikt door
-		// de asset-manager module).
-		"BASE_ASSET_URL": "https://link.openvme.be",
 		// Mini-apps AI (window.platform.ai.ask(), zie src/modules/mini-apps/lib/ai.js) —
 		// ANTHROPIC_API_KEY zelf is een secret (wrangler secret put), NIET hier.
 		// Gemini blijft geregistreerd als fallback (AI_PROVIDER: "gemini" + GEMINI_API_KEY secret).

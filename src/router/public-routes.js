@@ -23,6 +23,7 @@
 import { handleLogin, handleLogout, handleMe } from '../api/auth.js';
 import { validateSession } from '../lib/auth/session.js';
 import { getModuleByCode, resolveModuleRoute } from '../modules/registry.js';
+import { handleEventsPublicApi, isEventsPublicApiPath } from '../modules/event-operations-v2/public-api.js';
 import { validateKey } from '../modules/asset-manager/lib/path-utils.js';
 import { getMimeType } from '../modules/asset-manager/lib/mime-types.js';
 import { extractSessionToken } from './auth-gate.js';
@@ -226,18 +227,33 @@ export async function handlePublicRoutes(request, env, ctx) {
   const requestHost = request.headers.get('Host') || url.hostname;
   const isTrackerPathPrefix = pathname.startsWith('/t/');
   const isTrackerHostname = requestHost === 'link.openvme.be';
-  // link.openvme.be/assets/* moet NIET als trackbare slug ('assets') behandeld
-  // worden -- dit domein dient ook als publieke basis-URL voor afbeeldingen/
-  // bestanden uit de asset-manager (env.BASE_ASSET_URL), naast zijn rol als
-  // korte-link/QR-domein. Zonder deze uitzondering viel elk /assets/*-verzoek op
-  // dit hostname in de tracker-lookup hieronder (slug 'assets' bestaat niet ->
-  // 404-foutpagina i.p.v. het bestand).
   const isAssetPath = pathname.startsWith('/assets/');
 
+  // Diagnostische logging -- te volgen via `wrangler tail` of het Logs-tabblad
+  // in het Cloudflare-dashboard. Bedoeld om definitief te kunnen zien of een
+  // verzoek deze Worker-code al dan niet bereikt, en zo ja welke tak het raakt.
+  // header('Host') apart gelogd t.o.v. url.hostname omdat die kunnen verschillen
+  // bij een geproxyde cross-account CNAME (zie toelichting hieronder).
+  console.log(
+    `[public-routes] ${request.method} ${pathname} | Host-header=${request.headers.get('Host')} ` +
+    `url.hostname=${url.hostname} requestHost(used)=${requestHost} ` +
+    `isTrackerHostname=${isTrackerHostname} isTrackerPathPrefix=${isTrackerPathPrefix} isAssetPath=${isAssetPath}`
+  );
+
+  // link.openvme.be/assets/* (en link.syndicoach.be/assets/*, zelfde opzet) —
+  // GEEN zichtbare 302 hier: de bezoeker/bron mag NOOIT de onderliggende
+  // workers.dev-URL te zien krijgen. Dus enkel uitsluiten van de tracker-
+  // slug-tak hieronder, en gewoon laten doorvallen naar de generieke, host-
+  // onafhankelijke /assets/*-serveerroute verderop in dit bestand -- die
+  // geeft de R2-bytes rechtstreeks terug, ongeacht welk domein/Host-header
+  // is binnengekomen (zie ook de R2-SERVE-log daar). Zo blijft de URL in de
+  // adresbalk exact link.openvme.be/assets/... (of link.syndicoach.be/...),
+  // net zoals operations.openvme.be nu al transparant werkt.
   if ((isTrackerPathPrefix || (isTrackerHostname && !isAssetPath)) && request.method === 'GET') {
     const slug = isTrackerPathPrefix
       ? pathname.slice('/t/'.length).split('/')[0]
       : pathname.slice(1).split('/')[0];
+    console.log(`[public-routes] TRACKER-BRANCH pathname=${pathname} slug="${slug}" isTrackerPathPrefix=${isTrackerPathPrefix} isTrackerHostname=${isTrackerHostname}`);
 
     // Rechtstreeks bezoek zonder slug op het "mooie" domein (bv. iemand tikt
     // "link.openvme.be" gewoon in) -> doorsturen naar de hoofdwebsite. Bij de
@@ -245,8 +261,10 @@ export async function handlePublicRoutes(request, env, ctx) {
     // sturen, dat toont gewoon de "niet gevonden"-pagina hieronder.
     if (!slug) {
       if (isTrackerHostname) {
+        console.log('[public-routes] TRACKER-BRANCH leeg slug op link.openvme.be -> redirect https://openvme.be');
         return Response.redirect('https://openvme.be', 302);
       }
+      console.log('[public-routes] TRACKER-BRANCH leeg slug, geen tracker-hostname -> 404 foutpagina');
       return trackerErrorPage({
         status: 404,
         heading: 'Link niet gevonden',
@@ -267,6 +285,7 @@ export async function handlePublicRoutes(request, env, ctx) {
     }
 
     if (!integration) {
+      console.log(`[public-routes] TRACKER-BRANCH slug "${slug}" niet gevonden in fs_v2_integrations -> 404 foutpagina`);
       return trackerErrorPage({
         status: 404,
         heading: 'Link niet gevonden',
@@ -295,6 +314,7 @@ export async function handlePublicRoutes(request, env, ctx) {
       await logPromise;
     }
 
+    console.log(`[public-routes] TRACKER-BRANCH slug "${slug}" gevonden -> redirect ${integration.destination_url}`);
     return Response.redirect(integration.destination_url, 302);
   }
 
@@ -317,6 +337,7 @@ export async function handlePublicRoutes(request, env, ctx) {
     request.method === 'GET'
   ) {
     const key = pathname.slice('/assets/'.length);
+    console.log(`[public-routes] R2-SERVE key="${key}" Host=${requestHost}`);
 
     if (!validateKey(key)) {
       return new Response('Not Found', { status: 404 });
@@ -395,6 +416,15 @@ export async function handlePublicRoutes(request, env, ctx) {
   }
 
   // Per-integration generic/Zapier webhook (token-auth per integration, no session required)
+  // Publieke events-API voor de WordPress-plugin. Geen sessie: de handler
+  // valideert zelf de sitesleutel (header X-Mymmo-Site-Key) tegen
+  // env.EVENTS_PUBLIC_SITE_KEYS, doet een rate limit per sleutel en geeft
+  // 401 zonder geldige sleutel. Alleen GET en OPTIONS; er is geen
+  // schrijfpad in deze fase.
+  if (isEventsPublicApiPath(pathname)) {
+    return await handleEventsPublicApi(request, env, ctx, pathname);
+  }
+
   if (/^\/forminator-v2\/api\/integrations\/[^/]+\/webhook$/.test(pathname) && request.method === 'POST') {
     return await dispatchV2Webhook(request, env, ctx, pathname);
   }
