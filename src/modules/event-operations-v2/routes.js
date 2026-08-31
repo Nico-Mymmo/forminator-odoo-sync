@@ -23,6 +23,7 @@ import {
   duplicateEvent,
   deleteEvent,
   listEventTypes,
+  listHostUsers,
   getStages
 } from './lib/events-service.js';
 import { ValidationError, normalizePagination } from './lib/validation.js';
@@ -283,6 +284,16 @@ export const routes = {
   'GET /api/event-types': withErrors(async (context) => {
     const { types, cached } = await listEventTypes(context.env);
     return json({ success: true, data: types }, 200, cacheHeader(cached));
+  }),
+
+  /**
+   * GET /events-v2/api/hosts
+   * Interne Odoo-gebruikers, voor de hostkeuze. De host is de afzender van
+   * de mails, dus dit is geen cosmetisch veld.
+   */
+  'GET /api/hosts': withErrors(async (context) => {
+    const { users, cached } = await listHostUsers(context.env);
+    return json({ success: true, data: users }, 200, cacheHeader(cached));
   }),
 
   /**

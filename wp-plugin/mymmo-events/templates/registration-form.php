@@ -17,6 +17,8 @@ $open = !empty($registration['open']);
 $seats_left = $registration['seats_left'] ?? null;
 $past = mymmo_events_is_past($event);
 $flash = Mymmo_Events_Registration::flash();
+$ask_question = ($registration['ask_question'] ?? true) !== false;
+$ics = mymmo_events_ics_url($event);
 
 if ($slug === '') {
     return;
@@ -53,6 +55,14 @@ if (is_array($flash) && $flash['status'] === 'success') {
                     <strong><?php echo esc_html(sprintf('Bedankt, %s.', $flash['name'])); ?></strong><br />
                 <?php endif; ?>
                 <?php echo esc_html($flash['message']); ?>
+
+                <?php if ($flash['status'] === 'success' && $ics !== '') : ?>
+                    <p class="mymmo-ev-alert__cta">
+                        <a class="mymmo-ev-btn mymmo-ev-btn--primary" href="<?php echo esc_url($ics); ?>">
+                            <?php echo mymmo_events_icon('calendar'); ?>Zet het in je agenda
+                        </a>
+                    </p>
+                <?php endif; ?>
             </div>
         </div>
     <?php endif; ?>
@@ -109,10 +119,12 @@ if (is_array($flash) && $flash['status'] === 'success') {
                 <input type="text" name="company" autocomplete="organization" />
             </label>
 
-            <label class="mymmo-ev-field">
-                <span class="mymmo-ev-field__label">Heb je al een vraag? Dan nemen we die zeker mee.</span>
-                <textarea name="questions" rows="3"></textarea>
-            </label>
+            <?php if ($ask_question) : ?>
+                <label class="mymmo-ev-field">
+                    <span class="mymmo-ev-field__label">Heb je al een vraag? Dan nemen we die zeker mee.</span>
+                    <textarea name="questions" rows="3"></textarea>
+                </label>
+            <?php endif; ?>
 
             <label class="mymmo-ev-check">
                 <input type="checkbox" name="consent" value="1" />

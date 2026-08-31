@@ -53,13 +53,13 @@ $ics = mymmo_events_ics_url($event);
     <?php if ($start) : ?>
         <div class="mymmo-ev-facts">
             <div class="mymmo-ev-fact">
-                <span class="mymmo-ev-fact__label"><?php echo mymmo_events_icon('calendar'); ?>Wanneer</span>
+                <span class="mymmo-ev-fact__label">Wanneer</span>
                 <span class="mymmo-ev-fact__value"><?php echo esc_html(mymmo_events_format_long_date($start)); ?></span>
                 <span class="mymmo-ev-fact__sub"><?php echo esc_html(mymmo_events_format_time_range($start, $end)); ?></span>
             </div>
 
             <div class="mymmo-ev-fact">
-                <span class="mymmo-ev-fact__label"><?php echo mymmo_events_icon($format['icon']); ?>Waar</span>
+                <span class="mymmo-ev-fact__label">Waar</span>
                 <?php if (!empty($event['location']['name'])) : ?>
                     <span class="mymmo-ev-fact__value"><?php echo esc_html((string) $event['location']['name']); ?></span>
                 <?php else : ?>
@@ -70,7 +70,7 @@ $ics = mymmo_events_ics_url($event);
 
             <?php if ($capacity) : ?>
                 <div class="mymmo-ev-fact">
-                    <span class="mymmo-ev-fact__label"><?php echo mymmo_events_icon('users'); ?>Plaatsen</span>
+                    <span class="mymmo-ev-fact__label">Plaatsen</span>
                     <span class="mymmo-ev-fact__value">
                         <?php if ($seats_left === 0) : ?>
                             Volzet
@@ -130,10 +130,5 @@ $ics = mymmo_events_ics_url($event);
         <a class="mymmo-ev-single__back" href="<?php echo esc_url(mymmo_events_archive_url()); ?>">
             &laquo; Alle events
         </a>
-        <?php if (!$past && $ics !== '') : ?>
-            <a class="mymmo-ev-link mymmo-ev-nowrap" href="<?php echo esc_url($ics); ?>">
-                <?php echo mymmo_events_icon('calendar'); ?>Toevoegen aan agenda
-            </a>
-        <?php endif; ?>
     </p>
 </div>

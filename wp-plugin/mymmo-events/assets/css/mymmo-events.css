@@ -73,9 +73,15 @@
 .mymmo-ev-link .mymmo-ev-icon { transition: transform 0.15s ease; }
 .mymmo-ev-link:hover .mymmo-ev-icon { transform: translateX(2px); }
 
+/* Defensief tegen thema's die `button` op display:block of width:100% met
+   gecentreerde tekst zetten — daardoor viel het pijltje op een tweede regel. */
 .mymmo-ev-btn {
-  display: inline-flex;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: center;
+  white-space: nowrap;
   gap: 0.45rem;
   padding: 0.6rem 1.1rem;
   border: 1px solid var(--mymmo-ev-line);
@@ -96,6 +102,11 @@
   background: var(--mymmo-ev-accent-soft);
   border-color: transparent;
   color: var(--mymmo-ev-accent-ink);
+}
+/* De verzendknop mag de volle breedte hebben, maar op ÉÉN regel. */
+.mymmo-ev-form .mymmo-ev-btn--primary {
+  width: 100%;
+  padding: 0.75rem 1.25rem;
 }
 .mymmo-ev-btn--primary:hover { background: #7ce9d4; }
 
@@ -453,10 +464,12 @@
   background: var(--mymmo-ev-subtle);
 }
 .mymmo-ev-fact { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+/* Bewust GEEN flex en geen icoon. Het thema zette deze span op volle
+   breedte met de inhoud uit elkaar: icoon links, "WANNEER" rechts. Een
+   gewone block met tekst kan geen thema meer verkeerd uitlijnen. */
 .mymmo-ev-fact__label {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
+  display: block;
+  text-align: left;
   font-size: 0.6875rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -624,3 +637,7 @@
 }
 .mymmo-ev-debug__table th { background: var(--mymmo-ev-subtle); white-space: nowrap; }
 .mymmo-ev-debug__hint { margin: 0; color: var(--mymmo-ev-muted); }
+
+/* Agenda-knop in de bedankboodschap */
+.mymmo-ev-alert__cta { margin: 0.75rem 0 0; }
+.mymmo-ev-alert > div { min-width: 0; }

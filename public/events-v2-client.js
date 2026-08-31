@@ -22,6 +22,7 @@
   var state = {
     events: [],
     types: [],
+    hosts: [],
     typeColorById: {},
     page: 1,
     totalPages: 1,
@@ -538,6 +539,22 @@
           '<option value="">—</option>' + typeOptions + '</select></label>' +
         '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Merk</span>' +
           '<select class="select select-bordered select-sm" data-field="brand">' + brandOptions + '</select></label>' +
+        '<label class="form-control sm:col-span-2">' +
+          '<span class="label-text text-xs opacity-70 mb-1">' +
+            'Host <span class="opacity-60">— afzender van de mails</span></span>' +
+          '<select class="select select-bordered select-sm" data-field="host_id">' +
+            '<option value="">— kies een host —</option>' +
+            state.hosts.map(function (user) {
+              return '<option value="' + user.id + '"' +
+                (user.id === event.host.id ? ' selected' : '') + '>' +
+                esc(user.name) + (user.email ? ' (' + esc(user.email) + ')' : ' — geen e-mailadres') +
+                '</option>';
+            }).join('') +
+          '</select>' +
+          (event.host.id
+            ? ''
+            : '<span class="label-text-alt text-warning mt-1">Zonder host is de afzender leeg en falen de mails. Nodig om te publiceren.</span>') +
+        '</label>' +
       '</div>';
 
     // ── 2. Waar en inschrijven ───────────────────────────────────────────
@@ -547,10 +564,16 @@
         field('Online link', 'online_url', event.online_url, 'url') +
         field('Capaciteit (0 = onbeperkt)', 'capacity',
           event.registration.capacity === null ? 0 : event.registration.capacity, 'number', ' min="0"') +
-        '<label class="label justify-start cursor-pointer gap-2 mt-5">' +
-          '<input type="checkbox" class="checkbox checkbox-sm" data-field="registration_enabled"' +
-          (event.registration.enabled ? ' checked' : '') + ' />' +
-          '<span class="label-text text-sm">Inschrijven toegestaan</span></label>' +
+        '<div class="sm:col-span-2 flex flex-wrap gap-x-6 gap-y-2 mt-1">' +
+          '<label class="label justify-start cursor-pointer gap-2 py-1">' +
+            '<input type="checkbox" class="checkbox checkbox-sm" data-field="registration_enabled"' +
+            (event.registration.enabled ? ' checked' : '') + ' />' +
+            '<span class="label-text text-sm">Inschrijven toegestaan</span></label>' +
+          '<label class="label justify-start cursor-pointer gap-2 py-1">' +
+            '<input type="checkbox" class="checkbox checkbox-sm" data-field="ask_question"' +
+            (event.registration.ask_question ? ' checked' : '') + ' />' +
+            '<span class="label-text text-sm">Vraag om een vraag vooraf</span></label>' +
+        '</div>' +
         field('Inschrijven opent', 'registration_opens_at', isoToLocalInput(event.registration.opens_at), 'datetime-local') +
         field('Inschrijven sluit', 'registration_closes_at', isoToLocalInput(event.registration.closes_at), 'datetime-local') +
       '</div>' +
@@ -750,9 +773,14 @@
               '</p>'
             : body) +
         '</div>' +
+        '<div class="prev-facts" style="margin-bottom:0">' +
+          '<div><span>Afzender van de mails</span><b>' +
+            (event.host.name ? esc(event.host.name) : 'nog niet gekozen') + '</b></div>' +
+        '</div>' +
         '<div class="prev-form">' +
           '<b>Schrijf je in</b>' +
-          '<p>Het inschrijfformulier komt hier. ' +
+          '<p>Het inschrijfformulier komt hier' +
+            (event.registration.ask_question ? ', met een veld voor een vraag vooraf' : ', zonder vraagveld') + '. ' +
             (status.open ? 'Staat nu open.' : 'Staat nu dicht: ' + esc(REASON_TEXT[status.reason] || '—') + '.') +
           '</p>' +
         '</div>' +
@@ -1103,10 +1131,12 @@
       summary: el('newSummary').value.trim() || null,
       location_name: el('newLocation').value.trim() || null,
       online_url: el('newOnlineUrl').value.trim() || null,
-      registration_enabled: true
+      registration_enabled: true,
+      ask_question: true
     };
     if (el('newType').value) body.event_type_id = Number(el('newType').value);
     if (el('newBrand')) body.brand = el('newBrand').value;
+    if (el('newHost') && el('newHost').value) body.host_id = Number(el('newHost').value);
 
     try {
       var result = await api('/events', { method: 'POST', body: body });
@@ -1245,6 +1275,22 @@
     }
   }
 
+  async function loadHosts() {
+    try {
+      var result = await api('/hosts');
+      state.hosts = result.payload.data || [];
+
+      var options = state.hosts.map(function (user) {
+        return '<option value="' + user.id + '">' + esc(user.name) + '</option>';
+      }).join('');
+      if (el('newHost')) {
+        el('newHost').innerHTML = '<option value="">— kies een host —</option>' + options;
+      }
+    } catch (error) {
+      toast('Hosts laden mislukt: ' + error.message, 'error');
+    }
+  }
+
   async function loadHealth() {
     try {
       var result = await api('/health');
@@ -1272,7 +1318,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     initNavbar();
     loadHealth();
-    loadTypes().then(loadEvents);
+    Promise.all([loadTypes(), loadHosts()]).then(loadEvents);
     if (window.lucide) window.lucide.createIcons();
   });
 })();

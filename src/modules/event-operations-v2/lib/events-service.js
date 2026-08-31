@@ -181,27 +181,59 @@ async function stageIdsForStates(env, stateCodes) {
  *
  * @returns {Promise<boolean>}
  */
-export async function brandFieldAvailable(env) {
+export async function optionalFieldAvailable(env, fieldName) {
   const { value } = await readThrough(
     env,
-    { namespace: CACHE_NS.STAGES, parts: ['brand-field'], ttlSeconds: CACHE_TTL.STAGES },
+    { namespace: CACHE_NS.STAGES, parts: ['field', fieldName], ttlSeconds: CACHE_TTL.STAGES },
     async () => {
       try {
         const fields = await executeKw(env, {
           model: ODOO_MODELS.EVENT,
           method: 'fields_get',
-          args: [[EVENT_FIELDS.BRAND]],
+          args: [[fieldName]],
           kwargs: { attributes: ['type'] }
         });
-        return { available: Boolean(fields && fields[EVENT_FIELDS.BRAND]) };
+        return { available: Boolean(fields && fields[fieldName]) };
       } catch (error) {
-        console.warn(`${LOG_PREFIX} kon niet nagaan of ${EVENT_FIELDS.BRAND} bestaat:`, error?.message);
+        console.warn(`${LOG_PREFIX} kon niet nagaan of ${fieldName} bestaat:`, error?.message);
         return { available: false };
       }
     }
   );
 
   return value.available === true;
+}
+
+/**
+ * Velden uit een payload halen waarvan het Odoo-veld niet bestaat, zodat een
+ * ontbrekend Studio-veld niet de hele wijziging laat mislukken.
+ */
+/** Bestaat het merkveld? Dun laagje over optionalFieldAvailable. */
+export async function brandFieldAvailable(env) {
+  return optionalFieldAvailable(env, EVENT_FIELDS.BRAND);
+}
+
+async function stripUnavailableOptionalFields(env, payload) {
+  const map = { brand: EVENT_FIELDS.BRAND, ask_question: EVENT_FIELDS.ASK_QUESTION };
+
+  for (const [key, field] of Object.entries(map)) {
+    if (Object.prototype.hasOwnProperty.call(payload, key) && !(await optionalFieldAvailable(env, field))) {
+      console.warn(`${LOG_PREFIX} ${key} niet opgeslagen: ${field} bestaat niet in Odoo`);
+      delete payload[key];
+    }
+  }
+}
+
+async function availableOptionalFields(env) {
+  const optional = [EVENT_FIELDS.BRAND, EVENT_FIELDS.ASK_QUESTION];
+  const present = [];
+
+  for (const field of optional) {
+    if (await optionalFieldAvailable(env, field)) {
+      present.push(field);
+    }
+  }
+  return present;
 }
 
 async function buildEventDomain(env, filters = {}) {
@@ -277,9 +309,7 @@ export async function listEvents(env, options = {}) {
   } = options;
 
   const baseFields = detail ? EVENT_DETAIL_FIELDS : EVENT_LIST_FIELDS;
-  const fields = (await brandFieldAvailable(env))
-    ? [...baseFields, EVENT_FIELDS.BRAND]
-    : [...baseFields];
+  const fields = [...baseFields, ...(await availableOptionalFields(env))];
   assertNoForbiddenFields(fields, 'listEvents');
 
   const domain = await buildEventDomain(env, filters);
@@ -365,9 +395,7 @@ export async function getEvent(env, selector, options = {}) {
     throw new ValidationError('getEvent vereist een id of een slug');
   }
 
-  const detailFields = (await brandFieldAvailable(env))
-    ? [...EVENT_DETAIL_FIELDS, EVENT_FIELDS.BRAND]
-    : [...EVENT_DETAIL_FIELDS];
+  const detailFields = [...EVENT_DETAIL_FIELDS, ...(await availableOptionalFields(env))];
   assertNoForbiddenFields(detailFields, 'getEvent');
 
   const { value, cached } = await readThrough(
@@ -413,9 +441,7 @@ export async function createEvent(env, input, actor = null) {
   const slug = await ensureUniqueSlug(env, input.slug || input.title);
 
   const createInput = { ...input, slug };
-  if (Object.prototype.hasOwnProperty.call(createInput, 'brand') && !(await brandFieldAvailable(env))) {
-    delete createInput.brand;
-  }
+  await stripUnavailableOptionalFields(env, createInput);
 
   const values = toOdooEventValues(createInput);
 
@@ -459,10 +485,7 @@ export async function updateEvent(env, id, input, actor = null) {
 
   // Het merkveld bestaat pas sinds kort in Odoo. Bestaat het niet, dan
   // laten we het stil weg in plaats van de hele wijziging te laten falen.
-  if (Object.prototype.hasOwnProperty.call(patch, 'brand') && !(await brandFieldAvailable(env))) {
-    console.warn(`${LOG_PREFIX} merk niet opgeslagen: ${EVENT_FIELDS.BRAND} bestaat niet in Odoo`);
-    delete patch.brand;
-  }
+  await stripUnavailableOptionalFields(env, patch);
 
   const values = toOdooEventValues(patch);
   if (Object.keys(values).length === 0) {
@@ -588,6 +611,7 @@ export async function duplicateEvent(env, id, actor = null) {
       capacity: source.registration.capacity ?? 0,
       registration_enabled: source.registration.enabled,
       brand: source.brand,
+      ask_question: source.registration?.ask_question,
       seo_title: source.seo?.title,
       seo_description: source.seo?.description
     },
@@ -643,6 +667,44 @@ export async function deleteEvent(env, id, actor = null) {
   await invalidateEvents(env);
 
   return { deleted: true, id: eventId };
+}
+
+/**
+ * Interne Odoo-gebruikers, voor de hostkeuze.
+ *
+ * Domein `share = false` sluit portaalgebruikers uit — hetzelfde domein dat
+ * het Studio-veld `x_studio_user_id` zelf gebruikt.
+ *
+ * De host is niet cosmetisch: de mailtemplates halen hun AFZENDER uit
+ * `x_studio_linked_webinar.x_studio_user_id`. Is de host leeg, dan is
+ * email_from leeg en faalt de mail in Odoo zonder dat de OM dat merkt.
+ * Daarom is de host ook verplicht om te kunnen publiceren.
+ *
+ * @returns {Promise<{ users: Object[], cached: boolean }>}
+ */
+export async function listHostUsers(env, { bypassCache = false } = {}) {
+  const { value, cached } = await readThrough(
+    env,
+    { namespace: CACHE_NS.STAGES, parts: ['host-users'], ttlSeconds: CACHE_TTL.EVENT_TYPES, bypass: bypassCache },
+    async () => {
+      const records = await searchRead(env, {
+        model: ODOO_MODELS.USER,
+        domain: [['share', '=', false], ['active', '=', true]],
+        fields: ['id', 'name', 'email'],
+        order: 'name asc'
+      });
+
+      const users = (Array.isArray(records) ? records : []).map((record) => ({
+        id: Number(record.id),
+        name: typeof record.name === 'string' ? record.name : null,
+        email: typeof record.email === 'string' && record.email !== '' ? record.email : null
+      }));
+
+      return { users };
+    }
+  );
+
+  return { ...value, cached };
 }
 
 /**

@@ -143,6 +143,18 @@ je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
 
+**1.4.0**
+- Feitenlabels ("WANNEER", "WAAR") stonden nog verkeerd: het thema zette de label-span op
+  volle breedte met het icoon links en de tekst rechts. De iconen zijn eruit en de labels
+  zijn gewone blocks — geen thema kan daar nog tussen komen.
+- De inschrijfknop staat weer op één regel, met het pijltje achter de tekst in plaats van
+  eronder. Defensief tegen thema's die `button` op display:block zetten.
+- Het vraagveld ("Heb je al een vraag?") is nu per event aan of uit te zetten in de
+  Operations Manager. Vraagt het Odoo-veld `x_studio_ask_question` (boolean); ontbreekt dat,
+  dan staat het veld aan zoals voorheen.
+- "Toevoegen aan agenda" is uit de voetregel gehaald en verschijnt nu in de bedankboodschap
+  na een geslaagde inschrijving — dan is het pas nuttig.
+
 **1.3.0**
 - Eventpagina opnieuw opgezet. Vier fouten opgelost: de titel en de samenvatting stonden er
   dubbel (thema plus template), de hero liep buiten de kolom, de feitenlabels stonden naast

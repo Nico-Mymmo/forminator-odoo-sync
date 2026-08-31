@@ -70,6 +70,8 @@ export const EVENT_FIELDS = {
   SEO_DESCRIPTION: 'x_studio_seo_description',
   // Optioneel: bestaat pas als het Studio-veld is aangemaakt.
   BRAND: 'x_studio_brand',
+  // Optioneel (boolean): toont het inschrijfformulier een vraagveld?
+  ASK_QUESTION: 'x_studio_ask_question',
   VIDEO_URL: 'x_studio_vimeo_url',
   THUMBNAIL_URL: 'x_studio_vimeo_thumbnail_url',
   RECAP_BODY: 'x_studio_followup_html',
@@ -644,7 +646,12 @@ export function toEventDto(record, extra = {}) {
       closes_at: fromOdooDatetime(record[EVENT_FIELDS.REGISTRATION_CLOSES_AT]),
       capacity: capacity === CAPACITY_UNLIMITED ? null : capacity,
       count,
-      seats_left: seatsLeft(capacity, count)
+      seats_left: seatsLeft(capacity, count),
+      // Toont het formulier een vraagveld? Ontbreekt het veld in Odoo, dan
+      // is het antwoord `true`: dat was het gedrag voordat dit instelbaar was.
+      ask_question: EVENT_FIELDS.ASK_QUESTION in record
+        ? record[EVENT_FIELDS.ASK_QUESTION] !== false
+        : true
     },
     write_date: fromOdooDatetime(record[EVENT_FIELDS.WRITE_DATE])
   };
@@ -719,7 +726,8 @@ export function toPublicEventDto(record, options = {}) {
     registration: {
       open: internal.registration.status.open,
       capacity: internal.registration.capacity,
-      seats_left: internal.registration.seats_left
+      seats_left: internal.registration.seats_left,
+      ask_question: internal.registration.ask_question
     },
     url: internal.slug ? `${PUBLIC_EVENT_PATH}/${internal.slug}/` : null,
     brand: internal.brand,
@@ -838,6 +846,9 @@ export function toOdooEventValues(input = {}) {
   }
   if (has('registration_enabled')) {
     values[EVENT_FIELDS.REGISTRATION_ENABLED] = Boolean(input.registration_enabled);
+  }
+  if (has('ask_question')) {
+    values[EVENT_FIELDS.ASK_QUESTION] = Boolean(input.ask_question);
   }
   if (has('registration_opens_at')) {
     values[EVENT_FIELDS.REGISTRATION_OPENS_AT] = toOdooDatetime(input.registration_opens_at);

@@ -123,6 +123,13 @@ export function checkPublishReadiness(dto) {
   if (!dto.event_type?.id) missing.push('event type');
   if (!isNonEmptyString(dto.summary)) missing.push('samenvatting');
 
+  // De host is de AFZENDER van de bevestigings-, herinnerings- en
+  // recapmails: die templates lezen
+  // x_studio_linked_webinar.x_studio_user_id. Zonder host is email_from leeg
+  // en faalt de mail in Odoo — zonder dat iemand het ziet. Dus geen
+  // publicatie zonder host.
+  if (!dto.host?.id) missing.push('host (afzender van de mails)');
+
   // Een event op locatie zonder locatie, of online zonder link, is niet
   // publiceerbaar: de bezoeker weet dan niet waar hij moet zijn.
   if (dto.format === 'onsite' && !isNonEmptyString(dto.location?.name)) {
