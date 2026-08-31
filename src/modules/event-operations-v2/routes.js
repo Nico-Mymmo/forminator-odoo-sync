@@ -59,8 +59,14 @@ function json(payload, status = 200, extraHeaders = {}) {
  */
 export function withErrors(handler) {
   return async (context) => {
+    const startedAt = Date.now();
+
     try {
-      return await handler(context);
+      const response = await handler(context);
+      // Meetbaar maken hoe lang een actie duurt: zonder cijfer is "het is
+      // traag" niet op te lossen.
+      response.headers.set('X-Duration-Ms', String(Date.now() - startedAt));
+      return response;
     } catch (error) {
       const status = Number.isInteger(error?.status) ? error.status : 500;
       if (status >= 500) {
@@ -387,7 +393,8 @@ export const routes = {
       event,
       input: body,
       source: REGISTRATION_SOURCE.MANUAL,
-      actor: context.user
+      actor: context.user,
+      ctx: context.ctx
     });
 
     return json({ success: true, data: result }, 201);
@@ -411,7 +418,8 @@ export const routes = {
     const data = await setAttendance(context.env, id, {
       attended: body.attended,
       actor: context.user,
-      origin: body.origin
+      origin: body.origin,
+      ctx: context.ctx
     });
 
     return json({ success: true, data });

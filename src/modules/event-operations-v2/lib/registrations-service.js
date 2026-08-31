@@ -147,10 +147,12 @@ function buildDisplayName(input, email) {
  * @param {Object} options.input - het formulier
  * @param {string} [options.source]
  * @param {Object} [options.actor] - de OM-gebruiker bij een handmatige toevoeging
+ * @param {Object} [options.ctx] - Cloudflare ctx, om de chatternotitie ná het
+ *   antwoord af te handelen; dat scheelt de bezoeker een Odoo-ronde
  * @returns {Promise<{ id: number, state: string, waitlisted: boolean, partnerId: number, contactCreated: boolean }>}
  */
 export async function createRegistration(env, options) {
-  const { event, input, source = REGISTRATION_SOURCE.PUBLIC_FORM, actor = null } = options;
+  const { event, input, source = REGISTRATION_SOURCE.PUBLIC_FORM, actor = null, ctx = null } = options;
 
   const eventId = Number(event.id);
   const email = normalizeEmail(input?.email);
@@ -252,7 +254,17 @@ export async function createRegistration(env, options) {
     // Bewust GEEN nieuwe Studio-velden hiervoor: dit is context, geen
     // gegeven waarop gerapporteerd wordt. De chatter is traceerbaar en
     // vraagt geen veldwerk in Odoo.
-    await logRegistrationContext(env, registrationId, { input, source, partner, actor, waitlisted });
+    //
+    // NA het antwoord, als de omgeving dat toelaat: de bezoeker hoeft niet
+    // op een notitie te wachten. Zonder ctx wél afwachten, anders zou de
+    // notitie verloren gaan wanneer de Worker afsluit.
+    const chatter = logRegistrationContext(env, registrationId, { input, source, partner, actor, waitlisted });
+
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(chatter);
+    } else {
+      await chatter;
+    }
 
     await invalidateEvents(env);
 
@@ -399,6 +411,7 @@ export async function listRegistrations(env, eventId, query = {}) {
  * @param {boolean} params.attended
  * @param {Object} [params.actor] - de OM-gebruiker
  * @param {string} [params.origin]
+ * @param {Object} [params.ctx] - Cloudflare ctx voor de chatternotitie
  * @returns {Promise<Object>} het bijgewerkte DTO
  */
 export async function setAttendance(env, registrationId, params) {
@@ -429,14 +442,18 @@ export async function setAttendance(env, registrationId, params) {
   await write(env, { model: ODOO_MODELS.REGISTRATION, ids: [id], values });
 
   const who = params.actor?.email || params.actor?.name || 'onbekende gebruiker';
-  try {
-    await messagePost(env, {
-      model: ODOO_MODELS.REGISTRATION,
-      id,
-      body: `Aanwezigheid ${params.attended ? 'aangevinkt' : 'uitgevinkt'} door ${escapeHtml(who)}.`
-    });
-  } catch (error) {
+  const chatter = messagePost(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    id,
+    body: `Aanwezigheid ${params.attended ? 'aangevinkt' : 'uitgevinkt'} door ${escapeHtml(who)}.`
+  }).catch((error) => {
     console.warn(`${LOG_PREFIX} chatternotitie aanwezigheid mislukt (${id}):`, error?.message);
+  });
+
+  if (params.ctx && typeof params.ctx.waitUntil === 'function') {
+    params.ctx.waitUntil(chatter);
+  } else {
+    await chatter;
   }
 
   await invalidateEvents(env);

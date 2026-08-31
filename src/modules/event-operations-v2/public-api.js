@@ -348,7 +348,7 @@ async function handleEventTypes(request, env, brand) {
  *
  * @returns {Promise<Response>}
  */
-async function handleRegister(request, env, slug, brand) {
+async function handleRegister(request, env, slug, brand, ctx) {
   let body;
   try {
     body = await request.json();
@@ -424,7 +424,8 @@ async function handleRegister(request, env, slug, brand) {
       questions: body.questions,
       consent: Boolean(body.consent),
       utm: body.utm
-    }
+    },
+    ctx
   });
 
   const payload = {
@@ -507,7 +508,7 @@ export async function handleEventsPublicApi(request, env, ctx, pathname) {
       if (request.method !== 'POST') {
         return errorResponse('Method not allowed', 405, request, env, { Allow: 'POST' });
       }
-      return await handleRegister(request, env, decodeURIComponent(registerMatch[1]), site.brand);
+      return await handleRegister(request, env, decodeURIComponent(registerMatch[1]), site.brand, ctx);
     }
 
     let result = null;

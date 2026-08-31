@@ -181,33 +181,50 @@ async function stageIdsForStates(env, stateCodes) {
  *
  * @returns {Promise<boolean>}
  */
-export async function optionalFieldAvailable(env, fieldName) {
+/**
+ * Welke optionele Studio-velden bestaan er?
+ *
+ * EEN fields_get voor alle velden samen, niet een per veld: dat waren twee
+ * extra Odoo-rondes bij elke koude cache. En lang cachen — of een veld
+ * bestaat verandert bijna nooit, en de verversknop gooit het toch leeg.
+ *
+ * @returns {Promise<Record<string, boolean>>}
+ */
+async function optionalFieldMap(env) {
+  const wanted = [EVENT_FIELDS.BRAND, EVENT_FIELDS.ASK_QUESTION];
+
   const { value } = await readThrough(
     env,
-    { namespace: CACHE_NS.STAGES, parts: ['field', fieldName], ttlSeconds: CACHE_TTL.STAGES },
+    { namespace: CACHE_NS.STAGES, parts: ['optional-fields'], ttlSeconds: CACHE_TTL.SCHEMA },
     async () => {
       try {
         const fields = await executeKw(env, {
           model: ODOO_MODELS.EVENT,
           method: 'fields_get',
-          args: [[fieldName]],
+          args: [wanted],
           kwargs: { attributes: ['type'] }
         });
-        return { available: Boolean(fields && fields[fieldName]) };
+
+        const map = {};
+        for (const field of wanted) {
+          map[field] = Boolean(fields && fields[field]);
+        }
+        return { map };
       } catch (error) {
-        console.warn(`${LOG_PREFIX} kon niet nagaan of ${fieldName} bestaat:`, error?.message);
-        return { available: false };
+        console.warn(`${LOG_PREFIX} kon de optionele velden niet opvragen:`, error?.message);
+        return { map: {} };
       }
     }
   );
 
-  return value.available === true;
+  return value.map || {};
 }
 
-/**
- * Velden uit een payload halen waarvan het Odoo-veld niet bestaat, zodat een
- * ontbrekend Studio-veld niet de hele wijziging laat mislukken.
- */
+export async function optionalFieldAvailable(env, fieldName) {
+  const map = await optionalFieldMap(env);
+  return map[fieldName] === true;
+}
+
 /** Bestaat het merkveld? Dun laagje over optionalFieldAvailable. */
 export async function brandFieldAvailable(env) {
   return optionalFieldAvailable(env, EVENT_FIELDS.BRAND);
@@ -225,15 +242,54 @@ async function stripUnavailableOptionalFields(env, payload) {
 }
 
 async function availableOptionalFields(env) {
-  const optional = [EVENT_FIELDS.BRAND, EVENT_FIELDS.ASK_QUESTION];
-  const present = [];
+  const map = await optionalFieldMap(env);
+  return Object.keys(map).filter((field) => map[field] === true);
+}
 
-  for (const field of optional) {
-    if (await optionalFieldAvailable(env, field)) {
-      present.push(field);
-    }
+/**
+ * Inschrijvingsaantallen voor alle events die aan een eventdomein voldoen.
+ *
+ * Het truc: we spiegelen het eventdomein naar het gerelateerde veld
+ * `x_studio_linked_webinar.<veld>`. Daardoor hoeft deze call NIET te wachten
+ * op de id's uit de eerste call, en kunnen beide parallel — dat halveert de
+ * wachttijd van een lijst, want een Odoo-ronde kost ~300 ms.
+ *
+ * @param {Object} env
+ * @param {Array} eventDomain - het domein zoals buildEventDomain het maakt
+ * @returns {Promise<Record<number, number>>}
+ */
+async function getRegistrationCountsByEventDomain(env, eventDomain) {
+  const mirrored = eventDomain.map((term) => {
+    // Operatoren ('&', '|', '!') gaan ongewijzigd mee.
+    if (!Array.isArray(term)) return term;
+    return [`${REGISTRATION_FIELDS.EVENT}.${term[0]}`, term[1], term[2]];
+  });
+
+  const domain = [
+    ...mirrored,
+    [REGISTRATION_FIELDS.STATE, '!=', REGISTRATION_STATE.CANCELLED]
+  ];
+
+  const grouped = await executeKw(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    method: 'read_group',
+    args: [domain, [REGISTRATION_FIELDS.EVENT], [REGISTRATION_FIELDS.EVENT]],
+    kwargs: { lazy: false }
+  });
+
+  const counts = {};
+  for (const group of grouped || []) {
+    const relation = group?.[REGISTRATION_FIELDS.EVENT];
+    const eventId = Array.isArray(relation) ? Number(relation[0]) : Number(relation);
+    if (!Number.isInteger(eventId) || eventId <= 0) continue;
+
+    const count = Number(
+      group?.[`${REGISTRATION_FIELDS.EVENT}_count`] ?? group?.__count ?? group?.id_count ?? 0
+    );
+    counts[eventId] = Number.isFinite(count) ? count : 0;
   }
-  return present;
+
+  return counts;
 }
 
 async function buildEventDomain(env, filters = {}) {
@@ -324,21 +380,43 @@ export async function listEvents(env, options = {}) {
       bypass: bypassCache
     },
     async () => {
-      // Call 1 — de events zelf.
-      const records = await searchRead(env, {
-        model: ODOO_MODELS.EVENT,
-        domain,
-        fields: [...fields],
-        limit,
-        offset,
-        order,
-        context: includeArchived ? { active_test: false } : undefined
-      });
+      // Beide calls PARALLEL. De tellers gebruiken hetzelfde domein via het
+      // gerelateerde veld, dus ze hoeven niet op de id's te wachten.
+      // Faalt die spiegeling (een Odoo-versie die het gerelateerde pad niet
+      // aanvaardt), dan vallen we terug op de variant met de id's.
+      // Ook het totaal hoeft niet te wachten: het gebruikt hetzelfde domein.
+      // Alleen opvragen als er echt gepagineerd wordt.
+      const needsTotal = Boolean(limit) && (offset > 0 || true);
+
+      const [records, mirroredCounts, countedTotal] = await Promise.all([
+        searchRead(env, {
+          model: ODOO_MODELS.EVENT,
+          domain,
+          fields: [...fields],
+          limit,
+          offset,
+          order,
+          context: includeArchived ? { active_test: false } : undefined
+        }),
+        getRegistrationCountsByEventDomain(env, domain).catch((error) => {
+          console.warn(`${LOG_PREFIX} gespiegeld teldomein mislukt, val terug:`, error?.message);
+          return null;
+        }),
+        needsTotal
+          ? executeKw(env, {
+            model: ODOO_MODELS.EVENT,
+            method: 'search_count',
+            args: [domain],
+            kwargs: includeArchived ? { context: { active_test: false } } : {}
+          }).catch(() => null)
+          : Promise.resolve(null)
+      ]);
 
       const rows = Array.isArray(records) ? records : [];
 
-      // Call 2 — alle aantallen in een keer.
-      const counts = await getRegistrationCounts(env, rows.map((r) => r[EVENT_FIELDS.ID]));
+      const counts = mirroredCounts !== null
+        ? mirroredCounts
+        : await getRegistrationCounts(env, rows.map((r) => r[EVENT_FIELDS.ID]));
 
       let events = rows.map((record) =>
         toEventDto(record, { registrationCount: counts[record[EVENT_FIELDS.ID]] || 0 })
@@ -349,17 +427,12 @@ export async function listEvents(env, options = {}) {
         events = events.filter((e) => e.format === filters.format);
       }
 
-      // Alleen een extra call als er echt gepagineerd wordt.
-      let total = events.length;
-      if (limit && (rows.length === limit || offset > 0)) {
-        total = Number(
-          await executeKw(env, {
-            model: ODOO_MODELS.EVENT,
-            method: 'search_count',
-            args: [domain],
-            kwargs: includeArchived ? { context: { active_test: false } } : {}
-          })
-        ) || events.length;
+      // Het totaal komt uit de parallelle call hierboven. Is de
+      // formatfilter actief, dan is dat totaal niet meer waar — die filter
+      // gebeurt na het ophalen, want format is afgeleid en geen Odoo-veld.
+      let total = Number.isFinite(Number(countedTotal)) ? Number(countedTotal) : events.length;
+      if (filters.format) {
+        total = events.length;
       }
 
       // Ruwe records meegeven: de publieke API serialiseert daaruit met
@@ -407,20 +480,32 @@ export async function getEvent(env, selector, options = {}) {
       bypass: bypassCache
     },
     async () => {
-      const records = await searchRead(env, {
-        model: ODOO_MODELS.EVENT,
-        domain,
-        fields: detailFields,
-        limit: 1,
-        context: { active_test: false }
-      });
+      // Kennen we het id al, dan kunnen de twee calls PARALLEL: het
+      // aantal inschrijvingen hoeft niet op het event te wachten. Bij een
+      // slug moet het wel na elkaar, want dan komt het id uit de eerste call.
+      const knownId = selector?.id ? Number(selector.id) : null;
+
+      const [records, presetCounts] = await Promise.all([
+        searchRead(env, {
+          model: ODOO_MODELS.EVENT,
+          domain,
+          fields: detailFields,
+          limit: 1,
+          context: { active_test: false }
+        }),
+        knownId ? getRegistrationCounts(env, [knownId]) : Promise.resolve(null)
+      ]);
 
       const record = Array.isArray(records) && records.length > 0 ? records[0] : null;
       if (!record) return { event: null, raw: null };
 
-      const counts = await getRegistrationCounts(env, [record[EVENT_FIELDS.ID]]);
+      const eventId = record[EVENT_FIELDS.ID];
+      const counts = presetCounts !== null
+        ? presetCounts
+        : await getRegistrationCounts(env, [eventId]);
+
       return {
-        event: toEventDto(record, { registrationCount: counts[record[EVENT_FIELDS.ID]] || 0 }),
+        event: toEventDto(record, { registrationCount: counts[eventId] || 0 }),
         raw: record
       };
     }

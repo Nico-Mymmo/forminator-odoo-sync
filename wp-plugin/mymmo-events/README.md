@@ -143,6 +143,12 @@ je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
 
+**1.4.1**
+- Opgelost: `/event/{slug}/ics/` gaf ERR_INVALID_RESPONSE. WordPress had voor de 404 al
+  status 404 en `Content-Type: text/html` klaargezet, en een bestand met een tegenstrijdig
+  type en status is voor de browser een ongeldige respons. Nu eerst status 200, alle
+  openstaande buffers weg, en een expliciete Content-Length.
+
 **1.4.0**
 - Feitenlabels ("WANNEER", "WAAR") stonden nog verkeerd: het thema zette de label-span op
   volle breedte met het icoon links en de tekst rechts. De iconen zijn eruit en de labels

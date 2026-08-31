@@ -139,8 +139,10 @@ export const CACHE_TTL = {
   // cache wel — daar zit de belasting.
   ADMIN_LIST: 0,
   ADMIN_DETAIL: 0,
-  // Stages veranderen bijna nooit, maar wel binnen een isolate-leven.
-  STAGES: 120
+  // Stages en het veldenschema veranderen bijna nooit. Lang cachen scheelt
+  // drie Odoo-rondes bij elke koude cache; de verversknop gooit het leeg.
+  STAGES: 3600,
+  SCHEMA: 3600
 };
 
 /** KV-sleutelruimte. Alles onder dit prefix is veilig te wissen. */

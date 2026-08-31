@@ -23,13 +23,14 @@
     events: [],
     types: [],
     hosts: [],
+    listCache: {},
     typeColorById: {},
     page: 1,
     totalPages: 1,
     total: 0,
     selectedId: null,
     detail: null,
-    registrations: { rows: [], total: 0, page: 1, totalPages: 1, loading: false },
+    registrations: { rows: [], total: 0, page: 1, totalPages: 1, loading: false, loadedFor: null },
     bodyEditor: null,
     openSection: 'basis',
     previewEditor: null,
@@ -199,7 +200,11 @@
       throw error;
     }
 
-    return { payload: payload, cache: response.headers.get('X-Cache') };
+    return {
+      payload: payload,
+      cache: response.headers.get('X-Cache'),
+      duration: response.headers.get('X-Duration-Ms')
+    };
   }
 
   window.__eventsV2 = { state: state, api: api };
@@ -222,19 +227,51 @@
     return params.toString();
   }
 
+  /**
+   * Events laden.
+   *
+   * Vragen die we in deze sessie al stelden komen uit het geheugen. Dat maakt
+   * heen-en-weer bladeren door de maanden onmiddellijk, want de kalender
+   * vraagt telkens hetzelfde venster op. Een schrijfactie of de verversknop
+   * gooit het geheugen leeg, dus het kan niet verouderen zonder dat je het
+   * zelf veroorzaakt.
+   */
   async function loadEvents(forceFresh) {
     if (state.loading) return;
+
+    var query = buildQuery(forceFresh);
+
+    if (forceFresh) {
+      state.listCache = {};
+    } else if (state.listCache[query]) {
+      var hit = state.listCache[query];
+      state.events = hit.events;
+      state.total = hit.total;
+      state.totalPages = hit.totalPages;
+      el('cacheBadge').textContent = 'uit geheugen';
+      renderCalendar();
+      renderList();
+      return;
+    }
+
     state.loading = true;
 
     try {
-      var result = await api('/events?' + buildQuery(forceFresh));
+      var result = await api('/events?' + query);
       state.events = result.payload.data || [];
 
       var pagination = result.payload.pagination || {};
       state.total = pagination.total || state.events.length;
       state.totalPages = pagination.total_pages || 1;
 
-      el('cacheBadge').textContent = result.cache === 'hit' ? 'uit cache' : 'live uit Odoo';
+      state.listCache[query] = {
+        events: state.events,
+        total: state.total,
+        totalPages: state.totalPages
+      };
+
+      el('cacheBadge').textContent = (result.cache === 'hit' ? 'uit cache' : 'live uit Odoo') +
+        (result.duration ? ' · ' + result.duration + ' ms' : '');
 
       renderCalendar();
       renderList();
@@ -434,6 +471,9 @@
   // ─── Detailpaneel ──────────────────────────────────────────────────────────
 
   async function selectEvent(id) {
+    if (state.registrations.loadedFor !== id) {
+      state.registrations = { rows: [], total: 0, page: 1, totalPages: 1, loading: false, loadedFor: null };
+    }
     state.selectedId = id;
     renderList();
     if (state.calendar) state.calendar.render();
@@ -662,7 +702,18 @@
 
     if (window.lucide) window.lucide.createIcons();
 
-    loadRegistrations(event.id, 1);
+    // Inschrijvingen NIET meteen laden: dat waren drie extra Odoo-rondes bij
+    // elke klik op een event, terwijl je die lijst meestal niet nodig hebt.
+    // Ze komen als je de sectie opent — of meteen als die al open stond.
+    if (state.openSection === 'inschrijvingen') {
+      loadRegistrations(event.id, 1);
+    } else {
+      var host = el('registrations-section');
+      if (host) {
+        host.innerHTML = '<p class="text-sm opacity-60 py-2">' +
+          'Open deze sectie om de inschrijvingen te laden.</p>';
+      }
+    }
   }
 
   /** De publieke URL van een event, voor de "bekijk op de site"-knop. */
@@ -899,7 +950,8 @@
         total: pagination.total || 0,
         page: pagination.page || 1,
         totalPages: pagination.total_pages || 1,
-        loading: false
+        loading: false,
+        loadedFor: eventId
       };
 
       renderRegistrations(eventId);
@@ -1031,6 +1083,9 @@
   async function afterMutation(detail, message) {
     state.detail = detail;
     renderDetail();
+    // Het geheugen is nu verouderd: leeggooien zodat de lijst de wijziging
+    // laat zien.
+    state.listCache = {};
     await loadEvents();
     toast(message, 'success');
   }
@@ -1217,7 +1272,15 @@
   document.addEventListener('toggle', function (domEvent) {
     var node = domEvent.target;
     if (!node || node.tagName !== 'DETAILS' || node.getAttribute('data-action') !== 'section') return;
-    if (node.open) state.openSection = node.getAttribute('data-section');
+    if (!node.open) return;
+
+    var key = node.getAttribute('data-section');
+    state.openSection = key;
+
+    // Pas nu ophalen, en alleen als het nog niet gebeurd is.
+    if (key === 'inschrijvingen' && state.detail && !state.registrations.loadedFor) {
+      loadRegistrations(state.detail.id, 1);
+    }
   }, true);
 
   document.addEventListener('change', function (domEvent) {

@@ -380,11 +380,28 @@ final class Mymmo_Events_Router {
         $lines[] = 'END:VCALENDAR';
 
         $filename = sanitize_file_name(($event['slug'] ?? 'event') . '.ics');
+        $body = implode("\r\n", $lines) . "\r\n";
 
+        // WordPress heeft bij het bepalen van de 404 al headers klaargezet:
+        // status 404 en Content-Type text/html. Een bestand met een
+        // 404-status en een tegenstrijdig type gaf ERR_INVALID_RESPONSE.
+        // Dus eerst 200 zetten, dan de eigen headers.
+        status_header(200);
         nocache_headers();
+
+        // Alle openstaande buffers weg: een gzip- of paginacachebuffer
+        // eromheen maakt de lengte hieronder onjuist, en dat is precies wat
+        // een browser als een ongeldige respons ziet.
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
         header('Content-Type: text/calendar; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
-        echo implode("\r\n", $lines) . "\r\n";
+        header('Content-Length: ' . strlen($body));
+        header('X-Robots-Tag: noindex');
+
+        echo $body;
         exit;
     }
 }
