@@ -14,6 +14,7 @@ import {
   PAGINATION,
   CACHE_TTL,
   PUBLIC_RATE_LIMIT,
+  REGISTER_RATE_LIMIT,
   PUBLIC_SHAPE_VERSION,
   EVENT_FORMAT,
   PUBLIC_VISIBLE_STATES,
@@ -21,6 +22,8 @@ import {
 } from './constants.js';
 import { toPublicEventDto, EVENT_FIELDS } from './odoo-contract.js';
 import { listEvents, getEvent, listEventTypes } from './lib/events-service.js';
+import { createRegistration } from './lib/registrations-service.js';
+import { registrationStatus } from './odoo-contract.js';
 import { weakEtag, checkRateLimit } from './lib/cache.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
 
@@ -333,6 +336,120 @@ async function handleEventTypes(request, env, brand) {
   };
 }
 
+// ─── Inschrijven ─────────────────────────────────────────────────────────────
+
+/**
+ * POST /events-v2/public/v1/events/{slug}/register
+ *
+ * Het event zit in het PAD. Daardoor is de koppeling naar het juiste webinar
+ * bij constructie gegarandeerd — precies het probleem dat in de
+ * Forminator-route een configuratiekwestie was, en waar een lege waarde stil
+ * een registratie zonder webinar opleverde.
+ *
+ * @returns {Promise<Response>}
+ */
+async function handleRegister(request, env, slug, brand) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return errorResponse('Onleesbare aanvraag.', 400, request, env);
+  }
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return errorResponse('Onleesbare aanvraag.', 400, request, env);
+  }
+
+  const email = String(body.email || '').trim().toLowerCase();
+  if (email === '' || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    return errorResponse('Vul een geldig e-mailadres in.', 400, request, env);
+  }
+
+  // Tweede emmer op het e-mailadres: anders kan een adres alle events
+  // volschrijven binnen de limiet per site.
+  const perEmail = await checkRateLimit(env, `reg:${await hashForRate(email)}`, {
+    windowSeconds: REGISTER_RATE_LIMIT.EMAIL_WINDOW_SECONDS,
+    maxRequests: REGISTER_RATE_LIMIT.EMAIL_MAX_REQUESTS
+  });
+  if (!perEmail.allowed) {
+    return errorResponse(
+      'Er zijn net veel inschrijvingen met dit e-mailadres gedaan. Probeer het later opnieuw.',
+      429,
+      request,
+      env,
+      { 'Retry-After': String(perEmail.retryAfter) }
+    );
+  }
+
+  const { event } = await getEvent(env, { slug }, { bypassCache: true });
+
+  if (!event) {
+    return errorResponse('Dit event bestaat niet.', 404, request, env);
+  }
+  if (!PUBLIC_VISIBLE_STATES.includes(event.publication_state)) {
+    return errorResponse('Dit event is niet beschikbaar.', 404, request, env);
+  }
+  // Dezelfde merkcontrole als op de detailroute: een site mag niet
+  // inschrijven op een event van het andere merk, ook niet met een
+  // rechtstreekse POST.
+  if (brand && event.brand && event.brand !== brand && event.brand !== 'both') {
+    return errorResponse('Dit event is niet beschikbaar.', 404, request, env);
+  }
+
+  // Eén bron voor de vraag "mag er ingeschreven worden": dezelfde pure
+  // functie die de beheer-UI en de publieke lijst gebruiken.
+  const status = registrationStatus(event);
+  if (!status.open) {
+    const messages = {
+      not_published: 'Inschrijven is voor dit event niet mogelijk.',
+      disabled: 'Inschrijven is voor dit event niet mogelijk.',
+      not_yet_open: 'Inschrijven is nog niet open voor dit event.',
+      closed: 'Inschrijven is gesloten voor dit event.',
+      event_started: 'Dit event is al begonnen.',
+      event_done: 'Dit event is voorbij.',
+      cancelled: 'Dit event is geannuleerd.',
+      full: 'Dit event is volzet.'
+    };
+    return errorResponse(messages[status.reason] || 'Inschrijven is niet mogelijk.', 409, request, env);
+  }
+
+  const result = await createRegistration(env, {
+    event,
+    input: {
+      first_name: body.first_name,
+      last_name: body.last_name,
+      email: body.email,
+      phone: body.phone,
+      company: body.company,
+      questions: body.questions,
+      consent: Boolean(body.consent),
+      utm: body.utm
+    }
+  });
+
+  const payload = {
+    ok: true,
+    registration: { id: result.id, state: result.state },
+    message: result.waitlisted
+      ? 'Je staat op de wachtlijst: de laatste plaats was net bezet. We laten je weten als er iemand afzegt.'
+      : 'Je inschrijving is bevestigd.'
+  };
+
+  return new Response(JSON.stringify(payload), {
+    status: 201,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      ...corsHeaders(request, env)
+    }
+  });
+}
+
+async function hashForRate(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 /**
@@ -350,8 +467,16 @@ export async function handleEventsPublicApi(request, env, ctx, pathname) {
     return new Response(null, { status: 204, headers: corsHeaders(request, env) });
   }
 
-  if (request.method !== 'GET') {
+  const registerMatch = pathname
+    .slice(PUBLIC_PREFIX.length)
+    .match(/^\/events\/([^/]+)\/register\/?$/);
+
+  // Alleen dit ene pad accepteert een POST. Al het andere blijft lezen.
+  if (request.method === 'POST' && !registerMatch) {
     return errorResponse('Method not allowed', 405, request, env, { Allow: 'GET, OPTIONS' });
+  }
+  if (request.method !== 'GET' && request.method !== 'POST') {
+    return errorResponse('Method not allowed', 405, request, env, { Allow: 'GET, POST, OPTIONS' });
   }
 
   const site = validateSiteKey(request, env);
@@ -359,10 +484,16 @@ export async function handleEventsPublicApi(request, env, ctx, pathname) {
     return errorResponse('Ongeldige of ontbrekende sitesleutel', 401, request, env);
   }
 
-  const rate = await checkRateLimit(env, `pub:${site.key}`, {
-    windowSeconds: PUBLIC_RATE_LIMIT.WINDOW_SECONDS,
-    maxRequests: PUBLIC_RATE_LIMIT.MAX_REQUESTS
-  });
+  // Schrijven is strenger begrensd dan lezen.
+  const rate = registerMatch
+    ? await checkRateLimit(env, `regsite:${site.key}`, {
+      windowSeconds: REGISTER_RATE_LIMIT.WINDOW_SECONDS,
+      maxRequests: REGISTER_RATE_LIMIT.MAX_REQUESTS
+    })
+    : await checkRateLimit(env, `pub:${site.key}`, {
+      windowSeconds: PUBLIC_RATE_LIMIT.WINDOW_SECONDS,
+      maxRequests: PUBLIC_RATE_LIMIT.MAX_REQUESTS
+    });
   if (!rate.allowed) {
     return errorResponse('Te veel verzoeken', 429, request, env, {
       'Retry-After': String(rate.retryAfter)
@@ -372,6 +503,13 @@ export async function handleEventsPublicApi(request, env, ctx, pathname) {
   const subPath = pathname.slice(PUBLIC_PREFIX.length) || '/';
 
   try {
+    if (registerMatch) {
+      if (request.method !== 'POST') {
+        return errorResponse('Method not allowed', 405, request, env, { Allow: 'POST' });
+      }
+      return await handleRegister(request, env, decodeURIComponent(registerMatch[1]), site.brand);
+    }
+
     let result = null;
 
     if (subPath === '/events' || subPath === '/events/') {
@@ -402,8 +540,32 @@ export async function handleEventsPublicApi(request, env, ctx, pathname) {
     response.headers.set('X-RateLimit-Remaining', String(rate.remaining));
     return response;
   } catch (error) {
-    console.error(`${LOG_PREFIX} publieke API fout op ${pathname}:`, error?.stack || error?.message);
-    return errorResponse('Tijdelijk niet beschikbaar', 503, request, env);
+    // Een ValidationError is een verwachte uitkomst met een leesbare tekst:
+    // die geven we door, want de bezoeker moet weten wat er mis is.
+    if (Number.isInteger(error?.status) && error.status < 500) {
+      return errorResponse(error.message, error.status, request, env);
+    }
+
+    // Alles daarboven is onverwacht. Log met CONTEXT: een kale 503 zonder
+    // aanwijzing kostte eerder een halve dag zoeken.
+    console.error(
+      `${LOG_PREFIX} onverwachte fout op ${request.method} ${pathname}`,
+      JSON.stringify({
+        query: Object.fromEntries(new URL(request.url).searchParams),
+        brand: site.brand,
+        message: error?.message
+      }),
+      error?.stack
+    );
+
+    return errorResponse(
+      env?.EVENTS_PUBLIC_DEBUG === '1'
+        ? `Interne fout: ${error?.message || 'onbekend'}`
+        : 'Tijdelijk niet beschikbaar',
+      503,
+      request,
+      env
+    );
   }
 }
 

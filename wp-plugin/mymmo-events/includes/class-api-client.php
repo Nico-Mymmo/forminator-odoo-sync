@@ -82,7 +82,7 @@ final class Mymmo_Events_Api_Client {
             'include_past' => !empty($args['include_past']) ? '1' : null,
         ], static fn ($v) => $v !== null && $v !== '');
 
-        $payload = self::request('/events', $params, (int) get_option('mymmo_events_cache_ttl', 300));
+        $payload = self::request('/events', $params, (int) get_option('mymmo_events_cache_ttl', 60));
         $events = is_array($payload['events'] ?? null) ? $payload['events'] : [];
 
         return array_values(array_filter($events, 'is_array'));
@@ -100,7 +100,7 @@ final class Mymmo_Events_Api_Client {
         $payload = self::request(
             '/events/' . rawurlencode($key),
             [],
-            (int) get_option('mymmo_events_cache_ttl', 300)
+            (int) get_option('mymmo_events_cache_ttl', 60)
         );
 
         $event = $payload['event'] ?? null;
@@ -113,7 +113,7 @@ final class Mymmo_Events_Api_Client {
      * @return array{slug:string,starts_at:string,month:string}|null
      */
     public static function get_next_event(): ?array {
-        $payload = self::request('/next', [], (int) get_option('mymmo_events_cache_ttl', 300));
+        $payload = self::request('/next', [], (int) get_option('mymmo_events_cache_ttl', 60));
         $next = $payload['next'] ?? null;
         return is_array($next) && !empty($next['month']) ? $next : null;
     }

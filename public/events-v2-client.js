@@ -28,6 +28,7 @@
     total: 0,
     selectedId: null,
     detail: null,
+    registrations: { rows: [], total: 0, page: 1, totalPages: 1, loading: false },
     view: 'calendar',
     calendar: null,
     loading: false
@@ -530,6 +531,8 @@
         '</div>' +
       '</details>' +
 
+      '<div id="registrations-section" class="mt-4"></div>' +
+
       '<div class="flex flex-wrap gap-2 mt-4">' +
         '<button class="btn btn-sm btn-primary" data-action="save" data-event-id="' + event.id + '">Opslaan</button>' +
         // Alleen de overgangen die vanuit deze fase toegestaan zijn.
@@ -560,6 +563,10 @@
       '</p>';
 
     if (window.lucide) window.lucide.createIcons();
+
+    // Inschrijvingen apart laden: het paneel moet meteen staan, ook als
+    // Odoo er even over doet.
+    loadRegistrations(event.id, 1);
   }
 
   function collectFields() {
@@ -582,6 +589,151 @@
       payload[name] = value;
     });
     return payload;
+  }
+
+  // ─── Inschrijvingen ────────────────────────────────────────────────────────
+
+  var REG_STATE_BADGE = {
+    registered: { label: 'Ingeschreven', cls: 'badge-success' },
+    waitlisted: { label: 'Wachtlijst', cls: 'badge-warning' },
+    cancelled: { label: 'Afgemeld', cls: 'badge-ghost' }
+  };
+
+  async function loadRegistrations(eventId, page) {
+    var host = el('registrations-section');
+    if (!host) return;
+
+    state.registrations.loading = true;
+    host.innerHTML = '<p class="text-sm opacity-60 py-2">Inschrijvingen laden…</p>';
+
+    try {
+      var result = await api('/events/' + eventId + '/registrations?page=' + page + '&per_page=25');
+      var pagination = result.payload.pagination || {};
+
+      state.registrations = {
+        rows: result.payload.data || [],
+        total: pagination.total || 0,
+        page: pagination.page || 1,
+        totalPages: pagination.total_pages || 1,
+        loading: false
+      };
+
+      renderRegistrations(eventId);
+    } catch (error) {
+      state.registrations.loading = false;
+      host.innerHTML = '<p class="text-sm text-error py-2">Inschrijvingen laden mislukt: ' + esc(error.message) + '</p>';
+    }
+  }
+
+  function renderRegistrations(eventId) {
+    var host = el('registrations-section');
+    if (!host) return;
+
+    var reg = state.registrations;
+    var attended = reg.rows.filter(function (row) { return row.attended; }).length;
+
+    var rows = reg.rows.map(function (row) {
+      var badge = REG_STATE_BADGE[row.state] || REG_STATE_BADGE.registered;
+      var lead = row.lead;
+
+      return '<tr class="hover">' +
+        '<td>' +
+          '<div class="font-medium">' + esc(row.partner.name || row.name || '—') + '</div>' +
+          '<div class="text-xs opacity-60">' + esc(row.submitted_email || '') + '</div>' +
+        '</td>' +
+        '<td class="text-xs">' + esc(row.source || '—') +
+          '<div class="opacity-60">' + esc(formatWhen(row.created_at)) + '</div></td>' +
+        '<td>' +
+          (lead && lead.id
+            ? '<span class="badge badge-sm badge-outline" title="' + esc(lead.name || '') + '">' +
+              esc(lead.resolved_lead_status || '') + '</span>'
+            : '<span class="text-xs opacity-40">—</span>') +
+        '</td>' +
+        '<td><span class="badge badge-sm ' + badge.cls + '">' + badge.label + '</span></td>' +
+        '<td class="text-center">' +
+          '<input type="checkbox" class="checkbox checkbox-sm"' +
+            ' data-action="toggle-attendance" data-registration-id="' + row.id + '"' +
+            (row.attended ? ' checked' : '') +
+            (row.state === 'cancelled' ? ' disabled' : '') + ' />' +
+        '</td>' +
+        '</tr>' +
+        (row.questions
+          ? '<tr><td colspan="5" class="text-xs opacity-70 pt-0 pb-3">' +
+            '<span class="font-medium">Vraag:</span> ' + esc(row.questions) + '</td></tr>'
+          : '');
+    }).join('');
+
+    host.innerHTML =
+      '<details class="border border-base-200 rounded" open>' +
+        '<summary class="cursor-pointer px-3 py-2 text-sm font-medium flex items-center justify-between">' +
+          '<span>Inschrijvingen <span class="badge badge-sm badge-ghost ml-1">' + reg.total + '</span></span>' +
+          '<span class="text-xs opacity-60 font-normal">' + attended + ' van ' + reg.rows.length + ' aanwezig op deze pagina</span>' +
+        '</summary>' +
+        '<div class="px-3 pb-3">' +
+          '<div class="flex justify-end gap-2 mb-2">' +
+            '<button class="btn btn-xs btn-ghost" data-action="reload-registrations" data-event-id="' + eventId + '">Verversen</button>' +
+            '<button class="btn btn-xs btn-outline" data-action="add-registration" data-event-id="' + eventId + '">Handmatig toevoegen</button>' +
+          '</div>' +
+          (reg.rows.length === 0
+            ? '<p class="text-sm opacity-60 py-3">Nog geen inschrijvingen.</p>'
+            : '<div class="overflow-x-auto"><table class="table table-xs">' +
+              '<thead><tr><th>Deelnemer</th><th>Bron</th><th>Lead</th><th>Toestand</th>' +
+              '<th class="text-center">Aanwezig</th></tr></thead>' +
+              '<tbody>' + rows + '</tbody></table></div>') +
+          (reg.totalPages > 1
+            ? '<div class="flex items-center justify-between mt-2">' +
+              '<button class="btn btn-xs btn-ghost" data-action="reg-prev" data-event-id="' + eventId + '"' +
+                (reg.page <= 1 ? ' disabled' : '') + '>Vorige</button>' +
+              '<span class="text-xs opacity-60 tabular">pagina ' + reg.page + ' van ' + reg.totalPages + '</span>' +
+              '<button class="btn btn-xs btn-ghost" data-action="reg-next" data-event-id="' + eventId + '"' +
+                (reg.page >= reg.totalPages ? ' disabled' : '') + '>Volgende</button>' +
+              '</div>'
+            : '') +
+        '</div>' +
+      '</details>';
+  }
+
+  /**
+   * Aanwezigheid omzetten.
+   *
+   * Optimistisch: het vinkje staat al goed, dus we laten het staan en
+   * draaien alleen terug bij een fout. Anders knippert het.
+   */
+  async function toggleAttendance(registrationId, attended, checkbox) {
+    try {
+      await api('/registrations/' + registrationId + '/attendance', {
+        method: 'POST',
+        body: { attended: attended, origin: 'events_v2_panel' }
+      });
+
+      var row = state.registrations.rows.find(function (r) { return r.id === registrationId; });
+      if (row) row.attended = attended;
+
+      if (state.detail) renderRegistrations(state.detail.id);
+    } catch (error) {
+      if (checkbox) checkbox.checked = !attended;
+      reportError(error);
+    }
+  }
+
+  async function addRegistration(eventId) {
+    var email = window.prompt('E-mailadres van de deelnemer');
+    if (!email) return;
+
+    var first = window.prompt('Voornaam') || '';
+    var last = window.prompt('Naam') || '';
+
+    try {
+      await api('/events/' + eventId + '/registrations', {
+        method: 'POST',
+        body: { email: email, first_name: first, last_name: last }
+      });
+      toast('Deelnemer toegevoegd', 'success');
+      await loadRegistrations(eventId, 1);
+      await loadEvents();
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   // ─── Acties ────────────────────────────────────────────────────────────────
@@ -738,6 +890,16 @@
       case 'cancel-event': transition(id, 'cancel', 'Geannuleerd'); break;
       case 'duplicate': duplicate(id); break;
       case 'show-public': showPublic(id); break;
+      case 'reload-registrations': loadRegistrations(id, state.registrations.page); break;
+      case 'add-registration': addRegistration(id); break;
+      case 'reg-prev':
+        if (state.registrations.page > 1) loadRegistrations(id, state.registrations.page - 1);
+        break;
+      case 'reg-next':
+        if (state.registrations.page < state.registrations.totalPages) {
+          loadRegistrations(id, state.registrations.page + 1);
+        }
+        break;
       case 'public-close': el('publicDialog').close(); break;
       case 'reload': loadEvents(true); break;
       case 'view-calendar': switchView('calendar'); break;
@@ -767,6 +929,19 @@
     if (action === 'filter-change') {
       state.page = 1;
       loadEvents();
+      return;
+    }
+
+    // De centrale click-handler slaat INPUT al over, dus het change-event
+    // vuurt gewoon. Precies dit ging in v1 mis: daar deed de click-handler
+    // preventDefault() op de checkbox, waardoor het vinkje terugdraaide en
+    // er nooit een change kwam.
+    if (action === 'toggle-attendance') {
+      toggleAttendance(
+        Number(trigger.getAttribute('data-registration-id')),
+        trigger.checked,
+        trigger
+      );
       return;
     }
 

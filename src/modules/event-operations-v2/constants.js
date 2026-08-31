@@ -165,10 +165,23 @@ export const PAGINATION = {
   PUBLIC_DEFAULT_LIMIT: 50
 };
 
-/** Rate limit voor de publieke API, per sitesleutel. */
+/** Rate limit voor de publieke LEESroutes, per sitesleutel. */
 export const PUBLIC_RATE_LIMIT = {
   WINDOW_SECONDS: 60,
   MAX_REQUESTS: 120
+};
+
+/**
+ * Rate limit voor het inschrijven. Strenger, want dit is een schrijfpad.
+ *
+ * Twee emmers: een per site, en een per e-mailadres. Zonder die tweede kan
+ * een adres binnen de sitelimiet alle events volschrijven.
+ */
+export const REGISTER_RATE_LIMIT = {
+  WINDOW_SECONDS: 60,
+  MAX_REQUESTS: 20,
+  EMAIL_WINDOW_SECONDS: 3600,
+  EMAIL_MAX_REQUESTS: 5
 };
 
 /** Versie van de publieke responsvorm. Contract met de WordPress-plugin. */

@@ -321,3 +321,177 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ─── Lezen ────────────────────────────────────────────────────────────────────
+
+/**
+ * Inschrijvingen van een event, met de lead-status per deelnemer.
+ *
+ * Drie Odoo-calls: search_count voor het totaal, search_read voor de pagina,
+ * en de bestaande lead-resolutie in batch. Nooit een call per rij.
+ *
+ * @param {Object} env
+ * @param {number} eventId
+ * @param {Object} [query] - page, per_page
+ * @returns {Promise<{ rows: Object[], total: number, page: number, perPage: number }>}
+ */
+export async function listRegistrations(env, eventId, query = {}) {
+  const { page, perPage, offset } = normalizePagination(query);
+
+  assertNoForbiddenFields(REGISTRATION_LIST_FIELDS, 'listRegistrations');
+
+  const domain = [[REGISTRATION_FIELDS.EVENT, '=', Number(eventId)]];
+
+  const [total, records] = await Promise.all([
+    executeKw(env, {
+      model: ODOO_MODELS.REGISTRATION,
+      method: 'search_count',
+      args: [domain]
+    }),
+    searchRead(env, {
+      model: ODOO_MODELS.REGISTRATION,
+      domain,
+      fields: [...REGISTRATION_LIST_FIELDS],
+      limit: perPage,
+      offset,
+      order: 'create_date desc, id desc'
+    })
+  ]);
+
+  const rows = (Array.isArray(records) ? records : []).map(toRegistrationDto);
+
+  // Lead-status in een keer voor alle partners op deze pagina. Hergebruikt
+  // de deterministische resolutie uit v1 — die is goed en blijft ongewijzigd.
+  const partnerIds = [...new Set(rows.map((row) => row.partner.id).filter((id) => Number.isInteger(id) && id > 0))];
+
+  if (partnerIds.length > 0) {
+    try {
+      const leadByPartner = await resolveLeadStatesForPartners(env, partnerIds);
+      for (const row of rows) {
+        row.lead = row.partner.id ? (leadByPartner.get(row.partner.id) || null) : null;
+      }
+    } catch (error) {
+      // Zonder lead-status is de lijst nog steeds bruikbaar.
+      console.warn(`${LOG_PREFIX} lead-resolutie mislukt voor event ${eventId}:`, error?.message);
+      for (const row of rows) row.lead = null;
+    }
+  } else {
+    for (const row of rows) row.lead = null;
+  }
+
+  return { rows, total: Number(total) || rows.length, page, perPage };
+}
+
+// ─── Aanwezigheid ─────────────────────────────────────────────────────────────
+
+/**
+ * Aanwezigheid zetten, met het auditspoor.
+ *
+ * De drie auditvelden gaan in DEZELFDE write als de vlag, en er is
+ * BEWUST GEEN try/catch die ze weglaat bij een fout. Precies die
+ * constructie zorgde er in v1 voor dat het auditspoor nooit werkte:
+ * elke schrijfactie viel stil terug op alleen de vlag. Faalt de write
+ * hier, dan faalt de actie en zie je het.
+ *
+ * @param {Object} env
+ * @param {number} registrationId
+ * @param {Object} params
+ * @param {boolean} params.attended
+ * @param {Object} [params.actor] - de OM-gebruiker
+ * @param {string} [params.origin]
+ * @returns {Promise<Object>} het bijgewerkte DTO
+ */
+export async function setAttendance(env, registrationId, params) {
+  const id = Number(registrationId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new ValidationError('Ongeldig inschrijvings-id', { status: 400 });
+  }
+
+  if (typeof params?.attended !== 'boolean') {
+    throw new ValidationError('attended moet true of false zijn');
+  }
+
+  const odooUserId = Number(env?.UID);
+  const values = {
+    [REGISTRATION_FIELDS.ATTENDED]: params.attended,
+    [REGISTRATION_FIELDS.ATTENDANCE_UPDATED_AT]: toOdooTimestamp(new Date()),
+    [REGISTRATION_FIELDS.ATTENDANCE_ORIGIN]: String(params.origin || 'events_v2').slice(0, 64)
+  };
+
+  // De Odoo-gebruiker waaronder de Worker werkt. Wie het in de OM deed
+  // staat in de chatter, want dat is een OM-gebruiker en geen res.users.
+  if (Number.isInteger(odooUserId) && odooUserId > 0) {
+    values[REGISTRATION_FIELDS.ATTENDANCE_UPDATED_BY] = odooUserId;
+  }
+
+  assertNoForbiddenFields(Object.keys(values), 'setAttendance');
+
+  await write(env, { model: ODOO_MODELS.REGISTRATION, ids: [id], values });
+
+  const who = params.actor?.email || params.actor?.name || 'onbekende gebruiker';
+  try {
+    await messagePost(env, {
+      model: ODOO_MODELS.REGISTRATION,
+      id,
+      body: `Aanwezigheid ${params.attended ? 'aangevinkt' : 'uitgevinkt'} door ${escapeHtml(who)}.`
+    });
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} chatternotitie aanwezigheid mislukt (${id}):`, error?.message);
+  }
+
+  await invalidateEvents(env);
+
+  return getRegistration(env, id);
+}
+
+/** Odoo-datetime uit een Date. */
+function toOdooTimestamp(date) {
+  const iso = date.toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 19)}`;
+}
+
+/**
+ * Toestand van een inschrijving wijzigen (bv. afmelden).
+ * @returns {Promise<Object>}
+ */
+export async function setRegistrationState(env, registrationId, state, actor = null) {
+  const id = Number(registrationId);
+  const allowed = Object.values(REGISTRATION_STATE);
+
+  if (!allowed.includes(state)) {
+    throw new ValidationError(`Onbekende toestand: ${state}. Verwacht een van ${allowed.join(', ')}.`);
+  }
+
+  await write(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    ids: [id],
+    values: { [REGISTRATION_FIELDS.STATE]: state }
+  });
+
+  const who = actor?.email || actor?.name || 'onbekende gebruiker';
+  try {
+    await messagePost(env, {
+      model: ODOO_MODELS.REGISTRATION,
+      id,
+      body: `Toestand gewijzigd naar <b>${escapeHtml(state)}</b> door ${escapeHtml(who)}.`
+    });
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} chatternotitie toestand mislukt (${id}):`, error?.message);
+  }
+
+  await invalidateEvents(env);
+  return getRegistration(env, id);
+}
+
+/** @returns {Promise<Object|null>} */
+export async function getRegistration(env, registrationId) {
+  const rows = await searchRead(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    domain: [[REGISTRATION_FIELDS.ID, '=', Number(registrationId)]],
+    fields: [...REGISTRATION_LIST_FIELDS],
+    limit: 1
+  });
+
+  const record = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+  return record ? toRegistrationDto(record) : null;
+}

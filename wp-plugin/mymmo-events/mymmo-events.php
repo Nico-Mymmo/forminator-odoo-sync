@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Events
  * Description:       Kalender, eventpagina's en inschrijvingen, rechtstreeks uit de OpenVME Operations Manager. Geen dubbele events in WordPress.
- * Version:           1.1.2
+ * Version:           1.1.3
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -27,7 +27,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_EVENTS_VERSION', '1.1.2');
+define('MYMMO_EVENTS_VERSION', '1.1.3');
 define('MYMMO_EVENTS_FILE', __FILE__);
 define('MYMMO_EVENTS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_EVENTS_URL', plugin_dir_url(__FILE__));

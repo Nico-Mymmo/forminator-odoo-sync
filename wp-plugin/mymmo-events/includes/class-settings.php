@@ -36,7 +36,7 @@ final class Mymmo_Events_Settings {
         $fields = [
             'mymmo_events_api_base' => ['type' => 'string', 'default' => '', 'sanitize_callback' => 'esc_url_raw'],
             'mymmo_events_site_key' => ['type' => 'string', 'default' => '', 'sanitize_callback' => 'sanitize_text_field'],
-            'mymmo_events_cache_ttl' => ['type' => 'integer', 'default' => 300, 'sanitize_callback' => [self::class, 'sanitize_ttl']],
+            'mymmo_events_cache_ttl' => ['type' => 'integer', 'default' => 60, 'sanitize_callback' => [self::class, 'sanitize_ttl']],
             'mymmo_events_event_base' => ['type' => 'string', 'default' => MYMMO_EVENTS_DEFAULT_EVENT_BASE, 'sanitize_callback' => [self::class, 'sanitize_base']],
             'mymmo_events_archive_base' => ['type' => 'string', 'default' => MYMMO_EVENTS_DEFAULT_ARCHIVE_BASE, 'sanitize_callback' => [self::class, 'sanitize_base']],
             'mymmo_events_timezone' => ['type' => 'string', 'default' => 'Europe/Brussels', 'sanitize_callback' => 'sanitize_text_field'],
@@ -50,7 +50,7 @@ final class Mymmo_Events_Settings {
 
     public static function sanitize_ttl($value): int {
         $ttl = (int) $value;
-        return max(30, min(3600, $ttl > 0 ? $ttl : 300));
+        return max(15, min(3600, $ttl > 0 ? $ttl : 60));
     }
 
     public static function sanitize_bool($value): bool {
@@ -176,9 +176,15 @@ final class Mymmo_Events_Settings {
                         <td>
                             <input type="number" min="30" max="3600" step="30" class="small-text"
                                    id="mymmo_events_cache_ttl" name="mymmo_events_cache_ttl"
-                                   value="<?php echo esc_attr((string) get_option('mymmo_events_cache_ttl', 300)); ?>" />
+                                   value="<?php echo esc_attr((string) get_option('mymmo_events_cache_ttl', 60)); ?>" />
                             <span>seconden</span>
-                            <p class="description">Hoe lang een antwoord hergebruikt wordt. Het vangnet blijft langer bewaard.</p>
+                            <p class="description">
+                                Hoe lang een antwoord hergebruikt wordt. Dit is de enige vertraging tussen
+                                publiceren in de Operations Manager en zichtbaar worden op de site.
+                                Kort mag: een verversing stuurt de vorige ETag mee, dus een onveranderd
+                                antwoord komt terug als 304 zonder inhoud. Het vangnet blijft los hiervan
+                                zeven dagen bewaard.
+                            </p>
                         </td>
                     </tr>
                     <tr>

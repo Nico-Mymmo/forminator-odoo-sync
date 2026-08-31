@@ -25,6 +25,14 @@ import {
   getStages
 } from './lib/events-service.js';
 import { ValidationError, normalizePagination } from './lib/validation.js';
+import {
+  listRegistrations,
+  createRegistration,
+  setAttendance,
+  setRegistrationState,
+  getRegistration
+} from './lib/registrations-service.js';
+import { REGISTRATION_SOURCE, REGISTRATION_STATE } from './constants.js';
 import { toPublicEventDto } from './odoo-contract.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
 import { storeHeroImage, isAllowedImageType, MAX_IMAGE_BYTES } from './lib/assets.js';
@@ -318,6 +326,107 @@ export const routes = {
         event: dto
       }
     });
+  }),
+
+  /**
+   * GET /events-v2/api/events/:id/registrations
+   * Query: page, per_page
+   */
+  'GET /api/events/:id/registrations': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const url = new URL(context.request.url);
+
+    const { rows, total, page, perPage } = await listRegistrations(context.env, id, {
+      page: url.searchParams.get('page'),
+      per_page: url.searchParams.get('per_page')
+    });
+
+    return json({
+      success: true,
+      data: rows,
+      pagination: { page, per_page: perPage, total, total_pages: Math.max(1, Math.ceil(total / perPage)) }
+    });
+  }),
+
+  /**
+   * POST /events-v2/api/events/:id/registrations
+   * Een deelnemer met de hand toevoegen. Zelfde dubbelcontrole als publiek.
+   */
+  'POST /api/events/:id/registrations': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const body = await readJsonBody(context.request);
+
+    const { event } = await getEvent(context.env, { id }, { bypassCache: true });
+    if (!event) {
+      return json({ success: false, error: `Event ${id} niet gevonden` }, 404);
+    }
+
+    const result = await createRegistration(context.env, {
+      event,
+      input: body,
+      source: REGISTRATION_SOURCE.MANUAL,
+      actor: context.user
+    });
+
+    return json({ success: true, data: result }, 201);
+  }),
+
+  /**
+   * POST /events-v2/api/registrations/:id/attendance
+   * Body: { attended: boolean }
+   */
+  'POST /api/registrations/:id/attendance': withErrors(async (context) => {
+    const id = Number.parseInt(context.params?.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new ValidationError('Ongeldig inschrijvings-id', { status: 400 });
+    }
+
+    const body = await readJsonBody(context.request);
+    if (typeof body.attended !== 'boolean') {
+      throw new ValidationError('attended moet true of false zijn');
+    }
+
+    const data = await setAttendance(context.env, id, {
+      attended: body.attended,
+      actor: context.user,
+      origin: body.origin
+    });
+
+    return json({ success: true, data });
+  }),
+
+  /**
+   * PATCH /events-v2/api/registrations/:id
+   * Body: { state: 'registered' | 'waitlisted' | 'cancelled' }
+   */
+  'PATCH /api/registrations/:id': withErrors(async (context) => {
+    const id = Number.parseInt(context.params?.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new ValidationError('Ongeldig inschrijvings-id', { status: 400 });
+    }
+
+    const body = await readJsonBody(context.request);
+    if (!Object.values(REGISTRATION_STATE).includes(body.state)) {
+      throw new ValidationError(
+        `state moet een van ${Object.values(REGISTRATION_STATE).join(', ')} zijn`
+      );
+    }
+
+    const data = await setRegistrationState(context.env, id, body.state, context.user);
+    return json({ success: true, data });
+  }),
+
+  /**
+   * GET /events-v2/api/registrations/:id
+   */
+  'GET /api/registrations/:id': withErrors(async (context) => {
+    const id = Number.parseInt(context.params?.id, 10);
+    const data = await getRegistration(context.env, id);
+
+    if (!data) {
+      return json({ success: false, error: `Inschrijving ${id} niet gevonden` }, 404);
+    }
+    return json({ success: true, data });
   }),
 
   /**
