@@ -252,6 +252,86 @@
     .ql-snow .ql-fill { fill: oklch(var(--bc) / 0.7); }
     .ql-snow .ql-picker-label { color: oklch(var(--bc) / 0.8); }
 
+    /* ── Voorbeeld in het opmaakvenster ─────────────────────────────────
+       Bewust NIET de site-CSS nabouwen: dit moet de STRUCTUUR tonen —
+       hero, labels, feiten, inhoud, formulier — zodat je ziet wat er waar
+       komt. De echte typografie komt van het WordPress-thema. */
+    .prev-page {
+      max-width: 34rem;
+      margin: 0 auto;
+      padding: 1.25rem;
+      background: #fff;
+      color: #4b5563;
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      border-radius: 0.5rem;
+    }
+    .prev-title {
+      font-family: Georgia, serif;
+      font-size: 1.5rem;
+      font-weight: 400;
+      color: #1f2937;
+      text-align: center;
+      margin: 0 0 1rem;
+      line-height: 1.2;
+    }
+    .prev-hero {
+      aspect-ratio: 16 / 7;
+      border-radius: 0.5rem;
+      overflow: hidden;
+      background: #f1f5f9;
+      margin-bottom: 0.85rem;
+    }
+    .prev-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .prev-hero--empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.6875rem;
+      color: #9ca3af;
+      border: 1px dashed #e5e7eb;
+    }
+    .prev-labels { display: flex; gap: 0.5rem; margin-bottom: 0.85rem; }
+    .prev-pill {
+      background: #ccfbf1; color: #0f766e;
+      padding: 0.1rem 0.5rem; border-radius: 999px;
+      font-size: 0.6875rem; font-weight: 700;
+    }
+    .prev-tag { font-size: 0.6875rem; font-weight: 600; color: #6b7280; }
+    .prev-facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+      gap: 0.25rem 1rem;
+      padding: 0.85rem;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .prev-facts > div { display: flex; flex-direction: column; }
+    .prev-facts span {
+      font-size: 0.5625rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; color: #9ca3af;
+    }
+    .prev-facts b { color: #1f2937; font-size: 0.8125rem; }
+    .prev-facts i { font-style: normal; font-size: 0.75rem; color: #6b7280; }
+    .prev-body > *:first-child { margin-top: 0; }
+    .prev-body h2 { font-size: 1.0625rem; color: #1f2937; margin: 1rem 0 0.35rem; }
+    .prev-body h3 { font-size: 0.9375rem; color: #1f2937; margin: 0.85rem 0 0.3rem; }
+    .prev-body a { color: #0369a1; }
+    .prev-body blockquote {
+      margin: 0.85rem 0; padding-left: 0.75rem;
+      border-left: 3px solid #99f6e4; color: #6b7280;
+    }
+    .prev-body ul, .prev-body ol { padding-left: 1.25rem; }
+    .prev-empty { color: #9ca3af; }
+    .prev-form {
+      margin-top: 1.25rem; padding: 0.85rem;
+      border: 1px solid #e5e7eb; border-radius: 0.5rem;
+    }
+    .prev-form b { color: #1f2937; }
+    .prev-form p { margin: 0.25rem 0 0; font-size: 0.75rem; color: #9ca3af; }
+
     /* De navbar staat position:fixed met 48px hoogte (src/lib/components/navbar.js),
        dus de pagina moet die ruimte zelf reserveren. */
     .page-shell { padding-top: calc(48px + 1.5rem); }
@@ -481,6 +561,43 @@
       <div class="modal-action">
         <button class="btn btn-sm btn-ghost" data-action="create-cancel">Annuleren</button>
         <button class="btn btn-sm btn-primary" data-action="create-submit">Aanmaken</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Pagina opmaken, met live voorbeeld -->
+  <dialog id="composerDialog" class="modal">
+    <div class="modal-box max-w-6xl p-0 overflow-hidden">
+      <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200">
+        <div class="min-w-0">
+          <h3 class="font-semibold">Pagina opmaken</h3>
+          <p class="text-xs opacity-60 truncate">
+            <span id="composerTitle"></span> ·
+            <span id="composerUrl" class="font-mono"></span>
+          </p>
+        </div>
+        <button class="btn btn-sm btn-ghost btn-square" data-action="composer-close" aria-label="Sluiten">✕</button>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 max-h-[72vh]">
+        <div class="p-4 overflow-y-auto border-r border-base-200">
+          <p class="text-xs opacity-60 mb-2">
+            Wat je hier typt komt op de eventpagina, onder de datum en de locatie.
+          </p>
+          <div id="composerEditor"></div>
+        </div>
+
+        <div class="bg-base-200 p-4 overflow-y-auto">
+          <p class="text-xs opacity-60 mb-2 flex items-center gap-1">
+            <i data-lucide="eye" class="w-3.5 h-3.5"></i> Voorbeeld — zo staat de pagina opgebouwd
+          </p>
+          <div id="composerPreview"></div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-base-200">
+        <button class="btn btn-sm btn-ghost" data-action="composer-close">Annuleren</button>
+        <button class="btn btn-sm btn-primary" data-action="composer-save" id="composerSave">Opmaak bewaren</button>
       </div>
     </div>
   </dialog>

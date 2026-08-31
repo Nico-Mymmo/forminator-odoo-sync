@@ -143,6 +143,14 @@ je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
 
+**1.3.0**
+- Eventpagina opnieuw opgezet. Vier fouten opgelost: de titel en de samenvatting stonden er
+  dubbel (thema plus template), de hero liep buiten de kolom, de feitenlabels stonden naast
+  in plaats van boven de waarde omdat thema's `dt`/`dd` eigen styling geven, en "Toevoegen
+  aan agenda" brak over drie regels.
+- De titel komt nu van het thema, zodat de pagina eruitziet als elke andere pagina.
+  De feitenblokken gebruiken geen `<dl>` meer.
+
 **1.2.0**
 - Terugval-routing in plaats van een alles-of-niets-schakelaar. De plugin claimt geen URL's
   meer en komt alleen in actie waar WordPress een 404 zou geven. Bestaande The Events

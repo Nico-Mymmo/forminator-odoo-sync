@@ -413,92 +413,112 @@
 
 /* ── Eventpagina ─────────────────────────────────────────────────────────── */
 
-.mymmo-ev-single__back { margin: 0 0 1rem; font-size: 0.875rem; }
-.mymmo-ev-single__back a { color: var(--mymmo-ev-muted); text-decoration: none; }
-.mymmo-ev-single__back a:hover { color: var(--mymmo-ev-accent-ink); }
+.mymmo-ev-single { display: flex; flex-direction: column; gap: 1.5rem; }
+.mymmo-ev-single > *:first-child { margin-top: 0; }
 
-.mymmo-ev-single__hero { margin: 0 0 1.5rem; }
-.mymmo-ev-single__hero img {
+/* Hero met een vaste verhouding: zonder die box rekt een brede afbeelding
+   het blok op en loopt hij buiten de kolom. */
+.mymmo-ev-hero {
+  margin: 0;
+  border-radius: var(--mymmo-ev-radius);
+  overflow: hidden;
+  background: var(--mymmo-ev-subtle);
+  aspect-ratio: 16 / 7;
+  max-height: 20rem;
+}
+.mymmo-ev-hero img {
   display: block;
   width: 100%;
-  height: auto;
-  max-height: 22rem;
+  height: 100%;
   object-fit: cover;
-  border-radius: var(--mymmo-ev-radius);
+  object-position: center;
 }
 
-.mymmo-ev-single__tags {
+.mymmo-ev-single__labels {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem 0.85rem;
-  margin: 0 0 0.75rem;
-}
-.mymmo-ev-single__title {
-  margin: 0 0 1.25rem;
-  font-size: clamp(1.75rem, 4vw, 2.5rem);
-  font-weight: 700;
-  line-height: 1.15;
 }
 
+/* Feitenblokken: bewust geen <dl>. Thema's stylen dt/dd met eigen grid- of
+   float-regels, en dat zette de labels naast in plaats van boven de waarde. */
 .mymmo-ev-facts {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  margin: 0 0 1.25rem;
-  padding: 1.15rem;
+  gap: 0.25rem 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  padding: 1.15rem 1.25rem;
   border: 1px solid var(--mymmo-ev-line);
   border-radius: var(--mymmo-ev-radius);
   background: var(--mymmo-ev-subtle);
 }
-.mymmo-ev-facts__item { min-width: 0; }
-.mymmo-ev-facts dt {
+.mymmo-ev-fact { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.mymmo-ev-fact__label {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin-bottom: 0.2rem;
   font-size: 0.6875rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--mymmo-ev-faint);
 }
-.mymmo-ev-facts dd {
-  margin: 0;
+.mymmo-ev-fact__value {
   font-size: 0.9375rem;
   font-weight: 600;
   color: var(--mymmo-ev-ink);
+  line-height: 1.35;
 }
-.mymmo-ev-facts__sub { font-weight: 500; color: var(--mymmo-ev-muted); }
+.mymmo-ev-fact__sub { font-size: 0.8125rem; color: var(--mymmo-ev-muted); }
 
-.mymmo-ev-single__ics { margin: 0 0 1.75rem; font-size: 0.9375rem; }
+.mymmo-ev-nowrap { white-space: nowrap; }
 
-.mymmo-ev-single__content { max-width: var(--mymmo-ev-maxw); }
-.mymmo-ev-single__content > *:first-child { margin-top: 0; }
-.mymmo-ev-single__content img { max-width: 100%; height: auto; }
-.mymmo-ev-single__content h2 { font-size: 1.375rem; margin-top: 2rem; }
-.mymmo-ev-single__content h3 { font-size: 1.125rem; margin-top: 1.5rem; }
-.mymmo-ev-single__content a { color: var(--mymmo-ev-accent-ink); }
-
-.mymmo-ev-single__recap {
-  max-width: var(--mymmo-ev-maxw);
-  margin: 0 0 1.75rem;
+.mymmo-ev-panel {
   padding: 1.25rem;
   border: 1px solid var(--mymmo-ev-line);
-  border-left: 3px solid var(--mymmo-ev-accent);
   border-radius: var(--mymmo-ev-radius);
+  background: var(--mymmo-ev-surface);
+}
+.mymmo-ev-panel--accent {
+  border-left: 3px solid var(--mymmo-ev-accent);
   background: var(--mymmo-ev-subtle);
 }
-.mymmo-ev-single__recap h2 { margin: 0 0 0.75rem; font-size: 1.125rem; }
+.mymmo-ev-panel__title { margin: 0 0 0.6rem; font-size: 1.125rem; font-weight: 700; }
+.mymmo-ev-panel__cta { margin: 0 0 0.75rem; }
 
-.mymmo-ev-single__speakers { max-width: var(--mymmo-ev-maxw); margin: 1.75rem 0; }
-.mymmo-ev-single__speakers h2 { font-size: 1.125rem; margin-bottom: 0.5rem; }
-.mymmo-ev-single__speakers ul { margin: 0; padding-left: 1.1rem; }
+.mymmo-ev-prose > *:first-child { margin-top: 0; }
+.mymmo-ev-prose > *:last-child { margin-bottom: 0; }
+.mymmo-ev-prose img { max-width: 100%; height: auto; border-radius: var(--mymmo-ev-radius); }
+.mymmo-ev-prose h2 { font-size: 1.375rem; margin: 1.75rem 0 0.5rem; }
+.mymmo-ev-prose h3 { font-size: 1.125rem; margin: 1.5rem 0 0.4rem; }
+.mymmo-ev-prose a { color: var(--mymmo-ev-accent-ink); }
+.mymmo-ev-prose blockquote {
+  margin: 1.25rem 0;
+  padding: 0.5rem 0 0.5rem 1rem;
+  border-left: 3px solid var(--mymmo-ev-accent-soft);
+  color: var(--mymmo-ev-muted);
+}
+
+.mymmo-ev-speakers__list { margin: 0; padding-left: 1.1rem; }
+
+.mymmo-ev-single__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--mymmo-ev-line-soft);
+  font-size: 0.9375rem;
+}
+.mymmo-ev-single__back { color: var(--mymmo-ev-muted); text-decoration: none; }
+.mymmo-ev-single__back:hover { color: var(--mymmo-ev-accent-ink); }
 
 /* ── Formulier ───────────────────────────────────────────────────────────── */
 
 .mymmo-ev-register {
-  max-width: var(--mymmo-ev-maxw);
-  margin: 2.5rem 0 0;
+  margin: 0;
   padding: 1.5rem;
   border: 1px solid var(--mymmo-ev-line);
   border-radius: var(--mymmo-ev-radius);

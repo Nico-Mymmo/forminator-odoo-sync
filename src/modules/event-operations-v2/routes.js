@@ -36,7 +36,7 @@ import {
 import { REGISTRATION_SOURCE, REGISTRATION_STATE } from './constants.js';
 import { toPublicEventDto } from './odoo-contract.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
-import { storeHeroImage, isAllowedImageType, MAX_IMAGE_BYTES } from './lib/assets.js';
+import { storeHeroImage, removeHeroImage, isAllowedImageType, MAX_IMAGE_BYTES } from './lib/assets.js';
 
 function json(payload, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(payload), {
@@ -438,6 +438,19 @@ export const routes = {
       return json({ success: false, error: `Inschrijving ${id} niet gevonden` }, 404);
     }
     return json({ success: true, data });
+  }),
+
+  /**
+   * DELETE /events-v2/api/events/:id/hero-image
+   * Verwijdert het bestand uit R2 en wist de verwijzing in Odoo.
+   */
+  'DELETE /api/events/:id/hero-image': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+
+    await removeHeroImage(context.env, id);
+    const event = await updateEvent(context.env, id, { hero_image_url: null }, context.user);
+
+    return json({ success: true, data: event });
   }),
 
   /**

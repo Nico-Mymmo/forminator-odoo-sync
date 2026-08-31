@@ -9,7 +9,7 @@
  * verwijderd bij de cutover.
  */
 
-import { putObject } from '../../asset-manager/lib/r2-client.js';
+import { putObject, deleteObject } from '../../asset-manager/lib/r2-client.js';
 
 /** Val hierop terug als env.BASE_ASSET_URL ontbreekt. */
 const DEFAULT_BASE_ASSET_URL = 'https://link.openvme.be';
@@ -72,4 +72,33 @@ export async function storeHeroImage(env, eventId, buffer, contentType) {
   });
 
   return { key, url: getPublicAssetUrl(env, key) };
+}
+
+/**
+ * Het hero-beeld weghalen.
+ *
+ * We proberen alle bekende extensies: de sleutel hangt van het bestandstype
+ * af, en welke er ooit gebruikt is weten we niet uit Odoo — daar staat alleen
+ * de URL. Ontbreken van een object is geen fout.
+ *
+ * @param {Object} env
+ * @param {number} eventId
+ * @returns {Promise<{ removed: string[] }>}
+ */
+export async function removeHeroImage(env, eventId) {
+  const removed = [];
+
+  for (const extension of Object.values(EXTENSION_BY_TYPE)) {
+    const key = `events/${eventId}/hero.${extension}`;
+    try {
+      await deleteObject(env, key);
+      removed.push(key);
+    } catch (error) {
+      // Bestond niet, of R2 gaf een fout: geen van beide mag de actie laten
+      // mislukken. De verwijzing in Odoo wissen is wat echt telt.
+      void error;
+    }
+  }
+
+  return { removed };
 }

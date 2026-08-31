@@ -2,6 +2,14 @@
 /**
  * Eventpagina. Overschrijfbaar via {thema}/mymmo-events/single.php
  *
+ * De TITEL wordt bewust NIET hier gerenderd: het thema print die al boven de
+ * content, net als op elke andere pagina. Deze template begint dus bij de
+ * labels en bouwt van daar verder.
+ *
+ * Verder geen <dl>/<dt>/<dd> voor de feitenblokken. Thema's stylen die vaak
+ * met eigen grid- of float-regels, en dat zette de labels naast in plaats van
+ * boven de waarden.
+ *
  * @var array $data ['event' => array]
  */
 
@@ -18,87 +26,73 @@ $past = mymmo_events_is_past($event);
 $recap = $event['recap'] ?? [];
 $has_recap = !empty($recap['body_html']) || !empty($recap['video_url']);
 $seats_left = $registration['seats_left'] ?? null;
+$capacity = $registration['capacity'] ?? null;
+$ics = mymmo_events_ics_url($event);
 ?>
 <div class="mymmo-ev mymmo-ev-single">
 
-    <p class="mymmo-ev-single__back">
-        <a href="<?php echo esc_url(mymmo_events_archive_url()); ?>">&laquo; Alle events</a>
-    </p>
-
     <?php if (!empty($event['hero_image_url'])) : ?>
-        <figure class="mymmo-ev-single__hero">
+        <div class="mymmo-ev-hero">
             <img src="<?php echo esc_url((string) $event['hero_image_url']); ?>"
                  alt="" loading="lazy" decoding="async" />
-        </figure>
+        </div>
     <?php endif; ?>
 
-    <header class="mymmo-ev-single__head">
-        <p class="mymmo-ev-single__tags">
-            <?php if (!empty($type['name'])) : ?>
-                <span class="mymmo-ev-pill" style="--mymmo-ev-pill-color: <?php echo esc_attr((string) ($type['color'] ?? '#475569')); ?>">
-                    <span class="mymmo-ev-pill__dot"></span><?php echo esc_html((string) $type['name']); ?>
-                </span>
-            <?php endif; ?>
-            <span class="mymmo-ev-tag"><?php echo mymmo_events_icon($format['icon']); ?><?php echo esc_html($format['label']); ?></span>
-            <?php if ($past) : ?>
-                <span class="mymmo-ev-tag mymmo-ev-tag--muted">Afgelopen</span>
-            <?php endif; ?>
-        </p>
+    <div class="mymmo-ev-single__labels">
+        <?php if (!empty($type['name'])) : ?>
+            <span class="mymmo-ev-pill" style="--mymmo-ev-pill-color: <?php echo esc_attr((string) ($type['color'] ?? '#475569')); ?>">
+                <span class="mymmo-ev-pill__dot"></span><?php echo esc_html((string) $type['name']); ?>
+            </span>
+        <?php endif; ?>
+        <span class="mymmo-ev-tag"><?php echo mymmo_events_icon($format['icon']); ?><?php echo esc_html($format['label']); ?></span>
+        <?php if ($past) : ?>
+            <span class="mymmo-ev-tag mymmo-ev-tag--muted">Afgelopen</span>
+        <?php endif; ?>
+    </div>
 
-        <h1 class="mymmo-ev-single__title"><?php echo esc_html((string) ($event['title'] ?? '')); ?></h1>
+    <?php if ($start) : ?>
+        <div class="mymmo-ev-facts">
+            <div class="mymmo-ev-fact">
+                <span class="mymmo-ev-fact__label"><?php echo mymmo_events_icon('calendar'); ?>Wanneer</span>
+                <span class="mymmo-ev-fact__value"><?php echo esc_html(mymmo_events_format_long_date($start)); ?></span>
+                <span class="mymmo-ev-fact__sub"><?php echo esc_html(mymmo_events_format_time_range($start, $end)); ?></span>
+            </div>
 
-        <?php if ($start) : ?>
-            <dl class="mymmo-ev-facts">
-                <div class="mymmo-ev-facts__item">
-                    <dt><?php echo mymmo_events_icon('calendar'); ?>Wanneer</dt>
-                    <dd>
-                        <?php echo esc_html(mymmo_events_format_long_date($start)); ?><br />
-                        <span class="mymmo-ev-facts__sub"><?php echo esc_html(mymmo_events_format_time_range($start, $end)); ?></span>
-                    </dd>
-                </div>
-
-                <div class="mymmo-ev-facts__item">
-                    <dt><?php echo mymmo_events_icon($format['icon']); ?>Waar</dt>
-                    <dd>
-                        <?php if (!empty($event['location']['name'])) : ?>
-                            <?php echo esc_html((string) $event['location']['name']); ?>
-                        <?php else : ?>
-                            Online — je krijgt de link per e-mail
-                        <?php endif; ?>
-                    </dd>
-                </div>
-
-                <?php if (!empty($registration['capacity'])) : ?>
-                    <div class="mymmo-ev-facts__item">
-                        <dt><?php echo mymmo_events_icon('users'); ?>Plaatsen</dt>
-                        <dd>
-                            <?php if ($seats_left === 0) : ?>
-                                Volzet
-                            <?php elseif (is_int($seats_left)) : ?>
-                                <?php echo esc_html(sprintf('Nog %d van %d vrij', $seats_left, (int) $registration['capacity'])); ?>
-                            <?php else : ?>
-                                <?php echo esc_html(sprintf('%d plaatsen', (int) $registration['capacity'])); ?>
-                            <?php endif; ?>
-                        </dd>
-                    </div>
+            <div class="mymmo-ev-fact">
+                <span class="mymmo-ev-fact__label"><?php echo mymmo_events_icon($format['icon']); ?>Waar</span>
+                <?php if (!empty($event['location']['name'])) : ?>
+                    <span class="mymmo-ev-fact__value"><?php echo esc_html((string) $event['location']['name']); ?></span>
+                <?php else : ?>
+                    <span class="mymmo-ev-fact__value">Online</span>
+                    <span class="mymmo-ev-fact__sub">Je krijgt de deelnamelink per e-mail</span>
                 <?php endif; ?>
-            </dl>
-        <?php endif; ?>
+            </div>
 
-        <?php if (!$past && mymmo_events_ics_url($event) !== '') : ?>
-            <p class="mymmo-ev-single__ics">
-                <a class="mymmo-ev-link" href="<?php echo esc_url(mymmo_events_ics_url($event)); ?>">
-                    <?php echo mymmo_events_icon('calendar'); ?>Toevoegen aan agenda
-                </a>
-            </p>
-        <?php endif; ?>
-    </header>
+            <?php if ($capacity) : ?>
+                <div class="mymmo-ev-fact">
+                    <span class="mymmo-ev-fact__label"><?php echo mymmo_events_icon('users'); ?>Plaatsen</span>
+                    <span class="mymmo-ev-fact__value">
+                        <?php if ($seats_left === 0) : ?>
+                            Volzet
+                        <?php elseif (is_int($seats_left)) : ?>
+                            <?php echo esc_html(sprintf('Nog %d vrij', $seats_left)); ?>
+                        <?php else : ?>
+                            <?php echo esc_html(sprintf('%d plaatsen', (int) $capacity)); ?>
+                        <?php endif; ?>
+                    </span>
+                    <?php if (is_int($seats_left) && $seats_left > 0) : ?>
+                        <span class="mymmo-ev-fact__sub"><?php echo esc_html(sprintf('van %d', (int) $capacity)); ?></span>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
 
     <?php if ($has_recap) : ?>
-        <section class="mymmo-ev-single__recap">
-            <h2>Herbekijk dit event</h2>
+        <section class="mymmo-ev-panel mymmo-ev-panel--accent">
+            <h2 class="mymmo-ev-panel__title">Herbekijk dit event</h2>
             <?php if (!empty($recap['video_url'])) : ?>
-                <p>
+                <p class="mymmo-ev-panel__cta">
                     <a class="mymmo-ev-btn" href="<?php echo esc_url((string) $recap['video_url']); ?>"
                        target="_blank" rel="noopener">Video bekijken</a>
                 </p>
@@ -107,28 +101,39 @@ $seats_left = $registration['seats_left'] ?? null;
         </section>
     <?php endif; ?>
 
-    <?php if (!empty($event['body_html'])) : ?>
-        <div class="mymmo-ev-single__content">
-            <?php echo mymmo_events_kses((string) $event['body_html']); ?>
-        </div>
+    <?php
+    $body = mymmo_events_kses((string) ($event['body_html'] ?? ''));
+    if ($body !== '') : ?>
+        <div class="mymmo-ev-prose"><?php echo $body; ?></div>
     <?php elseif (!empty($event['summary'])) : ?>
-        <div class="mymmo-ev-single__content">
-            <p><?php echo esc_html((string) $event['summary']); ?></p>
-        </div>
+        <div class="mymmo-ev-prose"><p><?php echo esc_html((string) $event['summary']); ?></p></div>
     <?php endif; ?>
 
     <?php if (!empty($event['speakers']) && is_array($event['speakers'])) : ?>
-        <section class="mymmo-ev-single__speakers">
-            <h2>Wie geeft dit event</h2>
-            <ul>
-                <?php foreach ($event['speakers'] as $speaker) : ?>
-                    <?php if (!empty($speaker['name'])) : ?>
+        <?php
+        $speakers = array_values(array_filter($event['speakers'], static fn ($s) => !empty($s['name'])));
+        if ($speakers !== []) : ?>
+            <section class="mymmo-ev-speakers">
+                <h2 class="mymmo-ev-panel__title">Wie geeft dit event</h2>
+                <ul class="mymmo-ev-speakers__list">
+                    <?php foreach ($speakers as $speaker) : ?>
                         <li><?php echo esc_html((string) $speaker['name']); ?></li>
-                    <?php endif; ?>
-                <?php endforeach; ?>
-            </ul>
-        </section>
+                    <?php endforeach; ?>
+                </ul>
+            </section>
+        <?php endif; ?>
     <?php endif; ?>
 
     <?php echo mymmo_events_render('registration-form', ['event' => $event]); ?>
+
+    <p class="mymmo-ev-single__foot">
+        <a class="mymmo-ev-single__back" href="<?php echo esc_url(mymmo_events_archive_url()); ?>">
+            &laquo; Alle events
+        </a>
+        <?php if (!$past && $ics !== '') : ?>
+            <a class="mymmo-ev-link mymmo-ev-nowrap" href="<?php echo esc_url($ics); ?>">
+                <?php echo mymmo_events_icon('calendar'); ?>Toevoegen aan agenda
+            </a>
+        <?php endif; ?>
+    </p>
 </div>

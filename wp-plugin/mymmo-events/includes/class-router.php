@@ -180,7 +180,11 @@ final class Mymmo_Events_Router {
             'post_date_gmt' => current_time('mysql', true),
             'post_content' => mymmo_events_render('single', ['event' => $event]),
             'post_title' => (string) ($event['title'] ?? ''),
-            'post_excerpt' => (string) ($event['summary'] ?? ''),
+            // LEEG LATEN. Het thema print de excerpt onder de titel, en onze
+            // template toont de samenvatting ook — dat gaf de dubbele regel.
+            // De titel laten we wél aan het thema, zodat de pagina eruitziet
+            // als elke andere pagina op de site.
+            'post_excerpt' => '',
             'post_status' => 'publish',
             'comment_status' => 'closed',
             'ping_status' => 'closed',

@@ -30,6 +30,8 @@
     detail: null,
     registrations: { rows: [], total: 0, page: 1, totalPages: 1, loading: false },
     bodyEditor: null,
+    openSection: 'basis',
+    previewEditor: null,
     view: 'calendar',
     calendar: null,
     loading: false
@@ -456,6 +458,20 @@
       (attrs || '') + ' /></label>';
   }
 
+  /** Eén accordeon-sectie. Onthoudt zelf welke open staat. */
+  function section(key, title, subtitle, inner) {
+    var open = state.openSection === key;
+    return '' +
+      '<details class="border border-base-200 rounded-lg mb-2 bg-base-100"' +
+        ' data-action="section" data-section="' + key + '"' + (open ? ' open' : '') + '>' +
+        '<summary class="cursor-pointer px-3 py-2.5 flex items-center justify-between gap-2">' +
+          '<span class="text-sm font-medium">' + esc(title) + '</span>' +
+          '<span class="text-xs opacity-50 text-right">' + subtitle + '</span>' +
+        '</summary>' +
+        '<div class="px-3 pb-3 pt-1">' + inner + '</div>' +
+      '</details>';
+  }
+
   function renderDetail() {
     var event = state.detail;
     if (!event) return;
@@ -469,12 +485,19 @@
         (type.id === event.event_type.id ? ' selected' : '') + '>' + esc(type.name) + '</option>';
     }).join('');
 
-    el('panel-content').innerHTML =
-      '<div class="flex items-start justify-between gap-2 mb-3">' +
+    var brandLabels = { both: 'Beide sites', openvme: 'Alleen OpenVME', syndicoach: 'Alleen Syndicoach' };
+    var brandOptions = ['both', 'openvme', 'syndicoach'].map(function (value) {
+      return '<option value="' + value + '"' +
+        ((event.brand || 'both') === value ? ' selected' : '') + '>' + brandLabels[value] + '</option>';
+    }).join('');
+
+    // ── Kop: altijd zichtbaar ────────────────────────────────────────────
+    var header =
+      '<div class="flex items-start justify-between gap-2">' +
         '<div class="min-w-0">' +
           '<h2 class="font-semibold text-lg leading-tight">' + esc(event.title || '(zonder titel)') + '</h2>' +
-          '<div class="text-xs opacity-60 font-mono mt-1">Odoo #' + event.id +
-            (event.slug ? ' &middot; /events/' + esc(event.slug) : '') + '</div>' +
+          '<div class="text-xs opacity-60 font-mono mt-0.5">Odoo #' + event.id +
+            (event.slug ? ' · /event/' + esc(event.slug) + '/' : '') + '</div>' +
         '</div>' +
         '<div class="flex flex-col items-end gap-1 shrink-0">' +
           '<span class="badge badge-sm ' + stateBadge.cls + '">' + stateBadge.label + '</span>' +
@@ -482,16 +505,29 @@
         '</div>' +
       '</div>' +
 
-      '<div class="bg-base-200 rounded p-2 mb-3 text-xs flex items-center justify-between gap-2">' +
-        '<span>Inschrijvingen: <b class="tabular">' + event.registration.count + '</b>' +
-          (event.registration.capacity === null
-            ? ' <span class="opacity-60">(onbeperkt)</span>'
-            : ' van ' + event.registration.capacity) + '</span>' +
-        '<span class="' + (status.open ? 'text-success' : 'opacity-70') + '">' +
-          (status.open ? 'inschrijven open' : 'dicht — ' + (REASON_TEXT[status.reason] || status.reason || 'onbekend')) +
-        '</span>' +
+      '<div class="stats stats-horizontal w-full bg-base-200 my-3">' +
+        '<div class="stat py-2 px-3">' +
+          '<div class="stat-title text-xs">Inschrijvingen</div>' +
+          '<div class="stat-value text-xl tabular">' + event.registration.count + '</div>' +
+          '<div class="stat-desc text-xs">' +
+            (event.registration.capacity === null ? 'onbeperkt' : 'van ' + event.registration.capacity) +
+          '</div>' +
+        '</div>' +
+        '<div class="stat py-2 px-3">' +
+          '<div class="stat-title text-xs">Inschrijven</div>' +
+          '<div class="stat-value text-sm ' + (status.open ? 'text-success' : 'opacity-70') + '">' +
+            (status.open ? 'open' : 'dicht') + '</div>' +
+          '<div class="stat-desc text-xs">' +
+            (status.open ? '&nbsp;' : esc(REASON_TEXT[status.reason] || status.reason || '')) + '</div>' +
+        '</div>' +
       '</div>' +
 
+      '<button class="btn btn-sm btn-outline w-full gap-2 mb-3" data-action="open-composer" data-event-id="' + event.id + '">' +
+        '<i data-lucide="layout-template" class="w-4 h-4"></i> Pagina opmaken en voorbeeld bekijken' +
+      '</button>';
+
+    // ── 1. Basis ─────────────────────────────────────────────────────────
+    var basis =
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
         field('Titel', 'title', event.title) +
         field('Slug', 'slug', event.slug) +
@@ -500,63 +536,75 @@
         '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Event type</span>' +
           '<select class="select select-bordered select-sm" data-field="event_type_id">' +
           '<option value="">—</option>' + typeOptions + '</select></label>' +
+        '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Merk</span>' +
+          '<select class="select select-bordered select-sm" data-field="brand">' + brandOptions + '</select></label>' +
+      '</div>';
+
+    // ── 2. Waar en inschrijven ───────────────────────────────────────────
+    var deelname =
+      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
+        field('Locatie (leeg = online)', 'location_name', event.location.name) +
+        field('Online link', 'online_url', event.online_url, 'url') +
         field('Capaciteit (0 = onbeperkt)', 'capacity',
           event.registration.capacity === null ? 0 : event.registration.capacity, 'number', ' min="0"') +
-        field('Locatie', 'location_name', event.location.name) +
-        field('Online link', 'online_url', event.online_url, 'url') +
-        field('Inschrijven opent', 'registration_opens_at', isoToLocalInput(event.registration.opens_at), 'datetime-local') +
-        field('Inschrijven sluit', 'registration_closes_at', isoToLocalInput(event.registration.closes_at), 'datetime-local') +
-        '<label class="form-control sm:col-span-2">' +
-          '<span class="label-text text-xs opacity-70 mb-1">Samenvatting (nodig om te publiceren)</span>' +
-          '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="summary">' +
-          esc(event.summary) + '</textarea></label>' +
-        '<label class="form-control">' +
-          '<span class="label-text text-xs opacity-70 mb-1">Merk</span>' +
-          '<select class="select select-bordered select-sm" data-field="brand">' +
-            ['both', 'openvme', 'syndicoach'].map(function (value) {
-              var labels = { both: 'Beide sites', openvme: 'Alleen OpenVME', syndicoach: 'Alleen Syndicoach' };
-              return '<option value="' + value + '"' +
-                ((event.brand || 'both') === value ? ' selected' : '') + '>' + labels[value] + '</option>';
-            }).join('') +
-          '</select>' +
-        '</label>' +
-        '<label class="label justify-start cursor-pointer gap-2">' +
+        '<label class="label justify-start cursor-pointer gap-2 mt-5">' +
           '<input type="checkbox" class="checkbox checkbox-sm" data-field="registration_enabled"' +
           (event.registration.enabled ? ' checked' : '') + ' />' +
           '<span class="label-text text-sm">Inschrijven toegestaan</span></label>' +
+        field('Inschrijven opent', 'registration_opens_at', isoToLocalInput(event.registration.opens_at), 'datetime-local') +
+        field('Inschrijven sluit', 'registration_closes_at', isoToLocalInput(event.registration.closes_at), 'datetime-local') +
+      '</div>' +
+      '<p class="text-xs opacity-50 mt-2">De online link komt nooit op de website; die gaat alleen per mail.</p>';
+
+    // ── 3. Website ───────────────────────────────────────────────────────
+    var website =
+      '<label class="form-control mb-3">' +
+        '<span class="label-text text-xs opacity-70 mb-1">Samenvatting (nodig om te publiceren)</span>' +
+        '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="summary">' +
+        esc(event.summary) + '</textarea></label>' +
+
+      '<div class="mb-3">' +
+        '<span class="label-text text-xs opacity-70">Hero-beeld</span>' +
+        (event.hero_image_url
+          ? '<div class="mt-1 relative group">' +
+              '<img src="' + esc(event.hero_image_url) + '" alt="" class="rounded w-full object-cover" style="aspect-ratio:16/7" />' +
+              '<div class="flex gap-2 mt-2">' +
+                '<label class="btn btn-xs btn-outline">Vervangen' +
+                  '<input type="file" accept="image/*" class="hidden"' +
+                  ' data-action="hero-upload" data-event-id="' + event.id + '" /></label>' +
+                '<button class="btn btn-xs btn-ghost text-error" data-action="hero-remove" data-event-id="' + event.id + '">Verwijderen</button>' +
+              '</div>' +
+            '</div>'
+          : '<div class="mt-1 border border-dashed border-base-200 rounded p-4 text-center">' +
+              '<p class="text-xs opacity-60 mb-2">Nog geen beeld. Staand of liggend mag, wordt getoond op 16:7.</p>' +
+              '<label class="btn btn-xs btn-outline">Beeld kiezen' +
+                '<input type="file" accept="image/*" class="hidden"' +
+                ' data-action="hero-upload" data-event-id="' + event.id + '" /></label>' +
+            '</div>') +
       '</div>' +
 
-      // Redactionele inhoud van de publieke eventpagina. Gaat naar
-      // x_studio_webinar_info in Odoo.
-      '<div class="mt-3">' +
-        '<div class="flex items-center justify-between mb-1">' +
-          '<span class="label-text text-xs opacity-70">Inhoud van de eventpagina</span>' +
-          '<span class="text-xs opacity-50">verschijnt op /event/' + esc(event.slug || '…') + '/</span>' +
-        '</div>' +
-        '<div id="bodyEditor"></div>' +
-      '</div>' +
+      '<div class="grid grid-cols-1 gap-3">' +
+        field('SEO-titel', 'seo_title', event.seo ? event.seo.title : '') +
+        '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">SEO-beschrijving</span>' +
+          '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="seo_description">' +
+          esc(event.seo ? event.seo.description : '') + '</textarea></label>' +
+      '</div>';
 
-      '<details class="mt-3 border border-base-200 rounded">' +
-        '<summary class="cursor-pointer px-3 py-2 text-sm font-medium">Website en SEO</summary>' +
-        '<div class="px-3 pb-3 grid grid-cols-1 gap-3">' +
-          field('SEO-titel', 'seo_title', event.seo ? event.seo.title : '') +
-          '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">SEO-beschrijving</span>' +
-            '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="seo_description">' +
-            esc(event.seo ? event.seo.description : '') + '</textarea></label>' +
-          '<div><span class="label-text text-xs opacity-70">Hero-beeld</span>' +
-            (event.hero_image_url
-              ? '<img src="' + esc(event.hero_image_url) + '" alt="" class="rounded mt-1 max-h-32 object-cover w-full" />'
-              : '<p class="text-xs opacity-60 mt-1">Nog geen beeld.</p>') +
-            '<input type="file" accept="image/*" class="file-input file-input-bordered file-input-sm w-full mt-2"' +
-            ' data-action="hero-upload" data-event-id="' + event.id + '" /></div>' +
-        '</div>' +
-      '</details>' +
+    var bodyChars = (event.body_html || '').replace(/<[^>]*>/g, '').trim().length;
 
-      '<div id="registrations-section" class="mt-4"></div>' +
+    el('panel-content').innerHTML = header +
+      section('basis', 'Basis', 'titel, datum, type, merk', basis) +
+      section('deelname', 'Waar en inschrijven', esc(format.label) +
+        (event.registration.capacity === null ? '' : ' · max ' + event.registration.capacity), deelname) +
+      section('website', 'Website en SEO',
+        (event.hero_image_url ? 'beeld' : 'geen beeld') +
+        ' · ' + (bodyChars > 0 ? bodyChars + ' tekens inhoud' : 'geen inhoud'), website) +
+      section('inschrijvingen', 'Inschrijvingen',
+        '<span class="badge badge-xs badge-ghost">' + event.registration.count + '</span>',
+        '<div id="registrations-section"></div>') +
 
-      '<div class="flex flex-wrap gap-2 mt-4">' +
+      '<div class="flex flex-wrap gap-2 mt-4 pt-3 border-t border-base-200">' +
         '<button class="btn btn-sm btn-primary" data-action="save" data-event-id="' + event.id + '">Opslaan</button>' +
-        // Alleen de overgangen die vanuit deze fase toegestaan zijn.
         (event.publication_state === 'draft' || event.publication_state === 'done'
           ? '<button class="btn btn-sm btn-success" data-action="publish" data-event-id="' + event.id + '">' +
             (event.publication_state === 'done' ? 'Heropenen' : 'Publiceren') + '</button>'
@@ -568,45 +616,59 @@
         (event.publication_state === 'cancelled'
           ? '<button class="btn btn-sm btn-outline" data-action="unpublish" data-event-id="' + event.id + '">Terug naar concept</button>'
           : '') +
-        '<button class="btn btn-sm btn-ghost" data-action="duplicate" data-event-id="' + event.id + '">Dupliceren</button>' +
-        (event.publication_state !== 'cancelled'
-          ? '<button class="btn btn-sm btn-ghost text-error" data-action="cancel-event" data-event-id="' + event.id + '">Annuleren</button>'
+        (event.slug && event.publication_state === 'published'
+          ? '<a class="btn btn-sm btn-ghost" href="' + esc(publicEventUrl(event)) + '" target="_blank" rel="noopener">Bekijk op de site</a>'
           : '') +
-        '<button class="btn btn-sm btn-ghost" data-action="show-public" data-event-id="' + event.id + '"' +
-          (event.slug ? '' : ' disabled') + '>Publieke JSON</button>' +
-        '<button class="btn btn-sm btn-ghost text-error ml-auto" data-action="delete-event" data-event-id="' + event.id + '"' +
-          ' title="Alleen mogelijk zolang er geen inschrijvingen zijn">Verwijderen</button>' +
+        '<div class="dropdown dropdown-top dropdown-end ml-auto">' +
+          '<button class="btn btn-sm btn-ghost btn-square" tabindex="0">⋯</button>' +
+          '<ul class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow border border-base-200 w-52 z-50">' +
+            '<li><a data-action="duplicate" data-event-id="' + event.id + '">Dupliceren</a></li>' +
+            '<li><a data-action="show-public" data-event-id="' + event.id + '">Publieke JSON</a></li>' +
+            (event.publication_state !== 'cancelled'
+              ? '<li><a class="text-error" data-action="cancel-event" data-event-id="' + event.id + '">Annuleren</a></li>'
+              : '') +
+            '<li><a class="text-error" data-action="delete-event" data-event-id="' + event.id + '">Verwijderen</a></li>' +
+          '</ul>' +
+        '</div>' +
       '</div>' +
 
-      // Herkomst van de fase en het moment van de laatste wijziging in Odoo.
-      // Handig om te zien of je een wijziging in Odoo al terugziet.
       '<p class="text-xs opacity-50 mt-3">' +
         'Fase in Odoo: <span class="font-mono">' + esc(event.stage ? event.stage.name : '—') + '</span>' +
-        ' &middot; laatst gewijzigd ' + esc(formatWhen(event.write_date)) +
+        ' · laatst gewijzigd ' + esc(formatWhen(event.write_date)) +
       '</p>';
-
-    setupBodyEditor(event);
 
     if (window.lucide) window.lucide.createIcons();
 
-    // Inschrijvingen apart laden: het paneel moet meteen staan, ook als
-    // Odoo er even over doet.
     loadRegistrations(event.id, 1);
   }
 
-  /**
-   * De editor voor de pagina-inhoud.
-   *
-   * Elke paneelrender bouwt een nieuwe Quill: het DOM eronder is vervangen,
-   * dus de oude instantie wijst naar een node die niet meer bestaat. We
-   * laten de referentie expliciet vallen zodat er niets naar de oude
-   * toolbar blijft verwijzen.
-   */
-  function setupBodyEditor(event) {
-    var host = el('bodyEditor');
-    if (!host || typeof Quill === 'undefined') return;
+  /** De publieke URL van een event, voor de "bekijk op de site"-knop. */
+  function publicEventUrl(event) {
+    var base = (window.MYMMO_SITE_URL || 'https://openvme.be').replace(/\/$/, '');
+    return base + '/event/' + encodeURIComponent(event.slug) + '/';
+  }
 
-    state.bodyEditor = null;
+  // ─── Opmaakvenster ─────────────────────────────────────────────────────────
+
+  /**
+   * De pagina-inhoud opmaken in een venster, met daarnaast een voorbeeld dat
+   * toont hoe de eventpagina er echt uitziet — hero, labels, feiten en de
+   * blokken erin.
+   *
+   * Waarom een venster en geen veld in het paneel: opmaken is een aparte taak
+   * met eigen aandacht. In de zijkolom was het een smal vakje onderaan een
+   * lange stapel, en zag je niet wat je maakte.
+   */
+  function openComposer(eventId) {
+    var event = state.detail;
+    if (!event || event.id !== eventId) return;
+
+    el('composerSave').setAttribute('data-event-id', String(event.id));
+    el('composerTitle').textContent = event.title || '(zonder titel)';
+    el('composerUrl').textContent = event.slug ? '/event/' + event.slug + '/' : '(nog geen slug)';
+
+    var host = el('composerEditor');
+    host.innerHTML = '';
 
     state.bodyEditor = new Quill(host, {
       theme: 'snow',
@@ -623,19 +685,118 @@
     });
 
     if (event.body_html) {
-      // Bestaande HTML uit Odoo laden zonder hem te laten herschrijven.
       state.bodyEditor.clipboard.dangerouslyPasteHTML(event.body_html);
     }
+
+    // Live voorbeeld, met een rustige vertraging zodat het niet bij elke
+    // toetsaanslag opnieuw opbouwt.
+    var timer = null;
+    state.bodyEditor.on('text-change', function () {
+      clearTimeout(timer);
+      timer = setTimeout(renderComposerPreview, 250);
+    });
+
+    renderComposerPreview();
+    el('composerDialog').showModal();
   }
 
-  /** De inhoud uit de editor, of null als er niets staat. */
+  /** Het voorbeeld: dezelfde opbouw als de publieke pagina. */
+  function renderComposerPreview() {
+    var event = state.detail;
+    if (!event) return;
+
+    var format = FORMAT_META[event.format] || FORMAT_META.online;
+    var type = event.event_type || {};
+    var status = event.registration.status || {};
+    var body = state.bodyEditor ? state.bodyEditor.root.innerHTML : (event.body_html || '');
+    var isEmpty = body.replace(/<[^>]*>/g, '').trim() === '';
+
+    var when = event.starts_at
+      ? new Intl.DateTimeFormat('nl-BE', {
+        timeZone: BRUSSELS, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+      }).format(new Date(event.starts_at))
+      : '—';
+
+    var timeRange = event.starts_at
+      ? formatTime(event.starts_at) + (event.ends_at ? ' – ' + formatTime(event.ends_at) : '')
+      : '';
+
+    el('composerPreview').innerHTML =
+      '<div class="prev-page">' +
+        '<h1 class="prev-title">' + esc(event.title || '(zonder titel)') + '</h1>' +
+        (event.hero_image_url
+          ? '<div class="prev-hero"><img src="' + esc(event.hero_image_url) + '" alt="" /></div>'
+          : '<div class="prev-hero prev-hero--empty">geen hero-beeld</div>') +
+        '<div class="prev-labels">' +
+          (type.name ? '<span class="prev-pill">' + esc(type.name) + '</span>' : '') +
+          '<span class="prev-tag">' + esc(format.label) + '</span>' +
+        '</div>' +
+        '<div class="prev-facts">' +
+          '<div><span>Wanneer</span><b>' + esc(when) + '</b><i>' + esc(timeRange) + '</i></div>' +
+          '<div><span>Waar</span><b>' + esc(event.location.name || 'Online') + '</b>' +
+            (event.location.name ? '' : '<i>Je krijgt de deelnamelink per e-mail</i>') + '</div>' +
+          (event.registration.capacity !== null
+            ? '<div><span>Plaatsen</span><b>' +
+              (event.registration.seats_left === 0 ? 'Volzet' : 'Nog ' + event.registration.seats_left + ' vrij') +
+              '</b><i>van ' + event.registration.capacity + '</i></div>'
+            : '') +
+        '</div>' +
+        '<div class="prev-body">' +
+          (isEmpty
+            ? '<p class="prev-empty">' +
+              (event.summary
+                ? esc(event.summary) + ' <em>(dit is de samenvatting; er is nog geen inhoud)</em>'
+                : 'Nog geen inhoud.') +
+              '</p>'
+            : body) +
+        '</div>' +
+        '<div class="prev-form">' +
+          '<b>Schrijf je in</b>' +
+          '<p>Het inschrijfformulier komt hier. ' +
+            (status.open ? 'Staat nu open.' : 'Staat nu dicht: ' + esc(REASON_TEXT[status.reason] || '—') + '.') +
+          '</p>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /** De inhoud uit de editor, of undefined als het venster nooit open was. */
   function bodyHtmlFromEditor() {
     if (!state.bodyEditor) return undefined;
 
     var html = state.bodyEditor.root.innerHTML.trim();
-    // Quill laat een lege paragraaf staan; die hoort niet in Odoo.
     if (html === '' || html === '<p><br></p>' || html === '<p></p>') return null;
     return html;
+  }
+
+  /** Alleen de inhoud wegschrijven, niet het hele formulier. */
+  async function saveComposer(eventId) {
+    var body = bodyHtmlFromEditor();
+
+    try {
+      var result = await api('/events/' + eventId, {
+        method: 'PATCH',
+        body: { body_html: body === undefined ? null : body }
+      });
+      state.detail = result.payload.data;
+      el('composerDialog').close();
+      renderDetail();
+      toast('Opmaak bewaard', 'success');
+    } catch (error) {
+      reportError(error);
+    }
+  }
+
+  async function removeHero(eventId) {
+    if (!window.confirm('Hero-beeld verwijderen?')) return;
+
+    try {
+      var result = await api('/events/' + eventId + '/hero-image', { method: 'DELETE' });
+      state.detail = result.payload.data;
+      renderDetail();
+      toast('Beeld verwijderd', 'success');
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   async function deleteEvent(id) {
@@ -681,11 +842,8 @@
       payload[name] = value;
     });
 
-    var body = bodyHtmlFromEditor();
-    if (body !== undefined) {
-      payload.body_html = body;
-    }
-
+    // body_html loopt via het opmaakvenster, niet via Opslaan: anders zou
+    // een nooit-geopend venster de inhoud kunnen wissen.
     return payload;
   }
 
@@ -992,6 +1150,10 @@
       case 'reload-registrations': loadRegistrations(id, state.registrations.page); break;
       case 'add-registration': addRegistration(id); break;
       case 'delete-event': deleteEvent(id); break;
+      case 'open-composer': openComposer(id); break;
+      case 'composer-save': saveComposer(id); break;
+      case 'composer-close': el('composerDialog').close(); break;
+      case 'hero-remove': removeHero(id); break;
       case 'reg-prev':
         if (state.registrations.page > 1) loadRegistrations(id, state.registrations.page - 1);
         break;
@@ -1019,6 +1181,14 @@
       default: break;
     }
   });
+
+  // Onthouden welke accordeon-sectie open staat, zodat een herrender hem
+  // niet dichtklapt.
+  document.addEventListener('toggle', function (domEvent) {
+    var node = domEvent.target;
+    if (!node || node.tagName !== 'DETAILS' || node.getAttribute('data-action') !== 'section') return;
+    if (node.open) state.openSection = node.getAttribute('data-section');
+  }, true);
 
   document.addEventListener('change', function (domEvent) {
     var trigger = domEvent.target.closest('[data-action]');
