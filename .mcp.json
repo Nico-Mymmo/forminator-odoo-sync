@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "odoo-mymmo": {
+      "command": "node",
+      "args": ["./.claude/mcp/odoo-server.mjs"],
+      "env": {
+        "ODOO_KEY": "${ODOO_KEY}"
+      }
+    }
+  }
+}
