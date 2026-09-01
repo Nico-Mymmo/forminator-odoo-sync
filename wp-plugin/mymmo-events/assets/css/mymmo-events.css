@@ -254,8 +254,11 @@
 .mymmo-ev-card__cta { margin: 0; font-size: 0.9375rem; }
 
 /* Kaartweergave */
-.mymmo-ev-list--cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); }
-.mymmo-ev-list--cards .mymmo-ev-list__month { grid-column: 1 / -1; }
+.mymmo-ev-list--cards .mymmo-ev-list__items {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+}
 .mymmo-ev-card--cards {
   flex-direction: column;
   gap: 0.75rem;
@@ -267,18 +270,39 @@
 .mymmo-ev-card--cards .mymmo-ev-card__date { flex-direction: row; gap: 0.4rem; align-items: baseline; }
 .mymmo-ev-card--cards .mymmo-ev-card__day { font-size: 1.25rem; }
 
+.mymmo-ev-calendar [hidden],
+.mymmo-ev-list [hidden] {
+  display: none !important;
+}
+
 /* ── Kalender ────────────────────────────────────────────────────────────── */
 
 .mymmo-ev-calendar__bar {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
   margin-bottom: 1rem;
 }
 .mymmo-ev-calendar__nav { display: flex; gap: 0.35rem; }
 .mymmo-ev-calendar__title {
   margin: 0;
   font-size: 1.375rem;
+  font-weight: 600;
+}
+
+/* Lijstweergave: zelfde balk-opzet als de kalender (navigatie + titel +
+   filter), zodat je ook hier per maand kan bladeren. */
+.mymmo-ev-list__bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  margin-bottom: 1.25rem;
+}
+.mymmo-ev-list__title {
+  margin: 0;
+  font-size: 1.125rem;
   font-weight: 600;
 }
 
@@ -300,6 +324,46 @@
 }
 .mymmo-ev-navbtn:hover { background: var(--mymmo-ev-subtle); }
 .mymmo-ev-navbtn--text { font-size: 0.8125rem; }
+.mymmo-ev-navbtn--disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ── Type-filter chips (kalender + lijst) ───────────────────────────────── */
+
+.mymmo-ev-calendar__bar .mymmo-ev-typefilter,
+.mymmo-ev-list__bar .mymmo-ev-typefilter {
+  margin-left: auto;
+  margin-bottom: 0;
+}
+.mymmo-ev-typefilter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 1rem;
+}
+.mymmo-ev-chipfilter {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 35%, white);
+  background: var(--mymmo-ev-surface);
+  color: color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 82%, black);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.mymmo-ev-chipfilter:hover {
+  background: color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 10%, white);
+}
+.mymmo-ev-chipfilter.is-active {
+  background: var(--mymmo-ev-chip-color, #475569);
+  border-color: var(--mymmo-ev-chip-color, #475569);
+  color: #fff;
+}
 
 .mymmo-ev-grid {
   border: 1px solid var(--mymmo-ev-line);
@@ -643,37 +707,90 @@
 .mymmo-ev-alert > div { min-width: 0; }
 
 /* ── Aankondiging (mymmo_events_announcement) ─────────────────────────────
-   Eén speels kaartje met het gehighlighte (of eerstvolgende) event, met een
-   handvol andere events er lichtjes gedraaid achter als stapel, en een paar
-   decoratieve scribbles uit de asset manager. */
+   Eén speels kaartje met het gehighlighte (of eerstvolgende) event: een
+   curly-arrow wijst er expliciet naar, een groot klavertje ligt als zachte
+   achtergrond achter de hele stapel, een paar (desnoods blanco) kaartjes --
+   exact even groot als de hoofdkaart, enkel anders gedraaid, als een
+   nonchalant neergelegde stapel speelkaarten -- liggen erachter, en rechts
+   loopt een illustratie net over de rand van de kaart. */
 
 .mymmo-ev-announce__stage {
   position: relative;
   max-width: var(--mymmo-ev-maxw);
   margin: 0 auto;
-  padding: 2.75rem 1rem 3.5rem;
+  padding: 5.5rem 1.5rem 4.5rem;
 }
 
-.mymmo-ev-announce__decor {
+/* Inline-SVG uit mymmo_events_clover_svg(): getint met currentColor, groot
+   genoeg om rond de hele kaartenstapel uit te piepen. */
+.mymmo-ev-announce__clover {
   position: absolute;
-  inset: 0;
+  top: 40%;
+  left: 20%;
+  height: auto;
+  color: #99f6e447;
+  opacity: 0.65;
+  transform: translate(-50%, -50%) rotate(-8deg);
+  z-index: 0;
+  pointer-events: none;
+  min-width: 130%;
+}
+
+.mymmo-ev-announce__pointer {
+  position: absolute;
+  top: 1.5rem;
+  right: -0.5rem;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+  text-align: right;
+  pointer-events: none;
+}
+.mymmo-ev-announce__pointer-label {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--mymmo-ev-accent-ink);
+  transform: rotate(4deg);
+  max-width: 10rem;
+}
+/* v1.6.4: exacte waarden die Nico zelf live afgesteld heeft in devtools. */
+.mymmo-ev-announce__pointer-arrow {
+  width: 6rem;
+  height: auto;
+  transform: scaleX(1) rotate(-35deg);
+  margin-top: 0.6rem;
+  margin-left: 0.5rem;
+  filter: drop-shadow(0 4px 8px rgba(15, 23, 42, 0.08));
+}
+
+/* De "stapel": de kaart is het enige kind dat de layout meebepaalt, de
+   kaartjes erachter krijgen `inset: 0` en volgen dus automatisch exact
+   dezelfde afmetingen -- enkel de rotatie maakt het verschil. */
+.mymmo-ev-announce__deck {
+  position: relative;
+  z-index: 1;
 }
 
 .mymmo-ev-announce__ghost {
   position: absolute;
-  left: 50%;
-  top: 2.5rem;
-  width: min(21rem, 82%);
-  padding: 0.85rem 1.1rem;
+  inset: 0;
   background: var(--mymmo-ev-surface);
   border: 1px solid var(--mymmo-ev-line);
-  border-radius: var(--mymmo-ev-radius);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  border-radius: calc(var(--mymmo-ev-radius) * 1.4);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  padding: 1.5rem;
+  overflow: hidden;
 }
 .mymmo-ev-announce__ghost-date {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  margin-bottom: 0.3rem;
+  border-radius: 999px;
+  background: var(--mymmo-ev-accent-soft);
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -681,6 +798,8 @@
   color: var(--mymmo-ev-accent-ink);
 }
 .mymmo-ev-announce__ghost-title {
+  display: block;
+  margin-top: 0.15rem;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--mymmo-ev-muted);
@@ -688,36 +807,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mymmo-ev-announce__ghost--1 {
-  z-index: 3;
-  transform: translate(-50%, 0.75rem) rotate(-5deg);
-  opacity: 0.85;
-}
-.mymmo-ev-announce__ghost--2 {
-  z-index: 2;
-  transform: translate(-50%, 1.5rem) rotate(6deg);
-  opacity: 0.65;
-}
-.mymmo-ev-announce__ghost--3 {
-  z-index: 1;
-  transform: translate(-50%, 2.1rem) rotate(-9deg);
-  opacity: 0.45;
-}
-
-.mymmo-ev-announce__scribble {
-  position: absolute;
-  width: 3.25rem;
-  height: auto;
-  opacity: 0.9;
-  filter: drop-shadow(0 4px 8px rgba(15, 23, 42, 0.08));
-}
-.mymmo-ev-announce__scribble--1 { top: -0.5rem; left: -0.5rem; width: 3.75rem; transform: rotate(-12deg); }
-.mymmo-ev-announce__scribble--2 { top: 0.5rem; right: -0.75rem; width: 2.75rem; transform: rotate(16deg); }
-.mymmo-ev-announce__scribble--3 { bottom: -0.25rem; left: 1.5rem; width: 2.25rem; transform: rotate(-6deg); }
+.mymmo-ev-announce__ghost--1 { z-index: 2; transform: rotate(-5deg); }
+.mymmo-ev-announce__ghost--2 { z-index: 1; transform: rotate(6deg); opacity: 0.85; }
+.mymmo-ev-announce__ghost--3 { z-index: 0; transform: rotate(-9deg); opacity: 0.4; }
 
 .mymmo-ev-announce__card {
   position: relative;
-  z-index: 4;
+  z-index: 3;
   background: var(--mymmo-ev-surface);
   border: 1px solid var(--mymmo-ev-line);
   border-radius: calc(var(--mymmo-ev-radius) * 1.4);
@@ -725,10 +821,24 @@
   padding: 1.5rem;
   transform: rotate(-1.25deg);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: grid;
+  grid-template-columns: 1fr 9rem;
+  gap: 1rem;
+  overflow: hidden;
+  isolation: isolate;
 }
 .mymmo-ev-announce__card:hover {
   transform: rotate(0deg) translateY(-2px);
   box-shadow: 0 22px 46px rgba(15, 23, 42, 0.16);
+}
+
+/* Vaste tweede kolom: laat bewust witruimte rechts in de tekst vrij, zodat
+   de illustratie daar plaats heeft zonder over de tekst te vallen. */
+.mymmo-ev-announce__body {
+  grid-column: 1;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .mymmo-ev-announce__kicker {
@@ -743,15 +853,6 @@
   font-size: 0.75rem;
   font-weight: 700;
 }
-
-.mymmo-ev-announce__image {
-  aspect-ratio: 16 / 8;
-  border-radius: var(--mymmo-ev-radius-sm);
-  overflow: hidden;
-  margin-bottom: 0.85rem;
-  background: var(--mymmo-ev-subtle);
-}
-.mymmo-ev-announce__image img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .mymmo-ev-announce__title {
   margin: 0 0 0.4rem;
@@ -771,9 +872,18 @@
   font-size: 0.875rem;
 }
 
+/* Vaste hoogte van ~4 regels, ook als de samenvatting korter is of
+   ontbreekt -- zo springt de kaart niet mee met de inhoud van het event. */
 .mymmo-ev-announce__summary {
   margin: 0 0 1.1rem;
+  margin-right: 3rem;
   color: var(--mymmo-ev-text);
+  font-size: 0.9rem;
+  min-height: calc(1.5em * 4);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .mymmo-ev-announce__ctas {
@@ -782,9 +892,25 @@
   gap: 0.6rem;
 }
 
-@media (max-width: 30rem) {
-  .mymmo-ev-announce__stage { padding: 2rem 0.5rem 2.75rem; }
+/* Loopt bewust over de rechter- en onderrand van de kaart heen (~6-7% valt
+   erbuiten); de kaart zelf knipt (overflow: hidden) wat buiten het frame
+   valt. Geen eigen achtergrond -- de illustratie is zelf transparant. */
+.mymmo-ev-announce__image {
+  position: absolute;
+  right: -1.2rem;
+  bottom: -1.2rem;
+  width: 18rem;
+  height: 18rem;
+  z-index: 0;
+  pointer-events: none;
+}
+.mymmo-ev-announce__image img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+@media (max-width: 34rem) {
+  .mymmo-ev-announce__stage { padding: 4.5rem 0.5rem 2.75rem; }
   .mymmo-ev-announce__ghost--3 { display: none; }
-  .mymmo-ev-announce__card { padding: 1.15rem; }
+  .mymmo-ev-announce__card { grid-template-columns: 1fr; padding: 1.15rem; }
+  .mymmo-ev-announce__image { display: none; }
+  .mymmo-ev-announce__pointer { display: none; }
   .mymmo-ev-announce__ctas .mymmo-ev-btn { flex: 1 1 auto; }
 }

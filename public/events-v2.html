@@ -38,6 +38,11 @@
   <link href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js"></script>
 
+  <!-- Downloaden van de inschrijvingenlijst (Excel / PDF), zie exportRegistrations() -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
+
   <script src="/shared-navbar.js"></script>
 
   <style>
@@ -248,6 +253,12 @@
     }
     .ql-editor { min-height: 11rem; }
     .ql-editor.ql-blank::before { color: oklch(var(--bc) / 0.4); font-style: normal; }
+    /* Quill's snow-thema laat de standaard user-agent margin op <p> staan
+       (~1em boven/onder) -- dat oogt als veel te veel witruimte tussen
+       zinnen zodra iemand op Enter drukt. Strakker trekken, in zowel het
+       schrijfvenster als het voorbeeld ernaast. */
+    .ql-editor p { margin: 0 0 0.5em; }
+    .ql-editor p:last-child { margin-bottom: 0; }
     .ql-snow .ql-stroke { stroke: oklch(var(--bc) / 0.7); }
     .ql-snow .ql-fill { fill: oklch(var(--bc) / 0.7); }
     .ql-snow .ql-picker-label { color: oklch(var(--bc) / 0.8); }
@@ -316,6 +327,8 @@
     .prev-facts b { color: #1f2937; font-size: 0.8125rem; }
     .prev-facts i { font-style: normal; font-size: 0.75rem; color: #6b7280; }
     .prev-body > *:first-child { margin-top: 0; }
+    .prev-body p { margin: 0 0 0.5em; }
+    .prev-body p:last-child { margin-bottom: 0; }
     .prev-body h2 { font-size: 1.0625rem; color: #1f2937; margin: 1rem 0 0.35rem; }
     .prev-body h3 { font-size: 0.9375rem; color: #1f2937; margin: 0.85rem 0 0.3rem; }
     .prev-body a { color: #0369a1; }
@@ -335,6 +348,10 @@
     /* De navbar staat position:fixed met 48px hoogte (src/lib/components/navbar.js),
        dus de pagina moet die ruimte zelf reserveren. */
     .page-shell { padding-top: calc(48px + 1.5rem); }
+
+    /* Klik-om-aan-te-maken: alleen dagen in de toekomst nodigen daartoe uit. */
+    .fc-daygrid-day.fc-day-clickable { cursor: pointer; }
+    .fc-daygrid-day.fc-day-clickable:hover { background-color: oklch(var(--p) / 0.06); }
   </style>
 </head>
 <body class="bg-base-200 min-h-screen">
@@ -425,7 +442,19 @@
         <div id="listWorkspace" class="hidden">
           <div class="card bg-base-100 shadow-xl">
             <div class="card-body p-0">
-              <div class="flex items-center justify-between px-4 py-3 border-b border-base-200">
+              <div class="flex items-center justify-between gap-3 flex-wrap px-4 py-3 border-b border-base-200">
+                <div class="flex items-center gap-1.5">
+                  <button class="btn btn-xs btn-ghost btn-square" data-action="list-month-prev" id="listMonthPrev" title="Vorige maand">
+                    <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                  </button>
+                  <span id="listMonthLabel" class="text-sm font-medium min-w-[9rem] text-center"></span>
+                  <button class="btn btn-xs btn-ghost btn-square" data-action="list-month-next" title="Volgende maand">
+                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                  </button>
+                </div>
+                <div id="listTypeChips" class="flex items-center gap-1.5 flex-wrap"></div>
+              </div>
+              <div class="flex items-center justify-between px-4 py-2 border-b border-base-200">
                 <span id="listSummary" class="text-sm opacity-70">Laden…</span>
               </div>
               <div class="overflow-x-auto">
@@ -465,6 +494,17 @@
     </div>
   </div>
 
+  <!-- Inschrijvingen: snelactie vanaf de tegel bovenaan het detailpaneel -->
+  <dialog id="registrationsDialog" class="modal">
+    <div class="modal-box max-w-5xl w-11/12 max-h-[85vh] p-0 overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200 shrink-0">
+        <h3 class="font-semibold">Inschrijvingen</h3>
+        <button class="btn btn-sm btn-ghost btn-square" data-action="registrations-close" aria-label="Sluiten">✕</button>
+      </div>
+      <div id="registrations-section" class="p-4 overflow-y-auto flex-1 min-h-0"></div>
+    </div>
+  </dialog>
+
   <!-- Nieuw event -->
   <dialog id="createDialog" class="modal">
     <div class="modal-box max-w-xl">
@@ -480,9 +520,10 @@
         </label>
         <label class="form-control">
           <span class="label-text text-sm mb-1">Start <span class="text-error">*</span></span>
-          <div class="join w-full">
-            <input id="newStartsAtDate" type="date" class="input input-bordered input-sm join-item flex-1" />
-            <select id="newStartsAtTime" class="select select-bordered select-sm join-item"></select>
+          <div class="join w-full border border-base-300 rounded-lg overflow-hidden">
+            <input id="newStartsAtDate" type="date" class="input input-sm join-item flex-1 min-w-[7.5rem] border-0" />
+            <select id="newStartsAtHour" class="select select-sm join-item border-0 border-l border-base-300 w-16 shrink-0"></select>
+            <select id="newStartsAtMinute" class="select select-sm join-item border-0 border-l border-base-300 w-16 shrink-0"></select>
           </div>
         </label>
         <label class="form-control">

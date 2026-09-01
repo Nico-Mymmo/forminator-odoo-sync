@@ -4,24 +4,44 @@ const ODOO_URL_PROD = "https://mymmo.odoo.com/jsonrpc";
 const ODOO_URL_STAGING = "https://mymmo-test-22961179.dev.odoo.com/jsonrpc";
 const ODOO_DB_STAGING = "mymmo-test-22961179";
 
-// ADDENDUM L: Centralized throttling to prevent rate limits
-const THROTTLE_DELAY_MS = 200; // Delay between Odoo API calls (configurable)
-let lastOdooCallTime = 0;
+// ADDENDUM L: Centralized throttling to prevent rate limits.
+//
+// De oorspronkelijke versie zette een VASTE minimumtussenpauze (200ms)
+// tussen ELKE twee Odoo-calls, via één gedeelde timestamp -- dat beschermt
+// wel tegen een lawine van calls, maar saboteerde net zo hard elke plek die
+// bewust Promise.all() gebruikt om calls PARALLEL te laten lopen (bv.
+// listEvents() in event-operations-v2: drie calls tegelijk, "dat halveert
+// de wachttijd" volgens de eigen code-comment daar). Met een vaste
+// tussenpauze kwamen die drie calls er in de praktijk juist NA elkaar uit,
+// met ~200ms wachttijd ertussen -- op een pagina met een kalender- én een
+// lijst-shortcode liep dat samen op tot ruim een halve seconde pure,
+// nutteloze wachttijd, bovenop de echte netwerktijd.
+//
+// Vervangen door een concurrency-limiter: maximaal N Odoo-calls TEGELIJK
+// in de lucht vanuit deze Worker-instance, in plaats van een minimum-
+// interval tussen calls die niet per se na elkaar hoeven. Een bewuste
+// kleine Promise.all-groep (2-4 calls, zoals hierboven) loopt weer echt
+// parallel; pas bij een write-piek (een lus met veel create()'s, of
+// meerdere bezoekers tegelijk) treedt de limiet nog op.
+const MAX_CONCURRENT_ODOO_CALLS = 6;
+let activeOdooCalls = 0;
+const odooCallQueue = [];
 
-/**
- * Throttle helper - ensures minimum delay between Odoo calls
- * ADDENDUM L: Applied to all executeKw calls to prevent rate limits
- */
-async function throttle() {
-  const now = Date.now();
-  const timeSinceLastCall = now - lastOdooCallTime;
-  
-  if (timeSinceLastCall < THROTTLE_DELAY_MS) {
-    const waitTime = THROTTLE_DELAY_MS - timeSinceLastCall;
-    await new Promise(resolve => setTimeout(resolve, waitTime));
+/** Wacht tot er een vrije "slot" is, in plaats van tot een vaste tijd verstreken is. */
+async function acquireOdooSlot() {
+  if (activeOdooCalls < MAX_CONCURRENT_ODOO_CALLS) {
+    activeOdooCalls += 1;
+    return;
   }
-  
-  lastOdooCallTime = Date.now();
+  await new Promise((resolve) => odooCallQueue.push(resolve));
+  activeOdooCalls += 1;
+}
+
+/** Slot vrijgeven en de langst wachtende call (indien die er is) meteen laten starten. */
+function releaseOdooSlot() {
+  activeOdooCalls -= 1;
+  const next = odooCallQueue.shift();
+  if (next) next();
 }
 
 function getOdooUrl({ staging = false, odooUrl } = {}) {
@@ -31,50 +51,55 @@ function getOdooUrl({ staging = false, odooUrl } = {}) {
 }
 
 export async function executeKw(env, { model, method, args = [], kwargs = {}, staging = false, odooUrl, odooDb }) {
-  // ADDENDUM L: Apply throttle BEFORE making the call
-  await throttle();
-  
-  const dbName = typeof odooDb === "string" && odooDb.trim() || staging === true && ODOO_DB_STAGING || (env.DB_NAME || '').trim();
-  
-  const uid = Number.parseInt(env.UID, 10);
-  if (!Number.isFinite(uid)) {
-    throw new Error(`Env UID must be numeric, got: ${env.UID}`);
-  }
-  const apiKey = env.API_KEY;
-  const payload = {
-    jsonrpc: "2.0",
-    method: "call",
-    params: {
-      service: "object",
-      method: "execute_kw",
-      args: [dbName, uid, apiKey, model, method, args, kwargs]
-    }
-  };
-  const url = getOdooUrl({ staging, odooUrl });
-  const ts = () => new Date().toISOString().substring(11, 19);
-  
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const raw = await res.text();
-  let json;
+  // ADDENDUM L: wacht op een vrije concurrency-slot in plaats van een vaste
+  // pauze -- zie de uitleg bij acquireOdooSlot() hierboven.
+  await acquireOdooSlot();
+
   try {
-    json = JSON.parse(raw);
-  } catch (e) {
-    console.log(`[Odoo ${ts()}] ❌ ${model}.${method} — parse error: ${e?.message}`);
-    throw new Error(`Odoo JSON parse failed: ${e?.message}. Raw: ${raw.slice(0, 500)}`);
+    const dbName = typeof odooDb === "string" && odooDb.trim() || staging === true && ODOO_DB_STAGING || (env.DB_NAME || '').trim();
+
+    const uid = Number.parseInt(env.UID, 10);
+    if (!Number.isFinite(uid)) {
+      throw new Error(`Env UID must be numeric, got: ${env.UID}`);
+    }
+    const apiKey = env.API_KEY;
+    const payload = {
+      jsonrpc: "2.0",
+      method: "call",
+      params: {
+        service: "object",
+        method: "execute_kw",
+        args: [dbName, uid, apiKey, model, method, args, kwargs]
+      }
+    };
+    const url = getOdooUrl({ staging, odooUrl });
+    const ts = () => new Date().toISOString().substring(11, 19);
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const raw = await res.text();
+    let json;
+    try {
+      json = JSON.parse(raw);
+    } catch (e) {
+      console.log(`[Odoo ${ts()}] ❌ ${model}.${method} — parse error: ${e?.message}`);
+      throw new Error(`Odoo JSON parse failed: ${e?.message}. Raw: ${raw.slice(0, 500)}`);
+    }
+    if (json.error) {
+      const errorMsg = json.error.data?.message || json.error.message || JSON.stringify(json.error);
+      console.log(`[Odoo ${ts()}] ❌ ${model}.${method} — ${errorMsg}`);
+      throw new Error(`Odoo RPC error: ${JSON.stringify(json.error)}`);
+    }
+    const resultInfo = Array.isArray(json.result) ? `${json.result.length} items` : String(json.result).substring(0, 60);
+    console.log(`[Odoo ${ts()}] ${model}.${method} → ${resultInfo}`);
+
+    return json.result;
+  } finally {
+    releaseOdooSlot();
   }
-  if (json.error) {
-    const errorMsg = json.error.data?.message || json.error.message || JSON.stringify(json.error);
-    console.log(`[Odoo ${ts()}] ❌ ${model}.${method} — ${errorMsg}`);
-    throw new Error(`Odoo RPC error: ${JSON.stringify(json.error)}`);
-  }
-  const resultInfo = Array.isArray(json.result) ? `${json.result.length} items` : String(json.result).substring(0, 60);
-  console.log(`[Odoo ${ts()}] ${model}.${method} → ${resultInfo}`);
-  
-  return json.result;
 }
 
 export async function search(env, { model, domain = [], limit, offset = 0, order, staging = false, odooUrl, odooDb }) {

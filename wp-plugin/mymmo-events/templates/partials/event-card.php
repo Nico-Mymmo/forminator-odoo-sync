@@ -19,7 +19,8 @@ $registration = $event['registration'] ?? [];
 $seats_left = $registration['seats_left'] ?? null;
 $past = mymmo_events_is_past($event);
 ?>
-<article class="mymmo-ev-card mymmo-ev-card--<?php echo esc_attr($layout); ?><?php echo $past ? ' is-past' : ''; ?>">
+<article class="mymmo-ev-card mymmo-ev-card--<?php echo esc_attr($layout); ?><?php echo $past ? ' is-past' : ''; ?>"
+         data-type-id="<?php echo esc_attr((string) ($type['id'] ?? 0)); ?>">
 
     <?php if ($start) : ?>
         <div class="mymmo-ev-card__date" aria-hidden="true">

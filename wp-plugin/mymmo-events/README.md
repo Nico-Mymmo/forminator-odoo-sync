@@ -155,6 +155,80 @@ je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
 
+**1.6.10**
+- De eerste keer dat een bezoeker naar een nieuwe maand bladert, was die maand nog nooit
+  opgehaald en dus altijd traag (een nieuwe live aanvraag), ook al ging elke daaropvolgende
+  wissel tussen al bezochte maanden vlot. Vanaf nu haalt de shortcode bij het laden van de
+  pagina in ÉÉN aanvraag meteen alle events op van deze maand tot 12 maanden verderop
+  (`fetch_horizon_events()`), en rendert hij bij diezelfde laadbeurt ook alle maanden in dat
+  bereik mee in de pagina -- verborgen, op de gevraagde maand na (`[data-month-slot]`).
+  Vorige/volgende maand is binnen dat bereik daardoor pure DOM tonen/verbergen in
+  `mymmo-events.js`: geen enkele aanvraag meer, dus geen wachttijd, ook niet de eerste keer.
+- Economischer voor de Operations Manager, niet minder: elke bezoeker (voor dezelfde
+  maandreeks en dezelfde filters) doet exact dezelfde aanvraag, die dus uit de gedeelde
+  60-seconden-cache van `Mymmo_Events_Api_Client` komt in plaats van dat elke bezoeker zijn
+  eigen, verse Odoo-aanvraag triggert. Voor normaal bladergedrag (tot 12 maanden vooruit)
+  kost een volledige sessie zo hooguit één live aanvraag per 60 seconden, gedeeld door alle
+  bezoekers samen -- niet één aanvraag per bezoeker per maand.
+- Bladert iemand toch verder dan 12 maanden vooruit (zeldzaam), dan valt dit terug op de
+  bestaande REST-aanvraag per maand (`class-rest.php`), zoals in 1.6.7.
+- `mymmo-events.js` is hierop aangepast: `applyVisibility()` en `syncChips()` werken nu per
+  maand-slot (anders zou een lege maand meetellen met een gevulde), en de pijltjestoetsen
+  richten zich op de zichtbare maand-slot in plaats van de eerste in de broncode.
+
+**1.6.9**
+- Grote snelheidswinst voor een pagina met zowel `[mymmo_events_calendar]` als
+  `[mymmo_events_list]` voor dezelfde maand (zoals nu het geval is): de lijst vraagt
+  voortaan exact hetzelfde raster op als de kalender (maandag t/m zondag, met een paar
+  dagen uit de buurmaanden erbij -- die worden er voor de weergave weer uitgefilterd,
+  enkel de shortcode-`limit` wordt na het filteren toegepast). Omdat from/to/type/format/
+  limit dan identiek zijn, komt de TWEEDE van de twee (calendar of list) uit het
+  per-request geheugen of de transient-cache van `Mymmo_Events_Api_Client`, in plaats van
+  zelf nog eens live naar de Operations Manager te gaan. Op zo'n pagina halveert dat het
+  aantal live aanvragen per laadbeurt en per maandwissel.
+
+**1.6.8**
+- Regressie uit 1.6.7 gefixt: zonder een vastgezet `type`-attribuut stuurde de kalender/
+  lijst de VOLLEDIGE lijst type-id's mee als filter naar de API (bedoeld om "alles" te
+  betekenen). Twee gevolgen: `get_event_types()` garandeert geen vaste volgorde, dus elke
+  wisselende volgorde was een andere cache-key -- permanente cache-misses, dus een trage
+  eerste load EN een trage maandwissel; en miste die lijst een type-id dat een event wél
+  had, dan viel dat event stil weg terwijl "geen filter" net alles hoort te tonen. Nu wordt
+  bij een niet-vastgezet type helemaal geen `type`-parameter meer meegestuurd (zoals vóór
+  1.6.7) -- de chips filteren toch al clientside op de ongefilterde data.
+
+**1.6.7**
+- De type-filter chips en de maandnavigatie wisselen nu clientside, zonder de pagina te
+  herladen: een klik op een chip toont/verbergt gewoon wat al op de pagina staat, en een
+  klik op vorige/volgende maand haalt enkel die maand op via een nieuw REST-endpoint
+  (`/wp-json/mymmo-events/v1/calendar` en `/list`), 60 seconden clientside gecached. Zonder
+  JavaScript blijven het gewoon links die de pagina herladen -- dat vangnet staat er nog.
+- Chips staan nu standaard allemaal actief (filteren dus nog niets), in plaats van visueel
+  uit te staan terwijl toch alles getoond werd. Ze staan bovendien rechts in de balk,
+  kleiner, en filteren enkel de kalender/lijst waar ze bij horen -- niet meer de hele
+  pagina als er twee shortcodes naast elkaar staan.
+- `[mymmo_events_list]` toont voortaan een MAAND tegelijk, met dezelfde vorige/volgende-
+  navigatie als de kalender, in plaats van kaal de eerstvolgende N events. Nieuw attribuut
+  `month`; `show_past` staat nu toe om ook voorbij de huidige maand terug te bladeren.
+
+**1.6.6**
+- `[mymmo_events_calendar]`: bladert niet meer terug voor de huidige maand (de pijl staat er
+  dan niet meer, en een handmatig aangepaste `?mymmo_month=` in de URL wordt teruggezet).
+  Nieuw: togglebare chips om op event type te filteren, zonder JavaScript (`?mymmo_type=`,
+  komma-lijst van type-id's) -- enkel zichtbaar als het `type`-attribuut van de shortcode
+  zelf leeg is, anders staat die al vast.
+- `[mymmo_events_list]`: dezelfde chips-filter als de kalender, zelfde voorwaarde.
+
+**1.6.0**
+- `[mymmo_events_announcement]` herwerkt na feedback: geen shortcode-attributen meer (vaste
+  huisstijl-component). Het klavertje wordt nu inline als SVG met een eigen kleur getekend
+  (de bronillustratie was zelf bijna wit en de asset-host stuurt geen CORS-headers, waardoor
+  een CSS mask-image er stil faalde) en staat groot achter de hele kaartenstapel. De
+  kaartjes erachter zijn nu exact even groot als de hoofdkaart (enkel anders gedraaid, als
+  een neergelegde stapel speelkaarten) in plaats van losse kaartjes met een eigen maat. De
+  illustratie is groter en de samenvatting krijgt een vaste hoogte van 4 regels met
+  gereserveerde witruimte ernaast.
+
 **1.5.0**
 - Nieuwe shortcode `[mymmo_events_announcement]`: een speelse aankondiging-callout voor het
   gehighlighte event (nieuw Basis-veld in de Operations Manager, "Highlighten") of, bij

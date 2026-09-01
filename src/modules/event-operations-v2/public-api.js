@@ -210,7 +210,16 @@ async function handleEventList(request, env, brand) {
     publication_states: PUBLIC_VISIBLE_STATES,
     brand
   };
-  if (p.get('type')) filters.event_type_id = Number.parseInt(p.get('type'), 10);
+  // Komma-lijst voor de type-chips op de publieke kalender/lijst (meerdere
+  // types tegelijk aan); een los getal blijft ook gewoon werken.
+  if (p.get('type')) {
+    const typeIds = p.get('type').split(',').map((v) => Number.parseInt(v.trim(), 10)).filter(Number.isInteger);
+    if (typeIds.length === 1) {
+      filters.event_type_id = typeIds[0];
+    } else if (typeIds.length > 1) {
+      filters.event_type_id = typeIds;
+    }
+  }
   if (format && Object.values(EVENT_FORMAT).includes(format)) filters.format = format;
   if (p.get('from')) filters.from = p.get('from');
   if (p.get('to')) filters.to = p.get('to');

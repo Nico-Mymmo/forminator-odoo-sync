@@ -41,7 +41,20 @@
     // pagina (v1-publicatie). Enkel een markering, zie loadLegacyWpPages().
     legacyWpPages: {},
     // Staat de titel-inputveld in het detailpaneel open? Zie editTitle().
-    editingTitle: false
+    editingTitle: false,
+    // Lijstweergave: eigen maand- en type-filter, los van de kalenderdata
+    // (die blijft alles tonen, FullCalendar filtert zelf visueel per maand).
+    // Maand mag nooit voor de huidige staan, zie 'list-month-prev' hieronder.
+    list: {
+      events: [],
+      total: 0,
+      totalPages: 1,
+      page: 1,
+      month: brusselsYearMonth(),
+      types: new Set(),
+      cache: {},
+      loaded: false
+    }
   };
 
   // ─── Hulpjes ───────────────────────────────────────────────────────────────
@@ -123,39 +136,117 @@
     return new Date(naive.getTime() - offsetMinutes * 60000).toISOString();
   }
 
+  /** Jaar/maand (1-12) van een moment, in Brussels-tijd. */
+  function brusselsYearMonth(date) {
+    var parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: BRUSSELS, year: 'numeric', month: '2-digit'
+    }).formatToParts(date || new Date());
+    var get = function (t) { return Number((parts.find(function (p) { return p.type === t; }) || {}).value); };
+    return { year: get('year'), month: get('month') };
+  }
+
+  function monthLabel(year, month) {
+    var probe = new Date(Date.UTC(year, month - 1, 15, 12));
+    return new Intl.DateTimeFormat('nl-BE', { timeZone: BRUSSELS, month: 'long', year: 'numeric' }).format(probe);
+  }
+
+  /** {from, to} in ISO voor de volledige maand in Brussels-tijd, beide grenzen inclusief. */
+  function monthRangeIso(year, month) {
+    var pad = function (n) { return String(n).padStart(2, '0'); };
+    var lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return {
+      from: localInputToIso(year + '-' + pad(month) + '-01T00:00'),
+      to: localInputToIso(year + '-' + pad(month) + '-' + pad(lastDay) + 'T23:59')
+    };
+  }
+
+  function addMonths(year, month, delta) {
+    var total = (year * 12 + (month - 1)) + delta;
+    return { year: Math.floor(total / 12), month: (total % 12) + 1 };
+  }
+
+  /** Vandaag als 'YYYY-MM-DD', in Brussels-tijd. */
+  function todayIsoDate() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: BRUSSELS }).format(new Date());
+  }
+
   /**
-   * <option>'s voor elk kwartier van de dag. De browser-eigen datetime-local-
-   * picker respecteert `step` wel voor validatie en de pijltjestoetsen, maar
-   * NIET voor zijn eigen scroll-lijst -- die blijft alle 60 minuten tonen.
-   * Vandaar een eigen select in plaats van op step te vertrouwen.
+   * Losse uren- en kwartierselects i.p.v. één samengevoegde HH:MM-lijst:
+   * sneller kiezen, en de browser-eigen datetime-local-picker toont zijn
+   * minutenlijst toch altijd per minuut, step of niet -- vandaar eigen
+   * selects in plaats van op step te vertrouwen.
+   *
+   * Events starten en eindigen nooit midden in de nacht, dus de urenlijst
+   * begint pas om 08:00.
    */
-  function quarterHourOptions(selected) {
+  function hourOptions(selected) {
     var out = '';
-    for (var h = 0; h < 24; h += 1) {
-      for (var m = 0; m < 60; m += 15) {
-        var v = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-        out += '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + v + '</option>';
-      }
+    for (var h = 8; h < 24; h += 1) {
+      var v = String(h).padStart(2, '0');
+      out += '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + v + '</option>';
     }
     return out;
   }
 
-  /** Datum + kwartier-select samen, voor de datumvelden in het detailpaneel. */
+  function minuteOptions(selected) {
+    var out = '';
+    for (var m = 0; m < 60; m += 15) {
+      var v = String(m).padStart(2, '0');
+      out += '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + v + '</option>';
+    }
+    return out;
+  }
+
+  /** Vaste klokslag voor datumvelden zonder eigen tijd-UI, zie dateOnlyField(). */
+  var DEFAULT_TIME_FOR_FIELD = {
+    registration_opens_at: '09:00',
+    registration_closes_at: '17:00'
+  };
+
+  /**
+   * Datum + uur + kwartier-select samen, voor datumvelden met een eigen
+   * tijdstip. Eén rand om het hele groepje i.p.v. losse randen per veld,
+   * en de velden krimpen mee (min-width: 0) zodat dit niet meer over de
+   * kolom ernaast loopt.
+   */
   function dateTimeField(label, name, isoValue) {
     var local = isoToLocalInput(isoValue);
     var datePart = local ? local.slice(0, 10) : '';
-    var timePart = local ? local.slice(11, 16) : '';
+    var hourPart = local ? local.slice(11, 13) : '';
+    var minutePart = local ? local.slice(14, 16) : '';
 
     return '<label class="form-control">' +
         '<span class="label-text text-xs opacity-70 mb-1">' + esc(label) + '</span>' +
-        '<div class="join w-full">' +
-          '<input type="date" class="input input-bordered input-sm join-item flex-1"' +
+        '<div class="join w-full border border-base-300 rounded-lg overflow-hidden">' +
+          '<input type="date" class="input input-sm join-item flex-1 min-w-[7.5rem] border-0"' +
           ' data-dt-date="' + name + '" value="' + esc(datePart) + '" />' +
-          '<select class="select select-bordered select-sm join-item" data-dt-time-for="' + name + '">' +
-            '<option value=""' + (timePart ? '' : ' selected') + '>--:--</option>' +
-            quarterHourOptions(timePart) +
+          '<select class="select select-sm join-item border-0 border-l border-base-300 w-16 shrink-0"' +
+          ' data-dt-hour-for="' + name + '">' +
+            '<option value=""' + (hourPart ? '' : ' selected') + '>--</option>' +
+            hourOptions(hourPart) +
+          '</select>' +
+          '<select class="select select-sm join-item border-0 border-l border-base-300 w-16 shrink-0"' +
+          ' data-dt-minute-for="' + name + '">' +
+            '<option value=""' + (minutePart ? '' : ' selected') + '>--</option>' +
+            minuteOptions(minutePart) +
           '</select>' +
         '</div>' +
+      '</label>';
+  }
+
+  /**
+   * Enkel een datum, voor velden waar het uur vast ligt in
+   * DEFAULT_TIME_FOR_FIELD (inschrijven opent/sluit): geen tijd-UI nodig,
+   * dus ook geen overlap-risico.
+   */
+  function dateOnlyField(label, name, isoValue) {
+    var local = isoToLocalInput(isoValue);
+    var datePart = local ? local.slice(0, 10) : '';
+
+    return '<label class="form-control">' +
+        '<span class="label-text text-xs opacity-70 mb-1">' + esc(label) + '</span>' +
+        '<input type="date" class="input input-bordered input-sm w-full"' +
+        ' data-dt-date="' + name + '" value="' + esc(datePart) + '" />' +
       '</label>';
   }
 
@@ -321,6 +412,18 @@
     }
   }
 
+  /**
+   * Na een schrijfactie: kalenderdata altijd verversen, en de lijst erbij
+   * zodra die ooit geladen is (anders blijft ze stil verouderd staan tot de
+   * volgende maand-/typewissel of handmatige ververs).
+   */
+  async function refreshEvents() {
+    state.listCache = {};
+    var tasks = [loadEvents(true)];
+    if (state.list.loaded) tasks.push(loadListEvents(true));
+    await Promise.all(tasks);
+  }
+
   // ─── Kalender ──────────────────────────────────────────────────────────────
 
   function toCalendarEvents() {
@@ -432,6 +535,16 @@
         info.jsEvent.preventDefault();
         selectEvent(Number(info.event.id));
       },
+      // Industry-standard UX: op een lege dag klikken opent meteen "nieuw
+      // event" met die datum al ingevuld. Dagen in het verleden negeren de
+      // klik -- daar maak je geen events meer voor aan.
+      dateClick: function (info) {
+        if (info.dateStr < todayIsoDate()) return;
+        openCreateDialog(info.dateStr);
+      },
+      dayCellClassNames: function (arg) {
+        return arg.date.toISOString().slice(0, 10) < todayIsoDate() ? [] : ['fc-day-clickable'];
+      },
       eventDidMount: styleCalendarEvent,
       eventContent: renderEventContent,
       displayEventTime: false,
@@ -449,18 +562,109 @@
   }
 
   // ─── Lijst ─────────────────────────────────────────────────────────────────
+  //
+  // Eigen maand- en type-filter, los van de kalenderdata (die blijft alles
+  // tonen). De maand mag nooit voor de huidige staan; het type-filter zijn
+  // togglebare chips i.p.v. een dropdown, en mag meerdere types tegelijk
+  // aan hebben staan.
+
+  function buildListQuery() {
+    var params = new URLSearchParams();
+    var range = monthRangeIso(state.list.month.year, state.list.month.month);
+    params.set('from', range.from);
+    params.set('to', range.to);
+    // De backend-filter `type` accepteert maar één id. Bij precies één
+    // aangevinkte chip sturen we 'm mee (kleinere respons, correcte
+    // paginering); bij meerdere chips halen we alles op voor de maand en
+    // filteren we hierna client-side, zie loadListEvents().
+    if (state.list.types.size === 1) {
+      params.set('type', String(Array.from(state.list.types)[0]));
+    }
+    params.set('page', String(state.list.page));
+    params.set('per_page', String(PER_PAGE));
+    return params.toString();
+  }
+
+  async function loadListEvents(forceFresh) {
+    var query = buildListQuery();
+
+    if (forceFresh) {
+      state.list.cache = {};
+    } else if (state.list.cache[query]) {
+      var hit = state.list.cache[query];
+      state.list.events = hit.events;
+      state.list.total = hit.total;
+      state.list.totalPages = hit.totalPages;
+      state.list.loaded = true;
+      renderList();
+      return;
+    }
+
+    try {
+      var result = await api('/events?' + query);
+      var events = result.payload.data || [];
+      var pagination = result.payload.pagination || {};
+
+      state.list.events = state.list.types.size > 1
+        ? events.filter(function (event) { return state.list.types.has(event.event_type.id); })
+        : events;
+      // Bij meerdere chips is dit de telling van de huidige pagina na
+      // filteren, niet van de hele maand -- zie de opmerking in
+      // buildListQuery(). Voor een intern beheertool met een handvol
+      // events per maand is dat een aanvaardbare beperking.
+      state.list.total = state.list.types.size > 1 ? state.list.events.length : (pagination.total || events.length);
+      state.list.totalPages = state.list.types.size > 1 ? 1 : (pagination.total_pages || 1);
+      state.list.loaded = true;
+
+      state.list.cache[query] = {
+        events: state.list.events,
+        total: state.list.total,
+        totalPages: state.list.totalPages
+      };
+
+      renderList();
+    } catch (error) {
+      el('eventRows').innerHTML =
+        '<tr><td colspan="6" class="text-center py-8 text-error">' + esc(error.message) + '</td></tr>';
+      el('listSummary').textContent = 'Fout bij laden';
+      toast(error.message, 'error');
+    }
+  }
+
+  /** Chevrons + maandlabel + type-chips boven de lijst. */
+  function renderListToolbar() {
+    var my = state.list.month;
+    var today = brusselsYearMonth();
+    var atCurrentMonth = my.year === today.year && my.month === today.month;
+
+    el('listMonthLabel').textContent = monthLabel(my.year, my.month);
+    var prevBtn = el('listMonthPrev');
+    if (prevBtn) prevBtn.disabled = atCurrentMonth;
+
+    el('listTypeChips').innerHTML = state.types.map(function (type) {
+      var active = state.list.types.has(type.id);
+      var style = typeStyle(type.id);
+      return '<button type="button" class="btn btn-xs rounded-full gap-1' + (active ? '' : ' btn-outline') + '"' +
+        ' style="' + (active ? 'background:' + style.accent + ';border-color:' + style.accent + ';color:oklch(var(--b1));' : 'border-color:' + style.accent + ';color:' + style.accent + ';') + '"' +
+        ' data-action="list-type-toggle" data-type-id="' + type.id + '">' +
+        esc(type.name) +
+        '</button>';
+    }).join('');
+  }
 
   function renderList() {
+    renderListToolbar();
+
     var body = el('eventRows');
 
-    if (state.events.length === 0) {
+    if (state.list.events.length === 0) {
       body.innerHTML = '<tr><td colspan="6" class="text-center py-8 opacity-60">Geen events gevonden.</td></tr>';
       el('listSummary').textContent = '0 events';
       el('pager').classList.add('hidden');
       return;
     }
 
-    body.innerHTML = state.events.map(function (event) {
+    body.innerHTML = state.list.events.map(function (event) {
       var stateBadge = STATE_BADGE[event.publication_state] || STATE_BADGE.draft;
       var format = FORMAT_META[event.format] || FORMAT_META.online;
       var capacity = event.registration.capacity;
@@ -497,9 +701,9 @@
         '</tr>';
     }).join('');
 
-    el('listSummary').textContent = state.total + ' event' + (state.total === 1 ? '' : 's');
-    el('pagerLabel').textContent = 'pagina ' + state.page + ' van ' + state.totalPages;
-    el('pager').classList.toggle('hidden', state.totalPages <= 1);
+    el('listSummary').textContent = state.list.total + ' event' + (state.list.total === 1 ? '' : 's');
+    el('pagerLabel').textContent = 'pagina ' + state.list.page + ' van ' + state.list.totalPages;
+    el('pager').classList.toggle('hidden', state.list.totalPages <= 1);
   }
 
   function switchView(view) {
@@ -513,6 +717,8 @@
 
     // FullCalendar meet verkeerd als hij in een verborgen container stond.
     if (isCalendar && state.calendar) state.calendar.updateSize();
+
+    if (!isCalendar && !state.list.loaded) loadListEvents();
   }
 
   // ─── Detailpaneel ──────────────────────────────────────────────────────────
@@ -632,13 +838,19 @@
             : '') +
         '</div>' +
         '<div class="grid grid-cols-2 gap-3">' +
-          '<div>' +
-            '<div class="text-xs opacity-60">Inschrijvingen</div>' +
+          '<button type="button"' +
+            ' class="text-left rounded-md p-2 -m-2 transition-colors hover:bg-base-300' +
+            ' focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"' +
+            ' data-action="open-registrations" data-event-id="' + event.id + '"' +
+            ' title="Bekijk de inschrijvingenlijst">' +
+            '<div class="text-xs opacity-60 flex items-center gap-1">' +
+              'Inschrijvingen <i data-lucide="chevron-right" class="w-3 h-3 opacity-50"></i>' +
+            '</div>' +
             '<div class="text-xl font-semibold tabular">' + event.registration.count + '</div>' +
             '<div class="text-xs opacity-60">' +
               (event.registration.capacity === null ? 'onbeperkt' : 'van ' + event.registration.capacity) +
             '</div>' +
-          '</div>' +
+          '</button>' +
           '<div>' +
             '<div class="text-xs opacity-60">Inschrijven</div>' +
             '<div class="text-sm font-semibold ' + (status.open ? 'text-success' : 'opacity-70') + '">' +
@@ -680,6 +892,10 @@
             ? ''
             : '<span class="label-text-alt text-warning mt-1">Zonder host is de afzender leeg en falen de mails. Nodig om te publiceren.</span>') +
         '</label>' +
+        '<label class="form-control sm:col-span-2">' +
+          '<span class="label-text text-xs opacity-70 mb-1">Samenvatting (nodig om te publiceren)</span>' +
+          '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="summary">' +
+          esc(event.summary) + '</textarea></label>' +
       '</div>';
 
     // ── 2. Waar en inschrijven ───────────────────────────────────────────
@@ -699,8 +915,8 @@
             (event.registration.ask_question ? ' checked' : '') + ' />' +
             '<span class="label-text text-sm">Vraag om een vraag vooraf</span></label>' +
         '</div>' +
-        dateTimeField('Inschrijven opent', 'registration_opens_at', event.registration.opens_at) +
-        dateTimeField('Inschrijven sluit', 'registration_closes_at', event.registration.closes_at) +
+        dateOnlyField('Inschrijven opent (vanaf 9:00)', 'registration_opens_at', event.registration.opens_at) +
+        dateOnlyField('Inschrijven sluit (tot 17:00)', 'registration_closes_at', event.registration.closes_at) +
       '</div>' +
       '<p class="text-xs opacity-50 mt-2">De online link komt nooit op de website; die gaat alleen per mail.</p>';
 
@@ -713,10 +929,6 @@
           '<span class="opacity-60"> — dit event wordt vooraan getoond in de aankondiging-widget op de website</span>' +
         '</span>' +
       '</label>' +
-      '<label class="form-control mb-3">' +
-        '<span class="label-text text-xs opacity-70 mb-1">Samenvatting (nodig om te publiceren)</span>' +
-        '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="summary">' +
-        esc(event.summary) + '</textarea></label>' +
 
       '<div class="mb-3">' +
         '<span class="label-text text-xs opacity-70">Hero-beeld</span>' +
@@ -754,9 +966,6 @@
       section('website', 'Website en SEO',
         (event.hero_image_url ? 'beeld' : 'geen beeld') +
         ' · ' + (bodyChars > 0 ? bodyChars + ' tekens inhoud' : 'geen inhoud'), website) +
-      section('inschrijvingen', 'Inschrijvingen',
-        '<span class="badge badge-xs badge-ghost">' + event.registration.count + '</span>',
-        '<div id="registrations-section"></div>') +
 
       '<div class="flex flex-wrap gap-2 mt-4 pt-3 border-t border-base-200">' +
         '<button class="btn btn-sm btn-primary" data-action="save" data-event-id="' + event.id + '">Opslaan</button>' +
@@ -792,25 +1001,9 @@
         '</div>' +
       '</div>' +
 
-      '<p class="text-xs opacity-50 mt-3">' +
-        'Fase in Odoo: <span class="font-mono">' + esc(event.stage ? event.stage.name : '—') + '</span>' +
-        ' · laatst gewijzigd ' + esc(formatWhen(event.write_date)) +
-      '</p>';
+      '<p class="text-xs opacity-50 mt-3">Laatst gesynced ' + esc(formatWhen(event.write_date)) + '</p>';
 
     if (window.lucide) window.lucide.createIcons();
-
-    // Inschrijvingen NIET meteen laden: dat waren drie extra Odoo-rondes bij
-    // elke klik op een event, terwijl je die lijst meestal niet nodig hebt.
-    // Ze komen als je de sectie opent — of meteen als die al open stond.
-    if (state.openSection === 'inschrijvingen') {
-      loadRegistrations(event.id, 1);
-    } else {
-      var host = el('registrations-section');
-      if (host) {
-        host.innerHTML = '<p class="text-sm opacity-60 py-2">' +
-          'Open deze sectie om de inschrijvingen te laden.</p>';
-      }
-    }
   }
 
   /** De publieke URL van een event, voor de "bekijk op de site"-knop. */
@@ -1016,9 +1209,8 @@
     try {
       var result = await api('/events/' + eventId + '/' + (archived ? 'archive' : 'unarchive'), { method: 'POST' });
       state.detail = result.payload.data;
-      state.listCache = {};
       renderDetail();
-      await loadEvents();
+      await refreshEvents();
       toast(archived ? 'Event gearchiveerd' : 'Event teruggehaald', 'success');
     } catch (error) {
       reportError(error);
@@ -1087,7 +1279,7 @@
     el('panel-content').classList.add('hidden');
     el('panel-empty-state').classList.remove('hidden');
 
-    await loadEvents();
+    await refreshEvents();
   }
 
   function collectFields() {
@@ -1108,13 +1300,21 @@
       payload[name] = value;
     });
 
-    // Datum + kwartier-select: geen data-field, dus niet meegepikt door de
-    // lus hierboven. Apart samenvoegen tot één ISO-waarde per veldnaam.
+    // Datum (+ eventueel uur/kwartier): geen data-field, dus niet meegepikt
+    // door de lus hierboven. Apart samenvoegen tot één ISO-waarde per
+    // veldnaam. Velden zonder eigen uur-selects (dateOnlyField()) krijgen
+    // hun vaste klokslag uit DEFAULT_TIME_FOR_FIELD.
     el('panel-content').querySelectorAll('[data-dt-date]').forEach(function (dateInput) {
       var name = dateInput.getAttribute('data-dt-date');
       if (!dateInput.value) { payload[name] = null; return; }
-      var timeSelect = el('panel-content').querySelector('[data-dt-time-for="' + name + '"]');
-      var time = (timeSelect && timeSelect.value) || '00:00';
+      var hourSelect = el('panel-content').querySelector('[data-dt-hour-for="' + name + '"]');
+      var minuteSelect = el('panel-content').querySelector('[data-dt-minute-for="' + name + '"]');
+      var time;
+      if (hourSelect || minuteSelect) {
+        time = ((hourSelect && hourSelect.value) || '08') + ':' + ((minuteSelect && minuteSelect.value) || '00');
+      } else {
+        time = DEFAULT_TIME_FOR_FIELD[name] || '00:00';
+      }
       payload[name] = localInputToIso(dateInput.value + 'T' + time);
     });
 
@@ -1130,6 +1330,16 @@
     waitlisted: { label: 'Wachtlijst', cls: 'badge-warning' },
     cancelled: { label: 'Afgemeld', cls: 'badge-ghost' }
   };
+
+  /** Snelactie vanaf de inschrijvingen-tegel bovenaan het paneel: popup i.p.v. accordeon. */
+  function openRegistrationsDialog(eventId) {
+    el('registrationsDialog').showModal();
+    if (state.registrations.loadedFor === eventId) {
+      renderRegistrations(eventId);
+    } else {
+      loadRegistrations(eventId, 1);
+    }
+  }
 
   async function loadRegistrations(eventId, page) {
     var host = el('registrations-section');
@@ -1158,6 +1368,41 @@
     }
   }
 
+  /**
+   * De 'Vraag'-tekst komt soms als (dubbel-geëscapete) HTML binnen --
+   * "<pre>Beste,<br><br>...&amp;amp;...</pre>" -- in plaats van platte
+   * tekst. Dat gewoon escapen toont de tags letterlijk. Hier ontdoen we het
+   * tot platte tekst met echte regeleindes: <br>/<pre> weg, entiteiten
+   * (eventueel meerdere keren geëscapeerd) terug decoderen, en pas daarna
+   * -- bij het renderen -- opnieuw escapen voor veilige weergave.
+   */
+  function cleanQuestionText(raw) {
+    if (!raw) return '';
+    var text = String(raw);
+    text = text.replace(/<\/?pre[^>]*>/gi, '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+    var prev;
+    do {
+      prev = text;
+      text = text
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#0?39;/g, "'")
+        .replace(/&nbsp;/g, ' ');
+    } while (text !== prev);
+    return text.trim();
+  }
+
+  function registrationMailBadges(row) {
+    var mails = row.mails || {};
+    var out = [];
+    if (mails.confirmation_sent) out.push('<span class="badge badge-xs badge-outline" title="Bevestigingsmail verzonden">Bevestiging</span>');
+    if (mails.reminder_sent) out.push('<span class="badge badge-xs badge-outline" title="Herinneringsmail verzonden">Herinnering</span>');
+    if (mails.recap_sent) out.push('<span class="badge badge-xs badge-outline" title="Recapmail verzonden">Recap</span>');
+    return out;
+  }
+
   function renderRegistrations(eventId) {
     var host = el('registrations-section');
     if (!host) return;
@@ -1168,21 +1413,29 @@
     var rows = reg.rows.map(function (row) {
       var badge = REG_STATE_BADGE[row.state] || REG_STATE_BADGE.registered;
       var lead = row.lead;
+      var mailBadges = registrationMailBadges(row);
+      var question = cleanQuestionText(row.questions);
+      var name = row.partner.name || row.name || '—';
 
-      return '<tr class="hover">' +
-        '<td>' +
-          '<div class="font-medium">' + esc(row.partner.name || row.name || '—') + '</div>' +
-          '<div class="text-xs opacity-60">' + esc(row.submitted_email || '') + '</div>' +
+      return '<tr class="hover align-top">' +
+        '<td class="max-w-[14rem]">' +
+          '<div class="font-medium truncate" title="' + esc(name) + '">' + esc(name) + '</div>' +
+          '<div class="text-xs opacity-60 truncate">' + esc(row.submitted_email || '') + '</div>' +
         '</td>' +
-        '<td class="text-xs">' + esc(row.source || '—') +
+        '<td class="text-xs whitespace-nowrap">' + esc(row.source || '—') +
           '<div class="opacity-60">' + esc(formatWhen(row.created_at)) + '</div></td>' +
-        '<td>' +
+        '<td class="whitespace-nowrap">' +
           (lead && lead.id
             ? '<span class="badge badge-sm badge-outline" title="' + esc(lead.name || '') + '">' +
               esc(lead.resolved_lead_status || '') + '</span>'
             : '<span class="text-xs opacity-40">—</span>') +
         '</td>' +
-        '<td><span class="badge badge-sm ' + badge.cls + '">' + badge.label + '</span></td>' +
+        '<td class="whitespace-nowrap"><span class="badge badge-sm ' + badge.cls + '">' + badge.label + '</span></td>' +
+        '<td class="whitespace-nowrap">' +
+          (mailBadges.length
+            ? '<div class="flex flex-wrap gap-1">' + mailBadges.join('') + '</div>'
+            : '<span class="text-xs opacity-40">—</span>') +
+        '</td>' +
         '<td class="text-center">' +
           '<input type="checkbox" class="checkbox checkbox-sm"' +
             ' data-action="toggle-attendance" data-registration-id="' + row.id + '"' +
@@ -1190,40 +1443,132 @@
             (row.state === 'cancelled' ? ' disabled' : '') + ' />' +
         '</td>' +
         '</tr>' +
-        (row.questions
-          ? '<tr><td colspan="5" class="text-xs opacity-70 pt-0 pb-3">' +
-            '<span class="font-medium">Vraag:</span> ' + esc(row.questions) + '</td></tr>'
+        (question
+          ? '<tr><td colspan="6" class="text-xs opacity-70 pt-0 pb-3">' +
+            '<span class="font-medium">Vraag:</span> <span class="whitespace-pre-wrap">' + esc(question) + '</span></td></tr>'
           : '');
     }).join('');
 
     host.innerHTML =
-      '<details class="border border-base-200 rounded" open>' +
-        '<summary class="cursor-pointer px-3 py-2 text-sm font-medium flex items-center justify-between">' +
-          '<span>Inschrijvingen <span class="badge badge-sm badge-ghost ml-1">' + reg.total + '</span></span>' +
-          '<span class="text-xs opacity-60 font-normal">' + attended + ' van ' + reg.rows.length + ' aanwezig op deze pagina</span>' +
-        '</summary>' +
-        '<div class="px-3 pb-3">' +
-          '<div class="flex justify-end gap-2 mb-2">' +
-            '<button class="btn btn-xs btn-ghost" data-action="reload-registrations" data-event-id="' + eventId + '">Verversen</button>' +
-            '<button class="btn btn-xs btn-outline" data-action="add-registration" data-event-id="' + eventId + '">Handmatig toevoegen</button>' +
-          '</div>' +
-          (reg.rows.length === 0
-            ? '<p class="text-sm opacity-60 py-3">Nog geen inschrijvingen.</p>'
-            : '<div class="overflow-x-auto"><table class="table table-xs">' +
-              '<thead><tr><th>Deelnemer</th><th>Bron</th><th>Lead</th><th>Toestand</th>' +
-              '<th class="text-center">Aanwezig</th></tr></thead>' +
-              '<tbody>' + rows + '</tbody></table></div>') +
-          (reg.totalPages > 1
-            ? '<div class="flex items-center justify-between mt-2">' +
-              '<button class="btn btn-xs btn-ghost" data-action="reg-prev" data-event-id="' + eventId + '"' +
-                (reg.page <= 1 ? ' disabled' : '') + '>Vorige</button>' +
-              '<span class="text-xs opacity-60 tabular">pagina ' + reg.page + ' van ' + reg.totalPages + '</span>' +
-              '<button class="btn btn-xs btn-ghost" data-action="reg-next" data-event-id="' + eventId + '"' +
-                (reg.page >= reg.totalPages ? ' disabled' : '') + '>Volgende</button>' +
-              '</div>'
-            : '') +
+      '<div class="flex items-center justify-between gap-3 flex-wrap mb-3">' +
+        '<div class="flex items-center gap-2 text-sm">' +
+          '<span class="badge badge-ghost">' + reg.total + ' totaal</span>' +
+          '<span class="text-xs opacity-60">' + attended + ' van ' + reg.rows.length + ' aanwezig op deze pagina</span>' +
         '</div>' +
-      '</details>';
+        '<div class="flex items-center gap-1.5 flex-wrap">' +
+          '<button class="btn btn-xs btn-ghost gap-1" data-action="reload-registrations" data-event-id="' + eventId + '">' +
+            '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Verversen</button>' +
+          '<button class="btn btn-xs btn-outline gap-1" data-action="add-registration" data-event-id="' + eventId + '">' +
+            '<i data-lucide="user-plus" class="w-3 h-3"></i> Handmatig toevoegen</button>' +
+          '<div class="w-px h-4 bg-base-300 mx-1"></div>' +
+          '<button class="btn btn-xs btn-outline gap-1" data-action="export-registrations" data-format="xlsx" data-event-id="' + eventId + '"' +
+            ' title="Volledige lijst downloaden als Excel">' +
+            '<i data-lucide="file-spreadsheet" class="w-3 h-3"></i> Excel</button>' +
+          '<button class="btn btn-xs btn-outline gap-1" data-action="export-registrations" data-format="pdf" data-event-id="' + eventId + '"' +
+            ' title="Volledige lijst downloaden als PDF">' +
+            '<i data-lucide="file-text" class="w-3 h-3"></i> PDF</button>' +
+        '</div>' +
+      '</div>' +
+      (reg.rows.length === 0
+        ? '<p class="text-sm opacity-60 py-3">Nog geen inschrijvingen.</p>'
+        : '<div class="overflow-x-auto"><table class="table table-xs">' +
+          '<thead><tr><th>Deelnemer</th><th>Bron</th><th>Lead</th><th>Toestand</th><th>Mails</th>' +
+          '<th class="text-center">Aanwezig</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table></div>') +
+      (reg.totalPages > 1
+        ? '<div class="flex items-center justify-between mt-2">' +
+          '<button class="btn btn-xs btn-ghost" data-action="reg-prev" data-event-id="' + eventId + '"' +
+            (reg.page <= 1 ? ' disabled' : '') + '>Vorige</button>' +
+          '<span class="text-xs opacity-60 tabular">pagina ' + reg.page + ' van ' + reg.totalPages + '</span>' +
+          '<button class="btn btn-xs btn-ghost" data-action="reg-next" data-event-id="' + eventId + '"' +
+            (reg.page >= reg.totalPages ? ' disabled' : '') + '>Volgende</button>' +
+          '</div>'
+        : '');
+
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  /** Haalt ALLE inschrijvingen op (niet enkel de huidige paginagrootte van 25), voor export. */
+  async function fetchAllRegistrations(eventId) {
+    var page = 1;
+    var perPage = 100;
+    var all = [];
+    while (true) {
+      var result = await api('/events/' + eventId + '/registrations?page=' + page + '&per_page=' + perPage);
+      all = all.concat(result.payload.data || []);
+      var pagination = result.payload.pagination || {};
+      if (!pagination.total_pages || page >= pagination.total_pages) break;
+      page += 1;
+    }
+    return all;
+  }
+
+  function registrationExportRows(rows) {
+    return rows.map(function (row) {
+      var badge = REG_STATE_BADGE[row.state] || REG_STATE_BADGE.registered;
+      var mails = row.mails || {};
+      var sent = [];
+      if (mails.confirmation_sent) sent.push('Bevestiging');
+      if (mails.reminder_sent) sent.push('Herinnering');
+      if (mails.recap_sent) sent.push('Recap');
+
+      return {
+        'Deelnemer': row.partner.name || row.name || '',
+        'E-mail': row.submitted_email || '',
+        'Bron': row.source || '',
+        'Datum': formatWhen(row.created_at),
+        'Lead status': (row.lead && row.lead.resolved_lead_status) || '',
+        'Toestand': badge.label,
+        'Aanwezig': row.attended ? 'Ja' : 'Nee',
+        'Verzonden mails': sent.join(', ') || '—',
+        'Vraag': cleanQuestionText(row.questions)
+      };
+    });
+  }
+
+  function downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  var EXPORT_HEADERS = ['Deelnemer', 'E-mail', 'Bron', 'Datum', 'Lead status', 'Toestand', 'Aanwezig', 'Verzonden mails', 'Vraag'];
+
+  async function exportRegistrations(eventId, format, trigger) {
+    if (trigger) trigger.disabled = true;
+    try {
+      var rows = await fetchAllRegistrations(eventId);
+      var exportRows = registrationExportRows(rows);
+      var eventTitle = (state.detail && state.detail.title) || 'event';
+      var filename = 'inschrijvingen-' + eventTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+      if (format === 'xlsx') {
+        if (typeof XLSX === 'undefined') { reportError(new Error('Excel-bibliotheek niet geladen.')); return; }
+        var ws = XLSX.utils.json_to_sheet(exportRows, { header: EXPORT_HEADERS });
+        var wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Inschrijvingen');
+        XLSX.writeFile(wb, filename + '.xlsx');
+      } else if (format === 'pdf') {
+        if (typeof window.jspdf === 'undefined') { reportError(new Error('PDF-bibliotheek niet geladen.')); return; }
+        var doc = new window.jspdf.jsPDF({ orientation: 'landscape' });
+        doc.setFontSize(12);
+        doc.text('Inschrijvingen — ' + eventTitle, 14, 12);
+        doc.autoTable({
+          startY: 18,
+          head: [EXPORT_HEADERS],
+          body: exportRows.map(function (r) { return EXPORT_HEADERS.map(function (h) { return r[h]; }); }),
+          styles: { fontSize: 8, cellWidth: 'wrap' },
+          headStyles: { fillColor: [30, 41, 59] },
+          columnStyles: { 8: { cellWidth: 60 } }
+        });
+        doc.save(filename + '.pdf');
+      }
+    } catch (error) {
+      reportError(error);
+    } finally {
+      if (trigger) trigger.disabled = false;
+    }
   }
 
   /**
@@ -1263,7 +1608,7 @@
       });
       toast('Deelnemer toegevoegd', 'success');
       await loadRegistrations(eventId, 1);
-      await loadEvents();
+      await refreshEvents();
     } catch (error) {
       reportError(error);
     }
@@ -1285,10 +1630,9 @@
     state.detail = detail;
     state.editingTitle = false;
     renderDetail();
-    // Het geheugen is nu verouderd: leeggooien zodat de lijst de wijziging
-    // laat zien.
-    state.listCache = {};
-    await loadEvents();
+    // Het geheugen is nu verouderd: leeggooien zodat kalender en lijst de
+    // wijziging laten zien.
+    await refreshEvents();
     toast(message, 'success');
   }
 
@@ -1323,7 +1667,7 @@
     try {
       var result = await api('/events/' + id + '/duplicate', { method: 'POST' });
       toast('Kopie aangemaakt', 'success');
-      await loadEvents();
+      await refreshEvents();
       await selectEvent(result.payload.data.id);
     } catch (error) { reportError(error); }
   }
@@ -1389,6 +1733,17 @@
     }
   }
 
+  /**
+   * Opent "nieuw event". Vanaf een klik op een lege kalenderdag komt die
+   * datum al ingevuld mee (industry-standard: klik op een lege cel = nieuw
+   * item op die dag), vanaf de knop begint het leeg.
+   */
+  function openCreateDialog(dateStr) {
+    el('createError').classList.add('hidden');
+    el('newStartsAtDate').value = dateStr || '';
+    el('createDialog').showModal();
+  }
+
   async function createEvent() {
     var errorBox = el('createError');
     errorBox.classList.add('hidden');
@@ -1396,7 +1751,8 @@
     var body = {
       title: el('newTitle').value.trim(),
       starts_at: el('newStartsAtDate').value
-        ? localInputToIso(el('newStartsAtDate').value + 'T' + (el('newStartsAtTime').value || '00:00'))
+        ? localInputToIso(el('newStartsAtDate').value + 'T' +
+            ((el('newStartsAtHour').value || '10') + ':' + (el('newStartsAtMinute').value || '00')))
         : null,
       duration_minutes: Number(el('newDuration').value) || 60,
       capacity: Number(el('newCapacity').value) || 0,
@@ -1414,7 +1770,7 @@
       var result = await api('/events', { method: 'POST', body: body });
       el('createDialog').close();
       toast('Event aangemaakt', 'success');
-      await loadEvents();
+      await refreshEvents();
       await selectEvent(result.payload.data.id);
     } catch (error) {
       errorBox.textContent = error.message + (error.details ? ': ' + error.details.join(', ') : '');
@@ -1459,7 +1815,10 @@
       case 'cancel-event': transition(id, 'cancel', 'Geannuleerd'); break;
       case 'duplicate': duplicate(id); break;
       case 'show-public': showPublic(id); break;
+      case 'open-registrations': openRegistrationsDialog(id); break;
+      case 'registrations-close': el('registrationsDialog').close(); break;
       case 'reload-registrations': loadRegistrations(id, state.registrations.page); break;
+      case 'export-registrations': exportRegistrations(id, trigger.getAttribute('data-format'), trigger); break;
       case 'add-registration': addRegistration(id); break;
       case 'remove-event': openRemoveDialog(id); break;
       case 'archive': archiveEvent(id, true); break;
@@ -1487,21 +1846,43 @@
         }
         break;
       case 'public-close': el('publicDialog').close(); break;
-      case 'reload': loadEvents(true); break;
+      case 'reload':
+        if (state.view === 'list') { loadListEvents(true); } else { loadEvents(true); }
+        break;
       case 'view-calendar': switchView('calendar'); break;
       case 'view-list': switchView('list'); break;
-      case 'new-event':
-        el('createError').classList.add('hidden');
-        el('createDialog').showModal();
-        break;
+      case 'new-event': openCreateDialog(); break;
       case 'create-cancel': el('createDialog').close(); break;
       case 'create-submit': createEvent(); break;
       case 'page-prev':
-        if (state.page > 1) { state.page -= 1; loadEvents(); }
+        if (state.list.page > 1) { state.list.page -= 1; loadListEvents(); }
         break;
       case 'page-next':
-        if (state.page < state.totalPages) { state.page += 1; loadEvents(); }
+        if (state.list.page < state.list.totalPages) { state.list.page += 1; loadListEvents(); }
         break;
+      case 'list-month-prev': {
+        var prevMonth = addMonths(state.list.month.year, state.list.month.month, -1);
+        var thisMonth = brusselsYearMonth();
+        // Nooit voor de huidige maand -- de knop staat dan sowieso al
+        // disabled, maar dit is de harde grens.
+        if (prevMonth.year < thisMonth.year || (prevMonth.year === thisMonth.year && prevMonth.month < thisMonth.month)) break;
+        state.list.month = prevMonth;
+        state.list.page = 1;
+        loadListEvents();
+        break;
+      }
+      case 'list-month-next':
+        state.list.month = addMonths(state.list.month.year, state.list.month.month, 1);
+        state.list.page = 1;
+        loadListEvents();
+        break;
+      case 'list-type-toggle': {
+        var typeId = Number(trigger.getAttribute('data-type-id'));
+        if (state.list.types.has(typeId)) { state.list.types.delete(typeId); } else { state.list.types.add(typeId); }
+        state.list.page = 1;
+        loadListEvents();
+        break;
+      }
       default: break;
     }
   });
@@ -1513,13 +1894,7 @@
     if (!node || node.tagName !== 'DETAILS' || node.getAttribute('data-action') !== 'section') return;
     if (!node.open) return;
 
-    var key = node.getAttribute('data-section');
-    state.openSection = key;
-
-    // Pas nu ophalen, en alleen als het nog niet gebeurd is.
-    if (key === 'inschrijvingen' && state.detail && !state.registrations.loadedFor) {
-      loadRegistrations(state.detail.id, 1);
-    }
+    state.openSection = node.getAttribute('data-section');
   }, true);
 
   document.addEventListener('change', function (domEvent) {
@@ -1633,8 +2008,11 @@
     // newType/newHost. Zelfde reden als dateTimeField() in het detailpaneel:
     // de browser-eigen datetime-local-picker toont zijn minutenlijst altijd
     // per minuut, step of niet.
-    if (el('newStartsAtTime')) {
-      el('newStartsAtTime').innerHTML = '<option value="">--:--</option>' + quarterHourOptions('');
+    if (el('newStartsAtHour')) {
+      el('newStartsAtHour').innerHTML = '<option value="">--</option>' + hourOptions('');
+    }
+    if (el('newStartsAtMinute')) {
+      el('newStartsAtMinute').innerHTML = '<option value="">--</option>' + minuteOptions('');
     }
     Promise.all([loadTypes(), loadHosts(), loadLegacyWpPages()]).then(loadEvents);
     if (window.lucide) window.lucide.createIcons();

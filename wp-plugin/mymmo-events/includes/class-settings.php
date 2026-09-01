@@ -230,15 +230,32 @@ final class Mymmo_Events_Settings {
                 <tbody>
                     <tr>
                         <td><code>[mymmo_events_calendar]</code></td>
-                        <td>Maandkalender. Parameters: <code>month</code> (JJJJ-MM), <code>type</code>, <code>format</code>.</td>
+                        <td>Maandkalender. Parameters: <code>month</code> (JJJJ-MM), <code>type</code>, <code>format</code>.
+                            Bladert nooit terug voor de huidige maand (vorige/volgende zonder herladen, dankzij het
+                            REST-endpoint in <code>class-rest.php</code>). Laat je <code>type</code> leeg, dan krijgt
+                            de bezoeker zelf togglebare chips om op event type te filteren -- standaard staan ze
+                            allemaal aan, en filteren gebeurt volledig clientside, zonder nieuwe serveraanvraag; zet
+                            je <code>type</code> vast, dan tonen de chips niet.</td>
                     </tr>
                     <tr>
                         <td><code>[mymmo_events_list]</code></td>
-                        <td>Lijst. Parameters: <code>limit</code>, <code>type</code>, <code>format</code>, <code>show_past</code>, <code>layout</code> (rows of cards).</td>
+                        <td>Lijst, per maand -- met dezelfde vorige/volgende-navigatie als de kalender. Parameters:
+                            <code>month</code> (JJJJ-MM), <code>limit</code>, <code>type</code>, <code>format</code>,
+                            <code>show_past</code> (staat terugbladeren voorbij de huidige maand toe),
+                            <code>layout</code> (rows of cards). Zelfde chips-gedrag als de kalender wanneer
+                            <code>type</code> leeg blijft.</td>
                     </tr>
                     <tr>
                         <td><code>[mymmo_event]</code></td>
                         <td>Een event. Parameter <code>slug</code>; zonder slug wordt die uit de URL gehaald.</td>
+                    </tr>
+                    <tr>
+                        <td><code>[mymmo_events_announcement]</code></td>
+                        <td>
+                            Aankondiging-callout voor één event, met andere events er speels achter.
+                            Toont het gehighlighte event (vlag in de Operations Manager); zonder highlight
+                            automatisch het eerstvolgende. Vaste huisstijl, geen parameters.
+                        </td>
                     </tr>
                 </tbody>
             </table>

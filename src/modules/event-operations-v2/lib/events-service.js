@@ -313,7 +313,14 @@ async function buildEventDomain(env, filters = {}) {
       domain.push('|', [EVENT_FIELDS.BRAND, 'in', visible], [EVENT_FIELDS.BRAND, '=', false]);
     }
   }
-  if (filters.event_type_id) {
+  if (Array.isArray(filters.event_type_id)) {
+    const ids = filters.event_type_id.map(Number).filter((n) => Number.isInteger(n));
+    if (ids.length === 1) {
+      domain.push([EVENT_FIELDS.EVENT_TYPE, '=', ids[0]]);
+    } else if (ids.length > 1) {
+      domain.push([EVENT_FIELDS.EVENT_TYPE, 'in', ids]);
+    }
+  } else if (filters.event_type_id) {
     domain.push([EVENT_FIELDS.EVENT_TYPE, '=', Number(filters.event_type_id)]);
   }
   if (filters.highlighted === true) {

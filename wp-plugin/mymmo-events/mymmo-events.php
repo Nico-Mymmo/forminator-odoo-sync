@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Events
  * Description:       Kalender, eventpagina's en inschrijvingen, rechtstreeks uit de OpenVME Operations Manager. Geen dubbele events in WordPress.
- * Version:           1.5.0
+ * Version:           1.6.10
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -27,7 +27,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_EVENTS_VERSION', '1.5.0');
+define('MYMMO_EVENTS_VERSION', '1.6.10');
 define('MYMMO_EVENTS_FILE', __FILE__);
 define('MYMMO_EVENTS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_EVENTS_URL', plugin_dir_url(__FILE__));
@@ -42,6 +42,7 @@ require_once MYMMO_EVENTS_DIR . 'includes/class-api-client.php';
 require_once MYMMO_EVENTS_DIR . 'includes/class-settings.php';
 require_once MYMMO_EVENTS_DIR . 'includes/class-router.php';
 require_once MYMMO_EVENTS_DIR . 'includes/class-shortcodes.php';
+require_once MYMMO_EVENTS_DIR . 'includes/class-rest.php';
 require_once MYMMO_EVENTS_DIR . 'includes/class-registration.php';
 
 /**
@@ -51,6 +52,7 @@ function mymmo_events_bootstrap(): void {
     Mymmo_Events_Settings::init();
     Mymmo_Events_Router::init();
     Mymmo_Events_Shortcodes::init();
+    Mymmo_Events_Rest::init();
     Mymmo_Events_Registration::init();
 }
 add_action('plugins_loaded', 'mymmo_events_bootstrap');
