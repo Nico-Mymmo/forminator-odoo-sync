@@ -40,6 +40,7 @@ import {
   CACHE_TTL
 } from '../constants.js';
 import { readThrough, invalidateEvents } from './cache.js';
+import { pushWpReload } from './wp-reload.js';
 import { ensureUniqueSlug } from './slug.js';
 import {
   ValidationError,
@@ -535,7 +536,7 @@ export async function getEvent(env, selector, options = {}) {
  *
  * @returns {Promise<Object>} het DTO van het nieuwe event
  */
-export async function createEvent(env, input, actor = null) {
+export async function createEvent(env, input, actor = null, { ctx = null } = {}) {
   validateEventInput(input, { isCreate: true });
 
   const slug = await ensureUniqueSlug(env, input.slug || input.title);
@@ -554,6 +555,7 @@ export async function createEvent(env, input, actor = null) {
 
   await logToChatter(env, id, `Event aangemaakt in Event Operations`, actor);
   await invalidateEvents(env);
+  await pushWpReload(env, ctx);
 
   const { event } = await getEvent(env, { id }, { bypassCache: true });
   return event;
@@ -565,7 +567,7 @@ export async function createEvent(env, input, actor = null) {
  *
  * @returns {Promise<Object>}
  */
-export async function updateEvent(env, id, input, actor = null) {
+export async function updateEvent(env, id, input, actor = null, { ctx = null } = {}) {
   validateEventInput(input);
 
   const eventId = Number(id);
@@ -597,6 +599,7 @@ export async function updateEvent(env, id, input, actor = null) {
   const changed = Object.keys(patch).join(', ');
   await logToChatter(env, eventId, `Gewijzigd via Event Operations: ${changed}`, actor);
   await invalidateEvents(env);
+  await pushWpReload(env, ctx);
 
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
   return event;
@@ -612,7 +615,7 @@ export async function updateEvent(env, id, input, actor = null) {
  *
  * @returns {Promise<Object>}
  */
-export async function setPublicationState(env, id, nextState, actor = null) {
+export async function setPublicationState(env, id, nextState, actor = null, { ctx = null } = {}) {
   const eventId = Number(id);
   const { event: current } = await getEvent(env, { id: eventId }, { bypassCache: true });
   if (!current) {
@@ -660,6 +663,7 @@ export async function setPublicationState(env, id, nextState, actor = null) {
     actor
   );
   await invalidateEvents(env);
+  await pushWpReload(env, ctx);
 
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
   return event;
@@ -669,7 +673,7 @@ export async function setPublicationState(env, id, nextState, actor = null) {
  * Archiveren of activeren via x_active.
  * @returns {Promise<Object>}
  */
-export async function setEventActive(env, id, active, actor = null) {
+export async function setEventActive(env, id, active, actor = null, { ctx = null } = {}) {
   const eventId = Number(id);
 
   await write(env, {
@@ -687,6 +691,7 @@ export async function setEventActive(env, id, active, actor = null) {
     actor
   );
   await invalidateEvents(env);
+  await pushWpReload(env, ctx);
 
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
   return event;
@@ -696,7 +701,7 @@ export async function setEventActive(env, id, active, actor = null) {
  * Kopie als concept, zonder inschrijvingen.
  * @returns {Promise<Object>}
  */
-export async function duplicateEvent(env, id, actor = null) {
+export async function duplicateEvent(env, id, actor = null, { ctx = null } = {}) {
   const { event: source } = await getEvent(env, { id: Number(id) }, { bypassCache: true });
   if (!source) {
     throw new ValidationError(`Event ${id} niet gevonden`, { status: 404 });
@@ -722,7 +727,8 @@ export async function duplicateEvent(env, id, actor = null) {
       seo_title: source.seo?.title,
       seo_description: source.seo?.description
     },
-    actor
+    actor,
+    { ctx }
   );
 }
 
@@ -738,7 +744,7 @@ export async function duplicateEvent(env, id, actor = null) {
  * @param {Object} [actor]
  * @returns {Promise<{ deleted: true, id: number }>}
  */
-export async function deleteEvent(env, id, actor = null, { cascade = false } = {}) {
+export async function deleteEvent(env, id, actor = null, { cascade = false, ctx = null } = {}) {
   const eventId = Number(id);
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
 
@@ -815,6 +821,7 @@ export async function deleteEvent(env, id, actor = null, { cascade = false } = {
   });
 
   await invalidateEvents(env);
+  await pushWpReload(env, ctx);
 
   return { deleted: true, id: eventId, registrations_deleted: registrationCount };
 }

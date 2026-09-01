@@ -291,11 +291,56 @@
     });
   }
 
+  /**
+   * 5. Aankondiging: bij hover van de bovenste kaart draait de pijl+label-
+   *    groep licht mee, met een pivot op het gemeten middelpunt van de
+   *    kaart (fluid-width, dus geen vaste CSS-transform-origin mogelijk --
+   *    zie het commentaar bij .mymmo-ev-announce__pointer in
+   *    mymmo-events.css). De ghost-kaartjes achter de kaart bewegen
+   *    tegelijk zeer licht mee via een modifier-klasse op de deck (de
+   *    eigenlijke beweging staat in CSS, hier enkel de klasse). Elke
+   *    .mymmo-ev-announce op de pagina wordt onafhankelijk
+   *    geïnitialiseerd.
+   */
+  function announcementHover() {
+    var announces = document.querySelectorAll('.mymmo-ev-announce');
+    if (!announces.length) return;
+
+    announces.forEach(function (announce) {
+      var card = announce.querySelector('.mymmo-ev-announce__card');
+      var deck = announce.querySelector('.mymmo-ev-announce__deck');
+      var pointer = announce.querySelector('.mymmo-ev-announce__pointer');
+      if (!card || !deck) return;
+
+      card.addEventListener('mouseenter', function () {
+        deck.classList.add('mymmo-ev-announce__deck--hover');
+        if (!pointer) return;
+
+        // De pijl is display:none onder de 34rem-breakpoint (zie CSS) --
+        // reken dan niets uit, de rect zou toch leeg/irrelevant zijn.
+        if (pointer.offsetParent === null) return;
+
+        var cardRect = card.getBoundingClientRect();
+        var pointerRect = pointer.getBoundingClientRect();
+        var originX = (cardRect.left + cardRect.width / 2) - pointerRect.left;
+        var originY = (cardRect.top + cardRect.height / 2) - pointerRect.top;
+
+        pointer.style.transformOrigin = originX + 'px ' + originY + 'px';
+        pointer.classList.add('mymmo-ev-announce__pointer--hover');
+      });
+
+      card.addEventListener('mouseleave', function () {
+        deck.classList.remove('mymmo-ev-announce__deck--hover');
+        if (pointer) pointer.classList.remove('mymmo-ev-announce__pointer--hover');
+      });
+    });
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
-      focusFlash(); guardForms(); initComponents(); keyboardNav();
+      focusFlash(); guardForms(); initComponents(); keyboardNav(); announcementHover();
     });
   } else {
-    focusFlash(); guardForms(); initComponents(); keyboardNav();
+    focusFlash(); guardForms(); initComponents(); keyboardNav(); announcementHover();
   }
 })();

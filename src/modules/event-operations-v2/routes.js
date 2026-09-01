@@ -196,7 +196,7 @@ export const routes = {
    */
   'POST /api/events': withErrors(async (context) => {
     const body = await readJsonBody(context.request);
-    const event = await createEvent(context.env, body, context.user);
+    const event = await createEvent(context.env, body, context.user, { ctx: context.ctx });
     return json({ success: true, data: event }, 201);
   }),
 
@@ -221,7 +221,7 @@ export const routes = {
   'PATCH /api/events/:id': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
     const body = await readJsonBody(context.request);
-    const event = await updateEvent(context.env, id, body, context.user);
+    const event = await updateEvent(context.env, id, body, context.user, { ctx: context.ctx });
     return json({ success: true, data: event });
   }),
 
@@ -231,13 +231,13 @@ export const routes = {
    */
   'POST /api/events/:id/publish': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
-    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.PUBLISHED, context.user);
+    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.PUBLISHED, context.user, { ctx: context.ctx });
     return json({ success: true, data: event });
   }),
 
   'POST /api/events/:id/unpublish': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
-    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.DRAFT, context.user);
+    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.DRAFT, context.user, { ctx: context.ctx });
     return json({ success: true, data: event });
   }),
 
@@ -247,31 +247,31 @@ export const routes = {
    */
   'POST /api/events/:id/done': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
-    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.DONE, context.user);
+    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.DONE, context.user, { ctx: context.ctx });
     return json({ success: true, data: event });
   }),
 
   'POST /api/events/:id/cancel': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
-    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.CANCELLED, context.user);
+    const event = await setPublicationState(context.env, id, PUBLICATION_STATE.CANCELLED, context.user, { ctx: context.ctx });
     return json({ success: true, data: event });
   }),
 
   'POST /api/events/:id/archive': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
-    const event = await setEventActive(context.env, id, false, context.user);
+    const event = await setEventActive(context.env, id, false, context.user, { ctx: context.ctx });
     return json({ success: true, data: event });
   }),
 
   'POST /api/events/:id/unarchive': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
-    const event = await setEventActive(context.env, id, true, context.user);
+    const event = await setEventActive(context.env, id, true, context.user, { ctx: context.ctx });
     return json({ success: true, data: event });
   }),
 
   'POST /api/events/:id/duplicate': withErrors(async (context) => {
     const id = eventIdFrom(context.params);
-    const event = await duplicateEvent(context.env, id, context.user);
+    const event = await duplicateEvent(context.env, id, context.user, { ctx: context.ctx });
     return json({ success: true, data: event }, 201);
   }),
 
@@ -288,7 +288,7 @@ export const routes = {
     // Odoo staan zonder event eraan.
     const cascade = url.searchParams.get('cascade') === '1';
 
-    const data = await deleteEvent(context.env, id, context.user, { cascade });
+    const data = await deleteEvent(context.env, id, context.user, { cascade, ctx: context.ctx });
     return json({ success: true, data });
   }),
 
@@ -488,7 +488,7 @@ export const routes = {
     const id = eventIdFrom(context.params);
 
     await removeHeroImage(context.env, id);
-    const event = await updateEvent(context.env, id, { hero_image_url: null }, context.user);
+    const event = await updateEvent(context.env, id, { hero_image_url: null }, context.user, { ctx: context.ctx });
 
     return json({ success: true, data: event });
   }),
@@ -527,7 +527,7 @@ export const routes = {
     const { url } = await storeHeroImage(context.env, id, buffer, file.type);
 
     // Via de service, zodat cache-invalidatie en chatter meelopen.
-    const event = await updateEvent(context.env, id, { hero_image_url: url }, context.user);
+    const event = await updateEvent(context.env, id, { hero_image_url: url }, context.user, { ctx: context.ctx });
 
     return json({ success: true, data: { hero_image_url: url, event } });
   })

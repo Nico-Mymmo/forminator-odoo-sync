@@ -747,6 +747,17 @@
   gap: 0;
   text-align: right;
   pointer-events: none;
+  transition: transform 0.25s ease;
+}
+/* v1.6.11: op hover van de bovenste kaart draait de hele pijl+label-groep
+   licht mee, als één stijf geheel (zie announcementHover() in
+   mymmo-events.js). transform-origin wordt vanuit JS in pixels gezet op
+   het gemeten middelpunt van de kaart -- geen vaste waarde hier, want de
+   kaart is fluid-width en een vaste CSS-pivot zou bij een andere
+   containerbreedte niet meer kloppen. Label en pijl behouden hun eigen
+   vaste rotatie (v1.6.4, hieronder). */
+.mymmo-ev-announce__pointer--hover {
+  transform: rotate(3deg);
 }
 .mymmo-ev-announce__pointer-label {
   font-family: inherit;
@@ -783,6 +794,7 @@
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
   padding: 1.5rem;
   overflow: hidden;
+  transition: transform 0.2s ease;
 }
 .mymmo-ev-announce__ghost-date {
   display: inline-flex;
@@ -807,9 +819,39 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mymmo-ev-announce__ghost--1 { z-index: 2; transform: rotate(-5deg); }
-.mymmo-ev-announce__ghost--2 { z-index: 1; transform: rotate(6deg); opacity: 0.85; }
-.mymmo-ev-announce__ghost--3 { z-index: 0; transform: rotate(-9deg); opacity: 0.4; }
+/* v1.6.11: elk kaartje krijgt een eigen transform-origin (licht naast het
+   midden, en niet voor alle drie in dezelfde richting) plus een kleine
+   translate() vóór de rotate() -- anders vallen ze bij rotatie 0 exact over
+   elkaar, want ze delen verder dezelfde `inset: 0`-box. */
+.mymmo-ev-announce__ghost--1 {
+  z-index: 2;
+  transform-origin: 42% 58%;
+  transform: translate(6px, -5px) rotate(-5deg);
+}
+.mymmo-ev-announce__ghost--2 {
+  z-index: 1;
+  opacity: 0.85;
+  transform-origin: 58% 44%;
+  transform: translate(-7px, 6px) rotate(6deg);
+}
+.mymmo-ev-announce__ghost--3 {
+  z-index: 0;
+  opacity: 0.4;
+  transform-origin: 46% 64%;
+  transform: translate(4px, 9px) rotate(-9deg);
+}
+
+/* Minieme extra beweging op hover van de bovenste kaart (klasse gezet door
+   announcementHover() in mymmo-events.js), zodat de stapel licht "schikt". */
+.mymmo-ev-announce__deck--hover .mymmo-ev-announce__ghost--1 {
+  transform: translate(7px, -7px) rotate(-5.6deg);
+}
+.mymmo-ev-announce__deck--hover .mymmo-ev-announce__ghost--2 {
+  transform: translate(-9px, 8px) rotate(6.5deg);
+}
+.mymmo-ev-announce__deck--hover .mymmo-ev-announce__ghost--3 {
+  transform: translate(5px, 11px) rotate(-9.6deg);
+}
 
 .mymmo-ev-announce__card {
   position: relative;

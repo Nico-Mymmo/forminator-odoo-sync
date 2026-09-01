@@ -1,18 +1,29 @@
 <?php
 /**
- * REST-endpoint voor maandwissels zonder herladen.
+ * REST-endpoints: maandwissels zonder herladen, en een verversing van de
+ * cache op afroep.
  *
- * Enkel gebruikt als progressive enhancement door mymmo-events.js: een klik
- * op vorige/volgende maand blijft óók zonder JS werken via de gewone
- * ?mymmo_month=-link (zie de templates). Is JS actief, dan onderschept die
- * de klik en haalt hij hier alleen de HTML voor de nieuwe maand op, in
- * plaats van de hele pagina opnieuw te laden.
- *
+ * /calendar en /list zijn enkel gebruikt als progressive enhancement door
+ * mymmo-events.js: een klik op vorige/volgende maand blijft óók zonder JS
+ * werken via de gewone ?mymmo_month=-link (zie de templates). Is JS
+ * actief, dan onderschept die de klik en haalt hij hier alleen de HTML
+ * voor de nieuwe maand op, in plaats van de hele pagina opnieuw te laden.
  * Publiek en zonder nonce: dit zijn dezelfde gegevens die de shortcode
  * toch al voor iedereen server-side rendert, enkel opnieuw ingepakt als
  * JSON. De bestaande transient-cache in Mymmo_Events_Api_Client (standaard
  * 60s, zie mymmo_events_cache_ttl) zorgt dat snel heen-en-weer bladeren
  * niet bij elke klik de Operations Manager-API belast.
+ *
+ * /reload (v1.6.12) is een expliciete cache-leging voor als een pagina zo
+ * lang openstaat dat de gewone 60s-cache niet vroeg genoeg ververst --
+ * of, vaker, om een wijziging in de Operations Manager METEEN zichtbaar
+ * te maken in plaats van tot 60s te wachten. Beveiligd met een token
+ * (mymmo_events_reload_token, in te stellen bij Instellingen → Mymmo
+ * Events) in plaats van een nonce, want dit moet ook werken als gewone
+ * GET-link (bv. een knop in de Operations Manager) en als server-naar-
+ * server-aanroep vanuit de Worker na een schrijfactie -- geen van beide
+ * heeft een ingelogde WordPress-sessie. Zonder ingesteld token blijft dit
+ * endpoint geweigerd; er is bewust geen "geen token = geen controle".
  */
 
 declare(strict_types=1);
@@ -30,6 +41,15 @@ final class Mymmo_Events_Rest {
     }
 
     public static function register_routes(): void {
+        register_rest_route(self::NAMESPACE, '/reload', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'reload'],
+            'permission_callback' => '__return_true',
+            'args' => [
+                'token' => ['type' => 'string', 'required' => true],
+            ],
+        ]);
+
         register_rest_route(self::NAMESPACE, '/calendar', [
             'methods' => 'GET',
             'callback' => [self::class, 'calendar'],
@@ -54,6 +74,24 @@ final class Mymmo_Events_Rest {
                 'limit' => ['type' => 'integer', 'required' => false, 'default' => 50],
             ],
         ]);
+    }
+
+    /**
+     * Cache volledig leegmaken (transients + last-known-good). De
+     * eerstvolgende aanvraag -- van eender wie -- haalt daardoor weer
+     * live op bij de Operations Manager.
+     */
+    public static function reload(WP_REST_Request $request) {
+        $configured = (string) get_option('mymmo_events_reload_token', '');
+        $submitted = (string) $request->get_param('token');
+
+        if ($configured === '' || !hash_equals($configured, $submitted)) {
+            return new WP_Error('mymmo_events_bad_token', 'Ongeldig of ontbrekend token.', ['status' => 403]);
+        }
+
+        Mymmo_Events_Cache::purge_all();
+
+        return rest_ensure_response(['ok' => true, 'purged' => true]);
     }
 
     public static function calendar(WP_REST_Request $request) {

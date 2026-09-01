@@ -18,6 +18,7 @@ final class Mymmo_Events_Settings {
         add_action('admin_init', [self::class, 'register']);
         add_action('admin_menu', [self::class, 'add_page']);
         add_action('admin_post_mymmo_events_purge', [self::class, 'handle_purge']);
+        add_action('admin_post_mymmo_events_regenerate_token', [self::class, 'handle_regenerate_token']);
         add_action('admin_notices', [self::class, 'stale_notice']);
     }
 
@@ -31,6 +32,7 @@ final class Mymmo_Events_Settings {
             'mymmo_events_archive_base' => ['type' => 'string', 'default' => MYMMO_EVENTS_DEFAULT_ARCHIVE_BASE, 'sanitize_callback' => [self::class, 'sanitize_base']],
             'mymmo_events_timezone' => ['type' => 'string', 'default' => 'Europe/Brussels', 'sanitize_callback' => 'sanitize_text_field'],
             'mymmo_events_fallback_routing' => ['type' => 'boolean', 'default' => true, 'sanitize_callback' => [self::class, 'sanitize_bool']],
+            'mymmo_events_reload_token' => ['type' => 'string', 'default' => '', 'sanitize_callback' => 'sanitize_text_field'],
         ];
 
         foreach ($fields as $name => $args) {
@@ -86,9 +88,37 @@ final class Mymmo_Events_Settings {
         exit;
     }
 
+    /**
+     * Nieuw reload-token: maakt elke eerder uitgedeelde reload-URL (aan de
+     * Operations Manager of ergens anders) meteen ongeldig. Gebruik dit bij
+     * een vermoeden dat een token gelekt is, of gewoon om een oude URL op
+     * te ruimen.
+     */
+    public static function handle_regenerate_token(): void {
+        if (!current_user_can('manage_options') || !check_admin_referer('mymmo_events_regenerate_token')) {
+            wp_die('Geen toegang.');
+        }
+        update_option('mymmo_events_reload_token', self::generate_token());
+        wp_safe_redirect(add_query_arg('mymmo_token_regenerated', '1', admin_url('options-general.php?page=' . self::PAGE)));
+        exit;
+    }
+
+    private static function generate_token(): string {
+        return wp_generate_password(40, false, false);
+    }
+
     public static function render_page(): void {
         if (!current_user_can('manage_options')) {
             return;
+        }
+
+        // Een leeg token betekent dat /reload altijd geweigerd wordt (zie
+        // class-rest.php) -- geen "toevallig openstaand" endpoint. Zodra
+        // een beheerder deze pagina opent, staat er dus altijd al een
+        // bruikbaar token klaar, in plaats van dat iemand eerst zelf iets
+        // moet invullen voor de knop werkt.
+        if ((string) get_option('mymmo_events_reload_token', '') === '') {
+            update_option('mymmo_events_reload_token', self::generate_token());
         }
 
         $test = null;
@@ -116,6 +146,12 @@ final class Mymmo_Events_Settings {
 
             <?php if (isset($_GET['mymmo_purged'])) : ?>
                 <div class="notice notice-success is-dismissible"><p>Cache leeggemaakt.</p></div>
+            <?php endif; ?>
+
+            <?php if (isset($_GET['mymmo_token_regenerated'])) : ?>
+                <div class="notice notice-success is-dismissible">
+                    <p>Nieuw reload-token gegenereerd. De vorige reload-URL werkt niet meer -- kopieer de nieuwe naar de Operations Manager.</p>
+                </div>
             <?php endif; ?>
 
             <?php if (is_array($test)) : ?>
@@ -165,6 +201,30 @@ final class Mymmo_Events_Settings {
                                 Kort mag: een verversing stuurt de vorige ETag mee, dus een onveranderd
                                 antwoord komt terug als 304 zonder inhoud. Het vangnet blijft los hiervan
                                 zeven dagen bewaard.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="mymmo_events_reload_token">Reload-URL</label></th>
+                        <td>
+                            <?php $reload_token = (string) get_option('mymmo_events_reload_token', ''); ?>
+                            <input type="text" class="large-text code" readonly
+                                   onclick="this.select();"
+                                   value="<?php echo esc_url(rest_url('mymmo-events/v1/reload') . '?token=' . rawurlencode($reload_token)); ?>" />
+                            <p class="description">
+                                Opent deze URL, dan wordt de cache meteen leeggemaakt -- de eerstvolgende
+                                bezoeker (van eender welke pagina met een shortcode) krijgt weer live data
+                                van de Operations Manager, in plaats van tot <?php echo esc_html((string) get_option('mymmo_events_cache_ttl', 60)); ?> seconden te
+                                moeten wachten. Bedoeld om als knop of automatische aanroep vanuit de
+                                Operations Manager te gebruiken na het publiceren of wijzigen van een
+                                event -- geen WordPress-login nodig, het token in de URL is de beveiliging.
+                                Deel deze URL dus enkel met wie/wat de cache mag legen.
+                            </p>
+                            <p>
+                                <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=mymmo_events_regenerate_token'), 'mymmo_events_regenerate_token')); ?>">
+                                    Nieuw token genereren
+                                </a>
+                                <span class="description">Maakt de URL hierboven meteen ongeldig -- gebruik dit als hij gelekt is of niet langer nodig is.</span>
                             </p>
                         </td>
                     </tr>

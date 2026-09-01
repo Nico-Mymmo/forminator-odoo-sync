@@ -155,6 +155,46 @@ je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
 
+**1.6.12**
+- Nieuw REST-endpoint `/wp-json/mymmo-events/v1/reload?token=...` dat de volledige cache
+  (transients + last-known-good) in een keer leegmaakt. Beveiligd met een token
+  (`mymmo_events_reload_token`, in te stellen bij Instellingen → Mymmo Events -- daar staat
+  ook de kant-en-klare Reload-URL en een knop om een nieuw token te genereren), niet met een
+  WordPress-login: dit moet zowel als knop vanuit de Operations Manager werken als als
+  server-naar-server-aanroep, en geen van beide heeft een ingelogde sessie.
+- De vorige aanpak (een JS-timer die periodiek op de achtergrond pollde) is bewust NIET
+  aangehouden -- te veel overhead voor een tabblad dat gewoon open staat. De normale
+  60s-cache (`mymmo_events_cache_ttl`) blijft gewoon zoals hij was: bij elke nieuwe
+  paginalading wordt gecontroleerd of de cache ouder is dan de ingestelde tijd, en zo ja
+  opnieuw opgehaald. Dat werkte altijd al correct; het enige wat ontbrak was een manier om
+  daar niet op te hoeven wachten.
+- Event Operations (de Cloudflare Worker) roept deze reload-URL nu automatisch aan
+  (`src/modules/event-operations-v2/lib/wp-reload.js`) net na elke schrijfactie op een event
+  (aanmaken, wijzigen, publiceren/depubliceren, archiveren, verwijderen, hero-afbeelding) --
+  ná de eigen KV-cache-invalidatie van de Worker, als een fire-and-forget seintje via
+  `ctx.waitUntil()`. Zo is een wijziging in de Operations Manager meteen zichtbaar op de
+  website in plaats van tot 60 seconden te wachten. Configuratie gebeurt met het
+  Worker-secret `EVENTS_WP_RELOAD_WEBHOOKS` (kommagescheiden lijst van volledige reload-URL's
+  incl. token, één per WordPress-site) -- ontbreekt dat secret, dan gebeurt er gewoon niets;
+  geen gekoppelde site is een geldige toestand. Mislukt een aanroep (timeout, foutstatus),
+  dan wordt dat enkel gelogd: Odoo blijft de bron van waarheid en de gewone 60s-cache vangt
+  het sowieso op.
+
+**1.6.11**
+- Aankondiging (`mymmo_events_announcement`): de kaartjes achter de hoofdkaart lagen bij
+  rotatie 0 exact op elkaar, want ze deelden dezelfde `inset: 0`-box en verschilden enkel in
+  hoek, rond hetzelfde middelpunt. Elk kaartje heeft nu een eigen `transform-origin` (licht
+  naast het midden, elk anders) en een kleine `translate()` vóór de rotate, zodat het een
+  losse, nonchalant neergelegde stapel blijft ook als je de hoeken zou platzetten.
+- De pijl + het label ("Schrijf je snel in") draaien nu mee wanneer je over de bovenste kaart
+  hovert, met een pivot op het echte, gemeten middelpunt van de kaart (`announcementHover()`
+  in `mymmo-events.js`) -- niet een vaste CSS-waarde, want de kaart is fluid-width en de pijl
+  staat op vaste offsets. Zo lijkt de pijl aan de kaart vast te hangen in plaats van los in de
+  hoek te blijven staan. De vaste basishoeken uit 1.6.4 blijven behouden; de hover voegt er
+  een kleine rotatie bovenop toe.
+- Diezelfde hover laat ook de achterliggende kaartjes zeer licht meebewegen (een fractie van
+  een graad/pixel), zodat de stapel oogt alsof je 'm even oppakt.
+
 **1.6.10**
 - De eerste keer dat een bezoeker naar een nieuwe maand bladert, was die maand nog nooit
   opgehaald en dus altijd traag (een nieuwe live aanvraag), ook al ging elke daaropvolgende
