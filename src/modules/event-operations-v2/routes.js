@@ -38,6 +38,7 @@ import { REGISTRATION_SOURCE, REGISTRATION_STATE } from './constants.js';
 import { toPublicEventDto } from './odoo-contract.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
 import { storeHeroImage, removeHeroImage, isAllowedImageType, MAX_IMAGE_BYTES } from './lib/assets.js';
+import { getLegacyWpPagesByEventId } from './lib/legacy-wp-pages.js';
 
 function json(payload, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(payload), {
@@ -307,6 +308,19 @@ export const routes = {
   'GET /api/hosts': withErrors(async (context) => {
     const { users, cached } = await listHostUsers(context.env);
     return json({ success: true, data: users }, 200, cacheHeader(cached));
+  }),
+
+  /**
+   * GET /events-v2/api/wp-legacy-pages
+   * Welke Odoo-events nog een oude WordPress Tribe Events-pagina hebben
+   * (v1-publicatie, gematcht via odoo_webinar_id in de WP-post-meta).
+   * Verwijdert niets -- enkel een markering zodat een beheerder zelf kan
+   * beslissen of die oude pagina blijft staan of handmatig in WordPress
+   * verwijderd wordt.
+   */
+  'GET /api/wp-legacy-pages': withErrors(async (context) => {
+    const { pages, cached } = await getLegacyWpPagesByEventId(context.env);
+    return json({ success: true, data: pages }, 200, cacheHeader(cached));
   }),
 
   /**

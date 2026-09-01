@@ -142,7 +142,12 @@ export const CACHE_TTL = {
   // Stages en het veldenschema veranderen bijna nooit. Lang cachen scheelt
   // drie Odoo-rondes bij elke koude cache; de verversknop gooit het leeg.
   STAGES: 3600,
-  SCHEMA: 3600
+  SCHEMA: 3600,
+  // Externe WP-call (welke events nog een oude Tribe Events-pagina hebben).
+  // Kort genoeg om een net verwijderde WP-pagina snel te laten verdwijnen
+  // uit de markering, lang genoeg om niet bij elke pageload WordPress te
+  // bevragen.
+  WP_LEGACY_PAGES: 120
 };
 
 /** KV-sleutelruimte. Alles onder dit prefix is veilig te wissen. */
@@ -156,7 +161,8 @@ export const CACHE_PREFIX = 'evtv2';
 export const CACHE_NS = {
   EVENTS: 'events',
   EVENT_TYPES: 'event_types',
-  STAGES: 'stages'
+  STAGES: 'stages',
+  WP_LEGACY_PAGES: 'wp_legacy_pages'
 };
 
 /** Paginering. Geen verborgen plafond zoals de `limit: 100` in v1. */

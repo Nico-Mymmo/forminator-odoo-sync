@@ -36,7 +36,12 @@
     previewEditor: null,
     view: 'calendar',
     calendar: null,
-    loading: false
+    loading: false,
+    // Odoo-event-id -> info over een nog bestaande oude WP Tribe Events-
+    // pagina (v1-publicatie). Enkel een markering, zie loadLegacyWpPages().
+    legacyWpPages: {},
+    // Staat de titel-inputveld in het detailpaneel open? Zie editTitle().
+    editingTitle: false
   };
 
   // ─── Hulpjes ───────────────────────────────────────────────────────────────
@@ -214,14 +219,8 @@
   function buildQuery(forceFresh) {
     var params = new URLSearchParams();
     if (forceFresh) params.set('fresh', '1');
-    [
-      ['state', el('filterState').value],
-      ['type', el('filterType').value],
-      ['format', el('filterFormat').value],
-      ['q', el('filterQ').value.trim()]
-    ].forEach(function (pair) { if (pair[1]) params.set(pair[0], pair[1]); });
-
-    if (el('filterArchived').checked) params.set('include_archived', '1');
+    // De filterbalk is weg: events worden op datum opgezocht (kalender),
+    // niet meer via status/type/vorm/titel-filters.
     params.set('page', String(state.page));
     params.set('per_page', String(PER_PAGE));
     return params.toString();
@@ -434,9 +433,17 @@
         : event.registration.count + '/' + capacity;
       var full = event.registration.seats_left === 0;
 
+      var legacyPage = state.legacyWpPages[event.id];
+
       return '<tr class="hover cursor-pointer ' + (event.id === state.selectedId ? 'row-selected' : '') + '"' +
         ' data-action="select-event" data-event-id="' + event.id + '">' +
-        '<td><div class="font-medium">' + esc(event.title || '(zonder titel)') + '</div>' +
+        '<td><div class="font-medium flex items-center gap-1.5">' + esc(event.title || '(zonder titel)') +
+            (legacyPage
+              ? '<span class="badge badge-xs badge-outline gap-1" title="Er bestaat nog een oude WP-pagina (' +
+                esc(legacyPage.status || '') + ')">' +
+                  '<i data-lucide="history" class="w-2.5 h-2.5"></i> oude WP-pagina</span>'
+              : '') +
+          '</div>' +
           '<div class="text-xs opacity-60 font-mono">' +
             (event.slug ? esc(event.slug) : '<span class="text-warning">geen slug</span>') +
             (event.active === false ? ' &middot; gearchiveerd' : '') +
@@ -475,6 +482,7 @@
       state.registrations = { rows: [], total: 0, page: 1, totalPages: 1, loading: false, loadedFor: null };
     }
     state.selectedId = id;
+    state.editingTitle = false;
     renderList();
     if (state.calendar) state.calendar.render();
 
@@ -491,8 +499,8 @@
     }
   }
 
-  function field(label, name, value, type, attrs) {
-    return '<label class="form-control">' +
+  function field(label, name, value, type, attrs, wrapperClass) {
+    return '<label class="form-control' + (wrapperClass ? ' ' + wrapperClass : '') + '">' +
       '<span class="label-text text-xs opacity-70 mb-1">' + esc(label) + '</span>' +
       '<input type="' + (type || 'text') + '" class="input input-bordered input-sm"' +
       ' data-field="' + name + '" value="' + esc(value === null || value === undefined ? '' : value) + '"' +
@@ -520,6 +528,7 @@
     var stateBadge = STATE_BADGE[event.publication_state] || STATE_BADGE.draft;
     var format = FORMAT_META[event.format] || FORMAT_META.online;
     var status = event.registration.status || {};
+    var legacyPage = state.legacyWpPages[event.id];
 
     var typeOptions = state.types.map(function (type) {
       return '<option value="' + type.id + '"' +
@@ -534,6 +543,14 @@
 
     // ── Kop: altijd zichtbaar ────────────────────────────────────────────
     var header =
+      (legacyPage
+        ? '<div class="alert alert-info py-2 text-sm mb-3">' +
+            '<i data-lucide="history" class="w-4 h-4"></i>' +
+            '<span>Er bestaat nog een oude WP-pagina voor dit event (status: ' +
+              esc(legacyPage.status || 'onbekend') + '). Verwijder hem zelf in WordPress als je hem niet meer nodig hebt.</span>' +
+            '<a class="btn btn-xs" href="' + esc(legacyPage.edit_url) + '" target="_blank" rel="noopener">Bekijk in WP-admin</a>' +
+          '</div>'
+        : '') +
       (event.active === false
         ? '<div class="alert alert-warning py-2 text-sm mb-3">' +
             '<i data-lucide="archive" class="w-4 h-4"></i>' +
@@ -555,7 +572,15 @@
         : '') +
       '<div class="flex items-start justify-between gap-2">' +
         '<div class="min-w-0">' +
-          '<h2 class="font-semibold text-lg leading-tight">' + esc(event.title || '(zonder titel)') + '</h2>' +
+          (state.editingTitle
+            ? '<input type="text" id="titleInlineInput" data-field="title"' +
+                ' class="input input-bordered input-sm font-semibold text-lg w-full"' +
+                ' value="' + esc(event.title || '') + '" />'
+            : '<h2 class="font-semibold text-lg leading-tight flex items-center gap-1.5 min-w-0">' +
+                '<span class="truncate">' + esc(event.title || '(zonder titel)') + '</span>' +
+                '<button class="btn btn-ghost btn-xs btn-circle shrink-0" data-action="edit-title" title="Titel aanpassen">' +
+                  '<i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>' +
+              '</h2>') +
           '<div class="text-xs opacity-60 font-mono mt-0.5">Odoo #' + event.id +
             (event.slug ? ' · /event/' + esc(event.slug) + '/' : '') + '</div>' +
         '</div>' +
@@ -589,9 +614,8 @@
     // ── 1. Basis ─────────────────────────────────────────────────────────
     var basis =
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
-        field('Titel', 'title', event.title) +
-        field('Slug', 'slug', event.slug) +
-        field('Start (Brussel)', 'starts_at', isoToLocalInput(event.starts_at), 'datetime-local') +
+        field('Slug', 'slug', event.slug, null, null, 'sm:col-span-2') +
+        field('Start (Brussel)', 'starts_at', isoToLocalInput(event.starts_at), 'datetime-local', ' step="900"') +
         field('Duur (min)', 'duration_minutes', event.duration_minutes, 'number', ' min="1" max="1440"') +
         '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Event type</span>' +
           '<select class="select select-bordered select-sm" data-field="event_type_id">' +
@@ -633,8 +657,8 @@
             (event.registration.ask_question ? ' checked' : '') + ' />' +
             '<span class="label-text text-sm">Vraag om een vraag vooraf</span></label>' +
         '</div>' +
-        field('Inschrijven opent', 'registration_opens_at', isoToLocalInput(event.registration.opens_at), 'datetime-local') +
-        field('Inschrijven sluit', 'registration_closes_at', isoToLocalInput(event.registration.closes_at), 'datetime-local') +
+        field('Inschrijven opent', 'registration_opens_at', isoToLocalInput(event.registration.opens_at), 'datetime-local', ' step="900"') +
+        field('Inschrijven sluit', 'registration_closes_at', isoToLocalInput(event.registration.closes_at), 'datetime-local', ' step="900"') +
       '</div>' +
       '<p class="text-xs opacity-50 mt-2">De online link komt nooit op de website; die gaat alleen per mail.</p>';
 
@@ -1032,7 +1056,7 @@
         value = input.value === '' ? null : Number(input.value);
       } else if (input.type === 'datetime-local') {
         value = localInputToIso(input.value);
-      } else if (name === 'event_type_id') {
+      } else if (name === 'event_type_id' || name === 'host_id' || name === 'co_host_id') {
         value = input.value ? Number(input.value) : null;
       } else {
         value = input.value.trim() === '' ? null : input.value.trim();
@@ -1205,12 +1229,26 @@
 
   async function afterMutation(detail, message) {
     state.detail = detail;
+    state.editingTitle = false;
     renderDetail();
     // Het geheugen is nu verouderd: leeggooien zodat de lijst de wijziging
     // laat zien.
     state.listCache = {};
     await loadEvents();
     toast(message, 'success');
+  }
+
+  /**
+   * Potloodje naast de titel: zet het detailpaneel in bewerkmodus voor de
+   * titel. Er is geen aparte opslaan-actie hiervoor -- het inputveld krijgt
+   * data-field="title" mee, dus de gewone "Opslaan"-knop (collectFields())
+   * neemt de nieuwe titel gewoon mee, net als elk ander veld.
+   */
+  function editTitle() {
+    state.editingTitle = true;
+    renderDetail();
+    var input = el('titleInlineInput');
+    if (input) { input.focus(); input.select(); }
   }
 
   async function saveEvent(id) {
@@ -1332,8 +1370,6 @@
   // Projectregel: geen inline onclick met variabelen. Identiteit zit in
   // data-event-id, gedrag in data-action.
 
-  var searchTimer = null;
-
   document.addEventListener('click', function (domEvent) {
     var trigger = domEvent.target.closest('[data-action]');
     if (!trigger) return;
@@ -1359,6 +1395,7 @@
 
     switch (action) {
       case 'select-event': selectEvent(id); break;
+      case 'edit-title': editTitle(); break;
       case 'save': saveEvent(id); break;
       case 'publish': transition(id, 'publish', 'Gepubliceerd'); break;
       case 'unpublish': transition(id, 'unpublish', 'Terug naar concept'); break;
@@ -1435,12 +1472,6 @@
 
     var action = trigger.getAttribute('data-action');
 
-    if (action === 'filter-change') {
-      state.page = 1;
-      loadEvents();
-      return;
-    }
-
     // De centrale click-handler slaat INPUT al over, dus het change-event
     // vuurt gewoon. Precies dit ging in v1 mis: daar deed de click-handler
     // preventDefault() op de checkbox, waardoor het vinkje terugdraaide en
@@ -1460,12 +1491,6 @@
     }
   });
 
-  document.addEventListener('input', function (domEvent) {
-    if (!domEvent.target.closest('[data-action="filter-search"]')) return;
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(function () { state.page = 1; loadEvents(); }, 350);
-  });
-
   // ─── Start ─────────────────────────────────────────────────────────────────
 
   async function loadTypes() {
@@ -1477,7 +1502,6 @@
         return '<option value="' + type.id + '">' + esc(type.name) + '</option>';
       }).join('');
 
-      el('filterType').insertAdjacentHTML('beforeend', options);
       el('newType').innerHTML = '<option value="">—</option>' + options;
     } catch (error) {
       toast('Event types laden mislukt: ' + error.message, 'error');
@@ -1497,6 +1521,21 @@
       }
     } catch (error) {
       toast('Hosts laden mislukt: ' + error.message, 'error');
+    }
+  }
+
+  /**
+   * Welke events nog een oude WP Tribe Events-pagina hebben (v1). Faalt
+   * dit (WordPress onbereikbaar, geen rechten, ...), dan blijft de
+   * markering gewoon leeg -- dit mag nooit de rest van de pagina blokkeren.
+   */
+  async function loadLegacyWpPages() {
+    try {
+      var result = await api('/wp-legacy-pages');
+      state.legacyWpPages = result.payload.data || {};
+    } catch (error) {
+      state.legacyWpPages = {};
+      console.warn('Oude WP-pagina\'s laden mislukt:', error.message);
     }
   }
 
@@ -1524,10 +1563,17 @@
     }
   }
 
+  document.addEventListener('keydown', function (domEvent) {
+    if (domEvent.key === 'Escape' && domEvent.target && domEvent.target.id === 'titleInlineInput') {
+      state.editingTitle = false;
+      renderDetail();
+    }
+  });
+
   document.addEventListener('DOMContentLoaded', function () {
     initNavbar();
     loadHealth();
-    Promise.all([loadTypes(), loadHosts()]).then(loadEvents);
+    Promise.all([loadTypes(), loadHosts(), loadLegacyWpPages()]).then(loadEvents);
     if (window.lucide) window.lucide.createIcons();
   });
 })();
