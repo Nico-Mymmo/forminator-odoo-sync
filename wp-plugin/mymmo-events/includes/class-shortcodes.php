@@ -19,6 +19,7 @@ final class Mymmo_Events_Shortcodes {
         add_shortcode('mymmo_events_calendar', [self::class, 'calendar']);
         add_shortcode('mymmo_events_list', [self::class, 'listing']);
         add_shortcode('mymmo_event', [self::class, 'single']);
+        add_shortcode('mymmo_events_announcement', [self::class, 'announcement']);
 
         add_action('wp_enqueue_scripts', [self::class, 'register_assets']);
         add_action('wp_footer', [self::class, 'maybe_enqueue'], 5);
@@ -209,6 +210,56 @@ final class Mymmo_Events_Shortcodes {
         }
 
         return mymmo_events_render('single', ['event' => $event]);
+    }
+
+    /**
+     * [mymmo_events_announcement scribble_1="" scribble_2="" scribble_3=""]
+     *
+     * Aankondiging van het gehighlighte event (of, bij gebrek daaraan, het
+     * eerstvolgende) in een speelse callout: twee CTA's (inschrijven /
+     * andere events bekijken), met een paar aankomende events er lichtjes
+     * gedraaid achter als kaartenstapel.
+     *
+     * De drie scribble_*-attributen zijn asset-manager-sleutels (zie
+     * mymmo_events_asset_url()) voor de decoratieve accenten. Standaard
+     * staan hier de bestanden die op 1/09/2026 in events/components/
+     * stonden -- verander ze in de shortcode zelf als de bestandsnamen
+     * wijzigen, geen code-aanpassing nodig.
+     */
+    public static function announcement($atts): string {
+        self::need_assets();
+
+        $atts = shortcode_atts([
+            'scribble_1' => 'events/components/scribbles-scribbles-40-2.svg',
+            'scribble_2' => 'events/components/scribbles-scribbles-73-1.svg',
+            'scribble_3' => 'events/components/scribbles-scribbles-62-1.svg',
+        ], $atts, 'mymmo_events_announcement');
+
+        $announcement = Mymmo_Events_Api_Client::get_announcement();
+        $event = $announcement['event'];
+
+        if ($event === null) {
+            // Geen enkel aankomend event: niets om aan te kondigen. Geen
+            // lege callout tonen, dat oogt als een fout.
+            return self::debug_panel(['Aankondiging' => 'geen aankomende events, niets getoond']);
+        }
+
+        $output = mymmo_events_render('announcement', [
+            'event' => $event,
+            'is_highlighted' => $announcement['is_highlighted'],
+            'others' => $announcement['others'],
+            'scribbles' => [
+                (string) $atts['scribble_1'],
+                (string) $atts['scribble_2'],
+                (string) $atts['scribble_3'],
+            ],
+        ]);
+
+        return $output . self::debug_panel([
+            'Event' => (string) ($event['title'] ?? ''),
+            'Herkomst' => $announcement['is_highlighted'] ? 'gehighlight' : 'eerstvolgende (geen highlight ingesteld)',
+            'Kaarten erachter' => count($announcement['others']),
+        ]);
     }
 
     /**

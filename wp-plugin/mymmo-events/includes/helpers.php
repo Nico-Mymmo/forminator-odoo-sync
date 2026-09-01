@@ -132,6 +132,26 @@ function mymmo_events_archive_url(): string {
 }
 
 /**
+ * Publieke URL van een bestand in de asset manager (R2), bv. een decoratief
+ * SVG'tje voor de aankondiging-shortcode. Dezelfde Worker die de
+ * events-API bedient, serveert deze bestanden ook op /assets/{key} —
+ * vandaar mymmo_events_api_base als basis, niet een apart domein.
+ *
+ * @param string $key bv. "events/components/scribbles-scribbles-40-2.svg"
+ */
+function mymmo_events_asset_url(string $key): string {
+    $key = ltrim($key, '/');
+    if ($key === '') {
+        return '';
+    }
+    $base = rtrim((string) get_option('mymmo_events_api_base', ''), '/');
+    if ($base === '') {
+        return '';
+    }
+    return $base . '/assets/' . $key;
+}
+
+/**
  * Label voor de vorm van het event.
  * @return array{label:string,icon:string}
  */

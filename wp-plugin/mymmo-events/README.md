@@ -68,11 +68,23 @@ de Operations Manager die URL's automatisch over.
 
 [mymmo_event]
 [mymmo_event slug="q-and-a-syndicoach"]
+
+[mymmo_events_announcement]
+[mymmo_events_announcement scribble_1="events/components/scribbles-scribbles-40-2.svg"]
 ```
 
 `type` is het Odoo-id van het event type, `format` is `online`, `onsite` of
 `hybrid`. `[mymmo_event]` zonder slug haalt die uit de URL, zodat dezelfde
 shortcode op de detailpagina werkt.
+
+`[mymmo_events_announcement]` toont het event dat in de Operations Manager op
+"Highlighten" staat (Basis-veld `x_studio_priority`), of bij gebrek daaraan
+gewoon het eerstvolgende. Twee CTA's: inschrijven/meer info en "Bekijk onze
+andere events" (naar de archiefpagina). De drie `scribble_*`-attributen
+wijzen naar bestanden in de asset manager (bv.
+`events/components/scribbles-scribbles-40-2.svg`) voor de decoratieve
+accenten; overschrijf ze in de shortcode als je andere bestanden wil, geen
+code-aanpassing nodig.
 
 De kalender werkt **zonder JavaScript**: de maandnavigatie zijn gewone links
 met `?mymmo_month=`. Het JS voegt alleen comfort toe — pijltjestoetsen,
@@ -142,6 +154,13 @@ Ga daarna één keer naar Instellingen → Permalinks en klik Opslaan. Dat is al
 je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
+
+**1.5.0**
+- Nieuwe shortcode `[mymmo_events_announcement]`: een speelse aankondiging-callout voor het
+  gehighlighte event (nieuw Basis-veld in de Operations Manager, "Highlighten") of, bij
+  gebrek daaraan, het eerstvolgende. Twee CTA's (inschrijven/meer info, en naar de
+  archiefpagina), met een paar aankomende events er lichtjes gedraaid achter als
+  kaartenstapel en decoratieve scribbles uit de asset manager.
 
 **1.4.1**
 - Opgelost: `/event/{slug}/ics/` gaf ERR_INVALID_RESPONSE. WordPress had voor de 404 al

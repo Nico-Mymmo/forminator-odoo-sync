@@ -80,6 +80,7 @@ final class Mymmo_Events_Api_Client {
             'format' => $args['format'] ?? null,
             'limit' => isset($args['limit']) ? (int) $args['limit'] : null,
             'include_past' => !empty($args['include_past']) ? '1' : null,
+            'highlighted' => !empty($args['highlighted']) ? '1' : null,
         ], static fn ($v) => $v !== null && $v !== '');
 
         $payload = self::request('/events', $params, (int) get_option('mymmo_events_cache_ttl', 60));
@@ -116,6 +117,41 @@ final class Mymmo_Events_Api_Client {
         $payload = self::request('/next', [], (int) get_option('mymmo_events_cache_ttl', 60));
         $next = $payload['next'] ?? null;
         return is_array($next) && !empty($next['month']) ? $next : null;
+    }
+
+    /**
+     * Voor de aankondiging-shortcode: het gehighlighte event, of bij gebrek
+     * daaraan gewoon het eerstvolgende. Plus een handvol andere aankomende
+     * events voor de speelse kaartenstapel erachter (nooit hetzelfde event
+     * twee keer).
+     *
+     * @return array{event: array<string,mixed>|null, is_highlighted: bool, others: array<int,array<string,mixed>>}
+     */
+    public static function get_announcement(): array {
+        $highlighted = self::get_events(['highlighted' => true, 'limit' => 1]);
+        $event = $highlighted[0] ?? null;
+        $is_highlighted = $event !== null;
+
+        if ($event === null) {
+            $soonest = self::get_events(['limit' => 1]);
+            $event = $soonest[0] ?? null;
+        }
+
+        $others = [];
+        if ($event !== null) {
+            $pool = self::get_events(['limit' => 4]);
+            foreach ($pool as $candidate) {
+                if (($candidate['slug'] ?? null) === ($event['slug'] ?? null)) {
+                    continue;
+                }
+                $others[] = $candidate;
+                if (count($others) >= 3) {
+                    break;
+                }
+            }
+        }
+
+        return ['event' => $event, 'is_highlighted' => $is_highlighted, 'others' => $others];
     }
 
     /** @return array<int,array<string,mixed>> */

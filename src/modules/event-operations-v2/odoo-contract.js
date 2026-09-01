@@ -59,6 +59,9 @@ export const EVENT_FIELDS = {
   TAGS: 'x_studio_tag_ids',
   HOST: 'x_studio_user_id',
   CO_HOST: 'x_studio_co_host',
+  // Optioneel (boolean): "Hoge prioriteit" in Odoo. Gebruikt door de
+  // aankondiging-shortcode om een event vooraan te tonen.
+  HIGHLIGHTED: 'x_studio_priority',
   LOCATION: 'x_studio_live_event_location',
   ONLINE_URL: 'x_studio_webinar_link',
   CAPACITY: 'x_studio_capacity',
@@ -640,6 +643,11 @@ export function toEventDto(record, extra = {}) {
       name: m2oName(record[EVENT_FIELDS.HOST])
     },
     hero_image_url: str(record[EVENT_FIELDS.HERO_IMAGE_URL]),
+    // Ontbreekt het veld in Odoo (nog niet aangemaakt), dan is het antwoord
+    // false -- er kan dan simpelweg niets gehighlight worden.
+    highlighted: EVENT_FIELDS.HIGHLIGHTED in record
+      ? record[EVENT_FIELDS.HIGHLIGHTED] === true
+      : false,
     registration: {
       enabled: bool(record[EVENT_FIELDS.REGISTRATION_ENABLED]),
       opens_at: fromOdooDatetime(record[EVENT_FIELDS.REGISTRATION_OPENS_AT]),
@@ -731,6 +739,7 @@ export function toPublicEventDto(record, options = {}) {
     },
     url: internal.slug ? `${PUBLIC_EVENT_PATH}/${internal.slug}/` : null,
     brand: internal.brand,
+    highlighted: internal.highlighted,
     /**
      * Absolute canonical voor een GEDEELD event.
      *
@@ -834,6 +843,7 @@ export function toOdooEventValues(input = {}) {
   if (has('stage_id')) values[EVENT_FIELDS.STAGE] = input.stage_id || false;
   if (has('host_id')) values[EVENT_FIELDS.HOST] = input.host_id || false;
   if (has('co_host_id')) values[EVENT_FIELDS.CO_HOST] = input.co_host_id || false;
+  if (has('highlighted')) values[EVENT_FIELDS.HIGHLIGHTED] = Boolean(input.highlighted);
 
   if (has('location_name')) values[EVENT_FIELDS.LOCATION] = input.location_name || false;
   if (has('online_url')) values[EVENT_FIELDS.ONLINE_URL] = input.online_url || false;

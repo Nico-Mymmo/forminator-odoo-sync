@@ -123,6 +123,42 @@
     return new Date(naive.getTime() - offsetMinutes * 60000).toISOString();
   }
 
+  /**
+   * <option>'s voor elk kwartier van de dag. De browser-eigen datetime-local-
+   * picker respecteert `step` wel voor validatie en de pijltjestoetsen, maar
+   * NIET voor zijn eigen scroll-lijst -- die blijft alle 60 minuten tonen.
+   * Vandaar een eigen select in plaats van op step te vertrouwen.
+   */
+  function quarterHourOptions(selected) {
+    var out = '';
+    for (var h = 0; h < 24; h += 1) {
+      for (var m = 0; m < 60; m += 15) {
+        var v = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+        out += '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + v + '</option>';
+      }
+    }
+    return out;
+  }
+
+  /** Datum + kwartier-select samen, voor de datumvelden in het detailpaneel. */
+  function dateTimeField(label, name, isoValue) {
+    var local = isoToLocalInput(isoValue);
+    var datePart = local ? local.slice(0, 10) : '';
+    var timePart = local ? local.slice(11, 16) : '';
+
+    return '<label class="form-control">' +
+        '<span class="label-text text-xs opacity-70 mb-1">' + esc(label) + '</span>' +
+        '<div class="join w-full">' +
+          '<input type="date" class="input input-bordered input-sm join-item flex-1"' +
+          ' data-dt-date="' + name + '" value="' + esc(datePart) + '" />' +
+          '<select class="select select-bordered select-sm join-item" data-dt-time-for="' + name + '">' +
+            '<option value=""' + (timePart ? '' : ' selected') + '>--:--</option>' +
+            quarterHourOptions(timePart) +
+          '</select>' +
+        '</div>' +
+      '</label>';
+  }
+
   /** De fase komt uit x_studio_stage_id in Odoo; hier alleen de weergave. */
   var STATE_BADGE = {
     draft: { label: 'Concept', cls: 'badge-ghost' },
@@ -438,6 +474,10 @@
       return '<tr class="hover cursor-pointer ' + (event.id === state.selectedId ? 'row-selected' : '') + '"' +
         ' data-action="select-event" data-event-id="' + event.id + '">' +
         '<td><div class="font-medium flex items-center gap-1.5">' + esc(event.title || '(zonder titel)') +
+            (event.highlighted
+              ? '<span class="badge badge-xs badge-warning gap-1" title="Gehighlight in de aankondiging-widget">' +
+                  '<i data-lucide="star" class="w-2.5 h-2.5"></i></span>'
+              : '') +
             (legacyPage
               ? '<span class="badge badge-xs badge-outline gap-1" title="Er bestaat nog een oude WP-pagina (' +
                 esc(legacyPage.status || '') + ')">' +
@@ -544,11 +584,11 @@
     // ── Kop: altijd zichtbaar ────────────────────────────────────────────
     var header =
       (legacyPage
-        ? '<div class="alert alert-info py-2 text-sm mb-3">' +
-            '<i data-lucide="history" class="w-4 h-4"></i>' +
-            '<span>Er bestaat nog een oude WP-pagina voor dit event (status: ' +
-              esc(legacyPage.status || 'onbekend') + '). Verwijder hem zelf in WordPress als je hem niet meer nodig hebt.</span>' +
-            '<a class="btn btn-xs" href="' + esc(legacyPage.edit_url) + '" target="_blank" rel="noopener">Bekijk in WP-admin</a>' +
+        ? '<div class="flex items-center gap-1.5 text-xs mb-2 px-2 py-1 rounded bg-info/10 text-info">' +
+            '<i data-lucide="history" class="w-3 h-3 shrink-0"></i>' +
+            '<span class="truncate">Oude WP-pagina bestaat nog (' + esc(legacyPage.status || 'onbekend') + ')</span>' +
+            '<a class="link link-hover font-medium shrink-0 ml-auto" href="' + esc(legacyPage.edit_url) + '"' +
+              ' target="_blank" rel="noopener">WP-admin</a>' +
           '</div>'
         : '') +
       (event.active === false
@@ -570,40 +610,42 @@
               'De Odoo-mailtemplates hebben een host nodig als afzender en falen zonder een.</span>' +
           '</div>'
         : '') +
-      '<div class="flex items-start justify-between gap-2">' +
-        '<div class="min-w-0">' +
-          (state.editingTitle
-            ? '<input type="text" id="titleInlineInput" data-field="title"' +
-                ' class="input input-bordered input-sm font-semibold text-lg w-full"' +
-                ' value="' + esc(event.title || '') + '" />'
-            : '<h2 class="font-semibold text-lg leading-tight flex items-center gap-1.5 min-w-0">' +
-                '<span class="truncate">' + esc(event.title || '(zonder titel)') + '</span>' +
-                '<button class="btn btn-ghost btn-xs btn-circle shrink-0" data-action="edit-title" title="Titel aanpassen">' +
-                  '<i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>' +
-              '</h2>') +
-          '<div class="text-xs opacity-60 font-mono mt-0.5">Odoo #' + event.id +
-            (event.slug ? ' · /event/' + esc(event.slug) + '/' : '') + '</div>' +
-        '</div>' +
-        '<div class="flex flex-col items-end gap-1 shrink-0">' +
-          '<span class="badge badge-sm ' + stateBadge.cls + '">' + stateBadge.label + '</span>' +
-          '<span class="badge badge-sm ' + format.cls + '">' + format.label + '</span>' +
-        '</div>' +
-      '</div>' +
+      (state.editingTitle
+        ? '<input type="text" id="titleInlineInput" data-field="title"' +
+            ' class="input input-bordered input-sm font-semibold text-lg w-full"' +
+            ' value="' + esc(event.title || '') + '" />'
+        : '<h2 class="font-semibold text-lg leading-tight flex items-center gap-1.5 w-full">' +
+            '<span class="truncate min-w-0">' + esc(event.title || '(zonder titel)') + '</span>' +
+            '<button class="btn btn-ghost btn-xs btn-circle shrink-0" data-action="edit-title" title="Titel aanpassen">' +
+              '<i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>' +
+          '</h2>') +
 
-      '<div class="stats stats-horizontal w-full bg-base-200 my-3">' +
-        '<div class="stat py-2 px-3">' +
-          '<div class="stat-title text-xs">Inschrijvingen</div>' +
-          '<div class="stat-value text-xl tabular">' + event.registration.count + '</div>' +
-          '<div class="stat-desc text-xs">' +
-            (event.registration.capacity === null ? 'onbeperkt' : 'van ' + event.registration.capacity) +
+      '<div class="bg-base-200 rounded-lg p-3 my-3">' +
+        '<div class="flex items-center justify-between gap-2 flex-wrap mb-3">' +
+          '<div class="flex items-center gap-1.5">' +
+            '<span class="badge badge-sm ' + stateBadge.cls + '">' + stateBadge.label + '</span>' +
+            '<span class="badge badge-sm ' + format.cls + '">' + format.label + '</span>' +
           '</div>' +
+          (event.slug && event.publication_state === 'published'
+            ? '<a class="btn btn-xs btn-outline gap-1" href="' + esc(publicEventUrl(event)) + '" target="_blank" rel="noopener">' +
+                '<i data-lucide="external-link" class="w-3 h-3"></i> Bekijk op site</a>'
+            : '') +
         '</div>' +
-        '<div class="stat py-2 px-3">' +
-          '<div class="stat-title text-xs">Inschrijven</div>' +
-          '<div class="stat-value text-sm ' + (status.open ? 'text-success' : 'opacity-70') + '">' +
-            (status.open ? 'open' : 'dicht') + '</div>' +
-          '<div class="stat-desc text-xs">' +
-            (status.open ? '&nbsp;' : esc(REASON_TEXT[status.reason] || status.reason || '')) + '</div>' +
+        '<div class="grid grid-cols-2 gap-3">' +
+          '<div>' +
+            '<div class="text-xs opacity-60">Inschrijvingen</div>' +
+            '<div class="text-xl font-semibold tabular">' + event.registration.count + '</div>' +
+            '<div class="text-xs opacity-60">' +
+              (event.registration.capacity === null ? 'onbeperkt' : 'van ' + event.registration.capacity) +
+            '</div>' +
+          '</div>' +
+          '<div>' +
+            '<div class="text-xs opacity-60">Inschrijven</div>' +
+            '<div class="text-sm font-semibold ' + (status.open ? 'text-success' : 'opacity-70') + '">' +
+              (status.open ? 'open' : 'dicht') + '</div>' +
+            '<div class="text-xs opacity-60">' +
+              (status.open ? '&nbsp;' : esc(REASON_TEXT[status.reason] || status.reason || '')) + '</div>' +
+          '</div>' +
         '</div>' +
       '</div>' +
 
@@ -615,7 +657,7 @@
     var basis =
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
         field('Slug', 'slug', event.slug, null, null, 'sm:col-span-2') +
-        field('Start (Brussel)', 'starts_at', isoToLocalInput(event.starts_at), 'datetime-local', ' step="900"') +
+        dateTimeField('Start (Brussel)', 'starts_at', event.starts_at) +
         field('Duur (min)', 'duration_minutes', event.duration_minutes, 'number', ' min="1" max="1440"') +
         '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Event type</span>' +
           '<select class="select select-bordered select-sm" data-field="event_type_id">' +
@@ -657,13 +699,20 @@
             (event.registration.ask_question ? ' checked' : '') + ' />' +
             '<span class="label-text text-sm">Vraag om een vraag vooraf</span></label>' +
         '</div>' +
-        field('Inschrijven opent', 'registration_opens_at', isoToLocalInput(event.registration.opens_at), 'datetime-local', ' step="900"') +
-        field('Inschrijven sluit', 'registration_closes_at', isoToLocalInput(event.registration.closes_at), 'datetime-local', ' step="900"') +
+        dateTimeField('Inschrijven opent', 'registration_opens_at', event.registration.opens_at) +
+        dateTimeField('Inschrijven sluit', 'registration_closes_at', event.registration.closes_at) +
       '</div>' +
       '<p class="text-xs opacity-50 mt-2">De online link komt nooit op de website; die gaat alleen per mail.</p>';
 
     // ── 3. Website ───────────────────────────────────────────────────────
     var website =
+      '<label class="label justify-start cursor-pointer gap-2 mb-3">' +
+        '<input type="checkbox" class="checkbox checkbox-sm" data-field="highlighted"' +
+        (event.highlighted ? ' checked' : '') + ' />' +
+        '<span class="label-text text-sm">Highlighten' +
+          '<span class="opacity-60"> — dit event wordt vooraan getoond in de aankondiging-widget op de website</span>' +
+        '</span>' +
+      '</label>' +
       '<label class="form-control mb-3">' +
         '<span class="label-text text-xs opacity-70 mb-1">Samenvatting (nodig om te publiceren)</span>' +
         '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="summary">' +
@@ -721,9 +770,6 @@
           : '') +
         (event.publication_state === 'cancelled'
           ? '<button class="btn btn-sm btn-outline" data-action="unpublish" data-event-id="' + event.id + '">Terug naar concept</button>'
-          : '') +
-        (event.slug && event.publication_state === 'published'
-          ? '<a class="btn btn-sm btn-ghost" href="' + esc(publicEventUrl(event)) + '" target="_blank" rel="noopener">Bekijk op de site</a>'
           : '') +
         '<div class="dropdown dropdown-top dropdown-end ml-auto">' +
           '<button class="btn btn-sm btn-ghost btn-square" tabindex="0">⋯</button>' +
@@ -1054,14 +1100,22 @@
         value = input.checked;
       } else if (input.type === 'number') {
         value = input.value === '' ? null : Number(input.value);
-      } else if (input.type === 'datetime-local') {
-        value = localInputToIso(input.value);
       } else if (name === 'event_type_id' || name === 'host_id' || name === 'co_host_id') {
         value = input.value ? Number(input.value) : null;
       } else {
         value = input.value.trim() === '' ? null : input.value.trim();
       }
       payload[name] = value;
+    });
+
+    // Datum + kwartier-select: geen data-field, dus niet meegepikt door de
+    // lus hierboven. Apart samenvoegen tot één ISO-waarde per veldnaam.
+    el('panel-content').querySelectorAll('[data-dt-date]').forEach(function (dateInput) {
+      var name = dateInput.getAttribute('data-dt-date');
+      if (!dateInput.value) { payload[name] = null; return; }
+      var timeSelect = el('panel-content').querySelector('[data-dt-time-for="' + name + '"]');
+      var time = (timeSelect && timeSelect.value) || '00:00';
+      payload[name] = localInputToIso(dateInput.value + 'T' + time);
     });
 
     // body_html loopt via het opmaakvenster, niet via Opslaan: anders zou
@@ -1341,7 +1395,9 @@
 
     var body = {
       title: el('newTitle').value.trim(),
-      starts_at: localInputToIso(el('newStartsAt').value),
+      starts_at: el('newStartsAtDate').value
+        ? localInputToIso(el('newStartsAtDate').value + 'T' + (el('newStartsAtTime').value || '00:00'))
+        : null,
       duration_minutes: Number(el('newDuration').value) || 60,
       capacity: Number(el('newCapacity').value) || 0,
       summary: el('newSummary').value.trim() || null,
@@ -1573,6 +1629,13 @@
   document.addEventListener('DOMContentLoaded', function () {
     initNavbar();
     loadHealth();
+    // Statische select in de "nieuw event"-dialoog: eenmalig vullen, net als
+    // newType/newHost. Zelfde reden als dateTimeField() in het detailpaneel:
+    // de browser-eigen datetime-local-picker toont zijn minutenlijst altijd
+    // per minuut, step of niet.
+    if (el('newStartsAtTime')) {
+      el('newStartsAtTime').innerHTML = '<option value="">--:--</option>' + quarterHourOptions('');
+    }
     Promise.all([loadTypes(), loadHosts(), loadLegacyWpPages()]).then(loadEvents);
     if (window.lucide) window.lucide.createIcons();
   });

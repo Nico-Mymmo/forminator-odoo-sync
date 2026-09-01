@@ -480,7 +480,10 @@
         </label>
         <label class="form-control">
           <span class="label-text text-sm mb-1">Start <span class="text-error">*</span></span>
-          <input id="newStartsAt" type="datetime-local" step="900" class="input input-bordered input-sm" />
+          <div class="join w-full">
+            <input id="newStartsAtDate" type="date" class="input input-bordered input-sm join-item flex-1" />
+            <select id="newStartsAtTime" class="select select-bordered select-sm join-item"></select>
+          </div>
         </label>
         <label class="form-control">
           <span class="label-text text-sm mb-1">Duur (minuten)</span>
@@ -573,8 +576,8 @@
 
   <!-- Pagina opmaken, met live voorbeeld -->
   <dialog id="composerDialog" class="modal">
-    <div class="modal-box max-w-6xl p-0 overflow-hidden">
-      <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200">
+    <div class="modal-box max-w-6xl max-h-[85vh] p-0 overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200 shrink-0">
         <div class="min-w-0">
           <h3 class="font-semibold">Pagina opmaken</h3>
           <p class="text-xs opacity-60 truncate">
@@ -585,7 +588,7 @@
         <button class="btn btn-sm btn-ghost btn-square" data-action="composer-close" aria-label="Sluiten">✕</button>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 max-h-[72vh]">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 flex-1 min-h-0 overflow-hidden">
         <div class="p-4 overflow-y-auto min-h-0 border-r border-base-200">
           <p class="text-xs opacity-60 mb-2">
             Wat je hier typt komt op de eventpagina, onder de datum en de locatie.
@@ -601,7 +604,7 @@
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-base-200">
+      <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-base-200 shrink-0">
         <button class="btn btn-sm btn-ghost" data-action="composer-close">Annuleren</button>
         <button class="btn btn-sm btn-primary" data-action="composer-save" id="composerSave">Opmaak bewaren</button>
       </div>

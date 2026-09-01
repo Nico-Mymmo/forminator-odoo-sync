@@ -214,6 +214,10 @@ async function handleEventList(request, env, brand) {
   if (format && Object.values(EVENT_FORMAT).includes(format)) filters.format = format;
   if (p.get('from')) filters.from = p.get('from');
   if (p.get('to')) filters.to = p.get('to');
+  // Voor de aankondiging-shortcode: enkel het/de gehighlighte event(s).
+  // Geen highlight ingesteld -> lege lijst, de shortcode valt dan zelf
+  // terug op een gewone (niet-gefilterde) lijstoproep.
+  if (p.get('highlighted') === '1') filters.highlighted = true;
 
   // Standaard geen events uit het verleden: een kalender met dode
   // pagina's is voor niemand nuttig.

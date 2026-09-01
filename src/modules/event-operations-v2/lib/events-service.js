@@ -191,7 +191,7 @@ async function stageIdsForStates(env, stateCodes) {
  * @returns {Promise<Record<string, boolean>>}
  */
 async function optionalFieldMap(env) {
-  const wanted = [EVENT_FIELDS.BRAND, EVENT_FIELDS.ASK_QUESTION];
+  const wanted = [EVENT_FIELDS.BRAND, EVENT_FIELDS.ASK_QUESTION, EVENT_FIELDS.HIGHLIGHTED];
 
   const { value } = await readThrough(
     env,
@@ -231,7 +231,7 @@ export async function brandFieldAvailable(env) {
 }
 
 async function stripUnavailableOptionalFields(env, payload) {
-  const map = { brand: EVENT_FIELDS.BRAND, ask_question: EVENT_FIELDS.ASK_QUESTION };
+  const map = { brand: EVENT_FIELDS.BRAND, ask_question: EVENT_FIELDS.ASK_QUESTION, highlighted: EVENT_FIELDS.HIGHLIGHTED };
 
   for (const [key, field] of Object.entries(map)) {
     if (Object.prototype.hasOwnProperty.call(payload, key) && !(await optionalFieldAvailable(env, field))) {
@@ -315,6 +315,14 @@ async function buildEventDomain(env, filters = {}) {
   }
   if (filters.event_type_id) {
     domain.push([EVENT_FIELDS.EVENT_TYPE, '=', Number(filters.event_type_id)]);
+  }
+  if (filters.highlighted === true) {
+    if (await optionalFieldAvailable(env, EVENT_FIELDS.HIGHLIGHTED)) {
+      domain.push([EVENT_FIELDS.HIGHLIGHTED, '=', true]);
+    } else {
+      // Veld bestaat niet: geen resultaten in plaats van per ongeluk alles.
+      domain.push([EVENT_FIELDS.ID, '=', 0]);
+    }
   }
   // Altijd normaliseren: een onleesbare grens wordt genegeerd in plaats van
   // doorgegeven aan Odoo, want daar wordt het een uitzondering.
