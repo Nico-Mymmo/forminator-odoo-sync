@@ -704,6 +704,105 @@ Waarom dit hier staat: op 2026-07-13 bleek dat de asset-manager (`GET /api/asset
 
 **Voeg je een nieuwe module toe die `env.R2_ASSETS` gebruikt?** Kies een eigen, unieke prefix, en als de asset-manager ooit iets van jouw prefix zou kunnen tegenkomen bij een bucket-brede list: voeg je prefix toe aan `FOREIGN_MODULE_PREFIXES` in `src/modules/asset-manager/routes.js`.
 
+## wp-plugin/mymmo-events — verplichte procedure bij ELKE wijziging
+
+**Waarom dit hier staat:** meerdere Claude-gesprekken werken na elkaar (soms zelfs
+overlappend) aan dezelfde WordPress-plugin. Zonder een vaste procedure ontstaat precies
+wat er op 2026-09-04 gebeurde: een gesprek bouwde een release (1.6.30) die zowel een
+echte bugfix als een half-werkende feature bevatte, de gebruiker moest de hele site
+terugzetten naar de vorige versie (1.6.29) om van BEIDE af te zijn, en al het werk van
+die sessie ging verloren. Deze procedure bestaat om dat te voorkomen.
+
+### 0. Voor je begint: check of er al iets in bewerking is
+
+- `git status --porcelain wp-plugin/mymmo-events` en `find wp-plugin/mymmo-events -iname "edit_*.py*"`.
+  Modified files of stray `edit_*.py`-scripts die niet van jou zijn = een andere sessie
+  is (of was) hier al bezig. Vraag de gebruiker naar de status voor je zelf iets bouwt
+  bovenop werk dat je niet kent — vooral bij grote/structurele wijzigingen (niet nodig
+  voor een triviale, geïsoleerde CSS-tweak).
+- `wp-plugin/mymmo-events-{versie}.zip` (het hoogste versienummer dat er staat) is de
+  laatst DOOR JOU (of een vorige sessie) gebouwde release — niet per se wat er nu live
+  staat op de site. Vraag bij twijfel welke versie de gebruiker effectief heeft
+  geïnstalleerd/getest.
+
+### 1. Bestand-editing: dezelfde verplichte procedure als repo-breed (zie boven), ÉÉN uitzondering
+
+Alle regels uit "Bestand-editing bij grote/gevoelige bestanden" hierboven gelden
+onverkort voor élk bestand in `wp-plugin/mymmo-events/` — ook de kleinere PHP-templates
+(`row.php`, `announcement.php`, ...) die < 150 regels kunnen zijn: gebruik voor de
+plugin-map ALTIJD de Python-script-procedure (base64 → device_bash-heredoc → decode →
+`ast.parse`-syntaxcheck → uitvoeren → CR-count/brace-balans verifiëren), nooit de
+Edit-tool rechtstreeks, ongeacht bestandsgrootte. Voor `.js`-bestanden ook altijd
+`node --check` na de laatste wijziging in die sessie. Er is geen `php -l` beschikbaar in
+deze omgeving (device_bash heeft geen PHP-CLI) — controleer PHP-bestanden dus extra
+zorgvuldig op brace/paren-balans en lees de volledige gerenderde output terug voor je
+verdergaat.
+
+### 2. Eén feature, één samenhangende wijziging — niet los patchen bovenop halfbakken werk
+
+Als de gebruiker feedback geeft op een net gebouwde feature ("dit klopt nog niet, pas X
+en Y aan"), en de aanpassingen raken de kernstructuur (niet enkel een kleurtje of
+marge): overweeg de betrokken bestanden vanaf een schone, bekende basis (de laatst
+bevestigd-werkende zip) opnieuw op te bouwen in plaats van door te patchen op een versie
+die de gebruiker zelf al "niet goed" noemde. Doorpatchen op iets structureel verkeerd
+stapelt fouten op (zelfde principe als stap 7 van de repo-brede procedure hierboven,
+maar dan op featureniveau i.p.v. byteniveau).
+
+### 3. Versie ophogen — twee plekken, altijd samen
+
+`wp-plugin/mymmo-events/mymmo-events.php` bevat het versienummer op TWEE plekken die
+altijd gelijk moeten staan:
+```
+ * Version:           X.Y.Z          (regel ~5, docblock)
+define('MYMMO_EVENTS_VERSION', 'X.Y.Z');   (regel ~30, constante)
+```
+Klopt dit niet met elkaar (zoals na de 1.6.30-episode, waar de docblock al 1.6.30 zei
+maar de constante nog 1.6.29) — eerst gelijktrekken voor je verder werkt, want de
+constante bepaalt de cache-busting van CSS/JS (`wp_register_style(...,
+MYMMO_EVENTS_VERSION)`); een mismatch daar is een subtiele bron van "mijn wijzigingen
+zijn niet zichtbaar"-rapporten.
+
+### 4. README.md-changelog — nieuwe sectie boven de vorige, Nederlands, met "waarom"
+
+Onder `## Versies` komt een nieuwe `**X.Y.Z**`-sectie VOOR de vorige (nieuwste eerst).
+Beschrijf niet enkel wat er verandert, maar ook waarom/de oorzaak bij bugfixes (zie de
+bestaande 1.6.28-1.6.30-secties als voorbeeld) — dat is wat een volgende sessie (of de
+gebruiker, maanden later) nodig heeft om te begrijpen of een latere klacht hier al mee
+te maken heeft.
+
+### 5. Zip bouwen — altijd in een schone kopie, nooit in-place
+
+```bash
+rm -rf ~/build/mymmo-events   # als een vorige (mislukte) build er nog staat
+mkdir -p ~/build
+cp -r wp-plugin/mymmo-events ~/build/mymmo-events
+find ~/build/mymmo-events -iname "edit_*.py*" | xargs -r rm -f
+zip -r -q ~/build/mymmo-events-X.Y.Z.zip mymmo-events   # vanuit ~/build/ zelf uitvoeren
+unzip -l ~/build/mymmo-events-X.Y.Z.zip | grep -c "edit_"   # MOET 0 zijn
+cp ~/build/mymmo-events-X.Y.Z.zip wp-plugin/mymmo-events-X.Y.Z.zip   # cp, nooit mv/overschrijven
+```
+Oudere zips in `wp-plugin/` NOOIT verwijderen of overschrijven op eigen initiatief (zie
+de bestaande regel "wp-plugin zip-artefacten" verderop) — dat historisch archief is
+bewust zo, ook als een versie nadien gebroken bleek. Enkel verwijderen als de gebruiker
+dat expliciet vraagt (zoals bij de 1.6.30-episode).
+
+### 6. Na het bouwen: zeg wat WEL en NIET is meegenomen
+
+Meld expliciet welke bestanden de zip bevat/wijzigt, of er een Worker-deploy nodig is
+(Worker-wijzigingen in `src/modules/event-operations-v2/` zijn een APARTE stap die de
+gebruiker zelf met `npm run deploy` moet doen — een WP-plugin-zip dekt dat nooit), en
+welk deel puur WP-plugin-side is. Bij een grotere/visuele feature: vraag om die op een
+echt mobiel toestel (niet enkel devtools-simulatie) te testen voor de gebruiker 'm
+uitrolt.
+
+## wp-plugin zip-artefacten — historische zips blijven staan
+
+**Regel:** bij het (opnieuw) bouwen van `wp-plugin/mymmo-events-{versie}.zip` nooit oudere
+versie-zips in `wp-plugin/` verwijderen of overschrijven. Elke versie krijgt haar eigen
+bestand (`mymmo-events-1.6.12.zip`, `mymmo-events-1.6.13.zip`, ...); dat is bewust een
+historisch archief. Opruimen van oude zips (of van mislukte build-restanten) is aan de
+gebruiker zelf — nooit zelf initiëren, ook niet als "opruimen van rommel".
+
 ## mini-apps AI — streamend, met een canoniek foutcontract (2026-08)
 
 **Regel 1 — de AI-providers streamen ALTIJD (`stream: true`). Voeg nooit een niet-streamend pad toe, en los een "te langzame AI-aanroep" nooit op door een timeout op te trekken.**
@@ -773,6 +872,83 @@ Breid deze uit bij elke wijziging aan de brug, een provider, het digest-ontwerp 
 `node src/modules/mini-apps/tests/build-prompt-test.mjs` klinkt de prompt vast aan de bron: elke `AI_*`-code die de prompt noemt moet in `lib/ai-errors.js` bestaan, de codes die een mini-app moet afhandelen moeten in de prompt staan, elke `platform.ai`-methode uit de shim moet gedocumenteerd zijn, en de genoemde grenzen (25000 / 8192 / 200) worden uit `lib/ai.js` gelezen. Voeg je een methode of code toe, dan faalt die test tot de prompt bijgewerkt is.
 
 Volledige onderbouwing: `ONTWERP-ai-aanroep-architectuur.md`.
+
+## event-operations-v2 — communicatie-studio: mail-opmaak in de OM, verzending via `mail.mail` (2026-09)
+
+**Regel: mailopmaak voor events wordt in de OM samengesteld en door Odoo verstuurd via
+`mail.mail`. Geen `mail.template` en geen `base.automation` meer voor bevestiging,
+reminder en recap — en zeker geen gekopieerd sjabloon per variant.**
+
+Waarom dit hier staat: de oude opzet was een kopieermachine. Elke afwijking per event-type
+of onderwerp kostte een gekopieerd `mail.template` PLUS een gekopieerde `base.automation`
+met een filter erop. Rule 62 filterde daarbij op `x_studio_event_type` — het rommelveld dat
+volgens FORBIDDEN_FIELDS nooit gelezen mag worden.
+
+| Waar | Wat |
+|---|---|
+| Bloktekst + structuur per event-type | `x_webinar_event_type.x_studio_mail_blocks` (Studio, Text, JSON) |
+| Override voor één event | `x_webinar.x_studio_mail_blocks_override` (Studio, Text, JSON) |
+| Vorm, validatie, site-filter | `lib/mail-blocks.js` (puur) |
+| Blokken → HTML | `lib/mail-render.js` (puur) |
+| Odoo-schrijfpad + idempotentie | `lib/mail-service.js` |
+| Herstelronde voor verplaatste events | `lib/mail-cron.js` (`*/15`-tak in `index.js#scheduled()`) |
+| Editor | `public/events-v2-mail-studio.js` + de `#mailStudioDialog` in `events-v2.html` |
+| Tests (zonder Odoo/netwerk) | `node src/modules/event-operations-v2/tests/mail-test.mjs` |
+
+Afspraken die bewust zo zijn:
+
+- **Odoo blijft de enige database.** De blokken staan in twee Studio-velden, niet in
+  Supabase en niet in KV. Dat is dezelfde regel als in `lib/blocks.js` ("er komt GEEN apart
+  blokkenschema: dat zou een tweede waarheid naast Odoo zijn").
+- **Variatie is een eigenschap van een blok, geen kopie van het geheel.** `sites:
+  ['syndicoach']` op een blok vervangt de QWeb `t-if` op `x_studio_registration_site` die
+  vandaag het hero-logo per site kiest. Een registratie zonder site krijgt géén
+  site-specifiek blok — liever een blok minder dan het verkeerde logo.
+- **Een override op het event vervangt de sectie VOLLEDIG**, nooit half. Half overnemen zou
+  betekenen dat je bij het lezen van een event niet meer kan zien wat er verstuurd wordt.
+- **De vlag is niet de waarheid; het `mail.mail`-record is dat.** Vlag en mail leven op twee
+  modellen, dus "in één schrijfactie" bestaat niet. De idempotentie draait op een afgeleide
+  `message_id` (`<evt{id}-{soort}-reg{id}@om.mymmo.com>`): zoeken → `create` → dán de
+  boolean. Mislukt die laatste write, dan kan er nog steeds geen dubbele mail ontstaan.
+  `auto_delete` staat daarom expliciet op `false` (de oude templates zetten hem op `true`,
+  waardoor er na verzending niets bewijsbaars overbleef). Dit is bewust het omgekeerde van
+  de v1-bug waar een `catch` de vlag kon overslaan.
+- **`scheduled_date` wordt bij het INSCHRIJVEN gezet**, niet dagelijks herberekend. Odoo-cron
+  84 (server action 1102) deed dat wel en liet daardoor iedereen die inschreef ná zijn
+  dagelijkse run én binnen 24u vóór het event zonder reminder achter (registratie 1080,
+  2026-09-05, is daar een live voorbeeld van). `lib/mail-cron.js` corrigeert alleen nog wat
+  al klaarstond wanneer een event nadien verplaatst of geannuleerd wordt.
+- **Dag en uur worden afgeleid uit `starts_at` in Europe/Brussels**, niet uit
+  `x_studio_starting_day`/`x_studio_starting_time`. Die twee char-velden worden door
+  Odoo-cron 85 uit UTC geschreven zonder tijdzone-conversie, en `starting_time` blijft er
+  zelfs helemaal leeg terwijl template 52/56 het in hun onderwerp zetten.
+- **Placeholders zijn logic-loos**: `{{pad.naar.waarde}}` en niets anders. Geen eval, geen
+  Function-constructor, geen conditionals in de tekst (zelfde principe als de
+  mini-apps-templates). Een onbekende placeholder wordt leeg, niet zijn eigen naam.
+- **`EVENTS_V2_MAIL_OWNER` bepaalt wie verstuurt.** Kommagescheiden event-type-id's, of `*`.
+  Leeg/afwezig = de OM stuurt niets — een deploy op zich kan dus nooit een mail veroorzaken.
+  Zolang de oude rules aan staan is dat geen dubbele verzending: hun filter is exact
+  `x_studio_confirmation_email_sent = False` resp. `..._reminder_... = False`, en de OM zet
+  die vlag.
+- **Schrijfrecht op `mail.mail` is geverifieerd, niet aangenomen** (2026-09-05): `UID=2` =
+  Administrator (`invoice@mymmo.com`) zit in groep 4 (Administration / Settings), en
+  `mail.mail.system` is de enige ACL op dat model. Geen Studio- of rechtenwijziging nodig.
+
+**Cutover — pas ná bewijs op één event-type, en in deze volgorde.** Dit is méér dan de vier
+automations; hang er ook de crons en de recap-knop aan:
+
+| Odoo-object | Wat |
+|---|---|
+| `base.automation` 53, 58, 62, 63 | bevestiging + reminder, met hun kopieën voor live events |
+| `ir.actions.server` 1084, 1096, 1103, 1104, 1153, 1154, 1155, 1156 | de mail_post/object_write-paren erachter |
+| `ir.cron` 84 → actie 1102 | dagelijkse herberekening van `x_studio_reminder_email_send_dt` |
+| `ir.cron` 85 → actie 1109/1110 | `x_studio_starting_day` uit UTC |
+| `ir.actions.server` 1099, 1100 | recap versturen/resetten (1099 markeert ALLE registraties als verzonden, ook wanneer de verzending gooide én voor de duplicaten die het net wegfilterde — dezelfde faalmodus als de v1-aanwezigheidsbug) |
+| `mail.template` 50, 51, 52, 53, 55, 56 | archiveren, niet verwijderen |
+
+Het per-site hero-logo (QWeb `t-if` op `x_studio_registration_site` in template 50/55) blijft
+werken tot het vervangen is door een hero-blok met `sites` in de nieuwe editor — niet vooruit
+weghalen.
 
 ## Bestandsstructuur
 

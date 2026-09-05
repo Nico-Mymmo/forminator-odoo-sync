@@ -69,6 +69,12 @@ const MYMMO_EVENTS_DAYS_LONG = [
     4 => 'donderdag', 5 => 'vrijdag', 6 => 'zaterdag',
 ];
 
+/** Voor compacte kaartjes (bv. de scheurkalenderblaadjes in mymmo_events_row). */
+const MYMMO_EVENTS_MONTHS_SHORT = [
+    1 => 'jan', 'feb', 'mrt', 'apr', 'mei', 'jun',
+    'jul', 'aug', 'sep', 'okt', 'nov', 'dec',
+];
+
 /** "8 september" */
 function mymmo_events_format_day_month(DateTimeImmutable $date): string {
     return (int) $date->format('j') . ' ' . MYMMO_EVENTS_MONTHS[(int) $date->format('n')];
@@ -241,5 +247,25 @@ function mymmo_events_render(string $template, array $data = []): string {
     ob_start();
     // Beschikbaar in de template als $data.
     include $path;
-    return (string) ob_get_clean();
+    $html = (string) ob_get_clean();
+
+    // Elk template hierboven schrijft zijn HTML netjes ingesprongen over
+    // meerdere regels -- leesbaar in de broncode, maar een kaal regel-einde
+    // direct binnen een INLINE element (<a>, <span>, <button>, ... -- geen
+    // blok-element zoals <div>/<p>, die worden door WordPress' wpautop() al
+    // apart behandeld) wordt door wpautop() omgezet in een letterlijke
+    // <br>-tag zodra deze shortcode-output via de_content loopt (afhankelijk
+    // van HOE/waar de shortcode op een pagina staat -- vandaar dat dit op de
+    // ene pagina wel opviel en op de andere niet: zie de kapotte type-filter-
+    // chips en het te hoog staande pijltje bij "Meer info en inschrijven",
+    // v1.6.31/v1.6.32). In plaats van dat in elk template apart te vermijden
+    // (foutgevoelig, en nieuwe templates zouden er weer intrappen), maken we
+    // het hier éénmalig onmogelijk: alle witruimte (spaties, tabs, regel-
+    // eindes) buiten tag-attributen is voor de browser sowieso al betekenis-
+    // loos behalve als woordscheiding -- door elke opeenvolging hier al tot
+    // één spatie te herleiden, blijft er nergens nog een "kaal" regel-
+    // einde over waar wpautop éénzelfde spatie fout kan interpreteren.
+    // Geen enkel template hier bevat <pre>/<script>/<textarea> MET inhoud
+    // (de ene <textarea> is leeg), dus whitespace is nergens betekenisvol.
+    return trim((string) preg_replace('/\s+/', ' ', $html));
 }

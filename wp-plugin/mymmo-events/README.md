@@ -71,6 +71,9 @@ de Operations Manager die URL's automatisch over.
 
 [mymmo_events_announcement]
 [mymmo_events_announcement scribble_1="events/components/scribbles-scribbles-40-2.svg"]
+
+[mymmo_events_row]
+[mymmo_events_row source="highlighted" count="4"]
 ```
 
 `type` is het Odoo-id van het event type, `format` is `online`, `onsite` of
@@ -85,6 +88,25 @@ wijzen naar bestanden in de asset manager (bv.
 `events/components/scribbles-scribbles-40-2.svg`) voor de decoratieve
 accenten; overschrijf ze in de shortcode als je andere bestanden wil, geen
 code-aanpassing nodig.
+
+`[mymmo_events_row]` toont kaarten als een losjes neergelegde stapel
+scheurkalenderblaadjes (uur + locatie inbegrepen), lichter en veel lager dan
+de aankondiging — bedoeld om ook mid-pagina te plaatsen. `source` bepaalt
+wat marketing toont: `"highlighted"` (de gehighlighte events, in volgorde,
+geen aanvulling met gewone events als er minder dan `count` zijn) of
+`"next"` (standaard: gewoon de eerstvolgende events, chronologisch). `count`
+is standaard 4, maar heeft **geen vaste cap** meer — elk aantal mag (tot een
+ruime veiligheidsgrens in de code). Minder events dan `count`? Dan toont de
+rij gewoon minder kaarten (geen blanco aanvulling meer). De kaarten
+overlappen (het eerste/linkse kaartje ligt vast bovenop de stapel, elk
+volgend kaartje daaronder — die volgorde verandert nooit) en de rij wordt
+nooit breder dan de beschikbare ruimte: bij veel kaarten schuiven ze steeds
+verder over elkaar in plaats van dat er een scrollbalk verschijnt. Hoveren
+op een kaart duwt de buren opzij tot dat kaartje volledig zichtbaar is
+(zonder de stapelvolgorde te wijzigen), en het "Schrijf je snel in!"-tagje
+verhuist mee naar het gehoverde kaartje (na een korte vertraging, met een
+kleine opwind-animatie). Geen enkel event voor de gekozen `source`: dan
+toont de shortcode niets (net als de aankondiging bij een lege kalender).
 
 De kalender werkt **zonder JavaScript**: de maandnavigatie zijn gewone links
 met `?mymmo_month=`. Het JS voegt alleen comfort toe — pijltjestoetsen,
@@ -154,6 +176,247 @@ Ga daarna één keer naar Instellingen → Permalinks en klik Opslaan. Dat is al
 je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
+
+**1.6.32**
+- De wpautop/`<br>`-bug uit 1.6.31 (kapotte type-filterchips) bleek breder
+  te zitten dan enkel die ene chip: hetzelfde patroon (een inline element
+  als `<a>`/`<span>`/`<button>` waarvan de openingstag op een eigen regel
+  eindigt, met de tekst pas op de volgende regel) stond op zeker een tiental
+  plekken door de hele plugin, o.a. het pijltje bij "Meer info en
+  inschrijven" (stond daardoor te hoog t.o.v. de tekst -- een verdwaalde
+  `<br>` vóór de tekst maakte de link-box hoger, waardoor de tekst zelf
+  lager kwam te staan en het pijltje er t.o.v. de tekst te hoog uitzag).
+  In plaats van elke plek apart te patchen (foutgevoelig, en een nieuw
+  template zou er zo weer intrappen), is de fix nu centraal:
+  `mymmo_events_render()` in includes/helpers.php herleidt alle witruimte
+  in de gerenderde HTML van elk template tot één spatie voor die HTML de
+  functie verlaat. HTML-witruimte buiten `<pre>`/`<script>`/`<textarea>` is
+  toch al betekenisloos voor de browser (behalve als woordscheiding), dus
+  dit verandert visueel niets -- maar laat wpautop nergens meer een kaal
+  regel-einde over om verkeerd in een `<br>` om te zetten, op geen enkele
+  pagina, nu of in een toekomstig template.
+- Bugfix: een oude WordPress-eventpagina die op concept (draft) stond, werd
+  voor ingelogde redacteuren/admins nog altijd getoond in plaats van de
+  actuele OM-pagina. Oorzaak: de terugval-routing in
+  includes/class-router.php trok zich terug van elke URL waar WordPress
+  zelf geen 404 gaf -- en een concept-post is voor een ingelogde redacteur
+  wel rechtstreeks te bekijken (WP's eigen draft-preview, geen 404), ook al
+  is hij voor een gewone bezoeker niet publiek opvraagbaar (die kreeg de
+  actuele OM-pagina dus al wel correct). De terugval controleert nu ook of
+  de gevonden WP-post daadwerkelijk `post_status = 'publish'` heeft; is dat
+  niet zo (concept, pending, private, ...), dan neemt de OM de pagina toch
+  over.
+
+**1.6.31**
+- Bugfix: op de events-kalenderpagina (`/events/`) werden de type-
+  filterchips ("Groepsopleiding", "Q&A", ...) veel te groot getekend --
+  devtools toonde een lege `<br>` vooraan in de chip, vóór de labeltekst.
+  Oorzaak: `templates/partials/type-filter.php` had de sluitende `>` van
+  de `<a>`-tag op een eigen regel, met een regel-einde vóór de PHP-echo
+  van het label. Op pagina's waar de shortcode-output door WordPress'
+  `wpautop()` loopt (afhankelijk van HOE/waar de shortcode ingevoegd is --
+  zie ook `remove_filter('the_content', 'wpautop')` in
+  includes/class-router.php voor de detailpagina's, die dit al bewust
+  omzeilen) zet die filter zo'n "kale" regel-einde binnen een inline
+  element (`<a>`, geen blok-element) om in een letterlijke `<br>`-tag --
+  vandaar wel zichtbaar op de kalenderpagina, niet overal.
+  - Fix: geen letterlijk regel-einde meer direct binnen de `<a>` in
+    type-filter.php, ongeacht of wpautop op een pagina actief is.
+  - Dezelfde kwetsbare schrijfwijze (inline `<span>`/`<a>`/`<button>` met
+    een regel-einde direct na de openingstag, vóór de tekst) komt ook op
+    een aantal andere plekken in de plugin voor -- nog niet aangepast in
+    deze release, zie het gesprek voor de volledige lijst.
+
+**1.6.30**
+- Verfijning van de mobiele kaartenstapel uit 1.6.29, na feedback op een
+  eerste doorgevoerde versie (1.6.30-poging) die intussen weer volledig is
+  teruggedraaid naar 1.6.29 en van hieruit opnieuw is opgebouwd (zie
+  CLAUDE.md, sectie "wp-plugin/mymmo-events" voor de aanleiding/procedure):
+  - De slagschaduw van de gestapelde kaartjes was te intens (elke kaart
+    droeg dezelfde zware desktop-schaduw, en die stapelde zichtbaar op).
+    Elke stapelpositie heeft nu een eigen, lichtere schaduw (de onderste
+    kaartjes hebben geen schaduw meer).
+  - Alle kaartjes in de stapel zijn nu altijd even hoog: JS meet na render
+    de natuurlijke hoogte van elke kaart en past het maximum toe op de
+    hele stapel (herberekend na laden/webfonts/resize), zodat onderliggende
+    kaartjes niet langer zichtbaar "afgekapt" oogden. De titel wordt
+    afgekapt met ellipsis na 2 regels, en elke kaart toont nu ook de
+    samenvatting van het event (max. 4 regels, ellipsis).
+  - De swipe-hint stond na v1.6.30-poging 1 onder de hele kaartenstapel
+    (verwarrend, want die viel soms samen met de rand van een onderliggend
+    kaartje) -- hij staat nu boven de stapel, in de vaste lay-outflow.
+  - De "Bekijk onze andere events"-knop op de kaartjes is verdwenen op
+    mobiel; die boodschap staat nu in de swipe-hint zelf.
+  - De swipe-hint tekst sprak over "veeg naar links", wat verwarrend was
+    omdat het systeem net cyclisch is (na het laatste event begin je weer
+    bij het eerste) -- de tekst benoemt nu geen richting meer.
+  - Het "Schrijf je snel in!"-tagje (met het krulletje) verschijnt nu ook
+    op mobiel altijd, voor beide shortcodes (bij de rij verscheen dit
+    voorheen enkel via :hover op desktop, wat op mobiel nooit triggerde),
+    met een korte, automatische verschijn-animatie i.p.v. hover-gebonden.
+
+**1.6.29**
+- `[mymmo_events_row]` en `[mymmo_events_announcement]`: op mobiel tonen
+  beide shortcodes nu dezelfde "Tinder-stijl" kaartenstapel. Het bovenste
+  kaartje toont het eerstvolgende event, met de volgende kaartjes er
+  lichtjes zichtbaar achter. Vegen naar links toont het volgende event, naar
+  rechts het vorige (cyclisch: na het laatste begint de stapel weer vooraan).
+  Op desktop blijft de layout van beide shortcodes ongewijzigd (rij
+  respectievelijk aankondiging met stapel als decoratie).
+  - Op mobiel valt de knop "Bekijk onze andere events" (rij) en de
+    secundaire CTA-knop (aankondiging) weg, en komt er in de plaats een
+    subtiele swipe-hint met een scribble-pijltje te staan.
+  - De ghost-kaartjes achter de hoofdkaart in de aankondiging zijn niet
+    langer pure decoratie op mobiel: een tik op zo'n kaartje navigeert nu
+    naar het bijhorende event (net als bij de rij).
+
+**1.6.28**
+- `[mymmo_events_announcement]`: het kleine datumbadge op de stapelkaartjes
+  ACHTER de hoofdkaart (`.mymmo-ev-announce__ghost-date`) rekte zich uit tot
+  de vole kaartbreedte -- zichtbaar als een lange gekleurde balk op het
+  randje dat achter de hoofdkaart uitsteekt. Oorzaak: de ouder van dat
+  badge is een flex-column zonder eigen `align-items`, dus de browser-
+  standaard (`stretch`) rekte het mee. Bestond al langer, viel enkel niet
+  op omdat dat achterste kaartje meestal geen (of een ander) datumbadge
+  toonde.
+
+**1.6.27**
+- `[mymmo_events_announcement]`:
+  - De kicker ("Aanbevolen event"/"Binnenkort") en de type-pill ernaast tonen
+    nu even groot -- de kicker had iets ruimere padding en een relatief
+    groot vinkje-icoon t.o.v. het kleine bolletje van de pill.
+  - Op mobiel verdwijnt de illustratie (nam enkel ruimte in), en de twee
+    knoppen staan naast elkaar op één rij i.p.v. onder elkaar.
+- De tekstkleur op alle `.mymmo-ev-pill`-tags (kaarten, single, aankondiging)
+  is een tikje donkerder gemaakt voor betere leesbaarheid.
+
+**1.6.26**
+- De filter-chips boven de kalender/lijst (per event-type) tonen nu ook echt
+  hun eigen kleur uit Odoo/OM -- de publieke `/event-types`-lijst die de
+  plugin daarvoor gebruikt (`get_event_types()`) gaf tot nu toe enkel
+  id+naam door, geen kleur, dus vielen ze altijd terug op grijs. Vereist een
+  nieuwe deploy van de Worker (`src/modules/event-operations-v2/public-api.js`).
+- Diezelfde balk (navigatie + maandtitel + filter-chips) is compacter op
+  mobiel: de chips wrapten voorheen over meerdere regels en namen veel
+  hoogte in. Nu blijven nav+titel op de eerste regel en scrollen de chips
+  op de tweede regel horizontaal, zonder scrollbar -- een vaste, vertrouwde
+  hoogte ongeacht het aantal types.
+
+**1.6.25**
+- Alle badges/pills/chips die een event-type-kleur tonen (kaartenrij-badge,
+  actieve categoriepil boven kalender/lijst, en de nieuwe pil in de
+  aankondiging-widget) gebruiken nu hetzelfde lichte-tag-patroon: een lichte
+  tint van de Odoo-kleur als achtergrond met donkere tekst, in plaats van een
+  volle kleur met witte tekst -- blijft leesbaar ongeacht hoe licht of donker
+  de kleur is die in de Operations Manager gekozen wordt.
+- `[mymmo_events_announcement]`: toont nu ook de type-pill (zelfde kleur/stijl
+  als op de kaarten en de detailpagina) -- ontbrak hier voorheen helemaal.
+
+**1.6.24**
+- `[mymmo_events_row]`:
+  - De typebadge staat nu inline vlak boven de titel i.p.v. absoluut in de hoek -- die botste
+    daar met de curl van het "Schrijf je snel in!"-tagje. Geen afkapping meer, en kleiner
+    lettertype.
+  - Klokje voor het uur op elk kaartje (zelfde icoon als elders in de plugin).
+  - Fix: bij een pagina-herlaad konden de kaarten kort verkeerd gepositioneerd blijven staan
+    (te ver naar links) tot de eerste hover ze "corrigeerde". ResizeObserver + fonts.ready
+    herrekenen de overlap nu automatisch zodra de kaartenrij van grootte verandert, ongeacht
+    de oorzaak (laatgeladen lettertype, een pagebuilder die de rij pas later toont, ...).
+
+**1.6.23**
+- `[mymmo_events_row]`:
+  - Kaarten hebben nu een `min-width` van 200px (was een vaste 9.5rem breedte) -- ze mogen niet
+    meer smaller worden dan dit, ook niet bij veel kaarten in de rij.
+  - Nieuw: badge met het eventtype in de hoek die leeg is voor de huidige `date_align`, in de
+    kleur van dat type (zelfde kleur als de pill op de eventpagina's).
+
+**1.6.22**
+- `[mymmo_events_row]`:
+  - Kaarten worden nooit meer smaller gemaakt om meer kaarten te laten passen -- rowOverlapFit()
+    laat ze i.p.v. daarvan verder over elkaar schuiven (zoals een pak kaarten), tot bijna volledig
+    verborgen als het aantal het vereist. Hoveren (of swipen, zie hieronder) duwt ze weer uiteen.
+  - Op mobiel/touch werkt hoveren niet: een horizontale swipe over de kaartenrij maakt nu het
+    volgende/vorige kaartje "actief" (zelfde visuele reveal als :hover op desktop), swipe
+    terug om weer dieper in de stapel te gaan.
+  - Bij `date_align="right"` verhuist het "Schrijf je snel in!"-tagje mee naar de linkerbovenhoek
+    van de kaart (i.p.v. rechts) en wordt het krulletje horizontaal gespiegeld, zodat het nog
+    steeds naar de kaart toe wijst.
+
+**1.6.21**
+- `[mymmo_events_row]`, weer een ronde verfijningen:
+  - Minder kaarten dan de beschikbare breedte toelaat? De rij vult zich nu altijd volledig
+    (`rowOverlapFit()` kan de overlap ook kleiner dan de standaardwaarde maken, of zelfs een
+    kleine tussenruimte, i.p.v. altijd minstens de standaardoverlap te houden en de rest van de
+    breedte ongebruikt te laten).
+  - Nieuwe config-optie "datumuitlijning" (site-breed in Instellingen -> Mymmo Events, en per
+    plaatsing overschrijfbaar met het `date_align`-attribuut): "links" (standaard) houdt de
+    huidige tekstuitlijning maar draait de stapelvolgorde om (linkse kaartje nu onderaan i.p.v.
+    bovenaan de stapel); "rechts" lijnt datum + uur rechts uit op elk kaartje en houdt de
+    stapelvolgorde zoals voorheen (linkse kaartje bovenaan). Zo blijft de datum altijd zichtbaar,
+    ook op een kaartje dat grotendeels achter een andere kaart schuilgaat.
+  - Geen afkapping van de titel meer (was 2 regels + ellipsis) -- kaarten zijn nu iets hoger
+    (min-hoogte i.p.v. vaste hoogte) en blijven dankzij `align-items: stretch` op de rij nog
+    steeds altijd exact even hoog als elkaar.
+  - De "Schrijf je snel in!"-plopanimatie oogde houterig door een te extreme cubic-bezier over
+    de hele animatie -- vervangen door een subtielere aanloop met een eigen, zachtere
+    timing-function per fase (infaden, kleine terugwijkende aanloop, lichte overshoot).
+
+**1.6.20**
+- `[mymmo_events_row]`, verder verfijnd op basis van feedback:
+  - Minder events dan `count`? Toont nu gewoon minder kaarten, geen lege opvulkaartjes meer.
+  - Stapelvolgorde ligt vast: het eerste (linkse) kaartje ligt altijd bovenop, elk volgend
+    kaartje daaronder -- inline z-index per kaart. Hoveren duwt de buren opzij tot het kaartje
+    volledig zichtbaar is, maar wijzigt die volgorde niet meer (voorheen kreeg het gehoverde
+    kaartje zelf een hogere z-index).
+  - Geen horizontale scrollbar meer: `rowOverlapFit()` (mymmo-events.js) berekent hoeveel de
+    kaarten moeten overlappen zodat de rij altijd binnen de beschikbare breedte blijft, hoe
+    hoog `count` ook staat.
+  - Kaarten zijn nu een vaste hoogte (was min-hoogte) zodat ze altijd exact even hoog zijn.
+  - Het "Schrijf je snel in!"-tagje bestaat nu maar één keer per rij en verhuist naar het
+    gehoverde kaartje in plaats van vast op het eerste te staan -- verschijnt pas na een halve
+    seconde hoveren, met een kleine cartoonachtige opwind-animatie, en verdwijnt meteen bij
+    weghoveren.
+
+**1.6.19**
+- Scribble achter `[mymmo_events_row]` verdween achter de kaarten -- opgelost door de vaste
+  breedte en opacity te laten vallen en de positie iets aan te passen (`top: 30%`,
+  `right: -5%`), zoals live afgesteld in devtools. Op smalle schermen krijgt de scribble alsnog
+  een `max-width` zodat hij daar niet over de hele rij bleedt.
+
+**1.6.18**
+- `[mymmo_events_row]`: de harde cap van 4 kaarten is opgeheven -- `count` mag nu elk aantal zijn
+  (tot een ruime veiligheidsgrens). Vanaf een handvol kaarten overlappen ze losjes als een stapel
+  scheurkalenderblaadjes i.p.v. een grid met steeds smallere kolommen, en schuift de rij
+  horizontaal door als niet alles past. Hoveren op een kaart duwt de buren zichtbaar opzij.
+  Elke kaart toont nu ook het uur en de locatie van het event. Dat het aantal instelbaar is,
+  staat nu ook duidelijker uitgelegd op de instellingenpagina (shortcode-tabel + de bouwer).
+
+**1.6.17**
+- `[mymmo_events_row]` toont nu ook een decoratieve scribble rechts achter de kaartenrij, en
+  een "Schrijf je snel in!"-tagje met krulletjepijltje boven het eerste event in de rij --
+  zelfde tekst/asset-aanpak als bij `[mymmo_events_announcement]`.
+
+**1.6.16**
+- `[mymmo_events_row]` staat nu ook op de instellingenpagina (Instellingen → Mymmo Events)
+  in de shortcode-referentietabel, met uitleg over `source` en `count`.
+- Nieuwe "Shortcode-bouwer" op diezelfde pagina: kies een component, vul de parameters in via
+  gewone formuliervelden (incl. de event types als aanvinkbare chips), en kopieer de kant-en-
+  klare shortcode. Bedoeld zodat marketing zelf shortcodes kan samenstellen zonder de
+  parameternamen te hoeven kennen of accolades met de hand te typen.
+
+**1.6.15**
+- Nieuwe shortcode `[mymmo_events_row]`: max. 4 kaarten naast elkaar (gehighlighte events in
+  volgorde OF de eerstvolgende events, per plaatsing te kiezen via `source`), bedoeld als
+  minder invasief alternatief voor `[mymmo_events_announcement]` om ook mid-pagina te
+  plaatsen. Elk kaartje krijgt een eigen kleine rotatie/verschuiving, zodat de rij oogt als
+  los naast elkaar gelegde scheurkalenderblaadjes. Minder dan 4 events voor de gekozen bron:
+  blanco kaartjes vullen aan tot 4 (geen aanvulling met events van de andere bron). Rechtsonder
+  een subtiele "Bekijk onze andere events"-link.
+- Mobiel-fixes in de aankondiging (`mymmo_events_announcement`): de pijl, de illustratie en
+  het derde stapelkaartje verdwenen op smalle schermen eerder volledig (`display: none`) --
+  precies de content die de widget herkenbaar maakt. Ze blijven nu altijd zichtbaar, enkel
+  verkleind/herschikt (de illustratie stroomt bijvoorbeeld onder de tekst i.p.v. als
+  overlappende hoek-afbeelding, die anders achter de volle-breedte tekst zou verdwijnen).
 
 **1.6.12**
 - Nieuw REST-endpoint `/wp-json/mymmo-events/v1/reload?token=...` dat de volledige cache

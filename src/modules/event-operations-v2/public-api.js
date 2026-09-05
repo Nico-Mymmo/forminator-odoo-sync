@@ -163,8 +163,8 @@ function meta(count, brand = null) {
  * website nodig heeft: opgeschoonde HTML, en een samenvatting die nooit
  * leeg is zodat een kaart altijd tekst heeft.
  */
-function toPublicPayload(record, { registrationCount, detail }) {
-  const dto = toPublicEventDto(record, { registrationCount, detail });
+function toPublicPayload(record, { registrationCount, detail, typeColor }) {
+  const dto = toPublicEventDto(record, { registrationCount, detail, typeColor });
 
   if (detail) {
     dto.body_html = sanitizePublicHtml(dto.body_html);
@@ -242,6 +242,10 @@ async function handleEventList(request, env, brand) {
     cacheTtl: CACHE_TTL.PUBLIC_LIST
   });
 
+  // één (gecachte) opvraag voor de hele lijst i.p.v. een lookup per event.
+  const { types: eventTypesForColor } = await listEventTypes(env);
+  const typeColorById = new Map(eventTypesForColor.map((t) => [t.id, t.color]));
+
   // Een event zonder slug heeft geen pagina; dat wordt op de site een dode
   // link. Dat gebeurt als iemand de fase rechtstreeks in Odoo op Published
   // zet in plaats van via de OM te publiceren, want dan wordt er geen slug
@@ -262,6 +266,7 @@ async function handleEventList(request, env, brand) {
       toPublicPayload(rawById[internal.id], {
         registrationCount: internal.registration.count,
         detail: false,
+        typeColor: typeColorById.get(internal.event_type.id),
         sharedCanonicalOrigin: env?.EVENTS_SHARED_CANONICAL_ORIGIN
       })
     )
@@ -291,9 +296,13 @@ async function handleEventDetail(request, env, key, brand) {
     return null;
   }
 
+  const { types: eventTypesForColor } = await listEventTypes(env);
+  const typeColor = eventTypesForColor.find((t) => t.id === event.event_type.id)?.color;
+
   const dto = toPublicPayload(raw, {
     registrationCount: event.registration.count,
     detail: true,
+    typeColor,
     sharedCanonicalOrigin: env?.EVENTS_SHARED_CANONICAL_ORIGIN
   });
 
@@ -342,7 +351,7 @@ async function handleEventTypes(request, env, brand) {
   return {
     payload: {
       meta: meta(types.length, brand),
-      event_types: types.map((t) => ({ id: t.id, name: t.name }))
+      event_types: types.map((t) => ({ id: t.id, name: t.name, color: t.color }))
     },
     cached,
     ttl: CACHE_TTL.EVENT_TYPES
@@ -436,7 +445,8 @@ async function handleRegister(request, env, slug, brand, ctx) {
       company: body.company,
       questions: body.questions,
       consent: Boolean(body.consent),
-      utm: body.utm
+      utm: body.utm,
+      site: brand
     },
     ctx
   });

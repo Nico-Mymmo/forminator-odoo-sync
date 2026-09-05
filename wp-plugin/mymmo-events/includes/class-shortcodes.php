@@ -1,6 +1,6 @@
 <?php
 /**
- * De drie shortcodes. Alles server-side gerenderd, zodat het werkt in een
+ * De vijf shortcodes. Alles server-side gerenderd, zodat het werkt in een
  * klassiek thema, in een Elementor-codeblok en in een Gutenberg-
  * shortcodeblok — en zonder JavaScript.
  *
@@ -45,11 +45,19 @@ final class Mymmo_Events_Shortcodes {
      */
     private const MONTHS_AHEAD = 12;
 
+    /**
+     * Veiligheidsgrens voor `count` op [mymmo_events_row] -- tot v1.6.17
+     * hardcoded op 4; die cap is opgeheven, dit is enkel nog een ruime
+     * bovengrens tegen een absurde waarde in de shortcode.
+     */
+    private const ROW_MAX_COUNT = 12;
+
     public static function init(): void {
         add_shortcode('mymmo_events_calendar', [self::class, 'calendar']);
         add_shortcode('mymmo_events_list', [self::class, 'listing']);
         add_shortcode('mymmo_event', [self::class, 'single']);
         add_shortcode('mymmo_events_announcement', [self::class, 'announcement']);
+        add_shortcode('mymmo_events_row', [self::class, 'row']);
 
         add_action('wp_enqueue_scripts', [self::class, 'register_assets']);
         add_action('wp_footer', [self::class, 'maybe_enqueue'], 5);
@@ -541,6 +549,84 @@ final class Mymmo_Events_Shortcodes {
             'Event' => (string) ($event['title'] ?? ''),
             'Herkomst' => $announcement['is_highlighted'] ? 'gehighlight' : 'eerstvolgende (geen highlight ingesteld)',
             'Kaarten erachter' => count($announcement['others']),
+        ]);
+    }
+
+    /**
+     * [mymmo_events_row source="highlighted|next" count="4"]
+     *
+     * Rij van kaarten naast elkaar, iets als scheurkalenderblaadjes die
+     * naast mekaar liggen -- lichter en lager dan de aankondiging, zodat
+     * marketing 'm ook mid-pagina kan invoegen zonder dat de pagina er te
+     * dominant door oogt. `count` heeft GEEN vaste cap van 4 meer (was tot
+     * v1.6.17 hardcoded): elke waarde 1 t/m MAX_COUNT is toegestaan. Vanaf
+     * een handvol kaarten schuiven ze over elkaar (zie CSS,
+     * .mymmo-ev-row__cards) i.p.v. een grid met steeds smallere kolommen --
+     * hoveren op een kaart duwt de buren opzij. `source` bepaalt WAT er
+     * staat:
+     *
+     * - "highlighted": de gehighlighte events, in volgorde. Zijn er minder
+     *   dan `count`, dan wordt NIET aangevuld met gewone events -- dat zou
+     *   het hele punt van "enkel de gehighlighte" ondermijnen. De template
+     *   toont dan gewoon minder kaarten (sinds v1.6.20 geen blanco
+     *   aanvulkaartjes meer, in tegenstelling tot de kaartenstapel in de
+     *   aankondiging).
+     * - "next" (standaard): gewoon de eerstvolgende events, chronologisch.
+     *
+     * Bewust geen highlight-fallback zoals bij de aankondiging: hier kiest
+     * marketing expliciet per shortcode-plaatsing wat er moet staan, dus
+     * geen impliciete "of anders het eerstvolgende"-logica.
+     */
+    public static function row($atts): string {
+        self::need_assets();
+
+        $atts = shortcode_atts([
+            'source' => 'next',
+            'count' => '4',
+            'date_align' => '',
+        ], $atts, 'mymmo_events_row');
+
+        // Geen cap van 4 meer -- enkel nog een ruime veiligheidsgrens tegen
+        // een onbedoeld absurde waarde (en tegen een te grote aanroep naar
+        // de Operations Manager).
+        $source = $atts['source'] === 'highlighted' ? 'highlighted' : 'next';
+        $count = max(1, min(self::ROW_MAX_COUNT, (int) $atts['count']));
+        // "left" (standaard) of "right" -- bepaalt zowel de tekstuitlijning
+        // van datum/uur op elk kaartje als de stapelvolgorde, zodat de
+        // datum altijd zichtbaar blijft (zie doc-comment in templates/row.php).
+        // Attribuut wint als het meegegeven is, anders de site-brede
+        // instelling uit de configuratiepagina.
+        $date_align = $atts['date_align'] !== '' ? $atts['date_align'] : get_option('mymmo_events_row_date_align', 'left');
+        $date_align = $date_align === 'right' ? 'right' : 'left';
+
+        $events = Mymmo_Events_Api_Client::get_row($source, $count);
+
+        if (empty($events)) {
+            // Geen enkel event voor deze bron: niets tonen, net als de
+            // aankondiging bij een lege kalender -- vier dashed lege
+            // kaartjes met enkel een "bekijk andere events"-link eronder
+            // oogt als een fout, niet als een bewuste component.
+            return self::debug_panel([
+                'Rij' => 'geen events voor bron "' . $source . '", niets getoond',
+            ]);
+        }
+
+        $output = mymmo_events_render('row', [
+            'events' => $events,
+            'count' => $count,
+            'source' => $source,
+            'date_align' => $date_align,
+            // Zelfde asset-sleutels/tekst als de aankondiging hierboven --
+            // bewust vaste huisstijl, geen shortcode-attribuut voor decoratie.
+            'scribble' => 'events/components/scribbles-scribbles-40-3.svg',
+            'pointer_arrow' => 'events/components/scribbles-scribbles-73-1.svg',
+            'pointer_label' => 'Schrijf je snel in!',
+        ]);
+
+        return $output . self::debug_panel([
+            'Bron' => $source === 'highlighted' ? 'gehighlighte events' : 'eerstvolgende events',
+            'Gevraagd aantal' => $count,
+            'Events gevonden' => count($events),
         ]);
     }
 

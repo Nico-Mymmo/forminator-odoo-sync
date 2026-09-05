@@ -39,7 +39,7 @@ import {
   CACHE_NS,
   CACHE_TTL
 } from '../constants.js';
-import { readThrough, invalidateEvents } from './cache.js';
+import { readThrough, invalidateEvents, invalidateNamespace } from './cache.js';
 import { pushWpReload } from './wp-reload.js';
 import { ensureUniqueSlug } from './slug.js';
 import {
@@ -883,7 +883,13 @@ export async function listEventTypes(env, { bypassCache = false } = {}) {
       const records = await searchRead(env, {
         model: ODOO_MODELS.EVENT_TYPE,
         domain: [[EVENT_TYPE_FIELDS.ACTIVE, '=', true]],
-        fields: [EVENT_TYPE_FIELDS.ID, EVENT_TYPE_FIELDS.NAME, EVENT_TYPE_FIELDS.ACTIVE, EVENT_TYPE_FIELDS.SEQUENCE],
+        fields: [
+          EVENT_TYPE_FIELDS.ID,
+          EVENT_TYPE_FIELDS.NAME,
+          EVENT_TYPE_FIELDS.ACTIVE,
+          EVENT_TYPE_FIELDS.SEQUENCE,
+          EVENT_TYPE_FIELDS.COLOR
+        ],
         order: `${EVENT_TYPE_FIELDS.SEQUENCE} asc, ${EVENT_TYPE_FIELDS.NAME} asc`
       });
 
@@ -892,6 +898,55 @@ export async function listEventTypes(env, { bypassCache = false } = {}) {
   );
 
   return { ...value, cached };
+}
+
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Kleur van één event type wijzigen (x_studio_type_color_hex in Odoo,
+ * toegevoegd via Odoo Studio -- geen eigen kleurentabel, Odoo blijft de
+ * enige database). Gebruikt door de "Typekleuren"-instellingen in de OM.
+ *
+ * @param {Object} env
+ * @param {number} id
+ * @param {string} color - hex-code, bv. "#0D9488"
+ * @param {{email?:string,name?:string}|null} [actor]
+ * @returns {Promise<{ types: Object[] }>} de vernieuwde lijst
+ */
+export async function setEventTypeColor(env, id, color, actor = null) {
+  const typeId = Number(id);
+  if (!Number.isInteger(typeId) || typeId <= 0) {
+    throw new ValidationError('Ongeldig event-type-id');
+  }
+  if (typeof color !== 'string' || !HEX_COLOR_RE.test(color)) {
+    throw new ValidationError('Kleur moet een hex-code zijn, bv. #0D9488');
+  }
+
+  await write(env, {
+    model: ODOO_MODELS.EVENT_TYPE,
+    ids: [typeId],
+    values: { [EVENT_TYPE_FIELDS.COLOR]: color }
+  });
+
+  const who = actor?.email || actor?.name || 'onbekende gebruiker';
+  try {
+    await messagePost(env, {
+      model: ODOO_MODELS.EVENT_TYPE,
+      id: typeId,
+      body: `Kleur gewijzigd naar ${color} — door ${who}`
+    });
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} chatterbericht mislukt voor event type ${typeId}:`, error?.message);
+  }
+
+  // Beide namespaces: de type-lijst zelf, en de publieke eventrespons die
+  // de kleur meeneemt (zie handleEventList/handleEventDetail in
+  // public-api.js) -- anders blijft de site de oude kleur cachen tot de
+  // TTL verloopt.
+  await invalidateNamespace(env, CACHE_NS.EVENT_TYPES);
+  await invalidateEvents(env);
+
+  return listEventTypes(env, { bypassCache: true });
 }
 
 /**

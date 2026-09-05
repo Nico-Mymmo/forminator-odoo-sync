@@ -28,6 +28,7 @@ import {
   toRegistrationDto,
   assertNoForbiddenFields
 } from '../odoo-contract.js';
+import { EVENT_BRAND, EVENT_BRANDS } from '../constants.js';
 import {
   LOG_PREFIX,
   REGISTRATION_STATE,
@@ -38,6 +39,8 @@ import { ValidationError, normalizeEmail, normalizePagination } from './validati
 import { resolvePartnerByEmail } from './partners.js';
 import { getEvent } from './events-service.js';
 import { invalidateEvents } from './cache.js';
+import { ownsMail, queueMails } from './mail-service.js';
+import { MAIL_KIND } from './mail-blocks.js';
 import { resolveLeadStatesForPartners } from '../../event-operations/services/lead-resolution-service.js';
 
 /** Hoe lang het slot geldig blijft. Kort: alleen de duur van een create. */
@@ -184,6 +187,63 @@ function buildDisplayName(input, email) {
  *   antwoord af te handelen; dat scheelt de bezoeker een Odoo-ronde
  * @returns {Promise<{ id: number, state: string, waitlisted: boolean, partnerId: number, contactCreated: boolean }>}
  */
+/**
+ * De inschrijvingen die een mail van een bepaalde soort nog moeten krijgen.
+ *
+ * Bewust hier en niet in mail-service.js: dit is een vraag over
+ * inschrijvingen, en alle Odoo-toegang tot x_webinarregistrations hoort in
+ * dit bestand te blijven.
+ *
+ * De vlag filtert alleen wanneer er GEEN expliciete id's meegegeven zijn.
+ * Kiest een beheerder in de UI zelf een paar ontvangers, dan is dat een
+ * bewuste actie; dubbel versturen wordt daar nog steeds tegengehouden door
+ * de message_id-sleutel in mail-service.js, niet door de vlag.
+ *
+ * @param {Object} env
+ * @param {number} eventId
+ * @param {Object} options
+ * @param {string} options.kind - MAIL_KIND.*
+ * @param {number[]|null} [options.registrationIds]
+ * @returns {Promise<Object[]>} DTO's
+ */
+export async function listRegistrationsForMail(env, eventId, { kind, registrationIds = null } = {}) {
+  const sentField = {
+    [MAIL_KIND.CONFIRMATION]: REGISTRATION_FIELDS.CONFIRMATION_SENT,
+    [MAIL_KIND.REMINDER]: REGISTRATION_FIELDS.REMINDER_SENT,
+    [MAIL_KIND.RECAP]: REGISTRATION_FIELDS.RECAP_SENT
+  }[kind];
+
+  if (!sentField) {
+    throw new ValidationError(`Onbekende mailsoort "${kind}"`);
+  }
+
+  const domain = [
+    [REGISTRATION_FIELDS.EVENT, '=', Number(eventId)],
+    [REGISTRATION_FIELDS.ACTIVE, '=', true],
+    // Geannuleerde inschrijvingen krijgen niets. Wachtlijst wél: die persoon
+    // is ingeschreven, alleen niet zeker van een plaats.
+    [REGISTRATION_FIELDS.STATE, '!=', REGISTRATION_STATE.CANCELLED]
+  ];
+
+  if (Array.isArray(registrationIds) && registrationIds.length > 0) {
+    domain.push([REGISTRATION_FIELDS.ID, 'in', registrationIds.filter((n) => Number.isInteger(n))]);
+  } else {
+    domain.push([sentField, '=', false]);
+  }
+
+  assertNoForbiddenFields(REGISTRATION_LIST_FIELDS, 'listRegistrationsForMail');
+
+  const records = await searchRead(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    domain,
+    fields: REGISTRATION_LIST_FIELDS,
+    limit: false,
+    order: `${REGISTRATION_FIELDS.ID} asc`
+  });
+
+  return (records || []).map(toRegistrationDto);
+}
+
 export async function createRegistration(env, options) {
   const { event, input, source = REGISTRATION_SOURCE.PUBLIC_FORM, actor = null, ctx = null } = options;
 
@@ -237,6 +297,16 @@ export async function createRegistration(env, options) {
     const questions = String(input?.questions || '').trim();
     if (questions !== '') {
       values[REGISTRATION_FIELDS.QUESTIONS] = questions;
+    }
+
+    // Welke site (openvme/syndicoach) de bezoeker gebruikte om in te
+    // schrijven -- de site-key op de aanvraag legt dit al vast, hier
+    // schrijven we het enkel door. Een onbekende/lege waarde laten we
+    // gewoon weg i.p.v. te falen: dan blijft het veld leeg in Odoo,
+    // net als bij oudere/handmatige inschrijvingen.
+    const site = String(input?.site || '').trim().toLowerCase();
+    if (EVENT_BRANDS.includes(site) && site !== EVENT_BRAND.BOTH) {
+      values[REGISTRATION_FIELDS.SITE] = site;
     }
 
     assertNoForbiddenFields(Object.keys(values), 'createRegistration');
@@ -304,6 +374,57 @@ export async function createRegistration(env, options) {
     }
 
     await invalidateEvents(env);
+
+    // ── Bevestigings- en reminder-mail ─────────────────────────────────────
+    //
+    // Alleen als de OM de mails van dit event-type overgenomen heeft
+    // (EVENTS_V2_MAIL_OWNER). Staat die vlag niet, dan gebeurt hier niets
+    // en blijven de bestaande Odoo-automations 53/62 resp. 58/63 het werk
+    // doen -- zo kan een deploy op zich nooit een mail veroorzaken.
+    //
+    // Fire-and-forget ná het antwoord, zelfde patroon als de chatternotitie
+    // hierboven en als pushWpReload(): de bezoeker hoort niet te wachten op
+    // twee Odoo-rondes. Zonder ctx (test, cron) wél afwachten.
+    //
+    // Beide soorten worden hier al klaargezet: de reminder krijgt zijn
+    // scheduled_date meteen mee (start - 24u), zodat er geen dagelijkse
+    // herberekening meer nodig is. Zie computeScheduledDate() voor waarom
+    // dat de bug van Odoo-cron 84 wegneemt.
+    if (ownsMail(env, event)) {
+      const registrationForMail = {
+        id: registrationId,
+        name: values[REGISTRATION_FIELDS.NAME],
+        submitted_email: values[REGISTRATION_FIELDS.SUBMITTED_EMAIL] || email,
+        site: values[REGISTRATION_FIELDS.SITE] || null,
+        state: waitlisted ? REGISTRATION_STATE.WAITLISTED : REGISTRATION_STATE.REGISTERED
+      };
+
+      const mails = (async () => {
+        for (const kind of [MAIL_KIND.CONFIRMATION, MAIL_KIND.REMINDER]) {
+          try {
+            await queueMails(env, {
+              event,
+              registrations: [registrationForMail],
+              kind,
+              actor: actor || { name: 'inschrijfformulier' }
+            });
+          } catch (error) {
+            // Nooit fataal: de inschrijving zelf staat al in Odoo en die is
+            // het belangrijkste. Wél luid loggen -- een mail die niet
+            // klaargezet raakt, mag niet stil verdwijnen.
+            console.error(
+              `${LOG_PREFIX} ${kind}-mail niet klaargezet voor inschrijving ${registrationId}: ${error?.message}`
+            );
+          }
+        }
+      })();
+
+      if (ctx && typeof ctx.waitUntil === 'function') {
+        ctx.waitUntil(mails);
+      } else {
+        await mails;
+      }
+    }
 
     return {
       id: registrationId,

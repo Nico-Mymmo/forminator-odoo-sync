@@ -125,7 +125,7 @@
   padding: 0.2rem 0.6rem 0.2rem 0.5rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--mymmo-ev-pill-color, #475569) 12%, white);
-  color: color-mix(in srgb, var(--mymmo-ev-pill-color, #475569) 80%, black);
+  color: color-mix(in srgb, var(--mymmo-ev-pill-color, #475569) 88%, black);
   font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.5;
@@ -343,6 +343,34 @@
   gap: 0.3rem;
   margin-bottom: 1rem;
 }
+
+/* Op smalle schermen is er geen ruimte om nav + titel + alle chips op
+   dezelfde regel te houden -- flex-wrap liet de chips dan over meerdere
+   regels vallen, wat veel hoogte kostte. Compacter: nav+titel blijven
+   samen op regel 1 (de chips krijgen expliciet een eigen volle breedte),
+   en de chips zelf scrollen op regel 2 horizontaal in plaats van te
+   wrappen -- herkenbaar mobiel patroon, en kost een vaste, voorspelbare
+   hoogte ongeacht het aantal event-types. */
+@media (max-width: 40rem) {
+  .mymmo-ev-calendar__bar .mymmo-ev-typefilter,
+  .mymmo-ev-list__bar .mymmo-ev-typefilter {
+    margin-left: 0;
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.15rem;
+    scrollbar-width: none;
+  }
+  .mymmo-ev-calendar__bar .mymmo-ev-typefilter::-webkit-scrollbar,
+  .mymmo-ev-list__bar .mymmo-ev-typefilter::-webkit-scrollbar {
+    display: none;
+  }
+  .mymmo-ev-typefilter .mymmo-ev-chipfilter {
+    flex: 0 0 auto;
+  }
+}
 .mymmo-ev-chipfilter {
   display: inline-flex;
   align-items: center;
@@ -360,9 +388,9 @@
   background: color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 10%, white);
 }
 .mymmo-ev-chipfilter.is-active {
-  background: var(--mymmo-ev-chip-color, #475569);
-  border-color: var(--mymmo-ev-chip-color, #475569);
-  color: #fff;
+  background: color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 22%, white);
+  border-color: color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 55%, white);
+  color: color-mix(in srgb, var(--mymmo-ev-chip-color, #475569) 82%, black);
 }
 
 .mymmo-ev-grid {
@@ -795,9 +823,15 @@
   padding: 1.5rem;
   overflow: hidden;
   transition: transform 0.2s ease;
+  /* v1.6.13: flex-column zodat .mymmo-ev-announce__ghost-ctas altijd onderaan
+     de kaart blijft staan, op dezelfde plek als de echte knoppenrij op de
+     bovenste kaart -- ongeacht of dit kaartje een titel/datum toont. */
+  display: flex;
+  flex-direction: column;
 }
 .mymmo-ev-announce__ghost-date {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   padding: 0.15rem 0.55rem;
   margin-bottom: 0.3rem;
@@ -819,6 +853,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* v1.6.13: decoratieve knoppenrij, exact zoals .mymmo-ev-announce__ctas op de
+   bovenste kaart, maar dan puur zichtbaar -- geen <a>, pointer-events: none.
+   Zonder dit toonde het randje dat door de rotatie/offset onderaan uitsteekt
+   een lege plek precies waar op de echte kaart de knoppen staan. */
+.mymmo-ev-announce__ghost-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: auto;
+  pointer-events: none;
+}
+.mymmo-ev-btn--ghost {
+  cursor: default;
+}
 /* v1.6.11: elk kaartje krijgt een eigen transform-origin (licht naast het
    midden, en niet voor alle drie in dezelfde richting) plus een kleine
    translate() vóór de rotate() -- anders vallen ze bij rotatie 0 exact over
@@ -830,15 +879,33 @@
 }
 .mymmo-ev-announce__ghost--2 {
   z-index: 1;
-  opacity: 0.85;
   transform-origin: 58% 44%;
   transform: translate(-7px, 6px) rotate(6deg);
 }
 .mymmo-ev-announce__ghost--3 {
   z-index: 0;
-  opacity: 0.4;
   transform-origin: 46% 64%;
   transform: translate(4px, 9px) rotate(-9deg);
+}
+/* v1.6.14: `opacity` stond eerst op de hele `.mymmo-ev-announce__ghost--2/3`-
+   kaart. Dat maakte niet enkel de tekst lichter, maar ook de eigen
+   ondoorzichtige witte achtergrond van de kaart -- waardoor het klavertje en
+   de kaart erachter er letterlijk doorheen schenen (doorzichtig, niet
+   "lichter"). De achtergrond van `.mymmo-ev-announce__ghost` blijft daarom nu
+   altijd op volle dekking staan (`background: var(--mymmo-ev-surface)` uit de
+   basisregel hierboven); enkel de INHOUD (badge, titel, knoppenrij) van de
+   kaartjes verder naar achteren wordt fletser -- dat leest nog steeds als
+   "lichter", maar dan bovenop een solide witte kaart in plaats van een
+   doorzichtige. */
+.mymmo-ev-announce__ghost--2 .mymmo-ev-announce__ghost-date,
+.mymmo-ev-announce__ghost--2 .mymmo-ev-announce__ghost-title,
+.mymmo-ev-announce__ghost--2 .mymmo-ev-announce__ghost-ctas {
+  opacity: 0.85;
+}
+.mymmo-ev-announce__ghost--3 .mymmo-ev-announce__ghost-date,
+.mymmo-ev-announce__ghost--3 .mymmo-ev-announce__ghost-title,
+.mymmo-ev-announce__ghost--3 .mymmo-ev-announce__ghost-ctas {
+  opacity: 0.4;
 }
 
 /* Minieme extra beweging op hover van de bovenste kaart (klasse gezet door
@@ -886,14 +953,23 @@
 .mymmo-ev-announce__kicker {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.25rem 0.7rem;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem 0.2rem 0.5rem;
   margin-bottom: 0.85rem;
   border-radius: 999px;
   background: var(--mymmo-ev-accent-soft);
   color: var(--mymmo-ev-accent-ink);
   font-size: 0.75rem;
   font-weight: 700;
+  line-height: 1.5;
+}
+.mymmo-ev-announce__kicker .mymmo-ev-icon {
+  width: 0.75em;
+  height: 0.75em;
+}
+
+.mymmo-ev-announce__card .mymmo-ev-pill {
+  margin-bottom: 0.5rem;
 }
 
 .mymmo-ev-announce__title {
@@ -948,11 +1024,521 @@
 }
 .mymmo-ev-announce__image img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
+/* v1.6.15: pointer, illustratie en het derde kaartje verdwenen hier eerder
+   volledig (display:none) -- exact de content die deze widget herkenbaar
+   maakt. Nu blijft alles zichtbaar: de pointer krimpt, het derde kaartje
+   blijft gewoon meedraaien (de translate()-offsets zijn te klein om ergens
+   over te lopen), en de illustratie stroomt in de tekst (position: static)
+   i.p.v. als absoluut gepositioneerde hoek-afbeelding -- in de
+   eenkolomslayout zou die anders gewoon onder de volle-breedte tekst/
+   knoppen verdwijnen (z-index van .body ligt boven .image, zie hierboven). */
 @media (max-width: 34rem) {
   .mymmo-ev-announce__stage { padding: 4.5rem 0.5rem 2.75rem; }
-  .mymmo-ev-announce__ghost--3 { display: none; }
   .mymmo-ev-announce__card { grid-template-columns: 1fr; padding: 1.15rem; }
+  .mymmo-ev-announce__summary { margin-right: 0; }
+  .mymmo-ev-announce__pointer-arrow { width: 4rem; }
+  .mymmo-ev-announce__pointer-label { font-size: 0.8125rem; max-width: 6.5rem; }
   .mymmo-ev-announce__image { display: none; }
-  .mymmo-ev-announce__pointer { display: none; }
-  .mymmo-ev-announce__ctas .mymmo-ev-btn { flex: 1 1 auto; }
+  .mymmo-ev-announce__ctas {
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+  .mymmo-ev-announce__ctas .mymmo-ev-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.55rem 0.5rem;
+    font-size: 0.8125rem;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+  }
+}
+
+/* ── Kaartenrij (mymmo_events_row) ─────────────────────────────────────────
+   Kaarten als een losjes neergelegde stapel scheurkalenderblaadjes, lichter
+   en veel lager dan de aankondiging -- bedoeld om ook mid-pagina te
+   plaatsen, op dezelfde breedte als de rest. `count` heeft geen vaste cap
+   van 4 meer (zie ROW_MAX_COUNT in class-shortcodes.php); minder events dan
+   `count` toont gewoon minder kaarten, uitgespreid over de VOLLEDIGE
+   beschikbare breedte (geen blanco aanvulling en geen ongebruikte ruimte
+   meer -- zie rowOverlapFit() in mymmo-events.js).
+   De kaarten overlappen (negatieve margin-left op alle behalve de eerste,
+   soms zelfs een kleine positieve tussenruimte bij weinig kaarten) en de
+   rij wordt NOOIT breder dan de beschikbare ruimte -- geen horizontale
+   scrollbar, in plaats daarvan berekent rowOverlapFit() in mymmo-events.js
+   hoeveel overlap (of ruimte) nodig is voor het aantal kaarten en de
+   beschikbare breedte. Stapelvolgorde ligt vast en hangt af van
+   `date_align` (zie .mymmo-ev-row__cards--date-right hieronder en de
+   inline z-index per kaart in de template): hoveren duwt de buren opzij
+   tot het kaartje volledig zichtbaar is, zonder die volgorde te wijzigen.
+   Kaarten zijn altijd even hoog (align-items: stretch, geen vaste height
+   meer) en tonen de volledige titel zonder afkapping. */
+.mymmo-ev-row {
+  position: relative;
+  max-width: var(--mymmo-ev-maxw);
+  margin: 0 auto;
+  padding: 2.25rem 0 0.5rem;
+}
+
+/* Decoratieve scribble, rechts uitgelijnd achter de kaartenrij -- zelfde
+   asset-aanpak als de aankondiging (mymmo_events_asset_url), maar als
+   gewone <img> i.p.v. inline SVG: dit bestand hoeft geen currentColor te
+   volgen. z-index 0 + .mymmo-ev-row__cards op z-index 1 houdt 'm achter
+   de kaarten, ongeacht DOM-volgorde.
+   v1.6.19: waarden live afgesteld in devtools (Nico) -- geen vaste breedte
+   en volle opacity meer (verdween anders achter de kaart), top 30% i.p.v.
+   50%, en een lichte negatieve right zodat hij net over de rand bleedt. */
+.mymmo-ev-row__scribble {
+  position: absolute;
+  top: 30%;
+  right: -5%;
+  transform: translateY(-50%);
+  height: auto;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.mymmo-ev-row__cards {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  /* Laat verticaal scrollen van de pagina toe, maar geeft horizontale
+     swipes (mobiel, geen hover) vrij aan rowSwipeEnable() in
+     mymmo-events.js i.p.v. dat de browser die als paginascroll opvat. */
+  touch-action: pan-y;
+  /* stretch (i.p.v. flex-start): alle kaarten worden even hoog als de
+     hoogste van de rij -- samen met min-height i.p.v. height op de kaart
+     zelf (zie .mymmo-ev-row__card) is dit hoe kaarten met volledige,
+     niet-afgekapte titels toch gelijk hoog blijven. */
+  align-items: stretch;
+  padding: 2.4rem 0.25rem 1rem;
+  /* v1.6.20: bewust GEEN overflow-x:auto/scroll meer -- de rij mag nooit
+     breder worden dan de beschikbare ruimte (dus ook nooit een
+     scrollbar). rowOverlapFit() in mymmo-events.js berekent hoeveel
+     overlap (of, bij weinig kaarten, tussenruimte) daarvoor nodig is en
+     zet dat hieronder als custom property, zodat de rij ook bij weinig
+     kaarten de volledige breedte vult i.p.v. een deel ongebruikt te
+     laten; zonder JS geldt gewoon deze vaste waarde. */
+  --mymmo-ev-row-overlap: 3.25rem;
+}
+
+/* "Schrijf je snel in!"-tagje: bestaat maar één keer per rij (niet meer
+   per kaart) en wordt door rowPointerFollow() in mymmo-events.js
+   verplaatst (DOM-reparent) naar welk kaartje dan ook gehoverd wordt --
+   daarom hier geen kaart-specifieke selector, gewoon de klasse zelf.
+   Standaard onzichtbaar; JS voegt pas na 500ms .is-visible toe, met een
+   kleine "aanloop"-animatie (cartoonprincipe: eerst een tikje terug/in,
+   dan met overshoot naar de rustpositie) i.p.v. gewoon in-faden. */
+/* date_align="right": datum + uur rechts uitgelijnd op elk kaartje, zodat
+   ze zichtbaar blijven ongeacht welk deel van de kaart schuilgaat achter
+   de buur (zie z-index-formule + doc-comment in templates/row.php). De
+   titel blijft bewust links uitgelijnd/normaal vloeiend -- die is te lang
+   om sowieso altijd volledig zichtbaar te houden, dus daar verandert
+   uitlijning weinig aan. */
+.mymmo-ev-row__cards--date-right .mymmo-ev-row__dow,
+.mymmo-ev-row__cards--date-right .mymmo-ev-row__day,
+.mymmo-ev-row__cards--date-right .mymmo-ev-row__month,
+.mymmo-ev-row__cards--date-right .mymmo-ev-row__meta {
+  text-align: right;
+}
+
+.mymmo-ev-row__pointer {
+  position: absolute;
+  top: -2.1rem;
+  right: 0.1rem;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(0.4rem) scale(0.8) rotate(-8deg);
+  transition: opacity 0.15s ease;
+}
+.mymmo-ev-row__pointer.is-visible {
+  opacity: 1;
+  animation: mymmoRowPointerPop 0.42s both;
+}
+/* Cartoonachtige aanloop (anticipatie + lichte overshoot), maar subtieler
+   en met een eigen timing-function per fase i.p.v. één extreme globale
+   cubic-bezier -- dat laatste oogde "houterig" (te grote sprongen tussen
+   de keyframe-stops). Nu: snel infaden, een kleine terugwijkende
+   aanloopbeweging, dan een zachte overshoot die rustig settelt. */
+@keyframes mymmoRowPointerPop {
+  0%   {
+    opacity: 0;
+    transform: translateY(0.35rem) scale(0.82) rotate(-6deg);
+    animation-timing-function: ease-out;
+  }
+  35%  {
+    opacity: 1;
+    transform: translateY(0.42rem) scale(0.8) rotate(-8deg);
+    animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  75%  {
+    transform: translateY(-0.06rem) scale(1.04) rotate(2deg);
+    animation-timing-function: ease-out;
+  }
+  100% { transform: translateY(0) scale(1) rotate(0deg); }
+}
+.mymmo-ev-row__pointer-label {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.75rem;
+  color: var(--mymmo-ev-accent-ink);
+  transform: rotate(4deg);
+  max-width: 6.5rem;
+}
+.mymmo-ev-row__pointer-arrow {
+  width: 3rem;
+  height: auto;
+  transform: scaleX(1) rotate(-35deg);
+  margin-top: 0.3rem;
+  margin-left: 0.4rem;
+  filter: drop-shadow(0 3px 6px rgba(15, 23, 42, 0.08));
+}
+
+/* date_align="right": de datum staat rechts uitgelijnd op de kaart, dus
+   het "Schrijf je snel in!"-tagje verhuist mee naar de linkerbovenhoek
+   (i.p.v. rechts) en het krulletje wordt horizontaal gespiegeld zodat het
+   nog steeds naar de kaart toe lijkt te wijzen. */
+.mymmo-ev-row__cards--date-right .mymmo-ev-row__pointer {
+  right: auto;
+  left: 0.1rem;
+  align-items: flex-start;
+  text-align: left;
+}
+.mymmo-ev-row__cards--date-right .mymmo-ev-row__pointer-arrow {
+  transform: scaleX(-1) rotate(-35deg);
+  margin-left: 0;
+  margin-right: 0.4rem;
+}
+
+/* Stapelvolgorde: elke kaart krijgt in de template een INLINE z-index mee
+   (links = hoogste, dus bovenop; elke volgende kaart ligt daar telkens
+   verder onder). Die volgorde ligt vast -- hover verandert 'm bewust
+   NIET (zie :hover hieronder), enkel de marges. */
+.mymmo-ev-row__card {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  /* min-width i.p.v. een vaste width (200px, live getest) -- de kaarten
+     waren te smal; ze mogen breder worden dan dit (bv. content), maar
+     nooit smaller. rowOverlapFit() laat kaarten bij veel exemplaren
+     verder over elkaar schuiven i.p.v. ze onder deze grens te duwen. */
+  width: 200px;
+  min-width: 200px;
+  /* min-height i.p.v. een vaste height: samen met align-items: stretch op
+     de ouder (.mymmo-ev-row__cards) worden alle kaarten in de rij
+     automatisch even hoog als de hoogste, i.p.v. een vaste hoogte die de
+     titel afkapt. Basiswaarde iets hoger dan voorheen (was 9.5rem) zodat
+     een titel van gemiddelde lengte al zonder groei past. */
+  min-height: 10.75rem;
+  padding: 0.9rem 0.85rem;
+  margin-left: calc(-1 * var(--mymmo-ev-row-overlap));
+  border: 1px solid var(--mymmo-ev-line);
+  border-radius: var(--mymmo-ev-radius-sm);
+  background: var(--mymmo-ev-surface);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, margin 0.22s ease;
+}
+/* Eerste (bovenste) kaart heeft niets om over te schuiven. */
+.mymmo-ev-row__card:first-child {
+  margin-left: 0;
+}
+/* Op hover: eigen marge aan beide kanten vergroten duwt de linker- en
+   rechterbuur zichtbaar opzij (marges tellen op in flexbox, ze vallen niet
+   samen zoals in blokopmaak) tot het kaartje volledig vrij ligt -- geen
+   z-index-wijziging, de stapelvolgorde blijft exact hetzelfde. Geen
+   schaalvergroting hier met opzet: dat zou net weer een stukje onder de
+   buur kunnen duwen. */
+.mymmo-ev-row__card:hover,
+.mymmo-ev-row__card.is-active {
+  margin-left: 0.5rem;
+  margin-right: 1.5rem;
+  transform: translateY(-6px) rotate(0deg);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14);
+}
+.mymmo-ev-row__card:first-child:hover,
+.mymmo-ev-row__card:first-child.is-active {
+  margin-left: 0;
+}
+
+/* Losjes neergelegd: geen twee kaartjes in dezelfde richting of op dezelfde
+   hoogte. Cyclisch (i % 4), dus ook bij meer dan 4 kaarten blijft dit
+   afwisselen i.p.v. herhalen in een herkenbaar patroon van precies 4. */
+.mymmo-ev-row__card--1 { transform: rotate(-2deg) translateY(2px); }
+.mymmo-ev-row__card--2 { transform: rotate(1.5deg) translateY(-3px); }
+.mymmo-ev-row__card--3 { transform: rotate(-1deg) translateY(1px); }
+.mymmo-ev-row__card--4 { transform: rotate(2deg) translateY(-2px); }
+
+/* Badge met het eventtype, inline vlak boven de titel -- niet meer
+   absoluut in de hoek: dat botste met de curl van .mymmo-ev-row__pointer
+   hierboven, die precies in die hoek naar beneden in de kaart wijst.
+   Bewust een pop of color (volle achtergrondkleur, niet enkel een
+   gekleurde stip) zodat hij opvalt tussen de rest van de compacte
+   kaartinhoud; nooit afgekapt, ook niet bij een lange typenaam. */
+.mymmo-ev-row__type-badge {
+  align-self: flex-start;
+  margin-bottom: 0.4rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.5625rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: color-mix(in srgb, var(--mymmo-ev-row-badge-color, #475569) 15%, white);
+  color: color-mix(in srgb, var(--mymmo-ev-row-badge-color, #475569) 80%, black);
+}
+
+.mymmo-ev-row__dow {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mymmo-ev-accent-ink);
+}
+.mymmo-ev-row__day {
+  margin-top: 0.05rem;
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--mymmo-ev-ink);
+  font-variant-numeric: tabular-nums;
+}
+.mymmo-ev-row__month {
+  margin-bottom: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mymmo-ev-faint);
+}
+/* Uur + locatie, compact op één regel (afgekapt met ellipsis i.p.v.
+   uitgerekt: dit kaartje is bewust klein). */
+.mymmo-ev-row__meta {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--mymmo-ev-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mymmo-ev-row__meta-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.mymmo-ev-row__meta-time .mymmo-ev-icon {
+  color: var(--mymmo-ev-accent-ink);
+}
+.mymmo-ev-row__meta-loc::before {
+  content: "· ";
+}
+/* Geen afkapping meer (was -webkit-line-clamp: 2 + ellipsis): de titel
+   wordt altijd volledig getoond. Kaarten blijven toch gelijk hoog dankzij
+   align-items: stretch op .mymmo-ev-row__cards. */
+.mymmo-ev-row__title {
+  margin-top: auto;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--mymmo-ev-ink);
+  overflow-wrap: break-word;
+}
+
+.mymmo-ev-row__more {
+  margin: 0.6rem 0 0;
+  text-align: right;
+  font-size: 0.8125rem;
+}
+.mymmo-ev-row__more a {
+  color: var(--mymmo-ev-muted);
+  text-decoration: none;
+}
+.mymmo-ev-row__more a:hover {
+  color: var(--mymmo-ev-accent-ink);
+  text-decoration: underline;
+}
+
+/* Mobile-friendly van bij het ontwerp: kleinere kaarten + meer overlap
+   i.p.v. dat kaartjes wegvallen -- rowOverlapFit() past dit sowieso verder
+   aan zodat de rij nooit breder wordt dan het scherm. */
+@media (max-width: 40rem) {
+  /* Kleinere fallback-overlap voor als JS nog niet gedraaid heeft --
+     rowOverlapFit() overschrijft dit sowieso zodra het kan. */
+  .mymmo-ev-row__cards { --mymmo-ev-row-overlap: 2.5rem; }
+  .mymmo-ev-row__card { width: 8rem; min-width: 8rem; min-height: 9.5rem; }
+  .mymmo-ev-row__card:hover { margin-left: 0.35rem; margin-right: 1rem; }
+  /* Geen vaste breedte meer op desktop (v1.6.19) -- hier WEL een grens,
+     anders bleedt de scribble op een telefoonbreedte over de hele rij. */
+  .mymmo-ev-row__scribble { max-width: 7rem; opacity: 0.6; }
+  .mymmo-ev-row__pointer-arrow { width: 2.25rem; }
+  .mymmo-ev-row__pointer-label { font-size: 0.6875rem; max-width: 5rem; }
+}
+@media (max-width: 24rem) {
+  .mymmo-ev-row__cards { --mymmo-ev-row-overlap: 2rem; }
+  .mymmo-ev-row__card { width: 7.25rem; min-width: 7.25rem; min-height: 9.25rem; }
+  .mymmo-ev-row__scribble { display: none; }
+}
+
+
+/* ── Swipebare kaartenstapel (mobiel: rij + aankondiging) ───────────────────────────────────────────────────────────
+   Op mobiel tonen [mymmo_events_row] en [mymmo_events_announcement] EXACT
+   dezelfde kaartenstapel-look: kaarten liggen licht gedraaid over elkaar,
+   net als de vaste decoratieve stapel die de aankondiging al had
+   (.mymmo-ev-announce__ghost--1/2/3 hierboven) -- alleen zijn het nu ECHTE,
+   swipebare kaarten (eigen titel/tijd/knop) i.p.v. lege placeholders, en
+   gebruiken beide shortcodes hiervoor dezelfde containerklasse
+   (.mymmo-ev-swipestack, zie templates/row.php en templates/
+   announcement.php) zodat er geen visueel verschil kan ontstaan.
+
+   initSwipeDeck() in mymmo-events.js voegt .mymmo-ev-deck-mode toe aan de
+   container en zet per kaart data-deck-pos: "0" = actief/bovenop (blijft
+   in de normale flow, position:relative, bepaalt zo de basishoogte),
+   "1"-"3" = erachter (position:absolute inset:0, dezelfde rotatie/offset-
+   waarden als de statische .mymmo-ev-announce__ghost--N hierboven),
+   "hidden" = daarbuiten. Enkel data-deck-pos="0" is aanklikbaar/swipebaar.
+
+   Gelijke hoogte + geen cutoff (Nico's feedback op v1.6.30): titel/
+   samenvatting zijn hieronder geclamped (2 resp. 4 regels, ellipsis), en
+   JS (equalizeDeckCardHeights() in mymmo-events.js) meet na render de
+   natuurlijke hoogte van alle kaarten in de stapel en zet het maximum als
+   --mymmo-ev-deck-h op de stack -- elke kaart (ook de geabsoluteerde
+   erachter, via inset:0) krijgt zo exact diezelfde hoogte, met
+   overflow:hidden als vangnet zolang JS nog niet gemeten heeft. */
+.mymmo-ev-swipestack {
+  display: none;
+  position: relative;
+}
+.mymmo-ev-swipestack .mymmo-ev-announce__card {
+  grid-template-columns: 1fr;
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card {
+  width: auto;
+  min-width: 0;
+  margin: 0 !important;
+  overflow: hidden;
+  height: var(--mymmo-ev-deck-h, auto);
+  transition: transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.25s ease, box-shadow 0.2s ease;
+  touch-action: pan-y;
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card.is-dragging {
+  transition: none;
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card[data-deck-pos="0"] {
+  position: relative;
+  z-index: 4;
+  transform: rotate(-1.25deg);
+  opacity: 1;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.10);
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card[data-deck-pos="1"] {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  transform: translate(6px, -5px) rotate(-5deg);
+  transform-origin: 42% 58%;
+  opacity: 1;
+  pointer-events: none;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card[data-deck-pos="2"] {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  transform: translate(-7px, 6px) rotate(6deg);
+  transform-origin: 58% 44%;
+  opacity: 0.9;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card[data-deck-pos="2"] .mymmo-ev-announce__body {
+  opacity: 0.85;
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card[data-deck-pos="3"] {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  transform: translate(4px, 9px) rotate(-9deg);
+  transform-origin: 46% 64%;
+  opacity: 0.75;
+  pointer-events: none;
+  box-shadow: none;
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card[data-deck-pos="3"] .mymmo-ev-announce__body {
+  opacity: 0.4;
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card[data-deck-pos="hidden"] {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: none;
+}
+
+/* Titel max. 2 regels, samenvatting max. 4 regels, met ellipsis als het
+   langer is. .mymmo-ev-announce__summary had de 4-regel-clamp hierboven
+   al (voor de desktopkaart) -- hier enkel de marge weghalen die daar
+   ruimte vrijhield voor de illustratie, want die staat niet op deze
+   kaarten. */
+.mymmo-ev-swipestack .mymmo-ev-announce__title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mymmo-ev-swipestack .mymmo-ev-announce__summary {
+  margin-right: 0;
+}
+
+/* Hint BOVEN de stapel, niet erna (stond daar tot en met v1.6.30 -- maar
+   de geabsoluteerde kaartjes erachter steken door hun offset net onder de
+   bovenste kaart uit, waardoor tekst na de hele stapel onvoorspelbaar
+   verschoof/overlapte). Boven de stapel, in de normale flow, ligt de
+   positie altijd vast. Bevat ook meteen de "bekijk onze andere events"-
+   boodschap i.p.v. een aparte knop op de kaarten, en spreekt bewust geen
+   richting uit ("naar links") -- de stapel is cyclisch, na de laatste
+   kom je gewoon weer bij de eerste. */
+.mymmo-ev-swipehint {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--mymmo-ev-muted);
+}
+.mymmo-ev-swipehint__scribble {
+  width: 1.85rem;
+  height: auto;
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+@media (max-width: 40rem) {
+  .mymmo-ev-swipestack { display: block; }
+  .mymmo-ev-swipehint { display: flex; }
+  .mymmo-ev-row__more { display: none; }
+  .mymmo-ev-row__cards { display: none; }
+  .mymmo-ev-announce__deck { display: none; }
+
+  /* Anticiperende verschijnbeweging voor het "Schrijf je snel in!"-tagje:
+     op desktop verschijnt dit enkel via :hover (rij) of staat het altijd
+     stil zonder animatie (aankondiging) -- op mobiel bestaat er geen
+     hover, dus speelt deze animatie hier automatisch één keer af bij het
+     laden. Beide shortcodes hergebruiken hiervoor dezelfde
+     .mymmo-ev-announce__pointer-klasse (zie templates/row.php), zodat het
+     tagje er op mobiel identiek uitziet voor rij en aankondiging. */
+  .mymmo-ev-announce__pointer {
+    animation: mymmoRowPointerPop 0.5s both;
+    animation-delay: 0.35s;
+  }
 }

@@ -447,6 +447,16 @@
     + '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'
     + '<path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
 
+  /* Zelfde ster als het badge-warning/lucide "star"-icoontje in de
+     lijstweergave (regel ~690 hieronder) -- zelfde icoon voor hetzelfde
+     concept, herkenbaar over beide weergaven heen. Puur inline SVG i.p.v.
+     een lucide data-attribuut: renderEventContent() draait per
+     kalender-event en er zit geen window.lucide.createIcons()-aanroep na
+     elke FullCalendar-render (zie PERSON_SVG hierboven, zelfde reden).
+     Gevuld (fill) i.p.v. gestroked: leesbaarder op zo'n klein formaat. */
+  var STAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="currentColor">'
+    + '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+
   /**
    * Chipinhoud zoals v1: het event TYPE als kop, daaronder tijd en aantal
    * inschrijvingen. De volledige titel staat in de tooltip.
@@ -472,6 +482,9 @@
 
     wrap.innerHTML =
       '<span class="status-dot"></span>' +
+      (event.highlighted
+        ? '<span class="highlight-badge" title="Gehighlight in de aankondiging-widget">' + STAR_SVG + '</span>'
+        : '') +
       '<div class="event-type-label">' + esc(label) + '</div>' +
       '<div class="event-detail-row">' +
         '<span class="event-time">' + esc(formatTime(event.starts_at)) + '</span>' +
@@ -861,8 +874,14 @@
         '</div>' +
       '</div>' +
 
-      '<button class="btn btn-sm btn-outline w-full gap-2 mb-3" data-action="open-composer" data-event-id="' + event.id + '">' +
+      '<button class="btn btn-sm btn-outline w-full gap-2 mb-2" data-action="open-composer" data-event-id="' + event.id + '">' +
         '<i data-lucide="layout-template" class="w-4 h-4"></i> Pagina opmaken en voorbeeld bekijken' +
+      '</button>' +
+
+      // Communicatie-studio: de mailblokken staan in Odoo, niet hier. De
+      // dialoog en de logica zitten in events-v2-mail-studio.js.
+      '<button class="btn btn-sm btn-outline w-full gap-2 mb-3" data-action="open-mail-studio" data-event-id="' + event.id + '">' +
+        '<i data-lucide="mail" class="w-4 h-4"></i> Mails opmaken en klaarzetten' +
       '</button>';
 
     // ── 1. Basis ─────────────────────────────────────────────────────────
@@ -895,7 +914,16 @@
         '<label class="form-control sm:col-span-2">' +
           '<span class="label-text text-xs opacity-70 mb-1">Samenvatting (nodig om te publiceren)</span>' +
           '<textarea rows="2" class="textarea textarea-bordered textarea-sm" data-field="summary">' +
-          esc(event.summary) + '</textarea></label>' +
+          esc(event.summary) + '</textarea>' +
+          // Geen samenvatting ingevuld, maar de pagina-inhoud levert er al
+          // eentje op (zie summary_from_body, GET /api/events/:id): dat
+          // volstaat om te publiceren, maar de admin ziet hier WAAROM het
+          // veld niet als "ontbrekend" geldt en WAT er dan gebruikt wordt.
+          (!event.summary && event.summary_from_body
+            ? '<span class="label-text-alt text-info mt-1">Nog niet ingevuld -- zolang dat zo blijft, gebruiken ' +
+              'we het begin van de pagina-inhoud hieronder: “' + esc(event.summary_from_body) + '…”</span>'
+            : '') +
+        '</label>' +
       '</div>';
 
     // ── 2. Waar en inschrijven ───────────────────────────────────────────
@@ -1033,6 +1061,16 @@
 
     var host = el('composerEditor');
     host.innerHTML = '';
+
+    // Quill's snow-toolbar bouwt zijn eigen <div class="ql-toolbar"> als
+    // SIBLING vóór de editor-container, niet erbinnen -- host.innerHTML = ''
+    // hierboven ruimt dus wel de vorige editor-inhoud op, maar niet de oude
+    // toolbar. Zonder deze regel bleef die bij elke keer openen van dit
+    // venster staan, met een nieuwe erbovenop: de toolbar "tekende zich
+    // extra" per opening.
+    if (host.previousElementSibling && host.previousElementSibling.classList.contains('ql-toolbar')) {
+      host.previousElementSibling.remove();
+    }
 
     state.bodyEditor = new Quill(host, {
       theme: 'snow',
@@ -1733,6 +1771,58 @@
     }
   }
 
+  /** Zelfde standaardkleur als EVENT_TYPE_FALLBACK_COLOR in constants.js. */
+  var TYPE_COLOR_FALLBACK = '#475569';
+
+  function openTypeColorsDialog() {
+    renderTypeColorsList();
+    el('typeColorsDialog').showModal();
+  }
+
+  function renderTypeColorsList() {
+    el('typeColorsList').innerHTML = state.types.map(function (type) {
+      var hex = type.color || TYPE_COLOR_FALLBACK;
+      return '<div class="flex items-center gap-2" data-type-row="' + type.id + '">' +
+        '<span class="flex-1 text-sm">' + esc(type.name) + '</span>' +
+        '<input type="color" class="w-8 h-8 p-0 border-0 rounded cursor-pointer" value="' + hex + '"' +
+          ' data-action="type-color-swatch-change" data-type-id="' + type.id + '">' +
+        '<input type="text" class="input input-bordered input-xs w-24 font-mono" value="' + esc(hex) + '"' +
+          ' data-action="type-color-hex-change" data-type-id="' + type.id + '">' +
+        '<button class="btn btn-xs btn-primary" data-action="save-type-color" data-type-id="' + type.id + '">' +
+          'Opslaan</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  /**
+   * Schrijft naar Odoo (x_studio_type_color_hex) via PATCH
+   * /event-types/:id -- zie setEventTypeColor() in de Worker. Geen
+   * autosave op elke swatch/hex-wijziging met opzet: dat zou bij het
+   * verslepen van de kleurenkiezer tientallen schrijfacties naar Odoo
+   * sturen voor één bedoelde wijziging.
+   */
+  async function saveTypeColor(typeId, trigger) {
+    var row = trigger.closest('[data-type-row]');
+    var hexInput = row.querySelector('[data-action="type-color-hex-change"]');
+    var color = (hexInput.value || '').trim();
+
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+      toast('Ongeldige hex-kleur, bv. #0D9488', 'error');
+      return;
+    }
+
+    trigger.disabled = true;
+    try {
+      var result = await api('/event-types/' + typeId, { method: 'PATCH', body: { color: color } });
+      state.types = result.payload.data || state.types;
+      toast('Kleur bewaard', 'success');
+    } catch (error) {
+      toast('Kleur bewaren mislukt: ' + error.message, 'error');
+    } finally {
+      trigger.disabled = false;
+    }
+  }
+
   /**
    * Opent "nieuw event". Vanaf een klik op een lege kalenderdag komt die
    * datum al ingevuld mee (industry-standard: klik op een lege cel = nieuw
@@ -1846,6 +1936,11 @@
         }
         break;
       case 'public-close': el('publicDialog').close(); break;
+      case 'open-type-colors': openTypeColorsDialog(); break;
+      case 'type-colors-close': el('typeColorsDialog').close(); break;
+      case 'save-type-color':
+        saveTypeColor(Number(trigger.getAttribute('data-type-id')), trigger);
+        break;
       case 'reload':
         if (state.view === 'list') { loadListEvents(true); } else { loadEvents(true); }
         break;
@@ -1919,6 +2014,21 @@
     if (action === 'hero-upload') {
       var file = trigger.files && trigger.files[0];
       if (file) uploadHero(Number(trigger.getAttribute('data-event-id')), file);
+      return;
+    }
+
+    if (action === 'type-color-swatch-change') {
+      var hexInput = trigger.closest('[data-type-row]').querySelector('[data-action="type-color-hex-change"]');
+      if (hexInput) hexInput.value = trigger.value;
+      return;
+    }
+
+    if (action === 'type-color-hex-change') {
+      var val = trigger.value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+        var swatch = trigger.closest('[data-type-row]').querySelector('[data-action="type-color-swatch-change"]');
+        if (swatch) swatch.value = val;
+      }
     }
   });
 

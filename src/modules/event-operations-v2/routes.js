@@ -23,6 +23,7 @@ import {
   duplicateEvent,
   deleteEvent,
   listEventTypes,
+  setEventTypeColor,
   listHostUsers,
   getStages
 } from './lib/events-service.js';
@@ -39,6 +40,17 @@ import { toPublicEventDto } from './odoo-contract.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
 import { storeHeroImage, removeHeroImage, isAllowedImageType, MAX_IMAGE_BYTES } from './lib/assets.js';
 import { getLegacyWpPagesByEventId } from './lib/legacy-wp-pages.js';
+import {
+  loadMailBlocks,
+  saveMailBlocks,
+  renderMailForRegistration,
+  resolveSender,
+  queueMails,
+  ownsMail,
+  MailError
+} from './lib/mail-service.js';
+import { MAIL_KIND, MAIL_KINDS, emptyMailBlocks, normalizeMailBlocks, BLOCK_TYPES, BLOCK_SITES } from './lib/mail-blocks.js';
+import { listRegistrationsForMail } from './lib/registrations-service.js';
 
 function json(payload, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(payload), {
@@ -211,6 +223,15 @@ export const routes = {
       return json({ success: false, error: `Event ${id} niet gevonden` }, 404);
     }
 
+    // Geen samenvatting maar wel pagina-inhoud: zelfde fallback als de
+    // publieke API (public-preview hieronder, en buildMetaDescription),
+    // hier puur ter info voor de admin-UI -- niet geschreven naar Odoo, en
+    // summary zelf blijft leeg (dus nog steeds bewerkbaar als "nog niet
+    // ingevuld", niet als "toevallig gelijk aan de pagina-inhoud").
+    if (!event.summary && event.body_html) {
+      event.summary_from_body = summarize(event.body_html, 200) || '';
+    }
+
     return json({ success: true, data: event }, 200, cacheHeader(cached));
   }),
 
@@ -298,6 +319,25 @@ export const routes = {
   'GET /api/event-types': withErrors(async (context) => {
     const { types, cached } = await listEventTypes(context.env);
     return json({ success: true, data: types }, 200, cacheHeader(cached));
+  }),
+
+  /**
+   * PATCH /events-v2/api/event-types/:id
+   * Body: { color: '#rrggbb' }
+   *
+   * Kleur van één event type wijzigen (x_studio_type_color_hex in Odoo,
+   * door Nico toegevoegd via Studio). Zie setEventTypeColor() voor de
+   * validatie en cache-invalidatie.
+   */
+  'PATCH /api/event-types/:id': withErrors(async (context) => {
+    const id = Number.parseInt(context.params?.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new ValidationError('Ongeldig event-type-id', { status: 400 });
+    }
+
+    const body = await readJsonBody(context.request);
+    const { types } = await setEventTypeColor(context.env, id, body.color, context.user);
+    return json({ success: true, data: types });
   }),
 
   /**
@@ -530,6 +570,241 @@ export const routes = {
     const event = await updateEvent(context.env, id, { hero_image_url: url }, context.user, { ctx: context.ctx });
 
     return json({ success: true, data: { hero_image_url: url, event } });
+  }),
+
+  // ─── Communicatie-studio ────────────────────────────────────────────────
+  //
+  // De blokken WONEN IN ODOO (x_webinar_event_type.x_studio_mail_blocks en
+  // x_webinar.x_studio_mail_blocks_override). Deze routes lezen en schrijven
+  // die velden; er is geen Supabase-tabel en geen KV-bron. Zie de doc-kop van
+  // lib/mail-service.js.
+
+  /**
+   * GET /events-v2/api/mail/schema
+   * Wat de editor mag aanbieden. Uit één bron, zodat de client geen eigen
+   * kopie van de bloktypes bijhoudt (zelfde principe als loadGraph() in de
+   * Sales Insight Explorer).
+   */
+  'GET /api/mail/schema': withErrors(async () => {
+    return json({
+      success: true,
+      data: {
+        kinds: MAIL_KINDS,
+        block_types: BLOCK_TYPES,
+        sites: BLOCK_SITES,
+        placeholders: [
+          'event.title', 'event.summary', 'event.day', 'event.time', 'event.starts_at',
+          'event.location', 'event.link', 'event.url', 'event.type',
+          'host.name', 'host.email',
+          'registration.name', 'registration.first_name', 'registration.email'
+        ]
+      }
+    });
+  }),
+
+  /**
+   * GET /events-v2/api/event-types/:id/mail-blocks
+   * De standaardblokken van een event-type.
+   */
+  'GET /api/event-types/:id/mail-blocks': withErrors(async (context) => {
+    const id = Number.parseInt(context.params?.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new ValidationError('Ongeldig event-type-id', { status: 400 });
+    }
+
+    const { typeDoc } = await loadMailBlocks(context.env, { id: 0, event_type: { id } });
+    return json({ success: true, data: typeDoc || emptyMailBlocks() });
+  }),
+
+  /**
+   * PUT /events-v2/api/event-types/:id/mail-blocks
+   * Body: het volledige blokkendocument.
+   */
+  'PUT /api/event-types/:id/mail-blocks': withErrors(async (context) => {
+    const id = Number.parseInt(context.params?.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new ValidationError('Ongeldig event-type-id', { status: 400 });
+    }
+
+    const body = await readJsonBody(context.request);
+    const saved = await saveMailBlocks(context.env, { eventTypeId: id }, body, context.user);
+    await invalidateNamespace(context.env, CACHE_NS.EVENT_TYPES);
+
+    return json({ success: true, data: saved });
+  }),
+
+  /**
+   * GET /events-v2/api/events/:id/mail-blocks
+   * De standaard van het type én de override van dit event, plus per soort
+   * welke van de twee er geldt.
+   */
+  'GET /api/events/:id/mail-blocks': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const { event } = await getEvent(context.env, { id }, { bypassCache: true });
+    if (!event) {
+      return json({ success: false, error: `Event ${id} niet gevonden` }, 404);
+    }
+
+    const { typeDoc, eventDoc } = await loadMailBlocks(context.env, event);
+    const sources = {};
+    for (const kind of MAIL_KINDS) {
+      const hasOverride = Array.isArray(eventDoc?.[kind]?.blocks) && eventDoc[kind].blocks.length > 0;
+      const hasType = Array.isArray(typeDoc?.[kind]?.blocks) && typeDoc[kind].blocks.length > 0;
+      sources[kind] = hasOverride ? 'event' : hasType ? 'event_type' : 'none';
+    }
+
+    return json({
+      success: true,
+      data: {
+        event_type: { id: event.event_type?.id ?? null, name: event.event_type?.name ?? null },
+        type_doc: typeDoc || emptyMailBlocks(),
+        event_doc: eventDoc || emptyMailBlocks(),
+        sources,
+        owned_by_om: ownsMail(context.env, event)
+      }
+    });
+  }),
+
+  /**
+   * PUT /events-v2/api/events/:id/mail-blocks
+   * De override van dit ene event. Een lege blokkenlijst per soort betekent
+   * "erf weer van het event-type" -- zie resolveSection().
+   */
+  'PUT /api/events/:id/mail-blocks': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const body = await readJsonBody(context.request);
+    const saved = await saveMailBlocks(context.env, { eventId: id }, body, context.user);
+    await invalidateEvents(context.env);
+
+    return json({ success: true, data: saved });
+  }),
+
+  /**
+   * POST /events-v2/api/events/:id/mail-preview
+   * Body: { kind, site?, registration_id? }
+   *
+   * Rendert exact wat er verstuurd zou worden, met een echte inschrijving
+   * als die meegegeven wordt en anders met een voorbeeldontvanger. Geen
+   * enkele schrijfactie -- dit raakt mail.mail niet aan.
+   */
+  'POST /api/events/:id/mail-preview': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const body = await readJsonBody(context.request);
+
+    const kind = String(body?.kind || '');
+    if (!MAIL_KINDS.includes(kind)) {
+      throw new ValidationError(`kind moet een van ${MAIL_KINDS.join(', ')} zijn`);
+    }
+
+    const { event } = await getEvent(context.env, { id }, { bypassCache: true });
+    if (!event) {
+      return json({ success: false, error: `Event ${id} niet gevonden` }, 404);
+    }
+
+    let { typeDoc, eventDoc } = await loadMailBlocks(context.env, event);
+
+    // De editor stuurt zijn NOG NIET BEWAARDE document mee, zodat het
+    // voorbeeld toont wat er nu op het scherm staat in plaats van wat er
+    // toevallig al in Odoo zit. Dat is puur render-invoer: deze route
+    // schrijft niets.
+    if (body?.draft && typeof body.draft === 'object') {
+      const draft = normalizeMailBlocks(body.draft, 'voorbeeld');
+      if (body?.scope === 'event') {
+        eventDoc = draft;
+      } else {
+        typeDoc = draft;
+        // Een bestaande override zou de standaard-preview overstemmen; bij
+        // het bewerken van de type-standaard willen we die net zien.
+        eventDoc = null;
+      }
+    }
+
+    let registration = {
+      id: 0,
+      name: 'Jan Voorbeeld',
+      submitted_email: 'voorbeeld@example.com',
+      site: body?.site || null,
+      state: REGISTRATION_STATE.REGISTERED
+    };
+    if (body?.registration_id) {
+      const real = await getRegistration(context.env, Number(body.registration_id));
+      if (real) registration = real;
+    }
+
+    // De afzender mag hier ontbreken: een preview van een event zonder host
+    // moet nog steeds iets tonen, met de reden erbij.
+    let sender = null;
+    let senderError = null;
+    try {
+      sender = await resolveSender(context.env, event);
+    } catch (error) {
+      senderError = error?.message || 'afzender onbekend';
+    }
+
+    const rendered = renderMailForRegistration({
+      event,
+      registration,
+      kind,
+      typeDoc,
+      eventDoc,
+      hostEmail: sender?.email || '',
+      publicBaseUrl: context.env?.EVENTS_PUBLIC_BASE_URL
+    });
+
+    return json({
+      success: true,
+      data: {
+        ...rendered,
+        email_from: sender?.formatted || null,
+        email_to: registration.submitted_email,
+        sender_error: senderError
+      }
+    });
+  }),
+
+  /**
+   * POST /events-v2/api/events/:id/mails/:kind/send
+   * Body: { registration_ids?: number[] }
+   *
+   * Zet mails klaar in mail.mail; Odoo's eigen mailqueue verstuurt ze. Zonder
+   * registration_ids: iedereen die deze soort nog niet gehad heeft.
+   *
+   * Dit vervangt de handmatige Odoo-knop (server action 1099) voor de recap.
+   * Die actie markeerde ALLE registraties als verzonden -- ook de records
+   * waarvoor de verzending een uitzondering gooide, en ook de duplicaten die
+   * ze net op e-mailadres had weggefilterd. Hier is de vlag een gevolg van
+   * een aangemaakt mail.mail-record, niet een aanname vooraf.
+   */
+  'POST /api/events/:id/mails/:kind/send': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const kind = String(context.params?.kind || '');
+    if (!MAIL_KINDS.includes(kind)) {
+      throw new ValidationError(`kind moet een van ${MAIL_KINDS.join(', ')} zijn`);
+    }
+
+    const body = await readJsonBody(context.request).catch(() => ({}));
+    const { event } = await getEvent(context.env, { id }, { bypassCache: true });
+    if (!event) {
+      return json({ success: false, error: `Event ${id} niet gevonden` }, 404);
+    }
+
+    const registrations = await listRegistrationsForMail(context.env, id, {
+      kind,
+      registrationIds: Array.isArray(body?.registration_ids) ? body.registration_ids.map(Number) : null
+    });
+
+    if (registrations.length === 0) {
+      return json({ success: true, data: { queued: [], skipped: [], message: 'Geen inschrijvingen die deze mail nog moeten krijgen.' } });
+    }
+
+    const result = await queueMails(context.env, {
+      event,
+      registrations,
+      kind,
+      actor: context.user
+    });
+
+    return json({ success: true, data: result });
   })
 };
 

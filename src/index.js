@@ -11,6 +11,7 @@ import { handleModuleRequest } from './router/module-router.js';
 import { handleCxWinDetection } from './modules/cx_powerboard/cron/win-detection.js';
 import { runFlagCron } from './modules/cx-automations/cron.js';
 import { runAutoDoneCron } from './modules/event-operations-v2/lib/cron.js';
+import { runMailRepairCron } from './modules/event-operations-v2/lib/mail-cron.js';
 import { runDueScheduledTasks } from './modules/mini-apps/lib/scheduler.js';
 import { runDueConditionTasks } from './modules/mini-apps/lib/condition-scheduler.js';
 
@@ -80,6 +81,14 @@ export default {
       ctx.waitUntil(
         runAutoDoneCron(env).catch(err =>
           console.error('[scheduled][event-operations-v2][auto-done] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Herstelronde voor al klaargezette reminders waarvan het event nadien
+      // verplaatst of geannuleerd werd. GEEN herberekening van alles: de
+      // scheduled_date wordt bij het inschrijven gezet (zie mail-service.js).
+      ctx.waitUntil(
+        runMailRepairCron(env).catch(err =>
+          console.error('[scheduled][event-operations-v2][mail-repair] CRASH:', err?.message, err?.stack)
         )
       );
     }

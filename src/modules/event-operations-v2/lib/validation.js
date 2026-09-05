@@ -12,6 +12,7 @@ import {
   PUBLICATION_TRANSITIONS,
   PAGINATION
 } from '../constants.js';
+import { summarize } from './blocks.js';
 
 export class ValidationError extends Error {
   constructor(message, { status = 400, details = null } = {}) {
@@ -121,7 +122,14 @@ export function checkPublishReadiness(dto) {
   if (!dto.starts_at) missing.push('startdatum');
   if (!dto.duration_minutes) missing.push('duurtijd');
   if (!dto.event_type?.id) missing.push('event type');
-  if (!isNonEmptyString(dto.summary)) missing.push('samenvatting');
+  // Geen expliciete samenvatting nodig als er al pagina-inhoud is: net als
+  // de publieke API (zie lib/blocks.js#summarize, gebruikt in routes.js voor
+  // dezelfde fallback) leiden we 'm dan af uit het begin van de pagina-tekst
+  // i.p.v. te blokkeren op een veld dat de admin dan toch maar zou laten
+  // overtypen wat al in de pagina staat.
+  if (!isNonEmptyString(dto.summary) && !isNonEmptyString(summarize(dto.body_html, 1))) {
+    missing.push('samenvatting');
+  }
 
   // De host is de AFZENDER van de bevestigings-, herinnerings- en
   // recapmails: die templates lezen

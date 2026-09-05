@@ -336,11 +336,445 @@
     });
   }
 
+  /**
+   * 5b. Swipeable deck (mobiel): [mymmo_events_row] en
+   *    [mymmo_events_announcement] tonen op mobiel maar één kaart
+   *    volledig, met de volgende erachter -- swipe naar links toont het
+   *    volgende event, naar rechts het vorige (cyclisch: na de laatste
+   *    begint de stapel weer vooraan, zodat terugswipen altijd iets
+   *    oplevert). Werkt met Pointer Events (muis + touch in één) en telt
+   *    een sleep pas als "swipe" zodra die overwegend horizontaal is --
+   *    verticaal blijft de pagina gewoon scrollen. Een gewone tik (geen
+   *    duidelijke sleep) laat de normale klik/link-navigatie van de kaart
+   *    intact: er wordt nergens preventDefault() aangeroepen vóór de
+   *    sleep als "horizontaal" herkend is.
+   *
+   *    isDeckViewport() bepaalt de knip tussen desktop (elk component zijn
+   *    eigen bestaande layout, ongewijzigd) en mobiel (dit gedeelde deck) --
+   *    dezelfde 40rem-breakpoint die de rij al langer gebruikte voor haar
+   *    eigen mobiele aanpassingen.
+   */
+  function isDeckViewport() {
+    return !!(window.matchMedia && window.matchMedia('(max-width: 40rem)').matches);
+  }
+
+  /**
+   * 5b-init. De volledige, swipebare kaartenstapel (mobiel) voor zowel
+   * [mymmo_events_row] als [mymmo_events_announcement]: beide shortcodes
+   * renderen op mobiel een eigen `.mymmo-ev-swipestack`-container met
+   * daarin telkens ECHTE kaarten (`.mymmo-ev-deck-card`, zie
+   * templates/row.php en templates/announcement.php) -- geen decoratieve
+   * placeholders zoals de desktop-ghosts. Elke kaart is dus gewoon een
+   * normale kaart met eigen links/knoppen, dus is er geen aparte
+   * tik-afhandeling nodig: een gewone tik laat de native link-navigatie
+   * van de kaart intact (zie initSwipeDeck() hierboven).
+   */
+  function initSwipeDecks() {
+    if (!isDeckViewport()) return;
+    var stacks = document.querySelectorAll('.mymmo-ev-swipestack');
+    if (!stacks.length) return;
+    stacks.forEach(function (stack) {
+      initSwipeDeck(stack);
+    });
+
+    function equalizeAll() {
+      stacks.forEach(equalizeDeckCardHeights);
+    }
+    window.addEventListener('load', equalizeAll);
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(equalizeAll);
+    }
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(equalizeAll, 150);
+    });
+  }
+
+  /**
+   * Meet na render de natuurlijke (ongeclampte hoogte-beperking van
+   * height/overflow terzijde) inhoud-hoogte van elke kaart in de stapel
+   * en zet het maximum als CSS-variabele op de container -- elke kaart
+   * (ook de geabsoluteerde erachter, via inset:0 + CSS var(...)) krijgt zo
+   * exact dezelfde hoogte, in plaats van dat de kortste kaart de hoogte
+   * van de container bepaalt en de langere kaartjes erachter zichtbaar
+   * "afgekapt" worden (zie mymmo-events.css, .mymmo-ev-deck-mode
+   * .mymmo-ev-deck-card). scrollHeight geeft de volledige inhoudshoogte
+   * terug, ook als CSS die met overflow/height al aan het inperken is --
+   * de var eerst verwijderen voorkomt dat een vorige (te kleine) meting
+   * de nieuwe meting beïnvloedt, bv. na een resize met andere regelafbreking.
+   */
+  function equalizeDeckCardHeights(stack) {
+    var cards = stack.querySelectorAll(':scope > .mymmo-ev-deck-card');
+    if (!cards.length) return;
+    stack.style.removeProperty('--mymmo-ev-deck-h');
+    var max = 0;
+    cards.forEach(function (card) {
+      if (card.scrollHeight > max) max = card.scrollHeight;
+    });
+    if (max > 0) stack.style.setProperty('--mymmo-ev-deck-h', max + 'px');
+  }
+
+  function initSwipeDeck(container) {
+    var cards = container.querySelectorAll(':scope > .mymmo-ev-deck-card');
+    var n = cards.length;
+    if (!n) return null;
+
+    container.classList.add('mymmo-ev-deck-mode');
+
+    var activeIndex = 0;
+    var SWIPE_THRESHOLD = 70;
+
+    function render() {
+      for (var i = 0; i < n; i++) {
+        var pos = (i - activeIndex + n) % n;
+        cards[i].dataset.deckPos = pos <= 3 ? String(pos) : 'hidden';
+      }
+    }
+    render();
+    equalizeDeckCardHeights(container);
+
+    if (n < 2) return { goNext: function () {}, goPrev: function () {} };
+
+    var pointerId = null;
+    var startX = 0;
+    var startY = 0;
+    var dx = 0;
+    var dragging = false;
+    var horizontal = false;
+    var decided = false;
+
+    function activeCard() { return cards[activeIndex]; }
+
+    function commit(direction) {
+      var card = activeCard();
+      var flyX = direction > 0 ? '-135%' : '135%';
+      var flyRotate = direction > 0 ? -16 : 16;
+      card.style.transform = 'translateX(' + flyX + ') rotate(' + flyRotate + 'deg)';
+      card.style.opacity = '0';
+      window.setTimeout(function () {
+        card.style.transform = '';
+        card.style.opacity = '';
+        activeIndex = (activeIndex + direction + n) % n;
+        render();
+      }, 260);
+    }
+
+    function settle() {
+      var card = activeCard();
+      card.classList.remove('is-dragging');
+      dragging = false;
+      if (!horizontal) return;
+      if (dx <= -SWIPE_THRESHOLD) {
+        commit(1);
+      } else if (dx >= SWIPE_THRESHOLD) {
+        commit(-1);
+      } else {
+        card.style.transform = '';
+      }
+    }
+
+    container.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      var card = activeCard();
+      if (!card.contains(e.target)) return;
+      pointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
+      dx = 0;
+      dragging = true;
+      horizontal = false;
+      decided = false;
+    });
+
+    container.addEventListener('pointermove', function (e) {
+      if (!dragging || e.pointerId !== pointerId) return;
+      var moveX = e.clientX - startX;
+      var moveY = e.clientY - startY;
+      if (!decided) {
+        if (Math.abs(moveX) < 8 && Math.abs(moveY) < 8) return;
+        decided = true;
+        horizontal = Math.abs(moveX) > Math.abs(moveY);
+        if (horizontal) {
+          activeCard().classList.add('is-dragging');
+          try { activeCard().setPointerCapture(pointerId); } catch (err) { /* niet kritiek */ }
+        } else {
+          dragging = false;
+          return;
+        }
+      }
+      if (!horizontal) return;
+      dx = moveX;
+      if (e.cancelable) e.preventDefault();
+      activeCard().style.transform = 'translateX(' + dx + 'px) rotate(' + (dx / 18) + 'deg)';
+    }, { passive: false });
+
+    function onPointerEnd(e) {
+      if (e.pointerId !== pointerId) return;
+      pointerId = null;
+      settle();
+    }
+    container.addEventListener('pointerup', onPointerEnd);
+    container.addEventListener('pointercancel', onPointerEnd);
+
+    return {
+      goNext: function () { commit(1); },
+      goPrev: function () { commit(-1); }
+    };
+  }
+
+  /**
+   * 6. Kaartenrij (mymmo_events_row): drie losse gedragingen die geen van
+   *    alle met vaste CSS-waarden op te lossen zijn, want ze hangen af van
+   *    dingen die pas na render bekend zijn (breedte, aantal kaarten, welk
+   *    kaartje precies actief is) of van invoertype (muis vs. touch).
+   *
+   *    a) De kaarten overlappen bewust (zie .mymmo-ev-row__card), maar de
+   *       rij mag NOOIT breder worden dan de beschikbare ruimte -- geen
+   *       horizontale scrollbar. De kaarten worden daarvoor NOOIT smaller
+   *       gemaakt (vaste width in CSS blijft vaste width): in plaats
+   *       daarvan berekent rowOverlapFit() hier hoeveel de kaarten over
+   *       elkaar moeten schuiven (zoals een pak kaarten) voor het aantal
+   *       kaarten en de gemeten breedte, en zet dat als
+   *       --mymmo-ev-row-overlap op de container. Zonder JS geldt gewoon
+   *       de vaste CSS-fallback.
+   *    b) Het "Schrijf je snel in!"-tagje bestaat maar één keer per rij en
+   *       verhuist (DOM-reparent) naar het kaartje dat op dat moment actief
+   *       is (gehoverd op desktop, of geswiped naar op mobiel) -- pas na
+   *       500ms (zodat het niet meeflitst bij gewoon voorbijglijden) en
+   *       met een cartoonachtige aanloop-animatie (zie @keyframes
+   *       mymmoRowPointerPop in de CSS).
+   *    c) Op mobiel/touch werkt :hover niet betrouwbaar (geen muis), dus
+   *       rowSwipeEnable() laat een horizontale swipe over de rij het
+   *       volgende/vorige kaartje "actief" maken (.is-active, zelfde CSS
+   *       als :hover) i.p.v. te wachten op een hover die nooit komt.
+   */
+  function remToPx(rem) {
+    var base = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return rem * (base || 16);
+  }
+
+  function rowOverlapFit(cardsEl) {
+    var cards = cardsEl.querySelectorAll('.mymmo-ev-row__card');
+    var n = cards.length;
+    if (n < 2) return;
+
+    var cardWidth = cards[0].getBoundingClientRect().width;
+    var containerWidth = cardsEl.clientWidth;
+    if (!cardWidth || !containerWidth) return;
+
+    // Kaarten worden NOOIT smaller gemaakt om te passen -- enkel meer
+    // overlap. minVisible is dus bewust klein: net genoeg rand (met de
+    // rotatie per kaart) om uit te nodigen tot hoveren/swipen, geen
+    // "leesbare" minimumbreedte meer zoals voorheen.
+    var minVisible = remToPx(0.65);
+    var maxOverlap = Math.max(0, cardWidth - minVisible);
+    // Bij weinig kaarten in een brede rij: hoeveel tussenruimte (negatieve
+    // overlap) mag er hoogstens tussen twee kaarten komen? Zonder grens
+    // zou bv. 2 kaarten in een erg brede rij ver uit elkaar getrokken
+    // worden om de breedte te vullen -- dat oogt niet meer als een stapel.
+    var maxGap = remToPx(2);
+
+    // Overlap (of, negatief, een tussenruimte) zodat n kaarten van
+    // cardWidth precies containerWidth vullen -- zowel wanneer dat MEER
+    // overlap vraagt (veel kaarten) als MINDER (weinig kaarten): de rij
+    // vult zo altijd de volledige beschikbare breedte i.p.v. bij weinig
+    // kaarten compact te blijven hangen met ruimte ongebruikt ernaast.
+    var neededOverlap = cardWidth - (containerWidth - cardWidth) / (n - 1);
+
+    var overlap = Math.max(-maxGap, Math.min(neededOverlap, maxOverlap));
+
+    cardsEl.style.setProperty('--mymmo-ev-row-overlap', overlap + 'px');
+  }
+
+  // Geeft { showOn, hide } terug zodat zowel hover (desktop) als swipe
+  // (mobiel, zie rowSwipeEnable) hetzelfde gedeelde pointer-element kunnen
+  // aansturen i.p.v. elk hun eigen kopie te bouwen.
+  function rowPointerController(row) {
+    var pointer = row.querySelector('.mymmo-ev-row__pointer');
+    if (!pointer) return null;
+
+    var showTimer = null;
+
+    function showOn(card) {
+      window.clearTimeout(showTimer);
+      pointer.classList.remove('is-visible');
+      showTimer = window.setTimeout(function () {
+        if (pointer.parentElement !== card) {
+          card.appendChild(pointer);
+        }
+        // Herstart de animatie ook als hij toevallig al liep.
+        pointer.classList.remove('is-visible');
+        void pointer.offsetWidth;
+        pointer.classList.add('is-visible');
+      }, 500);
+    }
+
+    function hide() {
+      window.clearTimeout(showTimer);
+      pointer.classList.remove('is-visible');
+    }
+
+    return { showOn: showOn, hide: hide };
+  }
+
+  function rowPointerFollow(row, pointerCtrl) {
+    var cards = row.querySelectorAll('.mymmo-ev-row__card');
+    if (!pointerCtrl || !cards.length) return;
+
+    cards.forEach(function (card) {
+      card.addEventListener('pointerenter', function () {
+        pointerCtrl.showOn(card);
+      });
+      card.addEventListener('pointerleave', function () {
+        pointerCtrl.hide();
+      });
+    });
+  }
+
+  // Mobiel/touch: geen betrouwbare :hover, dus laat een horizontale swipe
+  // over de kaartenrij het volgende/vorige kaartje "actief" maken (.is-
+  // active, dezelfde CSS als :hover) en het pointer-tagje meeverhuizen.
+  // Kaartje 0 (bovenop de stapel) is standaard al volledig zichtbaar, dus
+  // de actieve index start op -1 (niets actief); swipe naar links maakt
+  // het eerstvolgende verborgen kaartje actief, swipe naar rechts gaat
+  // terug.
+  function rowSwipeEnable(cardsEl, pointerCtrl) {
+    var cards = cardsEl.querySelectorAll('.mymmo-ev-row__card');
+    var n = cards.length;
+    if (n < 2) return;
+
+    var activeIndex = -1;
+    var startX = 0;
+    var startY = 0;
+    var tracking = false;
+    var horizontal = false;
+
+    function setActive(index) {
+      index = Math.max(-1, Math.min(n - 1, index));
+      if (index === activeIndex) return;
+      for (var i = 0; i < n; i++) {
+        cards[i].classList.toggle('is-active', i === index);
+      }
+      activeIndex = index;
+      if (!pointerCtrl) return;
+      if (index >= 0) {
+        pointerCtrl.showOn(cards[index]);
+      } else {
+        pointerCtrl.hide();
+      }
+    }
+
+    cardsEl.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      tracking = true;
+      horizontal = false;
+    }, { passive: true });
+
+    cardsEl.addEventListener('touchmove', function (e) {
+      if (!tracking || e.touches.length !== 1) return;
+      var dx = e.touches[0].clientX - startX;
+      var dy = e.touches[0].clientY - startY;
+      if (!horizontal && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+        horizontal = true;
+      }
+      // Zodra het duidelijk een horizontale swipe is: niet ook nog de
+      // pagina laten scrollen (touch-action: pan-y in CSS laat verticaal
+      // scrollen sowieso al toe voor swipes die dat niet zijn).
+      if (horizontal && e.cancelable) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    cardsEl.addEventListener('touchend', function (e) {
+      if (!tracking) return;
+      tracking = false;
+      if (!horizontal) return;
+      var touch = e.changedTouches && e.changedTouches[0];
+      var dx = (touch ? touch.clientX : startX) - startX;
+      var threshold = 30;
+      if (dx <= -threshold) {
+        setActive(activeIndex + 1);
+      } else if (dx >= threshold) {
+        setActive(activeIndex - 1);
+      }
+    });
+
+    cardsEl.addEventListener('touchcancel', function () {
+      tracking = false;
+    });
+  }
+
+  function initRows() {
+    var rows = document.querySelectorAll('.mymmo-ev-row');
+    if (!rows.length) return;
+
+    // pointer/coarse of ontouchstart: geen betrouwbare hover, dus swipe
+    // aanbieden. Eén check volstaat voor alle rijen op de pagina.
+    var isTouch = ('ontouchstart' in window) ||
+      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    var deckMode = isDeckViewport();
+
+    // Op mobiel (isDeckViewport()) blijft de compacte fan-kaartenrij
+    // volledig verborgen (CSS) -- de swipebare kaartenstapel met dezelfde
+    // look als de aankondiging (.mymmo-ev-row__deck) wordt apart
+    // geïnitialiseerd door initSwipeDecks(). Niets hieronder is dan nog
+    // nodig (geen hover/fit-berekeningen op verborgen elementen).
+    if (deckMode) return;
+
+    var cardsEls = [];
+    rows.forEach(function (row) {
+      var cardsEl = row.querySelector('.mymmo-ev-row__cards');
+      if (!cardsEl) return;
+      var pointerCtrl = rowPointerController(row);
+
+      rowPointerFollow(row, pointerCtrl);
+      cardsEls.push(cardsEl);
+      if (isTouch) {
+        rowSwipeEnable(cardsEl, pointerCtrl);
+      }
+    });
+    if (!cardsEls.length) return;
+
+    function fitAll() {
+      cardsEls.forEach(rowOverlapFit);
+    }
+
+    fitAll();
+    // Lettertype/afbeeldingen kunnen de gemeten breedte nog laten
+    // verschuiven na de eerste (synchrone) meting -- en soms pas ná de
+    // 'load'-event. Zonder vangnet bleven de kaarten dan fout
+    // gepositioneerd tot de eerstvolgende toevallige reflow (bv. de
+    // eerste hover), wat aanvoelde als een "sprong".
+    window.addEventListener('load', fitAll);
+
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(fitAll);
+    }
+
+    if (window.ResizeObserver) {
+      var roTimer = null;
+      var ro = new ResizeObserver(function () {
+        window.clearTimeout(roTimer);
+        roTimer = window.setTimeout(fitAll, 60);
+      });
+      cardsEls.forEach(function (el) { ro.observe(el); });
+    }
+
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(fitAll, 150);
+    });
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
-      focusFlash(); guardForms(); initComponents(); keyboardNav(); announcementHover();
+      focusFlash(); guardForms(); initComponents(); keyboardNav(); announcementHover(); initRows(); initSwipeDecks();
     });
   } else {
-    focusFlash(); guardForms(); initComponents(); keyboardNav(); announcementHover();
+    focusFlash(); guardForms(); initComponents(); keyboardNav(); announcementHover(); initRows(); initSwipeDecks();
   }
 })();

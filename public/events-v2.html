@@ -224,6 +224,30 @@
       background-color: var(--status-dot, oklch(var(--n)));
       border: 1.5px solid oklch(var(--b1));
     }
+    /* Sterretje: welk event momenteel gehighlight is in de
+       aankondiging-widget (WP-plugin). Bewust links i.p.v. rechts, want
+       .status-dot (publicatiestatus) zit al rechtsboven. Negatieve top/left
+       laten 'm over de rand van de kaart hangen (zoals een
+       notificatie-bolletje op een app-icoon) i.p.v. plat tegen de hoek --
+       dat stond er eerst als een gewone kleur binnen de kaart en las niet
+       als een apart label. */
+    .fc-event-card .highlight-badge {
+      position: absolute;
+      top: -0.3rem;
+      left: -0.3rem;
+      z-index: 2;
+      width: 0.9rem;
+      height: 0.9rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background-color: oklch(var(--wa));
+      color: oklch(var(--wac));
+      border: 1.5px solid oklch(var(--b1));
+      box-shadow: 0 1px 3px oklch(var(--bc) / 0.3);
+    }
+    .fc-event-card .highlight-badge svg { width: 0.5rem; height: 0.5rem; }
     .fc .fc-daygrid-more-link {
       font-size: 0.6875rem;
       color: oklch(var(--bc) / 0.6);
@@ -385,6 +409,9 @@
         </div>
         <button class="btn btn-sm btn-ghost btn-square" data-action="reload" title="Verversen">
           <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+        </button>
+        <button class="btn btn-sm btn-ghost btn-square" data-action="open-type-colors" title="Typekleuren">
+          <i data-lucide="palette" class="w-4 h-4"></i>
         </button>
         <button class="btn btn-sm btn-primary gap-1" data-action="new-event">
           <i data-lucide="plus" class="w-4 h-4"></i> Nieuw event
@@ -667,8 +694,97 @@
     </div>
   </dialog>
 
+  <!-- Kleur per event type: schrijft naar x_studio_type_color_hex in Odoo
+       (Studio-veld). Geen eigen kleurentabel -- Odoo blijft de enige
+       database, zie setEventTypeColor() in de Worker. -->
+  <dialog id="typeColorsDialog" class="modal">
+    <div class="modal-box max-w-md">
+      <h3 class="font-semibold text-lg mb-1">Typekleuren</h3>
+      <p class="text-sm opacity-70 mb-4">
+        Deze kleur gebruikt de website (bv. het badge op de kaartenrij van de aankondiging-widget).
+      </p>
+      <div id="typeColorsList" class="flex flex-col gap-2"></div>
+      <div class="modal-action">
+        <button class="btn btn-sm" data-action="type-colors-close">Sluiten</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Communicatie-studio.
+       De blokken WONEN IN ODOO: x_webinar_event_type.x_studio_mail_blocks
+       (standaard per event-type) en x_webinar.x_studio_mail_blocks_override
+       (override per event). Deze dialoog bewerkt die velden -- er is geen
+       eigen tabel en geen KV-bron. Zie lib/mail-service.js in de Worker. -->
+  <dialog id="mailStudioDialog" class="modal">
+    <div class="modal-box max-w-[92rem] w-[95vw] h-[92vh] p-0 flex flex-col">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center gap-3 flex-wrap">
+        <div class="min-w-0">
+          <h3 class="font-semibold text-base leading-tight">Communicatie</h3>
+          <p class="text-xs opacity-60 truncate" id="mailStudioSubtitle"></p>
+        </div>
+
+        <div role="tablist" class="tabs tabs-boxed w-fit" id="mailStudioKindTabs">
+          <button role="tab" class="tab tab-active" data-mail-kind="confirmation">Bevestiging</button>
+          <button role="tab" class="tab" data-mail-kind="reminder">Reminder</button>
+          <button role="tab" class="tab" data-mail-kind="recap">Recap</button>
+        </div>
+
+        <div class="join ml-auto">
+          <button class="btn btn-sm join-item btn-active" data-action="mail-scope" data-mail-scope="event_type" id="mailScopeType">
+            Standaard voor dit type
+          </button>
+          <button class="btn btn-sm join-item" data-action="mail-scope" data-mail-scope="event" id="mailScopeEvent">
+            Alleen dit event
+          </button>
+        </div>
+
+        <button class="btn btn-sm btn-circle btn-ghost" data-action="mail-studio-close">✕</button>
+      </div>
+
+      <div class="px-4 py-2 border-b border-base-200 text-xs flex items-center gap-3 flex-wrap" id="mailStudioStatus"></div>
+
+      <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <!-- Editor -->
+        <div class="overflow-y-auto p-4 border-r border-base-200 space-y-3" id="mailStudioEditor"></div>
+
+        <!-- Live voorbeeld. Zelfde aanpak als de iframe-preview in de
+             mail-signature-designer: een srcdoc-iframe, zodat de mail-HTML
+             de pagina-CSS niet kan raken en omgekeerd. -->
+        <div class="flex flex-col min-h-0">
+          <div class="px-4 py-2 border-b border-base-200 flex items-center gap-2 flex-wrap">
+            <span class="text-xs opacity-60">Voorbeeld als bezoeker van</span>
+            <select class="select select-bordered select-xs" id="mailPreviewSite">
+              <option value="">— site onbekend —</option>
+              <option value="openvme">openvme</option>
+              <option value="syndicoach">syndicoach</option>
+            </select>
+            <span class="text-xs opacity-60 ml-auto" id="mailPreviewMeta"></span>
+          </div>
+          <div class="px-4 py-2 border-b border-base-200 text-sm">
+            <span class="opacity-60 text-xs">Onderwerp:</span>
+            <span class="font-medium" id="mailPreviewSubject">—</span>
+          </div>
+          <iframe id="mailPreviewFrame" class="flex-1 w-full bg-base-200" title="Voorbeeld van de mail"></iframe>
+        </div>
+      </div>
+
+      <div class="px-4 py-3 border-t border-base-200 flex items-center gap-2 flex-wrap">
+        <button class="btn btn-sm btn-ghost" data-action="mail-studio-close">Sluiten</button>
+        <span class="text-xs opacity-60" id="mailStudioDirty"></span>
+        <div class="ml-auto flex items-center gap-2">
+          <button class="btn btn-sm btn-outline gap-2" data-action="mail-send" id="mailSendBtn">
+            <i data-lucide="send" class="w-4 h-4"></i> <span id="mailSendLabel">Klaarzetten</span>
+          </button>
+          <button class="btn btn-sm btn-primary" data-action="mail-save" id="mailSaveBtn">Blokken bewaren</button>
+        </div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
   <div id="toastContainer" class="toast toast-top toast-end z-50"></div>
 
   <script src="/events-v2-client.js"></script>
+  <script src="/events-v2-mail-studio.js"></script>
 </body>
 </html>

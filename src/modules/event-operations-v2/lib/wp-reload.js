@@ -51,7 +51,12 @@ export async function pushWpReload(env, ctx) {
     .map((url) => url.trim())
     .filter((url) => url !== '');
 
-  if (targets.length === 0) return;
+  if (targets.length === 0) {
+    console.log(`${LOG_PREFIX} wp-reload: geen EVENTS_WP_RELOAD_WEBHOOKS ingesteld, overgeslagen`);
+    return;
+  }
+
+  console.log(`${LOG_PREFIX} wp-reload: ${targets.length} site(s) verwittigen (${ctx && typeof ctx.waitUntil === 'function' ? 'op de achtergrond' : 'synchroon, geen ctx'})`);
 
   const run = () => Promise.all(targets.map((url) => pingOne(url)));
 
@@ -70,7 +75,9 @@ async function pingOne(url) {
 
   try {
     const response = await fetch(url, { method: 'GET', signal: controller.signal });
-    if (!response.ok) {
+    if (response.ok) {
+      console.log(`${LOG_PREFIX} wp-reload: ${safeHost(url)} OK (${response.status})`);
+    } else {
       console.warn(`${LOG_PREFIX} wp-reload: ${safeHost(url)} antwoordde met ${response.status}`);
     }
   } catch (error) {

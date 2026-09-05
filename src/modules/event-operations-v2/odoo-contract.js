@@ -79,6 +79,11 @@ export const EVENT_FIELDS = {
   THUMBNAIL_URL: 'x_studio_vimeo_thumbnail_url',
   RECAP_BODY: 'x_studio_followup_html',
   RECAP_TEMPLATE: 'x_studio_recap_template_id',
+  // Optioneel (Text, JSON): mailblokken die de standaard van het EVENT-TYPE
+  // volledig overschrijven voor dit ene event. Bestaat pas als het
+  // Studio-veld is aangemaakt -- zie mailBlocksFieldAvailable() in
+  // lib/mail-service.js, hetzelfde patroon als BRAND.
+  MAIL_BLOCKS_OVERRIDE: 'x_studio_mail_blocks_override',
   // Afgeleide weergavevelden. De mailtemplates 52 en 53 renderen deze
   // LETTERLIJK in hun subject, dus ze moeten altijd meeschrijven met
   // STARTS_AT. Nooit met de hand zetten.
@@ -98,6 +103,7 @@ export const REGISTRATION_FIELDS = {
   QUESTIONS: 'x_studio_webinar_questions',
   STATE: 'x_studio_registration_state',
   SOURCE: 'x_studio_source',
+  SITE: 'x_studio_registration_site',
   ATTENDED: 'x_studio_webinar_attended',
   ATTENDANCE_UPDATED_AT: 'x_studio_attendance_updated_at',
   ATTENDANCE_UPDATED_BY: 'x_studio_attendance_updated_by',
@@ -123,7 +129,39 @@ export const EVENT_TYPE_FIELDS = {
   ID: 'id',
   NAME: 'x_name',
   ACTIVE: 'x_active',
-  SEQUENCE: 'x_studio_sequence'
+  SEQUENCE: 'x_studio_sequence',
+  COLOR: 'x_studio_type_color_hex',
+  // Optioneel (Text, JSON): de standaard mailblokken voor dit event-type.
+  // Dit is de ENIGE bron van waarheid voor mailopmaak; KV mag er hoogstens
+  // een wegwerpbare kopie van houden.
+  MAIL_BLOCKS: 'x_studio_mail_blocks'
+};
+
+/**
+ * Velden op `mail.mail`. De OM maakt deze records rechtstreeks aan; Odoo's
+ * eigen mailqueue-cron verstuurt ze op `scheduled_date`.
+ *
+ * Geverifieerd 2026-09-05: de API-gebruiker (UID 2, Administrator) zit in
+ * groep 4 (Administration / Settings) en dat is de enige groep met een ACL
+ * op mail.mail (`mail.mail.system`, CRUD). Geen Studio-actie nodig.
+ */
+export const MAIL_FIELDS = {
+  ID: 'id',
+  SUBJECT: 'subject',
+  BODY_HTML: 'body_html',
+  EMAIL_FROM: 'email_from',
+  EMAIL_TO: 'email_to',
+  REPLY_TO: 'reply_to',
+  SCHEDULED_DATE: 'scheduled_date',
+  STATE: 'state',
+  MODEL: 'model',
+  RES_ID: 'res_id',
+  MESSAGE_ID: 'message_id',
+  // Standaard staat dit op de bestaande templates op `true`, waardoor een
+  // verzonden mail zichzelf opruimt en er achteraf NIETS bewijsbaars
+  // overblijft. Wij zetten hem expliciet op false: het mail.mail-record IS
+  // het verzendspoor waarop de idempotentie draait.
+  AUTO_DELETE: 'auto_delete'
 };
 
 /**
@@ -214,6 +252,7 @@ export const REGISTRATION_LIST_FIELDS = Object.freeze([
   REGISTRATION_FIELDS.QUESTIONS,
   REGISTRATION_FIELDS.STATE,
   REGISTRATION_FIELDS.SOURCE,
+  REGISTRATION_FIELDS.SITE,
   REGISTRATION_FIELDS.ATTENDED,
   REGISTRATION_FIELDS.ATTENDANCE_UPDATED_AT,
   REGISTRATION_FIELDS.ATTENDANCE_UPDATED_BY,
@@ -784,6 +823,7 @@ export function toRegistrationDto(record) {
     questions: str(record[REGISTRATION_FIELDS.QUESTIONS]),
     state: str(record[REGISTRATION_FIELDS.STATE]) || 'registered',
     source: str(record[REGISTRATION_FIELDS.SOURCE]),
+    site: str(record[REGISTRATION_FIELDS.SITE]) || null,
     attended: bool(record[REGISTRATION_FIELDS.ATTENDED]),
     attendance: {
       updated_at: fromOdooDatetime(record[REGISTRATION_FIELDS.ATTENDANCE_UPDATED_AT]),
@@ -807,7 +847,12 @@ export function toEventTypeDto(record) {
     id: int(record[EVENT_TYPE_FIELDS.ID]),
     name: str(record[EVENT_TYPE_FIELDS.NAME]),
     active: record[EVENT_TYPE_FIELDS.ACTIVE] !== false,
-    sequence: int(record[EVENT_TYPE_FIELDS.SEQUENCE], 0)
+    sequence: int(record[EVENT_TYPE_FIELDS.SEQUENCE], 0),
+    // null (i.p.v. '') als leeg/ontbrekend, zodat de aanroeper
+    // (public-api.js) kan terugvallen op eventTypePresentation()'s
+    // hardcoded standaardkleur i.p.v. een lege string als
+    // achtergrondkleur door te geven.
+    color: str(record[EVENT_TYPE_FIELDS.COLOR])
   };
 }
 

@@ -468,8 +468,16 @@ test('paginering heeft een echt plafond', () => {
 // (zie het commando bovenaan dit bestand), zodat deze relatieve paden kloppen.
 
 const CLIENT_JS_PATH = 'public/events-v2-client.js';
+// De communicatie-studio heeft een eigen bestand met een eigen centrale
+// listener (zelfde data-action-conventie). Zonder dit erbij zou deze test
+// elke actie uit die dialoog als "handler ontbreekt" melden -- en, erger,
+// een ECHT ontbrekende handler daar helemaal niet zien.
+const MAIL_STUDIO_JS_PATH = 'public/events-v2-mail-studio.js';
 const HTML_PATH = 'public/events-v2.html';
-const clientJs = readFileSync(CLIENT_JS_PATH, 'utf8');
+const clientJs = [
+  readFileSync(CLIENT_JS_PATH, 'utf8'),
+  readFileSync(MAIL_STUDIO_JS_PATH, 'utf8')
+].join('\n');
 const html = readFileSync(HTML_PATH, 'utf8');
 
 test('elke dropdown-content heeft tabindex="0"', () => {
@@ -509,9 +517,13 @@ test('elke data-action heeft een handler, en elke click-case wordt gebruikt', ()
   }
   assert.ok(dataActionValues.size > 0, 'geen data-action-attributen gevonden -- test is stuk');
 
-  const switchMatch = clientJs.match(/switch \(action\) \{[\s\S]*?\n  \}/);
+  // Twee bestanden = twee switch-blokken (client + mail-studio); allebei
+  // meenemen, anders tellen de acties van de studio niet mee.
+  const switchMatch = [...clientJs.matchAll(/switch \(action\) \{[\s\S]*?\n  \}/g)]
+    .map((m) => m[0])
+    .join('\n') || null;
   assert.ok(switchMatch, 'de click-delegatiehandler (switch (action) { ... }) is niet gevonden');
-  const switchBody = switchMatch[0];
+  const switchBody = switchMatch;
 
   const clickCases = new Set();
   for (const m of switchBody.matchAll(/case '([a-zA-Z0-9_-]+)':/g)) {

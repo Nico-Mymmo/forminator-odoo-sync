@@ -154,6 +154,25 @@ final class Mymmo_Events_Api_Client {
         return ['event' => $event, 'is_highlighted' => $is_highlighted, 'others' => $others];
     }
 
+    /**
+     * Voor de kaartenrij-shortcode (mymmo_events_row): ofwel de gehighlighte
+     * events in volgorde ($source === 'highlighted'), ofwel gewoon de
+     * eerstvolgende events chronologisch ($source === 'next'). Bewust GEEN
+     * fallback van highlighted naar next als er te weinig gehighlighte
+     * events zijn -- marketing koos highlighted net omdat de rij ENKEL die
+     * events mag tonen; te weinig ervan wordt in de template met blanco
+     * kaartjes aangevuld, niet stilzwijgend aangelengd met andere events.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function get_row(string $source, int $count = 4): array {
+        $args = ['limit' => $count];
+        if ($source === 'highlighted') {
+            $args['highlighted'] = true;
+        }
+        return self::get_events($args);
+    }
+
     /** @return array<int,array<string,mixed>> */
     public static function get_event_types(): array {
         $payload = self::request('/event-types', [], 900);

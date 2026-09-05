@@ -52,8 +52,6 @@ if ($types === []) {
            data-type-id="<?php echo esc_attr((string) $id); ?>"
            data-next="<?php echo esc_attr(implode(',', $next)); ?>"
            style="--mymmo-ev-chip-color: <?php echo esc_attr((string) ($type['color'] ?? '#475569')); ?>"
-           aria-pressed="<?php echo $is_active ? 'true' : 'false'; ?>">
-            <?php echo esc_html((string) ($type['name'] ?? '')); ?>
-        </a>
+           aria-pressed="<?php echo $is_active ? 'true' : 'false'; ?>"><?php echo esc_html((string) ($type['name'] ?? '')); ?></a>
     <?php endforeach; ?>
 </div>

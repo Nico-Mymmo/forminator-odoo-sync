@@ -94,7 +94,25 @@ final class Mymmo_Events_Router {
      * De terugval zelf.
      */
     public static function maybe_handle(): void {
-        if (!self::fallback_enabled() || !is_404()) {
+        if (!self::fallback_enabled()) {
+            return;
+        }
+
+        // Terugval-check hieronder was tot en met v1.6.31 gewoon "!is_404()":
+        // bestond er één of andere WP-post/pagina op deze URL, dan trok de
+        // OM zich terug, wat WP dan ook toonde. Voor een bezoeker die geen
+        // rechten heeft klopt dat (een concept/draft is niet publiek
+        // opvraagbaar, dus WP geeft toch is_404()=true en komt de OM alsnog
+        // tussen) -- maar een ingelogde redacteur/admin KAN een concept-post
+        // wel rechtstreeks op zijn permalink bekijken (WP's eigen
+        // draft-preview, geen 404), waardoor de OM zich dan onterecht
+        // terugtrok en een oude, nooit-gepubliceerde eventpagina liet staan
+        // i.p.v. de actuele OM-pagina. Enkel een ECHT gepubliceerde post mag
+        // de OM nog laten wijken; concept/pending/private/... telt voor deze
+        // terugval als "bestaat niet".
+        $queried = is_404() ? null : get_queried_object();
+        $queried_is_published = ($queried instanceof WP_Post) && $queried->post_status === 'publish';
+        if (!is_404() && $queried_is_published) {
             return;
         }
 
