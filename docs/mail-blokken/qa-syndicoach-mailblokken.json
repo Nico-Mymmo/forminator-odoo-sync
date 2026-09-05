@@ -1,0 +1,253 @@
+{
+  "confirmation": {
+    "subject": "Je bent ingeschreven voor de {{event.type}}: {{event.title}}",
+    "preheader": "{{event.day}} om {{event.time}} — alle details staan in deze mail.",
+    "blocks": [
+      {
+        "id": "hero-openvme",
+        "type": "hero",
+        "sites": [
+          "openvme"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_openvme.png",
+        "alt": "OpenVME"
+      },
+      {
+        "id": "hero-syndicoach",
+        "type": "hero",
+        "sites": [
+          "syndicoach"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_syndicoach.png",
+        "alt": "Syndicoach"
+      },
+      {
+        "id": "hero-default",
+        "type": "hero",
+        "sites": [
+          "other"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_openvme.png",
+        "alt": "Mymmo"
+      },
+      {
+        "id": "title",
+        "type": "heading",
+        "sites": [],
+        "level": 2,
+        "text": "Je bent ingeschreven voor de {{event.type}}"
+      },
+      {
+        "id": "intro",
+        "type": "text",
+        "sites": [],
+        "html": "<p style=\"margin:0 0 16px 0;\">Dag {{registration.first_name}}, goed nieuws: je inschrijving is helemaal in orde! &#9989;</p>"
+      },
+      {
+        "id": "welkom",
+        "type": "text",
+        "sites": [],
+        "html": "<p style=\"margin:0 0 16px 0;\">We kijken ernaar uit om je binnenkort te verwelkomen op onze {{event.type}}.<br><strong>{{event.title}}</strong></p>"
+      },
+      {
+        "id": "details",
+        "type": "event_details",
+        "sites": [],
+        "title": "Details van het evenement:"
+      },
+      {
+        "id": "agenda",
+        "type": "text",
+        "sites": [],
+        "html": "<p style=\"margin:0 0 16px 0;\">Voeg dit gerust al toe aan je agenda. We sturen je nog een herinnering vlak voor de sessie van start gaat. Je krijgt achteraf ook een mail met de opname.</p>"
+      },
+      {
+        "id": "outro",
+        "type": "text",
+        "sites": [],
+        "html": "<p style=\"margin:0;\">Tot binnenkort. &#128075;<br>We kijken ernaar uit!</p>"
+      },
+      {
+        "id": "card-signature",
+        "type": "card_break",
+        "sites": []
+      },
+      {
+        "id": "signature",
+        "type": "signature",
+        "sites": []
+      },
+      {
+        "id": "footer",
+        "type": "footer",
+        "sites": [],
+        "html": "&copy; {{now.year}} Mymmo BV &middot; {{site.name}} by <a href=\"https://housedrive.com/\" target=\"_blank\" style=\"color:#9ca3af;text-decoration:none;\">Housedrive</a> &middot; Made in Antwerp with &#10084;&#65039;"
+      }
+    ]
+  },
+  "reminder": {
+    "subject": "🔔 Morgen om {{event.time}}: {{event.title}}",
+    "preheader": "Tot {{event.day}} om {{event.time}}. De deelnamelink staat in deze mail.",
+    "blocks": [
+      {
+        "id": "hero-openvme",
+        "type": "hero",
+        "sites": [
+          "openvme"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_openvme.png",
+        "alt": "OpenVME"
+      },
+      {
+        "id": "hero-syndicoach",
+        "type": "hero",
+        "sites": [
+          "syndicoach"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_syndicoach.png",
+        "alt": "Syndicoach"
+      },
+      {
+        "id": "hero-default",
+        "type": "hero",
+        "sites": [
+          "other"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_openvme.png",
+        "alt": "Mymmo"
+      },
+      {
+        "id": "title",
+        "type": "heading",
+        "sites": [],
+        "level": 2,
+        "text": "Morgen is het zover"
+      },
+      {
+        "id": "intro",
+        "type": "text",
+        "sites": [],
+        "html": "<p style=\"margin:0 0 16px 0;\">Dag {{registration.first_name}}, kleine herinnering: <strong>{{event.title}}</strong> vindt morgen plaats.</p>"
+      },
+      {
+        "id": "details",
+        "type": "event_details",
+        "sites": [],
+        "title": "Praktisch:"
+      },
+      {
+        "id": "cta",
+        "type": "button",
+        "sites": [],
+        "label": "Neem deel",
+        "href": "{{event.link}}"
+      },
+      {
+        "id": "outro",
+        "type": "text",
+        "sites": [],
+        "html": "<p style=\"margin:0;\">Tot morgen! &#128075;</p>"
+      },
+      {
+        "id": "card-signature",
+        "type": "card_break",
+        "sites": []
+      },
+      {
+        "id": "signature",
+        "type": "signature",
+        "sites": []
+      },
+      {
+        "id": "footer",
+        "type": "footer",
+        "sites": [],
+        "html": "&copy; {{now.year}} Mymmo BV &middot; {{site.name}} by <a href=\"https://housedrive.com/\" target=\"_blank\" style=\"color:#9ca3af;text-decoration:none;\">Housedrive</a> &middot; Made in Antwerp with &#10084;&#65039;"
+      }
+    ]
+  },
+  "recap": {
+    "subject": "Fijn dat je erbij was: {{event.title}}",
+    "preheader": "De opname en het materiaal van {{event.title}}.",
+    "blocks": [
+      {
+        "id": "hero-openvme",
+        "type": "hero",
+        "sites": [
+          "openvme"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_openvme.png",
+        "alt": "OpenVME"
+      },
+      {
+        "id": "hero-syndicoach",
+        "type": "hero",
+        "sites": [
+          "syndicoach"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_syndicoach.png",
+        "alt": "Syndicoach"
+      },
+      {
+        "id": "hero-default",
+        "type": "hero",
+        "sites": [
+          "other"
+        ],
+        "src": "https://link.openvme.be/assets/banners/mailheaders/hero_mail_openvme.png",
+        "alt": "Mymmo"
+      },
+      {
+        "id": "title",
+        "type": "heading",
+        "sites": [],
+        "level": 2,
+        "text": "Bedankt voor je deelname"
+      },
+      {
+        "id": "intro",
+        "type": "text",
+        "sites": [],
+        "html": "<p style=\"margin:0 0 16px 0;\">Dag {{registration.first_name}}, fijn dat je erbij was op <strong>{{event.title}}</strong>. Hieronder vind je de opname.</p>"
+      },
+      {
+        "id": "video",
+        "type": "video",
+        "sites": [],
+        "href": "",
+        "thumbnail": "",
+        "alt": "Bekijk de opname"
+      },
+      {
+        "id": "cta",
+        "type": "button",
+        "sites": [],
+        "label": "Bekijk de opname",
+        "href": "{{event.url}}"
+      },
+      {
+        "id": "outro",
+        "type": "text",
+        "sites": [],
+        "html": "<p style=\"margin:0;\">Tot een volgende keer! &#128075;</p>"
+      },
+      {
+        "id": "card-signature",
+        "type": "card_break",
+        "sites": []
+      },
+      {
+        "id": "signature",
+        "type": "signature",
+        "sites": []
+      },
+      {
+        "id": "footer",
+        "type": "footer",
+        "sites": [],
+        "html": "&copy; {{now.year}} Mymmo BV &middot; {{site.name}} by <a href=\"https://housedrive.com/\" target=\"_blank\" style=\"color:#9ca3af;text-decoration:none;\">Housedrive</a> &middot; Made in Antwerp with &#10084;&#65039;"
+      }
+    ]
+  },
+  "version": 1
+}

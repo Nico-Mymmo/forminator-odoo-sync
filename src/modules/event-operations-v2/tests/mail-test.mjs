@@ -24,7 +24,7 @@ import {
   formatEventMoment,
   safeUrl
 } from '../lib/mail-render.js';
-import { buildMessageId, computeScheduledDate, ownsMail } from '../lib/mail-service.js';
+import { buildMessageId, computeScheduledDate, ownsMail, resolvePublicOrigin } from '../lib/mail-service.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -126,13 +126,28 @@ test('onbekende site krijgt geen enkel site-specifiek blok, geen verkeerd logo',
   assert.equal(blocksForSite(blocks, false).length, 0);
 });
 
+test('sites: [other] is de t-else — alleen bij een onbekende site', () => {
+  // Dit is geen randgeval: x_studio_registration_site bestaat pas sinds kort,
+  // dus verreweg de meeste bestaande inschrijvingen hebben hem leeg.
+  const blocks = [
+    { id: 'ov', type: 'hero', sites: ['openvme'], src: 'https://x/ov.png' },
+    { id: 'sc', type: 'hero', sites: ['syndicoach'], src: 'https://x/sc.png' },
+    { id: 'df', type: 'hero', sites: ['other'], src: 'https://x/df.png' }
+  ];
+  assert.deepEqual(blocksForSite(blocks, 'openvme').map((b) => b.id), ['ov']);
+  assert.deepEqual(blocksForSite(blocks, 'syndicoach').map((b) => b.id), ['sc']);
+  assert.deepEqual(blocksForSite(blocks, null).map((b) => b.id), ['df']);
+  assert.deepEqual(blocksForSite(blocks, 'iets-anders').map((b) => b.id), ['df']);
+});
+
 console.log('\nplaceholders');
 
 const context = buildPlaceholderContext({
   event: EVENT,
   registration: REGISTRATION,
-  hostEmail: 'nico@mymmo.com',
-  publicUrl: 'https://syndicoach.be/event/qa-syndicoach/?owid=76'
+  host: { email: 'rob@mymmo.com', jobTitle: 'Customer Experience Hero', avatarUrl: 'https://mymmo.odoo.com/web/image/13413' },
+  publicUrl: 'https://syndicoach.be/event/qa-syndicoach/?owid=76',
+  now: new Date('2026-09-05T10:00:00Z')
 });
 
 test('dag en uur komen uit starts_at in Europe/Brussels, niet uit Odoo', () => {
@@ -193,10 +208,91 @@ test('tekstblok laat redactionele HTML door, hero escapet het alt-attribuut', ()
 
 test('event_details laat lege regels weg', () => {
   const html = renderMailHtml({ blocks: [{ id: 'd', type: 'event_details', sites: [] }], context });
-  assert.ok(html.includes('Wanneer'));
-  assert.ok(html.includes('Link'));
+  assert.ok(html.includes('Datum'));
+  assert.ok(html.includes('Tijd'));
+  assert.ok(html.includes('Deelnamelink'));
   // Dit event heeft geen locatie: die regel hoort niet in de mail te staan.
-  assert.ok(!html.includes('Waar'));
+  // De oorspronkelijke template had die regel sowieso niet.
+  assert.ok(!html.includes('Locatie'));
+});
+
+test('de datumregel gebruikt niet langer het dode veld x_studio_date', () => {
+  // In template 50/55 stond `x_studio_date or ''` naast starting_day. Dat veld
+  // is false op elk record (FORBIDDEN_FIELDS), dus die helft was altijd leeg.
+  const html = renderMailHtml({ blocks: [{ id: 'd', type: 'event_details', sites: [] }], context });
+  assert.ok(html.includes('dinsdag, 8 september'));
+  assert.ok(html.includes('19:00'));
+});
+
+console.log('\nlayout (kaarten, hero, footer)');
+
+test('hero staat buiten de kaart, inhoud erbinnen', () => {
+  const html = renderMailHtml({
+    blocks: [
+      { id: 'h', type: 'hero', sites: [], src: 'https://cdn/hero.png', alt: 'OpenVME' },
+      { id: 't', type: 'text', sites: [], html: '<p>Hallo</p>' }
+    ],
+    context
+  });
+  const heroAt = html.indexOf('cdn/hero.png');
+  const cardAt = html.indexOf('border-radius:16px');
+  assert.ok(heroAt > -1 && cardAt > -1, 'hero of kaart ontbreekt');
+  assert.ok(heroAt < cardAt, 'de hero hoort boven de eerste kaart te staan');
+});
+
+test('card_break maakt een tweede kaart', () => {
+  const one = renderMailHtml({ blocks: [{ id: 'a', type: 'text', sites: [], html: 'a' }], context });
+  const two = renderMailHtml({
+    blocks: [
+      { id: 'a', type: 'text', sites: [], html: 'a' },
+      { id: 'b', type: 'card_break', sites: [] },
+      { id: 'c', type: 'text', sites: [], html: 'c' }
+    ],
+    context
+  });
+  const count = (s) => s.split('border-radius:16px').length - 1;
+  assert.equal(count(one), 1);
+  assert.equal(count(two), 2);
+});
+
+test('een card_break zonder inhoud erna maakt geen lege kaart', () => {
+  const html = renderMailHtml({
+    blocks: [
+      { id: 'a', type: 'text', sites: [], html: 'a' },
+      { id: 'b', type: 'card_break', sites: [] }
+    ],
+    context
+  });
+  assert.equal(html.split('border-radius:16px').length - 1, 1);
+});
+
+test('signature vult functie, organisatie en foto in uit de context', () => {
+  const html = renderMailHtml({ blocks: [{ id: 's', type: 'signature', sites: [] }], context });
+  assert.ok(html.includes('Nico Plinke') || html.includes(context.host.name));
+  assert.ok(html.includes('Customer Experience Hero'));
+  assert.ok(html.includes('mymmo.odoo.com/web/image/13413'));
+  // De site bepaalt de organisatienaam; de oude template zette hier hard
+  // "OpenVME" neer, ook voor een syndicoach-inschrijving.
+  assert.ok(html.includes('Syndicoach'));
+});
+
+test('signature zonder foto laat geen leeg blok achter', () => {
+  const zonderFoto = buildPlaceholderContext({ event: EVENT, registration: REGISTRATION, host: { jobTitle: 'X' } });
+  const html = renderMailHtml({ blocks: [{ id: 's', type: 'signature', sites: [] }], context: zonderFoto });
+  assert.ok(!html.includes('border-radius:60px'));
+});
+
+test('footer staat buiten de kaarten en kent het huidige jaar', () => {
+  const html = renderMailHtml({
+    blocks: [
+      { id: 'a', type: 'text', sites: [], html: 'a' },
+      { id: 'f', type: 'footer', sites: [], html: '&copy; {{now.year}} Mymmo BV' }
+    ],
+    context
+  });
+  const cardEnd = html.lastIndexOf('border-radius:16px');
+  assert.ok(html.indexOf('Mymmo BV') > cardEnd, 'de footer hoort onder de laatste kaart');
+  assert.ok(html.includes('2026'));
 });
 
 test('javascript:-url in een knop levert geen knop op', () => {
@@ -213,6 +309,39 @@ test('preheader staat in de mail maar is onzichtbaar', () => {
   const html = renderMailHtml({ blocks: [], context, preheader: 'Tot {{event.day}}' });
   assert.ok(html.includes('display:none'));
   assert.ok(html.includes('Tot dinsdag'));
+});
+
+console.log('\neditor-markers lekken niet naar de verzonden mail');
+
+test('editable: true zet data-om-attributen, de standaard niet', () => {
+  const blocks = [
+    { id: 'h', type: 'hero', sites: [], src: 'https://cdn/h.png', alt: 'x' },
+    { id: 't', type: 'heading', sites: [], text: 'Titel' },
+    { id: 'f', type: 'footer', sites: [], html: 'voet' }
+  ];
+  const editor = renderMailHtml({ blocks, context, editable: true });
+  assert.ok(editor.includes('data-om-block="t"'));
+  assert.ok(editor.includes('data-om-edit="text"'));
+
+  // Dit is de test die telt: queueMails() rendert ZONDER editable, dus wat
+  // naar mail.mail gaat mag geen enkel editor-attribuut bevatten.
+  const sent = renderMailHtml({ blocks, context });
+  assert.ok(!sent.includes('data-om-'), 'de verzonden mail bevat editor-markers');
+});
+
+test('het opnameblok leest de video van het event', () => {
+  const metVideo = buildPlaceholderContext({
+    event: { ...EVENT, recap: { video_url: 'https://vimeo.com/999', thumbnail_url: 'https://i.vimeocdn.com/x.jpg' } },
+    registration: REGISTRATION
+  });
+  const html = renderMailHtml({ blocks: [{ id: 'v', type: 'video', sites: [] }], context: metVideo });
+  assert.ok(html.includes('vimeo.com/999'));
+  assert.ok(html.includes('i.vimeocdn.com/x.jpg'));
+});
+
+test('zonder opname op het event valt het opnameblok weg', () => {
+  const html = renderMailHtml({ blocks: [{ id: 'v', type: 'video', sites: [] }], context });
+  assert.equal(html.includes('<img'), false);
 });
 
 console.log('\nidempotentie en timing');
@@ -264,6 +393,27 @@ test('alleen het genoemde event-type wordt overgenomen', () => {
   assert.equal(ownsMail({ EVENTS_V2_MAIL_OWNER: '4' }, EVENT), false);
   assert.equal(ownsMail({ EVENTS_V2_MAIL_OWNER: '4, 2 ' }, EVENT), true);
   assert.equal(ownsMail({ EVENTS_V2_MAIL_OWNER: '*' }, EVENT), true);
+});
+
+console.log('\nsite-URL in de mail');
+
+const ORIGIN_ENV = {
+  EVENTS_PUBLIC_ORIGINS: 'https://openvme.be,https://syndicoach.be',
+  EVENTS_SHARED_CANONICAL_ORIGIN: 'https://openvme.be'
+};
+
+test('de link volgt de site waarop iemand inschreef', () => {
+  assert.equal(resolvePublicOrigin(ORIGIN_ENV, 'syndicoach'), 'https://syndicoach.be');
+  assert.equal(resolvePublicOrigin(ORIGIN_ENV, 'openvme'), 'https://openvme.be');
+});
+
+test('onbekende site valt terug op de canonieke origin', () => {
+  assert.equal(resolvePublicOrigin(ORIGIN_ENV, null), 'https://openvme.be');
+  assert.equal(resolvePublicOrigin(ORIGIN_ENV, 'onbekend'), 'https://openvme.be');
+});
+
+test('zonder configuratie blijft de link leeg, geen link naar de verkeerde site', () => {
+  assert.equal(resolvePublicOrigin({}, 'syndicoach'), '');
 });
 
 console.log(`\n${passed} test(en) geslaagd${process.exitCode ? ' — MET FOUTEN' : ''}\n`);

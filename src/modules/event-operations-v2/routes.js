@@ -47,10 +47,12 @@ import {
   resolveSender,
   queueMails,
   ownsMail,
+  resolvePublicOrigin,
   MailError
 } from './lib/mail-service.js';
-import { MAIL_KIND, MAIL_KINDS, emptyMailBlocks, normalizeMailBlocks, BLOCK_TYPES, BLOCK_SITES } from './lib/mail-blocks.js';
+import { MAIL_KIND, MAIL_KINDS, emptyMailBlocks, normalizeMailBlocks, BLOCK_TYPES, BLOCK_SITE_VALUES } from './lib/mail-blocks.js';
 import { listRegistrationsForMail } from './lib/registrations-service.js';
+import { listVimeoVideos, getVimeoVideo, vimeoConfigured } from './lib/vimeo.js';
 
 function json(payload, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(payload), {
@@ -585,17 +587,19 @@ export const routes = {
    * kopie van de bloktypes bijhoudt (zelfde principe als loadGraph() in de
    * Sales Insight Explorer).
    */
-  'GET /api/mail/schema': withErrors(async () => {
+  'GET /api/mail/schema': withErrors(async (context) => {
     return json({
       success: true,
       data: {
         kinds: MAIL_KINDS,
         block_types: BLOCK_TYPES,
-        sites: BLOCK_SITES,
+        sites: BLOCK_SITE_VALUES,
+        vimeo_configured: vimeoConfigured(context.env),
         placeholders: [
           'event.title', 'event.summary', 'event.day', 'event.time', 'event.starts_at',
           'event.location', 'event.link', 'event.url', 'event.type',
-          'host.name', 'host.email',
+          'host.name', 'host.email', 'host.job_title', 'host.avatar_url',
+          'site.name', 'site.key', 'now.year',
           'registration.name', 'registration.first_name', 'registration.email'
         ]
       }
@@ -747,8 +751,11 @@ export const routes = {
       kind,
       typeDoc,
       eventDoc,
-      hostEmail: sender?.email || '',
-      publicBaseUrl: context.env?.EVENTS_PUBLIC_BASE_URL
+      host: sender || {},
+      publicBaseUrl: resolvePublicOrigin(context.env, registration.site),
+      // Markers voor de klik-om-te-bewerken-editor. Alleen hier: de mail die
+      // naar mail.mail geschreven wordt, rendert zonder deze attributen.
+      editable: body?.editable === true
     });
 
     return json({
@@ -756,6 +763,7 @@ export const routes = {
       data: {
         ...rendered,
         email_from: sender?.formatted || null,
+        video_missing: kind === MAIL_KIND.RECAP && !event.recap?.video_url,
         email_to: registration.submitted_email,
         sender_error: senderError
       }
@@ -805,7 +813,127 @@ export const routes = {
     });
 
     return json({ success: true, data: result });
+  }),
+
+  /**
+   * GET /events-v2/api/vimeo/videos?q=&page=
+   *
+   * De video's uit het Vimeo-account, voor de videokiezer op het event.
+   * Zonder VIMEO_ACCESS_TOKEN komt hier `configured: false` uit en valt de UI
+   * terug op een URL plakken -- dat is geen fout maar een geldige toestand.
+   */
+  'GET /api/vimeo/videos': withErrors(async (context) => {
+    const url = new URL(context.request.url);
+    const data = await listVimeoVideos(context.env, {
+      query: url.searchParams.get('q') || '',
+      page: url.searchParams.get('page') || 1
+    });
+    return json({ success: true, data });
+  }),
+
+  /**
+   * POST /events-v2/api/events/:id/video
+   * Body: { video_url } of { vimeo_id }
+   *
+   * Zet de opname OP HET EVENT (x_studio_vimeo_url + _thumbnail_url). De
+   * recapmail leest die daarvandaan; er staat dus nooit een videolink in een
+   * mailsjabloon.
+   *
+   * De thumbnail wordt hier meteen mee opgelost: uit de Vimeo-API als er een
+   * token is, anders via de publieke oEmbed. Zo hoeft niemand een tweede URL
+   * op te zoeken.
+   */
+  'POST /api/events/:id/video': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const body = await readJsonBody(context.request);
+
+    const raw = String(body?.video_url || '').trim();
+    const vimeoId = body?.vimeo_id ? String(body.vimeo_id).replace(/\D/g, '') : idFromVimeoUrl(raw);
+
+    if (raw === '' && !vimeoId) {
+      // Leegmaken mag: dan valt het videoblok in de recapmail gewoon weg.
+      const event = await updateEvent(context.env, id, { video_url: '', thumbnail_url: '' }, context.user, { ctx: context.ctx });
+      return json({ success: true, data: { event, video: null } });
+    }
+
+    let video = vimeoId ? await getVimeoVideo(context.env, vimeoId) : null;
+
+    if (!video) {
+      // Geen token, of een niet-Vimeo-link (YouTube): terugvallen op de
+      // publieke oEmbed, net zoals de recap-service in v1 dat doet.
+      video = await resolveVideoWithoutToken(raw || `https://vimeo.com/${vimeoId}`);
+    }
+
+    if (!video) {
+      throw new ValidationError('Geen geldige Vimeo- of YouTube-link herkend.', { status: 400 });
+    }
+
+    const event = await updateEvent(
+      context.env,
+      id,
+      { video_url: video.url, thumbnail_url: video.thumbnail_url },
+      context.user,
+      { ctx: context.ctx }
+    );
+
+    return json({ success: true, data: { event, video } });
   })
 };
+
+/** `https://vimeo.com/123456` → `123456`. @returns {string|null} */
+function idFromVimeoUrl(url) {
+  const match = /vimeo\.com\/(?:video\/)?(\d+)/.exec(String(url || ''));
+  return match ? match[1] : null;
+}
+
+/**
+ * Titel + thumbnail zonder account-token.
+ *
+ * Vimeo heeft een publieke oEmbed per video; YouTube heeft vaste
+ * thumbnail-URL's. Dit is dezelfde aanpak als recap-service.js in v1, maar we
+ * bewaren hier de REMOTE url in plaats van het bestand naar R2 te kopiëren --
+ * een mailclient haalt de afbeelding toch zelf op.
+ *
+ * @param {string} url @returns {Promise<{url:string,title:string,thumbnail_url:string}|null>}
+ */
+async function resolveVideoWithoutToken(url) {
+  const trimmed = String(url || '').trim();
+
+  const vimeoId = idFromVimeoUrl(trimmed);
+  if (vimeoId) {
+    try {
+      const response = await fetch(`https://vimeo.com/api/v2/video/${vimeoId}.json`, {
+        headers: { Accept: 'application/json' }
+      });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      const record = Array.isArray(payload) ? payload[0] : payload;
+      const thumbnail = record?.thumbnail_large || record?.thumbnail_medium || record?.thumbnail_small || '';
+      if (!thumbnail) return null;
+      return {
+        url: `https://vimeo.com/${vimeoId}`,
+        title: String(record?.title || `Video ${vimeoId}`),
+        thumbnail_url: String(thumbnail).split('?')[0]
+      };
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} vimeo oEmbed mislukt voor ${vimeoId}: ${error?.message}`);
+      return null;
+    }
+  }
+
+  const youtubeId =
+    /(?:youtube\.com\/watch[?&]v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/.exec(trimmed)?.[1] ||
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/.exec(trimmed)?.[1];
+
+  if (youtubeId) {
+    return {
+      url: `https://youtu.be/${youtubeId}`,
+      title: `YouTube ${youtubeId}`,
+      thumbnail_url: `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`
+    };
+  }
+
+  return null;
+}
 
 export const PUBLIC_MAX_LIMIT = PAGINATION.PUBLIC_MAX_LIMIT;

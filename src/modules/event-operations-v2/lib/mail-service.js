@@ -258,10 +258,13 @@ export async function resolveSender(env, event) {
     });
   }
 
+  // employee_id erbij: functietitel en profielfoto staan op hr.employee en
+  // worden in de afzenderkaart gebruikt (zoals de bestaande template dat via
+  // `employee_id.job_title` en `x_public_image_attachment_id` deed).
   const users = await searchRead(env, {
     model: ODOO_MODELS.USER,
     domain: [['id', '=', hostId]],
-    fields: ['id', 'name', 'email'],
+    fields: ['id', 'name', 'email', 'employee_id'],
     limit: 1
   });
 
@@ -274,7 +277,51 @@ export async function resolveSender(env, event) {
   }
 
   const name = String(users?.[0]?.name || event?.host?.name || '').trim();
-  return { email, formatted: name === '' ? email : `"${name}" <${email}>` };
+  const employeeId = m2oId(users?.[0]?.employee_id);
+  const profile = employeeId ? await resolveHostProfile(env, employeeId) : { jobTitle: '', avatarUrl: '' };
+
+  return {
+    email,
+    formatted: name === '' ? email : `"${name}" <${email}>`,
+    jobTitle: profile.jobTitle,
+    avatarUrl: profile.avatarUrl
+  };
+}
+
+/**
+ * Functietitel en profielfoto van de host.
+ *
+ * De foto komt uit `x_public_image_attachment_id` op hr.employee. De
+ * oorspronkelijke template bouwde daar een RELATIEVE URL mee (`/web/image/%s`),
+ * wat in een mail niet werkt -- een mailclient heeft geen basis-URL. Hier
+ * wordt het een absolute URL op de Odoo-host.
+ *
+ * Nooit fataal: zonder foto of functietitel valt dat deel van de
+ * afzenderkaart gewoon weg.
+ *
+ * @param {Object} env @param {number} employeeId
+ * @returns {Promise<{ jobTitle: string, avatarUrl: string }>}
+ */
+async function resolveHostProfile(env, employeeId) {
+  try {
+    const rows = await searchRead(env, {
+      model: 'hr.employee',
+      domain: [['id', '=', employeeId]],
+      fields: ['id', 'job_title', 'x_public_image_attachment_id'],
+      limit: 1
+    });
+
+    const attachmentId = m2oId(rows?.[0]?.x_public_image_attachment_id);
+    const base = String(env?.ODOO_WEB_ORIGIN || 'https://mymmo.odoo.com').replace(/\/+$/, '');
+
+    return {
+      jobTitle: String(rows?.[0]?.job_title || '').trim(),
+      avatarUrl: attachmentId ? `${base}/web/image/${attachmentId}` : ''
+    };
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} profiel van host ${employeeId} niet gelezen: ${error?.message}`);
+    return { jobTitle: '', avatarUrl: '' };
+  }
 }
 
 /**
@@ -286,7 +333,7 @@ export async function resolveSender(env, event) {
  * @param {string} options.kind
  * @param {Object|null} options.typeDoc
  * @param {Object|null} options.eventDoc
- * @param {string} [options.hostEmail]
+ * @param {Object} [options.host] - { email, jobTitle, avatarUrl } uit resolveSender()
  * @param {string} [options.publicBaseUrl]
  * @returns {{ subject: string, html: string, source: string, empty: boolean }}
  */
@@ -296,7 +343,7 @@ export function renderMailForRegistration({
   kind,
   typeDoc,
   eventDoc,
-  hostEmail = '',
+  host = {},
   publicBaseUrl = ''
 }) {
   const section = resolveSection(typeDoc, eventDoc, kind);
@@ -304,7 +351,7 @@ export function renderMailForRegistration({
   const context = buildPlaceholderContext({
     event,
     registration,
-    hostEmail,
+    host,
     publicUrl: buildPublicUrl(publicBaseUrl, event)
   });
 
@@ -322,6 +369,47 @@ export function renderMailForRegistration({
     source: section.source,
     empty: section.blocks.length === 0 || subject === ''
   };
+}
+
+/**
+ * Welke site-URL hoort in de mail?
+ *
+ * BEWUST GEEN eigen basis-URL-variabele: die twee bestaan al. Een vaste
+ * waarde zou bovendien fout zijn -- wie op syndicoach.be inschreef, hoort
+ * een syndicoach-link te krijgen, niet een openvme-link.
+ *
+ *  1. de site van de inschrijving (x_studio_registration_site) opzoeken in
+ *     EVENTS_PUBLIC_ORIGINS, op hostnaam
+ *  2. lukt dat niet (site onbekend, of het merk staat niet in de lijst):
+ *     EVENTS_SHARED_CANONICAL_ORIGIN -- dezelfde terugval als de canonieke
+ *     URL in het publieke DTO gebruikt
+ *
+ * Is geen van beide gezet, dan blijft {{event.url}} leeg. Dat is zichtbaar
+ * in het voorbeeldpaneel, en beter dan een link naar de verkeerde site.
+ *
+ * @param {Object} env
+ * @param {string|null} site
+ * @returns {string}
+ */
+export function resolvePublicOrigin(env, site) {
+  const origins = String(env?.EVENTS_PUBLIC_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter((o) => o !== '');
+
+  const key = String(site || '').trim().toLowerCase();
+  if (key !== '') {
+    const match = origins.find((origin) => {
+      try {
+        return new URL(origin).hostname.toLowerCase().includes(key);
+      } catch (error) {
+        return false;
+      }
+    });
+    if (match) return match;
+  }
+
+  return String(env?.EVENTS_SHARED_CANONICAL_ORIGIN || '').trim().replace(/\/+$/, '');
 }
 
 /** @returns {string} */
@@ -485,8 +573,9 @@ export async function queueMails(env, { event, registrations, kind, actor = null
       kind,
       typeDoc,
       eventDoc,
-      hostEmail: sender.email,
-      publicBaseUrl: env?.EVENTS_PUBLIC_BASE_URL
+      host: sender,
+      // Per ontvanger, want de site verschilt per inschrijving.
+      publicBaseUrl: resolvePublicOrigin(env, registration.site)
     });
 
     if (rendered.empty) {

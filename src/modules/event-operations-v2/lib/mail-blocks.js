@@ -53,20 +53,38 @@ export const MAIL_KINDS = Object.values(MAIL_KIND);
  * vertrouwd, maar een typfout hoort geen kapotte mail op te leveren.
  */
 export const BLOCK_TYPE = {
-  HERO: 'hero',
+  // Layout-blokken: deze bepalen WAAR de kaarten beginnen en eindigen.
+  // Zie de state machine in renderMailHtml().
+  HERO: 'hero',              // full-bleed afbeelding, buiten de kaart
+  CARD_BREAK: 'card_break',  // sluit de kaart, opent een nieuwe
+  FOOTER: 'footer',          // kleine grijze tekst onder de kaarten
+
+  // Inhoudsblokken: deze leven binnen de huidige kaart.
   HEADING: 'heading',
   TEXT: 'text',
   EVENT_DETAILS: 'event_details',
   BUTTON: 'button',
+  SIGNATURE: 'signature',
+  VIDEO: 'video',
   DIVIDER: 'divider',
-  SPACER: 'spacer',
-  VIDEO: 'video'
+  SPACER: 'spacer'
 };
 
 export const BLOCK_TYPES = Object.values(BLOCK_TYPE);
 
-/** Sites waarvoor een blok zichtbaar kan zijn. Leeg/afwezig = alle sites. */
+/**
+ * Sites waarvoor een blok zichtbaar kan zijn. Leeg/afwezig = alle sites.
+ *
+ * `other` is de tegenhanger van de `t-else` in de bestaande QWeb-template:
+ * "toon dit als de site NIET bekend is". Dat is geen randgeval maar de
+ * meerderheid -- x_studio_registration_site bestaat pas sinds kort, dus elke
+ * oudere en elke handmatig toegevoegde inschrijving heeft hem leeg. Zonder
+ * deze waarde zou een blok met `sites: ['openvme','syndicoach']` bij die
+ * mensen helemaal wegvallen.
+ */
 export const BLOCK_SITES = ['openvme', 'syndicoach'];
+export const SITE_OTHER = 'other';
+export const BLOCK_SITE_VALUES = [...BLOCK_SITES, SITE_OTHER];
 
 class MailBlocksError extends Error {}
 
@@ -159,7 +177,7 @@ function normalizeBlocks(blocks, context) {
     }
 
     const sites = Array.isArray(block.sites)
-      ? block.sites.map((s) => String(s).trim().toLowerCase()).filter((s) => BLOCK_SITES.includes(s))
+      ? block.sites.map((s) => String(s).trim().toLowerCase()).filter((s) => BLOCK_SITE_VALUES.includes(s))
       : [];
 
     return { ...block, id: String(block.id || `${type}-${index}`), type, sites };
@@ -199,13 +217,19 @@ export function resolveSection(typeDoc, eventDoc, kind) {
 }
 
 /**
- * Blokken filteren op site.
+ * Blokken filteren op site. Dit vervangt de `t-if`/`t-elif`/`t-else` op
+ * x_studio_registration_site in template 50/55.
  *
- * Een registratie ZONDER site (alle inschrijvingen van vóór
- * x_studio_registration_site, en handmatige toevoegingen) ziet de blokken
- * die voor iedereen bedoeld zijn. Een site-specifiek blok verschijnt dus
- * nooit bij iemand van wie we de site niet kennen -- liever een blok minder
- * dan het verkeerde logo.
+ * Drie gevallen, in deze volgorde:
+ *
+ *  - geen `sites` op het blok        → altijd tonen
+ *  - bekende site (openvme/syndicoach) → tonen als die site erin staat
+ *  - site leeg of onbekend           → tonen als `other` erin staat
+ *
+ * Een site-specifiek blok verschijnt dus nooit bij iemand van wie we de site
+ * niet kennen: liever geen hero dan het verkeerde logo. Wil je voor die groep
+ * tóch iets tonen, dan is `sites: ['other']` de neutrale variant -- precies
+ * wat de `t-else` in de oude template deed.
  *
  * @param {Object[]} blocks
  * @param {string|null} site
@@ -213,8 +237,10 @@ export function resolveSection(typeDoc, eventDoc, kind) {
  */
 export function blocksForSite(blocks, site) {
   const key = String(site || '').trim().toLowerCase();
+  const known = BLOCK_SITES.includes(key);
+
   return (blocks || []).filter((block) => {
     if (!Array.isArray(block.sites) || block.sites.length === 0) return true;
-    return key !== '' && block.sites.includes(key);
+    return known ? block.sites.includes(key) : block.sites.includes(SITE_OTHER);
   });
 }

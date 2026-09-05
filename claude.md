@@ -892,7 +892,8 @@ volgens FORBIDDEN_FIELDS nooit gelezen mag worden.
 | Blokken → HTML | `lib/mail-render.js` (puur) |
 | Odoo-schrijfpad + idempotentie | `lib/mail-service.js` |
 | Herstelronde voor verplaatste events | `lib/mail-cron.js` (`*/15`-tak in `index.js#scheduled()`) |
-| Editor | `public/events-v2-mail-studio.js` + de `#mailStudioDialog` in `events-v2.html` |
+| Editor | `public/events-v2-mail-studio.js` + de dialogen in `events-v2.html` |
+| Vimeo-videokiezer | `lib/vimeo.js` + `GET /api/vimeo/videos` (secret `VIMEO_ACCESS_TOKEN`) |
 | Tests (zonder Odoo/netwerk) | `node src/modules/event-operations-v2/tests/mail-test.mjs` |
 
 Afspraken die bewust zo zijn:
@@ -919,9 +920,20 @@ Afspraken die bewust zo zijn:
   2026-09-05, is daar een live voorbeeld van). `lib/mail-cron.js` corrigeert alleen nog wat
   al klaarstond wanneer een event nadien verplaatst of geannuleerd wordt.
 - **Dag en uur worden afgeleid uit `starts_at` in Europe/Brussels**, niet uit
-  `x_studio_starting_day`/`x_studio_starting_time`. Die twee char-velden worden door
-  Odoo-cron 85 uit UTC geschreven zonder tijdzone-conversie, en `starting_time` blijft er
-  zelfs helemaal leeg terwijl template 52/56 het in hun onderwerp zetten.
+  `x_studio_starting_day`/`x_studio_starting_time`. Server action 1109 (cron 85) schrijft
+  `starting_day` uit `x_studio_event_datetime` ZONDER tijdzone-conversie terwijl Odoo in UTC
+  bewaart: een event na 22:00 UTC komt daar op de verkeerde dag te staan. Beide velden worden
+  bovendien maar dagelijks bijgewerkt, dus een event dat vandaag verplaatst wordt heeft tot de
+  volgende run een verkeerde dag in de mail. (`starting_time` is wél correct gevuld en wordt
+  door geen van beide crons geschreven — herkomst onbekend; nog een reden om er niet op te
+  bouwen.) De afgeleide waarde houdt de vorm "dinsdag, 8 september" aan, met komma, zoals de
+  bestaande mails het tonen — `nl-BE` laat die komma zelf weg.
+- **De mailopmaak is overgenomen van template 50/55** (lichtblauw #f0f9ff, full-bleed hero,
+  witte kaarten van 720px met radius 16 en 48px padding, grijs detailkader, afzenderkaart met
+  ronde foto, kleine grijze voettekst). De layout loopt nu via TABELLEN met een `width`-attribuut
+  in plaats van `div` + `max-width` + `border-radius`: Outlook op Windows rendert met de
+  Word-engine, die geen van beide kent, waardoor de oude mail daar over de volle vensterbreedte
+  liep. `object-fit:cover` op de hero is weggelaten — vrijwel elke mailclient negeert het.
 - **Placeholders zijn logic-loos**: `{{pad.naar.waarde}}` en niets anders. Geen eval, geen
   Function-constructor, geen conditionals in de tekst (zelfde principe als de
   mini-apps-templates). Een onbekende placeholder wordt leeg, niet zijn eigen naam.
@@ -930,6 +942,33 @@ Afspraken die bewust zo zijn:
   Zolang de oude rules aan staan is dat geen dubbele verzending: hun filter is exact
   `x_studio_confirmation_email_sent = False` resp. `..._reminder_... = False`, en de OM zet
   die vlag.
+- **`{{event.url}}` volgt de site van de inschrijving.** `resolvePublicOrigin()` zoekt
+  `x_studio_registration_site` op in de bestaande `EVENTS_PUBLIC_ORIGINS` en valt terug op
+  `EVENTS_SHARED_CANONICAL_ORIGIN`. Voer hier **geen** aparte basis-URL-variabele voor in:
+  één vaste waarde zou iemand die op syndicoach.be inschreef een openvme-link sturen.
+- **Je bewerkt IN het voorbeeld, niet in een blokkenlijst ernaast.** De eerste versie zette
+  een lijst met ruwe velden (URL, alt, `level`, een HTML-textarea, chips per site) naast de
+  preview. Dat is bruikbaar voor wie het gebouwd heeft en voor niemand anders, terwijl de
+  doelgroep de organisator van het event is. Nu klik je op een titel of alinea in de mail en
+  typ je erin; alles wat je niet kan typen zit achter één knop "Instellingen" op het
+  geselecteerde onderdeel. **Voer geen tweede bewerkscherm in naast dit ene.**
+- **De editor-laag leeft IN het `srcdoc`-iframe** (same-origin), niet in de ouderpagina: de
+  omlijning en de werkbalk bewegen dan vanzelf mee met de layout. Het iframe scrollt niet
+  zelf — het groeit mee met de mail en de ouderpagina scrollt, anders staat de werkbalk na
+  een scroll op de verkeerde plek.
+- **De markers `data-om-block` / `data-om-edit` worden alleen gerenderd bij
+  `editable: true`** (de preview-route). `queueMails()` rendert zonder, dus de verzonden mail
+  bevat ze niet. De test "editable: true zet data-om-attributen, de standaard niet" bewaakt dat.
+- **De opname hoort bij het EVENT, niet bij de mail.** Het `video`-blok leest standaard
+  `{{event.video_url}}` / `{{event.video_thumbnail}}` uit `x_studio_vimeo_url` en
+  `x_studio_vimeo_thumbnail_url`. Zo staat de link op één plek en klopt hij ook op de website.
+  Zet hem via `POST /api/events/:id/video` (Vimeo-kiezer of een geplakte link). Zonder opname
+  valt het blok weg in plaats van een gebroken afbeelding te tonen.
+- **De Vimeo-kiezer is optioneel.** Zonder `VIMEO_ACCESS_TOKEN` (een SECRET, nooit in
+  wrangler.jsonc) geeft `listVimeoVideos()` `configured: false` en valt de UI terug op een
+  URL plakken via de publieke oEmbed — dezelfde weg die `recap-service.js` in v1 al gebruikt.
+  De publieke oEmbed kan alleen een BEKENDE video opzoeken; een lijst "onze video's" vraagt
+  het account-token.
 - **Schrijfrecht op `mail.mail` is geverifieerd, niet aangenomen** (2026-09-05): `UID=2` =
   Administrator (`invoice@mymmo.com`) zit in groep 4 (Administration / Settings), en
   `mail.mail.system` is de enige ACL op dat model. Geen Studio- of rechtenwijziging nodig.

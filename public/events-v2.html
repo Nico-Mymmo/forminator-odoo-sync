@@ -713,13 +713,19 @@
   <!-- Communicatie-studio.
        De blokken WONEN IN ODOO: x_webinar_event_type.x_studio_mail_blocks
        (standaard per event-type) en x_webinar.x_studio_mail_blocks_override
-       (override per event). Deze dialoog bewerkt die velden -- er is geen
-       eigen tabel en geen KV-bron. Zie lib/mail-service.js in de Worker. -->
+       (override per event). Zie lib/mail-service.js in de Worker.
+
+       Bewerken gebeurt IN HET VOORBEELD: je klikt op een titel of alinea in
+       de mail en typt erin. Er is bewust geen blokkenlijst meer naast het
+       voorbeeld -- die was te technisch voor de mensen die dit moeten
+       gebruiken (de organisator van het event, niet alleen marketing). -->
   <dialog id="mailStudioDialog" class="modal">
-    <div class="modal-box max-w-[92rem] w-[95vw] h-[92vh] p-0 flex flex-col">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center gap-3 flex-wrap">
+    <div class="modal-box max-w-[80rem] w-[95vw] h-[94vh] p-0 flex flex-col bg-base-200">
+
+      <!-- Kop: wat bewerk je, voor welke mail, voor welke site -->
+      <div class="px-4 py-3 bg-base-100 border-b border-base-300 flex items-center gap-4 flex-wrap shrink-0">
         <div class="min-w-0">
-          <h3 class="font-semibold text-base leading-tight">Communicatie</h3>
+          <h3 class="font-semibold text-base leading-tight">Mails opmaken</h3>
           <p class="text-xs opacity-60 truncate" id="mailStudioSubtitle"></p>
         </div>
 
@@ -729,54 +735,116 @@
           <button role="tab" class="tab" data-mail-kind="recap">Recap</button>
         </div>
 
-        <div class="join ml-auto">
-          <button class="btn btn-sm join-item btn-active" data-action="mail-scope" data-mail-scope="event_type" id="mailScopeType">
-            Standaard voor dit type
-          </button>
-          <button class="btn btn-sm join-item" data-action="mail-scope" data-mail-scope="event" id="mailScopeEvent">
-            Alleen dit event
-          </button>
+        <!-- Sitekiezer. Je ziet de mail zoals die site hem krijgt. -->
+        <div class="flex items-center gap-2 ml-auto">
+          <span class="text-xs opacity-60">Bekijk als</span>
+          <div class="join" id="mailSiteSwitch">
+            <button class="btn btn-sm join-item btn-active" data-action="mail-site" data-mail-view="">Beide sites</button>
+            <button class="btn btn-sm join-item" data-action="mail-site" data-mail-view="openvme">OpenVME</button>
+            <button class="btn btn-sm join-item" data-action="mail-site" data-mail-view="syndicoach">Syndicoach</button>
+          </div>
         </div>
 
         <button class="btn btn-sm btn-circle btn-ghost" data-action="mail-studio-close">✕</button>
       </div>
 
-      <div class="px-4 py-2 border-b border-base-200 text-xs flex items-center gap-3 flex-wrap" id="mailStudioStatus"></div>
+      <div class="px-4 py-2 bg-base-100 border-b border-base-300 text-xs flex items-center gap-3 flex-wrap shrink-0" id="mailStudioStatus"></div>
 
-      <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <!-- Editor -->
-        <div class="overflow-y-auto p-4 border-r border-base-200 space-y-3" id="mailStudioEditor"></div>
+      <!-- Werkblad -->
+      <div class="flex-1 min-h-0 overflow-y-auto" id="mailStudioScroll">
+        <div class="max-w-[46rem] mx-auto p-4 space-y-3">
 
-        <!-- Live voorbeeld. Zelfde aanpak als de iframe-preview in de
-             mail-signature-designer: een srcdoc-iframe, zodat de mail-HTML
-             de pagina-CSS niet kan raken en omgekeerd. -->
-        <div class="flex flex-col min-h-0">
-          <div class="px-4 py-2 border-b border-base-200 flex items-center gap-2 flex-wrap">
-            <span class="text-xs opacity-60">Voorbeeld als bezoeker van</span>
-            <select class="select select-bordered select-xs" id="mailPreviewSite">
-              <option value="">— site onbekend —</option>
-              <option value="openvme">openvme</option>
-              <option value="syndicoach">syndicoach</option>
-            </select>
-            <span class="text-xs opacity-60 ml-auto" id="mailPreviewMeta"></span>
+          <div class="bg-base-100 rounded-box p-4 space-y-3">
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">Onderwerp van de mail</span>
+              <input class="input input-bordered input-sm" data-mail-field="subject" placeholder="Bijv. Je bent ingeschreven voor de {{event.type}}">
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">Voorbeeldtekst in de inbox <span class="opacity-50">— het regeltje onder het onderwerp</span></span>
+              <input class="input input-bordered input-sm" data-mail-field="preheader" placeholder="Bijv. {{event.day}} om {{event.time}}">
+            </label>
+            <details>
+              <summary class="cursor-pointer text-xs opacity-70">Automatisch invulbare gegevens</summary>
+              <div class="pt-2 flex flex-wrap gap-1" id="mailPlaceholderList"></div>
+            </details>
           </div>
-          <div class="px-4 py-2 border-b border-base-200 text-sm">
-            <span class="opacity-60 text-xs">Onderwerp:</span>
-            <span class="font-medium" id="mailPreviewSubject">—</span>
+
+          <p class="text-xs opacity-60 px-1" id="mailEditHint">
+            Klik in de mail hieronder om tekst aan te passen. Selecteer een onderdeel voor extra opties.
+          </p>
+
+          <div class="bg-base-100 rounded-box overflow-hidden">
+            <iframe id="mailPreviewFrame" class="w-full block" style="height:1400px;border:0;" title="De mail — klik om te bewerken"></iframe>
           </div>
-          <iframe id="mailPreviewFrame" class="flex-1 w-full bg-base-200" title="Voorbeeld van de mail"></iframe>
+
+          <div class="flex justify-center pb-4">
+            <button class="btn btn-sm btn-outline gap-2" data-action="mail-add-open" data-mail-at="end">
+              <i data-lucide="plus" class="w-4 h-4"></i> Onderdeel toevoegen onderaan
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="px-4 py-3 border-t border-base-200 flex items-center gap-2 flex-wrap">
+      <div class="px-4 py-3 bg-base-100 border-t border-base-300 flex items-center gap-2 flex-wrap shrink-0">
         <button class="btn btn-sm btn-ghost" data-action="mail-studio-close">Sluiten</button>
         <span class="text-xs opacity-60" id="mailStudioDirty"></span>
         <div class="ml-auto flex items-center gap-2">
           <button class="btn btn-sm btn-outline gap-2" data-action="mail-send" id="mailSendBtn">
             <i data-lucide="send" class="w-4 h-4"></i> <span id="mailSendLabel">Klaarzetten</span>
           </button>
-          <button class="btn btn-sm btn-primary" data-action="mail-save" id="mailSaveBtn">Blokken bewaren</button>
+          <button class="btn btn-sm btn-primary" data-action="mail-save" id="mailSaveBtn">Bewaren</button>
         </div>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Onderdeel toevoegen: een visuele kiezer, geen dropdown met veldnamen. -->
+  <dialog id="mailBlockPicker" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-semibold mb-1">Wat wil je toevoegen?</h3>
+      <p class="text-xs opacity-60 mb-4">Je kan het daarna verplaatsen of weer weghalen.</p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" id="mailBlockPickerGrid"></div>
+      <div class="modal-action">
+        <button class="btn btn-sm btn-ghost" data-action="mail-add-close">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Instellingen van het geselecteerde onderdeel: alleen wat je niet
+       rechtstreeks in de mail kan typen (een link, een afbeelding, de
+       zichtbaarheid per site). -->
+  <dialog id="mailBlockSettings" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-semibold mb-1" id="mailSettingsTitle">Instellingen</h3>
+      <p class="text-xs opacity-60 mb-4" id="mailSettingsHint"></p>
+      <div class="space-y-3" id="mailSettingsBody"></div>
+      <div class="modal-action">
+        <button class="btn btn-sm" data-action="mail-settings-close">Klaar</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Videokiezer: de opname hoort bij het EVENT, niet bij de mail. -->
+  <dialog id="mailVideoPicker" class="modal">
+    <div class="modal-box max-w-3xl">
+      <h3 class="font-semibold mb-1">Opname van dit event</h3>
+      <p class="text-xs opacity-60 mb-3">De recapmail toont automatisch de opname die hier gekozen is.</p>
+      <div class="flex items-center gap-2 mb-3">
+        <input class="input input-bordered input-sm flex-1" id="mailVideoSearch" placeholder="Zoek in Vimeo…">
+        <button class="btn btn-sm" data-action="mail-video-search">Zoeken</button>
+      </div>
+      <div id="mailVideoResults" class="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[45vh] overflow-y-auto"></div>
+      <div class="divider text-xs opacity-60">of plak een link</div>
+      <div class="flex items-center gap-2">
+        <input class="input input-bordered input-sm flex-1" id="mailVideoUrl" placeholder="https://vimeo.com/… of https://youtu.be/…">
+        <button class="btn btn-sm btn-primary" data-action="mail-video-url">Instellen</button>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-sm btn-ghost" data-action="mail-video-clear">Opname wissen</button>
+        <button class="btn btn-sm" data-action="mail-video-close">Sluiten</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>

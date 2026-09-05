@@ -64,6 +64,26 @@
 		// zie src/modules/event-operations-v2/lib/cron.js). Standaard AAN; zet op
 		// "0" om 'm zonder deploy uit te zetten (Cloudflare-dashboard volstaat).
 		"EVENTS_V2_AUTO_DONE_CRON": "1",
+		// Event Operations v2 -- communicatie-studio. Bepaalt voor WELKE
+		// event-types de OM de mails (bevestiging/reminder/recap) overneemt van
+		// de Odoo-automations 53/58/62/63. Kommagescheiden event-type-id's, of
+		// "*" voor alles.
+		//
+		// LEEG = de OM zet geen enkele mail klaar en alles blijft bij het oude.
+		// Dat is bewust de veilige stand: een deploy op zich kan nooit een mail
+		// veroorzaken. Zolang de oude rules aan staan is dit ook geen dubbele
+		// verzending -- hun filter is exact x_studio_confirmation_email_sent =
+		// False resp. x_studio_reminder_email_sent = False, en de OM zet die vlag.
+		//
+		// Uitrolvolgorde: eerst "2" (Q&A/Syndicoach) tot een volledige cyclus
+		// bewezen is, pas daarna uitbreiden en de automations archiveren (zie de
+		// cutover-tabel in CLAUDE.md).
+		"EVENTS_V2_MAIL_OWNER": "",
+		// Herstelronde voor al klaargezette reminders waarvan het event nadien
+		// verplaatst of geannuleerd werd (15-min-tak). Standaard AAN; "0" zet 'm
+		// uit zonder deploy. GEEN dagelijkse herberekening -- de scheduled_date
+		// wordt bij het inschrijven gezet.
+		"EVENTS_V2_MAIL_REPAIR_CRON": "1",
 		"BASE_ASSET_URL": "https://link.openvme.be",
 		"EVENTS_SHARED_CANONICAL_ORIGIN": "https://openvme.be"
 	}
