@@ -75,9 +75,17 @@
 		// verzending -- hun filter is exact x_studio_confirmation_email_sent =
 		// False resp. x_studio_reminder_email_sent = False, en de OM zet die vlag.
 		//
-		// Uitrolvolgorde: eerst "2" (Q&A/Syndicoach) tot een volledige cyclus
-		// bewezen is, pas daarna uitbreiden en de automations archiveren (zie de
+		// Event-type-id's (geverifieerd 2026-09-06): 1 Webinar, 2 Infosessie,
+		// 3 Q&A, 4 Live Event, 5 Groepsopleiding.
+		//
+		// Uitrolvolgorde: eerst "3" (Q&A) tot een volledige cyclus bewezen is,
+		// pas daarna uitbreiden en de automations archiveren (zie de
 		// cutover-tabel in CLAUDE.md).
+		//
+		// Een type ZONDER opgemaakte blokken is veilig: queueMails() slaat het
+		// over ("geen blokken of onderwerp ingesteld") en schrijft de _sent-vlag
+		// dan NIET, waardoor de bestaande Odoo-automation gewoon zijn oude mail
+		// blijft sturen. "*" zet dus niets stil dat nog niet klaarstaat.
 		"EVENTS_V2_MAIL_OWNER": "",
 		// Herstelronde voor al klaargezette reminders waarvan het event nadien
 		// verplaatst of geannuleerd werd (15-min-tak). Standaard AAN; "0" zet 'm

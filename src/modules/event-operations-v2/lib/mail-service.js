@@ -344,9 +344,17 @@ export function renderMailForRegistration({
   typeDoc,
   eventDoc,
   host = {},
-  publicBaseUrl = ''
+  publicBaseUrl = '',
+  // Alleen waar voor het voorbeeldpaneel in de OM: dan krijgt elk blok een
+  // data-om-block/data-om-edit-marker zodat de editor erop kan werken.
+  // queueMails() roept dit ZONDER editable aan, dus de verzonden mail bevat
+  // die attributen niet.
+  editable = false
 }) {
-  const section = resolveSection(typeDoc, eventDoc, kind);
+  // De site bepaalt hier TWEE dingen, en verder niets: welke header, en --
+  // alleen als iemand de inhoud uitdrukkelijk gesplitst heeft -- welke
+  // variant. De blokken zelf worden nergens meer gefilterd.
+  const section = resolveSection(typeDoc, eventDoc, kind, registration?.site || null);
 
   const context = buildPlaceholderContext({
     event,
@@ -357,16 +365,18 @@ export function renderMailForRegistration({
 
   const subject = renderSubject(section.subject, context);
   const html = renderMailHtml({
+    header: section.header,
     blocks: section.blocks,
     context,
-    site: registration?.site || null,
-    preheader: section.preheader
+    preheader: section.preheader,
+    editable
   });
 
   return {
     subject,
     html,
     source: section.source,
+    variant: section.variant,
     empty: section.blocks.length === 0 || subject === ''
   };
 }

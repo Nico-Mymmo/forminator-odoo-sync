@@ -23,7 +23,7 @@
  * ontvanger krijgt.
  */
 
-import { BLOCK_TYPE, blocksForSite } from './mail-blocks.js';
+import { BLOCK_TYPE } from './mail-blocks.js';
 import { TIMEZONE, LOCALE } from '../constants.js';
 
 /**
@@ -331,20 +331,49 @@ function renderCardBlock(block, context, editable = false) {
 
     case BLOCK_TYPE.VIDEO: {
       // Geen <iframe> in een mail: mailclients strippen die. Een thumbnail
-      // die naar de video linkt is de enige vorm die werkt.
-      // Leeg laten = de opname van dit event. Zo staat de videolink op één
-      // plek (het event) en niet ook nog eens in het mailsjabloon.
+      // die naar de video linkt is de enige vorm die overal werkt.
+      //
+      // Leeg laten = de opname van DIT EVENT. Zo staat de videolink op één
+      // plek en niet ook nog eens in het mailsjabloon.
       const href = safeUrl(fill(block.href || '{{event.video_url}}'));
       const thumb = safeUrl(fill(block.thumbnail || '{{event.video_thumbnail}}'));
       // Geen opname ingesteld op het event: het blok valt weg in plaats van
       // een gebroken afbeelding te tonen.
       if (href === '' || thumb === '') return '';
-      const alt = esc(fill(block.alt) || 'Bekijk de opname');
+
+      const caption = esc(fill(block.label) || 'Bekijk de opname');
+      const alt = esc(fill(block.alt) || caption);
+      const inner = STYLE.width - STYLE.pad * 2;
+
+      // Één klikbare kaart: thumbnail bovenaan, donkere balk met een
+      // afspeeldriehoek eronder. Een echte play-knop ÓP de afbeelding vraagt
+      // een overlay, en positionering over een afbeelding is precies wat de
+      // Word-engine van Outlook niet doet -- vandaar de balk eronder, die
+      // overal hetzelfde oogt.
       return row(
-        `<a href="${href}" target="_blank"><img src="${thumb}" alt="${alt}" width="${STYLE.width - STYLE.pad * 2}" ` +
-        `style="display:block;width:100%;height:auto;border:0;border-radius:${STYLE.boxRadius}px;"></a>`,
+        `<a href="${href}" target="_blank" style="text-decoration:none;color:inherit;display:block;">` +
+        `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" ` +
+        `style="border-collapse:separate;border-radius:${STYLE.boxRadius}px;overflow:hidden;background:#111827;">` +
+        `<tr><td style="padding:0;font-size:0;line-height:0;">` +
+        `<img src="${thumb}" alt="${alt}" width="${inner}" ` +
+        `style="display:block;width:100%;height:auto;border:0;"></td></tr>` +
+        `<tr><td style="padding:14px 18px;font-family:${STYLE.font};font-size:15px;font-weight:600;color:#ffffff;">` +
+        `<span style="display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;` +
+        `background:#ffffff;color:#111827;border-radius:13px;font-size:12px;margin-right:10px;">&#9654;</span>` +
+        `${caption}</td></tr>` +
+        `</table></a>`,
         'padding:8px 0 16px;'
       );
+    }
+
+    case BLOCK_TYPE.IMAGE: {
+      const src = safeUrl(fill(block.src));
+      if (src === '') return '';
+      const alt = esc(fill(block.alt));
+      const href = safeUrl(fill(block.href));
+      const img = `<img src="${src}" alt="${alt}" width="${STYLE.width - STYLE.pad * 2}" ` +
+        `style="display:block;width:100%;height:auto;border:0;border-radius:${STYLE.boxRadius}px;">`;
+      return row(href === '' ? img : `<a href="${href}" target="_blank">${img}</a>`, 'padding:8px 0 16px;');
     }
 
     case BLOCK_TYPE.DIVIDER:
@@ -366,14 +395,25 @@ function renderCardBlock(block, context, editable = false) {
 
 // ─── Blokken buiten een kaart ─────────────────────────────────────────────────
 
-/** Full-bleed hero, boven de eerste kaart. @returns {string} */
-function renderHero(block, context, editable = false) {
+/**
+ * De HEADER: full-bleed afbeelding boven de eerste kaart.
+ *
+ * Dit is geen blok maar een eigen veld, omdat hij als enige onderdeel per
+ * bedrijf verschilt. Welke van de drie slots hier binnenkomt bepaalt
+ * headerFor() in mail-blocks.js.
+ *
+ * @param {Object|null} header - { src, alt, href }
+ * @returns {string}
+ */
+function renderHeader(header, context, editable = false) {
+  if (!header) return '';
   const fill = (value) => fillPlaceholders(String(value || ''), context);
-  const mark = editable ? ` data-om-block="${esc(block.id)}" data-om-type="${esc(block.type)}"` : '';
-  const src = safeUrl(fill(block.src));
+  const src = safeUrl(fill(header.src));
   if (src === '') return '';
-  const alt = esc(fill(block.alt));
-  const href = safeUrl(fill(block.href));
+
+  const alt = esc(fill(header.alt));
+  const href = safeUrl(fill(header.href));
+  const mark = editable ? ' data-om-header="1"' : '';
 
   // `object-fit:cover` stond in de oorspronkelijke template maar wordt door
   // vrijwel elke mailclient genegeerd -- weggelaten in plaats van te doen
@@ -401,37 +441,41 @@ function renderFooter(block, context, editable = false) {
 /**
  * Volledige mail renderen.
  *
- * De blokkenlijst is een LINEAIRE stroom; de layout volgt uit het type:
+ * De header komt altijd eerst, full-bleed en buiten de kaarten. Daarna is de
+ * blokkenlijst een LINEAIRE stroom; de layout volgt uit het type:
  *
- *   hero        → full-bleed, buiten de kaart, sluit een openstaande kaart
  *   card_break  → sluit de kaart; het volgende blok opent een nieuwe
  *   footer      → sluit de kaart, rendert eronder als kleine grijze tekst
  *   al de rest  → binnen de huidige kaart (die opent vanzelf)
  *
- * Zo komt de bestaande mail er precies uit: hero → kaart met de inhoud →
+ * Zo komt de bestaande mail er precies uit: header → kaart met de inhoud →
  * card_break → kaart met de afzender → footer.
  *
  * @param {Object} options
+ * @param {Object|null} [options.header] - uit resolveSection()
  * @param {Object[]} options.blocks - uit resolveSection()
  * @param {Object} options.context - uit buildPlaceholderContext()
- * @param {string|null} [options.site]
  * @param {string} [options.preheader]
  * @returns {string}
  */
-export function renderMailHtml({ blocks, context, site = null, preheader = '', editable = false }) {
-  const visible = blocksForSite(blocks, site);
+export function renderMailHtml({ header = null, blocks, context, preheader = '', editable = false }) {
+  // GEEN filtering meer op blokken: de inhoud is één versie voor iedereen.
+  // Het enige dat per bedrijf verschilt is de header (en, als iemand daar
+  // uitdrukkelijk voor kiest, een hele variant -- maar dan is de keuze al
+  // gemaakt vóór deze functie, in resolveSection()).
+  const visible = blocks || [];
 
   const rows = [];
   let cardRows = [];
-  let lastWasHero = false;
+  let lastWasHeader = false;
 
   const spacer = (height) => `<tr><td style="height:${height}px;line-height:${height}px;font-size:0;">&nbsp;</td></tr>`;
 
   const flushCard = () => {
     if (cardRows.length === 0) return;
-    // Een kaart die op een hero volgt sluit er naadloos op aan (margin-top:0
+    // Een kaart die op de header volgt sluit er naadloos op aan (margin-top:0
     // in de oorspronkelijke template); anders 40px ertussen.
-    if (rows.length > 0 && !lastWasHero) rows.push(spacer(STYLE.gap));
+    if (rows.length > 0 && !lastWasHeader) rows.push(spacer(STYLE.gap));
     rows.push(
       `<tr><td style="background:${STYLE.card};border-radius:${STYLE.radius}px;padding:${STYLE.pad}px;">` +
       `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">` +
@@ -439,19 +483,16 @@ export function renderMailHtml({ blocks, context, site = null, preheader = '', e
       `</table></td></tr>`
     );
     cardRows = [];
-    lastWasHero = false;
+    lastWasHeader = false;
   };
 
+  const headerRow = renderHeader(header, context, editable);
+  if (headerRow !== '') {
+    rows.push(headerRow);
+    lastWasHeader = true;
+  }
+
   for (const block of visible) {
-    if (block.type === BLOCK_TYPE.HERO) {
-      flushCard();
-      const hero = renderHero(block, context, editable);
-      if (hero !== '') {
-        rows.push(hero);
-        lastWasHero = true;
-      }
-      continue;
-    }
     if (block.type === BLOCK_TYPE.CARD_BREAK) {
       flushCard();
       continue;

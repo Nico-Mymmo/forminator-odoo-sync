@@ -13,7 +13,8 @@ import {
   parseMailBlocks,
   normalizeMailBlocks,
   resolveSection,
-  blocksForSite,
+  splitIntoVariants,
+  mergeVariants,
   emptyMailBlocks
 } from '../lib/mail-blocks.js';
 import {
@@ -24,7 +25,7 @@ import {
   formatEventMoment,
   safeUrl
 } from '../lib/mail-render.js';
-import { buildMessageId, computeScheduledDate, ownsMail, resolvePublicOrigin } from '../lib/mail-service.js';
+import { buildMessageId, computeScheduledDate, ownsMail, resolvePublicOrigin, renderMailForRegistration } from '../lib/mail-service.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -103,41 +104,80 @@ test('override op het event wint volledig van het event-type', () => {
   assert.equal(resolveSection(null, null, MAIL_KIND.RECAP).source, 'none');
 });
 
-console.log('\nsite-filter (vervangt de QWeb t-if op x_studio_registration_site)');
+console.log('\nheader per bedrijf, inhoud voor iedereen');
 
-test('blok zonder sites is voor iedereen', () => {
-  const blocks = [{ id: 'a', type: 'divider', sites: [] }];
-  assert.equal(blocksForSite(blocks, 'openvme').length, 1);
-  assert.equal(blocksForSite(blocks, null).length, 1);
+test('de header volgt de site, met de terugval als die site er geen heeft', () => {
+  const doc = normalizeMailBlocks({
+    confirmation: {
+      header: {
+        openvme: { src: 'https://x/ov.png' },
+        fallback: { src: 'https://x/df.png' }
+      },
+      subject: 'S',
+      blocks: [{ id: 't', type: 'text', html: 'x' }]
+    }
+  });
+
+  assert.equal(resolveSection(doc, null, MAIL_KIND.CONFIRMATION, 'openvme').header.src, 'https://x/ov.png');
+  // syndicoach heeft geen eigen header: terugval.
+  assert.equal(resolveSection(doc, null, MAIL_KIND.CONFIRMATION, 'syndicoach').header.src, 'https://x/df.png');
+  assert.equal(resolveSection(doc, null, MAIL_KIND.CONFIRMATION, null).header.src, 'https://x/df.png');
 });
 
-test('site-specifiek blok verschijnt alleen bij die site', () => {
-  const blocks = [
-    { id: 'ov', type: 'hero', sites: ['openvme'], src: 'https://x/ov.png' },
-    { id: 'sc', type: 'hero', sites: ['syndicoach'], src: 'https://x/sc.png' }
-  ];
-  assert.deepEqual(blocksForSite(blocks, 'syndicoach').map((b) => b.id), ['sc']);
-  assert.deepEqual(blocksForSite(blocks, 'openvme').map((b) => b.id), ['ov']);
+test('de inhoud is dezelfde voor elke site zolang er niet gesplitst is', () => {
+  const doc = normalizeMailBlocks({
+    confirmation: { subject: 'S', blocks: [{ id: 'a', type: 'text', html: 'zelfde' }] }
+  });
+  const voor = (site) => resolveSection(doc, null, MAIL_KIND.CONFIRMATION, site);
+  assert.deepEqual(voor('openvme').blocks, voor('syndicoach').blocks);
+  assert.equal(voor('openvme').variant, null);
 });
 
-test('onbekende site krijgt geen enkel site-specifiek blok, geen verkeerd logo', () => {
-  const blocks = [{ id: 'ov', type: 'hero', sites: ['openvme'], src: 'https://x/ov.png' }];
-  assert.equal(blocksForSite(blocks, null).length, 0);
-  assert.equal(blocksForSite(blocks, false).length, 0);
+test('splitsen geeft twee kopieën; de standaard geldt voor onbekende sites', () => {
+  const doc = normalizeMailBlocks({
+    confirmation: { subject: 'S', blocks: [{ id: 'a', type: 'text', html: 'basis' }] }
+  });
+  doc.confirmation = splitIntoVariants(doc.confirmation, 'syndicoach');
+  doc.confirmation.variants.openvme.blocks[0].html = 'alleen openvme';
+
+  const genormaliseerd = normalizeMailBlocks(doc, 'gesplitst');
+  const voor = (site) => resolveSection(genormaliseerd, null, MAIL_KIND.CONFIRMATION, site);
+
+  assert.equal(voor('openvme').blocks[0].html, 'alleen openvme');
+  assert.equal(voor('syndicoach').blocks[0].html, 'basis');
+  // Onbekende site krijgt de standaard, niet niets.
+  assert.equal(voor(null).variant, 'syndicoach');
+  assert.equal(voor(null).blocks[0].html, 'basis');
 });
 
-test('sites: [other] is de t-else — alleen bij een onbekende site', () => {
-  // Dit is geen randgeval: x_studio_registration_site bestaat pas sinds kort,
-  // dus verreweg de meeste bestaande inschrijvingen hebben hem leeg.
-  const blocks = [
-    { id: 'ov', type: 'hero', sites: ['openvme'], src: 'https://x/ov.png' },
-    { id: 'sc', type: 'hero', sites: ['syndicoach'], src: 'https://x/sc.png' },
-    { id: 'df', type: 'hero', sites: ['other'], src: 'https://x/df.png' }
-  ];
-  assert.deepEqual(blocksForSite(blocks, 'openvme').map((b) => b.id), ['ov']);
-  assert.deepEqual(blocksForSite(blocks, 'syndicoach').map((b) => b.id), ['sc']);
-  assert.deepEqual(blocksForSite(blocks, null).map((b) => b.id), ['df']);
-  assert.deepEqual(blocksForSite(blocks, 'iets-anders').map((b) => b.id), ['df']);
+test('samenvoegen houdt de standaard over', () => {
+  let sectie = splitIntoVariants({ subject: 'S', blocks: [{ id: 'a', type: 'text', html: 'basis' }] }, 'syndicoach');
+  sectie.variants.syndicoach.blocks[0].html = 'behouden';
+  sectie = mergeVariants(sectie);
+  assert.equal(sectie.variants, null);
+  assert.equal(sectie.blocks[0].html, 'behouden');
+});
+
+test('een oud document (v1) migreert: hero wordt header, sites verdwijnen', () => {
+  // Zo staat het vandaag mogelijk al in Odoo. Dit mag niet stukgaan.
+  const v1 = {
+    confirmation: {
+      subject: 'S',
+      blocks: [
+        { id: 'h1', type: 'hero', sites: ['openvme'], src: 'https://x/ov.png', alt: 'OpenVME' },
+        { id: 'h2', type: 'hero', sites: ['syndicoach'], src: 'https://x/sc.png' },
+        { id: 'h3', type: 'hero', sites: ['other'], src: 'https://x/df.png' },
+        { id: 't', type: 'text', sites: ['openvme'], html: 'tekst' }
+      ]
+    }
+  };
+  const doc = normalizeMailBlocks(v1, 'v1');
+  assert.equal(doc.confirmation.header.openvme.src, 'https://x/ov.png');
+  assert.equal(doc.confirmation.header.syndicoach.src, 'https://x/sc.png');
+  assert.equal(doc.confirmation.header.fallback.src, 'https://x/df.png');
+  // De hero's zitten niet meer in de blokkenlijst, en niets heeft nog `sites`.
+  assert.deepEqual(doc.confirmation.blocks.map((b) => b.type), ['text']);
+  assert.equal('sites' in doc.confirmation.blocks[0], false);
 });
 
 console.log('\nplaceholders');
@@ -194,12 +234,10 @@ test('subject vult placeholders in en bevat geen HTML', () => {
   assert.ok(!subject.includes('<'));
 });
 
-test('tekstblok laat redactionele HTML door, hero escapet het alt-attribuut', () => {
+test('tekstblok laat redactionele HTML door, header escapet het alt-attribuut', () => {
   const html = renderMailHtml({
-    blocks: [
-      { id: 't', type: 'text', sites: [], html: '<p>Dag <b>{{registration.first_name}}</b></p>' },
-      { id: 'h', type: 'hero', sites: [], src: 'https://cdn/x.png', alt: 'Logo "OpenVME"' }
-    ],
+    header: { src: 'https://cdn/x.png', alt: 'Logo "OpenVME"' },
+    blocks: [{ id: 't', type: 'text', html: '<p>Dag <b>{{registration.first_name}}</b></p>' }],
     context
   });
   assert.ok(html.includes('<p>Dag <b>Jan</b></p>'));
@@ -207,7 +245,7 @@ test('tekstblok laat redactionele HTML door, hero escapet het alt-attribuut', ()
 });
 
 test('event_details laat lege regels weg', () => {
-  const html = renderMailHtml({ blocks: [{ id: 'd', type: 'event_details', sites: [] }], context });
+  const html = renderMailHtml({ blocks: [{ id: 'd', type: 'event_details' }], context });
   assert.ok(html.includes('Datum'));
   assert.ok(html.includes('Tijd'));
   assert.ok(html.includes('Deelnamelink'));
@@ -219,34 +257,32 @@ test('event_details laat lege regels weg', () => {
 test('de datumregel gebruikt niet langer het dode veld x_studio_date', () => {
   // In template 50/55 stond `x_studio_date or ''` naast starting_day. Dat veld
   // is false op elk record (FORBIDDEN_FIELDS), dus die helft was altijd leeg.
-  const html = renderMailHtml({ blocks: [{ id: 'd', type: 'event_details', sites: [] }], context });
+  const html = renderMailHtml({ blocks: [{ id: 'd', type: 'event_details' }], context });
   assert.ok(html.includes('dinsdag, 8 september'));
   assert.ok(html.includes('19:00'));
 });
 
 console.log('\nlayout (kaarten, hero, footer)');
 
-test('hero staat buiten de kaart, inhoud erbinnen', () => {
+test('de header staat buiten de kaart, inhoud erbinnen', () => {
   const html = renderMailHtml({
-    blocks: [
-      { id: 'h', type: 'hero', sites: [], src: 'https://cdn/hero.png', alt: 'OpenVME' },
-      { id: 't', type: 'text', sites: [], html: '<p>Hallo</p>' }
-    ],
+    header: { src: 'https://cdn/hero.png', alt: 'OpenVME' },
+    blocks: [{ id: 't', type: 'text', html: '<p>Hallo</p>' }],
     context
   });
-  const heroAt = html.indexOf('cdn/hero.png');
+  const headerAt = html.indexOf('cdn/hero.png');
   const cardAt = html.indexOf('border-radius:16px');
-  assert.ok(heroAt > -1 && cardAt > -1, 'hero of kaart ontbreekt');
-  assert.ok(heroAt < cardAt, 'de hero hoort boven de eerste kaart te staan');
+  assert.ok(headerAt > -1 && cardAt > -1, 'header of kaart ontbreekt');
+  assert.ok(headerAt < cardAt, 'de header hoort boven de eerste kaart te staan');
 });
 
 test('card_break maakt een tweede kaart', () => {
-  const one = renderMailHtml({ blocks: [{ id: 'a', type: 'text', sites: [], html: 'a' }], context });
+  const one = renderMailHtml({ blocks: [{ id: 'a', type: 'text', html: 'a' }], context });
   const two = renderMailHtml({
     blocks: [
-      { id: 'a', type: 'text', sites: [], html: 'a' },
-      { id: 'b', type: 'card_break', sites: [] },
-      { id: 'c', type: 'text', sites: [], html: 'c' }
+      { id: 'a', type: 'text', html: 'a' },
+      { id: 'b', type: 'card_break' },
+      { id: 'c', type: 'text', html: 'c' }
     ],
     context
   });
@@ -258,8 +294,8 @@ test('card_break maakt een tweede kaart', () => {
 test('een card_break zonder inhoud erna maakt geen lege kaart', () => {
   const html = renderMailHtml({
     blocks: [
-      { id: 'a', type: 'text', sites: [], html: 'a' },
-      { id: 'b', type: 'card_break', sites: [] }
+      { id: 'a', type: 'text', html: 'a' },
+      { id: 'b', type: 'card_break' }
     ],
     context
   });
@@ -267,7 +303,7 @@ test('een card_break zonder inhoud erna maakt geen lege kaart', () => {
 });
 
 test('signature vult functie, organisatie en foto in uit de context', () => {
-  const html = renderMailHtml({ blocks: [{ id: 's', type: 'signature', sites: [] }], context });
+  const html = renderMailHtml({ blocks: [{ id: 's', type: 'signature' }], context });
   assert.ok(html.includes('Nico Plinke') || html.includes(context.host.name));
   assert.ok(html.includes('Customer Experience Hero'));
   assert.ok(html.includes('mymmo.odoo.com/web/image/13413'));
@@ -278,15 +314,15 @@ test('signature vult functie, organisatie en foto in uit de context', () => {
 
 test('signature zonder foto laat geen leeg blok achter', () => {
   const zonderFoto = buildPlaceholderContext({ event: EVENT, registration: REGISTRATION, host: { jobTitle: 'X' } });
-  const html = renderMailHtml({ blocks: [{ id: 's', type: 'signature', sites: [] }], context: zonderFoto });
+  const html = renderMailHtml({ blocks: [{ id: 's', type: 'signature' }], context: zonderFoto });
   assert.ok(!html.includes('border-radius:60px'));
 });
 
 test('footer staat buiten de kaarten en kent het huidige jaar', () => {
   const html = renderMailHtml({
     blocks: [
-      { id: 'a', type: 'text', sites: [], html: 'a' },
-      { id: 'f', type: 'footer', sites: [], html: '&copy; {{now.year}} Mymmo BV' }
+      { id: 'a', type: 'text', html: 'a' },
+      { id: 'f', type: 'footer', html: '&copy; {{now.year}} Mymmo BV' }
     ],
     context
   });
@@ -298,7 +334,7 @@ test('footer staat buiten de kaarten en kent het huidige jaar', () => {
 test('javascript:-url in een knop levert geen knop op', () => {
   assert.equal(safeUrl('javascript:alert(1)'), '');
   const html = renderMailHtml({
-    blocks: [{ id: 'b', type: 'button', sites: [], label: 'Klik', href: 'javascript:alert(1)' }],
+    blocks: [{ id: 'b', type: 'button', label: 'Klik', href: 'javascript:alert(1)' }],
     context
   });
   assert.ok(!html.includes('javascript:'));
@@ -315,9 +351,9 @@ console.log('\neditor-markers lekken niet naar de verzonden mail');
 
 test('editable: true zet data-om-attributen, de standaard niet', () => {
   const blocks = [
-    { id: 'h', type: 'hero', sites: [], src: 'https://cdn/h.png', alt: 'x' },
-    { id: 't', type: 'heading', sites: [], text: 'Titel' },
-    { id: 'f', type: 'footer', sites: [], html: 'voet' }
+    { id: 'h', type: 'hero', src: 'https://cdn/h.png', alt: 'x' },
+    { id: 't', type: 'heading', text: 'Titel' },
+    { id: 'f', type: 'footer', html: 'voet' }
   ];
   const editor = renderMailHtml({ blocks, context, editable: true });
   assert.ok(editor.includes('data-om-block="t"'));
@@ -334,14 +370,36 @@ test('het opnameblok leest de video van het event', () => {
     event: { ...EVENT, recap: { video_url: 'https://vimeo.com/999', thumbnail_url: 'https://i.vimeocdn.com/x.jpg' } },
     registration: REGISTRATION
   });
-  const html = renderMailHtml({ blocks: [{ id: 'v', type: 'video', sites: [] }], context: metVideo });
+  const html = renderMailHtml({ blocks: [{ id: 'v', type: 'video' }], context: metVideo });
   assert.ok(html.includes('vimeo.com/999'));
   assert.ok(html.includes('i.vimeocdn.com/x.jpg'));
 });
 
 test('zonder opname op het event valt het opnameblok weg', () => {
-  const html = renderMailHtml({ blocks: [{ id: 'v', type: 'video', sites: [] }], context });
+  const html = renderMailHtml({ blocks: [{ id: 'v', type: 'video' }], context });
   assert.equal(html.includes('<img'), false);
+});
+
+test('renderMailForRegistration geeft editable DOOR aan de renderer', () => {
+  // Dit is de bug waardoor de studio onbewerkbaar was: de route gaf editable
+  // mee, maar deze functie nam het niet aan en de markers kwamen nooit in de
+  // HTML. Een test op de renderer alleen ziet dat niet -- die moet hier.
+  const typeDoc = normalizeMailBlocks({
+    confirmation: { subject: 'Hoi', blocks: [{ id: 'kop', type: 'heading', text: 'Titel' }] }
+  });
+  const args = {
+    event: EVENT,
+    registration: REGISTRATION,
+    kind: MAIL_KIND.CONFIRMATION,
+    typeDoc,
+    eventDoc: null,
+    host: { email: 'rob@mymmo.com' }
+  };
+
+  assert.ok(renderMailForRegistration({ ...args, editable: true }).html.includes('data-om-block="kop"'));
+  assert.ok(renderMailForRegistration({ ...args, editable: true }).html.includes('data-om-edit="text"'));
+  // En zonder: geen enkel spoor in wat er verstuurd wordt.
+  assert.ok(!renderMailForRegistration(args).html.includes('data-om-'));
 });
 
 console.log('\nidempotentie en timing');

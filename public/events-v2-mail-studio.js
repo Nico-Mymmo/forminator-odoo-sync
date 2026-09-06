@@ -40,8 +40,13 @@
     eventTypeName: '',
     event: null,
     kind: 'confirmation',
-    /** '' = beide sites, anders 'openvme' / 'syndicoach' */
-    viewSite: '',
+    /**
+     * Alleen een VOORBEELDkeuze: welke header je ziet, en -- als de inhoud
+     * gesplitst is -- welke variant je bewerkt. De inhoud zelf is standaard
+     * één versie voor iedereen.
+     */
+    viewSite: 'openvme',
+    headerSlot: null,
     /** false = de standaard van het event-type, true = alleen dit event */
     scopeEvent: false,
     typeDoc: null,
@@ -67,7 +72,7 @@
     event_details: { label: 'Praktisch kader', icon: 'calendar-clock',      hint: 'Datum, tijd, locatie en link', sample: { title: 'Details van het evenement:' } },
     button:        { label: 'Knop',            icon: 'mouse-pointer-click', hint: 'Een duidelijke actieknop',     sample: { label: 'Neem deel', href: '{{event.link}}' } },
     video:         { label: 'Opname',          icon: 'play-circle',         hint: 'De video van dit event',       sample: {} },
-    hero:          { label: 'Banner',          icon: 'image',               hint: 'Volle breedte, bovenaan',      sample: { src: '', alt: '' } },
+    image:         { label: 'Afbeelding',      icon: 'image',               hint: 'Een beeld in de tekst',        sample: { src: '', alt: '' } },
     signature:     { label: 'Afzender',        icon: 'user-round',          hint: 'Naam, functie en foto',        sample: {} },
     divider:       { label: 'Lijntje',         icon: 'minus',               hint: 'Scheidingslijn',               sample: {} },
     spacer:        { label: 'Witruimte',       icon: 'move-vertical',       hint: 'Extra lucht',                  sample: { height: 24 } },
@@ -77,7 +82,7 @@
 
   /** Wat je NIET rechtstreeks in de mail kan typen. Leeg = alleen zichtbaarheid. */
   var BLOCK_SETTINGS = {
-    hero: [
+    image: [
       { key: 'src', label: 'Afbeelding-URL', type: 'url' },
       { key: 'alt', label: 'Omschrijving van de afbeelding', type: 'text' },
       { key: 'href', label: 'Klikt door naar (optioneel)', type: 'url' }
@@ -122,19 +127,40 @@
 
   function activeDoc() { return state.scopeEvent ? state.eventDoc : state.typeDoc; }
 
+  /** De hele sectie van deze mailsoort: header + inhoud (+ eventuele varianten). */
   function section() {
     var doc = activeDoc();
-    if (!doc[state.kind]) doc[state.kind] = { subject: '', preheader: '', blocks: [] };
+    if (!doc[state.kind]) {
+      doc[state.kind] = { header: {}, subject: '', preheader: '', blocks: [], variants: null, catchAll: 'openvme' };
+    }
+    if (!doc[state.kind].header) doc[state.kind].header = {};
     if (!Array.isArray(doc[state.kind].blocks)) doc[state.kind].blocks = [];
     return doc[state.kind];
   }
 
+  /**
+   * De inhoud die je op dit moment bewerkt.
+   *
+   * Zolang de mail niet gesplitst is, is dat de sectie zelf: één versie voor
+   * iedereen. Is hij wél gesplitst, dan is het de variant van het bedrijf dat
+   * je bovenaan gekozen hebt.
+   */
+  function content() {
+    var sec = section();
+    if (!sec.variants) return sec;
+    var key = state.viewSite || sec.catchAll;
+    if (!sec.variants[key]) key = sec.catchAll;
+    if (!sec.variants[key]) sec.variants[key] = { subject: '', preheader: '', blocks: [] };
+    if (!Array.isArray(sec.variants[key].blocks)) sec.variants[key].blocks = [];
+    return sec.variants[key];
+  }
+
   function blockById(id) {
-    return section().blocks.filter(function (b) { return b.id === id; })[0] || null;
+    return content().blocks.filter(function (b) { return b.id === id; })[0] || null;
   }
 
   function indexOfBlock(id) {
-    var blocks = section().blocks;
+    var blocks = content().blocks;
     for (var i = 0; i < blocks.length; i += 1) if (blocks[i].id === id) return i;
     return -1;
   }
@@ -151,7 +177,7 @@
     state.eventId = Number(eventId);
     state.dirty = false;
     state.kind = 'confirmation';
-    state.viewSite = '';
+    state.viewSite = 'openvme';
     state.selectedId = null;
     state.scopeEvent = false;
 
@@ -227,14 +253,76 @@
       ? 'Alleen voor dit ene event'
       : 'Geldt voor elk event van het type ' + state.eventTypeName;
 
-    var sec = section();
+    var huidig = content();
     var dialog = el('mailStudioDialog');
-    dialog.querySelector('[data-mail-field="subject"]').value = sec.subject || '';
-    dialog.querySelector('[data-mail-field="preheader"]').value = sec.preheader || '';
+    dialog.querySelector('[data-mail-field="subject"]').value = huidig.subject || '';
+    dialog.querySelector('[data-mail-field="preheader"]').value = huidig.preheader || '';
+
+    renderHeaderSlots();
+    renderVariantBar();
 
     el('mailSendLabel').textContent = 'Klaarzetten: ' + (KIND_LABEL[state.kind] || state.kind);
     schedulePreview();
     icons();
+  }
+
+  var SLOT_LABEL = { openvme: 'OpenVME', syndicoach: 'Syndicoach', fallback: 'Overige' };
+
+  /**
+   * De header per bedrijf. Drie vaste vakjes, altijd zichtbaar: dit is het
+   * enige onderdeel dat per definitie verschilt, en meestal het enige.
+   */
+  function renderHeaderSlots() {
+    var header = section().header || {};
+
+    el('mailHeaderSlots').innerHTML = ['openvme', 'syndicoach', 'fallback'].map(function (slot) {
+      var value = header[slot];
+      var beeld = value && value.src
+        ? '<img src="' + esc(value.src) + '" alt="" class="w-full aspect-[3/1] object-cover rounded border border-base-300">'
+        : '<div class="w-full aspect-[3/1] rounded border border-dashed border-base-300 flex items-center justify-center">' +
+          '<span class="text-xs opacity-50">geen afbeelding</span></div>';
+
+      return '<button class="text-left group" data-action="mail-header-open" data-mail-slot="' + slot + '">' +
+        beeld +
+        '<div class="flex items-center gap-1 mt-1">' +
+          '<span class="text-xs font-medium">' + esc(SLOT_LABEL[slot]) + '</span>' +
+          (slot === 'fallback' ? '<span class="text-xs opacity-50">— wie via een andere weg inschreef</span>' : '') +
+        '</div></button>';
+    }).join('');
+  }
+
+  /**
+   * Eén inhoud voor iedereen, of gesplitst per bedrijf.
+   *
+   * Splitsen is bewust een expliciete stap met één knop: standaard schrijf je
+   * één mail, en pas wie er echt van moet afwijken krijgt twee versies om bij
+   * te houden.
+   */
+  function renderVariantBar() {
+    var sec = section();
+    var bar = el('mailVariantBar');
+
+    if (!sec.variants) {
+      bar.innerHTML =
+        '<span class="badge badge-ghost badge-sm">Eén inhoud voor iedereen</span>' +
+        '<button class="link link-hover text-xs ml-auto" data-action="mail-split">' +
+          'Aparte inhoud per bedrijf</button>';
+      return;
+    }
+
+    var actief = sec.variants[state.viewSite] ? state.viewSite : sec.catchAll;
+    bar.innerHTML =
+      '<span class="text-xs opacity-60">Je bewerkt:</span>' +
+      ['openvme', 'syndicoach'].map(function (site) {
+        return '<button class="btn btn-xs ' + (actief === site ? 'btn-primary' : 'btn-ghost') + '" ' +
+          'data-action="mail-site" data-mail-view="' + site + '">' + esc(SLOT_LABEL[site]) + '</button>';
+      }).join('') +
+      '<label class="text-xs flex items-center gap-1 ml-2">' +
+        '<input type="checkbox" class="checkbox checkbox-xs" data-mail-catchall ' +
+          (sec.catchAll === actief ? 'checked' : '') + '>' +
+        'Dit is de standaard' +
+      '</label>' +
+      '<button class="link link-hover text-xs ml-auto" data-action="mail-merge">Terug naar één inhoud</button>';
   }
 
   // ─── Voorbeeld + bewerken ──────────────────────────────────────────────────
@@ -262,24 +350,90 @@
 
       if (data.event) state.event = data.event;
 
+      // De mail ALTIJD tonen als er blokken zijn. Een eerdere versie had hier
+      // een controle die op `<t` testte -- en de gerenderde mail begint met
+      // `<table`, dus die sloeg altijd toe en je zag nooit iets anders dan de
+      // "leeg"-tekst. Vandaar: de blokkenlijst bepaalt of hij leeg is, niet
+      // de HTML.
+      var leeg = content().blocks.length === 0;
       var frame = el('mailPreviewFrame');
       frame.onload = function () { enhance(frame); };
-      frame.srcdoc = data.html && data.html.indexOf('<t') !== 0 && data.html !== ''
-        ? data.html
-        : '<p style="font-family:sans-serif;padding:40px;color:#6b7280">Deze mail is nog leeg. Voeg onderaan een onderdeel toe.</p>';
+      frame.srcdoc = leeg
+        ? '<p style="font-family:system-ui,sans-serif;padding:56px;text-align:center;color:#9ca3af;">' +
+          'Deze mail heeft nog geen inhoud.</p>'
+        : (data.html || '');
+
+      renderEmptyState(leeg);
+      renderVideoBar(data);
 
       var hint = el('mailEditHint');
-      if (state.kind === 'recap' && data.video_missing) {
-        hint.innerHTML = 'Er hangt nog geen opname aan dit event, dus het opnameblok blijft leeg. ' +
-          '<button class="link" data-action="mail-video-open">Opname kiezen</button>';
+      if (leeg) {
+        hint.textContent = '';
       } else if (!data.subject) {
         hint.textContent = 'Vul hierboven een onderwerp in — zonder onderwerp wordt de mail niet verstuurd.';
       } else {
-        hint.textContent = 'Klik in de mail om tekst aan te passen. Selecteer een onderdeel voor extra opties.';
+        hint.textContent = 'Klik in de mail om tekst aan te passen. Selecteer een onderdeel voor meer opties.';
       }
     } catch (error) {
       toast(error.message, 'error');
     }
+  }
+
+  /**
+   * Wat je ziet als deze mail nog geen inhoud heeft. Niemand hoort met een
+   * leeg scherm te beginnen: de standaardopzet is de bestaande mail uit Odoo,
+   * omgezet in blokken.
+   */
+  function renderEmptyState(leeg) {
+    var box = el('mailEmptyState');
+    if (!leeg) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+
+    box.classList.remove('hidden');
+    box.innerHTML =
+      '<div class="text-center py-8 px-6">' +
+        '<i data-lucide="mail-plus" class="w-8 h-8 mx-auto opacity-40 mb-3"></i>' +
+        '<p class="font-medium mb-1">Deze mail is nog leeg</p>' +
+        '<p class="text-sm opacity-60 mb-4">Begin met de opzet die we vandaag al gebruiken, en pas ' +
+          'daarna de teksten aan. Je kan altijd onderdelen toevoegen of weghalen.</p>' +
+        '<div class="flex items-center justify-center gap-2 flex-wrap">' +
+          '<button class="btn btn-sm btn-primary gap-2" data-action="mail-use-starter">' +
+            '<i data-lucide="wand-sparkles" class="w-4 h-4"></i> Gebruik de standaardopzet</button>' +
+          '<button class="btn btn-sm btn-ghost" data-action="mail-add-open">Leeg beginnen</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /**
+   * De opname van dit event, altijd zichtbaar op het recap-tabblad.
+   *
+   * Ze zat eerst alleen verstopt achter de instellingen van een videoblok --
+   * en juist als er nog géén videoblok is, is dat de plek waar je hem niet
+   * gaat zoeken.
+   */
+  function renderVideoBar(data) {
+    var bar = el('mailVideoBar');
+    if (state.kind !== 'recap') { bar.classList.add('hidden'); return; }
+
+    bar.classList.remove('hidden');
+    var video = state.event && state.event.recap ? state.event.recap : {};
+    var heeft = Boolean(video.video_url);
+
+    bar.innerHTML =
+      '<div class="flex items-center gap-3">' +
+        (heeft && video.thumbnail_url
+          ? '<img src="' + esc(video.thumbnail_url) + '" alt="" class="w-20 aspect-video object-cover rounded">'
+          : '<div class="w-20 aspect-video rounded bg-base-300 flex items-center justify-center">' +
+            '<i data-lucide="clapperboard" class="w-5 h-5 opacity-40"></i></div>') +
+        '<div class="min-w-0 flex-1">' +
+          '<p class="text-sm font-medium">' + (heeft ? 'Opname gekoppeld' : 'Nog geen opname') + '</p>' +
+          '<p class="text-xs opacity-60 truncate">' +
+            (heeft ? esc(video.video_url) : 'De recapmail toont de opname pas zodra die hier gekozen is.') +
+          '</p>' +
+        '</div>' +
+        '<button class="btn btn-sm ' + (heeft ? 'btn-ghost' : 'btn-primary') + ' gap-2" data-action="mail-video-open">' +
+          '<i data-lucide="clapperboard" class="w-4 h-4"></i>' + (heeft ? 'Wijzigen' : 'Opname kiezen') + '</button>' +
+      '</div>';
+    icons();
   }
 
   /**
@@ -321,6 +475,14 @@
 
     doc.addEventListener('click', function (event) {
       if (event.target.closest('#om-bar')) return;
+
+      // Klikken op de header opent meteen het juiste vakje -- dat is waar
+      // iemand hem verwacht aan te passen.
+      if (event.target.closest('[data-om-header]')) {
+        deselect(doc);
+        openHeader(state.viewSite || 'fallback');
+        return;
+      }
 
       var holder = event.target.closest('[data-om-block]');
       if (!holder) { deselect(doc); return; }
@@ -385,10 +547,9 @@
     var block = blockById(blockId);
     if (!block) return;
 
-    var shared = !Array.isArray(block.sites) || block.sites.length === 0;
-    var note = shared
-      ? (state.viewSite ? 'geldt voor beide sites' : '')
-      : 'alleen ' + block.sites.join(' + ');
+    // Gesplitst? Dan is het nuttig te zien welke versie je bewerkt.
+    var sec = section();
+    var note = sec.variants ? 'versie ' + (SLOT_LABEL[state.viewSite] || state.viewSite) : '';
 
     var bar = doc.createElement('div');
     bar.id = 'om-bar';
@@ -420,7 +581,7 @@
   }
 
   function handleCommand(command, blockId) {
-    var blocks = section().blocks;
+    var blocks = content().blocks;
     var index = indexOfBlock(blockId);
     if (index === -1) return;
 
@@ -478,24 +639,9 @@
         'placeholder="' + esc(field.placeholder || '') + '" value="' + esc(value) + '"></label>';
     }).join('');
 
-    // Zichtbaarheid in gewone taal. "Wie via een andere weg inschreef" is de
-    // t-else uit de oude QWeb-template: iedereen van wie we de site niet
-    // kennen -- vandaag nog de grote meerderheid.
-    var sites = Array.isArray(block.sites) ? block.sites : [];
-    var choice = sites.length === 0 ? 'all' : sites.slice().sort().join('+');
-    var options = [
-      ['all', 'Iedereen'],
-      ['openvme', 'Alleen wie via OpenVME inschreef'],
-      ['syndicoach', 'Alleen wie via Syndicoach inschreef'],
-      ['other', 'Alleen wie via een andere weg inschreef']
-    ];
-
-    var visibility =
-      '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Wie ziet dit onderdeel?</span>' +
-      '<select class="select select-bordered select-sm" data-mail-visibility>' +
-      options.map(function (opt) {
-        return '<option value="' + opt[0] + '"' + (choice === opt[0] ? ' selected' : '') + '>' + esc(opt[1]) + '</option>';
-      }).join('') + '</select></label>';
+    // Zichtbaarheid per blok BESTAAT NIET MEER. De inhoud is één versie voor
+    // iedereen; wie echt wil afwijken splitst de hele mail (zie
+    // renderVariantBar). Dat scheelt de gebruiker een beslissing per alinea.
 
     var video = block.type === 'video'
       ? '<button class="btn btn-sm btn-outline w-full gap-2" data-action="mail-video-open">' +
@@ -505,11 +651,34 @@
       : '';
 
     el('mailSettingsBody').innerHTML =
-      (fields || '<p class="text-sm opacity-60">Dit onderdeel heeft geen extra instellingen.</p>') +
-      video + visibility;
+      (fields || '<p class="text-sm opacity-60">Dit onderdeel heeft geen extra instellingen.</p>') + video;
 
     el('mailBlockSettings').showModal();
     icons();
+  }
+
+  // ─── Header per bedrijf ────────────────────────────────────────────────────
+
+  function openHeader(slot) {
+    state.headerSlot = slot;
+    var value = (section().header || {})[slot] || {};
+    el('mailHeaderTitle').textContent = 'Header — ' + (SLOT_LABEL[slot] || slot);
+    el('mailHeaderSrc').value = value.src || '';
+    el('mailHeaderAlt').value = value.alt || '';
+    el('mailHeaderHref').value = value.href || '';
+    el('mailHeaderDialog').showModal();
+  }
+
+  function saveHeader() {
+    var src = el('mailHeaderSrc').value.trim();
+    var sec = section();
+    if (!sec.header) sec.header = {};
+    sec.header[state.headerSlot] = src === ''
+      ? null
+      : { src: src, alt: el('mailHeaderAlt').value.trim(), href: el('mailHeaderHref').value.trim() };
+    el('mailHeaderDialog').close();
+    markDirty();
+    render();
   }
 
   // ─── Videokiezer ───────────────────────────────────────────────────────────
@@ -650,6 +819,48 @@
         render();
         break;
 
+      case 'mail-header-open': openHeader(trigger.getAttribute('data-mail-slot')); break;
+      case 'mail-header-save': saveHeader(); break;
+      case 'mail-header-clear':
+        el('mailHeaderSrc').value = '';
+        saveHeader();
+        break;
+
+      case 'mail-split': {
+        // Beide varianten beginnen als een kopie van wat er stond, zodat
+        // niemand opnieuw hoeft te typen.
+        var sec = section();
+        if (sec.variants) break;
+        var basis = { subject: sec.subject || '', preheader: sec.preheader || '', blocks: sec.blocks || [] };
+        sec.variants = {
+          openvme: JSON.parse(JSON.stringify(basis)),
+          syndicoach: JSON.parse(JSON.stringify(basis))
+        };
+        sec.catchAll = 'openvme';
+        state.viewSite = 'openvme';
+        state.selectedId = null;
+        markDirty();
+        render();
+        toast('Je hebt nu een aparte inhoud per bedrijf. OpenVME staat als standaard.', 'success');
+        break;
+      }
+
+      case 'mail-merge': {
+        var s = section();
+        if (!s.variants) break;
+        if (!window.confirm('De inhoud van "' + (SLOT_LABEL[s.catchAll] || s.catchAll) +
+          '" blijft behouden, de andere versie gaat weg. Doorgaan?')) break;
+        var houden = s.variants[s.catchAll] || {};
+        s.subject = houden.subject || '';
+        s.preheader = houden.preheader || '';
+        s.blocks = houden.blocks || [];
+        s.variants = null;
+        state.selectedId = null;
+        markDirty();
+        render();
+        break;
+      }
+
       case 'mail-scope-toggle':
         if (state.dirty && !window.confirm('Je hebt niet-bewaarde wijzigingen. Wisselen zonder te bewaren?')) return;
         state.scopeEvent = !state.scopeEvent;
@@ -659,6 +870,21 @@
         renderStatus();
         render();
         break;
+
+      case 'mail-use-starter': {
+        // De startopzet komt van de server (lib/mail-defaults.js) en wordt
+        // pas iets zodra je hier bewaart. Alleen de soort die je nu bekijkt,
+        // zodat je een al ingevulde reminder niet overschrijft.
+        var starter = state.schema && state.schema.starter ? state.schema.starter[state.kind] : null;
+        if (!starter) { toast('Geen standaardopzet beschikbaar.', 'error'); break; }
+        var doc = activeDoc();
+        doc[state.kind] = JSON.parse(JSON.stringify(starter));
+        state.selectedId = null;
+        markDirty();
+        render();
+        toast('Standaardopzet geladen — pas de teksten aan en bewaar.', 'success');
+        break;
+      }
 
       case 'mail-add-open':
         state.addAt = 'end';
@@ -671,13 +897,10 @@
       case 'mail-add-pick': {
         var type = trigger.getAttribute('data-mail-add-type');
         var meta = BLOCK_META[type] || { sample: {} };
-        var block = Object.assign({ id: type + '-' + Date.now(), type: type, sites: [] },
+        var block = Object.assign({ id: type + '-' + Date.now(), type: type },
           JSON.parse(JSON.stringify(meta.sample)));
-        // Bekijk je één site, dan hoort een nieuw onderdeel daar ook bij --
-        // anders zie je het meteen weer verdwijnen zodra je van site wisselt.
-        if (state.viewSite) block.sites = [state.viewSite];
 
-        var blocks = section().blocks;
+        var blocks = content().blocks;
         if (state.addAt === 'end') blocks.push(block);
         else blocks.splice(Number(state.addAt), 0, block);
 
@@ -705,7 +928,7 @@
     var target = event.target;
 
     var field = target.getAttribute && target.getAttribute('data-mail-field');
-    if (field) { section()[field] = target.value; markDirty(); return; }
+    if (field) { content()[field] = target.value; markDirty(); return; }
 
     var setting = target.getAttribute && target.getAttribute('data-mail-setting');
     if (setting && state.selectedId) {
@@ -720,11 +943,14 @@
     if (!el('mailStudioDialog').open) return;
     var target = event.target;
 
-    if (target.hasAttribute && target.hasAttribute('data-mail-visibility') && state.selectedId) {
-      var block = blockById(state.selectedId);
-      if (!block) return;
-      block.sites = target.value === 'all' ? [] : [target.value];
-      markDirty();
+    if (target.hasAttribute && target.hasAttribute('data-mail-catchall')) {
+      // Precies één variant kan de standaard zijn; uitvinken kan dus niet --
+      // dan zou er geen mail zijn voor wie via een andere weg inschreef.
+      if (target.checked) {
+        section().catchAll = state.viewSite;
+        markDirty();
+      }
+      render();
       return;
     }
 

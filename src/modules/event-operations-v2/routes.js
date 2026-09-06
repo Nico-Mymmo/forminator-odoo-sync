@@ -50,9 +50,10 @@ import {
   resolvePublicOrigin,
   MailError
 } from './lib/mail-service.js';
-import { MAIL_KIND, MAIL_KINDS, emptyMailBlocks, normalizeMailBlocks, BLOCK_TYPES, BLOCK_SITE_VALUES } from './lib/mail-blocks.js';
+import { MAIL_KIND, MAIL_KINDS, emptyMailBlocks, normalizeMailBlocks, BLOCK_TYPES, SITES, HEADER_SLOTS } from './lib/mail-blocks.js';
 import { listRegistrationsForMail } from './lib/registrations-service.js';
 import { listVimeoVideos, getVimeoVideo, vimeoConfigured } from './lib/vimeo.js';
+import { starterMailBlocks } from './lib/mail-defaults.js';
 
 function json(payload, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(payload), {
@@ -593,8 +594,12 @@ export const routes = {
       data: {
         kinds: MAIL_KINDS,
         block_types: BLOCK_TYPES,
-        sites: BLOCK_SITE_VALUES,
+        sites: SITES,
+        header_slots: HEADER_SLOTS,
         vimeo_configured: vimeoConfigured(context.env),
+        // Startopzet voor wie nog niets heeft: de bestaande bevestigingsmail
+        // als blokken. Wordt pas iets als iemand er in de studio voor kiest.
+        starter: normalizeMailBlocks(starterMailBlocks(), 'startopzet'),
         placeholders: [
           'event.title', 'event.summary', 'event.day', 'event.time', 'event.starts_at',
           'event.location', 'event.link', 'event.url', 'event.type',
@@ -650,11 +655,18 @@ export const routes = {
     }
 
     const { typeDoc, eventDoc } = await loadMailBlocks(context.env, event);
+
+    const gevuld = (section) =>
+      (Array.isArray(section?.blocks) && section.blocks.length > 0) ||
+      Boolean(section?.variants);
+
     const sources = {};
     for (const kind of MAIL_KINDS) {
-      const hasOverride = Array.isArray(eventDoc?.[kind]?.blocks) && eventDoc[kind].blocks.length > 0;
-      const hasType = Array.isArray(typeDoc?.[kind]?.blocks) && typeDoc[kind].blocks.length > 0;
-      sources[kind] = hasOverride ? 'event' : hasType ? 'event_type' : 'none';
+      sources[kind] = gevuld(eventDoc?.[kind])
+        ? 'event'
+        : gevuld(typeDoc?.[kind])
+          ? 'event_type'
+          : 'none';
     }
 
     return json({

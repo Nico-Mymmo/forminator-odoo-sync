@@ -901,10 +901,18 @@ Afspraken die bewust zo zijn:
 - **Odoo blijft de enige database.** De blokken staan in twee Studio-velden, niet in
   Supabase en niet in KV. Dat is dezelfde regel als in `lib/blocks.js` ("er komt GEEN apart
   blokkenschema: dat zou een tweede waarheid naast Odoo zijn").
-- **Variatie is een eigenschap van een blok, geen kopie van het geheel.** `sites:
-  ['syndicoach']` op een blok vervangt de QWeb `t-if` op `x_studio_registration_site` die
-  vandaag het hero-logo per site kiest. Een registratie zonder site krijgt géén
-  site-specifiek blok — liever een blok minder dan het verkeerde logo.
+- **De HEADER is bedrijfsgebonden, de INHOUD niet.** Het model kent precies twee plekken
+  waar de site iets doet: (1) `section.header` met een slot per site plus `fallback` voor wie
+  via een andere weg inschreef — dit vervangt de QWeb `t-if`/`t-elif`/`t-else` op
+  `x_studio_registration_site`; en (2) `section.variants`, dat er alleen is als iemand
+  uitdrukkelijk kiest voor aparte inhoud per bedrijf, met `catchAll` als de versie voor
+  onbekende sites. **Zichtbaarheid per blok bestaat niet** — een eerdere opzet gaf elk blok
+  een `sites`-lijst, en dat dwong de gebruiker per alinea na te denken over iets dat in 95%
+  van de mail identiek is. Voer dat niet opnieuw in.
+- **Documenten in de oude vorm (v1) migreren automatisch** bij elke lees-actie
+  (`migrateV1Section`): `hero`-blokken worden headerslots, `sites` op de overige blokken
+  vervalt, `other` heet nu `fallback`. Een document dat nog in de oude vorm in Odoo staat
+  blijft dus gewoon werken en wordt bij de eerstvolgende save omgezet.
 - **Een override op het event vervangt de sectie VOLLEDIG**, nooit half. Half overnemen zou
   betekenen dat je bij het lezen van een event niet meer kan zien wat er verstuurd wordt.
 - **De vlag is niet de waarheid; het `mail.mail`-record is dat.** Vlag en mail leven op twee
@@ -946,6 +954,14 @@ Afspraken die bewust zo zijn:
   `x_studio_registration_site` op in de bestaande `EVENTS_PUBLIC_ORIGINS` en valt terug op
   `EVENTS_SHARED_CANONICAL_ORIGIN`. Voer hier **geen** aparte basis-URL-variabele voor in:
   één vaste waarde zou iemand die op syndicoach.be inschreef een openvme-link sturen.
+- **De browsertest is verplicht bij elke wijziging aan de studio**:
+  `node src/modules/event-operations-v2/tests/mail-studio-ui-test.mjs` (vraagt
+  `npm i -D playwright`). Drie bugs raakten in productie die geen enkele unit-test kon zien,
+  omdat ze in de KOPPELING zaten en niet in een functie: een clientcontrole op `<t` terwijl
+  de mail met `<table` begint; `editable` dat de route wel meegaf maar
+  `renderMailForRegistration` niet aannam; en een "beide sites"-stand die `null` doorgaf,
+  wat voor de renderer "site onbekend" betekent. Unit-tests op de renderer alleen zijn hier
+  niet genoeg.
 - **Je bewerkt IN het voorbeeld, niet in een blokkenlijst ernaast.** De eerste versie zette
   een lijst met ruwe velden (URL, alt, `level`, een HTML-textarea, chips per site) naast de
   preview. Dat is bruikbaar voor wie het gebouwd heeft en voor niemand anders, terwijl de
