@@ -246,6 +246,9 @@ export const EVENT_DETAIL_FIELDS = Object.freeze([
 export const REGISTRATION_LIST_FIELDS = Object.freeze([
   REGISTRATION_FIELDS.ID,
   REGISTRATION_FIELDS.NAME,
+  // Nodig om een gearchiveerde inschrijving als zodanig te kunnen tonen en
+  // terug te halen. "Verwijderen" in de OM is archiveren, nooit unlink.
+  REGISTRATION_FIELDS.ACTIVE,
   REGISTRATION_FIELDS.EVENT,
   REGISTRATION_FIELDS.PARTNER,
   REGISTRATION_FIELDS.SUBMITTED_EMAIL,
@@ -814,6 +817,11 @@ export function toRegistrationDto(record) {
   return {
     id: int(record[REGISTRATION_FIELDS.ID]),
     name: str(record[REGISTRATION_FIELDS.NAME]),
+    // Ontbreekt het veld in de opgehaalde set, dan gaan we uit van actief --
+    // dat was het gedrag voordat archiveren bestond.
+    active: REGISTRATION_FIELDS.ACTIVE in record
+      ? record[REGISTRATION_FIELDS.ACTIVE] !== false
+      : true,
     event_id: m2oId(record[REGISTRATION_FIELDS.EVENT]),
     partner: {
       id: m2oId(record[REGISTRATION_FIELDS.PARTNER]),

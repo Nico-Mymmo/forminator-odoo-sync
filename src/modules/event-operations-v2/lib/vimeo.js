@@ -54,7 +54,7 @@ export function vimeoConfigured(env) {
 export async function listVimeoVideos(env, { query = '', page = 1, perPage = 24 } = {}) {
   if (!vimeoConfigured(env)) {
     console.log(`${LOG_PREFIX} vimeo: geen VIMEO_ACCESS_TOKEN ingesteld, kiezer uitgeschakeld`);
-    return { configured: false, videos: [], total: 0, page: 1, hasMore: false };
+    return { configured: false, status: 'no_token', videos: [], total: 0, page: 1, hasMore: false };
   }
 
   const safePage = Math.max(1, Number(page) || 1);
@@ -73,11 +73,31 @@ export async function listVimeoVideos(env, { query = '', page = 1, perPage = 24 
   url.searchParams.set('direction', 'desc');
   if (term !== '') url.searchParams.set('query', term);
 
-  const payload = await fetchVimeo(env, url.toString());
+  // Een mislukte oproep NIET laten gooien: dan wordt het een 500 en ziet de
+  // gebruiker alleen "Serverfout". De reden is juist het enige nuttige hier --
+  // een geweigerd token vraagt iets heel anders dan een netwerkprobleem.
+  let payload;
+  try {
+    payload = await fetchVimeo(env, url.toString());
+  } catch (error) {
+    const bericht = error?.message || 'onbekende fout';
+    const geweigerd = /401|403|token/i.test(bericht);
+    console.warn(`${LOG_PREFIX} vimeo: ophalen mislukt: ${bericht}`);
+    return {
+      configured: true,
+      status: geweigerd ? 'unauthorized' : 'error',
+      error: bericht,
+      videos: [],
+      total: 0,
+      page: safePage,
+      hasMore: false
+    };
+  }
 
   const videos = (payload?.data || []).map(toVideoDto).filter((video) => video.id !== null);
   const result = {
     configured: true,
+    status: 'ok',
     videos,
     total: Number(payload?.total || videos.length),
     page: safePage,
@@ -153,7 +173,19 @@ async function fetchVimeo(env, url) {
     });
 
     if (response.status === 401 || response.status === 403) {
-      throw new Error('Vimeo weigert het token (401/403). Controleer VIMEO_ACCESS_TOKEN en de scopes.');
+      // Vimeo zet de echte reden in de body -- meestal "invalid token" of
+      // een ontbrekende scope. Die doorgeven scheelt veel zoekwerk.
+      let detail = '';
+      try {
+        const body = await response.json();
+        detail = String(body?.error || body?.developer_message || '').trim();
+      } catch (error) {
+        detail = '';
+      }
+      throw new Error(
+        `Vimeo weigert het token (${response.status})` + (detail ? `: ${detail}` : '') +
+        '. Controleer of het een "Authenticated (you)"-token is met de scopes Public en Private.'
+      );
     }
     if (!response.ok) {
       throw new Error(`Vimeo antwoordde met ${response.status}`);

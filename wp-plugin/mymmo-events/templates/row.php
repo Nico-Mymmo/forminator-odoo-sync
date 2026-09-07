@@ -41,6 +41,17 @@
  *   (.mymmo-ev-announce__card/__body/...), inclusief hetzelfde altijd-
  *   zichtbare "schrijf je snel in"-tagje (i.p.v. enkel bij hover, want dat
  *   bestaat niet op mobiel) met een automatische verschijn-animatie.
+ *   v1.6.33: die stapel heeft in BEIDE templates exact dezelfde structuur,
+ *   want elk verschil leverde een andere uitlijning op:
+ *     .mymmo-ev-swipestack
+ *       .mymmo-ev-announce__pointer     "Schrijf je snel in!"
+ *       .mymmo-ev-swipestack__cards     enkel de kaarten -- dit is het
+ *                                       positioneringskader voor de
+ *                                       kaartjes erachter (inset: 0), dus
+ *                                       mag hier niets anders in staan
+ *         .mymmo-ev-announce__card.mymmo-ev-deck-card * n
+ *       (.mymmo-ev-swipedots)           stipjes, door JS toegevoegd
+ *       .mymmo-ev-swipehint             hint, verdwijnt na de eerste swipe
  *
  * @var array $data ['events' => array<int,array<string,mixed>>,
  *                    'count' => int, 'source' => string, 'scribble' => string,
@@ -136,50 +147,54 @@ $total = count($slots);
                     <img class="mymmo-ev-announce__pointer-arrow" src="<?php echo esc_url($pointer_arrow_url); ?>" alt="" loading="lazy" />
                 </div>
             <?php endif; ?>
+
+            <div class="mymmo-ev-swipestack__cards">
+                <?php foreach ($slots as $slot) :
+                    $mevent = $slot['event'];
+                    $mtype = $mevent['type'] ?? [];
+                    $mtype_name = (string) ($mtype['name'] ?? '');
+                    $mtype_color = (string) ($mtype['color'] ?? '#475569');
+                    $mregistration = $mevent['registration'] ?? [];
+                    $mcan_register = !empty($mregistration['open']);
+                    ?>
+                    <div class="mymmo-ev-announce__card mymmo-ev-deck-card">
+                        <div class="mymmo-ev-announce__body">
+                            <span class="mymmo-ev-announce__kicker">
+                                <?php if ($is_highlighted_source) : ?>
+                                    <?php echo mymmo_events_icon('check'); ?>Aanbevolen event
+                                <?php else : ?>
+                                    <?php echo mymmo_events_icon('calendar'); ?>Binnenkort
+                                <?php endif; ?>
+                            </span>
+                            <?php if ($mtype_name !== '') : ?>
+                                <span class="mymmo-ev-pill" style="--mymmo-ev-pill-color: <?php echo esc_attr($mtype_color); ?>">
+                                    <span class="mymmo-ev-pill__dot"></span><?php echo esc_html($mtype_name); ?>
+                                </span>
+                            <?php endif; ?>
+                            <h3 class="mymmo-ev-announce__title">
+                                <a href="<?php echo esc_url($slot['permalink']); ?>"><?php echo esc_html((string) ($mevent['title'] ?? '')); ?></a>
+                            </h3>
+                            <p class="mymmo-ev-announce__when">
+                                <?php echo mymmo_events_icon('clock'); ?><?php echo esc_html(mymmo_events_format_datetime_line($mevent)); ?>
+                            </p>
+                            <p class="mymmo-ev-announce__summary"><?php echo esc_html((string) ($mevent['summary'] ?? '')); ?></p>
+                            <div class="mymmo-ev-announce__ctas">
+                                <a class="mymmo-ev-btn mymmo-ev-btn--primary" href="<?php echo esc_url($slot['permalink']); ?>">
+                                    <?php echo $mcan_register ? 'Inschrijven' : 'Meer info'; ?>
+                                    <?php echo mymmo_events_icon('arrow'); ?>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+
             <p class="mymmo-ev-swipehint">
                 <img class="mymmo-ev-swipehint__scribble"
                      src="https://link.openvme.be/assets/events/components/scribbles-scribbles-62-1.svg"
                      alt="" loading="lazy" aria-hidden="true" />
                 Swipe om al onze aankomende events te bekijken
             </p>
-            <?php foreach ($slots as $slot) :
-                $mevent = $slot['event'];
-                $mtype = $mevent['type'] ?? [];
-                $mtype_name = (string) ($mtype['name'] ?? '');
-                $mtype_color = (string) ($mtype['color'] ?? '#475569');
-                $mregistration = $mevent['registration'] ?? [];
-                $mcan_register = !empty($mregistration['open']);
-                ?>
-                <div class="mymmo-ev-announce__card mymmo-ev-deck-card">
-                    <div class="mymmo-ev-announce__body">
-                        <span class="mymmo-ev-announce__kicker">
-                            <?php if ($is_highlighted_source) : ?>
-                                <?php echo mymmo_events_icon('check'); ?>Aanbevolen event
-                            <?php else : ?>
-                                <?php echo mymmo_events_icon('calendar'); ?>Binnenkort
-                            <?php endif; ?>
-                        </span>
-                        <?php if ($mtype_name !== '') : ?>
-                            <span class="mymmo-ev-pill" style="--mymmo-ev-pill-color: <?php echo esc_attr($mtype_color); ?>">
-                                <span class="mymmo-ev-pill__dot"></span><?php echo esc_html($mtype_name); ?>
-                            </span>
-                        <?php endif; ?>
-                        <h3 class="mymmo-ev-announce__title">
-                            <a href="<?php echo esc_url($slot['permalink']); ?>"><?php echo esc_html((string) ($mevent['title'] ?? '')); ?></a>
-                        </h3>
-                        <p class="mymmo-ev-announce__when">
-                            <?php echo mymmo_events_icon('clock'); ?><?php echo esc_html(mymmo_events_format_datetime_line($mevent)); ?>
-                        </p>
-                        <p class="mymmo-ev-announce__summary"><?php echo esc_html((string) ($mevent['summary'] ?? '')); ?></p>
-                        <div class="mymmo-ev-announce__ctas">
-                            <a class="mymmo-ev-btn mymmo-ev-btn--primary" href="<?php echo esc_url($slot['permalink']); ?>">
-                                <?php echo $mcan_register ? 'Inschrijven' : 'Meer info'; ?>
-                                <?php echo mymmo_events_icon('arrow'); ?>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            <?php endforeach; ?>
         </div>
     <?php endif; ?>
 

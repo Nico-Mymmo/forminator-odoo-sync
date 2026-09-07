@@ -258,6 +258,31 @@
     details > summary { list-style: none; }
     details > summary::-webkit-details-marker { display: none; }
     .tabular { font-variant-numeric: tabular-nums; }
+
+    /* Onderwerp en voorbeeldtekst zijn contenteditable (ze bevatten chips),
+       dus geen <input> en dus ook geen ingebouwd placeholder-gedrag.
+       Bewust GEEN daisyUI .input-class: die geeft een vaste hoogte, en met
+       overflow erbij krijg je scrollpijltjes in het veld. Dit groeit mee. */
+    .om-token-input {
+      min-height: 2rem;
+      padding: 0.35rem 0.75rem;
+      border: 1px solid hsl(var(--bc) / 0.2);
+      border-radius: var(--rounded-btn, 0.5rem);
+      background: hsl(var(--b1));
+      font-size: 0.875rem;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+    .om-token-input:focus {
+      outline: 2px solid hsl(var(--bc) / 0.2);
+      outline-offset: 2px;
+    }
+    .om-token-input:empty::before,
+    .om-token-input[data-empty]::before {
+      content: attr(data-placeholder);
+      opacity: .45;
+      pointer-events: none;
+    }
     .row-selected { background: oklch(var(--p) / 0.08); }
 
     /* Quill in DaisyUI */
@@ -547,10 +572,15 @@
         </label>
         <label class="form-control">
           <span class="label-text text-sm mb-1">Start <span class="text-error">*</span></span>
-          <div class="join w-full border border-base-300 rounded-lg overflow-hidden">
-            <input id="newStartsAtDate" type="date" class="input input-sm join-item flex-1 min-w-[7.5rem] border-0" />
-            <select id="newStartsAtHour" class="select select-sm join-item border-0 border-l border-base-300 w-16 shrink-0"></select>
-            <select id="newStartsAtMinute" class="select select-sm join-item border-0 border-l border-base-300 w-16 shrink-0"></select>
+          <!-- Zelfde reden als bij dateTimeField() in events-v2-client.js: in
+               één join met overflow-hidden werd de minuten-select weggeknipt
+               zodra de kolom smal werd. -->
+          <div class="flex flex-wrap items-stretch gap-1">
+            <input id="newStartsAtDate" type="date" class="input input-sm input-bordered flex-1 basis-40 min-w-0" />
+            <div class="join shrink-0">
+              <select id="newStartsAtHour" class="select select-sm select-bordered join-item w-[4.5rem]"></select>
+              <select id="newStartsAtMinute" class="select select-sm select-bordered join-item w-[4.5rem]"></select>
+            </div>
           </div>
         </label>
         <label class="form-control">
@@ -770,24 +800,32 @@
 
           <div class="bg-base-100 rounded-box p-4 space-y-3">
             <div class="flex items-center gap-2 flex-wrap" id="mailVariantBar"></div>
+            <!-- Geen <input>: een invoerveld kan geen chips tonen. Dit zijn
+                 contenteditable-velden die eruitzien als een input, waarin een
+                 placeholder als chip staat. Typ "/" om er een in te voegen. -->
             <label class="form-control">
               <span class="label-text text-xs opacity-70 mb-1">Onderwerp van de mail</span>
-              <input class="input input-bordered input-sm" data-mail-field="subject" placeholder="Bijv. Je bent ingeschreven voor de {{event.type}}">
+              <div class="om-token-input" contenteditable="true" role="textbox" data-mail-field="subject"
+                   data-placeholder="Bijv. Je bent ingeschreven voor de …"></div>
             </label>
             <label class="form-control">
               <span class="label-text text-xs opacity-70 mb-1">Voorbeeldtekst in de inbox <span class="opacity-50">— het regeltje onder het onderwerp</span></span>
-              <input class="input input-bordered input-sm" data-mail-field="preheader" placeholder="Bijv. {{event.day}} om {{event.time}}">
+              <div class="om-token-input" contenteditable="true" role="textbox" data-mail-field="preheader"
+                   data-placeholder="Bijv. de datum en het uur"></div>
             </label>
-            <details>
-              <summary class="cursor-pointer text-xs opacity-70">Automatisch invulbare gegevens</summary>
-              <div class="pt-2 flex flex-wrap gap-1" id="mailPlaceholderList"></div>
-            </details>
+            <p class="text-xs opacity-60">
+              Typ <kbd class="kbd kbd-xs">/</kbd> om een gegeven van het event in te voegen.
+            </p>
           </div>
 
           <!-- De opname van dit event. Staat op het recap-tabblad altijd in
                beeld: verstopt achter de instellingen van een videoblok was
                het onvindbaar, juist wanneer er nog geen videoblok is. -->
           <div class="bg-base-100 rounded-box p-3 hidden" id="mailVideoBar"></div>
+
+          <!-- Wanneer de reminder vertrekt. Alleen op het reminder-tabblad:
+               de bevestiging gaat meteen, de recap op een knop. -->
+          <div class="bg-base-100 rounded-box p-3 hidden" id="mailTimingBar"></div>
 
           <!-- Lege staat: nooit een leeg scherm zonder uitweg. -->
           <div class="bg-base-100 rounded-box hidden" id="mailEmptyState"></div>
@@ -812,12 +850,26 @@
         <button class="btn btn-sm btn-ghost" data-action="mail-studio-close">Sluiten</button>
         <span class="text-xs opacity-60" id="mailStudioDirty"></span>
         <div class="ml-auto flex items-center gap-2">
+          <button class="btn btn-sm btn-ghost gap-2" data-action="mail-proof-open">
+            <i data-lucide="eye" class="w-4 h-4"></i> Bekijk zoals verstuurd
+          </button>
           <button class="btn btn-sm btn-outline gap-2" data-action="mail-send" id="mailSendBtn">
             <i data-lucide="send" class="w-4 h-4"></i> <span id="mailSendLabel">Klaarzetten</span>
           </button>
           <button class="btn btn-sm btn-primary" data-action="mail-save" id="mailSaveBtn">Bewaren</button>
         </div>
       </div>
+
+      <!-- "/"-kiezer voor het onderwerp en de voorbeeldtekst.
+           MOET BINNEN DEZE DIALOOG STAAN. Een <dialog> die met showModal()
+           opent, rendert in de top layer van de browser; alles daarbuiten
+           valt eronder, ook met position:fixed en een hoge z-index. Stond
+           dit menu buiten de dialoog, dan was het onzichtbaar en
+           onaanklikbaar -- precies waarom "/" wel werkte in de mailbody
+           (dat menu leeft in het iframe, dus binnen de dialoog) en niet in
+           de onderwerpvelden. -->
+      <div id="mailTokenMenu"
+           class="hidden fixed z-[100] bg-base-100 rounded-box shadow-xl border border-base-300 w-72 max-h-72 overflow-y-auto p-1"></div>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
@@ -846,6 +898,44 @@
       <div class="modal-action">
         <button class="btn btn-sm" data-action="mail-settings-close">Klaar</button>
       </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <!-- Voorbeeld ZOALS VERSTUURD: geen editor-laag, geen chips, alle
+       placeholders ingevuld met echte gegevens. Dit is het scherm om vóór
+       het versturen te controleren of knoppen, de opname en de route er goed
+       uitzien. -->
+  <dialog id="mailProofDialog" class="modal">
+    <div class="modal-box max-w-4xl w-[92vw] h-[92vh] p-0 flex flex-col">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center gap-3 flex-wrap shrink-0">
+        <div class="min-w-0">
+          <h3 class="font-semibold text-base leading-tight">Voorbeeld zoals verstuurd</h3>
+          <p class="text-xs opacity-60" id="mailProofSub"></p>
+        </div>
+        <label class="text-xs flex items-center gap-2 ml-auto">
+          <span class="opacity-70">Voor</span>
+          <select class="select select-bordered select-xs max-w-[16rem]" id="mailProofWho"></select>
+        </label>
+        <label class="text-xs flex items-center gap-2">
+          <span class="opacity-70">Site</span>
+          <select class="select select-bordered select-xs" id="mailProofSite">
+            <option value="openvme">OpenVME</option>
+            <option value="syndicoach">Syndicoach</option>
+            <option value="">Overige</option>
+          </select>
+        </label>
+        <button class="btn btn-sm btn-circle btn-ghost" data-action="mail-proof-close">✕</button>
+      </div>
+
+      <div class="px-4 py-2 border-b border-base-200 text-sm shrink-0 space-y-0.5">
+        <div><span class="opacity-60 text-xs">Van:</span> <span id="mailProofFrom" class="font-mono text-xs"></span></div>
+        <div><span class="opacity-60 text-xs">Aan:</span> <span id="mailProofTo" class="font-mono text-xs"></span></div>
+        <div><span class="opacity-60 text-xs">Onderwerp:</span> <span id="mailProofSubject" class="font-medium"></span></div>
+      </div>
+
+      <div class="px-4 py-2 text-xs shrink-0 hidden" id="mailProofWarning"></div>
+      <iframe id="mailProofFrame" class="flex-1 w-full bg-base-200" style="border:0;" title="Voorbeeld van de mail"></iframe>
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
@@ -886,7 +976,11 @@
         <input class="input input-bordered input-sm flex-1" id="mailVideoSearch" placeholder="Zoek in Vimeo…">
         <button class="btn btn-sm" data-action="mail-video-search">Zoeken</button>
       </div>
-      <div id="mailVideoResults" class="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[45vh] overflow-y-auto"></div>
+      <!-- items-start: anders rekt een kaart met een tweeregelige titel de hele
+           rij op. p-1: de hover-ring tekent BUITEN de afbeelding en werd door
+           de scrollcontainer links afgeknipt. -->
+      <div id="mailVideoResults"
+           class="grid grid-cols-2 sm:grid-cols-3 gap-3 items-start max-h-[45vh] overflow-y-auto p-1"></div>
       <div class="divider text-xs opacity-60">of plak een link</div>
       <div class="flex items-center gap-2">
         <input class="input input-bordered input-sm flex-1" id="mailVideoUrl" placeholder="https://vimeo.com/… of https://youtu.be/…">
@@ -899,6 +993,7 @@
     </div>
     <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
   </dialog>
+
 
   <div id="toastContainer" class="toast toast-top toast-end z-50"></div>
 

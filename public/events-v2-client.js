@@ -30,7 +30,7 @@
     total: 0,
     selectedId: null,
     detail: null,
-    registrations: { rows: [], total: 0, page: 1, totalPages: 1, loading: false, loadedFor: null },
+    registrations: { rows: [], total: 0, page: 1, totalPages: 1, loading: false, loadedFor: null, includeArchived: false },
     bodyEditor: null,
     openSection: 'basis',
     previewEditor: null,
@@ -215,21 +215,31 @@
     var hourPart = local ? local.slice(11, 13) : '';
     var minutePart = local ? local.slice(14, 16) : '';
 
+    // Waarom dit GEEN enkele `join` met overflow-hidden meer is: een
+    // date-input heeft een eigen minimumbreedte (tekst + kalendericoon), en
+    // met twee selects van 4rem ernaast paste dat niet in de detailkolom.
+    // Het laatste veld -- de minuten -- werd dan door overflow-hidden
+    // weggeknipt in plaats van te wrappen.
+    //
+    // Nu wrapt de datum als een geheel weg en blijven uur en minuten als
+    // paar bij elkaar staan.
     return '<label class="form-control">' +
         '<span class="label-text text-xs opacity-70 mb-1">' + esc(label) + '</span>' +
-        '<div class="join w-full border border-base-300 rounded-lg overflow-hidden">' +
-          '<input type="date" class="input input-sm join-item flex-1 min-w-[7.5rem] border-0"' +
+        '<div class="flex flex-wrap items-stretch gap-1">' +
+          '<input type="date" class="input input-sm input-bordered flex-1 basis-40 min-w-0"' +
           ' data-dt-date="' + name + '" value="' + esc(datePart) + '" />' +
-          '<select class="select select-sm join-item border-0 border-l border-base-300 w-16 shrink-0"' +
-          ' data-dt-hour-for="' + name + '">' +
-            '<option value=""' + (hourPart ? '' : ' selected') + '>--</option>' +
-            hourOptions(hourPart) +
-          '</select>' +
-          '<select class="select select-sm join-item border-0 border-l border-base-300 w-16 shrink-0"' +
-          ' data-dt-minute-for="' + name + '">' +
-            '<option value=""' + (minutePart ? '' : ' selected') + '>--</option>' +
-            minuteOptions(minutePart) +
-          '</select>' +
+          '<div class="join shrink-0">' +
+            '<select class="select select-sm select-bordered join-item w-[4.5rem]"' +
+            ' data-dt-hour-for="' + name + '">' +
+              '<option value=""' + (hourPart ? '' : ' selected') + '>--</option>' +
+              hourOptions(hourPart) +
+            '</select>' +
+            '<select class="select select-sm select-bordered join-item w-[4.5rem]"' +
+            ' data-dt-minute-for="' + name + '">' +
+              '<option value=""' + (minutePart ? '' : ' selected') + '>--</option>' +
+              minuteOptions(minutePart) +
+            '</select>' +
+          '</div>' +
         '</div>' +
       '</label>';
   }
@@ -736,9 +746,13 @@
 
   // ─── Detailpaneel ──────────────────────────────────────────────────────────
 
+  // De mailstudio ververst het paneel hiermee na het instellen van een opname.
+  window.EventsV2 = window.EventsV2 || {};
+  window.EventsV2.refreshEvent = function (id) { return selectEvent(Number(id)); };
+
   async function selectEvent(id) {
     if (state.registrations.loadedFor !== id) {
-      state.registrations = { rows: [], total: 0, page: 1, totalPages: 1, loading: false, loadedFor: null };
+      state.registrations = { rows: [], total: 0, page: 1, totalPages: 1, loading: false, loadedFor: null, includeArchived: false };
     }
     state.selectedId = id;
     state.editingTitle = false;
@@ -880,9 +894,16 @@
 
       // Communicatie-studio: de mailblokken staan in Odoo, niet hier. De
       // dialoog en de logica zitten in events-v2-mail-studio.js.
-      '<button class="btn btn-sm btn-outline w-full gap-2 mb-3" data-action="open-mail-studio" data-event-id="' + event.id + '">' +
+      renderMailWarning(event) +
+
+      '<button class="btn btn-sm btn-outline w-full gap-2 mb-2" data-action="open-mail-studio" data-event-id="' + event.id + '">' +
         '<i data-lucide="mail" class="w-4 h-4"></i> Mails opmaken en klaarzetten' +
-      '</button>';
+      '</button>' +
+
+      // De opname hoort BIJ HET EVENT (x_studio_vimeo_url), niet bij een mail.
+      // Vandaar hier, en niet alleen in de mailstudio: de recapmail en de
+      // website lezen allebei dit ene veld.
+      renderRecordingRow(event);
 
     // ── 1. Basis ─────────────────────────────────────────────────────────
     var basis =
@@ -1227,7 +1248,9 @@
       : 'Dit event heeft nog geen inschrijvingen.';
 
     el('removeDeleteHint').textContent = count > 0
-      ? 'Verwijdert het event én de ' + count + ' inschrijving' + (count === 1 ? '' : 'en') + '. Niet terug te draaien.'
+      ? 'Verwijdert het event. De ' + count + ' inschrijving' + (count === 1 ? '' : 'en') +
+        ' word' + (count === 1 ? 't' : 'en') + ' gearchiveerd, niet gewist, en hun klaarstaande mails ' +
+        'worden geannuleerd — maar het event zelf is niet terug te halen.'
       : 'Niet terug te draaien.';
 
     var cancelBtn = el('removeCancelBtn');
@@ -1379,6 +1402,137 @@
     }
   }
 
+  /**
+   * Verwijderen is ARCHIVEREN: de inschrijving verdwijnt uit de lijsten en
+   * uit elke mailselectie, maar blijft in Odoo staan en is terug te halen.
+   * Dat staat ook zo in de bevestiging, zodat niemand denkt dat het weg is.
+   */
+  async function archiveRegistration(registrationId, eventId, name) {
+    if (!window.confirm(
+      'Inschrijving van ' + (name || 'deze deelnemer') + ' verwijderen?\n\n' +
+      'Ze wordt gearchiveerd in Odoo: uit de lijst en uit alle mails, maar niet gewist. ' +
+      'Mails die nog klaarstonden worden geannuleerd. Je kan haar altijd terughalen.'
+    )) return;
+
+    try {
+      var weg = await api('/registrations/' + registrationId, { method: 'DELETE' });
+      var geannuleerd = ((weg.payload || {}).data || {}).mails_cancelled || 0;
+      toast(
+        geannuleerd > 0
+          ? 'Inschrijving gearchiveerd — ' + geannuleerd + ' klaarstaande mail(s) geannuleerd'
+          : 'Inschrijving gearchiveerd',
+        'success'
+      );
+      await loadRegistrations(Number(eventId), state.registrations.page);
+      await selectEvent(Number(eventId));
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  }
+
+  /**
+   * Eén mail voor één deelnemer klaarzetten.
+   *
+   * De dubbelcontrole zit in mail-service.js op de message_id, niet op de
+   * _sent-vlag: iemand die deze mail al kreeg krijgt er dus geen tweede, ook
+   * niet als je hier twee keer klikt.
+   */
+  async function queueOneMail(registrationId, eventId, kind, name) {
+    var labels = { confirmation: 'bevestiging', reminder: 'reminder', recap: 'recap' };
+    if (!window.confirm(
+      'De ' + (labels[kind] || kind) + '-mail klaarzetten voor ' + (name || 'deze deelnemer') + '?\n\n' +
+      'Kreeg hij die al, dan gebeurt er niets.'
+    )) return;
+
+    try {
+      var result = await api('/events/' + eventId + '/mails/' + kind + '/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registration_ids: [Number(registrationId)] })
+      });
+      var data = result.payload.data || {};
+      var queued = (data.queued || []).length;
+
+      if (queued > 0) {
+        toast('Mail klaargezet — Odoo verstuurt hem zo', 'success');
+      } else {
+        var reden = (data.skipped || [])[0];
+        toast(reden && reden.reason ? 'Niet klaargezet: ' + reden.reason : (data.message || 'Er was niets klaar te zetten'), 'info');
+      }
+      await loadRegistrations(Number(eventId), state.registrations.page);
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  }
+
+  async function restoreRegistration(registrationId, eventId) {
+    try {
+      var terug = await api('/registrations/' + registrationId + '/restore', { method: 'POST' });
+      var hersteld = ((terug.payload || {}).data || {}).mails_revived || 0;
+      toast(
+        hersteld > 0
+          ? 'Inschrijving teruggehaald — ' + hersteld + ' mail(s) weer in de wachtrij'
+          : 'Inschrijving teruggehaald',
+        'success'
+      );
+      await loadRegistrations(Number(eventId), state.registrations.page);
+      await selectEvent(Number(eventId));
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  }
+
+  /**
+   * Waarschuwing als er voor dit event-type geen bevestigingsmail klaarstaat.
+   *
+   * Nodig zodra EVENTS_V2_MAIL_OWNER op "*" staat: dan neemt de OM élk
+   * event-type over, ook een nieuw type waar nog niets is ingesteld. Zonder
+   * deze melding krijgen die inschrijvers stil niets -- de vlag blijft dan
+   * wel op "niet verstuurd" staan, maar niemand kijkt daarnaar.
+   */
+  function renderMailWarning(event) {
+    var typeId = event.event_type && event.event_type.id;
+    if (!typeId) return '';
+
+    var type = (state.types || []).filter(function (t) { return t.id === typeId; })[0];
+    // Oudere serverversie zonder `mails`: dan liever niets melden dan iets
+    // verkeerds beweren.
+    if (!type || !type.mails) return '';
+    if (type.mails.confirmation) return '';
+
+    return '<div class="alert alert-warning py-2 mb-2 text-xs">' +
+      '<i data-lucide="alert-triangle" class="w-4 h-4"></i>' +
+      '<span>Voor het type <strong>' + esc(type.name || '') + '</strong> staat er nog geen ' +
+      'bevestigingsmail klaar. Inschrijvers krijgen dan niets.</span>' +
+      '</div>';
+  }
+
+  /**
+   * De opname van dit event: beeld, link en een knop om er een te kiezen.
+   * De kiezer zelf zit in events-v2-mail-studio.js (dezelfde die de
+   * mailstudio gebruikt) -- één kiezer, één schrijfpad.
+   */
+  function renderRecordingRow(event) {
+    var recap = event.recap || {};
+    var heeft = Boolean(recap.video_url);
+
+    return '<div class="rounded-box bg-base-200/40 p-2 mb-3 flex items-center gap-3">' +
+      (heeft && recap.thumbnail_url
+        ? '<img src="' + esc(recap.thumbnail_url) + '" alt="" class="w-16 aspect-video object-cover rounded">'
+        : '<div class="w-16 aspect-video rounded bg-base-300 flex items-center justify-center">' +
+          '<i data-lucide="clapperboard" class="w-4 h-4 opacity-40"></i></div>') +
+      '<div class="min-w-0 flex-1">' +
+        '<div class="text-xs font-medium">' + (heeft ? 'Opname' : 'Nog geen opname') + '</div>' +
+        '<div class="text-xs opacity-60 truncate">' +
+          (heeft ? esc(recap.video_url) : 'De recapmail toont er pas een zodra die hier gekozen is.') +
+        '</div>' +
+      '</div>' +
+      '<button class="btn btn-xs ' + (heeft ? 'btn-ghost' : 'btn-outline') + '" ' +
+        'data-action="open-video-picker" data-event-id="' + event.id + '">' +
+        (heeft ? 'Wijzigen' : 'Kiezen') + '</button>' +
+    '</div>';
+  }
+
   async function loadRegistrations(eventId, page) {
     var host = el('registrations-section');
     if (!host) return;
@@ -1387,7 +1541,9 @@
     host.innerHTML = '<p class="text-sm opacity-60 py-2">Inschrijvingen laden…</p>';
 
     try {
-      var result = await api('/events/' + eventId + '/registrations?page=' + page + '&per_page=25');
+      var includeArchived = state.registrations.includeArchived === true;
+      var result = await api('/events/' + eventId + '/registrations?page=' + page + '&per_page=25' +
+        (includeArchived ? '&include_archived=1' : ''));
       var pagination = result.payload.pagination || {};
 
       state.registrations = {
@@ -1396,7 +1552,8 @@
         page: pagination.page || 1,
         totalPages: pagination.total_pages || 1,
         loading: false,
-        loadedFor: eventId
+        loadedFor: eventId,
+        includeArchived: includeArchived
       };
 
       renderRegistrations(eventId);
@@ -1455,7 +1612,7 @@
       var question = cleanQuestionText(row.questions);
       var name = row.partner.name || row.name || '—';
 
-      return '<tr class="hover align-top">' +
+      return '<tr class="hover align-top' + (row.active === false ? ' opacity-50' : '') + '">' +
         '<td class="max-w-[14rem]">' +
           '<div class="font-medium truncate" title="' + esc(name) + '">' + esc(name) + '</div>' +
           '<div class="text-xs opacity-60 truncate">' + esc(row.submitted_email || '') + '</div>' +
@@ -1478,11 +1635,39 @@
           '<input type="checkbox" class="checkbox checkbox-sm"' +
             ' data-action="toggle-attendance" data-registration-id="' + row.id + '"' +
             (row.attended ? ' checked' : '') +
-            (row.state === 'cancelled' ? ' disabled' : '') + ' />' +
+            (row.state === 'cancelled' || row.active === false ? ' disabled' : '') + ' />' +
+        '</td>' +
+        // Verwijderen = archiveren in Odoo. Niets gaat echt weg, dus dit is
+        // altijd terug te draaien met dezelfde knop.
+        '<td class="text-right whitespace-nowrap">' +
+          (row.active === false
+            ? '<button class="btn btn-xs btn-ghost gap-1" data-action="restore-registration"' +
+              ' data-registration-id="' + row.id + '" data-event-id="' + eventId + '" title="Terughalen uit het archief">' +
+              '<i data-lucide="undo-2" class="w-3 h-3"></i> Terughalen</button>'
+            : // Eén mail voor één persoon klaarzetten. Dit is waar de knop in
+              // de studio eigenlijk voor bedoeld is: een individueel geval, of
+              // om te testen zonder iedereen te mailen.
+              '<div class="dropdown dropdown-end">' +
+                '<div tabindex="0" role="button" class="btn btn-xs btn-ghost btn-square" title="Mail klaarzetten voor deze deelnemer">' +
+                  '<i data-lucide="mail" class="w-3 h-3"></i></div>' +
+                '<ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow z-20 w-52 p-1">' +
+                  ['confirmation:Bevestiging', 'reminder:Reminder', 'recap:Recap'].map(function (entry) {
+                    var soort = entry.split(':')[0];
+                    var label = entry.split(':')[1];
+                    return '<li><a data-action="queue-one-mail" data-registration-id="' + row.id + '"' +
+                      ' data-event-id="' + eventId + '" data-mail-kind="' + soort + '"' +
+                      ' data-registration-name="' + esc(name) + '">' + label + '</a></li>';
+                  }).join('') +
+                '</ul>' +
+              '</div> ' +
+              '<button class="btn btn-xs btn-ghost btn-square text-error" data-action="archive-registration"' +
+              ' data-registration-id="' + row.id + '" data-event-id="' + eventId + '"' +
+              ' data-registration-name="' + esc(name) + '" title="Verwijderen (wordt gearchiveerd in Odoo)">' +
+              '<i data-lucide="trash-2" class="w-3 h-3"></i></button>') +
         '</td>' +
         '</tr>' +
         (question
-          ? '<tr><td colspan="6" class="text-xs opacity-70 pt-0 pb-3">' +
+          ? '<tr><td colspan="7" class="text-xs opacity-70 pt-0 pb-3">' +
             '<span class="font-medium">Vraag:</span> <span class="whitespace-pre-wrap">' + esc(question) + '</span></td></tr>'
           : '');
     }).join('');
@@ -1494,6 +1679,10 @@
           '<span class="text-xs opacity-60">' + attended + ' van ' + reg.rows.length + ' aanwezig op deze pagina</span>' +
         '</div>' +
         '<div class="flex items-center gap-1.5 flex-wrap">' +
+          '<button class="btn btn-xs ' + (state.registrations.includeArchived ? 'btn-active' : 'btn-ghost') +
+            ' gap-1" data-action="toggle-archived-registrations" data-event-id="' + eventId + '">' +
+            '<i data-lucide="archive" class="w-3 h-3"></i> ' +
+            (state.registrations.includeArchived ? 'Verberg gearchiveerde' : 'Toon gearchiveerde') + '</button>' +
           '<button class="btn btn-xs btn-ghost gap-1" data-action="reload-registrations" data-event-id="' + eventId + '">' +
             '<i data-lucide="refresh-cw" class="w-3 h-3"></i> Verversen</button>' +
           '<button class="btn btn-xs btn-outline gap-1" data-action="add-registration" data-event-id="' + eventId + '">' +
@@ -1511,7 +1700,7 @@
         ? '<p class="text-sm opacity-60 py-3">Nog geen inschrijvingen.</p>'
         : '<div class="overflow-x-auto"><table class="table table-xs">' +
           '<thead><tr><th>Deelnemer</th><th>Bron</th><th>Lead</th><th>Toestand</th><th>Mails</th>' +
-          '<th class="text-center">Aanwezig</th></tr></thead>' +
+          '<th class="text-center">Aanwezig</th><th></th></tr></thead>' +
           '<tbody>' + rows + '</tbody></table></div>') +
       (reg.totalPages > 1
         ? '<div class="flex items-center justify-between mt-2">' +
@@ -1897,6 +2086,10 @@
 
     switch (action) {
       case 'select-event': selectEvent(id); break;
+      // 'open-video-picker' wordt afgehandeld in events-v2-mail-studio.js:
+      // daar zit de kiezer. Hier alleen vermeld zodat duidelijk is waarom er
+      // geen case voor is.
+
       case 'edit-title': editTitle(); break;
       case 'save': saveEvent(id); break;
       case 'publish': transition(id, 'publish', 'Gepubliceerd'); break;
@@ -1911,6 +2104,28 @@
       case 'export-registrations': exportRegistrations(id, trigger.getAttribute('data-format'), trigger); break;
       case 'add-registration': addRegistration(id); break;
       case 'remove-event': openRemoveDialog(id); break;
+      case 'archive-registration':
+        archiveRegistration(
+          trigger.getAttribute('data-registration-id'),
+          trigger.getAttribute('data-event-id'),
+          trigger.getAttribute('data-registration-name')
+        );
+        break;
+      case 'queue-one-mail':
+        queueOneMail(
+          trigger.getAttribute('data-registration-id'),
+          trigger.getAttribute('data-event-id'),
+          trigger.getAttribute('data-mail-kind'),
+          trigger.getAttribute('data-registration-name')
+        );
+        break;
+      case 'restore-registration':
+        restoreRegistration(trigger.getAttribute('data-registration-id'), trigger.getAttribute('data-event-id'));
+        break;
+      case 'toggle-archived-registrations':
+        state.registrations.includeArchived = !state.registrations.includeArchived;
+        loadRegistrations(Number(trigger.getAttribute('data-event-id')), 1);
+        break;
       case 'archive': archiveEvent(id, true); break;
       case 'unarchive': archiveEvent(id, false); break;
       case 'remove-close': el('removeDialog').close(); break;

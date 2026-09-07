@@ -26,7 +26,8 @@ import {
   REGISTRATION_FIELDS,
   REGISTRATION_LIST_FIELDS,
   toRegistrationDto,
-  assertNoForbiddenFields
+  assertNoForbiddenFields,
+  m2oId
 } from '../odoo-contract.js';
 import { EVENT_BRAND, EVENT_BRANDS } from '../constants.js';
 import {
@@ -37,9 +38,9 @@ import {
 } from '../constants.js';
 import { ValidationError, normalizeEmail, normalizePagination } from './validation.js';
 import { resolvePartnerByEmail } from './partners.js';
-import { getEvent } from './events-service.js';
+import { getEvent, logToChatter } from './events-service.js';
 import { invalidateEvents } from './cache.js';
-import { ownsMail, queueMails } from './mail-service.js';
+import { ownsMail, queueMails, cancelPendingMails, revivePendingMails } from './mail-service.js';
 import { MAIL_KIND } from './mail-blocks.js';
 import { resolveLeadStatesForPartners } from '../../event-operations/services/lead-resolution-service.js';
 
@@ -206,7 +207,143 @@ function buildDisplayName(input, email) {
  * @param {number[]|null} [options.registrationIds]
  * @returns {Promise<Object[]>} DTO's
  */
-export async function listRegistrationsForMail(env, eventId, { kind, registrationIds = null } = {}) {
+/**
+ * Een inschrijving archiveren of terughalen.
+ *
+ * "Verwijderen" in de OM is ARCHIVEREN in Odoo (`x_active = false`), nooit
+ * unlink. Reden: een inschrijving is het spoor van een echt persoon die zich
+ * heeft opgegeven -- aanwezigheid, verzonden mails, de chatter met de
+ * herkomst. Dat weggooien is onomkeerbaar en er is geen enkele situatie
+ * waarin het nodig is. Gearchiveerd verdwijnt het uit alle lijsten en uit
+ * elke mailselectie (die filteren op x_active = true), maar blijft het
+ * terug te halen.
+ *
+ * @param {Object} env
+ * @param {number} id
+ * @param {boolean} active
+ * @param {Object} [actor]
+ * @returns {Promise<{ id: number, active: boolean, event_id: number|null }>}
+ */
+export async function setRegistrationActive(env, id, active, actor = null) {
+  const registrationId = Number(id);
+  if (!Number.isInteger(registrationId) || registrationId <= 0) {
+    throw new ValidationError('Ongeldig inschrijvings-id', { status: 400 });
+  }
+
+  // Ook de gearchiveerde meenemen: anders is een al gearchiveerde
+  // inschrijving onvindbaar en kan je hem nooit terughalen.
+  const rows = await searchRead(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    domain: [[REGISTRATION_FIELDS.ID, '=', registrationId]],
+    fields: [REGISTRATION_FIELDS.ID, REGISTRATION_FIELDS.NAME, REGISTRATION_FIELDS.EVENT, REGISTRATION_FIELDS.ACTIVE],
+    limit: 1,
+    context: { active_test: false }
+  });
+
+  if (!rows || rows.length === 0) {
+    throw new ValidationError(`Inschrijving ${registrationId} niet gevonden`, { status: 404 });
+  }
+
+  const record = rows[0];
+  const eventId = m2oId(record[REGISTRATION_FIELDS.EVENT]);
+  const who = actor?.email || actor?.name || 'onbekende gebruiker';
+
+  await write(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    ids: [registrationId],
+    values: { [REGISTRATION_FIELDS.ACTIVE]: Boolean(active) }
+  });
+
+  // Klaarstaande mails meenemen. Odoo's mailcron kijkt niet naar `x_active`
+  // op de registratie, dus zonder deze stap krijgt een verwijderde deelnemer
+  // alsnog zijn reminder. Bij terughalen gaan alleen mails terug in de
+  // wachtrij waarvan het moment nog niet voorbij is.
+  const mailGevolg = active
+    ? await revivePendingMails(env, [registrationId])
+    : await cancelPendingMails(env, [registrationId]);
+
+  // Op het EVENT loggen, niet op de inschrijving: bij archiveren is dat de
+  // plek waar iemand later gaat kijken waarom er eentje mist.
+  if (eventId) {
+    const wie = record[REGISTRATION_FIELDS.NAME] || registrationId;
+    const mails = active
+      ? (mailGevolg.revived > 0 ? ` — ${mailGevolg.revived} klaarstaande mail(s) weer in de wachtrij` : '')
+      : (mailGevolg.cancelled > 0 ? ` — ${mailGevolg.cancelled} klaarstaande mail(s) geannuleerd` : '');
+
+    await logToChatter(
+      env,
+      eventId,
+      (active
+        ? `Inschrijving teruggehaald uit het archief: ${wie}`
+        : `Inschrijving gearchiveerd: ${wie}`) + mails,
+      actor
+    );
+  }
+
+  console.log(
+    `${LOG_PREFIX} inschrijving ${registrationId} ${active ? 'teruggehaald' : 'gearchiveerd'} door ${who}`
+  );
+
+  await invalidateEvents(env);
+  return {
+    id: registrationId,
+    active: Boolean(active),
+    event_id: eventId,
+    mails_cancelled: mailGevolg.cancelled || 0,
+    mails_revived: mailGevolg.revived || 0
+  };
+}
+
+/**
+ * Alle nog actieve inschrijvingen van een event archiveren, in één write.
+ *
+ * Wordt gebruikt wanneer een event verwijderd wordt: de deelnemers blijven
+ * dan bewaard in plaats van mee te verdwijnen.
+ *
+ * @param {Object} env @param {number} eventId @param {Object} [actor]
+ * @returns {Promise<{ archived: number, ids: number[] }>}
+ */
+export async function archiveRegistrationsForEvent(env, eventId, actor = null) {
+  const rows = await searchRead(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    domain: [
+      [REGISTRATION_FIELDS.EVENT, '=', Number(eventId)],
+      [REGISTRATION_FIELDS.ACTIVE, '=', true]
+    ],
+    fields: [REGISTRATION_FIELDS.ID],
+    limit: false
+  });
+
+  const ids = (Array.isArray(rows) ? rows : [])
+    .map((row) => Number(row.id))
+    .filter((value) => Number.isInteger(value) && value > 0);
+
+  if (ids.length === 0) return { archived: 0, ids: [] };
+
+  await write(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    ids,
+    values: { [REGISTRATION_FIELDS.ACTIVE]: false }
+  });
+
+  // Ook hier de wachtrij leegmaken: anders vertrekken de reminders van een
+  // verwijderd event alsnog.
+  const { cancelled } = await cancelPendingMails(env, ids);
+
+  const who = actor?.email || actor?.name || 'onbekende gebruiker';
+  console.log(
+    `${LOG_PREFIX} ${ids.length} inschrijving(en) van event ${eventId} gearchiveerd door ${who}` +
+    (cancelled > 0 ? ` (${cancelled} klaarstaande mail(s) geannuleerd)` : '')
+  );
+
+  return { archived: ids.length, ids, mails_cancelled: cancelled };
+}
+
+export async function listRegistrationsForMail(
+  env,
+  eventId,
+  { kind, registrationIds = null, includeSent = false } = {}
+) {
   const sentField = {
     [MAIL_KIND.CONFIRMATION]: REGISTRATION_FIELDS.CONFIRMATION_SENT,
     [MAIL_KIND.REMINDER]: REGISTRATION_FIELDS.REMINDER_SENT,
@@ -227,9 +364,20 @@ export async function listRegistrationsForMail(env, eventId, { kind, registratio
 
   if (Array.isArray(registrationIds) && registrationIds.length > 0) {
     domain.push([REGISTRATION_FIELDS.ID, 'in', registrationIds.filter((n) => Number.isInteger(n))]);
-  } else {
+  } else if (!includeSent) {
     domain.push([sentField, '=', false]);
   }
+
+  // includeSent negeert de _sent-vlag. Dat is nodig voor HISTORISCHE data: de
+  // oude Odoo-serveractie 1099 zette `x_studio_recap_email_sent` op TRUE voor
+  // álle registraties van een event, ook die waarvoor de verzending faalde en
+  // ook voor de duplicaten die ze net op e-mailadres had weggefilterd. Die
+  // vlag is voor bestaande events dus geen betrouwbaar antwoord op "heeft
+  // deze persoon de mail gehad".
+  //
+  // Dubbele mails kan dit niet opleveren: de bewaking zit op de message_id
+  // van het mail.mail-record (findAlreadyQueued in mail-service.js), en die
+  // is per (event, soort, inschrijving) uniek.
 
   assertNoForbiddenFields(REGISTRATION_LIST_FIELDS, 'listRegistrationsForMail');
 
@@ -293,6 +441,28 @@ export async function createRegistration(env, options) {
       [REGISTRATION_FIELDS.SOURCE]: source,
       [REGISTRATION_FIELDS.CONTACT_CREATED]: partner.created
     };
+
+    // ── De oude Odoo-automations buitenspel zetten, IN DE CREATE ───────────
+    //
+    // Rules 53 en 62 zijn `on_create_or_write` en filteren op
+    // `x_studio_confirmation_email_sent = False`. Odoo voert een
+    // base.automation bij een create SYNCHROON uit, tijdens diezelfde
+    // create-call. De vlag pas ná de create zetten is dus te laat: de
+    // automation heeft dan al gevuurd en de deelnemer krijgt twee mails --
+    // de oude van Odoo en de nieuwe van de OM.
+    //
+    // Daarom wordt het record meteen geboren met beide vlaggen op true. Voor
+    // de reminder (rules 58/63, on_time) is het niet kritiek, maar dezelfde
+    // redenering geldt en het houdt het symmetrisch.
+    //
+    // Faalt het klaarzetten hierna, dan zetten we de betrokken vlag weer op
+    // false (zie hieronder): de oude automation vuurt dan alsnog op die
+    // write, en er is dus geen situatie waarin iemand niets krijgt.
+    const claimsMail = ownsMail(env, event);
+    if (claimsMail) {
+      values[REGISTRATION_FIELDS.CONFIRMATION_SENT] = true;
+      values[REGISTRATION_FIELDS.REMINDER_SENT] = true;
+    }
 
     const questions = String(input?.questions || '').trim();
     if (questions !== '') {
@@ -390,7 +560,7 @@ export async function createRegistration(env, options) {
     // scheduled_date meteen mee (start - 24u), zodat er geen dagelijkse
     // herberekening meer nodig is. Zie computeScheduledDate() voor waarom
     // dat de bug van Odoo-cron 84 wegneemt.
-    if (ownsMail(env, event)) {
+    if (claimsMail) {
       const registrationForMail = {
         id: registrationId,
         name: values[REGISTRATION_FIELDS.NAME],
@@ -399,15 +569,22 @@ export async function createRegistration(env, options) {
         state: waitlisted ? REGISTRATION_STATE.WAITLISTED : REGISTRATION_STATE.REGISTERED
       };
 
+      const sentFieldByKind = {
+        [MAIL_KIND.CONFIRMATION]: REGISTRATION_FIELDS.CONFIRMATION_SENT,
+        [MAIL_KIND.REMINDER]: REGISTRATION_FIELDS.REMINDER_SENT
+      };
+
       const mails = (async () => {
         for (const kind of [MAIL_KIND.CONFIRMATION, MAIL_KIND.REMINDER]) {
+          let queued = 0;
           try {
-            await queueMails(env, {
+            const result = await queueMails(env, {
               event,
               registrations: [registrationForMail],
               kind,
               actor: actor || { name: 'inschrijfformulier' }
             });
+            queued = result?.queued?.length || 0;
           } catch (error) {
             // Nooit fataal: de inschrijving zelf staat al in Odoo en die is
             // het belangrijkste. Wél luid loggen -- een mail die niet
@@ -415,6 +592,27 @@ export async function createRegistration(env, options) {
             console.error(
               `${LOG_PREFIX} ${kind}-mail niet klaargezet voor inschrijving ${registrationId}: ${error?.message}`
             );
+          }
+
+          // Niets klaargezet (fout, of geen blokken ingesteld voor deze
+          // soort)? Dan de claim teruggeven, zodat de bestaande
+          // Odoo-automation alsnog zijn oude mail stuurt. Beter de oude mail
+          // dan helemaal geen mail.
+          if (queued === 0) {
+            try {
+              await write(env, {
+                model: ODOO_MODELS.REGISTRATION,
+                ids: [registrationId],
+                values: { [sentFieldByKind[kind]]: false }
+              });
+              console.warn(
+                `${LOG_PREFIX} ${kind} teruggegeven aan de Odoo-automation voor inschrijving ${registrationId}`
+              );
+            } catch (error) {
+              console.error(
+                `${LOG_PREFIX} kon ${kind} niet teruggeven voor inschrijving ${registrationId}: ${error?.message}`
+              );
+            }
           }
         }
       })();
@@ -512,11 +710,18 @@ export async function listRegistrations(env, eventId, query = {}) {
 
   const domain = [[REGISTRATION_FIELDS.EVENT, '=', Number(eventId)]];
 
+  // Gearchiveerde inschrijvingen vallen standaard weg (Odoo's active_test op
+  // x_active). Met include_archived komen ze erbij, zodat je ze kan
+  // terughalen -- anders zijn ze onzichtbaar en dus onbereikbaar.
+  const includeArchived = query?.include_archived === true || query?.include_archived === '1';
+  const context = includeArchived ? { active_test: false } : undefined;
+
   const [total, records] = await Promise.all([
     executeKw(env, {
       model: ODOO_MODELS.REGISTRATION,
       method: 'search_count',
-      args: [domain]
+      args: [domain],
+      kwargs: context ? { context } : {}
     }),
     searchRead(env, {
       model: ODOO_MODELS.REGISTRATION,
@@ -524,7 +729,8 @@ export async function listRegistrations(env, eventId, query = {}) {
       fields: [...REGISTRATION_LIST_FIELDS],
       limit: perPage,
       offset,
-      order: 'create_date desc, id desc'
+      order: 'create_date desc, id desc',
+      context
     })
   ]);
 

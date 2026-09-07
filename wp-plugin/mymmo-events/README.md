@@ -177,6 +177,123 @@ je *Detailpagina's overnemen* aan hebt staan, maar het kan nooit kwaad.
 
 ## Versies
 
+**1.6.35**
+- Mobiel: terugswipen was niet te lezen. De vorige kaart vloog van RECHTS
+  binnen -- dezelfde kant waar de vinger net naartoe sleepte -- terwijl de
+  gesleepte bovenste kaart tegelijk terugveerde naar haar plek. Twee
+  bewegingen aan dezelfde kant, met als resultaat dat het leek alsof de
+  kaart die je sleepte gewoon terugkwam, en dat je niet zag waar ze
+  belandde. Vooruit en terug zijn nu spiegelbeelden: vooruit verdwijnt een
+  kaart naar LINKS en komt ze onderaan de stapel, dus terugswipen trekt die
+  vorige kaart ook van LINKS terug naar boven.
+- Mobiel: tijdens een terugsleep beweegt de bovenste kaart niet meer. De
+  vorige kaart komt van links mee met je vinger (met haar rechterrand op je
+  vinger, en ze draait onderweg recht naar haar eigen hoek); de kaart die je
+  zag blijft liggen en zakt enkel een plaats in de stapel. Dat is ook precies
+  wat het gebaar betekent: je trekt de vorige kaart terug. Haalt de sleep de
+  drempel niet, dan schuift die kaart terug naar links het beeld uit en
+  blijft de stapel exact zoals hij was.
+- Technisch: de terugkomende kaart draagt tijdens die beweging
+  `.is-incoming` (boven de stapel, absoluut gepositioneerd, volledig
+  zichtbaar, geen pointer-events) -- die klasse moet in de CSS NA de
+  `data-deck-pos`-regels staan, want ze heeft dezelfde specificiteit. Omdat
+  er tijdens de animatie even geen kaart in de normale flow staat (de
+  invliegende kaart is absoluut, en de kaart die bovenaan lag is al naar
+  positie 1 gezakt), heeft de stapel nu ook `min-height:
+  var(--mymmo-ev-deck-h)` -- zonder dat klapt hij op dat moment in tot 0 en
+  verspringt de hele pagina.
+
+**1.6.34**
+- Mobiel: de kaart die na een swipe bovenaan komt, verschoot van scheefstand
+  op precies het moment dat de swipe klaar was -- dat voelde houterig. Het
+  was geen animatie (nagemeten met transition-events: er loopt geen
+  transitie, de nieuwe bovenste kaart landt rechtstreeks op zijn nieuwe
+  hoek), maar een instant sprong: de scheefstand hing aan de STAPELPOSITIE
+  (0: -1.25 graden, 1: -4.5, 2: 5, 3: -7), dus een kaart die naar voren
+  schoof veranderde onvermijdelijk van hoek. De hoek hoort nu bij de KAART
+  zelf (`--mymmo-ev-deck-rot`, per `:nth-child` in een cyclus van 4, zoals
+  `.mymmo-ev-row__card--1..4` op desktop) en verandert nooit meer. De stapel
+  ligt dus nog altijd los en scheef met elke kaart anders gedraaid; enkel de
+  verschuiving hangt nog van de positie af. Ook het slepen rekent die eigen
+  hoek mee, zodat een kaart ook bij de eerste vingerbeweging niet rechtspringt.
+- Mobiel: vooruit en terug zijn niet langer dezelfde beweging. Vooruit
+  (swipe naar links) vliegt de bovenste kaart weg en komt ze onderaan de
+  stapel te liggen, waar ze zacht infadet. Terug (swipe naar rechts) schuift
+  de ONDERSTE kaart van buiten het scherm terug bovenop de stapel, en de
+  kaart die bovenaan lag blijft liggen en zakt gewoon een plaats. Voorheen
+  vloog ook bij terugswipen de bovenste kaart weg -- exact dezelfde animatie
+  als vooruit, wat aanvoelde alsof je vooruit ging terwijl je terugging.
+- Mobiel: bij een swipe schuiven de overige kaarten nu MET een transitie
+  naar hun nieuwe plaats in de stapel (voorheen sprong de hele stapel in
+  een keer om). Dat is wat zichtbaar maakt dat je door de stapel gaat. Enkel
+  de kaart die van buiten het scherm terug moet, staat een frame lang
+  transitieloos (`.is-returning` op de kaart, niet meer op de hele stapel),
+  anders zie je die over het scherm zweven.
+- Alleen de mobiele stapel is geraakt; de desktopkaart van de aankondiging
+  (en haar decoratieve kaartjes erachter) blijft ongewijzigd.
+
+**1.6.33**
+- Bugfix (rij, desktop): `[mymmo_events_row]` stond bij het laden van de
+  pagina als geheel een overlap-breedte (3.25rem, of de door JS berekende
+  waarde) te ver naar links, en sprong pas op zijn plaats zodra je een
+  kaartje hoverde. Oorzaak: het "Schrijf je snel in!"-tagje
+  (`.mymmo-ev-row__pointer`, een `<span>`) staat in de markup VOOR de
+  kaarten, dus was dat span het echte `:first-child` van
+  `.mymmo-ev-row__cards` -- en de CSS-regel die de negatieve `margin-left`
+  bij de eerste kaart weghaalt, hing net aan `:first-child`. Dus kreeg ook
+  de eerste kaart die negatieve marge en schoof de hele rij een overlap
+  naar links. Bij de eerste hover verhuist dat tagje via JS in het
+  gehoverde kaartje, waardoor de eerste kaart plots wel `:first-child`
+  werd en de rij "vanzelf" goed stond -- vandaar dat het enkel bij het
+  laden leek te gebeuren. De regel hangt nu aan `:first-of-type` (de
+  kaarten zijn de enige `<a>`'s in die container, dus dat klopt ongeacht
+  waar het tagje op dat moment staat).
+- Bugfix (rij, desktop): `rowOverlapFit()` mat de kaartbreedte met
+  `getBoundingClientRect()`, maar elke kaart staat licht gedraaid en de
+  bounding box van een gedraaid element is breder dan de kaart zelf (bij
+  200x172px en 2 graden ruim 6px). Die extra pixels rekenden mee als
+  kaartbreedte, waardoor de rij systematisch iets te veel overlap kreeg en
+  smaller uitviel dan de beschikbare ruimte. Nu `offsetWidth`, en de
+  containerbreedte is de echte contentbreedte (zonder de padding van de
+  container).
+- Mobiel: de kaartenstapel van `[mymmo_events_row]` en
+  `[mymmo_events_announcement]` is nu ECHT identiek. Beide hadden hun eigen
+  buitenmarges (2.25rem 0 0.5rem vs. 5.5rem 1.5rem 4.5rem, en onder 34rem
+  nog een derde waarde) en hun eigen decoratie (scribble vs. klavertje),
+  waardoor ze anders uitgelijnd stonden. Alle binnenruimte zit nu in
+  `.mymmo-ev-swipestack` zelf, en op mobiel valt alle decoratie weg -- dat
+  was tegelijk het laatste zichtbare verschil en de reden dat de stapel
+  optisch uit het midden hing. Ook het "Schrijf je snel in!"-tagje en de
+  kaartopmaak (padding) zijn nu in beide templates dezelfde markup, ook
+  tussen 34rem en 40rem (daar toonde de aankondiging voorheen nog de
+  desktopkaart).
+- Mobiel: de kaartjes ACHTER de bovenste lagen te hoog. Ze liggen op
+  `position: absolute; inset: 0`, en de swipe-hint stond in diezelfde
+  container -- dus rekende `inset: 0` vanaf boven die hint i.p.v. vanaf de
+  bovenste kaart. De kaarten zitten nu in hun eigen wrapper
+  (`.mymmo-ev-swipestack__cards`) waar niets anders in staat; hint en
+  stipjes staan eronder, buiten dat kader.
+- Mobiel: swipen is herwerkt. De weggeswipete kaart zweefde zichtbaar
+  terug over het scherm naar de achterkant van de stapel (het herstapelen
+  gebeurde met de transitie nog actief) -- dat gaat nu transitieloos in een
+  frame. De drempel is relatief aan de kaartbreedte (18%, minimum 45px) en
+  een snelle flick volstaat ook, i.p.v. een vaste 70px die op een klein
+  scherm als "blijft plakken" aanvoelde. Een sleep die als swipe eindigt
+  onderdrukt de klik die daarna volgt, zodat je niet per ongeluk naar het
+  event navigeert. En alleen de bovenste kaart is bereikbaar: de links van
+  de kaarten erachter gaan uit de tab-orde (die kaarten stonden al op
+  `pointer-events: none`).
+- Mobiel: stipjes onder de stapel tonen hoeveel events er in de stapel
+  zitten en waar je zit, en zijn aanklikbaar om direct naar een kaart te
+  springen. De hint "Swipe om al onze aankomende events te bekijken"
+  verdwijnt na de eerste swipe (de plek blijft gereserveerd, zodat de
+  stapel niet verspringt).
+- Wisselt het venster van of naar de mobiele breedte (devtools, of een
+  tablet die kantelt), dan wordt het andere gedrag nu alsnog
+  geinitialiseerd -- voorheen deed swipen niets tot een harde refresh,
+  omdat `initRows()` zichzelf overslaat op mobiel en `initSwipeDecks()` op
+  desktop.
+
 **1.6.32**
 - De wpautop/`<br>`-bug uit 1.6.31 (kapotte type-filterchips) bleek breder
   te zitten dan enkel die ene chip: hetzelfde patroon (een inline element

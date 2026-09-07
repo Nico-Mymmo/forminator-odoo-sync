@@ -48,6 +48,13 @@ import {
   checkPublishReadiness,
   assertPublicationTransition
 } from './validation.js';
+// Let op: registrations-service importeert op zijn beurt getEvent en
+// logToChatter uit dit bestand. Dat is een echte cirkel, en die is hier
+// veilig omdat beide kanten FUNCTIEDECLARATIES zijn: die worden gehoist en
+// pas bij het aanroepen opgezocht, niet tijdens het laden van de module.
+// Zet hier dus nooit een import die op modulniveau al uitgevoerd wordt.
+import { archiveRegistrationsForEvent } from './registrations-service.js';
+import { parseMailBlocks } from './mail-blocks.js';
 
 /**
  * Aantal inschrijvingen per event, in EEN call voor alle events samen.
@@ -775,35 +782,36 @@ export async function deleteEvent(env, id, actor = null, { cascade = false, ctx 
       `Dit event heeft ${registrationCount} inschrijving(en). Verwijder je het event, dan ` +
       'blijven die in Odoo staan zonder event eraan — en dan krijgen die deelnemers geen ' +
       'mails meer. Archiveer het event liever: dan blijft alles bewaard en kan je het ' +
-      'altijd terughalen. Wil je het toch weg, verwijder dan de inschrijvingen mee.',
+      'altijd terughalen. Ga je toch door, dan worden de inschrijvingen gearchiveerd.',
       { status: 409, details: { registrations: registrationCount, can_cascade: true } }
     );
   }
 
   const who = actor?.email || actor?.name || 'onbekende gebruiker';
 
+  let archivedRegistrations = 0;
+
   if (registrationCount > 0) {
-    // Eerst de inschrijvingen, dan het event: andersom laat Odoo ze even
-    // zonder event staan.
-    const rows = await searchRead(env, {
-      model: ODOO_MODELS.REGISTRATION,
-      domain: registrationDomain,
-      fields: [REGISTRATION_FIELDS.ID],
-      limit: false,
-      context: { active_test: false }
-    });
+    // ARCHIVEREN, niet unlinken. Een inschrijving is het spoor van een echt
+    // persoon: aanwezigheid, verzonden mails, de chatter met de herkomst.
+    // Dat weggooien omdat het event weg moet is onomkeerbaar en nergens voor
+    // nodig -- gearchiveerd verdwijnt het uit alle lijsten en uit elke
+    // mailselectie, maar blijft het terug te vinden in Odoo.
+    //
+    // Eerst archiveren, dan pas het event verwijderen: andersom staan ze
+    // even zonder event.
+    const result = await archiveRegistrationsForEvent(env, eventId, actor);
+    archivedRegistrations = result.archived;
 
-    const ids = (Array.isArray(rows) ? rows : [])
-      .map((row) => Number(row.id))
-      .filter((value) => Number.isInteger(value) && value > 0);
-
-    if (ids.length > 0) {
-      await executeKw(env, {
-        model: ODOO_MODELS.REGISTRATION,
-        method: 'unlink',
-        args: [ids]
-      });
-      console.log(`${LOG_PREFIX} ${ids.length} inschrijving(en) van event ${eventId} verwijderd door ${who}`);
+    // Ook de al gearchiveerde tellen mee in de melding naar de gebruiker,
+    // want die verliezen straks eveneens hun event-koppeling.
+    if (archivedRegistrations > 0) {
+      await logToChatter(
+        env,
+        eventId,
+        `${archivedRegistrations} inschrijving(en) gearchiveerd omdat dit event verwijderd wordt`,
+        actor
+      );
     }
   }
 
@@ -811,7 +819,7 @@ export async function deleteEvent(env, id, actor = null, { cascade = false, ctx 
   // meer om een chatterbericht op te zetten.
   console.log(
     `${LOG_PREFIX} event ${eventId} "${event.title}" verwijderd door ${who}` +
-    (registrationCount > 0 ? ` (met ${registrationCount} inschrijving(en))` : '')
+    (registrationCount > 0 ? ` (${registrationCount} inschrijving(en) gearchiveerd)` : '')
   );
 
   await executeKw(env, {
@@ -823,7 +831,14 @@ export async function deleteEvent(env, id, actor = null, { cascade = false, ctx 
   await invalidateEvents(env);
   await pushWpReload(env, ctx);
 
-  return { deleted: true, id: eventId, registrations_deleted: registrationCount };
+  return {
+    deleted: true,
+    id: eventId,
+    registrations_archived: registrationCount,
+    // Oude naam blijft meegaan zodat een niet-bijgewerkte client niet stil
+    // "undefined inschrijvingen" toont.
+    registrations_deleted: 0
+  };
 }
 
 /**
@@ -888,16 +903,64 @@ export async function listEventTypes(env, { bypassCache = false } = {}) {
           EVENT_TYPE_FIELDS.NAME,
           EVENT_TYPE_FIELDS.ACTIVE,
           EVENT_TYPE_FIELDS.SEQUENCE,
-          EVENT_TYPE_FIELDS.COLOR
+          EVENT_TYPE_FIELDS.COLOR,
+          // Alleen om te kunnen MELDEN of er mails ingesteld staan. Met
+          // EVENTS_V2_MAIL_OWNER op "*" wordt een nieuw event-type
+          // automatisch meegenomen, en dan is een type zonder mailblokken
+          // stil een type waarvan de inschrijvers niets krijgen. Dat hoort
+          // zichtbaar te zijn zonder dat iemand het per type gaat nakijken.
+          EVENT_TYPE_FIELDS.MAIL_BLOCKS
         ],
         order: `${EVENT_TYPE_FIELDS.SEQUENCE} asc, ${EVENT_TYPE_FIELDS.NAME} asc`
       });
 
-      return { types: (Array.isArray(records) ? records : []).map(toEventTypeDto) };
+      return {
+        types: (Array.isArray(records) ? records : []).map((record) => ({
+          ...toEventTypeDto(record),
+          mails: mailsConfigured(record[EVENT_TYPE_FIELDS.MAIL_BLOCKS])
+        }))
+      };
     }
   );
 
   return { ...value, cached };
+}
+
+/**
+ * Welke mailsoorten staan er klaar voor dit event-type?
+ *
+ * Bewust TOLERANT: een leeg veld of onleesbare JSON levert overal `false`,
+ * geen fout. Deze functie dient alleen om een waarschuwing te kunnen tonen --
+ * ze mag de eventlijst nooit onderuit halen.
+ *
+ * @param {string|false|null} raw
+ * @returns {{ confirmation: boolean, reminder: boolean, recap: boolean }}
+ */
+function mailsConfigured(raw) {
+  const leeg = { confirmation: false, reminder: false, recap: false };
+
+  try {
+    const doc = parseMailBlocks(raw, 'event type mail blocks');
+    if (!doc) return leeg;
+
+    const gevuld = (kind) => {
+      const sectie = doc[kind];
+      if (!sectie) return false;
+      if (sectie.variants) {
+        return Object.values(sectie.variants).some((v) => Array.isArray(v?.blocks) && v.blocks.length > 0);
+      }
+      return Array.isArray(sectie.blocks) && sectie.blocks.length > 0;
+    };
+
+    return {
+      confirmation: gevuld('confirmation'),
+      reminder: gevuld('reminder'),
+      recap: gevuld('recap')
+    };
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} mailblokken van een event-type niet te lezen: ${error?.message}`);
+    return leeg;
+  }
 }
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;

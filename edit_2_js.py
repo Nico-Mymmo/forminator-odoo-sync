@@ -1,350 +1,39 @@
-/**
- * Mymmo Events — progressive enhancement.
- *
- * De kalender en de lijst werken volledig zonder JavaScript: de
- * maandnavigatie en de type-filter chips zijn gewone links
- * (?mymmo_month=, ?mymmo_type=). Dit bestand onderschept die klikken en
- * doet twee dingen zonder de pagina te herladen:
- *
- *  1. Type-filter chips: puur clientside. Elke vooraf gerenderde maand
- *     staat al volledig (ongefilterd, alle types) in de pagina -- een klik
- *     toont/verbergt gewoon wat er al staat, zonder enige serveraanvraag.
- *  2. Maandnavigatie: class-shortcodes.php rendert bij het laden van de
- *     pagina al ALLE maanden tot data-horizon-month mee (verborgen, op de
- *     huidige maand na, zie [data-month-slot] in calendar.php/list.php).
- *     Binnen dat bereik is bladeren dus pure DOM tonen/verbergen -- geen
- *     enkele aanvraag, geen wachttijd. Enkel ver buiten dat bereik (een
- *     zeldzaamheid) haalt dit alsnog één maand op via het REST-endpoint
- *     (class-rest.php) en wisselt het de inhoud van .mymmo-ev-inner; die
- *     opgehaalde maand wordt ook clientside gecached (60s, zelfde
- *     levensduur als de servercache) zodat snel heen-en-weer bladeren daar
- *     ook geen tweede aanvraag doet.
- *
- * Alles is per component gescoped (elke .mymmo-ev-calendar / .mymmo-ev-list
- * op de pagina heeft zijn eigen status en zijn eigen click-listener): een
- * kalender en een lijst naast elkaar op dezelfde pagina filteren en
- * bladeren onafhankelijk van elkaar.
- */
-(function () {
-  'use strict';
+#!/usr/bin/env python3
+"""v1.6.33 -- assets/js/mymmo-events.js
 
-  var CACHE_MS = 60000;
+Vervangt de hele staart van het bestand (sectie 5b: swipe-deck, sectie 6:
+kaartenrij, en de boot-regels) door een herwerkte versie:
+ - deck werkt op de nieuwe .mymmo-ev-swipestack__cards-wrapper
+ - transitieloos herstapelen (geen terugzwevende kaart meer)
+ - relatieve swipedrempel + flick, klik-onderdrukking na een sleep
+ - stipjes-indicator, hint verdwijnt na de eerste swipe
+ - rowOverlapFit() meet offsetWidth i.p.v. de bounding box van een
+   gedraaide kaart, en de echte contentbreedte van de container
+ - init is idempotent + een breakpoint-watcher initialiseert het andere
+   gedrag als het venster van/naar mobiel wisselt
+"""
+import sys
 
-  /**
-   * 1. Na een inschrijving naar de melding scrollen en focus geven, zodat
-   *    ook een screenreader de uitkomst voorleest.
-   */
-  function focusFlash() {
-    var alert = document.querySelector('.mymmo-ev-alert');
-    if (!alert) return;
+PATH = 'wp-plugin/mymmo-events/assets/js/mymmo-events.js'
 
-    alert.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    alert.focus({ preventScroll: true });
-  }
+data = open(PATH, 'rb').read()
+assert data.count(b'\r') == 0, 'CR gevonden in baseline -- eerst normaliseren'
+content = data.decode('utf-8')
+before_lines = content.count('\n')
 
-  /**
-   * 2. Dubbel verzenden voorkomen. Zonder dit levert een tweede klik een
-   *    "al ingeschreven"-fout op, wat er als een bug uitziet.
-   */
-  function guardForms() {
-    document.querySelectorAll('.mymmo-ev-form').forEach(function (form) {
-      form.addEventListener('submit', function () {
-        var button = form.querySelector('button[type="submit"]');
-        if (!button) return;
-        button.disabled = true;
-        button.dataset.label = button.textContent;
-        button.textContent = 'Bezig…';
-      });
-    });
-  }
+marker = '5b. Swipeable deck'
+assert content.count(marker) == 1, 'marker niet exact 1x gevonden'
+cut = content.rindex('  /**', 0, content.index(marker))
+old_tail = content[cut:]
+assert 'function initSwipeDeck(' in old_tail
+assert 'function rowOverlapFit(' in old_tail
+assert 'function initRows(' in old_tail
+assert old_tail.rstrip().endswith('})();')
 
-  /** De actieve maand-slot (of, bij ontbreken daarvan, root zelf). */
-  function activeSlot(root) {
-    return root.querySelector('[data-month-slot]:not([hidden])') || root;
-  }
-
-  /**
-   * Leest welke type-chips bij het laden al actief staan (standaard alles,
-   * zie resolve_types() in class-shortcodes.php) in een per-component Set.
-   * Elke maand-slot heeft zijn eigen kopie van de filterbalk (ze zijn
-   * onafhankelijk vooraf gerenderd); ze staan bij het laden allemaal gelijk,
-   * dus de eerste balk die er is volstaat om de startstatus te lezen.
-   */
-  function readFilterState(root) {
-    var bar = root.querySelector('.mymmo-ev-typefilter');
-    var state = { hasFilter: !!bar, activeTypes: new Set() };
-    if (bar) {
-      bar.querySelectorAll('.mymmo-ev-chipfilter.is-active[data-type-id]').forEach(function (chip) {
-        state.activeTypes.add(chip.getAttribute('data-type-id'));
-      });
-    }
-    return state;
-  }
-
-  /**
-   * Chips visueel laten kloppen met de huidige (clientside) selectie --
-   * over ALLE maand-slots heen (elk heeft zijn eigen filterbalk), zodat de
-   * selectie ook meteen klopt zodra je naar een andere maand-slot wisselt.
-   */
-  function syncChips(root, state) {
-    root.querySelectorAll('.mymmo-ev-typefilter').forEach(function (bar) {
-      bar.querySelectorAll('.mymmo-ev-chipfilter[data-type-id]').forEach(function (chip) {
-        var active = state.activeTypes.has(chip.getAttribute('data-type-id'));
-        chip.classList.toggle('is-active', active);
-        chip.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
-    });
-  }
-
-  /**
-   * Toont/verbergt de al aanwezige events/kaarten op basis van de huidige
-   * selectie -- geen netwerkaanvraag, alleen DOM. Werkt op zowel de
-   * kalenderchips (per dag) als de lijstkaarten. Per maand-slot toegepast
-   * (of op root zelf, als er geen slots zijn -- bv. de REST-fallback): elke
-   * maand telt zijn eigen leeg/gevuld-status, anders zou "geen resultaten"
-   * in de ene maand verkeerd meetellen met events in een andere.
-   */
-  function applyVisibility(root, state) {
-    if (!state.hasFilter) return;
-
-    var slots = root.querySelectorAll('[data-month-slot]');
-    var scopes = slots.length ? slots : [root];
-
-    scopes.forEach(function (scope) {
-      var items = scope.querySelectorAll('[data-type-id]:not(.mymmo-ev-chipfilter)');
-      var visibleCount = 0;
-
-      items.forEach(function (item) {
-        var show = state.activeTypes.size > 0 && state.activeTypes.has(item.getAttribute('data-type-id'));
-        item.hidden = !show;
-        if (show) visibleCount += 1;
-      });
-
-      scope.querySelectorAll('[data-mymmo-day]').forEach(function (day) {
-        day.classList.toggle('has-events', !!day.querySelector('.mymmo-ev-chip:not([hidden])'));
-      });
-
-      var defaultEmpty = scope.querySelector('[data-mymmo-empty-default]');
-      var filteredEmpty = scope.querySelector('[data-mymmo-empty-filtered]');
-      var totalItems = items.length;
-
-      if (filteredEmpty) {
-        filteredEmpty.hidden = !(totalItems > 0 && visibleCount === 0);
-      }
-      if (defaultEmpty && totalItems > 0) {
-        defaultEmpty.hidden = true;
-      }
-    });
-  }
-
-  /**
-   * 3. Eén kalender- of lijstcomponent: maandwissel + type-filter, allebei
-   *    zonder de pagina te herladen. Bij een fout (netwerk, onverwacht
-   *    antwoord) valt dit terug op de gewone link -- die blijft altijd
-   *    werken, JS of niet.
-   */
-  function initComponent(root) {
-    var kind = root.getAttribute('data-mymmo-component');
-    var restUrl = root.getAttribute('data-rest-url');
-    var inner = root.querySelector('.mymmo-ev-inner');
-    if (!inner || !restUrl || (kind !== 'calendar' && kind !== 'list')) return;
-
-    var cache = Object.create(null);
-    var filterState = readFilterState(root);
-
-    function paramsFor(month) {
-      var params = new URLSearchParams();
-      params.set('month', month);
-
-      var format = root.getAttribute('data-format');
-      if (format) params.set('format', format);
-
-      var typeLock = root.getAttribute('data-type');
-      if (typeLock) params.set('type', typeLock);
-
-      if (kind === 'list') {
-        params.set('layout', root.getAttribute('data-layout') || 'rows');
-        params.set('show_past', root.getAttribute('data-show-past') === '1' ? '1' : '0');
-      }
-
-      return params.toString();
-    }
-
-    /** Instant wissel: de maand staat al klaar in een [data-month-slot]. */
-    function showSlot(month) {
-      var target = inner.querySelector('[data-month-slot="' + month + '"]');
-      if (!target) return false;
-
-      inner.querySelectorAll('[data-month-slot]').forEach(function (slot) {
-        slot.hidden = slot !== target;
-      });
-      root.setAttribute('data-month', month);
-      syncChips(root, filterState);
-      applyVisibility(root, filterState);
-      return true;
-    }
-
-    /** Vangnet buiten het vooraf gerenderde bereik: vervangt .mymmo-ev-inner. */
-    function swapFetched(month, html) {
-      inner.innerHTML = html;
-      root.setAttribute('data-month', month);
-      syncChips(root, filterState);
-      applyVisibility(root, filterState);
-    }
-
-    function goToMonth(month, fallbackHref) {
-      if (!month || month === root.getAttribute('data-month')) return;
-
-      // Binnen het vooraf gerenderde bereik: gewoon tonen, geen aanvraag.
-      if (showSlot(month)) return;
-
-      var cached = cache[month];
-      if (cached && (Date.now() - cached.at) < CACHE_MS) {
-        swapFetched(month, cached.html);
-        return;
-      }
-
-      fetch(restUrl + '?' + paramsFor(month), { credentials: 'same-origin' })
-        .then(function (response) {
-          if (!response.ok) throw new Error('mymmo-events: ' + response.status);
-          return response.json();
-        })
-        .then(function (json) {
-          if (!json || typeof json.html !== 'string') throw new Error('mymmo-events: onverwacht antwoord');
-          cache[month] = { html: json.html, at: Date.now() };
-          swapFetched(json.month || month, json.html);
-        })
-        .catch(function () {
-          // Vangnet: de link zelf werkt nog altijd (?mymmo_month=...).
-          if (fallbackHref) window.location.href = fallbackHref;
-        });
-    }
-
-    root.addEventListener('click', function (event) {
-      var monthLink = event.target.closest('a[data-month]');
-      if (monthLink && root.contains(monthLink)) {
-        event.preventDefault();
-        goToMonth(monthLink.getAttribute('data-month'), monthLink.href);
-        return;
-      }
-
-      var chip = event.target.closest('.mymmo-ev-chipfilter[data-type-id]');
-      if (chip && root.contains(chip)) {
-        event.preventDefault();
-        var id = chip.getAttribute('data-type-id');
-        if (filterState.activeTypes.has(id)) {
-          filterState.activeTypes.delete(id);
-        } else {
-          filterState.activeTypes.add(id);
-        }
-        syncChips(root, filterState);
-        applyVisibility(root, filterState);
-      }
-    });
-
-    // Eerste toepassing: bij een deeplink met ?mymmo_type= staat de
-    // serverkant al goed, maar zonder dit blijven kalenderdagen met enkel
-    // uitgefilterde events toch als "has-events" ogen. Geldt voor alle
-    // vooraf gerenderde maand-slots tegelijk.
-    applyVisibility(root, filterState);
-  }
-
-  function initComponents() {
-    document.querySelectorAll('.mymmo-ev-calendar, .mymmo-ev-list').forEach(initComponent);
-  }
-
-  /**
-   * 4. Maandnavigatie met de pijltjestoetsen voor de kalender die in beeld
-   *    is. Puur comfort; de knoppen (en dus ook de links) blijven het
-   *    echte mechanisme. Bij meerdere kalenders op één pagina reageert
-   *    enkel diegene die zichtbaar is in de viewport, en binnen die
-   *    kalender enkel de zichtbare maand-slot (de andere slots bevatten
-   *    ook prev/next-links, maar dan voor een verborgen maand).
-   */
-  function keyboardNav() {
-    var calendars = document.querySelectorAll('.mymmo-ev-calendar');
-    if (!calendars.length) return;
-
-    document.addEventListener('keydown', function (event) {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-
-      var tag = (event.target && event.target.tagName) || '';
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-      var selector = event.key === 'ArrowLeft'
-        ? 'a[rel="prev"]'
-        : (event.key === 'ArrowRight' ? 'a[rel="next"]' : null);
-      if (!selector) return;
-
-      for (var i = 0; i < calendars.length; i += 1) {
-        var calendar = calendars[i];
-        var rect = calendar.getBoundingClientRect();
-        if (rect.bottom < 0 || rect.top > window.innerHeight) continue;
-
-        var link = activeSlot(calendar).querySelector(selector);
-        if (link) {
-          event.preventDefault();
-          link.click();
-        }
-        break;
-      }
-    });
-  }
-
-  /**
-   * 5. Aankondiging: bij hover van de bovenste kaart draait de pijl+label-
-   *    groep licht mee, met een pivot op het gemeten middelpunt van de
-   *    kaart (fluid-width, dus geen vaste CSS-transform-origin mogelijk --
-   *    zie het commentaar bij .mymmo-ev-announce__pointer in
-   *    mymmo-events.css). De ghost-kaartjes achter de kaart bewegen
-   *    tegelijk zeer licht mee via een modifier-klasse op de deck (de
-   *    eigenlijke beweging staat in CSS, hier enkel de klasse). Elke
-   *    .mymmo-ev-announce op de pagina wordt onafhankelijk
-   *    geïnitialiseerd.
-   */
-  function announcementHover() {
-    var announces = document.querySelectorAll('.mymmo-ev-announce');
-    if (!announces.length) return;
-
-    announces.forEach(function (announce) {
-      var card = announce.querySelector('.mymmo-ev-announce__card');
-      var deck = announce.querySelector('.mymmo-ev-announce__deck');
-      var pointer = announce.querySelector('.mymmo-ev-announce__pointer');
-      if (!card || !deck) return;
-
-      card.addEventListener('mouseenter', function () {
-        deck.classList.add('mymmo-ev-announce__deck--hover');
-        if (!pointer) return;
-
-        // De pijl is display:none onder de 34rem-breakpoint (zie CSS) --
-        // reken dan niets uit, de rect zou toch leeg/irrelevant zijn.
-        if (pointer.offsetParent === null) return;
-
-        var cardRect = card.getBoundingClientRect();
-        var pointerRect = pointer.getBoundingClientRect();
-        var originX = (cardRect.left + cardRect.width / 2) - pointerRect.left;
-        var originY = (cardRect.top + cardRect.height / 2) - pointerRect.top;
-
-        pointer.style.transformOrigin = originX + 'px ' + originY + 'px';
-        pointer.classList.add('mymmo-ev-announce__pointer--hover');
-      });
-
-      card.addEventListener('mouseleave', function () {
-        deck.classList.remove('mymmo-ev-announce__deck--hover');
-        if (pointer) pointer.classList.remove('mymmo-ev-announce__pointer--hover');
-      });
-    });
-  }
-
-  /**
+NEW_TAIL = """  /**
    * 5b. Swipebare kaartenstapel (mobiel, <= 40rem): [mymmo_events_row] en
    *    [mymmo_events_announcement] tonen EXACT dezelfde stapel -- een
-   *    kaart volledig zichtbaar, de volgende licht gedraaid erachter. Elke
-   *    kaart heeft haar EIGEN vaste hoek (--mymmo-ev-deck-rot in de CSS,
-   *    per :nth-child) en houdt die door de hele stapel heen; enkel de
-   *    verschuiving hangt van de stapelpositie af. v1.6.34: voordien had
-   *    elke POSITIE een eigen hoek, waardoor een kaart die naar voren
-   *    schoof van hoek verspringt op het moment dat de swipe klaar is.
+   *    kaart volledig zichtbaar, de volgende licht gedraaid erachter.
    *    Swipe naar links = volgend event, naar rechts = vorige (cyclisch,
    *    dus terugswipen levert altijd iets op). Werkt met Pointer Events
    *    (muis + touch in een) en telt een sleep pas als swipe zodra die
@@ -363,21 +52,10 @@
    *      De kaarten erachter liggen op inset: 0; stonden hint/stipjes in
    *      datzelfde kader, dan rekende inset: 0 vanaf boven die hint en
    *      lagen ze te hoog t.o.v. de bovenste kaart.
-   *    - Bij het herstapelen schuiven de overige kaarten MET een
-   *      transitie naar hun nieuwe plaats (dat maakt zichtbaar dat je door
-   *      de stapel gaat); enkel de kaart die van buiten het scherm terug
-   *      moet, staat een frame lang transitieloos (klasse is-returning op
-   *      die kaart). Voorheen zweefde die kaart zichtbaar terug over het
-   *      scherm naar de achterkant.
-   *    - v1.6.35: vooruit en terug zijn spiegelbeelden. Vooruit verdwijnt
-   *      een kaart naar LINKS en komt ze onderaan de stapel; terugswipen
-   *      trekt die vorige kaart ook van LINKS terug naar boven. Tijdens een
-   *      terugsleep beweegt de bovenste kaart NIET -- de vorige kaart komt
-   *      van links mee met de vinger (klasse is-incoming) en de kaart die
-   *      je zag blijft liggen en zakt enkel een plaats. Voorheen vloog de
-   *      terugkomende kaart van rechts binnen, dezelfde kant waar de vinger
-   *      net naartoe sleepte, waardoor het leek alsof de gesleepte kaart
-   *      gewoon terugkeerde en je niet zag waar ze belandde.
+   *    - Herstapelen na een swipe gebeurt transitieloos (klasse
+   *      is-restacking): eerst de weggevlogen kaart transitieloos terug op
+   *      zijn rustpositie, dan de nieuwe stapelorde. Voorheen zweefde die
+   *      kaart zichtbaar terug over het scherm naar de achterkant.
    *    - De drempel is relatief aan de kaartbreedte (18%, min. 45px) en
    *      een snelle flick volstaat ook -- de vaste 70px voelde op een
    *      klein scherm als "blijft plakken".
@@ -519,14 +197,6 @@
     var FLY_MS = prefersReducedMotion() ? 0 : 320;
     var SWIPE_MIN = 45;
 
-    // De eigen hoek van een kaart, uit de CSS-var die :nth-child zet. Het
-    // slepen en wegvliegen tellen die erbij op, zodat een kaart nooit
-    // rechtspringt zodra JS een inline transform zet.
-    function baseRotOf(card) {
-      var v = parseFloat(window.getComputedStyle(card).getPropertyValue('--mymmo-ev-deck-rot'));
-      return isNaN(v) ? 0 : v;
-    }
-
     function setLinksReachable(card, on) {
       card.querySelectorAll('a[href]').forEach(function (link) {
         if (on) {
@@ -564,101 +234,21 @@
       var dir = direction || (index > activeIndex ? 1 : -1);
       animating = true;
       dismissHint();
-      if (dir > 0) {
-        goForward(index);
-      } else {
-        goBack(index);
-      }
-    }
 
-    // Vooruit: de bovenste kaart vliegt weg en komt ONDERAAN de stapel te
-    // liggen. Die kaart moet transitieloos terug naar haar rustpositie
-    // (anders zweeft ze zichtbaar van buiten het scherm naar de achterkant
-    // -- de glitch van 1.6.30-1.6.32), maar de rest van de stapel schuift
-    // juist WEL met een transitie naar voren: dat is wat het gevoel geeft
-    // dat je door de stapel gaat.
-    function goForward(index) {
       var card = activeCard();
-      var rot = baseRotOf(card);
       card.classList.remove('is-dragging');
-      card.style.transform = 'translateX(-135%) rotate(' + (rot - 16) + 'deg)';
+      card.style.transform = 'translateX(' + (dir > 0 ? '-135%' : '135%') +
+        ') rotate(' + (dir > 0 ? -16 : 16) + 'deg)';
       card.style.opacity = '0';
 
       window.setTimeout(function () {
-        card.classList.add('is-returning');
+        wrap.classList.add('is-restacking');
         card.style.transform = '';
-        card.style.opacity = '0';
+        card.style.opacity = '';
         activeIndex = index;
         render();
-        void card.offsetWidth;
-        card.classList.remove('is-returning');
-        // Nu de transities weer aan staan: zacht infaden op haar nieuwe
-        // plek onderaan de stapel i.p.v. daar plots te verschijnen.
-        card.style.opacity = '';
-        animating = false;
-      }, FLY_MS);
-    }
-
-    // Waar een kaart staat als ze links buiten beeld wacht: net voorbij de
-    // linkerrand van de stapel EN voorbij de zijruimte van de pagina, zodat
-    // er in ruststand geen randje van te zien is.
-    function backOffscreenX() {
-      return -((wrap.clientWidth || 320) + 40);
-    }
-
-    // Terug: de ONDERSTE kaart komt bovenop, en ze komt van LINKS -- dezelfde
-    // kant waar een kaart bij vooruitswipen naartoe verdwijnt. Je ziet dus
-    // letterlijk je vorige kaart terugkomen. De kaart die bovenaan lag
-    // blijft liggen en zakt enkel een plaats.
-    // .is-incoming houdt de terugkomende kaart tijdens de hele beweging
-    // boven de stapel en absoluut gepositioneerd (zie CSS), zodat ze de
-    // kaart eronder niet verplaatst.
-    function goBack(index) {
-      var incoming = cards[index];
-      var rot = baseRotOf(incoming);
-      // Is er net teruggesleept, dan staat deze kaart al gedeeltelijk in
-      // beeld (zie pointermove) -- die mag NIET eerst terug naar buiten
-      // gezet worden, dat zou een sprong geven.
-      if (!incoming.classList.contains('is-incoming')) {
-        incoming.classList.add('is-incoming');
-        incoming.classList.add('is-returning');
-        incoming.style.transform =
-          'translateX(' + backOffscreenX() + 'px) rotate(' + (rot - 14) + 'deg)';
-      }
-      incoming.classList.remove('is-dragging');
-
-      activeIndex = index;
-      render();
-      void incoming.offsetWidth;
-
-      // Transities aan -> de kaart schuift van links naar haar plek bovenaan,
-      // terwijl de overige kaarten tegelijk een plaats naar achteren zakken.
-      incoming.classList.remove('is-returning');
-      incoming.style.transform = '';
-
-      window.setTimeout(function () {
-        incoming.classList.remove('is-incoming');
-        backCard = null;
-        animating = false;
-      }, FLY_MS);
-    }
-
-    // Terugsleep die de drempel niet haalde: de vorige kaart schuift terug
-    // naar links het beeld uit, de stapel blijft exact zoals hij was.
-    function cancelBackDrag() {
-      var card = backCard;
-      var rot = baseRotOf(card);
-      backCard = null;
-      animating = true;
-      card.classList.remove('is-dragging');
-      card.style.transform =
-        'translateX(' + backOffscreenX() + 'px) rotate(' + (rot - 14) + 'deg)';
-      window.setTimeout(function () {
-        card.classList.add('is-returning');
-        card.classList.remove('is-incoming');
-        card.style.transform = '';
-        void card.offsetWidth;
-        card.classList.remove('is-returning');
+        void wrap.offsetWidth;
+        wrap.classList.remove('is-restacking');
         animating = false;
       }, FLY_MS);
     }
@@ -674,12 +264,6 @@
     var lastT = 0;
     var dx = 0;
     var speed = 0;
-    var dragBaseRot = 0;
-    // Terugsleep: welke kaart van links meekomt met de vinger, en haar eigen
-    // hoek. `back` staat vast zodra de richting van de sleep bekend is.
-    var back = false;
-    var backCard = null;
-    var backBaseRot = 0;
     var dragging = false;
     var horizontal = false;
     var decided = false;
@@ -690,29 +274,15 @@
     }
 
     function settle() {
-      var flick = speed > 0.45 && Math.abs(dx) > 24;
-      var goingBack = back;
-      dragging = false;
-      back = false;
-
-      // Bij een terugsleep bewoog niet de bovenste kaart maar de vorige
-      // kaart die van links binnenkwam (zie pointermove), dus wordt hier ook
-      // alleen die kaart afgehandeld.
-      if (goingBack) {
-        if (!backCard) return;
-        if (dx >= threshold() || (flick && dx > 0)) {
-          commit(-1);
-        } else {
-          cancelBackDrag();
-        }
-        return;
-      }
-
       var card = activeCard();
       card.classList.remove('is-dragging');
+      dragging = false;
       if (!horizontal) return;
+      var flick = speed > 0.45 && Math.abs(dx) > 24;
       if (dx <= -threshold() || (flick && dx < 0)) {
         commit(1);
+      } else if (dx >= threshold() || (flick && dx > 0)) {
+        commit(-1);
       } else {
         card.style.transform = '';
       }
@@ -730,9 +300,6 @@
       lastT = e.timeStamp || Date.now();
       dx = 0;
       speed = 0;
-      dragBaseRot = baseRotOf(card);
-      back = false;
-      backCard = null;
       dragging = true;
       horizontal = false;
       decided = false;
@@ -751,19 +318,7 @@
           dragging = false;
           return;
         }
-        // Naar rechts = terug: dan sleep je niet de bovenste kaart, maar
-        // trek je de vorige kaart van links terug het beeld in.
-        back = moveX > 0;
-        if (back) {
-          backCard = cards[(activeIndex - 1 + n) % n];
-          backBaseRot = baseRotOf(backCard);
-          backCard.classList.add('is-incoming');
-          backCard.classList.add('is-dragging');
-        } else {
-          activeCard().classList.add('is-dragging');
-        }
-        // De capture blijft altijd op de kaart onder de vinger, ook bij een
-        // terugsleep (de invliegende kaart staat op pointer-events: none).
+        activeCard().classList.add('is-dragging');
         try { activeCard().setPointerCapture(pointerId); } catch (err) { /* niet kritiek */ }
       }
       if (!horizontal) return;
@@ -774,18 +329,7 @@
       lastT = now;
       dx = moveX;
       if (e.cancelable) e.preventDefault();
-      if (back) {
-        // De vorige kaart komt met haar rechterrand mee met de vinger en
-        // draait onderweg recht naar haar eigen hoek; de kaart die bovenaan
-        // ligt beweegt niet.
-        var enter = Math.min(1, Math.max(0, dx / (wrap.clientWidth || 320)));
-        backCard.style.transform =
-          'translateX(' + (backOffscreenX() + dx) + 'px) rotate(' +
-          (backBaseRot - 14 * (1 - enter)) + 'deg)';
-      } else {
-        activeCard().style.transform = 'translateX(' + dx + 'px) rotate(' +
-          (dragBaseRot + dx / 18) + 'deg)';
-      }
+      activeCard().style.transform = 'translateX(' + dx + 'px) rotate(' + (dx / 18) + 'deg)';
     }, { passive: false });
 
     function onPointerEnd(e) {
@@ -1108,3 +652,14 @@
     boot();
   }
 })();
+"""
+
+content = content[:cut] + NEW_TAIL
+
+out = content.encode('utf-8')
+assert out.count(b'\r') == 0
+open(PATH, 'w', encoding='utf-8', newline='\n').write(content)
+
+print('OK  regels voor=%d na=%d  (verwijderde tail=%d regels, nieuwe tail=%d regels)' % (
+    before_lines, content.count('\n'), old_tail.count('\n'), NEW_TAIL.count('\n')))
+sys.exit(0)

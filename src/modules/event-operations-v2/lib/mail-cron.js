@@ -32,7 +32,8 @@ import {
 } from '../odoo-contract.js';
 import { LOG_PREFIX, PUBLICATION_STATE } from '../constants.js';
 import { MAIL_KIND } from './mail-blocks.js';
-import { computeScheduledDate } from './mail-service.js';
+import { computeScheduledDate, loadMailBlocks } from './mail-service.js';
+import { resolveSection } from './mail-blocks.js';
 import { getStages } from './events-service.js';
 
 /**
@@ -95,7 +96,7 @@ export async function runMailRepairCron(env) {
     searchRead(env, {
       model: ODOO_MODELS.EVENT,
       domain: [[EVENT_FIELDS.ID, 'in', eventIds]],
-      fields: [EVENT_FIELDS.ID, EVENT_FIELDS.STARTS_AT, EVENT_FIELDS.STAGE],
+      fields: [EVENT_FIELDS.ID, EVENT_FIELDS.STARTS_AT, EVENT_FIELDS.STAGE, EVENT_FIELDS.EVENT_TYPE],
       limit: false
     }),
     getStages(env)
@@ -122,7 +123,24 @@ export async function runMailRepairCron(env) {
     }
 
     const startsAt = fromOdooDatetime(record[EVENT_FIELDS.STARTS_AT]);
-    const timing = computeScheduledDate(MAIL_KIND.REMINDER, { starts_at: startsAt }, now);
+
+    // De ingestelde voorsprong van DIT event-type ophalen. Zonder dit zou de
+    // herstelronde alles terugzetten op de standaard van 24 uur en daarmee
+    // een bewuste instelling stil overschrijven -- precies het soort fout dat
+    // niemand opmerkt tot de mails op het verkeerde moment vertrekken.
+    let timingRegels;
+    try {
+      const { typeDoc, eventDoc } = await loadMailBlocks(env, {
+        id: eventId,
+        event_type: { id: Array.isArray(record[EVENT_FIELDS.EVENT_TYPE]) ? record[EVENT_FIELDS.EVENT_TYPE][0] : null }
+      });
+      timingRegels = resolveSection(typeDoc, eventDoc, MAIL_KIND.REMINDER, null).timing;
+    } catch (error) {
+      console.warn(`${LOG_PREFIX}[mail-repair] timing van event ${eventId} niet gelezen: ${error?.message}`);
+      timingRegels = undefined;
+    }
+
+    const timing = computeScheduledDate(MAIL_KIND.REMINDER, { starts_at: startsAt }, now, timingRegels);
 
     if (!timing.send) {
       toCancel.push(...mails.map((m) => Number(m[MAIL_FIELDS.ID])));

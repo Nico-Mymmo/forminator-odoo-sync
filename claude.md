@@ -922,6 +922,42 @@ Afspraken die bewust zo zijn:
   `auto_delete` staat daarom expliciet op `false` (de oude templates zetten hem op `true`,
   waardoor er na verzending niets bewijsbaars overbleef). Dit is bewust het omgekeerde van
   de v1-bug waar een `catch` de vlag kon overslaan.
+- **De reminder-timing staat op de SECTIE, niet in code**: `section.timing =
+  { enabled, leadHours, minLeadHours }` (`DEFAULT_TIMING` in mail-blocks.js). `enabled: false`
+  zet de reminder helemaal uit voor dat event-type; `minLeadHours > 0` slaat hem over voor wie
+  te laat inschrijft om er nog iets aan te hebben. **`minLeadHours` staat bewust standaard op
+  0**: een late inschrijver zonder reminder is precies het gat dat de oude Odoo-cron had.
+  `lib/mail-cron.js` leest die timing per event op — zonder dat zou de herstelronde alles
+  terugzetten op 24 uur en een bewuste instelling stil overschrijven.
+- **Een recap zonder opname wordt GEWEIGERD** (`MAIL_RECAP_NO_VIDEO`) zodra de mail een
+  opnameblok bevat. Het blok zou stil wegvallen en dan vertrekt er een mail die naar een
+  opname verwijst die er niet is.
+- **`include_sent` negeert de `_sent`-vlag** bij het klaarzetten. Nodig voor HISTORISCHE
+  events: de oude Odoo-serveractie 1099 zette `x_studio_recap_email_sent` op true voor álle
+  registraties, ook waar de verzending faalde en ook voor de duplicaten die ze net had
+  weggefilterd. Die vlag is voor oudere events dus geen betrouwbaar antwoord op "heeft deze
+  persoon de mail gehad". Dubbele mails kan het niet geven — de bewaking zit op de
+  `message_id`. De studio biedt dit aan zodra een inhaalactie 0 ontvangers oplevert.
+- **"Bekijk zoals verstuurd"** (`#mailProofDialog`) rendert met `editable: false` en een
+  echte of voorbeeld-inschrijving: placeholders ingevuld, knoppen in hun echte stijl, lege
+  blokken weggevallen. Dat is het enige scherm waarop je kan controleren wat er écht vertrekt
+  — de editor toont chips en lege blokken en is daarvoor per definitie ongeschikt.
+- **Knopstijlen zijn een GESLOTEN lijstje** (`KNOP_STIJLEN` in mail-render.js): een vrije
+  kleurkiezer levert onleesbare combinaties op, en in een mail kan je dat achteraf niet meer
+  bijstellen. De link van een knop staat in de editor onder de knop (`→ https://…`) en niet in
+  de verzonden mail.
+- **Het `map`-blok is geen echte kaart**: iframes worden door mailclients gestript. Het toont
+  het adres met een routeknop naar `google.com/maps/search/?api=1&query=…` — de vorm die
+  Google zelf voorschrijft voor alle platformen, dus die opent de Maps-app op mobiel en de
+  browser op desktop. Een `geo:`- of `maps://`-link doet dat maar op één platform. Een
+  statische kaartafbeelding is optioneel: die URL plak je in de instellingen, zodat er geen
+  extra API-sleutel nodig is om het blok te kunnen gebruiken.
+- **De knop "Alsnog klaarzetten" is een INHAALACTIE, geen "nu versturen".** Bevestiging en
+  reminder vertrekken vanzelf bij het inschrijven; die knop is er voor de recap en voor wie
+  er doorheen geglipt is. Voor één persoon: het mail-menu per rij in het
+  inschrijvingenoverzicht (`queue-one-mail`), dat dezelfde route gebruikt met
+  `registration_ids`. Dubbel klikken kan geen dubbele mail geven — de bewaking zit op de
+  `message_id`, niet op de `_sent`-vlag.
 - **`scheduled_date` wordt bij het INSCHRIJVEN gezet**, niet dagelijks herberekend. Odoo-cron
   84 (server action 1102) deed dat wel en liet daardoor iedereen die inschreef ná zijn
   dagelijkse run én binnen 24u vóór het event zonder reminder achter (registratie 1080,
@@ -954,6 +990,51 @@ Afspraken die bewust zo zijn:
   `x_studio_registration_site` op in de bestaande `EVENTS_PUBLIC_ORIGINS` en valt terug op
   `EVENTS_SHARED_CANONICAL_ORIGIN`. Voer hier **geen** aparte basis-URL-variabele voor in:
   één vaste waarde zou iemand die op syndicoach.be inschreef een openvme-link sturen.
+- **Placeholders staan in de editor als CHIP, niet ingevuld.** `tokenizeToChips()` in
+  mail-render.js draait alleen bij `editable: true`; bij het versturen wordt normaal
+  ingevuld. Dit is geen cosmetiek: het voorbeeld toont anders de ingevulde waarde, en de
+  editor schrijft bij het verlaten van een veld terug wat er staat — één klik op een titel
+  zou `{{event.type}}` dan vervangen door "Q&A" en het sjabloon stilletjes vernielen.
+  Chips gaan terug naar `{{pad}}` via `fromChips()` in de studio, die de DOM aflooopt (niet
+  een regex op innerHTML, want dan sneuvelt de omliggende opmaak).
+- **Typen hertekent het voorbeeld NIET.** `markDirty(false)` bij tekstwijzigingen,
+  `markDirty()` (met hertekenen) alleen bij structurele wijzigingen: blok erbij, weg,
+  verplaatst, of een instelling gewijzigd. Het voorbeeld ÍS de editor — dat opnieuw opbouwen
+  tijdens het typen gooit de cursor weg, sluit de "/"-kiezer en laat het scherm flikkeren.
+- **Een `<dialog>` met `showModal()` rendert in de TOP LAYER van de browser.** Alles wat
+  daarbuiten in de DOM staat valt eronder -- ook met `position:fixed` en `z-index:100`.
+  Daarom MOET `#mailTokenMenu` (de "/"-kiezer voor het onderwerp en de voorbeeldtekst)
+  binnen `#mailStudioDialog` staan. Toen het menu erbuiten stond, werkte "/" wel in de
+  mailbody (dat menu wordt in het `srcdoc`-iframe gebouwd, dus binnen de dialoog) en niet
+  in de onderwerpvelden: het menu kreeg wel de juiste klassen en positie, maar werd achter
+  de modal getekend. Een browsertest bewaakt dit nu structureel
+  (`mail-studio-ui-test.mjs`, assertie "de \"/\"-kiezer staat BUITEN de studiodialoog").
+  Let op bij het opsplitsen van de markup: zet nooit een los `<div id="mailTokenMenu">` in
+  een testpagina, dan wordt de assertie hol.
+- **De knoptekst zit in een `<span>` BINNEN de `<a>`.** `contenteditable` op een `<a>` geeft
+  in Chrome geen caret, dus was de copy van de knop onbewerkbaar. `data-om-edit` hoort op
+  de span, niet op de link.
+- **Chips staan tussen zero-width spaties** (`ensureCaretSpace()`, en `tokenizeToChips()` zet
+  ze er al bij). Zonder tekstknooppunt naast een `contenteditable="false"`-element kan je de
+  cursor er niet naast zetten en dus niet achter een chip verder typen. `fromChips()` strookt
+  ze weer weg, zodat ze nooit in Odoo belanden. Let op bij het invoegen: `firstChild` van de
+  chip-HTML is die spatie, niet de chip — voeg het hele fragment in.
+- **Het praktisch kader heeft vrije regels**, geen vaste lijst: `block.rows` van
+  `{id, icon, label, value}`, waarbij `value` vrije tekst met placeholders is. Zo kan iemand
+  zelf "Parking" of "Meebrengen" toevoegen zonder code. `normalizeDetailRows()` migreert de
+  oude vormen (geen rows → standaardset; `show: [...]` → die regels als echte rijen) en gooit
+  `show` weg, want twee waarheden. Regels beheren gebeurt in Instellingen; de TEKST typ je in
+  de mail zelf — niet allebei.
+- **Eén selectiekader, niet twee.** Het geselecteerde blok krijgt de blauwe rand; het stukje
+  tekst waarin je typt krijgt alleen een zachte achtergrond. Twee geneste blauwe randen zien
+  er kapot uit.
+- **De "/"-kiezer werkt in twee documenten**: de ouderpagina (onderwerp, voorbeeldtekst) en
+  het voorbeeld-iframe. Elk document krijgt zijn eigen menu-node — een menu uit de
+  ouderpagina kan niet over een iframe heen liggen. Het menu opent ná de toetsaanslag, dus
+  `openTokenMenu()` gaat één positie terug om de "/" zelf mee te kunnen wissen.
+- **Onderwerp en voorbeeldtekst zijn `contenteditable`, geen `<input>`** — een invoerveld kan
+  geen chips tonen. Lees ze dus met `fromChips()`, nooit met `.value`, en herteken ze niet
+  terwijl ze focus hebben (anders springt de cursor naar het begin).
 - **De browsertest is verplicht bij elke wijziging aan de studio**:
   `node src/modules/event-operations-v2/tests/mail-studio-ui-test.mjs` (vraagt
   `npm i -D playwright`). Drie bugs raakten in productie die geen enkele unit-test kon zien,
@@ -975,6 +1056,15 @@ Afspraken die bewust zo zijn:
 - **De markers `data-om-block` / `data-om-edit` worden alleen gerenderd bij
   `editable: true`** (de preview-route). `queueMails()` rendert zonder, dus de verzonden mail
   bevat ze niet. De test "editable: true zet data-om-attributen, de standaard niet" bewaakt dat.
+- **Een blok dat niets kan renderen valt weg bij het VERSTUREN, maar blijft staan in de
+  EDITOR** (`leegBlok()` in mail-render.js). Een opname zonder video, een knop zonder link,
+  een lege titel: gaf eerst een lege string terug, en dus ook geen `data-om-block`-marker —
+  het blok was dan onzichtbaar én niet meer te selecteren of weg te halen. Voeg je een
+  bloktype toe dat vroeg kan terugkeren, geef het dan een `leegBlok()`-tak.
+- **De videokiezer staat op TWEE plekken en is één implementatie**: op het eventpaneel
+  (`renderRecordingRow()` in events-v2-client.js, actie `open-video-picker`) en in de studio.
+  De opname hoort bij het event, dus de knop hoort primair op het eventpaneel; de studio
+  toont de balk op het recap-tabblad en zodra er ergens een opnameblok in de mail staat.
 - **De opname hoort bij het EVENT, niet bij de mail.** Het `video`-blok leest standaard
   `{{event.video_url}}` / `{{event.video_thumbnail}}` uit `x_studio_vimeo_url` en
   `x_studio_vimeo_thumbnail_url`. Zo staat de link op één plek en klopt hij ook op de website.
@@ -1004,6 +1094,45 @@ automations; hang er ook de crons en de recap-knop aan:
 Het per-site hero-logo (QWeb `t-if` op `x_studio_registration_site` in template 50/55) blijft
 werken tot het vervangen is door een hero-blok met `sites` in de nieuwe editor — niet vooruit
 weghalen.
+
+## event-operations-v2 — verwijderen is archiveren, nooit unlink (2026-09)
+
+**Regel: een inschrijving wordt in de OM nooit echt verwijderd. "Verwijderen" zet
+`x_active = false` in Odoo.** Een inschrijving is het spoor van een echt persoon:
+aanwezigheid, verzonden mails, en de chatter met herkomst en toestemming. Dat weggooien is
+onomkeerbaar en er is geen situatie waarin het nodig is. Gearchiveerd verdwijnt de rij uit
+alle lijsten en uit élke mailselectie (die filteren op `x_active = true`), maar blijft ze
+terug te halen.
+
+| Wat | Waar |
+|---|---|
+| Archiveren/terughalen van één inschrijving | `setRegistrationActive()` in `lib/registrations-service.js` |
+| Alle inschrijvingen van een event archiveren | `archiveRegistrationsForEvent()`, idem |
+| Routes | `DELETE /api/registrations/:id`, `POST /api/registrations/:id/restore` |
+| Gearchiveerde tonen | `GET /api/events/:id/registrations?include_archived=1` (zet `active_test: false`) |
+
+- **Archiveren annuleert ook de KLAARSTAANDE MAILS** (`cancelPendingMails()` in
+  mail-service.js). Odoo's mailcron kijkt niet naar `x_active` op de registratie, dus zonder
+  die stap krijgt een verwijderde deelnemer alsnog zijn reminder — de mail staat immers al in
+  de wachtrij met een `scheduled_date` in de toekomst. Alleen `state = 'outgoing'` wordt
+  geraakt en het wordt `'cancel'`, geen unlink: het spoor blijft. Terughalen uit het archief
+  zet ze weer op `'outgoing'` via `revivePendingMails()`, maar **alleen als het verzendmoment
+  nog niet voorbij is** — een mail zonder `scheduled_date` betekende "meteen" en dat moment
+  is geweest.
+- **Tests met een gestubde `fetch`**: `node src/modules/event-operations-v2/tests/mail-queue-test.mjs`.
+  Het DOMEIN is hier het gevoelige deel — een verkeerde filter annuleert stil de verkeerde
+  mails, of geen enkele. Die test is geverifieerd door het `state`-filter opzettelijk te
+  breken.
+- **`deleteEvent()` met `cascade` ARCHIVEERT de inschrijvingen** en verwijdert daarna het
+  event. Tot 2026-09 deed die een `unlink` op de inschrijvingen — dat was echt dataverlies.
+  Zonder `cascade` blijft het een 409 met het aantal erbij, zodat de gebruiker bewust kiest.
+- **Het archiveren gebeurt vóór het verwijderen van het event**, anders staan de rijen even
+  zonder event (`x_studio_linked_webinar` staat op `set null`).
+- **`events-service.js` en `registrations-service.js` importeren elkaar** sinds deze
+  wijziging. Die cirkel is veilig omdat beide kanten functiedeclaraties zijn (gehoist, pas
+  bij aanroep opgezocht). Zet daar nooit een import bij die op modulniveau al draait.
+- `toRegistrationDto` geeft `active` mee en `REGISTRATION_LIST_FIELDS` bevat `x_active`;
+  zonder dat veld kan de UI een gearchiveerde rij niet als zodanig tonen of terughalen.
 
 ## Bestandsstructuur
 

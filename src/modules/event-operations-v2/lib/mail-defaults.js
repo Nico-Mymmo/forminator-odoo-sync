@@ -51,44 +51,59 @@ function closing(prefix) {
  */
 export function starterMailBlocks() {
   return {
+    // ── Bevestiging — uit mail.template 50/55 ───────────────────────────────
     confirmation: {
+      header: header(),
       subject: 'Je bent ingeschreven voor de {{event.type}}: {{event.title}}',
       preheader: '{{event.day}} om {{event.time}} — alle details staan in deze mail.',
-      header: header(),
       blocks: [
         { id: 'c-title', type: 'heading', level: 2, text: 'Je bent ingeschreven voor de {{event.type}}' },
-        { id: 'c-intro', type: 'text', html: '<p style="margin:0 0 16px 0;">Dag {{registration.first_name}}, goed nieuws: je inschrijving is helemaal in orde! &#9989;</p>' },
-        { id: 'c-welkom', type: 'text', html: '<p style="margin:0 0 16px 0;">We kijken ernaar uit om je te verwelkomen op<br><strong>{{event.title}}</strong></p>' },
+        { id: 'c-intro', type: 'text', html: '<p style="margin:0 0 16px 0;">Goed nieuws, je inschrijving is helemaal in orde! &#9989;</p>' },
+        { id: 'c-welkom', type: 'text', html: '<p style="margin:0 0 16px 0;">We kijken ernaar uit om je binnenkort te verwelkomen op onze {{event.type}}.<br><strong>{{event.title}}</strong></p>' },
         { id: 'c-details', type: 'event_details', title: 'Details van het evenement:' },
-        { id: 'c-agenda', type: 'text', html: '<p style="margin:0 0 16px 0;">Voeg dit gerust al toe aan je agenda. We sturen je nog een herinnering vlak voor de sessie begint, en achteraf krijg je een mail met de opname.</p>' },
-        { id: 'c-outro', type: 'text', html: '<p style="margin:0;">Tot binnenkort. &#128075;</p>' },
+        { id: 'c-agenda', type: 'text', html: '<p style="margin:0 0 16px 0;">Voeg dit gerust al toe aan je agenda. We sturen je nog een herinnering vlak voor de sessie van start gaat. Je krijgt achteraf ook een mail met de opname.</p>' },
+        { id: 'c-outro', type: 'text', html: '<p style="margin:0;">Tot binnenkort. &#128075;<br>We kijken ernaar uit!</p>' },
         ...closing('c')
       ]
     },
+
+    // ── Reminder — uit mail.template 52/56 ──────────────────────────────────
     reminder: {
-      subject: '\u{1F514} Morgen om {{event.time}}: {{event.title}}',
-      preheader: 'Tot {{event.day}} om {{event.time}}. De deelnamelink staat in deze mail.',
       header: header(),
+      subject: '\u{1F514} Reminder voor de {{event.type}} om {{event.time}} — {{event.title}}',
+      preheader: 'Tot {{event.day}} om {{event.time}}. De deelnamelink staat in deze mail.',
       blocks: [
-        { id: 'r-title', type: 'heading', level: 2, text: 'Morgen is het zover' },
-        { id: 'r-intro', type: 'text', html: '<p style="margin:0 0 16px 0;">Dag {{registration.first_name}}, kleine herinnering: <strong>{{event.title}}</strong> vindt morgen plaats.</p>' },
-        { id: 'r-details', type: 'event_details', title: 'Praktisch:' },
-        { id: 'r-cta', type: 'button', label: 'Neem deel', href: '{{event.link}}' },
-        { id: 'r-outro', type: 'text', html: '<p style="margin:0;">Tot morgen! &#128075;</p>' },
+        { id: 'r-title', type: 'heading', level: 2, text: '\u23F0 Morgen is het zover' },
+        { id: 'r-intro', type: 'text', html: '<p style="margin:0 0 16px 0;">Dit is een vriendelijke herinnering dat je morgen deelneemt aan onze <strong>{{event.type}}</strong>.</p>' },
+        { id: 'r-zin', type: 'text', html: '<p style="margin:0 0 16px 0;">We hebben er zin in en kijken ernaar uit om je erbij te hebben!</p>' },
+        // Datum, tijd en spreker in het kader; de deelnamelink staat eronder
+        // als knop -- precies zoals template 52 het deed.
+        { id: 'r-details', type: 'event_details', title: 'Nog een paar details:', show: ['day', 'time', 'host'] },
+        { id: 'r-cta', type: 'button', label: 'Deelnemen aan de sessie', href: '{{event.link}}' },
+        { id: 'r-tips', type: 'text', html: '<p style="margin:0 0 16px 0;">Enkele praktische tips:</p><ul style="margin:0 0 16px 20px;padding:0 0 0 12px;"><li>Log een paar minuten vooraf in.</li><li>Zorg voor een stabiele internetverbinding.</li><li>Heb je vragen? Noteer ze alvast, er is ruimte voorzien voor interactie.</li></ul>' },
+        { id: 'r-afwezig', type: 'text', html: '<p style="margin:0 0 16px 0;">Kan je er toch niet bij zijn? Geen probleem. Laat het ons even weten, dan houden we je op de hoogte van toekomstige sessies.</p>' },
+        { id: 'r-outro', type: 'text', html: '<p style="margin:0;">Tot morgen &#128075;<br>We kijken ernaar uit om samen een waardevolle sessie neer te zetten.</p>' },
         ...closing('r')
       ]
     },
+
+    // ── Recap — uit mail.template 53 ────────────────────────────────────────
     recap: {
-      subject: 'Fijn dat je erbij was: {{event.title}}',
-      preheader: 'De opname van {{event.title}} staat klaar.',
       header: header(),
+      subject: 'Fijn dat je erbij was tijdens de {{event.type}}: {{event.title}}',
+      preheader: 'De opname van {{event.title}} staat klaar.',
       blocks: [
-        { id: 'x-title', type: 'heading', level: 2, text: 'Bedankt voor je deelname' },
-        { id: 'x-intro', type: 'text', html: '<p style="margin:0 0 16px 0;">Dag {{registration.first_name}}, fijn dat je erbij was op <strong>{{event.title}}</strong>. Hieronder vind je de opname.</p>' },
-        // Leeg gelaten: het blok leest de opname van het event zelf
-        // (x_studio_vimeo_url). Zo staat de videolink op één plek.
+        { id: 'x-title', type: 'heading', level: 2, text: 'Fijn dat je erbij was!' },
+        { id: 'x-hallo', type: 'text', html: '<p style="margin:0 0 12px 0;">Beste {{registration.first_name}},</p>' },
+        { id: 'x-dank', type: 'text', html: '<p style="margin:0 0 12px 0;">Bedankt dat je deelnam aan <strong>{{event.title}}</strong>.</p>' },
+        { id: 'x-opname-intro', type: 'text', html: '<p style="margin:0;">Hieronder kan je de opname opnieuw bekijken.</p>' },
+        // Eigen kaart voor de opname, zoals in template 53. Het blok leest de
+        // video van het event; is er geen, dan valt de hele kaart weg.
+        { id: 'x-card-video', type: 'card_break' },
         { id: 'x-video', type: 'video', label: 'Bekijk de opname' },
-        { id: 'x-outro', type: 'text', html: '<p style="margin:0;">Tot een volgende keer! &#128075;</p>' },
+        // Vrije nabeschouwing per event (x_studio_followup_html). Leeg = weg.
+        { id: 'x-card-followup', type: 'card_break' },
+        { id: 'x-followup', type: 'text', html: '{{event.recap_html}}' },
         ...closing('x')
       ]
     }

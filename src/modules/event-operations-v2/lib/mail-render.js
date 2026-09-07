@@ -97,6 +97,71 @@ export function fillPlaceholders(template, context) {
 }
 
 /**
+ * Leesbare naam per placeholder. Wordt getoond in de chip in de editor -- een
+ * gebruiker hoort "Titel van het event" te zien, niet `{{event.title}}`.
+ */
+export const TOKEN_LABELS = {
+  'event.title': 'Titel van het event',
+  'event.summary': 'Samenvatting',
+  'event.day': 'Datum',
+  'event.time': 'Uur',
+  'event.starts_at': 'Startmoment',
+  'event.location': 'Locatie',
+  'event.maps_url': 'Route naar de locatie',
+  'event.link': 'Deelnamelink',
+  'event.url': 'Link naar de eventpagina',
+  'event.type': 'Soort event',
+  'event.video_url': 'Link naar de opname',
+  'event.video_thumbnail': 'Beeld van de opname',
+  'event.recap_html': 'Nabeschouwing van het event',
+  'event.capacity': 'Aantal plaatsen',
+  'event.seats_left': 'Nog vrije plaatsen',
+  'host.name': 'Naam van de host',
+  'host.email': 'E-mail van de host',
+  'host.job_title': 'Functie van de host',
+  'host.avatar_url': 'Foto van de host',
+  'site.name': 'Naam van het bedrijf',
+  'site.key': 'Bedrijfssleutel',
+  'registration.name': 'Naam van de deelnemer',
+  'registration.first_name': 'Voornaam van de deelnemer',
+  'registration.email': 'E-mail van de deelnemer',
+  'now.year': 'Huidig jaar'
+};
+
+/**
+ * Placeholders als CHIP tonen in plaats van in te vullen.
+ *
+ * Alleen in de editor. Waarom dit moet: het voorbeeld toont normaal de
+ * INGEVULDE waarden, en de editor schrijft bij het verlaten van een veld
+ * terug wat er staat. Zonder chips zou één klik op een titel `{{event.type}}`
+ * vervangen door "Q&A" -- het sjabloon vernielt zichzelf dan stilletjes bij
+ * het eerste gebruik.
+ *
+ * `contenteditable="false"` maakt de chip één ondeelbaar geheel: je kan er
+ * niet middenin typen, en backspace haalt hem in zijn geheel weg.
+ *
+ * @param {string} html - al ge-escapete tekst, of vertrouwde HTML
+ * @returns {string}
+ */
+export function tokenizeToChips(html) {
+  return String(html || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, path) => {
+    const label = TOKEN_LABELS[path] || path;
+    // De zero-width spaties eromheen zijn geen opsmuk: zonder een
+    // tekstknooppunt naast een `contenteditable=false`-element kan je de
+    // cursor er niet naast zetten, en kan je dus niet achter een chip
+    // verder typen. fromChips() in de studio strippt ze weer.
+    return (
+      '\u200b' +
+      `<span data-om-token="${esc(path)}" contenteditable="false" ` +
+      `style="display:inline-block;padding:1px 8px;margin:0 1px;border-radius:10px;` +
+      `background:#e0e7ff;color:#3730a3;font-size:0.9em;font-weight:500;` +
+      `white-space:nowrap;vertical-align:baseline;">${esc(label)}</span>` +
+      '\u200b'
+    );
+  });
+}
+
+/**
  * Dag en uur in Europe/Brussels, afgeleid uit de ISO-startdatum.
  *
  * BEWUST NIET x_studio_starting_day / x_studio_starting_time. Die char-velden
@@ -153,6 +218,7 @@ export function buildPlaceholderContext({
   registration = null,
   host = {},
   publicUrl = '',
+  typeColor = '',
   now = new Date()
 }) {
   const displayName = String(registration?.name || '').trim();
@@ -172,11 +238,33 @@ export function buildPlaceholderContext({
       link: event?.online_url || '',
       url: publicUrl || '',
       type: event?.event_type?.name || '',
+      // De kleur van de eventcategorie, voor knoppen in de huisstijl. Komt
+      // uit x_studio_type_color_hex op het event-type, met terugval op
+      // EVENT_TYPE_PRESENTATION in constants.js -- dezelfde bron als de
+      // kalender op de website gebruikt, zodat mail en site niet uit elkaar
+      // lopen.
+      type_color: typeColor || '',
       // De opname hoort BIJ HET EVENT (x_studio_vimeo_url), niet bij de mail.
       // Het recapblok leest ze hiervandaan, zodat niemand een videolink in een
       // mailsjabloon hoeft te plakken en er nooit twee versies van bestaan.
       video_url: event?.recap?.video_url || '',
-      video_thumbnail: event?.recap?.thumbnail_url || ''
+      video_thumbnail: event?.recap?.thumbnail_url || '',
+      // Vrije nabeschouwing per event (x_studio_followup_html). Template 53
+      // toonde die met een t-if; als blok-placeholder valt hij vanzelf weg
+      // wanneer het veld leeg is.
+      recap_html: event?.recap?.body_html || '',
+      // Route naar de locatie. `google.com/maps/search/?api=1` is de vorm die
+      // Google zelf documenteert voor alle platformen: op iOS en Android
+      // opent die de Maps-app als die geïnstalleerd is, en anders de
+      // browser. Een `geo:`- of `maps://`-link doet dat maar op één van de
+      // twee en breekt op desktop.
+      maps_url: event?.location?.name
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location.name)}`
+        : '',
+      capacity: event?.registration?.capacity ? String(event.registration.capacity) : '',
+      seats_left: event?.registration?.seats_left === null || event?.registration?.seats_left === undefined
+        ? ''
+        : String(event.registration.seats_left)
     },
     host: {
       name: event?.host?.name || '',
@@ -226,10 +314,36 @@ function renderCardBlock(block, context, editable = false) {
     `<tr><td${mark} style="font-family:${STYLE.font};${style}">${inner}</td></tr>`;
   const ed = (prop) => editMark(editable, prop);
 
+  // Tekst die de gebruiker bewerkt: in de editor blijven de placeholders
+  // staan (als chip), bij het versturen worden ze ingevuld. Attributen
+  // (src, href) gaan ALTIJD door fill() -- een chip in een URL is onzin.
+  const txt = (value) => (editable ? tokenizeToChips(esc(String(value || ''))) : esc(fill(value)));
+  const rich = (value) => (editable ? tokenizeToChips(String(value || '')) : fill(value));
+
+  /**
+   * Een blok dat nog niet getoond kan worden.
+   *
+   * Bij het VERSTUREN valt zo'n blok weg -- een opname die er niet is, hoort
+   * geen gebroken afbeelding te worden. In de EDITOR moet het juist zichtbaar
+   * blijven: anders voeg je een opnameblok toe, gebeurt er ogenschijnlijk
+   * niets, en kan je het ook niet meer selecteren of weghalen omdat er geen
+   * enkele marker in de HTML staat.
+   */
+  const leegBlok = (titel, uitleg) => {
+    if (!editable) return '';
+    return row(
+      `<div style="border:1px dashed #cbd5e1;border-radius:${STYLE.boxRadius}px;padding:20px;` +
+      `text-align:center;color:${STYLE.footer};font-size:13px;background:#f8fafc;">` +
+      `<div style="font-weight:600;color:${STYLE.text};margin-bottom:2px;">${esc(titel)}</div>` +
+      `<div>${esc(uitleg)}</div></div>`,
+      'padding:8px 0 16px;'
+    );
+  };
+
   switch (block.type) {
     case BLOCK_TYPE.HEADING: {
-      const text = esc(fill(block.text));
-      if (text === '') return '';
+      const text = txt(block.text);
+      if (text === '') return leegBlok('Titel', 'Klik hier en typ je titel.');
       const level = [1, 2, 3].includes(Number(block.level)) ? Number(block.level) : 2;
       const size = { 1: 30, 2: 26, 3: 20 }[level];
       return row(
@@ -241,8 +355,8 @@ function renderCardBlock(block, context, editable = false) {
     case BLOCK_TYPE.TEXT: {
       // Redactionele inhoud uit Odoo: vertrouwd, dus niet ge-escaped.
       // Placeholders worden er wél in ingevuld.
-      const html = fill(block.html);
-      if (html.trim() === '') return '';
+      const html = rich(block.html);
+      if (html.trim() === '') return leegBlok('Tekst', 'Klik hier en begin te typen.');
       return row(
         `<div${ed('html')} style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:${STYLE.text};">${html}</div>`
       );
@@ -251,27 +365,36 @@ function renderCardBlock(block, context, editable = false) {
     case BLOCK_TYPE.EVENT_DETAILS: {
       // Het grijze kader uit de bestaande mail, met dezelfde emoji-labels.
       //
-      // Drie verschillen met die template:
-      //  1. de datumregel gebruikte `x_studio_date` naast `starting_day`. Dat
-      //     veld staat in FORBIDDEN_FIELDS en is `false` op ELK record, dus die
-      //     helft van de regel was altijd leeg. Hier staat één afgeleide datum.
-      //  2. de locatieregel bestond niet -- een live event toonde geen adres.
-      //  3. lege regels vallen weg in plaats van een label zonder waarde te
-      //     tonen (een online event heeft geen locatie, een live event geen link).
-      const title = esc(fill(block.title) || 'Details van het evenement:');
+      // De regels zijn GEEN vaste lijst meer: het zijn gewone rijen met een
+      // icoon, een label en een waarde, en die waarde is vrije tekst met
+      // placeholders. Zo kan een gebruiker zelf "Parking" of "Meebrengen"
+      // toevoegen zonder dat daar code voor nodig is.
+      //
+      // Twee dingen die anders zijn dan template 50/55: de datumregel
+      // gebruikte daar `x_studio_date` naast `starting_day` (dat veld staat
+      // in FORBIDDEN_FIELDS en is false op elk record, dus die helft was
+      // altijd leeg), en er was geen locatieregel.
+      const title = txt(block.title) || esc('Details van het evenement:');
+      const detailRows = Array.isArray(block.rows) ? block.rows : [];
 
-      const rows = [
-        ['📅', 'Datum', context.event.day, false],
-        ['🕒', 'Tijd', context.event.time, false],
-        ['📍', 'Locatie', context.event.location, false],
-        ['🔗', 'Deelnamelink', context.event.link, true]
-      ]
-        .filter(([, , value]) => String(value || '').trim() !== '')
-        .map(([icon, label, value, isLink]) => {
-          const shown = isLink
-            ? `<br><a href="${safeUrl(value)}" style="color:${STYLE.link};text-decoration:none;word-break:break-all;">${esc(value)}</a>`
-            : ` ${esc(value)}`;
-          return `<p style="margin:0 0 8px 0;">${icon} <strong style="font-weight:700;">${esc(label)}:</strong>${shown}</p>`;
+      const rows = detailRows
+        .map((detail, index) => {
+          const raw = String(detail?.value || '');
+          const shown = editable ? txt(raw) : esc(fill(raw));
+          // Bij het versturen valt een lege regel weg; in de editor blijft
+          // hij staan, anders kan je hem niet meer invullen.
+          if (!editable && shown.trim() === '') return '';
+
+          const label = txt(detail?.label || '');
+          const icon = esc(String(detail?.icon || ''));
+          const filled = fill(raw);
+          const isLink = /^https?:\/\//i.test(filled);
+
+          const value = isLink && !editable
+            ? `<br><a href="${safeUrl(filled)}" style="color:${STYLE.link};text-decoration:none;word-break:break-all;">${esc(filled)}</a>`
+            : ` <span${ed(`rows.${index}.value`)}>${shown || (editable ? '&nbsp;' : '')}</span>`;
+
+          return `<p style="margin:0 0 8px 0;">${icon} <strong${ed(`rows.${index}.label`)} style="font-weight:700;">${label}:</strong>${value}</p>`;
         })
         .join('');
 
@@ -289,15 +412,61 @@ function renderCardBlock(block, context, editable = false) {
 
     case BLOCK_TYPE.BUTTON: {
       const href = safeUrl(fill(block.href));
-      const label = esc(fill(block.label));
-      if (href === '' || label === '') return '';
+      const label = txt(block.label);
+      if (label === '') return leegBlok('Knop', 'Klik op het opschrift om het in te vullen.');
+      if (href === '') return leegBlok('Knop', 'Nog geen link. Zet die in Instellingen.');
+      return row(knopHtml({ href, label, block, editable, editAttr: ed('label'), context }), 'padding:8px 0 16px;');
+    }
+
+    case BLOCK_TYPE.MAP: {
+      // Alleen zinvol bij een live event. Is er geen locatie (online event),
+      // dan valt het blok weg -- geen kaart van nergens.
+      const adres = String(fill(block.address || '{{event.location}}')).trim();
+      if (adres === '') {
+        return leegBlok('Locatie en route', 'Dit event heeft geen locatie, dus er is niets om te tonen.');
+      }
+
+      const route = safeUrl(fill('{{event.maps_url}}'));
+      // Een INTERACTIEVE kaart kan niet in een mail: iframes worden gestript.
+      // Een statische afbeelding wél -- die plak je als URL in de
+      // instellingen (Google Static Maps, Mapbox, wat je ook gebruikt). Zonder
+      // afbeelding blijft het adres met de routeknop over, en dat werkt overal.
+      const kaart = safeUrl(fill(block.image));
+
+      const beeld = kaart === ''
+        ? ''
+        : `<tr><td style="padding:0 0 12px;">` +
+          (route === '' ? '' : `<a href="${route}" target="_blank">`) +
+          `<img src="${kaart}" alt="${esc(adres)}" width="${STYLE.width - STYLE.pad * 2}" ` +
+          `style="display:block;width:100%;height:auto;border:0;border-radius:${STYLE.boxRadius}px;">` +
+          (route === '' ? '' : `</a>`) +
+          `</td></tr>`;
+
+      const knop = route === ''
+        ? ''
+        : `<tr><td style="padding:4px 0 0;">` +
+          knopHtml({
+            href: route,
+            label: txt(block.label) || esc('Route openen'),
+            block: { ...block, variant: block.variant || 'outline' },
+            editable,
+            editAttr: ed('label'),
+            context
+          }) +
+          `</td></tr>`;
+
       return row(
-        `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>` +
-        `<td style="background:${STYLE.link};border-radius:8px;">` +
-        `<a href="${href}" target="_blank"${ed('label')} style="display:inline-block;padding:14px 28px;font-family:${STYLE.font};` +
-        `font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;">${label}</a>` +
-        `</td></tr></table>`,
-        'padding:8px 0 16px;'
+        `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" ` +
+        `style="border-collapse:separate;background:${STYLE.box};border-radius:${STYLE.boxRadius}px;">` +
+        `<tr><td style="padding:20px;font-family:${STYLE.font};">` +
+        `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">` +
+        beeld +
+        `<tr><td style="font-size:14px;color:${STYLE.text};padding:0 0 4px;">` +
+        `📍 <strong${ed('title')} style="font-weight:700;">${txt(block.title) || esc('Waar')}:</strong> ` +
+        `<span${ed('address')}>${txt(block.address || '{{event.location}}')}</span></td></tr>` +
+        knop +
+        `</table></td></tr></table>`,
+        'padding:24px 0;'
       );
     }
 
@@ -305,10 +474,12 @@ function renderCardBlock(block, context, editable = false) {
       // De afzenderkaart uit de bestaande mail: naam + functie links, ronde
       // foto rechts. Ontbreekt de foto, dan valt die kolom gewoon weg in
       // plaats van een lege blokje van 120px achter te laten.
-      const name = esc(fill(block.name) || context.host.name);
-      if (name === '') return '';
-      const jobTitle = esc(fill(block.job_title !== undefined ? block.job_title : '{{host.job_title}}'));
-      const org = esc(fill(block.org !== undefined ? block.org : '{{site.name}}'));
+      const name = editable
+        ? (txt(block.name) || esc(context.host.name))
+        : esc(fill(block.name) || context.host.name);
+      if (name === '') return leegBlok('Afzender', 'Dit event heeft nog geen host. Kies er een, of vul een naam in bij Instellingen.');
+      const jobTitle = txt(block.job_title !== undefined ? block.job_title : '{{host.job_title}}');
+      const org = txt(block.org !== undefined ? block.org : '{{site.name}}');
       const avatar = safeUrl(fill(block.avatar !== undefined ? block.avatar : '{{host.avatar_url}}'));
 
       const left =
@@ -337,11 +508,19 @@ function renderCardBlock(block, context, editable = false) {
       // plek en niet ook nog eens in het mailsjabloon.
       const href = safeUrl(fill(block.href || '{{event.video_url}}'));
       const thumb = safeUrl(fill(block.thumbnail || '{{event.video_thumbnail}}'));
-      // Geen opname ingesteld op het event: het blok valt weg in plaats van
-      // een gebroken afbeelding te tonen.
-      if (href === '' || thumb === '') return '';
+      // Geen opname op het event: bij het VERSTUREN valt het blok weg (geen
+      // gebroken afbeelding), in de EDITOR blijft het staan met de reden
+      // erbij -- anders lijkt het alsof het toevoegen niets deed.
+      if (href === '' || thumb === '') {
+        return leegBlok(
+          'Opname',
+          href !== '' && thumb === ''
+            ? 'Deze video heeft geen beeld. Kies hem opnieuw via "Opname kiezen".'
+            : 'Nog geen opname gekoppeld aan dit event. Kies er een met de knop "Opname kiezen" bovenaan.'
+        );
+      }
 
-      const caption = esc(fill(block.label) || 'Bekijk de opname');
+      const caption = txt(block.label) || esc('Bekijk de opname');
       const alt = esc(fill(block.alt) || caption);
       const inner = STYLE.width - STYLE.pad * 2;
 
@@ -368,7 +547,7 @@ function renderCardBlock(block, context, editable = false) {
 
     case BLOCK_TYPE.IMAGE: {
       const src = safeUrl(fill(block.src));
-      if (src === '') return '';
+      if (src === '') return leegBlok('Afbeelding', 'Nog geen afbeelding. Zet de URL in Instellingen.');
       const alt = esc(fill(block.alt));
       const href = safeUrl(fill(block.href));
       const img = `<img src="${src}" alt="${alt}" width="${STYLE.width - STYLE.pad * 2}" ` +
@@ -394,6 +573,105 @@ function renderCardBlock(block, context, editable = false) {
 }
 
 // ─── Blokken buiten een kaart ─────────────────────────────────────────────────
+
+/**
+ * Knopvarianten. Bewust een gesloten lijstje: een vrije kleurkiezer levert
+ * onleesbare combinaties op, en in een mail kan je dat niet meer bijstellen.
+ */
+const KNOP_STIJLEN = {
+  brand: { merk: 'vol' },
+  brand_outline: { merk: 'omlijnd' },
+  primary: { bg: '#2563eb', kleur: '#ffffff', rand: '#2563eb' },
+  dark: { bg: '#111827', kleur: '#ffffff', rand: '#111827' },
+  outline: { bg: '#ffffff', kleur: '#2563eb', rand: '#2563eb' },
+  subtle: { bg: '#f1f5f9', kleur: '#1f2937', rand: '#e2e8f0' }
+};
+
+/**
+ * Zwarte of witte tekst op deze achtergrond?
+ *
+ * De categoriekleuren komen uit Odoo en zijn dus door een gebruiker in te
+ * stellen. Witte tekst hardcoderen zou op een lichte kleur onleesbaar zijn,
+ * en in een mail kan je dat achteraf niet meer bijstellen.
+ *
+ * Drempel 0,6 op de relatieve helderheid (WCAG-formule): daarboven zwarte
+ * tekst, daaronder witte.
+ *
+ * @param {string} hex - #rrggbb
+ * @returns {string}
+ */
+export function leesbareTekstkleur(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!match) return '#ffffff';
+
+  const waarde = match[1];
+  const kanaal = (start) => {
+    const v = Number.parseInt(waarde.slice(start, start + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+
+  const helderheid = 0.2126 * kanaal(0) + 0.7152 * kanaal(2) + 0.0722 * kanaal(4);
+  return helderheid > 0.6 ? '#111827' : '#ffffff';
+}
+
+/** Een geldige hexkleur, of leeg. @returns {string} */
+function hexOfNiets(waarde) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(waarde || '').trim()) ? String(waarde).trim() : '';
+}
+
+/**
+ * Eén knop, in de gekozen stijl en breedte.
+ *
+ * @param {Object} options
+ * @param {string} options.href - al door safeUrl gehaald
+ * @param {string} options.label - al ge-escapet of getokeniseerd
+ * @param {Object} options.block
+ * @param {boolean} options.editable
+ * @param {string} options.editAttr
+ * @returns {string}
+ */
+function knopHtml({ href, label, block, editable, editAttr, context }) {
+  const gekozen = KNOP_STIJLEN[block?.variant] || KNOP_STIJLEN.primary;
+
+  // De merkkleur komt van de eventcategorie. Is die er niet (geen type, of
+  // een type zonder kleur), dan valt hij terug op blauw -- nooit op een
+  // onleesbare of lege kleur.
+  const merkkleur = hexOfNiets(context?.event?.type_color) || KNOP_STIJLEN.primary.bg;
+  let stijl = gekozen;
+  if (gekozen.merk === 'vol') {
+    stijl = { bg: merkkleur, kleur: leesbareTekstkleur(merkkleur), rand: merkkleur };
+  } else if (gekozen.merk === 'omlijnd') {
+    stijl = { bg: '#ffffff', kleur: merkkleur, rand: merkkleur };
+  }
+
+  const volleBreedte = block?.width === 'full';
+  const uitlijning = ['left', 'center', 'right'].includes(block?.align) ? block.align : 'left';
+
+  // Het opschrift zit in een SPAN BINNEN de link, niet op de <a> zelf:
+  // `contenteditable` op een anchor geeft in Chrome geen cursor, waardoor de
+  // tekst van een knop niet te bewerken was.
+  const knop =
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0"` +
+    (volleBreedte ? ' width="100%"' : '') +
+    ` style="border-collapse:separate;${volleBreedte ? 'width:100%;' : ''}">` +
+    `<tr><td align="center" style="background:${stijl.bg};border:1px solid ${stijl.rand};border-radius:8px;">` +
+    `<a href="${href}" target="_blank" style="display:inline-block;padding:14px 28px;` +
+    `font-family:${STYLE.font};font-size:16px;font-weight:600;color:${stijl.kleur};text-decoration:none;">` +
+    `<span${editAttr}>${label}</span></a></td></tr></table>`;
+
+  // In de editor de link eronder zetten: anders moet je de instellingen
+  // openen om te zien waar een knop naartoe gaat, en dat is precies wat je
+  // wil controleren voor je verstuurt.
+  const linkHint = editable
+    ? `<div style="margin-top:6px;font-family:${STYLE.font};font-size:11px;color:${STYLE.footer};` +
+      `word-break:break-all;">→ ${esc(href)}</div>`
+    : '';
+
+  if (uitlijning === 'left' || volleBreedte) return knop + linkHint;
+  return `<div style="text-align:${uitlijning};">` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${uitlijning}" ` +
+    `style="display:inline-table;"><tr><td>${knop}</td></tr></table></div>` + linkHint;
+}
 
 /**
  * De HEADER: full-bleed afbeelding boven de eerste kaart.
@@ -427,7 +705,9 @@ function renderHeader(header, context, editable = false) {
 
 /** Kleine grijze voettekst, buiten en onder de kaarten. @returns {string} */
 function renderFooter(block, context, editable = false) {
-  const html = fillPlaceholders(String(block.html || ''), context);
+  const html = editable
+    ? tokenizeToChips(String(block.html || ''))
+    : fillPlaceholders(String(block.html || ''), context);
   if (html.trim() === '') return '';
   const mark = editable ? ` data-om-block="${esc(block.id)}" data-om-type="${esc(block.type)}"` : '';
   return (

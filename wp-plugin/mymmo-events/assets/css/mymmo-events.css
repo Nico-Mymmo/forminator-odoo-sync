@@ -1246,8 +1246,19 @@
   text-decoration: none;
   transition: transform 0.15s ease, box-shadow 0.15s ease, margin 0.22s ease;
 }
-/* Eerste (bovenste) kaart heeft niets om over te schuiven. */
-.mymmo-ev-row__card:first-child {
+/* Eerste (bovenste) kaart heeft niets om over te schuiven.
+   v1.6.33: :first-of-type, NIET :first-child. Het "Schrijf je snel in!"-
+   tagje (.mymmo-ev-row__pointer, een <span>) staat in de markup VOOR de
+   kaarten, dus was dat span het echte :first-child en kreeg ook de eerste
+   kaart de negatieve margin-left. Daardoor stond de hele rij bij het laden
+   van de pagina precies een overlap-breedte (3.25rem, of de door JS
+   berekende waarde) te ver naar links; zodra je een kaart hoverde
+   verhuisde het tagje via JS in die kaart, werd de eerste kaart plots wel
+   :first-child en sprong de rij terug op zijn plaats -- vandaar dat dit
+   enkel "bij het laden" leek te gebeuren. De kaarten zijn de enige <a>'s
+   in de container, dus :first-of-type klopt ongeacht waar dat tagje op dat
+   moment staat. */
+.mymmo-ev-row__card:first-of-type {
   margin-left: 0;
 }
 /* Op hover: eigen marge aan beide kanten vergroten duwt de linker- en
@@ -1263,8 +1274,8 @@
   transform: translateY(-6px) rotate(0deg);
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14);
 }
-.mymmo-ev-row__card:first-child:hover,
-.mymmo-ev-row__card:first-child.is-active {
+.mymmo-ev-row__card:first-of-type:hover,
+.mymmo-ev-row__card:first-of-type.is-active {
   margin-left: 0;
 }
 
@@ -1389,36 +1400,98 @@
 }
 
 
-/* ── Swipebare kaartenstapel (mobiel: rij + aankondiging) ───────────────────────────────────────────────────────────
-   Op mobiel tonen [mymmo_events_row] en [mymmo_events_announcement] EXACT
-   dezelfde kaartenstapel-look: kaarten liggen licht gedraaid over elkaar,
-   net als de vaste decoratieve stapel die de aankondiging al had
-   (.mymmo-ev-announce__ghost--1/2/3 hierboven) -- alleen zijn het nu ECHTE,
-   swipebare kaarten (eigen titel/tijd/knop) i.p.v. lege placeholders, en
-   gebruiken beide shortcodes hiervoor dezelfde containerklasse
-   (.mymmo-ev-swipestack, zie templates/row.php en templates/
-   announcement.php) zodat er geen visueel verschil kan ontstaan.
+/* -- Swipebare kaartenstapel (mobiel: rij + aankondiging) ------------------
+   Op mobiel (<= 40rem) tonen [mymmo_events_row] en
+   [mymmo_events_announcement] EXACT dezelfde stapel: dezelfde DOM-structuur
+   (zie templates/row.php en templates/announcement.php), dezelfde klassen,
+   dezelfde buitenmarges en dezelfde swipe-logica. Kaarten liggen licht
+   gedraaid over elkaar, net als de vaste decoratieve stapel die de
+   aankondiging op desktop heeft (.mymmo-ev-announce__ghost--1/2/3), maar
+   het zijn ECHTE kaarten met eigen titel/tijd/knop.
 
-   initSwipeDeck() in mymmo-events.js voegt .mymmo-ev-deck-mode toe aan de
-   container en zet per kaart data-deck-pos: "0" = actief/bovenop (blijft
-   in de normale flow, position:relative, bepaalt zo de basishoogte),
-   "1"-"3" = erachter (position:absolute inset:0, dezelfde rotatie/offset-
-   waarden als de statische .mymmo-ev-announce__ghost--N hierboven),
-   "hidden" = daarbuiten. Enkel data-deck-pos="0" is aanklikbaar/swipebaar.
+   Structuur (identiek in beide templates):
 
-   Gelijke hoogte + geen cutoff (Nico's feedback op v1.6.30): titel/
-   samenvatting zijn hieronder geclamped (2 resp. 4 regels, ellipsis), en
-   JS (equalizeDeckCardHeights() in mymmo-events.js) meet na render de
-   natuurlijke hoogte van alle kaarten in de stapel en zet het maximum als
-   --mymmo-ev-deck-h op de stack -- elke kaart (ook de geabsoluteerde
-   erachter, via inset:0) krijgt zo exact diezelfde hoogte, met
-   overflow:hidden als vangnet zolang JS nog niet gemeten heeft. */
+     .mymmo-ev-swipestack            position: relative; reserveert bovenaan
+                                     ruimte voor het pointer-tagje
+       .mymmo-ev-announce__pointer   "Schrijf je snel in!", absoluut
+                                     rechtsboven in die ruimte
+       .mymmo-ev-swipestack__cards   <-- krijgt .mymmo-ev-deck-mode van JS;
+                                     DIT is het positioneringskader van de
+                                     kaarten erachter (inset: 0)
+         .mymmo-ev-deck-card * n
+       .mymmo-ev-swipedots           stipjes (door JS gebouwd)
+       .mymmo-ev-swipehint           "Swipe om ..."-hint; verdwijnt na de
+                                     eerste swipe
+
+   v1.6.33 -- wat er mis was in 1.6.30-1.6.32 en hier gefixt is:
+   - De kaarten erachter liggen op position: absolute; inset: 0. Zaten de
+     hint (en straks de stipjes) in dezelfde container, dan rekende inset: 0
+     vanaf de BOVENKANT van die container -- dus vanaf boven de hint -- en
+     lagen die kaartjes systematisch te hoog t.o.v. de bovenste kaart.
+     Vandaar nu een wrapper die niets anders bevat dan de kaarten zelf.
+   - De rij en de aankondiging hadden op mobiel verschillende buitenmarges
+     (2.25rem 0 0.5rem vs. 5.5rem 1.5rem 4.5rem, of 4.5/0.5/2.75 onder
+     34rem) en verschillende decoratie (scribble vs. klavertje). Beide
+     stonden daardoor anders uitgelijnd, terwijl ze er identiek horen uit te
+     zien. Alle binnenruimte zit nu in .mymmo-ev-swipestack, alle decoratie
+     valt op mobiel weg.
+   - De rotaties van de kaartjes erachter zijn iets kleiner dan op desktop:
+     een gedraaide kaart is breder dan zijn eigen kader, en op
+     telefoonbreedte staken de hoeken buiten de beschikbare ruimte
+     (horizontale paginascroll).
+
+   v1.6.34 -- scheefstand hoort bij de KAART, niet bij de stapelpositie:
+   - Elke positie had een eigen hoek (0: -1.25, 1: -4.5, 2: 5, 3: -7
+     graden). Een kaart die na een swipe naar voren schoof veranderde
+     daardoor onvermijdelijk van hoek, precies op het moment dat de swipe
+     klaar was. Dat is geen animatie (nagemeten met transition-events: er
+     loopt geen transitie, de nieuwe bovenste kaart landt rechtstreeks op
+     zijn nieuwe hoek) maar een instant sprong -- en precies die sprong
+     voelde houterig.
+   - Nu krijgt elke kaart via :nth-child(4n+x) een eigen vaste hoek
+     (--mymmo-ev-deck-rot, cyclus van 4 zoals .mymmo-ev-row__card--1..4 op
+     desktop) en houdt ze die door de hele stapel heen. De stapel ligt dus
+     nog altijd los en scheef met elke kaart anders gedraaid, maar er kan
+     nergens meer een hoek verspringen.
+   - De VERSCHUIVING blijft wel per positie -- dat is wat de stapel
+     zichtbaar maakt -- en wordt bij een swipe mét transitie naar voren
+     geschoven, zodat het eruitziet alsof je door de stapel gaat. Enkel de
+     kaart die van de ene kant van het scherm naar de andere moet, springt
+     transitieloos (zie .is-returning).
+
+   v1.6.35 -- vooruit en terug zijn spiegelbeelden van elkaar:
+   - Vooruit verdwijnt een kaart naar LINKS en komt ze onderaan de stapel.
+     Terugswipen trekt die vorige kaart dus ook van LINKS terug naar boven
+     (.is-incoming hieronder) -- niet van rechts, want dan lijkt het alsof
+     de kaart die je net naar rechts sleepte gewoon terugkeert, en zie je
+     niet waar ze belandt.
+   - Tijdens een terugsleep beweegt de BOVENSTE kaart niet: de vorige kaart
+     komt van links mee met je vinger (zie mymmo-events.js). Dat is de hele
+     boodschap van dat gebaar -- je trekt de vorige kaart terug -- en de
+     kaart die je zag blijft liggen en zakt enkel een plaats.
+   - Tijdens het SLEPEN kantelt de kaart mee met je vinger BOVEN OP haar
+     eigen hoek (mymmo-events.js rekent die erbij), zodat er ook bij het
+     begin van een sleep niets rechtspringt. */
 .mymmo-ev-swipestack {
   display: none;
   position: relative;
 }
 .mymmo-ev-swipestack .mymmo-ev-announce__card {
   grid-template-columns: 1fr;
+}
+/* Enkel de kaarten -- niets anders in deze wrapper, zie doc-blok. */
+.mymmo-ev-swipestack__cards {
+  position: relative;
+}
+/* De hoogte van de stapel komt normaal van de kaart die in de flow staat
+   (data-deck-pos="0"). Tijdens het terugswipen ligt de invliegende kaart
+   bovenop maar absoluut gepositioneerd (.is-incoming), en de kaart die
+   bovenaan lag is dan al naar positie 1 gezakt -- dus staat er even geen
+   kaart in de flow. Zonder deze min-height klapt de stapel op dat moment
+   in tot 0 en verspringt de hele pagina. equalizeDeckCardHeights() in
+   mymmo-events.js zet deze var toch al op de hoogste kaart. */
+.mymmo-ev-deck-mode {
+  min-height: var(--mymmo-ev-deck-h, auto);
 }
 .mymmo-ev-deck-mode .mymmo-ev-deck-card {
   width: auto;
@@ -1428,14 +1501,48 @@
   height: var(--mymmo-ev-deck-h, auto);
   transition: transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.25s ease, box-shadow 0.2s ease;
   touch-action: pan-y;
+  /* Sleepgevoel: geen tekstselectie of native link/image-drag die de swipe
+     halverwege afbreekt met een pointercancel. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.mymmo-ev-deck-mode .mymmo-ev-deck-card a,
+.mymmo-ev-deck-mode .mymmo-ev-deck-card img {
+  -webkit-user-drag: none;
 }
 .mymmo-ev-deck-mode .mymmo-ev-deck-card.is-dragging {
   transition: none;
 }
+/* Eén frame zonder transitie, voor een kaart die JS van de ene kant van het
+   scherm naar de andere moet verplaatsen zonder dat je dat ziet gebeuren:
+   de weggeswipete kaart die onderaan de stapel wordt ingeschoven, en de
+   terugkomende kaart die eerst links buiten beeld klaargezet wordt. Zonder
+   dit zweefde zo'n kaart zichtbaar over het scherm -- de "kaart vliegt
+   terug"-glitch van 1.6.30-1.6.32. Deze klasse staat bewust op de KAART en
+   niet op de stapel: de overige kaarten moeten juist wél met een transitie
+   naar hun nieuwe plaats schuiven, want dat is wat het gevoel geeft dat je
+   door de stapel gaat. */
+.mymmo-ev-deck-mode .mymmo-ev-deck-card.is-returning {
+  transition: none !important;
+}
+
+/* Eigen vaste hoek per kaart -- cyclisch per 4, dus ook bij meer kaarten
+   blijft het afwisselen i.p.v. herhalen in een herkenbaar patroon van
+   precies 4 (zelfde aanpak als .mymmo-ev-row__card--1..4 op desktop).
+   Elke stapelpositie hieronder gebruikt deze var, zodat de hoek van een
+   kaart nooit verandert wanneer ze door de stapel schuift. */
+.mymmo-ev-deck-mode .mymmo-ev-deck-card:nth-child(4n+1) { --mymmo-ev-deck-rot: -2.5deg; }
+.mymmo-ev-deck-mode .mymmo-ev-deck-card:nth-child(4n+2) { --mymmo-ev-deck-rot: 1.75deg; }
+.mymmo-ev-deck-mode .mymmo-ev-deck-card:nth-child(4n+3) { --mymmo-ev-deck-rot: -1.25deg; }
+.mymmo-ev-deck-mode .mymmo-ev-deck-card:nth-child(4n+4) { --mymmo-ev-deck-rot: 2.25deg; }
+/* Per positie enkel nog een VERSCHUIVING; de hoek komt van de kaart zelf
+   (--mymmo-ev-deck-rot hierboven). Ook geen transform-origin per positie
+   meer: een ander draaipunt per positie was een tweede bron van
+   verspringen. */
 .mymmo-ev-deck-mode .mymmo-ev-deck-card[data-deck-pos="0"] {
   position: relative;
   z-index: 4;
-  transform: rotate(-1.25deg);
+  transform: rotate(var(--mymmo-ev-deck-rot, 0deg));
   opacity: 1;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.10);
 }
@@ -1443,8 +1550,7 @@
   position: absolute;
   inset: 0;
   z-index: 3;
-  transform: translate(6px, -5px) rotate(-5deg);
-  transform-origin: 42% 58%;
+  transform: translate(7px, -6px) rotate(var(--mymmo-ev-deck-rot, 0deg));
   opacity: 1;
   pointer-events: none;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
@@ -1453,8 +1559,7 @@
   position: absolute;
   inset: 0;
   z-index: 2;
-  transform: translate(-7px, 6px) rotate(6deg);
-  transform-origin: 58% 44%;
+  transform: translate(-8px, 7px) rotate(var(--mymmo-ev-deck-rot, 0deg));
   opacity: 0.9;
   pointer-events: none;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
@@ -1466,8 +1571,7 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  transform: translate(4px, 9px) rotate(-9deg);
-  transform-origin: 46% 64%;
+  transform: translate(5px, 12px) rotate(var(--mymmo-ev-deck-rot, 0deg));
   opacity: 0.75;
   pointer-events: none;
   box-shadow: none;
@@ -1484,11 +1588,31 @@
   box-shadow: none;
 }
 
+/* De kaart die bij TERUGSWIPEN van links terug de stapel op komt. Deze
+   klasse moet NA de data-deck-pos-regels hierboven staan: ze heeft dezelfde
+   specificiteit, dus enkel de plaats in het bestand bepaalt wie wint. Ze
+   overschrijft bewust drie dingen, ongeacht op welke stapelpositie de kaart
+   op dat moment staat:
+   - z-index 5: ze ligt boven de hele stapel, ook al staat ze bij het begin
+     van de sleep nog achteraan (data-deck-pos="3" of "hidden");
+   - opacity 1 en position absolute: achterste posities zijn half of niet
+     zichtbaar, en absoluut blijven staan zorgt ervoor dat de kaart die
+     bovenaan lag rustig kan blijven liggen (zie min-height hierboven);
+   - pointer-events none: de vinger blijft op de kaart eronder, die de
+     pointer-capture heeft. */
+.mymmo-ev-deck-mode .mymmo-ev-deck-card.is-incoming {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  opacity: 1;
+  pointer-events: none;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.10);
+}
+
 /* Titel max. 2 regels, samenvatting max. 4 regels, met ellipsis als het
-   langer is. .mymmo-ev-announce__summary had de 4-regel-clamp hierboven
-   al (voor de desktopkaart) -- hier enkel de marge weghalen die daar
-   ruimte vrijhield voor de illustratie, want die staat niet op deze
-   kaarten. */
+   langer is -- samen met equalizeDeckCardHeights() in mymmo-events.js
+   (dat de hoogste kaart meet en die hoogte als --mymmo-ev-deck-h op de
+   wrapper zet) houdt dit alle kaarten in de stapel exact even hoog. */
 .mymmo-ev-swipestack .mymmo-ev-announce__title {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1499,22 +1623,62 @@
   margin-right: 0;
 }
 
-/* Hint BOVEN de stapel, niet erna (stond daar tot en met v1.6.30 -- maar
-   de geabsoluteerde kaartjes erachter steken door hun offset net onder de
-   bovenste kaart uit, waardoor tekst na de hele stapel onvoorspelbaar
-   verschoof/overlapte). Boven de stapel, in de normale flow, ligt de
-   positie altijd vast. Bevat ook meteen de "bekijk onze andere events"-
-   boodschap i.p.v. een aparte knop op de kaarten, en spreekt bewust geen
-   richting uit ("naar links") -- de stapel is cyclisch, na de laatste
-   kom je gewoon weer bij de eerste. */
+/* Stipjes onder de stapel: hoeveel kaarten er zijn en waar je zit, en
+   aanklikbaar om direct naar een kaart te springen. Zonder indicator was
+   er op mobiel geen enkel signaal hoeveel events er nog volgden (de
+   swipe-hint zei "swipe", maar niet hoe vaak). JS bouwt de knopjes, zodat
+   het aantal altijd exact het aantal kaarten volgt. */
+.mymmo-ev-swipedots {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  gap: 0.1rem;
+  /* Ruim genoeg voor de onderste kaart van de stapel: die staat 12px lager
+     en kantelt daar nog bovenop. */
+  margin: 1.4rem 0 0;
+}
+.mymmo-ev-swipedot {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.mymmo-ev-swipedot::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--mymmo-ev-line);
+  transition: width 0.22s ease, background-color 0.22s ease;
+}
+.mymmo-ev-swipedot.is-active::before {
+  width: 1.15rem;
+  background: var(--mymmo-ev-accent-ink);
+}
+
+/* Hint ONDER de stapel (v1.6.33): tot 1.6.32 stond die erboven, omdat de
+   geabsoluteerde kaartjes erachter door hun offset onder de bovenste kaart
+   uitstaken en tekst daarna onvoorspelbaar verschoof. Nu zitten die
+   kaartjes in hun eigen wrapper (zie boven), dus staat de tekst eronder
+   wel vast -- en dat is ook de logische leesplek: eerst de kaart, dan wat
+   je ermee kan. */
 .mymmo-ev-swipehint {
   display: none;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
-  margin: 0 0 0.85rem;
+  margin: 0.55rem 0 0;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--mymmo-ev-muted);
+  text-align: center;
+  transition: opacity 0.3s ease;
 }
 .mymmo-ev-swipehint__scribble {
   width: 1.85rem;
@@ -1522,23 +1686,75 @@
   flex: 0 0 auto;
   opacity: 0.85;
 }
+/* Na de eerste swipe is de boodschap overbodig. visibility i.p.v. display,
+   zodat de stapel niet verspringt op het moment dat de hint weggaat. */
+.mymmo-ev-swipehint.is-dismissed {
+  opacity: 0;
+  visibility: hidden;
+}
 
 @media (max-width: 40rem) {
-  .mymmo-ev-swipestack { display: block; }
+  /* Alle binnenruimte van de mobiele zone zit hier -- padding-top
+     reserveert de plek van het pointer-tagje, de zijkanten geven de
+     gedraaide hoeken van de kaartjes erachter de ruimte die ze nodig
+     hebben. */
+  .mymmo-ev-swipestack {
+    display: block;
+    padding: 4.5rem 1.5rem 0.5rem;
+  }
+  .mymmo-ev-swipedots { display: flex; }
   .mymmo-ev-swipehint { display: flex; }
-  .mymmo-ev-row__more { display: none; }
+
   .mymmo-ev-row__cards { display: none; }
+  .mymmo-ev-row__more { display: none; }
   .mymmo-ev-announce__deck { display: none; }
 
-  /* Anticiperende verschijnbeweging voor het "Schrijf je snel in!"-tagje:
-     op desktop verschijnt dit enkel via :hover (rij) of staat het altijd
-     stil zonder animatie (aankondiging) -- op mobiel bestaat er geen
-     hover, dus speelt deze animatie hier automatisch één keer af bij het
-     laden. Beide shortcodes hergebruiken hiervoor dezelfde
-     .mymmo-ev-announce__pointer-klasse (zie templates/row.php), zodat het
-     tagje er op mobiel identiek uitziet voor rij en aankondiging. */
-  .mymmo-ev-announce__pointer {
+  /* Identieke buitenmarges voor beide componenten (zie doc-blok). */
+  .mymmo-ev-row,
+  .mymmo-ev-announce__stage {
+    padding: 0;
+    /* clip, niet hidden: de gedraaide hoeken mogen nooit horizontale
+       paginascroll veroorzaken, maar dit mag ook geen scroll-container
+       worden (dat breekt position: sticky in het thema eromheen). */
+    overflow-x: clip;
+  }
+
+  /* Geen decoratie op mobiel: het klavertje van de aankondiging en de
+     scribble van de rij waren het laatste zichtbare verschil tussen beide
+     componenten, en ze trokken de stapel ook optisch uit het midden. */
+  .mymmo-ev-row__scribble,
+  .mymmo-ev-announce__stage > .mymmo-ev-announce__clover {
+    display: none;
+  }
+
+  /* Het pointer-tagje bestaat op mobiel enkel binnen de stapel (identieke
+     markup in beide templates); de desktopvariant van de aankondiging
+     (direct kind van .mymmo-ev-announce__stage) blijft verborgen. */
+  .mymmo-ev-announce__stage > .mymmo-ev-announce__pointer {
+    display: none;
+  }
+  .mymmo-ev-swipestack > .mymmo-ev-announce__pointer {
+    top: 0;
+    /* Absolute positionering rekent vanaf de padding-box, dus right: 0 zou
+       de 1.5rem zijruimte van .mymmo-ev-swipestack negeren en het label tot
+       tegen de schermrand duwen (waar het op een smal toestel afgesneden
+       werd). 1rem laat het net iets over de kaartrand komen -- daar wijst
+       het krulletje ook naartoe -- en houdt het binnen het scherm. */
+    right: 1rem;
+    /* Anticiperende verschijnbeweging: op mobiel bestaat er geen hover,
+       dus speelt deze animatie hier eenmalig af bij het laden. */
     animation: mymmoRowPointerPop 0.5s both;
     animation-delay: 0.35s;
   }
+  .mymmo-ev-swipestack .mymmo-ev-announce__pointer-arrow { width: 4rem; }
+  .mymmo-ev-swipestack .mymmo-ev-announce__pointer-label {
+    font-size: 0.8125rem;
+    max-width: 6.5rem;
+  }
+
+  /* Kaartopmaak gelijk over de hele mobiele zone: de aankondiging deed dit
+     pas onder 34rem, waardoor 34-40rem een andere kaart toonde dan de rij
+     op diezelfde breedte. */
+  .mymmo-ev-swipestack .mymmo-ev-announce__card { padding: 1.15rem; }
+  .mymmo-ev-swipestack .mymmo-ev-announce__image { display: none; }
 }

@@ -51,25 +51,28 @@ import {
   REGISTRATION_FIELDS,
   MAIL_FIELDS,
   toOdooDatetime,
-  m2oId
+  m2oId,
+  eventTypePresentation
 } from '../odoo-contract.js';
 import { LOG_PREFIX, REGISTRATION_STATE, PUBLIC_EVENT_PATH } from '../constants.js';
 import {
   MAIL_KIND,
   MAIL_KINDS,
+  DEFAULT_TIMING,
   parseMailBlocks,
   emptyMailBlocks,
   normalizeMailBlocks,
   resolveSection
 } from './mail-blocks.js';
 import { buildPlaceholderContext, renderMailHtml, renderSubject } from './mail-render.js';
-import { optionalFieldAvailable, logToChatter } from './events-service.js';
+import { optionalFieldAvailable, logToChatter, listEventTypes } from './events-service.js';
 
 /** Domein voor de message_id-sleutel. Puur een identifier, geen adres. */
 const MESSAGE_ID_DOMAIN = 'om.mymmo.com';
 
-/** Hoe lang vóór de start de reminder vertrekt. */
-const REMINDER_LEAD_MINUTES = 24 * 60;
+// De voorsprong van de reminder is INSTELBAAR per event-type (en per event
+// via de override): section.timing in mail-blocks.js. DEFAULT_TIMING daar is
+// de standaard; hier staat bewust geen tweede getal.
 
 /** Welke vlag hoort bij welke mailsoort. */
 const SENT_FIELD_BY_KIND = {
@@ -325,6 +328,38 @@ async function resolveHostProfile(env, employeeId) {
 }
 
 /**
+ * De kleur van de eventcategorie, voor knoppen in de huisstijl.
+ *
+ * Komt uit `x_studio_type_color_hex` op het event-type; is die leeg, dan uit
+ * EVENT_TYPE_PRESENTATION in constants.js op naam. Dat is exact dezelfde
+ * bron als de kalender op de website gebruikt (zie eventTypePresentation in
+ * odoo-contract.js), zodat de kleur in de mail en op de site niet uit elkaar
+ * kunnen lopen.
+ *
+ * listEventTypes() is 5 minuten gecached, dus dit kost in de praktijk geen
+ * extra Odoo-ronde. Nooit fataal: zonder kleur valt de knop terug op blauw.
+ *
+ * @param {Object} env @param {Object} event
+ * @returns {Promise<string>}
+ */
+export async function resolveTypeColor(env, event) {
+  const typeId = Number(event?.event_type?.id);
+  const naam = event?.event_type?.name || '';
+
+  try {
+    if (Number.isInteger(typeId)) {
+      const { types } = await listEventTypes(env);
+      const gevonden = (types || []).find((type) => Number(type.id) === typeId);
+      if (gevonden?.color) return gevonden.color;
+    }
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} kleur van event-type niet gelezen: ${error?.message}`);
+  }
+
+  return eventTypePresentation(naam).color;
+}
+
+/**
  * Eén mail renderen voor één (event, registratie, soort).
  *
  * @param {Object} options
@@ -345,6 +380,7 @@ export function renderMailForRegistration({
   eventDoc,
   host = {},
   publicBaseUrl = '',
+  typeColor = '',
   // Alleen waar voor het voorbeeldpaneel in de OM: dan krijgt elk blok een
   // data-om-block/data-om-edit-marker zodat de editor erop kan werken.
   // queueMails() roept dit ZONDER editable aan, dus de verzonden mail bevat
@@ -360,6 +396,7 @@ export function renderMailForRegistration({
     event,
     registration,
     host,
+    typeColor,
     publicUrl: buildPublicUrl(publicBaseUrl, event)
   });
 
@@ -464,9 +501,16 @@ export function buildMessageId(eventId, kind, registrationId) {
  * @param {Date} [now]
  * @returns {{ send: boolean, scheduledDate: string|false, reason: string|null }}
  */
-export function computeScheduledDate(kind, event, now = new Date()) {
+export function computeScheduledDate(kind, event, now = new Date(), timing = DEFAULT_TIMING) {
   if (kind !== MAIL_KIND.REMINDER) {
     return { send: true, scheduledDate: false, reason: null };
+  }
+
+  const regels = { ...DEFAULT_TIMING, ...(timing || {}) };
+
+  // Uitgezet voor dit event-type (of voor dit ene event).
+  if (regels.enabled === false) {
+    return { send: false, scheduledDate: false, reason: 'reminder staat uit' };
   }
 
   const startsAt = event?.starts_at ? new Date(event.starts_at) : null;
@@ -477,7 +521,21 @@ export function computeScheduledDate(kind, event, now = new Date()) {
     return { send: false, scheduledDate: false, reason: 'event is al begonnen' };
   }
 
-  const moment = new Date(startsAt.getTime() - REMINDER_LEAD_MINUTES * 60 * 1000);
+  const urenTotStart = (startsAt.getTime() - now.getTime()) / 3600000;
+
+  // Te laat om nog zinvol te zijn: wie zich twee uur voor de start inschrijft
+  // heeft niets aan een herinnering. Standaard staat deze grens op 0, dus
+  // dan gaat hij wél altijd -- een late inschrijver zonder reminder is
+  // precies het gat dat de oude Odoo-cron had.
+  if (regels.minLeadHours > 0 && urenTotStart < regels.minLeadHours) {
+    return {
+      send: false,
+      scheduledDate: false,
+      reason: `minder dan ${regels.minLeadHours} uur voor de start ingeschreven`
+    };
+  }
+
+  const moment = new Date(startsAt.getTime() - regels.leadHours * 3600000);
   if (moment.getTime() <= now.getTime()) {
     return { send: true, scheduledDate: false, reason: 'late inschrijving, meteen versturen' };
   }
@@ -515,6 +573,117 @@ export async function findAlreadyQueued(env, eventId, kind, registrationIds) {
 }
 
 /**
+ * Klaarstaande mails van deze inschrijvingen annuleren.
+ *
+ * Nodig zodra iemand een inschrijving "verwijdert" (= archiveert): de mails
+ * staan al in Odoo's uitgaande wachtrij met een `scheduled_date` in de
+ * toekomst, en Odoo's mailcron trekt zich niets aan van `x_active` op de
+ * registratie. Zonder deze stap krijgt een verwijderde deelnemer alsnog zijn
+ * reminder -- en dat is precies het soort mail waar iemand over belt.
+ *
+ * ANNULEREN, niet unlinken: `state = 'cancel'` laat het record staan, dus je
+ * kan achteraf nog zien dat er een mail klaarstond en waarom hij niet
+ * vertrokken is. Dat is dezelfde afweging als bij de inschrijving zelf.
+ *
+ * Alleen `outgoing` wordt geraakt. Een al verzonden mail (`sent`) laat je met
+ * rust: die is de deur uit, daar verandert annuleren niets meer aan.
+ *
+ * @param {Object} env
+ * @param {number[]} registrationIds
+ * @returns {Promise<{ cancelled: number, ids: number[] }>}
+ */
+export async function cancelPendingMails(env, registrationIds) {
+  const ids = (registrationIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return { cancelled: 0, ids: [] };
+
+  try {
+    const pending = await searchRead(env, {
+      model: ODOO_MODELS.MAIL,
+      domain: [
+        [MAIL_FIELDS.MODEL, '=', ODOO_MODELS.REGISTRATION],
+        [MAIL_FIELDS.RES_ID, 'in', ids],
+        [MAIL_FIELDS.STATE, '=', 'outgoing']
+      ],
+      fields: [MAIL_FIELDS.ID],
+      limit: false
+    });
+
+    const mailIds = (Array.isArray(pending) ? pending : [])
+      .map((row) => Number(row.id))
+      .filter((n) => Number.isInteger(n) && n > 0);
+
+    if (mailIds.length === 0) return { cancelled: 0, ids: [] };
+
+    await write(env, {
+      model: ODOO_MODELS.MAIL,
+      ids: mailIds,
+      values: { [MAIL_FIELDS.STATE]: 'cancel' }
+    });
+
+    console.log(
+      `${LOG_PREFIX} ${mailIds.length} klaarstaande mail(s) geannuleerd voor inschrijving(en) ${ids.join(', ')}`
+    );
+    return { cancelled: mailIds.length, ids: mailIds };
+  } catch (error) {
+    // Niet fataal: het archiveren zelf is gelukt en dat is het belangrijkste.
+    // Wél luid loggen -- een niet-geannuleerde mail vertrekt straks alsnog.
+    console.error(`${LOG_PREFIX} kon klaarstaande mails niet annuleren voor ${ids.join(', ')}: ${error?.message}`);
+    return { cancelled: 0, ids: [] };
+  }
+}
+
+/**
+ * Geannuleerde mails weer in de wachtrij zetten, bij het terughalen van een
+ * inschrijving uit het archief.
+ *
+ * Alleen mails waarvan het verzendmoment nog in de TOEKOMST ligt. Een mail
+ * zonder `scheduled_date` betekende "meteen versturen", en dat moment is
+ * inmiddels voorbij: die weer op `outgoing` zetten zou een reminder de deur
+ * uit sturen voor een event dat misschien al geweest is.
+ *
+ * @param {Object} env
+ * @param {number[]} registrationIds
+ * @param {Date} [now]
+ * @returns {Promise<{ revived: number }>}
+ */
+export async function revivePendingMails(env, registrationIds, now = new Date()) {
+  const ids = (registrationIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return { revived: 0 };
+
+  try {
+    const cancelled = await searchRead(env, {
+      model: ODOO_MODELS.MAIL,
+      domain: [
+        [MAIL_FIELDS.MODEL, '=', ODOO_MODELS.REGISTRATION],
+        [MAIL_FIELDS.RES_ID, 'in', ids],
+        [MAIL_FIELDS.STATE, '=', 'cancel'],
+        [MAIL_FIELDS.SCHEDULED_DATE, '>', toOdooDatetime(now)]
+      ],
+      fields: [MAIL_FIELDS.ID],
+      limit: false
+    });
+
+    const mailIds = (Array.isArray(cancelled) ? cancelled : [])
+      .map((row) => Number(row.id))
+      .filter((n) => Number.isInteger(n) && n > 0);
+
+    if (mailIds.length === 0) return { revived: 0 };
+
+    await write(env, {
+      model: ODOO_MODELS.MAIL,
+      ids: mailIds,
+      values: { [MAIL_FIELDS.STATE]: 'outgoing' }
+    });
+
+    console.log(`${LOG_PREFIX} ${mailIds.length} mail(s) weer in de wachtrij voor ${ids.join(', ')}`);
+    return { revived: mailIds.length };
+  } catch (error) {
+    console.error(`${LOG_PREFIX} kon mails niet terugzetten voor ${ids.join(', ')}: ${error?.message}`);
+    return { revived: 0 };
+  }
+}
+
+/**
  * Mails klaarzetten voor een lijst registraties.
  *
  * @param {Object} env
@@ -531,7 +700,27 @@ export async function queueMails(env, { event, registrations, kind, actor = null
     throw new MailError(`Onbekende mailsoort "${kind}"`, { status: 400 });
   }
 
-  const timing = computeScheduledDate(kind, event, now);
+  // De blokken EERST lezen: daar staat ook de timing van de reminder in, dus
+  // die kan niet bepaald worden voordat we weten welke sectie geldt.
+  const { typeDoc, eventDoc } = await loadMailBlocks(env, event);
+  const sectie = resolveSection(typeDoc, eventDoc, kind, registrations[0]?.site || null);
+
+  // Een recap ZONDER opname is geen recap. Het videoblok zou stil wegvallen
+  // en dan vertrekt er een mail die naar een opname verwijst die er niet is
+  // -- precies de mail waar mensen over terugmailen. Liever weigeren met de
+  // reden erbij dan half versturen.
+  if (kind === MAIL_KIND.RECAP) {
+    const heeftVideoblok = sectie.blocks.some((block) => block.type === 'video');
+    if (heeftVideoblok && !event?.recap?.video_url) {
+      throw new MailError(
+        'Er hangt nog geen opname aan dit event, en de recapmail bevat een opnameblok. ' +
+        'Kies eerst een opname (knop "Opname kiezen"), of haal het opnameblok uit de mail.',
+        { status: 409, code: 'MAIL_RECAP_NO_VIDEO' }
+      );
+    }
+  }
+
+  const timing = computeScheduledDate(kind, event, now, sectie.timing);
   if (!timing.send) {
     return { queued: [], skipped: registrations.map((r) => ({ id: r.id, reason: timing.reason })) };
   }
@@ -563,9 +752,9 @@ export async function queueMails(env, { event, registrations, kind, actor = null
     candidates.map((c) => c.registration.id)
   );
 
-  const [{ typeDoc, eventDoc }, sender] = await Promise.all([
-    loadMailBlocks(env, event),
-    resolveSender(env, event)
+  const [sender, typeColor] = await Promise.all([
+    resolveSender(env, event),
+    resolveTypeColor(env, event)
   ]);
 
   const values = [];
@@ -584,6 +773,7 @@ export async function queueMails(env, { event, registrations, kind, actor = null
       typeDoc,
       eventDoc,
       host: sender,
+      typeColor,
       // Per ontvanger, want de site verschilt per inschrijving.
       publicBaseUrl: resolvePublicOrigin(env, registration.site)
     });

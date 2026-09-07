@@ -23,7 +23,8 @@ import {
   buildPlaceholderContext,
   fillPlaceholders,
   formatEventMoment,
-  safeUrl
+  safeUrl,
+  leesbareTekstkleur
 } from '../lib/mail-render.js';
 import { buildMessageId, computeScheduledDate, ownsMail, resolvePublicOrigin, renderMailForRegistration } from '../lib/mail-service.js';
 
@@ -245,21 +246,70 @@ test('tekstblok laat redactionele HTML door, header escapet het alt-attribuut', 
 });
 
 test('event_details laat lege regels weg', () => {
-  const html = renderMailHtml({ blocks: [{ id: 'd', type: 'event_details' }], context });
+  // De regels komen uit normalizeMailBlocks: een blok zonder `rows` krijgt de
+  // standaardset. Een blok rechtstreeks aan de renderer geven zonder rows
+  // levert dus terecht niets op.
+  const doc = normalizeMailBlocks({ confirmation: { subject: 'S', blocks: [{ id: 'd', type: 'event_details' }] } });
+  const html = renderMailHtml({ blocks: doc.confirmation.blocks, context });
+
   assert.ok(html.includes('Datum'));
   assert.ok(html.includes('Tijd'));
   assert.ok(html.includes('Deelnamelink'));
   // Dit event heeft geen locatie: die regel hoort niet in de mail te staan.
-  // De oorspronkelijke template had die regel sowieso niet.
   assert.ok(!html.includes('Locatie'));
 });
 
 test('de datumregel gebruikt niet langer het dode veld x_studio_date', () => {
   // In template 50/55 stond `x_studio_date or ''` naast starting_day. Dat veld
   // is false op elk record (FORBIDDEN_FIELDS), dus die helft was altijd leeg.
-  const html = renderMailHtml({ blocks: [{ id: 'd', type: 'event_details' }], context });
+  const doc = normalizeMailBlocks({ confirmation: { subject: 'S', blocks: [{ id: 'd', type: 'event_details' }] } });
+  const html = renderMailHtml({ blocks: doc.confirmation.blocks, context });
   assert.ok(html.includes('dinsdag, 8 september'));
   assert.ok(html.includes('19:00'));
+});
+
+test('eigen regels in het praktisch kader werken, met placeholders', () => {
+  const doc = normalizeMailBlocks({
+    confirmation: {
+      subject: 'S',
+      blocks: [{
+        id: 'd', type: 'event_details',
+        rows: [
+          { id: 'r1', icon: '🅿️', label: 'Parking', value: 'Gratis onder het gebouw' },
+          { id: 'r2', icon: '👤', label: 'Spreker', value: '{{host.name}}' },
+          { id: 'r3', icon: '📍', label: 'Locatie', value: '{{event.location}}' }
+        ]
+      }]
+    }
+  });
+  const html = renderMailHtml({ blocks: doc.confirmation.blocks, context });
+
+  assert.ok(html.includes('Parking'));
+  assert.ok(html.includes('Gratis onder het gebouw'));
+  assert.ok(html.includes('Rob Claes') || html.includes(context.host.name));
+  // Lege waarde (dit event heeft geen locatie) valt weg bij het versturen.
+  assert.ok(!html.includes('Locatie'));
+});
+
+test('in de editor blijft een lege regel WEL staan, anders kan je hem niet invullen', () => {
+  const doc = normalizeMailBlocks({
+    confirmation: {
+      subject: 'S',
+      blocks: [{ id: 'd', type: 'event_details', rows: [{ id: 'r', icon: '📍', label: 'Locatie', value: '' }] }]
+    }
+  });
+  const html = renderMailHtml({ blocks: doc.confirmation.blocks, context, editable: true });
+  assert.ok(html.includes('Locatie'));
+  assert.ok(html.includes('data-om-edit="rows.0.value"'));
+});
+
+test('een oud details-blok met `show` migreert naar echte regels', () => {
+  const doc = normalizeMailBlocks({
+    reminder: { subject: 'S', blocks: [{ id: 'd', type: 'event_details', show: ['day', 'time', 'host'] }] }
+  });
+  const rows = doc.reminder.blocks[0].rows;
+  assert.deepEqual(rows.map((r) => r.label), ['Datum', 'Tijd', 'Spreker']);
+  assert.equal('show' in doc.reminder.blocks[0], false);
 });
 
 console.log('\nlayout (kaarten, hero, footer)');
@@ -402,6 +452,143 @@ test('renderMailForRegistration geeft editable DOOR aan de renderer', () => {
   assert.ok(!renderMailForRegistration(args).html.includes('data-om-'));
 });
 
+console.log('\nlege blokken: zichtbaar in de editor, weg bij het versturen');
+
+test('een opnameblok zonder video blijft in de editor staan en is selecteerbaar', () => {
+  const blocks = [{ id: 'v', type: 'video', label: 'Bekijk de opname' }];
+
+  // Dit was de bug: bij het toevoegen gebeurde er ogenschijnlijk niets, en
+  // het blok was ook niet meer te selecteren of weg te halen, want er stond
+  // geen enkele marker in de HTML.
+  const editor = renderMailHtml({ blocks, context, editable: true });
+  assert.ok(editor.includes('data-om-block="v"'), 'geen marker: het blok is onaanklikbaar');
+  assert.ok(editor.includes('Nog geen opname'), 'geen uitleg waarom het leeg is');
+  assert.ok(!editor.includes('undefined'), 'er staat "undefined" in de opmaak');
+
+  // Bij het versturen valt het weg: geen gebroken afbeelding in de mailbox.
+  const sent = renderMailHtml({ blocks, context });
+  assert.ok(!sent.includes('data-om-block'), 'markers lekken naar de verzonden mail');
+  assert.ok(!sent.includes('Nog geen opname'), 'de editortekst staat in de verzonden mail');
+  assert.equal(sent.includes('<img'), false);
+});
+
+test('mét een opname op het event rendert het blok gewoon', () => {
+  const metVideo = buildPlaceholderContext({
+    event: { ...EVENT, recap: { video_url: 'https://vimeo.com/999', thumbnail_url: 'https://i.vimeocdn.com/x.jpg' } },
+    registration: REGISTRATION
+  });
+  const html = renderMailHtml({ blocks: [{ id: 'v', type: 'video' }], context: metVideo });
+  assert.ok(html.includes('vimeo.com/999'));
+  assert.ok(!html.includes('Nog geen opname'));
+});
+
+test('hetzelfde geldt voor een lege afbeelding, knop, titel en tekst', () => {
+  const leeg = [
+    { id: 'i', type: 'image' },
+    { id: 'b', type: 'button' },
+    { id: 'h', type: 'heading' },
+    { id: 't', type: 'text' }
+  ];
+  const editor = renderMailHtml({ blocks: leeg, context, editable: true });
+  ['i', 'b', 'h', 't'].forEach((id) => {
+    assert.ok(editor.includes('data-om-block="' + id + '"'), 'blok ' + id + ' is onaanklikbaar');
+  });
+  assert.ok(!renderMailHtml({ blocks: leeg, context }).includes('data-om-block'));
+});
+
+console.log('\nknopstijl en het kaartblok');
+
+test('een knop krijgt de gekozen stijl en breedte', () => {
+  const blauw = renderMailHtml({ blocks: [{ id: 'b', type: 'button', label: 'Ga', href: 'https://x.be', variant: 'primary' }], context });
+  const donker = renderMailHtml({ blocks: [{ id: 'b', type: 'button', label: 'Ga', href: 'https://x.be', variant: 'dark' }], context });
+  assert.ok(blauw.includes('#2563eb'));
+  assert.ok(donker.includes('#111827'));
+
+  const vol = renderMailHtml({ blocks: [{ id: 'b', type: 'button', label: 'Ga', href: 'https://x.be', width: 'full' }], context });
+  assert.ok(vol.includes('width="100%"'));
+});
+
+test('de link staat in de EDITOR onder de knop, niet in de verzonden mail', () => {
+  const blok = [{ id: 'b', type: 'button', label: 'Ga', href: 'https://voorbeeld.be/route' }];
+  assert.ok(renderMailHtml({ blocks: blok, context, editable: true }).includes('→ https://voorbeeld.be/route'));
+  assert.ok(!renderMailHtml({ blocks: blok, context }).includes('→ https://voorbeeld.be/route'));
+});
+
+test('het kaartblok geeft een routelink naar Google Maps', () => {
+  const metLocatie = buildPlaceholderContext({
+    event: { ...EVENT, location: { name: 'Vlaanderenstraat 1, Gent' } },
+    registration: REGISTRATION
+  });
+  const html = renderMailHtml({ blocks: [{ id: 'm', type: 'map' }], context: metLocatie });
+
+  assert.ok(html.includes('Vlaanderenstraat 1, Gent'));
+  // De vorm die Google zelf voorschrijft voor alle platformen: opent de app
+  // op mobiel, de browser op desktop.
+  assert.ok(html.includes('google.com/maps/search/?api=1&amp;query='));
+  assert.ok(html.includes('Vlaanderenstraat%201%2C%20Gent'));
+});
+
+test('zonder locatie valt het kaartblok weg bij het versturen', () => {
+  // EVENT heeft geen locatie (online event).
+  const html = renderMailHtml({ blocks: [{ id: 'm', type: 'map' }], context });
+  assert.equal(html.includes('google.com/maps'), false);
+  // In de editor blijft het wél staan, met de reden erbij.
+  assert.ok(renderMailHtml({ blocks: [{ id: 'm', type: 'map' }], context, editable: true }).includes('geen locatie'));
+});
+
+test('een statische kaartafbeelding is optioneel en linkt naar de route', () => {
+  const metLocatie = buildPlaceholderContext({
+    event: { ...EVENT, location: { name: 'Gent' } },
+    registration: REGISTRATION
+  });
+  const html = renderMailHtml({
+    blocks: [{ id: 'm', type: 'map', image: 'https://maps.example/static.png' }],
+    context: metLocatie
+  });
+  assert.ok(html.includes('maps.example/static.png'));
+});
+
+test('een knop kan de kleur van de eventcategorie aannemen', () => {
+  const ctx = buildPlaceholderContext({ event: EVENT, registration: REGISTRATION, typeColor: '#0D9488' });
+  const vol = renderMailHtml({ blocks: [{ id: 'b', type: 'button', label: 'Ga', href: 'https://x.be', variant: 'brand' }], context: ctx });
+  assert.ok(vol.includes('#0D9488'));
+
+  const omlijnd = renderMailHtml({ blocks: [{ id: 'b', type: 'button', label: 'Ga', href: 'https://x.be', variant: 'brand_outline' }], context: ctx });
+  assert.ok(omlijnd.includes('background:#ffffff'));
+  assert.ok(omlijnd.includes('color:#0D9488'));
+});
+
+test('de tekst op een merkknop blijft leesbaar, ook op een lichte kleur', () => {
+  // De categoriekleuren staan in Odoo en zijn dus door een gebruiker in te
+  // stellen. Witte tekst hardcoderen zou op geel onleesbaar zijn.
+  assert.equal(leesbareTekstkleur('#0D9488'), '#ffffff');
+  assert.equal(leesbareTekstkleur('#B45309'), '#ffffff');
+  assert.equal(leesbareTekstkleur('#FDE047'), '#111827');
+  assert.equal(leesbareTekstkleur('#ffffff'), '#111827');
+  // Onzin valt terug op wit, niet op een lege kleur.
+  assert.equal(leesbareTekstkleur('rood'), '#ffffff');
+});
+
+test('zonder categoriekleur valt een merkknop terug op blauw', () => {
+  const html = renderMailHtml({
+    blocks: [{ id: 'b', type: 'button', label: 'Ga', href: 'https://x.be', variant: 'brand' }],
+    context
+  });
+  assert.ok(html.includes('#2563eb'));
+});
+
+test('het opschrift van een knop is bewerkbaar — in een span, niet op de <a>', () => {
+  // `contenteditable` op een anchor geeft in Chrome geen cursor, waardoor de
+  // copy van een knop niet aan te passen was.
+  const html = renderMailHtml({
+    blocks: [{ id: 'b', type: 'button', label: 'Ga', href: 'https://x.be' }],
+    context,
+    editable: true
+  });
+  assert.ok(html.includes('<span data-om-edit="label">'), 'het opschrift zit niet in een bewerkbare span');
+  assert.ok(!/<a[^>]*data-om-edit/.test(html), 'data-om-edit staat nog op de <a>');
+});
+
 console.log('\nidempotentie en timing');
 
 test('message_id is deterministisch per (event, soort, registratie)', () => {
@@ -432,6 +619,53 @@ test('late inschrijver krijgt de reminder meteen — dit is de bug van cron 84',
   assert.equal(t.send, true);
   assert.equal(t.scheduledDate, false);
   assert.match(t.reason, /late inschrijving/);
+});
+
+test('de voorsprong van de reminder is instelbaar', () => {
+  const t = computeScheduledDate(MAIL_KIND.REMINDER, EVENT, new Date('2026-09-01T10:00:00Z'), { leadHours: 72 });
+  // Start 2026-09-08 17:00 UTC, 72 uur eerder = 2026-09-05 17:00.
+  assert.equal(t.scheduledDate, '2026-09-05 17:00:00');
+});
+
+test('de reminder kan helemaal uitgezet worden', () => {
+  const t = computeScheduledDate(MAIL_KIND.REMINDER, EVENT, new Date('2026-09-01T10:00:00Z'), { enabled: false });
+  assert.equal(t.send, false);
+  assert.match(t.reason, /staat uit/);
+});
+
+test('te late inschrijvers krijgen geen reminder als er een ondergrens staat', () => {
+  const regels = { leadHours: 24, minLeadHours: 4 };
+  // 2 uur voor de start: onder de grens.
+  const laat = computeScheduledDate(MAIL_KIND.REMINDER, EVENT, new Date('2026-09-08T15:00:00Z'), regels);
+  assert.equal(laat.send, false);
+  assert.match(laat.reason, /minder dan 4 uur/);
+
+  // 6 uur voor de start: nog net wel, en dan meteen.
+  const opTijd = computeScheduledDate(MAIL_KIND.REMINDER, EVENT, new Date('2026-09-08T11:00:00Z'), regels);
+  assert.equal(opTijd.send, true);
+  assert.equal(opTijd.scheduledDate, false);
+});
+
+test('zonder ondergrens krijgt ook een heel late inschrijver zijn reminder', () => {
+  // Dit is bewust de standaard: het gat van de oude Odoo-cron.
+  const t = computeScheduledDate(MAIL_KIND.REMINDER, EVENT, new Date('2026-09-08T16:30:00Z'));
+  assert.equal(t.send, true);
+});
+
+test('de timing hoort bij de sectie en overleeft normaliseren', () => {
+  const doc = normalizeMailBlocks({
+    reminder: { subject: 'S', blocks: [{ id: 't', type: 'text', html: 'x' }], timing: { leadHours: 48, minLeadHours: 3 } }
+  });
+  const sectie = resolveSection(doc, null, MAIL_KIND.REMINDER, null);
+  assert.equal(sectie.timing.leadHours, 48);
+  assert.equal(sectie.timing.minLeadHours, 3);
+  assert.equal(sectie.timing.enabled, true);
+});
+
+test('onzinnige waarden worden begrensd in plaats van doorgelaten', () => {
+  const doc = normalizeMailBlocks({ reminder: { timing: { leadHours: -5, minLeadHours: 99999 } } });
+  assert.equal(doc.reminder.timing.leadHours, 0);
+  assert.equal(doc.reminder.timing.minLeadHours, 24 * 30);
 });
 
 test('geen reminder meer als het event al begonnen is', () => {

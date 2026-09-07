@@ -33,7 +33,8 @@ import {
   createRegistration,
   setAttendance,
   setRegistrationState,
-  getRegistration
+  getRegistration,
+  setRegistrationActive
 } from './lib/registrations-service.js';
 import { REGISTRATION_SOURCE, REGISTRATION_STATE } from './constants.js';
 import { toPublicEventDto } from './odoo-contract.js';
@@ -48,12 +49,14 @@ import {
   queueMails,
   ownsMail,
   resolvePublicOrigin,
+  resolveTypeColor,
   MailError
 } from './lib/mail-service.js';
 import { MAIL_KIND, MAIL_KINDS, emptyMailBlocks, normalizeMailBlocks, BLOCK_TYPES, SITES, HEADER_SLOTS } from './lib/mail-blocks.js';
 import { listRegistrationsForMail } from './lib/registrations-service.js';
 import { listVimeoVideos, getVimeoVideo, vimeoConfigured } from './lib/vimeo.js';
 import { starterMailBlocks } from './lib/mail-defaults.js';
+import { TOKEN_LABELS } from './lib/mail-render.js';
 
 function json(payload, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(payload), {
@@ -430,7 +433,8 @@ export const routes = {
 
     const { rows, total, page, perPage } = await listRegistrations(context.env, id, {
       page: url.searchParams.get('page'),
-      per_page: url.searchParams.get('per_page')
+      per_page: url.searchParams.get('per_page'),
+      include_archived: url.searchParams.get('include_archived')
     });
 
     return json({
@@ -600,13 +604,18 @@ export const routes = {
         // Startopzet voor wie nog niets heeft: de bestaande bevestigingsmail
         // als blokken. Wordt pas iets als iemand er in de studio voor kiest.
         starter: normalizeMailBlocks(starterMailBlocks(), 'startopzet'),
+        // Pad + leesbare naam, uit één bron (TOKEN_LABELS in mail-render.js).
+        // De editor toont de naam in de chip; het pad is wat er in de blokken
+        // belandt. Zo kunnen die twee niet uit elkaar lopen.
         placeholders: [
-          'event.title', 'event.summary', 'event.day', 'event.time', 'event.starts_at',
-          'event.location', 'event.link', 'event.url', 'event.type',
-          'host.name', 'host.email', 'host.job_title', 'host.avatar_url',
-          'site.name', 'site.key', 'now.year',
-          'registration.name', 'registration.first_name', 'registration.email'
-        ]
+          { group: 'Event', paths: ['event.title', 'event.type', 'event.day', 'event.time', 'event.location', 'event.link', 'event.url', 'event.summary'] },
+          { group: 'Deelnemer', paths: ['registration.first_name', 'registration.name', 'registration.email'] },
+          { group: 'Host', paths: ['host.name', 'host.job_title', 'host.email'] },
+          { group: 'Overig', paths: ['site.name', 'now.year', 'event.maps_url', 'event.recap_html'] }
+        ].map((groep) => ({
+          group: groep.group,
+          items: groep.paths.map((path) => ({ path, label: TOKEN_LABELS[path] || path }))
+        }))
       }
     });
   }),
@@ -744,7 +753,10 @@ export const routes = {
     };
     if (body?.registration_id) {
       const real = await getRegistration(context.env, Number(body.registration_id));
-      if (real) registration = real;
+      // De site uit de body wint: in het "zoals verstuurd"-voorbeeld kiest de
+      // gebruiker expliciet welk merk hij wil zien, ook bij een echte
+      // inschrijving waarvan de site leeg of anders is.
+      if (real) registration = { ...real, site: body.site || real.site || null };
     }
 
     // De afzender mag hier ontbreken: een preview van een event zonder host
@@ -764,6 +776,7 @@ export const routes = {
       typeDoc,
       eventDoc,
       host: sender || {},
+      typeColor: await resolveTypeColor(context.env, event),
       publicBaseUrl: resolvePublicOrigin(context.env, registration.site),
       // Markers voor de klik-om-te-bewerken-editor. Alleen hier: de mail die
       // naar mail.mail geschreven wordt, rendert zonder deze attributen.
@@ -810,7 +823,11 @@ export const routes = {
 
     const registrations = await listRegistrationsForMail(context.env, id, {
       kind,
-      registrationIds: Array.isArray(body?.registration_ids) ? body.registration_ids.map(Number) : null
+      registrationIds: Array.isArray(body?.registration_ids) ? body.registration_ids.map(Number) : null,
+      // Voor oudere events waar de Odoo-serveractie de _sent-vlag onterecht
+      // op true zette. De message_id-bewaking blijft gelden, dus dit kan geen
+      // dubbele mail geven.
+      includeSent: body?.include_sent === true
     });
 
     if (registrations.length === 0) {
@@ -834,6 +851,28 @@ export const routes = {
    * Zonder VIMEO_ACCESS_TOKEN komt hier `configured: false` uit en valt de UI
    * terug op een URL plakken -- dat is geen fout maar een geldige toestand.
    */
+  /**
+   * DELETE /events-v2/api/registrations/:id
+   *
+   * "Verwijderen" is ARCHIVEREN in Odoo (x_active = false), nooit unlink. Een
+   * inschrijving is het spoor van een echt persoon -- aanwezigheid, verzonden
+   * mails, de chatter met de herkomst. Gearchiveerd verdwijnt het uit alle
+   * lijsten en uit elke mailselectie, maar blijft het terug te halen.
+   */
+  'DELETE /api/registrations/:id': withErrors(async (context) => {
+    const data = await setRegistrationActive(context.env, context.params?.id, false, context.user);
+    return json({ success: true, data });
+  }),
+
+  /**
+   * POST /events-v2/api/registrations/:id/restore
+   * Terug uit het archief.
+   */
+  'POST /api/registrations/:id/restore': withErrors(async (context) => {
+    const data = await setRegistrationActive(context.env, context.params?.id, true, context.user);
+    return json({ success: true, data });
+  }),
+
   'GET /api/vimeo/videos': withErrors(async (context) => {
     const url = new URL(context.request.url);
     const data = await listVimeoVideos(context.env, {
