@@ -1004,7 +1004,7 @@ async function runSubmissionAttempt(env, {
       if (opType === 'chatter_message') {
         try {
           // Chatter supports multiple linked steps.
-          const identifierMappings = mappings.filter(function(m) { return m.is_identifier; });
+          const identifierMappings = mappings.filter(function(m) { return m.odoo_field === '_chatter_record_id'; });
           if (!identifierMappings.length) {
             throw createPermanentError('chatter_message target heeft geen identifier-mapping. Koppel het aan een vorig stap-record.');
           }
