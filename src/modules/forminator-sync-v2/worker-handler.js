@@ -978,10 +978,10 @@ async function runSubmissionAttempt(env, {
       // Wrapper round buildHtmlFormSummary that resolves each field ID through
       // lookupFormValue (fuzzy matching) so that e.g. 'text-1' matches 'text_1'
       // in the normalizedForm, and the label map is preserved.
-      function buildChatterSummaryHtml(fieldIds, form, lblMap) {
+      function buildChatterSummaryHtml(fieldIds, form, lblMap, widthMap) {
         if (fieldIds === null) {
           // No specific selection: pass through as-is, filter system keys
-          return buildHtmlFormSummary(null, form, lblMap);
+          return buildHtmlFormSummary(null, form, lblMap, widthMap);
         }
         // Specific selection: resolve each ID via lookupFormValue (fuzzy)
         const resolvedForm = {};
@@ -995,9 +995,9 @@ async function runSubmissionAttempt(env, {
         if (!Object.keys(resolvedForm).length) {
           // Fallback: geen enkele field ID matched → toon alles
           console.log('[chatter] FALLBACK: geen matches, toon alle velden');
-          return buildHtmlFormSummary(null, form, lblMap);
+          return buildHtmlFormSummary(null, form, lblMap, widthMap);
         }
-        return buildHtmlFormSummary(fieldIds, resolvedForm, lblMap);
+        return buildHtmlFormSummary(fieldIds, resolvedForm, lblMap, widthMap);
       }
 
       // ── chatter_message: post HTML message to Odoo chatter ────────────────
@@ -1042,11 +1042,13 @@ async function runSubmissionAttempt(env, {
             let combinedMsg     = '';
             let summaryFieldIds = null;
             let summaryLabelMap = null;
+            let summaryWidthMap = null;
             try {
               const parsed = JSON.parse(rawTemplate.slice(COMBINED_PREFIX.length));
               combinedMsg     = String(parsed.message || '');
               summaryFieldIds = Array.isArray(parsed.ids) && parsed.ids.length ? parsed.ids : null;
               summaryLabelMap = (parsed.labels && typeof parsed.labels === 'object') ? parsed.labels : null;
+              summaryWidthMap = (parsed.widths && typeof parsed.widths === 'object') ? parsed.widths : null;
             } catch (_e) {}
             const parts = [];
             if (combinedMsg) {
@@ -1072,7 +1074,7 @@ async function runSubmissionAttempt(env, {
                 parts.push('<p>' + msgHtml + '</p>');
               }
             }
-            const summaryHtml = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap);
+            const summaryHtml = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap, summaryWidthMap);
             if (summaryHtml) parts.push(summaryHtml);
             body = parts.join('');
           } else if (rawTemplate.startsWith(SUMMARY_PREFIX)) {

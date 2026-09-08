@@ -21,10 +21,14 @@ const SYSTEM_KEYS = ['form_id', 'form_uid', 'ovme_forminator_id', 'nonce'];
  * @param {Object|null} [labelMap]  Optional map of fieldId → display label.
  *                                  When provided, labels are used directly instead of
  *                                  being derived from the key name.
+ * @param {Object|null} [widthMap]  Optional map of fieldId → 'full'|'half'.
+ *                                  Explicit override of column width per field. When a
+ *                                  field has no entry, falls back to the LONG_VALUE_THRESHOLD
+ *                                  heuristic (length-based) for backward compatibility.
  *
  * @returns {string} HTML string with inline CSS, or '' when there are no rows.
  */
-export function buildHtmlFormSummary(fieldIds, normalizedForm, labelMap) {
+export function buildHtmlFormSummary(fieldIds, normalizedForm, labelMap, widthMap) {
   const entries = fieldIds === null
     ? Object.entries(normalizedForm).filter(
         ([k]) => !SYSTEM_KEYS.includes(k) && !k.includes('.')
@@ -49,8 +53,16 @@ export function buildHtmlFormSummary(fieldIds, normalizedForm, labelMap) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/\n/g, '<br>');
+    const forced = widthMap && Object.prototype.hasOwnProperty.call(widthMap, key)
+      ? widthMap[key]
+      : null;
+    const isLong = forced === 'full'
+      ? true
+      : forced === 'half'
+        ? false
+        : raw.length > LONG_VALUE_THRESHOLD;
     return {
-      isLong: raw.length > LONG_VALUE_THRESHOLD,
+      isLong: isLong,
       html: '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:#6c757d;margin-bottom:3px">' + label + '</div>'
         + '<div style="border:1px solid #dee2e6;border-radius:6px;padding:8px 12px;background:#fff;color:#212529;font-size:14px">' + safe + '</div>'
     };

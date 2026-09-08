@@ -27,6 +27,7 @@
     var summaryEnabled    = false;
     var summaryOrderedIds = [];
     var savedLabelMap     = {};
+    var savedWidthMap     = {};
 
     if (currentTemplate.startsWith(COMBINED_PREFIX)) {
       try {
@@ -35,6 +36,7 @@
         summaryEnabled    = true;
         summaryOrderedIds = Array.isArray(cp.ids)  ? cp.ids  : [];
         savedLabelMap     = cp.labels || {};
+        savedWidthMap     = (cp.widths && typeof cp.widths === 'object') ? cp.widths : {};
       } catch (_e) {}
     } else if (currentTemplate.startsWith(SUMMARY_PREFIX)) {
       try {
@@ -42,6 +44,7 @@
         summaryEnabled    = true;
         summaryOrderedIds = Array.isArray(sp) ? sp : (Array.isArray(sp.ids) ? sp.ids : []);
         savedLabelMap     = (sp && sp.labels) || {};
+        savedWidthMap     = (sp && sp.widths && typeof sp.widths === 'object') ? sp.widths : {};
       } catch (_e) {}
     } else {
       savedMessage = currentTemplate;
@@ -112,16 +115,28 @@
     // Summary field panel
     html += '<div id="chatterSummaryPanel-' + esc(tid) + '"' + (!summaryEnabled ? ' class="hidden"' : '') + '>';
     if (orderedFields.length) {
-      html += '<p class="text-xs text-base-content/50 mb-1.5">Vink aan + sleep met ▲▼ om volgorde en selectie aan te passen. Niets aangevinkt = alle velden.</p>';
+      html += '<p class="text-xs text-base-content/50 mb-1.5">Vink aan + sleep met ▲▼ om volgorde en selectie aan te passen. Klik ½/▭ om een veld half of volledig breed te maken. Niets aangevinkt = alle velden.</p>';
       html += '<ul id="chatterFieldList-' + esc(tid) + '" class="border border-base-200 rounded-lg overflow-hidden mb-1">';
       orderedFields.forEach(function (f) {
         var fid = f.field_id || f.fieldId || f.id || f.name || '';
         var lbl = f.label || fid;
         var chk = (!summaryOrderedIds.length || summaryOrderedIds.indexOf(fid) !== -1) ? ' checked' : '';
-        html += '<li data-fid="' + esc(fid) + '" class="flex items-center gap-2 px-3 py-1.5 border-b border-base-200 last:border-0 bg-base-100 hover:bg-base-200/40">' +
+        var isFullWidth = savedWidthMap[fid] === 'full';
+        var widthAttr   = isFullWidth ? ' data-width="full"' : '';
+        var widthBtnCls = 'h-4 w-5 flex items-center justify-center text-[10px] leading-none rounded '
+          + (isFullWidth ? 'text-primary font-bold bg-primary/10' : 'text-base-content/40 hover:text-base-content');
+        html += '<li data-fid="' + esc(fid) + '"' + widthAttr + ' class="flex items-center gap-2 px-3 py-1.5 border-b border-base-200 last:border-0 bg-base-100 hover:bg-base-200/40">' +
           '<input type="checkbox" class="checkbox checkbox-xs shrink-0" data-summary-field="' + esc(tid) + '" value="' + esc(fid) + '"' + chk +
             ' onchange="window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\x27' + esc(tid) + '\x27)">' +
           '<span class="flex-1 text-sm truncate">' + esc(lbl) + '</span>' +
+          '<button type="button" data-action="chatter-field-toggle-width" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
+            ' class="' + widthBtnCls + ' shrink-0" title="Volledige breedte / half breedte wisselen"' +
+            ' onclick="var li=this.closest(\x27li\x27);var wasFull=li.getAttribute(\x27data-width\x27)===\x27full\x27;' +
+              'if(wasFull){li.removeAttribute(\x27data-width\x27);}else{li.setAttribute(\x27data-width\x27,\x27full\x27);}' +
+              'this.classList.toggle(\x27text-primary\x27,!wasFull);this.classList.toggle(\x27font-bold\x27,!wasFull);this.classList.toggle(\x27bg-primary/10\x27,!wasFull);' +
+              'window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\x27' + esc(tid) + '\x27)">' +
+            (isFullWidth ? '▭' : '½') +
+          '</button>' +
           '<div class="flex flex-col shrink-0">' +
             '<button type="button" data-action="chatter-field-up" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
               ' class="h-4 w-5 flex items-center justify-center text-xs text-base-content/40 hover:text-base-content" title="Omhoog">▲</button>' +
@@ -329,13 +344,15 @@
     if (toggle && toggle.checked) {
       var fieldList  = document.getElementById('chatterFieldList-' + tid);
       var orderedIds = [];
+      var widthMap   = {};
       if (fieldList) {
         fieldList.querySelectorAll('li[data-fid]').forEach(function (li) {
           var cb = li.querySelector('input[type="checkbox"]');
           if (cb && cb.checked) orderedIds.push(li.getAttribute('data-fid'));
+          if (li.getAttribute('data-width') === 'full') widthMap[li.getAttribute('data-fid')] = 'full';
         });
       }
-      var summaryHtml = _buildHtml(orderedIds.length ? orderedIds : null, sampleForm, labelMap);
+      var summaryHtml = _buildHtml(orderedIds.length ? orderedIds : null, sampleForm, labelMap, widthMap);
       if (summaryHtml) parts.push(summaryHtml);
     }
 
@@ -377,6 +394,7 @@
       var fieldList  = document.getElementById('chatterFieldList-' + tid);
       var pickedIds  = [];
       var labelMap   = {};
+      var widths     = {};
       var _ffSave    = window.FSV2.buildDetailFlatFields(S().detailFormFields || []).flatFields || [];
       var _fidLblMap = {};
       _ffSave.forEach(function (f) {
@@ -391,9 +409,10 @@
             pickedIds.push(fid);
             if (_fidLblMap[fid]) labelMap[fid] = _fidLblMap[fid];
           }
+          if (fid && li.getAttribute('data-width') === 'full') widths[fid] = 'full';
         });
       }
-      template = '__COMBINED__:' + JSON.stringify({ message: rawMsg, ids: pickedIds, labels: labelMap });
+      template = '__COMBINED__:' + JSON.stringify({ message: rawMsg, ids: pickedIds, labels: labelMap, widths: widths });
     } else if (rawMsg) {
       template = rawMsg;
     } else {
