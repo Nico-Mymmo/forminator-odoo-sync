@@ -6,15 +6,14 @@
  * -> Sheet -> Looker Studio) te vervangen door een rechtstreekse Odoo-
  * bevraging.
  *
- * Merk-groepering (BELANGRIJK, zie analyse 2026-09-08):
- * `x_studio_brand_origin` is het enige veld dat een merk registreert, maar
- * dekt in de praktijk maar ~24% van de leads: 'syndicoach' en 'openvme' zijn
- * betrouwbaar, maar 'manual' (verreweg de grootste groep, ~76%),
- * 'directregistration' en 'syndicuskiezen' zeggen niets over het merk. We
- * forceren die groep dus NIET naar Syndicoach/OpenVME -- ze vormen een
- * expliciete derde groep 'onbekend', in plaats van een fout cijfer te tonen.
- * Zodra er een betrouwbaardere bron is, verschuift enkel bucketForBrandOrigin()
- * hieronder -- de rest van deze widget blijft ongewijzigd.
+ * Merk-groepering (bijgewerkt 2026-09-08, op uitdrukkelijk verzoek van Nico):
+ * UITSLUITEND gebaseerd op het Odoo-veld `x_studio_brand_origin` -- geen
+ * leadnaam-heuristiek, geen enkele andere afleiding. Alle vijf de
+ * selectiewaarden van dat veld krijgen een eigen, ongewijzigde categorie
+ * (BRAND_LABELS hieronder gebruikt letterlijk de labels uit Odoo Studio),
+ * niets wordt samengevoegd tot "onbekend". Wil je de indeling wijzigen, dan
+ * gebeurt dat via een Studio-aanpassing aan het veld zelf (nieuwe/aangepaste
+ * property), niet via code hier -- dat was net het punt van de correctie.
  *
  * "Won-ratio vanaf MQL": MQL (crm.stage id=1) is de instapstage -- vrijwel
  * elke nieuwe lead start daar. We benaderen "vanaf MQL binnen periode X"
@@ -27,28 +26,32 @@
  * Geen relatie-traversal nodig (alles staat op crm.lead zelf), dus
  * rechtstreeks via lib/odoo.js -- de cascade-motor van sales-insight-explorer
  * (single source of truth voor RELATIES tussen modellen) is hier niet van
- * toepassing; dit is precies het "enkel basismodel + aggregaties"-geval.
+ * toepassing; dit is het "enkel basismodel + aggregaties"-geval, dus via
+ * Odoo's read_group (geen per-lead detail nodig zolang we op property
+ * groeperen).
  *
  * @module modules/dashboards/lib/leads-instroom
  */
 
 import { executeKw } from '../../../lib/odoo.js';
 
-const BRAND_BUCKETS = {
-  syndicoach: 'syndicoach',
-  openvme: 'openvme'
-};
+// Letterlijk de selectiewaarden + labels van x_studio_brand_origin in Odoo
+// Studio (ir.model.fields.selection op crm.lead), in dezelfde volgorde als
+// daar. Een lead zonder waarde (false) valt bij 'manual' -- inhoudelijk
+// betekent 'manual' ook daar al "geen specifiek kanaal geregistreerd"; wie
+// dat anders wil, past het veld in Studio aan, niet deze mapping.
+const BRAND_KEYS = ['syndicoach', 'openvme', 'directregistration', 'syndicuskiezen', 'manual'];
 
 const BRAND_LABELS = {
-  syndicoach: 'Syndicoach',
-  openvme: 'OpenVME',
-  onbekend: 'Onbekend/overig'
+  syndicoach: 'Syndicoach (website/meta)',
+  openvme: 'OpenVME (website/meta)',
+  directregistration: 'Directe registratie',
+  syndicuskiezen: 'Syndicus Kiezen',
+  manual: 'Manueel aangemaakt'
 };
 
-const BRAND_KEYS = ['syndicoach', 'openvme', 'onbekend'];
-
 function bucketForBrandOrigin(value) {
-  return BRAND_BUCKETS[value] || 'onbekend';
+  return BRAND_KEYS.includes(value) ? value : 'manual';
 }
 
 function pad2(n) {
@@ -166,7 +169,7 @@ export async function getInstroomData(env, { period } = {}) {
   const daily = emptyDailySeries(start, end);
   const dailyByKey = new Map(daily.map((row) => [row.date, row]));
 
-  const byBrand = { syndicoach: 0, openvme: 0, onbekend: 0 };
+  const byBrand = Object.fromEntries(BRAND_KEYS.map((key) => [key, 0]));
   let currentTotal = 0;
 
   for (const row of dailyBrandRows) {

@@ -22,9 +22,11 @@ const SYSTEM_KEYS = ['form_id', 'form_uid', 'ovme_forminator_id', 'nonce'];
  *                                  When provided, labels are used directly instead of
  *                                  being derived from the key name.
  * @param {Object|null} [widthMap]  Optional map of fieldId → 'full'|'half'.
- *                                  Explicit override of column width per field. When a
- *                                  field has no entry, falls back to the LONG_VALUE_THRESHOLD
- *                                  heuristic (length-based) for backward compatibility.
+ *                                  When widthMap is a present object, width is fully explicit:
+ *                                  a missing key defaults to 'half' (paired), never to a
+ *                                  heuristic. The LONG_VALUE_THRESHOLD length heuristic is used
+ *                                  only when widthMap itself is undefined/null (legacy templates
+ *                                  saved before this feature existed).
  *
  * @returns {string} HTML string with inline CSS, or '' when there are no rows.
  */
@@ -53,14 +55,14 @@ export function buildHtmlFormSummary(fieldIds, normalizedForm, labelMap, widthMa
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/\n/g, '<br>');
-    const forced = widthMap && Object.prototype.hasOwnProperty.call(widthMap, key)
-      ? widthMap[key]
-      : null;
-    const isLong = forced === 'full'
-      ? true
-      : forced === 'half'
-        ? false
-        : raw.length > LONG_VALUE_THRESHOLD;
+    // Once a widthMap object is present at all, width is 100% explicit and
+    // deterministic: a present-but-missing key defaults to 'half' (paired),
+    // never to the length heuristic below. The heuristic is legacy-only --
+    // it applies solely when widthMap itself is absent (undefined/null),
+    // i.e. a saved template from before this feature existed.
+    const isLong = widthMap == null
+      ? raw.length > LONG_VALUE_THRESHOLD
+      : widthMap[key] === 'full';
     return {
       isLong: isLong,
       html: '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:#6c757d;margin-bottom:3px">' + label + '</div>'

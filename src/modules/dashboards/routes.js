@@ -16,7 +16,10 @@ import { getInstroomData } from './lib/leads-instroom.js';
 function json(body, status) {
   return new Response(JSON.stringify(body), {
     status: status || 200,
-    headers: { 'Content-Type': 'application/json' }
+    // Nooit cachen -- dit is live Odoo-data, bedoeld om bij elke lading de
+    // actuele stand te tonen. Geen Cache API/KV in dit pad, dus dit is puur
+    // defensief tegen browser-/edge-caching op de GET-response zelf.
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
 }
 

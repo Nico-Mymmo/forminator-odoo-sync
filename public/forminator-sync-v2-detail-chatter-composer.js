@@ -115,28 +115,34 @@
     // Summary field panel
     html += '<div id="chatterSummaryPanel-' + esc(tid) + '"' + (!summaryEnabled ? ' class="hidden"' : '') + '>';
     if (orderedFields.length) {
-      html += '<p class="text-xs text-base-content/50 mb-1.5">Vink aan + sleep met ▲▼ om volgorde en selectie aan te passen. Klik ½/▭ om een veld half of volledig breed te maken. Niets aangevinkt = alle velden.</p>';
+      html += '<p class="text-xs text-base-content/50 mb-1.5">Vink aan + sleep met ▲▼ om volgorde en selectie aan te passen. Kies per veld “Half” of “Vol” voor de breedte in de notitie. Niets aangevinkt = alle velden.</p>';
       html += '<ul id="chatterFieldList-' + esc(tid) + '" class="border border-base-200 rounded-lg overflow-hidden mb-1">';
       orderedFields.forEach(function (f) {
         var fid = f.field_id || f.fieldId || f.id || f.name || '';
         var lbl = f.label || fid;
         var chk = (!summaryOrderedIds.length || summaryOrderedIds.indexOf(fid) !== -1) ? ' checked' : '';
-        var isFullWidth = savedWidthMap[fid] === 'full';
-        var widthAttr   = isFullWidth ? ' data-width="full"' : '';
-        var widthBtnCls = 'h-4 w-5 flex items-center justify-center text-[10px] leading-none rounded '
-          + (isFullWidth ? 'text-primary font-bold bg-primary/10' : 'text-base-content/40 hover:text-base-content');
+        // Explicit width state for every field: legacy 'full' entries are kept
+        // as 'full', everything else (unset / legacy-missing / new fields)
+        // defaults explicitly to 'half'. No hidden heuristic is involved here
+        // any more -- see buildHtmlFormSummary in html-utils.js.
+        var fieldWidth  = savedWidthMap[fid] === 'full' ? 'full' : 'half';
+        var isFullWidth = fieldWidth === 'full';
+        var widthAttr   = ' data-width="' + fieldWidth + '"';
+        var widthTip    = 'Bepaalt of dit veld een halve of volledige rij inneemt in de notitie';
         html += '<li data-fid="' + esc(fid) + '"' + widthAttr + ' class="flex items-center gap-2 px-3 py-1.5 border-b border-base-200 last:border-0 bg-base-100 hover:bg-base-200/40">' +
           '<input type="checkbox" class="checkbox checkbox-xs shrink-0" data-summary-field="' + esc(tid) + '" value="' + esc(fid) + '"' + chk +
             ' onchange="window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\x27' + esc(tid) + '\x27)">' +
           '<span class="flex-1 text-sm truncate">' + esc(lbl) + '</span>' +
-          '<button type="button" data-action="chatter-field-toggle-width" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
-            ' class="' + widthBtnCls + ' shrink-0" title="Volledige breedte / half breedte wisselen"' +
-            ' onclick="var li=this.closest(\x27li\x27);var wasFull=li.getAttribute(\x27data-width\x27)===\x27full\x27;' +
-              'if(wasFull){li.removeAttribute(\x27data-width\x27);}else{li.setAttribute(\x27data-width\x27,\x27full\x27);}' +
-              'this.classList.toggle(\x27text-primary\x27,!wasFull);this.classList.toggle(\x27font-bold\x27,!wasFull);this.classList.toggle(\x27bg-primary/10\x27,!wasFull);' +
-              'window.FSV2.scheduleChatterPreview&&window.FSV2.scheduleChatterPreview(\x27' + esc(tid) + '\x27)">' +
-            (isFullWidth ? '▭' : '½') +
-          '</button>' +
+          '<div class="join shrink-0" style="width:64px" title="' + esc(widthTip) + '">' +
+            '<button type="button" data-width-btn="half" data-action="chatter-field-width-half" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
+              ' class="join-item flex-1 h-4 text-[10px] leading-none font-medium ' + (!isFullWidth ? 'bg-primary text-primary-content' : 'bg-base-200 text-base-content/40 hover:text-base-content/70') + '"' +
+              ' title="' + esc(widthTip) + '"' +
+              ' onclick="window.FSV2._setChatterFieldWidth(\x27' + esc(tid) + '\x27,\x27' + esc(fid) + '\x27,\x27half\x27)">Half</button>' +
+            '<button type="button" data-width-btn="full" data-action="chatter-field-width-full" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
+              ' class="join-item flex-1 h-4 text-[10px] leading-none font-medium ' + (isFullWidth ? 'bg-primary text-primary-content' : 'bg-base-200 text-base-content/40 hover:text-base-content/70') + '"' +
+              ' title="' + esc(widthTip) + '"' +
+              ' onclick="window.FSV2._setChatterFieldWidth(\x27' + esc(tid) + '\x27,\x27' + esc(fid) + '\x27,\x27full\x27)">Vol</button>' +
+          '</div>' +
           '<div class="flex flex-col shrink-0">' +
             '<button type="button" data-action="chatter-field-up" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
               ' class="h-4 w-5 flex items-center justify-center text-xs text-base-content/40 hover:text-base-content" title="Omhoog">▲</button>' +
@@ -238,6 +244,28 @@
     return loremPick(3);
   }
 
+  /* Zet de breedte-state ('half'/'full') van 1 veld-rij in de samenvatting-lijst,
+   * werkt de visuele highlight van de pill meteen bij en herberekent de preview.
+   * Enige plek die data-width op een <li> muteert -- zorgt dat DOM-state en
+   * highlight nooit uit sync raken. */
+  function _setChatterFieldWidth(tid, fid, width) {
+    var ul = document.getElementById('chatterFieldList-' + tid);
+    if (!ul) return;
+    var li = ul.querySelector('li[data-fid="' + fid + '"]');
+    if (!li) return;
+    var norm = width === 'full' ? 'full' : 'half';
+    li.setAttribute('data-width', norm);
+    li.querySelectorAll('[data-width-btn]').forEach(function (btn) {
+      var active = btn.getAttribute('data-width-btn') === norm;
+      btn.classList.toggle('bg-primary', active);
+      btn.classList.toggle('text-primary-content', active);
+      btn.classList.toggle('bg-base-200', !active);
+      btn.classList.toggle('text-base-content/40', !active);
+      btn.classList.toggle('hover:text-base-content/70', !active);
+    });
+    if (window.FSV2.scheduleChatterPreview) window.FSV2.scheduleChatterPreview(tid);
+  }
+
   function updateChatterPreview(tid) {
     var frame  = document.getElementById('chatterPreviewFrame-' + tid);
     var topNav = document.getElementById('chatterTopNav-' + tid);
@@ -303,6 +331,12 @@
           return pk.toLowerCase().replace(/[-_\s]+/g, '_').startsWith(normK + '_') && realPayload[pk] != null && realPayload[pk] !== '';
         });
         if (prefixKey) { sampleForm[k] = String(realPayload[prefixKey]); return; }
+        // Real submission selected but this field is genuinely blank/absent in
+        // it -- mirror the worker's lookupFormValue behaviour (worker-handler.js)
+        // and OMIT the field entirely instead of backfilling with dummy sample
+        // text. Backfilling here would change field adjacency vs. the real send
+        // and break the half/full pairing logic in buildHtmlFormSummary.
+        return;
       }
       sampleForm[k] = window.FSV2._makeSampleValue(f);
     });
@@ -347,9 +381,12 @@
       var widthMap   = {};
       if (fieldList) {
         fieldList.querySelectorAll('li[data-fid]').forEach(function (li) {
-          var cb = li.querySelector('input[type="checkbox"]');
-          if (cb && cb.checked) orderedIds.push(li.getAttribute('data-fid'));
-          if (li.getAttribute('data-width') === 'full') widthMap[li.getAttribute('data-fid')] = 'full';
+          var fid = li.getAttribute('data-fid');
+          var cb  = li.querySelector('input[type="checkbox"]');
+          if (cb && cb.checked) orderedIds.push(fid);
+          // Explicit half/full for every field -- no field is ever left
+          // without a width entry once the composer UI has rendered it.
+          if (fid) widthMap[fid] = li.getAttribute('data-width') === 'full' ? 'full' : 'half';
         });
       }
       var summaryHtml = _buildHtml(orderedIds.length ? orderedIds : null, sampleForm, labelMap, widthMap);
@@ -409,7 +446,10 @@
             pickedIds.push(fid);
             if (_fidLblMap[fid]) labelMap[fid] = _fidLblMap[fid];
           }
-          if (fid && li.getAttribute('data-width') === 'full') widths[fid] = 'full';
+          // Always record an explicit width for every checked field (half is
+          // the default) so saved configs never depend on the legacy length
+          // heuristic in buildHtmlFormSummary.
+          if (fid) widths[fid] = li.getAttribute('data-width') === 'full' ? 'full' : 'half';
         });
       }
       template = '__COMBINED__:' + JSON.stringify({ message: rawMsg, ids: pickedIds, labels: labelMap, widths: widths });
@@ -488,6 +528,7 @@
 
   Object.assign(window.FSV2, {
     _makeSampleValue: _makeSampleValue,
+    _setChatterFieldWidth: _setChatterFieldWidth,
     handleSaveChatterComposer: handleSaveChatterComposer,
     renderChatterComposer: renderChatterComposer,
     scheduleChatterPreview: scheduleChatterPreview,

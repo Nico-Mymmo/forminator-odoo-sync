@@ -8,7 +8,9 @@ var state = {
 // --- API helpers -------------------------------------------------------
 
 async function apiFetch(url, options) {
-  var res = await fetch(url, Object.assign({ credentials: 'include' }, options || {}));
+  // cache: 'no-store' -- dit zijn live cijfers, de browser mag nooit een
+  // eerder antwoord hergebruiken (zie ook de Cache-Control-header server-side).
+  var res = await fetch(url, Object.assign({ credentials: 'include', cache: 'no-store' }, options || {}));
   if (res.status === 401) {
     window.location.href = '/';
     throw new Error('Niet ingelogd');
@@ -44,10 +46,14 @@ function formatDelta(pct) {
   return arrow + ' ' + Math.abs(pct).toLocaleString('nl-BE') + '% t.o.v. vorige periode';
 }
 
+// Vijf kleuren, één per selectiewaarde van x_studio_brand_origin in Odoo --
+// zie lib/leads-instroom.js voor de volledige toelichting bij deze indeling.
 var BRAND_COLORS = {
   syndicoach: '#2563eb',
   openvme: '#0d9488',
-  onbekend: '#94a3b8'
+  directregistration: '#7c3aed',
+  syndicuskiezen: '#d97706',
+  manual: '#94a3b8'
 };
 
 var PERIOD_LABELS = {
