@@ -1003,15 +1003,33 @@ async function runSubmissionAttempt(env, {
       // ── chatter_message: post HTML message to Odoo chatter ────────────────
       if (opType === 'chatter_message') {
         try {
-          // Chatter supports multiple linked steps.
+          // Chatter supports multiple linked steps. Each linked step may belong to a
+          // DIFFERENT Odoo model (e.g. step 0 = res.partner, step 1 = crm.lead), so the
+          // model must be resolved PER mapping (from the source step it points at) rather
+          // than assumed to be target.odoo_model for every posted record.
           const identifierMappings = mappings.filter(function(m) { return m.odoo_field === '_chatter_record_id'; });
           if (!identifierMappings.length) {
             throw createPermanentError('chatter_message target heeft geen identifier-mapping. Koppel het aan een vorig stap-record.');
           }
-          const recordIds = identifierMappings
-            .map(function(m) { return parsePositiveInteger(resolveMappingValue(m, normalizedForm, contextObject)); })
+          const chatterRecords = identifierMappings
+            .map(function(m) {
+              const recId = parsePositiveInteger(resolveMappingValue(m, normalizedForm, contextObject));
+              if (!recId) return null;
+              let recModel = target.odoo_model;
+              const stepKeyMatch = typeof m.source_value === 'string' ? m.source_value.match(/^step\.([^.]+)\.record_id$/) : null;
+              if (stepKeyMatch) {
+                const stepKey = stepKeyMatch[1];
+                const sourceTarget = sortedTargets.find(function(t) {
+                  return String(t.execution_order ?? t.order_index ?? '') === stepKey || normalizeString(t.label) === stepKey;
+                });
+                if (sourceTarget && sourceTarget.odoo_model) {
+                  recModel = sourceTarget.odoo_model;
+                }
+              }
+              return { recordId: recId, model: recModel };
+            })
             .filter(Boolean);
-          if (!recordIds.length) {
+          if (!chatterRecords.length) {
             throw createPermanentError('chatter_message: geen geldig record-ID van de gelinkte stappen.');
           }
 
@@ -1084,12 +1102,13 @@ async function runSubmissionAttempt(env, {
             body = buildHtmlFormSummary(null, normalizedForm);
           }
 
-          // Post to each linked record (multi-step chatter).
+          // Post to each linked record (multi-step chatter), using the model resolved
+          // for that specific record (not necessarily target.odoo_model).
           let result = null;
-          for (const _recId of recordIds) {
+          for (const _rec of chatterRecords) {
             result = await postChatterMessage(env, {
-              model: target.odoo_model,
-              recordId: _recId,
+              model: _rec.model,
+              recordId: _rec.recordId,
               body: body,
               subtypeXmlid: target.chatter_subtype_xmlid || 'mail.mt_note'
             });
