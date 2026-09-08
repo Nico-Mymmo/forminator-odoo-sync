@@ -76,6 +76,9 @@ export const BLOCK_TYPE = {
 
 export const BLOCK_TYPES = Object.values(BLOCK_TYPE);
 
+/** Blokken met een knop erin, en dus met een kleurkeuze. */
+export const KLEURBARE_BLOKKEN = [BLOCK_TYPE.BUTTON, BLOCK_TYPE.MAP, BLOCK_TYPE.ANNOUNCEMENT];
+
 /**
  * De regels die het "praktisch kader" standaard toont.
  *
@@ -378,6 +381,18 @@ function normalizeBlocks(blocks, context) {
     const copy = { ...block, id: String(block.id || `${type}-${index}`), type };
     // Zichtbaarheid per blok bestaat niet meer -- weggooien, niet bewaren.
     delete copy.sites;
+
+    // Knopkleur: op elk blok dat een knop tekent. `category` = de kleur van
+    // de eventcategorie (blijft meeschuiven), of een hex uit de kleurkiezer.
+    // Een onbruikbare waarde wordt WEGGEGOOID en niet bewaard: dan valt de
+    // knop terug op de oude variant of op blauw, in plaats van dat er
+    // `color:undefined` in de mail belandt.
+    if (KLEURBARE_BLOKKEN.includes(type)) {
+      const kleur = String(copy.color || '').trim().toLowerCase();
+      if (kleur === 'category' || /^#[0-9a-f]{6}$/.test(kleur)) copy.color = kleur;
+      else delete copy.color;
+      copy.outline = copy.outline === true;
+    }
 
     if (type === BLOCK_TYPE.ANNOUNCEMENT) {
       copy.pick = ANNOUNCEMENT_PICKS.includes(copy.pick) ? copy.pick : ANNOUNCEMENT_PICK.NEXT;

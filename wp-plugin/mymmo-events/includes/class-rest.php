@@ -50,6 +50,19 @@ final class Mymmo_Events_Rest {
             ],
         ]);
 
+        // Diagnostiek. ALLEEN LEZEN en alleen voor wie in wp-admin naar
+        // dezelfde informatie mag kijken (manage_options) -- geen token, want
+        // dit is geen server-naar-server-seintje maar een beheerdersvraag.
+        // Bewust geen __return_true: hier staan padnamen, plugin-fouten en
+        // regels uit debug.log in.
+        register_rest_route(self::NAMESPACE, '/diag', [
+            'methods' => 'GET',
+            'callback' => [self::class, 'diag'],
+            'permission_callback' => static function () {
+                return current_user_can('manage_options');
+            },
+        ]);
+
         register_rest_route(self::NAMESPACE, '/calendar', [
             'methods' => 'GET',
             'callback' => [self::class, 'calendar'],
@@ -92,6 +105,15 @@ final class Mymmo_Events_Rest {
         Mymmo_Events_Cache::purge_all();
 
         return rest_ensure_response(['ok' => true, 'purged' => true]);
+    }
+
+    /**
+     * Wat de WordPress-kern-API niet geeft: gepauzeerde plugins, de omvang
+     * van de autoload-options, wijzigingen aan active_plugins en de laatste
+     * fatals uit debug.log. Zie class-diagnostics.php.
+     */
+    public static function diag(): WP_REST_Response {
+        return new WP_REST_Response(Mymmo_Events_Diagnostics::report(), 200);
     }
 
     public static function calendar(WP_REST_Request $request) {

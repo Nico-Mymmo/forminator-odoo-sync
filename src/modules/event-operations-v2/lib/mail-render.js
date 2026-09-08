@@ -219,6 +219,13 @@ export function buildPlaceholderContext({
   host = {},
   publicUrl = '',
   typeColor = '',
+  // Per aankondigingsblok het event dat het blok aankondigt, op blok-id:
+  // { [blockId]: { title, day, time, location, link, url, type, summary } }.
+  // Dit staat NIET in de placeholders: er kunnen meerdere aankondigingen in
+  // één mail staan, dus "{{announcement.title}}" zou dubbelzinnig zijn. De
+  // renderer haalt het per blok op. Opzoeken gebeurt in mail-service.js --
+  // deze module blijft puur.
+  announcements = {},
   now = new Date()
 }) {
   const displayName = String(registration?.name || '').trim();
@@ -283,7 +290,8 @@ export function buildPlaceholderContext({
       first_name: firstName,
       email: registration?.submitted_email || registration?.email || ''
     },
-    now: { year: String(now.getFullYear()) }
+    now: { year: String(now.getFullYear()) },
+    announcements: announcements || {}
   };
 }
 
@@ -545,6 +553,78 @@ function renderCardBlock(block, context, editable = false) {
       );
     }
 
+    case BLOCK_TYPE.ANNOUNCEMENT: {
+      // Het event zelf is al opgezocht (mail-service.resolveAnnouncements) en
+      // staat op blok-id in de context. Deze functie blijft puur: geen Odoo,
+      // geen fetch, geen "wat is het eerstvolgende event" hier.
+      const aankondiging = context?.announcements?.[block.id] || null;
+
+      if (!aankondiging) {
+        // Bij het VERSTUREN valt het blok weg: liever geen kaart dan een
+        // kaart die zegt dat er niets gevonden is. In de EDITOR blijft hij
+        // staan, met de reden erbij.
+        const waarom = {
+          next: 'Er staat nog geen volgend gepubliceerd event in de agenda.',
+          next_of_type: block.eventTypeId
+            ? 'Er staat nog geen volgend gepubliceerd event van dit type in de agenda.'
+            : 'Kies eerst een event-type bij Instellingen.',
+          highlighted: 'Er staat geen volgend uitgelicht event in de agenda (vinkje "uitgelicht" in Odoo).',
+          fixed: block.eventId
+            ? 'Dit event is niet gevonden, of het is niet gepubliceerd.'
+            : 'Kies eerst een event bij Instellingen.'
+        };
+        return leegBlok(
+          'Aankondiging',
+          waarom[block.pick] || 'Geen event gevonden. Kijk de keuze na bij Instellingen.'
+        );
+      }
+
+      const kop = txt(block.title);
+      const meta = [aankondiging.day, aankondiging.time].filter((s) => String(s || '') !== '').join(' &middot; ');
+      const plaats = String(aankondiging.location || '').trim() !== ''
+        ? esc(aankondiging.location)
+        : (String(aankondiging.link || '').trim() !== '' ? 'Online' : '');
+
+      const knop = String(aankondiging.url || '') === ''
+        ? ''
+        : `<tr><td style="padding:16px 0 0;">` +
+          knopHtml({
+            href: safeUrl(aankondiging.url),
+            label: txt(block.label) || esc('Bekijk en schrijf je in'),
+            block,
+            editable,
+            editAttr: ed('label'),
+            context
+          }) +
+          `</td></tr>`;
+
+      const samenvatting = block.showSummary !== false && String(aankondiging.summary || '').trim() !== ''
+        ? `<tr><td style="font-size:14px;line-height:22px;color:${STYLE.text};padding:8px 0 0;">` +
+          `${esc(aankondiging.summary)}</td></tr>`
+        : '';
+
+      return row(
+        `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" ` +
+        `style="border-collapse:separate;background:${STYLE.box};border-radius:${STYLE.boxRadius}px;">` +
+        `<tr><td style="padding:24px;font-family:${STYLE.font};">` +
+        `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">` +
+        (kop === ''
+          ? ''
+          : `<tr><td${ed('title')} style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;` +
+            `font-weight:700;color:${STYLE.footer};padding:0 0 8px;">${kop}</td></tr>`) +
+        `<tr><td style="font-family:${STYLE.headingFont};font-size:20px;line-height:28px;font-weight:700;` +
+        `color:${STYLE.heading};padding:0;">${esc(aankondiging.title)}</td></tr>` +
+        (meta === '' && plaats === ''
+          ? ''
+          : `<tr><td style="font-size:14px;color:${STYLE.text};padding:6px 0 0;">` +
+            `${meta}${meta !== '' && plaats !== '' ? ' &middot; ' : ''}${plaats}</td></tr>`) +
+        samenvatting +
+        knop +
+        `</table></td></tr></table>`,
+        'padding:24px 0;'
+      );
+    }
+
     case BLOCK_TYPE.IMAGE: {
       const src = safeUrl(fill(block.src));
       if (src === '') return leegBlok('Afbeelding', 'Nog geen afbeelding. Zet de URL in Instellingen.');
@@ -586,6 +666,55 @@ const KNOP_STIJLEN = {
   outline: { bg: '#ffffff', kleur: '#2563eb', rand: '#2563eb' },
   subtle: { bg: '#f1f5f9', kleur: '#1f2937', rand: '#e2e8f0' }
 };
+
+/**
+ * De kleuren van een knop.
+ *
+ * DRIE bronnen, in deze volgorde:
+ *
+ *  1. `block.color` -- een vrije kleur die de gebruiker in de kleurkiezer
+ *     koos. `'category'` betekent uitdrukkelijk "de kleur van de
+ *     eventcategorie", zodat die keuze meeschuift als de categorie later een
+ *     andere kleur krijgt (en niet als bevroren hex in duizend mails staat).
+ *  2. `block.variant` -- de oude, gesloten lijst. Blijft werken: er staan
+ *     bestaande mails in Odoo met `variant: "subtle"`, en die mogen niet
+ *     ineens blauw worden.
+ *  3. blauw, als er niets bruikbaars is.
+ *
+ * `block.outline` maakt van elke kleur de omlijnde versie: witte vulling,
+ * tekst en rand in die kleur. Dat is één schakelaar in plaats van twee
+ * varianten per kleur.
+ *
+ * De TEKSTKLEUR wordt altijd berekend (leesbareTekstkleur), nooit gekozen.
+ * Een vrije kleurkiezer zonder die berekening levert onleesbare knoppen op,
+ * en in een verstuurde mail kan je dat niet meer bijstellen.
+ *
+ * @param {Object} block @param {Object} context
+ * @returns {{ bg: string, kleur: string, rand: string }}
+ */
+export function knopStijl(block, context) {
+  const categorie = hexOfNiets(context?.event?.type_color) || KNOP_STIJLEN.primary.bg;
+
+  const vrij = String(block?.color || '').trim().toLowerCase();
+  let basis = null;
+
+  if (vrij === 'category') {
+    basis = categorie;
+  } else if (hexOfNiets(vrij)) {
+    basis = hexOfNiets(vrij);
+  }
+
+  if (basis === null) {
+    const gekozen = KNOP_STIJLEN[block?.variant] || KNOP_STIJLEN.primary;
+    if (gekozen.merk === 'vol') basis = categorie;
+    else if (gekozen.merk === 'omlijnd') return { bg: '#ffffff', kleur: categorie, rand: categorie };
+    else return gekozen;
+  }
+
+  return block?.outline === true
+    ? { bg: '#ffffff', kleur: basis, rand: basis }
+    : { bg: basis, kleur: leesbareTekstkleur(basis), rand: basis };
+}
 
 /**
  * Zwarte of witte tekst op deze achtergrond?
@@ -631,18 +760,7 @@ function hexOfNiets(waarde) {
  * @returns {string}
  */
 function knopHtml({ href, label, block, editable, editAttr, context }) {
-  const gekozen = KNOP_STIJLEN[block?.variant] || KNOP_STIJLEN.primary;
-
-  // De merkkleur komt van de eventcategorie. Is die er niet (geen type, of
-  // een type zonder kleur), dan valt hij terug op blauw -- nooit op een
-  // onleesbare of lege kleur.
-  const merkkleur = hexOfNiets(context?.event?.type_color) || KNOP_STIJLEN.primary.bg;
-  let stijl = gekozen;
-  if (gekozen.merk === 'vol') {
-    stijl = { bg: merkkleur, kleur: leesbareTekstkleur(merkkleur), rand: merkkleur };
-  } else if (gekozen.merk === 'omlijnd') {
-    stijl = { bg: '#ffffff', kleur: merkkleur, rand: merkkleur };
-  }
+  const stijl = knopStijl(block, context);
 
   const volleBreedte = block?.width === 'full';
   const uitlijning = ['left', 'center', 'right'].includes(block?.align) ? block.align : 'left';

@@ -144,10 +144,12 @@ export const CACHE_TTL = {
   STAGES: 3600,
   SCHEMA: 3600,
   // Externe WP-call (welke events nog een oude Tribe Events-pagina hebben).
-  // Kort genoeg om een net verwijderde WP-pagina snel te laten verdwijnen
-  // uit de markering, lang genoeg om niet bij elke pageload WordPress te
-  // bevragen.
-  WP_LEGACY_PAGES: 120
+  // 15 minuten, niet 2: dit is een MARKERING op een lijst, geen gegeven waar
+  // iemand op wacht. Met 120s bevroeg elke beheerder die twee keer per
+  // kwartier de lijst opende WordPress opnieuw, plus een KV-read en -write
+  // per keer. De verversknop gooit de cache leeg, dus wie een oude pagina
+  // net handmatig verwijderd heeft ziet dat meteen.
+  WP_LEGACY_PAGES: 900
 };
 
 /** KV-sleutelruimte. Alles onder dit prefix is veilig te wissen. */

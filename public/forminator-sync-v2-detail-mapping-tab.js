@@ -406,9 +406,19 @@
       var targetMappings      = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [];
       var formMappingsByField = {};
       var initialExtraRows    = [];
+      // Only model-level fixed_fields are auto-filled/hidden; user-added fixed-value
+      // (static) rows must still render as editable rows, same pattern as above (_fixedNames).
+      var _modelCfgRDM   = window.FSV2.getModelCfg ? (window.FSV2.getModelCfg(model) || {}) : {};
+      var _fixedNamesRDM = (Array.isArray(_modelCfgRDM.fixed_fields) ? _modelCfgRDM.fixed_fields : [])
+        .map(function (f) { return typeof f === 'string' ? f : (f.name || ''); });
       targetMappings.forEach(function (m) {
-        if (m.source_type === 'form')   { formMappingsByField[m.source_value] = m; }
-        else if (m.source_type !== 'static') { initialExtraRows.push(m); } // static = Automatisch ingevuld, niet in tabel
+        if (m.source_type === 'form') { formMappingsByField[m.source_value] = m; }
+        else if (m.source_type === 'static') {
+          // Skip only if this static mapping is a model-level fixed field (auto-filled,
+          // shown separately above). A user-added fixed-value row must stay editable.
+          if (!_fixedNamesRDM.includes(m.odoo_field)) { initialExtraRows.push(m); }
+        }
+        else { initialExtraRows.push(m); }
       });
 
       if (!S().detail._extraRowsByTarget[tid]) {

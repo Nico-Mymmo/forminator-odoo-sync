@@ -1441,7 +1441,8 @@
     var labels = { confirmation: 'bevestiging', reminder: 'reminder', recap: 'recap' };
     if (!window.confirm(
       'De ' + (labels[kind] || kind) + '-mail klaarzetten voor ' + (name || 'deze deelnemer') + '?\n\n' +
-      'Kreeg hij die al, dan gebeurt er niets.'
+      'Kreeg hij die al, dan gebeurt er niets. Staat de mail nog klaar in de wachtrij, ' +
+      'dan wordt hij bijgewerkt met de huidige inhoud.'
     )) return;
 
     try {
@@ -1452,9 +1453,12 @@
       });
       var data = result.payload.data || {};
       var queued = (data.queued || []).length;
+      var updated = (data.updated || []).length;
 
       if (queued > 0) {
         toast('Mail klaargezet — Odoo verstuurt hem zo', 'success');
+      } else if (updated > 0) {
+        toast('De klaarstaande mail is bijgewerkt met de huidige inhoud', 'success');
       } else {
         var reden = (data.skipped || [])[0];
         toast(reden && reden.reason ? 'Niet klaargezet: ' + reden.reason : (data.message || 'Er was niets klaar te zetten'), 'info');

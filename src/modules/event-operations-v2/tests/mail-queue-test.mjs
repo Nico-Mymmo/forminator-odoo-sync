@@ -161,4 +161,173 @@ await test('een recap met een opnameblok en geen video wordt geweigerd', async (
   );
 });
 
+console.log('\nklaarstaande mails bijwerken in plaats van overslaan');
+
+/**
+ * Een volledige queueMails-ronde, met alles wat Odoo daarvoor te zeggen
+ * heeft. Antwoorden per (model, methode) in plaats van op volgorde: de
+ * volgorde van de parallelle calls is een implementatiedetail, en een test
+ * die daarop leunt breekt bij de eerste Promise.all die van plaats wisselt.
+ */
+function stubOdoo({ mailRows }) {
+  const calls = [];
+  const doc = JSON.stringify({
+    recap: { subject: 'Bedankt {{registration.first_name}}', blocks: [{ id: 't', type: 'text', html: '<p>Tot de volgende!</p>' }], header: {} }
+  });
+
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(options.body);
+    const [, , , model, method, args, kwargs] = body.params.args;
+    calls.push({ model, method, args, kwargs });
+
+    let result = [];
+    if (method === 'fields_get') {
+      result = { x_studio_mail_blocks: { type: 'text' }, x_studio_mail_blocks_override: { type: 'text' } };
+    } else if (model === 'x_webinar_event_type') {
+      result = [{ id: 3, x_studio_mail_blocks: doc }];
+    } else if (model === 'x_webinar') {
+      result = [{ id: 76, x_studio_mail_blocks_override: false }];
+    } else if (model === 'res.users') {
+      result = [{ id: 11, name: 'Rob Claes', email: 'rob@mymmo.com', employee_id: false }];
+    } else if (model === 'mail.mail' && method === 'search_read') {
+      result = mailRows;
+    } else if (method === 'write' || method === 'create') {
+      result = true;
+    }
+    return { ok: true, text: async () => JSON.stringify({ jsonrpc: '2.0', result }) };
+  };
+
+  return calls;
+}
+
+const EVENT_MET_OPNAME = {
+  id: 76,
+  slug: 'qa',
+  title: 'Q&A',
+  starts_at: '2026-09-08T17:00:00.000Z',
+  event_type: { id: 3, name: 'Q&A' },
+  host: { id: 11, name: 'Rob Claes' },
+  recap: { video_url: 'https://vimeo.com/1', thumbnail_url: 'https://i/1.jpg' }
+};
+const REG = [{ id: 1, name: 'Jan Peeters', submitted_email: 'j@e.com', state: 'registered', site: null }];
+const SLEUTEL = '<evt76-recap-reg1@om.mymmo.com>';
+
+await test('een KLAARSTAANDE mail wordt herschreven, niet opnieuw aangemaakt', async () => {
+  const calls = stubOdoo({ mailRows: [{ id: 501, message_id: SLEUTEL, state: 'outgoing' }] });
+  const { queueMails } = await import('../lib/mail-service.js');
+
+  const result = await queueMails(ENV, { event: EVENT_MET_OPNAME, registrations: REG, kind: 'recap' });
+
+  assert.deepEqual(result.queued, [], 'er is een tweede mail aangemaakt');
+  assert.deepEqual(result.updated, [1], 'de klaarstaande mail is niet bijgewerkt');
+  assert.ok(!calls.some((call) => call.model === 'mail.mail' && call.method === 'create'), 'create op mail.mail');
+
+  const schrijf = calls.find((call) => call.model === 'mail.mail' && call.method === 'write');
+  assert.ok(schrijf, 'geen write op mail.mail');
+  assert.deepEqual(schrijf.args[0], [501], 'de verkeerde mail is bijgewerkt');
+
+  const waarden = schrijf.args[1];
+  assert.match(waarden.subject, /Bedankt Jan/, 'het onderwerp is niet opnieuw gerenderd');
+  assert.match(waarden.body_html, /Tot de volgende!/, 'de body is niet opnieuw gerenderd');
+  // De sleutel MOET dezelfde blijven: die is de idempotentie.
+  assert.equal(waarden.message_id, undefined, 'de message_id is overschreven');
+  assert.equal(waarden.state, undefined, 'de state is overschreven');
+});
+
+await test('een VERZONDEN mail blijft vast', async () => {
+  const calls = stubOdoo({ mailRows: [{ id: 501, message_id: SLEUTEL, state: 'sent' }] });
+  const { queueMails } = await import('../lib/mail-service.js');
+
+  const result = await queueMails(ENV, { event: EVENT_MET_OPNAME, registrations: REG, kind: 'recap' });
+
+  assert.deepEqual(result.queued, []);
+  assert.deepEqual(result.updated, []);
+  assert.deepEqual(result.skipped, [{ id: 1, reason: 'al verstuurd' }]);
+  assert.ok(!calls.some((call) => call.model === 'mail.mail' && (call.method === 'write' || call.method === 'create')),
+    'een verstuurde mail is aangeraakt');
+});
+
+await test('refresh: false laat de klaarstaande mail met rust', async () => {
+  const calls = stubOdoo({ mailRows: [{ id: 501, message_id: SLEUTEL, state: 'outgoing' }] });
+  const { queueMails } = await import('../lib/mail-service.js');
+
+  const result = await queueMails(ENV, { event: EVENT_MET_OPNAME, registrations: REG, kind: 'recap', refresh: false });
+
+  assert.deepEqual(result.updated, []);
+  assert.deepEqual(result.skipped, [{ id: 1, reason: 'stond al klaar' }]);
+  assert.ok(!calls.some((call) => call.model === 'mail.mail' && call.method === 'write'));
+});
+
+await test('staat er nog niets, dan wordt er gewoon aangemaakt', async () => {
+  const calls = stubOdoo({ mailRows: [] });
+  const { queueMails } = await import('../lib/mail-service.js');
+
+  const result = await queueMails(ENV, { event: EVENT_MET_OPNAME, registrations: REG, kind: 'recap' });
+
+  assert.deepEqual(result.queued, [1]);
+  assert.deepEqual(result.updated, []);
+  const aanmaak = calls.find((call) => call.model === 'mail.mail' && call.method === 'create');
+  assert.ok(aanmaak, 'geen create op mail.mail');
+  assert.equal(aanmaak.args[0].message_id, SLEUTEL);
+});
+
+console.log('\nde ondergrens van de reminder (event 76)');
+
+await test('een inschrijving van vorige week krijgt zijn reminder, ook met minLeadHours 48', async () => {
+  // Dit is event 76 na: minLeadHours stond op 48, het event begon over 29
+  // uur, en er kwam GEEN ENKELE mail bij -- twintig inschrijvers stil
+  // overgeslagen. De grens hoort tegen het inschrijfmoment te gaan.
+  const doc = JSON.stringify({
+    reminder: {
+      subject: 'Morgen',
+      blocks: [{ id: 't', type: 'text', html: '<p>Tot morgen!</p>' }],
+      timing: { enabled: true, leadHours: 24, minLeadHours: 48 },
+      header: {}
+    }
+  });
+
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(options.body);
+    const [, , , model, method, args, kwargs] = body.params.args;
+    calls.push({ model, method, args, kwargs });
+    let result = [];
+    if (method === 'fields_get') result = { x_studio_mail_blocks: { type: 'text' }, x_studio_mail_blocks_override: { type: 'text' } };
+    else if (model === 'x_webinar_event_type') result = [{ id: 3, x_studio_mail_blocks: doc }];
+    else if (model === 'x_webinar') result = [{ id: 76, x_studio_mail_blocks_override: false }];
+    else if (model === 'res.users') result = [{ id: 11, name: 'Rob Claes', email: 'rob@mymmo.com', employee_id: false }];
+    else if (model === 'mail.mail' && method === 'search_read') result = [];
+    else if (method === 'write' || method === 'create') result = true;
+    return { ok: true, text: async () => JSON.stringify({ jsonrpc: '2.0', result }) };
+  };
+
+  const { queueMails } = await import('../lib/mail-service.js');
+  const event = {
+    id: 76, slug: 'qa', title: 'Q&A', starts_at: '2026-09-08T17:00:00.000Z',
+    event_type: { id: 3, name: 'Q&A' }, host: { id: 11, name: 'Rob Claes' }, recap: {}
+  };
+  const nu = new Date('2026-09-07T11:43:00Z');
+
+  const result = await queueMails(ENV, {
+    event,
+    registrations: [
+      // Vorige week ingeschreven: hoort zijn reminder te krijgen.
+      { id: 1045, name: 'Tom', submitted_email: 't@e.be', state: null, site: null, created_at: '2026-08-30T09:00:00.000Z' },
+      // Vandaag ingeschreven, binnen de grens van 48 uur: die niet.
+      { id: 1090, name: 'Laat', submitted_email: 'l@e.be', state: null, site: null, created_at: '2026-09-07T10:00:00.000Z' }
+    ],
+    kind: 'reminder',
+    now: nu
+  });
+
+  assert.deepEqual(result.queued, [1045], 'de inschrijving van vorige week is overgeslagen');
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /binnen 48 uur/);
+
+  const aanmaak = calls.find((call) => call.model === 'mail.mail' && call.method === 'create');
+  assert.ok(aanmaak, 'er is geen mail.mail aangemaakt');
+  // 24 uur voor 8 sep 17:00 UTC.
+  assert.equal(aanmaak.args[0].scheduled_date, '2026-09-07 17:00:00');
+});
+
 console.log(`\n${passed} test(en) geslaagd${process.exitCode ? ' — MET FOUTEN' : ''}\n`);

@@ -24,9 +24,10 @@ import {
   fillPlaceholders,
   formatEventMoment,
   safeUrl,
-  leesbareTekstkleur
+  leesbareTekstkleur,
+  knopStijl
 } from '../lib/mail-render.js';
-import { buildMessageId, computeScheduledDate, ownsMail, resolvePublicOrigin, renderMailForRegistration } from '../lib/mail-service.js';
+import { buildMessageId, computeScheduledDate, reminderTooLate, ownsMail, resolvePublicOrigin, renderMailForRegistration } from '../lib/mail-service.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -633,17 +634,37 @@ test('de reminder kan helemaal uitgezet worden', () => {
   assert.match(t.reason, /staat uit/);
 });
 
-test('te late inschrijvers krijgen geen reminder als er een ondergrens staat', () => {
+test('de ondergrens kijkt naar het INSCHRIJFMOMENT, niet naar nu', () => {
   const regels = { leadHours: 24, minLeadHours: 4 };
-  // 2 uur voor de start: onder de grens.
-  const laat = computeScheduledDate(MAIL_KIND.REMINDER, EVENT, new Date('2026-09-08T15:00:00Z'), regels);
-  assert.equal(laat.send, false);
-  assert.match(laat.reason, /minder dan 4 uur/);
 
-  // 6 uur voor de start: nog net wel, en dan meteen.
-  const opTijd = computeScheduledDate(MAIL_KIND.REMINDER, EVENT, new Date('2026-09-08T11:00:00Z'), regels);
-  assert.equal(opTijd.send, true);
-  assert.equal(opTijd.scheduledDate, false);
+  // Ingeschreven 2 uur voor de start: die heeft niets aan een herinnering.
+  assert.match(
+    reminderTooLate(EVENT, regels, new Date('2026-09-08T15:00:00Z')),
+    /binnen 4 uur/
+  );
+
+  // Ingeschreven 6 uur voor de start: nog net wel.
+  assert.equal(reminderTooLate(EVENT, regels, new Date('2026-09-08T11:00:00Z')), null);
+
+  // EN DIT IS DE BUG DIE ERIN ZAT: iemand die zich een week eerder
+  // inschreef, hoort zijn reminder te krijgen -- ook als je de mails pas
+  // vlak voor het event klaarzet. Werd de grens tegen "nu" gemeten, dan
+  // kreeg zo iemand stil niets.
+  assert.equal(reminderTooLate(EVENT, regels, new Date('2026-09-01T09:00:00Z')), null);
+});
+
+test('computeScheduledDate past de ondergrens NIET meer toe', () => {
+  // Anders zou een handmatige inhaalronde vlak voor het event iedereen
+  // overslaan; dat is precies wat er bij event 76 gebeurde.
+  const t = computeScheduledDate(MAIL_KIND.REMINDER, EVENT, new Date('2026-09-08T15:00:00Z'), { leadHours: 24, minLeadHours: 48 });
+  assert.equal(t.send, true);
+});
+
+test('zonder inschrijfmoment wordt niemand overgeslagen', () => {
+  // Falen naar "wel sturen": iemand overslaan op grond van een ontbrekend
+  // veld betekent dat een echte deelnemer stil geen herinnering krijgt.
+  assert.equal(reminderTooLate(EVENT, { minLeadHours: 48 }, null), null);
+  assert.equal(reminderTooLate(EVENT, { minLeadHours: 48 }, 'geen datum'), null);
 });
 
 test('zonder ondergrens krijgt ook een heel late inschrijver zijn reminder', () => {
@@ -706,6 +727,186 @@ test('onbekende site valt terug op de canonieke origin', () => {
 
 test('zonder configuratie blijft de link leeg, geen link naar de verkeerde site', () => {
   assert.equal(resolvePublicOrigin({}, 'syndicoach'), '');
+});
+
+console.log('\nhet aankondigingsblok');
+
+test('een onbekende manier van kiezen valt terug op "eerstvolgende"', () => {
+  const doc = normalizeMailBlocks({
+    recap: { blocks: [{ id: 'a', type: 'announcement', pick: 'wat-dan-ook' }] }
+  });
+  assert.equal(doc.recap.blocks[0].pick, 'next');
+});
+
+test('id\'s worden getallen, en leeg wordt null in plaats van 0', () => {
+  const doc = normalizeMailBlocks({
+    recap: {
+      blocks: [
+        { id: 'a', type: 'announcement', pick: 'next_of_type', eventTypeId: '4' },
+        { id: 'b', type: 'announcement', pick: 'fixed', eventId: '' },
+        { id: 'c', type: 'announcement', pick: 'fixed', eventId: 0 }
+      ]
+    }
+  });
+  assert.equal(doc.recap.blocks[0].eventTypeId, 4);
+  // 0 of leeg mag NOOIT als id doorgaan: Odoo zou dan naar id 0 zoeken en
+  // stil niets vinden, of erger, iets vinden.
+  assert.equal(doc.recap.blocks[1].eventId, null);
+  assert.equal(doc.recap.blocks[2].eventId, null);
+});
+
+const AANKONDIGING = {
+  id: 78,
+  title: 'Infosessie: nieuwe wetgeving',
+  day: 'dinsdag, 22 september',
+  time: '19:00',
+  location: '',
+  link: 'https://meet.google.com/xyz',
+  type: 'Infosessie',
+  summary: 'Wat verandert er precies?',
+  url: 'https://syndicoach.be/events/infosessie/?owid=78'
+};
+
+test('de aankondiging toont titel, moment en een knop naar dat event', () => {
+  const context = buildPlaceholderContext({
+    event: EVENT,
+    registration: REGISTRATION,
+    announcements: { a: AANKONDIGING }
+  });
+  const html = renderMailHtml({
+    blocks: [{ id: 'a', type: 'announcement', title: 'Ook interessant', label: 'Schrijf je in', variant: 'primary' }],
+    context
+  });
+
+  assert.match(html, /Infosessie: nieuwe wetgeving/);
+  assert.match(html, /dinsdag, 22 september/);
+  assert.match(html, /19:00/);
+  assert.match(html, /Wat verandert er precies\?/);
+  assert.match(html, /href="https:\/\/syndicoach\.be\/events\/infosessie\/\?owid=78"/);
+  assert.match(html, /Schrijf je in/);
+  // Online event zonder locatie: dan hoort er "Online" te staan en geen lege plek.
+  assert.match(html, /Online/);
+});
+
+test('de omschrijving valt weg als de gebruiker dat kiest', () => {
+  const context = buildPlaceholderContext({ event: EVENT, announcements: { a: AANKONDIGING } });
+  const html = renderMailHtml({
+    blocks: [{ id: 'a', type: 'announcement', showSummary: false }],
+    context
+  });
+  assert.ok(!html.includes('Wat verandert er precies'), 'de omschrijving staat er nog');
+  assert.match(html, /Infosessie: nieuwe wetgeving/);
+});
+
+test('zonder gevonden event valt het blok WEG bij het versturen', () => {
+  const context = buildPlaceholderContext({ event: EVENT, announcements: {} });
+  const html = renderMailHtml({
+    blocks: [{ id: 'a', type: 'announcement', title: 'Ook interessant' }],
+    context
+  });
+  // Geen lege kaart, geen kopje, niets. Een aankondiging zonder event is
+  // geen aankondiging.
+  assert.ok(!html.includes('Ook interessant'), 'er staat een lege aankondiging in de mail');
+});
+
+test('zonder gevonden event blijft het blok in de EDITOR wel staan, met de reden', () => {
+  const context = buildPlaceholderContext({ event: EVENT, announcements: {} });
+  const html = renderMailHtml({
+    blocks: [{ id: 'a', type: 'announcement', pick: 'next_of_type', eventTypeId: null }],
+    context,
+    editable: true
+  });
+  // Anders voeg je een aankondiging toe, gebeurt er ogenschijnlijk niets, en
+  // kan je het blok ook niet meer selecteren of weghalen.
+  assert.match(html, /data-om-block="a"/);
+  assert.match(html, /Kies eerst een event-type/);
+});
+
+test('renderMailForRegistration geeft de aankondigingen door aan de renderer', () => {
+  const doc = normalizeMailBlocks({
+    recap: { subject: 'Bedankt', blocks: [{ id: 'a', type: 'announcement' }] }
+  });
+  const uit = renderMailForRegistration({
+    event: EVENT,
+    registration: REGISTRATION,
+    kind: MAIL_KIND.RECAP,
+    typeDoc: doc,
+    eventDoc: null,
+    announcements: { a: AANKONDIGING }
+  });
+  // Zonder deze doorgave rendert de mail een lege aankondiging -- precies de
+  // fout die eerder bij `editable` gemaakt is.
+  assert.match(uit.html, /Infosessie: nieuwe wetgeving/);
+});
+
+console.log('\nde kleur van een knop');
+
+const CTX_KLEUR = () => buildPlaceholderContext({
+  event: { ...EVENT, event_type: { id: 2, name: 'Q&A' } },
+  registration: REGISTRATION,
+  typeColor: '#7c3aed'
+});
+
+test('een vrije kleur wint, met een leesbare tekstkleur erbij', () => {
+  // Lichte kleur -> donkere tekst. De gebruiker kiest de tekstkleur NIET:
+  // een vrije kiezer zonder deze berekening geeft witte tekst op geel.
+  const licht = knopStijl({ color: '#fde047' }, CTX_KLEUR());
+  assert.equal(licht.bg, '#fde047');
+  assert.equal(licht.kleur, '#111827');
+
+  const donker = knopStijl({ color: '#111827' }, CTX_KLEUR());
+  assert.equal(donker.kleur, '#ffffff');
+});
+
+test('"category" verwijst naar de kleur van de eventcategorie', () => {
+  // Een VERWIJZING, geen bevroren hex: wijzigt de categorie van kleur, dan
+  // schuift de knop mee.
+  const stijl = knopStijl({ color: 'category' }, CTX_KLEUR());
+  assert.equal(stijl.bg, '#7c3aed');
+});
+
+test('omlijnd maakt van elke kleur de omlijnde versie', () => {
+  const stijl = knopStijl({ color: '#7c3aed', outline: true }, CTX_KLEUR());
+  assert.equal(stijl.bg, '#ffffff');
+  assert.equal(stijl.kleur, '#7c3aed');
+  assert.equal(stijl.rand, '#7c3aed');
+});
+
+test('de oude varianten blijven werken', () => {
+  // Er staan mails in Odoo met variant: "subtle". Die mogen niet ineens
+  // blauw worden omdat de kiezer veranderd is.
+  assert.equal(knopStijl({ variant: 'subtle' }, CTX_KLEUR()).bg, '#f1f5f9');
+  assert.equal(knopStijl({ variant: 'dark' }, CTX_KLEUR()).bg, '#111827');
+  assert.equal(knopStijl({ variant: 'brand' }, CTX_KLEUR()).bg, '#7c3aed');
+  assert.equal(knopStijl({ variant: 'brand_outline' }, CTX_KLEUR()).bg, '#ffffff');
+});
+
+test('een onbruikbare kleur wordt niet bewaard', () => {
+  const doc = normalizeMailBlocks({
+    confirmation: {
+      blocks: [
+        { id: 'a', type: 'button', label: 'x', href: 'https://a.be', color: 'rood' },
+        { id: 'b', type: 'button', label: 'x', href: 'https://a.be', color: '#ABCDEF', outline: true },
+        { id: 'c', type: 'button', label: 'x', href: 'https://a.be', outline: 'ja' }
+      ]
+    }
+  });
+  // Geen `color: undefined` in de mail: dan zou er color:undefined in de
+  // HTML belanden. Weggooien betekent terugvallen op de variant of blauw.
+  assert.equal('color' in doc.confirmation.blocks[0], false);
+  // Hoofdletters uit een kleurkiezer worden genormaliseerd.
+  assert.equal(doc.confirmation.blocks[1].color, '#abcdef');
+  assert.equal(doc.confirmation.blocks[1].outline, true);
+  // Alleen een echte true is omlijnd; 'ja' is geen boolean.
+  assert.equal(doc.confirmation.blocks[2].outline, false);
+});
+
+test('de gekozen kleur staat ook echt in de HTML van de knop', () => {
+  const html = renderMailHtml({
+    blocks: [{ id: 'b', type: 'button', label: 'Doe mee', href: 'https://a.be', color: '#7c3aed' }],
+    context: CTX_KLEUR()
+  });
+  assert.match(html, /background:#7c3aed/);
 });
 
 console.log(`\n${passed} test(en) geslaagd${process.exitCode ? ' — MET FOUTEN' : ''}\n`);

@@ -1001,6 +1001,93 @@ Afspraken die bewust zo zijn:
   `markDirty()` (met hertekenen) alleen bij structurele wijzigingen: blok erbij, weg,
   verplaatst, of een instelling gewijzigd. Het voorbeeld ÍS de editor — dat opnieuw opbouwen
   tijdens het typen gooit de cursor weg, sluit de "/"-kiezer en laat het scherm flikkeren.
+- **De ondergrens van de reminder (`minLeadHours`) gaat over het INSCHRIJFMOMENT, niet over
+  "nu".** Zat als bug in `computeScheduledDate()`: die mat de grens tegen het moment waarop
+  de functie draaide. Gevolg bij event 76: `minLeadHours` stond op 48, het event begon over
+  29 uur, en het handmatig klaarzetten van reminders voor twintig bestaande inschrijvingen
+  leverde NUL mails op -- allemaal stil overgeslagen, en in de logs zag je alleen dat er na
+  het lezen van de blokken niets meer gebeurde. De regel zit nu in `reminderTooLate(event,
+  timing, registeredAt)` en wordt PER INSCHRIJVING toegepast met `registration.created_at`.
+  Zonder bekend inschrijfmoment slaat hij niemand over -- falen naar "wel sturen", want de
+  andere kant betekent dat een echte deelnemer stil niets krijgt.
+- **Een overgeslagen mail moet ZIJN REDEN tonen.** De studio zet de redenen nu in de
+  melding en toont een alert als er niets is klaargezet. "0 klaargezet, 20 overgeslagen"
+  zonder reden kostte een halve dag zoeken.
+- **KV-verbruik: drie lagen, en KV is de laatste.** Dit was uit de hand gelopen omdat elk
+  publiek verzoek KV raakte:
+    1. `caches.default` (public-api.js) — gratis, per datacenter, zit vóór alles. Een
+       treffer kost geen KV-read, geen Odoo-call en geen rekenwerk. De sleutel bevat de
+       versienummers van `events` én `event_types` plus de sitesleutel (nooit de echte URL:
+       dan zou een respons van site A aan site B geserveerd kunnen worden), en CORS-headers
+       gaan NIET mee in de opslag maar worden per verzoek gezet.
+    2. het geheugen van de isolate (cache.js) — `valueMemo` en `versionMemo`. Een isolate
+       leeft minuten tot uren; wat daar staat hoeft niet uit KV te komen.
+    3. KV zelf.
+  Wat er weg is: `checkRateLimit` deed een read EN EEN WRITE bij elk publiek leesverzoek —
+  een write per pageview, terwijl KV per sleutel maar één write per seconde aanneemt en de
+  rest stil weggooit (duur én onbetrouwbaar). Het leespad gebruikt nu
+  `checkRateLimitLocal()`, een teller in het geheugen; de grens geldt daardoor per isolate
+  in plaats van globaal, wat voor het doel (iemand die de API platlegt) volstaat. Het
+  SCHRIJFPAD (inschrijven) houdt bewust de KV-variant: daar moet de grens echt globaal zijn
+  en het volume is laag. En elke `readThrough` deed eerst een read voor het versienummer en
+  dan de echte read: twee reads per cachetreffer. Het versienummer staat nu 5 seconden in
+  het geheugen (`VERSION_MEMO_MS`). Dat is de enige concessie: maakt een ANDERE isolate iets
+  ongeldig, dan ziet deze dat pas na 5s — op data die toch al 60s gecached wordt.
+  `cache-test.mjs` TELT de KV-operaties; een verandering die er weer meer van maakt, faalt.
+- **`meta.generated_at` mag NOOIT in de ETag zitten.** Het staat in elke publieke respons en
+  veranderde bij elk verzoek, waardoor de ETag ook elke keer anders was en het
+  `If-None-Match` van de WordPress-plugin nooit matchte. Elke verversing haalde dus de
+  volledige body op en liet de hele molen draaien (KV + Odoo) terwijl er niets gewijzigd
+  was. `etagForPayload()` slaat het veld over bij het hashen; het veld zelf blijft staan,
+  want het hoort bij de vorm die de plugin kent.
+- **De knopkleur is een vrije kleur met een berekende tekstkleur.** `block.color` is
+  `'category'` (een VERWIJZING naar de kleur van de eventcategorie, blijft dus meeschuiven)
+  of een hex uit de kleurkiezer; `block.outline` maakt daar de omlijnde versie van. De oude
+  gesloten `variant`-lijst blijft werken -- er staan mails in Odoo met `variant: "subtle"`.
+  De TEKSTKLEUR kiest de gebruiker niet: `leesbareTekstkleur()` rekent zwart of wit uit
+  (WCAG-helderheid, drempel 0,6). Een vrije kleurkiezer zonder die berekening levert witte
+  tekst op een gele knop, en in een verstuurde mail kan je dat niet meer bijstellen. De
+  voorgestelde stalen zijn de kleuren van de eventcategorieën uit Odoo (via
+  `/api/mail/announcement-options`), zodat het lijstje meegroeit en niemand hex-codes moet
+  opzoeken. Een onbruikbare kleur wordt bij het normaliseren WEGGEGOOID, niet bewaard --
+  anders belandt er `color:undefined` in de HTML.
+- **Klaarstaande mails worden BIJGEWERKT, niet overgeslagen.** `queueMails()` heeft
+  `refresh` (standaard `true`): staat er voor deze (event, soort, inschrijving) al een
+  `mail.mail` met `state = 'outgoing'`, dan wordt die HERSCHREVEN met de huidige inhoud
+  (`subject`, `body_html`, `email_from`, `reply_to`, `email_to`, `scheduled_date`) in
+  plaats van dat de inschrijving wordt overgeslagen. `message_id` en `state` blijven af --
+  de sleutel is de idempotentie. `state = 'sent'` wordt NOOIT aangeraakt: die mail staat in
+  iemands inbox, herschrijven zou een archief vervalsen zonder dat de ontvanger het merkt.
+  `state = 'cancel'` (gearchiveerde inschrijving) blijft ook staan; die weer tot leven
+  wekken is de taak van `revivePendingMails()`. Daarvoor is `findAlreadyQueued()` vervangen
+  door `findExistingMails()`, dat de TOESTAND per inschrijving teruggeeft; de oude naam
+  blijft als wrapper bestaan. Het antwoord van de send-route heeft nu `queued`, `updated` én
+  `skipped` -- wie alleen naar `queued` kijkt, meldt onterecht "er is niets gebeurd".
+  Herschrijven gebeurt met één write per mail (onderwerp en body verschillen per ontvanger),
+  in groepen van tien parallel: tweehonderd opeenvolgende JSON-RPC-rondes passen niet in
+  één worker-aanroep.
+- **Het aankondigingsblok (`announcement`) kiest zijn event met een GESLOTEN keuze**, niet
+  met een domein of filtertaal: `next`, `next_of_type` (+ `eventTypeId`), `highlighted`
+  (= `x_studio_priority`, hetzelfde vinkje als de site gebruikt) of `fixed` (+ `eventId`).
+  Een vrij domein zou betekenen dat de inhoud van een mail pas te begrijpen is door een
+  query te lezen. Drie zaken staan hard: alleen GEPUBLICEERDE events (een concept
+  aankondigen is een lek), alleen events die nog moeten komen, en nooit het event waar de
+  mail zelf over gaat. De site van de inschrijving filtert op merk, zodat een
+  syndicoach-inschrijver geen openvme-only event aangekondigd krijgt.
+- **Het opzoeken van die events gebeurt in `resolveAnnouncements()` (mail-service), niet in
+  de renderer.** mail-render.js is puur -- geen env, geen fetch. Het gevonden event komt per
+  BLOK-ID in de context (`context.announcements[block.id]`), niet als placeholder: er kunnen
+  meerdere aankondigingen in één mail staan, dus `{{announcement.title}}` zou dubbelzinnig
+  zijn. Zowel `queueMails()` als de preview-route zoeken op; vergeet je dat in één van de
+  twee, dan zie je in de editor iets anders dan in de inbox (dezelfde fout als eerder met
+  `editable`). Per SITE één ronde, niet per ontvanger.
+- **Vindt een aankondiging geen event, dan valt het blok WEG bij het versturen** en blijft
+  het in de EDITOR staan met de reden erbij (`leegBlok()`, zoals video en knop). Een lege
+  kaart met "geen event gevonden" in duizend mails is erger dan geen kaart.
+- **`/api/mail/announcement-options` staat los van `/api/mail/schema`**: het schema is
+  statisch en mag lang gecached worden, de lijst met komende events verandert bij elk nieuw
+  event. Een event-id laten intypen was het alternatief -- dan typt iemand 76 in plaats van
+  78 en staat de verkeerde aankondiging in duizend mails.
 - **Een `<dialog>` met `showModal()` rendert in de TOP LAYER van de browser.** Alles wat
   daarbuiten in de DOM staat valt eronder -- ook met `position:fixed` en `z-index:100`.
   Daarom MOET `#mailTokenMenu` (de "/"-kiezer voor het onderwerp en de voorbeeldtekst)

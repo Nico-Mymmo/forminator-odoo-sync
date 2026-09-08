@@ -18,13 +18,14 @@ import {
   PUBLIC_SHAPE_VERSION,
   EVENT_FORMAT,
   PUBLIC_VISIBLE_STATES,
-  EVENT_BRANDS
+  EVENT_BRANDS,
+  CACHE_NS
 } from './constants.js';
 import { toPublicEventDto, EVENT_FIELDS } from './odoo-contract.js';
 import { listEvents, getEvent, listEventTypes } from './lib/events-service.js';
 import { createRegistration } from './lib/registrations-service.js';
 import { registrationStatus } from './odoo-contract.js';
-import { weakEtag, checkRateLimit } from './lib/cache.js';
+import { weakEtag, checkRateLimit, checkRateLimitLocal, namespaceVersion } from './lib/cache.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
 
 const PUBLIC_PREFIX = '/events-v2/public/v1';
@@ -127,9 +128,29 @@ function errorResponse(message, status, request, env, extraHeaders = {}) {
  * If-None-Match wordt het een 304 — dat maakt het pollen door de
  * WordPress-plugin goedkoop.
  */
+/**
+ * De ETag van een publieke respons: over de DATA, niet over het moment.
+ *
+ * @param {Object} payload
+ * @returns {Promise<string>}
+ */
+export async function etagForPayload(payload) {
+  return weakEtag(JSON.stringify(payload, (naam, waarde) => (naam === 'generated_at' ? undefined : waarde)));
+}
+
 async function cachedJsonResponse(payload, request, env, { ttl, cacheHit }) {
   const body = JSON.stringify(payload);
-  const etag = await weakEtag(body);
+
+  // De ETag gaat over de DATA, niet over het moment van antwoorden.
+  //
+  // `meta.generated_at` staat in elke respons en veranderde dus bij elk
+  // verzoek -- waardoor de ETag ook elke keer anders was en het
+  // If-None-Match van de WordPress-plugin NOOIT matchte. Gevolg: elke
+  // verversing haalde de volledige body op en liet deze Worker de hele
+  // molen draaien (KV + Odoo), terwijl er niets gewijzigd was. Het veld
+  // blijft staan (het hoort bij de vorm die de plugin kent), maar telt niet
+  // mee voor de vergelijking.
+  const etag = await etagForPayload(payload);
 
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
@@ -508,13 +529,18 @@ export async function handleEventsPublicApi(request, env, ctx, pathname) {
     return errorResponse('Ongeldige of ontbrekende sitesleutel', 401, request, env);
   }
 
-  // Schrijven is strenger begrensd dan lezen.
+  // Schrijven is strenger begrensd dan lezen -- en het LEESPAD gebruikt geen
+  // KV meer. De KV-variant deed een read én een WRITE bij elk publiek
+  // verzoek; dat was het duurste KV-verkeer in de hele Worker, en boven één
+  // write per seconde per sleutel gooit KV ze bovendien stil weg. Het
+  // schrijfpad (inschrijven) houdt de KV-variant: daar moet de grens echt
+  // globaal zijn en het volume is laag.
   const rate = registerMatch
     ? await checkRateLimit(env, `regsite:${site.key}`, {
       windowSeconds: REGISTER_RATE_LIMIT.WINDOW_SECONDS,
       maxRequests: REGISTER_RATE_LIMIT.MAX_REQUESTS
     })
-    : await checkRateLimit(env, `pub:${site.key}`, {
+    : checkRateLimitLocal(`pub:${site.key}`, {
       windowSeconds: PUBLIC_RATE_LIMIT.WINDOW_SECONDS,
       maxRequests: PUBLIC_RATE_LIMIT.MAX_REQUESTS
     });
@@ -525,6 +551,61 @@ export async function handleEventsPublicApi(request, env, ctx, pathname) {
   }
 
   const subPath = pathname.slice(PUBLIC_PREFIX.length) || '/';
+
+  // LAAG 1: de edge-cache van deze locatie (caches.default).
+  //
+  // Gratis, per datacenter, en hij zit VOOR alles: een treffer kost geen
+  // KV-read, geen Odoo-call en geen rekenwerk. Dit is het verschil tussen
+  // "elke bezoeker raakt Odoo" en "één bezoeker per minuut per locatie".
+  //
+  // De sleutel bevat het versienummer van de events-namespace, want KV noch
+  // de Cache API kan met een wildcard verwijderen. Wijzigt een event, dan
+  // schuift dat nummer op en zijn alle oude sleutels in één keer
+  // onbereikbaar -- dezelfde truc als in cache.js. Dat nummer komt uit het
+  // geheugen van de isolate (5s), dus normaal kost ook dat geen read.
+  const edge = caches?.default || null;
+  const kanCachen = edge && request.method === 'GET' && !registerMatch;
+  let edgeKey = null;
+
+  if (kanCachen) {
+    try {
+      // Beide namespaces: een event-type dat van kleur verandert raakt ook de
+      // publieke respons, en dat bumpt EVENT_TYPES en niet EVENTS.
+      const [versieEvents, versieTypes] = await Promise.all([
+        namespaceVersion(env, CACHE_NS.EVENTS),
+        namespaceVersion(env, CACHE_NS.EVENT_TYPES)
+      ]);
+      const versie = `${versieEvents}.${versieTypes}`;
+      // Een eigen, verzonnen host: de echte URL mag hier niet als sleutel
+      // dienen, want dan zou een respons van site A ook aan site B geserveerd
+      // kunnen worden. De sitesleutel hoort in de sleutel.
+      const url = new URL(request.url);
+      edgeKey = new Request(
+        `https://events-v2.cache/${PUBLIC_SHAPE_VERSION}/${versie}/${encodeURIComponent(site.key)}${subPath}${url.search}`,
+        { method: 'GET' }
+      );
+
+      const gevonden = await edge.match(edgeKey);
+      if (gevonden) {
+        // Nog steeds een 304 kunnen geven: dat spaart de body uit.
+        const ifNoneMatch = request.headers.get('If-None-Match');
+        const etag = gevonden.headers.get('ETag');
+        const headers = new Headers(gevonden.headers);
+        for (const [naam, waarde] of Object.entries(corsHeaders(request, env))) headers.set(naam, waarde);
+        headers.set('X-Cache', 'edge');
+        headers.set('X-RateLimit-Remaining', String(rate.remaining));
+
+        if (etag && ifNoneMatch && ifNoneMatch.split(',').some((tag) => tag.trim() === etag)) {
+          return new Response(null, { status: 304, headers });
+        }
+        return new Response(gevonden.body, { status: gevonden.status, headers });
+      }
+    } catch (error) {
+      // Een kapotte cache mag nooit een verzoek laten falen.
+      console.warn(`${LOG_PREFIX} edge-cache overgeslagen: ${error?.message}`);
+      edgeKey = null;
+    }
+  }
 
   try {
     if (registerMatch) {
@@ -560,6 +641,27 @@ export async function handleEventsPublicApi(request, env, ctx, pathname) {
       ttl: result.ttl,
       cacheHit: result.cached
     });
+
+    // Een kopie in de edge-cache. Alleen een echte 200 met body: een 304 of
+    // een fout hoort daar niet in.
+    if (edgeKey && response.status === 200) {
+      const bewaard = response.clone();
+      const opslag = new Response(bewaard.body, {
+        status: 200,
+        headers: {
+          'Content-Type': bewaard.headers.get('Content-Type') || 'application/json; charset=utf-8',
+          'ETag': bewaard.headers.get('ETag') || '',
+          // De cache-instructie voor DEZE opslag. Los van wat de bezoeker
+          // ziet: CORS-headers gaan hier niet mee, die worden per verzoek
+          // opnieuw gezet (anders zou een respons met de Origin van site A
+          // aan site B geserveerd worden).
+          'Cache-Control': `public, max-age=${result.ttl}`
+        }
+      });
+      const opdracht = edge.put(edgeKey, opslag);
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(opdracht);
+      else await opdracht;
+    }
 
     response.headers.set('X-RateLimit-Remaining', String(rate.remaining));
     return response;

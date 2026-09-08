@@ -37,7 +37,7 @@ import {
   setRegistrationActive
 } from './lib/registrations-service.js';
 import { REGISTRATION_SOURCE, REGISTRATION_STATE } from './constants.js';
-import { toPublicEventDto } from './odoo-contract.js';
+import { toPublicEventDto, EVENT_FIELDS } from './odoo-contract.js';
 import { sanitizePublicHtml, summarize, buildMetaDescription } from './lib/blocks.js';
 import { storeHeroImage, removeHeroImage, isAllowedImageType, MAX_IMAGE_BYTES } from './lib/assets.js';
 import { getLegacyWpPagesByEventId } from './lib/legacy-wp-pages.js';
@@ -50,9 +50,21 @@ import {
   ownsMail,
   resolvePublicOrigin,
   resolveTypeColor,
+  resolveAnnouncements,
   MailError
 } from './lib/mail-service.js';
-import { MAIL_KIND, MAIL_KINDS, emptyMailBlocks, normalizeMailBlocks, BLOCK_TYPES, SITES, HEADER_SLOTS } from './lib/mail-blocks.js';
+import {
+  MAIL_KIND,
+  MAIL_KINDS,
+  emptyMailBlocks,
+  normalizeMailBlocks,
+  resolveSection,
+  BLOCK_TYPES,
+  SITES,
+  HEADER_SLOTS,
+  ANNOUNCEMENT_PICKS,
+  ANNOUNCEMENT_PICK_LABELS
+} from './lib/mail-blocks.js';
 import { listRegistrationsForMail } from './lib/registrations-service.js';
 import { listVimeoVideos, getVimeoVideo, vimeoConfigured } from './lib/vimeo.js';
 import { starterMailBlocks } from './lib/mail-defaults.js';
@@ -601,6 +613,13 @@ export const routes = {
         sites: SITES,
         header_slots: HEADER_SLOTS,
         vimeo_configured: vimeoConfigured(context.env),
+        // Het aankondigingsblok kiest zijn event met een van deze keuzes. De
+        // lijst komt uit mail-blocks.js, zodat de editor en de renderer niet
+        // uit elkaar kunnen lopen.
+        announcement_picks: ANNOUNCEMENT_PICKS.map((pick) => ({
+          value: pick,
+          label: ANNOUNCEMENT_PICK_LABELS[pick] || pick
+        })),
         // Startopzet voor wie nog niets heeft: de bestaande bevestigingsmail
         // als blokken. Wordt pas iets als iemand er in de studio voor kiest.
         starter: normalizeMailBlocks(starterMailBlocks(), 'startopzet'),
@@ -615,6 +634,45 @@ export const routes = {
         ].map((groep) => ({
           group: groep.group,
           items: groep.paths.map((path) => ({ path, label: TOKEN_LABELS[path] || path }))
+        }))
+      }
+    });
+  }),
+
+  /**
+   * GET /events-v2/api/mail/announcement-options
+   *
+   * Waar het aankondigingsblok uit kan kiezen: de event-types, en de
+   * gepubliceerde events die nog moeten komen.
+   *
+   * BEWUST EEN EIGEN ROUTE en niet in /mail/schema: het schema is statisch en
+   * mag lang gecached worden, deze lijst verandert elke keer als er een event
+   * bijkomt. Een event-id laten intypen zou hier de alternatief zijn -- dan
+   * typt iemand 76 in plaats van 78 en staat de verkeerde aankondiging in
+   * duizend mails.
+   */
+  'GET /api/mail/announcement-options': withErrors(async (context) => {
+    const [{ types }, { events }] = await Promise.all([
+      listEventTypes(context.env),
+      listEvents(context.env, {
+        filters: { publication_state: PUBLICATION_STATE.PUBLISHED, from: new Date().toISOString() },
+        order: `${EVENT_FIELDS.STARTS_AT} asc`,
+        limit: 100
+      })
+    ]);
+
+    return json({
+      success: true,
+      data: {
+        // De kleur gaat mee: de kleurkiezer van een knop stelt de kleuren van
+        // de eventcategorieën voor, zodat een mail in de huisstijl blijft
+        // zonder dat iemand hex-codes moet opzoeken.
+        event_types: (types || []).map((type) => ({ id: type.id, name: type.name, color: type.color || '' })),
+        events: (events || []).map((event) => ({
+          id: event.id,
+          title: event.title,
+          starts_at: event.starts_at,
+          type: event.event_type?.name || ''
         }))
       }
     });
@@ -769,6 +827,16 @@ export const routes = {
       senderError = error?.message || 'afzender onbekend';
     }
 
+    // Aankondigingsblokken zoeken hun event op in Odoo, ook in het voorbeeld:
+    // anders zie je in de editor een lege kaart en pas in de inbox wat er
+    // werkelijk in staat.
+    const sectieVoorPreview = resolveSection(typeDoc, eventDoc, kind, registration.site || null);
+    const announcements = await resolveAnnouncements(context.env, sectieVoorPreview.blocks, {
+      event,
+      site: registration.site || null,
+      publicBaseUrl: resolvePublicOrigin(context.env, registration.site)
+    });
+
     const rendered = renderMailForRegistration({
       event,
       registration,
@@ -777,6 +845,7 @@ export const routes = {
       eventDoc,
       host: sender || {},
       typeColor: await resolveTypeColor(context.env, event),
+      announcements,
       publicBaseUrl: resolvePublicOrigin(context.env, registration.site),
       // Markers voor de klik-om-te-bewerken-editor. Alleen hier: de mail die
       // naar mail.mail geschreven wordt, rendert zonder deze attributen.
@@ -831,14 +900,18 @@ export const routes = {
     });
 
     if (registrations.length === 0) {
-      return json({ success: true, data: { queued: [], skipped: [], message: 'Geen inschrijvingen die deze mail nog moeten krijgen.' } });
+      return json({ success: true, data: { queued: [], updated: [], skipped: [], message: 'Geen inschrijvingen die deze mail nog moeten krijgen.' } });
     }
 
     const result = await queueMails(context.env, {
       event,
       registrations,
       kind,
-      actor: context.user
+      actor: context.user,
+      // Staat de mail nog klaar in Odoo en is de inhoud sindsdien gewijzigd,
+      // dan wordt hij HERSCHREVEN in plaats van overgeslagen. Verstuurde
+      // mails blijven vast -- die staan al in een inbox.
+      refresh: body?.refresh !== false
     });
 
     return json({ success: true, data: result });

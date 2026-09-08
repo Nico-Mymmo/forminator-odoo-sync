@@ -105,10 +105,25 @@ const STARTER = normalizeMailBlocks(starterMailBlocks(), 'starter');
 function preview(body) {
   const doc = body.draft ? normalizeMailBlocks(body.draft, 'p') : emptyMailBlocks();
   const sec = doc[body.kind] || { subject: '', preheader: '', blocks: [] };
+  // Wat de route doet met resolveAnnouncements(): het gekozen event opzoeken
+  // en per blok-id meegeven. Hier vast, want deze test praat niet met Odoo.
+  const announcements = {};
+  for (const block of sec.blocks || []) {
+    if (block.type !== 'announcement') continue;
+    if (block.pick === 'next_of_type' && !block.eventTypeId) continue;
+    if (block.pick === 'fixed' && !block.eventId) continue;
+    announcements[block.id] = {
+      id: 78, title: 'Infosessie: nieuwe wetgeving', day: 'dinsdag, 22 september', time: '19:00',
+      location: '', link: 'https://meet.google.com/xyz', type: 'Infosessie',
+      summary: 'Wat verandert er precies?', url: 'https://openvme.be/events/infosessie/?owid=78'
+    };
+  }
+
   const ctx = buildPlaceholderContext({
     event: EVENT,
     registration: { id: 1, name: 'Jan Peeters', submitted_email: 'j@e.com', site: body.site, state: 'registered' },
-    host: { email: 'rob@mymmo.com', jobTitle: 'CX Hero', avatarUrl: 'https://mymmo.odoo.com/web/image/1' }
+    host: { email: 'rob@mymmo.com', jobTitle: 'CX Hero', avatarUrl: 'https://mymmo.odoo.com/web/image/1' },
+    announcements
   });
   const resolved = resolveSection(doc, null, body.kind, body.site);
   return {
@@ -175,6 +190,19 @@ const SHIM = `
   .overflow-y-auto{overflow-y:auto}
   .ml-auto{margin-left:auto}
   .opacity-40{opacity:.4}
+  .flex-wrap{flex-wrap:wrap}
+  .items-center{align-items:center}
+  .justify-center{justify-content:center}
+  .gap-2{gap:.5rem}
+  /* De kleurstalen: zonder een echte breedte en hoogte zijn het knoppen van
+     0 bij 0 pixels, en dan is een klik erop onmogelijk -- Playwright wacht
+     dan tot de timeout op "element is not visible". */
+  .w-8{width:2rem}
+  .h-8{height:2rem}
+  .w-12{width:3rem}
+  .h-12{height:3rem}
+  .shrink-0{flex-shrink:0}
+  .rounded-full{border-radius:9999px}
   button{font:inherit;background:none;border:0;padding:0}
   img{max-width:100%;display:block}
 `;
@@ -216,6 +244,11 @@ await page.addScriptTag({
       data = [
         { id: 501, name: 'Jan Peeters', partner: { id: 9, name: 'Jan Peeters' }, submitted_email: 'jan@example.com', site: 'openvme', state: 'registered', active: true }
       ];
+    } else if (url.indexOf('/mail/announcement-options') !== -1) {
+      data = {
+        event_types: [{ id: 2, name: 'Q&A', color: '#7c3aed' }, { id: 4, name: 'Live Event', color: '#059669' }],
+        events: [{ id: 78, title: 'Infosessie: nieuwe wetgeving', starts_at: '2026-09-22T17:00:00.000Z', type: 'Infosessie' }]
+      };
     } else if (url.indexOf('/vimeo/videos') !== -1) {
       data = { configured: true, status: 'ok', total: 3, page: 1, hasMore: false, videos: [
         { id: '1', title: 'Korte titel', url: 'https://vimeo.com/1', thumbnail_url: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', duration_seconds: 65, privacy: 'anybody' },
@@ -654,10 +687,36 @@ await check('een knop toont zijn link in de editor en is te stylen', async () =>
   await frame.locator('#om-bar button[data-om-cmd="settings"]').click();
   await settle();
   try {
-    assert.equal(await page.locator('[data-mail-setting="variant"]').count(), 1, 'geen stijlkeuze voor de knop');
     assert.equal(await page.locator('[data-mail-setting="width"]').count(), 1, 'geen breedtekeuze voor de knop');
-    await page.selectOption('[data-mail-setting="variant"]', 'dark');
+
+    // De kleur: stalen om op te klikken plus een echte kleurkiezer. De oude
+    // keuzelijst met "Omlijnd in de categoriekleur" was niet te zien zonder
+    // ze eerst te kiezen en daarna in het voorbeeld te gaan controleren.
+    const stalen = await page.locator('[data-action="mail-color-pick"]').count();
+    assert.ok(stalen >= 4, `verwacht meerdere kleurstalen, kreeg ${stalen}`);
+    assert.equal(await page.locator('[data-mail-color-free]').count(), 1, 'geen vrije kleurkiezer');
+    assert.equal(await page.locator('[data-action="mail-color-shape"]').count(), 2, 'geen keuze vol/omlijnd');
+
+    // De categoriekleur van dit event (#7c3aed via de nagebootste API) hoort
+    // als staal te staan, want dat is de huisstijl van de categorie.
+    assert.equal(await page.locator('[data-action="mail-color-pick"][data-color="category"]').count(), 1,
+      'geen staal voor de kleur van de eventcategorie');
+
+    await page.click('[data-action="mail-color-pick"][data-color="#111827"]');
     await settle();
+
+    // En de knop in het VOORBEELD hoort die kleur nu te dragen -- dat is het
+    // punt van een kiezer: je ziet wat je kiest.
+    const knopHtml = await page.frameLocator('#mailPreviewFrame')
+      .locator('[data-om-type="button"]').first().innerHTML();
+    assert.match(knopHtml, /background:#111827/, 'de knop in het voorbeeld volgt de gekozen kleur niet');
+
+    await page.click('[data-action="mail-color-shape"][data-outline="1"]');
+    await settle();
+    const omlijnd = await page.frameLocator('#mailPreviewFrame')
+      .locator('[data-om-type="button"]').first().innerHTML();
+    assert.match(omlijnd, /background:#ffffff/, 'omlijnd geeft geen witte vulling');
+    assert.match(omlijnd, /border:1px solid #111827/, 'omlijnd geeft geen rand in de gekozen kleur');
   } finally {
     await page.evaluate(() => document.getElementById('mailBlockSettings').close());
   }
@@ -669,6 +728,58 @@ await check('het kaartblok zit in de kiezer', async () => {
   assert.equal(await page.locator('[data-mail-add-type="map"]').count(), 1, 'geen kaartblok om toe te voegen');
   await page.click('[data-action="mail-add-close"]');
   await settle();
+});
+
+await check('een aankondiging toevoegen levert een kaart met een volgend event op', async () => {
+  const voor = await page.frameLocator('#mailPreviewFrame').locator('[data-om-block]').count();
+
+  await page.click('[data-action="mail-add-open"]');
+  await settle();
+  assert.equal(await page.locator('[data-mail-add-type="announcement"]').count(), 1, 'geen aankondiging in de kiezer');
+  await page.click('[data-mail-add-type="announcement"]');
+  await settle();
+
+  const frame = page.frameLocator('#mailPreviewFrame');
+  assert.equal(await frame.locator('[data-om-block]').count(), voor + 1, 'het blok is niet toegevoegd');
+  // Standaard "het eerstvolgende event": dan hoort er meteen een echte kaart
+  // te staan, geen lege plek en geen instelscherm-eerst.
+  assert.match(await frame.locator('[data-om-type="announcement"]').first().innerHTML(), /Infosessie: nieuwe wetgeving/);
+});
+
+await check('de aankondiging laat je kiezen WELK event ze aankondigt', async () => {
+  const frame = page.frameLocator('#mailPreviewFrame');
+  await frame.locator('[data-om-type="announcement"]').first().click();
+  await settle();
+  await frame.locator('#om-bar button[data-om-cmd="settings"]').click();
+  await settle();
+
+  assert.equal(await page.isVisible('#mailBlockSettings'), true, 'instellingen openen niet');
+  assert.equal(await page.locator('[data-mail-setting="pick"]').count(), 1, 'geen keuze hoe het event gekozen wordt');
+  // Bij "eerstvolgende" is een typekeuze zinloos: die hoort er dan NIET te staan.
+  assert.equal(await page.locator('[data-mail-setting="eventTypeId"]').count(), 0, 'typekeuze staat er te vroeg');
+
+  await page.selectOption('[data-mail-setting="pick"]', 'next_of_type');
+  await settle();
+  assert.equal(await page.locator('[data-mail-setting="eventTypeId"]').count(), 1, 'geen typekeuze na het kiezen van "van een type"');
+  assert.equal(await page.locator('[data-mail-setting="eventId"]').count(), 0, 'eventkeuze hoort hier niet');
+
+  await page.selectOption('[data-mail-setting="pick"]', 'fixed');
+  await settle();
+  assert.equal(await page.locator('[data-mail-setting="eventId"]').count(), 1, 'geen eventkeuze bij "één vast event"');
+  await page.selectOption('[data-mail-setting="eventId"]', '78');
+  await settle();
+  await page.click('[data-action="mail-settings-close"]');
+  await settle();
+
+  // Via bewaren: dat is de enige plek waar het document echt uit de editor komt.
+  await page.click('[data-action="mail-save"]');
+  await settle();
+  const blok = (savedDoc?.confirmation?.blocks || []).find((b) => b.type === 'announcement');
+  assert.ok(blok, 'de aankondiging staat niet in het bewaarde document');
+  assert.equal(blok.pick, 'fixed');
+  // Een lege of tekstuele waarde zou in Odoo als "0" belanden en dan zoekt
+  // het blok naar een event dat niet bestaat.
+  assert.equal(blok.eventId, 78, 'het gekozen event is geen getal geworden');
 });
 
 await check('"/" werkt ook in een LEEG onderwerpveld', async () => {

@@ -58,7 +58,8 @@
     busy: false,
     addAt: 'end',
     ownedByOm: false,
-    proofPeople: null
+    proofPeople: null,
+    announcementOptions: null
   };
 
   var KIND_LABEL = { confirmation: 'bevestiging', reminder: 'reminder', recap: 'recap' };
@@ -79,7 +80,9 @@
     divider:       { label: 'Lijntje',         icon: 'minus',               hint: 'Scheidingslijn',               sample: {} },
     spacer:        { label: 'Witruimte',       icon: 'move-vertical',       hint: 'Extra lucht',                  sample: { height: 24 } },
     card_break:    { label: 'Nieuw kader',     icon: 'layout-panel-top',    hint: 'Begint een nieuw wit blok',    sample: {} },
-    footer:        { label: 'Voettekst',       icon: 'panel-bottom',        hint: 'Klein en grijs, onderaan',     sample: { html: '&copy; {{now.year}} Mymmo BV' } }
+    footer:        { label: 'Voettekst',       icon: 'panel-bottom',        hint: 'Klein en grijs, onderaan',     sample: { html: '&copy; {{now.year}} Mymmo BV' } },
+    announcement:  { label: 'Aankondiging',    icon: 'megaphone',           hint: 'Een volgend event uitlichten',
+      sample: { pick: 'next', eventTypeId: null, eventId: null, title: 'Ook interessant', label: 'Bekijk en schrijf je in', variant: 'brand', showSummary: true } }
   };
 
   /**
@@ -108,7 +111,6 @@
     heading: [{ key: 'level', label: 'Grootte', type: 'select', options: [['1', 'Groot'], ['2', 'Normaal'], ['3', 'Klein']] }],
     button: [
       { key: 'href', label: 'Link', type: 'url' },
-      { key: 'variant', label: 'Stijl', type: 'select', options: [['brand', 'Kleur van de eventcategorie'], ['brand_outline', 'Omlijnd in de categoriekleur'], ['primary', 'Blauw'], ['dark', 'Donker'], ['outline', 'Omlijnd blauw'], ['subtle', 'Rustig grijs']] },
       { key: 'align', label: 'Uitlijning', type: 'select', options: [['left', 'Links'], ['center', 'Gecentreerd'], ['right', 'Rechts']] },
       { key: 'width', label: 'Breedte', type: 'select', options: [['auto', 'Zo breed als de tekst'], ['full', 'Volle breedte']] }
     ],
@@ -116,8 +118,7 @@
     // gestript), een statische afbeelding wel. Die URL plak je hier.
     map: [
       { key: 'address', label: 'Adres', type: 'text', placeholder: 'Leeg = de locatie van dit event' },
-      { key: 'image', label: 'Statische kaart-URL (optioneel)', type: 'url', placeholder: 'https://maps.googleapis.com/maps/api/staticmap?…' },
-      { key: 'variant', label: 'Stijl van de routeknop', type: 'select', options: [['brand', 'Kleur van de eventcategorie'], ['brand_outline', 'Omlijnd in de categoriekleur'], ['outline', 'Omlijnd blauw'], ['primary', 'Blauw'], ['dark', 'Donker'], ['subtle', 'Rustig grijs']] }
+      { key: 'image', label: 'Statische kaart-URL (optioneel)', type: 'url', placeholder: 'https://maps.googleapis.com/maps/api/staticmap?…' }
     ],
     spacer: [{ key: 'height', label: 'Hoogte in pixels', type: 'number' }],
     signature: [
@@ -125,8 +126,20 @@
       { key: 'job_title', label: 'Functie', type: 'text', placeholder: 'Leeg = uit Odoo' },
       { key: 'org', label: 'Organisatie', type: 'text', placeholder: 'Leeg = volgt de site' }
     ],
-    video: [], text: [], event_details: [], divider: [], card_break: [], footer: []
+    video: [], text: [], event_details: [], divider: [], card_break: [], footer: [],
+    // De aankondiging krijgt zijn velden in aankondigingsVelden(): welke
+    // velden je nodig hebt, hangt af van de gekozen manier. Een vaste lijst
+    // zou drie velden tonen waarvan er telkens twee niets doen.
+    announcement: []
   };
+
+  /** Keuzes van het aankondigingsblok. Wordt uit /mail/schema overschreven. */
+  var ANNOUNCEMENT_PICKS = [
+    { value: 'next', label: 'Het eerstvolgende event' },
+    { value: 'next_of_type', label: 'Het eerstvolgende van een bepaald type' },
+    { value: 'highlighted', label: 'Het eerstvolgende uitgelichte event' },
+    { value: 'fixed', label: 'Eén vast event' }
+  ];
 
   function el(id) { return document.getElementById(id); }
 
@@ -614,6 +627,9 @@
 
     try {
       if (!state.schema) state.schema = await api('/mail/schema');
+      if (state.schema && Array.isArray(state.schema.announcement_picks) && state.schema.announcement_picks.length > 0) {
+        ANNOUNCEMENT_PICKS = state.schema.announcement_picks;
+      }
 
       var data = await api('/events/' + state.eventId + '/mail-blocks');
       state.eventTypeId = data.event_type.id;
@@ -931,7 +947,7 @@
         '</div>' +
 
         '<div class="flex items-center gap-2 text-sm ml-auto ' + (t.enabled === false ? 'opacity-40' : '') + '">' +
-          '<span class="opacity-70">Niet meer bij inschrijven binnen</span>' +
+          '<span class="opacity-70">Geen reminder wie inschrijft binnen</span>' +
           '<input type="number" min="0" max="720" class="input input-bordered input-xs w-16 text-right" ' +
             'data-mail-timing="minLeadHours" value="' + Number(t.minLeadHours) + '"' +
             (t.enabled === false ? ' disabled' : '') + '>' +
@@ -949,7 +965,9 @@
     var basis = 'Wie inschrijft krijgt zijn reminder ' + Number(t.leadHours) + ' uur voor de start. ' +
       'Schrijft iemand later in dan dat, dan vertrekt hij meteen';
     return Number(t.minLeadHours) > 0
-      ? basis + ' — tenzij er nog minder dan ' + Number(t.minLeadHours) + ' uur te gaan is, dan krijgt hij er geen.'
+      ? basis + ' — behalve wie zich pas inschrijft als er nog minder dan ' + Number(t.minLeadHours) +
+        ' uur te gaan is: die krijgt er geen. Die grens kijkt naar het moment van INSCHRIJVEN, ' +
+        'niet naar wanneer jij de mails klaarzet — wie zich vorige week inschreef krijgt zijn reminder dus altijd.'
       : basis + '. Zet de tweede waarde hoger dan 0 als een reminder vlak voor de start geen zin meer heeft.';
   }
 
@@ -1182,7 +1200,192 @@
 
   // ─── Instellingen van één onderdeel ────────────────────────────────────────
 
-  function openSettings(blockId) {
+  /**
+   * De keuzelijsten van het aankondigingsblok: de event-types, en de
+   * gepubliceerde events die nog komen. Eén keer per studiosessie ophalen.
+   */
+  async function announcementOptions() {
+    if (!state.announcementOptions) {
+      try {
+        state.announcementOptions = await api('/mail/announcement-options');
+      } catch (error) {
+        console.warn('[mail-studio] keuzes voor de aankondiging niet geladen:', error.message);
+        state.announcementOptions = { event_types: [], events: [] };
+      }
+    }
+    return state.announcementOptions;
+  }
+
+  /**
+   * De instellingen van een aankondigingsblok.
+   *
+   * Alleen de velden die bij de gekozen manier hóren: bij "eerstvolgende van
+   * een type" een typekeuze, bij "één vast event" een eventkeuze, en anders
+   * geen van beide. Zo staat er nooit een veld op het scherm dat niets doet.
+   */
+  function aankondigingsVelden(block, opties) {
+    var uit = '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Welk event kondig je aan?</span>' +
+      '<select class="select select-bordered select-sm" data-mail-setting="pick">' +
+      ANNOUNCEMENT_PICKS.map(function (keuze) {
+        return '<option value="' + esc(keuze.value) + '"' +
+          (String(block.pick || 'next') === keuze.value ? ' selected' : '') + '>' + esc(keuze.label) + '</option>';
+      }).join('') + '</select></label>';
+
+    if (block.pick === 'next_of_type') {
+      var types = (opties && opties.event_types) || [];
+      uit += '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Van welk type?</span>' +
+        '<select class="select select-bordered select-sm" data-mail-setting="eventTypeId">' +
+        '<option value="">— kies een type —</option>' +
+        types.map(function (type) {
+          return '<option value="' + type.id + '"' +
+            (Number(block.eventTypeId) === Number(type.id) ? ' selected' : '') + '>' + esc(type.name) + '</option>';
+        }).join('') + '</select></label>';
+    }
+
+    if (block.pick === 'fixed') {
+      var events = (opties && opties.events) || [];
+      uit += '<label class="form-control"><span class="label-text text-xs opacity-70 mb-1">Welk event?</span>' +
+        '<select class="select select-bordered select-sm" data-mail-setting="eventId">' +
+        '<option value="">— kies een event —</option>' +
+        events.map(function (ev) {
+          var datum = ev.starts_at ? new Date(ev.starts_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' }) : '';
+          return '<option value="' + ev.id + '"' +
+            (Number(block.eventId) === Number(ev.id) ? ' selected' : '') + '>' +
+            esc(ev.title) + (datum ? ' — ' + esc(datum) : '') + '</option>';
+        }).join('') + '</select>' +
+        (events.length === 0
+          ? '<span class="label-text-alt opacity-60">Er staan geen gepubliceerde events in de agenda.</span>'
+          : '') +
+        '</label>';
+    }
+
+    uit += '<label class="label cursor-pointer justify-start gap-2 px-0">' +
+      '<input type="checkbox" class="checkbox checkbox-sm" data-mail-setting="showSummary"' +
+      (block.showSummary === false ? '' : ' checked') + '>' +
+      '<span class="label-text text-sm">Korte omschrijving van dat event meenemen</span></label>';
+
+    uit += '<p class="text-xs opacity-60">Het kopje en de tekst op de knop typ je in de mail zelf. ' +
+      'Vindt de keuze geen event, dan valt dit blok weg bij het versturen — er komt dus nooit een lege kaart mee. ' +
+      'Het event waar deze mail zélf over gaat wordt nooit aangekondigd.</p>';
+
+    return uit;
+  }
+
+  /** Blokken met een knop erin, en dus met een kleurkeuze. */
+  var KLEURBARE_BLOKKEN = ['button', 'map', 'announcement'];
+
+  /**
+   * De kleurkiezer van een knop.
+   *
+   * Waarom stalen EN een vrije kiezer, en niet meer die zes vaste stijlen:
+   * "Omlijnd in de categoriekleur" is geen keuze die iemand kan zien -- je
+   * moest de lijst lezen, kiezen, en dan in het voorbeeld gaan controleren
+   * wat je gekozen had. Nu zie je de kleuren zelf staan, klik je erop, en
+   * verandert de knop in het voorbeeld mee.
+   *
+   * De voorgestelde kleuren zijn de kleuren van de EVENTCATEGORIEËN uit
+   * Odoo, plus drie neutrale. Zo blijft een mail in de huisstijl zonder dat
+   * iemand hex-codes moet opzoeken, en volgt het lijstje automatisch als er
+   * een categorie bijkomt.
+   *
+   * "Categoriekleur" is een aparte staal met een eigen betekenis: die zegt
+   * "neem de kleur van het type van DIT event", en blijft dus meeschuiven.
+   * Een vaste hex zou in duizend verstuurde mails bevroren staan.
+   *
+   * De tekstkleur kiest de gebruiker NIET: die wordt berekend uit de
+   * achtergrond (leesbareTekstkleur in mail-render.js). Een vrije kiezer
+   * zonder die berekening levert witte tekst op een gele knop op.
+   */
+  function kleurVelden(block, opties) {
+    var huidig = String(block.color || '').trim().toLowerCase();
+    // Geen kleur gekozen maar wel een oude variant? Dan tonen we welke staal
+    // daarmee overeenkomt, zodat de kiezer niet "niets gekozen" lijkt.
+    if (huidig === '') {
+      huidig = (block.variant === 'brand' || block.variant === 'brand_outline') ? 'category'
+        : (block.variant === 'dark' ? '#111827'
+          : (block.variant === 'subtle' ? '#f1f5f9' : '#2563eb'));
+    }
+    var omlijnd = block.outline === true || block.variant === 'brand_outline' || block.variant === 'outline';
+
+    var types = (opties && opties.event_types) || [];
+    var eigenType = null;
+    types.forEach(function (type) {
+      if (Number(type.id) === Number(state.eventTypeId)) eigenType = type;
+    });
+    var categorieKleur = (eigenType && eigenType.color) || '#2563eb';
+
+    // De voorgestelde kleuren: de categoriekleur van DIT event vooraan, dan
+    // de andere categorieën (zonder dubbels), dan drie neutrale.
+    var voorstellen = [];
+    var gezien = {};
+    types.forEach(function (type) {
+      var kleur = String(type.color || '').trim().toLowerCase();
+      if (!/^#[0-9a-f]{6}$/.test(kleur) || gezien[kleur]) return;
+      gezien[kleur] = true;
+      voorstellen.push({ value: kleur, label: type.name });
+    });
+    [['#111827', 'Donker'], ['#2563eb', 'Blauw'], ['#f1f5f9', 'Rustig grijs']].forEach(function (paar) {
+      if (gezien[paar[0]]) return;
+      gezien[paar[0]] = true;
+      voorstellen.push({ value: paar[0], label: paar[1] });
+    });
+
+    function staal(waarde, label, kleur, letter) {
+      var actief = huidig === waarde;
+      return '<button type="button" data-action="mail-color-pick" data-color="' + esc(waarde) + '" ' +
+        'title="' + esc(label) + '" ' +
+        'class="w-8 h-8 rounded-full border border-base-300 shrink-0 flex items-center justify-center ' +
+        'text-[10px] font-bold ' + (actief ? 'ring-2 ring-offset-2 ring-primary' : '') + '" ' +
+        'style="background:' + esc(kleur) + ';color:' + esc(leesbaar(kleur)) + ';">' + (letter || '') + '</button>';
+    }
+
+    var eigenVrij = /^#[0-9a-f]{6}$/.test(huidig) && !gezien[huidig];
+
+    return '<div class="space-y-2">' +
+      '<span class="label-text text-xs opacity-70">Kleur van de knop</span>' +
+      '<div class="flex flex-wrap items-center gap-2">' +
+        // "Categoriekleur" is geen kleur maar een VERWIJZING: hij toont de
+        // kleur van dit event, maar blijft meeschuiven als de categorie
+        // later verandert. Vandaar het bolletje met een A ervoor.
+        staal('category', 'Kleur van de eventcategorie (schuift mee)', categorieKleur, 'A') +
+        '<span class="opacity-20">|</span>' +
+        voorstellen.map(function (voorstel) {
+          return staal(voorstel.value, voorstel.label, voorstel.value, '');
+        }).join('') +
+        '<label class="w-8 h-8 rounded-full border border-base-300 shrink-0 cursor-pointer overflow-hidden ' +
+          (eigenVrij ? 'ring-2 ring-offset-2 ring-primary' : '') + '" title="Eigen kleur kiezen">' +
+          '<input type="color" data-mail-color-free class="w-12 h-12 -m-1 cursor-pointer border-0 bg-transparent p-0" ' +
+            'value="' + esc(/^#[0-9a-f]{6}$/.test(huidig) ? huidig : categorieKleur) + '">' +
+        '</label>' +
+      '</div>' +
+      '<div class="join">' +
+        '<button type="button" data-action="mail-color-shape" data-outline="0" ' +
+          'class="btn btn-xs join-item ' + (omlijnd ? '' : 'btn-active') + '">Vol</button>' +
+        '<button type="button" data-action="mail-color-shape" data-outline="1" ' +
+          'class="btn btn-xs join-item ' + (omlijnd ? 'btn-active' : '') + '">Omlijnd</button>' +
+      '</div>' +
+      '<p class="text-xs opacity-60">De tekst wordt automatisch zwart of wit — wat leesbaar is op de kleur die je kiest. ' +
+        'Het bolletje met <strong>A</strong> volgt de kleur van de eventcategorie, ook als die later wijzigt.</p>' +
+    '</div>';
+  }
+
+  /**
+   * Zwarte of witte tekst op deze achtergrond? Spiegel van
+   * leesbareTekstkleur() in lib/mail-render.js -- die is de bron, deze staat
+   * hier alleen om de stalen in de kiezer leesbaar te houden.
+   */
+  function leesbaar(hex) {
+    var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ''));
+    if (!m) return '#ffffff';
+    var kanaal = function (waarde) {
+      var v = parseInt(waarde, 16) / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    var helderheid = 0.2126 * kanaal(m[1]) + 0.7152 * kanaal(m[2]) + 0.0722 * kanaal(m[3]);
+    return helderheid > 0.6 ? '#111827' : '#ffffff';
+  }
+
+  async function openSettings(blockId) {
     var block = blockById(blockId);
     if (!block) return;
     var meta = BLOCK_META[block.type] || { label: block.type, hint: '' };
@@ -1251,9 +1454,16 @@
         'en klopt hij ook in een reminder of op de website.</p>'
       : '';
 
+    var opties = (block.type === 'announcement' || KLEURBARE_BLOKKEN.indexOf(block.type) !== -1)
+      ? await announcementOptions()
+      : null;
+
+    var aankondiging = block.type === 'announcement' ? aankondigingsVelden(block, opties) : '';
+    var kleuren = KLEURBARE_BLOKKEN.indexOf(block.type) !== -1 ? kleurVelden(block, opties) : '';
+
     el('mailSettingsBody').innerHTML =
-      (fields || (detailRows ? '' : '<p class="text-sm opacity-60">Dit onderdeel heeft geen extra instellingen.</p>')) +
-      detailRows + video;
+      (fields || (detailRows || aankondiging || kleuren ? '' : '<p class="text-sm opacity-60">Dit onderdeel heeft geen extra instellingen.</p>')) +
+      detailRows + aankondiging + kleuren + video;
 
     el('mailBlockSettings').showModal();
     icons();
@@ -1507,7 +1717,8 @@
     var soort = KIND_LABEL[state.kind] || state.kind;
     if (!opnieuw && !window.confirm(
       'De ' + soort + '-mail klaarzetten voor iedereen die hem nog niet gehad heeft?\n\n' +
-      'Odoo verstuurt ze daarna zelf. Wie hem al kreeg, krijgt hem niet opnieuw.'
+      'Odoo verstuurt ze daarna zelf. Wie hem al kreeg, krijgt hem niet opnieuw.\n' +
+      'Staat de mail nog klaar in de wachtrij, dan wordt hij bijgewerkt met de huidige inhoud.'
     )) return;
 
     state.busy = true;
@@ -1520,9 +1731,12 @@
       });
       if (result) {
         var queued = result.queued ? result.queued.length : 0;
+        var updated = result.updated ? result.updated.length : 0;
         var skipped = result.skipped ? result.skipped.length : 0;
 
-        if (queued === 0 && !opnieuw) {
+        // Bijgewerkte mails zijn óók een resultaat: wie net de tekst
+        // aanpaste en dan klaarzet, moet zien dat de wachtrij mee is.
+        if (queued === 0 && updated === 0 && !opnieuw) {
           // Voor OUDERE events is de _sent-vlag onbetrouwbaar: de oude
           // Odoo-serveractie zette hem op true voor alle registraties, ook
           // die waarvoor de verzending faalde. Daarom hier de uitweg
@@ -1539,8 +1753,30 @@
           }
         }
 
-        toast(result.message || (queued + ' mail(s) klaargezet' + (skipped ? ', ' + skipped + ' overgeslagen' : '')),
-          queued > 0 ? 'success' : 'info');
+        // De REDENEN erbij. Zonder deze regel meldt de studio "0 klaargezet,
+        // 20 overgeslagen" en moet je in de worker-logs gaan kijken waarom --
+        // precies wat er bij event 76 gebeurde.
+        var perReden = {};
+        (result.skipped || []).forEach(function (over) {
+          var reden = over.reason || 'onbekende reden';
+          perReden[reden] = (perReden[reden] || 0) + 1;
+        });
+        var redenen = Object.keys(perReden).map(function (reden) {
+          return perReden[reden] + '× ' + reden;
+        }).join(' · ');
+
+        var melding = queued + ' mail(s) klaargezet' +
+          (updated ? ', ' + updated + ' klaarstaande mail(s) bijgewerkt' : '') +
+          (skipped ? ', ' + skipped + ' overgeslagen' : '') +
+          (redenen ? ' (' + redenen + ')' : '');
+
+        if (queued + updated === 0 && redenen) {
+          // Niets gebeurd én we weten waarom: dat moet je niet in een
+          // wegvliegende toast moeten opvangen.
+          window.alert('Er is geen enkele mail klaargezet.\n\n' + redenen.split(' · ').join('\n'));
+        }
+        toast(queued + updated > 0 ? melding : (result.message || melding),
+          queued + updated > 0 ? 'success' : 'info');
       }
     } catch (error) {
       toast(error.message, 'error');
@@ -1706,6 +1942,34 @@
 
       case 'mail-settings-close': el('mailBlockSettings').close(); break;
 
+      case 'mail-color-pick': {
+        var kleurBlok = blockById(state.selectedId);
+        if (!kleurBlok) break;
+        kleurBlok.color = trigger.getAttribute('data-color');
+        // De oude variant weghalen: anders staan er twee waarheden in het
+        // blok en is niet meer te zien welke de knop tekent.
+        delete kleurBlok.variant;
+        markDirty();
+        openSettings(state.selectedId);
+        break;
+      }
+
+      case 'mail-color-shape': {
+        var vormBlok = blockById(state.selectedId);
+        if (!vormBlok) break;
+        vormBlok.outline = trigger.getAttribute('data-outline') === '1';
+        if (!vormBlok.color) {
+          // Nog geen kleur gekozen: dan is de vormkeuze pas zichtbaar als er
+          // ook een kleur staat. Neem de categoriekleur -- dat is wat de
+          // kiezer als eerste voorstelt.
+          vormBlok.color = 'category';
+        }
+        delete vormBlok.variant;
+        markDirty();
+        openSettings(state.selectedId);
+        break;
+      }
+
       case 'detail-row-add': {
         var blok = blockById(state.selectedId);
         if (!blok) break;
@@ -1769,11 +2033,42 @@
     }
   });
 
+  /**
+   * De vrije kleurkiezer.
+   *
+   * Twee gebeurtenissen, met opzet verschillend behandeld: 'input' vuurt bij
+   * elke beweging in het kleurenvlak en zet alleen de waarde (markDirty
+   * ZONDER hertekenen -- het voorbeeld opnieuw opbouwen bij elke beweging
+   * geeft geflikker, dezelfde reden als bij het typen in een blok). Pas bij
+   * 'change', als de kiezer dichtgaat, wordt het voorbeeld hertekend.
+   */
+  function zetVrijeKleur(target, herteken) {
+    var blok = blockById(state.selectedId);
+    if (!blok) return false;
+    blok.color = String(target.value || '').toLowerCase();
+    // De oude variant weghalen: anders staan er twee waarheden in het blok.
+    delete blok.variant;
+    markDirty(herteken);
+    return true;
+  }
+
+  document.addEventListener('input', function (event) {
+    if (!el('mailStudioDialog').open) return;
+    var target = event.target;
+    if (!target || !target.hasAttribute || !target.hasAttribute('data-mail-color-free')) return;
+    zetVrijeKleur(target, false);
+  });
+
   document.addEventListener('change', function (event) {
     if (!el('mailStudioDialog').open) return;
     var target = event.target;
 
     if (target.id === 'mailProofWho' || target.id === 'mailProofSite') { refreshProof(); return; }
+
+    if (target.hasAttribute && target.hasAttribute('data-mail-color-free')) {
+      if (zetVrijeKleur(target, true)) openSettings(state.selectedId);
+      return;
+    }
 
     var timing = target.getAttribute && target.getAttribute('data-mail-timing');
     if (timing) {
@@ -1800,8 +2095,22 @@
     if (setting && state.selectedId) {
       var settingBlock = blockById(state.selectedId);
       if (!settingBlock) return;
-      settingBlock[setting] = target.type === 'number' ? Number(target.value) : target.value;
+
+      if (target.type === 'checkbox') {
+        settingBlock[setting] = target.checked;
+      } else if (setting === 'eventTypeId' || setting === 'eventId') {
+        // Leeg = niets gekozen. Een lege string zou in Odoo als "0" belanden
+        // en dan zoekt het blok naar een event dat niet bestaat.
+        settingBlock[setting] = target.value === '' ? null : Number(target.value);
+      } else {
+        settingBlock[setting] = target.type === 'number' ? Number(target.value) : target.value;
+      }
+
       markDirty();
+
+      // Een andere manier van kiezen betekent andere velden: opnieuw tekenen,
+      // anders blijft er een typekeuze staan bij "één vast event".
+      if (setting === 'pick') openSettings(state.selectedId);
     }
   });
 

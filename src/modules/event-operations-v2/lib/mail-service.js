@@ -54,7 +54,7 @@ import {
   m2oId,
   eventTypePresentation
 } from '../odoo-contract.js';
-import { LOG_PREFIX, REGISTRATION_STATE, PUBLIC_EVENT_PATH } from '../constants.js';
+import { LOG_PREFIX, REGISTRATION_STATE, PUBLIC_EVENT_PATH, PUBLICATION_STATE } from '../constants.js';
 import {
   MAIL_KIND,
   MAIL_KINDS,
@@ -62,10 +62,12 @@ import {
   parseMailBlocks,
   emptyMailBlocks,
   normalizeMailBlocks,
-  resolveSection
+  resolveSection,
+  BLOCK_TYPE,
+  ANNOUNCEMENT_PICK
 } from './mail-blocks.js';
-import { buildPlaceholderContext, renderMailHtml, renderSubject } from './mail-render.js';
-import { optionalFieldAvailable, logToChatter, listEventTypes } from './events-service.js';
+import { buildPlaceholderContext, renderMailHtml, renderSubject, formatEventMoment } from './mail-render.js';
+import { optionalFieldAvailable, logToChatter, listEventTypes, listEvents, getEvent } from './events-service.js';
 
 /** Domein voor de message_id-sleutel. Puur een identifier, geen adres. */
 const MESSAGE_ID_DOMAIN = 'om.mymmo.com';
@@ -381,6 +383,9 @@ export function renderMailForRegistration({
   host = {},
   publicBaseUrl = '',
   typeColor = '',
+  // Per aankondigingsblok het opgezochte event, op blok-id. Opzoeken gebeurt
+  // in resolveAnnouncements() -- de renderer is puur en doet geen Odoo.
+  announcements = {},
   // Alleen waar voor het voorbeeldpaneel in de OM: dan krijgt elk blok een
   // data-om-block/data-om-edit-marker zodat de editor erop kan werken.
   // queueMails() roept dit ZONDER editable aan, dus de verzonden mail bevat
@@ -397,6 +402,7 @@ export function renderMailForRegistration({
     registration,
     host,
     typeColor,
+    announcements,
     publicUrl: buildPublicUrl(publicBaseUrl, event)
   });
 
@@ -467,6 +473,119 @@ function buildPublicUrl(base, event) {
   return `${root}${PUBLIC_EVENT_PATH}/${slug}/?owid=${Number(event.id)}`;
 }
 
+// ─── Aankondigingen ──────────────────────────────────────────────────────────
+
+/**
+ * De events opzoeken die de aankondigingsblokken van deze mail aankondigen.
+ *
+ * WAAROM HIER EN NIET IN DE RENDERER: mail-render.js is puur -- geen env,
+ * geen fetch. Een blok dat zelf Odoo zou bevragen maakt de renderer
+ * onbruikbaar in tests en in het voorbeeldpaneel.
+ *
+ * WAAROM BIJ HET KLAARZETTEN EN NIET BIJ HET VERSTUREN: de mail wordt in
+ * Odoo als afgewerkte HTML opgeslagen. Wat hier gevonden wordt, staat dus
+ * vast op het moment van klaarzetten. Voor de bevestiging is dat direct, voor
+ * de reminder het inschrijfmoment. Wijzigt de agenda daarna nog, dan werkt
+ * `refresh` (zie queueMails) de klaarstaande mails bij -- dat is precies
+ * waarvoor die bestaat.
+ *
+ * Drie zaken zijn bewust hard:
+ *   - alleen GEPUBLICEERDE events (een concept aankondigen is een lek)
+ *   - alleen events die nog MOETEN komen (from = nu)
+ *   - nooit het event waar de mail zelf over gaat
+ *
+ * En de site van de inschrijving filtert op merk: wie via syndicoach.be
+ * inschreef, krijgt geen openvme-only event aangekondigd. Events zonder merk
+ * gelden als "beide" (brandsVisibleTo in odoo-contract.js).
+ *
+ * @param {Object} env
+ * @param {Object[]} blocks - de blokken van de sectie die verstuurd wordt
+ * @param {Object} options
+ * @param {Object} options.event - het event waar de mail over gaat
+ * @param {string|null} [options.site]
+ * @param {string} [options.publicBaseUrl]
+ * @param {Date} [options.now]
+ * @returns {Promise<Object>} { [blockId]: { title, day, time, location, link, url, type, summary } }
+ */
+export async function resolveAnnouncements(env, blocks, { event, site = null, publicBaseUrl = '', now = new Date() }) {
+  const aankondigingen = (blocks || []).filter((block) => block?.type === BLOCK_TYPE.ANNOUNCEMENT);
+  if (aankondigingen.length === 0) return {};
+
+  const out = {};
+  // Twee blokken met dezelfde keuze kosten één Odoo-ronde. Klinkt overbodig
+  // tot iemand dezelfde aankondiging boven én onder de mail zet.
+  const gezocht = new Map();
+
+  for (const block of aankondigingen) {
+    const sleutel = JSON.stringify([block.pick, block.eventTypeId, block.eventId, site]);
+
+    if (!gezocht.has(sleutel)) {
+      let gevonden = null;
+      try {
+        gevonden = await zoekAankondiging(env, block, { event, site, now });
+      } catch (error) {
+        // Nooit fataal: een mislukte opzoeking laat het blok wegvallen, ze
+        // mag de hele mail niet tegenhouden.
+        console.warn(`${LOG_PREFIX} aankondiging niet opgezocht (blok ${block.id}): ${error?.message}`);
+      }
+      gezocht.set(sleutel, gevonden);
+    }
+
+    const ander = gezocht.get(sleutel);
+    if (!ander) continue;
+
+    const moment = formatEventMoment(ander.starts_at);
+    out[block.id] = {
+      id: Number(ander.id),
+      title: ander.title || '',
+      day: moment.day,
+      time: moment.time,
+      location: ander.location?.name || '',
+      link: ander.online_url || '',
+      type: ander.event_type?.name || '',
+      summary: ander.summary || '',
+      url: buildPublicUrl(publicBaseUrl, ander)
+    };
+  }
+
+  return out;
+}
+
+/** @returns {Promise<Object|null>} het aangekondigde event, of null */
+async function zoekAankondiging(env, block, { event, site, now }) {
+  const merk = String(site || '').trim().toLowerCase();
+
+  // Eén vast event: precies dat, op id. Geen datumgrens -- wie uitdrukkelijk
+  // dit event kiest, bedoelt dit event.
+  if (block.pick === ANNOUNCEMENT_PICK.FIXED) {
+    if (!Number.isInteger(Number(block.eventId))) return null;
+    const { event: vast } = await getEvent(env, { id: Number(block.eventId) });
+    return vast || null;
+  }
+
+  if (block.pick === ANNOUNCEMENT_PICK.NEXT_OF_TYPE && !Number.isInteger(Number(block.eventTypeId))) {
+    return null;
+  }
+
+  const filters = {
+    publication_state: PUBLICATION_STATE.PUBLISHED,
+    from: new Date(now).toISOString()
+  };
+  if (merk !== '') filters.brand = merk;
+  if (block.pick === ANNOUNCEMENT_PICK.NEXT_OF_TYPE) filters.event_type_id = Number(block.eventTypeId);
+  if (block.pick === ANNOUNCEMENT_PICK.HIGHLIGHTED) filters.highlighted = true;
+
+  const { events } = await listEvents(env, {
+    filters,
+    order: `${EVENT_FIELDS.STARTS_AT} asc`,
+    // Twee: het eerste kan het event zijn waar deze mail over gaat.
+    limit: 2,
+    detail: true
+  });
+
+  return (events || []).find((kandidaat) => Number(kandidaat.id) !== Number(event?.id)) || null;
+}
+
 // ─── Klaarzetten in mail.mail ─────────────────────────────────────────────────
 
 /**
@@ -521,20 +640,12 @@ export function computeScheduledDate(kind, event, now = new Date(), timing = DEF
     return { send: false, scheduledDate: false, reason: 'event is al begonnen' };
   }
 
-  const urenTotStart = (startsAt.getTime() - now.getTime()) / 3600000;
-
-  // Te laat om nog zinvol te zijn: wie zich twee uur voor de start inschrijft
-  // heeft niets aan een herinnering. Standaard staat deze grens op 0, dus
-  // dan gaat hij wél altijd -- een late inschrijver zonder reminder is
-  // precies het gat dat de oude Odoo-cron had.
-  if (regels.minLeadHours > 0 && urenTotStart < regels.minLeadHours) {
-    return {
-      send: false,
-      scheduledDate: false,
-      reason: `minder dan ${regels.minLeadHours} uur voor de start ingeschreven`
-    };
-  }
-
+  // De ondergrens (minLeadHours) staat HIER NIET: die gaat over het moment
+  // waarop iemand zich INSCHREEF, niet over het moment waarop deze functie
+  // draait. Zie reminderTooLate(). Dat verschil is een echte bug geweest:
+  // wie handmatig reminders klaarzette voor mensen die zich een week eerder
+  // hadden ingeschreven, kreeg er nul -- de grens werd tegen "nu" gemeten en
+  // niet tegen hun inschrijfmoment.
   const moment = new Date(startsAt.getTime() - regels.leadHours * 3600000);
   if (moment.getTime() <= now.getTime()) {
     return { send: true, scheduledDate: false, reason: 'late inschrijving, meteen versturen' };
@@ -553,21 +664,85 @@ export function computeScheduledDate(kind, event, now = new Date(), timing = DEF
  * @param {number[]} registrationIds
  * @returns {Promise<Set<number>>} registratie-id's die al bediend zijn
  */
-export async function findAlreadyQueued(env, eventId, kind, registrationIds) {
-  if (registrationIds.length === 0) return new Set();
+/**
+ * Heeft deze inschrijver nog iets aan een reminder?
+ *
+ * De grens `minLeadHours` gaat over het moment waarop iemand zich INSCHREEF:
+ * wie zich twee uur voor de start inschrijft, heeft niets aan een
+ * herinnering "morgen begint het". Ze gaat NIET over het moment waarop de
+ * mails klaargezet worden -- anders zou een handmatige inhaalronde vlak voor
+ * het event iedereen overslaan, ook mensen die zich een week eerder hadden
+ * ingeschreven. Precies dat gebeurde bij event 76: minLeadHours stond op 48,
+ * het event begon over 29 uur, en dus kreeg niemand van de twintig
+ * inschrijvers een reminder klaargezet -- zonder zichtbare reden.
+ *
+ * Standaard staat de grens op 0: dan gaat de reminder altijd, desnoods
+ * meteen. Een late inschrijver zonder reminder is anders precies het gat dat
+ * de oude Odoo-cron had.
+ *
+ * @param {Object} event
+ * @param {Object} timing
+ * @param {Date|string|null} registeredAt - create_date van de inschrijving
+ * @returns {string|null} de reden om over te slaan, of null
+ */
+export function reminderTooLate(event, timing, registeredAt) {
+  const regels = { ...DEFAULT_TIMING, ...(timing || {}) };
+  if (!(regels.minLeadHours > 0)) return null;
 
-  const keys = registrationIds.map((id) => buildMessageId(eventId, kind, id));
+  const startsAt = event?.starts_at ? new Date(event.starts_at) : null;
+  if (!startsAt || Number.isNaN(startsAt.getTime())) return null;
+
+  const ingeschreven = registeredAt ? new Date(registeredAt) : null;
+  // Geen inschrijfmoment bekend? Dan de grens niet toepassen. Iemand
+  // overslaan op grond van een ontbrekend veld is de verkeerde kant om te
+  // falen: dan krijgt een echte deelnemer stil geen herinnering.
+  if (!ingeschreven || Number.isNaN(ingeschreven.getTime())) return null;
+
+  const urenVoorStart = (startsAt.getTime() - ingeschreven.getTime()) / 3600000;
+  if (urenVoorStart >= regels.minLeadHours) return null;
+
+  return `ingeschreven binnen ${regels.minLeadHours} uur voor de start`;
+}
+
+export async function findAlreadyQueued(env, eventId, kind, registrationIds) {
+  const bestaand = await findExistingMails(env, eventId, kind, registrationIds);
+  return new Set(bestaand.keys());
+}
+
+/**
+ * Hetzelfde, maar met de TOESTAND erbij: `outgoing` (staat klaar, nog niet
+ * de deur uit), `sent`, `cancel` of `exception`.
+ *
+ * Dat onderscheid is het hele verschil tussen "overslaan" en "bijwerken".
+ * Een klaarstaande mail mag je nog herschrijven; een verstuurde niet -- die
+ * is de deur uit en blijft staan zoals ze verstuurd is.
+ *
+ * @param {Object} env
+ * @param {number} eventId
+ * @param {string} kind
+ * @param {number[]} registrationIds
+ * @returns {Promise<Map<number, { mailId: number, state: string }>>} op registratie-id
+ */
+export async function findExistingMails(env, eventId, kind, registrationIds) {
+  const ids = (registrationIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return new Map();
+
+  const keys = ids.map((id) => buildMessageId(eventId, kind, id));
   const existing = await searchRead(env, {
     model: ODOO_MODELS.MAIL,
     domain: [[MAIL_FIELDS.MESSAGE_ID, 'in', keys]],
-    fields: [MAIL_FIELDS.ID, MAIL_FIELDS.MESSAGE_ID],
+    fields: [MAIL_FIELDS.ID, MAIL_FIELDS.MESSAGE_ID, MAIL_FIELDS.STATE],
     limit: false
   });
 
-  const done = new Set();
+  const done = new Map();
   for (const record of existing || []) {
     const match = /-reg(\d+)@/.exec(String(record[MAIL_FIELDS.MESSAGE_ID] || ''));
-    if (match) done.add(Number(match[1]));
+    if (!match) continue;
+    done.set(Number(match[1]), {
+      mailId: Number(record[MAIL_FIELDS.ID] ?? record.id),
+      state: String(record[MAIL_FIELDS.STATE] || '')
+    });
   }
   return done;
 }
@@ -693,9 +868,13 @@ export async function revivePendingMails(env, registrationIds, now = new Date())
  * @param {string} options.kind
  * @param {Object} [options.actor]
  * @param {Date} [options.now]
- * @returns {Promise<{ queued: number[], skipped: Array<{id:number, reason:string}> }>}
+ * @param {boolean} [options.refresh] - klaarstaande mails HERSCHRIJVEN met de
+ *   huidige inhoud in plaats van ze over te slaan. Standaard aan: wie op
+ *   "klaarzetten" drukt nadat hij de mail heeft aangepast, verwacht dat de
+ *   aanpassing meegaat. Verstuurde mails blijven altijd onaangeroerd.
+ * @returns {Promise<{ queued: number[], updated: number[], skipped: Array<{id:number, reason:string}> }>}
  */
-export async function queueMails(env, { event, registrations, kind, actor = null, now = new Date() }) {
+export async function queueMails(env, { event, registrations, kind, actor = null, now = new Date(), refresh = true }) {
   if (!MAIL_KINDS.includes(kind)) {
     throw new MailError(`Onbekende mailsoort "${kind}"`, { status: 400 });
   }
@@ -722,7 +901,7 @@ export async function queueMails(env, { event, registrations, kind, actor = null
 
   const timing = computeScheduledDate(kind, event, now, sectie.timing);
   if (!timing.send) {
-    return { queued: [], skipped: registrations.map((r) => ({ id: r.id, reason: timing.reason })) };
+    return { queued: [], updated: [], skipped: registrations.map((r) => ({ id: r.id, reason: timing.reason })) };
   }
 
   const skipped = [];
@@ -735,6 +914,15 @@ export async function queueMails(env, { event, registrations, kind, actor = null
       skipped.push({ id: registration.id, reason: 'inschrijving geannuleerd' });
       continue;
     }
+    if (kind === MAIL_KIND.REMINDER) {
+      // Per inschrijving, want deze grens hangt af van HET INSCHRIJFMOMENT
+      // van deze persoon en niet van het moment waarop wij dit draaien.
+      const teLaat = reminderTooLate(event, sectie.timing, registration.created_at || now);
+      if (teLaat) {
+        skipped.push({ id: registration.id, reason: teLaat });
+        continue;
+      }
+    }
     const to = String(registration.submitted_email || registration.partner?.email || '').trim();
     if (to === '') {
       skipped.push({ id: registration.id, reason: 'geen e-mailadres' });
@@ -743,9 +931,9 @@ export async function queueMails(env, { event, registrations, kind, actor = null
     candidates.push({ registration, to });
   }
 
-  if (candidates.length === 0) return { queued: [], skipped };
+  if (candidates.length === 0) return { queued: [], updated: [], skipped };
 
-  const alreadyQueued = await findAlreadyQueued(
+  const bestaandeMails = await findExistingMails(
     env,
     event.id,
     kind,
@@ -757,11 +945,46 @@ export async function queueMails(env, { event, registrations, kind, actor = null
     resolveTypeColor(env, event)
   ]);
 
+  // Aankondigingsblokken zoeken hun event op in Odoo. Dat hoort per SITE te
+  // gebeuren (een syndicoach-inschrijver krijgt geen openvme-only event te
+  // zien) maar niet per ontvanger -- vandaar één ronde per site.
+  const aankondigingenPerSite = new Map();
+  for (const site of new Set(candidates.map((kandidaat) => kandidaat.registration.site || null))) {
+    const sectieVanSite = resolveSection(typeDoc, eventDoc, kind, site);
+    aankondigingenPerSite.set(
+      site,
+      await resolveAnnouncements(env, sectieVanSite.blocks, {
+        event,
+        site,
+        publicBaseUrl: resolvePublicOrigin(env, site),
+        now
+      })
+    );
+  }
+
   const values = [];
   const queuedIds = [];
+  // Klaarstaande mails die herschreven moeten worden: per mail apart, want
+  // onderwerp en body verschillen per ontvanger.
+  const bijwerken = [];
 
   for (const { registration, to } of candidates) {
-    if (alreadyQueued.has(registration.id)) {
+    const bestaand = bestaandeMails.get(Number(registration.id));
+
+    // Verstuurd is verstuurd. Die mail staat in iemands inbox; hem hier
+    // herschrijven zou een archief vervalsen zonder dat de ontvanger er iets
+    // van merkt.
+    if (bestaand && bestaand.state === 'sent') {
+      skipped.push({ id: registration.id, reason: 'al verstuurd' });
+      continue;
+    }
+    // Geannuleerd hoort bij een gearchiveerde inschrijving (cancelPendingMails).
+    // Die weer tot leven wekken is de taak van het terughalen, niet van deze.
+    if (bestaand && bestaand.state === 'cancel') {
+      skipped.push({ id: registration.id, reason: 'mail geannuleerd (inschrijving gearchiveerd?)' });
+      continue;
+    }
+    if (bestaand && !refresh) {
       skipped.push({ id: registration.id, reason: 'stond al klaar' });
       continue;
     }
@@ -774,6 +997,7 @@ export async function queueMails(env, { event, registrations, kind, actor = null
       eventDoc,
       host: sender,
       typeColor,
+      announcements: aankondigingenPerSite.get(registration.site || null) || {},
       // Per ontvanger, want de site verschilt per inschrijving.
       publicBaseUrl: resolvePublicOrigin(env, registration.site)
     });
@@ -782,6 +1006,26 @@ export async function queueMails(env, { event, registrations, kind, actor = null
       // Niets ingesteld voor deze soort: dat is een configuratiefout, geen
       // reden om een lege mail te versturen.
       skipped.push({ id: registration.id, reason: 'geen blokken of onderwerp ingesteld' });
+      continue;
+    }
+
+    if (bestaand) {
+      // Alleen de velden die de INHOUD bepalen, plus het verzendmoment:
+      // wijzigde de gebruiker de voorsprong van de reminder, dan hoort de
+      // klaarstaande mail mee te schuiven. state en message_id blijven af --
+      // de sleutel moet dezelfde blijven, anders is de idempotentie weg.
+      bijwerken.push({
+        mailId: bestaand.mailId,
+        registrationId: Number(registration.id),
+        values: {
+          [MAIL_FIELDS.SUBJECT]: rendered.subject,
+          [MAIL_FIELDS.BODY_HTML]: rendered.html,
+          [MAIL_FIELDS.EMAIL_FROM]: sender.formatted,
+          [MAIL_FIELDS.REPLY_TO]: sender.formatted,
+          [MAIL_FIELDS.EMAIL_TO]: to,
+          [MAIL_FIELDS.SCHEDULED_DATE]: timing.scheduledDate
+        }
+      });
       continue;
     }
 
@@ -800,7 +1044,20 @@ export async function queueMails(env, { event, registrations, kind, actor = null
     queuedIds.push(Number(registration.id));
   }
 
-  if (values.length === 0) return { queued: [], skipped };
+  // Eerst het bijwerken: dat kan ook zonder dat er iets nieuws bijkomt.
+  const bijgewerkt = await herschrijfMails(env, bijwerken);
+
+  if (values.length === 0) {
+    if (bijgewerkt.length > 0) {
+      await logToChatter(
+        env,
+        Number(event.id),
+        `${bijgewerkt.length} klaarstaande ${kind}-mail(s) bijgewerkt met de huidige inhoud`,
+        actor
+      );
+    }
+    return { queued: [], updated: bijgewerkt, skipped };
+  }
 
   // Eerst de mails aanmaken, dan pas de vlaggen. Deze volgorde is het hele
   // punt: het mail.mail-record is het bewijs, de boolean is de spiegel.
@@ -830,9 +1087,51 @@ export async function queueMails(env, { event, registrations, kind, actor = null
   await logToChatter(
     env,
     Number(event.id),
-    `${queuedIds.length} ${kind}-mail(s) klaargezet${timing.scheduledDate ? ` voor ${timing.scheduledDate} UTC` : ''}`,
+    `${queuedIds.length} ${kind}-mail(s) klaargezet${timing.scheduledDate ? ` voor ${timing.scheduledDate} UTC` : ''}` +
+    (bijgewerkt.length > 0 ? `, ${bijgewerkt.length} klaarstaande mail(s) bijgewerkt` : ''),
     actor
   );
 
-  return { queued: queuedIds, skipped };
+  return { queued: queuedIds, updated: bijgewerkt, skipped };
+}
+
+/**
+ * Klaarstaande mails herschrijven.
+ *
+ * Eén write per mail: onderwerp en body verschillen per ontvanger, dus een
+ * gedeelde write bestaat hier niet. In blokken van tien parallel -- bij een
+ * event met tweehonderd inschrijvingen zijn tweehonderd opeenvolgende
+ * JSON-RPC-rondes te veel voor één worker-aanroep.
+ *
+ * Een mislukte write is niet fataal: de rest gaat door en het mislukte
+ * exemplaar blijft staan zoals het was (met de OUDE inhoud, dus zichtbaar
+ * verkeerd in Odoo -- beter dan een half herschreven mail).
+ *
+ * @param {Object} env
+ * @param {Array<{mailId:number, registrationId:number, values:Object}>} opdrachten
+ * @returns {Promise<number[]>} registratie-id's waarvan de mail is bijgewerkt
+ */
+async function herschrijfMails(env, opdrachten) {
+  const gelukt = [];
+  const GROEP = 10;
+
+  for (let i = 0; i < opdrachten.length; i += GROEP) {
+    const groep = opdrachten.slice(i, i + GROEP);
+    const uitkomsten = await Promise.all(
+      groep.map(async (opdracht) => {
+        try {
+          await write(env, { model: ODOO_MODELS.MAIL, ids: [opdracht.mailId], values: opdracht.values });
+          return opdracht.registrationId;
+        } catch (error) {
+          console.error(
+            `${LOG_PREFIX} kon klaarstaande mail ${opdracht.mailId} niet bijwerken: ${error?.message}`
+          );
+          return null;
+        }
+      })
+    );
+    for (const uitkomst of uitkomsten) if (uitkomst !== null) gelukt.push(uitkomst);
+  }
+
+  return gelukt;
 }
