@@ -302,6 +302,48 @@ check('ook op een smal scherm past de tabel',
   smal.inhoud <= smal.zichtbaar + 1,
   `inhoud ${smal.inhoud}px in een vak van ${smal.zichtbaar}px`);
 
+console.log('\nKolomkoppen lopen niet over elkaar');
+
+const koppen = await page.evaluate(() => {
+  const ths = Array.from(document.querySelectorAll('#detailHistory thead th'));
+  return ths.map(function (th) {
+    const r = th.getBoundingClientRect();
+    return {
+      tekst: th.textContent.trim(),
+      links: Math.round(r.left),
+      rechts: Math.round(r.right),
+      // scrollWidth > clientWidth betekent: de tekst is breder dan de cel en
+      // wordt dus afgekapt (of loopt eroverheen als er geen truncate staat).
+      afgekapt: th.scrollWidth > th.clientWidth,
+      title: th.getAttribute('title') || '',
+    };
+  });
+});
+
+let overlap = '';
+for (let i = 1; i < koppen.length; i += 1) {
+  if (koppen[i].links < koppen[i - 1].rechts - 1) {
+    overlap = `"${koppen[i - 1].tekst}" loopt tot ${koppen[i - 1].rechts}px, "${koppen[i].tekst}" begint op ${koppen[i].links}px`;
+    break;
+  }
+}
+check('geen enkele kop overlapt de volgende', overlap === '', overlap);
+
+const langeKop = koppen.find((k) => k.tekst.includes('Waar kunnen we je mee helpen'));
+check('een te lange kop wordt afgekapt in plaats van door te lopen',
+  !!langeKop && langeKop.afgekapt,
+  'dit was de kop die over "Aangemaakt" heen viel');
+check('de volledige kop staat in de tooltip',
+  !!langeKop && langeKop.title === 'Waar kunnen we je mee helpen?');
+
+check('alle koppen staan op één regel',
+  (await page.evaluate(() => {
+    const ths = Array.from(document.querySelectorAll('#detailHistory thead th'));
+    const hoogtes = ths.map((th) => Math.round(th.getBoundingClientRect().height));
+    return Math.max.apply(null, hoogtes) - Math.min.apply(null, hoogtes) < 4;
+  })),
+  'een kop die wél wikkelt maakt de hele koprij twee regels hoog');
+
 check('geen JavaScript-fouten', consoleFouten.length === 0, consoleFouten.join(' | '));
 
 await browser.close();

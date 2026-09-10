@@ -659,8 +659,24 @@ function assertWebhookSharedSecret(env, request) {
   }, 401);
 }
 
+/**
+ * Statussen waarvoor replay is toegestaan.
+ *
+ * 'received' hoort hierbij: dat is een inzending die WEL bewaard is maar nooit
+ * verwerkt, omdat de koppeling uit stond toen ze binnenkwam (skipPipeline). Ze
+ * heeft dus nog geen enkele Odoo-actie achter de rug, en replay is de enige weg
+ * om haar alsnog te verwerken nadat de koppeling aangezet is.
+ *
+ * LET OP -- deze lijst staat ook in de UI, in
+ * public/forminator-sync-v2-detail-submissions-tab.js als REPLAYBARE_STATUSSEN.
+ * Lopen die twee uit elkaar, dan toont het scherm een knop die de server
+ * weigert (of omgekeerd verstopt het een knop die wél zou werken).
+ * replay-status-parity-test.mjs vergelijkt ze en wordt rood zodra dat gebeurt.
+ */
+export const REPLAYABLE_STATUSES = ['received', 'partial_failed', 'permanent_failed', 'retry_exhausted'];
+
 function canReplaySubmissionStatus(status) {
-  return ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(status);
+  return REPLAYABLE_STATUSES.includes(status);
 }
 
 function buildReplayIdempotencyKey(originalSubmissionId) {

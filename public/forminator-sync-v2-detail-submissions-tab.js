@@ -14,6 +14,17 @@
   function S()    { return window.FSV2.S; }
   function esc(v) { return window.FSV2.esc(v); }
 
+  /**
+   * Statussen waarvoor een Replay-knop getoond wordt.
+   *
+   * MOET gelijk blijven aan REPLAYABLE_STATUSES in worker-handler.js. Staat een
+   * status hier wel en daar niet, dan krijg je een knop die met
+   * "Replay not allowed for status: ..." wordt afgewezen -- precies wat er
+   * gebeurde toen 'received' hier al stond en daar nog niet.
+   * replay-status-parity-test.mjs bewaakt dat.
+   */
+  var REPLAYBARE_STATUSSEN = ['received', 'partial_failed', 'permanent_failed', 'retry_exhausted'];
+
   function renderDetailSubmissions() {
     var el = document.getElementById('detailHistory');
     if (!el) return;
@@ -281,7 +292,7 @@
       // de koppeling uit stond. Replay is dan de enige manier om haar alsnog te
       // verwerken -- zonder deze status stond er wel een uitleg die naar Replay
       // verwees, maar geen knop om op te drukken.
-      var replayAllowed = !isReplay && !successfulReplay && ['received', 'partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
+      var replayAllowed = !isReplay && !successfulReplay && REPLAYBARE_STATUSSEN.indexOf(String(sub.status || '')) !== -1;
       var forceReplayAllowed = deleteUnlocked && !replayAllowed && ['success', 'processed', 'partial_failed'].includes(String(sub.status || ''));
       return { successfulReplay: successfulReplay, replayAllowed: replayAllowed, forceReplayAllowed: forceReplayAllowed };
     });
@@ -485,11 +496,15 @@
           '<thead><tr>' +
             '<th' + vasteBreedte(2.25) + '><span class="sr-only">Status</span></th>' +
             (showIdColumn ? '<th' + vasteBreedte(5.5) + ' class="whitespace-nowrap">ID</th>' : '') +
+            // truncate en niet break-words: een kop als "Waar kunnen we je mee
+            // helpen?" wikkelt niet netjes in een smalle kolom maar loopt over
+            // de buurkolom heen. Afkappen met een ellips houdt de rij op één
+            // hoogte; de volledige kop staat in title.
             listColumns.map(function (c) {
-              return '<th class="align-bottom leading-tight break-words" title="' + esc(c.label) + '">' + esc(c.label) + '</th>';
+              return '<th class="truncate" title="' + esc(c.label) + '">' + esc(c.label) + '</th>';
             }).join('') +
             (hasMailStep ? '<th' + vasteBreedte(2.75) + ' class="whitespace-nowrap">Mail</th>' : '') +
-            '<th' + vasteBreedte(6.5) + ' class="leading-tight">Aangemaakt</th>' +
+            '<th' + vasteBreedte(6.5) + ' class="truncate leading-tight" title="Aangemaakt">Aangemaakt</th>' +
             (anyActie ? '<th' + vasteBreedte(anyActieBreedte) + ' class="whitespace-nowrap sticky right-0 bg-base-100 z-10">Actie</th>' : '') +
           '</tr></thead>' +
           '<tbody>' +

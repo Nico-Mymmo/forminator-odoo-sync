@@ -306,6 +306,7 @@ kent. Volledige onderbouwing: `docs/ontwerp-om-formulieren.md`.
 | Krijgt een bezoeker ONZE foutmeldingen? | `node src/modules/forminator-sync-v2/tests/form-validation-ui-test.mjs` (php + playwright) |
 | Komen de OM-velden in het koppelingsscherm? | `node src/modules/forminator-sync-v2/tests/om-form-fields-test.mjs` |
 | Toont de indieningenlijst de waarden? | `node src/modules/forminator-sync-v2/tests/submissions-list-test.mjs` (playwright) |
+| Belooft het scherm dezelfde replay als de server? | `node src/modules/forminator-sync-v2/tests/replay-status-parity-test.mjs` |
 
 Afspraken die bewust zo zijn:
 
@@ -439,10 +440,19 @@ Afspraken die bewust zo zijn:
   uitklaprij hoort te zeggen dat de koppeling uit staat en dat Replay de weg
   terug is. Zonder dat is het een naamloos grijs bolletje met een lege `{}`
   eronder, en dat leest als een storing terwijl er niets stuk is.
-  `received` staat daarom OOK in de lijst statussen die een Replay-knop krijgen:
-  replay is de enige manier om zo'n inzending alsnog te verwerken. Staat de
-  koppeling op dat moment nog uit, dan is de knop zichtbaar maar uitgeschakeld
-  met de reden in de tooltip — drukken zou opnieuw op `received` uitkomen.
+  `received` staat daarom OOK in de lijst statussen die replay toestaan: replay
+  is de enige manier om zo'n inzending alsnog te verwerken. Staat de koppeling
+  op dat moment nog uit, dan is de knop zichtbaar maar uitgeschakeld met de
+  reden in de tooltip — drukken zou opnieuw op `received` uitkomen.
+- **De replaybare statussen staan op TWEE plekken en dat is bewust.**
+  `REPLAYABLE_STATUSES` in `worker-handler.js` beslist; `REPLAYBARE_STATUSSEN`
+  in `forminator-sync-v2-detail-submissions-tab.js` bepaalt of de knop er staat.
+  Eén bron kan niet: het ene is Worker-code, het andere browsercode zonder
+  modules. Lopen ze uit elkaar, dan zie je dat niet in de code maar wel op het
+  scherm — een knop die antwoordt met `Replay not allowed for status: ...`.
+  `replay-status-parity-test.mjs` leest beide lijsten en vergelijkt ze, in
+  beide richtingen: een knop zonder recht én een recht zonder knop zijn allebei
+  fout. Voeg je een status toe, doe dat op beide plekken.
 - **De indieningentabel is `table-fixed w-full`, niet auto-layout.** Bij
   auto-layout bepaalt de langste waarde de kolombreedte, en dan duwt één
   e-mailadres of een kolomkop als "Waar kunnen we je mee helpen?" de tabel
@@ -452,8 +462,13 @@ Afspraken die bewust zo zijn:
   gekozen velden delen wat overblijft, en waarden worden afgekapt met `truncate`
   plus de volledige tekst in `title`. De breedte van de actiekolom volgt het
   aantal knoppen dat er maximaal in staat.
+  Kolomkoppen krijgen `truncate`, geen `break-words`: een kop als "Waar kunnen we
+  je mee helpen?" wikkelt niet netjes in een smalle kolom maar loopt over de
+  buurkolom heen. Afkappen houdt de koprij op één regelhoogte; de volledige kop
+  staat in `title`.
   `submissions-list-test.mjs` meet `scrollWidth` tegen `clientWidth` op twee
-  schermbreedtes. Die test draagt een eigen mini-stylesheet met de handvol
+  schermbreedtes, en vergelijkt de randen van de koppen onderling om overlap te
+  vangen. Die test draagt een eigen mini-stylesheet met de handvol
   Tailwind-klassen waarop de indeling steunt: zonder CSS zou `table-fixed` niets
   doen en zou de meting groen zijn om de verkeerde reden.
 - **UTM's vallen terug op de cookie.** Staat er geen `utm_*` in de URL van de
