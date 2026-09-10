@@ -77,10 +77,44 @@
       var aliasVal = String(fieldMeta[fid].alias || '').trim();
       var labelVal = String((ff && ff.label) || '').trim();
       var label = aliasVal || labelVal || fid;
-      if (!listColumnsMap[label]) { listColumnsMap[label] = { fids: [], label: label }; }
+      // field_type van het EERST gevonden veld voor deze kolom -- bepaalt zijn
+      // breedte hieronder (zie gewichtKolom). Bij een hernoemd veld met meerdere
+      // fids per label maakt het niet uit welke van de twee wint: hun waarden
+      // zijn per definitie hetzelfde soort content.
+      if (!listColumnsMap[label]) {
+        listColumnsMap[label] = { fids: [], label: label, field_type: (ff && ff.field_type) || 'text' };
+      }
       listColumnsMap[label].fids.push(fid);
     });
     var listColumns = Object.values(listColumnsMap);
+
+    // Gewicht per veldtype: lange vrije tekst (textarea) mag meer ruimte
+    // krijgen dan een korte waarde (postcode, telefoonnummer, datum, ...).
+    // table-fixed verdeelt de ruimte die overblijft na de vaste rem-kolommen
+    // hieronder proportioneel over deze gewichten -- vandaar geen vaste
+    // rem-breedte hier, want het aantal gekozen velden verschilt per
+    // koppeling. Gemeld 2026-09-10: alle gekozen velden kregen evenveel
+    // ruimte, ongeacht of het een postcode of een tekstvak was.
+    var gewichtKolom = function (ftype) {
+      switch (ftype) {
+        case 'textarea':
+        case 'paragraph':      return 3;
+        case 'email':          return 2;
+        case 'tel':
+        case 'date':
+        case 'number':
+        case 'checkbox':
+        case 'select':
+        case 'radio':
+        case 'hidden':
+        case 'heading':        return 1;
+        default:               return 1.5; // 'text' en onbekende/legacy Forminator-typen
+      }
+    };
+    var totaalGewicht = listColumns.reduce(function (som, c) { return som + gewichtKolom(c.field_type); }, 0) || 1;
+    var kolomBreedtePct = function (c) {
+      return (gewichtKolom(c.field_type) / totaalGewicht * 100).toFixed(1) + '%';
+    };
     var targets = (S().detail && S().detail.targets) || [];
 
     function normalizeKey(k) { return String(k || '').toLowerCase().replace(/[-_\s]+/g, '_'); }
@@ -501,7 +535,7 @@
             // de buurkolom heen. Afkappen met een ellips houdt de rij op één
             // hoogte; de volledige kop staat in title.
             listColumns.map(function (c) {
-              return '<th class="truncate" title="' + esc(c.label) + '">' + esc(c.label) + '</th>';
+              return '<th class="truncate" style="width:' + kolomBreedtePct(c) + '" title="' + esc(c.label) + '">' + esc(c.label) + '</th>';
             }).join('') +
             (hasMailStep ? '<th' + vasteBreedte(2.75) + ' class="whitespace-nowrap">Mail</th>' : '') +
             '<th' + vasteBreedte(6.5) + ' class="truncate leading-tight" title="Aangemaakt">Aangemaakt</th>' +

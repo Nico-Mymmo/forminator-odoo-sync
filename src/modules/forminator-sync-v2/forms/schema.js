@@ -243,6 +243,35 @@ export function isValidFieldKey(value) {
   return typeof value === 'string' && /^[a-z][a-z0-9_]*$/.test(value) && value.length <= 60;
 }
 
+/**
+ * URL-parameter-vooraf-invullen (2026-09).
+ *
+ * Gebruiksvoorbeeld: een e-mail met een link als
+ * "https://.../extra-info/?ref=abc123" -- het veld met prefill_param "ref"
+ * krijgt bij het laden van de pagina automatisch de waarde "abc123", nog
+ * voor de bezoeker iets typt. Dat veld kan daarna gewoon gemapt worden in de
+ * koppeling (bv. als identifier), precies zoals elk ander veld -- er komt
+ * geen tweede, apart matching-mechanisme naast de bestaande veldkoppelingen.
+ *
+ * Een parameternaam is geen veldsleutel en geen Odoo-veld: het is de naam
+ * zoals hij in de URL van EEN ANDERE partij (een mailtool, een advertentie)
+ * staat, dus iets losser dan isValidFieldKey (hoofdletters en een cijfer
+ * vooraan mogen -- "ID", "Ref1" zijn heel gewone querystring-namen).
+ */
+export function isValidPrefillParam(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
+}
+
+/**
+ * Veldtypes waarvoor "vooraf invullen vanuit URL" NIET aangeboden wordt:
+ * checkbox (booleaans, geen tekstwaarde om in te zetten), radio/checkbox_group
+ * (een of meerdere OPTIES aanvinken, geen los invoerveld om te vullen).
+ * Zet je hier ooit een van de drie uit, bouw dan eerst de matching-logica in
+ * field.php en forminator-sync-v2-form-preview.js -- die weten nu alleen hoe
+ * ze een simpele input/textarea/select/hidden vullen.
+ */
+export const PREFILL_EXCLUDED_TYPES = ['checkbox', 'radio', 'checkbox_group'];
+
 export function isValidSlug(value) {
   return typeof value === 'string' && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value) && value.length <= 80;
 }
@@ -457,6 +486,18 @@ export function validateFormDefinition(input, opts = {}) {
       ? raw.odoo_field_type
       : spec.odooType;
 
+    // ── Vooraf invullen vanuit URL-parameter ────────────────────────────────
+    let prefillParam = str(raw && raw.prefill_param);
+    if (prefillParam) {
+      if (!spec.input || PREFILL_EXCLUDED_TYPES.includes(type)) {
+        errors.push(`${positie} kan niet vooraf ingevuld worden vanuit een URL-parameter: dat werkt niet voor "${spec.label}".`);
+        prefillParam = '';
+      } else if (!isValidPrefillParam(prefillParam)) {
+        errors.push(`De URL-parameternaam "${prefillParam}" bij ${positie} kan niet: enkel letters, cijfers, "_" en "-", max. 64 tekens.`);
+        prefillParam = '';
+      }
+    }
+
     fields.push({
       order_index: index,
       field_key: key,
@@ -470,6 +511,7 @@ export function validateFormDefinition(input, opts = {}) {
       width: FIELD_WIDTHS.includes(raw && raw.width) ? raw.width : 'full',
       validation: normalizeValidation(raw && raw.validation),
       odoo_field_type: odooType,
+      prefill_param: prefillParam || null,
       i18n: normalizeI18n(
         raw && raw.i18n,
         languages,

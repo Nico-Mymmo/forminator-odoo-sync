@@ -227,9 +227,42 @@
     melding.focus({ preventScroll: true });
   }
 
+  /**
+   * Vult velden met een `data-mymmo-prefill-param`-attribuut vanuit de
+   * gelijknamige URL-queryparameter, bv. `?e=jan%40example.com` vult het veld
+   * met `data-mymmo-prefill-param="e"`.
+   *
+   * Alleen als het veld nog LEEG is: een bezoeker die de pagina ververst nadat
+   * hij zelf al iets typte, mag niet zijn eigen invoer kwijtraken. Verborgen
+   * velden tellen hier WEL mee (in tegenstelling tot bedienbareVelden()) --
+   * juist een verborgen veld vullen vanuit de link is het hele nut van deze
+   * functie (bv. een e-mailadres meesturen zonder het zichtbaar te maken).
+   */
+  function vulVoorafIn(form) {
+    var params;
+    try {
+      params = new URLSearchParams(window.location.search);
+    } catch (_) {
+      // Oude browser zonder URLSearchParams: geen prefill, geen kapot formulier.
+      return;
+    }
+
+    var velden = form.querySelectorAll('[data-mymmo-prefill-param]');
+    for (var i = 0; i < velden.length; i += 1) {
+      var veld = velden[i];
+      var naam = veld.getAttribute('data-mymmo-prefill-param');
+      if (!naam || veld.value !== '') continue;
+      if (!params.has(naam)) continue;
+      veld.value = params.get(naam);
+    }
+  }
+
   function start() {
     focusMelding();
-    document.querySelectorAll('.mymmo-form').forEach(koppel);
+    document.querySelectorAll('.mymmo-form').forEach(function (form) {
+      vulVoorafIn(form);
+      koppel(form);
+    });
   }
 
   if (document.readyState === 'loading') {

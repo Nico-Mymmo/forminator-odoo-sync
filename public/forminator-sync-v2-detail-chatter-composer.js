@@ -72,7 +72,8 @@
     }
 
     // ── 2-column layout ───────────────────────────────────────────────────────
-    var html = '<div class="grid grid-cols-[1fr_340px] gap-5 items-start">';
+    // Linkerkolom smaller, voorbeeld breder -- verzoek 2026-09-10.
+    var html = '<div class="grid grid-cols-[minmax(0,0.8fr)_1.2fr] gap-5 items-start">';
 
     // ══ LEFT COLUMN ══════════════════════════════════════════════════════════
     html += '<div class="flex flex-col gap-3 min-w-0">';
@@ -280,9 +281,32 @@
     var realPayload = null;
     if (_previewSub) {
       try {
-        realPayload = (typeof _previewSub.source_payload === 'object')
+        var _rawPayload = (typeof _previewSub.source_payload === 'object')
           ? _previewSub.source_payload
           : JSON.parse(_previewSub.source_payload);
+        // Zelfde platslag als normalizeFormValues() in worker-handler.js en
+        // parsePayload() in forminator-sync-v2-detail-submissions-tab.js: een
+        // om_form-/generic_webhook-inzending heeft haar velden een niveau
+        // dieper (bv. { form_id, form_data: { postcode, ... } }), niet
+        // bovenaan. Zonder deze platslag keek de preview alleen naar de
+        // bovenste laag (form_id/form_data/form_name/...) en vond dus NOOIT
+        // een echte veldwaarde voor een om_form-inzending, ook al werkt het
+        // versturen zelf gewoon -- de server doet deze platslag al langer.
+        // Gemeld 2026-09-10: "mijn velden worden niet getoond in de preview".
+        var CHATTER_CONTAINERS = ['form_fields', 'form_data', 'data', 'submission', 'raw'];
+        if (_rawPayload && typeof _rawPayload === 'object' && !Array.isArray(_rawPayload)) {
+          realPayload = {};
+          Object.keys(_rawPayload).forEach(function (k) {
+            if (CHATTER_CONTAINERS.indexOf(k) === -1) realPayload[k] = _rawPayload[k];
+          });
+          CHATTER_CONTAINERS.forEach(function (naam) {
+            var binnenin = _rawPayload[naam];
+            if (!binnenin || typeof binnenin !== 'object' || Array.isArray(binnenin)) return;
+            Object.keys(binnenin).forEach(function (k) {
+              if (realPayload[k] === undefined) realPayload[k] = binnenin[k];
+            });
+          });
+        }
       } catch (e) {}
     }
 

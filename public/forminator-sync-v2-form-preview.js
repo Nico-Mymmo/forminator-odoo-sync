@@ -104,9 +104,13 @@
     // Op de site is dit een <input type="hidden"> en dus onzichtbaar. In de
     // bouwer moet je het wél kunnen zien en selecteren, anders kan je het niet
     // meer weghalen. Vandaar een expliciet blokje, alleen bij bewerkbaar.
+    var prefillAttr = veld.prefill_param
+      ? ' data-mymmo-prefill-param="' + esc(veld.prefill_param) + '"'
+      : '';
+
     if (type === 'hidden') {
       if (!bewerkbaar) {
-        return '<input type="hidden" name="' + esc(key) + '" value="' + esc(veld.default_value) + '">';
+        return '<input type="hidden" name="' + esc(key) + '" value="' + esc(veld.default_value) + '"' + prefillAttr + '>';
       }
       return wikkelStart +
         '<div class="om-verborgen">' +
@@ -169,17 +173,17 @@
         : (veld.placeholder || '');
 
       if (type === 'textarea') {
-        invoer = '<textarea class="mymmo-form-input" rows="5" placeholder="' + esc(plaats) + '" disabled></textarea>';
+        invoer = '<textarea class="mymmo-form-input" rows="5" placeholder="' + esc(plaats) + '"' + prefillAttr + ' disabled></textarea>';
       } else if (type === 'select') {
         var eerste = plaats !== '' ? plaats : 'Maak een keuze';
         var opts = (veld.options || []).map(function (o) {
           return '<option>' + esc(o.label || o.value) + '</option>';
         }).join('');
-        invoer = '<select class="mymmo-form-input" disabled><option>' + esc(eerste) + '</option>' + opts + '</select>';
+        invoer = '<select class="mymmo-form-input"' + prefillAttr + ' disabled><option>' + esc(eerste) + '</option>' + opts + '</select>';
       } else {
         var htmlType = TYPES_MET_INVOERVAK.indexOf(type) !== -1 ? type : 'text';
         invoer = '<input type="' + esc(htmlType) + '" class="mymmo-form-input" value="' +
-          esc(veld.default_value) + '" placeholder="' + esc(plaats) + '" disabled>';
+          esc(veld.default_value) + '" placeholder="' + esc(plaats) + '"' + prefillAttr + ' disabled>';
       }
 
       binnen = '<label class="mymmo-form-label">' + labelHtml + '</label>' + invoer;

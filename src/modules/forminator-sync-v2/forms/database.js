@@ -246,6 +246,7 @@ export async function saveForm(env, integrationId, { form, fields }) {
       width:           f.width,
       validation:      f.validation,
       odoo_field_type: f.odoo_field_type,
+      prefill_param:   f.prefill_param,
       i18n:            f.i18n,
       created_at:      now,
       updated_at:      now,

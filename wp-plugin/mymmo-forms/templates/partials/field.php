@@ -82,9 +82,15 @@ if (isset($validatie['maxlength']) && is_numeric($validatie['maxlength'])) {
     $lengte_attrs .= ' maxlength="' . esc_attr((string) (int) $validatie['maxlength']) . '"';
 }
 
+// Naam van de URL-queryparameter waarmee dit veld bij het laden van de pagina
+// automatisch gevuld wordt (mymmo-forms.js leest dit attribuut uit). Leeg als
+// er geen parameter aan dit veld hangt.
+$prefill_param = trim((string) ($veld['prefill_param'] ?? ''));
+$prefill_attr  = $prefill_param !== '' ? ' data-mymmo-prefill-param="' . esc_attr($prefill_param) . '"' : '';
+
 // ── Verborgen veld: geen wikkel, geen label ──────────────────────────────────
 if ($type === 'hidden') {
-    echo '<input type="hidden" name="' . esc_attr($key) . '" value="' . esc_attr($waarde) . '">';
+    echo '<input type="hidden" name="' . esc_attr($key) . '" value="' . esc_attr($waarde) . '"' . $prefill_attr . '>';
     return;
 }
 ?>
@@ -158,14 +164,14 @@ if ($type === 'hidden') {
                       class="mymmo-form-input"
                       rows="5"
                       placeholder="<?php echo esc_attr($plaats); ?>"
-                      <?php echo $req_attr . $beschrijft . $lengte_attrs; ?>><?php echo esc_textarea($waarde); ?></textarea>
+                      <?php echo $req_attr . $beschrijft . $lengte_attrs . $prefill_attr; ?>><?php echo esc_textarea($waarde); ?></textarea>
 
         <?php elseif ($type === 'select') : ?>
 
             <select id="<?php echo esc_attr($veld_id); ?>"
                     name="<?php echo esc_attr($key); ?>"
                     class="mymmo-form-input"
-                    <?php echo $req_attr . $beschrijft; ?>>
+                    <?php echo $req_attr . $beschrijft . $prefill_attr; ?>>
                 <option value=""><?php echo esc_html($plaats !== '' ? $plaats : ($teksten['choose'] ?? 'Maak een keuze')); ?></option>
                 <?php foreach ($opties as $optie) :
                     if (!is_array($optie) || !isset($optie['value'])) {
@@ -206,7 +212,7 @@ if ($type === 'hidden') {
                    class="mymmo-form-input"
                    value="<?php echo esc_attr($waarde); ?>"
                    placeholder="<?php echo esc_attr($plaats); ?>"
-                   <?php echo $req_attr . $beschrijft . $lengte_attrs . $getal_attrs . $autocomplete; ?>>
+                   <?php echo $req_attr . $beschrijft . $lengte_attrs . $getal_attrs . $autocomplete . $prefill_attr; ?>>
 
         <?php endif; ?>
 

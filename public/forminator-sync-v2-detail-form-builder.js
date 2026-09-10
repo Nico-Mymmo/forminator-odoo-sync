@@ -61,6 +61,11 @@
     { code: 'en', naam: 'Engels',     kort: 'EN' }
   ];
 
+  // Spiegelt PREFILL_EXCLUDED_TYPES in src/modules/forminator-sync-v2/forms/schema.js:
+  // checkbox/radio/checkbox_group hebben geen enkelvoudige tekstwaarde die je
+  // zomaar met ".value = ..." kan vullen.
+  var PREFILL_EXCLUDED_TYPES = ['checkbox', 'radio', 'checkbox_group'];
+
   var LEEG_FORMULIER = {
     name: '',
     slug: '',
@@ -163,6 +168,7 @@
       width: rij.width || 'full',
       validation: rij.validation || {},
       odoo_field_type: rij.odoo_field_type || 'text',
+      prefill_param: rij.prefill_param || '',
       i18n: (rij.i18n && typeof rij.i18n === 'object') ? rij.i18n : {}
     };
   }
@@ -909,6 +915,19 @@
                    ${veld.is_required ? 'checked' : ''}>
             Verplicht in te vullen
           </label>
+
+          ${PREFILL_EXCLUDED_TYPES.indexOf(veld.field_type) === -1 && bewerktStandaardtaal() ? `
+            <label class="form-control mt-2">
+              <span class="label label-text text-xs">
+                Vooraf invullen vanuit URL <span class="text-base-content/50">— optioneel</span>
+              </span>
+              <input type="text" class="input input-bordered input-sm font-mono text-xs" data-fb-field="prefill_param"
+                     value="${esc(veld.prefill_param || '')}" placeholder="bijv. e">
+            </label>
+            <p class="text-xs text-base-content/50 -mt-1 mb-2">
+              Staat deze parameter in de link (bv. ?${esc(veld.prefill_param || 'e')}=...), dan wordt dit veld
+              er automatisch mee gevuld. De bezoeker kan het daarna nog altijd zelf aanpassen.
+            </p>` : ''}
         ` : `
           <p class="text-xs text-base-content/50">
             Dit is opmaak, geen invoerveld. Het levert niets aan de koppeling — typ de
@@ -1353,7 +1372,7 @@
 
       // odoo_field_type is techniek, geen tekst: die hoort nooit per taal te
       // verschillen.
-      if (inp.dataset.fbField === 'odoo_field_type' || inp.dataset.fbField === 'default_value') {
+      if (inp.dataset.fbField === 'odoo_field_type' || inp.dataset.fbField === 'default_value' || inp.dataset.fbField === 'prefill_param') {
         veld[inp.dataset.fbField] = inp.value;
         return true;
       }
