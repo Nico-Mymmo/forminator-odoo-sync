@@ -864,6 +864,84 @@ export async function setRegistrationState(env, registrationId, state, actor = n
   return getRegistration(env, id);
 }
 
+/**
+ * Inschrijvingen van een event met een ingevulde vraag, nieuwste eerst.
+ *
+ * Vervangt de vroegere inline expando-rij als PRIMAIRE manier om vragen te
+ * overlopen (zie public/events-v2-client.js) -- dezelfde onderliggende
+ * REGISTRATION_FIELDS.QUESTIONS blijft ook gewoon in de Excel/PDF-export
+ * staan, dit is enkel een extra, overzichtelijke weergave.
+ *
+ * Geen "niet-vraag"-toggle: er is vandaag precies één vraagveld per
+ * inschrijving, dus er is niets te markeren.
+ *
+ * @param {Object} env
+ * @param {number} eventId
+ * @returns {Promise<Array<{id:number, name:string|null, email:string|null, questions:string, created_at:string|null}>>}
+ */
+export async function listRegistrationsWithQuestions(env, eventId) {
+  const id = Number(eventId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new ValidationError('Ongeldig event-id', { status: 400 });
+  }
+
+  const rows = await searchRead(env, {
+    model: ODOO_MODELS.REGISTRATION,
+    domain: [
+      [REGISTRATION_FIELDS.EVENT, '=', id],
+      [REGISTRATION_FIELDS.ACTIVE, '=', true],
+      [REGISTRATION_FIELDS.QUESTIONS, '!=', false],
+      [REGISTRATION_FIELDS.QUESTIONS, '!=', ''],
+      // Handmatig gemarkeerd als "geen echte vraag" -- zie setQuestionIgnored.
+      [REGISTRATION_FIELDS.QUESTION_IGNORED, '!=', true]
+    ],
+    fields: [...REGISTRATION_LIST_FIELDS],
+    order: `${REGISTRATION_FIELDS.CREATE_DATE} desc`,
+    limit: false
+  });
+
+  return (Array.isArray(rows) ? rows : [])
+    .map(toRegistrationDto)
+    .filter((dto) => typeof dto.questions === 'string' && dto.questions.trim() !== '')
+    .map((dto) => ({
+      id: dto.id,
+      name: dto.name,
+      email: dto.submitted_email || dto.partner?.name || null,
+      questions: dto.questions,
+      created_at: dto.created_at
+    }));
+}
+
+/**
+ * Markeert een ingevulde "vraag" als geen echte vraag (bv. een vrij veld dat
+ * voor iets anders werd gebruikt) -- of haalt die markering weg. Filtert 'm
+ * meteen uit listRegistrationsWithQuestions; de onderliggende tekst zelf
+ * (REGISTRATION_FIELDS.QUESTIONS) blijft gewoon staan, ook in de Excel/PDF-
+ * export -- dit is puur een weergavefilter voor het Vragen-overzicht.
+ *
+ * @param {Object} env
+ * @param {number} registrationId
+ * @param {boolean} ignored
+ * @returns {Promise<Object|null>}
+ */
+export async function setQuestionIgnored(env, registrationId, ignored) {
+  const id = Number(registrationId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new ValidationError('Ongeldig inschrijvings-id', { status: 400 });
+  }
+  if (typeof ignored !== 'boolean') {
+    throw new ValidationError('ignored moet true of false zijn');
+  }
+
+  const values = { [REGISTRATION_FIELDS.QUESTION_IGNORED]: ignored };
+  assertNoForbiddenFields(Object.keys(values), 'setQuestionIgnored');
+
+  await write(env, { model: ODOO_MODELS.REGISTRATION, ids: [id], values });
+  await invalidateEvents(env);
+
+  return getRegistration(env, id);
+}
+
 /** @returns {Promise<Object|null>} */
 export async function getRegistration(env, registrationId) {
   const rows = await searchRead(env, {

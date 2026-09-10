@@ -115,6 +115,12 @@ export const REGISTRATION_FIELDS = {
   REMINDER_SENT_AT: 'x_studio_reminder_email_send_dt',
   RECAP_SENT: 'x_studio_recap_email_sent',
   CURRENT_SYNDIC: 'x_studio_current_syndic',
+  // Boolean, geen x_studio_-prefix (rechtstreeks aangemaakt, niet via de
+  // gewone Studio-flow -- geverifieerd met odoo_fields, bestaat écht onder
+  // deze naam). Markeert een ingevulde "vraag" die er eigenlijk geen is
+  // (bv. een vrij veld dat voor iets anders werd gebruikt), zodat hij niet
+  // meer in het Vragen-overzicht verschijnt. Zie listRegistrationsWithQuestions.
+  QUESTION_IGNORED: 'x_ignore_sent_question',
   WRITE_DATE: 'write_date',
   CREATE_DATE: 'create_date'
 };
@@ -161,7 +167,12 @@ export const MAIL_FIELDS = {
   // verzonden mail zichzelf opruimt en er achteraf NIETS bewijsbaars
   // overblijft. Wij zetten hem expliciet op false: het mail.mail-record IS
   // het verzendspoor waarop de idempotentie draait.
-  AUTO_DELETE: 'auto_delete'
+  AUTO_DELETE: 'auto_delete',
+  // Postmark-tracking (open/klik) voor de reminder -- zie
+  // lib/postmark-tracking.js. Tekstveld dat Odoo met safe_eval als
+  // Python-dict inleest, zelfde mechanisme als forminator-sync-v2's
+  // mail.headers (zie buildPostmarkHeaders in mail-step.js).
+  HEADERS: 'headers'
 };
 
 /**

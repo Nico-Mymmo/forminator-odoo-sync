@@ -34,7 +34,9 @@ import {
   setAttendance,
   setRegistrationState,
   getRegistration,
-  setRegistrationActive
+  setRegistrationActive,
+  listRegistrationsWithQuestions,
+  setQuestionIgnored
 } from './lib/registrations-service.js';
 import { REGISTRATION_SOURCE, REGISTRATION_STATE } from './constants.js';
 import { toPublicEventDto, EVENT_FIELDS } from './odoo-contract.js';
@@ -51,6 +53,7 @@ import {
   resolvePublicOrigin,
   resolveTypeColor,
   resolveAnnouncements,
+  getMailStatus,
   MailError
 } from './lib/mail-service.js';
 import {
@@ -536,6 +539,58 @@ export const routes = {
     if (!data) {
       return json({ success: false, error: `Inschrijving ${id} niet gevonden` }, 404);
     }
+    return json({ success: true, data });
+  }),
+
+  /**
+   * GET /events-v2/api/events/:id/mail-status?registration_ids=1,2,3
+   *
+   * Afgeleverd/geopend/geklikt per mailsoort (bevestiging/reminder/recap)
+   * van deze registraties, live uit Odoo (geen eigen tabel -- zie
+   * lib/mail-webhook.js). De front-end vraagt dit in één ronde op voor de
+   * hele zichtbare lijst, niet per rij.
+   */
+  'GET /api/events/:id/mail-status': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const url = new URL(context.request.url);
+    const registrationIds = String(url.searchParams.get('registration_ids') || '')
+      .split(',')
+      .map((part) => Number.parseInt(part.trim(), 10))
+      .filter((n) => Number.isInteger(n) && n > 0);
+
+    const status = await getMailStatus(context.env, id, registrationIds);
+    return json({ success: true, data: Object.fromEntries(status) });
+  }),
+
+  /**
+   * GET /events-v2/api/events/:id/questions
+   * Inschrijvingen met een ingevulde vraag, nieuwste eerst.
+   */
+  'GET /api/events/:id/questions': withErrors(async (context) => {
+    const id = eventIdFrom(context.params);
+    const data = await listRegistrationsWithQuestions(context.env, id);
+    return json({ success: true, data });
+  }),
+
+  /**
+   * POST /events-v2/api/registrations/:id/ignore-question
+   * Body: { ignored: boolean }
+   * Markeert een ingevulde "vraag" als geen echte vraag (of haalt dat weg) --
+   * verdwijnt daarmee uit GET .../questions. De tekst zelf blijft gewoon
+   * staan, ook in de export.
+   */
+  'POST /api/registrations/:id/ignore-question': withErrors(async (context) => {
+    const id = Number.parseInt(context.params?.id, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new ValidationError('Ongeldig inschrijvings-id', { status: 400 });
+    }
+
+    const body = await readJsonBody(context.request);
+    if (typeof body.ignored !== 'boolean') {
+      throw new ValidationError('ignored moet true of false zijn');
+    }
+
+    const data = await setQuestionIgnored(context.env, id, body.ignored);
     return json({ success: true, data });
   }),
 

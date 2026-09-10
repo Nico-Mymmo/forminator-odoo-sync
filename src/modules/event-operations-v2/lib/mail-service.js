@@ -55,6 +55,7 @@ import {
   eventTypePresentation
 } from '../odoo-contract.js';
 import { LOG_PREFIX, REGISTRATION_STATE, PUBLIC_EVENT_PATH, PUBLICATION_STATE } from '../constants.js';
+import { buildReminderTrackingHeaders } from './postmark-tracking.js';
 import {
   MAIL_KIND,
   MAIL_KINDS,
@@ -1023,7 +1024,8 @@ export async function queueMails(env, { event, registrations, kind, actor = null
           [MAIL_FIELDS.EMAIL_FROM]: sender.formatted,
           [MAIL_FIELDS.REPLY_TO]: sender.formatted,
           [MAIL_FIELDS.EMAIL_TO]: to,
-          [MAIL_FIELDS.SCHEDULED_DATE]: timing.scheduledDate
+          [MAIL_FIELDS.SCHEDULED_DATE]: timing.scheduledDate,
+          ...(kind === MAIL_KIND.REMINDER ? { [MAIL_FIELDS.HEADERS]: buildReminderTrackingHeaders() } : {})
         }
       });
       continue;
@@ -1039,7 +1041,10 @@ export async function queueMails(env, { event, registrations, kind, actor = null
       [MAIL_FIELDS.MODEL]: ODOO_MODELS.REGISTRATION,
       [MAIL_FIELDS.RES_ID]: Number(registration.id),
       [MAIL_FIELDS.MESSAGE_ID]: buildMessageId(event.id, kind, registration.id),
-      [MAIL_FIELDS.AUTO_DELETE]: false
+      [MAIL_FIELDS.AUTO_DELETE]: false,
+      // Alleen de reminder krijgt open/klik-tracking -- zie
+      // postmark-tracking.js. Bevestiging en recap blijven ongemoeid.
+      ...(kind === MAIL_KIND.REMINDER ? { [MAIL_FIELDS.HEADERS]: buildReminderTrackingHeaders() } : {})
     });
     queuedIds.push(Number(registration.id));
   }
@@ -1134,4 +1139,106 @@ async function herschrijfMails(env, opdrachten) {
   }
 
   return gelukt;
+}
+
+/**
+ * Afgeleverd/geopend/geklikt per mailsoort, live uit Odoo (geen eigen tabel
+ * -- zie lib/mail-webhook.js). Twee zoekopdrachten TOTAAL voor de hele
+ * zichtbare lijst (niet per rij, niet per soort): één op mail.mail (state,
+ * voor "afgeleverd") en één op de chatter (mail.message, voor "geopend"/
+ * "geklikt" -- enkel mogelijk bij de reminder, want alleen die krijgt
+ * open/klik-trackingheaders, zie postmark-tracking.js).
+ *
+ * LET OP: dit was voordien getReminderMailStatus, enkel voor de reminder.
+ * Verbreed naar alle drie de soorten zodat de Mails-kolom in de UI voor
+ * elke mail (bevestiging/reminder/recap) dezelfde compacte punten-funnel
+ * kan tonen -- "afgeleverd" via Postmark's delivery-event geldt voor elke
+ * verstuurde mail op die stream, ongeacht trackingheaders.
+ *
+ * @param {Object} env
+ * @param {number} eventId
+ * @param {number[]} registrationIds
+ * @returns {Promise<Map<number, Record<string, {delivered:boolean, opened:boolean, clicked:boolean}>>>}
+ */
+export async function getMailStatus(env, eventId, registrationIds) {
+  const ids = (Array.isArray(registrationIds) ? registrationIds : [])
+    .map((n) => Number(n))
+    .filter((n) => Number.isInteger(n) && n > 0);
+
+  const leeg = () => ({
+    [MAIL_KIND.CONFIRMATION]: { delivered: false, opened: false, clicked: false },
+    [MAIL_KIND.REMINDER]: { delivered: false, opened: false, clicked: false },
+    [MAIL_KIND.RECAP]: { delivered: false, opened: false, clicked: false }
+  });
+
+  const result = new Map();
+  for (const id of ids) result.set(id, leeg());
+  if (ids.length === 0) return result;
+
+  // message_id → {registrationId, kind}, voor alle drie de soorten van elke
+  // registratie -- zelfbeschrijvend, geen aparte koppeltabel nodig (zie
+  // buildMessageId).
+  const kindByMessageId = new Map();
+  const messageIds = [];
+  for (const id of ids) {
+    for (const kind of [MAIL_KIND.CONFIRMATION, MAIL_KIND.REMINDER, MAIL_KIND.RECAP]) {
+      const messageId = buildMessageId(eventId, kind, id);
+      kindByMessageId.set(messageId, { registrationId: id, kind });
+      messageIds.push(messageId);
+    }
+  }
+
+  try {
+    const mails = await searchRead(env, {
+      model: ODOO_MODELS.MAIL,
+      domain: [[MAIL_FIELDS.MESSAGE_ID, 'in', messageIds]],
+      fields: [MAIL_FIELDS.MESSAGE_ID, MAIL_FIELDS.STATE]
+    });
+    for (const mail of Array.isArray(mails) ? mails : []) {
+      const match = kindByMessageId.get(mail[MAIL_FIELDS.MESSAGE_ID]);
+      if (!match || !result.has(match.registrationId)) continue;
+      // 'received' wordt uitsluitend door mail-webhook.js gezet, op een
+      // bevestigd Postmark delivery-event -- 'sent' bewijst enkel dat Odoo
+      // hem verstuurde, niet dat hij aankwam.
+      if (mail[MAIL_FIELDS.STATE] === 'received') {
+        result.get(match.registrationId)[match.kind].delivered = true;
+      }
+    }
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} mail-status (afgeleverd) ophalen mislukt: ${error?.message}`);
+  }
+
+  try {
+    // Geen extra body-filter hier: res_id is al beperkt tot precies deze
+    // registraties, en het chatter-volume per registratie is klein genoeg
+    // dat "alles ophalen, in JS filteren" simpeler is dan een ilike die
+    // exact de labeltekst van mail-webhook.js moet blijven volgen.
+    const notes = await searchRead(env, {
+      model: 'mail.message',
+      domain: [
+        ['model', '=', ODOO_MODELS.REGISTRATION],
+        ['res_id', 'in', ids]
+      ],
+      fields: ['res_id', 'body']
+    });
+    for (const note of Array.isArray(notes) ? notes : []) {
+      const registrationId = Number(note.res_id);
+      if (!result.has(registrationId)) continue;
+      // Hoofdletterongevoelig: de chatter-notitie vermeldt de soort via
+      // mail-webhook.js's chatterLabel() ("Reminder geopend" met hoofdletter
+      // R). Hier enkel geïnteresseerd in reminder, want confirmation/recap
+      // krijgen sowieso nooit een open/klik-event (geen trackingheaders).
+      const body = String(note.body || '').toLowerCase();
+      if (body.indexOf('reminder geopend') !== -1) {
+        result.get(registrationId)[MAIL_KIND.REMINDER].opened = true;
+      }
+      if (body.indexOf('reminder geklikt') !== -1) {
+        result.get(registrationId)[MAIL_KIND.REMINDER].clicked = true;
+      }
+    }
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} mail-status (geopend/geklikt) ophalen mislukt: ${error?.message}`);
+  }
+
+  return result;
 }

@@ -6,6 +6,7 @@
  * - /api/auth/login | logout | me
  * - Forminator Sync V2 webhooks (token-auth)
  * - Postmark-webhook (token-auth): /forminator-v2/api/webhooks/postmark
+ * - Postmark-webhook event-operations-v2 (token-auth): /events-v2/api/webhooks/postmark
  * - Mini-app discovery (token-auth): /insights/api/sales-insights/mini-app-discovery/*
  *   -- laat een AI-gesprek dat een mini-app bouwt/bijwerkt de STRUCTUUR van
  *   gedeelde Sales Insight Explorer-queries opvragen zonder sessie-cookie.
@@ -34,6 +35,11 @@ import {
   isPostmarkWebhookAuthorized,
   isPostmarkWebhookPath
 } from '../modules/forminator-sync-v2/postmark-webhook.js';
+import {
+  handleEventsV2PostmarkWebhook,
+  isEventsV2PostmarkWebhookAuthorized,
+  isEventsV2PostmarkWebhookPath
+} from '../modules/event-operations-v2/lib/mail-webhook.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -420,6 +426,17 @@ export async function handlePublicRoutes(request, env, ctx) {
       return json({ success: false, error: 'Unauthorized' }, 401);
     }
     return await handlePostmarkWebhook(request, env);
+  }
+
+  // Postmark-webhook voor event-operations-v2 (alleen de reminder): zelfde
+  // POSTMARK_WEBHOOK_SECRET, andere URL -- Postmark laat meerdere webhooks
+  // per server toe. Zie lib/mail-webhook.js voor waarom er hier GEEN
+  // events_v2_mail_events-tabel bijkomt.
+  if (isEventsV2PostmarkWebhookPath(pathname, request.method)) {
+    if (!isEventsV2PostmarkWebhookAuthorized(request, env)) {
+      return json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    return await handleEventsV2PostmarkWebhook(request, env, ctx);
   }
 
   // Public webhook intake for Forminator Sync V2 (token-auth, no session required)

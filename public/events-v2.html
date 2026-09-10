@@ -547,13 +547,25 @@
   </div>
 
   <!-- Inschrijvingen: snelactie vanaf de tegel bovenaan het detailpaneel -->
-  <dialog id="registrationsDialog" class="modal">
-    <div class="modal-box max-w-5xl w-11/12 max-h-[85vh] p-0 overflow-hidden flex flex-col">
+  <dialog id="registrationsDialog" class="modal" style="overflow:hidden !important">
+    <div class="modal-box max-w-5xl w-11/12 max-h-[85vh] p-0 !overflow-hidden flex flex-col" style="overflow:hidden !important">
       <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-base-200 shrink-0">
         <h3 class="font-semibold">Inschrijvingen</h3>
         <button class="btn btn-sm btn-ghost btn-square" data-action="registrations-close" aria-label="Sluiten">✕</button>
       </div>
-      <div id="registrations-section" class="p-4 overflow-y-auto flex-1 min-h-0"></div>
+      <!-- DE ENIGE scrollcontainer van deze popup, en bewust op BEIDE assen
+           (`overflow-auto`, niet `overflow-y-auto`). De tabellen binnenin
+           hebben daarom zelf geen overflow meer: een wrapper met
+           `overflow-x-auto` krijgt van de browser computed
+           `overflow-y: auto` zodra de andere as niet 'visible' is (CSS
+           Overflow 3) -- dat was de tweede, geneste scrollbar. Zet hier dus
+           geen overflow-x-auto op een kind terug, en maak hier geen tweede
+           scrollcontainer van. De toolbar blijft visueel vast via
+           `sticky top-0` zonder een eigen scrollcontext te zijn. -->
+      <div id="registrations-scroll" class="flex-1 min-h-0 overflow-auto">
+        <div id="registrations-toolbar" class="px-4 pt-4 pb-3 sticky top-0 z-10 bg-base-100 border-b border-base-200"></div>
+        <div id="registrations-list" class="px-4 pb-4"></div>
+      </div>
     </div>
   </dialog>
 

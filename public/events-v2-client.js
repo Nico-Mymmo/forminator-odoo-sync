@@ -16,6 +16,37 @@
 (function () {
   'use strict';
 
+  // Dubbele scrollbar bij een open dialoog: <dialog>.showModal() blokkeert
+  // wel klikken op de achtergrond, maar NIET het scrollen van de pagina
+  // erachter -- als die pagina (kalender/lijst) al langer is dan het
+  // scherm, krijg je dan zowel de scrollbar van de pagina als die van de
+  // dialoog zelf, vlak naast elkaar. Eenmalig patchen i.p.v. bij elke
+  // showModal()-aanroep apart: geldt zo voor ALLE dialogen op deze pagina.
+  (function lockBodyScrollForDialogs() {
+    if (typeof HTMLDialogElement === 'undefined') return;
+    var openCount = 0;
+    var nativeShowModal = HTMLDialogElement.prototype.showModal;
+    HTMLDialogElement.prototype.showModal = function () {
+      openCount += 1;
+      // Beide: sommige browsers laten <html>, niet <body>, de eigenlijke
+      // scroll-container van de pagina zijn -- enkel body vergrendelen loste
+      // het dus niet altijd op.
+      document.documentElement.classList.add('overflow-hidden');
+      document.body.classList.add('overflow-hidden');
+      return nativeShowModal.apply(this, arguments);
+    };
+    // 'close' vuurt altijd -- via .close(), Esc, of een <form method="dialog">
+    // -- dus hier volstaat één listener i.p.v. ook nog .close() te patchen.
+    document.addEventListener('close', function (event) {
+      if (!event.target || event.target.tagName !== 'DIALOG') return;
+      openCount = Math.max(0, openCount - 1);
+      if (openCount === 0) {
+        document.documentElement.classList.remove('overflow-hidden');
+        document.body.classList.remove('overflow-hidden');
+      }
+    }, true);
+  })();
+
   var API = '/events-v2/api';
   var PER_PAGE = 50;
 
@@ -31,6 +62,13 @@
     selectedId: null,
     detail: null,
     registrations: { rows: [], total: 0, page: 1, totalPages: 1, loading: false, loadedFor: null, includeArchived: false },
+    // Welke tab in de inschrijvingen-dialoog: 'list' of 'questions'.
+    regView: 'list',
+    // Afgeleverd/geklikt van de REMINDER, per registratie-id (uit
+    // /mail-status). Geen eigen tabel -- zie lib/mail-webhook.js op de Worker.
+    mailStatus: {},
+    // Inschrijvingen met een ingevulde vraag, apart van de gepagineerde lijst.
+    questions: { rows: [], loading: false, loadedFor: null },
     bodyEditor: null,
     openSection: 'basis',
     previewEditor: null,
@@ -1395,6 +1433,12 @@
   /** Snelactie vanaf de inschrijvingen-tegel bovenaan het paneel: popup i.p.v. accordeon. */
   function openRegistrationsDialog(eventId) {
     el('registrationsDialog').showModal();
+    // Andere event dan de vorige keer: terug naar de lijsttab, en de
+    // vragen van het vorige event niet even laten flitsen.
+    if (state.registrations.loadedFor !== eventId) {
+      state.regView = 'list';
+      state.questions = { rows: [], loading: false, loadedFor: null };
+    }
     if (state.registrations.loadedFor === eventId) {
       renderRegistrations(eventId);
     } else {
@@ -1538,7 +1582,7 @@
   }
 
   async function loadRegistrations(eventId, page) {
-    var host = el('registrations-section');
+    var host = el('registrations-list');
     if (!host) return;
 
     state.registrations.loading = true;
@@ -1561,9 +1605,68 @@
       };
 
       renderRegistrations(eventId);
+      // Niet blokkerend: de lijst is al bruikbaar zonder de badges, en dit
+      // is een aparte, tragere Odoo-zoekopdracht (chatter-notities).
+      fetchMailStatus(eventId);
     } catch (error) {
       state.registrations.loading = false;
       host.innerHTML = '<p class="text-sm text-error py-2">Inschrijvingen laden mislukt: ' + esc(error.message) + '</p>';
+    }
+  }
+
+  /**
+   * Afgeleverd/geopend/geklikt per mailsoort (bevestiging/reminder/recap),
+   * voor de zichtbare pagina in één ronde (niet per rij) -- zie GET
+   * /events-v2/api/events/:id/mail-status.
+   */
+  async function fetchMailStatus(eventId) {
+    var ids = state.registrations.rows
+      .filter(function (row) {
+        var mails = row.mails || {};
+        return mails.confirmation_sent || mails.reminder_sent || mails.recap_sent;
+      })
+      .map(function (row) { return row.id; });
+
+    if (ids.length === 0) {
+      state.mailStatus = {};
+      return;
+    }
+
+    try {
+      var result = await api('/events/' + eventId + '/mail-status?registration_ids=' + ids.join(','));
+      state.mailStatus = result.payload.data || {};
+      if (state.registrations.loadedFor === eventId) renderRegistrations(eventId);
+    } catch (error) {
+      // Niet fataal: de lijst blijft bruikbaar zonder de badges.
+      console.warn('[events-v2] mail-status laden mislukt:', error);
+    }
+  }
+
+  /**
+   * Inschrijvingen met een ingevulde vraag, nieuwste eerst -- vervangt de
+   * vroegere inline expando-rij als primaire manier om vragen te overlopen.
+   */
+  async function loadQuestions(eventId) {
+    state.questions = { rows: state.questions.rows, loading: true, loadedFor: null };
+    renderRegistrations(eventId);
+
+    try {
+      var result = await api('/events/' + eventId + '/questions');
+      state.questions = { rows: result.payload.data || [], loading: false, loadedFor: eventId };
+    } catch (error) {
+      state.questions = { rows: [], loading: false, loadedFor: null };
+      toast('Vragen laden mislukt: ' + error.message, 'error');
+    }
+    renderRegistrations(eventId);
+  }
+
+  function switchRegTab(tab, eventId) {
+    if (state.regView === tab) return;
+    state.regView = tab;
+    if (tab === 'questions' && state.questions.loadedFor !== eventId) {
+      loadQuestions(eventId);
+    } else {
+      renderRegistrations(eventId);
     }
   }
 
@@ -1593,27 +1696,159 @@
     return text.trim();
   }
 
-  function registrationMailBadges(row) {
+  /**
+   * Compacte punten-funnel per mailsoort -- zelfde patroon als de
+   * bolletjes-funnel in de koppelingen-module (forminator-sync-v2), i.p.v.
+   * de volledige woordbadges ("Bevestiging"/"Herinnering"/"Recap") die
+   * voorheen veel plek innamen. Eén letter + rijtje bolletjes per soort;
+   * groen bolletje = die fase is bereikt. Bevestiging en recap hebben geen
+   * open/klik-tracking (enkel de reminder krijgt Postmark-trackingheaders,
+   * zie postmark-tracking.js), dus die twee tonen alleen "verstuurd →
+   * afgeleverd". Status komt uit fetchMailStatus() (state.mailStatus),
+   * apart en niet-blokkerend ingeladen -- ontbreekt die nog, dan tonen we
+   * gewoon "verstuurd" zonder afgeleverd-bolletje totdat hij binnenkomt.
+   */
+  var MAIL_KIND_META = [
+    { key: 'confirmation', sentFlag: 'confirmation_sent', letter: 'B', label: 'Bevestiging', stages: ['delivered'] },
+    { key: 'reminder', sentFlag: 'reminder_sent', letter: 'H', label: 'Herinnering', stages: ['delivered', 'opened', 'clicked'] },
+    { key: 'recap', sentFlag: 'recap_sent', letter: 'R', label: 'Recap', stages: ['delivered'] }
+  ];
+  var MAIL_STAGE_LABELS = { delivered: 'afgeleverd', opened: 'geopend', clicked: 'geklikt' };
+
+  function renderMailFunnels(row) {
     var mails = row.mails || {};
-    var out = [];
-    if (mails.confirmation_sent) out.push('<span class="badge badge-xs badge-outline" title="Bevestigingsmail verzonden">Bevestiging</span>');
-    if (mails.reminder_sent) out.push('<span class="badge badge-xs badge-outline" title="Herinneringsmail verzonden">Herinnering</span>');
-    if (mails.recap_sent) out.push('<span class="badge badge-xs badge-outline" title="Recapmail verzonden">Recap</span>');
-    return out;
+    var status = state.mailStatus[row.id] || {};
+
+    var groups = MAIL_KIND_META.map(function (meta) {
+      if (!mails[meta.sentFlag]) {
+        return '<span class="inline-flex items-center opacity-25" title="' + esc(meta.label) + ': nog niet verstuurd">' +
+          '<span class="text-[9px] font-semibold w-3 text-center">' + meta.letter + '</span>' +
+        '</span>';
+      }
+
+      var kindStatus = status[meta.key] || {};
+      var reached = 0; // 0 = verstuurd, staat nog te wachten op "afgeleverd"
+      meta.stages.forEach(function (stage, i) {
+        if (kindStatus[stage]) reached = i + 1;
+      });
+
+      var dots = meta.stages.map(function (stage, i) {
+        return '<span class="inline-block w-1.5 h-1.5 rounded-full ' + (i < reached ? 'bg-success' : 'bg-base-content/15') + '"></span>';
+      }).join('');
+      var titleStages = meta.stages.slice(0, reached).map(function (s) { return MAIL_STAGE_LABELS[s]; });
+      var title = meta.label + ': verstuurd' + (titleStages.length ? ' → ' + titleStages.join(' → ') : '');
+
+      return '<span class="inline-flex items-center gap-1" title="' + esc(title) + '">' +
+        '<span class="text-[9px] font-semibold w-3 text-center opacity-60">' + meta.letter + '</span>' +
+        '<span class="inline-flex items-center gap-0.5">' + dots + '</span>' +
+      '</span>';
+    });
+
+    return '<div class="flex items-center gap-2.5">' + groups.join('') + '</div>';
+  }
+
+  /** 'Lijst' / 'Vragen' -- tabs-boxed, zelfde patroon als elders in de OM. */
+  function renderRegTabs(eventId) {
+    return '<div role="tablist" class="tabs tabs-boxed w-fit mb-3">' +
+      '<button role="tab" class="tab' + (state.regView === 'list' ? ' tab-active' : '') + '"' +
+        ' data-action="switch-reg-tab" data-reg-tab="list" data-event-id="' + eventId + '">Lijst</button>' +
+      '<button role="tab" class="tab' + (state.regView === 'questions' ? ' tab-active' : '') + '"' +
+        ' data-action="switch-reg-tab" data-reg-tab="questions" data-event-id="' + eventId + '">Vragen' +
+        (state.questions.loadedFor === eventId ? ' (' + state.questions.rows.length + ')' : '') + '</button>' +
+    '</div>';
+  }
+
+  /**
+   * De vragen-tab: PRIMAIRE plek om vragen te overlopen (vervangt de
+   * vroegere inline expando-rij onder elke inschrijving). Alle
+   * inschrijvingen van het event met een ingevulde vraag, nieuwste eerst.
+   */
+  function renderQuestionsSection(eventId) {
+    if (state.questions.loading) return '<p class="text-sm opacity-60 py-2">Vragen laden…</p>';
+
+    var q = state.questions;
+    if (q.loadedFor !== eventId || q.rows.length === 0) {
+      return '<p class="text-sm opacity-60 py-3">Geen ingevulde vragen voor dit event.</p>';
+    }
+
+    var rows = q.rows.map(function (row) {
+      return '<tr class="hover align-top">' +
+        '<td class="max-w-[10rem]">' +
+          '<div class="font-medium truncate" title="' + esc(row.name || '') + '">' + esc(row.name || '—') + '</div>' +
+          '<div class="text-xs opacity-60 truncate">' + esc(row.email || '') + '</div>' +
+        '</td>' +
+        '<td class="text-xs whitespace-nowrap">' + esc(formatWhen(row.created_at)) + '</td>' +
+        '<td class="text-sm whitespace-pre-wrap">' + esc(row.questions) + '</td>' +
+        '<td class="text-right whitespace-nowrap">' +
+          '<button class="btn btn-xs btn-ghost gap-1" data-action="ignore-question"' +
+            ' data-registration-id="' + row.id + '" data-event-id="' + eventId + '"' +
+            ' title="Dit is geen echte vraag -- verwijderen uit dit overzicht">' +
+            '<i data-lucide="eye-off" class="w-3 h-3"></i></button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+
+    // GEEN overflow op deze tabel-wrapper. Reden (CSS Overflow 3):
+    // zodra een van beide assen niet 'visible' is, COMPUTEERT 'visible'
+    // op de andere as naar 'auto'. `overflow-x-auto overflow-y-visible'
+    // levert dus computed `overflow-y: auto' op -- precies de tweede,
+    // geneste verticale scrollbar die we kwijt wilden. In DevTools zag
+    // je 'visible' staan omdat dat de SPECIFIED waarde is; de computed
+    // waarde was auto. Live gemeten op 2026-09-10: sh=964 / ch=885.
+    // Oplossing: exact een scrollcontainer in de popup
+    // (#registrations-scroll in events-v2.html) die BEIDE assen doet --
+    // verticaal voor de lijst, horizontaal voor een brede tabel. Zet
+    // hier dus nooit overflow-x-auto terug.
+    return '<div><table class="table table-xs">' +
+      '<thead><tr><th>Deelnemer</th><th>Datum</th><th>Vraag</th><th></th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /**
+   * Markeert een ingevulde vraag als geen echte vraag -- verdwijnt meteen
+   * uit dit overzicht (het onderliggende tekstveld zelf blijft gewoon
+   * staan, ook in de export). Geen bevestigingsdialoog: de tekst zelf gaat
+   * niet verloren, dus dit is makkelijk terug te draaien via Odoo zelf
+   * mocht dat ooit nodig zijn.
+   */
+  async function ignoreQuestion(registrationId, eventId) {
+    try {
+      await api('/registrations/' + registrationId + '/ignore-question', {
+        method: 'POST',
+        body: { ignored: true }
+      });
+      state.questions.rows = state.questions.rows.filter(function (row) { return row.id !== registrationId; });
+      renderRegistrations(eventId);
+    } catch (error) {
+      reportError(error);
+    }
   }
 
   function renderRegistrations(eventId) {
-    var host = el('registrations-section');
-    if (!host) return;
+    // Twee vaste hosts (zie events-v2.html): #registrations-toolbar (tabs +
+    // acties, schuift nooit mee) en #registrations-list (enige
+    // scrollcontainer in de popup -- voorkomt de dubbele scrollbar van
+    // eerder, toen alles in één scrollend blok zat).
+    var toolbarHost = el('registrations-toolbar');
+    var listHost = el('registrations-list');
+    if (!toolbarHost || !listHost) return;
+
+    if (state.regView === 'questions') {
+      toolbarHost.innerHTML = renderRegTabs(eventId);
+      listHost.innerHTML = renderQuestionsSection(eventId);
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
 
     var reg = state.registrations;
     var attended = reg.rows.filter(function (row) { return row.attended; }).length;
 
     var rows = reg.rows.map(function (row) {
-      var badge = REG_STATE_BADGE[row.state] || REG_STATE_BADGE.registered;
+      // 'Ingeschreven' is de standaardtoestand van iedereen in deze lijst --
+      // dat als badge tonen is ruis. Alleen wachtlijst/afgemeld zijn
+      // uitzonderlijk genoeg om een badge te verdienen.
+      var badge = row.state && row.state !== 'registered' ? REG_STATE_BADGE[row.state] : null;
       var lead = row.lead;
-      var mailBadges = registrationMailBadges(row);
-      var question = cleanQuestionText(row.questions);
       var name = row.partner.name || row.name || '—';
 
       return '<tr class="hover align-top' + (row.active === false ? ' opacity-50' : '') + '">' +
@@ -1629,12 +1864,10 @@
               esc(lead.resolved_lead_status || '') + '</span>'
             : '<span class="text-xs opacity-40">—</span>') +
         '</td>' +
-        '<td class="whitespace-nowrap"><span class="badge badge-sm ' + badge.cls + '">' + badge.label + '</span></td>' +
         '<td class="whitespace-nowrap">' +
-          (mailBadges.length
-            ? '<div class="flex flex-wrap gap-1">' + mailBadges.join('') + '</div>'
-            : '<span class="text-xs opacity-40">—</span>') +
+          (badge ? '<span class="badge badge-sm ' + badge.cls + '">' + badge.label + '</span>' : '<span class="text-xs opacity-40">—</span>') +
         '</td>' +
+        '<td class="whitespace-nowrap">' + renderMailFunnels(row) + '</td>' +
         '<td class="text-center">' +
           '<input type="checkbox" class="checkbox checkbox-sm"' +
             ' data-action="toggle-attendance" data-registration-id="' + row.id + '"' +
@@ -1669,15 +1902,12 @@
               ' data-registration-name="' + esc(name) + '" title="Verwijderen (wordt gearchiveerd in Odoo)">' +
               '<i data-lucide="trash-2" class="w-3 h-3"></i></button>') +
         '</td>' +
-        '</tr>' +
-        (question
-          ? '<tr><td colspan="7" class="text-xs opacity-70 pt-0 pb-3">' +
-            '<span class="font-medium">Vraag:</span> <span class="whitespace-pre-wrap">' + esc(question) + '</span></td></tr>'
-          : '');
+        '</tr>';
     }).join('');
 
-    host.innerHTML =
-      '<div class="flex items-center justify-between gap-3 flex-wrap mb-3">' +
+    toolbarHost.innerHTML =
+      renderRegTabs(eventId) +
+      '<div class="flex items-center justify-between gap-3 flex-wrap">' +
         '<div class="flex items-center gap-2 text-sm">' +
           '<span class="badge badge-ghost">' + reg.total + ' totaal</span>' +
           '<span class="text-xs opacity-60">' + attended + ' van ' + reg.rows.length + ' aanwezig op deze pagina</span>' +
@@ -1699,10 +1929,15 @@
             ' title="Volledige lijst downloaden als PDF">' +
             '<i data-lucide="file-text" class="w-3 h-3"></i> PDF</button>' +
         '</div>' +
-      '</div>' +
+      '</div>';
+
+    listHost.innerHTML =
       (reg.rows.length === 0
         ? '<p class="text-sm opacity-60 py-3">Nog geen inschrijvingen.</p>'
-        : '<div class="overflow-x-auto"><table class="table table-xs">' +
+        // Geen overflow op de wrapper: zie de uitleg bij
+        // renderQuestionsSection (computed overflow-y wordt auto).
+        // #registrations-scroll is de enige scrollcontainer.
+        : '<div><table class="table table-xs">' +
           '<thead><tr><th>Deelnemer</th><th>Bron</th><th>Lead</th><th>Toestand</th><th>Mails</th>' +
           '<th class="text-center">Aanwezig</th><th></th></tr></thead>' +
           '<tbody>' + rows + '</tbody></table></div>') +
@@ -1785,13 +2020,32 @@
         var doc = new window.jspdf.jsPDF({ orientation: 'landscape' });
         doc.setFontSize(12);
         doc.text('Inschrijvingen — ' + eventTitle, 14, 12);
+        // Vaste kolombreedtes die samen ruim binnen de 269mm bruikbare
+        // breedte van een liggend A4-blad blijven (297mm - marges). 'wrap'
+        // liet kolommen ongebreideld meegroeien met de langste inhoud (bv.
+        // een lang e-mailadres), waardoor de tabel breder werd dan het blad
+        // en de rechterkolommen (o.a. de Vraag-kolom) van het papier vielen.
+        // Met expliciete breedtes + overflow:'linebreak' breekt lange tekst
+        // gewoon af naar een nieuwe regel binnen de kolom, in plaats van de
+        // tabel te verbreden.
         doc.autoTable({
           startY: 18,
           head: [EXPORT_HEADERS],
           body: exportRows.map(function (r) { return EXPORT_HEADERS.map(function (h) { return r[h]; }); }),
-          styles: { fontSize: 8, cellWidth: 'wrap' },
+          styles: { fontSize: 8, overflow: 'linebreak' },
           headStyles: { fillColor: [30, 41, 59] },
-          columnStyles: { 8: { cellWidth: 60 } }
+          tableWidth: 'auto',
+          columnStyles: {
+            0: { cellWidth: 38 },  // Deelnemer
+            1: { cellWidth: 45 },  // E-mail
+            2: { cellWidth: 20 },  // Bron
+            3: { cellWidth: 24 },  // Datum
+            4: { cellWidth: 20 },  // Lead status
+            5: { cellWidth: 20 },  // Toestand
+            6: { cellWidth: 16 },  // Aanwezig
+            7: { cellWidth: 28 },  // Verzonden mails
+            8: { cellWidth: 45 }   // Vraag
+          }
         });
         doc.save(filename + '.pdf');
       }
@@ -2106,6 +2360,10 @@
       case 'registrations-close': el('registrationsDialog').close(); break;
       case 'reload-registrations': loadRegistrations(id, state.registrations.page); break;
       case 'export-registrations': exportRegistrations(id, trigger.getAttribute('data-format'), trigger); break;
+      case 'switch-reg-tab': switchRegTab(trigger.getAttribute('data-reg-tab'), id); break;
+      case 'ignore-question':
+        ignoreQuestion(Number(trigger.getAttribute('data-registration-id')), id);
+        break;
       case 'add-registration': addRegistration(id); break;
       case 'remove-event': openRemoveDialog(id); break;
       case 'archive-registration':
