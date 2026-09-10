@@ -1,5 +1,6 @@
 import { executeKw } from '../../lib/odoo.js';
 import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers } from './odoo-client.js';
+import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import {
   listIntegrationSummaries,
   createIntegrationRecord,
@@ -28,6 +29,8 @@ import {
   listSubmissionsByIntegration,
   getSubmissionById,
   listSubmissionTargetResults,
+  listMailEventsBySubmission,
+  listMailEventTypesByIntegration,
   deleteSubmission,
   cleanupFailedReplays,
   upsertFieldMeta,
@@ -68,6 +71,7 @@ import {
   validateMappingPayload,
 } from './validation.js';
 import { handleForminatorV2Webhook, handleGenericWebhook, processDueRetries, replaySubmission } from './worker-handler.js';
+import { syncMailEventToOdoo, isOdooSyncWorthy } from './postmark-webhook.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -1117,6 +1121,31 @@ export const routes = {
         ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
         ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
         ...(payload.identifier_field !== undefined ? { identifier_field: payload.identifier_field || null } : {}),
+        // ── send_mail ──────────────────────────────────────────────────────
+        // mail_layout staat standaard op 'plain': een platte tekstmail. Wie
+        // opmaak wil moet daar actief voor kiezen -- zie render-plain.js.
+        ...(payload.mail_layout            !== undefined ? { mail_layout:            payload.mail_layout || 'plain' } : {}),
+        ...(payload.mail_subject_template  !== undefined ? { mail_subject_template:  payload.mail_subject_template  || null } : {}),
+        ...(payload.mail_body_html         !== undefined ? { mail_body_html:         payload.mail_body_html         || null } : {}),
+        ...(payload.mail_blocks            !== undefined ? { mail_blocks:            Array.isArray(payload.mail_blocks) && payload.mail_blocks.length ? payload.mail_blocks : null } : {}),
+        ...(payload.mail_delay_minutes     !== undefined ? { mail_delay_minutes:     Number(payload.mail_delay_minutes) || 0 } : {}),
+        // Verzendvenster in minuten sinds middernacht (Europe/Brussels), zodat
+        // een vertraging nooit een mail om 03:00 oplevert.
+        ...(payload.mail_window_start_min  !== undefined ? { mail_window_start_min:  Number(payload.mail_window_start_min) || 0 } : {}),
+        ...(payload.mail_window_end_min    !== undefined ? { mail_window_end_min:    Number(payload.mail_window_end_min)   || 0 } : {}),
+        ...(payload.mail_recipient_source  !== undefined ? { mail_recipient_source:  payload.mail_recipient_source  || null } : {}),
+        ...(payload.mail_res_id_source     !== undefined ? { mail_res_id_source:     payload.mail_res_id_source     || null } : {}),
+        ...(payload.mail_from_source       !== undefined ? { mail_from_source:       payload.mail_from_source       || 'record_user' } : {}),
+        ...(payload.mail_from_name         !== undefined ? { mail_from_name:         payload.mail_from_name         || null } : {}),
+        ...(payload.mail_from_email        !== undefined ? { mail_from_email:        payload.mail_from_email        || null } : {}),
+        ...(payload.mail_reply_to          !== undefined ? { mail_reply_to:          payload.mail_reply_to          || null } : {}),
+        // Expliciet zetten, want de default (ir.mail_server 4) is de Postmark
+        // broadcast-stream. Een persoonlijke mail hoort op de transactional.
+        ...(payload.mail_server_id         !== undefined ? { mail_server_id:         payload.mail_server_id ? Number(payload.mail_server_id) : null } : {}),
+        ...(payload.mail_track_opens       !== undefined ? { mail_track_opens:       payload.mail_track_opens !== false } : {}),
+        // Een rauw mail.mail-record respecteert mail.blacklist niet zelf; dit
+        // uitzetten betekent mailen naar wie zich heeft uitgeschreven.
+        ...(payload.mail_respect_blacklist !== undefined ? { mail_respect_blacklist: payload.mail_respect_blacklist !== false } : {}),
       });
 
       return jsonResponse({ success: true, data: created }, 201);
@@ -1151,6 +1180,31 @@ export const routes = {
         ...(payload.activity_user_pool       !== undefined ? { activity_user_pool:       Array.isArray(payload.activity_user_pool) ? payload.activity_user_pool : null } : {}),
         ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
         ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
+        // ── send_mail ──────────────────────────────────────────────────────
+        // mail_layout staat standaard op 'plain': een platte tekstmail. Wie
+        // opmaak wil moet daar actief voor kiezen -- zie render-plain.js.
+        ...(payload.mail_layout            !== undefined ? { mail_layout:            payload.mail_layout || 'plain' } : {}),
+        ...(payload.mail_subject_template  !== undefined ? { mail_subject_template:  payload.mail_subject_template  || null } : {}),
+        ...(payload.mail_body_html         !== undefined ? { mail_body_html:         payload.mail_body_html         || null } : {}),
+        ...(payload.mail_blocks            !== undefined ? { mail_blocks:            Array.isArray(payload.mail_blocks) && payload.mail_blocks.length ? payload.mail_blocks : null } : {}),
+        ...(payload.mail_delay_minutes     !== undefined ? { mail_delay_minutes:     Number(payload.mail_delay_minutes) || 0 } : {}),
+        // Verzendvenster in minuten sinds middernacht (Europe/Brussels), zodat
+        // een vertraging nooit een mail om 03:00 oplevert.
+        ...(payload.mail_window_start_min  !== undefined ? { mail_window_start_min:  Number(payload.mail_window_start_min) || 0 } : {}),
+        ...(payload.mail_window_end_min    !== undefined ? { mail_window_end_min:    Number(payload.mail_window_end_min)   || 0 } : {}),
+        ...(payload.mail_recipient_source  !== undefined ? { mail_recipient_source:  payload.mail_recipient_source  || null } : {}),
+        ...(payload.mail_res_id_source     !== undefined ? { mail_res_id_source:     payload.mail_res_id_source     || null } : {}),
+        ...(payload.mail_from_source       !== undefined ? { mail_from_source:       payload.mail_from_source       || 'record_user' } : {}),
+        ...(payload.mail_from_name         !== undefined ? { mail_from_name:         payload.mail_from_name         || null } : {}),
+        ...(payload.mail_from_email        !== undefined ? { mail_from_email:        payload.mail_from_email        || null } : {}),
+        ...(payload.mail_reply_to          !== undefined ? { mail_reply_to:          payload.mail_reply_to          || null } : {}),
+        // Expliciet zetten, want de default (ir.mail_server 4) is de Postmark
+        // broadcast-stream. Een persoonlijke mail hoort op de transactional.
+        ...(payload.mail_server_id         !== undefined ? { mail_server_id:         payload.mail_server_id ? Number(payload.mail_server_id) : null } : {}),
+        ...(payload.mail_track_opens       !== undefined ? { mail_track_opens:       payload.mail_track_opens !== false } : {}),
+        // Een rauw mail.mail-record respecteert mail.blacklist niet zelf; dit
+        // uitzetten betekent mailen naar wie zich heeft uitgeschreven.
+        ...(payload.mail_respect_blacklist !== undefined ? { mail_respect_blacklist: payload.mail_respect_blacklist !== false } : {}),
       });
 
       return jsonResponse({ success: true, data: updated });
@@ -1163,6 +1217,125 @@ export const routes = {
     try {
       await deleteTarget(context.env, context.params?.targetId);
       return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  /**
+   * Voorbeeld van een send_mail-stap.
+   *
+   * Rendert met render-plain.js -- dezelfde functie die de stap bij het
+   * versturen gebruikt. Bewust GEEN tweede renderer in de browser: dat zou
+   * onvermijdelijk uit elkaar gaan lopen, en dan toont het voorbeeld iets
+   * anders dan wat er in de inbox belandt.
+   *
+   * De voorbeeldwaarden komen van de client mee (`sample`, vlakke paden naar
+   * waarden), want daar zijn de labels van de formuliervelden bekend. Er wordt
+   * niets opgeslagen en niets verstuurd.
+   */
+  /**
+   * De mails van één indiening, met hun LIVE toestand uit Odoo.
+   *
+   * Waarom niet gewoon wat in het indieningsspoor staat: dat vertelt alleen
+   * dat de mail is KLAARGEZET. Of hij ook vertrokken is, geweigerd werd of
+   * nog wacht, staat op het mail.mail-record zelf -- en dat is precies wat je
+   * wil zien als je opvolgt. Eén searchRead voor alle mails van de indiening,
+   * geen call per mail.
+   */
+  'GET /api/submissions/:submissionId/mails': async (context) => {
+    try {
+      const submissionId = context.params && context.params.submissionId;
+      if (!submissionId) return jsonResponse({ success: false, error: 'submissionId ontbreekt' }, 400);
+
+      const results = await listSubmissionTargetResults(context.env, submissionId);
+      const mailRows = results.filter((r) =>
+        String(r.action_result || '').indexOf('mail') === 0 && r.odoo_record_id);
+      const mailIds = mailRows.map((r) => Number(r.odoo_record_id)).filter((n) => Number.isInteger(n) && n > 0);
+
+      let mails = [];
+      if (mailIds.length) {
+        mails = await executeKw(context.env, {
+          model: 'mail.mail',
+          method: 'search_read',
+          args: [[['id', 'in', mailIds]]],
+          kwargs: {
+            fields: ['id', 'subject', 'email_to', 'email_from', 'state',
+                     'scheduled_date', 'date', 'failure_reason', 'message_id'],
+            limit: 200
+          }
+        });
+      }
+
+      const events = await listMailEventsBySubmission(context.env, submissionId);
+
+      return jsonResponse({
+        success: true,
+        data: {
+          // Wat de pipeline vastlegde: ook de stappen die GEEN mail maakten,
+          // want een overgeslagen mail met zijn reden is even belangrijk.
+          steps: results
+            .filter((r) => String(r.action_result || '').indexOf('mail') === 0)
+            .map((r) => ({
+              execution_order: r.execution_order,
+              action_result:   r.action_result,
+              skipped_reason:  r.skipped_reason,
+              error_detail:    r.error_detail,
+              odoo_mail_id:    r.odoo_record_id || null,
+              processed_at:    r.processed_at
+            })),
+          mails: Array.isArray(mails) ? mails : [],
+          events: events.map((e) => ({
+            event_type:  e.event_type,
+            occurred_at: e.occurred_at,
+            recipient:   e.recipient,
+            first_open:  e.first_open
+          }))
+        }
+      });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'POST /api/targets/:targetId/mail-preview': async (context) => {
+    try {
+      const payload = await readJsonBody(context.request);
+      const sample = (payload && payload.sample && typeof payload.sample === 'object') ? payload.sample : {};
+
+      // Vlakke paden ('contact.first_name') naar een geneste context, want dat
+      // is wat fillPlaceholders verwacht.
+      const ctx = {};
+      for (const pad of Object.keys(sample)) {
+        const delen = String(pad).split('.');
+        let cur = ctx;
+        for (let i = 0; i < delen.length; i++) {
+          const deel = delen[i];
+          if (i === delen.length - 1) {
+            cur[deel] = String(sample[pad] == null ? '' : sample[pad]);
+          } else {
+            if (!cur[deel] || typeof cur[deel] !== 'object') cur[deel] = {};
+            cur = cur[deel];
+          }
+        }
+      }
+
+      const ruw = String((payload && payload.mail_body_html) || '');
+      const vuil = nietPlatteOpmaak(ruw);
+      if (vuil.length) {
+        return jsonResponse({
+          success: false,
+          error: 'De tekst bevat opmaak die niet in een platte mail hoort: ' + vuil.join(', ') + '.'
+        }, 400);
+      }
+
+      return jsonResponse({
+        success: true,
+        data: {
+          subject: renderPlainSubject((payload && payload.mail_subject_template) || '', ctx),
+          html: renderPlainMailHtml({ html: ruw, context: ctx })
+        }
+      });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
@@ -1621,6 +1794,33 @@ export const routes = {
     }
   },
 
+  /**
+   * Bulk-overzicht van Postmark-events per indiening, voor het mail-
+   * funnelicoontje (aangemaakt \u2192 verzonden \u2192 geopend \u2192 geklikt) in de
+   * hoofdlijn van Indieningen. \u00c9\u00e9n Supabase-call voor de hele koppeling i.p.v.
+   * een live Odoo-call per rij -- de "aangemaakt"-fase leidt de client zelf af
+   * uit target_actions in resolved_context (al aanwezig per indiening), dit
+   * levert enkel de verzonden/geopend/geklikt-fases uit fs_v2_mail_events.
+   */
+  'GET /api/integrations/:id/mail-events-summary': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const rows = await listMailEventTypesByIntegration(context.env, integrationId);
+      const bySubmission = {};
+      for (const row of rows) {
+        const subId = row.submission_id;
+        if (!subId) continue;
+        if (!bySubmission[subId]) bySubmission[subId] = [];
+        if (!bySubmission[subId].includes(row.event_type)) bySubmission[subId].push(row.event_type);
+      }
+      return jsonResponse({ success: true, data: { bySubmission } });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
   'GET /api/submissions/:submissionId': async (context) => {
     try {
       const submissionId = context.params?.submissionId;
@@ -1656,6 +1856,57 @@ export const routes = {
 
       const result = await replaySubmission(context.env, submissionId);
       return jsonResponse({ success: true, data: result }, 201);
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  /**
+   * De opgeslagen Postmark-events van deze indiening opnieuw naar Odoo sturen
+   * (chatter-notitie + mail.mail.state). GEEN nieuwe events -- dit herhaalt
+   * enkel wat al in fs_v2_mail_events staat, voor het geval de Odoo-sync toen
+   * niet (goed) liep: de Worker was nog niet gedeployed, Odoo was even
+   * onbereikbaar, of het record hing nog niet aan een model/res_id.
+   */
+  'POST /api/submissions/:submissionId/replay-mail-events': async (context) => {
+    try {
+      const submissionId = context.params?.submissionId;
+      if (!submissionId) {
+        return jsonResponse({ success: false, error: 'Submission id is required' }, 400);
+      }
+
+      const events = await listMailEventsBySubmission(context.env, submissionId);
+      let replayed = 0;
+      let notWorthy = 0;
+      let failed = 0;
+      const errors = [];
+
+      for (const event of events) {
+        // Zelfde poort als de live webhook (isOdooSyncWorthy): een replay-knop
+        // mag geen heropeningen of subscriptionchange alsnog naar de chatter
+        // sturen die de live weg zelf ook zou overslaan.
+        if (!isOdooSyncWorthy(event.event_type, event.payload || {})) {
+          notWorthy += 1;
+          continue;
+        }
+        try {
+          await syncMailEventToOdoo(context.env, {
+            soort: event.event_type,
+            payload: event.payload || {},
+            submissionId: event.submission_id,
+            targetId: event.target_id
+          });
+          replayed += 1;
+        } catch (error) {
+          failed += 1;
+          errors.push({ event_type: event.event_type, occurred_at: event.occurred_at, error: error.message });
+        }
+      }
+
+      return jsonResponse({
+        success: true,
+        data: { total_events: events.length, replayed, not_worthy: notWorthy, failed, errors }
+      });
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }

@@ -30,6 +30,7 @@
       { id: 'chatter_message', icon: 'message-square', label: 'Chatter-bericht',  desc: 'Bericht in de chatter plaatsen' },
       { id: 'create_activity', icon: 'calendar-check', label: 'Activiteit',        desc: 'Taak inplannen op een record' },
       { id: 'mailing_list',    icon: 'mail',           label: 'Mailinglijst',     desc: 'Toevoegen/verwijderen uit mailinglijst' },
+      { id: 'send_mail',       icon: 'send',           label: 'Mail versturen',   desc: 'Gewone mail, eventueel later versturen' },
     ];
 
     var modelCards = models.map(function (m, i) {
@@ -49,8 +50,11 @@
     var specialCards = SPECIAL.map(function (s, i) {
       var isActive = sel === s.id;
       var isOrphan = (i === SPECIAL.length - 1) && (SPECIAL.length % 2 === 1);
+      // h-auto + min-h-0 + py-2.5: deze kaarten hebben een label + beschrijving op
+      // twee regels; DaisyUI's standaard .btn-hoogte is vast en knipt zo'n tweede
+      // regel af (tekst liep buiten de rand van de knop, zie CLAUDE.md-issue).
       return '<button type="button"' +
-        ' class="btn btn-outline w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + (isOrphan ? ' col-span-2' : '') + '"' +
+        ' class="btn btn-outline h-auto min-h-0 py-2.5 w-full justify-start gap-3' + (isActive ? ' btn-primary' : '') + (isOrphan ? ' col-span-2' : '') + '"' +
         ' data-action="select-target-object" data-object-id="' + esc(s.id) + '">' +
         '<i data-lucide="' + esc(s.icon) + '" class="w-5 h-5 shrink-0"></i>' +
         '<span class="text-left"><span class="font-semibold">' + esc(s.label) + '</span>' +
@@ -256,6 +260,73 @@
       if (chatterTargetId) {
         var po = window.FSV2.getPipelineOpen(integId);
         po[String(chatterTargetId)] = true;
+        window.FSV2.renderDetailMappings();
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      }
+      return;
+    }
+
+    if (objectId === 'send_mail') {
+      // Een mailstap hangt aan een record uit een eerdere stap: daar komt de
+      // ontvanger uit, en de eigenaar van dat record wordt de afzender. Zelfde
+      // eis als bij een chatter-stap.
+      var mailCompat = targets.filter(function (t) {
+        return t.operation_type !== 'chatter_message' && t.operation_type !== 'send_mail' && t.odoo_model;
+      }).sort(function (a, b) { return window.FSV2.getTargetOrder(a, 0) - window.FSV2.getTargetOrder(b, 0); });
+
+      if (!mailCompat.length) {
+        window.FSV2.showAlert('Voeg eerst een schrijfdoel (upsert/aanmaken/bijwerken) toe voordat je een mailstap kunt koppelen.', 'error');
+        return;
+      }
+
+      var mailParent      = mailCompat[0];
+      var mailParentOrder = window.FSV2.getTargetOrder(mailParent, 0);
+      var mailNewOrder    = maxOrder + 1;
+
+      // De stap wordt aangemaakt MET een startsjabloon, niet leeg: de validatie
+      // eist een onderwerp en een tekst (een mailstap zonder inhoud is nooit
+      // nuttig), en een gebruiker heeft liever iets om aan te passen dan een
+      // leeg veld. Alles hieronder is bedoeld om overschreven te worden.
+      var mailRes = await window.FSV2.api('/integrations/' + integrationId + '/targets', {
+        method: 'POST',
+        body: JSON.stringify({
+          odoo_model:      mailParent.odoo_model,
+          identifier_type: 'mapped_fields',
+          update_policy:   'always_overwrite',
+          operation_type:  'send_mail',
+          // Zonder naam zou de kaart het MODEL tonen (bv. "Contact"), en dat
+          // zegt niets over wat de stap doet.
+          label:           'Mail versturen',
+          execution_order: mailNewOrder,
+          order_index:     mailNewOrder,
+
+          mail_layout:            'plain',
+          mail_subject_template:  'Bedankt voor je aanvraag',
+          mail_body_html:         'Hoi {{contact.first_name}},\n\nBedankt voor je aanvraag!\n\nTot binnenkort,\n{{sender.name}}',
+          // 'record.email' betekent: het adres van het record zelf (email_from
+          // bij een lead, email bij een contact). Een formulierveld kiezen kan
+          // ook, met 'field.<veld-id>'.
+          mail_recipient_source:  'record.email',
+          mail_res_id_source:     'step.' + mailParentOrder + '.record_id',
+          mail_from_source:       'record_user',
+          // Anderhalf uur. Meteen versturen ondermijnt de indruk dat een mens
+          // het typte; instelbaar per stap in de composer.
+          mail_delay_minutes:     90,
+          // ir.mail_server 5 = "Postmark - Outbound Contact Replies"
+          // (transactional stream). De Odoo-default is id 4, de broadcast-
+          // stream voor nieuwsbrieven -- daar hoort deze mail niet op.
+          mail_server_id:         5,
+          mail_track_opens:       true,
+          mail_respect_blacklist: true,
+        }),
+      });
+      var mailTargetId = mailRes && mailRes.data && mailRes.data.id;
+
+      window.FSV2.showAlert('Mailstap toegevoegd. Pas de tekst aan in de mailstap.', 'success');
+      await window.FSV2.openDetail(S().activeId);
+      if (mailTargetId) {
+        var poMail = window.FSV2.getPipelineOpen(integrationId);
+        poMail[String(mailTargetId)] = true;
         window.FSV2.renderDetailMappings();
         if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
       }

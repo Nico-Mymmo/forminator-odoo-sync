@@ -1,3 +1,8 @@
+import { nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
+
+/** De twee standen van een send_mail-stap. `plain` is de standaard. */
+const MAIL_LAYOUTS = ['plain', 'blocks'];
+
 const RESOLVER_TYPES = ['partner_by_email', 'webinar_by_external_id'];
 const TARGET_MODELS = ['crm.lead', 'res.partner', 'x_webinarregistrations'];
 const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty', 'upsert'];
@@ -123,6 +128,68 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     if (!hasValue(payload.odoo_model)) {
       throw createError('mailing_list target vereist een odoo_model.');
     }
+    return;
+  }
+
+  // send_mail: zet één gewone mail klaar in Odoo (mail.mail). Geen model-whitelist,
+  // geen identifier_type en geen update_policy -- deze stap SCHRIJFT niets naar het
+  // doelmodel, hij leest er alleen de eigenaar en het e-mailadres van.
+  //
+  // Wat hier WEL hard gecontroleerd wordt, is alles waarvan het stil misgaan pas
+  // weken later opvalt: een onbekende layout, een negatieve vertraging, een
+  // ontbrekende ontvangerbron, en opmaak in een mail die plat hoort te zijn.
+  if (payload.operation_type === 'send_mail') {
+    if (!hasValue(payload.odoo_model)) {
+      throw createError('send_mail vereist een odoo_model (het record waaraan de mail hangt en waarvan de eigenaar de afzender wordt).');
+    }
+
+    const layout = payload.mail_layout === undefined ? 'plain' : String(payload.mail_layout);
+    if (!MAIL_LAYOUTS.includes(layout)) {
+      throw createError('Onbekende mail_layout: ' + layout + '. Toegestaan: ' + MAIL_LAYOUTS.join(', ') + '.');
+    }
+
+    if (!hasValue(payload.mail_subject_template)) {
+      throw createError('send_mail vereist een onderwerp.');
+    }
+    if (!hasValue(payload.mail_recipient_source)) {
+      throw createError('send_mail vereist een mail_recipient_source (welk formulierveld of welke stap het e-mailadres levert).');
+    }
+
+    if (payload.mail_delay_minutes !== undefined && payload.mail_delay_minutes !== null) {
+      const vertraging = Number(payload.mail_delay_minutes);
+      if (!Number.isInteger(vertraging) || vertraging < 0) {
+        throw createError('mail_delay_minutes moet een geheel getal van 0 of meer zijn (0 = meteen versturen).');
+      }
+      // Een jaar. Niet omdat er een technische grens is, maar omdat een typefout
+      // in dit veld anders een mail over 2039 klaarzet zonder dat iemand het ziet.
+      if (vertraging > 525600) {
+        throw createError('mail_delay_minutes is meer dan een jaar — dat is bijna zeker een typefout.');
+      }
+    }
+
+    for (const veld of ['mail_window_start_min', 'mail_window_end_min']) {
+      if (payload[veld] === undefined || payload[veld] === null) continue;
+      const m = Number(payload[veld]);
+      if (!Number.isInteger(m) || m < 0 || m > 1440) {
+        throw createError(veld + ' moet een geheel getal tussen 0 en 1440 zijn (minuten sinds middernacht).');
+      }
+    }
+
+    if (layout === 'plain') {
+      if (!hasValue(payload.mail_body_html)) {
+        throw createError('send_mail vereist een mailtekst.');
+      }
+      const vuil = nietPlatteOpmaak(payload.mail_body_html);
+      if (vuil.length) {
+        throw createError(
+          'De tekst bevat opmaak die niet in een platte mail hoort: ' + vuil.join(', ') +
+          '. Haal die weg, of zet de stap op layout "blocks".'
+        );
+      }
+    } else if (!Array.isArray(payload.mail_blocks) || payload.mail_blocks.length === 0) {
+      throw createError('send_mail met layout "blocks" vereist mail_blocks.');
+    }
+
     return;
   }
 

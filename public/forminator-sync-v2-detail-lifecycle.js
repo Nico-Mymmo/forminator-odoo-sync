@@ -59,6 +59,21 @@
         }).catch(function () {});
       }
 
+      // Mail-events (afgeleverd/geopend/geklikt) voor het funnelicoontje in de
+      // hoofdlijn van Indieningen — alleen de moeite waard als deze koppeling
+      // een send_mail-stap heeft. Fire-and-forget + herrenderen zodra binnen,
+      // zelfde patroon als warnings/field-transforms hierboven: de indieningen
+      // hoeven hier niet op te wachten, ze tonen zich meteen zonder funnel en
+      // krijgen die erbij zodra de bulk-call terug is.
+      S().mailEventsBySubmission = {};
+      var detailTargetsForMail = (S().detail && S().detail.targets) || [];
+      if (detailTargetsForMail.some(function (t) { return t.operation_type === 'send_mail'; })) {
+        window.FSV2.api('/integrations/' + id + '/mail-events-summary').then(function (r) {
+          S().mailEventsBySubmission = (r.data && r.data.bySubmission) || {};
+          if (S().activeId === id) window.FSV2.renderDetailSubmissions();
+        }).catch(function () {});
+      }
+
       var detailIntegration = S().detail && S().detail.integration;
       var detailSiteKey     = detailIntegration && detailIntegration.site_key;
       var detailFormId      = detailIntegration && detailIntegration.forminator_form_id;

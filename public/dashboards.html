@@ -24,47 +24,95 @@
 
       <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
-          <h1 class="text-2xl font-bold">Instroom</h1>
-          <p class="text-sm text-base-content/60 mt-1">Aanvragen die als lead in Odoo binnenkomen, per merk-oorsprong.</p>
+          <h1 class="text-2xl font-bold">Van aanvraag tot actief gebouw</h1>
+          <p class="text-sm text-base-content/60 mt-1">
+            Instroom van aanvragen die als lead in Odoo binnenkomen, per merk-oorsprong en -kanaal.
+          </p>
         </div>
         <div class="join">
-          <button class="btn btn-sm join-item" data-action="setPeriod" data-period="30d">Laatste 30 dagen</button>
-          <button class="btn btn-sm join-item" data-action="setPeriod" data-period="6m">Laatste 6 maanden</button>
+          <button class="btn btn-sm join-item" data-action="setScope" data-scope="all">Alles</button>
+          <button class="btn btn-sm join-item" data-action="setScope" data-scope="syndicoach">Syndicoach</button>
+          <button class="btn btn-sm join-item" data-action="setScope" data-scope="openvme">OpenVME</button>
+          <button class="btn btn-sm join-item" data-action="setScope" data-scope="onbekend">Onbekend</button>
         </div>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <div class="stats border border-base-300 bg-base-100 shadow-sm">
-          <div class="stat py-4">
-            <div class="stat-title text-xs" id="statCurrentLabel">Totaal aanvragen</div>
-            <div class="stat-value text-2xl" id="statCurrentValue"><div class="skeleton h-8 w-16 rounded"></div></div>
-            <div class="stat-desc" id="statCurrentDelta">&nbsp;</div>
-            <div class="stat-desc flex flex-wrap gap-1 mt-2" id="statCurrentBrands"></div>
-          </div>
-        </div>
+      <div class="card bg-base-100 border border-base-300 shadow-sm mb-6">
+        <div class="card-body">
 
-        <div class="stats border border-base-300 bg-base-100 shadow-sm">
-          <div class="stat py-4">
-            <div class="stat-title text-xs">Totaal vorige periode</div>
-            <div class="stat-value text-2xl" id="statPreviousValue"><div class="skeleton h-8 w-16 rounded"></div></div>
-            <div class="stat-desc" id="statPreviousDesc">&nbsp;</div>
+          <div class="flex flex-wrap items-center justify-between gap-4 mb-1">
+            <div class="flex items-center gap-3">
+              <span class="badge badge-neutral badge-lg font-bold">1</span>
+              <h2 class="text-lg font-bold underline decoration-2 underline-offset-4">Instroom</h2>
+            </div>
+            <div class="join">
+              <button class="btn btn-sm join-item" data-action="setPeriod" data-period="30d">Laatste 30 dagen</button>
+              <button class="btn btn-sm join-item" data-action="setPeriod" data-period="6m">Laatste 6 maanden</button>
+            </div>
           </div>
-        </div>
 
-        <div class="stats border border-base-300 bg-base-100 shadow-sm">
-          <div class="stat py-4">
-            <div class="stat-title text-xs">Totaal aanvragen sinds de start</div>
-            <div class="stat-value text-2xl" id="statAllTimeValue"><div class="skeleton h-8 w-16 rounded"></div></div>
-            <div class="stat-desc">Vast, ongeacht periode</div>
-          </div>
-        </div>
+          <p class="text-sm text-base-content/70 mb-4">
+            <span class="font-semibold">Wat je hier ziet:</span> nieuwe aanvragen in de gekozen periode,
+            afgezet tegen de target voor diezelfde periode.
+          </p>
 
-        <div class="stats border border-base-300 bg-base-100 shadow-sm">
-          <div class="stat py-4">
-            <div class="stat-title text-xs">Won-ratio (aangemaakt in periode)</div>
-            <div class="stat-value text-2xl" id="statWonRatioValue"><div class="skeleton h-8 w-16 rounded"></div></div>
-            <div class="stat-desc" id="statWonRatioDesc">&nbsp;</div>
+          <div class="border border-base-300 rounded-box bg-base-200/40 p-4">
+            <div class="flex flex-col md:flex-row gap-4 md:gap-0">
+
+              <div class="md:flex-1 md:pr-6">
+                <div class="text-xs text-base-content/60" id="statCurrentLabel">Totaal aanvragen</div>
+                <div class="flex items-end gap-2 mt-1">
+                  <div class="text-4xl font-bold" id="statCurrentValue"><div class="skeleton h-10 w-20 rounded"></div></div>
+                </div>
+                <div class="text-sm text-base-content/60 mt-1" id="statCurrentDelta">&nbsp;</div>
+                <div class="flex flex-wrap gap-1 mt-3" id="statCurrentBrands"></div>
+                <p class="text-xs text-base-content/40 mt-3">Aantal/dag, rollend venster van 30 dagen, voorbije 2 jaar (absoluut)</p>
+                <div style="height: 64px;" class="mt-1">
+                  <canvas id="targetAbsoluteSparkline"></canvas>
+                </div>
+              </div>
+
+              <div class="divider md:divider-horizontal my-0"></div>
+
+              <div class="md:flex-1 md:pl-6">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-xs text-base-content/60">Marketingbenchmark</div>
+                  <button class="btn btn-xs btn-ghost" data-action="openTargets">
+                    <i data-lucide="settings" class="w-3.5 h-3.5"></i>
+                    Targets instellen
+                  </button>
+                </div>
+                <div class="flex items-center gap-4 mt-2">
+                  <progress class="progress progress-success flex-1" id="targetProgress" value="0" max="100"></progress>
+                  <span class="text-3xl font-bold shrink-0" id="targetPct">—</span>
+                </div>
+                <p class="text-sm text-base-content/60 mt-2" id="targetDesc">Nog geen target ingesteld voor deze periode.</p>
+                <p class="text-xs text-base-content/40 mt-3">% van target, rollend venster van 30 dagen, voorbije 2 jaar</p>
+                <div style="height: 64px;" class="mt-1">
+                  <canvas id="targetSparkline"></canvas>
+                </div>
+              </div>
+
+            </div>
           </div>
+
+          <div class="flex flex-wrap gap-x-8 gap-y-2 mt-4 text-sm">
+            <div>
+              <span class="text-base-content/60">Vorige periode:</span>
+              <span class="font-semibold" id="statPreviousValue">—</span>
+              <span class="text-base-content/60" id="statPreviousDesc"></span>
+            </div>
+            <div>
+              <span class="text-base-content/60">Sinds de start:</span>
+              <span class="font-semibold" id="statAllTimeValue">—</span>
+            </div>
+            <div>
+              <span class="text-base-content/60">Won-ratio (aangemaakt in periode):</span>
+              <span class="font-semibold" id="statWonRatioValue">—</span>
+              <span class="text-base-content/60" id="statWonRatioDesc"></span>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -79,6 +127,29 @@
 
     </main>
   </div>
+
+  <dialog id="targetsModal" class="modal">
+    <div class="modal-box max-w-3xl">
+      <h3 class="font-bold text-lg mb-1">Targets instellen <span class="text-base-content/50 font-normal" id="targetsModalScope"></span></h3>
+      <p class="text-sm text-base-content/60 mb-4">
+        Eén target per kalendermaand. Zowel voorbije als komende maanden zijn instelbaar -- hoe verder
+        je historische maanden invult, hoe eerder de op-en-neerbeweging in de benchmarkgrafiek (die
+        altijd de voorbije 2 jaar toont) zichtbaar wordt, in plaats van pas in de recentste maanden.
+        Wijzig wat je nodig hebt en druk één keer op "Opslaan".
+      </p>
+      <div id="targetsRows" class="grid grid-cols-4 gap-3"></div>
+      <div class="modal-action">
+        <span id="targetsSaveStatus" class="text-sm text-base-content/60 self-center"></span>
+        <form method="dialog">
+          <button class="btn">Sluiten</button>
+        </form>
+        <button class="btn btn-primary" data-action="saveAllTargets">Opslaan</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+      <button>Sluiten</button>
+    </form>
+  </dialog>
 
   <script src="/dashboards.js"></script>
 </body>

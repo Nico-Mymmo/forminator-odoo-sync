@@ -79,6 +79,14 @@
         opTypeLbl = _chLbl ? ('Notitie bij ' + _chLbl) : 'Notitie in chatter';
         if (!target.label) stepName = 'Notitie';
       }
+      // Een mailstap erft het model van de stap waaraan hij hangt (res.partner,
+      // crm.lead, ...). Zonder eigen naam heette de kaart daardoor "Contact",
+      // wat niets zegt over wat de stap doet.
+      if (target.operation_type === 'send_mail') {
+        var _mlLbl = target.odoo_model ? window.FSV2.modelLabel(target.odoo_model) : '';
+        opTypeLbl = _mlLbl ? ('Mail naar ' + _mlLbl) : 'Mail versturen';
+        if (!target.label) stepName = 'Mail';
+      }
       if (target.operation_type === 'create_activity') {
         opTypeLbl = 'Activiteit aanmaken';
         if (!target.label) stepName = 'Activiteit';
@@ -101,16 +109,21 @@
           var leg = String(sv || '').match(/^step_(\d+)_id$/);
           return leg ? 'step.' + leg[1] + '.record_id' : (sv || '');
         };
-        // Activiteit slaat koppeling op in activity_res_id_source, niet als mapping
-        var _actResIdSrc = target.operation_type === 'create_activity' ? (target.activity_res_id_source || '') : '';
+        // Activiteit slaat koppeling op in activity_res_id_source, mailstap in
+        // mail_res_id_source — geen van beide als mapping.
+        var _actResIdSrc  = target.operation_type === 'create_activity' ? (target.activity_res_id_source || '') : '';
+        var _mailResIdSrc = target.operation_type === 'send_mail'       ? (target.mail_res_id_source     || '') : '';
         var chainSourceRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid])
           ? S().detail._extraRowsByTarget[tid].map(function (r) { return normalizeSv(r.staticValue); })
           : ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [])
               .filter(function (m) { return m.source_type === 'previous_step_output'; })
               .map(function (m) { return normalizeSv(m.source_value); });
-        // Voeg activity_res_id_source toe als die niet al via mappings is opgenomen
+        // Voeg activity_res_id_source/mail_res_id_source toe als die niet al via mappings is opgenomen
         if (_actResIdSrc && !chainSourceRows.includes(_actResIdSrc)) {
           chainSourceRows = chainSourceRows.concat([_actResIdSrc]);
+        }
+        if (_mailResIdSrc && !chainSourceRows.includes(_mailResIdSrc)) {
+          chainSourceRows = chainSourceRows.concat([_mailResIdSrc]);
         }
         chainSourceRows.forEach(function (sourceVal) {
           var m = sourceVal.match(/^step\.([^.]+)\.record_id$/);
@@ -158,13 +171,14 @@
       var actionCfg  = window.FSV2.getModelCfg ? (window.FSV2.getModelCfg(target.odoo_model) || {}) : {};
       var _cardIcon  = target.operation_type === 'chatter_message' ? 'pencil-line'
                      : target.operation_type === 'create_activity'  ? 'user'
+                     : target.operation_type === 'send_mail'        ? 'send'
                      : (actionCfg.icon || null);
       html +=           '<div class="min-w-0">';
       html +=             '<div class="flex items-center gap-2 font-bold text-base leading-snug">' +
                            (_cardIcon ? '<i data-lucide="' + esc(_cardIcon) + '" class="w-4 h-4 shrink-0 opacity-60"></i>' : '') +
                            esc(stepName) + '</div>';
       html +=             '<div class="flex flex-wrap items-center gap-x-2.5 gap-y-0 mt-0.5 text-xs text-base-content/50">';
-      if (target.operation_type !== 'chatter_message') {
+      if (target.operation_type !== 'chatter_message' && target.operation_type !== 'send_mail') {
         html +=               '<span class="font-mono">' + esc(target.odoo_model) + '</span>';
         html +=               '<span>·</span>';
       }
@@ -520,6 +534,15 @@
       // mailing_list: render mailing list composer
       if (target.operation_type === 'mailing_list') {
         window.FSV2.renderMailingListComposer(target, tid, sortedTargets);
+        renderStepConditionSection(target, tid, flatFields);
+        return;
+      }
+      // send_mail: de maileditor i.p.v. een MappingTable — deze stap schrijft
+      // geen velden naar Odoo, hij verstuurt een mail. De conditie-sectie komt
+      // er wél bij: daarmee stel je een andere tekst of vertraging in per
+      // antwoord, zonder een tweede mechanisme.
+      if (target.operation_type === 'send_mail') {
+        window.FSV2.renderMailComposer(target, tid, sortedTargets);
         renderStepConditionSection(target, tid, flatFields);
         return;
       }
@@ -1151,6 +1174,9 @@
     }
     if (target.operation_type === 'mailing_list') {
       return window.FSV2.handleSaveMailingListComposer(tid);
+    }
+    if (target.operation_type === 'send_mail') {
+      return window.FSV2.handleSaveMailComposer(tid);
     }
 
     var mcEl = document.getElementById('det-mc-' + tid);

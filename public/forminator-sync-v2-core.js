@@ -52,6 +52,7 @@
       search: '',
       status: 'all',           // all | active | inactive
       tagIds: [],               // OR-filter op tag-id's
+      source: 'all',            // 'all' | 'generic_webhook' | 'tracker' | 'site:<site_key>' (koppelingtype)
       sort: 'created_desc',    // created_desc | created_asc | name_asc | updated_desc | last_used_desc
     },
   };
@@ -229,6 +230,28 @@
       S.odooFieldsCache[model] = [];
     }
     return S.odooFieldsCache[model];
+  }
+
+  // Het "koppelingtype" van een integratie-rij is de HERKOMST (bron), niet het
+  // Odoo-doelmodel — dezelfde indeling als stap 1 van de wizard ("Kies een
+  // website"): Zapier/generiek webhook, Tracker, of één van de WordPress-sites.
+  function integrationSourceKey(row) {
+    if (row.source_type === 'generic_webhook') return 'generic_webhook';
+    if (row.source_type === 'tracker')          return 'tracker';
+    if (row.site_key) return 'site:' + row.site_key;
+    return 'unknown';
+  }
+
+  function integrationSourceLabel(key) {
+    if (key === 'generic_webhook') return 'Zapier / Generiek webhook';
+    if (key === 'tracker')         return 'Tracker (trackbare link/QR)';
+    if (key === 'unknown')         return 'Onbekende bron';
+    if (key.indexOf('site:') === 0) {
+      var siteKey = key.slice(5);
+      var site = (S.sites || []).find(function (s) { return s.key === siteKey; });
+      return site ? site.label : siteKey;
+    }
+    return key;
   }
 
   function getModelCfg(modelName) {
@@ -435,7 +458,7 @@
 
     var f = S.filters;
     var tags = S.tags || [];
-    var hasActiveFilters = !!(f.search || f.status !== 'all' || f.tagIds.length);
+    var hasActiveFilters = !!(f.search || f.status !== 'all' || f.tagIds.length || f.source !== 'all');
 
     var tagChecks = tags.map(function (t) {
       var checked = f.tagIds.indexOf(t.id) !== -1;
@@ -445,12 +468,30 @@
       </label></li>`;
     }).join('');
 
+    // Koppelingtype-opties: enkel bronnen die daadwerkelijk in gebruik zijn
+    // (Zapier/webhook, Tracker, of een specifieke WordPress-site).
+    var usedSources = [];
+    (S.integrations || []).forEach(function (r) {
+      var k = integrationSourceKey(r);
+      if (usedSources.indexOf(k) === -1) usedSources.push(k);
+    });
+    usedSources.sort(function (a, b) {
+      return integrationSourceLabel(a).localeCompare(integrationSourceLabel(b));
+    });
+    var sourceOptions = usedSources.map(function (k) {
+      return `<option value="${esc(k)}"${f.source === k ? ' selected' : ''}>${esc(integrationSourceLabel(k))}</option>`;
+    }).join('');
+
     el.innerHTML = `
       <input id="listSearchInput" type="text" class="input input-bordered input-sm w-48" placeholder="Zoeken op naam..." value="${esc(f.search)}">
       <select id="listStatusFilter" class="select select-bordered select-sm">
         <option value="all"${f.status === 'all' ? ' selected' : ''}>Alle statussen</option>
         <option value="active"${f.status === 'active' ? ' selected' : ''}>Actief</option>
         <option value="inactive"${f.status === 'inactive' ? ' selected' : ''}>Inactief</option>
+      </select>
+      <select id="listSourceFilter" class="select select-bordered select-sm">
+        <option value="all"${f.source === 'all' ? ' selected' : ''}>Alle koppelingtypes</option>
+        ${sourceOptions}
       </select>
       <div class="dropdown">
         <button tabindex="0" type="button" class="btn btn-sm btn-ghost border border-base-300 gap-1.5">
@@ -490,6 +531,10 @@
 
     if (f.status === 'active')   list = list.filter(function (r) { return !!r.is_active; });
     if (f.status === 'inactive') list = list.filter(function (r) { return !r.is_active; });
+
+    if (f.source && f.source !== 'all') {
+      list = list.filter(function (r) { return integrationSourceKey(r) === f.source; });
+    }
 
     if (f.search) {
       var q = f.search.toLowerCase();
@@ -690,8 +735,9 @@
           var _modelLbl = _cfg.label || t.odoo_model || '';
           var _lbl = t.operation_type === 'chatter_message' ? 'Notitie bij ' + _modelLbl
             : t.operation_type === 'create_activity' ? 'Activiteit bij ' + _modelLbl
+            : t.operation_type === 'send_mail' ? 'Mail'
             : _modelLbl;
-          var _bc = (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity')
+          var _bc = (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity' || t.operation_type === 'send_mail')
             ? 'badge-ghost' : _cfg.badgeClass;
           if (ti > 0) _stepsHtml += '<i data-lucide="arrow-right" class="w-3 h-3 text-base-content/40 shrink-0"></i>';
           _stepsHtml += '<span class="badge badge-sm ' + esc(_bc) + '">' + esc(_lbl) + '</span>';
@@ -1234,7 +1280,7 @@
   // ═══════════════════════════════════════════════════════════════════════════
   // EXPORT
   // ═══════════════════════════════════════════════════════════════════════════
-  window.FSV2 = {
+  window.FSV2 = Object.assign(window.FSV2 || {}, {
     SKIP_TYPES: SKIP_TYPES,
     S: S,
     esc: esc,
@@ -1265,6 +1311,6 @@
     renderDefaults: renderDefaults,
     renderTrackerQrCode: renderTrackerQrCode,
     downloadTrackerQrCode: downloadTrackerQrCode,
-  };
+  });
 
 }());

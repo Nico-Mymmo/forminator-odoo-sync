@@ -24,6 +24,7 @@
     }
 
     var deleteUnlocked = !!S()._deleteUnlocked;
+    var showIdColumn   = !!S()._showIdColumn;
     var integId = String(S().activeId || '');
 
     // ── Toolbar ──────────────────────────────────────────────────────────
@@ -33,6 +34,9 @@
           ' data-action="toggle-delete-unlock" title="' + (deleteUnlocked ? 'Vergrendel verwijderen' : 'Schakel verwijderen in') + '">' +
           '<i data-lucide="' + (deleteUnlocked ? 'lock-open' : 'lock') + '" class="w-3.5 h-3.5"></i>' +
           (deleteUnlocked ? 'Vergrendelen' : 'Ontgrendelen') +
+        '</button>' +
+        '<button class="btn btn-xs btn-ghost gap-1" data-action="toggle-id-column" title="' + (showIdColumn ? 'ID-kolom verbergen' : 'ID-kolom tonen') + '">' +
+          '<i data-lucide="hash" class="w-3.5 h-3.5"></i>' + (showIdColumn ? 'ID verbergen' : 'ID tonen') +
         '</button>' +
         '<button class="btn btn-xs btn-ghost gap-1" data-action="cleanup-replays" title="Verwijder mislukte pogingen die later geslaagd zijn via replay">' +
           '<i data-lucide="sparkles" class="w-3.5 h-3.5"></i>Replay opkuis' +
@@ -55,7 +59,13 @@
     var listColumnsMap = {};
     listFieldIds.forEach(function (fid) {
       var ff    = allFormFields.find(function (f) { return String(f.field_id || '') === fid; });
-      var label = fieldMeta[fid].alias || (ff && ff.label) || fid;
+      // Nooit een lege kolomkop: een alias/label dat na trim() niets overhoudt
+      // (leeg, of alleen spaties — kan gebeuren bij oudere/handmatig gezette
+      // field_meta) telt niet mee, anders wint die lege string het van de
+      // fid-terugval en zie je een kolom zonder naam terwijl "alles ingesteld" is.
+      var aliasVal = String(fieldMeta[fid].alias || '').trim();
+      var labelVal = String((ff && ff.label) || '').trim();
+      var label = aliasVal || labelVal || fid;
       if (!listColumnsMap[label]) { listColumnsMap[label] = { fids: [], label: label }; }
       listColumnsMap[label].fids.push(fid);
     });
@@ -94,15 +104,23 @@
         : '<span class="text-base-content/30">&mdash;</span>';
     }
 
+    // Compact bolletje i.p.v. een volledig uitgeschreven tag — de tekst staat
+    // nog gewoon in de title-tooltip, ze hoeft niet in elke rij herhaald.
+    var statusMeta = {
+      success:            { color: 'bg-success', label: 'Geslaagd' },
+      processed:          { color: 'bg-success', label: 'Geslaagd' },
+      partial_failed:     { color: 'bg-warning', label: 'Deels mislukt' },
+      retry_scheduled:    { color: 'bg-warning', label: 'Retry gepland' },
+      permanent_failed:   { color: 'bg-error',   label: 'Definitief mislukt' },
+      retry_exhausted:    { color: 'bg-error',   label: 'Retries uitgeput' },
+      running:            { color: 'bg-info',    label: 'Bezig' },
+      retry_running:      { color: 'bg-info',    label: 'Bezig (retry)' },
+      duplicate_ignored:  { color: 'bg-neutral',       label: 'Duplicaat (genegeerd)' },
+      duplicate_inflight: { color: 'bg-neutral',       label: 'Duplicaat (in verwerking)' },
+    };
     var statusBadge = function (status) {
-      var classes = {
-        success: 'badge-success', processed: 'badge-success',
-        partial_failed: 'badge-warning', retry_scheduled: 'badge-warning',
-        permanent_failed: 'badge-error', retry_exhausted: 'badge-error',
-        running: 'badge-info', retry_running: 'badge-info',
-        duplicate_ignored: 'badge-neutral', duplicate_inflight: 'badge-neutral',
-      };
-      return '<span class="badge badge-sm ' + (classes[status] || 'badge-ghost') + '">' + esc(status || '-') + '</span>';
+      var m = statusMeta[status] || { color: 'bg-base-content/30', label: status || 'Onbekend' };
+      return '<span class="inline-block w-2.5 h-2.5 rounded-full ' + m.color + '" title="' + esc(m.label) + '"></span>';
     };
 
     var originals = S().submissions.filter(function (s) { return !s.replay_of_submission_id; });
@@ -123,16 +141,99 @@
 
     // (showIndiener removed — listColumns drives the dynamic columns)
 
+    // Volledig indiening-id per short-id, nodig om de mailstatus (live Odoo +
+    // Postmark-events) lazy op te halen als een rij uitgeklapt wordt — in de
+    // DOM staat alleen de shortId (data-sub-id).
+    var subIdByShort = {};
+    ordered.forEach(function (item) { subIdByShort[window.FSV2.shortId(item.sub.id)] = item.sub.id; });
+    var hasMailStep = targets.some(function (t) { return t.operation_type === 'send_mail'; });
+
     // Builds the expandable timeline row for a submission.
     var skipLabels = {
       pipeline_abort:                 'Overgeslagen \u2014 eerdere stap mislukt',
       dependency_missing:             'Overgeslagen \u2014 vereiste uitvoer ontbreekt',
       retry_skip_already_successful:  'Niet opnieuw uitgevoerd (replay)',
       condition_not_met:              'Stap overgeslagen (conditie niet voldaan)',
+      // send_mail — een niet-verzonden mail moet ALTIJD zijn reden tonen.
+      // Anders staat er "0 verzonden" zonder dat iemand weet waarom, en dat
+      // heeft bij de events-mails al een halve dag zoeken gekost.
+      no_recipient:                   'Geen mail \u2014 geen geldig e-mailadres gevonden',
+      blacklisted:                    'Geen mail \u2014 ontvanger heeft zich uitgeschreven',
+      mail_already_queued:            'Mail stond al klaar (niet nog eens aangemaakt)',
     };
-    var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error', posted: 'badge-success' };
-    var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt', posted: 'notitie geplaatst' };
-    var colCount = 5 + listColumns.length;
+    var actionColors = { created: 'badge-success', updated: 'badge-info', skipped: 'badge-ghost', failed: 'badge-error', posted: 'badge-success',
+      mail_scheduled: 'badge-info', mail_queued: 'badge-success', mail_skipped: 'badge-ghost',
+      mail_already_queued: 'badge-ghost', mail_failed: 'badge-error' };
+    var actionLabels = { created: 'aangemaakt', updated: 'bijgewerkt', skipped: 'geen wijziging', failed: 'mislukt', posted: 'notitie geplaatst',
+      mail_scheduled: 'mail klaargezet (later)', mail_queued: 'mail klaargezet', mail_skipped: 'geen mail',
+      mail_already_queued: 'mail stond al klaar', mail_failed: 'mail mislukt' };
+
+    // ── Mailstatus-icoon in de hoofdlijn ──────────────────────────────────
+    // Compacte weergave van waar de mail van deze indiening staat:
+    // aangemaakt (mail.mail is klaargezet) → verzonden → geopend → geklikt.
+    // "Aangemaakt" komt uit de al aanwezige resolved_context (geen extra
+    // call); verzonden/geopend/geklikt komen uit S().mailEventsBySubmission,
+    // één bulk-call per koppeling (zie openDetail in forminator-sync-v2-
+    // detail-lifecycle.js) — een live Odoo-call per rij zou bij tientallen
+    // indieningen een lawine aan verzoeken geven.
+    var FUNNEL_STAGES = ['created', 'delivered', 'opened', 'clicked'];
+    var funnelStageLabels = { created: 'Aangemaakt', delivered: 'Verzonden', opened: 'Geopend', clicked: 'Geklikt' };
+
+    function mailFunnelIcon(sub) {
+      var ctx;
+      try {
+        var rc = sub.resolved_context;
+        ctx = (rc && typeof rc === 'object') ? rc : JSON.parse(rc || '{}');
+      } catch (e) { ctx = {}; }
+      var actions = ctx.target_actions || [];
+      var mailActions = actions.filter(function (a) { return a.action && String(a.action).indexOf('mail') === 0; });
+
+      if (!mailActions.length) {
+        return '<span class="text-base-content/20 text-xs" title="Nog geen mailstap uitgevoerd">&middot;</span>';
+      }
+
+      var last = mailActions[mailActions.length - 1];
+      if (last.action === 'mail_failed') {
+        var failTitle = 'Mail mislukt' + (last.error_detail ? ': ' + last.error_detail : '');
+        return '<i data-lucide="mail-warning" class="w-3.5 h-3.5 text-error" title="' + esc(failTitle) + '"></i>';
+      }
+      if (last.action === 'mail_skipped') {
+        var skipTitle = (last.skipped_reason && skipLabels[last.skipped_reason]) || 'Geen mail (overgeslagen)';
+        return '<i data-lucide="mail-x" class="w-3.5 h-3.5 text-base-content/30" title="' + esc(skipTitle) + '"></i>';
+      }
+
+      // mail_scheduled / mail_queued / mail_already_queued: er staat een mail.mail klaar.
+      var eventsForSub = (S().mailEventsBySubmission && S().mailEventsBySubmission[sub.id]) || [];
+      var reached = 0; // 0 = aangemaakt
+      if (eventsForSub.indexOf('delivery') !== -1) reached = 1;
+      if (eventsForSub.indexOf('open')     !== -1) reached = 2;
+      if (eventsForSub.indexOf('click')    !== -1) reached = 3;
+
+      var dots = FUNNEL_STAGES.map(function (key, i) {
+        return '<span class="inline-block w-1.5 h-1.5 rounded-full ' + (i <= reached ? 'bg-success' : 'bg-base-content/15') + '"></span>';
+      }).join('');
+      var title = FUNNEL_STAGES.slice(0, reached + 1).map(function (k) { return funnelStageLabels[k]; }).join(' \u2192 ');
+      return '<span class="inline-flex items-center gap-0.5" title="' + esc(title) + '">' + dots + '</span>';
+    }
+    // Per-rij replay/verwijder-status vooraf berekenen: (a) om te weten of de
+    // Actie-kolom überhaupt iets te tonen heeft — geen enkele indiening met een
+    // knop en niet ontgrendeld betekent: geen kolom, in plaats van een lege
+    // kolom die enkel ruimte inneemt — en (b) om dezelfde berekening niet
+    // straks nog eens te doen bij het bouwen van elke rij.
+    var rowFlags = ordered.map(function (item) {
+      var sub = item.sub, isReplay = item.isReplay;
+      var successfulReplay = !isReplay && (replaysByOrigId[sub.id] || []).some(function (r) {
+        return ['success', 'processed'].includes(String(r.status || ''));
+      });
+      var replayAllowed = !isReplay && !successfulReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
+      var forceReplayAllowed = deleteUnlocked && !replayAllowed && ['success', 'processed', 'partial_failed'].includes(String(sub.status || ''));
+      return { successfulReplay: successfulReplay, replayAllowed: replayAllowed, forceReplayAllowed: forceReplayAllowed };
+    });
+    var anyActie = deleteUnlocked || rowFlags.some(function (f) { return f.replayAllowed || f.forceReplayAllowed; });
+
+    // Vaste kolommen zonder ID/Fout: Status, Aangemaakt. Fout staat nu in de
+    // uitgeklapte rij (zie buildTimelineRow); ID, Mail en Actie zijn optioneel.
+    var colCount = 2 + (showIdColumn ? 1 : 0) + (hasMailStep ? 1 : 0) + (anyActie ? 1 : 0) + listColumns.length;
 
     function buildTimelineRow(sub) {
       var shortId = window.FSV2.shortId(sub.id);
@@ -217,9 +318,23 @@
           }).join('')
         : '<span class="text-xs text-base-content/40 italic">Geen stapdetails beschikbaar.</span>';
 
-      var errorHtml = (isFailed && sub.last_error)
+      // De Fout-kolom staat niet meer los in de lijst (te breed/te prominent voor
+      // een geval dat de meeste indieningen niet raakt) — wie de rij uitklapt ziet
+      // de volledige foutmelding hier, ongeacht of de status uiteindelijk "mislukt" is.
+      var errorHtml = sub.last_error
         ? '<div class="mt-2 p-2 rounded bg-error/10 border border-error/20 text-xs text-error font-mono break-all">' +
             '<span class="font-semibold mr-1">Fout:</span>' + esc(sub.last_error) +
+          '</div>'
+        : '';
+
+      var mailSlotHtml = hasMailStep
+        ? '<div class="mt-3">' +
+            '<div class="text-xs font-semibold text-base-content/60 mb-1 flex items-center gap-1">' +
+              '<i data-lucide="mail" class="w-3 h-3"></i>Mail' +
+            '</div>' +
+            '<div class="mail-status-slot" data-sub-id="' + esc(shortId) + '">' +
+              '<span class="text-xs text-base-content/30 italic">Klap open om te laden…</span>' +
+            '</div>' +
           '</div>'
         : '';
 
@@ -246,7 +361,7 @@
         '</div>';
 
       return '<tr class="sub-timeline-row" id="stl-' + esc(shortId) + '" style="display:none">' +
-        '<td colspan="' + colCount + '" class="bg-base-200/40 px-4 py-3">' + payloadHtml + timelineHtml + errorHtml + payloadDetailHtml + '</td>' +
+        '<td colspan="' + colCount + '" class="bg-base-200/40 px-4 py-3">' + payloadHtml + timelineHtml + errorHtml + mailSlotHtml + payloadDetailHtml + '</td>' +
         '</tr>';
     }
 
@@ -267,46 +382,63 @@
       toolbar +
       '<div class="overflow-x-auto">' +
         '<table class="table table-xs">' +
-          '<thead><tr><th>ID</th>' + listColumns.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '<th>Status</th><th>Fout</th><th>Aangemaakt</th><th class="sticky right-0 bg-base-100 z-10">Actie</th></tr></thead>' +
+          '<thead><tr>' +
+            '<th class="w-px">Status</th>' +
+            (showIdColumn ? '<th class="w-px whitespace-nowrap">ID</th>' : '') +
+            listColumns.map(function (c) { return '<th class="max-w-[16rem]">' + esc(c.label) + '</th>'; }).join('') +
+            (hasMailStep ? '<th class="w-px whitespace-nowrap">Mail</th>' : '') +
+            '<th class="w-px whitespace-nowrap">Aangemaakt</th>' +
+            (anyActie ? '<th class="w-px whitespace-nowrap sticky right-0 bg-base-100 z-10">Actie</th>' : '') +
+          '</tr></thead>' +
           '<tbody>' +
-          ordered.map(function (item) {
+          ordered.map(function (item, idx) {
             var sub         = item.sub;
             var isReplay    = item.isReplay;
             var shortId     = window.FSV2.shortId(sub.id);
-            var successfulReplay = !isReplay && (replaysByOrigId[sub.id] || []).some(function (r) {
-              return ['success', 'processed'].includes(String(r.status || ''));
-            });
-            var replayAllowed = !isReplay && !successfulReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
+            var flags               = rowFlags[idx];
+            var successfulReplay    = flags.successfulReplay;
+            var replayAllowed       = flags.replayAllowed;
             // Force-replay: allow replaying any submission (incl. success) when delete is unlocked.
             // Useful to retroactively fix submissions that were processed with broken mappings.
-            var forceReplayAllowed = deleteUnlocked && !replayAllowed && ['success', 'processed', 'partial_failed'].includes(String(sub.status || ''));
-            var errorCell   = sub.last_error
-              ? '<span class="text-xs text-error/80 font-mono" title="' + esc(sub.last_error) + '">' +
-                  esc(sub.last_error.slice(0, 40)) + (sub.last_error.length > 40 ? '\u2026' : '') +
-                '</span>'
-              : '<span class="text-base-content/30">&mdash;</span>';
+            var forceReplayAllowed  = flags.forceReplayAllowed;
+            // Fout staat niet meer in de lijn zelf (zie errorHtml in de uitgeklapte rij).
+            // Status toont alleen nog het bolletje + een compact "opgelost via replay"-icoon —
+            // de per-stap-badges (aangemaakt/bijgewerkt/…) staan al in de uitgeklapte tijdlijn
+            // en verdubbelden de kolom onnodig. Acties zijn icoon-only (title = tooltip) i.p.v.
+            // een volledig uitgeschreven knop, en de hele kolom bestaat niet als geen enkele
+            // rij iets te doen heeft (zie anyActie hierboven).
             var mainRow =
               '<tr class="sub-row cursor-pointer' + (isReplay ? ' bg-success/5' : '') + '" data-sub-id="' + esc(shortId) + '">' +
-                '<td class="font-mono text-xs">' +
-                  (isReplay ? '<span class="badge badge-xs badge-accent mr-1">\u21b3 Replay</span>' : '') +
-                  esc(shortId) +
-                '</td>' +
-                listColumns.map(function (c) { return '<td class="text-xs">' + listColumnValue(sub, c) + '</td>'; }).join('') +
-                '<td>' + statusBadge(sub.status) +
-                  (successfulReplay ? '<span class="badge badge-xs badge-success ml-1">✓ opgelost via replay</span>' : '') +
-                  actionBadge(sub) + '</td>' +
-                '<td class="max-w-[10rem] truncate overflow-hidden">' + errorCell + '</td>' +
-                '<td class="text-xs whitespace-nowrap">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
-                '<td class="sticky right-0 bg-base-100">' + (replayAllowed
-                  ? '<button class="btn btn-xs btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '">Replay</button>'
+                '<td class="w-px">' + statusBadge(sub.status) +
+                  (successfulReplay ? '<i data-lucide="corner-down-right" class="w-3 h-3 text-success ml-1 inline-block align-middle" title="Opgelost via replay"></i>' : '') +
+                  '</td>' +
+                (showIdColumn
+                  ? '<td class="font-mono text-xs whitespace-nowrap">' +
+                      (isReplay ? '<span class="badge badge-xs badge-accent mr-1">↳ Replay</span>' : '') +
+                      esc(shortId) +
+                    '</td>'
                   : '') +
-                  (forceReplayAllowed
-                    ? '<button class="btn btn-xs btn-outline btn-warning" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Opnieuw verwerken (forceren)"><i data-lucide="refresh-cw" class="w-3 h-3 mr-1"></i>Herverwerk</button>'
-                    : '') +
-                  (deleteUnlocked
-                    ? '<button class="btn btn-xs btn-ghost btn-square text-error ml-1" data-action="delete-submission" data-id="' + esc(sub.id) + '" title="Verwijder indienen"><i data-lucide="trash-2" class="w-3 h-3"></i></button>'
-                    : '') +
-                '</td>' +
+                listColumns.map(function (c) { return '<td class="text-xs max-w-[16rem]">' + listColumnValue(sub, c) + '</td>'; }).join('') +
+                (hasMailStep ? '<td class="w-px whitespace-nowrap">' + mailFunnelIcon(sub) + '</td>' : '') +
+                '<td class="text-xs whitespace-nowrap w-px">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
+                (anyActie
+                  ? '<td class="sticky right-0 bg-base-100 w-px whitespace-nowrap">' +
+                      '<div class="flex items-center gap-1">' +
+                      (replayAllowed
+                        ? '<button class="btn btn-xs btn-square btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Replay"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>'
+                        : '') +
+                      (forceReplayAllowed
+                        ? '<button class="btn btn-xs btn-square btn-outline btn-warning" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Opnieuw verwerken (forceren)"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>'
+                        : '') +
+                      (deleteUnlocked && hasMailStep
+                        ? '<button class="btn btn-xs btn-square btn-outline" data-action="replay-mail-events" data-id="' + esc(sub.id) + '" title="Opgeslagen mail-events opnieuw naar Odoo sturen"><i data-lucide="mail-check" class="w-3 h-3"></i></button>'
+                        : '') +
+                      (deleteUnlocked
+                        ? '<button class="btn btn-xs btn-square btn-ghost text-error" data-action="delete-submission" data-id="' + esc(sub.id) + '" title="Verwijder indienen"><i data-lucide="trash-2" class="w-3 h-3"></i></button>'
+                        : '') +
+                      '</div>' +
+                    '</td>'
+                  : '') +
               '</tr>';
             return mainRow + buildTimelineRow(sub);
           }).join('') +
@@ -318,9 +450,94 @@
       tr.addEventListener('click', function (e) {
         if (e.target.closest('button, a')) return;
         var timeline = document.getElementById('stl-' + tr.dataset.subId);
-        if (timeline) timeline.style.display = (timeline.style.display === 'none' ? '' : 'none');
+        if (!timeline) return;
+        var opening = timeline.style.display === 'none';
+        timeline.style.display = opening ? '' : 'none';
+        if (opening) loadMailStatus(tr.dataset.subId);
       });
-    });  }
+    });
+
+    /**
+     * De live mailstatus van één indiening ophalen: het `mail.mail`-record uit
+     * Odoo (verzonden/in wachtrij/mislukt) plus de Postmark-events die er ondertussen
+     * op binnenkwamen. Lazy en per rij, want dit is een live Odoo-call en er kunnen
+     * tientallen indieningen tegelijk in de lijst staan — alles vooraf ophalen zou
+     * bij elke keer openen van de tab een lawine aan Odoo-verzoeken geven.
+     */
+    function loadMailStatus(shortIdVal) {
+      var slot = el.querySelector('.mail-status-slot[data-sub-id="' + shortIdVal + '"]');
+      if (!slot || slot.dataset.loaded === '1') return;
+      slot.dataset.loaded = '1';
+      var fullId = subIdByShort[shortIdVal];
+      if (!fullId) {
+        slot.innerHTML = '<span class="text-xs text-base-content/30 italic">Indiening-id onbekend.</span>';
+        return;
+      }
+      window.FSV2.api('/submissions/' + fullId + '/mails').then(function (res) {
+        slot.innerHTML = renderMailStatusHtml(res.data || {});
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+      }).catch(function (e) {
+        slot.dataset.loaded = '';
+        slot.innerHTML = '<span class="text-xs text-error/70">Kon mailstatus niet laden: ' + esc(e.message) + '</span>';
+      });
+    }
+  }
+
+
+  // ── Mailstatus-weergave (live Odoo mail.mail + Postmark-events) ──────────
+  var mailStateLabels = { outgoing: 'In wachtrij', sent: 'Verzonden', exception: 'Mislukt', cancel: 'Geannuleerd', received: 'Ontvangen' };
+  var mailStateColors = { outgoing: 'badge-info', sent: 'badge-success', exception: 'badge-error', cancel: 'badge-ghost', received: 'badge-success' };
+  var mailEventLabels = { delivery: 'Afgeleverd', open: 'Geopend', click: 'Geklikt', bounce: 'Bounce', spamcomplaint: 'Spamklacht', subscriptionchange: 'Uitschrijving' };
+  var mailEventColors = { delivery: 'badge-success', open: 'badge-info', click: 'badge-primary', bounce: 'badge-error', spamcomplaint: 'badge-error', subscriptionchange: 'badge-warning' };
+  // Zelfde teksten als de skip-redenen in de tijdlijn (skipLabels daarboven is
+  // scope-lokaal aan renderDetailSubmissions) — hier een eigen, kleine kopie
+  // voor de mailstatus-stappen die geen mail.mail opleverden.
+  var mailSkipLabels = {
+    no_recipient:         'Geen mail — geen geldig e-mailadres gevonden',
+    blacklisted:          'Geen mail — ontvanger heeft zich uitgeschreven',
+    mail_already_queued:  'Mail stond al klaar (niet nog eens aangemaakt)',
+    condition_not_met:    'Stap overgeslagen (conditie niet voldaan)',
+  };
+
+  function renderMailStatusHtml(data) {
+    var mails  = Array.isArray(data.mails)  ? data.mails  : [];
+    var events = Array.isArray(data.events) ? data.events : [];
+    var steps  = Array.isArray(data.steps)  ? data.steps  : [];
+
+    if (!mails.length && !events.length && !steps.length) {
+      return '<span class="text-xs text-base-content/40 italic">Geen mailgegevens voor deze indiening.</span>';
+    }
+
+    var mailsHtml = mails.map(function (m) {
+      var state = mailStateColors[m.state] || 'badge-ghost';
+      var when  = m.date ? window.FSV2.fmt(m.date) : (m.scheduled_date ? 'gepland ' + window.FSV2.fmt(m.scheduled_date) : '');
+      return '<div class="flex flex-wrap items-center gap-1.5 text-xs py-1">' +
+        '<span class="badge badge-xs ' + state + '">' + esc(mailStateLabels[m.state] || m.state || '-') + '</span>' +
+        '<span class="truncate max-w-[16rem]">' + esc(m.subject || '(geen onderwerp)') + '</span>' +
+        '<span class="text-base-content/30">&rarr;</span>' +
+        '<span class="font-mono text-base-content/50">' + esc(m.email_to || '-') + '</span>' +
+        (when ? '<span class="text-base-content/40">' + esc(when) + '</span>' : '') +
+        (m.failure_reason ? '<span class="text-error font-mono break-all">' + esc(m.failure_reason) + '</span>' : '') +
+      '</div>';
+    }).join('');
+
+    var skippedHtml = steps.filter(function (s) { return s.skipped_reason && mailSkipLabels[s.skipped_reason]; }).map(function (s) {
+      return '<div class="text-xs text-base-content/50 italic py-0.5">' + esc(mailSkipLabels[s.skipped_reason]) + '</div>';
+    }).join('');
+
+    var eventsHtml = events.length
+      ? '<div class="flex flex-wrap items-center gap-1.5 mt-1">' +
+          events.map(function (e) {
+            return '<span class="badge badge-xs ' + (mailEventColors[e.event_type] || 'badge-ghost') + '" title="' + esc(window.FSV2.fmt(e.occurred_at)) + '">' +
+              esc(mailEventLabels[e.event_type] || e.event_type) +
+              (e.event_type === 'open' && e.first_open ? ' (1e)' : '') +
+            '</span>';
+          }).join('') +
+        '</div>'
+      : (mails.length ? '<div class="text-xs text-base-content/30 italic mt-1">Nog geen afleverings-/open-events van Postmark ontvangen.</div>' : '');
+
+    return mailsHtml + skippedHtml + eventsHtml;
+  }
 
   async function handleReplay(submissionId) {
     var body = await window.FSV2.api('/submissions/' + submissionId + '/replay', {
@@ -338,8 +555,39 @@
     await window.FSV2.openDetail(S().activeId);
   }
 
+  // Herhaalt enkel wat al in fs_v2_mail_events staat -- geen nieuwe Postmark-
+  // events, gewoon de Odoo-sync (chatter + mail.mail.state) opnieuw uitvoeren.
+  // Nuttig als de sync-code na het event gedeployed is, of Odoo even
+  // onbereikbaar was toen het event binnenkwam.
+  async function handleReplayMailEvents(submissionId) {
+    try {
+      var res = await window.FSV2.api('/submissions/' + submissionId + '/replay-mail-events', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      var d = res.data || {};
+      var msg = d.replayed + ' event(en) opnieuw naar Odoo gestuurd';
+      if (d.not_worthy) msg += ', ' + d.not_worthy + ' overgeslagen (geen chatter-waardig event)';
+      if (d.failed) msg += ', ' + d.failed + ' mislukt';
+      window.FSV2.showAlert(msg + '.', d.failed ? 'warning' : 'success');
+      // Herlaadt de hele detailweergave (zelfde patroon als handleReplay/
+      // handleDeleteSubmission) -- de mailstatus-slot in de uitgeklapte rij is
+      // scope-lokaal aan renderDetailSubmissions en hier niet bereikbaar; een
+      // volledige herladen haalt ook meteen de bijgewerkte mail.mail.state op.
+      await window.FSV2.openDetail(S().activeId);
+    } catch (e) {
+      window.FSV2.showAlert('Herfiren mislukt: ' + e.message, 'error');
+    }
+  }
+
   function handleToggleDeleteUnlock() {
     S()._deleteUnlocked = !S()._deleteUnlocked;
+    window.FSV2.renderDetailSubmissions();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+  }
+
+  function handleToggleIdColumn() {
+    S()._showIdColumn = !S()._showIdColumn;
     window.FSV2.renderDetailSubmissions();
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
@@ -362,7 +610,9 @@
     handleCleanupReplays: handleCleanupReplays,
     handleDeleteSubmission: handleDeleteSubmission,
     handleReplay: handleReplay,
+    handleReplayMailEvents: handleReplayMailEvents,
     handleToggleDeleteUnlock: handleToggleDeleteUnlock,
+    handleToggleIdColumn: handleToggleIdColumn,
     renderDetailSubmissions: renderDetailSubmissions
   });
 })();

@@ -34,6 +34,8 @@
  * mini-apps-templates).
  */
 
+import { BLOCK_TYPE } from '../../../lib/mail/block-types.js';
+
 /** Versie van de JSON-vorm. */
 export const MAIL_BLOCKS_VERSION = 2;
 
@@ -58,21 +60,13 @@ export const HEADER_SLOTS = [...SITES, SITE_FALLBACK];
  * Er zit geen `hero` meer bij: de header is geen blok maar een eigen veld,
  * juist omdat hij als enige per bedrijf verschilt.
  */
-export const BLOCK_TYPE = {
-  HEADING: 'heading',
-  TEXT: 'text',
-  EVENT_DETAILS: 'event_details',
-  BUTTON: 'button',
-  MAP: 'map',
-  SIGNATURE: 'signature',
-  VIDEO: 'video',
-  IMAGE: 'image',
-  DIVIDER: 'divider',
-  SPACER: 'spacer',
-  CARD_BREAK: 'card_break',
-  FOOTER: 'footer',
-  ANNOUNCEMENT: 'announcement'
-};
+/**
+ * De bloktypes staan in `src/lib/mail/block-types.js`, omdat de gedeelde
+ * renderer ze ook nodig heeft en twee lijsten die "hetzelfde" bloktype anders
+ * spellen precies de tweede waarheid is die de mailstudio kwam opruimen.
+ * Hier her-geexporteerd zodat elke bestaande import blijft werken.
+ */
+export { BLOCK_TYPE };
 
 export const BLOCK_TYPES = Object.values(BLOCK_TYPE);
 

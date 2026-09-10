@@ -15,6 +15,7 @@ const TABLES = {
   tags:            'fs_v2_tags',
   integrationTags: 'fs_v2_integration_tags',
   trackerHits:     'fs_v2_tracker_hits',
+  mailEvents:      'fs_v2_mail_events',
 };
 
 function getSupabase(env) {
@@ -964,6 +965,56 @@ export async function listSubmissionTargetResults(env, submissionId) {
   return ensureArray(data);
 }
 
+/**
+ * Eén Postmark-event wegschrijven.
+ *
+ * Geen ontdubbeling: Postmark stuurt bij elke heropening opnieuw een event, en
+ * die willen we allemaal houden. De teller in de UI werkt daarom op DISTINCT
+ * indieningen, niet op het aantal rijen.
+ */
+export async function createMailEvent(env, row) {
+  const supabase = getSupabase(env);
+  const { error } = await supabase.from(TABLES.mailEvents).insert(row);
+  if (error) throw new Error(`Failed to create mail event: ${error.message}`);
+  return true;
+}
+
+/**
+ * De Postmark-events (afgeleverd, geopend, geklikt, bounce) van één indiening.
+ *
+ * Alle open-events worden bewaard, ook heropeningen -- vandaar dat de teller
+ * in de UI op DISTINCT moet werken en niet op het aantal rijen.
+ */
+export async function listMailEventsBySubmission(env, submissionId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.mailEvents)
+    .select('*')
+    .eq('submission_id', submissionId)
+    .order('occurred_at', { ascending: true });
+
+  if (error) throw new Error(`Failed to list mail events: ${error.message}`);
+  return ensureArray(data);
+}
+
+/**
+ * Alle Postmark-events van een koppeling in één keer, alleen `submission_id` +
+ * `event_type` -- genoeg om per indiening te weten welke fase (afgeleverd/
+ * geopend/geklikt) bereikt is voor het mail-icoon in de hoofdlijn van
+ * Indieningen. Een losse call per indiening zou bij een lijst van tientallen
+ * indieningen evenveel Supabase-rondes kosten; dit is er één.
+ */
+export async function listMailEventTypesByIntegration(env, integrationId) {
+  const supabase = getSupabase(env);
+  const { data, error } = await supabase
+    .from(TABLES.mailEvents)
+    .select('submission_id, event_type')
+    .eq('integration_id', integrationId);
+
+  if (error) throw new Error(`Failed to list mail event types for integration: ${error.message}`);
+  return ensureArray(data);
+}
+
 export async function getLatestSubmissionTargetResultByTarget(env, submissionId, targetId) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
@@ -1296,11 +1347,17 @@ export async function getIntegrationWarnings(env) {
     .order('execution_order', { ascending: true });
   if (targetsErr) throw new Error(`Failed to load targets: ${targetsErr.message}`);
 
-  // Sla chatter- en activiteit-stappen over — die hebben geen gewone veldmappings
+  // Sla stappen over die geen gewone veldmappings hebben: chatter/activiteit
+  // schrijven niet via `mappings`, en een mailstap/mailinglijst-stap erft het
+  // model van de stap waaraan hij hangt (bv. res.partner) zonder ooit een
+  // mapping voor dat model aan te maken — die kregen hierdoor altijd 100% van
+  // dat model diens verplichte velden als "ontbrekend" te zien.
   const relevantTargets = (targets || []).filter(t =>
     requiredByModel[t.odoo_model] &&
     t.operation_type !== 'chatter_message' &&
-    t.operation_type !== 'create_activity'
+    t.operation_type !== 'create_activity' &&
+    t.operation_type !== 'send_mail' &&
+    t.operation_type !== 'mailing_list'
   );
   if (!relevantTargets.length) return {};
 

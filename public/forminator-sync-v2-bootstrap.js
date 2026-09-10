@@ -489,6 +489,7 @@
         S.filters.search = '';
         S.filters.status = 'all';
         S.filters.tagIds = [];
+        S.filters.source = 'all';
         window.FSV2.renderList();
         return;
       }
@@ -530,8 +531,16 @@
         await window.FSV2.handleDeleteSubmission(btn.dataset.id);
         return;
       }
+      if (action === 'replay-mail-events') {
+        await window.FSV2.handleReplayMailEvents(btn.dataset.id);
+        return;
+      }
       if (action === 'toggle-delete-unlock') {
         window.FSV2.handleToggleDeleteUnlock();
+        return;
+      }
+      if (action === 'toggle-id-column') {
+        window.FSV2.handleToggleIdColumn();
         return;
       }
       if (action === 'cleanup-replays') {
@@ -1774,6 +1783,11 @@
     // Overzicht koppelingen — status/sorteer-filters + tag-filter
     if (inp && inp.id === 'listStatusFilter') {
       S.filters.status = inp.value;
+      window.FSV2.renderList();
+      return;
+    }
+    if (inp && inp.id === 'listSourceFilter') {
+      S.filters.source = inp.value;
       window.FSV2.renderList();
       return;
     }

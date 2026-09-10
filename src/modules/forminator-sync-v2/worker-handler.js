@@ -24,6 +24,7 @@ import { classifyFailureType, computeNextRetryAt, getMaxAttemptsTotal } from './
 import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnlyRecord, postChatterMessage, createActivity, readRecordField } from './odoo-client.js';
 import { executeKw } from '../../lib/odoo.js';
 import { buildHtmlFormSummary } from './html-utils.js';
+import { runSendMailStep } from './mail-step.js';
 
 function createPermanentError(message) {
   const error = new Error(message);
@@ -974,6 +975,64 @@ async function runSubmissionAttempt(env, {
         continue;
       }
 
+      // ── send_mail: één gewone mail klaarzetten in Odoo (mail.mail) ─────────
+      //
+      // De logica staat in mail-step.js; hier alleen de aansluiting.
+      //
+      // EEN MISLUKTE MAIL IS NIET FATAAL. Op dit punt is de lead al aangemaakt.
+      // De submissie laten falen zou een retry uitlokken die het hele
+      // voortraject opnieuw doet, en dat is een zwaarder middel dan het
+      // probleem. De reden komt in het indieningsspoor terecht, zoals bij
+      // create_activity.
+      //
+      // BIJ EEN RETRY LOOPT DEZE STAP OPNIEUW, en dat is de bedoeling:
+      // shouldSkipOnRetry() kijkt alleen naar created/updated/skipped, en de
+      // acties hier heten anders. Dubbele mails kan dat niet geven -- de
+      // bewaking zit op de message_id in mail-step.js, die vindt het bestaande
+      // mail.mail-record en geeft 'mail_already_queued' terug.
+      if (opType === 'send_mail') {
+        try {
+          const mailResult = await runSendMailStep(env, {
+            target,
+            integration:  { id: submission.integration_id },
+            submissionId: submission.id,
+            form:         normalizedForm,
+            lookupForm:   lookupFormValue,
+            contextObject
+          });
+
+          const targetResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   mailResult.action,
+            skipped_reason:  mailResult.skipped,
+            odoo_record_id:  mailResult.recordId || null,
+            error_detail:    mailResult.detail || null,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          console.log(attemptTag, 'send_mail', mailResult.action,
+            '| mail_id:', mailResult.recordId || null,
+            '| reden:', mailResult.skipped || '-');
+        } catch (mailError) {
+          const targetResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   'mail_failed',
+            skipped_reason:  null,
+            odoo_record_id:  null,
+            error_detail:    mailError.message,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          console.warn(attemptTag, 'send_mail failed (non-fatal):', mailError.message);
+        }
+        continue;
+      }
       // ── chatter_message helpers ────────────────────────────────────────────
       // Wrapper round buildHtmlFormSummary that resolves each field ID through
       // lookupFormValue (fuzzy matching) so that e.g. 'text-1' matches 'text_1'

@@ -5,6 +5,7 @@
  * - /assets/* (R2 publieke bestanden)
  * - /api/auth/login | logout | me
  * - Forminator Sync V2 webhooks (token-auth)
+ * - Postmark-webhook (token-auth): /forminator-v2/api/webhooks/postmark
  * - Mini-app discovery (token-auth): /insights/api/sales-insights/mini-app-discovery/*
  *   -- laat een AI-gesprek dat een mini-app bouwt/bijwerkt de STRUCTUUR van
  *   gedeelde Sales Insight Explorer-queries opvragen zonder sessie-cookie.
@@ -28,6 +29,11 @@ import { validateKey } from '../modules/asset-manager/lib/path-utils.js';
 import { getMimeType } from '../modules/asset-manager/lib/mime-types.js';
 import { extractSessionToken } from './auth-gate.js';
 import { getIntegrationByTrackerSlug, logTrackerHit } from '../modules/forminator-sync-v2/database.js';
+import {
+  handlePostmarkWebhook,
+  isPostmarkWebhookAuthorized,
+  isPostmarkWebhookPath
+} from '../modules/forminator-sync-v2/postmark-webhook.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -404,6 +410,16 @@ export async function handlePublicRoutes(request, env, ctx) {
     }
 
     return await handleMe({ user });
+  }
+
+  // Postmark-webhook: afgeleverd/geopend/geklikt/bounce van de send_mail-stap.
+  // Token-auth via ?token= (Postmark stuurt geen sessie-cookie). Zonder
+  // POSTMARK_WEBHOOK_SECRET is de route dicht, niet open.
+  if (isPostmarkWebhookPath(pathname, request.method)) {
+    if (!isPostmarkWebhookAuthorized(request, env)) {
+      return json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    return await handlePostmarkWebhook(request, env);
   }
 
   // Public webhook intake for Forminator Sync V2 (token-auth, no session required)

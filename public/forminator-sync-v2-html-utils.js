@@ -6,12 +6,33 @@
 (function () {
   var SYSTEM_KEYS = ['form_id', 'form_uid', 'ovme_forminator_id', 'nonce'];
 
+  // Forminator-/WordPress-plumbing (reCAPTCHA-token, verwijsherkomst, WP-hidden
+  // fields, Forminator's eigen renderingmetadata) — zie de uitgebreide uitleg
+  // in src/modules/forminator-sync-v2/html-utils.js (de bron van dit bestand).
+  // Deze velden zitten niet in Forminator's form_fields-schema en zijn dus
+  // nergens uit te vinken in de veld-checklist; onzichtbaar/niet-configureerbaar
+  // mag daarom ook niet doorgestuurd worden bij een "alle velden"-notitie.
+  var TECHNICAL_KEYS = [
+    'g_recaptcha_response', 'h_captcha_response', 'cf_turnstile_response',
+    'hidden', 'referer_url', 'wp_http_referer', 'page_id', 'form_type',
+    'current_url', 'render_id', 'forminator_user_ip', 'form_title', 'entry_time'
+  ];
+
+  function canonicalKey(key) {
+    return String(key || '')
+      .toLowerCase()
+      .replace(/^_+/, '')
+      .replace(/[-\s]+/g, '_');
+  }
+
   /**
    * Generates an Odoo-compatible HTML table from form field values.
    *
    * @param {string[] | null} fieldIds
-   *   null        → include all non-system fields from normalizedForm
-   *   string[]    → include only the specified field IDs (empty values omitted)
+   *   null        → include all non-system, non-technical fields from normalizedForm
+   *                 (zie TECHNICAL_KEYS hierboven)
+   *   string[]    → include only the specified field IDs (empty values omitted).
+   *                 Een expliciete selectie wordt nooit tegen TECHNICAL_KEYS gefilterd.
    *
    * @param {Object} normalizedForm  Normalised key-value map of submitted form fields.
    * @param {Object|null} [labelMap]  Optional map of fieldId → display label.
@@ -28,7 +49,7 @@
     var entries;
     if (fieldIds === null) {
       entries = Object.entries(normalizedForm).filter(function (kv) {
-        return !SYSTEM_KEYS.includes(kv[0]) && !kv[0].includes('.');
+        return !SYSTEM_KEYS.includes(kv[0]) && !kv[0].includes('.') && TECHNICAL_KEYS.indexOf(canonicalKey(kv[0])) === -1;
       });
     } else {
       entries = fieldIds
@@ -76,14 +97,14 @@
     cells.forEach(function (cell) {
       if (cell.isLong) {
         if (pending) {
-          rows += '<tr><td style="padding-bottom:12px" colspan="2">' + pending + '</td></tr>';
+          rows += '<tr><td style="padding-bottom:12px;vertical-align:top" colspan="2">' + pending + '</td></tr>';
           pending = null;
         }
-        rows += '<tr><td style="padding-bottom:12px" colspan="2">' + cell.html + '</td></tr>';
+        rows += '<tr><td style="padding-bottom:12px;vertical-align:top" colspan="2">' + cell.html + '</td></tr>';
       } else if (pending) {
         rows += '<tr>'
-          + '<td style="padding-bottom:12px;padding-right:6px;width:50%">' + pending + '</td>'
-          + '<td style="padding-bottom:12px;width:50%">' + cell.html + '</td>'
+          + '<td style="padding-bottom:12px;padding-right:6px;width:50%;vertical-align:top">' + pending + '</td>'
+          + '<td style="padding-bottom:12px;width:50%;vertical-align:top">' + cell.html + '</td>'
           + '</tr>';
         pending = null;
       } else {
@@ -91,7 +112,7 @@
       }
     });
     if (pending) {
-      rows += '<tr><td style="padding-bottom:12px" colspan="2">' + pending + '</td></tr>';
+      rows += '<tr><td style="padding-bottom:12px;vertical-align:top" colspan="2">' + pending + '</td></tr>';
     }
 
     return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,sans-serif;font-size:14px;color:#212529;border:1px solid #dee2e6;border-radius:8px;padding:16px;background:#f8f9fa"><table style="width:100%;border-collapse:collapse"><tbody>${rows}</tbody></table></div>`;

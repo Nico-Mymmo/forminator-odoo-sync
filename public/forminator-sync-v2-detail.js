@@ -249,6 +249,8 @@
             stepLabel = 'Activiteit bij ' + modelLabel;
           } else if (t.operation_type === 'mailing_list') {
             stepLabel = 'Mailinglijst';
+          } else if (t.operation_type === 'send_mail') {
+            stepLabel = 'Mail';
           } else {
             stepLabel = modelLabel;
           }

@@ -600,6 +600,22 @@
         } else {
           _lockEl(c1, false);
         }
+      } else if (e.target.dataset.mapCol === '3') {
+        var td2 = c2El.closest('td');
+        if (td2) {
+          td2.innerHTML = col2Input(e.target.value, '');
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: td2 });
+          var newC2 = row.querySelector('[data-map-col="2"]');
+          if (newC2) {
+            var newC2El = newC2.closest('[data-m2o-wrap]') || newC2;
+            if (c1.value) {
+              _lockC2(row, newC2El, true);
+            } else {
+              _lockC2(row, newC2El, false);
+              _lockEl(c1, false);
+            }
+          }
+        }
       }
     });
 

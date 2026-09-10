@@ -1115,6 +1115,18 @@ Afspraken die bewust zo zijn:
 - **Eén selectiekader, niet twee.** Het geselecteerde blok krijgt de blauwe rand; het stukje
   tekst waarin je typt krijgt alleen een zachte achtergrond. Twee geneste blauwe randen zien
   er kapot uit.
+- **De bewerklaag is GEDEELD met Koppelingen** (`public/mail-token-editor.js`, sinds
+  2026-09-08). Chips, `fromChips()`, `ensureCaretSpace()`, de "/"-kiezer en de
+  cursorafhandeling stonden in `events-v2-mail-studio.js` (regels 181-557) en zijn daar
+  weggehaald: de maileditor van Koppelingen heeft precies dezelfde laag nodig, en de zes
+  bugs die `mail-studio-ui-test.mjs` vangt zaten állemaal in dit soort cursor- en
+  chipdetails -- een tweede kopie krijgt die bugs opnieuw, een voor een. De studio maakt
+  een instantie via `window.OMTokenEditor.create({ getTokens, parentMenuId, esc })` en
+  houdt dunne aliassen (`toChips`, `fromChips`, ...) zodat de rest van dat bestand
+  ongewijzigd bleef. Wat event-specifiek IS en dus achterbleef: welke placeholders er
+  bestaan (uit `state.schema.placeholders`). De `<script>`-tag van
+  `mail-token-editor.js` moet VÓÓR het studio-script staan, en ook vóór
+  `forminator-sync-v2-detail-mail-composer.js` -- beide maken bij het laden een instantie.
 - **De "/"-kiezer werkt in twee documenten**: de ouderpagina (onderwerp, voorbeeldtekst) en
   het voorbeeld-iframe. Elk document krijgt zijn eigen menu-node — een menu uit de
   ouderpagina kan niet over een iframe heen liggen. Het menu opent ná de toetsaanslag, dus
@@ -1124,7 +1136,28 @@ Afspraken die bewust zo zijn:
   terwijl ze focus hebben (anders springt de cursor naar het begin).
 - **De browsertest is verplicht bij elke wijziging aan de studio**:
   `node src/modules/event-operations-v2/tests/mail-studio-ui-test.mjs` (vraagt
-  `npm i -D playwright`). Drie bugs raakten in productie die geen enkele unit-test kon zien,
+  `npm i -D playwright`).
+
+  **Werkt de lokale installatie niet, dan kan je hem elders draaien.** In de Windows-omgeving
+  van deze repo is `playwright.azureedge.net` (de browser-CDN) dichtgezet, terwijl
+  `registry.npmjs.org` wél bereikbaar is: `npm i -D playwright` slaagt dus, maar
+  `npx playwright install chromium` niet, en er staat ook geen Chrome/Chromium in de lokale
+  Linux-VM. De test heeft daarvoor een uitgang: `PW_CHROME` wordt als `executablePath`
+  doorgegeven (`chromium.launch(process.env.PW_CHROME ? { executablePath: ... } : {})`).
+  Werkwijze die op 2026-09-08 gewerkt heeft, vanuit een omgeving mét Chromium:
+
+  ```bash
+  git clone --depth 1 https://github.com/Nico-Mymmo/forminator-odoo-sync.git
+  # de gewijzigde bestanden erover kopieren (de kloon is HEAD, niet je werkboom!)
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -D playwright
+  PW_CHROME=/pad/naar/chrome node src/modules/event-operations-v2/tests/mail-studio-ui-test.mjs
+  ```
+
+  Let op: een kloon van HEAD ziet je ONGECOMMITTE wijzigingen niet. Kopieer elke ronde de
+  bestanden die je aanpaste er opnieuw over, anders test je iets anders dan wat je schreef.
+  En volg de regel bovenaan dit blok: saboteer je fix tijdelijk en kijk of de test écht
+  rood wordt -- bij de verhuizing van de bewerklaag gaf een sabotage in `vindSlash()`
+  precies 3 rode tests, en dat is het bewijs dat de test het nieuwe bestand uitoefent. Drie bugs raakten in productie die geen enkele unit-test kon zien,
   omdat ze in de KOPPELING zaten en niet in een functie: een clientcontrole op `<t` terwijl
   de mail met `<table` begint; `editable` dat de route wel meegaf maar
   `renderMailForRegistration` niet aannam; en een "beide sites"-stand die `null` doorgaf,

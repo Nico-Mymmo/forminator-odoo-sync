@@ -68,6 +68,10 @@ import { normalizeMailBlocks, emptyMailBlocks, resolveSection } from '../lib/mai
 import { starterMailBlocks } from '../lib/mail-defaults.js';
 
 const studioJs = readFileSync(new URL('../../../../public/events-v2-mail-studio.js', import.meta.url), 'utf8');
+// De gedeelde bewerklaag (chips + "/"-kiezer). Moet vóór het studio-script
+// geladen worden, precies zoals in events-v2.html -- de studio maakt bij het
+// laden een instantie via window.OMTokenEditor.create().
+const tokenEditorJs = readFileSync(new URL('../../../../public/mail-token-editor.js', import.meta.url), 'utf8');
 const pageHtml = readFileSync(new URL('../../../../public/events-v2.html', import.meta.url), 'utf8');
 
 // Alleen de dialogen van de studio uit de pagina halen.
@@ -259,6 +263,7 @@ await page.addScriptTag({
     return { ok: true, status: 200, json: async function () { return { success: true, data: data }; } };
   };`
 });
+await page.addScriptTag({ content: tokenEditorJs });
 await page.addScriptTag({ content: studioJs });
 
 const settle = () => page.waitForTimeout(700);
