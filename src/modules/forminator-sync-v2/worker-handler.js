@@ -481,10 +481,14 @@ function resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransf
   if (mapping.source_type === 'static') {
     // Coerce boolean-looking strings so Odoo receives true JS booleans.
     // In Python (Odoo XML-RPC), bool("0") === True — so we must send actual booleans.
-    const v = mapping.source_value;
+    // Case-insensitive: de UI/DB slaat vaste waarden op als "True"/"False" (Odoo/Python-stijl,
+    // zie het "Automatisch ingevuld"-blok — is_company/active), en die kwamen als ruwe string
+    // "False" bij Odoo terecht, wat Python via bool("False") als True leest. Bug gevonden op
+    // 2026-09-10: is_company bleef True staan ondanks een vaste waarde "False".
+    const v = String(mapping.source_value ?? '').trim().toLowerCase();
     if (v === 'true'  || v === '1') return true;
     if (v === 'false' || v === '0') return false;
-    return v;
+    return mapping.source_value;
   }
 
   if (mapping.source_type === 'template') {

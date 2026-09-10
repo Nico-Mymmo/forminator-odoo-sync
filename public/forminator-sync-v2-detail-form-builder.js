@@ -111,6 +111,16 @@
       await loadMeta();
       var res = await window.FSV2.api('/integrations/' + integrationId + '/form');
 
+      // Race-guard: als de gebruiker intussen naar een ANDERE koppeling is
+      // genavigeerd voor dit antwoord terugkwam, hoort dit antwoord niet meer
+      // bij het scherm dat nu open staat. Zonder deze check overschreef een
+      // trage fetch voor koppeling A de globale B-state nadat de gebruiker al
+      // naar koppeling B was doorgeklikt — precies het patroon dat elders in
+      // openDetail() (forminator-sync-v2-detail-lifecycle.js) al met
+      // `if (S().activeId === id)` wordt afgedekt, maar hier ontbrak. Bug
+      // gemeld 2026-09-10: "mijn formulier is bij elke koppeling zichtbaar".
+      if (S().activeId !== integrationId) return;
+
       B.integrationId = integrationId;
       B.sel = null;
 
@@ -129,10 +139,12 @@
         B.lockedKeys = [];
       }
     } catch (err) {
+      if (S().activeId !== integrationId) return;
       host.innerHTML = '<div class="alert alert-error text-sm">' + esc(err.message) + '</div>';
       return;
     }
 
+    if (S().activeId !== integrationId) return;
     tekenAlles();
   }
 
