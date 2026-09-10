@@ -11,6 +11,11 @@
 (function () {
   'use strict';
 
+  // Moet exact gelijk zijn aan GENERATED_ID_SENTINEL in forminator-sync-v2-mapping-table.js:
+  // dat bestand rendert de "unieke identifier"-badge in kolom 2 op basis van deze waarde;
+  // hier zetten we 'm om naar/van source_type 'generated_unique_id' bij laden/opslaan.
+  var GENERATED_ID_SENTINEL = '__om_generated_unique_id__';
+
   function S()    { return window.FSV2.S; }
   function esc(v) { return window.FSV2.esc(v); }
 
@@ -444,6 +449,10 @@
             // Old format: "step_N_id" → new format: "step.N.record_id"
             var legacyMatch = String(sv || '').match(/^step_(\d+)_id$/);
             if (legacyMatch) sv = 'step.' + legacyMatch[1] + '.record_id';
+          } else if (m.source_type === 'generated_unique_id') {
+            // De echte waarde ('uuid_v4') is puur documentatie in de DB — in de
+            // tabel tonen we in plaats daarvan de badge, via de sentinelwaarde.
+            sv = GENERATED_ID_SENTINEL;
           }
           return {
             odooField:     m.odoo_field,
@@ -484,12 +493,15 @@
           // Otherwise push (includes form-mapped fields — MappingTable pre-populates col1 from existingForm)
           // Pre-populate staticValue from existing DB mapping (static or template) so col2 shows the saved value
           var _dbm = targetMappings.find(function (m) {
-            return m.odoo_field === df.name && (m.source_type === 'static' || m.source_type === 'template');
+            return m.odoo_field === df.name && (m.source_type === 'static' || m.source_type === 'template' || m.source_type === 'generated_unique_id');
           });
+          var _dbmStatic = _dbm
+            ? (_dbm.source_type === 'generated_unique_id' ? GENERATED_ID_SENTINEL : (_dbm.source_value || ''))
+            : '';
           S().detail._extraRowsByTarget[tid].push({
             odooField:     df.name,
             odooLabel:     (meta && meta.label) || df.label || df.name,
-            staticValue:   _dbm ? (_dbm.source_value || '') : '',
+            staticValue:   _dbmStatic,
             sourceType:    _dbm ? _dbm.source_type : 'template',
             isRequired:    isReq,
             isDefault:     true,
@@ -1244,9 +1256,18 @@
           value_map: valueMap,
         });
       } else if (staticVal) {
-        var srcType = /\{[^}]+\}/.test(staticVal) ? 'template' : 'static';
+        var srcType, srcVal;
+        if (staticVal === GENERATED_ID_SENTINEL) {
+          // Geen getypte waarde: de pipeline genereert er zelf een bij versturen.
+          // 'uuid_v4' is puur ter documentatie in de DB, niet de echte waarde.
+          srcType = 'generated_unique_id';
+          srcVal  = 'uuid_v4';
+        } else {
+          srcType = /\{[^}]+\}/.test(staticVal) ? 'template' : 'static';
+          srcVal  = staticVal;
+        }
         newMappings.push({
-          odoo_field: odooField, source_type: srcType, source_value: staticVal,
+          odoo_field: odooField, source_type: srcType, source_value: srcVal,
           is_identifier: isIdentifier, is_update_field: isUpdateField,
           is_required: false, order_index: orderIdx++,
         });

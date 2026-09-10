@@ -448,6 +448,57 @@ function coerceFieldValue(raw, fieldType) {
   }
 }
 
+// Genereert een unieke tekst-identifier voor source_type 'generated_unique_id'.
+// crypto.randomUUID() is SYNCHROON beschikbaar in Cloudflare Workers (Web Crypto) --
+// geen await nodig, dus resolveMappingValue kan synchroon blijven zoals de rest
+// van deze functie. De fallback hieronder is puur defensief (oudere runtimes).
+function generateUniqueIdentifier() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Maximaal aantal stappen dat we terugwandelen in een replay-keten (originele
+// inzending -> replay -> replay van die replay -> ...) om een al gegenereerde
+// unieke identifier terug te vinden. Praktijk: 0-2 hops; dit is een vangnet
+// tegen een oneindige lus bij een corrupte replay_of_submission_id-keten.
+const MAX_REPLAY_CHAIN_HOPS = 25;
+
+// Een handmatige replay maakt een NIEUWE submissionrij (zie replaySubmission) met
+// een lege resolved_context -- in tegenstelling tot een automatische retry, die
+// dezelfde rij hergebruikt en zijn context al terugkrijgt via restoreResolverContext.
+// Zonder deze functie zou een generated_unique_id-mapping bij elke replay een
+// ANDERE waarde krijgen, terwijl de link die al met de eerste waarde verstuurd is
+// (bv. in een e-mail) dan naar een niet-bestaand record zou wijzen. We wandelen
+// daarom de keten omhoog en nemen elke generated_id.*-sleutel over die een
+// voorouder al vastlegde.
+async function inheritGeneratedIdsFromReplayChain(env, replayOfSubmissionId, contextObject) {
+  let currentId = replayOfSubmissionId;
+  let hops = 0;
+  while (currentId && hops < MAX_REPLAY_CHAIN_HOPS) {
+    hops += 1;
+    const ancestor = await getSubmissionById(env, currentId);
+    if (!ancestor) break;
+    let saved = ancestor.resolved_context;
+    if (typeof saved === 'string') {
+      try { saved = JSON.parse(saved); } catch (_) { saved = null; }
+    }
+    if (saved && typeof saved === 'object') {
+      for (const [key, value] of Object.entries(saved)) {
+        if (key.startsWith('generated_id.') && !Object.prototype.hasOwnProperty.call(contextObject, key)) {
+          contextObject[key] = value;
+        }
+      }
+    }
+    currentId = ancestor.replay_of_submission_id || null;
+  }
+}
+
 function resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransforms = {}) {
   if (mapping.source_type === 'form') {
     let raw = lookupFormValue(normalizedForm, mapping.source_value);
@@ -489,6 +540,23 @@ function resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransf
     if (v === 'true'  || v === '1') return true;
     if (v === 'false' || v === '0') return false;
     return mapping.source_value;
+  }
+
+  // Genereert bij het EERSTE gebruik binnen deze inzending (of neemt een al
+  // gegenereerde waarde over van een vorige poging/replay) een unieke tekst-ID.
+  // De sleutel is per MAPPING (niet per odoo_field): contextObject.generated_id.<mapping.id>.
+  // Deze waarde belandt via resolved_context automatisch mee in de DB (zie
+  // scheduleRetryOrExhaust / de succes- en permanent_failed-branches, die contextObject
+  // in zijn geheel spreaden) en wordt zo teruggevonden bij een retry (restoreResolverContext)
+  // of een replay (inheritGeneratedIdsFromReplayChain hierboven).
+  if (mapping.source_type === 'generated_unique_id') {
+    const key = 'generated_id.' + mapping.id;
+    if (Object.prototype.hasOwnProperty.call(contextObject, key)) {
+      return contextObject[key];
+    }
+    const value = generateUniqueIdentifier();
+    contextObject[key] = value;
+    return value;
   }
 
   if (mapping.source_type === 'template') {
@@ -783,6 +851,9 @@ async function runSubmissionAttempt(env, {
       restoreResolverContext(submission.resolved_context, contextObject);
       await restoreStepOutputsFromDB(env, submission.id, sortedTargets, contextObject);
       console.log(attemptTag, '[retry] restored context keys:', Object.keys(contextObject).join(', ') || '(none)');
+    } else if (submission.replay_of_submission_id) {
+      await inheritGeneratedIdsFromReplayChain(env, submission.replay_of_submission_id, contextObject);
+      console.log(attemptTag, '[replay] inherited generated ids:', Object.keys(contextObject).filter((k) => k.startsWith('generated_id.')).join(', ') || '(none)');
     }
 
     for (const resolver of integrationBundle.resolvers) {

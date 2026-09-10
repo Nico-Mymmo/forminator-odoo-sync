@@ -292,7 +292,28 @@
       </select>`;
     }
 
+    // 'Unieke identifier' is geen getypte waarde maar een vlag: bij versturen
+    // genereert de pipeline zelf een unieke tekst-ID (zie source_type
+    // 'generated_unique_id' in worker-handler.js / validation.js). We coderen dat
+    // hier als een sentinelwaarde in het col2-veld, zodat de bestaande col1<->col2
+    // uitsluitingslogica (regel ~578 hieronder) ongewijzigd kan blijven werken --
+    // een hidden input met deze waarde telt gewoon als "col2 heeft een waarde".
+    var GENERATED_ID_SENTINEL = '__om_generated_unique_id__';
+
+    function generatedIdBadge() {
+      return '<div class="flex items-center gap-1.5 px-2 rounded-lg bg-secondary/10 border border-secondary/20 h-7">' +
+        '<input type="hidden" data-map-col="2" value="' + esc(GENERATED_ID_SENTINEL) + '">' +
+        '<i data-lucide="fingerprint" class="w-3 h-3 text-secondary shrink-0"></i>' +
+        '<span class="text-xs text-secondary font-medium flex-1 truncate">Unieke identifier &mdash; automatisch</span>' +
+        '<button type="button" class="btn btn-ghost btn-xs p-0 w-5 h-5 min-h-0 text-secondary/50 hover:text-secondary shrink-0"' +
+          ' data-action="unset-generated-id" title="Terug naar een gewone waarde" tabindex="-1">' +
+          '<i data-lucide="x" class="w-3 h-3"></i>' +
+        '</button>' +
+      '</div>';
+    }
+
     function col2Input(odooField, val) {
+      if (val === GENERATED_ID_SENTINEL) return generatedIdBadge();
       var meta  = odooCache.find(function(f) { return f.name === odooField; });
       var ftype = meta ? meta.type      : null;
       var sel   = meta ? meta.selection : null;  // array of [key, label] pairs
@@ -340,7 +361,11 @@
           '</div>' +
         '</div>';
       }
-      return '<div class="flex items-center gap-0.5"><input class="' + cls + ' flex-1 min-w-0" data-map-col="2" value="' + esc(val || '') + '" placeholder="Vaste waarde of {veld-id}\u2026" />' + _phHtml + '</div>';
+      return '<div class="flex items-center gap-0.5"><input class="' + cls + ' flex-1 min-w-0" data-map-col="2" value="' + esc(val || '') + '" placeholder="Vaste waarde of {veld-id}\u2026" />' +
+        '<button type="button" class="btn btn-ghost btn-xs px-1 set-generated-id-toggle" title="Unieke identifier genereren bij versturen" tabindex="-1">' +
+          '<i data-lucide="fingerprint" class="w-3.5 h-3.5 text-base-content/40"></i>' +
+        '</button>' +
+        _phHtml + '</div>';
     }
 
     function notUpdateChk(isUpdateField) {
@@ -701,7 +726,41 @@
       inner.querySelectorAll('.ph-drop:not(.hidden)').forEach(function(d) { d.classList.add('hidden'); });
     });
 
-        // ── Many2one search inputs ───────────────────────────────────────────────
+        // ── Unieke identifier: aan/uit ────────────────────────────────────────────
+    function refreshCol2(td, odooFieldVal, newVal) {
+      td.innerHTML = col2Input(odooFieldVal, newVal);
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: td });
+      var newC2 = td.querySelector('[data-map-col="2"]');
+      // Hertriggert de bestaande col1<->col2-uitsluiting (regel ~578): die luistert
+      // naar 'change' op data-map-col en weet niets van deze sentinelwaarde af.
+      if (newC2) newC2.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    inner.addEventListener('click', function(e) {
+      var onBtn  = e.target.closest('.set-generated-id-toggle');
+      var offBtn = e.target.closest('[data-action="unset-generated-id"]');
+      if (!onBtn && !offBtn) return;
+
+      e.stopPropagation();
+      var row = (onBtn || offBtn).closest('[data-map-row]');
+      var td  = (onBtn || offBtn).closest('td');
+      if (!row || !td) return;
+
+      // Vaste (required/default) rijen dragen het Odoo-veld op de <tr> zelf;
+      // vrije rijen hebben in plaats daarvan een select in kolom 3.
+      var col3Sel   = row.querySelector('[data-map-col="3"]');
+      var odooField = row.dataset.odooField || (col3Sel ? col3Sel.value : '');
+
+      if (onBtn) {
+        var c1 = row.querySelector('[data-map-col="1"]');
+        if (c1 && c1.value) return; // col1 (formulierveld) al ingevuld -- niet overschrijven
+        refreshCol2(td, odooField, GENERATED_ID_SENTINEL);
+      } else {
+        refreshCol2(td, odooField, '');
+      }
+    });
+
+    // ── Many2one search inputs ───────────────────────────────────────────────
     var m2oDebounce = null;
     inner.addEventListener('input', function(e) {
       var inp = e.target;

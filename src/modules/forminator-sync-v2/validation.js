@@ -7,7 +7,10 @@ const RESOLVER_TYPES = ['partner_by_email', 'webinar_by_external_id'];
 const TARGET_MODELS = ['crm.lead', 'res.partner', 'x_webinarregistrations'];
 const UPDATE_POLICIES = ['always_overwrite', 'only_if_incoming_non_empty', 'upsert'];
 const IDENTIFIER_TYPES = ['single_email', 'partner_context', 'registration_composite', 'mapped_fields', 'odoo_id'];
-const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_output', 'html_form_summary'];
+const SOURCE_TYPES = ['form', 'context', 'static', 'template', 'previous_step_output', 'html_form_summary', 'generated_unique_id'];
+// 'generated_unique_id': geen door de gebruiker getypte waarde -- de pipeline genereert er zelf een
+// bij het versturen (zie resolveMappingValue in worker-handler.js). source_value is dan altijd de
+// vaste tekst 'uuid_v4' (voor documentatiedoeleinden in de DB, niet de echte waarde).
 
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== '';
