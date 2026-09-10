@@ -487,10 +487,11 @@
     var tabBar = document.getElementById('detailTabBar');
     if (tabBar) {
       var fieldsBtn  = tabBar.querySelector('[data-detail-tab="fields"]');
+      var formBtn    = tabBar.querySelector('[data-detail-tab="form"]');
       var mappingBtn = tabBar.querySelector('[data-detail-tab="mapping"]');
       var historyBtn = tabBar.querySelector('[data-detail-tab="history"]');
       var statsBtn   = document.getElementById('detailTabStatsBtn');
-      [fieldsBtn, mappingBtn, historyBtn].forEach(function (btn) {
+      [fieldsBtn, formBtn, mappingBtn, historyBtn].forEach(function (btn) {
         if (btn) btn.style.display = isTrackerIntegration ? 'none' : '';
       });
       if (statsBtn) statsBtn.style.display = isTrackerIntegration ? '' : 'none';
@@ -504,7 +505,7 @@
         tabBar.querySelectorAll('[data-detail-tab]').forEach(function (t) {
           t.classList.toggle('tab-active', t.dataset.detailTab === targetTab);
         });
-        ['fields', 'mapping', 'history', 'stats'].forEach(function (name) {
+        ['fields', 'form', 'mapping', 'history', 'stats'].forEach(function (name) {
           var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
           if (panel) panel.style.display = name === targetTab ? '' : 'none';
         });

@@ -425,6 +425,10 @@
 
   async function handleRefreshFormFields() {
     var integration = S().detail && S().detail.integration;
+    if (integration && integration.source_type === 'om_form') {
+      await fetchOmFormFields(S().activeId);
+      return;
+    }
     if (integration && integration.source_type === 'generic_webhook') {
       // Re-load submissions and re-extract field names from the latest payload
       var id = S().activeId;
@@ -555,6 +559,123 @@
     }
   }
 
+  /**
+   * De velden van een OM-FORMULIER als bron voor het koppelingsscherm.
+   *
+   * Dit was het ontbrekende derde pad. De veldenlijst kende er twee -- Forminator
+   * (via de WP-API) en de generieke webhook (afgeleid uit binnengekomen
+   * payloads) -- en een formulier dat in de OM zelf gebouwd is, viel tussen
+   * beide door: geen forminator_form_id om op te halen, en nog geen inzending om
+   * uit af te leiden. Gevolg: een lege keuzelijst bij de veldkoppelingen, precies
+   * op het moment dat je de koppeling wil maken.
+   *
+   * De herkomstvelden gaan er ONGEVRAAGD bij. Een OM-formulier stuurt ze altijd
+   * mee (META_KEYS in forms/schema.js), dus we weten ze zonder ernaar te raden.
+   * Zonder deze regel kan je meta_ovme_uuid pas mappen nadat de eerste inzending
+   * binnen is -- en dat is nu net de inzending waarvan je de herkomst dan kwijt
+   * bent.
+   */
+  async function fetchOmFormFields(id) {
+    var integrationId = id || S().activeId;
+    if (!integrationId) return false;
+
+    S().detailFormFields = 'loading';
+    window.FSV2.renderDetailFormFields();
+    window.FSV2.renderDetailMappings();
+
+    try {
+      // De lijst met herkomstvelden komt van de server (META_KEYS in
+      // forms/schema.js is de enige bron) en verandert nooit tijdens een
+      // sessie, dus één keer ophalen volstaat.
+      if (!S()._formsMeta) {
+        try {
+          var metaRes = await window.FSV2.api('/forms/meta');
+          S()._formsMeta = (metaRes && metaRes.data) || {};
+        } catch (_) {
+          // Geen ramp: dan mist de lijst enkel de herkomstvelden.
+          S()._formsMeta = {};
+        }
+      }
+
+      var res = await window.FSV2.api('/integrations/' + integrationId + '/form');
+      var bundle = res && res.data;
+
+      if (!bundle || !bundle.form) {
+        // Geen formulier (meer). Niet stilvallen op 'loading': dan blijft er een
+        // spinner staan waar nooit iets komt.
+        S().detailFormFields = [];
+        window.FSV2.renderDetailFormFields();
+        window.FSV2.renderDetailMappings();
+        return false;
+      }
+
+      var standaardTaal = bundle.form.default_language || 'nl';
+      var velden = [];
+
+      (bundle.fields || []).forEach(function (veld) {
+        var type = String(veld.field_type || 'text');
+        // Opmaakblokken leveren niets aan de payload, dus ze horen niet in een
+        // keuzelijst van dingen die je kan koppelen.
+        if (type === 'heading' || type === 'paragraph') return;
+        var sleutel = String(veld.field_key || '');
+        if (!sleutel) return;
+
+        var entry = {
+          field_id: sleutel,
+          // Het label in de STANDAARDTAAL. De vertalingen zijn voor bezoekers;
+          // wie hier een koppeling maakt, werkt in de taal waarin het formulier
+          // gebouwd is.
+          label: String(veld.label || sleutel),
+          type: type,
+          required: !!veld.is_required,
+          from_om_form: true
+        };
+        if (Array.isArray(veld.options) && veld.options.length) {
+          entry.choices = veld.options.map(function (o) {
+            return { value: String(o.value), label: String(o.label || o.value) };
+          });
+        }
+        velden.push(entry);
+      });
+
+      // De herkomstvelden. Ze staan achteraan: het zijn er twaalf en ze horen
+      // onder de echte formuliervelden, niet ertussen.
+      var meta = (S()._formsMeta && S()._formsMeta.meta_keys) || [];
+      meta.forEach(function (m) {
+        velden.push({
+          field_id: String(m.key),
+          label: String(m.label || m.key),
+          type: 'text',
+          required: false,
+          from_om_form: true,
+          is_meta: true
+        });
+      });
+
+      // meta_form_slug en meta_form_id staan niet in META_KEYS -- die zet
+      // buildPipelinePayload() zelf uit het formulierrecord. Ze zijn wél
+      // mapbaar, en ze zijn de opvolger van ovme_forminator_id.
+      var prefix = (S()._formsMeta && S()._formsMeta.meta_prefix) || 'meta_';
+      [['form_slug', 'Formulier (slug)'], ['form_id', 'Formulier (id)']].forEach(function (paar) {
+        velden.push({
+          field_id: prefix + paar[0], label: paar[1], type: 'text',
+          required: false, from_om_form: true, is_meta: true
+        });
+      });
+
+      S().detailFormFields = velden;
+      applyDefaultFieldMeta();
+    } catch (e) {
+      S().detailFormFields = [];
+      window.FSV2.showAlert('Formuliervelden ophalen mislukt: ' + e.message, 'error');
+    }
+
+    window.FSV2.renderDetailFormFields();
+    window.FSV2.renderDetailMappings();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    return true;
+  }
+
   async function fetchDetailFormFields(sk, fid) {
     S().detailFormFields = 'loading';
     window.FSV2.renderDetailFormFields();
@@ -606,6 +727,7 @@
   Object.assign(window.FSV2, {
     extractGenericWebhookFields: extractGenericWebhookFields,
     fetchDetailFormFields: fetchDetailFormFields,
+    fetchOmFormFields: fetchOmFormFields,
     handleRefreshFormFields: handleRefreshFormFields,
     handleSaveBulkImportDefault: handleSaveBulkImportDefault,
     handleSaveFieldAlias: handleSaveFieldAlias,

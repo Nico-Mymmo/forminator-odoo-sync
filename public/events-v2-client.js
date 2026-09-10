@@ -1701,45 +1701,93 @@
    * bolletjes-funnel in de koppelingen-module (forminator-sync-v2), i.p.v.
    * de volledige woordbadges ("Bevestiging"/"Herinnering"/"Recap") die
    * voorheen veel plek innamen. Eén letter + rijtje bolletjes per soort;
-   * groen bolletje = die fase is bereikt. Bevestiging en recap hebben geen
-   * open/klik-tracking (enkel de reminder krijgt Postmark-trackingheaders,
-   * zie postmark-tracking.js), dus die twee tonen alleen "verstuurd →
-   * afgeleverd". Status komt uit fetchMailStatus() (state.mailStatus),
-   * apart en niet-blokkerend ingeladen -- ontbreekt die nog, dan tonen we
-   * gewoon "verstuurd" zonder afgeleverd-bolletje totdat hij binnenkomt.
+   * groen bolletje = die fase is bereikt.
+   *
+   * VIER FASEN VOOR ELKE SOORT: klaargezet → verstuurd → geopend → geklikt.
+   * Voorheen kregen bevestiging en recap maar één bolletje, omdat alleen de
+   * reminder Postmark-trackingheaders kreeg; sinds postmark-tracking.js dat
+   * voor alle drie doet hebben ze allemaal dezelfde funnel.
+   *
+   * DEZELFDE SYSTEMATIEK ALS DE KOPPELINGEN-MODULE, en dat is een expliciete
+   * afspraak (2026-09-10), geen toeval: `FUNNEL_STAGES` in
+   * forminator-sync-v2-detail-submissions-tab.js is
+   * ['created','delivered','opened','clicked'] met exact dezelfde vier
+   * labels. Twee modules die hetzelfde tonen met andere woorden of een ander
+   * aantal bolletjes dwingt de gebruiker om per scherm opnieuw uit te zoeken
+   * wat een bolletje betekent. Voeg hier dus geen vijfde fase toe zonder ze
+   * daar ook toe te voegen.
+   *
+   * "Verstuurd" is het Postmark DELIVERY-event, niet Odoo's `sent`. Odoo's
+   * `sent` betekent alleen dat het bericht aan Postmark is overhandigd, niet
+   * dat het aankwam -- daarom zat de reminder er eerder als "verstuurd" in
+   * terwijl hij enkel klaarstond. Is `sent` wel waar maar de aflevering nog
+   * niet bevestigd, dan staat dat in de tooltip; het is geen eigen bolletje,
+   * want dan lopen we weer uit de pas met Koppelingen.
+   *
+   * De funnel is MONOTOON: bereikt fase N, dan lichten ook de fasen ervoor
+   * op. Anders zie je een gat wanneer één webhookgebeurtenis gemist werd (een
+   * open zonder delivery komt in de praktijk voor) en lijkt dat op een fout
+   * terwijl de mail wel degelijk aankwam.
+   *
+   * Status komt uit fetchMailStatus() (state.mailStatus), apart en
+   * niet-blokkerend ingeladen. Zolang die nog niet binnen is vallen we terug
+   * op de `_sent`-vlag van de inschrijving, en dan op KLAARGEZET -- niet op
+   * verstuurd. Die vlag wordt namelijk gezet op het moment dat de mail wordt
+   * KLAARGEZET (zoeken → create → dán de boolean, zie queueMails), dus hij
+   * bewijst niets over de verzending.
    */
+  var MAIL_STAGES = ['queued', 'delivered', 'opened', 'clicked'];
+  var MAIL_STAGE_LABELS = {
+    queued: 'klaargezet',
+    delivered: 'verstuurd',
+    opened: 'geopend',
+    clicked: 'geklikt'
+  };
   var MAIL_KIND_META = [
-    { key: 'confirmation', sentFlag: 'confirmation_sent', letter: 'B', label: 'Bevestiging', stages: ['delivered'] },
-    { key: 'reminder', sentFlag: 'reminder_sent', letter: 'H', label: 'Herinnering', stages: ['delivered', 'opened', 'clicked'] },
-    { key: 'recap', sentFlag: 'recap_sent', letter: 'R', label: 'Recap', stages: ['delivered'] }
+    { key: 'confirmation', sentFlag: 'confirmation_sent', letter: 'B', label: 'Bevestiging' },
+    { key: 'reminder', sentFlag: 'reminder_sent', letter: 'H', label: 'Herinnering' },
+    { key: 'recap', sentFlag: 'recap_sent', letter: 'R', label: 'Recap' }
   ];
-  var MAIL_STAGE_LABELS = { delivered: 'afgeleverd', opened: 'geopend', clicked: 'geklikt' };
 
   function renderMailFunnels(row) {
     var mails = row.mails || {};
     var status = state.mailStatus[row.id] || {};
 
     var groups = MAIL_KIND_META.map(function (meta) {
-      if (!mails[meta.sentFlag]) {
-        return '<span class="inline-flex items-center opacity-25" title="' + esc(meta.label) + ': nog niet verstuurd">' +
-          '<span class="text-[9px] font-semibold w-3 text-center">' + meta.letter + '</span>' +
-        '</span>';
+      var kindStatus = status[meta.key] || null;
+
+      // Hoogste bereikte fase. Monotoon: zie de uitleg hierboven.
+      var reached = 0;
+      if (kindStatus) {
+        MAIL_STAGES.forEach(function (stage, i) {
+          if (kindStatus[stage]) reached = i + 1;
+        });
+      } else if (mails[meta.sentFlag]) {
+        // Status nog niet ingeladen: de vlag zegt enkel dat hij klaargezet is.
+        reached = 1;
       }
 
-      var kindStatus = status[meta.key] || {};
-      var reached = 0; // 0 = verstuurd, staat nog te wachten op "afgeleverd"
-      meta.stages.forEach(function (stage, i) {
-        if (kindStatus[stage]) reached = i + 1;
-      });
-
-      var dots = meta.stages.map(function (stage, i) {
+      // Ook bij fase 0 worden de vier bolletjes getekend, allemaal grijs --
+      // niet weggelaten. Een rij met alleen een letter en verder niets leest
+      // als "hier hoort iets, maar het is er niet", terwijl vier grijze
+      // bolletjes meteen zeggen: deze mail moet nog door dezelfde vier fasen.
+      // Bijkomend voordeel: alle rijen zijn even breed, dus de kolom blijft
+      // uitlijnen (keuze van 2026-09-10, aangevraagd voor de recap -- die
+      // staat bij een toekomstig event per definitie nog op nul).
+      var dots = MAIL_STAGES.map(function (stage, i) {
         return '<span class="inline-block w-1.5 h-1.5 rounded-full ' + (i < reached ? 'bg-success' : 'bg-base-content/15') + '"></span>';
       }).join('');
-      var titleStages = meta.stages.slice(0, reached).map(function (s) { return MAIL_STAGE_LABELS[s]; });
-      var title = meta.label + ': verstuurd' + (titleStages.length ? ' → ' + titleStages.join(' → ') : '');
+
+      var bereikt = MAIL_STAGES.slice(0, reached).map(function (s) { return MAIL_STAGE_LABELS[s]; });
+      var title = meta.label + ': ' + (reached === 0 ? 'nog niet klaargezet' : bereikt.join(' → '));
+      // Odoo gaf hem aan Postmark, maar er is nog geen delivery-event. Geen
+      // eigen bolletje (zie hierboven), wel het antwoord op "hangt hij vast?".
+      if (kindStatus && kindStatus.sent && !kindStatus.delivered) {
+        title += ' — door Odoo verstuurd, aflevering nog niet bevestigd';
+      }
 
       return '<span class="inline-flex items-center gap-1" title="' + esc(title) + '">' +
-        '<span class="text-[9px] font-semibold w-3 text-center opacity-60">' + meta.letter + '</span>' +
+        '<span class="text-[9px] font-semibold w-3 text-center ' + (reached === 0 ? 'opacity-25' : 'opacity-60') + '">' + meta.letter + '</span>' +
         '<span class="inline-flex items-center gap-0.5">' + dots + '</span>' +
       '</span>';
     });

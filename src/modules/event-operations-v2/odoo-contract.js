@@ -172,7 +172,17 @@ export const MAIL_FIELDS = {
   // lib/postmark-tracking.js. Tekstveld dat Odoo met safe_eval als
   // Python-dict inleest, zelfde mechanisme als forminator-sync-v2's
   // mail.headers (zie buildPostmarkHeaders in mail-step.js).
-  HEADERS: 'headers'
+  HEADERS: 'headers',
+  // Welke ir.mail_server deze mail gebruikt. Laat je dit leeg, dan kiest
+  // Odoo de standaardserver -- dat is hier de Postmark-server met de
+  // NEWSLETTER-broadcaststream (ir.mail_server 4, smtp_user PM-B-newsletter-...,
+  // laagste sequence). Alle events-mails vertrokken daardoor over dezelfde
+  // stream als de nieuwsbrieven: dat geeft webhookruis van elke nieuwsbrief,
+  // en erger, wie zich voor de nieuwsbrief uitschreef staat op die stream
+  // onderdrukt en krijgt zijn eventbevestiging dan stil niet. Zet
+  // EVENTS_V2_MAIL_SERVER_ID om er een eigen transactionele server aan te
+  // hangen (zie queueMails in lib/mail-service.js).
+  MAIL_SERVER: 'mail_server_id'
 };
 
 /**

@@ -267,6 +267,304 @@ De volgende bestanden zijn nog legacy (string-concatenatie). **Niet aanraken ten
 - `public/forminator-sync-v2-flow-builder.js`
 - `public/forminator-sync-v2-wizard.js`
 
+## Koppelingen — formulieren in de OM zelf (Forminator uitfaseren, 2026-09)
+
+**Regel: een koppeling kan haar eigen formulier definiëren. Dat formulier is voor
+de pipeline een DERDE BRON naast `forminator` en `generic_webhook` — er komt geen
+tweede uitvoeringspad bij.**
+
+Waarom dit bestaat: bij Forminator staat het formulier in WordPress en heeft de OM
+er een kopie van (`wp_form_schemas`) die stil veroudert. De veldsleutels zijn
+bovendien `text-1` en `select-3`, waardoor `lookupFormValue()` in worker-handler.js
+een subsequence-heuristiek nodig heeft om te raden welk veld je bedoelde. En de
+typering (`fs_v2_field_transforms`) moet met de hand, omdat niemand vooraf weet dat
+"ja" een boolean moest zijn. Alle drie verdwijnen zodra de OM het formulier zelf
+kent. Volledige onderbouwing: `docs/ontwerp-om-formulieren.md`.
+
+| Wat | Waar |
+|---|---|
+| Veldtypes, validatie, payloadvorm (puur, geen env/fetch/db) | `src/modules/forminator-sync-v2/forms/schema.js` |
+| CRUD op `fs_v2_forms` + `fs_v2_form_fields` | `forms/database.js` |
+| Inzending → bestaande pipeline | `forms/submit.js` |
+| Publieke API (sitesleutel, rate limit, ETag) | `forms/public-api.js` + een blok in `src/router/public-routes.js` |
+| Beheerroutes | `routes.js` (`/api/integrations/:id/form`, `/api/forms/meta`, `/api/forms/slugify`) |
+| Bouwer (tabblad "Formulier") | `public/forminator-sync-v2-detail-form-builder.js` |
+| Het formulier tekenen voor het voorbeeld | `public/forminator-sync-v2-form-preview.js` |
+| Stylesheet van het formulier (ENIGE bron) | `public/mymmo-forms.css` |
+| Bewerklaag in het voorbeeld-iframe | `public/form-builder-canvas.css` |
+| Nieuwe koppeling starten (3 bronnen) | `public/forminator-sync-v2-new-integration.js` |
+| Shortcode-bouwer in wp-admin | `wp-plugin/mymmo-forms/includes/class-settings.php` + `assets/js/mymmo-forms-admin.js` |
+| Taalkeuze en vertaalde weergave (plugin) | `wp-plugin/mymmo-forms/includes/class-i18n.php` |
+| Plugin bouwen (haalt de CSS op) | `bash wp-plugin/build-mymmo-forms.sh <versie>` |
+| WordPress-plugin | `wp-plugin/mymmo-forms/` |
+| Tests (zonder netwerk/database) | `node src/modules/forminator-sync-v2/tests/forms-test.mjs` |
+| Browsertest van de bouwer | `node src/modules/forminator-sync-v2/tests/form-builder-ui-test.mjs` (vraagt `npm i -D playwright`; `PW_CHROME` als executablePath) |
+| Browsertest van de nieuwe-koppeling-dialoog | `node src/modules/forminator-sync-v2/tests/new-integration-ui-test.mjs` |
+| Lopen de twee renderers niet uit elkaar? | `node src/modules/forminator-sync-v2/tests/form-preview-parity-test.mjs` (heeft php nodig; slaat zichzelf over zonder) |
+| Rendertest van de plugin (PHP) | `php wp-plugin/mymmo-forms-render-test.php` |
+| Test van de shortcode-bouwer (PHP) | `php wp-plugin/mymmo-forms-settings-builder-test.php` |
+| Krijgt een bezoeker ONZE foutmeldingen? | `node src/modules/forminator-sync-v2/tests/form-validation-ui-test.mjs` (php + playwright) |
+| Komen de OM-velden in het koppelingsscherm? | `node src/modules/forminator-sync-v2/tests/om-form-fields-test.mjs` |
+| Toont de indieningenlijst de waarden? | `node src/modules/forminator-sync-v2/tests/submissions-list-test.mjs` (playwright) |
+
+Afspraken die bewust zo zijn:
+
+- **`source_type` wordt NIET gewijzigd als je een formulier toevoegt.** Een
+  koppeling met `source_type = 'forminator'` blijft haar Forminator-webhook
+  ontvangen én kan tegelijk een OM-formulier hebben. Dat is de hele reden dat
+  parallel draaien veilig is: je zet de shortcode op de pagina, het Forminator-
+  formulier blijft bestaan, en terugzetten is één wijziging aan één pagina.
+  `submitFormEntry()` geeft het integratie-object rechtstreeks aan
+  `handleGenericWebhook()`, en die kijkt nergens naar `source_type` — enkel naar
+  `forminator_form_id`, voor de idempotentiesleutel. De payloadvormen verschillen,
+  dus hun hashes ook: een Forminator- en een OM-inzending worden nooit voor
+  elkaars duplicaat aangezien.
+- **De payload is `{ form_id, form_data: {...} }`.** Geverifieerd tegen
+  `worker-handler.js`: `normalizeFormValues()` neemt `form_data` (tweede kandidaat
+  na `form_fields`) en `resolveFormId()` neemt `form_id` (eerste kandidaat). Er is
+  dus NIETS aan die functies gewijzigd. `forms-test.mjs` klinkt dat vast; verandert
+  een van beide, dan hoort die test rood te worden.
+- **De bezoeker-UUID gaat ALTIJD mee.** Het tracking-script op de websites zet
+  een cookie `ovme_uuid` (twee jaar, path=/), en bij een doorklik tussen de
+  merken ook `ovme_ref_uuid`. De plugin leest die SERVER-SIDE in
+  `Mymmo_Forms_Submit::meta()` en stuurt ze als `meta_ovme_uuid` /
+  `meta_ovme_ref_uuid` mee; ze zijn dus gewoon mapbaar in het koppelingsscherm.
+  Dat is de sleutel tussen een inzending en alles wat van die bezoeker geweten
+  is (paginaweergaves, scrolldiepte, kliks) -- zonder die mapping staat een lead
+  in Odoo los van zijn eigen voorgeschiedenis, en dat merk je niet, want er komt
+  gewoon een lead.
+  **Bewust geen JavaScript-injectie zoals bij Forminator**: die cookie wordt bij
+  elk verzoek naar admin-post.php meegestuurd, dus server-side lezen werkt ook
+  zonder JS en kan niet stukgaan op een gecachete pagina waarin de UUID van de
+  VORIGE bezoeker gebakken zou zitten.
+  Alleen een waarde met de vorm van een UUID wordt doorgelaten: de cookie kan
+  iemand zelf zetten en de waarde gaat naar Odoo. En hij MAG leeg zijn -- het
+  tracking-script zet geen cookie voor wie het als bot herkent, noch in een
+  browser zonder plugins of taalinstelling, en daar zitten echte mensen tussen.
+  Maak er dus nooit een verplicht veld van.
+  `meta_form_slug` / `meta_form_id` zijn de opvolger van `ovme_forminator_id`;
+  die komen uit het formulier-record op de server, niet uit wat de plugin
+  meestuurt. Getest met `php wp-plugin/mymmo-forms-submit-meta-test.php`.
+- **De publieke API heeft twee GET's, en de lijst geeft bewust minder terug.**
+  `GET /forminator-v2/public/v1/forms` geeft alleen de GEPUBLICEERDE formulieren,
+  en per formulier enkel `slug`, `name`, `description`, `version`, `field_count`
+  en `updated_at` — geen `id`, geen `integration_id`, geen thema, geen velden.
+  Die lijst voedt de shortcode-bouwer bij Instellingen → Mymmo Forms, en dat
+  scherm zit achter dezelfde sitesleutel als de rest: de sleutel is niet
+  persoonsgebonden, dus alles wat de lijst prijsgeeft, geeft ze prijs aan
+  iedereen die de sleutel van één site heeft. `toPublicFormListItem()` in
+  `schema.js` is de enige plek waar die vorm bepaald wordt, en `forms-test.mjs`
+  faalt zodra er een interne sleutel in lekt.
+  De lijst wordt 60 seconden bewaard en heeft — anders dan een formulierschema —
+  GEEN last-known-good. Bij een storing hoort daar een melding te staan, niet een
+  lijst van gisteren waaruit een beheerder een shortcode kiest voor een formulier
+  dat intussen uit publicatie is. Om dezelfde reden staat onder de keuzelijst een
+  tabel met van elk formulier de volledige shortcode: dat is de werkende terugval
+  zonder JavaScript, en de JS voegt enkel het samenstellen met opties en een
+  kopieerknop toe.
+- **Eén meertalig formulier, GEEN formulier per taal.** De veldsleutels en de
+  optieWAARDEN zijn in alle talen identiek; alleen wat een bezoeker leest
+  verschilt. Dat is de hele reden dat één koppeling met één set mappings
+  volstaat: een Franstalige bezoeker die "Appartement" aanklikt, verstuurt
+  exact dezelfde waarde als een Nederlandstalige. Vertaal je die waarde wel, dan
+  heb je per taal een aparte koppeling nodig en onderhoud je alles dubbel.
+  De vertalingen staan in `fs_v2_forms.i18n` en `fs_v2_form_fields.i18n`, per
+  taal, met de STANDAARDTAAL er bewust NIET in — die staat al in de gewone
+  kolommen, en twee bronnen voor dezelfde tekst is een bug in wording.
+  Optielabels hangen aan de WAARDE (`{"appartement": "Appartement"}`) en niet
+  aan een index: opties herschikken in het Nederlands mag de Franse labels niet
+  door elkaar gooien.
+  De bouwer werkt met PROJECTIE — het formulier wordt naar de bewerkte taal
+  omgezet en dan door dezelfde tekenfunctie gehaald. Zo hoeft
+  `forminator-sync-v2-form-preview.js` niets van talen te weten en blijft hij
+  vormgelijk aan `field.php`, wat de pariteitstest bewaakt.
+  **Publiceren wordt geweigerd zolang een taal nog labels mist.** Zonder die
+  eis valt een ontbrekend Frans label stil terug op het Nederlands: geen
+  foutmelding, gewoon tekst, en dat merk je pas maanden later.
+- **De browser toont zijn eigen foutballon NIET.** `novalidate` staat op het
+  formulier en de meldingen komen uit `MESSAGES` in `forms/schema.js`, die
+  meereist in de publieke payload. Reden: "Please fill out this field." volgt de
+  taal van de BROWSER, niet die van de pagina, en is niet te vertalen, niet te
+  stylen en niet te verplaatsen.
+  **`novalidate` alleen is niet genoeg** — zolang er ergens een
+  `reportValidity()` staat, roept de pagina die ballon alsnog zelf op. Dat was
+  precies wat er misging. `form-validation-ui-test.mjs` zet daarom een spion op
+  `reportValidity` en wordt rood zodra iemand die aanroep terugzet.
+  `MESSAGES` is de ENIGE bron voor elke bezoekerstekst die niet door een
+  beheerder getypt is: de Worker gebruikt hem voor haar 422-antwoorden, de
+  plugin in PHP, en de browser-JS leest hem uit `data-mymmo-messages`. Zo staat
+  dezelfde zin nooit op drie plekken. De enige uitzondering is
+  `Mymmo_Forms_I18n::NOODTEKSTEN`, voor als het formulier zelf niet geladen kon
+  worden — dan is er geen catalogus.
+- **De instellingenpagina heeft twee tabbladen, en de volgorde is het punt.**
+  "Shortcode maken" staat vooraan (wekelijks bezoek, niets dat stuk kan),
+  "Verbinding" erachter (eenmalig). Ze stonden eerst onder elkaar met de
+  sitesleutel bovenaan; wie een shortcode kwam halen, scrolde elke keer langs
+  een tekstveld dat bij een verkeerde toetsaanslag elk formulier op de hele site
+  tegelijk onderuithaalt.
+- **De veldenlijst van het koppelingsscherm heeft DRIE bronnen.**
+  `S().detailFormFields` wordt gevuld in `forminator-sync-v2-detail-lifecycle.js`,
+  en welke tak er loopt hangt af van `source_type`:
+  `generic_webhook` → `extractGenericWebhookFields()` (afgeleid uit de payload
+  van de laatste inzending); `om_form` → `fetchOmFormFields()` (uit de
+  formulierdefinitie); anders, met een `forminator_form_id` →
+  `fetchDetailFormFields()` (via de WP-API).
+  Die middelste tak ontbrak aanvankelijk, en dat is niet zichtbaar als een fout:
+  een OM-koppeling heeft geen `forminator_form_id` en bij een nieuwe koppeling
+  ook nog geen inzending, dus de keuzelijst bij Veldkoppelingen bleef gewoon
+  leeg. Voeg je ooit een vierde bronsoort toe, dan hoort ze hier een tak te
+  krijgen.
+  `fetchOmFormFields()` zet de HERKOMSTVELDEN er ongevraagd bij (`meta_ovme_uuid`
+  en co, uit `/api/forms/meta` → `META_KEYS`). Zonder dat kan je de bezoeker-UUID
+  pas mappen nadat de eerste inzending binnen is — en dat is precies de inzending
+  waarvan je de herkomst dan kwijt bent. De labels ervoor staan in `META_LABELS`
+  in `routes.js`; de SLEUTELS blijven `META_KEYS` in `forms/schema.js`.
+  Na het opslaan in de bouwer wordt die lijst meteen ververst: anders moet je de
+  koppeling sluiten en heropenen voor een net toegevoegd veld verschijnt, en
+  niets op het scherm vertelt je dat.
+- **De indieningenlijst SLAAT DE PAYLOAD PLAT voor ze erin zoekt.** Een
+  Forminator-inzending heeft haar velden bovenaan in `source_payload`; een
+  inzending van een OM-formulier heeft ze een niveau dieper, onder `form_data`.
+  `parsePayload()` in `forminator-sync-v2-detail-submissions-tab.js` voegt de
+  omhulsels (`form_fields`, `form_data`, `data`, `submission`, `raw` — dezelfde
+  lijst die `normalizeFormValues()` accepteert) samen met het bovenste niveau,
+  waarbij bovenliggende sleutels winnen. Zonder die platslag toonde elke kolom
+  een streepje terwijl alle waarden gewoon in de payload zaten, en zei de
+  samenvattingsregel letterlijk `form_data: [object Object]`.
+- **Status `received` betekent: bewaard, pipeline overgeslagen.** Dat gebeurt
+  als de koppeling UIT staat (`skipPipeline: !integration.is_active` in
+  `submitFormEntry`/`handleGenericWebhook`) — de bewuste veiligheidsklep waarmee
+  je een formulier op een testpagina kan zetten zonder dat er iets in Odoo
+  verandert. Ze hoort in `statusMeta` te staan met een leesbaar label, en de
+  uitklaprij hoort te zeggen dat de koppeling uit staat en dat Replay de weg
+  terug is. Zonder dat is het een naamloos grijs bolletje met een lege `{}`
+  eronder, en dat leest als een storing terwijl er niets stuk is.
+  `received` staat daarom OOK in de lijst statussen die een Replay-knop krijgen:
+  replay is de enige manier om zo'n inzending alsnog te verwerken. Staat de
+  koppeling op dat moment nog uit, dan is de knop zichtbaar maar uitgeschakeld
+  met de reden in de tooltip — drukken zou opnieuw op `received` uitkomen.
+- **De indieningentabel is `table-fixed w-full`, niet auto-layout.** Bij
+  auto-layout bepaalt de langste waarde de kolombreedte, en dan duwt één
+  e-mailadres of een kolomkop als "Waar kunnen we je mee helpen?" de tabel
+  voorbij de rand — met een horizontale scrollbalk tussen jou en de
+  actieknoppen. De vaste kolommen (status, ID, mail, datum, actie) krijgen een
+  expliciete breedte in rem (bij `table-fixed` doet `w-px` niets meer), de
+  gekozen velden delen wat overblijft, en waarden worden afgekapt met `truncate`
+  plus de volledige tekst in `title`. De breedte van de actiekolom volgt het
+  aantal knoppen dat er maximaal in staat.
+  `submissions-list-test.mjs` meet `scrollWidth` tegen `clientWidth` op twee
+  schermbreedtes. Die test draagt een eigen mini-stylesheet met de handvol
+  Tailwind-klassen waarop de indeling steunt: zonder CSS zou `table-fixed` niets
+  doen en zou de meting groen zijn om de verkeerde reden.
+- **UTM's vallen terug op de cookie.** Staat er geen `utm_*` in de URL van de
+  pagina, dan gebruikt de plugin de cookie die het tracking-script dertig dagen
+  bewaart. Zo houdt iemand die vorige week via een campagne binnenkwam en
+  vandaag pas invult, toch zijn herkomst. De URL wint, want die is recenter.
+- **Herkomst gaat als `meta_<naam>` IN `form_data`**, niet als een los meta-object:
+  `normalizeFormValues()` kijkt nergens anders, dus buiten `form_data` zou
+  `meta_utm_source` onbereikbaar zijn in het koppelingsscherm. Bewust een
+  underscore en geen punt — die vorm gebruikt `normalizeFormValues()` al voor
+  samengestelde velden (`name-1.first-name`).
+- **De site komt uit de SLEUTEL, niet uit de body.** `FORMS_PUBLIC_SITE_KEYS` is
+  komma-gescheiden met een optionele naam ervoor (`openvme:abc123`); die naam wordt
+  `meta_site`. Zou de site het zelf mogen meesturen, dan kan ze liegen over haar
+  herkomst.
+- **`field_key` ligt VAST zodra het formulier een inzending heeft.** Die sleutel
+  staat in `fs_v2_mappings.source_value` van elke stap en in elke bewaarde
+  `source_payload`; hernoemen of verwijderen laat een stap zonder foutmelding een
+  leeg veld naar Odoo schrijven. `getUsedFieldKeys()` leest de laatste 500
+  inzendingen, `validateFormDefinition({lockedKeys})` weigert het, en de bouwer zet
+  het veld op slot MET de reden erbij. Het LABEL mag altijd wijzigen.
+- **De ETag komt uit `fs_v2_forms.version`, nooit uit een tijdstip.** Zelfde les als
+  `meta.generated_at` in de events-API: een timestamp in de ETag betekent dat
+  `If-None-Match` nooit matcht en elke verversing de volledige body ophaalt.
+- **Een concept geeft 404, niet 403.** Dat iets bestaat is zelf informatie, en zo
+  kan een half afgewerkt formulier nooit per ongeluk op een pagina staan.
+- **`odoo_field_type` vult `fs_v2_field_transforms` AAN, overschrijft nooit.**
+  Iemand kan er bewust een many2one met een eigen `value_map` van gemaakt hebben;
+  dat stil terugzetten breekt een werkende koppeling zonder zichtbare wijziging.
+  Mislukt het aanvullen, dan is het formulier wél bewaard (best-effort).
+- **De bouwer is een CANVAS-editor, geen lijst met invoervelden.** Links het echte
+  formulier in een iframe, rechts een inspecteur. Je klikt een veld aan in het
+  voorbeeld en typt erin; label, hulptekst, titel, introtekst, knoptekst en de
+  labels van keuzerondjes zijn `contenteditable` IN het voorbeeld. De inspecteur
+  bevat alleen wat je niet kan typen: veldtype, veldnaam, verplicht, breedte,
+  Odoo-type, keuzes en de stijl. **Zet label of hulptekst daar nooit óók als
+  invoerveld bij** — dat is precies het tweede bewerkscherm waar de regel van de
+  maileditor over gaat ("Je bewerkt IN het voorbeeld, niet in een blokkenlijst
+  ernaast"). De eerste versie van dit bestand was wél zo'n lijst en was
+  onbruikbaar.
+- **Typen hertekent het canvas NIET.** Tekst wijzigen werkt de toestand bij en
+  verandert hoogstens één tekstknoop of één attribuut; `tekenCanvas()` (die de
+  `srcdoc` opnieuw zet) draait alleen bij STRUCTURELE wijzigingen: veld erbij,
+  weg, verplaatst, ander type, keuze erbij/weg, breedte, verplicht. De
+  browsertest zet een merkteken in het iframe dat een hertekening zou wissen.
+  Een stijlwijziging vervangt enkel de CSS-variabelen, ook geen hertekening.
+- **De plaatsaanduiding voor lege tekst is een CSS-`::before` op een LEEG
+  element** (`[data-om-leeg]:empty::before`), nooit een `<span>` met tekst erin.
+  Stond ze als echte tekst in de contenteditable, dan typ je ertussen en krijg
+  je "latbel" in plaats van "label". Een leeg inline-element heeft bovendien
+  geen afmetingen, dus het krijgt `display:inline-block` met een `min-width` —
+  anders kan je een net toegevoegd veld letterlijk niet aanklikken.
+- **De veldnaam VOLGT het label** tot je hem zelf aanpast (`_autoKey`), en de
+  waarde van een keuze volgt haar label (`_autoValue`). Alleen bij de eerste
+  toetsaanslag afleiden gaf "T" voor "Type gebouw". Die interne vlaggen worden
+  bij het opslaan uit de payload gestript.
+- **De opties van een KEUZELIJST zijn native `<option>`-elementen** en dus niet
+  in het voorbeeld te bewerken; dat gaat via de inspecteur. De waarde moet daar
+  evengoed afgeleid worden, anders gooit `validateFormDefinition` de optie weg
+  en weigert de server het formulier met "minstens een optie".
+- **Een veld op slot is `disabled` en levert geen waarde**; de bouwer houdt de
+  toestand aan in plaats van de DOM uit te lezen, dus de sleutel blijft staan.
+- **`public/mymmo-forms.css` is de ENIGE bron van de formulier-stylesheet.** De
+  OM serveert hem voor het voorbeeld-iframe (dat draait op precies die CSS, zodat
+  het niet kan liegen over hoe het formulier eruitziet) en
+  `wp-plugin/build-mymmo-forms.sh` kopieert hem bij het bouwen in de plugin.
+  Bewerk `wp-plugin/mymmo-forms/assets/css/mymmo-forms.css` nooit rechtstreeks.
+- **Er zijn TWEE renderers, en dat is bewust.** `templates/partials/field.php`
+  maakt wat een bezoeker krijgt; `public/forminator-sync-v2-form-preview.js`
+  maakt het aanklikbare voorbeeld. `form-preview-parity-test.mjs` haalt dezelfde
+  velden door beide en vergelijkt elementsoort, `mymmo-form-*`-klassen en
+  invoertypes. Voeg je een veldtype toe, dan krijgt het op BEIDE plekken een tak.
+  Die test vond meteen echte drift (heading en paragraph misten hun
+  `mymmo-form-field--<type>`-klasse in PHP).
+- **"Nieuwe koppeling" is een keuze uit drie bronnen** — Formulier, Webhook,
+  Trackbare link — in een dialoog die de koppeling meteen aanmaakt en je op het
+  juiste tabblad van het detailscherm zet. De oude driestappenwizard bestaat nog
+  en is bereikbaar via `goto-wizard-legacy` onderaan die dialoog; ze is nodig
+  zolang er Forminator-formulieren gekoppeld moeten kunnen worden, en haalt haar
+  formulierlijst via `WP_API_TOKEN` bij WordPress.
+- **De plugin bewaart niets.** Geen custom post type, geen tabellen, geen
+  inzendingen — enkel een cache in twee lagen (transient + last-known-good option),
+  zoals `mymmo-events`. De browser post naar `admin-post.php` en PHP praat
+  server-naar-server met de Worker: zo blijft de sitesleutel serverside.
+- **De plugin stuurt GEEN mail.** Dat doet de `send_mail`-stap van de koppeling —
+  daar staat de editor en daar staat de Postmark-opvolging.
+- **Antispam zonder captcha:** honeypot, minimale invultijd (tijdstempel ondertekend
+  met `wp_hash()`), WordPress-nonce, en rate limit per sitesleutel in de Worker.
+  Turnstile is de volgende stap als dit niet volstaat — een captcha kost inzendingen.
+- **Het `theme`-veld gaat door een GESLOTEN lijst.** `mymmo_forms_theme_style()`
+  laat enkel bekende variabelen door, en enkel waarden die eruitzien als een kleur
+  of een lengte. Vrije CSS vanuit de OM zou een injectiepad zijn naar elke site die
+  het formulier toont.
+
+**Uitrolvolgorde (niets aan Forminator aanraken):** migratie + bouwer → publieke API
+met `curl` testen (een submit op een INACTIEVE koppeling bewaart de payload en slaat
+Odoo over, `skipPipeline`) → plugin op één testpagina → één formulier met laag volume
+parallel → per formulier uitrollen, minstens twee weken tussen "shortcode gewisseld"
+en "Forminator-formulier gedeactiveerd". Pas als alles over is:
+`wp_form_schemas`/`wp_sites`, de `openvme/v1`-endpoint, `FORMINATOR_WEBHOOK_SECRET`
+en de subsequence-heuristiek opruimen.
+
+**Nieuwe secrets:** `FORMS_PUBLIC_SITE_KEYS` (verplicht — zonder is de publieke API
+dicht, niet open) en optioneel `FORMS_PUBLIC_ORIGINS` voor CORS.
+
+**Nog niet gebouwd, bewust:** bestandsupload, betalingen, meerstaps-formulieren,
+berekeningen en voorwaardelijke velden. Voorwaardelijke velden zijn de meest
+waarschijnlijke eerste uitbreiding; het schema laat er ruimte voor.
+
+---
+
 ## mini-apps — geplande vs. criteria-taken (2 aparte "onbemand versturen"-bouwblokken)
 
 Collega's uploaden zelfgemaakte single-file HTML/JS mini-apps (`src/modules/mini-apps/`, route `/mini-apps`). Naast de basis (upload/tweak/delen, gedeelde opslag via `window.sharedStorage`, notify/chat terwijl de app open staat) heeft de module twee mechanismes om een mail/chat te versturen ZONDER dat iemand de app open heeft. Dit zijn BEWUST twee volledig gescheiden bouwblokken — geen gedeelde tabel, geen gedeelde cron, geen gedeelde lib — omdat ze een fundamenteel ander trigger-type hebben:

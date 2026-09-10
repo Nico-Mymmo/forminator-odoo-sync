@@ -105,6 +105,12 @@
         }).catch(function () {});
         // Extract form fields from the source_payload of the most recent submission
         window.FSV2.extractGenericWebhookFields();
+      } else if (detailIntegration && detailIntegration.source_type === 'om_form') {
+        // Een formulier dat in de OM zelf gebouwd is. Dit was het ontbrekende
+        // derde pad: zo'n koppeling heeft geen forminator_form_id om velden mee
+        // op te halen en (bij een nieuwe koppeling) nog geen inzending om ze uit
+        // af te leiden, waardoor de keuzelijst bij de veldkoppelingen leeg bleef.
+        window.FSV2.fetchOmFormFields(id).catch(function () {});
       } else if (detailFormId) {
         window.FSV2.fetchDetailFormFields(detailSiteKey || null, detailFormId).catch(function () {});
       }

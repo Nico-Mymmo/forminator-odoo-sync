@@ -72,6 +72,14 @@ import {
 } from './validation.js';
 import { handleForminatorV2Webhook, handleGenericWebhook, processDueRetries, replaySubmission } from './worker-handler.js';
 import { syncMailEventToOdoo, isOdooSyncWorthy } from './postmark-webhook.js';
+import {
+  getFormByIntegrationId,
+  getUsedFieldKeys,
+  saveForm,
+  deleteForm,
+  seedFieldTransforms
+} from './forms/database.js';
+import { FIELD_TYPES, ODOO_FIELD_TYPES, META_KEYS, META_PREFIX, LANGUAGES, validateFormDefinition, slugifyForm } from './forms/schema.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -688,6 +696,29 @@ async function enforceChainReferenceOrder(env, targetId, sourceValue) {
   }
 }
 
+/**
+ * Leesbare namen voor de herkomstvelden die elk OM-formulier meestuurt.
+ *
+ * Alleen voor het KOPPELINGSSCHERM: de sleutels zelf staan in META_KEYS in
+ * forms/schema.js en dat blijft de enige bron. Ontbreekt hier een label, dan
+ * toont het scherm gewoon de sleutel -- vervelend, niet stuk.
+ */
+const META_LABELS = {
+  site:          'Site',
+  page_url:      'Pagina-URL',
+  page_title:    'Paginatitel',
+  referrer:      'Verwijzende pagina',
+  submitted_at:  'Tijdstip inzending',
+  utm_source:    'UTM source',
+  utm_medium:    'UTM medium',
+  utm_campaign:  'UTM campagne',
+  utm_term:      'UTM term',
+  utm_content:   'UTM content',
+  ovme_uuid:     'Bezoeker-UUID',
+  ovme_ref_uuid: 'Bezoeker-UUID andere site',
+  lang:          'Taal van de bezoeker',
+};
+
 export const routes = {
   'GET /': async (context) => {
     return context.env.ASSETS.fetch(
@@ -728,6 +759,13 @@ export const routes = {
         payload.webhook_token = btoa(String.fromCharCode(...tokenBytes))
           .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         payload.forminator_form_id = 'generic-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      }
+
+      // OM-formulier: geen webhook_token nodig (de publieke formulier-API
+      // werkt op slug + sitesleutel), maar wel een synthetische form-id --
+      // buildIdempotencyKey() gebruikt die, dus hij mag niet leeg blijven.
+      if (payload.source_type === 'om_form') {
+        payload.forminator_form_id = 'omform-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
       }
 
       const created = await createIntegrationRecord(context.env, payload);
@@ -1631,6 +1669,155 @@ export const routes = {
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
     }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Formulieren — de OM als bron, in plaats van Forminator.
+  //
+  // Deze routes beheren ALLEEN de definitie. Een inzending komt binnen via de
+  // publieke API (forms/public-api.js) en loopt daarna door dezelfde pipeline
+  // als elke andere koppeling — er is geen tweede uitvoeringspad.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Metagegevens voor de bouwer: welke veldtypes bestaan er, en welke
+  // Odoo-types mag je eraan hangen. De bouwer leest dit uit in plaats van een
+  // eigen kopie van de lijst bij te houden — anders lopen bouwer en validatie
+  // uit elkaar zodra er een type bijkomt.
+  'GET /api/forms/meta': async () => {
+    return jsonResponse({
+      success: true,
+      data: {
+        field_types: Object.entries(FIELD_TYPES).map(([naam, spec]) => ({
+          type: naam,
+          label: spec.label,
+          input: spec.input,
+          options: spec.options,
+          multi: spec.multi,
+          odoo_type: spec.odooType
+        })),
+        odoo_field_types: ODOO_FIELD_TYPES,
+        languages: Object.entries(LANGUAGES).map(([code, spec]) => ({
+          code, naam: spec.label, eigen: spec.native
+        })),
+        // De herkomstvelden die een OM-formulier ALTIJD meestuurt. De bouwer
+        // toont ze niet, maar het koppelingsscherm wel: zonder deze lijst kan
+        // je meta_ovme_uuid pas mappen nadat de eerste inzending binnen is, en
+        // dat is precies de inzending waarvan je de herkomst kwijt bent.
+        meta_prefix: META_PREFIX,
+        meta_keys: META_KEYS.map((sleutel) => ({
+          key: META_PREFIX + sleutel,
+          label: META_LABELS[sleutel] || sleutel
+        }))
+      }
+    });
+  },
+
+  'GET /api/integrations/:id/form': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const bundle = await getFormByIntegrationId(context.env, integrationId);
+      if (!bundle) {
+        return jsonResponse({ success: true, data: null });
+      }
+
+      // De sleutels die al in een inzending voorkomen gaan mee naar de bouwer,
+      // zodat die ze op slot kan zetten MET de reden erbij. Zonder dit zou de
+      // gebruiker pas bij het opslaan te horen krijgen dat het niet mag.
+      const lockedKeys = await getUsedFieldKeys(context.env, integrationId);
+
+      return jsonResponse({
+        success: true,
+        data: { ...bundle, locked_keys: [...lockedKeys] }
+      });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'PUT /api/integrations/:id/form': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const payload = await readJsonBody(context.request);
+      const lockedKeys = await getUsedFieldKeys(context.env, integrationId);
+
+      const { errors, form, fields } = validateFormDefinition(payload, { lockedKeys });
+      if (errors.length > 0) {
+        return jsonResponse({ success: false, error: errors[0], errors }, 400);
+      }
+
+      const bundle = await saveForm(context.env, integrationId, { form, fields });
+
+      // De veldtypes doorgeven aan fs_v2_field_transforms. Best-effort: mislukt
+      // dit, dan is het formulier wél bewaard en kan de gebruiker de transforms
+      // met de hand zetten zoals bij Forminator. Het omgekeerde (de save laten
+      // falen op een aanvulling) zou erger zijn.
+      let seeded = 0;
+      try {
+        seeded = await seedFieldTransforms(context.env, integrationId, bundle.fields);
+      } catch (seedError) {
+        console.error('[forms] veldtransformaties aanvullen mislukt:', seedError.message);
+      }
+
+      return jsonResponse({
+        success: true,
+        data: { ...bundle, locked_keys: [...lockedKeys], transforms_seeded: seeded }
+      });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  'DELETE /api/integrations/:id/form': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+      await deleteForm(context.env, integrationId);
+      return jsonResponse({ success: true });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // Wat de collega op de WordPress-pagina moet plakken. Bewust een route en
+  // geen tekst die de bouwer zelf samenstelt: de shortcode-naam staat dan op
+  // twee plekken, en die lopen uit elkaar zodra de plugin verandert.
+  'GET /api/integrations/:id/form/embed': async (context) => {
+    try {
+      const integrationId = context.params?.id;
+      assertIntegrationSelected(integrationId);
+
+      const bundle = await getFormByIntegrationId(context.env, integrationId);
+      if (!bundle) {
+        return jsonResponse({ success: false, error: 'Deze koppeling heeft nog geen formulier' }, 404);
+      }
+
+      const reqUrl = new URL(context.request.url);
+      const base = `${reqUrl.protocol}//${reqUrl.host}`;
+
+      return jsonResponse({
+        success: true,
+        data: {
+          shortcode: `[mymmo_form slug="${bundle.form.slug}"]`,
+          schema_url: `${base}/forminator-v2/public/v1/forms/${bundle.form.slug}`,
+          submit_url: `${base}/forminator-v2/public/v1/forms/${bundle.form.slug}/submit`,
+          status: bundle.form.status,
+          version: bundle.form.version
+        }
+      });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  // Een naam omzetten naar een slug, zodat de bouwer dezelfde regels gebruikt
+  // als de server in plaats van een eigen kopie in JavaScript.
+  'POST /api/forms/slugify': async (context) => {
+    const payload = await readJsonBody(context.request);
+    return jsonResponse({ success: true, data: { slug: slugifyForm(payload?.value) } });
   },
 
   'GET /api/webhook-config': async (context) => {

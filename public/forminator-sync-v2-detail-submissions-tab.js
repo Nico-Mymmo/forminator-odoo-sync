@@ -84,11 +84,48 @@
       if (prefix) return String(payload[prefix]);
       return '';
     }
+    // Sleutels die geen veld zijn maar een OMHULSEL om de velden heen.
+    // Exact dezelfde lijst als normalizeFormValues() in worker-handler.js
+    // accepteert -- die functie kijkt naar form_fields, form_data, data,
+    // submission en raw, in die volgorde.
+    var CONTAINERS = ['form_fields', 'form_data', 'data', 'submission', 'raw'];
+
+    /**
+     * De payload PLATGESLAGEN, zodat een veld gevonden wordt waar het ook staat.
+     *
+     * Een Forminator-inzending heeft haar velden bovenaan; een inzending van een
+     * OM-formulier heeft ze een niveau dieper, onder form_data. Zonder deze
+     * platslag toonde de lijst voor elk OM-formulier een streepje in elke kolom,
+     * en stond er onder de rij "form_data: [object Object]" -- terwijl alle
+     * waarden gewoon in de payload zaten.
+     *
+     * Bovenliggende sleutels winnen: een omhulsel mag nooit een echt veld
+     * overschrijven.
+     */
     function parsePayload(sub) {
       var raw = sub.source_payload;
       if (!raw) return {};
-      if (typeof raw === 'object') return raw;
-      try { return JSON.parse(raw); } catch (e) { return {}; }
+      var obj = raw;
+      if (typeof obj !== 'object') {
+        try { obj = JSON.parse(obj); } catch (e) { return {}; }
+      }
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+
+      var plat = {};
+      Object.keys(obj).forEach(function (k) {
+        if (CONTAINERS.indexOf(k) !== -1) return;  // het omhulsel zelf is geen waarde
+        plat[k] = obj[k];
+      });
+
+      CONTAINERS.forEach(function (naam) {
+        var binnenin = obj[naam];
+        if (!binnenin || typeof binnenin !== 'object' || Array.isArray(binnenin)) return;
+        Object.keys(binnenin).forEach(function (k) {
+          if (plat[k] === undefined) plat[k] = binnenin[k];
+        });
+      });
+
+      return plat;
     }
     function listColumnValue(sub, col) {
       var payload = parsePayload(sub);
@@ -99,14 +136,21 @@
         val = lookupPayloadValue(payload, fids[fi]);
         if (val) break;
       }
+      // truncate + title: de kolom blijft binnen haar breedte, en de volledige
+      // waarde is nog leesbaar door erover te gaan of de rij open te klappen.
       return val
-        ? '<span class="font-medium">' + esc(String(val).slice(0, 80)) + '</span>'
+        ? '<div class="font-medium truncate" title="' + esc(String(val)) + '">' + esc(String(val).slice(0, 200)) + '</div>'
         : '<span class="text-base-content/30">&mdash;</span>';
     }
 
     // Compact bolletje i.p.v. een volledig uitgeschreven tag — de tekst staat
     // nog gewoon in de title-tooltip, ze hoeft niet in elke rij herhaald.
     var statusMeta = {
+      // 'received' = bewaard, maar de pipeline is overgeslagen omdat de
+      // koppeling uit stond (skipPipeline in worker-handler.js). Dat is een
+      // bewuste veiligheidsklep, geen fout -- maar zonder deze regel kreeg ze
+      // een naamloos grijs bolletje, en dan lijkt het of er iets stuk is.
+      received:           { color: 'bg-base-content/40', label: 'Bewaard — koppeling staat uit' },
       success:            { color: 'bg-success', label: 'Geslaagd' },
       processed:          { color: 'bg-success', label: 'Geslaagd' },
       partial_failed:     { color: 'bg-warning', label: 'Deels mislukt' },
@@ -122,6 +166,10 @@
       var m = statusMeta[status] || { color: 'bg-base-content/30', label: status || 'Onbekend' };
       return '<span class="inline-block w-2.5 h-2.5 rounded-full ' + m.color + '" title="' + esc(m.label) + '"></span>';
     };
+
+    // is_active kan ontbreken in oudere responses; alleen een expliciete false
+    // telt als "uit", zodat een onbekende waarde de knop niet stilletjes blokkeert.
+    var koppelingUit = ((S().detail && S().detail.integration) || {}).is_active === false;
 
     var originals = S().submissions.filter(function (s) { return !s.replay_of_submission_id; });
     var replays   = S().submissions.filter(function (s) { return !!s.replay_of_submission_id; });
@@ -177,7 +225,11 @@
     // detail-lifecycle.js) — een live Odoo-call per rij zou bij tientallen
     // indieningen een lawine aan verzoeken geven.
     var FUNNEL_STAGES = ['created', 'delivered', 'opened', 'clicked'];
-    var funnelStageLabels = { created: 'Aangemaakt', delivered: 'Verzonden', opened: 'Geopend', clicked: 'Geklikt' };
+    // Zelfde vier woorden als de Mails-kolom in events-v2 (renderMailFunnels
+    // in public/events-v2-client.js) -- afspraak van 2026-09-10: één
+    // systematiek over de modules heen. 'Aangemaakt'/'Verzonden' heetten hier
+    // anders terwijl ze exact hetzelfde betekenen. Keys blijven ongewijzigd.
+    var funnelStageLabels = { created: 'Klaargezet', delivered: 'Verstuurd', opened: 'Geopend', clicked: 'Geklikt' };
 
     function mailFunnelIcon(sub) {
       var ctx;
@@ -225,11 +277,28 @@
       var successfulReplay = !isReplay && (replaysByOrigId[sub.id] || []).some(function (r) {
         return ['success', 'processed'].includes(String(r.status || ''));
       });
-      var replayAllowed = !isReplay && !successfulReplay && ['partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
+      // 'received' hoort hier BIJ: dat is een inzending die bewaard werd terwijl
+      // de koppeling uit stond. Replay is dan de enige manier om haar alsnog te
+      // verwerken -- zonder deze status stond er wel een uitleg die naar Replay
+      // verwees, maar geen knop om op te drukken.
+      var replayAllowed = !isReplay && !successfulReplay && ['received', 'partial_failed', 'permanent_failed', 'retry_exhausted'].includes(String(sub.status || ''));
       var forceReplayAllowed = deleteUnlocked && !replayAllowed && ['success', 'processed', 'partial_failed'].includes(String(sub.status || ''));
       return { successfulReplay: successfulReplay, replayAllowed: replayAllowed, forceReplayAllowed: forceReplayAllowed };
     });
     var anyActie = deleteUnlocked || rowFlags.some(function (f) { return f.replayAllowed || f.forceReplayAllowed; });
+
+    // Hoeveel knoppen kunnen er naast elkaar staan? Elke knop is ongeveer 1.5rem
+    // breed. De kolom op één vaste maat zetten geeft óf een te smalle kolom waar
+    // knoppen uit vallen, óf een brede lege kolom bij één prullenbakje.
+    var maxKnoppen = 0;
+    rowFlags.forEach(function (f) {
+      var n = 0;
+      if (f.replayAllowed || f.forceReplayAllowed) n += 1;
+      if (deleteUnlocked && hasMailStep) n += 1;
+      if (deleteUnlocked) n += 1;
+      if (n > maxKnoppen) maxKnoppen = n;
+    });
+    var anyActieBreedte = Math.max(2.5, 1.1 + maxKnoppen * 1.6);
 
     // Vaste kolommen zonder ID/Fout: Status, Aangemaakt. Fout staat nu in de
     // uitgeklapte rij (zie buildTimelineRow); ID, Mail en Actie zijn optioneel.
@@ -316,7 +385,14 @@
               '</div>' +
             '</div>';
           }).join('')
-        : '<span class="text-xs text-base-content/40 italic">Geen stapdetails beschikbaar.</span>';
+        : (String(sub.status || '') === 'received'
+            ? '<div class="flex items-start gap-1.5 p-2 rounded bg-base-300/60 text-xs">' +
+                '<i data-lucide="pause" class="w-3.5 h-3.5 shrink-0 mt-0.5 opacity-60"></i>' +
+                '<span><span class="font-semibold">Deze koppeling staat uit.</span> ' +
+                'De inzending is bewaard en de velden eronder kloppen, maar er is niets naar Odoo gestuurd. ' +
+                'Zet de koppeling aan en gebruik daarna <span class="font-medium">Replay</span> om deze inzending alsnog te verwerken.</span>' +
+              '</div>'
+            : '<span class="text-xs text-base-content/40 italic">Geen stapdetails beschikbaar.</span>');
 
       // De Fout-kolom staat niet meer los in de lijst (te breed/te prominent voor
       // een geval dat de meeste indieningen niet raakt) — wie de rij uitklapt ziet
@@ -338,6 +414,8 @@
           '</div>'
         : '';
 
+      var contextLeeg = !ctx || Object.keys(ctx).length === 0;
+
       function safeJsonPretty(raw) {
         try {
           var obj = (raw && typeof raw === 'object') ? raw : JSON.parse(raw || '{}');
@@ -355,6 +433,15 @@
           '<details>' +
             '<summary class="text-xs font-semibold cursor-pointer select-none text-base-content/60 hover:text-base-content py-1">' +
               '&#x25B6; Verwerkte context (uitgaand naar Odoo)</summary>' +
+            // Een kale "{}" laat je raden of er iets stukging of dat er gewoon
+            // niets te sturen viel. Die twee zijn heel verschillende dingen.
+            (contextLeeg
+              ? '<p class="text-xs text-base-content/50 mt-1 mb-1">' +
+                  (String(sub.status || '') === 'received'
+                    ? 'Leeg omdat de koppeling uit stond toen deze inzending binnenkwam.'
+                    : 'Leeg: er zijn nog geen veldkoppelingen ingesteld, dus er valt niets naar Odoo te sturen.') +
+                '</p>'
+              : '') +
             '<pre class="text-xs font-mono bg-base-300 rounded p-2 mt-1 overflow-auto max-h-64 whitespace-pre-wrap break-all">' +
               esc(safeJsonPretty(sub.resolved_context)) + '</pre>' +
           '</details>' +
@@ -378,17 +465,32 @@
       } catch (e) { return ''; }
     }
 
+    // table-fixed en w-full: de tabel past zich aan het scherm aan in plaats van
+    // aan haar inhoud. Zonder dit bepaalde de LANGSTE waarde de kolombreedte --
+    // één e-mailadres of één kolomkop als "Waar kunnen we je mee helpen?" duwde
+    // de hele tabel voorbij de rand, en dan sta je horizontaal te scrollen om
+    // bij de actieknoppen te komen.
+    //
+    // De vaste kolommen krijgen een expliciete breedte (bij table-fixed doet
+    // w-px niets meer); wat overblijft wordt gelijk verdeeld over de
+    // gekozen velden. Waarden die niet passen worden afgekapt met een
+    // ellips en dragen hun volledige tekst in title -- en de rij openklappen
+    // toont sowieso alles.
+    var vasteBreedte = function (rem) { return ' style="width:' + rem + 'rem"'; };
+
     el.innerHTML =
       toolbar +
       '<div class="overflow-x-auto">' +
-        '<table class="table table-xs">' +
+        '<table class="table table-xs table-fixed w-full">' +
           '<thead><tr>' +
-            '<th class="w-px">Status</th>' +
-            (showIdColumn ? '<th class="w-px whitespace-nowrap">ID</th>' : '') +
-            listColumns.map(function (c) { return '<th class="max-w-[16rem]">' + esc(c.label) + '</th>'; }).join('') +
-            (hasMailStep ? '<th class="w-px whitespace-nowrap">Mail</th>' : '') +
-            '<th class="w-px whitespace-nowrap">Aangemaakt</th>' +
-            (anyActie ? '<th class="w-px whitespace-nowrap sticky right-0 bg-base-100 z-10">Actie</th>' : '') +
+            '<th' + vasteBreedte(2.25) + '><span class="sr-only">Status</span></th>' +
+            (showIdColumn ? '<th' + vasteBreedte(5.5) + ' class="whitespace-nowrap">ID</th>' : '') +
+            listColumns.map(function (c) {
+              return '<th class="align-bottom leading-tight break-words" title="' + esc(c.label) + '">' + esc(c.label) + '</th>';
+            }).join('') +
+            (hasMailStep ? '<th' + vasteBreedte(2.75) + ' class="whitespace-nowrap">Mail</th>' : '') +
+            '<th' + vasteBreedte(6.5) + ' class="leading-tight">Aangemaakt</th>' +
+            (anyActie ? '<th' + vasteBreedte(anyActieBreedte) + ' class="whitespace-nowrap sticky right-0 bg-base-100 z-10">Actie</th>' : '') +
           '</tr></thead>' +
           '<tbody>' +
           ordered.map(function (item, idx) {
@@ -409,7 +511,7 @@
             // rij iets te doen heeft (zie anyActie hierboven).
             var mainRow =
               '<tr class="sub-row cursor-pointer' + (isReplay ? ' bg-success/5' : '') + '" data-sub-id="' + esc(shortId) + '">' +
-                '<td class="w-px">' + statusBadge(sub.status) +
+                '<td class="whitespace-nowrap">' + statusBadge(sub.status) +
                   (successfulReplay ? '<i data-lucide="corner-down-right" class="w-3 h-3 text-success ml-1 inline-block align-middle" title="Opgelost via replay"></i>' : '') +
                   '</td>' +
                 (showIdColumn
@@ -418,14 +520,22 @@
                       esc(shortId) +
                     '</td>'
                   : '') +
-                listColumns.map(function (c) { return '<td class="text-xs max-w-[16rem]">' + listColumnValue(sub, c) + '</td>'; }).join('') +
-                (hasMailStep ? '<td class="w-px whitespace-nowrap">' + mailFunnelIcon(sub) + '</td>' : '') +
-                '<td class="text-xs whitespace-nowrap w-px">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
+                listColumns.map(function (c) { return '<td class="text-xs">' + listColumnValue(sub, c) + '</td>'; }).join('') +
+                (hasMailStep ? '<td class="whitespace-nowrap">' + mailFunnelIcon(sub) + '</td>' : '') +
+                // De datum mag over twee regels: afkappen zou "10/9/2026, 22:2…"
+                // geven en dan is het tijdstip onleesbaar.
+                '<td class="text-xs leading-tight">' + esc(window.FSV2.fmt(sub.created_at)) + '</td>' +
                 (anyActie
-                  ? '<td class="sticky right-0 bg-base-100 w-px whitespace-nowrap">' +
+                  ? '<td class="sticky right-0 bg-base-100 whitespace-nowrap">' +
                       '<div class="flex items-center gap-1">' +
                       (replayAllowed
-                        ? '<button class="btn btn-xs btn-square btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Replay"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>'
+                        // Staat de koppeling nog uit, dan zou replay opnieuw op
+                        // 'received' uitkomen. De knop tonen maar uitschakelen
+                        // met de reden erin is eerlijker dan hem laten drukken
+                        // voor hetzelfde resultaat.
+                        ? (koppelingUit
+                            ? '<button class="btn btn-xs btn-square btn-primary btn-disabled" disabled title="Zet eerst de koppeling aan bij Koppeling"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>'
+                            : '<button class="btn btn-xs btn-square btn-primary" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Replay"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>')
                         : '') +
                       (forceReplayAllowed
                         ? '<button class="btn btn-xs btn-square btn-outline btn-warning" data-action="replay-submission" data-id="' + esc(sub.id) + '" title="Opnieuw verwerken (forceren)"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>'

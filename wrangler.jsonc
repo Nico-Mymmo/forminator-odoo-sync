@@ -60,6 +60,12 @@
 		"ANTHROPIC_MODEL": "claude-sonnet-5",
 		"GEMINI_MODEL": "gemini-flash-lite-latest",
 		"EVENTS_PUBLIC_ORIGINS": "https://openvme.be,https://syndicoach.be",
+		// Koppelingen -- publieke formulier-API (mymmo-forms-plugin). Alleen
+		// nodig voor CORS; de plugin praat server-naar-server en heeft dit niet
+		// nodig. De SLEUTEL is een secret: FORMS_PUBLIC_SITE_KEYS, in de vorm
+		// "openvme:<sleutel>,syndicoach:<sleutel>". Zonder die secret is de
+		// publieke formulier-API dicht, niet open.
+		"FORMS_PUBLIC_ORIGINS": "https://openvme.be,https://syndicoach.be",
 		// Event Operations v2 -- auto-done cron (draait mee in de 15-min-cron-tak,
 		// zie src/modules/event-operations-v2/lib/cron.js). Standaard AAN; zet op
 		// "0" om 'm zonder deploy uit te zetten (Cloudflare-dashboard volstaat).
@@ -96,6 +102,29 @@
 		// uit zonder deploy. GEEN dagelijkse herberekening -- de scheduled_date
 		// wordt bij het inschrijven gezet.
 		"EVENTS_V2_MAIL_REPAIR_CRON": "1",
+		// Event Operations v2 -- over WELKE ir.mail_server de eventmails
+		// vertrekken. 6 = "Postmark - Webinar communication"
+		// (smtp.postmarkapp.com, SMTP-token PM-T-events-communica-...), een
+		// TRANSACTIONELE Postmark-stream.
+		//
+		// WAAROM DIT EXPLICIET MOET. Zonder mail_server_id kiest Odoo de server
+		// met de laagste sequence, en dat is nummer 4 ("Postmark",
+		// smtp-broadcasts.postmarkapp.com, PM-B-newsletter-...): de
+		// BROADCAST-stream van de nieuwsbrief. Alle eventmails vertrokken
+		// daarover. Twee gevolgen: de webhook van die stream kreeg elke
+		// nieuwsbriefgebeurtenis mee (ruis), en -- erger -- een broadcaststream
+		// onderdrukt adressen die zich uitschreven, dus wie de nieuwsbrief
+		// opzegde kreeg zijn eventbevestiging stil niet.
+		//
+		// De stream zit IN het SMTP-token; er hoort dus GEEN
+		// X-PM-Message-Stream-header bij (zie postmark-tracking.js). Zelfde
+		// afspraak en zelfde aanpak als de koppelingen-module, die haar
+		// mailserver ook expliciet meegeeft (target.mail_server_id in
+		// forminator-sync-v2/mail-step.js, ir.mail_server 5).
+		//
+		// LEEG = Odoo kiest zelf, dus het oude gedrag. Dat is bewust de veilige
+		// stand: een deploy op zich verandert dan niets aan de verzendweg.
+		"EVENTS_V2_MAIL_SERVER_ID": "6",
 		"BASE_ASSET_URL": "https://link.openvme.be",
 		"EVENTS_SHARED_CANONICAL_ORIGIN": "https://openvme.be"
 	}

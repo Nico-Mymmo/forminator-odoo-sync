@@ -5,6 +5,11 @@
  * - /assets/* (R2 publieke bestanden)
  * - /api/auth/login | logout | me
  * - Forminator Sync V2 webhooks (token-auth)
+ * - Publieke formulier-API (sitesleutel): /forminator-v2/public/v1/forms/*
+ *   -- schema ophalen + inzending posten voor formulieren die in de OM zelf
+ *   gedefinieerd zijn. De WordPress-plugin mymmo-forms praat hiermee
+ *   server-naar-server; de sitesleutel komt daardoor nooit in de HTML.
+ *   Zie src/modules/forminator-sync-v2/forms/public-api.js.
  * - Postmark-webhook (token-auth): /forminator-v2/api/webhooks/postmark
  * - Postmark-webhook event-operations-v2 (token-auth): /events-v2/api/webhooks/postmark
  * - Mini-app discovery (token-auth): /insights/api/sales-insights/mini-app-discovery/*
@@ -40,6 +45,10 @@ import {
   isEventsV2PostmarkWebhookAuthorized,
   isEventsV2PostmarkWebhookPath
 } from '../modules/event-operations-v2/lib/mail-webhook.js';
+import {
+  handleFormsPublicApi,
+  isFormsPublicApiPath
+} from '../modules/forminator-sync-v2/forms/public-api.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -454,6 +463,17 @@ export async function handlePublicRoutes(request, env, ctx) {
   // env.EVENTS_PUBLIC_SITE_KEYS, doet een rate limit per sleutel en geeft
   // 401 zonder geldige sleutel. Alleen GET en OPTIONS; er is geen
   // schrijfpad in deze fase.
+  // Publieke formulier-API voor de mymmo-forms-plugin. Geen sessie: de handler
+  // valideert zelf de sitesleutel (header X-Mymmo-Site-Key) tegen
+  // env.FORMS_PUBLIC_SITE_KEYS, doet een rate limit per sleutel en geeft 401
+  // zonder geldige sleutel. Twee routes: het schema lezen (GET) en een
+  // inzending posten (POST). Er is bewust geen route die inzendingen
+  // teruggeeft -- een sitesleutel staat op een webserver waar meer mensen bij
+  // kunnen dan bij de OM.
+  if (isFormsPublicApiPath(pathname)) {
+    return await handleFormsPublicApi(request, env, ctx, pathname);
+  }
+
   if (isEventsPublicApiPath(pathname)) {
     return await handleEventsPublicApi(request, env, ctx, pathname);
   }

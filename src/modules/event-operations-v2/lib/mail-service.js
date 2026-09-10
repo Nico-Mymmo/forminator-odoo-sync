@@ -55,7 +55,7 @@ import {
   eventTypePresentation
 } from '../odoo-contract.js';
 import { LOG_PREFIX, REGISTRATION_STATE, PUBLIC_EVENT_PATH, PUBLICATION_STATE } from '../constants.js';
-import { buildReminderTrackingHeaders } from './postmark-tracking.js';
+import { buildMailTrackingHeaders, chatterLabel } from './postmark-tracking.js';
 import {
   MAIL_KIND,
   MAIL_KINDS,
@@ -72,6 +72,31 @@ import { optionalFieldAvailable, logToChatter, listEventTypes, listEvents, getEv
 
 /** Domein voor de message_id-sleutel. Puur een identifier, geen adres. */
 const MESSAGE_ID_DOMAIN = 'om.mymmo.com';
+
+/**
+ * De ir.mail_server waarlangs de events-mails moeten vertrekken.
+ *
+ * WAAROM DIT EXPLICIET MOET. Zonder `mail_server_id` kiest Odoo de server
+ * met de laagste sequence, en dat is hier `Postmark` (id 4) met SMTP-gebruiker
+ * `PM-B-newsletter-...` -- de BROADCAST-stream van de nieuwsbrief. Een
+ * Postmark SMTP-token zit vast aan één stream, dus een
+ * `X-PM-Message-Stream`-header krijgt de mail daar NIET weg; dat kan alleen
+ * met andere SMTP-inloggegevens, en dus met een andere ir.mail_server.
+ *
+ * Twee gevolgen van de oude situatie, en dat is de reden dat dit hier staat:
+ * de webhook van die stream kreeg elke nieuwsbriefgebeurtenis mee (ruis), en
+ * een broadcaststream onderdrukt adressen die zich uitschreven -- iemand die
+ * de nieuwsbrief opzegde kreeg zijn eventbevestiging daardoor stil niet.
+ *
+ * Leeg/afwezig = Odoo kiest zelf (het oude gedrag), zodat een deploy zonder
+ * deze instelling niets stilzwijgend verandert.
+ *
+ * @returns {number|null}
+ */
+function resolveMailServerId(env) {
+  const raw = Number(env?.EVENTS_V2_MAIL_SERVER_ID);
+  return Number.isInteger(raw) && raw > 0 ? raw : null;
+}
 
 // De voorsprong van de reminder is INSTELBAAR per event-type (en per event
 // via de override): section.timing in mail-blocks.js. DEFAULT_TIMING daar is
@@ -900,6 +925,10 @@ export async function queueMails(env, { event, registrations, kind, actor = null
     }
   }
 
+  // Eenmalig per aanroep, niet per ontvanger: dit zijn instellingen, geen
+  // per-mail-gegevens.
+  const mailServerId = resolveMailServerId(env);
+
   const timing = computeScheduledDate(kind, event, now, sectie.timing);
   if (!timing.send) {
     return { queued: [], updated: [], skipped: registrations.map((r) => ({ id: r.id, reason: timing.reason })) };
@@ -1025,7 +1054,19 @@ export async function queueMails(env, { event, registrations, kind, actor = null
           [MAIL_FIELDS.REPLY_TO]: sender.formatted,
           [MAIL_FIELDS.EMAIL_TO]: to,
           [MAIL_FIELDS.SCHEDULED_DATE]: timing.scheduledDate,
-          ...(kind === MAIL_KIND.REMINDER ? { [MAIL_FIELDS.HEADERS]: buildReminderTrackingHeaders() } : {})
+          // Trackingheaders ook hier bijwerken: een mail die nog klaarstond
+          // van voor 2026-09-10 heeft ze niet (of enkel de reminder), en
+          // zonder metadata kan de webhook hem niet plaatsen.
+          [MAIL_FIELDS.HEADERS]: buildMailTrackingHeaders({
+            eventId: Number(event.id),
+            kind,
+            registrationId: Number(registration.id)
+          }),
+          // Ook de server bijwerken: een mail die nog klaarstond is
+          // aangemaakt toen Odoo zelf de standaardserver koos (de
+          // newsletter-broadcaststream). Zonder dit vertrekt hij daar nog
+          // over, ook al is de instelling inmiddels gezet.
+          ...(mailServerId ? { [MAIL_FIELDS.MAIL_SERVER]: mailServerId } : {})
         }
       });
       continue;
@@ -1042,9 +1083,16 @@ export async function queueMails(env, { event, registrations, kind, actor = null
       [MAIL_FIELDS.RES_ID]: Number(registration.id),
       [MAIL_FIELDS.MESSAGE_ID]: buildMessageId(event.id, kind, registration.id),
       [MAIL_FIELDS.AUTO_DELETE]: false,
-      // Alleen de reminder krijgt open/klik-tracking -- zie
-      // postmark-tracking.js. Bevestiging en recap blijven ongemoeid.
-      ...(kind === MAIL_KIND.REMINDER ? { [MAIL_FIELDS.HEADERS]: buildReminderTrackingHeaders() } : {})
+      // ALLE DRIE de soorten krijgen open/klik-tracking en de metadata
+      // waarmee de webhook de mail terugvindt -- zie postmark-tracking.js.
+      // Voorheen kreeg alleen de reminder headers, waardoor "geopend" en
+      // "geklikt" voor bevestiging en recap per definitie leeg bleven.
+      [MAIL_FIELDS.HEADERS]: buildMailTrackingHeaders({
+        eventId: Number(event.id),
+        kind,
+        registrationId: Number(registration.id)
+      }),
+      ...(mailServerId ? { [MAIL_FIELDS.MAIL_SERVER]: mailServerId } : {})
     });
     queuedIds.push(Number(registration.id));
   }
@@ -1149,6 +1197,12 @@ async function herschrijfMails(env, opdrachten) {
  * "geklikt" -- enkel mogelijk bij de reminder, want alleen die krijgt
  * open/klik-trackingheaders, zie postmark-tracking.js).
  *
+ * VIJF FASEN (2026-09-10): klaargezet, verstuurd, afgeleverd, geopend,
+ * geklikt -- voor elk van de drie soorten. "Afgeleverd" staat er bewust in
+ * naast "verstuurd": dat verschil is wat een bounce zichtbaar maakt, en bij
+ * een event is dat het verschil tussen "hij komt niet" en "hij heeft de mail
+ * nooit gehad".
+ *
  * LET OP: dit was voordien getReminderMailStatus, enkel voor de reminder.
  * Verbreed naar alle drie de soorten zodat de Mails-kolom in de UI voor
  * elke mail (bevestiging/reminder/recap) dezelfde compacte punten-funnel
@@ -1165,10 +1219,21 @@ export async function getMailStatus(env, eventId, registrationIds) {
     .map((n) => Number(n))
     .filter((n) => Number.isInteger(n) && n > 0);
 
+  // Vijf fasen per soort. `queued` en `sent` komen uit de STATE van het
+  // mail.mail-record, niet uit de `_sent`-boolean op de inschrijving: die
+  // vlag is voor oudere events geen betrouwbaar antwoord op "heeft deze
+  // persoon de mail gehad" (zie include_sent in queueMails).
+  const leegPerSoort = () => ({
+    queued: false,
+    sent: false,
+    delivered: false,
+    opened: false,
+    clicked: false
+  });
   const leeg = () => ({
-    [MAIL_KIND.CONFIRMATION]: { delivered: false, opened: false, clicked: false },
-    [MAIL_KIND.REMINDER]: { delivered: false, opened: false, clicked: false },
-    [MAIL_KIND.RECAP]: { delivered: false, opened: false, clicked: false }
+    [MAIL_KIND.CONFIRMATION]: leegPerSoort(),
+    [MAIL_KIND.REMINDER]: leegPerSoort(),
+    [MAIL_KIND.RECAP]: leegPerSoort()
   });
 
   const result = new Map();
@@ -1197,12 +1262,20 @@ export async function getMailStatus(env, eventId, registrationIds) {
     for (const mail of Array.isArray(mails) ? mails : []) {
       const match = kindByMessageId.get(mail[MAIL_FIELDS.MESSAGE_ID]);
       if (!match || !result.has(match.registrationId)) continue;
-      // 'received' wordt uitsluitend door mail-webhook.js gezet, op een
-      // bevestigd Postmark delivery-event -- 'sent' bewijst enkel dat Odoo
-      // hem verstuurde, niet dat hij aankwam.
-      if (mail[MAIL_FIELDS.STATE] === 'received') {
-        result.get(match.registrationId)[match.kind].delivered = true;
-      }
+      const state = mail[MAIL_FIELDS.STATE];
+      const vak = result.get(match.registrationId)[match.kind];
+
+      // 'cancel' = de inschrijving werd gearchiveerd en de klaarstaande mail
+      // is geannuleerd. Die telt als niets: hij is niet klaargezet meer.
+      if (state === 'cancel') continue;
+
+      // Het mail.mail-record bestaat => klaargezet. 'sent' betekent dat Odoo
+      // hem aan Postmark overhandigde; 'received' wordt UITSLUITEND door
+      // mail-webhook.js gezet op een bevestigd delivery-event -- pas dat
+      // laatste bewijst dat hij ook echt aankwam.
+      vak.queued = true;
+      if (state === 'sent' || state === 'received') vak.sent = true;
+      if (state === 'received') vak.delivered = true;
     }
   } catch (error) {
     console.warn(`${LOG_PREFIX} mail-status (afgeleverd) ophalen mislukt: ${error?.message}`);
@@ -1224,16 +1297,25 @@ export async function getMailStatus(env, eventId, registrationIds) {
     for (const note of Array.isArray(notes) ? notes : []) {
       const registrationId = Number(note.res_id);
       if (!result.has(registrationId)) continue;
-      // Hoofdletterongevoelig: de chatter-notitie vermeldt de soort via
-      // mail-webhook.js's chatterLabel() ("Reminder geopend" met hoofdletter
-      // R). Hier enkel geïnteresseerd in reminder, want confirmation/recap
-      // krijgen sowieso nooit een open/klik-event (geen trackingheaders).
+      // Hoofdletterongevoelig vergelijken met exact de tekst die
+      // mail-webhook.js schreef. Die tekst komt uit chatterLabel() in
+      // postmark-tracking.js en wordt hier UIT DEZELFDE FUNCTIE opgehaald --
+      // niet overgetypt. Een kopie hier zou betekenen dat een spelwijziging
+      // aan de schrijverskant deze kolom stil leeg laat, en dat is precies
+      // het soort fout dat je pas weken later opmerkt.
+      //
+      // Alle drie de soorten, niet enkel de reminder: sinds 2026-09-10
+      // krijgen bevestiging en recap dezelfde trackingheaders.
       const body = String(note.body || '').toLowerCase();
-      if (body.indexOf('reminder geopend') !== -1) {
-        result.get(registrationId)[MAIL_KIND.REMINDER].opened = true;
-      }
-      if (body.indexOf('reminder geklikt') !== -1) {
-        result.get(registrationId)[MAIL_KIND.REMINDER].clicked = true;
+      for (const kind of [MAIL_KIND.CONFIRMATION, MAIL_KIND.REMINDER, MAIL_KIND.RECAP]) {
+        const openLabel = String(chatterLabel(kind, 'open') || '').toLowerCase();
+        const clickLabel = String(chatterLabel(kind, 'click') || '').toLowerCase();
+        if (openLabel !== '' && body.indexOf(openLabel) !== -1) {
+          result.get(registrationId)[kind].opened = true;
+        }
+        if (clickLabel !== '' && body.indexOf(clickLabel) !== -1) {
+          result.get(registrationId)[kind].clicked = true;
+        }
       }
     }
   } catch (error) {

@@ -461,6 +461,7 @@
         <!-- Tabs -->
         <div role="tablist" class="tabs tabs-boxed mb-6" id="detailTabBar">
           <button role="tab" class="tab tab-active" data-detail-tab="fields">Formuliervelden</button>
+          <button role="tab" class="tab" data-detail-tab="form" id="detailTabFormBtn">Formulier</button>
           <button role="tab" class="tab" data-detail-tab="mapping">Koppeling</button>
           <button role="tab" class="tab" data-detail-tab="history">Indieningen</button>
           <button role="tab" class="tab" data-detail-tab="stats" id="detailTabStatsBtn" style="display:none;">Statistieken</button>
@@ -474,6 +475,10 @@
             </button>
           </div>
           <div id="detailFormFields"></div>
+        </div>
+
+        <div id="detailTabForm" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
+          <div id="detailFormBuilder"></div>
         </div>
 
         <div id="detailTabMapping" style="display:none;" class="bg-base-100 border border-base-200 rounded-box p-6">
@@ -495,6 +500,30 @@
   </div><!-- /padding-top -->
 
   <!-- ─── Dialogs ──────────────────────────────────────────────────────────── -->
+  <!-- ─── Nieuwe koppeling ─────────────────────────────────────────────── -->
+  <!-- Vervangt de driestappenwizard als ingang: er is maar een echte vraag,
+       namelijk waar de data binnenkomt. Zie forminator-sync-v2-new-integration.js. -->
+  <dialog id="newIntegrationDialog" class="modal">
+    <div class="modal-box max-w-lg">
+      <h3 class="font-bold text-lg mb-1">Nieuwe koppeling</h3>
+      <p class="text-sm text-base-content/60 mb-4">Waar komt de data binnen?</p>
+
+      <div id="newIntegrationBody"></div>
+
+      <div class="modal-action mt-5 items-center">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="goto-wizard-legacy">
+          Bestaand Forminator-formulier
+        </button>
+        <div class="flex-1"></div>
+        <form method="dialog"><button class="btn btn-sm btn-ghost">Annuleren</button></form>
+        <button id="niCreateBtn" type="button" class="btn btn-sm btn-primary" data-action="new-integration-create">
+          Aanmaken
+        </button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+  </dialog>
+
   <!-- ─── Export modal ─────────────────────────────────────────────────── -->
   <dialog id="exportSubmissionsDialog" class="modal">
     <div class="modal-box max-w-sm">
@@ -661,6 +690,9 @@
   <script src="/mail-token-editor.js"></script>
   <script src="/forminator-sync-v2-detail-mail-composer.js"></script>
   <script src="/forminator-sync-v2-detail-tracker-stats-tab.js"></script>
+  <script src="/forminator-sync-v2-form-preview.js"></script>
+  <script src="/forminator-sync-v2-detail-form-builder.js"></script>
+  <script src="/forminator-sync-v2-new-integration.js"></script>
   <script src="/forminator-sync-v2-settings.js"></script>
   <script src="/forminator-sync-v2-bootstrap.js"></script>
 

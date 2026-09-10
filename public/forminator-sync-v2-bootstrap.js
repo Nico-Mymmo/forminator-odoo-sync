@@ -67,10 +67,14 @@
       document.querySelectorAll('[data-detail-tab]').forEach(function (t) {
         t.classList.toggle('tab-active', t.dataset.detailTab === tabName);
       });
-      ['fields', 'mapping', 'history', 'stats'].forEach(function (name) {
+      ['fields', 'form', 'mapping', 'history', 'stats'].forEach(function (name) {
         var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
         if (panel) panel.style.display = name === tabName ? '' : 'none';
       });
+      // Het formulier pas ophalen als je het tabblad opent: bij elke
+      // detailweergave laden zou een extra API-aanroep zijn voor een tabblad
+      // dat de meeste koppelingen niet gebruiken.
+      if (tabName === 'form' && window.FSV2.renderDetailForm) window.FSV2.renderDetailForm();
       return;
     }
 
@@ -134,6 +138,14 @@
     var action = btn.dataset.action;
 
     var run = async function () {
+
+      // ── Formulierbouwer ───────────────────────────────────────────────
+      // Alle logica staat in forminator-sync-v2-detail-form-builder.js; dit is
+      // enkel het doorgeefluik vanaf de centrale listener (REGEL 3).
+      if (action.indexOf('form-builder-') === 0) {
+        if (window.FSV2.handleFormBuilderAction) await window.FSV2.handleFormBuilderAction(action, btn);
+        return;
+      }
 
       if (action === 'logout') {
         await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
@@ -381,7 +393,31 @@
         window.FSV2.renderList();
         return;
       }
+      // ── Nieuwe koppeling ──────────────────────────────────────────────
+      // De dialoog uit forminator-sync-v2-new-integration.js vervangt de
+      // driestappenwizard als INGANG. De wizard zelf blijft bestaan en is
+      // bereikbaar via 'goto-wizard-legacy' hieronder -- nodig zolang er nog
+      // Forminator-formulieren gekoppeld moeten kunnen worden.
+      if (action.indexOf('new-integration-') === 0) {
+        if (window.FSV2.handleNewIntegrationAction) await window.FSV2.handleNewIntegrationAction(action, btn);
+        return;
+      }
+
       if (action === 'goto-wizard') {
+        if (window.FSV2.openNewIntegrationDialog) {
+          window.FSV2.openNewIntegrationDialog();
+          return;
+        }
+        // Valt de dialoog om welke reden ook weg, dan is de oude wizard nog
+        // altijd een werkende ingang in plaats van een dode knop.
+        window.FSV2.resetWizard();
+        window.FSV2.showView('wizard');
+        return;
+      }
+
+      if (action === 'goto-wizard-legacy') {
+        var niDlg = document.getElementById('newIntegrationDialog');
+        if (niDlg && typeof niDlg.close === 'function') niDlg.close();
         window.FSV2.resetWizard();
         window.FSV2.showView('wizard');
         window.FSV2.renderWizard();
@@ -1731,6 +1767,13 @@
   document.addEventListener('input', function (event) {
     var el = event.target;
 
+    // Formulierbouwer -- inspecteur, tijdens het typen. Zie de change-tak
+    // verderop; de bouwer werkt hier alleen tekst bij en hertekent niet.
+    if (el && el.dataset && window.FSV2.handleFormBuilderChange &&
+        (el.dataset.fbForm || el.dataset.fbField || el.dataset.fbOptionField)) {
+      if (window.FSV2.handleFormBuilderChange(el, 'input')) return;
+    }
+
     // Zoekveld overzicht koppelingen — enkel de kaarten herrenderen (behoudt focus)
     if (el && el.id === 'listSearchInput') {
       S.filters.search = el.value;
@@ -1779,6 +1822,18 @@
   // tonen we automatisch de waarde-mapping sectie als het een selection- of many2one-veld is.
   document.addEventListener('change', function (event) {
     var inp = event.target;
+
+    // Formulierbouwer -- inspecteur. Alle logica staat in
+    // forminator-sync-v2-detail-form-builder.js; die beslist zelf wat een
+    // structurele wijziging is (canvas opnieuw) en wat tekst is (een knoop
+    // bijwerken, niet hertekenen -- anders springt de cursor weg).
+    if (inp && inp.dataset && window.FSV2.handleFormBuilderChange &&
+        (inp.dataset.fbChange || inp.dataset.fbForm || inp.dataset.fbField || inp.dataset.fbOptionField)) {
+      // 'change' betekent: het veld is verlaten. De bouwer maakt dan pas dingen
+      // netjes af (bv. een liggend streepje aan het eind van een veldnaam) --
+      // tijdens het typen zou dat je onderbreken.
+      if (window.FSV2.handleFormBuilderChange(inp, 'change')) return;
+    }
 
     // Overzicht koppelingen — status/sorteer-filters + tag-filter
     if (inp && inp.id === 'listStatusFilter') {

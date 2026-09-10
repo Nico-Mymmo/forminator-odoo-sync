@@ -1,0 +1,224 @@
+/**
+ * De bewerklaag van de formulierbouwer.
+ *
+ * Deze CSS leeft UITSLUITEND in het voorbeeld-iframe van de bouwer, naast
+ * mymmo-forms.css. Ze staat bewust in een apart bestand: alles hier is
+ * gereedschap voor de bouwer en mag nooit bij een bezoeker terechtkomen.
+ * De plugin-zip neemt dit bestand dan ook niet mee.
+ *
+ * De laag zit IN het iframe en niet in de ouderpagina, zodat omlijningen en
+ * de zweefwerkbalk vanzelf meebewegen met de layout van het formulier --
+ * zelfde reden als bij de maileditor van event-operations-v2.
+ */
+
+/* Het iframe scrollt niet zelf: het groeit mee met de inhoud en de
+   ouderpagina scrollt. Anders staat de werkbalk na een scroll op de
+   verkeerde plek. */
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  padding: 24px 20px 40px;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.mymmo-form-wrap {
+  margin: 0 auto;
+}
+
+/* ── Bewerkbare tekst ─────────────────────────────────────────────────────── */
+
+[data-om-edit] {
+  outline: none;
+  border-radius: 3px;
+  /* Kleine negatieve marge zodat de achtergrond bij focus niet de layout
+     verschuift. */
+  padding: 1px 3px;
+  margin: -1px -3px;
+  cursor: text;
+}
+
+[data-om-edit]:hover {
+  background: rgba(37, 99, 235, 0.06);
+}
+
+[data-om-edit]:focus {
+  background: rgba(37, 99, 235, 0.10);
+}
+
+/* Lege tekst zichtbaar maken, maar duidelijk als plaatsaanduiding.
+
+   Via ::before op een LEEG element, niet als echte tekst in de DOM. Stond de
+   aanduiding als <span> in de contenteditable, dan typ je erin en krijg je
+   "latbel" in plaats van "label" -- de klassieke contenteditable-valkuil. */
+[data-om-leeg]:empty {
+  /* Een leeg inline-element heeft geen afmetingen en is dus onklikbaar. Zonder
+     dit is een net toegevoegd veld letterlijk niet aan te klikken om zijn label
+     te typen -- de eerste handeling die iemand doet. */
+  display: inline-block;
+  min-width: 110px;
+  min-height: 1.25em;
+}
+
+[data-om-leeg]:empty::before {
+  content: attr(data-om-leeg);
+  color: #9aa1ac;
+  font-style: italic;
+  /* Niet selecteerbaar: anders kan je de aanduiding "kopiëren". */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.om-leeg {
+  color: #9aa1ac;
+  font-style: italic;
+}
+
+.om-geen-opties {
+  font-size: 0.85rem;
+  margin: 6px 0 0;
+}
+
+.om-leeg-formulier {
+  grid-column: 1 / -1;
+  border: 2px dashed #d7dbe2;
+  border-radius: 10px;
+  padding: 34px 16px;
+  text-align: center;
+  color: #8b93a1;
+  font-size: 0.9rem;
+}
+
+/* ── Velden: zweven en selecteren ─────────────────────────────────────────── */
+
+[data-om-field] {
+  position: relative;
+  border-radius: 8px;
+  /* De omlijning met een box-shadow in plaats van een border: een border zou
+     het veld 2px groter maken en de hele rasterlayout laten verspringen zodra
+     je iets selecteert. */
+  box-shadow: 0 0 0 0 transparent;
+  transition: box-shadow 0.1s ease;
+}
+
+[data-om-field]:hover {
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+}
+
+[data-om-field].om-geselecteerd {
+  box-shadow: 0 0 0 2px #2563eb;
+}
+
+/* Eén selectiekader, niet twee: het geselecteerde veld krijgt de blauwe rand,
+   het stukje tekst waarin je typt alleen een zachte achtergrond. Twee geneste
+   blauwe randen zien er kapot uit. */
+[data-om-field].om-geselecteerd [data-om-edit]:focus {
+  background: rgba(37, 99, 235, 0.10);
+}
+
+/* ── Sleepgreep ───────────────────────────────────────────────────────────── */
+
+.om-greep {
+  position: absolute;
+  left: -20px;
+  top: 8px;
+  width: 16px;
+  height: 24px;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  /* Zes puntjes, getekend met een gradient in plaats van een SVG of een
+     icoonfont: dit iframe laadt bewust niets extern. */
+  background-image: radial-gradient(#9aa1ac 1.2px, transparent 1.3px);
+  background-size: 6px 6px;
+  background-position: 2px 4px;
+  background-repeat: repeat;
+}
+
+[data-om-field]:hover .om-greep,
+[data-om-field].om-geselecteerd .om-greep {
+  opacity: 1;
+}
+
+.om-greep:active {
+  cursor: grabbing;
+}
+
+[data-om-field].om-sleept {
+  opacity: 0.4;
+}
+
+/* De invoegstreep tijdens het slepen. */
+[data-om-field].om-drop-voor::before,
+[data-om-field].om-drop-na::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  height: 3px;
+  border-radius: 2px;
+  background: #2563eb;
+}
+
+[data-om-field].om-drop-voor::before { top: -6px; }
+[data-om-field].om-drop-na::after    { bottom: -6px; }
+
+/* ── Verborgen veld ───────────────────────────────────────────────────────── */
+
+/* Op de site is dit onzichtbaar. In de bouwer moet je het kunnen zien en
+   aanklikken, anders kan je het niet meer weghalen. */
+.om-verborgen {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border: 1px dashed #cbd2dc;
+  border-radius: 8px;
+  background: #f6f7f9;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.om-verborgen-label {
+  font-weight: 600;
+  color: #4b5563;
+}
+
+.om-verborgen code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #e8ebef;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.om-verborgen-waarde {
+  color: #9aa1ac;
+}
+
+/* ── Uitgeschakelde invoervelden klikbaar houden ──────────────────────────── */
+
+/* De invoervelden in het voorbeeld staan op disabled: je vult hier geen
+   formulier in, je bewerkt het. Maar een disabled element geeft geen
+   klikgebeurtenis door, en dan kan je het veld niet selecteren door op zijn
+   invoervak te klikken -- precies wat iedereen als eerste probeert. */
+.mymmo-form-input:disabled,
+.mymmo-form-check input:disabled {
+  pointer-events: none;
+  opacity: 1;
+  background: var(--mf-field-bg, #fff);
+  cursor: default;
+}
+
+[data-om-field] {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-om-field] { transition: none; }
+  .om-greep { transition: none; }
+}

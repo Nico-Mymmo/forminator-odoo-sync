@@ -1,0 +1,314 @@
+/**
+ * Mymmo Forms — de stylesheet van het formulier.
+ *
+ * DIT IS DE ENIGE BRON. Het bestand staat in public/ omdat de Operations
+ * Manager het nodig heeft voor het voorbeeld in de formulierbouwer: dat
+ * voorbeeld staat in een iframe met precies deze CSS, zodat wat je in de OM
+ * ziet hetzelfde is als wat een bezoeker ziet.
+ *
+ * wp-plugin/mymmo-forms/assets/css/mymmo-forms.css is een KOPIE die bij het
+ * bouwen van de zip hiervandaan gehaald wordt. Bewerk die nooit rechtstreeks;
+ * wijzig dit bestand en bouw de plugin opnieuw.
+ *
+ * Mymmo Forms
+ *
+ * Alles hangt aan CSS-variabelen op .mymmo-form-wrap. Twee redenen:
+ *   1. de OM kan er per formulier een paar van overschrijven (theme in het
+ *      schema, via een style-attribuut -- zie mymmo_forms_theme_style());
+ *   2. een site kan haar eigen thema laten winnen door dezelfde variabelen
+ *      in haar stylesheet te zetten, zonder ook maar een selector uit dit
+ *      bestand te moeten overrulen.
+ *
+ * Geen !important, nergens. Dat is precies wat het overschrijven kapotmaakt.
+ */
+
+.mymmo-form-wrap {
+  --mf-accent: #2563eb;
+  --mf-accent-text: #ffffff;
+  --mf-text: #1f2430;
+  --mf-muted: #6b7280;
+  --mf-border: #d7dbe2;
+  --mf-border-focus: var(--mf-accent);
+  --mf-bg: transparent;
+  --mf-field-bg: #ffffff;
+  --mf-error: #b42318;
+  --mf-error-bg: #fef3f2;
+  --mf-success: #067647;
+  --mf-success-bg: #ecfdf3;
+  --mf-radius: 10px;
+  --mf-gap: 18px;
+  --mf-max-width: 720px;
+
+  max-width: var(--mf-max-width);
+  background: var(--mf-bg);
+  color: var(--mf-text);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.mymmo-form-title {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+.mymmo-form-intro {
+  margin: 0 0 20px;
+  color: var(--mf-muted);
+}
+
+/* ── Meldingen ───────────────────────────────────────────────────────────── */
+
+.mymmo-form-notice {
+  padding: 14px 16px;
+  border-radius: var(--mf-radius);
+  border: 1px solid var(--mf-border);
+  margin-bottom: 20px;
+  font-size: 0.95rem;
+}
+
+.mymmo-form-notice:focus {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 2px;
+}
+
+.mymmo-form-notice--error {
+  border-color: var(--mf-error);
+  background: var(--mf-error-bg);
+  color: var(--mf-error);
+}
+
+.mymmo-form-notice--success {
+  border-color: var(--mf-success);
+  background: var(--mf-success-bg);
+  color: var(--mf-success);
+}
+
+/* Alleen zichtbaar voor beheerders — bewust opvallend en lelijk, want het
+   hoort niet op een gewone pagina te staan. */
+.mymmo-form-notice--admin {
+  border-color: #b54708;
+  background: #fffaeb;
+  color: #b54708;
+}
+
+/* ── Raster ──────────────────────────────────────────────────────────────── */
+
+.mymmo-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mf-gap);
+}
+
+.mymmo-form-field--full {
+  grid-column: 1 / -1;
+}
+
+.mymmo-form-field--half {
+  grid-column: span 1;
+}
+
+/* Onder 540px staat alles onder elkaar. Twee kolommen op een telefoon maakt
+   elk veld te smal om nog fatsoenlijk in te typen. */
+@media (max-width: 540px) {
+  .mymmo-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mymmo-form-field--half {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ── Velden ──────────────────────────────────────────────────────────────── */
+
+.mymmo-form-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  font-size: 0.925rem;
+}
+
+.mymmo-form-req {
+  color: var(--mf-error);
+  margin-left: 2px;
+}
+
+.mymmo-form-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 13px;
+  font: inherit;
+  color: var(--mf-text);
+  background: var(--mf-field-bg);
+  border: 1px solid var(--mf-border);
+  border-radius: var(--mf-radius);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.mymmo-form-input:focus {
+  outline: none;
+  border-color: var(--mf-border-focus);
+  /* color-mix laat de focusring de accentkleur volgen zonder dat er een tweede
+     variabele ingesteld moet worden. Browsers zonder ondersteuning krijgen de
+     border-color hierboven, wat op zich al genoeg contrast geeft. */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mf-accent) 22%, transparent);
+}
+
+.mymmo-form-input:disabled {
+  opacity: 0.6;
+}
+
+textarea.mymmo-form-input {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.mymmo-form-help {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--mf-muted);
+}
+
+/* ── Keuzevelden ─────────────────────────────────────────────────────────── */
+
+.mymmo-form-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mymmo-form-group .mymmo-form-label {
+  padding: 0;
+}
+
+.mymmo-form-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 7px;
+}
+
+.mymmo-form-check input {
+  /* Iets omlaag zodat het vakje op de eerste regel tekst uitlijnt in plaats
+     van op het midden van een label dat over twee regels loopt. */
+  margin-top: 3px;
+  flex: 0 0 auto;
+  accent-color: var(--mf-accent);
+  width: 17px;
+  height: 17px;
+}
+
+.mymmo-form-check label {
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+/* ── Opmaakblokken ───────────────────────────────────────────────────────── */
+
+.mymmo-form-heading {
+  margin: 10px 0 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.mymmo-form-paragraph {
+  color: var(--mf-muted);
+  font-size: 0.95rem;
+}
+
+.mymmo-form-paragraph p {
+  margin: 0 0 8px;
+}
+
+/* ── Verzenden ───────────────────────────────────────────────────────────── */
+
+.mymmo-form-actions {
+  margin-top: 22px;
+}
+
+.mymmo-form-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Ruim genoeg om op een telefoon met een duim te raken (44px hoog). */
+  min-height: 46px;
+  padding: 12px 26px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--mf-accent-text);
+  background: var(--mf-accent);
+  border: 1px solid transparent;
+  border-radius: var(--mf-radius);
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.mymmo-form-submit:hover {
+  filter: brightness(0.93);
+}
+
+.mymmo-form-submit:focus-visible {
+  outline: 2px solid var(--mf-text);
+  outline-offset: 2px;
+}
+
+.mymmo-form-submit[aria-disabled="true"] {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+/* ── Honeypot ────────────────────────────────────────────────────────────── */
+
+/* Buiten beeld in plaats van display:none: sommige bots slaan velden met
+   display:none juist over, en dan werkt de val niet. */
+.mymmo-form-hp {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* ── Foutmarkering ───────────────────────────────────────────────────────── */
+
+/* Alleen na een verzendpoging, want :invalid kleurt anders elk leeg verplicht
+   veld rood zodra de pagina laadt. De klasse wordt door de JS gezet. */
+.mymmo-form--validated .mymmo-form-input:invalid {
+  border-color: var(--mf-error);
+}
+
+/* aria-invalid is de bron van waarheid zodra JavaScript gevalideerd heeft: die
+   staat ook op een <select> of een groep, waar :invalid niet altijd volstaat. */
+.mymmo-form-input[aria-invalid="true"] {
+  border-color: var(--mf-error);
+}
+
+/* De eigen foutmelding onder een veld. Ze vervangt de ballon van de browser --
+   die staat in de taal van de BROWSER en niet van de pagina, en is niet te
+   stylen. Zolang er geen fout is staat dit element er wel, maar met [hidden]. */
+.mymmo-form-error {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--mf-error);
+}
+
+.mymmo-form-error[hidden] {
+  display: none;
+}
+
+/* Nog steeds gebruikt door oudere gerenderde pagina's uit de cache. */
+.mymmo-form-fout {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--mf-error);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-form-input,
+  .mymmo-form-submit {
+    transition: none;
+  }
+}
