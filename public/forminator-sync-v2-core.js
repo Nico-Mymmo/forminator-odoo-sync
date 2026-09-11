@@ -976,9 +976,10 @@
         // ── Default fields: closed summary ──
         var summaryHtml = '';
         if (!editor.open) {
-          if (saved === undefined || saved === null) {
-            summaryHtml = '<p class="text-xs text-base-content/40 italic py-1">Laden…</p>';
-          } else if (saved.length === 0) {
+          // Geen laadtoestand: deze lijst komt uit een cache die al binnen is.
+          // null betekent gewoon "nooit ingesteld" -- en dat als "Laden…"
+          // tonen laat een model er eeuwig uitzien alsof het nog bezig is.
+          if (saved === undefined || saved === null || saved.length === 0) {
             summaryHtml = '<p class="text-xs text-base-content/40 italic py-1">Geen standaard velden.</p>';
           } else {
             summaryHtml = `<div class="flex flex-wrap gap-1.5 mt-1.5">${saved.map(function (f) {

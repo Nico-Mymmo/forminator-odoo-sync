@@ -376,8 +376,16 @@
     }
 
     var actionCfg = window.FSV2.getModelCfg ? (window.FSV2.getModelCfg(chosenModel) || {}) : {};
-    // Use actual Odoo model name (resolved from slug via actionCfg.odoo_model)
-    var odooModelName = actionCfg.odoo_model || chosenModel;
+    // De SLUG bewaren, niet het technische model. Twee registratierijen mogen
+    // op hetzelfde Odoo-model uitkomen met een ander PROFIEL -- "res.partner"
+    // (Contact, is_company = False) en "company" (Bedrijf, is_company = True)
+    // zijn precies dat. Bewaarde je hier "res.partner", dan is achteraf niet
+    // meer te zien welk van de twee de gebruiker koos, en pakt elke lookup
+    // (vaste waarden, standaardvelden, identifier, verborgen velden) het
+    // verkeerde profiel -- een bedrijf zou als contactpersoon aangemaakt
+    // worden. De pipeline vertaalt de slug zelf naar het technische model
+    // (buildModelResolver in worker-handler.js), dus Odoo ziet het juiste.
+    var odooModelName = chosenModel;
 
     var newTargetRes;
     try {

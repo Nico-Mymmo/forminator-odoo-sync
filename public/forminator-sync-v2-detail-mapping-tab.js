@@ -131,7 +131,11 @@
           chainSourceRows = chainSourceRows.concat([_mailResIdSrc]);
         }
         chainSourceRows.forEach(function (sourceVal) {
-          var m = sourceVal.match(/^step\.([^.]+)\.record_id$/);
+          // Ook step.N.<veld>, niet enkel step.N.record_id: een koppeling die
+          // een VELD van de vorige stap leest is net zo goed een afhankelijkheid
+          // van die stap, en hoort dus in de samenvatting en in de
+          // volgorde-controle mee te tellen.
+          var m = sourceVal.match(/^step\.([^.]+)\.[^.]+$/);
           if (!m) return;
           var ref = m[1]; var refN = Number(ref);
           var prevT = isNaN(refN)
@@ -260,28 +264,61 @@
 
       html +=       '</div>'; // flex row
 
-      // Suggestion banners (many2one chain auto-detect)
-      suggestions.forEach(function (sug) {
-        if (window.FSV2.isChainSuggestionApplied(tid, sug.odooField)) return;
-        html +=
-          '<div class="mt-3 flex items-center gap-2 p-2.5 bg-info/10 rounded-lg border border-info/20 text-sm">' +
-            '<i data-lucide="link-2" class="w-4 h-4 text-info shrink-0"></i>' +
-            '<div class="flex-1 min-w-0">' +
-              '<span class="font-medium">Koppeling mogelijk: </span>' +
-              '<code class="text-xs bg-base-200 px-1 py-0.5 rounded">' + esc(sug.odooField) + '</code>' +
-              ' <span class="text-base-content/60">\u2192 ' + esc(window.FSV2.modelLabel(sug.relation)) + ' (Stap ' + esc(String(sug.stepNum)) + ')</span>' +
-            '</div>' +
-            '<button type="button" class="btn btn-info btn-xs shrink-0"' +
-              ' data-action="apply-chain-suggestion"' +
-              ' data-target-id="' + esc(tid) + '"' +
-              ' data-odoo-field="' + esc(sug.odooField) + '"' +
-              ' data-odoo-label="' + esc(sug.odooLabel) + '"' +
-              ' data-step-order="' + esc(String(sug.stepOrder)) + '"' +
-              ' data-step-label="' + esc(sug.stepLabel || String(sug.stepOrder)) + '">' +
-              'Automatisch instellen' +
-            '</button>' +
-          '</div>';
+      // Koppelingsvoorstellen.
+      //
+      // Dit stond er als een rij losse balkjes met de tekst "Koppeling
+      // mogelijk: parent_id -> Contact (Stap 1)" en een knop "Automatisch
+      // instellen". Dat is onleesbaar voor wie de Odoo-veldnamen niet kent, en
+      // erger: het suggereert dat er één juiste actie is, terwijl er meerdere
+      // richtingen mogelijk zijn die iets HEEL anders doen (een record onder
+      // een ander hangen, of andersom, of erop zoeken). Nu staat er per
+      // mogelijkheid wat ze doet, in gewone taal, met de keuze bij de
+      // gebruiker.
+      var openSuggesties = suggestions.filter(function (sug) {
+        return !window.FSV2.isChainSuggestionApplied(tid, sug.odooField);
       });
+      // Standaard Odoo-velden eerst, maatwerk (x_studio_) daarna. Op een
+      // res.partner-stap levert de scan er zeven op; zonder rangschikking staat
+      // "Adviserend Expert" even prominent als de hierarchie waar het hier om
+      // gaat, en is de lijst niet meer te overzien.
+      openSuggesties.sort(function (a, z) {
+        var aStudio = /^x_studio_/.test(a.odooField) || /^x_studio_/.test(a.sourceSuffix || '');
+        var zStudio = /^x_studio_/.test(z.odooField) || /^x_studio_/.test(z.sourceSuffix || '');
+        return (aStudio ? 1 : 0) - (zStudio ? 1 : 0);
+      });
+
+      if (openSuggesties.length) {
+        var suggestieRij = function (sug) {
+          return '<div class="flex items-start gap-3 px-3 py-2.5 border-t border-info/10">' +
+                   '<div class="flex-1 min-w-0">' +
+                     '<p class="text-sm font-medium">' + esc(sug.titel) + '</p>' +
+                     '<p class="text-xs opacity-60 mt-0.5 leading-relaxed">' + esc(sug.uitleg) + '</p>' +
+                   '</div>' +
+                   chainSuggestionButton(tid, sug, 'btn-info btn-xs') +
+                 '</div>';
+        };
+        var zichtbaar = openSuggesties.slice(0, 3);
+        var verborgen = openSuggesties.slice(3);
+
+        html += '<div class="mt-3 rounded-lg border border-info/20 bg-info/5 overflow-hidden">';
+        html +=   '<div class="flex items-center gap-2 px-3 py-2 bg-info/10">' +
+                    '<i data-lucide="link-2" class="w-4 h-4 text-info shrink-0"></i>' +
+                    '<span class="text-sm font-medium">Deze stap kan aan een vorige stap gekoppeld worden</span>' +
+                    '<span class="text-xs opacity-60">\u2014 kies wat er moet gebeuren</span>' +
+                  '</div>';
+        html +=   zichtbaar.map(suggestieRij).join('');
+        if (verborgen.length) {
+          // <details> en niet een eigen open/dicht-toestand: die zou bij elke
+          // hertekening van het scherm weer dichtklappen.
+          html += '<details class="border-t border-info/10">' +
+                    '<summary class="px-3 py-2 text-xs opacity-60 cursor-pointer select-none hover:opacity-100">' +
+                      'Nog ' + verborgen.length + ' andere mogelijkheid' + (verborgen.length === 1 ? '' : 'heden') +
+                    '</summary>' +
+                    verborgen.map(suggestieRij).join('') +
+                  '</details>';
+        }
+        html += '</div>';
+      }
 
       html +=     '</div>'; // px-5 py-4
 
@@ -299,24 +336,41 @@
         ? chainDeps.map(function (d) { return 'Gekoppeld aan Stap ' + d.stepNum + (d.stepName ? ' (' + esc(d.stepName) + ')' : ''); }).join(', ')
         : 'Niet gekoppeld';
 
-      // Automatisch ingevuld — static rows uit DB (source_type='static')
+      // Automatisch ingevuld — dit blok vertrekt van het MODEL (de vaste
+      // waarden uit Instellingen), niet van de static-rijen die toevallig in
+      // de database staan. Die twee lopen uiteen: de vaste waarden worden als
+      // static mapping weggeschreven op het moment dat de stap wordt
+      // aangemaakt, en ging dat toen mis (of zijn ze nadien in Instellingen
+      // toegevoegd), dan zei dit blok "Geen vaste waarden ingesteld" terwijl
+      // het model ze wel voorschrijft -- en werd bv. een bedrijf zonder
+      // is_company = True aangemaakt, zonder dat iets op het scherm dat
+      // verried. Wat nog niet weggeschreven is, staat er nu bij als
+      // "nog niet toegepast".
       var _modelCfgAF = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(target.odoo_model) : {};
-      var _fixedNames = (Array.isArray(_modelCfgAF.fixed_fields) ? _modelCfgAF.fixed_fields : [])
-        .map(function (f) { return typeof f === 'string' ? f : (f.name || ''); });
-      var _staticMappings = ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || [])
-        .filter(function (m) {
-          return m.source_type === 'static' && m.source_value != null && m.source_value !== ''
-            && _fixedNames.includes(m.odoo_field);
-        });
-      var _autoFillHtml = _staticMappings.length > 0
-        ? _staticMappings.map(function (m) {
-            var odooLbl = esc(m.odoo_field);
-            var val     = esc(String(m.source_value));
-            return '<span class="inline-flex items-center gap-1 badge badge-ghost badge-sm font-normal">' +
-              '<i data-lucide="lock" class="w-3 h-3 text-base-content/40"></i>' +
-              '<span class="font-mono text-xs">' + odooLbl + '</span>' +
+      var _fixedDefsAF = (Array.isArray(_modelCfgAF.fixed_fields) ? _modelCfgAF.fixed_fields : [])
+        .map(function (f) { return typeof f === 'string' ? { name: f, value: '' } : f; })
+        .filter(function (f) { return f && f.name; });
+      var _staticByField = {};
+      ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[target.id]) || []).forEach(function (m) {
+        if (m.source_type === 'static' && m.source_value != null && m.source_value !== '') {
+          _staticByField[m.odoo_field] = m.source_value;
+        }
+      });
+      var _autoFillHtml = _fixedDefsAF.length > 0
+        ? _fixedDefsAF.map(function (f) {
+            var applied  = Object.prototype.hasOwnProperty.call(_staticByField, f.name);
+            var val      = applied ? String(_staticByField[f.name]) : String(f.value == null ? '' : f.value);
+            var cls      = applied ? 'badge-ghost' : 'badge-warning badge-outline';
+            var titleTxt = applied
+              ? 'Vaste waarde uit Instellingen - niet per stap te wijzigen'
+              : 'Nog niet toegepast op deze stap. Klik onderaan op Opslaan om dit weg te schrijven.';
+            return '<span class="inline-flex items-center gap-1 badge badge-sm font-normal ' + cls + '"' +
+              ' title="' + esc(titleTxt) + '">' +
+              '<i data-lucide="' + (applied ? 'lock' : 'alert-triangle') + '" class="w-3 h-3 opacity-60"></i>' +
+              '<span class="font-mono text-xs">' + esc(f.name) + '</span>' +
               '<span class="opacity-40">=</span>' +
-              '<span class="text-xs">' + val + '</span>' +
+              '<span class="text-xs">' + esc(val) + '</span>' +
+              (applied ? '' : '<span class="text-xs opacity-70">\u2014 nog niet toegepast</span>') +
             '</span>';
           }).join('')
         : '<span class="text-sm opacity-30 italic">Geen vaste waarden ingesteld</span>';
@@ -489,7 +543,11 @@
             staticValue:   sv,
             sourceType:    m.source_type,
             isRequired:    !!m.is_required,
-            isIdentifier:  m.source_type === 'previous_step_output' ? true : !!m.is_identifier,
+            // Niet meer "een chain-rij is per definitie het zoekcriterium":
+            // een stap kan een vorige stap ook als WAARDE wegschrijven
+            // (contact.parent_id = de VME uit stap 2) terwijl haar
+            // zoekcriterium een andere koppeling is.
+            isIdentifier:  !!m.is_identifier,
             isUpdateField: m.is_update_field !== false,
           };
         });
@@ -799,6 +857,29 @@
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
   }
 
+  /**
+   * De knop achter een koppelingsvoorstel. Alles wat applyChainSuggestion()
+   * nodig heeft gaat als data-attribuut mee -- inclusief WELKE soort, want de
+   * drie soorten zetten een andere mapping (zoekcriterium of niet, het record
+   * zelf of een veld ervan). Stond dat niet in de knop, dan moest de handler
+   * de suggestie opnieuw gaan uitrekenen en kon hij uit de pas lopen met wat
+   * er op het scherm stond.
+   */
+  function chainSuggestionButton(tid, sug, klassen) {
+    return '<button type="button" class="btn ' + klassen + ' gap-1 shrink-0"' +
+      ' data-action="apply-chain-suggestion"' +
+      ' data-target-id="' + esc(tid) + '"' +
+      ' data-kind="' + esc(sug.kind || 'set_many2one') + '"' +
+      ' data-odoo-field="' + esc(sug.odooField) + '"' +
+      ' data-odoo-label="' + esc(sug.odooLabel) + '"' +
+      ' data-step-order="' + esc(String(sug.stepOrder)) + '"' +
+      ' data-step-label="' + esc(sug.stepLabel || '') + '"' +
+      ' data-source-suffix="' + esc(sug.sourceSuffix || 'record_id') + '"' +
+      ' data-is-identifier="' + (sug.isIdentifier === false ? '0' : '1') + '"' +
+      ' data-is-required="' + (sug.isRequired === false ? '0' : '1') + '">' +
+      '<i data-lucide="link-2" class="w-3 h-3"></i> Instellen</button>';
+  }
+
   function renderStepChainSection(target, tid, sortedTargets, myIdx) {
     var el = document.getElementById('det-callouts-' + tid);
     if (!el) return;
@@ -811,35 +892,111 @@
     var html = '<div class="px-3.5 py-2.5 border-t border-base-200 bg-base-200/30">';
 
     if (!suggestions.length) {
-      html += '<p class="text-xs opacity-40 italic py-1">Geen koppelingsopties beschikbaar.</p>';
+      html += '<p class="text-xs opacity-40 italic py-1">Geen automatische koppelingsopties \u2014 stel er hieronder zelf een in.</p>';
     } else {
       suggestions.forEach(function (s) {
-        var applied   = window.FSV2.isChainSuggestionApplied(tid, s.odooField);
-        var prevT     = sortedTargets.find(function (t) { return String(t.id) === String(s.prevTargetId); });
-        var prevModel = prevT ? window.FSV2.modelLabel(prevT.odoo_model) : (s.stepLabel || ('Stap ' + s.stepNum));
-        var prevNum   = s.stepNum;
-        html += '<div class="flex items-center gap-2 py-1">';
-        html += '<i data-lucide="' + (applied ? 'link-2' : 'unlink') + '" class="w-3.5 h-3.5 shrink-0 ' + (applied ? 'text-info' : 'opacity-30') + '"></i>';
-        html += '<span class="text-xs flex-1">Koppel <span class="font-medium">' + esc(s.odooLabel) + '</span> ' +
-                (applied ? '→' : 'aan ID van') +
-                ' <span class="font-medium">' + esc(prevModel) + '</span> (Stap ' + prevNum + ')</span>';
+        var applied = window.FSV2.isChainSuggestionApplied(tid, s.odooField);
+        html += '<div class="flex items-start gap-2 py-1.5">';
+        html += '<i data-lucide="' + (applied ? 'link-2' : 'unlink') + '" class="w-3.5 h-3.5 shrink-0 mt-0.5 ' + (applied ? 'text-info' : 'opacity-30') + '"></i>';
+        html += '<div class="flex-1 min-w-0">' +
+                  '<p class="text-xs font-medium">' + esc(s.titel) + '</p>' +
+                  '<p class="text-xs opacity-50 leading-relaxed">' + esc(s.uitleg) + '</p>' +
+                '</div>';
         if (applied) {
-          html += '<button type="button" class="btn btn-xs btn-ghost text-error/70 hover:text-error gap-1"' +
+          html += '<button type="button" class="btn btn-xs btn-ghost text-error/70 hover:text-error gap-1 shrink-0"' +
                   ' data-action="remove-chain-link" data-target-id="' + esc(tid) + '" data-odoo-field="' + esc(s.odooField) + '">' +
                   '<i data-lucide="x" class="w-3 h-3"></i> Ontkoppelen</button>';
         } else {
-          html += '<button type="button" class="btn btn-xs btn-outline btn-primary gap-1"' +
-                  ' data-action="apply-chain-suggestion" data-target-id="' + esc(tid) + '"' +
-                  ' data-odoo-field="' + esc(s.odooField) + '" data-odoo-label="' + esc(s.odooLabel) + '"' +
-                  ' data-step-order="' + esc(String(s.stepOrder)) + '" data-step-label="' + esc(s.stepLabel || '') + '">' +
-                  '<i data-lucide="link-2" class="w-3 h-3"></i> Koppelen</button>';
+          html += chainSuggestionButton(tid, s, 'btn-outline btn-primary btn-xs');
         }
         html += '</div>';
       });
     }
+
+    html += renderChainAddForm(target, tid, preceding);
+
     html += '</div>';
     el.innerHTML = html;
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
+  }
+
+  /**
+   * Handmatig een koppeling naar een vorige stap instellen.
+   *
+   * De suggesties hierboven dekken alleen many2one-velden die naar het model
+   * van een vorige stap wijzen, en ze koppelen altijd aan het RECORD-ID van die
+   * stap, altijd als zoekcriterium. Daarmee kan je niet uitdrukken:
+   *   - "zoek op id = parent_id van het contact uit stap 1" (een VELD lezen)
+   *   - "schrijf parent_id weg = het record uit stap 2" (een WAARDE, geen
+   *     zoekcriterium)
+   * en net die twee samen maken "heeft dit contact al een VME? bijwerken,
+   * anders aanmaken" mogelijk.
+   *
+   * De stap-en-waarde staan bewust in EEN keuzelijst: de mogelijke waarden
+   * hangen af van welke stap je kiest, en twee gekoppelde keuzelijsten zouden
+   * daar JS voor nodig hebben die bij elke hertekening opnieuw moet kloppen.
+   */
+  function renderChainAddForm(target, tid, preceding) {
+    var cache     = (S().odooFieldsCache || {});
+    var mijnVeld  = cache[target.odoo_model] || [];
+
+    var stapOpties = '';
+    preceding.forEach(function (prevT, i) {
+      var order     = window.FSV2.getTargetOrder(prevT, 0);
+      var prevModel = prevT.odoo_model;
+      var velden    = cache[prevModel] || [];
+      var titel     = 'Stap ' + (i + 1) + ' \u2014 ' + (prevT.label || window.FSV2.modelLabel(prevModel));
+      // Relaties eerst: dat is bijna altijd wat je van een vorige stap wil
+      // lezen, en anders staat het onderaan een lijst van honderden velden.
+      var relaties = velden.filter(function (f) { return f.relation; });
+      var overige  = velden.filter(function (f) { return !f.relation; });
+      stapOpties += '<optgroup label="' + esc(titel) + '">';
+      stapOpties += '<option value="step.' + esc(String(order)) + '.record_id">Het record zelf (ID)</option>';
+      relaties.concat(overige).forEach(function (f) {
+        if (f.name === 'id') return; // dat is "het record zelf" hierboven
+        stapOpties += '<option value="step.' + esc(String(order)) + '.' + esc(f.name) + '">' +
+          esc(f.label || f.name) + ' (' + esc(f.name) + ')</option>';
+      });
+      stapOpties += '</optgroup>';
+    });
+
+    var veldOpties = mijnVeld.map(function (f) {
+      return '<option value="' + esc(f.name) + '">' + esc(f.label || f.name) + ' (' + esc(f.name) + ')</option>';
+    }).join('');
+
+    return '<div class="mt-2 pt-2 border-t border-base-300/60">' +
+      '<p class="text-xs font-semibold opacity-50 mb-1.5">Zelf een koppeling instellen</p>' +
+      '<div class="flex flex-wrap items-end gap-2">' +
+        '<div class="form-control">' +
+          '<label class="label py-0 mb-0.5"><span class="label-text text-xs opacity-60">Veld op deze stap</span></label>' +
+          '<select id="det-chain-' + esc(tid) + '-add" class="select select-xs select-bordered w-52">' +
+            '<option value="">Kies een veld\u2026</option>' + veldOpties +
+          '</select>' +
+        '</div>' +
+        '<div class="form-control">' +
+          '<label class="label py-0 mb-0.5"><span class="label-text text-xs opacity-60">Neemt de waarde van</span></label>' +
+          '<select id="detChainStepSelect-' + esc(tid) + '" class="select select-xs select-bordered w-64">' +
+            '<option value="">Kies een vorige stap\u2026</option>' + stapOpties +
+          '</select>' +
+        '</div>' +
+        '<label class="flex items-center gap-1.5 text-xs cursor-pointer select-none pb-1">' +
+          '<input type="checkbox" id="detChainIsIdentifier-' + esc(tid) + '" class="checkbox checkbox-xs" checked>' +
+          '<span class="opacity-70">Zoekcriterium</span>' +
+        '</label>' +
+        '<label class="flex items-center gap-1.5 text-xs cursor-pointer select-none pb-1">' +
+          '<input type="checkbox" id="detChainIsRequired-' + esc(tid) + '" class="checkbox checkbox-xs" checked>' +
+          '<span class="opacity-70">Verplicht</span>' +
+        '</label>' +
+        '<button type="button" class="btn btn-xs btn-primary gap-1 mb-0.5" data-action="detail-add-chain-row">' +
+          '<i data-lucide="plus" class="w-3 h-3"></i> Koppelen</button>' +
+      '</div>' +
+      '<p class="text-xs opacity-40 mt-1.5 leading-relaxed">' +
+        'Zet <span class="font-medium">Verplicht</span> uit als de vorige stap leeg mag zijn. ' +
+        'Bij een zoekcriterium betekent leeg dan: niets om bij te werken \u2014 ' +
+        '\u201cZoeken + bijwerken of aanmaken\u201d maakt een nieuw record aan, ' +
+        '\u201cAlleen bijwerken\u201d slaat de stap over.' +
+      '</p>' +
+    '</div>';
   }
 
   function removeChainLink(tid, odooField) {
@@ -1363,35 +1520,46 @@
       // Normalize legacy chain source_value format
       var legFix = String(sourceValue).match(/^step_(\d+)_id$/);
       if (legFix) sourceValue = 'step.' + legFix[1] + '.record_id';
-      if (!/^step\.[^.]+\.record_id$/.test(sourceValue)) {
+      // step.<stap>.<waarde> -- de waarde is record_id (het record zelf) of de
+      // naam van een veld op dat record. Deze controle stond op record_id vast
+      // en gooide een veld-koppeling er stilletjes uit bij het opslaan: de rij
+      // stond in het scherm, verdween bij Opslaan, en niets zei waarom.
+      if (!/^step\.[^.]+\.[^.]+$/.test(sourceValue)) {
         console.warn('[FSV2] chain row skipped: invalid source_value', sourceValue, em);
         return;
       }
       var chainReqChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-req-' + i + '"]');
-      var chainIdChk  = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-id-'  + i + '"]');
       newMappings.push({
         odoo_field: em.odooField, source_type: 'previous_step_output', source_value: sourceValue,
-        is_identifier: chainIdChk ? chainIdChk.checked : true,
+        is_identifier: em.isIdentifier !== false,
         is_update_field: true,
         is_required: chainReqChk ? chainReqChk.checked : (em.isRequired || false),
         order_index: orderIdx++,
       });
     });
 
-    // ── Preserve model-level fixed_fields (auto-filled) — not editable in the table ───
+    // ── Model-level fixed_fields (auto-filled) — not editable in the table ───
+    // Dit HERSCHRIJFT ze vanuit het model, het bewaart niet enkel wat er al
+    // stond. Die vorige vorm kon een ontbrekende vaste waarde nooit herstellen:
+    // stond ze niet in de mappings (stap aangemaakt toen het modelprofiel niet
+    // vindbaar was, of vaste waarde nadien in Instellingen toegevoegd), dan
+    // voegde opslaan ze ook niet toe -- en bleef de stap stil schrijven zonder
+    // is_company/active. Ze zijn per stap toch niet bewerkbaar (de tabel
+    // verbergt ze), dus het model is hier de enige waarheid.
+    //
     // Nooit voor 'search': die stap schrijft niets, dus vaste waarden van een
     // eerder gedrag (bv. toen de stap nog 'upsert' was) horen hier te vervallen
     // in plaats van eeuwig te blijven meegesleept worden.
     if (newOpType !== 'search') {
-      var _mcfgSave     = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(target.odoo_model) : {};
-      var _fixedForSave = (Array.isArray(_mcfgSave.fixed_fields) ? _mcfgSave.fixed_fields : [])
-        .map(function (f) { return typeof f === 'string' ? f : (f.name || ''); });
-      var existingStaticMappings = ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[tid]) || [])
-        .filter(function (m) { return m.source_type === 'static' && _fixedForSave.includes(m.odoo_field); });
-      existingStaticMappings.forEach(function (m) {
+      var _mcfgSave = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(target.odoo_model) : {};
+      (Array.isArray(_mcfgSave.fixed_fields) ? _mcfgSave.fixed_fields : []).forEach(function (f) {
+        var def = (typeof f === 'string') ? { name: f, value: '' } : (f || {});
+        if (!def.name) return;
+        // Boolean false moet 'false' worden; alleen een echt lege waarde overslaan.
+        if (def.value === null || def.value === undefined || def.value === '') return;
         newMappings.push({
-          odoo_field: m.odoo_field, source_type: 'static', source_value: m.source_value,
-          is_identifier: false, is_update_field: m.is_update_field !== false,
+          odoo_field: def.name, source_type: 'static', source_value: String(def.value),
+          is_identifier: false, is_update_field: true,
           is_required: false, order_index: orderIdx++,
         });
       });
@@ -1616,7 +1784,7 @@
     await window.FSV2.openDetail(S().activeId);
   }
 
-  function applyChainSuggestion(tid, odooField, odooLabel, stepOrder, stepLabel) {
+  function applyChainSuggestion(tid, odooField, odooLabel, stepOrder, stepLabel, opties) {
     var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
     if (!S().detail._extraRowsByTarget)       S().detail._extraRowsByTarget = {};
     if (!S().detail._extraRowsByTarget[tid])  S().detail._extraRowsByTarget[tid] = [];
@@ -1628,13 +1796,15 @@
     S().detail._extraRowsByTarget[tid] = S().detail._extraRowsByTarget[tid].filter(function (r) {
       return !(r.odooField === odooField && r.sourceType !== 'previous_step_output');
     });
+    opties = opties || {};
     S().detail._extraRowsByTarget[tid].push({
       odooField:   odooField,
       odooLabel:   odooLabel || odooField,
       sourceType:  'previous_step_output',
-      staticValue: 'step.' + stepOrder + '.record_id',
-      isRequired:  true,
-      isIdentifier: true,
+      // Het record zelf (record_id) of een VELD van dat record.
+      staticValue: 'step.' + stepOrder + '.' + (opties.sourceSuffix || 'record_id'),
+      isRequired:  opties.isRequired !== false,
+      isIdentifier: opties.isIdentifier !== false,
     });
     if (integrationId) window.FSV2.getPipelineOpen(integrationId)[String(tid)] = true;
     window.FSV2.renderDetailMappings();

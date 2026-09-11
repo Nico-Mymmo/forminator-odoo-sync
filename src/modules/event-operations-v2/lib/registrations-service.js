@@ -678,7 +678,10 @@ async function logRegistrationContext(env, registrationId, { input, source, part
     await messagePost(env, {
       model: ODOO_MODELS.REGISTRATION,
       id: registrationId,
-      body: lines.join('<br/>')
+      // isHtml: de body bevat <br/> en elke ingevoegde waarde is hierboven
+      // al geescaped -- zonder dit leest de chatter letterlijk "<br/>".
+      body: lines.join('<br/>'),
+      isHtml: true
     });
   } catch (error) {
     // Nooit fataal: de inschrijving staat er, de notitie is bijzaak.
@@ -813,7 +816,8 @@ export async function setAttendance(env, registrationId, params) {
   const chatter = messagePost(env, {
     model: ODOO_MODELS.REGISTRATION,
     id,
-    body: `Aanwezigheid ${params.attended ? 'aangevinkt' : 'uitgevinkt'} door ${escapeHtml(who)}.`
+    body: `Aanwezigheid ${params.attended ? 'aangevinkt' : 'uitgevinkt'} door ${escapeHtml(who)}.`,
+    isHtml: true
   }).catch((error) => {
     console.warn(`${LOG_PREFIX} chatternotitie aanwezigheid mislukt (${id}):`, error?.message);
   });
@@ -860,7 +864,8 @@ export async function setRegistrationState(env, registrationId, state, actor = n
     await messagePost(env, {
       model: ODOO_MODELS.REGISTRATION,
       id,
-      body: `Toestand gewijzigd naar <b>${escapeHtml(state)}</b> door ${escapeHtml(who)}.`
+      body: `Toestand gewijzigd naar <b>${escapeHtml(state)}</b> door ${escapeHtml(who)}.`,
+      isHtml: true
     });
   } catch (error) {
     console.warn(`${LOG_PREFIX} chatternotitie toestand mislukt (${id}):`, error?.message);

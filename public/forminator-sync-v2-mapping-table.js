@@ -402,24 +402,47 @@
         <td class="py-2 pl-1"><div class="flex items-center justify-end gap-0">${notUpdateChk(true)}${deleteBtn()}</div></td>`;
     }
 
+    /**
+     * Leesbare omschrijving van waar een koppelrij haar waarde haalt.
+     * "Automatisch via koppeling aan vorige stap" stond op elke rij hetzelfde,
+     * dus met twee koppelingen op een stap zag je niet meer welke wat deed --
+     * en juist dat is het verschil tussen "zoek hierop" en "schrijf dit weg".
+     */
+    function chainSourceLabel(row, stappen) {
+      var m = String(row && row.staticValue || '').match(/^step\.([^.]+)\.(.+)$/);
+      if (!m) return 'een vorige stap';
+      var ref  = m[1];
+      var veld = m[2];
+      var idx  = (stappen || []).findIndex(function(s) { return String(s.order) === ref || s.label === ref; });
+      var stap = idx >= 0 ? ('stap ' + (idx + 1)) : ('stap ' + ref);
+      return veld === 'record_id' ? ('het record uit ' + stap) : (veld + ' van ' + stap);
+    }
+
     // ── Identifier row (or chain-linked identifier) ─────────────────────────────
     // If a chain link exists for the identifier field, render a locked blue row instead of
     // the editable purple key row — the value is provided automatically by the chain.
-    var chainIdentRow = chainRowsWithIdx.find(function(c) { return c.row.odooField === activeIdField; });
+    // Welke koppelrij IS het zoekcriterium: de rij die zichzelf zo noemt.
+    // Vergelijken met activeIdField volstaat niet meer -- dat komt uit de
+    // identifier_fields van het modelprofiel, en een koppeling op 'id' (zoek
+    // het contact uit stap 1) staat daar niet in. Valt terug op het oude
+    // gedrag voor rijen van voor deze wijziging.
+    var chainIdentRow = chainRowsWithIdx.find(function(c) { return c.row.isIdentifier !== false; })
+                     || chainRowsWithIdx.find(function(c) { return c.row.odooField === activeIdField; });
     var identRowHtml = '';
-    if (activeIdField) {
+    if (chainIdentRow || activeIdField) {
       if (chainIdentRow) {
+        var identChainField = chainIdentRow.row.odooField;
         identRowHtml = `<tr data-row-type="chain-identifier" class="bg-info/5">
           <td colspan="2" class="py-2 pr-2">
             <div class="flex items-center gap-1.5 text-xs text-info/70 italic pl-1">
               <i data-lucide="link-2" class="w-3.5 h-3.5 shrink-0 text-info"></i>
-              <span>Automatisch via koppeling aan vorige stap</span>
+              <span>Zoekt op ${esc(chainSourceLabel(chainIdentRow.row, precedingSteps))}</span>
             </div>
           </td>
-          <td class="py-2 pr-2">${fixedOdooTag(activeIdField, 'bg-info/10 border border-info/20', 'link-2', ' text-info')}</td>
+          <td class="py-2 pr-2">${fixedOdooTag(identChainField, 'bg-info/10 border border-info/20', 'link-2', ' text-info')}</td>
           <td class="py-2 pl-1">
             <button type="button" class="btn btn-ghost btn-xs p-0 w-6 h-6 min-h-0 text-error/30 hover:text-error ml-0.5 shrink-0"
-              data-action="remove-chain-link" data-target-id="${esc(tid)}" data-odoo-field="${esc(activeIdField)}"
+              data-action="remove-chain-link" data-target-id="${esc(tid)}" data-odoo-field="${esc(identChainField)}"
               title="Koppeling verwijderen">
               <i data-lucide="x" class="w-3.5 h-3.5"></i>
             </button>
@@ -439,14 +462,14 @@
 
     // ── Other chain rows (non-identifier) ────────────────────────────────────
     var otherChainRowsHtml = chainRowsWithIdx
-      .filter(function(c) { return c.row.odooField !== activeIdField; })
+      .filter(function(c) { return c !== chainIdentRow; })
       .map(function(c) {
         var r = c.row;
         return `<tr data-row-type="chain" class="bg-info/5">
           <td colspan="2" class="py-2 pr-2">
             <div class="flex items-center gap-1.5 text-xs text-info/70 italic pl-1">
               <i data-lucide="link-2" class="w-3.5 h-3.5 shrink-0 text-info"></i>
-              <span>Automatisch via koppeling aan vorige stap</span>
+              <span>Neemt ${esc(chainSourceLabel(r, precedingSteps))}</span>
             </div>
           </td>
           <td class="py-2 pr-2">${fixedOdooTag(r.odooField, 'bg-info/10 border border-info/20', 'link-2', ' text-info')}</td>

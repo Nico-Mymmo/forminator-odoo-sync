@@ -315,7 +315,139 @@ function getWebinarExternalField(env) {
 // VOLGENDE stap (chatterbericht, mail(link)) 'm als previous_step_output oppikken
 // zonder de mapping-UUID te moeten kennen. `mappings` is optioneel zodat oudere/
 // toekomstige aanroepen zonder dat argument niet breken.
-function registerTargetOutput(contextObject, target, result, mappings) {
+// step.<stap>.<veld> -- de drie namen hieronder zijn GEEN Odoo-velden maar
+// uitkomsten van de stap zelf; al de rest is een echt veld op het record dat
+// de stap opleverde en moet dus bij Odoo opgehaald worden.
+const STEP_OUTPUT_BUILTINS = new Set(['record_id', 'action', 'generated_id']);
+
+/**
+ * Verzamelt per stap welke RECORDVELDEN een latere stap van haar wil lezen.
+ *
+ * Zonder dit kan een stap alleen het id van een vorige stap gebruiken. Dat is
+ * te weinig voor "kijk of dit contact al een VME heeft, zo ja werk die bij, zo
+ * nee maak er een": daarvoor moet je parent_id van het gevonden contact kunnen
+ * lezen, niet enkel zijn id.
+ *
+ * De lijst wordt AFGELEID uit de mappings, niet apart ingesteld: wat niemand
+ * opvraagt wordt ook niet opgehaald, dus een koppeling die dit niet gebruikt
+ * doet geen enkele extra Odoo-call.
+ */
+export function collectRequestedStepFields(mappingsByTarget) {
+  const wanted = new Map();
+  for (const lijst of Object.values(mappingsByTarget || {})) {
+    for (const m of (lijst || [])) {
+      if (!m || m.source_type !== 'previous_step_output') continue;
+      // stapsleutel mag punten bevatten (een label), het veld niet.
+      const match = /^step\.(.+)\.([^.]+)$/.exec(normalizeString(m.source_value));
+      if (!match) continue;
+      const stepKey = match[1];
+      const field   = match[2];
+      if (STEP_OUTPUT_BUILTINS.has(field)) continue;
+      if (!wanted.has(stepKey)) wanted.set(stepKey, new Set());
+      wanted.get(stepKey).add(field);
+    }
+  }
+  return wanted;
+}
+
+/** De gevraagde velden voor deze stap, zowel op volgnummer als op label. */
+export function fieldsWantedForTarget(wanted, target) {
+  if (!wanted || !wanted.size) return [];
+  const sleutels = [String(target.execution_order ?? target.order_index ?? 0)];
+  const label = normalizeString(target.label);
+  if (label) sleutels.push(label);
+  const uit = new Set();
+  for (const s of sleutels) {
+    for (const f of (wanted.get(s) || [])) uit.add(f);
+  }
+  return [...uit];
+}
+
+/**
+ * Odoo geeft een many2one terug als [id, weergavenaam] en een leeg veld als
+ * `false`. Allebei zouden hier ongeschikt zijn: `[938261, "VME"]` in een
+ * domain geeft geen enkele treffer, en `false` is niet hetzelfde als "leeg"
+ * voor de controle die beslist of er aangemaakt moet worden.
+ */
+// Veldtypes per Odoo-model, onthouden zolang deze isolate leeft. Een isolate
+// draait minuten tot uren, dus dit is in de praktijk één extra Odoo-call per
+// model -- en alleen voor een stap die een lijstveld schrijft (zie de
+// _ids-controle op de aanroepkant).
+const _fieldTypeMemo = new Map();
+
+async function getFieldTypes(env, model) {
+  if (_fieldTypeMemo.has(model)) return _fieldTypeMemo.get(model);
+  try {
+    const raw = await executeKw(env, {
+      model,
+      method: 'fields_get',
+      args: [],
+      kwargs: { attributes: ['type'] }
+    });
+    const types = {};
+    for (const [naam, meta] of Object.entries(raw || {})) types[naam] = meta && meta.type;
+    _fieldTypeMemo.set(model, types);
+    return types;
+  } catch (error) {
+    // Niet fataal: zonder types schrijven we de waarde ongewijzigd weg, wat
+    // exact het gedrag van voor deze toevoeging is.
+    console.log('[field-types] ophalen mislukt voor', model, '-', error.message);
+    _fieldTypeMemo.set(model, null);
+    return null;
+  }
+}
+
+/**
+ * Een one2many/many2many schrijf je in Odoo niet met een kaal id maar met een
+ * commando: [[4, id]] = "koppel dit bestaande record erbij", zonder de rest
+ * van de lijst aan te raken. Een kaal id geeft daar een ORM-fout.
+ *
+ * Dit is wat "zet het contact uit stap 1 in child_ids van deze VME" mogelijk
+ * maakt -- de omgekeerde richting van parent_id, en daarmee één stap minder in
+ * de koppeling.
+ *
+ * Command 4 en niet 6 ([[6, 0, [ids]]]): 6 VERVANGT de hele lijst, dus dat zou
+ * bij een tweede inzending de eerder gekoppelde records losmaken.
+ */
+export function wrapX2ManyValue(value, fieldType) {
+  if (fieldType !== 'one2many' && fieldType !== 'many2many') return value;
+  if (Array.isArray(value)) return value;            // al een commandolijst
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) return value;
+  return [[4, id]];
+}
+
+export function normalizeOdooFieldValue(raw) {
+  if (Array.isArray(raw)) return raw.length ? raw[0] : null;
+  if (raw === false || raw === undefined || raw === '') return null;
+  return raw;
+}
+
+function pickStepFields(record, fields) {
+  const uit = {};
+  for (const f of fields) uit[f] = record ? record[f] : null;
+  return uit;
+}
+
+/** Leest de gevraagde velden van een record dat een schrijfstap net opleverde. */
+async function readStepFields(env, model, recordId, fields) {
+  if (!fields.length || !recordId) return null;
+  try {
+    const rec = await findRecordByIdentifier(env, {
+      model,
+      identifierDomain: [['id', '=', recordId]],
+      fields: ['id', ...fields]
+    });
+    return rec ? pickStepFields(rec, fields) : null;
+  } catch (error) {
+    // Nooit fataal: de stap zelf is geslaagd. Een latere stap die dit veld
+    // nodig heeft valt terug op "leeg", wat daar zijn eigen gedrag heeft.
+    console.log('[step-fields] lezen mislukt voor', model, recordId, '-', error.message);
+    return null;
+  }
+}
+
+function registerTargetOutput(contextObject, target, result, mappings, extraFields) {
   const order = target.execution_order ?? target.order_index ?? 0;
   contextObject[`step.${order}.record_id`] = result.recordId || null;
   contextObject[`step.${order}.action`]    = result.action;
@@ -323,6 +455,12 @@ function registerTargetOutput(contextObject, target, result, mappings) {
   if (label) {
     contextObject[`step.${label}.record_id`] = result.recordId || null;
     contextObject[`step.${label}.action`]    = result.action;
+  }
+
+  for (const [field, raw] of Object.entries(extraFields || {})) {
+    const value = normalizeOdooFieldValue(raw);
+    contextObject[`step.${order}.${field}`] = value;
+    if (label) contextObject[`step.${label}.${field}`] = value;
   }
 
   (mappings || []).forEach((m) => {
@@ -354,7 +492,7 @@ function restoreResolverContext(resolvedContextJson, contextObject) {
 
 // Restores step output context from fs_v2_submission_targets (primary source for retry).
 // Called after restoreResolverContext so that step outputs are available for chained targets.
-async function restoreStepOutputsFromDB(env, submissionId, sortedTargets, contextObject) {
+async function restoreStepOutputsFromDB(env, submissionId, sortedTargets, contextObject, wantedStepFields) {
   const allResults = await listSubmissionTargetResults(env, submissionId);
   // Sort by execution_order to restore in deterministic order
   const sorted = [...allResults].sort((a, b) => {
@@ -377,6 +515,20 @@ async function restoreStepOutputsFromDB(env, submissionId, sortedTargets, contex
     if (label) {
       contextObject[`step.${label}.record_id`] = row.odoo_record_id || null;
       contextObject[`step.${label}.action`]    = row.action_result;
+    }
+
+    // Recordvelden (step.N.<veld>) staan niet in fs_v2_submission_targets --
+    // daar staat enkel het id. Bij een retry wordt een geslaagde stap niet
+    // opnieuw uitgevoerd, dus zonder deze leesactie zou een latere stap het
+    // veld leeg krijgen en zich gedragen alsof er niets gevonden was.
+    const wanted = fieldsWantedForTarget(wantedStepFields, target);
+    if (wanted.length && row.odoo_record_id) {
+      const waarden = await readStepFields(env, target.odoo_model, row.odoo_record_id, wanted);
+      for (const [field, raw] of Object.entries(waarden || {})) {
+        const value = normalizeOdooFieldValue(raw);
+        contextObject[`step.${order}.${field}`] = value;
+        if (label) contextObject[`step.${label}.${field}`] = value;
+      }
     }
   }
 }
@@ -655,7 +807,7 @@ function resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransf
   return null;
 }
 
-function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject) {
+export function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject) {
   if (target.identifier_type === 'single_email') {
     const emailValue = lookupFormValue(normalizedForm, 'email');
     if (!emailValue) {
@@ -695,9 +847,22 @@ function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contex
     if (!identifierMappings.length) {
       throw createPermanentError('No identifier fields are marked in this target’s mappings. Mark at least one field as identifier.');
     }
-    return identifierMappings.map((m) => {
+    const domain = [];
+    for (const m of identifierMappings) {
       const value = resolveMappingValue(m, normalizedForm, contextObject);
       if (!value && value !== 0) {
+        // Een zoekcriterium dat uit een VORIGE STAP komt en NIET verplicht is,
+        // mag leeg zijn: dat betekent "die stap leverde hier niets op". We
+        // geven dan null terug in plaats van te gooien, en de aanroepkant
+        // beslist -- upsert maakt aan, update_only slaat over, search
+        // behandelt het als "niet gevonden".
+        //
+        // Alleen voor een NIET-verplichte mapping: staat "verplicht" aan, dan
+        // vangt checkRequiredDependencies dit al eerder af als
+        // dependency_missing, en dat is ook wat je wil voor een stap die
+        // zonder dat record geen betekenis heeft.
+        if (m.source_type === 'previous_step_output' && !m.is_required) return null;
+
         const availableKeys = Object.keys(normalizedForm).filter((k) => !['form_id', 'form_uid', 'ovme_forminator_id'].includes(k)).join(', ') || '(geen)';
         throw createPermanentError(
           `Kan Odoo-record niet identificeren: identifierveld "${m.odoo_field}" is gekoppeld aan formulierveld "${m.source_value}", maar dat veld heeft geen waarde in de ingediende data. ` +
@@ -705,14 +870,15 @@ function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contex
           `Controleer of de veldnaam in de mapping overeenkomt met wat het formulier verstuurt.`
         );
       }
-      return [m.odoo_field, '=', value];
-    });
+      domain.push([m.odoo_field, '=', value]);
+    }
+    return domain;
   }
 
   throw createPermanentError(`Unsupported identifier type: ${target.identifier_type}`);
 }
 
-function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject, fieldTransforms = {}) {
+function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject, fieldTransforms = {}, fieldTypes = null) {
   const values = {};
   for (const mapping of mappings) {
     // 'id' bestaat alleen om een search-stap te identificeren (mapped_fields op
@@ -720,14 +886,14 @@ function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject
     if (mapping.odoo_field === 'id') continue;
     const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransforms);
     if (resolvedValue !== null && resolvedValue !== undefined) {
-      values[mapping.odoo_field] = resolvedValue;
+      values[mapping.odoo_field] = wrapX2ManyValue(resolvedValue, fieldTypes && fieldTypes[mapping.odoo_field]);
     }
   }
   return values;
 }
 
 // Only include fields that are allowed to be written on update (is_update_field !== false)
-function buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, fieldTransforms = {}) {
+function buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, fieldTransforms = {}, fieldTypes = null) {
   const values = {};
   for (const mapping of mappings) {
     // 'id' bestaat alleen om een search-stap te identificeren (mapped_fields op
@@ -736,7 +902,7 @@ function buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, 
     if (mapping.is_update_field === false) continue;
     const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransforms);
     if (resolvedValue !== null && resolvedValue !== undefined) {
-      values[mapping.odoo_field] = resolvedValue;
+      values[mapping.odoo_field] = wrapX2ManyValue(resolvedValue, fieldTypes && fieldTypes[mapping.odoo_field]);
     }
   }
   return values;
@@ -906,6 +1072,10 @@ async function runSubmissionAttempt(env, {
   // verderop -- en ook de vergelijkingen op 'crm.lead'/'res.partner' -- klopt.
   // Kopieën, geen mutatie van de bundle: de slug blijft in odoo_model_slug staan
   // voor de foutmeldingen en logs.
+  // Welke recordvelden wil een latere stap lezen (step.N.<veld>)? Leeg als
+  // geen enkele mapping er een gebruikt -- dan verandert er ook niets.
+  const wantedStepFields = collectRequestedStepFields(integrationBundle.mappingsByTarget);
+
   const resolveModelName = await buildModelResolver(env);
   const sortedTargets = [...integrationBundle.targets].sort((a, b) => {
     const ao = a.execution_order ?? a.order_index ?? 0;
@@ -927,7 +1097,7 @@ async function runSubmissionAttempt(env, {
     // Secondary: resolver context keys from resolved_context (convenience snapshot).
     if (isRetryAttempt) {
       restoreResolverContext(submission.resolved_context, contextObject);
-      await restoreStepOutputsFromDB(env, submission.id, sortedTargets, contextObject);
+      await restoreStepOutputsFromDB(env, submission.id, sortedTargets, contextObject, wantedStepFields);
       console.log(attemptTag, '[retry] restored context keys:', Object.keys(contextObject).join(', ') || '(none)');
     } else if (submission.replay_of_submission_id) {
       await inheritGeneratedIdsFromReplayChain(env, submission.replay_of_submission_id, contextObject);
@@ -1568,11 +1738,16 @@ async function runSubmissionAttempt(env, {
       // op 'id' van een vorige stap, zie de 'id'-guard in build*ValuesFromMappings).
       if (opType === 'search') {
         try {
-          const searchDomain = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
-          const found = await findRecordByIdentifier(env, {
+          const searchDomain  = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
+          const searchExtra   = fieldsWantedForTarget(wantedStepFields, target);
+          // searchDomain === null: het zoekcriterium kwam uit een vorige stap
+          // en was leeg (zie buildIdentifierDomainForTarget). Er valt dan
+          // niets te zoeken, en dat is hetzelfde resultaat als "niet
+          // gevonden" -- search_on_not_found beslist wat er verder gebeurt.
+          const found = searchDomain === null ? null : await findRecordByIdentifier(env, {
             model: target.odoo_model,
             identifierDomain: searchDomain,
-            fields: ['id']
+            fields: ['id', ...searchExtra]
           });
 
           if (found?.id) {
@@ -1588,7 +1763,8 @@ async function runSubmissionAttempt(env, {
             };
             await createSubmissionTargetResult(env, targetResult);
             targetResults.push(targetResult);
-            registerTargetOutput(contextObject, target, { action: 'found', recordId: found.id }, mappings);
+            registerTargetOutput(contextObject, target, { action: 'found', recordId: found.id }, mappings,
+              pickStepFields(found, searchExtra));
             console.log(attemptTag, 'search found | model:', target.odoo_model, '| record_id:', found.id);
             continue;
           }
@@ -1636,9 +1812,9 @@ async function runSubmissionAttempt(env, {
 
           // 'abort' (default): de catch hieronder maakt hier 'failed' van en
           // respecteert error_strategy, exact zoals bij chatter_message/mailing_list.
-          const domainDescription = searchDomain
+          const domainDescription = (searchDomain || [])
             .map((clause) => Array.isArray(clause) ? clause.join(' ') : clause)
-            .join(' EN ');
+            .join(' EN ') || 'een leeg zoekcriterium uit een vorige stap';
           throw createPermanentError(
             `Zoekstap vond geen record op model "${target.odoo_model}" voor ${domainDescription}.`
           );
@@ -1682,11 +1858,22 @@ async function runSubmissionAttempt(env, {
       // ── Build values ───────────────────────────────────────────────────────
       // 'create' and 'create_activity' op types never need an identifier domain.
       let identifierDomain = null;
+      // Apart van `identifierDomain === null`, want dat is ook de normale stand
+      // voor een 'create'-stap die nooit zoekt.
+      let identifierEmpty = false;
       if (opType !== 'create' && opType !== 'create_activity') {
         identifierDomain = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
+        identifierEmpty  = identifierDomain === null;
       }
-      const incomingValues = buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject, integrationBundle.fieldTransforms || {});
-      const updateValues   = buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, integrationBundle.fieldTransforms || {});
+      // Veldtypes zijn alleen nodig om een lijstveld (one2many/many2many) als
+      // Odoo-commando weg te schrijven. In Odoo heet zo'n veld vrijwel altijd
+      // op `_ids`; die naamcontrole beslist enkel of we het VRAGEN, het
+      // antwoord van Odoo beslist wat er gebeurt. Schrijft de stap geen
+      // lijstveld, dan is er geen extra call.
+      const kanX2Many = mappings.some((m) => /_ids$/.test(String(m.odoo_field || '')));
+      const odooFieldTypes = kanX2Many ? await getFieldTypes(env, target.odoo_model) : null;
+      const incomingValues = buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject, integrationBundle.fieldTransforms || {}, odooFieldTypes);
+      const updateValues   = buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, integrationBundle.fieldTransforms || {}, odooFieldTypes);
 
       // ── Model-specific mandatory field fallbacks ───────────────────────────
       // crm.lead requires 'name' (opportunity title). If not mapped, derive from
@@ -1713,8 +1900,11 @@ async function runSubmissionAttempt(env, {
       try {
         let result;
 
-        if (opType === 'create') {
+        if (opType === 'create' || (identifierEmpty && opType === 'upsert')) {
           // Always create a new record — never searches for an existing one.
+          // Ook de weg voor een upsert waarvan het zoekcriterium uit een vorige
+          // stap komt en leeg is: er valt niets bij te werken, dus aanmaken.
+          if (identifierEmpty) console.log(attemptTag, 'leeg zoekcriterium uit vorige stap -> aanmaken');
           result = await createRecordOnly(env, {
             model: target.odoo_model,
             values: incomingValues,
@@ -1722,12 +1912,15 @@ async function runSubmissionAttempt(env, {
           });
         } else if (opType === 'update_only') {
           // Update if found, skip silently if not found — never creates.
-          result = await updateOnlyRecord(env, {
-            model: target.odoo_model,
-            identifierDomain,
-            values: updateValues,
-            updatePolicy: target.update_policy
-          });
+          // Een leeg zoekcriterium betekent hier: er is niets om bij te werken.
+          result = identifierEmpty
+            ? { action: 'skipped', recordId: null, skippedReason: 'not_found' }
+            : await updateOnlyRecord(env, {
+                model: target.odoo_model,
+                identifierDomain,
+                values: updateValues,
+                updatePolicy: target.update_policy
+              });
         } else {
           // Default: upsert (find-or-create, then update).
           result = await upsertRecordStrict(env, {
@@ -1744,7 +1937,7 @@ async function runSubmissionAttempt(env, {
           target_id: target.id,
           execution_order: executionOrder,
           action_result: result.action,
-          skipped_reason: null,
+          skipped_reason: result.skippedReason || null,
           odoo_record_id: result.recordId || null,
           error_detail: null,
           processed_at: new Date().toISOString()
@@ -1754,7 +1947,13 @@ async function runSubmissionAttempt(env, {
         targetResults.push(targetResult);
 
         // Write step output into context so downstream targets can use it.
-        registerTargetOutput(contextObject, target, result, mappings);
+        // Velden die een latere stap van DIT record wil lezen, worden hier
+        // opgehaald -- enkel als er ook echt iemand om vraagt.
+        const schrijfExtra = fieldsWantedForTarget(wantedStepFields, target);
+        const extraWaarden = schrijfExtra.length
+          ? await readStepFields(env, target.odoo_model, result.recordId, schrijfExtra)
+          : null;
+        registerTargetOutput(contextObject, target, result, mappings, extraWaarden);
         console.log(attemptTag, 'target done:', result.action, '| record_id:', result.recordId || null);
 
       } catch (targetError) {

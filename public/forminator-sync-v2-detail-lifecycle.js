@@ -311,15 +311,14 @@
     var maxOrder = targets.reduce(function (max, t) {
       return Math.max(max, window.FSV2.getTargetOrder(t, 0));
     }, 0);
-    // De technische Odoo-modelnaam bewaren, niet de slug -- net zoals de
-    // wizard in forminator-sync-v2-detail-add-target-wizard.js doet. Deze weg
-    // stuurde onvoorwaardelijk de slug door, en een stap met een slug als
-    // odoo_model gaat pas stuk tijdens een echte inzending ("Object <slug>
-    // bestaat niet").
+    // odoo_model = de SLUG -- zie de uitleg in
+    // forminator-sync-v2-detail-add-target-wizard.js: het profiel moet
+    // bewaard blijven, en de pipeline vertaalt de slug zelf naar het
+    // technische Odoo-model.
     await window.FSV2.api('/integrations/' + integrationId + '/targets', {
       method: 'POST',
       body: JSON.stringify({
-        odoo_model:      actionCfg.odoo_model || chosenModel,
+        odoo_model:      chosenModel,
         identifier_type: actionCfg.identifier_type || 'mapped_fields',
         update_policy:   actionCfg.update_policy   || 'always_overwrite',
         execution_order: maxOrder + 1,

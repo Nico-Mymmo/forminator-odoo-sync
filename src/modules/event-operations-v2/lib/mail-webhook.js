@@ -180,7 +180,10 @@ async function postChatterNote(env, { soort, kind, payload, registrationId }, de
     const adres = ontvanger(payload) || '-';
     const detail = soort === 'click' && payload.OriginalLink ? ` (${escapeHtml(payload.OriginalLink)})` : '';
     const body = `<p>${escapeHtml(label)} — ${escapeHtml(adres)}${detail}</p>`;
-    await _messagePost(env, { model: ODOO_MODELS.REGISTRATION, id: registrationId, body });
+    // isHtml: zonder die kwarg escapet Odoo de body en leest de chatter
+    // letterlijk "<p>Mail geopend - ...</p>" (zie messagePost in lib/odoo.js).
+    // Alles wat hier in de body komt, is hierboven al geescaped.
+    await _messagePost(env, { model: ODOO_MODELS.REGISTRATION, id: registrationId, body, isHtml: true });
   } catch (error) {
     console.warn(`${LOG_PREFIX}[mail-webhook] chatternotitie mislukt (registratie ${registrationId}): ${error?.message}`);
   }

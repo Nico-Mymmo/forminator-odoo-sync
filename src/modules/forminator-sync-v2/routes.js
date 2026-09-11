@@ -2518,7 +2518,11 @@ export const routes = {
         model: odooModel,
         method: 'fields_get',
         args: [],
-        kwargs: { attributes: ['string', 'type', 'store', 'readonly', 'selection', 'relation'] },
+        // relation_field = het veld aan de ANDERE kant van een one2many. Nodig om
+        // child_ids te herkennen als de keerzijde van parent_id, zodat het
+        // koppelingsvoorstel kan zeggen welke kant het op gaat in plaats van
+        // enkel "er is hier een relatie".
+        kwargs: { attributes: ['string', 'type', 'store', 'readonly', 'selection', 'relation', 'relation_field'] },
       });
 
       // Transform to sorted array; only expose stored fields
@@ -2531,6 +2535,7 @@ export const routes = {
           readonly: !!meta.readonly,
           selection: Array.isArray(meta.selection) && meta.selection.length ? meta.selection : null,
           relation: meta.relation || null,
+          relationField: meta.relation_field || null,
         }))
         .sort((a, b) => a.label.localeCompare(b.label, 'nl'));
 

@@ -75,6 +75,20 @@ export function ontvanger(payload) {
   return adres ? String(adres).trim() : null;
 }
 
+function escapeHtml(waarde) {
+  return String(waarde == null ? '' : waarde)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Een geklikte link staat voluit in de href; de zichtbare tekst blijft leesbaar. */
+function kortLink(url) {
+  const s = String(url || '');
+  return s.length > 72 ? s.slice(0, 69) + '\u2026' : s;
+}
+
 /**
  * Eén Postmark-event verwerken.
  *
@@ -179,15 +193,26 @@ export async function syncMailEventToOdoo(env, { soort, payload, submissionId, t
   if (!mail.model || !mail.res_id) return; // mail hangt aan geen record -- geen chatter mogelijk
 
   const adres = ontvanger(payload) || '-';
-  const detail = soort === 'click' && payload.OriginalLink ? ` (${payload.OriginalLink})` : '';
-  // Zelfde fix als in worker-handler.js (chatter_message): Odoo's message_post
-  // escapet en her-wrapt een body die ALLEEN een kale, attribuutloze <p> is
-  // (empirisch bevestigd op live Odoo: opgeslagen body werd
-  // "<p>&lt;p&gt;...&lt;/p&gt;</p>", dus zichtbare <p>-tags in de chatter).
-  // Minimale inline styling laat Odoo het wel als echte HTML herkennen.
-  const body = `<div style="font-size:14px;color:#212529">${ODOO_SYNC_LABELS[soort]} \u2014 ${adres}${detail}</div>`;
+  const link = soort === 'click' && payload.OriginalLink ? String(payload.OriginalLink) : '';
 
-  await _messagePost(env, { model: mail.model, id: mail.res_id, body });
+  // ESCAPEN IS HIER VERPLICHT, niet netjes: adres en link komen rechtstreeks
+  // uit de Postmark-payload en gaan als HTML de chatter in.
+  //
+  // De vorige versie probeerde met inline styling af te dwingen dat Odoo de
+  // body als HTML zou zien. Dat werkt niet -- alleen `body_is_html` doet dat
+  // (zie messagePost in lib/odoo.js), dus stond er in de chatter letterlijk
+  // "<div style=...>Mail geopend — ...</div>" te lezen, drie regels na elkaar.
+  const body =
+    '<div style="font-size:13px;color:#212529">' +
+      '<strong>' + escapeHtml(ODOO_SYNC_LABELS[soort]) + '</strong>' +
+      '<span style="color:#6c757d"> \u2014 ' + escapeHtml(adres) + '</span>' +
+      (link
+        ? '<br/><a href="' + escapeHtml(link) + '" style="font-size:12px;color:#0d6efd">' +
+            escapeHtml(kortLink(link)) + '</a>'
+        : '') +
+    '</div>';
+
+  await _messagePost(env, { model: mail.model, id: mail.res_id, body, isHtml: true });
 }
 
 export async function handlePostmarkWebhook(request, env, opties = {}) {

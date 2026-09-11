@@ -693,12 +693,23 @@
         return;
       }
       if (action === 'apply-chain-suggestion') {
+        // De soort koppeling bepaalt WAT er gezet wordt: het record uit de
+        // vorige stap of een veld ervan, als zoekcriterium of als gewone
+        // waarde. Die drie verschillen zitten in de knop (zie
+        // chainSuggestionButton) en niet in een herberekening hier -- anders
+        // kan wat er gebeurt afwijken van wat er op het scherm stond.
         window.FSV2.applyChainSuggestion(
           btn.dataset.targetId,
           btn.dataset.odooField,
           btn.dataset.odooLabel,
           btn.dataset.stepOrder,
-          btn.dataset.stepLabel
+          btn.dataset.stepLabel,
+          {
+            kind:         btn.dataset.kind || 'set_many2one',
+            sourceSuffix: btn.dataset.sourceSuffix || 'record_id',
+            isIdentifier: btn.dataset.isIdentifier !== '0',
+            isRequired:   btn.dataset.isRequired   !== '0',
+          }
         );
         return;
       }
@@ -807,11 +818,17 @@
         var chainFspVal   = document.getElementById('det-chain-' + chainTid + '-add');
         var chainStepSel  = document.getElementById('detChainStepSelect-' + chainTid);
         var chainIsReqEl  = document.getElementById('detChainIsRequired-' + chainTid);
+        var chainIsIdEl   = document.getElementById('detChainIsIdentifier-' + chainTid);
         var chainField    = chainFspVal ? chainFspVal.value.trim() : '';
+        // Bevat al de volledige bron: step.<stap>.record_id of step.<stap>.<veld>.
         var chainStepVal  = chainStepSel ? chainStepSel.value.trim() : '';
         if (!chainField)    { window.FSV2.showAlert('Kies een Odoo veld voor de koppeling.', 'error'); return; }
         if (!chainStepVal)  { window.FSV2.showAlert('Kies een vorige stap om aan te koppelen.', 'error'); return; }
         var chainIsRequired = chainIsReqEl ? chainIsReqEl.checked : true;
+        // Een koppeling is niet meer per definitie het zoekcriterium: ze kan
+        // ook gewoon een waarde wegschrijven (contact.parent_id = de VME uit
+        // een vorige stap). Ontbreekt het vinkje, dan blijft het oude gedrag.
+        var chainIsIdentifier = chainIsIdEl ? chainIsIdEl.checked : true;
         var chainTarget   = S.detail && S.detail.targets && S.detail.targets.find(function (t) { return String(t.id) === chainTid; });
         var detChainModel = chainTarget ? chainTarget.odoo_model : '';
         var detChainCache = S.odooFieldsCache[detChainModel] || [];
@@ -824,7 +841,7 @@
           staticValue:   chainStepVal,
           sourceType:    'previous_step_output',
           isRequired:    chainIsRequired,
-          isIdentifier:  true,
+          isIdentifier:  chainIsIdentifier,
           isUpdateField: true,
         });
         window.FSV2.renderDetailMappings();

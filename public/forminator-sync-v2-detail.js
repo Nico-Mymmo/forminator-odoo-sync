@@ -152,59 +152,149 @@
     return { topLevel: topLevel, flatFields: flatFields };
   }
 
+  // Velden die technisch wel een relatie zijn maar niets met jouw gegevens te
+  // maken hebben. Zonder deze lijst staat er bij elke res.partner-stap een
+  // voorstel om "Followers (Partners)" te koppelen.
+  var CHAIN_RUIS = /^(message_|website_message_|activity_|rating_|starred_message_|my_activity_)/;
+
+  /**
+   * Een stap bewaart de SLUG van het modelprofiel ("company"), maar de
+   * relatie op een Odoo-veld noemt het echte model ("res.partner"). Zonder
+   * deze vertaling vergelijk je die twee rechtstreeks, matcht er niets, en
+   * verschijnt er geen enkel voorstel -- terwijl de koppeling gewoon bestaat.
+   */
+  function technischModel(naam) {
+    var cfg = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(naam) : null;
+    return (cfg && cfg.odoo_model) || naam;
+  }
+
+  function chainVeldBruikbaar(field) {
+    if (!field || !field.name) return false;
+    if (field.readonly) return false;          // berekend veld: schrijven doet niets
+    if (CHAIN_RUIS.test(field.name)) return false;
+    return true;
+  }
+
+  /**
+   * Wat kan deze stap met een VORIGE stap doen?
+   *
+   * Er zijn drie soorten, en het verschil ertussen is precies wat er eerder
+   * niet uit te leggen was -- er stond één knop "Automatisch instellen" die
+   * altijd hetzelfde deed, ongeacht welke kant je op wou:
+   *
+   *   set_many2one   dit record verwijst naar het record uit stap N
+   *   link_x2many    het record uit stap N komt in een lijstveld van dit record
+   *                  (de keerzijde van set_many2one: child_ids t.o.v. parent_id)
+   *   find_via_field dit record wordt OPGEZOCHT via een veld van stap N --
+   *                  gevonden = bijwerken, leeg = nieuw aanmaken
+   *
+   * Elke soort draagt zijn eigen zin uitleg mee; de weergave verzint er niets
+   * bij. Zo staat de betekenis op één plek in plaats van in twee banners.
+   */
   function computeChainSuggestions(currentTarget, precedingTargets) {
     var model       = currentTarget.odoo_model;
+    var mijnModel   = technischModel(model);
+    var opType      = currentTarget.operation_type || 'upsert';
     var suggestions = [];
+    var cache       = (S().odooFieldsCache || {});
+    var mijnVelden  = cache[model] || [];
+    var links       = (S().modelLinksCache) || [];
 
-    // 1. Registry-based suggestions (highest priority — explicitly configured)
-    var links = (S().modelLinksCache) || [];
+    // 'create' zoekt nooit; 'search' schrijft nooit.
+    var magZoeken    = opType === 'upsert' || opType === 'update_only' || opType === 'search';
+    var magSchrijven = opType !== 'search';
+
+    function stapInfo(prevT, prevIdx) {
+      return {
+        stepOrder:    window.FSV2.getTargetOrder(prevT, prevIdx),
+        stepLabel:    prevT.label || '',
+        stepNum:      prevIdx + 1,
+        prevTargetId: String(prevT.id),
+        stepNaam:     prevT.label || window.FSV2.modelLabel(prevT.odoo_model),
+      };
+    }
+
     precedingTargets.forEach(function (prevT, prevIdx) {
-      links.forEach(function (link) {
-        // Forward: stap N = link.model_a, huidige stap = link.model_b, veld staat op model_b
-        if (link.model_a === prevT.odoo_model && link.model_b === model) {
-          suggestions.push({
-            odooField:    link.link_field,
-            odooLabel:    link.link_label || link.link_field,
-            relation:     link.model_a,
-            stepOrder:    window.FSV2.getTargetOrder(prevT, prevIdx),
-            stepLabel:    prevT.label || '',
-            stepNum:      prevIdx + 1,
-            prevTargetId: String(prevT.id),
-            fromRegistry: true,
-          });
-        }
-      });
-    });
+      var info        = stapInfo(prevT, prevIdx);
+      var prevVelden  = cache[prevT.odoo_model] || [];
+      var prevModel   = technischModel(prevT.odoo_model);
+      var stapTekst   = 'stap ' + info.stepNum + ' (' + info.stepNaam + ')';
 
-    // 2. Dynamic fallback: scan odooFieldsCache for many2one fields pointing to a preceding model
-    //    Skip same-model suggestions (self-referential noise like res.partner.parent_id).
-    //    Also skip entirely if registry already has an entry for this model pair.
-    var odooCache = (S().odooFieldsCache || {})[model] || [];
-    odooCache.forEach(function (field) {
-      if (field.type !== 'many2one' || !field.relation) return;
-      precedingTargets.forEach(function (prevT, prevIdx) {
-        if (prevT.odoo_model !== field.relation) return;
-        // Never suggest self-referential (same model → same model) via dynamic scan
-        if (prevT.odoo_model === model) return;
-        // Skip if registry already covers this model pair (avoid duplicate cards)
-        var registryCoversPair = links.some(function (l) {
-          return l.model_a === prevT.odoo_model && l.model_b === model;
+      // ── 1. set_many2one — een many2one op DEZE stap naar het model van stap N
+      //    De modelregistratie (Koppelingen bij Instellingen) heeft voorrang:
+      //    die is bewust ingesteld, de scan hieronder is afgeleid.
+      var registryVelden = links
+        .filter(function (l) { return l.model_a === prevT.odoo_model && l.model_b === model; })
+        .map(function (l) { return { name: l.link_field, label: l.link_label || l.link_field }; });
+
+      var m2oVelden = registryVelden.length
+        ? registryVelden
+        : mijnVelden.filter(function (f) {
+            return f.type === 'many2one' && f.relation === prevModel && chainVeldBruikbaar(f);
+          });
+
+      if (magSchrijven) {
+        m2oVelden.forEach(function (f) {
+          var lbl = (f.label || f.name) + ' (' + f.name + ')';
+          suggestions.push(Object.assign({}, info, {
+            kind:         'set_many2one',
+            odooField:    f.name,
+            odooLabel:    lbl,
+            sourceSuffix: 'record_id',
+            isIdentifier: true,
+            isRequired:   true,
+            titel:        'Vul ' + lbl + ' in met het record uit ' + stapTekst,
+            uitleg:       lbl + ' van dit record gaat verwijzen naar het record uit ' + stapTekst + '.',
+          }));
         });
-        if (registryCoversPair) return;
-        // Skip if registry already covers this specific field
-        var alreadyCovered = suggestions.some(function (s) { return s.odooField === field.name; });
-        if (alreadyCovered) return;
-        suggestions.push({
-          odooField:    field.name,
-          odooLabel:    field.label || field.name,
-          relation:     field.relation,
-          stepOrder:    window.FSV2.getTargetOrder(prevT, prevIdx),
-          stepLabel:    prevT.label || '',
-          stepNum:      prevIdx + 1,
-          prevTargetId: String(prevT.id),
-          fromRegistry: false,
+      }
+
+      // ── 2. link_x2many — een lijstveld op DEZE stap dat het model van stap N bevat
+      if (magSchrijven) {
+        mijnVelden.forEach(function (f) {
+          if (f.type !== 'one2many' && f.type !== 'many2many') return;
+          if (f.relation !== prevModel) return;
+          if (!chainVeldBruikbaar(f)) return;
+          var lbl = (f.label || f.name) + ' (' + f.name + ')';
+          suggestions.push(Object.assign({}, info, {
+            kind:         'link_x2many',
+            odooField:    f.name,
+            odooLabel:    lbl,
+            sourceSuffix: 'record_id',
+            isIdentifier: false,
+            isRequired:   true,
+            titel:        'Zet het record uit ' + stapTekst + ' in de lijst ' + lbl,
+            uitleg:       'Het record uit ' + stapTekst + ' wordt toegevoegd aan de lijst ' + lbl +
+                          ' van dit record \u2014 de omgekeerde richting van hierboven, en zonder een extra stap.',
+          }));
         });
-      });
+      }
+
+      // ── 3. find_via_field — een many2one op STAP N die naar DIT model wijst
+      if (magZoeken) {
+        prevVelden.forEach(function (f) {
+          if (f.type !== 'many2one' || f.relation !== mijnModel) return;
+          if (!chainVeldBruikbaar(f)) return;
+          var lbl = (f.label || f.name) + ' (' + f.name + ')';
+          var watBijLeeg = opType === 'upsert'
+            ? 'Staat het leeg, dan wordt er een nieuw record aangemaakt.'
+            : (opType === 'update_only'
+                ? 'Staat het leeg, dan wordt deze stap overgeslagen.'
+                : 'Staat het leeg, dan geldt het gedrag dat je bij "niet gevonden" hebt ingesteld.');
+          suggestions.push(Object.assign({}, info, {
+            kind:         'find_via_field',
+            odooField:    'id',
+            odooLabel:    'ID',
+            sourceSuffix: f.name,
+            sourceLabel:  lbl,
+            isIdentifier: true,
+            isRequired:   false,
+            titel:        'Zoek dit record via ' + lbl + ' van ' + stapTekst,
+            uitleg:       'Wijst ' + lbl + ' van ' + stapTekst + ' al naar een record, dan wordt dat bijgewerkt. ' +
+                          watBijLeeg,
+          }));
+        });
+      }
     });
 
     return suggestions;

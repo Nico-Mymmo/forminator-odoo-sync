@@ -195,13 +195,29 @@ export async function write(env, { model, ids, values, staging = false, odooUrl,
   });
 }
 
-export async function messagePost(env, { model, id, body, staging = false, odooUrl, odooDb }) {
+/**
+ * Plaatst een chatterbericht.
+ *
+ * `isHtml` is NIET cosmetisch. Zonder `body_is_html` behandelt Odoo de body
+ * als platte tekst en escapet ze: een body met opmaak komt dan als LETTERLIJKE
+ * tekst in de chatter te staan -- "&lt;div style=...&gt;Mail geopend ...&lt;/div&gt;",
+ * tags en al, precies zoals het er in de chatter van een contact uitzag.
+ * De omweg die daarvoor in gebruik was (inline styling toevoegen zodat Odoo
+ * het "als echte HTML zou herkennen") werkt niet -- alleen deze kwarg doet dat.
+ *
+ * De standaard blijft `false`: er zijn aanroepers die bewust platte,
+ * ONGEESCAPETE tekst doorgeven (een gebruikersnaam, een kleurcode). Voor die
+ * hoort Odoo's escaping juist te blijven werken. Zet `isHtml` dus alleen waar
+ * de body echt HTML is EN elke ingevoegde waarde al geescaped wordt.
+ */
+export async function messagePost(env, { model, id, body, isHtml = false, staging = false, odooUrl, odooDb }) {
   return executeKw(env, {
     model,
     method: "message_post",
     args: [[id]],
     kwargs: {
       body,
+      ...(isHtml ? { body_is_html: true } : {}),
       message_type: 'comment',
       subtype_xmlid: 'mail.mt_note'
     },
