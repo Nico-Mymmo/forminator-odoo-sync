@@ -391,11 +391,12 @@
 
   // ─── Laden ─────────────────────────────────────────────────────────────────
 
-  function buildQuery(forceFresh) {
+  function buildQuery() {
     var params = new URLSearchParams();
-    if (forceFresh) params.set('fresh', '1');
     // De filterbalk is weg: events worden op datum opgezocht (kalender),
     // niet meer via status/type/vorm/titel-filters.
+    // Geen fresh=1 meer: de server invalideert de publieke cache niet langer
+    // automatisch bij elke herlaadbeurt -- zie publishToWebsite() hierboven.
     params.set('page', String(state.page));
     params.set('per_page', String(PER_PAGE));
     return params.toString();
@@ -413,7 +414,7 @@
   async function loadEvents(forceFresh) {
     if (state.loading) return;
 
-    var query = buildQuery(forceFresh);
+    var query = buildQuery();
 
     if (forceFresh) {
       state.listCache = {};
@@ -470,6 +471,26 @@
     var tasks = [loadEvents(true)];
     if (state.list.loaded) tasks.push(loadListEvents(true));
     await Promise.all(tasks);
+  }
+
+  /**
+   * Handmatige "Publiceer naar website"-knop: de enige plek die de publieke
+   * cache (Cloudflare KV + de WordPress-transientcache) nog expliciet leeg
+   * laat gooien. Elke gewone opslagactie doet dat niet meer automatisch --
+   * zie de toelichting bij publishToWebsite() in lib/events-service.js.
+   * Zonder deze knop verschijnt een wijziging gewoon vanzelf binnen de
+   * bestaande TTL (60s voor events, tot 1u voor fases/event-types).
+   */
+  async function publishToWebsite(trigger) {
+    if (trigger) trigger.disabled = true;
+    try {
+      await api('/events/publish', { method: 'POST' });
+      toast('Wijzigingen doorgeduwd naar de website', 'success');
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      if (trigger) trigger.disabled = false;
+    }
   }
 
   // ─── Kalender ──────────────────────────────────────────────────────────────
@@ -2468,6 +2489,9 @@
         break;
       case 'reload':
         if (state.view === 'list') { loadListEvents(true); } else { loadEvents(true); }
+        break;
+      case 'publish-to-website':
+        publishToWebsite(trigger);
         break;
       case 'view-calendar': switchView('calendar'); break;
       case 'view-list': switchView('list'); break;

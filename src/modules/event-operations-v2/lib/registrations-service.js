@@ -39,7 +39,6 @@ import {
 import { ValidationError, normalizeEmail, normalizePagination } from './validation.js';
 import { resolvePartnerByEmail } from './partners.js';
 import { getEvent, logToChatter } from './events-service.js';
-import { invalidateEvents } from './cache.js';
 import { ownsMail, queueMails, cancelPendingMails, revivePendingMails } from './mail-service.js';
 import { MAIL_KIND } from './mail-blocks.js';
 import { resolveLeadStatesForPartners } from '../../event-operations/services/lead-resolution-service.js';
@@ -284,7 +283,9 @@ export async function setRegistrationActive(env, id, active, actor = null) {
     `${LOG_PREFIX} inschrijving ${registrationId} ${active ? 'teruggehaald' : 'gearchiveerd'} door ${who}`
   );
 
-  await invalidateEvents(env);
+  // Zichtbaar op de website: binnen de bestaande TTL, of meteen na een
+  // expliciete "Publiceer naar website"-actie (publishToWebsite() in
+  // events-service.js) -- niet automatisch bij elke schrijfactie hier.
   return {
     id: registrationId,
     active: Boolean(active),
@@ -543,7 +544,10 @@ export async function createRegistration(env, options) {
       await chatter;
     }
 
-    await invalidateEvents(env);
+    // Zichtbaar op de website: binnen de bestaande 60s-TTL, of meteen na een
+    // expliciete "Publiceer naar website"-actie -- niet automatisch bij elke
+    // inschrijving. De capaciteitscontrole hierboven leunt hier NIET op (die
+    // gaat via countRegistrations()/acquireLock(), niet via deze cache).
 
     // ── Bevestigings- en reminder-mail ─────────────────────────────────────
     //
@@ -820,7 +824,9 @@ export async function setAttendance(env, registrationId, params) {
     await chatter;
   }
 
-  await invalidateEvents(env);
+  // Zichtbaar op de website: binnen de bestaande TTL, of meteen na een
+  // expliciete "Publiceer naar website"-actie (publishToWebsite() in
+  // events-service.js) -- niet automatisch bij elke schrijfactie hier.
 
   return getRegistration(env, id);
 }
@@ -860,7 +866,9 @@ export async function setRegistrationState(env, registrationId, state, actor = n
     console.warn(`${LOG_PREFIX} chatternotitie toestand mislukt (${id}):`, error?.message);
   }
 
-  await invalidateEvents(env);
+  // Zichtbaar op de website: binnen de bestaande TTL, of meteen na een
+  // expliciete "Publiceer naar website"-actie (publishToWebsite() in
+  // events-service.js) -- niet automatisch bij elke schrijfactie hier.
   return getRegistration(env, id);
 }
 
@@ -937,7 +945,9 @@ export async function setQuestionIgnored(env, registrationId, ignored) {
   assertNoForbiddenFields(Object.keys(values), 'setQuestionIgnored');
 
   await write(env, { model: ODOO_MODELS.REGISTRATION, ids: [id], values });
-  await invalidateEvents(env);
+  // Zichtbaar op de website: binnen de bestaande TTL, of meteen na een
+  // expliciete "Publiceer naar website"-actie (publishToWebsite() in
+  // events-service.js) -- niet automatisch bij elke schrijfactie hier.
 
   return getRegistration(env, id);
 }

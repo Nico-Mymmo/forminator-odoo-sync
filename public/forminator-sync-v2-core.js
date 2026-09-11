@@ -273,7 +273,14 @@
       description:     'Gegevens synchroniseren naar ' + (cached ? cached.label : modelName) + ' in Odoo.',
       icon:            cached ? (cached.icon || 'box') : (builtin ? builtin.icon : 'box'),
       badgeClass:      'badge-ghost',
-      odoo_model:      modelName,
+      // modelName kan een vrije SLUG zijn (bv. "company"), niet per se de
+      // echte Odoo-modelnaam -- cached.odoo_model draagt die vertaling (zie
+      // de kolom "(naam)" in de modellenlijst bij Instellingen, en
+      // resolveOdooModel() in forminator-sync-v2-bootstrap.js die dit apart
+      // al wel correct deed). Zonder deze val terug stuurde elke stap op zo'n
+      // slug de slug zelf als odoo_model naar de server, wat Odoo afwijst met
+      // "Object <slug> bestaat niet".
+      odoo_model:      (cached && cached.odoo_model) || modelName,
       identifier_type: (cached && cached.identifier_type) ? cached.identifier_type : 'mapped_fields',
       update_policy:   (cached && cached.update_policy)   ? cached.update_policy   : 'always_overwrite',
       resolver_type:   (cached && cached.resolver_type)   ? cached.resolver_type   : null,

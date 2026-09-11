@@ -561,8 +561,9 @@ export async function createEvent(env, input, actor = null, { ctx = null } = {})
   console.log(`${LOG_PREFIX} event ${id} aangemaakt (slug=${slug})`);
 
   await logToChatter(env, id, `Event aangemaakt in Event Operations`, actor);
-  await invalidateEvents(env);
-  await pushWpReload(env, ctx);
+  // Zichtbaar op de website wordt dit pas na een expliciete "Publiceer naar
+  // website"-actie (publishToWebsite hieronder) -- niet automatisch bij elke
+  // opslagactie. Zie de toelichting bij publishToWebsite().
 
   const { event } = await getEvent(env, { id }, { bypassCache: true });
   return event;
@@ -605,8 +606,9 @@ export async function updateEvent(env, id, input, actor = null, { ctx = null } =
 
   const changed = Object.keys(patch).join(', ');
   await logToChatter(env, eventId, `Gewijzigd via Event Operations: ${changed}`, actor);
-  await invalidateEvents(env);
-  await pushWpReload(env, ctx);
+  // Zichtbaar op de website wordt dit pas na een expliciete "Publiceer naar
+  // website"-actie (publishToWebsite hieronder) -- niet automatisch bij elke
+  // opslagactie. Zie de toelichting bij publishToWebsite().
 
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
   return event;
@@ -669,8 +671,9 @@ export async function setPublicationState(env, id, nextState, actor = null, { ct
     `Fase: ${current.stage?.name || current.publication_state} → ${nextState}`,
     actor
   );
-  await invalidateEvents(env);
-  await pushWpReload(env, ctx);
+  // Zichtbaar op de website wordt dit pas na een expliciete "Publiceer naar
+  // website"-actie (publishToWebsite hieronder) -- niet automatisch bij elke
+  // opslagactie. Zie de toelichting bij publishToWebsite().
 
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
   return event;
@@ -697,8 +700,9 @@ export async function setEventActive(env, id, active, actor = null, { ctx = null
       : 'Gearchiveerd — niet meer op de website, inschrijvingen blijven bewaard',
     actor
   );
-  await invalidateEvents(env);
-  await pushWpReload(env, ctx);
+  // Zichtbaar op de website wordt dit pas na een expliciete "Publiceer naar
+  // website"-actie (publishToWebsite hieronder) -- niet automatisch bij elke
+  // opslagactie. Zie de toelichting bij publishToWebsite().
 
   const { event } = await getEvent(env, { id: eventId }, { bypassCache: true });
   return event;
@@ -828,8 +832,9 @@ export async function deleteEvent(env, id, actor = null, { cascade = false, ctx 
     args: [[eventId]]
   });
 
-  await invalidateEvents(env);
-  await pushWpReload(env, ctx);
+  // Zichtbaar op de website wordt dit pas na een expliciete "Publiceer naar
+  // website"-actie (publishToWebsite hieronder) -- niet automatisch bij elke
+  // opslagactie. Zie de toelichting bij publishToWebsite().
 
   return {
     deleted: true,
@@ -1002,14 +1007,37 @@ export async function setEventTypeColor(env, id, color, actor = null) {
     console.warn(`${LOG_PREFIX} chatterbericht mislukt voor event type ${typeId}:`, error?.message);
   }
 
-  // Beide namespaces: de type-lijst zelf, en de publieke eventrespons die
-  // de kleur meeneemt (zie handleEventList/handleEventDetail in
-  // public-api.js) -- anders blijft de site de oude kleur cachen tot de
-  // TTL verloopt.
-  await invalidateNamespace(env, CACHE_NS.EVENT_TYPES);
-  await invalidateEvents(env);
+  // Zichtbaar op de website wordt dit pas na een expliciete "Publiceer naar
+  // website"-actie (publishToWebsite hieronder) -- zie de toelichting daar.
 
   return listEventTypes(env, { bypassCache: true });
+}
+
+/**
+ * Alles wat de website toont handmatig laten verversen: de eigen KV-cache
+ * (events, stages, event-types) én de WordPress-transientcache via een
+ * reload-seintje (pushWpReload).
+ *
+ * BEWUST NIET automatisch na elke schrijfactie. Dat was het gedrag tot deze
+ * functie er kwam, en het kostte een KV-schrijfactie (en vaak meerdere,
+ * want stages/event-types hebben elk hun eigen sub-sleutels) bij ELKE
+ * opslag-, archiveer-, verwijder- of publicatieactie in de OM — ook al
+ * verandert een gewone eventwijziging niets aan de stages of event-types.
+ * Op de gratis Cloudflare-KV-tier (1.000 writes/dag) liep dat binnen een
+ * normale werksessie leeg. Odoo blijft ondertussen altijd meteen correct
+ * (ADMIN_LIST/ADMIN_DETAIL zijn TTL=0, dus de OM zelf cachet nooit); het
+ * enige verschil is HOE SNEL de PUBLIEKE website het ziet, en dat mag
+ * gewoon binnen de bestaande TTL vanzelf gebeuren (60s voor events, tot 1u
+ * voor stages/types) totdat iemand hier expliciet op klikt.
+ *
+ * @param {Object} env
+ * @param {Object} [ctx] - Cloudflare ctx, zodat pushWpReload na de respons kan lopen.
+ */
+export async function publishToWebsite(env, ctx = null) {
+  await invalidateNamespace(env, CACHE_NS.STAGES);
+  await invalidateNamespace(env, CACHE_NS.EVENT_TYPES);
+  await invalidateEvents(env);
+  await pushWpReload(env, ctx);
 }
 
 /**

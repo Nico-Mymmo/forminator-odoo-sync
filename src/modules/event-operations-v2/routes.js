@@ -11,8 +11,7 @@
  *    cache-invalidatie en het chatterbericht altijd meelopen
  */
 
-import { LOG_PREFIX, PUBLICATION_STATE, PAGINATION, CACHE_NS } from './constants.js';
-import { invalidateNamespace, invalidateEvents } from './lib/cache.js';
+import { LOG_PREFIX, PUBLICATION_STATE, PAGINATION } from './constants.js';
 import {
   listEvents,
   getEvent,
@@ -25,7 +24,8 @@ import {
   listEventTypes,
   setEventTypeColor,
   listHostUsers,
-  getStages
+  getStages,
+  publishToWebsite
 } from './lib/events-service.js';
 import { ValidationError, normalizePagination } from './lib/validation.js';
 import {
@@ -188,6 +188,21 @@ export const routes = {
   }),
 
   /**
+   * POST /events-v2/api/events/publish
+   *
+   * Handmatige "Publiceer naar website"-actie: gooit de KV-cache (events,
+   * stages, event-types) leeg en stuurt WordPress een reload-seintje. Dit is
+   * BEWUST de enige plek die dat nog doet -- zie publishToWebsite() in
+   * lib/events-service.js voor de volledige toelichting. Zonder klik hier
+   * verschijnt een wijziging gewoon vanzelf binnen de bestaande TTL (60s
+   * voor events, tot 1u voor stages/event-types).
+   */
+  'POST /api/events/publish': withErrors(async (context) => {
+    await publishToWebsite(context.env, context.ctx);
+    return json({ success: true });
+  }),
+
+  /**
    * GET /events-v2/api/events
    * Query: state, type, format, from, to, q, include_archived, page, per_page
    */
@@ -198,15 +213,12 @@ export const routes = {
       per_page: url.searchParams.get('per_page')
     });
 
-    // De beheerkant leest altijd rechtstreeks uit Odoo (ADMIN_LIST-TTL is 0).
-    // `fresh=1` gooit daarbovenop de stage- en publieke cache leeg, zodat de
-    // verversknop ook een hernoemde of nieuwe fase in Odoo meteen oppikt.
-    if (url.searchParams.get('fresh') === '1') {
-      await invalidateNamespace(context.env, CACHE_NS.STAGES);
-      await invalidateNamespace(context.env, CACHE_NS.EVENT_TYPES);
-      await invalidateEvents(context.env);
-    }
-
+    // De beheerkant leest altijd rechtstreeks uit Odoo (ADMIN_LIST-TTL is 0),
+    // dus dit endpoint zelf heeft nooit een verouderde cache nodig om leeg te
+    // gooien. Het vroegere `fresh=1` deed dat toch, bij ELKE herlaadbeurt na
+    // een opslagactie — dat blies de PUBLIEKE KV-cache (stages/event-types)
+    // leeg zonder dat er iets aan stages of event-types veranderd was. Zie
+    // POST /api/events/publish voor de bewuste, handmatige vervanger.
     const { events, total, cached } = await listEvents(context.env, {
       filters: buildFilters(url),
       limit: perPage,
@@ -759,7 +771,8 @@ export const routes = {
 
     const body = await readJsonBody(context.request);
     const saved = await saveMailBlocks(context.env, { eventTypeId: id }, body, context.user);
-    await invalidateNamespace(context.env, CACHE_NS.EVENT_TYPES);
+    // Zichtbaar op de website: binnen de bestaande TTL, of meteen na
+    // POST /api/events/publish -- niet automatisch bij elke opslagactie.
 
     return json({ success: true, data: saved });
   }),
@@ -812,7 +825,8 @@ export const routes = {
     const id = eventIdFrom(context.params);
     const body = await readJsonBody(context.request);
     const saved = await saveMailBlocks(context.env, { eventId: id }, body, context.user);
-    await invalidateEvents(context.env);
+    // Zichtbaar op de website: binnen de bestaande TTL, of meteen na
+    // POST /api/events/publish -- niet automatisch bij elke opslagactie.
 
     return json({ success: true, data: saved });
   }),
