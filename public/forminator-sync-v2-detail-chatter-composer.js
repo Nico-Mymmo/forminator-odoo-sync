@@ -16,6 +16,35 @@
 
   var _chatterPreviewTimers = {};
 
+  /** execution_order van een stap, met dezelfde terugval als de server (worker-handler.js). */
+  function stapVolgorde(t) {
+    return (t.execution_order != null ? t.execution_order : t.order_index) || 0;
+  }
+
+  /**
+   * Unieke identifiers die een VOORGAANDE stap genereerde (source_type
+   * 'generated_unique_id'), als insertbare chip `{step.<order>.generated_id}` --
+   * dezelfde sleutel die worker-handler.js in contextObject zet (zie
+   * registerTargetOutput). Alleen stappen VOOR deze stap tellen mee.
+   */
+  function voorgaandeStapChips(target, sortedTargets) {
+    var sorted = (sortedTargets || []).slice().sort(function (a, b) { return stapVolgorde(a) - stapVolgorde(b); });
+    var huidigeOrder = stapVolgorde(target);
+    var res = [];
+    sorted.forEach(function (t, i) {
+      if (stapVolgorde(t) >= huidigeOrder) return;
+      var mappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[t.id]) || [];
+      mappings.forEach(function (m) {
+        if (m.source_type !== 'generated_unique_id') return;
+        res.push({
+          fid:   'step.' + stapVolgorde(t) + '.generated_id',
+          label: 'Unieke identifier (stap ' + (i + 1) + ')',
+        });
+      });
+    });
+    return res;
+  }
+
   function renderChatterComposer(target, tid, sortedTargets) {
     var el = document.getElementById('det-mc-' + tid);
     if (!el) return;
@@ -88,7 +117,8 @@
       '</div>';
 
     // Field insertion chips
-    if (flatFields.length) {
+    var stapChips = voorgaandeStapChips(target, sortedTargets);
+    if (flatFields.length || stapChips.length) {
       html += '<div class="flex flex-wrap gap-1">';
       flatFields.forEach(function (f) {
         var fid = f.field_id || f.fieldId || f.id || f.name || '';
@@ -97,6 +127,16 @@
           ' class="badge badge-outline badge-sm cursor-pointer hover:badge-primary transition-colors"' +
           ' data-action="insert-chatter-field" data-target-id="' + esc(tid) + '" data-field-id="' + esc(fid) + '"' +
           ' title="Invoegen: {' + esc(fid) + '}">' + esc(lbl) + '</button>';
+      });
+      // Zelfde chip-mechanisme, maar dan voor stap-uitvoer i.p.v. een formulierveld --
+      // secondary-gekleurd zodat 'ie meteen opvalt tussen de formulierveld-chips.
+      stapChips.forEach(function (c) {
+        html += '<button type="button"' +
+          ' class="badge badge-outline badge-secondary badge-sm cursor-pointer hover:badge-secondary transition-colors gap-1"' +
+          ' data-action="insert-chatter-field" data-target-id="' + esc(tid) + '" data-field-id="' + esc(c.fid) + '"' +
+          ' title="Invoegen: {' + esc(c.fid) + '}">' +
+          '<i data-lucide="fingerprint" class="w-3 h-3"></i>' + esc(c.label) +
+        '</button>';
       });
       html += '</div>';
     }

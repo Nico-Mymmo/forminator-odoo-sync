@@ -180,7 +180,12 @@ export async function syncMailEventToOdoo(env, { soort, payload, submissionId, t
 
   const adres = ontvanger(payload) || '-';
   const detail = soort === 'click' && payload.OriginalLink ? ` (${payload.OriginalLink})` : '';
-  const body = `<p>${ODOO_SYNC_LABELS[soort]} \u2014 ${adres}${detail}</p>`;
+  // Zelfde fix als in worker-handler.js (chatter_message): Odoo's message_post
+  // escapet en her-wrapt een body die ALLEEN een kale, attribuutloze <p> is
+  // (empirisch bevestigd op live Odoo: opgeslagen body werd
+  // "<p>&lt;p&gt;...&lt;/p&gt;</p>", dus zichtbare <p>-tags in de chatter).
+  // Minimale inline styling laat Odoo het wel als echte HTML herkennen.
+  const body = `<div style="font-size:14px;color:#212529">${ODOO_SYNC_LABELS[soort]} \u2014 ${adres}${detail}</div>`;
 
   await _messagePost(env, { model: mail.model, id: mail.res_id, body });
 }

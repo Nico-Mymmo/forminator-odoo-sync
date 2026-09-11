@@ -199,6 +199,15 @@ function resolveContextValue(contextObject, key) {
   return null;
 }
 
+// {key}-placeholders in chatterberichten: eerst een formulierveld proberen
+// (bestaand gedrag), en pas als dat niets oplevert een blik in contextObject --
+// zo kan {step.1.generated_id} de unieke identifier van een vorige stap tonen.
+function lookupChatterPlaceholder(normalizedForm, contextObject, key) {
+  const formValue = lookupFormValue(normalizedForm, key);
+  if (formValue !== null && formValue !== undefined && formValue !== '') return formValue;
+  return resolveContextValue(contextObject, key);
+}
+
 function setContextValue(contextObject, key, value) {
   const rawKey = normalizeString(key);
   contextObject[rawKey] = value;
@@ -259,10 +268,18 @@ function getWebinarExternalField(env) {
 // PIPELINE HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Registers step output into contextObject after a successful target execution.
+// Registers step output into contextObject after a target execution.
 // Keys written: step.<execution_order>.record_id, step.<label>.record_id (if label set),
 // step.<execution_order>.action. Identical structure is used by restoreStepOutputsFromDB.
-function registerTargetOutput(contextObject, target, result) {
+//
+// Ook ELKE generated_unique_id-mapping van deze stap wordt hier gealiast naar
+// step.<execution_order>.generated_id (en step.<label>.generated_id) -- dezelfde
+// vindbare "Stap N"-vorm als record_id, in plaats van de rauwe mapping.id-sleutel
+// (generated_id.<mapping.id>) waarin resolveMappingValue 'm zelf opslaat. Zo kan een
+// VOLGENDE stap (chatterbericht, mail(link)) 'm als previous_step_output oppikken
+// zonder de mapping-UUID te moeten kennen. `mappings` is optioneel zodat oudere/
+// toekomstige aanroepen zonder dat argument niet breken.
+function registerTargetOutput(contextObject, target, result, mappings) {
   const order = target.execution_order ?? target.order_index ?? 0;
   contextObject[`step.${order}.record_id`] = result.recordId || null;
   contextObject[`step.${order}.action`]    = result.action;
@@ -271,6 +288,15 @@ function registerTargetOutput(contextObject, target, result) {
     contextObject[`step.${label}.record_id`] = result.recordId || null;
     contextObject[`step.${label}.action`]    = result.action;
   }
+
+  (mappings || []).forEach((m) => {
+    if (m.source_type !== 'generated_unique_id') return;
+    const key = 'generated_id.' + m.id;
+    if (!Object.prototype.hasOwnProperty.call(contextObject, key)) return;
+    const value = contextObject[key];
+    contextObject[`step.${order}.generated_id`] = value;
+    if (label) contextObject[`step.${label}.generated_id`] = value;
+  });
 }
 
 // Restores resolver-written context keys from the saved resolved_context JSON.
@@ -302,7 +328,7 @@ async function restoreStepOutputsFromDB(env, submissionId, sortedTargets, contex
   });
   for (const row of sorted) {
     // Only restore results that represent a completed step — not aborted or missing-dependency skips
-    if (!['created', 'updated', 'skipped'].includes(row.action_result)) continue;
+    if (!['created', 'updated', 'skipped', 'found'].includes(row.action_result)) continue;
     if (row.skipped_reason === 'pipeline_abort') continue;
     if (row.skipped_reason === 'dependency_missing') continue;
     if (row.skipped_reason === 'condition_not_met') continue;
@@ -341,7 +367,7 @@ function checkRequiredDependencies(mappings, contextObject, attemptTag) {
 // pipeline_abort and dependency_missing are re-executed; successfully completed steps are not.
 function shouldSkipOnRetry(latestResult) {
   if (!latestResult) return false;
-  if (!['created', 'updated', 'skipped'].includes(latestResult.action_result)) return false;
+  if (!['created', 'updated', 'skipped', 'found'].includes(latestResult.action_result)) return false;
   // These special skips must be retried — they did not complete successfully
   if (latestResult.skipped_reason === 'pipeline_abort') return false;
   if (latestResult.skipped_reason === 'dependency_missing') return false;
@@ -653,6 +679,9 @@ function buildIdentifierDomainForTarget(target, mappings, normalizedForm, contex
 function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject, fieldTransforms = {}) {
   const values = {};
   for (const mapping of mappings) {
+    // 'id' bestaat alleen om een search-stap te identificeren (mapped_fields op
+    // een id uit een vorige stap) — nooit meeschrijven naar Odoo.
+    if (mapping.odoo_field === 'id') continue;
     const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransforms);
     if (resolvedValue !== null && resolvedValue !== undefined) {
       values[mapping.odoo_field] = resolvedValue;
@@ -665,6 +694,9 @@ function buildIncomingValuesFromMappings(mappings, normalizedForm, contextObject
 function buildUpdateValuesFromMappings(mappings, normalizedForm, contextObject, fieldTransforms = {}) {
   const values = {};
   for (const mapping of mappings) {
+    // 'id' bestaat alleen om een search-stap te identificeren (mapped_fields op
+    // een id uit een vorige stap) — nooit meeschrijven naar Odoo.
+    if (mapping.odoo_field === 'id') continue;
     if (mapping.is_update_field === false) continue;
     const resolvedValue = resolveMappingValue(mapping, normalizedForm, contextObject, fieldTransforms);
     if (resolvedValue !== null && resolvedValue !== undefined) {
@@ -1045,7 +1077,7 @@ async function runSubmissionAttempt(env, {
           };
           await createSubmissionTargetResult(env, targetResult);
           targetResults.push(targetResult);
-          registerTargetOutput(contextObject, target, result);
+          registerTargetOutput(contextObject, target, result, mappings);
           console.log(attemptTag, 'create_activity done | activity_id:', result.recordId || null);
         } catch (activityError) {
           // Activity failures are non-fatal — they warn but never abort the pipeline.
@@ -1208,7 +1240,7 @@ async function runSubmissionAttempt(env, {
               const isHtml = combinedMsg.trimStart().startsWith('<');
               if (isHtml) {
                 const msgHtml = combinedMsg.replace(/\{([^}]+)\}/g, function(_, key) {
-                  const v = String(lookupFormValue(normalizedForm, key) || '');
+                  const v = String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
                   return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                 });
                 parts.push(msgHtml);
@@ -1217,7 +1249,7 @@ async function runSubmissionAttempt(env, {
                 const msgHtml = combinedMsg
                   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
                   .replace(/\{([^}]+)\}/g, function(_, key) {
-                    const v = String(lookupFormValue(normalizedForm, key) || '');
+                    const v = String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
                     return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                   })
                   .replace(/\n/g, '<br>');
@@ -1245,7 +1277,7 @@ async function runSubmissionAttempt(env, {
             const escapedTpl = rawTemplate
               .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
               .replace(/\{([^}]+)\}/g, function(_, key) {
-                const v = String(lookupFormValue(normalizedForm, key) || '');
+                const v = String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
                 return v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
               })
               .replace(/\n/g, '<br>');
@@ -1278,7 +1310,7 @@ async function runSubmissionAttempt(env, {
           };
           await createSubmissionTargetResult(env, targetResult);
           targetResults.push(targetResult);
-          registerTargetOutput(contextObject, target, result);
+          registerTargetOutput(contextObject, target, result, mappings);
           console.log(attemptTag, 'chatter_message posted | msg_id:', result.recordId || null);
         } catch (chatterError) {
           const targetResult = {
@@ -1351,7 +1383,7 @@ async function runSubmissionAttempt(env, {
             };
             await createSubmissionTargetResult(env, skipResult);
             targetResults.push(skipResult);
-            registerTargetOutput(contextObject, target, { action: 'skipped', recordId: null });
+            registerTargetOutput(contextObject, target, { action: 'skipped', recordId: null }, mappings);
             continue;
           }
 
@@ -1399,7 +1431,7 @@ async function runSubmissionAttempt(env, {
             };
             await createSubmissionTargetResult(env, skipResult);
             targetResults.push(skipResult);
-            registerTargetOutput(contextObject, target, { action: 'skipped', recordId: null });
+            registerTargetOutput(contextObject, target, { action: 'skipped', recordId: null }, mappings);
             continue;
           }
 
@@ -1446,7 +1478,7 @@ async function runSubmissionAttempt(env, {
           };
           await createSubmissionTargetResult(env, targetResult);
           targetResults.push(targetResult);
-          registerTargetOutput(contextObject, target, { action: actionDone, recordId: contactId });
+          registerTargetOutput(contextObject, target, { action: actionDone, recordId: contactId }, mappings);
           console.log(attemptTag, 'mailing_list done | contact_id:', contactId, '| action:', action);
         } catch (mailError) {
           const targetResult = {
@@ -1467,6 +1499,127 @@ async function runSubmissionAttempt(env, {
                 execution_order: abortOrder, action_result: 'skipped',
                 skipped_reason: 'pipeline_abort', odoo_record_id: null,
                 error_detail: 'Pipeline aborted by mailing_list step ' + executionOrder + ': ' + mailError.message,
+                processed_at: new Date().toISOString()
+              };
+              await createSubmissionTargetResult(env, abortResult);
+              targetResults.push(abortResult);
+            }
+            break;
+          }
+        }
+        continue;
+      }
+
+      // ── search: record opzoeken op een ander model, niets schrijven ───────
+      // Configureerbare vervanger van de oude hardcoded resolvers (partner_by_email,
+      // webinar_by_external_id): dezelfde identifier-machinerie als upsert/update_only
+      // (buildIdentifierDomainForTarget + mapped_fields), maar zonder create/write.
+      // Het gevonden record komt beschikbaar als step.<order>.record_id, zodat een
+      // volgende stap 'm kan gebruiken via previous_step_output — zowel voorwaarts
+      // (many2one op de nieuwe stap) als achterwaarts (identifier_type mapped_fields
+      // op 'id' van een vorige stap, zie de 'id'-guard in build*ValuesFromMappings).
+      if (opType === 'search') {
+        try {
+          const searchDomain = buildIdentifierDomainForTarget(target, mappings, normalizedForm, contextObject);
+          const found = await findRecordByIdentifier(env, {
+            model: target.odoo_model,
+            identifierDomain: searchDomain,
+            fields: ['id']
+          });
+
+          if (found?.id) {
+            const targetResult = {
+              submission_id:   submission.id,
+              target_id:       target.id,
+              execution_order: executionOrder,
+              action_result:   'found',
+              skipped_reason:  null,
+              odoo_record_id:  found.id,
+              error_detail:    null,
+              processed_at:    new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, targetResult);
+            targetResults.push(targetResult);
+            registerTargetOutput(contextObject, target, { action: 'found', recordId: found.id }, mappings);
+            console.log(attemptTag, 'search found | model:', target.odoo_model, '| record_id:', found.id);
+            continue;
+          }
+
+          // Niet gevonden — gedrag hangt af van search_on_not_found (default: abort)
+          const notFoundBehavior = target.search_on_not_found || 'abort';
+
+          if (notFoundBehavior === 'skip_step') {
+            const skipResult = {
+              submission_id:   submission.id,
+              target_id:       target.id,
+              execution_order: executionOrder,
+              action_result:   'skipped',
+              skipped_reason:  'not_found',
+              odoo_record_id:  null,
+              error_detail:    `Geen record gevonden op model "${target.odoo_model}" voor de ingestelde identifier — stap overgeslagen.`,
+              processed_at:    new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, skipResult);
+            targetResults.push(skipResult);
+            console.log(attemptTag, 'search not found — skip_step:', target.odoo_model);
+            continue;
+          }
+
+          if (notFoundBehavior === 'continue_empty') {
+            const emptyResult = {
+              submission_id:   submission.id,
+              target_id:       target.id,
+              execution_order: executionOrder,
+              action_result:   'skipped',
+              skipped_reason:  'not_found',
+              odoo_record_id:  null,
+              error_detail:    `Geen record gevonden op model "${target.odoo_model}" voor de ingestelde identifier — doorgegaan met een leeg resultaat.`,
+              processed_at:    new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, emptyResult);
+            targetResults.push(emptyResult);
+            // record_id: null — een volgende stap die hierop leunt krijgt een lege many2one,
+            // of dependency_missing als de mapping is_required is (checkRequiredDependencies
+            // behandelt een expliciete null hetzelfde als 'nooit gezet').
+            registerTargetOutput(contextObject, target, { action: 'skipped', recordId: null }, mappings);
+            console.log(attemptTag, 'search not found — continue_empty:', target.odoo_model);
+            continue;
+          }
+
+          // 'abort' (default): de catch hieronder maakt hier 'failed' van en
+          // respecteert error_strategy, exact zoals bij chatter_message/mailing_list.
+          const domainDescription = searchDomain
+            .map((clause) => Array.isArray(clause) ? clause.join(' ') : clause)
+            .join(' EN ');
+          throw createPermanentError(
+            `Zoekstap vond geen record op model "${target.odoo_model}" voor ${domainDescription}.`
+          );
+        } catch (searchError) {
+          const targetResult = {
+            submission_id:   submission.id,
+            target_id:       target.id,
+            execution_order: executionOrder,
+            action_result:   'failed',
+            skipped_reason:  null,
+            odoo_record_id:  null,
+            error_detail:    searchError.message,
+            processed_at:    new Date().toISOString()
+          };
+          await createSubmissionTargetResult(env, targetResult);
+          targetResults.push(targetResult);
+          console.log(attemptTag, 'search failed:', searchError.message);
+          if (errStrategy === 'stop_on_error') {
+            for (let j = i + 1; j < sortedTargets.length; j++) {
+              const abortTarget = sortedTargets[j];
+              const abortOrder  = abortTarget.execution_order ?? abortTarget.order_index ?? j;
+              const abortResult = {
+                submission_id: submission.id,
+                target_id: abortTarget.id,
+                execution_order: abortOrder,
+                action_result: 'skipped',
+                skipped_reason: 'pipeline_abort',
+                odoo_record_id: null,
+                error_detail: 'Pipeline aborted by search step ' + executionOrder + ': ' + searchError.message,
                 processed_at: new Date().toISOString()
               };
               await createSubmissionTargetResult(env, abortResult);
@@ -1553,7 +1706,7 @@ async function runSubmissionAttempt(env, {
         targetResults.push(targetResult);
 
         // Write step output into context so downstream targets can use it.
-        registerTargetOutput(contextObject, target, result);
+        registerTargetOutput(contextObject, target, result, mappings);
         console.log(attemptTag, 'target done:', result.action, '| record_id:', result.recordId || null);
 
       } catch (targetError) {

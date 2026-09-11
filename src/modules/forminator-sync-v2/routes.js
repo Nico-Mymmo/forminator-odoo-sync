@@ -1159,6 +1159,8 @@ export const routes = {
         ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
         ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
         ...(payload.identifier_field !== undefined ? { identifier_field: payload.identifier_field || null } : {}),
+        // ── search ─────────────────────────────────────────────────────────
+        ...(payload.search_on_not_found !== undefined ? { search_on_not_found: payload.search_on_not_found || 'abort' } : {}),
         // ── send_mail ──────────────────────────────────────────────────────
         // mail_layout staat standaard op 'plain': een platte tekstmail. Wie
         // opmaak wil moet daar actief voor kiezen -- zie render-plain.js.
@@ -1218,6 +1220,8 @@ export const routes = {
         ...(payload.activity_user_pool       !== undefined ? { activity_user_pool:       Array.isArray(payload.activity_user_pool) ? payload.activity_user_pool : null } : {}),
         ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
         ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
+        // ── search ─────────────────────────────────────────────────────────
+        ...(payload.search_on_not_found !== undefined ? { search_on_not_found: payload.search_on_not_found || 'abort' } : {}),
         // ── send_mail ──────────────────────────────────────────────────────
         // mail_layout staat standaard op 'plain': een platte tekstmail. Wie
         // opmaak wil moet daar actief voor kiezen -- zie render-plain.js.

@@ -47,6 +47,38 @@
     return VASTE_TOKENS.concat(formulierTokens());
   }
 
+  /** execution_order van een stap, met dezelfde terugval als de server (worker-handler.js). */
+  function stapVolgorde(t) {
+    return (t.execution_order != null ? t.execution_order : t.order_index) || 0;
+  }
+
+  /**
+   * Unieke identifiers die een VOORGAANDE stap genereerde (source_type
+   * 'generated_unique_id'), als `step.<order>.generated_id` -- dezelfde sleutel
+   * die worker-handler.js in contextObject zet (zie registerTargetOutput).
+   * Alleen stappen VOOR deze (lagere volgorde) tellen mee: een latere stap
+   * heeft op het moment van deze mail nog niets gegenereerd.
+   */
+  function voorgaandeStapTokens(tid) {
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    var sorted  = targets.slice().sort(function (a, b) { return stapVolgorde(a) - stapVolgorde(b); });
+    var huidige = sorted.find(function (t) { return String(t.id) === String(tid); });
+    var huidigeOrder = huidige ? stapVolgorde(huidige) : Infinity;
+    var res = [];
+    sorted.forEach(function (t, i) {
+      if (stapVolgorde(t) >= huidigeOrder) return;
+      var mappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[t.id]) || [];
+      mappings.forEach(function (m) {
+        if (m.source_type !== 'generated_unique_id') return;
+        res.push({
+          pad:   'step.' + stapVolgorde(t) + '.generated_id',
+          label: 'Unieke identifier (stap ' + (i + 1) + ')',
+        });
+      });
+    });
+    return res;
+  }
+
   /**
    * Waarden voor het voorbeeld.
    *
@@ -55,7 +87,7 @@
    * je ziet dan meteen welk veld waar komt, zonder te doen alsof er echte
    * data staat.
    */
-  function bouwVoorbeeldwaarden() {
+  function bouwVoorbeeldwaarden(tid) {
     var s = {
       'contact.first_name': 'Jadranka',
       'contact.name':       'Jadranka Vleyninckx',
@@ -66,6 +98,7 @@
       'now.year':           String(new Date().getFullYear())
     };
     formulierTokens().forEach(function (t) { s[t.pad] = '[' + t.label + ']'; });
+    voorgaandeStapTokens(tid).forEach(function (t) { s[t.pad] = '[' + t.label + ']'; });
     return s;
   }
 
@@ -100,7 +133,7 @@
     var vertraging = splitsVertraging(target.mail_delay_minutes);
     var layout     = String(target.mail_layout || 'plain');
     var fromSource = String(target.mail_from_source || 'record_user');
-    var tokens     = alleTokens();
+    var tokens     = alleTokens().concat(voorgaandeStapTokens(tid));
     var velden     = formulierTokens();
 
     var tokenOpties = tokens.map(function (t) {
@@ -330,7 +363,7 @@
     try {
       var res = await window.FSV2.api('/targets/' + tid + '/mail-preview', {
         method: 'POST',
-        body: JSON.stringify(Object.assign({}, leesVelden(tid), { sample: bouwVoorbeeldwaarden() }))
+        body: JSON.stringify(Object.assign({}, leesVelden(tid), { sample: bouwVoorbeeldwaarden(tid) }))
       });
       if (!res || !res.success) throw new Error((res && res.error) || 'Voorbeeld mislukt');
       doel.innerHTML =

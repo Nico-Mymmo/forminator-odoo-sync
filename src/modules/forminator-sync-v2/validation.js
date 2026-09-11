@@ -196,6 +196,24 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     return;
   }
 
+  // search: record opzoeken op een ander model, niets schrijven. Geen model-whitelist
+  // (elk model mag doorzocht worden) en geen update_policy -- deze stap schrijft niets.
+  if (payload.operation_type === 'search') {
+    if (!hasValue(payload.odoo_model)) {
+      throw createError('search vereist een odoo_model (het model waarop gezocht wordt).');
+    }
+    if (payload.identifier_type !== 'mapped_fields') {
+      throw createError('search vereist identifier_type "mapped_fields" -- de andere identifier-types zijn schrijfmodel-specifiek.');
+    }
+    if (payload.search_on_not_found !== undefined && payload.search_on_not_found !== null) {
+      const allowedNotFound = ['abort', 'skip_step', 'continue_empty'];
+      if (!allowedNotFound.includes(payload.search_on_not_found)) {
+        throw createError('search_on_not_found is niet toegestaan: ' + payload.search_on_not_found + '. Toegestaan: ' + allowedNotFound.join(', ') + '.');
+      }
+    }
+    return;
+  }
+
   // Use caller-supplied allowedModels (from DB) when available, else fall back to static list
   const modelList = (Array.isArray(allowedModels) && allowedModels.length)
     ? allowedModels
@@ -293,6 +311,12 @@ export function validateActivationReadiness(bundle, hasSuccessfulTest) {
   for (const target of targets) {
     validateTargetPayload(target);
     const targetMappings = bundle.mappingsByTarget?.[target.id] || [];
+
+    // Een search-stap zonder identifier zoekt op een leeg domein -- dat faalt pas
+    // stil bij de eerste inzending. Dit is de enige harde blokkade voor activatie.
+    if (target.operation_type === 'search' && !targetMappings.some((m) => m.is_identifier)) {
+      throw createError(`Zoek-stap "${target.label || target.odoo_model}" heeft geen enkel identifierveld gemarkeerd -- activeren zou de stap stil laten mislukken.`);
+    }
 
     if (targetMappings.length < 1) {
       console.warn(`[activation] Target ${target.odoo_model} has no mappings — activating anyway`);

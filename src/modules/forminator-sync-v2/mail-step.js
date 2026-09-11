@@ -295,9 +295,27 @@ export async function resolveSender(env, { target, model, recordId }) {
  *
  * @returns {Object}
  */
-export function buildKoppelingContext({ form = {}, ontvanger = {}, afzender = {}, now = new Date() }) {
+export function buildKoppelingContext({ form = {}, ontvanger = {}, afzender = {}, now = new Date(), contextObject = {} }) {
   const naam = String(ontvanger.name || '').trim();
   const voornaam = naam === '' ? '' : naam.split(/\s+/)[0];
+
+  // Uitvoer van VOORGAANDE stappen (bv. de unieke identifier die een eerdere
+  // koppelingsstap genereerde, of het record-ID) beschikbaar maken als
+  // `{{step.<order>.<naam>}}`. contextObject bewaart die sleutels al plat
+  // (zie registerTargetOutput/resolveMappingValue in worker-handler.js) --
+  // hier zetten we ze om naar de geneste vorm die fillPlaceholders verwacht.
+  const step = {};
+  for (const [key, value] of Object.entries(contextObject || {})) {
+    if (!key.startsWith('step.')) continue;
+    const rest = key.slice('step.'.length);
+    const punt = rest.indexOf('.');
+    if (punt === -1) continue;
+    const stapId = rest.slice(0, punt);
+    const veld   = rest.slice(punt + 1);
+    if (!step[stapId]) step[stapId] = {};
+    step[stapId][veld] = value == null ? '' : String(value);
+  }
+
   return {
     form: { ...form },
     contact: {
@@ -310,7 +328,8 @@ export function buildKoppelingContext({ form = {}, ontvanger = {}, afzender = {}
       email: String(afzender.email || '').trim(),
       job_title: String(afzender.jobTitle || '').trim()
     },
-    now: { year: String(now.getFullYear()) }
+    now: { year: String(now.getFullYear()) },
+    step
   };
 }
 
@@ -406,7 +425,8 @@ export async function runSendMailStep(env, {
     form,
     ontvanger: { email: adres, name: String(lookupForm(form, 'name') || '').trim() },
     afzender,
-    now
+    now,
+    contextObject
   });
 
   const layout = String(target.mail_layout || 'plain');

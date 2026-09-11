@@ -77,7 +77,7 @@
       }
 
       var stepName   = target.label || window.FSV2.modelLabel(target.odoo_model);
-      var opLabels  = { upsert: 'Zoeken \u2014 bijwerken of aanmaken', update_only: 'Alleen bijwerken', create: 'Altijd nieuw aanmaken' };
+      var opLabels  = { upsert: 'Zoeken \u2014 bijwerken of aanmaken', update_only: 'Alleen bijwerken', create: 'Altijd nieuw aanmaken', search: 'Opzoeken' };
       var opTypeLbl  = opLabels[target.operation_type] || opLabels.upsert;
       if (target.operation_type === 'chatter_message') {
         var _chLbl = target.odoo_model ? window.FSV2.modelLabel(target.odoo_model) : '';
@@ -152,6 +152,7 @@
         chatter_message:  'message-circle',
         create_activity:  'calendar',
         mailing_list:     'mail',
+        search:           'search',
       };
       var _opIcon = _opIcons[target.operation_type] || 'refresh-cw';
 
@@ -177,6 +178,7 @@
       var _cardIcon  = target.operation_type === 'chatter_message' ? 'pencil-line'
                      : target.operation_type === 'create_activity'  ? 'user'
                      : target.operation_type === 'send_mail'        ? 'send'
+                     : target.operation_type === 'search'           ? 'search'
                      : (actionCfg.icon || null);
       html +=           '<div class="min-w-0">';
       html +=             '<div class="flex items-center gap-2 font-bold text-base leading-snug">' +
@@ -597,6 +599,7 @@
         extraIsIdentifierId:  'detExtraIsIdentifier-' + tid,
         extraIsUpdateFieldId: 'detExtraIsUpdateField-' + tid,
         operationType: target.operation_type || 'upsert',
+        searchMode:           target.operation_type === 'search',
         opTypeRadioName:      'det-optype-radio-' + tid,
         alreadyMappedInOtherSteps: alreadyMappedInOtherSteps,
         saveAction:           null,   // per-step save button injected below
@@ -679,11 +682,12 @@
       }
     }
 
-    var _opIcons = { upsert: 'git-merge', update_only: 'pencil', create: 'plus-circle' };
+    var _opIcons = { upsert: 'git-merge', update_only: 'pencil', create: 'plus-circle', search: 'search' };
     var options = [
       { value: 'upsert',      icon: 'git-merge',  label: 'Zoeken + bijwerken of aanmaken' },
       { value: 'update_only', icon: 'pencil',      label: 'Alleen bijwerken'               },
       { value: 'create',      icon: 'plus-circle', label: 'Altijd nieuw aanmaken'          },
+      { value: 'search',      icon: 'search',      label: 'Zoeken \u2014 record opzoeken, niets schrijven' },
     ];
 
     var html = '<div class="px-3.5 py-2.5 border-t border-base-200 bg-base-200/30">';
@@ -720,6 +724,24 @@
         });
         html += '</select>';
       }
+      html += '</div>';
+    }
+    // search: gedrag als er niets gevonden wordt — enkel relevant voor dit gedrag.
+    if (currentOpType === 'search') {
+      var _notFoundOpts = [
+        { value: 'abort',          label: 'Stap laten falen' },
+        { value: 'skip_step',      label: 'Stap overslaan' },
+        { value: 'continue_empty', label: 'Doorgaan met een leeg resultaat' },
+      ];
+      var _currentNotFound = target.search_on_not_found || 'abort';
+      html += '<div class="mt-2 pt-2 border-t border-base-200 flex items-center gap-2 px-1">';
+      html += '<i data-lucide="search-x" class="w-3.5 h-3.5 opacity-40 shrink-0"></i>';
+      html += '<span class="text-xs opacity-50 shrink-0">Als niet gevonden:</span>';
+      html += '<select id="detSearchNotFound-' + esc(tid) + '" class="select select-xs select-bordered flex-1">';
+      _notFoundOpts.forEach(function (o) {
+        html += '<option value="' + esc(o.value) + '"' + (o.value === _currentNotFound ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+      });
+      html += '</select>';
       html += '</div>';
     }
     html += '</div>';
@@ -1197,18 +1219,19 @@
     // ─ Persist operation_type if the radio is present in the DOM ───────────────────
     var opRadioEl  = document.querySelector('input[name="det-optype-radio-' + tid + '"]:checked');
     var newOpType  = opRadioEl ? opRadioEl.value : (target.operation_type || 'upsert');
+    var searchNotFoundEl = document.getElementById('detSearchNotFound-' + tid);
     var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
     if (integrationId) {
       await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
         method: 'PUT',
-        body: JSON.stringify({
+        body: JSON.stringify(Object.assign({
           odoo_model:      target.odoo_model,
           identifier_type: target.identifier_type || 'mapped_fields',
           update_policy:   target.update_policy   || 'always_overwrite',
           operation_type:  newOpType,
           execution_order: target.execution_order,
           order_index:     Number(target.order_index || 0),
-        }),
+        }, searchNotFoundEl ? { search_on_not_found: searchNotFoundEl.value } : {})),
       });
     }
 
@@ -1317,8 +1340,8 @@
       return window.FSV2.api('/targets/' + tid + '/mappings', { method: 'POST', body: JSON.stringify(m) });
     }));
 
-    // Warn when upsert/update_only has no identifier — will cause permanent_failed at webhook time.
-    var needsId = newOpType === 'upsert' || newOpType === 'update_only';
+    // Warn when upsert/update_only/search has no identifier — will cause permanent_failed at webhook time.
+    var needsId = newOpType === 'upsert' || newOpType === 'update_only' || newOpType === 'search';
     var hasId   = newMappings.some(function (m) { return m.is_identifier; });
     if (needsId && !hasId && newMappings.length > 0) {
       window.FSV2.showAlert('Let op: geen zoekcriterium (identifier) ingesteld. Bij “zoeken/bijwerken” is minstens één zoekcriterium verplicht — tik het slotje-icoon aan of gebruik de ID van de vorige stap als zoekcriterium.', 'warning');
@@ -1474,6 +1497,7 @@
       'chatter_template', 'chatter_subtype_xmlid',
       'activity_type_id', 'activity_deadline_offset', 'activity_summary_template',
       'activity_user_id', 'activity_res_id_source', 'activity_user_mode', 'activity_user_pool',
+      'search_on_not_found',
     ];
     extraFields.forEach(function (k) {
       if (source[k] !== undefined && source[k] !== null) newTargetPayload[k] = source[k];

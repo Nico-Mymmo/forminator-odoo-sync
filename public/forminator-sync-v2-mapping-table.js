@@ -127,6 +127,7 @@
       { value: 'upsert',      icon: 'git-merge',   label: 'Zoeken + bijwerken of aanmaken' },
       { value: 'update_only', icon: 'pencil',       label: 'Alleen bijwerken'               },
       { value: 'create',      icon: 'plus-circle',  label: 'Altijd nieuw aanmaken'          },
+      { value: 'search',      icon: 'search',       label: 'Zoeken — record opzoeken, niets schrijven' },
     ];
     var _current = options.find(function (o) { return o.value === (currentOpType || 'upsert'); }) || options[0];
     var _isNonDefault = currentOpType && currentOpType !== 'upsert';
@@ -198,6 +199,9 @@
     var activeIdField  = cfg.activeIdentifierField || (identFields.length === 1 ? identFields[0].name : '');
     var precedingSteps = cfg.precedingSteps || [];
     var stepBadge      = cfg.stepBadge    || 0;
+    // search-stappen schrijven niets: enkel de identifier-rij is relevant, geen
+    // vaste/vrije rijen en geen "niet bijwerken"-keuze (er is niets om bij te werken).
+    var searchMode     = !!cfg.searchMode;
 
     // Partition extraRows into required / default / chain / free
     var requiredRows  = extraRows.filter(function(r) { return r.isRequired  && r.isDefault && r.sourceType !== 'previous_step_output' && r.odooField !== activeIdField; });
@@ -428,7 +432,7 @@
             <span class="text-sm text-base-content/20">—</span>
           </td>
           <td class="py-2 pr-2">${fixedOdooTag(activeIdField, 'bg-primary/10 border border-primary/20', 'key', ' text-primary')}</td>
-          <td class="py-2 pl-1">${notUpdateChk(true)}</td>
+          <td class="py-2 pl-1">${searchMode ? '' : notUpdateChk(true)}</td>
         </tr>`;
       }
     }
@@ -516,6 +520,15 @@
       </tr>`;
     }).join('');
 
+    // Een search-stap toont ALLEEN de identifier-rij — geen vaste/vrije rijen,
+    // die zouden hier toch nooit weggeschreven worden.
+    if (searchMode) {
+      otherChainRowsHtml = '';
+      reqRowsHtml         = '';
+      defaultRowsHtml      = '';
+      freeRowsHtml           = '';
+    }
+
     // ── Divider between fixed and free rows ───────────────────────────────────
     var fixedHtml = identRowHtml + otherChainRowsHtml + reqRowsHtml + defaultRowsHtml;
     var dividerRow = fixedHtml && freeRowsHtml
@@ -564,14 +577,14 @@
           ${freeRowsHtml}
         </tbody>
       </table>
-      <div class="flex items-center gap-2 mt-3 pt-2.5 border-t border-base-200">
+      ${searchMode ? '' : `<div class="flex items-center gap-2 mt-3 pt-2.5 border-t border-base-200">
         <button type="button" class="btn btn-ghost btn-xs gap-1" data-add-row>
           <i data-lucide="plus" class="w-3.5 h-3.5"></i> Extra rij
         </button>
         <button type="button" class="btn btn-ghost btn-xs gap-1" data-add-form-fields>
           <i data-lucide="list-plus" class="w-3.5 h-3.5"></i> Overige formuliervelden toevoegen
         </button>
-      </div>`;
+      </div>`}`;
 
     container.replaceChildren(inner);
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: inner });

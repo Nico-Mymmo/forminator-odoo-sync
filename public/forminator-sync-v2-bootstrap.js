@@ -1866,9 +1866,26 @@
       if (!ssiTargetId) return;
       var ssiIntegId  = window.FSV2.S.detail && window.FSV2.S.detail.integration ? window.FSV2.S.detail.integration.id : '';
       if (!ssiIntegId) return;
+      // PUT /integrations/:id/targets/:targetId is een full-replace endpoint --
+      // validateTargetPayload() eist o.a. odoo_model/identifier_type/update_policy.
+      // Een payload met ALLEEN identifier_field faalde daardoor altijd met
+      // "Target model is not allowed: undefined" (payload.odoo_model was undefined).
+      // Daarom de bestaande targetvelden meesturen, zoals elders in dit bestand
+      // (zie handleSaveMapping hierboven) ook al gebeurt.
+      var ssiTargets0 = window.FSV2.S.detail && window.FSV2.S.detail.targets;
+      var ssiTarget   = ssiTargets0 ? ssiTargets0.find(function (t) { return String(t.id) === String(ssiTargetId); }) : null;
+      if (!ssiTarget) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
       window.FSV2.api('/integrations/' + ssiIntegId + '/targets/' + ssiTargetId, {
         method: 'PUT',
-        body: JSON.stringify({ identifier_field: ssiValue }),
+        body: JSON.stringify({
+          odoo_model:      ssiTarget.odoo_model,
+          identifier_type: ssiTarget.identifier_type || 'mapped_fields',
+          update_policy:   ssiTarget.update_policy   || 'always_overwrite',
+          operation_type:  ssiTarget.operation_type  || 'upsert',
+          execution_order: ssiTarget.execution_order,
+          order_index:     Number(ssiTarget.order_index || 0),
+          identifier_field: ssiValue,
+        }),
       }).then(function () {
         var ssiTargets = window.FSV2.S.detail && window.FSV2.S.detail.targets;
         if (ssiTargets) {
