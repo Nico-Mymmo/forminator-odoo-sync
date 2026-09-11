@@ -255,7 +255,20 @@
   }
 
   function getModelCfg(modelName) {
-    var cached     = (S.odooModelsCache || []).find(function (m) { return (m.odoo_model || m.name) === modelName; });
+    // Match op naam OF odoo_model, niet "pak welke van de twee gezet is, en
+    // vergelijk dan pas" -- die eerdere vorm brak zodra een rij zowel name
+    // ("company") als odoo_model ("res.partner") had staan: dan werd ALLEEN
+    // odoo_model vergeleken, dus een aanroep met de slug "company" vond de
+    // rij niet meer terug en viel terug op de slug zelf als odoo_model.
+    //
+    // De exacte NAAM wint wel altijd van een treffer op odoo_model: een stap
+    // bewaart de technische naam ("res.partner"), en zodra er ook een rij met
+    // slug "company" -> res.partner bestaat, matchen er twee rijen. Zonder
+    // deze volgorde bepaalt de sorteervolgorde van de lijst welke velden,
+    // verborgen velden en identifier je te zien krijgt.
+    var models     = S.odooModelsCache || [];
+    var cached     = models.find(function (m) { return m.name === modelName; })
+                  || models.find(function (m) { return m.odoo_model === modelName; });
     var builtin    = DEFAULT_ODOO_MODELS.find(function (m) { return m.name === modelName; });
     // Merge: start from builtin, then apply DB overrides/additions.
     // This ensures builtin required fields are never dropped by an older DB record.

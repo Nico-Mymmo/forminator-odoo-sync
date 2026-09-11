@@ -1227,7 +1227,7 @@ export async function getOdooModels(env) {
   const supabase = getSupabase(env);
   const { data, error } = await supabase
     .from(TABLES.odooModels)
-    .select('name, odoo_model, label, icon, sort_order, default_fields, fixed_fields, identifier_fields, identifier_type, update_policy, resolver_type, hidden_odoo_fields')
+    .select('name, odoo_model, label, icon, sort_order, default_fields, fixed_fields, identifier_fields, identifier_type, update_policy, resolver_type, hidden_odoo_fields, allow_chatter, allow_activities')
     .order('sort_order', { ascending: true });
   if (error) throw new Error(`Failed to get odoo models: ${error.message}`);
   return ensureArray(data);
@@ -1270,6 +1270,23 @@ export async function upsertOdooModels(env, models) {
       label:             m.label || m.name,
       icon:              m.icon || 'box',
       sort_order:        i,
+      // odoo_model ontbrak hier. Op een BESTAANDE rij viel dat niet op --
+      // PostgREST raakt bij een upsert alleen de kolommen die je meestuurt,
+      // dus een handmatig gezette waarde bleef gewoon staan. Op een NIEUWE
+      // rij ging ze verloren (INSERT zonder de kolom -> NULL), en het
+      // invoerveld bij "bewerken" kon de waarde nooit wijzigen: je kon een
+      // fout technisch model dus enkel rechtzetten door de rij te verwijderen
+      // en opnieuw aan te maken. Leeg -> NULL (= val terug op `name`, de
+      // gedocumenteerde betekenis, zie 20260630130000_fsv2_odoo_model_column).
+      odoo_model:        (typeof m.odoo_model === 'string' && m.odoo_model.trim()) || null,
+      // allow_chatter/allow_activities stonden hier evenmin in, en ze werden
+      // ook niet GELEZEN (getOdooModels() selecteerde de kolommen niet). De
+      // twee vinkjes in het beheerscherm waren daardoor dood aan beide kanten:
+      // ze stonden altijd aan (undefined !== false) en een save deed niets.
+      // NOT NULL DEFAULT true in de tabel, dus nooit null doorsturen: alleen
+      // een expliciete `false` zet het uit.
+      allow_chatter:     m.allow_chatter    !== false,
+      allow_activities:  m.allow_activities !== false,
       default_fields:    Array.isArray(m.default_fields)    ? m.default_fields    : undefined,
       hidden_odoo_fields: Array.isArray(m.hidden_odoo_fields) ? m.hidden_odoo_fields : [],
     }));

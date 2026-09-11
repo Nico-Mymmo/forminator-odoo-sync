@@ -77,8 +77,10 @@
                         <td class="pr-0"><i data-lucide="pencil" class="w-4 h-4 text-primary/60"></i></td>
                         <td><input id="editModelLabel" type="text" value="${esc(m.label || '')}" class="input input-xs input-bordered w-40" placeholder="Label" /></td>
                         <td>
-                            <div class="flex items-center gap-2">
+                            <div class="flex items-center gap-2 flex-wrap">
                                 <code class="text-xs font-mono text-base-content/50 bg-base-200 px-1.5 py-0.5 rounded">${esc(m.name)}</code>
+                                <input id="editModelOdooModel" type="text" value="${esc(m.odoo_model || '')}"
+                                       class="input input-xs input-bordered font-mono w-36" placeholder="Odoo model (technisch)" />
                                 <select id="editModelIcon" class="select select-xs select-bordered w-44">${iconOpts}</select>
                             </div>
                         </td>

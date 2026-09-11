@@ -334,9 +334,16 @@
       if (action === 'save-odoo-model') {
         var saveIdx   = parseInt(btn.dataset.idx, 10);
         var modelName = btn.dataset.name;
-        var labelEl   = document.getElementById('editModelLabel');
+        var labelEl      = document.getElementById('editModelLabel');
+        var odooModelEl2 = document.getElementById('editModelOdooModel');
         var iconEl    = document.getElementById('editModelIcon');
         var newLabel  = labelEl ? labelEl.value.trim() : '';
+        // Leeg mag: dan valt getModelCfg() terug op de interne naam zelf, wat
+        // enkel klopt als die toevallig al de echte Odoo-modelnaam is. Zonder
+        // dit veld was er na het aanmaken GEEN manier meer om dat recht te
+        // zetten -- alleen verwijderen en opnieuw aanmaken (zie de "Object
+        // company bestaat niet"-fout die dit veroorzaakte).
+        var newOdooModel = odooModelEl2 ? odooModelEl2.value.trim() : '';
         var newIcon   = iconEl  ? iconEl.value.trim()  : 'box';
         if (!newLabel) { window.FSV2.showAlert('Label is verplicht.', 'error'); return; }
         var allowChatterEl    = document.getElementById('editModelAllowChatter');
@@ -349,7 +356,7 @@
           return i === saveIdx
             ? { name: m.name, label: newLabel, icon: newIcon, default_fields: m.default_fields,
                 allow_chatter: newAllowChatter, allow_activities: newAllowActivities,
-                odoo_model: m.odoo_model, identifier_fields: m.identifier_fields, fixed_fields: m.fixed_fields,
+                odoo_model: newOdooModel || null, identifier_fields: m.identifier_fields, fixed_fields: m.fixed_fields,
                 hidden_odoo_fields: newHiddenFields }
             : m;
         });

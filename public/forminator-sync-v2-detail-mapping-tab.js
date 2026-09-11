@@ -866,7 +866,9 @@
       if (idx >= myIdx) return false;
       if (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity') return false;
       var cache = (S() && S().odooModelsCache) || [];
-      var mc = cache.find(function (c) { return (c.odoo_model || c.name) === t.odoo_model; });
+      // Exacte naam eerst -- zie de uitleg bij getModelCfg() in core.js.
+      var mc = cache.find(function (c) { return c.name === t.odoo_model; })
+            || cache.find(function (c) { return c.odoo_model === t.odoo_model; });
       return !mc || mc.allow_chatter !== false;
     });
 
@@ -931,8 +933,13 @@
       if (idx >= myIdx) return false;
       if (t.operation_type === 'chatter_message' || t.operation_type === 'create_activity') return false;
       var cache = (S() && S().odooModelsCache) || [];
-      var mc = cache.find(function (c) { return (c.odoo_model || c.name) === t.odoo_model; });
-      return !mc || mc.allow_activity !== false;
+      // Exacte naam eerst -- zie de uitleg bij getModelCfg() in core.js.
+      var mc = cache.find(function (c) { return c.name === t.odoo_model; })
+            || cache.find(function (c) { return c.odoo_model === t.odoo_model; });
+      // allow_activitIES -- de kolom heet zo, en deze regel las jarenlang
+      // `allow_activity` (enkelvoud), dus undefined, dus altijd toegestaan:
+      // een model met activiteiten UIT werd hier toch aangeboden.
+      return !mc || mc.allow_activities !== false;
     });
 
     var currentResIdSource = target.activity_res_id_source || '';

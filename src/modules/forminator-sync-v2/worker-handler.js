@@ -6,6 +6,7 @@ import {
   getIntegrationBundle,
   getLatestSubmissionByIdempotencyKey,
   getLatestSubmissionTargetResultByTarget,
+  getOdooModels,
   getRunningReplayByOriginalSubmissionId,
   getSubmissionById,
   listDueRetrySubmissions,
@@ -25,6 +26,41 @@ import { findRecordByIdentifier, upsertRecordStrict, createRecordOnly, updateOnl
 import { executeKw } from '../../lib/odoo.js';
 import { buildHtmlFormSummary } from './html-utils.js';
 import { runSendMailStep } from './mail-step.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Slug -> technisch Odoo-model
+//
+// fs_v2_targets.odoo_model bewaart de SLUG uit de modelregistratie
+// (fs_v2_odoo_models.name), niet per se de echte Odoo-modelnaam: `name` is een
+// vrije, unieke slug ("company", "bedrijf", "contact") en `odoo_model` is het
+// technische model erachter ("res.partner"), met "leeg = val terug op name"
+// als betekenis (zie 20260630130000_fsv2_odoo_model_column.sql).
+//
+// De beheerroutes vertaalden dat al (GET /api/odoo/fields, /api/odoo/search),
+// de pipeline NIET: die gaf de slug rechtstreeks aan executeKw door. Een stap
+// op een model met een eigen slug knalde daardoor pas tijdens een echte
+// inzending, met een rauwe Odoo-traceback als enige uitleg ("Object company
+// bestaat niet") en de stappen ervoor al weggeschreven.
+//
+// Eén lookup per poging; bij een leesfout op de registratie vallen we terug op
+// de identiteit -- exact het gedrag van vandaag, dus nooit slechter.
+async function buildModelResolver(env) {
+  let models = [];
+  try {
+    models = await getOdooModels(env);
+  } catch (registryError) {
+    console.log('[model-resolver] registratie onleesbaar, val terug op de slug zelf:', registryError.message);
+    return (name) => name;
+  }
+
+  const bySlug = new Map();
+  for (const m of models) {
+    if (!m || !m.name) continue;
+    const technical = typeof m.odoo_model === 'string' ? m.odoo_model.trim() : '';
+    if (technical && technical !== m.name) bySlug.set(m.name, technical);
+  }
+  return (name) => bySlug.get(name) || name;
+}
 
 function createPermanentError(message) {
   const error = new Error(message);
@@ -865,10 +901,20 @@ async function runSubmissionAttempt(env, {
   const attemptTag = '[attempt:' + submission.id.slice(0, 8) + ']';
 
   // Sort targets by execution_order; fall back to order_index for transitional pre-migration rows.
+  // Daarna de slug omzetten naar het technische Odoo-model (zie buildModelResolver):
+  // vanaf hier is target.odoo_model altijd iets wat Odoo kent, dus elke executeKw
+  // verderop -- en ook de vergelijkingen op 'crm.lead'/'res.partner' -- klopt.
+  // Kopieën, geen mutatie van de bundle: de slug blijft in odoo_model_slug staan
+  // voor de foutmeldingen en logs.
+  const resolveModelName = await buildModelResolver(env);
   const sortedTargets = [...integrationBundle.targets].sort((a, b) => {
     const ao = a.execution_order ?? a.order_index ?? 0;
     const bo = b.execution_order ?? b.order_index ?? 0;
     return ao - bo;
+  }).map((t) => {
+    const technical = resolveModelName(t.odoo_model);
+    if (technical === t.odoo_model) return t;
+    return { ...t, odoo_model: technical, odoo_model_slug: t.odoo_model };
   });
 
   // Resolvers are required for registration_composite targets (need context values).
@@ -906,7 +952,9 @@ async function runSubmissionAttempt(env, {
       const opType      = target.operation_type || 'upsert';
       const errStrategy = target.error_strategy  || 'allow_partial';
 
-      console.log(attemptTag, 'processing target:', target.id, target.odoo_model, '| op:', opType, '| order:', executionOrder);
+      console.log(attemptTag, 'processing target:', target.id,
+        target.odoo_model + (target.odoo_model_slug ? ' (slug: ' + target.odoo_model_slug + ')' : ''),
+        '| op:', opType, '| order:', executionOrder);
       const mappings = await listMappingsByTarget(env, target.id);
       console.log(attemptTag, 'mappings count:', mappings.length);
 

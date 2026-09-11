@@ -34,7 +34,12 @@
     ];
 
     var modelCards = models.map(function (m, i) {
-      var isActive = sel === (m.odoo_model || m.name);
+      // data-object-id is altijd m.name (zie modelId hieronder) -- vergelijk
+      // dus ook tegen m.name, niet tegen "odoo_model als die gezet is, anders
+      // name": bij een model met een apart technisch odoo_model (bv. "company"
+      // -> res.partner) matchte dat nooit meer, dus bleef de net aangeklikte
+      // kaart onopvallend.
+      var isActive = sel === m.name;
       var icon     = m.icon || 'box';
       var label    = m.label || m.odoo_model || m.name;
       var modelId  = m.name;

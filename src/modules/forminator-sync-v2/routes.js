@@ -1207,7 +1207,14 @@ export const routes = {
     try {
       const payload = await readJsonBody(context.request);
       const storedModels = await getOdooModels(context.env);
-      const allowedModels = storedModels.map(m => m.name);
+      // Zelfde lijst als POST /targets hierboven: ook de technische modelnaam
+      // toelaten. Stond hier alleen `m.name`, dus een stap die met de
+      // technische naam was aangemaakt kon daarna niet meer bewerkt worden
+      // ("Target model is not allowed: res.partner").
+      const allowedModels = storedModels.flatMap(m => [
+        m.name,
+        ...(m.odoo_model && m.odoo_model !== m.name ? [m.odoo_model] : []),
+      ]);
       validateTargetPayload(payload, { allowedModels });
 
       const updated = await updateTarget(context.env, context.params?.targetId, {
@@ -2429,12 +2436,55 @@ export const routes = {
   /**
    * PUT /api/settings/odoo-models
    * Saves the full Odoo model registry.
-   * Body: { models: [{name, label, icon}] }
+   * Body: { models: [{name, label, icon, odoo_model}] }
+   *
+   * Het EFFECTIEVE model (odoo_model, of `name` als die leeg is) wordt bij Odoo
+   * nagekeken voor het wordt opgeslagen. Zonder die controle blijft een typfout
+   * of een vergeten technische naam onzichtbaar tot er een echte inzending op
+   * een stap met dat model stukloopt -- en dan krijg je een rauwe Odoo-traceback
+   * ("Object <model> bestaat niet") als enige uitleg, met de stappen ervoor al
+   * weggeschreven. Zo'n fout hoort hier zichtbaar te worden, niet daar.
+   *
+   * ELKE rij wordt gecontroleerd, ook een die al bestond. Dat blokkeert een
+   * save zolang er een kapotte rij in de lijst staat, en dat is hier de
+   * bedoeling: zo'n rij is toch niet bruikbaar, en de foutmelding wijst
+   * meteen de rij aan die stukgaat. Een kapotte rij VERWIJDEREN blijft
+   * werken -- die zit dan niet meer in de lijst die binnenkomt.
+   *
+   * Is Odoo zelf onbereikbaar, dan slaan we de controle over: ze mag een save
+   * alleen tegenhouden als we POSITIEF weten dat het model niet bestaat.
    */
   'PUT /api/settings/odoo-models': async (context) => {
     try {
       const body = await readJsonBody(context.request);
       if (!Array.isArray(body.models)) return jsonResponse({ success: false, error: 'models must be an array' }, 400);
+
+      const effectiveModel = (m) => (typeof m.odoo_model === 'string' && m.odoo_model.trim()) || m.name;
+      const toCheck = [...new Set(body.models.map(effectiveModel).filter(Boolean))];
+
+      let unknown = [];
+      if (toCheck.length) {
+        try {
+          const found = await executeKw(context.env, {
+            model: 'ir.model',
+            method: 'search_read',
+            args: [[['model', 'in', toCheck]]],
+            kwargs: { fields: ['model'] },
+          });
+          const foundSet = new Set((found || []).map((r) => r.model));
+          unknown = toCheck.filter((v) => !foundSet.has(v));
+        } catch (odooError) {
+          console.log('[odoo-models] modelcontrole overgeslagen, Odoo onbereikbaar:', odooError.message);
+        }
+      }
+
+      if (unknown.length) {
+        return jsonResponse({
+          success: false,
+          error: `Onbekend Odoo-model: ${unknown.join(', ')}. Vul bij "Odoo model (technisch)" de echte modelnaam in, bv. res.partner.`,
+        }, 400);
+      }
+
       const saved = await upsertOdooModels(context.env, body.models);
       return jsonResponse({ success: true, data: saved });
     } catch (error) {
