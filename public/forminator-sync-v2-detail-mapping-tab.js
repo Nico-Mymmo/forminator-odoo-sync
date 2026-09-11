@@ -417,9 +417,30 @@
 
     // ── Render MappingTable into each OPEN card ──────────────────────────────
     sortedTargets.forEach(function (target, idx) {
-      var tid    = String(target.id);
+      var tid = String(target.id);
       if (!pipelineOpen[tid]) return;
+      renderOpenTargetCard(target, idx, sortedTargets, flatFields, rawFf);
+    });
 
+    // Populate section editors for ALL targets (open or not)
+    // so clicking a gedragsbalk row reveals a pre-filled editor
+    sortedTargets.forEach(function (target, idx) {
+      var tid = String(target.id);
+      renderStepConditionSection(target, tid, flatFields);
+      renderStepOpTypeSection(target, tid, flatFields);
+      renderStepChainSection(target, tid, sortedTargets, idx);
+    });
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: container });
+  }
+
+  // Body of the per-target loop in renderDetailMappings(), split out so a
+  // single card can be refreshed (e.g. after "Zoekcriterium" changes) without
+  // rebuilding the whole container — that would reset every open gedragsbalk-
+  // paneel (Voorwaarde / Gedrag bij verwerking / Koppeling) back to gesloten,
+  // since hun open/dicht-status alleen als DOM style.display bestaat, niet in S().
+  function renderOpenTargetCard(target, idx, sortedTargets, flatFields, rawFf) {
+      var tid        = String(target.id);
       var model      = target.odoo_model;
       var odooCache  = (S().odooFieldsCache || {})[model] || [];
       var odooLoaded = odooCache.length > 0;
@@ -569,7 +590,15 @@
             return { name: fname, label: (oc && oc.label) || (typeof f === 'object' && f.label) || fname };
           })
         : [];
-      var cfgActiveIdField = cfgIdentFields.length === 1 ? cfgIdentFields[0].name : '';
+      // Het opgeslagen zoekcriterium (target.identifier_field) wint als het een
+      // geldige kandidaat is. Zonder deze voorrang koos deze regel enkel
+      // automatisch bij PRECIES één kandidaat, en bleef de identifier-rij dus
+      // altijd leeg zodra een model (zoals bij een search-stap) meerdere
+      // kandidaat-identifiervelden heeft — ongeacht wat er via de
+      // "Zoekcriterium"-select gekozen werd.
+      var cfgActiveIdField = (target.identifier_field && cfgIdentFields.some(function (f) { return f.name === target.identifier_field; }))
+        ? target.identifier_field
+        : (cfgIdentFields.length === 1 ? cfgIdentFields[0].name : '');
 
       window.FSV2.MappingTable.render('det-mc-' + tid, {
         flatFields:           flatFields,
@@ -617,18 +646,26 @@
       renderStepConditionSection(target, tid, flatFields);
       renderStepOpTypeSection(target, tid, flatFields);
       renderStepChainSection(target, tid, sortedTargets, idx);
-    });
+  }
 
-    // Populate section editors for ALL targets (open or not)
-    // so clicking a gedragsbalk row reveals a pre-filled editor
-    sortedTargets.forEach(function (target, idx) {
-      var tid = String(target.id);
-      renderStepConditionSection(target, tid, flatFields);
-      renderStepOpTypeSection(target, tid, flatFields);
-      renderStepChainSection(target, tid, sortedTargets, idx);
+  // Ververst ÉÉN kaart (mapping-tabel + gedragsbalk-secties) zonder de volledige
+  // container te herbouwen — nodig na "Zoekcriterium wijzigen", want een volledige
+  // renderDetailMappings() zou elk open gedragsbalk-paneel terugzetten op dicht
+  // (die open/dicht-status leeft alleen als DOM style.display, niet in S()).
+  function refreshSingleTargetCard(tid) {
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    if (!integrationId) return;
+    var pipelineOpen = window.FSV2.getPipelineOpen(integrationId);
+    if (!pipelineOpen[String(tid)]) return;
+    var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
+    var sortedTargets = [...targets].sort(function (a, b) {
+      return window.FSV2.getTargetOrder(a, 0) - window.FSV2.getTargetOrder(b, 0);
     });
-
-    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: container });
+    var idx = sortedTargets.findIndex(function (t) { return String(t.id) === String(tid); });
+    if (idx === -1) return;
+    var _ffr = window.FSV2.buildDetailFlatFields(S().detailFormFields);
+    renderOpenTargetCard(sortedTargets[idx], idx, sortedTargets, _ffr.flatFields, _ffr.topLevel);
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
   }
 
 
@@ -718,9 +755,16 @@
       if (identFields.length === 1) {
         html += '<span class="text-xs font-medium">' + esc(identFields[0].label) + '</span>';
       } else {
+        // target.identifier_field is de opgeslagen keuze — zonder dit als
+        // "selected" te markeren toonde de select altijd stil de EERSTE optie,
+        // ongeacht wat er eerder bewaard was.
+        var _activeIdentField = target.identifier_field && identFields.some(function (f) { return f.name === target.identifier_field; })
+          ? target.identifier_field
+          : '';
         html += '<select class="select select-xs select-bordered flex-1" data-action="set-step-identifier" data-target-id="' + esc(tid) + '">';
+        if (!_activeIdentField) html += '<option value="" disabled selected>— kies een veld —</option>';
         identFields.forEach(function (f) {
-          html += '<option value="' + esc(f.name) + '">' + esc(f.label) + '</option>';
+          html += '<option value="' + esc(f.name) + '"' + (f.name === _activeIdentField ? ' selected' : '') + '>' + esc(f.label) + '</option>';
         });
         html += '</select>';
       }
@@ -1597,6 +1641,7 @@
     handleSaveStepCondition: handleSaveStepCondition,
     handleSaveStepMappings: handleSaveStepMappings,
     handleToggleIdentifier: handleToggleIdentifier,
+    refreshSingleTargetCard: refreshSingleTargetCard,
     removeChainLink: removeChainLink,
     renderActivityLinkCallout: renderActivityLinkCallout,
     renderDetailMappings: renderDetailMappings,

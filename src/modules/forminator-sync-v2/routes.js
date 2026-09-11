@@ -860,8 +860,16 @@ export const routes = {
         operations: 'https://operations.openvme.be/t',
         syndicoach: 'https://link.syndicoach.be/t',
       };
+      // Volgorde van voorkeur: expliciete ?domain= (de gebruiker klikt net iets
+      // anders aan) > de opgeslagen keuze op de integratie (persisted via
+      // PUT .../tracker-domain-change in de UI, zie tracker_domain-kolom) >
+      // 'link' als er nog nooit iets gekozen is. Zonder deze fallback op de
+      // opgeslagen waarde viel elke openDetail()/reload terug op 'link', ook
+      // nadat een gebruiker uitdrukkelijk link.syndicoach.be had gekozen.
       const requestedDomain = new URL(context.request.url).searchParams.get('domain');
-      const resolvedDomainKey = TRACKER_DOMAINS[requestedDomain] ? requestedDomain : 'link';
+      const resolvedDomainKey = TRACKER_DOMAINS[requestedDomain]
+        ? requestedDomain
+        : (TRACKER_DOMAINS[integration.tracker_domain] ? integration.tracker_domain : 'link');
 
       // TRACKER_BASE_URL blijft een ultieme override (bv. voor een toekomstig
       // ander domein) — wint altijd, ongeacht ?domain=.

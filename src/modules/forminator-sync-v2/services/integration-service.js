@@ -89,6 +89,21 @@ export async function updateIntegrationRecord(env, integrationId, payload) {
     updates.qr_bg_color = payload.qr_bg_color || null;
   }
 
+  // Tracker domain-keuze (link.openvme.be / link.syndicoach.be /
+  // operations.openvme.be) — persisted zodat de <select> in de detail-view
+  // niet bij elke openDetail()/reload terugvalt op 'link' (zie
+  // 20260911120000_fsv2_tracker_domain.sql en GET .../tracker-url hieronder,
+  // die dit veld als fallback leest wanneer er geen expliciete ?domain= is).
+  const TRACKER_DOMAIN_KEYS = ['link', 'syndicoach', 'operations'];
+  if (payload.tracker_domain !== undefined) {
+    if (payload.tracker_domain !== null && !TRACKER_DOMAIN_KEYS.includes(payload.tracker_domain)) {
+      const error = new Error(`tracker_domain must be one of: ${TRACKER_DOMAIN_KEYS.join(', ')}`);
+      error.code = 'VALIDATION_ERROR';
+      throw error;
+    }
+    updates.tracker_domain = payload.tracker_domain || null;
+  }
+
   if (payload.is_active === true) {
     // Trackers never have resolvers/targets (they don't write to Odoo), so the
     // normal "at least one schrijfdoel" activation-readiness check doesn't apply.

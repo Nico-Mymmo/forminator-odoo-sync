@@ -1893,6 +1893,11 @@
           if (ssiT) ssiT.identifier_field = ssiValue;
         }
         window.FSV2.showAlert('Zoekcriterium opgeslagen.', 'success');
+        // Ververst enkel deze kaart, niet de hele lijst: anders klapt elk open
+        // gedragsbalk-paneel (incl. het paneel waarin deze select net stond)
+        // terug dicht, en zonder verversen bleef het gekozen veld sowieso
+        // onzichtbaar in de koppelingstabel tot een volledige heropening.
+        if (window.FSV2.refreshSingleTargetCard) window.FSV2.refreshSingleTargetCard(ssiTargetId);
       }).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
       return;
     }
@@ -1965,6 +1970,15 @@
       window.FSV2.api('/integrations/' + tdcId + '/tracker-url?domain=' + encodeURIComponent(tdcDomain)).then(function (r) {
         window.FSV2.S._trackerUrl = r.data || null;
         if (window.FSV2.renderDetail) window.FSV2.renderDetail();
+      }).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
+      // Persist server-side (tracker_domain) via de generieke integratie-PUT,
+      // zodat de keuze een reload/heropenen van de detail-view overleeft --
+      // zonder dit viel de <select> steeds terug op link.openvme.be (zie
+      // 20260911120000_fsv2_tracker_domain.sql). Fire-and-forget, zelfde
+      // patroon als tracker-qr-color-change hierboven.
+      window.FSV2.api('/integrations/' + tdcId, {
+        method: 'PUT',
+        body: JSON.stringify({ tracker_domain: tdcDomain }),
       }).catch(function (err) { window.FSV2.showAlert(err.message, 'error'); });
       return;
     }
