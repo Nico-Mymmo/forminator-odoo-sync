@@ -858,6 +858,7 @@ export const routes = {
       const TRACKER_DOMAINS = {
         link: 'https://link.openvme.be/t',
         operations: 'https://operations.openvme.be/t',
+        syndicoach: 'https://link.syndicoach.be/t',
       };
       const requestedDomain = new URL(context.request.url).searchParams.get('domain');
       const resolvedDomainKey = TRACKER_DOMAINS[requestedDomain] ? requestedDomain : 'link';

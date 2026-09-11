@@ -247,7 +247,16 @@ export async function handlePublicRoutes(request, env, ctx) {
   // iemand die een QR-code scant of een gedeelde link volgt heeft geen sessie-cookie.
   const requestHost = request.headers.get('Host') || url.hostname;
   const isTrackerPathPrefix = pathname.startsWith('/t/');
-  const isTrackerHostname = requestHost === 'link.openvme.be';
+  // TRACKER_HOSTNAME_MAIN_SITE: elk "mooie" trackerdomein (zonder /t/-prefix,
+  // zie punt 2 hierboven) hoort bij een eigen merk-site, waar een kaal bezoek
+  // (geen slug) naartoe moet doorsturen. link.syndicoach.be volgt exact
+  // dezelfde opzet als link.openvme.be (zelfde Worker, zelfde /t/-route),
+  // enkel de fallback-bestemming bij een leeg pad verschilt per merk.
+  const TRACKER_HOSTNAME_MAIN_SITE = {
+    'link.openvme.be': 'https://openvme.be',
+    'link.syndicoach.be': 'https://syndicoach.be',
+  };
+  const isTrackerHostname = Object.prototype.hasOwnProperty.call(TRACKER_HOSTNAME_MAIN_SITE, requestHost);
   const isAssetPath = pathname.startsWith('/assets/');
 
   // Diagnostische logging -- te volgen via `wrangler tail` of het Logs-tabblad
@@ -282,8 +291,9 @@ export async function handlePublicRoutes(request, env, ctx) {
     // sturen, dat toont gewoon de "niet gevonden"-pagina hieronder.
     if (!slug) {
       if (isTrackerHostname) {
-        console.log('[public-routes] TRACKER-BRANCH leeg slug op link.openvme.be -> redirect https://openvme.be');
-        return Response.redirect('https://openvme.be', 302);
+        const mainSite = TRACKER_HOSTNAME_MAIN_SITE[requestHost];
+        console.log(`[public-routes] TRACKER-BRANCH leeg slug op ${requestHost} -> redirect ${mainSite}`);
+        return Response.redirect(mainSite, 302);
       }
       console.log('[public-routes] TRACKER-BRANCH leeg slug, geen tracker-hostname -> 404 foutpagina');
       return trackerErrorPage({

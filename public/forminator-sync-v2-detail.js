@@ -276,7 +276,8 @@
                   '<i data-lucide="qr-code" class="w-3.5 h-3.5 text-info"></i> Korte URL' +
                 '</p>' +
                 '<select class="select select-bordered select-xs" data-action="tracker-domain-change" data-id="' + esc(String(integration.id)) + '">' +
-                  '<option value="link"' + (trackerDomain === 'operations' ? '' : ' selected') + '>link.openvme.be</option>' +
+                  '<option value="link"' + (trackerDomain === 'link' ? ' selected' : '') + '>link.openvme.be</option>' +
+                  '<option value="syndicoach"' + (trackerDomain === 'syndicoach' ? ' selected' : '') + '>link.syndicoach.be</option>' +
                   '<option value="operations"' + (trackerDomain === 'operations' ? ' selected' : '') + '>operations.openvme.be</option>' +
                 '</select>' +
               '</div>' +
