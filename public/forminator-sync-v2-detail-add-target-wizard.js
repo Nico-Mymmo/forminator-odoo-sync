@@ -94,6 +94,7 @@
       { opType: 'upsert',      icon: 'git-merge',  label: 'Zoeken + bijwerken of aanmaken', desc: 'Zoek op identifier; update of maak nieuw aan' },
       { opType: 'create',      icon: 'plus-circle', label: 'Altijd nieuw aanmaken',           desc: 'Maakt altijd een nieuw record' },
       { opType: 'update_only', icon: 'pencil',      label: 'Alleen bijwerken',                desc: 'Werkt alleen bij als record gevonden wordt' },
+      { opType: 'search',      icon: 'search',      label: 'Zoeken \u2014 record opzoeken, niets schrijven', desc: 'Zoek een bestaand record op; gebruik het ID in een volgende stap' },
     ];
 
     container.innerHTML = OPS.map(function (o) {
@@ -391,8 +392,9 @@
     }
     var newTargetId = newTargetRes && newTargetRes.data && newTargetRes.data.id;
 
-    // Post fixed_fields (vaste waarden) as static mappings
-    if (newTargetId) {
+    // Post fixed_fields (vaste waarden) as static mappings — nooit voor een
+    // search-stap, die schrijft niets en heeft dus geen vaste waarden nodig.
+    if (newTargetId && actualOpType !== 'search') {
       var fixedFields = Array.isArray(actionCfg.fixed_fields) ? actionCfg.fixed_fields : [];
       var skippedFixed = [];
       for (var ffi = 0; ffi < fixedFields.length; ffi++) {

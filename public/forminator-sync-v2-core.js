@@ -717,6 +717,19 @@
     empty.style.display = 'none';
     cards.style.display = '';
 
+    // TRACKER_DOMAIN_BASE spiegelt TRACKER_DOMAINS in
+    // src/modules/forminator-sync-v2/routes.js (GET .../tracker-url) --
+    // enkel om het JUISTE domein te TONEN op deze kaart (row.tracker_domain,
+    // sinds 20260911120000_fsv2_tracker_domain.sql). Alle drie domeinen
+    // wijzen naar dezelfde Worker en tellen dezelfde tracker_slug/hits mee --
+    // dit bepaalt geen routing, enkel welke URL hier weergegeven/gekopieerd
+    // wordt.
+    var TRACKER_DOMAIN_BASE = {
+      link: 'https://link.openvme.be',
+      syndicoach: 'https://link.syndicoach.be',
+      operations: 'https://operations.openvme.be'
+    };
+
     cards.innerHTML = visible.map(function (row) {
       var isActive = row.is_active;
       var cfg = getModelCfg(row.odoo_model);
@@ -807,7 +820,7 @@
       var _dotHtml = isActive
         ? '<span class="w-2 h-2 rounded-full bg-success shrink-0" title="Actief"></span>'
         : '<span class="w-2 h-2 rounded-full bg-base-300 shrink-0" title="Inactief"></span>';
-      var _headerHtml = `<div class="mb-2.5"><div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-1.5 min-w-0">${_dotHtml}<h3 class="font-bold text-sm leading-snug text-base-content truncate" title="${esc(row.name || 'Koppeling')}">${esc(row.name || 'Koppeling')}</h3></div><div class="flex flex-wrap items-center justify-end gap-1 shrink-0">${_tagsHtml}</div></div>${_stepsHtml}${flowHtml ? '<div class="mb-1.5">' + flowHtml + '</div>' : ''}<div class="flex items-center gap-1.5">${row.source_type === 'tracker' ? '<i data-lucide="qr-code" class="w-3 h-3 text-info shrink-0"></i><p class="text-xs text-info font-mono truncate flex-1">https://link.openvme.be/t/' + esc(row.tracker_slug || '') + '</p><button type="button" class="btn btn-ghost btn-xs px-1 shrink-0" data-action="copy-tracker-short-url" data-url="https://link.openvme.be/t/' + esc(row.tracker_slug || '') + '" title="Link kopi\u00ebren"><i data-lucide="copy" class="w-3 h-3"></i></button>' : row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div></div>`;
+      var _headerHtml = `<div class="mb-2.5"><div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-1.5 min-w-0">${_dotHtml}<h3 class="font-bold text-sm leading-snug text-base-content truncate" title="${esc(row.name || 'Koppeling')}">${esc(row.name || 'Koppeling')}</h3></div><div class="flex flex-wrap items-center justify-end gap-1 shrink-0">${_tagsHtml}</div></div>${_stepsHtml}${flowHtml ? '<div class="mb-1.5">' + flowHtml + '</div>' : ''}<div class="flex items-center gap-1.5">${row.source_type === 'tracker' ? '<i data-lucide="qr-code" class="w-3 h-3 text-info shrink-0"></i><p class="text-xs text-info font-mono truncate flex-1">' + esc((TRACKER_DOMAIN_BASE[row.tracker_domain] || TRACKER_DOMAIN_BASE.link) + '/t/' + (row.tracker_slug || '')) + '</p><button type="button" class="btn btn-ghost btn-xs px-1 shrink-0" data-action="copy-tracker-short-url" data-url="' + esc((TRACKER_DOMAIN_BASE[row.tracker_domain] || TRACKER_DOMAIN_BASE.link) + '/t/' + (row.tracker_slug || '')) + '" title="Link kopi\u00ebren"><i data-lucide="copy" class="w-3 h-3"></i></button>' : row.source_type === 'generic_webhook' ? '<i data-lucide="zap" class="w-3 h-3 text-warning shrink-0"></i><p class="text-xs text-warning font-semibold">Zapier / Generic webhook</p>' : '<i data-lucide="file-text" class="w-3 h-3 text-base-content/35 shrink-0"></i><p class="text-xs text-base-content/45 font-mono truncate">' + esc(row.forminator_form_id || '—') + '</p>'}</div></div>`;
 
       var _bodyHtml = buildCardChartBlock(row);
 

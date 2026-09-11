@@ -240,13 +240,16 @@
             ' data-action="reorder-target-down" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
             '<i data-lucide="arrow-down" class="w-3.5 h-3.5"></i></button>';
         }
-
-        // Danger zone separator + delete (far right, clearly destructive)
-        html += '<div class="w-px h-4 bg-base-content/10 mx-1.5"></div>';
-        html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 text-error/35 hover:text-error hover:bg-error/10" title="Stap verwijderen"' +
-          ' data-action="delete-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
-          '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
       }
+
+      // Danger zone separator + delete — ALTIJD beschikbaar, ook voor de enige
+      // stap: verwijderen van een stap is niet hetzelfde als de hele integratie
+      // wissen, en gebruikers moeten een enkele (bv. per ongeluk toegevoegde)
+      // stap zonder omweg kunnen weghalen.
+      html += '<div class="w-px h-4 bg-base-content/10 mx-1.5"></div>';
+      html += '<button type="button" class="btn btn-ghost btn-xs p-0 w-7 h-7 min-h-0 text-error/35 hover:text-error hover:bg-error/10" title="Stap verwijderen"' +
+        ' data-action="delete-target" data-target-id="' + esc(tid) + '" data-integration-id="' + esc(String(integrationId)) + '">' +
+        '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
 
       // Chevron — visual affordance (whole header is clickable)
       html += '<div class="w-px h-4 bg-base-content/10 mx-1.5"></div>';
@@ -367,14 +370,17 @@
 
       html += '</div>'; // /Gedragsbalk
 
-      // Automatisch ingevuld
-      html += '<div class="border-t border-base-200 px-5 py-3">';
-      html +=   '<div class="flex items-center gap-2 mb-2">' +
-                  '<i data-lucide="lock" class="w-3.5 h-3.5 opacity-40"></i>' +
-                  '<span class="text-xs font-semibold uppercase tracking-wide opacity-40">Automatisch ingevuld</span>' +
-                '</div>';
-      html +=   '<div class="flex flex-wrap gap-1.5">' + _autoFillHtml + '</div>';
-      html += '</div>';
+      // Automatisch ingevuld — niet voor een search-stap: die schrijft niets,
+      // dus een lijst "vaste waarden" zou hier niets betekenen.
+      if (target.operation_type !== 'search') {
+        html += '<div class="border-t border-base-200 px-5 py-3">';
+        html +=   '<div class="flex items-center gap-2 mb-2">' +
+                    '<i data-lucide="lock" class="w-3.5 h-3.5 opacity-40"></i>' +
+                    '<span class="text-xs font-semibold uppercase tracking-wide opacity-40">Automatisch ingevuld</span>' +
+                  '</div>';
+        html +=   '<div class="flex flex-wrap gap-1.5">' + _autoFillHtml + '</div>';
+        html += '</div>';
+      }
 
       // MappingTable renders its own 'Formuliervelden koppelen aan Odoo' header
       html += '<div id="det-mc-' + esc(tid) + '" class="border-t border-base-200 px-5 pb-5 pt-4"'
@@ -1366,18 +1372,23 @@
     });
 
     // ── Preserve model-level fixed_fields (auto-filled) — not editable in the table ───
-    var _mcfgSave     = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(target.odoo_model) : {};
-    var _fixedForSave = (Array.isArray(_mcfgSave.fixed_fields) ? _mcfgSave.fixed_fields : [])
-      .map(function (f) { return typeof f === 'string' ? f : (f.name || ''); });
-    var existingStaticMappings = ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[tid]) || [])
-      .filter(function (m) { return m.source_type === 'static' && _fixedForSave.includes(m.odoo_field); });
-    existingStaticMappings.forEach(function (m) {
-      newMappings.push({
-        odoo_field: m.odoo_field, source_type: 'static', source_value: m.source_value,
-        is_identifier: false, is_update_field: m.is_update_field !== false,
-        is_required: false, order_index: orderIdx++,
+    // Nooit voor 'search': die stap schrijft niets, dus vaste waarden van een
+    // eerder gedrag (bv. toen de stap nog 'upsert' was) horen hier te vervallen
+    // in plaats van eeuwig te blijven meegesleept worden.
+    if (newOpType !== 'search') {
+      var _mcfgSave     = window.FSV2.getModelCfg ? window.FSV2.getModelCfg(target.odoo_model) : {};
+      var _fixedForSave = (Array.isArray(_mcfgSave.fixed_fields) ? _mcfgSave.fixed_fields : [])
+        .map(function (f) { return typeof f === 'string' ? f : (f.name || ''); });
+      var existingStaticMappings = ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[tid]) || [])
+        .filter(function (m) { return m.source_type === 'static' && _fixedForSave.includes(m.odoo_field); });
+      existingStaticMappings.forEach(function (m) {
+        newMappings.push({
+          odoo_field: m.odoo_field, source_type: 'static', source_value: m.source_value,
+          is_identifier: false, is_update_field: m.is_update_field !== false,
+          is_required: false, order_index: orderIdx++,
+        });
       });
-    });
+    }
 
     await window.FSV2.api('/targets/' + tid + '/mappings', { method: 'DELETE' });
     await Promise.all(newMappings.map(function (m) {
@@ -1588,10 +1599,6 @@
 
   async function handleDeleteTarget(targetId, integrationId) {
     var targets = (S().detail && S().detail.targets) ? S().detail.targets : [];
-    if (targets.length <= 1) {
-      window.FSV2.showAlert('Kan de enige stap niet verwijderen. Verwijder de volledige integratie als je deze wilt wissen.', 'warning');
-      return;
-    }
     var target = targets.find(function (t) { return String(t.id) === String(targetId); });
     var stepLabel = (target && (target.label || target.odoo_model)) || 'deze stap';
     if (!confirm('Stap "' + stepLabel + '" verwijderen?\n\nAlle veldkoppelingen van deze stap gaan ook permanent verloren. Dit kan niet ongedaan worden gemaakt.')) return;

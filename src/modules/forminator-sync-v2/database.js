@@ -1351,13 +1351,16 @@ export async function getIntegrationWarnings(env) {
   // schrijven niet via `mappings`, en een mailstap/mailinglijst-stap erft het
   // model van de stap waaraan hij hangt (bv. res.partner) zonder ooit een
   // mapping voor dat model aan te maken — die kregen hierdoor altijd 100% van
-  // dat model diens verplichte velden als "ontbrekend" te zien.
+  // dat model diens verplichte velden als "ontbrekend" te zien. Een search-stap
+  // schrijft NOOIT naar Odoo (enkel opzoeken), dus verplichte schrijfvelden zijn
+  // hier per definitie niet van toepassing.
   const relevantTargets = (targets || []).filter(t =>
     requiredByModel[t.odoo_model] &&
     t.operation_type !== 'chatter_message' &&
     t.operation_type !== 'create_activity' &&
     t.operation_type !== 'send_mail' &&
-    t.operation_type !== 'mailing_list'
+    t.operation_type !== 'mailing_list' &&
+    t.operation_type !== 'search'
   );
   if (!relevantTargets.length) return {};
 
