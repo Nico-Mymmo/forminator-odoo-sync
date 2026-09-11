@@ -647,6 +647,12 @@ export function toPublicFormPayload(form, fields) {
       options: Array.isArray(f.options) ? f.options : [],
       width: f.width,
       validation: f.validation || {},
+      // Ontbrak hier: gevalideerd, bewaard, en door beide renderers gelezen
+      // (field.php, forminator-sync-v2-form-preview.js) — maar zonder dit hier
+      // kwam een "vooraf invullen vanuit URL"-veld nooit met een
+      // data-mymmo-prefill-param-attribuut op de live pagina terecht, ongeacht
+      // cache-status.
+      prefill_param: f.prefill_param || '',
       i18n: (f.i18n && typeof f.i18n === 'object' && !Array.isArray(f.i18n)) ? f.i18n : {},
     })),
   };

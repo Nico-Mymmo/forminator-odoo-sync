@@ -180,6 +180,15 @@ textarea.mymmo-form-input {
 
 .mymmo-form-group .mymmo-form-label {
   padding: 0;
+  /* WordPress-blokthema's zetten vaak `legend { float: left; width: 100%; }`
+     in hun globale stijlen (Gutenberg-typografie-CSS) om een legend als kop
+     te laten ogen. Zo'n float haalt de legend uit de normale flow en laat de
+     EERSTE optie ernaast proppen in wat rest van de regelbreedte (vaak 0px),
+     waardoor die optie buiten het veld springt terwijl de overige opties
+     wél gewoon eronder staan -- precies zo'n float was de oorzaak op
+     openvme.be. Twee klassen (0,2,0) wint hier zonder !important nodig te
+     hebben van een kale `legend`-selector (0,0,1). */
+  float: none;
 }
 
 .mymmo-form-check {

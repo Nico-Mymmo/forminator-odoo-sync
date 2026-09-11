@@ -137,6 +137,20 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.0.6** — de eerste optie van een keuzegroep (radio/checkbox) sprong soms uit
+het veld naar rechts, terwijl de andere opties er wel gewoon onder stonden.
+
+Oorzaak: WordPress-blokthema's zetten in hun globale stijlen vaak
+`legend { float: left; width: 100%; }`, zodat een legend als een kop oogt. Die
+float haalt de legend uit de normale flow; de browser probeert de EERSTE
+volgende rij (de eerste optie) dan nog op dezelfde regel te plaatsen, in wat er
+van de regelbreedte overblijft — meestal 0px, waardoor die ene optie buiten het
+veld terechtkomt. `public/mymmo-forms.css` zet nu expliciet `float: none` op de
+legend (via `.mymmo-form-group .mymmo-form-label`, dat wint zonder
+`!important` van de kale `legend`-selector van het thema).
+
+**1.0.5** — (geen changelog-item geregistreerd bij deze release).
+
 **1.0.4** — meertalige formulieren en eigen foutmeldingen.
 
 Een formulier kan nu in het Nederlands, Frans en Engels bestaan. Eén formulier,
