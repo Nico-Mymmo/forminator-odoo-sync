@@ -220,7 +220,10 @@
       var prevModel   = technischModel(prevT.odoo_model);
       var stapTekst   = 'stap ' + info.stepNum + ' (' + info.stepNaam + ')';
 
-      // ── 1. set_many2one — een many2one op DEZE stap naar het model van stap N
+      function etiket(f) { return (f.label || f.name) + ' (' + f.name + ')'; }
+
+      // ── De drie bouwstenen ────────────────────────────────────────────────
+      // a) many2one op DEZE stap naar het model van stap N
       //    De modelregistratie (Koppelingen bij Instellingen) heeft voorrang:
       //    die is bewust ingesteld, de scan hieronder is afgeleid.
       var registryVelden = links
@@ -233,49 +236,111 @@
             return f.type === 'many2one' && f.relation === prevModel && chainVeldBruikbaar(f);
           });
 
+      // b) lijstveld op DEZE stap dat het model van stap N bevat
+      var x2mVelden = mijnVelden.filter(function (f) {
+        return (f.type === 'one2many' || f.type === 'many2many') &&
+               f.relation === prevModel && chainVeldBruikbaar(f);
+      });
+
+      // c) many2one op STAP N die naar DIT model wijst
+      var zoekVelden = prevVelden.filter(function (f) {
+        return f.type === 'many2one' && f.relation === mijnModel && chainVeldBruikbaar(f);
+      });
+
+      // ── Het gecombineerde voorstel ────────────────────────────────────────
+      // Zoeken via een veld van stap N is zinloos zolang niemand dat veld ooit
+      // invult: het staat altijd leeg en er komt bij elke inzending een nieuw
+      // record bij. De twee horen dus per definitie samen, en als één kaart
+      // met één knop: zoeken via dat veld PLUS het record van stap N erin
+      // terugkoppelen via het lijstveld waarvan het de keerzijde is.
+      //
+      // Dat verving drie losse kaarten waarvan er één (de omgekeerde richting)
+      // ook nog eens stukliep op Odoo's controle tegen kringetjes.
+      var gecombineerd = [];
+      if (magZoeken && magSchrijven) {
+        zoekVelden.forEach(function (zf) {
+          var lijst = x2mVelden.find(function (x) { return x.relationField === zf.name; });
+          if (lijst) gecombineerd.push({ zoek: zf, lijst: lijst });
+        });
+      }
+
+      // Wat in een gecombineerde kaart zit, wordt niet ook nog los aangeboden.
+      var opgeslokt = {};
+      gecombineerd.forEach(function (g) {
+        opgeslokt['zoek:' + g.zoek.name]  = true;
+        opgeslokt['lijst:' + g.lijst.name] = true;
+        opgeslokt['m2o:' + g.zoek.name]    = true;   // de tegengestelde richting
+      });
+
+      gecombineerd.forEach(function (g) {
+        var zoekLbl  = etiket(g.zoek);
+        var lijstLbl = etiket(g.lijst);
+        suggestions.push(Object.assign({}, info, {
+          kind:         'find_and_link',
+          odooField:    'id',
+          odooLabel:    'ID',
+          sourceSuffix: g.zoek.name,
+          sourceLabel:  zoekLbl,
+          isIdentifier: true,
+          isRequired:   false,
+          // De tweede rij die deze kaart meteen mee instelt.
+          extraField:   g.lijst.name,
+          extraLabel:   lijstLbl,
+          titel:        'Bestaat het al \u2192 bijwerken, anders aanmaken \u2014 gekoppeld aan ' + stapTekst,
+          uitleg:       'Zoekt via ' + zoekLbl + ' van ' + stapTekst + '. Wijst dat al naar een record, ' +
+                        'dan wordt dat bijgewerkt. Staat het leeg, dan wordt er een nieuw record aangemaakt en ' +
+                        'komt ' + stapTekst + ' eronder te hangen via ' + lijstLbl + '. Stelt beide koppelingen ' +
+                        'in \u00e9\u00e9n keer in.',
+        }));
+      });
+
+      // ── De losse bouwstenen die niet opgeslokt zijn ───────────────────────
       if (magSchrijven) {
         m2oVelden.forEach(function (f) {
-          var lbl = (f.label || f.name) + ' (' + f.name + ')';
+          if (opgeslokt['m2o:' + f.name]) return;
+          var lbl = etiket(f);
           suggestions.push(Object.assign({}, info, {
             kind:         'set_many2one',
             odooField:    f.name,
             odooLabel:    lbl,
             sourceSuffix: 'record_id',
+            // parent_id op dit record en child_ids op dit record zijn DEZELFDE
+            // relatie van twee kanten bekeken: allebei instellen is niet "twee
+            // koppelingen" maar een tegenspraak (Odoo weigert het zelfs als
+            // kringetje). Gelijke paarsleutel = ze sluiten elkaar uit.
+            pairKey:      'rel:' + f.name + '@' + info.stepOrder,
             isIdentifier: true,
             isRequired:   true,
             titel:        'Vul ' + lbl + ' in met het record uit ' + stapTekst,
             uitleg:       lbl + ' van dit record gaat verwijzen naar het record uit ' + stapTekst + '.',
           }));
         });
-      }
 
-      // ── 2. link_x2many — een lijstveld op DEZE stap dat het model van stap N bevat
-      if (magSchrijven) {
-        mijnVelden.forEach(function (f) {
-          if (f.type !== 'one2many' && f.type !== 'many2many') return;
-          if (f.relation !== prevModel) return;
-          if (!chainVeldBruikbaar(f)) return;
-          var lbl = (f.label || f.name) + ' (' + f.name + ')';
+        x2mVelden.forEach(function (f) {
+          if (opgeslokt['lijst:' + f.name]) return;
+          var lbl = etiket(f);
           suggestions.push(Object.assign({}, info, {
             kind:         'link_x2many',
             odooField:    f.name,
             odooLabel:    lbl,
             sourceSuffix: 'record_id',
+            // relationField is het veld aan de andere kant (child_ids -> parent_id).
+            // Zonder dat kunnen we het paar niet herkennen en blijft de
+            // tegenovergestelde richting aanklikbaar naast de gekozen.
+            pairKey:      f.relationField ? 'rel:' + f.relationField + '@' + info.stepOrder : null,
             isIdentifier: false,
             isRequired:   true,
             titel:        'Zet het record uit ' + stapTekst + ' in de lijst ' + lbl,
             uitleg:       'Het record uit ' + stapTekst + ' wordt toegevoegd aan de lijst ' + lbl +
-                          ' van dit record \u2014 de omgekeerde richting van hierboven, en zonder een extra stap.',
+                          ' van dit record \u2014 de omgekeerde richting van hierboven.',
           }));
         });
       }
 
-      // ── 3. find_via_field — een many2one op STAP N die naar DIT model wijst
       if (magZoeken) {
-        prevVelden.forEach(function (f) {
-          if (f.type !== 'many2one' || f.relation !== mijnModel) return;
-          if (!chainVeldBruikbaar(f)) return;
-          var lbl = (f.label || f.name) + ' (' + f.name + ')';
+        zoekVelden.forEach(function (f) {
+          if (opgeslokt['zoek:' + f.name]) return;
+          var lbl = etiket(f);
           var watBijLeeg = opType === 'upsert'
             ? 'Staat het leeg, dan wordt er een nieuw record aangemaakt.'
             : (opType === 'update_only'
@@ -300,13 +365,50 @@
     return suggestions;
   }
 
-  function isChainSuggestionApplied(tid, odooField) {
-    // Check in-memory edits first
-    var rows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
-    if (rows.some(function (r) { return r.odooField === odooField && r.sourceType === 'previous_step_output'; })) return true;
-    // Fall back to DB state (for collapsed cards that haven't been initialized yet)
-    var dbMappings = (S().detail.mappingsByTarget && S().detail.mappingsByTarget[tid]) || [];
-    return dbMappings.some(function (m) { return m.odoo_field === odooField && m.source_type === 'previous_step_output'; });
+  /**
+   * De koppelingen van een stap als { odooField, source }-paren.
+   *
+   * Bewerkingen in het geheugen winnen ZODRA ze bestaan -- ook een lege lijst.
+   * De vorige vorm viel bij een lege lijst terug op de database, waardoor een
+   * net ontkoppelde rij nog steeds als gekoppeld gold tot je opsloeg.
+   */
+  function chainRowsFor(tid) {
+    var mem = S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid];
+    if (Array.isArray(mem)) {
+      return mem
+        .filter(function (r) { return r.sourceType === 'previous_step_output'; })
+        .map(function (r) { return { odooField: r.odooField, source: r.staticValue || '' }; });
+    }
+    return ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[tid]) || [])
+      .filter(function (m) { return m.source_type === 'previous_step_output'; })
+      .map(function (m) { return { odooField: m.odoo_field, source: m.source_value || '' }; });
+  }
+
+  /**
+   * Is PRECIES dit voorstel al ingesteld?
+   *
+   * De bron moet meevergeleken worden, niet alleen het Odoo-veld. Alle
+   * "zoek dit record via ..."-voorstellen vullen namelijk hetzelfde veld (`id`)
+   * en verschillen enkel in waar ze de waarde halen -- op veldnaam alleen
+   * kleurden ze alle drie tegelijk op als ingesteld zodra je er één koos.
+   */
+  function isChainSuggestionApplied(tid, odooField, sourceValue) {
+    return chainRowsFor(tid).some(function (r) {
+      if (r.odooField !== odooField) return false;
+      return sourceValue ? r.source === sourceValue : true;
+    });
+  }
+
+  /** Is dit Odoo-veld al door een ANDERE koppeling ingenomen? */
+  function isChainFieldTaken(tid, odooField, sourceValue) {
+    return chainRowsFor(tid).some(function (r) {
+      return r.odooField === odooField && r.source !== sourceValue;
+    });
+  }
+
+  /** Heeft deze stap al een koppeling naar een vorige stap? */
+  function hasAnyChainLink(tid) {
+    return chainRowsFor(tid).length > 0;
   }
 
   function renderDetail() {
@@ -633,7 +735,10 @@
     computeChainSuggestions: computeChainSuggestions,
     getPipelineOpen: getPipelineOpen,
     getTargetOrder: getTargetOrder,
+    chainRowsFor: chainRowsFor,
     isChainSuggestionApplied: isChainSuggestionApplied,
+    isChainFieldTaken: isChainFieldTaken,
+    hasAnyChainLink: hasAnyChainLink,
     modelLabel: modelLabel,
     renderDetail: renderDetail,
     updateDetailTestStatus: updateDetailTestStatus

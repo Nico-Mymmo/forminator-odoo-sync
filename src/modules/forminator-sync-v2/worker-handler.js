@@ -62,6 +62,89 @@ async function buildModelResolver(env) {
   return (name) => bySlug.get(name) || name;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGBOEK voor `wrangler tail`
+//
+// Waarom dit bestaat: bij een koppeling die "gewoon niets doet" was er niets te
+// zien. De logregels stonden verspreid, noemden het model met zijn slug, en
+// toonden nergens WAAR een waarde vandaan kwam. Een stap die een leeg
+// zoekcriterium had en daarom aanmaakte, en een stap die een veld niet
+// wegschreef omdat de mapping ontbrak, zagen er in de tail identiek uit:
+// "target done: created".
+//
+// Elke regel begint met [FSV2] zodat je kan filteren:
+//     npx wrangler tail --format pretty | grep FSV2
+// ─────────────────────────────────────────────────────────────────────────────
+const LOG = '[FSV2]';
+
+function toonWaarde(v) {
+  if (v === undefined) return '(niet gezet)';
+  if (v === null || v === '') return '(leeg)';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+/**
+ * Eén blok per stap: instellingen, welke waarde waar vandaan komt, wat er naar
+ * Odoo gaat en waarom er gezocht of aangemaakt wordt.
+ */
+export function logStapBlok(tag, gegevens) {
+  const {
+    stapNr, target, opType, mappings, contextObject,
+    identifierDomain, identifierEmpty, incomingValues, updateValues
+  } = gegevens;
+
+  const slug  = target.odoo_model_slug;
+  const model = slug ? `${slug} -> ${target.odoo_model}` : target.odoo_model;
+  const naam  = normalizeString(target.label) || target.odoo_model;
+
+  console.log(`${LOG} ${tag} +-- STAP ${stapNr} | ${naam}`);
+  console.log(`${LOG} ${tag} |  model: ${model} | actie: ${opType} | bijwerkbeleid: ${target.update_policy || '(standaard)'}`);
+
+  // Wat vorige stappen hebben opgeleverd -- dit is waar een koppeling uit put.
+  const stapSleutels = Object.keys(contextObject).filter((k) => k.startsWith('step.'));
+  console.log(`${LOG} ${tag} |  uit vorige stappen: ${
+    stapSleutels.length ? stapSleutels.map((k) => `${k}=${toonWaarde(contextObject[k])}`).join(', ') : '(niets)'
+  }`);
+
+  // Per mapping: rol, doelveld, herkomst en de waarde die eruit kwam. De
+  // waarden komen uit wat er al berekend is -- een mapping opnieuw oplossen
+  // zou bij een gegenereerde identifier een TWEEDE waarde aanmaken.
+  const domeinPerVeld = {};
+  (identifierDomain || []).forEach((clause) => {
+    if (Array.isArray(clause) && clause.length === 3) domeinPerVeld[clause[0]] = clause[2];
+  });
+
+  console.log(`${LOG} ${tag} |  koppelingen (${mappings.length}):`);
+  for (const m of mappings) {
+    const rol = m.is_identifier ? 'ZOEK ' : (m.is_update_field === false ? 'ALLEEN-NIEUW' : 'schrijf');
+    let waarde;
+    if (m.is_identifier && Object.prototype.hasOwnProperty.call(domeinPerVeld, m.odoo_field)) {
+      waarde = domeinPerVeld[m.odoo_field];
+    } else if (m.odoo_field === 'id') {
+      waarde = identifierEmpty ? null : undefined;
+    } else if (Object.prototype.hasOwnProperty.call(incomingValues, m.odoo_field)) {
+      waarde = incomingValues[m.odoo_field];
+    } else if (Object.prototype.hasOwnProperty.call(updateValues, m.odoo_field)) {
+      waarde = updateValues[m.odoo_field];
+    }
+    const verpl = m.is_required ? ' [verplicht]' : '';
+    console.log(`${LOG} ${tag} |    ${rol} ${m.odoo_field} <- ${m.source_type}:${m.source_value} = ${toonWaarde(waarde)}${verpl}`);
+  }
+
+  if (opType === 'create') {
+    console.log(`${LOG} ${tag} |  zoekopdracht: GEEN (actie is "altijd nieuw aanmaken")`);
+  } else if (identifierEmpty) {
+    console.log(`${LOG} ${tag} |  zoekopdracht: GEEN -- zoekcriterium kwam leeg uit een vorige stap en is niet verplicht`);
+    console.log(`${LOG} ${tag} |    gevolg: ${opType === 'upsert' ? 'nieuw record aanmaken' : 'stap overslaan'}`);
+  } else {
+    console.log(`${LOG} ${tag} |  zoekopdracht: ${JSON.stringify(identifierDomain)}`);
+  }
+
+  console.log(`${LOG} ${tag} |  naar Odoo bij AANMAKEN: ${JSON.stringify(incomingValues)}`);
+  console.log(`${LOG} ${tag} |  naar Odoo bij BIJWERKEN: ${JSON.stringify(updateValues)}`);
+}
+
 function createPermanentError(message) {
   const error = new Error(message);
   error.code = 'PERMANENT_FAILURE';
@@ -1087,6 +1170,24 @@ async function runSubmissionAttempt(env, {
     return { ...t, odoo_model: technical, odoo_model_slug: t.odoo_model };
   });
 
+  // Kop van het logboek. Zonder dit weet je bij een tail niet welke koppeling
+  // je voor je hebt, welke velden er binnenkwamen, of hoe de stappen lopen --
+  // en precies dat bepaalt of een stap doet wat je verwacht.
+  const _int = integrationBundle.integration || {};
+  console.log(`${LOG} ${attemptTag} ==== INZENDING ${submission.id} ====`);
+  console.log(`${LOG} ${attemptTag} koppeling: ${_int.name || _int.id} | bron: ${_int.source_type || 'forminator'} | formulier: ${_int.forminator_form_id || '(geen)'}`);
+  console.log(`${LOG} ${attemptTag} stappen: ${
+    sortedTargets.map((t, idx) => {
+      const slug = t.odoo_model_slug ? `${t.odoo_model_slug}->${t.odoo_model}` : t.odoo_model;
+      return `${idx + 1}.${slug}/${t.operation_type || 'upsert'}`;
+    }).join('  ') || '(geen)'
+  }`);
+  console.log(`${LOG} ${attemptTag} binnengekomen velden: ${
+    Object.entries(normalizedForm)
+      .map(([k, v]) => `${k}=${toonWaarde(v)}`)
+      .join(' | ') || '(geen)'
+  }`);
+
   // Resolvers are required for registration_composite targets (need context values).
   // For mapped_fields targets (contact/lead), resolvers are legacy/optional — failures are non-fatal.
   const needsResolver = sortedTargets.some((t) => t.identifier_type === 'registration_composite');
@@ -1892,9 +1993,10 @@ async function runSubmissionAttempt(env, {
         console.log(attemptTag, '[crm.lead] auto-filled name:', fallback);
       }
 
-      console.log(attemptTag, 'opType:', opType, '| identifierDomain:', JSON.stringify(identifierDomain));
-      console.log(attemptTag, 'incomingValues:', JSON.stringify(incomingValues));
-      console.log(attemptTag, 'updateValues:', JSON.stringify(updateValues));
+      logStapBlok(attemptTag, {
+        stapNr: i + 1, target, opType, mappings, contextObject,
+        identifierDomain, identifierEmpty, incomingValues, updateValues
+      });
 
       // ── Dispatch on operation_type ─────────────────────────────────────────
       try {
@@ -1954,7 +2056,9 @@ async function runSubmissionAttempt(env, {
           ? await readStepFields(env, target.odoo_model, result.recordId, schrijfExtra)
           : null;
         registerTargetOutput(contextObject, target, result, mappings, extraWaarden);
-        console.log(attemptTag, 'target done:', result.action, '| record_id:', result.recordId || null);
+        console.log(`${LOG} ${attemptTag} +-- RESULTAAT stap ${i + 1}: ${result.action}` +
+          ` | Odoo-record: ${result.recordId || '(geen)'}` +
+          (result.skippedReason ? ` | reden: ${result.skippedReason}` : ''));
 
       } catch (targetError) {
         const targetResult = {
@@ -1970,7 +2074,7 @@ async function runSubmissionAttempt(env, {
 
         await createSubmissionTargetResult(env, targetResult);
         targetResults.push(targetResult);
-        console.log(attemptTag, 'target failed:', targetError.message);
+        console.log(`${LOG} ${attemptTag} +-- MISLUKT stap ${i + 1}: ${targetError.message}`);
 
         // ── stop_on_error: mark all remaining targets as pipeline_abort ───
         if (errStrategy === 'stop_on_error') {
@@ -1997,6 +2101,16 @@ async function runSubmissionAttempt(env, {
     }
 
     const finalStatus = classifyFinalSubmissionStatus(targetResults);
+
+    console.log(`${LOG} ${attemptTag} ==== EINDE ${submission.id}: ${finalStatus} ====`);
+    for (const r of targetResults) {
+      const t = sortedTargets.find((x) => x.id === r.target_id);
+      console.log(`${LOG} ${attemptTag}   stap ${r.execution_order} (${t ? t.odoo_model : '?'}): ${r.action_result}` +
+        ` | record ${r.odoo_record_id || '(geen)'}` +
+        (r.skipped_reason ? ` | overgeslagen: ${r.skipped_reason}` : '') +
+        (r.error_detail ? ` | fout: ${r.error_detail}` : ''));
+    }
+
     await updateSubmission(env, submission.id, {
       status: finalStatus,
       retry_status: finalStatus,

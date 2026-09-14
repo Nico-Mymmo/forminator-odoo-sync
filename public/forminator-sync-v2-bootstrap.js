@@ -677,6 +677,31 @@
         }
         return;
       }
+      // "Waarde uit een vorige stap" onder de koppeltabel.
+      //
+      // Een waarde uit een vorige stap is een ANDER soort rij dan een gewone
+      // koppeling: de "Formulierveld"-keuzelijst in de tabel toont alleen
+      // formuliervelden, dus wie daar een Odoo-veld koos en vervolgens stap 1
+      // zocht, vond niets en had geen idee waar het dan wel moest. Deze knop
+      // staat op de plek waar je het zoekt en brengt je naar de plek waar het
+      // kan. Altijd openen (niet toggelen): je klikt hem omdat je erheen wil.
+      if (action === 'open-step-chain') {
+        var oscTid = btn.dataset.targetId || '';
+        var oscEl  = document.getElementById('det-callouts-' + oscTid);
+        if (!oscEl) return;
+        oscEl.style.display = '';
+        var oscToggle = document.querySelector('[data-action="toggle-step-chain"][data-target-id="' + oscTid + '"]');
+        if (oscToggle) {
+          var oscIcons = oscToggle.querySelectorAll('[data-lucide]');
+          var oscChev  = oscIcons.length ? oscIcons[oscIcons.length - 1] : null;
+          if (oscChev) {
+            oscChev.setAttribute('data-lucide', 'chevron-down');
+            if (typeof lucide !== 'undefined') lucide.createIcons({ context: oscToggle });
+          }
+        }
+        if (oscEl.scrollIntoView) oscEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
       if (action === 'toggle-step-ff') {
         var tsffTid = btn.dataset.targetId || '';
         if (!tsffTid) return;
@@ -709,12 +734,15 @@
             sourceSuffix: btn.dataset.sourceSuffix || 'record_id',
             isIdentifier: btn.dataset.isIdentifier !== '0',
             isRequired:   btn.dataset.isRequired   !== '0',
+            // Tweede rij van een gecombineerd voorstel (de terugkoppeling).
+            extraField:   btn.dataset.extraField || null,
+            extraLabel:   btn.dataset.extraLabel || null,
           }
         );
         return;
       }
       if (action === 'remove-chain-link') {
-        window.FSV2.removeChainLink(btn.dataset.targetId, btn.dataset.odooField);
+        window.FSV2.removeChainLink(btn.dataset.targetId, btn.dataset.odooField, btn.dataset.extraField || null);
         return;
       }
       if (action === 'save-step-mappings') {

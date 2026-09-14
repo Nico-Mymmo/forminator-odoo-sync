@@ -204,12 +204,33 @@
     var searchMode     = !!cfg.searchMode;
 
     // Partition extraRows into required / default / chain / free
-    var requiredRows  = extraRows.filter(function(r) { return r.isRequired  && r.isDefault && r.sourceType !== 'previous_step_output' && r.odooField !== activeIdField; });
-    var defaultRows   = extraRows.filter(function(r) { return !r.isRequired && r.isDefault && r.sourceType !== 'previous_step_output' && r.odooField !== activeIdField; });
     var chainRowsWithIdx = [];
     extraRows.forEach(function(r, i) {
       if (r.sourceType === 'previous_step_output') chainRowsWithIdx.push({ row: r, stateIdx: i });
     });
+
+    // Welke koppelrij is het zoekcriterium (zie ook de identifier-rij verderop).
+    var chainIdentRow = chainRowsWithIdx.find(function(c) { return c.row.isIdentifier !== false; })
+                     || chainRowsWithIdx.find(function(c) { return c.row.odooField === activeIdField; });
+
+    // HET GERESERVEERDE ZOEKVELD.
+    //
+    // activeIdField is het zoekcriterium uit het modelprofiel (voor "Bedrijf"
+    // is dat `email`). Dat veld wordt hieronder overal weggefilterd, omdat het
+    // zijn eigen rij bovenaan de tabel krijgt.
+    //
+    // Maar zodra een KOPPELING het zoekcriterium is, wordt die eigen rij
+    // vervangen door de blauwe koppelrij -- en dan werd `email` nergens meer
+    // getekend terwijl het wel gereserveerd bleef. Wie het als gewone rij
+    // toevoegde zag hem na het opslaan verdwijnen: de save leest de tabel uit,
+    // en wat er niet staat wordt verwijderd.
+    //
+    // Is de identifier-rij overgenomen, dan reserveert dit veld dus niets meer
+    // en gedraagt het zich als elk ander veld.
+    var idVeldGereserveerd = chainIdentRow ? '' : activeIdField;
+
+    var requiredRows  = extraRows.filter(function(r) { return r.isRequired  && r.isDefault && r.sourceType !== 'previous_step_output' && r.odooField !== idVeldGereserveerd; });
+    var defaultRows   = extraRows.filter(function(r) { return !r.isRequired && r.isDefault && r.sourceType !== 'previous_step_output' && r.odooField !== idVeldGereserveerd; });
     var freeExtraRows = extraRows.filter(function(r) { return !r.isDefault && r.sourceType !== 'previous_step_output'; });
 
     // Available form fields — all top-level fields; alreadyMapped ones get a warning label
@@ -218,8 +239,8 @@
     // Find which form field is currently mapped to the identifier odoo field
     var claimedFids    = {};
     var identMappedFid = '';
-    if (activeIdField) {
-      var _idm = existingForm.find(function(m) { return m.odoo_field === activeIdField || m.is_identifier; });
+    if (idVeldGereserveerd) {
+      var _idm = existingForm.find(function(m) { return m.odoo_field === idVeldGereserveerd || m.is_identifier; });
       if (_idm) { identMappedFid = _idm.source_value; claimedFids[identMappedFid] = true; }
     }
     requiredRows.concat(defaultRows).forEach(function(r) {
@@ -230,13 +251,14 @@
     // Build unified free rows from existing form mappings + non-required extra rows
     // Build set of odoo fields handled by identifier/required/default rows
     var _handledOdoo = {};
-    if (activeIdField) _handledOdoo[activeIdField] = true;
+    if (idVeldGereserveerd) _handledOdoo[idVeldGereserveerd] = true;
     requiredRows.forEach(function(r) { _handledOdoo[r.odooField] = true; });
     defaultRows.forEach(function(r) { _handledOdoo[r.odooField] = true; });
 
     var freeRows = [];
     existingForm.forEach(function(m) {
       if (_handledOdoo[m.odoo_field]) return; // handled by a fixed row
+      if (chainRowsWithIdx.some(function(cc) { return cc.row.odooField === m.odoo_field; })) return;
       if (!m.odoo_field) return;
       var fid = m.source_value;
       freeRows.push({
@@ -257,7 +279,7 @@
 
     // Build set of already-used Odoo fields (for filtering the free-row selects)
     var _usedOdooSet = {};
-    if (activeIdField) _usedOdooSet[activeIdField] = true;
+    if (idVeldGereserveerd) _usedOdooSet[idVeldGereserveerd] = true;
     requiredRows.forEach(function(r) { _usedOdooSet[r.odooField] = true; });
     defaultRows.forEach(function(r) { _usedOdooSet[r.odooField] = true; });
     chainRowsWithIdx.forEach(function(c) { _usedOdooSet[c.row.odooField] = true; });
@@ -421,13 +443,8 @@
     // ── Identifier row (or chain-linked identifier) ─────────────────────────────
     // If a chain link exists for the identifier field, render a locked blue row instead of
     // the editable purple key row — the value is provided automatically by the chain.
-    // Welke koppelrij IS het zoekcriterium: de rij die zichzelf zo noemt.
-    // Vergelijken met activeIdField volstaat niet meer -- dat komt uit de
-    // identifier_fields van het modelprofiel, en een koppeling op 'id' (zoek
-    // het contact uit stap 1) staat daar niet in. Valt terug op het oude
-    // gedrag voor rijen van voor deze wijziging.
-    var chainIdentRow = chainRowsWithIdx.find(function(c) { return c.row.isIdentifier !== false; })
-                     || chainRowsWithIdx.find(function(c) { return c.row.odooField === activeIdField; });
+    // chainIdentRow is hierboven al bepaald (het beslist ook of het
+    // profiel-zoekveld nog gereserveerd wordt).
     var identRowHtml = '';
     if (chainIdentRow || activeIdField) {
       if (chainIdentRow) {
@@ -607,6 +624,9 @@
         <button type="button" class="btn btn-ghost btn-xs gap-1" data-add-form-fields>
           <i data-lucide="list-plus" class="w-3.5 h-3.5"></i> Overige formuliervelden toevoegen
         </button>
+        ${precedingSteps.length ? `<button type="button" class="btn btn-ghost btn-xs gap-1" data-action="open-step-chain" data-target-id="${esc(tid)}">
+          <i data-lucide="link-2" class="w-3.5 h-3.5"></i> Waarde uit een vorige stap
+        </button>` : ''}
       </div>`}`;
 
     container.replaceChildren(inner);

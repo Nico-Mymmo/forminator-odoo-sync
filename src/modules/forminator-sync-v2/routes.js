@@ -663,10 +663,18 @@ async function enforceChainReferenceOrder(env, targetId, sourceValue) {
 
   const allTargets = await listTargetsByIntegration(env, currentTarget.integration_id);
 
-  // source_value must be 'step.<order_or_label>.record_id'
-  const match = String(sourceValue || '').match(/^step\.([^.]+)\.record_id$/);
+  // source_value moet 'step.<volgorde_of_label>.<waarde>' zijn, waarbij de
+  // waarde `record_id` is (het record zelf) of de naam van een VELD op dat
+  // record -- dat laatste is wat "zoek deze VME via parent_id van het contact"
+  // mogelijk maakt.
+  //
+  // Deze controle stond op `record_id` vast. De browser liet zo'n koppeling
+  // wel toe, de pipeline kon ze uitvoeren, maar opslaan gaf hier een fout die
+  // over een vorm ging die de gebruiker nergens gekozen had. Het label mag
+  // punten bevatten, de veldnaam niet -- vandaar de gulzige eerste groep.
+  const match = String(sourceValue || '').match(/^step\.(.+)\.([^.]+)$/);
   if (!match) {
-    const error = new Error('previous_step_output bronwaarde moet de vorm "step.<stap_of_label>.record_id" hebben');
+    const error = new Error('previous_step_output bronwaarde moet de vorm "step.<stap_of_label>.record_id" of "step.<stap_of_label>.<veldnaam>" hebben');
     error.code = 'CHAIN_REFERENCE_ERROR';
     throw error;
   }

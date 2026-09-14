@@ -135,7 +135,7 @@
           // een VELD van de vorige stap leest is net zo goed een afhankelijkheid
           // van die stap, en hoort dus in de samenvatting en in de
           // volgorde-controle mee te tellen.
-          var m = sourceVal.match(/^step\.([^.]+)\.[^.]+$/);
+          var m = sourceVal.match(/^step\.(.+)\.[^.]+$/);
           if (!m) return;
           var ref = m[1]; var refN = Number(ref);
           var prevT = isNaN(refN)
@@ -274,9 +274,12 @@
       // een ander hangen, of andersom, of erop zoeken). Nu staat er per
       // mogelijkheid wat ze doet, in gewone taal, met de keuze bij de
       // gebruiker.
-      var openSuggesties = suggestions.filter(function (sug) {
-        return !window.FSV2.isChainSuggestionApplied(tid, sug.odooField);
-      });
+      // Dit kader is een wegwijzer voor wie nog niets gekozen heeft, geen
+      // blijvende lijst: zodra deze stap EEN koppeling heeft verdwijnt het.
+      // Anders bleef er een opvallende blauwe balk staan met alternatieven
+      // voor iets dat al ingesteld is. Alle mogelijkheden blijven bereikbaar
+      // onder "Koppeling vorige stap" in de gedragsbalk.
+      var openSuggesties = window.FSV2.hasAnyChainLink(tid) ? [] : suggestions.slice();
       // Standaard Odoo-velden eerst, maatwerk (x_studio_) daarna. Op een
       // res.partner-stap levert de scan er zeven op; zonder rangschikking staat
       // "Adviserend Expert" even prominent als de hierarchie waar het hier om
@@ -332,9 +335,7 @@
         : 'Geen voorwaarde ingesteld';
 
 
-      var _chainSummary = chainDeps.length > 0
-        ? chainDeps.map(function (d) { return 'Gekoppeld aan Stap ' + d.stepNum + (d.stepName ? ' (' + esc(d.stepName) + ')' : ''); }).join(', ')
-        : 'Niet gekoppeld';
+      var _chainSummary = chainKoppelingSamenvatting(tid, sortedTargets);
 
       // Automatisch ingevuld — dit blok vertrekt van het MODEL (de vaste
       // waarden uit Instellingen), niet van de static-rijen die toevallig in
@@ -876,8 +877,47 @@
       ' data-step-label="' + esc(sug.stepLabel || '') + '"' +
       ' data-source-suffix="' + esc(sug.sourceSuffix || 'record_id') + '"' +
       ' data-is-identifier="' + (sug.isIdentifier === false ? '0' : '1') + '"' +
-      ' data-is-required="' + (sug.isRequired === false ? '0' : '1') + '">' +
+      ' data-is-required="' + (sug.isRequired === false ? '0' : '1') + '"' +
+      // Een gecombineerd voorstel zet TWEE rijen: het zoekcriterium en de
+      // terugkoppeling. Ze reizen samen in de knop, zodat één klik een
+      // complete opstelling geeft in plaats van een halve.
+      (sug.extraField ? ' data-extra-field="' + esc(sug.extraField) + '"' +
+                        ' data-extra-label="' + esc(sug.extraLabel || sug.extraField) + '"' : '') +
+      '>' +
       '<i data-lucide="link-2" class="w-3 h-3"></i> Instellen</button>';
+  }
+
+  /**
+   * De koppelingen van een stap, in gewone taal.
+   *
+   * Hier stond "Gekoppeld aan Stap 1 (Contact)". Dat is waar maar zegt niets
+   * over WAT er gekoppeld is, en dat is precies wat je moet kunnen zien: een
+   * stap heeft er vaak twee nodig (zoeken op een veld van de vorige stap, en
+   * het record van die stap ergens wegschrijven), en met de oude tekst zie je
+   * niet dat de tweede ontbreekt. Sinds het blauwe kader verdwijnt zodra er
+   * een koppeling is, is dit de enige plek waar dat nog blijkt.
+   */
+  function chainKoppelingSamenvatting(tid, sortedTargets) {
+    var rijen = window.FSV2.chainRowsFor ? window.FSV2.chainRowsFor(tid) : [];
+    if (!rijen.length) return 'Niet gekoppeld';
+
+    function stapNummer(ref) {
+      var refN = Number(ref);
+      var prevT = isNaN(refN)
+        ? sortedTargets.find(function (t) { return t.label === ref; })
+        : sortedTargets.find(function (t) { return window.FSV2.getTargetOrder(t, 0) === refN; });
+      var idx = prevT ? sortedTargets.indexOf(prevT) : -1;
+      return idx >= 0 ? String(idx + 1) : String(ref);
+    }
+
+    return rijen.map(function (r) {
+      var m = String(r.source || '').match(/^step\.(.+)\.([^.]+)$/);
+      if (!m) return r.odooField;
+      var stap = 'stap ' + stapNummer(m[1]);
+      var veld = m[2];
+      if (veld !== 'record_id') return 'zoekt via ' + veld + ' van ' + stap;
+      return r.odooField + ' \u2190 record uit ' + stap;
+    }).join(' \u00b7 ');
   }
 
   function renderStepChainSection(target, tid, sortedTargets, myIdx) {
@@ -894,8 +934,25 @@
     if (!suggestions.length) {
       html += '<p class="text-xs opacity-40 italic py-1">Geen automatische koppelingsopties \u2014 stel er hieronder zelf een in.</p>';
     } else {
+      // Welke paarsleutels zijn al in gebruik? Een relatie kan maar van EEN kant
+      // ingesteld worden; de andere kant hoort dan te verdwijnen in plaats van
+      // als derde keuze te blijven staan naast wat je net koos.
+      var gekozenParen = {};
       suggestions.forEach(function (s) {
-        var applied = window.FSV2.isChainSuggestionApplied(tid, s.odooField);
+        if (!s.pairKey) return;
+        var bronS = 'step.' + s.stepOrder + '.' + (s.sourceSuffix || 'record_id');
+        if (window.FSV2.isChainSuggestionApplied(tid, s.odooField, bronS)) gekozenParen[s.pairKey] = s.odooField;
+      });
+
+      suggestions.forEach(function (s) {
+        var bron    = 'step.' + s.stepOrder + '.' + (s.sourceSuffix || 'record_id');
+        var applied = window.FSV2.isChainSuggestionApplied(tid, s.odooField, bron);
+        // De tegenovergestelde richting van een al gekozen relatie.
+        if (!applied && s.pairKey && gekozenParen[s.pairKey]) return;
+        // Een ander voorstel heeft dit Odoo-veld al ingenomen. Het alsnog
+        // aanbieden levert enkel "Koppeling bestaat al" op -- twee koppelingen
+        // op hetzelfde veld kunnen niet.
+        if (!applied && window.FSV2.isChainFieldTaken(tid, s.odooField, bron)) return;
         html += '<div class="flex items-start gap-2 py-1.5">';
         html += '<i data-lucide="' + (applied ? 'link-2' : 'unlink') + '" class="w-3.5 h-3.5 shrink-0 mt-0.5 ' + (applied ? 'text-info' : 'opacity-30') + '"></i>';
         html += '<div class="flex-1 min-w-0">' +
@@ -904,7 +961,9 @@
                 '</div>';
         if (applied) {
           html += '<button type="button" class="btn btn-xs btn-ghost text-error/70 hover:text-error gap-1 shrink-0"' +
-                  ' data-action="remove-chain-link" data-target-id="' + esc(tid) + '" data-odoo-field="' + esc(s.odooField) + '">' +
+                  ' data-action="remove-chain-link" data-target-id="' + esc(tid) + '" data-odoo-field="' + esc(s.odooField) + '"' +
+                  // Anders blijft de terugkoppeling als weesrij achter.
+                  (s.extraField ? ' data-extra-field="' + esc(s.extraField) + '"' : '') + '>' +
                   '<i data-lucide="x" class="w-3 h-3"></i> Ontkoppelen</button>';
         } else {
           html += chainSuggestionButton(tid, s, 'btn-outline btn-primary btn-xs');
@@ -999,10 +1058,15 @@
     '</div>';
   }
 
-  function removeChainLink(tid, odooField) {
+  function removeChainLink(tid, odooField, extraField) {
     if (!S().detail._extraRowsByTarget || !S().detail._extraRowsByTarget[tid]) return;
     S().detail._extraRowsByTarget[tid] = S().detail._extraRowsByTarget[tid].filter(function (r) {
-      return !(r.odooField === odooField && r.sourceType === 'previous_step_output');
+      if (r.sourceType !== 'previous_step_output') return true;
+      if (r.odooField === odooField) return false;
+      // Een gecombineerde koppeling bestaat uit twee rijen; alleen de eerste
+      // weghalen laat een terugkoppeling achter die naar niets meer hoort.
+      if (extraField && r.odooField === extraField) return false;
+      return true;
     });
     window.FSV2.renderDetailMappings();
     window.FSV2.showAlert('Koppeling verwijderd. Sla de stap op om te bevestigen.', 'info');
@@ -1524,7 +1588,7 @@
       // naam van een veld op dat record. Deze controle stond op record_id vast
       // en gooide een veld-koppeling er stilletjes uit bij het opslaan: de rij
       // stond in het scherm, verdween bij Opslaan, en niets zei waarom.
-      if (!/^step\.[^.]+\.[^.]+$/.test(sourceValue)) {
+      if (!/^step\..+\.[^.]+$/.test(sourceValue)) {
         console.warn('[FSV2] chain row skipped: invalid source_value', sourceValue, em);
         return;
       }
@@ -1806,6 +1870,24 @@
       isRequired:  opties.isRequired !== false,
       isIdentifier: opties.isIdentifier !== false,
     });
+
+    // De terugkoppeling: het record uit de vorige stap komt in het lijstveld
+    // van DIT record. Zonder deze tweede rij blijft het zoekveld hierboven
+    // eeuwig leeg en maakt elke inzending een nieuw record aan -- daarom zet
+    // de gecombineerde kaart ze samen, en nooit los.
+    if (opties.extraField) {
+      S().detail._extraRowsByTarget[tid] = S().detail._extraRowsByTarget[tid].filter(function (r) {
+        return r.odooField !== opties.extraField;
+      });
+      S().detail._extraRowsByTarget[tid].push({
+        odooField:    opties.extraField,
+        odooLabel:    opties.extraLabel || opties.extraField,
+        sourceType:   'previous_step_output',
+        staticValue:  'step.' + stepOrder + '.record_id',
+        isRequired:   true,
+        isIdentifier: false,
+      });
+    }
     if (integrationId) window.FSV2.getPipelineOpen(integrationId)[String(tid)] = true;
     window.FSV2.renderDetailMappings();
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
