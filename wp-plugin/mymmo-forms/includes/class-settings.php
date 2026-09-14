@@ -259,6 +259,21 @@ final class Mymmo_Forms_Settings {
 
             <table class="form-table" role="presentation">
                 <tr>
+                    <th scope="row">Soort</th>
+                    <td>
+                        <fieldset>
+                            <label style="display:block;margin-bottom:4px;">
+                                <input type="radio" name="mymmoFormsSoort" value="inline" checked>
+                                Het formulier staat op de pagina
+                            </label>
+                            <label style="display:block;">
+                                <input type="radio" name="mymmoFormsSoort" value="knop">
+                                Een knop die een venster opent (met een tabblad voor een afspraak)
+                            </label>
+                        </fieldset>
+                    </td>
+                </tr>
+                <tr>
                     <th scope="row"><label for="mymmoFormsPick">Formulier</label></th>
                     <td>
                         <select id="mymmoFormsPick" class="regular-text"
@@ -284,6 +299,54 @@ final class Mymmo_Forms_Settings {
                         </p>
                     </td>
                 </tr>
+                <tr data-mymmo-alleen="knop" hidden>
+                    <th scope="row"><label for="mymmoFormsLabel">Tekst op de knop</label></th>
+                    <td>
+                        <input type="text" id="mymmoFormsLabel" class="regular-text" placeholder="bv. Vraag een offerte">
+                        <p class="description">
+                            Laat leeg om de naam van het formulier te gebruiken.
+                        </p>
+                    </td>
+                </tr>
+                <tr data-mymmo-alleen="knop" hidden>
+                    <th scope="row"><label for="mymmoFormsCalendly">Link naar de agenda</label></th>
+                    <td>
+                        <input type="url" id="mymmoFormsCalendly" class="large-text code" placeholder="https://calendly.com/...">
+                        <p class="description">
+                            De Calendly-pagina die in het tweede tabblad komt. Laat leeg als het venster
+                            enkel het formulier moet tonen — dan is er ook geen tweede tabblad.
+                        </p>
+                    </td>
+                </tr>
+                <tr data-mymmo-alleen="knop" hidden>
+                    <th scope="row">Opschriften</th>
+                    <td>
+                        <p>
+                            <label for="mymmoFormsTabForm">Tabblad formulier</label><br>
+                            <input type="text" id="mymmoFormsTabForm" class="regular-text" value="Stuur ons een bericht">
+                        </p>
+                        <p>
+                            <label for="mymmoFormsTabCalendly">Tabblad agenda</label><br>
+                            <input type="text" id="mymmoFormsTabCalendly" class="regular-text" value="Plan een gesprek">
+                        </p>
+                        <p class="description">
+                            Deze teksten horen bij DEZE knop, niet bij het formulier — daarom staan ze hier en
+                            niet in de Operations Manager. Op een Franstalige pagina typ je ze hier in het Frans.
+                        </p>
+                    </td>
+                </tr>
+                <tr data-mymmo-alleen="knop" hidden>
+                    <th scope="row"><label for="mymmoFormsVariant">Stijl van de knop</label></th>
+                    <td>
+                        <select id="mymmoFormsVariant">
+                            <option value="primary">Gevuld</option>
+                            <option value="outline">Omlijnd</option>
+                        </select>
+                        <p class="description">
+                            De kleur komt uit het thema van het formulier in de Operations Manager.
+                        </p>
+                    </td>
+                </tr>
                 <tr>
                     <th scope="row">Titel</th>
                     <td>
@@ -293,6 +356,7 @@ final class Mymmo_Forms_Settings {
                         </label>
                         <p class="description">
                             Zet dit uit als de pagina zelf al een titel heeft — anders staat ze er twee keer.
+                            Bij een knop gaat het om de kop bovenaan het venster.
                         </p>
                     </td>
                 </tr>
@@ -342,7 +406,9 @@ final class Mymmo_Forms_Settings {
             </table>
             <p class="description">
                 Deze tabel is de terugval als JavaScript niet werkt: elke shortcode staat er volledig,
-                klaar om te selecteren en te kopiëren.
+                klaar om te selecteren en te kopiëren. Wil je een knop met venster, dan is dat dezelfde
+                slug in de andere shortcode:
+                <code>[mymmo_form_button slug="..." label="Vraag een offerte" calendly="https://calendly.com/..."]</code>
             </p>
 
         <?php endif; ?>

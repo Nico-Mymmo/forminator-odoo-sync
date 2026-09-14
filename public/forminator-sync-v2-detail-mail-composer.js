@@ -130,6 +130,11 @@
     var el = document.getElementById('det-mc-' + tid);
     if (!el) return;
 
+    // De bijlagen staan in een eigen toestand (window.FSV2._mailAttachments),
+    // want ze worden na het kiezen en na het voorbeeld apart hertekend zonder
+    // de hele composer -- anders verlies je de tekst in de editor.
+    window.FSV2.initMailAttachments(tid, target);
+
     var vertraging = splitsVertraging(target.mail_delay_minutes);
     var layout     = String(target.mail_layout || 'plain');
     var fromSource = String(target.mail_from_source || 'record_user');
@@ -270,6 +275,8 @@
           </div>
         </div>
 
+        ${window.FSV2.renderMailAttachmentsSection(tid)}
+
         <div class="flex flex-col gap-1 mb-3">
           <label class="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" id="mailTrackOpens-${esc(tid)}" class="checkbox checkbox-sm"
@@ -366,11 +373,25 @@
         body: JSON.stringify(Object.assign({}, leesVelden(tid), { sample: bouwVoorbeeldwaarden(tid) }))
       });
       if (!res || !res.success) throw new Error((res && res.error) || 'Voorbeeld mislukt');
+      // De server zegt erbij of elke bijlage nog in de Asset Manager staat en
+      // hoe groot ze is; dat wordt in de bijlagelijst getoond. Verversen is zo
+      // ook de manier om te controleren of een vervangen bestand aangekomen is.
+      window.FSV2.applyMailAttachmentStatus(tid, res.data.attachments);
+      var bijlagen = (res.data.attachments || []);
+      var bijlagenRegel = bijlagen.length === 0 ? '' :
+        '<div class="text-xs text-base-content/60 mt-2 pt-2 border-t border-base-200">' +
+          '<strong>Bijlagen:</strong> ' +
+          bijlagen.map(function (b) {
+            return esc(b.name) + (b.missing ? ' <span class="text-error">(ontbreekt)</span>' : '');
+          }).join(', ') +
+        '</div>';
+
       doel.innerHTML =
         '<div class="text-xs text-base-content/60 mb-2 pb-2 border-b border-base-200">' +
           '<strong>Onderwerp:</strong> ' + esc(res.data.subject || '') +
         '</div>' +
-        '<div class="text-sm text-base-content">' + res.data.html + '</div>';
+        '<div class="text-sm text-base-content">' + res.data.html + '</div>' +
+        bijlagenRegel;
     } catch (err) {
       doel.innerHTML = '<span class="text-error">' + esc(err.message) + '</span>';
     }
@@ -397,7 +418,8 @@
       mail_reply_to:          (document.getElementById('mailReplyTo-' + tid) || {}).value || '',
       mail_server_id:         serverRaw ? Number(serverRaw) : null,
       mail_track_opens:       !!(document.getElementById('mailTrackOpens-' + tid) || {}).checked,
-      mail_respect_blacklist: !!(document.getElementById('mailBlacklist-' + tid) || {}).checked
+      mail_respect_blacklist: !!(document.getElementById('mailBlacklist-' + tid) || {}).checked,
+      mail_attachments:       window.FSV2.mailAttachmentsPayload(tid)
     };
   }
 

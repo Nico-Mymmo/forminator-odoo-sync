@@ -1,4 +1,5 @@
 import { nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
+import { normalizeMailAttachments } from './mail-attachments.js';
 
 /** De twee standen van een send_mail-stap. `plain` is de standaard. */
 const MAIL_LAYOUTS = ['plain', 'blocks'];
@@ -175,6 +176,21 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
       const m = Number(payload[veld]);
       if (!Number.isInteger(m) || m < 0 || m > 1440) {
         throw createError(veld + ' moet een geheel getal tussen 0 en 1440 zijn (minuten sinds middernacht).');
+      }
+    }
+
+    // Bijlagen: verwijzingen naar bestanden in de Asset Manager. De vorm wordt
+    // hier gecontroleerd, niet of het bestand bestaat -- dat is een vraag voor
+    // het moment van versturen (een bestand kan nadien nog verdwijnen, en dan
+    // moet de melding bij de indiening staan, niet bij het opslaan).
+    if (payload.mail_attachments !== undefined) {
+      try {
+        normalizeMailAttachments(payload.mail_attachments);
+      } catch (err) {
+        // Doorgeven als VALIDATION_ERROR, anders wordt het een 500 in
+        // parseErrorStatus en ziet de gebruiker "er ging iets mis" in plaats
+        // van welke bijlage er niet deugt.
+        throw createError(err.message);
       }
     }
 

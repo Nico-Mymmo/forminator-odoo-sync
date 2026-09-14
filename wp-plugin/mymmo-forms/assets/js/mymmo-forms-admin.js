@@ -64,6 +64,37 @@
     if (rij) rij.hidden = talen.length < 2;
   }
 
+  /** "inline" (formulier op de pagina) of "knop" (venster met tabbladen). */
+  function soort() {
+    var gekozen = document.querySelector('input[name="mymmoFormsSoort"]:checked');
+    return gekozen && gekozen.value === 'knop' ? 'knop' : 'inline';
+  }
+
+  /**
+   * Een waarde die veilig tussen aanhalingstekens in een shortcode past.
+   *
+   * Een " of een ] in een knoptekst hakt de shortcode doormidden, en WordPress
+   * toont dan de rest als platte tekst op de pagina. Dat is precies het soort
+   * fout dat pas op de live pagina opvalt.
+   */
+  function schoon(waarde) {
+    return String(waarde || '').replace(/["\[\]]/g, '').trim();
+  }
+
+  function waardeVan(id) {
+    var el = document.getElementById(id);
+    return el ? schoon(el.value) : '';
+  }
+
+  /** De velden die alleen bij een knop horen tonen of verbergen. */
+  function toonRijen() {
+    var knop = soort() === 'knop';
+    var rijen = document.querySelectorAll('[data-mymmo-alleen="knop"]');
+    for (var i = 0; i < rijen.length; i += 1) {
+      rijen[i].hidden = !knop;
+    }
+  }
+
   function bouwShortcode() {
     var keuze = document.getElementById('mymmoFormsPick');
     var titel = document.getElementById('mymmoFormsTitle');
@@ -77,7 +108,30 @@
       return;
     }
 
-    var code = '[mymmo_form slug="' + slug + '"';
+    var knop = soort() === 'knop';
+    var code = (knop ? '[mymmo_form_button slug="' : '[mymmo_form slug="') + slug + '"';
+
+    if (knop) {
+      var label = waardeVan('mymmoFormsLabel');
+      var agenda = waardeVan('mymmoFormsCalendly');
+      var variant = document.getElementById('mymmoFormsVariant');
+
+      if (label) code += ' label="' + label + '"';
+      if (agenda) code += ' calendly="' + agenda + '"';
+
+      // De opschriften van de tabbladen alleen meegeven als ze afwijken van de
+      // standaard, en alleen als er een tweede tabblad IS: zonder agenda staat
+      // er maar een deel in het venster en is er niets om op te schrijven.
+      if (agenda) {
+        var tabForm = waardeVan('mymmoFormsTabForm');
+        var tabAgenda = waardeVan('mymmoFormsTabCalendly');
+        if (tabForm && tabForm !== 'Stuur ons een bericht') code += ' tab_form="' + tabForm + '"';
+        if (tabAgenda && tabAgenda !== 'Plan een gesprek') code += ' tab_calendly="' + tabAgenda + '"';
+      }
+
+      if (variant && variant.value === 'outline') code += ' variant="outline"';
+    }
+
     // title="no" en lang="..." alleen toevoegen als ze van de standaard
     // afwijken: een shortcode met overbodige attributen leest slechter en
     // nodigt uit tot kopiëren-en-aanpassen op de verkeerde plek.
@@ -125,6 +179,25 @@
     if (titel) titel.addEventListener('change', bouwShortcode);
     if (taal) taal.addEventListener('change', bouwShortcode);
 
+    // Alles wat in de shortcode terechtkomt, opnieuw samenstellen zodra het
+    // wijzigt. 'input' en niet 'change': anders zie je je knoptekst pas in de
+    // shortcode staan nadat je ergens anders geklikt hebt, en dan heb je de
+    // oude al gekopieerd.
+    var velden = document.querySelectorAll(
+      'input[name="mymmoFormsSoort"], #mymmoFormsLabel, #mymmoFormsCalendly, #mymmoFormsTabForm, #mymmoFormsTabCalendly, #mymmoFormsVariant'
+    );
+    for (var i = 0; i < velden.length; i += 1) {
+      velden[i].addEventListener('input', function () {
+        toonRijen();
+        bouwShortcode();
+      });
+      velden[i].addEventListener('change', function () {
+        toonRijen();
+        bouwShortcode();
+      });
+    }
+
+    toonRijen();
     vulTalen();
 
     document.addEventListener('click', function (event) {

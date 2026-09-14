@@ -50,6 +50,10 @@ import { assetManagerUI } from './ui.js';
 import { validateKey, sanitizeFilename, buildUserPrefix, isWithinPrefix, normalizePrefix } from './lib/path-utils.js';
 import { isAllowedMimeType, getMimeType } from './lib/mime-types.js';
 import { listObjects, putObject, deleteObject, headObject, copyObject } from './lib/r2-client.js';
+import {
+  ASSET_CATEGORY_PREFIXES, FOREIGN_MODULE_PREFIXES, isForeignPrefix, canReadAssetPrefix,
+  listDynamicAssetCategories
+} from './lib/namespace.js';
 import { getSupabaseClient } from '../../lib/database.js';
 
 const LOG_PREFIX = '[asset-manager]';
@@ -58,23 +62,11 @@ const LOG_PREFIX = '[asset-manager]';
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
-// De volledige, gesloten namespace van de asset-manager zelf -- moet exact
-// overeenkomen met de categorie-prefixen in ui.js (Banners/Events/Logos/
-// Overige) + de per-user prefix. Dit is de "eigen map" van de asset-manager:
-// GET /api/assets/list met een leeg prefix ("Alles") mag NOOIT verder kijken
-// dan deze set, en elk expliciet opgegeven prefix moet hierbinnen vallen.
-const ASSET_CATEGORY_PREFIXES = ['public/', 'banners/', 'events/', 'logos/', 'uploads/'];
-
-// Andere modules die dezelfde env.R2_ASSETS-bucket gebruiken (zie
-// src/modules/mini-apps/lib/r2-client.js + lib/storage.js) -- de
-// asset-manager mag hier nooit in lezen of schrijven, ook een admin niet.
-// Nieuwe modules die deze bucket later ook gebruiken: hier toevoegen.
-const FOREIGN_MODULE_PREFIXES = ['mini-apps/', 'mini-apps-storage/', 'fsv2-tracker-logos/'];
-
-function isForeignPrefix(prefix) {
-  const p = String(prefix || '');
-  return FOREIGN_MODULE_PREFIXES.some(fp => p.startsWith(fp));
-}
+// ASSET_CATEGORY_PREFIXES, FOREIGN_MODULE_PREFIXES, isForeignPrefix en
+// canReadAssetPrefix staan in ./lib/namespace.js -- NIET meer hier. Reden: er
+// is een tweede lezer bijgekomen (Koppelingen kiest mailbijlagen uit de Asset
+// Manager via GET /forminator-v2/api/mail-assets), en een rechtenregel die op
+// twee plekken staat, gaat op twee plekken uit elkaar lopen.
 
 // Zero-byte placeholder-objecten die een (sub)map zichtbaar houden in R2 zolang
 // hij leeg is -- nooit tonen als "bestand" in lijst-responses.
@@ -155,21 +147,9 @@ function buildPublicLink(key, rows) {
 // asset_manager_categories (supabase/migrations/20260827090000_asset_manager_categories.sql).
 
 async function getDynamicCategories(env) {
-  try {
-    const supabase = getSupabaseClient(env);
-    const { data, error } = await supabase
-      .from('asset_manager_categories')
-      .select('prefix, label')
-      .order('created_at', { ascending: true });
-    if (error) {
-      console.error(`${LOG_PREFIX} getDynamicCategories error:`, error.message);
-      return [];
-    }
-    return data || [];
-  } catch (err) {
-    console.error(`${LOG_PREFIX} getDynamicCategories error:`, err.message);
-    return [];
-  }
+  // Staat in ./lib/namespace.js omdat Koppelingen dezelfde categorielijst
+  // nodig heeft voor de bijlagekiezer.
+  return listDynamicAssetCategories(env);
 }
 
 // ─── Response helpers ────────────────────────────────────────────────────────
@@ -226,12 +206,7 @@ function canWritePrefix(user, prefix) {
  * @returns {boolean}
  */
 function canReadPrefix(user, keyOrPrefix) {
-  if (!user) return false;
-  if (isForeignPrefix(keyOrPrefix)) return false;
-  if (isAdmin(user)) return true;
-  if (user.role === 'asset_manager') return true;
-  const ownPrefix = buildUserPrefix(user.id);
-  return isWithinPrefix(keyOrPrefix, ownPrefix);
+  return canReadAssetPrefix(user, keyOrPrefix);
 }
 
 // ─── Route handlers ──────────────────────────────────────────────────────────

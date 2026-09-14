@@ -59,6 +59,51 @@ Staat het formulier in de OM nog op **concept**, dan toont de shortcode niets
 (en voor een ingelogde beheerder de reden). Zo kan een half afgewerkt formulier
 nooit per ongeluk live staan.
 
+### Een knop met een venster
+
+Soms hoort een formulier niet middenin de tekst te staan, maar achter een knop —
+en wil je daarnaast de bezoeker de keuze geven om meteen een gesprek in te
+plannen. Daarvoor is er een tweede shortcode:
+
+```
+[mymmo_form_button slug="offerte-technisch-beheer"
+                   label="Vraag een offerte"
+                   calendly="https://calendly.com/mymmo/kennismaking"]
+```
+
+Dat geeft een knop; een klik opent een venster met twee tabbladen — het
+formulier, en de agenda. De kleuren komen uit hetzelfde thema als het formulier,
+op een telefoon wordt het venster een vol scherm, en Escape of een klik naast het
+venster sluit het.
+
+| Attribuut | Wat |
+|---|---|
+| `slug` | Welk formulier. Verplicht |
+| `label` | De tekst op de knop. Leeg = de naam van het formulier |
+| `calendly` | De Calendly-pagina voor het tweede tabblad. **Laat je dit weg, dan is er geen tweede tabblad** en toont het venster enkel het formulier |
+| `title` | De kop bovenaan het venster. Leeg = de naam van het formulier, `no` = geen kop |
+| `tab_form` / `tab_calendly` | De opschriften van de tabbladen |
+| `tab` | `calendly` om meteen op de agenda te openen |
+| `variant` | `primary` (gevuld, standaard) of `outline` (omlijnd) |
+| `class` | Eigen klassen op de wikkel, om de knop te plaatsen |
+| `close` | Het opschrift van de sluitknop, voor schermlezers |
+| `lang` | Zoals bij `[mymmo_form]` |
+
+De opschriften staan in de shortcode en niet in de Operations Manager, want ze
+horen bij DEZE knop op DEZE pagina en niet bij het formulier. Op een Franstalige
+pagina typ je ze dus mee.
+
+**Zonder JavaScript werkt dit ook.** De knop is een echte link naar het venster,
+het venster staat gewoon in de pagina (het opent via `:target`), en de twee delen
+staan dan onder elkaar met elk een eigen kopje in plaats van als tabbladen.
+Alleen de agenda heeft JavaScript nodig — dat is een iframe van Calendly — en
+daar staat een gewone link naar dezelfde agenda als terugval. Het script van
+Calendly wordt bovendien pas opgehaald als iemand dat tabblad echt opent.
+
+Wie vanuit het venster verstuurt, komt terug op dezelfde pagina **met het venster
+weer open** en de bevestiging erin. De pagina waar de bezoeker stond gaat mee in
+de inzending (`page_url`, `page_title`), net als bij een formulier in de tekst.
+
 ## Hoe een inzending loopt
 
 ```
@@ -136,6 +181,34 @@ die eruitzien als een kleur of een lengte — vrije CSS vanuit de OM zou een
 injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
+
+**1.1.0** — een tweede shortcode: `[mymmo_form_button]`. Een knop in de tekst die
+een venster opent met twee tabbladen — het formulier, en een Calendly-agenda om
+meteen een gesprek te kiezen.
+
+Waarom dit erbij komt: een formulier middenin een pagina is niet altijd de juiste
+plek, en wie liever meteen belt of afspreekt had tot nu toe geen weg. De twee
+staan nu naast elkaar achter dezelfde knop, zonder dat er een tweede formulier of
+een tweede koppeling voor nodig is — het is precies hetzelfde formulier, met
+dezelfde mappings naar Odoo.
+
+Verder in deze versie:
+
+- **De herkomst gaat ook naar Calendly.** Dezelfde `utm_*` (URL eerst, dan de
+  cookie) plus de bezoeker-UUID. Die worden in de BROWSER opgehaald en niet
+  server-side in de HTML gezet: deze pagina kan gecached zijn, en dan zou de UUID
+  van de vorige bezoeker meegaan met het gesprek van de volgende. Dat geeft geen
+  foutmelding — er komt gewoon een afspraak, aan de verkeerde persoon gehangen.
+- **Terugkomen na het versturen.** Een inzending stuurt nu het id van het venster
+  mee (`mymmo_anchor`), zodat de bezoeker na de redirect op dezelfde plek
+  uitkomt met het venster open. Zonder dat staat hij op een gesloten venster en
+  ziet hij zijn bevestiging nooit — terwijl de inzending gewoon binnen is.
+- **Twee formulieren op één pagina tonen allebei hun melding.** De bevestiging
+  werd tot nu toe opgevraagd door de eerste shortcode op de pagina en daarbij
+  meteen verwijderd; een tweede shortcode kreeg niets meer. Ze wordt nu één keer
+  gelezen en onthouden, en het anker bepaalt bij wie ze hoort.
+- De shortcode-bouwer bij **Instellingen → Mymmo Forms** kan beide shortcodes
+  samenstellen.
 
 **1.0.6** — de eerste optie van een keuzegroep (radio/checkbox) sprong soms uit
 het veld naar rechts, terwijl de andere opties er wel gewoon onder stonden.

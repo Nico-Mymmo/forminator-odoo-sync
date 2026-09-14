@@ -46,6 +46,65 @@ function mymmo_forms_is_configured(): bool {
 }
 
 /**
+ * De namen van de herkomstparameters, op EEN plek.
+ *
+ * Ze worden op drie plekken gelezen -- het formulier zet ze als verborgen veld,
+ * de inzending leest ze terug, en de agenda-tab van de pop-up geeft ze door aan
+ * Calendly. Drie lijstjes die uit elkaar kunnen lopen is precies hoe je een
+ * campagne kwijtraakt zonder dat er iets stukgaat.
+ *
+ * @return array<int,string>
+ */
+function mymmo_forms_utm_keys(): array {
+    return ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+}
+
+/**
+ * De herkomst van deze bezoeker: eerst uit $bron (de URL van de pagina, of bij
+ * een inzending de verborgen velden), anders uit de cookie die het
+ * tracking-script dertig dagen bewaart.
+ *
+ * Zo houdt iemand die vorige week via een campagne binnenkwam en vandaag pas
+ * invult of een gesprek inplant, toch zijn herkomst. De bron wint, want die is
+ * recenter.
+ *
+ * @param array<string,mixed> $bron
+ * @return array<string,string>
+ */
+function mymmo_forms_utms(array $bron): array {
+    $uit = [];
+    foreach (mymmo_forms_utm_keys() as $sleutel) {
+        if (!empty($bron[$sleutel])) {
+            $uit[$sleutel] = sanitize_text_field(wp_unslash((string) $bron[$sleutel]));
+        } elseif (!empty($_COOKIE[$sleutel])) {
+            $uit[$sleutel] = sanitize_text_field(wp_unslash((string) $_COOKIE[$sleutel]));
+        }
+    }
+    return $uit;
+}
+
+/**
+ * De bezoeker-UUID uit een cookie, of '' als er geen bruikbare instaat.
+ *
+ * Alleen iets met de VORM van een UUID komt erdoor: deze waarde komt uit een
+ * cookie die iemand zelf kan zetten, en ze gaat naar Odoo.
+ *
+ * Ze MAG leeg zijn. Het tracking-script zet geen cookie voor wie het als bot
+ * herkent, noch in een browser zonder plugins of taalinstelling, en daar zitten
+ * echte mensen tussen -- maak er dus nooit een voorwaarde van.
+ */
+function mymmo_forms_visitor_uuid(string $cookie = 'ovme_uuid'): string {
+    if (empty($_COOKIE[$cookie])) {
+        return '';
+    }
+    $waarde = sanitize_text_field(wp_unslash((string) $_COOKIE[$cookie]));
+    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $waarde)) {
+        return '';
+    }
+    return strtolower($waarde);
+}
+
+/**
  * De CSS-variabelen van een formulier omzetten naar een style-attribuut.
  *
  * Alleen een vaste, GESLOTEN lijst wordt doorgelaten. Een vrije doorgang van

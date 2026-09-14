@@ -31,6 +31,22 @@ final class Mymmo_Forms_Submit {
     private const MAX_SECONDS       = 21600; // 6 uur; daarna is de pagina te oud
     public  const HONEYPOT_FIELD    = 'mymmo_forms_website';
     public  const TIME_FIELD        = 'mymmo_forms_t';
+    public  const ANCHOR_FIELD      = 'mymmo_anchor';
+
+    /** De melding wordt een keer gelezen en daarna uit de memo bediend. */
+    private static bool $flash_gelezen = false;
+    /** @var array<string,mixed>|null */
+    private static ?array $flash_cache = null;
+
+    /**
+     * Waar op de pagina de bezoeker na het versturen terecht moet komen.
+     *
+     * Bewust een eigenschap en geen parameter: finish() wordt op acht plekken
+     * aangeroepen, ook diep in de spamcontroles, en dit is per definitie
+     * verzoek-gebonden -- een van buiten komende waarde die bij BINNENKOMST een
+     * keer gecontroleerd wordt en daarna vaststaat.
+     */
+    private static string $anker = '';
 
     public static function init(): void {
         add_action('admin_post_nopriv_' . self::ACTION, [self::class, 'handle']);
@@ -75,6 +91,16 @@ final class Mymmo_Forms_Submit {
      * @return array{status:string,message:string,values:array<string,mixed>,slug:string}|null
      */
     public static function flash(): ?array {
+        // Een pagina kan meer dan een formulier tonen -- een formulier in de
+        // tekst en een knop met pop-up, bijvoorbeeld. Elke shortcode vraagt de
+        // melding op, en alleen degene waar ze bij hoort toont ze. Zonder deze
+        // memo kreeg alleen de EERSTE shortcode iets terug (de transient is dan
+        // al verwijderd) en verdween de bevestiging van de tweede spoorloos.
+        if (self::$flash_gelezen) {
+            return self::$flash_cache;
+        }
+        self::$flash_gelezen = true;
+
         $token = isset($_GET['mymmo_form']) ? sanitize_key(wp_unslash($_GET['mymmo_form'])) : '';
         if ($token === '') {
             return null;
@@ -86,6 +112,7 @@ final class Mymmo_Forms_Submit {
         }
 
         delete_transient(self::TRANSIENT_PREFIX . $token);
+        self::$flash_cache = $data;
         return $data;
     }
 
@@ -93,6 +120,13 @@ final class Mymmo_Forms_Submit {
         $slug     = isset($_POST['mymmo_form_slug']) ? sanitize_title(wp_unslash($_POST['mymmo_form_slug'])) : '';
         $redirect = isset($_POST['mymmo_redirect_to']) ? wp_unslash($_POST['mymmo_redirect_to']) : home_url('/');
         $redirect = wp_validate_redirect($redirect, home_url('/'));
+
+        // Een formulier in een pop-up stuurt het id van die pop-up mee. Zonder
+        // dat komt de bezoeker terug op de pagina met een gesloten venster en
+        // ziet hij zijn bevestiging nooit -- terwijl de inzending wel binnen is.
+        self::$anker = isset($_POST[self::ANCHOR_FIELD])
+            ? self::anker((string) wp_unslash($_POST[self::ANCHOR_FIELD]))
+            : '';
 
         // Het formulier EERST ophalen, nog voor de nonce- en spamcontroles.
         //
@@ -195,6 +229,18 @@ final class Mymmo_Forms_Submit {
     }
 
     /**
+     * Een id-fragment uit de POST, of '' als het er niet uitziet als een id.
+     *
+     * Dit komt van buiten en gaat rechtstreeks in een Location-header. Alleen
+     * tekens die een HTML-id mag hebben komen erdoor: geen ?, geen &, geen
+     * nieuwe regel -- anders is dit een pad naar header-injectie of naar een
+     * redirect met een aangeplakte querystring.
+     */
+    private static function anker(string $ruw): string {
+        return preg_match('/^[A-Za-z0-9_-]{1,64}$/', $ruw) === 1 ? $ruw : '';
+    }
+
+    /**
      * De taal waarin de bezoeker het formulier voor zich had.
      *
      * Uit het verborgen veld dat de pagina meestuurde, en alleen als het
@@ -245,15 +291,14 @@ final class Mymmo_Forms_Submit {
         // Beide mogen ontbreken. Het tracking-script zet geen cookie voor wie
         // het als bot herkent, en ook niet in een browser zonder plugins of
         // taalinstelling -- daar zitten echte mensen tussen.
+        //
+        // De vormcontrole staat in mymmo_forms_visitor_uuid(): de agenda-tab van
+        // de pop-up geeft diezelfde UUID door aan Calendly, en twee keer
+        // hetzelfde filter is een keer te veel.
         foreach (['ovme_uuid', 'ovme_ref_uuid'] as $sleutel) {
-            if (!empty($_COOKIE[$sleutel])) {
-                $waarde = sanitize_text_field(wp_unslash($_COOKIE[$sleutel]));
-                // Een UUID en niets anders: deze waarde komt uit een cookie en
-                // die kan iemand zelf zetten. Ze gaat naar Odoo, dus alles wat
-                // er niet uitziet als een UUID gooien we weg.
-                if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $waarde)) {
-                    $meta[$sleutel] = strtolower($waarde);
-                }
+            $waarde = mymmo_forms_visitor_uuid($sleutel);
+            if ($waarde !== '') {
+                $meta[$sleutel] = $waarde;
             }
         }
 
@@ -268,15 +313,11 @@ final class Mymmo_Forms_Submit {
         }
 
         // UTM's: eerst uit het formulier (die komen uit de URL van DEZE pagina),
-        // anders uit de cookie die het tracking-script dertig dagen bewaart. Zo
-        // houdt iemand die vorige week via een campagne binnenkwam en vandaag
-        // pas invult, toch zijn herkomst.
-        foreach (['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'] as $sleutel) {
-            if (!empty($_POST[$sleutel])) {
-                $meta[$sleutel] = sanitize_text_field(wp_unslash($_POST[$sleutel]));
-            } elseif (!empty($_COOKIE[$sleutel])) {
-                $meta[$sleutel] = sanitize_text_field(wp_unslash($_COOKIE[$sleutel]));
-            }
+        // anders uit de cookie die het tracking-script dertig dagen bewaart.
+        // Zie mymmo_forms_utms() -- de agenda-tab van de pop-up gebruikt
+        // dezelfde volgorde om ze aan Calendly door te geven.
+        foreach (mymmo_forms_utms($_POST) as $sleutel => $waarde) {
+            $meta[$sleutel] = $waarde;
         }
 
         return $meta;
@@ -289,11 +330,21 @@ final class Mymmo_Forms_Submit {
         $token = wp_generate_password(16, false, false);
         set_transient(
             self::TRANSIENT_PREFIX . $token,
-            ['status' => $status, 'message' => $message, 'values' => $values, 'slug' => $slug],
+            [
+                'status'  => $status,
+                'message' => $message,
+                'values'  => $values,
+                'slug'    => $slug,
+                // Bij welk formulier OP DE PAGINA de melding hoort. Staat er
+                // zowel een formulier in de tekst als een knop met pop-up voor
+                // hetzelfde formulier, dan is de slug alleen niet genoeg.
+                'anchor'  => self::$anker,
+            ],
             300
         );
 
-        wp_safe_redirect(add_query_arg('mymmo_form', $token, $redirect) . '#mymmo-form-' . $slug);
+        $hash = self::$anker !== '' ? self::$anker : ('mymmo-form-' . $slug);
+        wp_safe_redirect(add_query_arg('mymmo_form', $token, $redirect) . '#' . $hash);
         exit;
     }
 }

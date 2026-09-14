@@ -580,6 +580,69 @@ waarschijnlijke eerste uitbreiding; het schema laat er ruimte voor.
 
 ---
 
+## Koppelingen — bijlagen bij de `send_mail`-stap (2026-09)
+
+**Regel: een stap bewaart een VERWIJZING naar een bestand in de Asset Manager,
+nooit de inhoud en nooit een Odoo-attachment-id.** Daardoor draagt het
+vervangen van dat bestand vanzelf door naar de volgende mails; er is niets in
+de koppeling dat dan bijgewerkt moet worden, en dus ook niets dat vergeten kan
+worden.
+
+| Wat | Waar |
+|---|---|
+| Vorm, grenzen, R2 → Odoo `ir.attachment` | `src/modules/forminator-sync-v2/mail-attachments.js` |
+| Opgeslagen keuze | `fs_v2_targets.mail_attachments` = `[{key, name}]` |
+| Cache R2-inhoud → Odoo-attachment | tabel `fs_v2_mail_attachment_cache`, sleutel `(r2_key, etag)` |
+| Aansluiting op de stap | `mail-step.js`, blok "6. Bijlagen" → `values.attachment_ids` |
+| Bladeren door de Asset Manager | `GET /forminator-v2/api/mail-assets?prefix=` in `routes.js` |
+| Gedeelde prefix- en rechtenregels | `src/modules/asset-manager/lib/namespace.js` |
+| Kiezer + bijlagelijst in de composer | `public/forminator-sync-v2-mail-attachments.js` |
+| Migratie | `supabase/migrations/20260914120000_fsv2_mail_attachments.sql` |
+
+Afspraken die bewust zo zijn:
+
+- **De cachesleutel is `(r2_key, etag)`, niet `r2_key` alleen.** R2's etag
+  verandert zodra de bytes veranderen, dus een vervangen bestand krijgt
+  automatisch een nieuw `ir.attachment` en de volgende mails dragen de nieuwe
+  versie. De oude rij blijft staan: al verzonden mails wijzen ernaar en die
+  geschiedenis moet kloppen. Ware de sleutel alleen `r2_key`, dan bleef er stil
+  een verouderde PDF vertrekken — zonder fout, zonder melding, en pas op te
+  merken door een ontvanger.
+- **Zonder cache maakt elke indiening een volledige kopie van dezelfde PDF in
+  Odoo.** Bij een paar honderd leads zijn dat honderden megabytes voor één
+  bestand. Het gedeelde attachment krijgt daarom bewust GÉÉN `res_model`/
+  `res_id`: zou het aan het eerste lead hangen, dan verdwijnt het bij het
+  opruimen van dat lead en breken alle andere mails mee.
+- **Een ontbrekende bijlage GOOIT; er wordt dan geen mail klaargezet.** De stap
+  komt als `mail_failed` in het indieningsspoor en is replaybaar zodra het
+  bestand terugstaat. Doorsturen zonder bijlage is de slechtere uitkomst: een
+  mail die "in bijlage vind je..." zegt en niets meestuurt, merkt niemand aan
+  onze kant op.
+- **Grenzen: 5 bijlagen, samen 7 MB ruw.** Postmark weigert boven 10 MB, en dat
+  is NÁ base64 (≈ +33%) en inclusief de tekst. De grens wordt server-side
+  afgedwongen en niet alleen in de UI, want een bestand kan ná het instellen
+  van de stap nog groeien.
+- **Er is GEEN uploadveld in de bijlagekiezer.** Uploaden en vervangen gebeurt
+  in de Asset Manager; de kiezer leest alleen. Uploaden op twee plekken
+  betekent onvermijdelijk twee bestanden waarvan er één veroudert — precies wat
+  dit ontwerp moet vermijden.
+- **De rechten zijn die van de Asset Manager, niet een soepelere kopie.**
+  `canReadAssetPrefix` en `isWithinAssetNamespace` staan sinds deze wijziging in
+  `asset-manager/lib/namespace.js` en worden door beide modules geïmporteerd;
+  `asset-manager/routes.js` heeft er geen eigen kopie meer van. De route leeft
+  wél in Koppelingen, omdat `/assets/api/assets/list` achter de module-toegang
+  van de asset-manager zit en wie koppelingen beheert die niet noodzakelijk
+  heeft. Een gebruiker zonder de rol `asset_manager` ziet alleen zijn eigen
+  `users/{id}/`-map — de kiezer zegt dat er dan ook bij in plaats van leeg te
+  zijn.
+- **Een al KLAARGEZETTE mail volgt een vervangen bestand NIET.** Met een
+  vertraging plus verzendvenster kan een mail uren in Odoo's wachtrij staan; die
+  wijst dan nog naar het oude attachment. Bewust niet opgelost: dat vraagt een
+  cron die `outgoing` mails herschrijft, en het venster is klein.
+- **Het voorbeeld ("Verversen") meldt terug of elk bestand er nog staat**
+  (`describeMailAttachments` → `data.attachments[].missing`). Zo zie je het in de
+  editor, niet pas bij een mislukte indiening.
+
 ## mini-apps — geplande vs. criteria-taken (2 aparte "onbemand versturen"-bouwblokken)
 
 Collega's uploaden zelfgemaakte single-file HTML/JS mini-apps (`src/modules/mini-apps/`, route `/mini-apps`). Naast de basis (upload/tweak/delen, gedeelde opslag via `window.sharedStorage`, notify/chat terwijl de app open staat) heeft de module twee mechanismes om een mail/chat te versturen ZONDER dat iemand de app open heeft. Dit zijn BEWUST twee volledig gescheiden bouwblokken — geen gedeelde tabel, geen gedeelde cron, geen gedeelde lib — omdat ze een fundamenteel ander trigger-type hebben:

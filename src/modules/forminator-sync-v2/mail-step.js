@@ -31,6 +31,7 @@
 import { searchRead, create } from '../../lib/odoo.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
 import { renderMailHtml, renderSubject } from '../../lib/mail/render-blocks.js';
+import { resolveMailAttachments } from './mail-attachments.js';
 
 /** Puur een identifier, geen adres. Zelfde domein als events gebruikt. */
 const MESSAGE_ID_DOMAIN = 'om.mymmo.com';
@@ -451,7 +452,26 @@ export async function runSendMailStep(env, {
   if (subject.trim() === '') throw new MailStepError('send_mail: het onderwerp is leeg.');
   if (bodyHtml.trim() === '') throw new MailStepError('send_mail: de mailtekst is leeg.');
 
-  // ── 6. Klaarzetten ─────────────────────────────────────────────────────────
+  // ── 6. Bijlagen ───────────────────────────────────────────────────────────
+  //
+  // Bewust HIER, nadat vaststaat dat er een ontvanger is en de mail nog niet
+  // klaarstaat: een ontbrekende of te grote bijlage mag geen Odoo-upload
+  // kosten voor een mail die toch niet vertrekt.
+  //
+  // EEN ONTBREKENDE BIJLAGE GOOIT. De stap komt dan als `mail_failed` in het
+  // indieningsspoor en er wordt niets klaargezet -- zie het doc-blok in
+  // mail-attachments.js voor waarom dat beter is dan doorsturen zonder.
+  let attachmentIds = [];
+  if (Array.isArray(target.mail_attachments) && target.mail_attachments.length > 0) {
+    try {
+      const opgelost = await resolveMailAttachments(env, target.mail_attachments);
+      attachmentIds = opgelost.ids;
+    } catch (err) {
+      throw new MailStepError('send_mail: ' + (err && err.message ? err.message : String(err)));
+    }
+  }
+
+  // ── 7. Klaarzetten ────────────────────────────────────────────────────────
   const values = {
     subject,
     body_html: bodyHtml,
@@ -473,6 +493,10 @@ export async function runSendMailStep(env, {
     values.model = model;
     values.res_id = recordId;
   }
+  // [[6, 0, ids]] = "vervang de hele lijst". mail.mail erft attachment_ids van
+  // mail.message, dus dit komt via _inherits op het onderliggende bericht
+  // terecht en staat daardoor ook in de chatter van het record.
+  if (attachmentIds.length > 0) values.attachment_ids = [[6, 0, attachmentIds]];
   const headers = buildPostmarkHeaders({
     trackOpens: target.mail_track_opens !== false,
     integrationId: integration && integration.id,

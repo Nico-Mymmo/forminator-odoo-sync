@@ -1,6 +1,11 @@
 import { executeKw } from '../../lib/odoo.js';
 import { fetchFsv2ActivityTypes, fetchFsv2OdooUsers } from './odoo-client.js';
 import { renderPlainMailHtml, renderPlainSubject, nietPlatteOpmaak } from '../../lib/mail/render-plain.js';
+import { describeMailAttachments, MAX_MAIL_ATTACHMENTS, MAX_MAIL_ATTACHMENT_BYTES } from './mail-attachments.js';
+import { listObjects } from '../asset-manager/lib/r2-client.js';
+import {
+  ASSET_CATEGORY_PREFIXES, canReadAssetPrefix, isWithinAssetNamespace, listDynamicAssetCategories
+} from '../asset-manager/lib/namespace.js';
 import {
   listIntegrationSummaries,
   createIntegrationRecord,
@@ -1185,6 +1190,11 @@ export const routes = {
         ...(payload.mail_subject_template  !== undefined ? { mail_subject_template:  payload.mail_subject_template  || null } : {}),
         ...(payload.mail_body_html         !== undefined ? { mail_body_html:         payload.mail_body_html         || null } : {}),
         ...(payload.mail_blocks            !== undefined ? { mail_blocks:            Array.isArray(payload.mail_blocks) && payload.mail_blocks.length ? payload.mail_blocks : null } : {}),
+        // Bijlagen: alleen de VERWIJZING naar het Asset-Manager-bestand wordt
+        // bewaard ([{key, name}]), nooit de inhoud of een Odoo-attachment-id --
+        // daardoor draagt een vervangen bestand vanzelf door naar de volgende
+        // mails. Zie het doc-blok in mail-attachments.js.
+        ...(payload.mail_attachments       !== undefined ? { mail_attachments:       Array.isArray(payload.mail_attachments) && payload.mail_attachments.length ? payload.mail_attachments : null } : {}),
         ...(payload.mail_delay_minutes     !== undefined ? { mail_delay_minutes:     Number(payload.mail_delay_minutes) || 0 } : {}),
         // Verzendvenster in minuten sinds middernacht (Europe/Brussels), zodat
         // een vertraging nooit een mail om 03:00 oplevert.
@@ -1254,6 +1264,11 @@ export const routes = {
         ...(payload.mail_subject_template  !== undefined ? { mail_subject_template:  payload.mail_subject_template  || null } : {}),
         ...(payload.mail_body_html         !== undefined ? { mail_body_html:         payload.mail_body_html         || null } : {}),
         ...(payload.mail_blocks            !== undefined ? { mail_blocks:            Array.isArray(payload.mail_blocks) && payload.mail_blocks.length ? payload.mail_blocks : null } : {}),
+        // Bijlagen: alleen de VERWIJZING naar het Asset-Manager-bestand wordt
+        // bewaard ([{key, name}]), nooit de inhoud of een Odoo-attachment-id --
+        // daardoor draagt een vervangen bestand vanzelf door naar de volgende
+        // mails. Zie het doc-blok in mail-attachments.js.
+        ...(payload.mail_attachments       !== undefined ? { mail_attachments:       Array.isArray(payload.mail_attachments) && payload.mail_attachments.length ? payload.mail_attachments : null } : {}),
         ...(payload.mail_delay_minutes     !== undefined ? { mail_delay_minutes:     Number(payload.mail_delay_minutes) || 0 } : {}),
         // Verzendvenster in minuten sinds middernacht (Europe/Brussels), zodat
         // een vertraging nooit een mail om 03:00 oplevert.
@@ -1400,7 +1415,91 @@ export const routes = {
         success: true,
         data: {
           subject: renderPlainSubject((payload && payload.mail_subject_template) || '', ctx),
-          html: renderPlainMailHtml({ html: ruw, context: ctx })
+          html: renderPlainMailHtml({ html: ruw, context: ctx }),
+          // Wel in het voorbeeld, niet in de HTML: de bijlagen hangen aan het
+          // mail.mail-record, niet in de tekst. `missing` is het punt -- zo
+          // zie je HIER al dat een bestand uit de Asset Manager verdwenen is,
+          // in plaats van pas bij een mislukte indiening.
+          attachments: await describeMailAttachments(context.env, payload && payload.mail_attachments)
+        }
+      });
+    } catch (error) {
+      return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
+    }
+  },
+
+  /**
+   * Bladeren door de Asset Manager, om er een mailbijlage uit te kiezen.
+   *
+   * WAAROM DEZE ROUTE HIER STAAT EN NIET DIE VAN DE ASSET MANAGER GEBRUIKT
+   * WORDT: `/assets/api/assets/list` zit achter de module-toegang van de
+   * asset-manager. Wie koppelingen beheert heeft die niet noodzakelijk, en
+   * dan zou de kiezer een lege lijst tonen zonder uit te leggen waarom.
+   *
+   * DE RECHTEN ZIJN WEL DIE VAN DE ASSET MANAGER. `canReadAssetPrefix` en
+   * `isWithinAssetNamespace` komen uit asset-manager/lib/namespace.js -- er is
+   * hier geen eigen, soepelere kopie van die regels, en dat moet zo blijven.
+   * Alleen LEZEN: uploaden en vervangen gebeurt in de Asset Manager zelf.
+   */
+  'GET /api/mail-assets': async (context) => {
+    try {
+      const { env, user, request } = context;
+      const url = new URL(request.url);
+      const prefix = url.searchParams.get('prefix') || '';
+      const origin = url.origin;
+
+      // Geen prefix: de mappen waar deze gebruiker in mag kijken. Bewust geen
+      // bestanden -- een bucket-brede lijst is precies wat de asset-manager
+      // sinds 2026-07-13 niet meer doet.
+      if (!prefix) {
+        const dynamisch = await listDynamicAssetCategories(env);
+        const kandidaten = [
+          ...ASSET_CATEGORY_PREFIXES.map((p) => ({ prefix: p, name: p.replace(/\/$/, '') })),
+          ...dynamisch.map((cat) => ({ prefix: cat.prefix, name: cat.label || cat.prefix.replace(/\/$/, '') })),
+          ...(user && user.id ? [{ prefix: `users/${user.id}/`, name: 'Mijn bestanden' }] : [])
+        ];
+        const folders = kandidaten.filter((f) => canReadAssetPrefix(user, f.prefix));
+        return jsonResponse({
+          success: true,
+          data: {
+            folders, files: [], prefix: '',
+            limits: { maxFiles: MAX_MAIL_ATTACHMENTS, maxTotalBytes: MAX_MAIL_ATTACHMENT_BYTES },
+            // Zodat de kiezer kan zeggen WAAROM hij leeg is in plaats van
+            // gewoon leeg te zijn.
+            readable: folders.length > 0
+          }
+        });
+      }
+
+      if (!isWithinAssetNamespace(prefix)) {
+        return jsonResponse({ success: false, error: 'Dit pad hoort niet bij de Asset Manager.' }, 400);
+      }
+      if (!canReadAssetPrefix(user, prefix)) {
+        return jsonResponse({ success: false, error: 'Geen toegang tot deze map.' }, 403);
+      }
+
+      const result = await listObjects(env, { prefix, limit: 200, delimiter: '/' });
+      const files = (result.objects || [])
+        .filter((o) => !String(o.key).endsWith('/.keep'))
+        .map((o) => ({
+          key: o.key,
+          name: String(o.key).split('/').pop(),
+          size: o.size,
+          contentType: o.contentType,
+          uploaded: o.uploaded,
+          url: `${origin}/assets/${o.key}`
+        }));
+      const folders = (result.delimitedPrefixes || []).map((p) => ({
+        prefix: p,
+        name: p.slice(prefix.length).replace(/\/$/, '')
+      }));
+
+      return jsonResponse({
+        success: true,
+        data: {
+          folders, files, prefix, truncated: !!result.truncated,
+          limits: { maxFiles: MAX_MAIL_ATTACHMENTS, maxTotalBytes: MAX_MAIL_ATTACHMENT_BYTES },
+          readable: true
         }
       });
     } catch (error) {

@@ -23,8 +23,17 @@ if (!defined('ABSPATH')) {
 /** @var array{status:string,message:string,values:array<string,mixed>}|null $flash */
 /** @var bool $stale */
 /** @var string $lang */
+/** @var string|null $instance_id  eigen id-voorvoegsel, voor een tweede exemplaar op dezelfde pagina */
+/** @var string|null $anchor       waar de bezoeker na het versturen terecht moet komen */
 
-$form_id_attr = 'mymmo-form-' . $slug;
+// Normaal is het id afgeleid van de slug. Staat hetzelfde formulier TWEE keer
+// op een pagina (in de tekst en in een pop-up), dan zouden alle veld-id's
+// botsen: een <label for> wijst dan naar het verkeerde veld en een klik op het
+// label zet de cursor in het andere formulier. De aanroeper mag daarom een
+// eigen voorvoegsel meegeven.
+$form_id_attr = (isset($instance_id) && is_string($instance_id) && $instance_id !== '')
+    ? $instance_id
+    : ('mymmo-form-' . $slug);
 $oude_waarden = is_array($flash['values'] ?? null) ? $flash['values'] : [];
 $stijl        = mymmo_forms_theme_style(is_array($form['theme'] ?? null) ? $form['theme'] : []);
 
@@ -103,6 +112,14 @@ $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
             <?php // De taal mee terug, zodat een foutmelding in dezelfde taal terugkomt en meta_lang naar Odoo gaat. ?>
             <input type="hidden" name="mymmo_lang" value="<?php echo esc_attr($lang); ?>">
             <input type="hidden" name="mymmo_redirect_to" value="<?php echo esc_url(get_permalink() ?: home_url('/')); ?>">
+            <?php
+            // Waar op die pagina. Zonder dit komt een bezoeker die vanuit een
+            // pop-up verstuurde terug op een gesloten venster en ziet hij zijn
+            // bevestiging nooit -- terwijl de inzending gewoon binnen is.
+            if (isset($anchor) && is_string($anchor) && $anchor !== '') :
+                ?>
+                <input type="hidden" name="<?php echo esc_attr(Mymmo_Forms_Submit::ANCHOR_FIELD); ?>" value="<?php echo esc_attr($anchor); ?>">
+            <?php endif; ?>
             <input type="hidden" name="mymmo_page_title" value="<?php echo esc_attr(wp_get_document_title()); ?>">
             <input type="hidden" name="<?php echo esc_attr(Mymmo_Forms_Submit::TIME_FIELD); ?>" value="<?php echo esc_attr(Mymmo_Forms_Submit::time_token()); ?>">
 

@@ -28,6 +28,9 @@ function admin_url($p = '') { return 'https://openvme.be/wp-admin/' . $p; }
 function wp_hash($t) { return md5('zout' . $t); }
 function add_action() {}
 
+// helpers.php: meta() haalt de bezoeker-UUID en de utm's daar op, zodat de
+// agenda-tab van de pop-up hetzelfde filter gebruikt als een inzending.
+require_once MYMMO_FORMS_DIR . 'includes/helpers.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-i18n.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-submit.php';
 
