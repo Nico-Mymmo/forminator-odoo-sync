@@ -23,6 +23,7 @@ import xpathConverterModule from './xpath-converter/module.js';
 import miniAppsModule from './mini-apps/module.js';
 import campaignFunnelsModule from './campaign-funnels/module.js';
 import dashboardsModule from './dashboards/module.js';
+import gmailChatterModule from './gmail-chatter/module.js';
 
 /**
  * All registered modules
@@ -44,6 +45,7 @@ export const MODULES = [
   cxAutomationsModule,
   xpathConverterModule,
   miniAppsModule,
+  gmailChatterModule,
   campaignFunnelsModule,
   dashboardsModule,
 ];

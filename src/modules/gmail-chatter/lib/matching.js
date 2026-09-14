@@ -92,6 +92,24 @@ export function bepaalRichting(headers, userEmail, onzeDomeinen) {
 }
 
 /**
+ * Lokale delen waarachter nooit een gesprekspartner zit.
+ *
+ * Zonder deze filter loopt de werklijst vol met leveranciersmail: de droogloop
+ * op één mailbox leverde meteen `noreply@odoo.sh` en `noreply@tm.openai.com`
+ * op. Die worden nooit een lead, en een werklijst die je moet leegvegen wordt
+ * een werklijst die je niet meer bekijkt.
+ */
+const GEEN_MENS = [
+  'noreply', 'no-reply', 'no_reply', 'donotreply', 'do-not-reply',
+  'mailer-daemon', 'postmaster', 'bounce', 'bounces', 'automated', 'notification'
+];
+
+function isGeautomatiseerdAdres(adres) {
+  const lokaal = String(adres || '').split('@')[0].toLowerCase();
+  return GEEN_MENS.some(p => lokaal === p || lokaal.startsWith(p + '-') || lokaal.startsWith(p + '.') || lokaal.startsWith(p + '+'));
+}
+
+/**
  * Moeten we dit bericht overslaan? Zo ja, met welke reden.
  *
  * De reden wordt bewaard, zodat je achteraf kan zien waarom een mail niet in de
@@ -109,6 +127,9 @@ export function skipReden(headers, richting) {
   if (pre === 'bulk' || pre === 'list' || pre === 'junk') return 'bulkmail';
 
   if (!richting.counterparts.length) return 'intern verkeer';
+
+  // Een tegenpartij die zelf geen mens is, hoeft niet in de werklijst.
+  if (richting.counterparts.every(isGeautomatiseerdAdres)) return 'geautomatiseerde afzender';
 
   // Onze eigen Odoo-notificaties: die staan al in de chatter, ze horen er niet
   // een tweede keer in te komen als "ontvangen mail".

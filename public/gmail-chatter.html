@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gmail → Chatter - Operations Manager</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('selectedTheme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/shared-navbar.js"></script>
+</head>
+<body class="bg-base-200/40 min-h-screen">
+  <div id="navbar"></div>
+
+  <!-- De gedeelde navbar staat op position:fixed met een hoogte van 48px
+       (zie src/lib/components/navbar.js). Zonder deze ruimte schuift de titel
+       eronder weg. -->
+  <main class="max-w-5xl mx-auto px-4 py-6" style="padding-top: calc(48px + 1.5rem);">
+
+    <div class="flex items-start justify-between gap-4 mb-5">
+      <div>
+        <h1 class="text-2xl font-bold">Gmail → Chatter</h1>
+        <p class="text-sm opacity-70 mt-1">
+          Mail uit je Gmail die bij een lead hoort, maar waar we zelf geen lead bij konden vinden.
+        </p>
+      </div>
+      <button class="btn btn-sm" data-action="refresh">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Verversen
+      </button>
+    </div>
+
+    <!-- Statusbalk -->
+    <div id="statusCard" class="card bg-base-100 shadow-sm mb-5">
+      <div class="card-body p-4 text-sm">
+        <div class="animate-pulse opacity-60">Laden…</div>
+      </div>
+    </div>
+
+    <div role="tablist" class="tabs tabs-boxed mb-5 w-fit">
+      <button role="tab" class="tab tab-active" data-tab="werklijst">Contacten</button>
+      <button role="tab" class="tab" data-tab="koppelingen">Uitzonderingen</button>
+      <button role="tab" class="tab" data-tab="posted">Geplaatst</button>
+      <button role="tab" class="tab" data-tab="skipped">Genegeerd</button>
+    </div>
+
+    <div id="lijst" class="space-y-3">
+      <div class="animate-pulse opacity-60 text-sm">Laden…</div>
+    </div>
+  </main>
+
+  <!-- Leadkiezer -->
+  <dialog id="leadDialog" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-bold text-lg mb-1">Aan welke lead hoort deze mail?</h3>
+      <p class="text-sm opacity-70 mb-4" id="leadDialogOnderwerp"></p>
+
+      <input type="text" id="leadZoek" placeholder="Zoek op naam, contactpersoon of e-mailadres…"
+             class="input input-bordered w-full mb-3" autocomplete="off">
+
+      <div id="leadResultaten" class="max-h-72 overflow-y-auto space-y-2"></div>
+
+      <div class="modal-action">
+        <button class="btn btn-ghost" data-action="sluit-lead-dialog">Annuleren</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>sluiten</button></form>
+  </dialog>
+
+  <div id="toasts" class="toast toast-end z-50"></div>
+
+  <script src="/gmail-chatter.js"></script>
+</body>
+</html>
