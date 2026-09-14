@@ -14,6 +14,7 @@ import { runAutoDoneCron } from './modules/event-operations-v2/lib/cron.js';
 import { runMailRepairCron } from './modules/event-operations-v2/lib/mail-cron.js';
 import { runDueScheduledTasks } from './modules/mini-apps/lib/scheduler.js';
 import { runDueConditionTasks } from './modules/mini-apps/lib/condition-scheduler.js';
+import { runGmailChatterSync } from './modules/gmail-chatter/lib/sync.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -97,6 +98,13 @@ export default {
       ctx.waitUntil(
         runDueConditionTasks(env).catch(err =>
           console.error('[scheduled][mini_apps][condition-tasks] CRASH:', err?.message, err?.stack)
+        )
+      );
+      // Gmail -> Odoo-chatter. Doet NIETS zolang GMAIL_CHATTER_USERS leeg is,
+      // dus een deploy op zich begint nooit uit zichzelf mailboxen te lezen.
+      ctx.waitUntil(
+        runGmailChatterSync(env).catch(err =>
+          console.error('[scheduled][gmail-chatter] CRASH:', err?.message, err?.stack)
         )
       );
     }

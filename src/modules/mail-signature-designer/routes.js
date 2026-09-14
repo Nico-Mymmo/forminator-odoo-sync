@@ -54,6 +54,7 @@ import { compileSignature } from './lib/signature-compiler.js';
 import { mergeSignatureLayers, mergeForPreview } from './lib/signature-merge-engine.js';
 import { listUsers, getUserByEmail } from './lib/directory-client.js';
 import { getPrimarySendAs, updateSignature, listSendAs, pushSignatureToAlias } from './lib/gmail-signature-client.js';
+import { pushSignatureToOdoo } from './lib/odoo-signature.js';
 import { mailSignatureDesignerUI } from './ui.js';
 import { searchRead } from '../../lib/odoo.js';
 
@@ -299,6 +300,13 @@ async function pushOneUser({
     const oldHash = quickHash(oldSignature || '');
     const changed = oldHash !== newHash;
 
+    // Dezelfde HTML ook naar `res.users.signature` in Odoo. De chatter plakt dat
+    // veld onder elke mail die een medewerker naar een klant stuurt, dus zonder
+    // deze stap loopt Odoo achter op Gmail en staat daar nog de standaard
+    // `--<br>Naam`. Best-effort: pushSignatureToOdoo() gooit niet, want de
+    // Gmail-push is op dit punt al geslaagd en mag niet alsnog omvallen.
+    const odooSync = await pushSignatureToOdoo(env, targetEmail, finalHtml);
+
     // Collect primary audit log entry (caller will bulk-insert)
     pendingLogs.push({
       actor_email:       actorEmail,
@@ -311,11 +319,12 @@ async function pushOneUser({
         ...(finalWarnings.length ? { warnings: finalWarnings } : {}),
         old_hash: oldHash,
         new_hash: newHash,
-        changed
+        changed,
+        odoo_sync: odooSync
       }
     });
 
-    return { email: targetEmail, success: true, warnings: finalWarnings, changed, old_hash: oldHash, new_hash: newHash, pendingLogs };
+    return { email: targetEmail, success: true, warnings: finalWarnings, changed, old_hash: oldHash, new_hash: newHash, odoo_sync: odooSync, pendingLogs };
   } catch (err) {
     console.error(`${LOG_PREFIX} push failed for ${targetEmail}:`, err);
 
