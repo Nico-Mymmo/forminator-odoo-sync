@@ -215,6 +215,14 @@
     }
 
     precedingTargets.forEach(function (prevT, prevIdx) {
+      // Calendly's host-zoekstap (label 'calendly_host', zie
+      // calendly/system-step.js#HOST_STAP) bestaat enkel om het host-veld op
+      // de meeting te vullen -- ze is GEEN geldig koppelpunt voor een lead of
+      // wat dan ook: "bij Calendly hoeft een lead nooit aan de host gekoppeld
+      // te worden". De contactpersoon (hieronder, via de resolver) is de
+      // juiste koppeling.
+      if (prevT.is_system === true && prevT.label === 'calendly_host') return;
+
       var info        = stapInfo(prevT, prevIdx);
       var prevVelden  = cache[prevT.odoo_model] || [];
       var prevModel   = technischModel(prevT.odoo_model);
@@ -362,6 +370,39 @@
       }
     });
 
+    // Contactpersoon uit een vaste resolver (bv. Calendly's partner_by_email,
+    // zie calendly/system-step.js). Resolvers zitten niet in precedingTargets
+    // -- daarom een apart blok, generiek op output_context_key i.p.v.
+    // hardgecodeerd op 'calendly', zodat een volgende bron met dezelfde
+    // resolver-vorm dit automatisch meekrijgt.
+    var CONTEXT_RELATIES = { 'context.partner_id': 'res.partner' };
+    var resolvers = (S().detail && S().detail.resolvers) || [];
+    if (magSchrijven) {
+      resolvers.forEach(function (resolver) {
+        var relatieModel = resolver.is_system === true
+          ? CONTEXT_RELATIES[resolver.output_context_key]
+          : null;
+        if (!relatieModel) return;
+
+        mijnVelden.filter(function (f) {
+          return f.type === 'many2one' && f.relation === relatieModel && chainVeldBruikbaar(f);
+        }).forEach(function (f) {
+          var lbl = (f.label || f.name) + ' (' + f.name + ')';
+          suggestions.push({
+            kind:         'set_context',
+            odooField:    f.name,
+            odooLabel:    lbl,
+            sourceValue:  resolver.output_context_key,
+            isIdentifier: true,
+            isRequired:   true,
+            titel:        'Vul ' + lbl + ' in met de contactpersoon van de vaste stap',
+            uitleg:       lbl + ' van dit record gaat verwijzen naar het contact dat de vaste stap ' +
+                          'opzocht (bestaat het al) of aanmaakte (bestond het nog niet).',
+          });
+        });
+      });
+    }
+
     return suggestions;
   }
 
@@ -376,11 +417,11 @@
     var mem = S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid];
     if (Array.isArray(mem)) {
       return mem
-        .filter(function (r) { return r.sourceType === 'previous_step_output'; })
+        .filter(function (r) { return r.sourceType === 'previous_step_output' || r.sourceType === 'context'; })
         .map(function (r) { return { odooField: r.odooField, source: r.staticValue || '' }; });
     }
     return ((S().detail.mappingsByTarget && S().detail.mappingsByTarget[tid]) || [])
-      .filter(function (m) { return m.source_type === 'previous_step_output'; })
+      .filter(function (m) { return m.source_type === 'previous_step_output' || m.source_type === 'context'; })
       .map(function (m) { return { odooField: m.odoo_field, source: m.source_value || '' }; });
   }
 
@@ -677,9 +718,12 @@
     // Tab-zichtbaarheid: trackers hebben geen formuliervelden/koppeling/indieningen \u2014
     // toon in plaats daarvan uitsluitend de Statistieken-tab (omgekeerd voor de andere twee bronnen).
     var isTrackerIntegration = integration.source_type === 'tracker';
-    // Het Calendly-tabblad verschijnt alleen bij een Calendly-koppeling. Daar
-    // staat de verbinding met Calendly, welk eventtype deze koppeling opvangt,
-    // en wat de vaste eerste stap doet.
+    // Een Calendly-koppeling heeft geen "Formulier"-tab: dat tabblad bouwt een
+    // OM-eigen formulier, en een Calendly-boeking heeft daar niets aan. Er is
+    // ook geen apart "Calendly"-tabblad meer -- de vaste stap (contact
+    // opzoeken/aanmaken, host zoeken, meeting wegschrijven) plus de keuze van
+    // eventtype/Odoo-type staan nu als kaart bovenaan de Koppeling-tab, zie
+    // forminator-sync-v2-detail-calendly-tab.js + -detail-mapping-tab.js.
     var isCalendlyIntegration = integration.source_type === 'calendly';
     var tabBar = document.getElementById('detailTabBar');
     if (tabBar) {
@@ -688,23 +732,23 @@
       var mappingBtn = tabBar.querySelector('[data-detail-tab="mapping"]');
       var historyBtn = tabBar.querySelector('[data-detail-tab="history"]');
       var statsBtn   = document.getElementById('detailTabStatsBtn');
-      var calendlyBtn = document.getElementById('detailTabCalendlyBtn');
-      [fieldsBtn, formBtn, mappingBtn, historyBtn].forEach(function (btn) {
+      [fieldsBtn, mappingBtn, historyBtn].forEach(function (btn) {
         if (btn) btn.style.display = isTrackerIntegration ? 'none' : '';
       });
+      if (formBtn) formBtn.style.display = (isTrackerIntegration || isCalendlyIntegration) ? 'none' : '';
       if (statsBtn) statsBtn.style.display = isTrackerIntegration ? '' : 'none';
-      if (calendlyBtn) calendlyBtn.style.display = isCalendlyIntegration ? '' : 'none';
 
       var activeTabBtn = tabBar.querySelector('.tab-active');
       var needsTabSwitch = isTrackerIntegration
         ? (!activeTabBtn || activeTabBtn.dataset.detailTab !== 'stats')
-        : (activeTabBtn && activeTabBtn.dataset.detailTab === 'stats');
+        : (activeTabBtn && activeTabBtn.dataset.detailTab === 'stats')
+          || (isCalendlyIntegration && activeTabBtn && activeTabBtn.dataset.detailTab === 'form');
       if (needsTabSwitch) {
         var targetTab = isTrackerIntegration ? 'stats' : 'fields';
         tabBar.querySelectorAll('[data-detail-tab]').forEach(function (t) {
           t.classList.toggle('tab-active', t.dataset.detailTab === targetTab);
         });
-        ['fields', 'form', 'mapping', 'history', 'stats', 'calendly'].forEach(function (name) {
+        ['fields', 'form', 'mapping', 'history', 'stats'].forEach(function (name) {
           var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
           if (panel) panel.style.display = name === targetTab ? '' : 'none';
         });

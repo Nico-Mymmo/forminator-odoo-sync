@@ -54,6 +54,15 @@
     var pipelineOpen  = window.FSV2.getPipelineOpen(integrationId);
     var isSingle      = sortedTargets.length === 1;
 
+    // Calendly's vaste eerste stap (contact-resolver + host-zoekstap +
+    // meeting-upsert, alle drie is_system) komt hier NIET als losse kaarten
+    // per target -- zie forminator-sync-v2-detail-calendly-tab.js voor de
+    // volledige onderbouwing. In de forEach hieronder worden is_system-targets
+    // overgeslagen en éénmalig vervangen door die samengevoegde kaart.
+    var integration           = S().detail && S().detail.integration;
+    var isCalendlyIntegration = !!(integration && integration.source_type === 'calendly');
+    var calendlyStapGerenderd = false;
+
     var _ffr       = window.FSV2.buildDetailFlatFields(S().detailFormFields);
     var flatFields = _ffr.flatFields;
     var rawFf      = _ffr.topLevel;    // gebruikt als topLevelFields in MappingTable.render
@@ -62,6 +71,14 @@
     var html = '';
 
     sortedTargets.forEach(function (target, idx) {
+      if (isCalendlyIntegration && target.is_system) {
+        if (!calendlyStapGerenderd) {
+          html += window.FSV2.renderCalendlyStapKaart();
+          calendlyStapGerenderd = true;
+        }
+        return;
+      }
+
       var tid     = String(target.id);
       var isOpen  = !!pipelineOpen[tid];
       var isFirst = idx === 0;
@@ -883,6 +900,11 @@
       // complete opstelling geeft in plaats van een halve.
       (sug.extraField ? ' data-extra-field="' + esc(sug.extraField) + '"' +
                         ' data-extra-label="' + esc(sug.extraLabel || sug.extraField) + '"' : '') +
+      // Een context-suggestie (contactpersoon uit een vaste resolver) draagt
+      // haar eigen bron rechtstreeks mee -- die is GEEN "step.N.veld", dus de
+      // gewone stepOrder/sourceSuffix-opbouw in applyChainSuggestion() slaat
+      // hier over op wat hier meegegeven wordt.
+      (sug.sourceValue ? ' data-source-value="' + esc(sug.sourceValue) + '"' : '') +
       '>' +
       '<i data-lucide="link-2" class="w-3 h-3"></i> Instellen</button>';
   }
@@ -911,7 +933,13 @@
     }
 
     return rijen.map(function (r) {
-      var m = String(r.source || '').match(/^step\.(.+)\.([^.]+)$/);
+      var bron = String(r.source || '');
+      if (bron.indexOf('context.') === 0) {
+        return r.odooField + ' \u2190 ' + (bron === 'context.partner_id'
+          ? 'de contactpersoon van de vaste stap'
+          : bron);
+      }
+      var m = bron.match(/^step\.(.+)\.([^.]+)$/);
       if (!m) return r.odooField;
       var stap = 'stap ' + stapNummer(m[1]);
       var veld = m[2];
@@ -937,15 +965,17 @@
       // Welke paarsleutels zijn al in gebruik? Een relatie kan maar van EEN kant
       // ingesteld worden; de andere kant hoort dan te verdwijnen in plaats van
       // als derde keuze te blijven staan naast wat je net koos.
+      var bronVoor = function (s) {
+        return s.sourceValue ? s.sourceValue : ('step.' + s.stepOrder + '.' + (s.sourceSuffix || 'record_id'));
+      };
       var gekozenParen = {};
       suggestions.forEach(function (s) {
         if (!s.pairKey) return;
-        var bronS = 'step.' + s.stepOrder + '.' + (s.sourceSuffix || 'record_id');
-        if (window.FSV2.isChainSuggestionApplied(tid, s.odooField, bronS)) gekozenParen[s.pairKey] = s.odooField;
+        if (window.FSV2.isChainSuggestionApplied(tid, s.odooField, bronVoor(s))) gekozenParen[s.pairKey] = s.odooField;
       });
 
       suggestions.forEach(function (s) {
-        var bron    = 'step.' + s.stepOrder + '.' + (s.sourceSuffix || 'record_id');
+        var bron    = bronVoor(s);
         var applied = window.FSV2.isChainSuggestionApplied(tid, s.odooField, bron);
         // De tegenovergestelde richting van een al gekozen relatie.
         if (!applied && s.pairKey && gekozenParen[s.pairKey]) return;
@@ -1575,12 +1605,32 @@
       }
     });
 
-    // ── Chain rows (previous_step_output) — rendered outside the table ──────
+    // ── Chain rows (previous_step_output én context) — rendered outside the table ──
     var extraRows = (S().detail._extraRowsByTarget && S().detail._extraRowsByTarget[tid]) || [];
     extraRows.forEach(function (em, i) {
-      if (em.sourceType !== 'previous_step_output') return;  // table rows handled via DOM above
+      if (em.sourceType !== 'previous_step_output' && em.sourceType !== 'context') return;  // table rows handled via DOM above
       var sourceValue = em.staticValue || '';
       if (!sourceValue) return;
+      var chainReqChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-req-' + i + '"]');
+
+      // Een context-rij (contactpersoon uit een vaste resolver, bv.
+      // 'context.partner_id') volgt geen "step.N.veld"-vorm en heeft dus zijn
+      // eigen, kortere controle en source_type.
+      if (em.sourceType === 'context') {
+        if (!/^context\.[^.]+$/.test(sourceValue)) {
+          console.warn('[FSV2] context row skipped: invalid source_value', sourceValue, em);
+          return;
+        }
+        newMappings.push({
+          odoo_field: em.odooField, source_type: 'context', source_value: sourceValue,
+          is_identifier: em.isIdentifier !== false,
+          is_update_field: true,
+          is_required: chainReqChk ? chainReqChk.checked : (em.isRequired || false),
+          order_index: orderIdx++,
+        });
+        return;
+      }
+
       // Normalize legacy chain source_value format
       var legFix = String(sourceValue).match(/^step_(\d+)_id$/);
       if (legFix) sourceValue = 'step.' + legFix[1] + '.record_id';
@@ -1592,7 +1642,6 @@
         console.warn('[FSV2] chain row skipped: invalid source_value', sourceValue, em);
         return;
       }
-      var chainReqChk = mcEl.querySelector('input[name="det-extra-' + tid + '-chain-req-' + i + '"]');
       newMappings.push({
         odoo_field: em.odooField, source_type: 'previous_step_output', source_value: sourceValue,
         is_identifier: em.isIdentifier !== false,
@@ -1852,21 +1901,29 @@
     var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
     if (!S().detail._extraRowsByTarget)       S().detail._extraRowsByTarget = {};
     if (!S().detail._extraRowsByTarget[tid])  S().detail._extraRowsByTarget[tid] = [];
+    opties = opties || {};
+    // Een context-suggestie (contactpersoon uit een vaste resolver, zie
+    // computeChainSuggestions() in forminator-sync-v2-detail.js) draagt haar
+    // bron rechtstreeks mee ('context.partner_id') i.p.v. een "step.N.veld"
+    // die uit stepOrder opgebouwd wordt -- dat laatste is zinloos voor een
+    // resolver, want resolvers hebben geen stepOrder.
+    var isContext = !!opties.sourceValue;
+    var sourceType = isContext ? 'context' : 'previous_step_output';
     var already = S().detail._extraRowsByTarget[tid].some(function (r) {
-      return r.odooField === odooField && r.sourceType === 'previous_step_output';
+      return r.odooField === odooField && r.sourceType === sourceType;
     });
     if (already) { window.FSV2.showAlert('Koppeling bestaat al.', 'info'); return; }
     // Remove any existing default/empty row for the same odoo field so it doesn't duplicate
     S().detail._extraRowsByTarget[tid] = S().detail._extraRowsByTarget[tid].filter(function (r) {
-      return !(r.odooField === odooField && r.sourceType !== 'previous_step_output');
+      return !(r.odooField === odooField && r.sourceType !== sourceType);
     });
-    opties = opties || {};
     S().detail._extraRowsByTarget[tid].push({
       odooField:   odooField,
       odooLabel:   odooLabel || odooField,
-      sourceType:  'previous_step_output',
-      // Het record zelf (record_id) of een VELD van dat record.
-      staticValue: 'step.' + stepOrder + '.' + (opties.sourceSuffix || 'record_id'),
+      sourceType:  sourceType,
+      // Het record zelf (record_id) of een VELD van dat record -- of, bij een
+      // context-suggestie, de contextsleutel zelf.
+      staticValue: isContext ? opties.sourceValue : ('step.' + stepOrder + '.' + (opties.sourceSuffix || 'record_id')),
       isRequired:  opties.isRequired !== false,
       isIdentifier: opties.isIdentifier !== false,
     });

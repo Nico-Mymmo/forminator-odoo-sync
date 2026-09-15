@@ -67,16 +67,16 @@
       document.querySelectorAll('[data-detail-tab]').forEach(function (t) {
         t.classList.toggle('tab-active', t.dataset.detailTab === tabName);
       });
-      ['fields', 'form', 'mapping', 'history', 'stats', 'calendly'].forEach(function (name) {
+      ['fields', 'form', 'mapping', 'history', 'stats'].forEach(function (name) {
         var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
         if (panel) panel.style.display = name === tabName ? '' : 'none';
       });
-      // Calendly om dezelfde reden pas bij het openen: dat tabblad doet drie
-      // aanroepen, waarvan twee naar Calendly zelf.
-      if (tabName === 'calendly' && window.FSV2.laadCalendlyTab) window.FSV2.laadCalendlyTab();
       // Het formulier pas ophalen als je het tabblad opent: bij elke
       // detailweergave laden zou een extra API-aanroep zijn voor een tabblad
-      // dat de meeste koppelingen niet gebruiken.
+      // dat de meeste koppelingen niet gebruiken. (Er is geen apart
+      // Calendly-tabblad meer -- de vaste-stap-kaart zit in de Koppeling-tab
+      // en laadt daarom niet-lazy vanuit openDetail(), zie
+      // forminator-sync-v2-detail-lifecycle.js.)
       if (tabName === 'form' && window.FSV2.renderDetailForm) window.FSV2.renderDetailForm();
       return;
     }
@@ -751,6 +751,10 @@
             // Tweede rij van een gecombineerd voorstel (de terugkoppeling).
             extraField:   btn.dataset.extraField || null,
             extraLabel:   btn.dataset.extraLabel || null,
+            // Een context-suggestie (contactpersoon uit een vaste resolver,
+            // zie computeChainSuggestions() in forminator-sync-v2-detail.js)
+            // draagt haar bron rechtstreeks mee i.p.v. "step.N.veld".
+            sourceValue:  btn.dataset.sourceValue || null,
           }
         );
         return;

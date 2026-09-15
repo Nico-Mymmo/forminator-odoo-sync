@@ -1,23 +1,41 @@
 /**
- * Koppelingen — het Calendly-tabblad van het detailscherm.
+ * Koppelingen — Calendly's vaste eerste stap, als kaart IN het tabblad
+ * "Koppeling" (niet als eigen tabblad -- zie geschiedenis onderaan).
  *
- * Twee blokken, in deze volgorde:
+ * Odoo-kant (bron van waarheid): src/modules/forminator-sync-v2/calendly/
+ * system-step.js#ensureCalendlySystemSteps(). Die maakt/houdt DRIE dingen
+ * bij, niet twee:
+ *   1. Een RESOLVER (fs_v2_resolvers, resolver_type 'partner_by_email',
+ *      create_if_missing: true) -- zoekt het contact op e-mail op, en maakt
+ *      het aan als het nog niet bestaat. Bestaat het al, dan wordt het
+ *      bestaande contact gebruikt. Dit was in de UI ONZICHTBAAR (de
+ *      Koppeling-tab rendert enkel `targets`, nooit `resolvers`), vandaar de
+ *      expliciete checklist hieronder -- niet een prozazin die je makkelijk
+ *      overleest.
+ *   2. De HOST-zoekstap (fs_v2_targets, label calendly_host, operation_type
+ *      'search') op hr.employee.
+ *   3. De MEETING-upsertstap (fs_v2_targets, label calendly_meeting) naar
+ *      x_calendlymeeting.
+ * Stap 2 en 3 zijn `is_system: true` targets en komen dus WEL uit de normale
+ * targets-lijst; stapEenKaart() in dit bestand vervangt hun individuele
+ * kaarten in forminator-sync-v2-detail-mapping-tab.js door één samengevoegde,
+ * niet-bewerkbare kaart met daarin het enige dat je wél kan instellen: welk
+ * Calendly-eventtype deze koppeling opvangt en als welk type het in Odoo
+ * terechtkomt.
  *
- *   1. STAP 1 — VASTE STAP. Welk Calendly-eventtype deze koppeling opvangt,
- *      als welk type het in Odoo terechtkomt, en (kort) wat de vaste stap
- *      doet. Dat laatste is niet instelbaar, maar hoort bij dezelfde stap als
- *      de eventtype-keuze -- vandaar één kaart in plaats van twee.
- *   2. INDIENINGEN e.d. via de rest van het detailscherm (andere tabs).
- *
- * De VERBINDING zelf (module-breed, niet per koppeling -- zie
- * forminator-sync-v2-calendly-connection.js) staat hier enkel als compacte
- * statusregel bovenaan: een kapotte verbinding laat alle Calendly-koppelingen
- * tegelijk stilvallen, dus dat moet je meteen zien, maar het volledige beheer
- * (aanmelden/verversen/afmelden) hoort maar één keer thuis, in
- * Instellingen → Verbindingen.
+ * GESCHIEDENIS: tot 2026-09 stond dit als apart tabblad "Calendly", met
+ * daarin ook het volledige Calendly-verbindingsbeheer (aanmelden/verversen/
+ * afmelden). Op feedback dat (a) de verbinding module-breed is en dus maar
+ * één keer thuishoort (nu in Instellingen → Verbindingen, zie
+ * forminator-sync-v2-calendly-connection.js) en (b) deze eventtype-keuze
+ * gewoon de configuratie van de vaste eerste pijplijnstap IS, is het aparte
+ * tabblad hier verdwenen en zijn "Formulier" (bouwt een OM-formulier -- niet
+ * van toepassing op een Calendly-bron) en "Calendly" allebei weg; enkel deze
+ * kaart in "Koppeling" blijft over.
  *
  * Alle HTML met ES6 template literals, geen string-concatenatie -- de
- * coderegel van deze module.
+ * coderegel van deze module (forminator-sync-v2-detail-mapping-tab.js zelf
+ * is hierop een bestaande, oudere uitzondering; dit bestand niet).
  */
 
 (function () {
@@ -26,9 +44,7 @@
   var esc = function (v) { return window.FSV2.esc(v); };
   function S() { return window.FSV2.S; }
 
-  // Wordt gevuld door laadCalendlyTab(); leeg tot het tabblad voor het eerst
-  // geopend wordt, zodat het openen van een koppeling geen extra API-aanroepen
-  // kost voor een tabblad dat je misschien niet bekijkt.
+  // Gevuld door laadCalendlyStapData(); leeg tot de koppeling geopend wordt.
   var eventTypes = null;
   var odooEventTypes = null;
   var koppelingConfig = null;
@@ -43,31 +59,23 @@
   // LADEN
   // ═══════════════════════════════════════════════════════════════════════════
 
-  async function laadCalendlyTab(opnieuw) {
-    if (!isCalendly()) return;
-    if (koppelingConfig && !opnieuw) { renderCalendlyTab(); return; }
+  /**
+   * Wordt aangeroepen vanuit openDetail() (forminator-sync-v2-detail-lifecycle.js)
+   * zodra een Calendly-koppeling opent -- niet lazy achter een tabklik, want de
+   * kaart hoort meteen in de Koppeling-tab te staan, die niet lazy is.
+   */
+  async function laadCalendlyStapData(integrationId, opnieuw) {
+    if (koppelingConfig && !opnieuw) return;
 
-    var id = S().activeId;
-    renderCalendlyTab({ laden: true });
-
-    // De verbindingsstatus is gedeeld met Instellingen → Verbindingen: hier
-    // enkel verversen als dit hele tabblad zelf herladen wordt (koppeling net
-    // geopend, of na "Opslaan"/"Vaste stap herbouwen"), anders hergebruikt dit
-    // gewoon de al geladen/cachestatus.
     await window.FSV2.laadCalendlyConnectie(!!opnieuw);
-
     var status = window.FSV2.huidigeCalendlyConnectieStatus();
 
-    // De rest alleen ophalen als er een token is -- zonder token geven die
-    // routes toch een fout, en drie foutmeldingen onder elkaar zeggen minder
-    // dan die ene zin over de ontbrekende secret.
     if (status && status.token_configured) {
       try {
         var etRes = await window.FSV2.api('/calendly/event-types');
         eventTypes = etRes.data || [];
       } catch (err) {
         eventTypes = null;
-        window.FSV2.showAlert('Eventtypes ophalen bij Calendly mislukt: ' + err.message, 'error');
       }
     }
 
@@ -79,52 +87,35 @@
     }
 
     try {
-      var cRes = await window.FSV2.api('/integrations/' + id + '/calendly');
+      var cRes = await window.FSV2.api('/integrations/' + integrationId + '/calendly');
       koppelingConfig = cRes.data || null;
     } catch (err) {
       koppelingConfig = null;
     }
-
-    if (S().activeId !== id) return;
-    renderCalendlyTab();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // TEKENEN
+  // TEKENEN — één kaart, ingevoegd door renderDetailMappings()
   // ═══════════════════════════════════════════════════════════════════════════
 
-  function renderCalendlyTab(opties) {
-    var host = document.getElementById('detailTabCalendly');
-    if (!host) return;
+  function renderCalendlyStapKaart() {
+    if (!isCalendly()) return '';
 
-    if (opties && opties.laden) {
-      host.innerHTML = `<div class="flex items-center gap-2 text-sm text-base-content/60 py-8 justify-center">
-        <span class="loading loading-spinner loading-sm"></span> Calendly wordt gelezen…
-      </div>`;
-      return;
+    if (koppelingConfig === null && eventTypes === null && odooEventTypes === null) {
+      return `<div class="card bg-base-100 border border-base-200 shadow-sm"><div class="card-body p-5">
+        <span class="loading loading-spinner loading-sm"></span>
+      </div></div>`;
     }
 
-    host.innerHTML = `
-      <div id="calendlyConnectionCompact"></div>
-      ${stapEenBlok()}
-    `;
-
-    // De compacte statusregel zelf tekent zichzelf via de gedeelde module --
-    // hier enkel de host neerzetten, renderCalendlyConnectieAlles() vult 'm.
-    window.FSV2.renderCalendlyConnectieAlles();
-
-    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: host });
-  }
-
-  // ── Stap 1: welk eventtype + wat de vaste stap doet ─────────────────────────
-
-  function stapEenBlok() {
     var huidig = (koppelingConfig && koppelingConfig.event_type_uri) || '';
     var huidigOdoo = (koppelingConfig && koppelingConfig.odoo_event_type_id) || '';
+    var status = window.FSV2.huidigeCalendlyConnectieStatus();
 
     var keuzeHtml;
-    if (eventTypes === null) {
-      keuzeHtml = `<p class="text-sm text-base-content/50">De eventtypes zijn niet op te halen. Controleer eerst de verbinding hierboven.</p>`;
+    if (!status || !status.token_configured) {
+      keuzeHtml = `<p class="text-sm text-base-content/50">Nog geen Calendly-verbinding. Stel die eerst in bij <a class="link" data-action="goto-connections">Instellingen → Verbindingen</a>.</p>`;
+    } else if (eventTypes === null) {
+      keuzeHtml = `<p class="text-sm text-base-content/50">De eventtypes zijn niet op te halen. Controleer de verbinding bij Instellingen.</p>`;
     } else if (!eventTypes.length) {
       keuzeHtml = `<p class="text-sm text-base-content/50">Dit Calendly-account heeft nog geen eventtypes.</p>`;
     } else {
@@ -132,7 +123,7 @@
         <select id="calendlyEventType" class="select select-bordered select-sm w-full max-w-xl">
           <option value="">Vangnet — alles waarvoor geen eigen koppeling bestaat</option>
           ${eventTypes.map(function (t) {
-            // Gedeelde/team-eventtypes (round robin, collective, ...) komen nu ook uit
+            // Gedeelde/team-eventtypes (round robin, collective, ...) komen ook uit
             // andere leden van de organisatie (zie listEventTypes() in client.js) --
             // de eigenaar erbij tonen is hier het enige dat twee gelijknamige
             // eventtypes van verschillende collega's nog uit elkaar houdt.
@@ -156,59 +147,75 @@
            }).join('')}
          </select>`;
 
-    return kaart('Stap 1 — wat deze koppeling opvangt', 'lock', `
-      <p class="text-sm text-base-content/70 mb-4">
-        De vaste eerste stap zoekt het contact op via e-mail (of maakt het aan), zoekt de host bij
-        de medewerkers op het werk-e-mailadres, en zet de afspraak in Odoo op
-        <code class="text-xs">x_calendlymeeting</code> — aanmaken, verplaatsen en annuleren komen
-        hier alle drie binnen. Niet instelbaar; extra stappen (lead aanmaken, notitie posten, mail
-        versturen) zet je op het tabblad <strong>Koppeling</strong>, met "vorige stap" naar het
-        meeting-record.
-      </p>
-
-      <label class="form-control mb-3">
-        <span class="label label-text text-xs">Calendly-eventtype</span>
-        ${keuzeHtml}
-        <span class="label"><span class="label-text-alt text-base-content/50">
-          Eén eventtype hoort bij één koppeling. Laat je dit op “vangnet” staan, dan komt alles
-          hier terecht waarvoor geen andere koppeling bestaat.
-        </span></span>
-      </label>
-
-      <label class="form-control mb-4">
-        <span class="label label-text text-xs">Type in Odoo <span class="text-base-content/50">— vult 📋 Type op de meeting</span></span>
-        ${odooHtml}
-        <span class="label"><span class="label-text-alt text-base-content/50">
-          Odoo-automatisering 12 maakt enkel een lead aan bij het type <strong>Demo</strong>.
-          Staat dit op “Anders”, dan gebeurt er in Odoo niets extra.
-        </span></span>
-      </label>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <button type="button" class="btn btn-primary btn-sm" data-action="calendly-save-integration">
-          <i data-lucide="save" class="w-4 h-4"></i> Opslaan
-        </button>
-        <button type="button" class="btn btn-ghost btn-xs" data-action="calendly-rebuild"
-                title="Bouwt de vaste stap opnieuw op in Odoo. Nodig als iemand de resolver, de zoekstap of de upsert per ongeluk aanpaste of verwijderde.">
-          <i data-lucide="wrench" class="w-3.5 h-3.5"></i> Vaste stap herbouwen
-        </button>
-      </div>
-
-      <p class="text-xs text-base-content/40 mt-3">
-        Verplaatst iemand zijn afspraak, dan maakt Calendly daar een <em>nieuwe</em> afspraak van en
-        annuleert de oude — je ziet dus twee meetings in Odoo, waarvan de oude op “geannuleerd” staat.
-      </p>
-    `);
-  }
-
-  function kaart(titel, icoon, inhoud) {
     return `
-      <section class="mb-6 last:mb-0">
-        <h3 class="font-semibold text-sm flex items-center gap-2 mb-3">
-          <i data-lucide="${esc(icoon)}" class="w-4 h-4 text-primary"></i> ${esc(titel)}
-        </h3>
-        <div class="border border-base-200 rounded-box p-4">${inhoud}</div>
-      </section>`;
+      <div class="card bg-base-100 border border-base-200 shadow-sm">
+        <div class="card-body p-0">
+          <div class="px-5 py-4">
+            <div class="flex items-start gap-3 mb-4">
+              <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral text-neutral-content shrink-0">
+                <i data-lucide="lock" class="w-4 h-4"></i>
+              </span>
+              <div class="min-w-0">
+                <div class="font-bold text-base leading-snug">Vaste stap — Calendly</div>
+                <p class="text-xs text-base-content/50 mt-0.5">Niet instelbaar; extra stappen hieronder wel.</p>
+              </div>
+            </div>
+
+            <ul class="text-sm space-y-1.5 mb-4">
+              <li class="flex gap-2">
+                <i data-lucide="check" class="w-4 h-4 text-success shrink-0 mt-0.5"></i>
+                <span><strong>Contact opzoeken op e-mailadres.</strong> Bestaat het al, dan wordt dat
+                bestaande contact gebruikt. Bestaat het nog niet, dan wordt het aangemaakt — dat is
+                juist de boeking waar het om gaat.</span>
+              </li>
+              <li class="flex gap-2">
+                <i data-lucide="check" class="w-4 h-4 text-success shrink-0 mt-0.5"></i>
+                <span><strong>Host opzoeken bij de medewerkers</strong> op het werk-e-mailadres. Niet
+                gevonden? Dan gaat de afspraak gewoon door zonder host.</span>
+              </li>
+              <li class="flex gap-2">
+                <i data-lucide="check" class="w-4 h-4 text-success shrink-0 mt-0.5"></i>
+                <span><strong>Afspraak wegschrijven naar <code class="text-xs">x_calendlymeeting</code></strong> —
+                aanmaken, verplaatsen en annuleren komen hier alle drie binnen.</span>
+              </li>
+            </ul>
+
+            <label class="form-control mb-3">
+              <span class="label label-text text-xs">Calendly-eventtype</span>
+              ${keuzeHtml}
+              <span class="label"><span class="label-text-alt text-base-content/50">
+                Eén eventtype hoort bij één koppeling. Laat je dit op “vangnet” staan, dan komt alles
+                hier terecht waarvoor geen andere koppeling bestaat.
+              </span></span>
+            </label>
+
+            <label class="form-control mb-4">
+              <span class="label label-text text-xs">Type in Odoo <span class="text-base-content/50">— vult 📋 Type op de meeting</span></span>
+              ${odooHtml}
+              <span class="label"><span class="label-text-alt text-base-content/50">
+                Odoo-automatisering 12 maakt enkel een lead aan bij het type <strong>Demo</strong>.
+                Staat dit op “Anders”, dan gebeurt er in Odoo niets extra.
+              </span></span>
+            </label>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="btn btn-primary btn-sm" data-action="calendly-save-integration">
+                <i data-lucide="save" class="w-4 h-4"></i> Opslaan
+              </button>
+              <button type="button" class="btn btn-ghost btn-xs" data-action="calendly-rebuild"
+                      title="Bouwt de vaste stap opnieuw op in Odoo. Nodig als iemand de resolver, de zoekstap of de upsert per ongeluk aanpaste of verwijderde.">
+                <i data-lucide="wrench" class="w-3.5 h-3.5"></i> Vaste stap herbouwen
+              </button>
+            </div>
+
+            <p class="text-xs text-base-content/40 mt-3">
+              Verplaatst iemand zijn afspraak, dan maakt Calendly daar een <em>nieuwe</em> afspraak van en
+              annuleert de oude — je ziet dus twee meetings in Odoo, waarvan de oude op “geannuleerd” staat.
+            </p>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -245,7 +252,6 @@
         // De koppeling opnieuw openen: de vaste stap is net herbouwd en die
         // hoort meteen op het tabblad Koppeling te staan.
         await window.FSV2.openDetail(S().activeId);
-        await laadCalendlyTab(true);
       });
       return;
     }
@@ -282,8 +288,8 @@
   }
 
   Object.assign(window.FSV2, {
-    laadCalendlyTab: laadCalendlyTab,
-    renderCalendlyTab: renderCalendlyTab,
+    laadCalendlyStapData: laadCalendlyStapData,
+    renderCalendlyStapKaart: renderCalendlyStapKaart,
     handleCalendlyAction: handleCalendlyAction,
     resetCalendlyTab: resetCalendlyTab,
   });

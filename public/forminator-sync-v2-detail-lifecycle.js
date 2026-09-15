@@ -116,6 +116,18 @@
         // diep, onder form_data -- extractGenericWebhookFields() leest enkel
         // het bovenste niveau en zou de vaste lijst overschrijven).
         window.FSV2.fetchCalendlyFields().catch(function () {});
+        // De vaste-stap-kaart in de Koppeling-tab (zie
+        // forminator-sync-v2-detail-calendly-tab.js) is NIET lazy achter een
+        // tabklik zoals vroeger het aparte Calendly-tabblad was -- de
+        // Koppeling-tab zelf rendert altijd meteen, dus deze data moet er al
+        // staan tegen dat renderDetailMappings() (verderop in deze functie)
+        // draait. Ze komt eerst als een laadkaart, en herrendert zichzelf
+        // zodra dit binnen is.
+        if (window.FSV2.laadCalendlyStapData) {
+          window.FSV2.laadCalendlyStapData(id).then(function () {
+            if (S().activeId === id) window.FSV2.renderDetailMappings();
+          }).catch(function () {});
+        }
       } else if (detailIntegration && detailIntegration.source_type === 'om_form') {
         // Een formulier dat in de OM zelf gebouwd is. Dit was het ontbrekende
         // derde pad: zo'n koppeling heeft geen forminator_form_id om velden mee
