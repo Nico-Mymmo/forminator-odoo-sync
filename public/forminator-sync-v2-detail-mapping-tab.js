@@ -343,7 +343,17 @@
       html +=     '</div>'; // px-5 py-4
 
       // ── Gedragsbalk ─────────────────────────────────────────────────────────
-      var _condSummary = target.condition_field === 'booking_action'
+      // Een voorwaarde op booking_action en "Gedrag per fase" bijten elkaar:
+      // de Worker slaat de stap dan al over via de voorwaarde VOORDAT gedrag
+      // per fase ooit een kans krijgt (zie worker-handler.js, "Calendly:
+      // gedrag per fase") -- een fase op "Alleen zoeken" geeft dan nooit een
+      // record door aan de volgende stap. De Worker negeert deze combinatie
+      // inmiddels (gedrag per fase wint), maar de voorwaarde hier laten staan
+      // is verwarrend: hij doet dan zichtbaar niets meer.
+      var _bookingCondGenegeerd = target.condition_field === 'booking_action' && heeftEnigFaseGedrag(target);
+      var _condSummary = _bookingCondGenegeerd
+        ? 'Genegeerd — Gedrag per fase bepaalt dit nu'
+        : target.condition_field === 'booking_action'
         // Een Calendly-stap staat bijna altijd op dit veld; "Als booking_action =
         // new / rescheduled" is dan ruis. De balk hoort te zeggen WANNEER de stap
         // draait, in dezelfde woorden als de knoppen eronder.
@@ -1458,6 +1468,12 @@
     return String(((S().detail && S().detail.integration) || {}).source_type || '') === 'calendly';
   }
 
+  /** Heeft deze stap ÜBERHAUPT gedrag per fase ingesteld (record- of tekst-vorm)? */
+  function heeftEnigFaseGedrag(target) {
+    var map = target.calendly_behavior;
+    return !!(map && typeof map === 'object' && !Array.isArray(map) && Object.keys(map).length > 0);
+  }
+
   /** Eén regel voor op de gedragsbalk: enkel de fases die AFWIJKEN. */
   function faseSamenvatting(target) {
     var afwijkend = FASES
@@ -1528,106 +1544,67 @@
    * de waarde per fase is hier een OBJECT ({skip:true} of {subject,body}/
    * {message}) in plaats van een string — zie worker-handler.js.
    */
-  function faseContentVan(target, fase) {
+  /** 'default' | 'skip' | 'custom' voor deze fase, uit calendly_behavior. */
+  function faseContentModusVan(target, fase) {
     var map = (target.calendly_behavior && typeof target.calendly_behavior === 'object' && !Array.isArray(target.calendly_behavior)) ? target.calendly_behavior : {};
     var waarde = map[fase];
-    if (waarde && typeof waarde === 'object' && !Array.isArray(waarde)) {
-      return {
-        skip:    !!waarde.skip,
-        subject: typeof waarde.subject === 'string' ? waarde.subject : '',
-        body:    typeof waarde.body === 'string' ? waarde.body : '',
-        message: typeof waarde.message === 'string' ? waarde.message : '',
-      };
-    }
-    return { skip: false, subject: '', body: '', message: '' };
+    if (!waarde || typeof waarde !== 'object' || Array.isArray(waarde)) return 'default';
+    return waarde.skip ? 'skip' : 'custom';
   }
 
   /** Eén regel voor op de gedragsbalk: enkel de fases die AFWIJKEN. */
   function faseContentSamenvatting(target) {
-    var isMail = target.operation_type === 'send_mail';
     var afwijkend = FASES
       .map(function (f) {
-        var c = faseContentVan(target, f[0]);
-        if (c.skip) return f[1] + ': niets doen';
-        var heeftEigen = isMail ? !!(c.subject.trim() || c.body.trim()) : !!c.message.trim();
-        return heeftEigen ? (f[1] + ': eigen tekst') : null;
+        var modus = faseContentModusVan(target, f[0]);
+        if (modus === 'skip')   return f[1] + ': niets doen';
+        if (modus === 'custom') return f[1] + ': eigen tekst (aparte tab)';
+        return null;
       })
       .filter(Boolean);
     return afwijkend.length ? afwijkend.join(' · ') : 'Alle fases: standaardtekst hierboven';
   }
 
+  /**
+   * Dit paneel bepaalt enkel WELKE fases een eigen tekst krijgen — de tekst
+   * zelf typ je niet hier, maar in een aparte tab bij de echte editor
+   * hieronder (Vrij bericht / Onderwerp+Tekst), zodat je daar alle
+   * placeholders, knoppen en het voorbeeld gewoon bij de hand hebt. Zie
+   * renderComposerFaseTabs() en switchComposerFase() verderop in dit bestand.
+   */
   function renderStepFaseContentSection(target, tid) {
     var el = document.getElementById('det-fase-' + tid);
     if (!el) return;
-    var isMail = target.operation_type === 'send_mail';
 
-    var html = '<div class="px-3.5 py-3 border-t border-base-200 bg-base-200/30 flex flex-col gap-2.5">';
+    var html = '<div class="px-3.5 py-3 border-t border-base-200 bg-base-200/30 flex flex-col gap-2">';
     html += '<p class="text-xs text-base-content/60">' +
-      (isMail
-        ? 'Deze mail vertrekt bij elke fase met het onderwerp en de tekst hierboven, tenzij je hieronder per fase een eigen tekst intypt — of de fase uitzet.'
-        : 'Deze notitie komt bij elke fase in de chatter met de tekst hierboven, tenzij je hieronder per fase een eigen tekst intypt — of de fase uitzet.') +
+      'Standaard geldt de tekst hieronder (tab "Standaard") voor elke fase. Zet een fase op ' +
+      '"Eigen tekst" voor een aparte tab met zijn eigen tekst — de tab verschijnt na Toepassen.' +
       '</p>';
 
     FASES.forEach(function (f) {
-      var fase   = f[0];
-      var c      = faseContentVan(target, fase);
-      var heeftEigen = isMail ? !!(c.subject.trim() || c.body.trim()) : !!c.message.trim();
-      var idp    = 'faseContent-' + tid + '-' + fase;
-
-      html += '<div class="border border-base-300/60 rounded-lg p-2.5">';
-      html +=   '<div class="flex items-center gap-2 mb-1.5">';
-      html +=     '<span class="text-xs font-semibold flex-1" title="' + esc(FASE_UITLEG[fase] || '') + '">' + esc(f[1]) + '</span>';
-      html +=     '<label class="flex items-center gap-1.5 text-xs cursor-pointer select-none">' +
-                     '<input type="checkbox" class="checkbox checkbox-xs" id="' + idp + '-skip" data-fase-content-skip="' + idp + '"' + (c.skip ? ' checked' : '') + '>' +
-                     '<span class="opacity-70">Niets doen bij deze fase</span>' +
-                   '</label>';
-      html +=   '</div>';
-
-      html +=   '<div id="' + idp + '-wrap"' + (c.skip ? ' style="display:none;"' : '') + '>';
-      html +=     '<label class="flex items-center gap-1.5 text-xs cursor-pointer select-none mb-1.5">' +
-                     '<input type="checkbox" class="checkbox checkbox-xs" id="' + idp + '-override" data-fase-content-override="' + idp + '"' + (heeftEigen ? ' checked' : '') + '>' +
-                     '<span class="opacity-70">Eigen tekst voor deze fase (anders: de standaardtekst hierboven)</span>' +
-                   '</label>';
-      html +=     '<div id="' + idp + '-fields" class="flex flex-col gap-1.5"' + (heeftEigen ? '' : ' style="display:none;"') + '>';
-      if (isMail) {
-        html +=       '<input type="text" class="input input-bordered input-xs w-full" id="' + idp + '-subject"' +
-                       ' placeholder="Eigen onderwerp voor deze fase" value="' + esc(c.subject) + '">';
-        html +=       '<textarea class="textarea textarea-bordered textarea-xs w-full" rows="3" id="' + idp + '-body"' +
-                       ' placeholder="Eigen tekst voor deze fase (platte tekst)">' + esc(c.body) + '</textarea>';
-      } else {
-        html +=       '<textarea class="textarea textarea-bordered textarea-xs w-full" rows="3" id="' + idp + '-message"' +
-                       ' placeholder="Eigen notitietekst voor deze fase (platte tekst)">' + esc(c.message) + '</textarea>';
-      }
-      html +=     '</div>';
-      html +=   '</div>';
-      html += '</div>';
+      var fase  = f[0];
+      var modus = faseContentModusVan(target, fase);
+      html += '<div class="flex items-center gap-2">' +
+        '<span class="text-xs font-medium w-44 shrink-0" title="' + esc(FASE_UITLEG[fase] || '') + '">' + esc(f[1]) + '</span>' +
+        '<select class="select select-bordered select-xs flex-1 min-w-0" id="faseContentModus-' + esc(tid) + '-' + esc(fase) + '">' +
+          '<option value="default"' + (modus === 'default' ? ' selected' : '') + '>Standaardtekst (tab Standaard)</option>' +
+          '<option value="skip"'    + (modus === 'skip'    ? ' selected' : '') + '>Niets doen bij deze fase</option>' +
+          '<option value="custom"'  + (modus === 'custom'  ? ' selected' : '') + '>Eigen tekst (aparte tab)</option>' +
+        '</select>' +
+      '</div>';
     });
 
     html += '<div class="flex items-center gap-2 mt-1">' +
       '<button type="button" class="btn btn-xs btn-primary gap-1" data-action="save-fase-gedrag" data-target-id="' + esc(tid) + '">' +
-        '<i data-lucide="save" class="w-3.5 h-3.5"></i> Opslaan' +
+        '<i data-lucide="save" class="w-3.5 h-3.5"></i> Toepassen' +
       '</button>' +
-      '<span class="text-xs text-base-content/40">Platte tekst, geen opmaak.</span>' +
+      '<span class="text-xs text-base-content/40">De tekst zelf typ je in de tab hieronder, niet hier.</span>' +
       '</div>';
     html += '</div>';
 
     el.innerHTML = html;
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
-
-    // "Niets doen" verbergt de rest van de kaart; "Eigen tekst" toont de invoervelden.
-    FASES.forEach(function (f) {
-      var idp = 'faseContent-' + tid + '-' + f[0];
-      var skipEl  = document.getElementById(idp + '-skip');
-      var wrapEl  = document.getElementById(idp + '-wrap');
-      if (skipEl && wrapEl) {
-        skipEl.addEventListener('change', function () { wrapEl.style.display = skipEl.checked ? 'none' : ''; });
-      }
-      var ovEl     = document.getElementById(idp + '-override');
-      var fieldsEl = document.getElementById(idp + '-fields');
-      if (ovEl && fieldsEl) {
-        ovEl.addEventListener('change', function () { fieldsEl.style.display = ovEl.checked ? '' : 'none'; });
-      }
-    });
   }
 
   async function handleSaveFaseGedrag(tid) {
@@ -1638,22 +1615,21 @@
 
     var map = {};
     if (isFaseContentStap(target)) {
-      var isMail = target.operation_type === 'send_mail';
+      // Dit paneel bepaalt enkel de MODUS per fase (default/skip/custom) —
+      // de tekst zelf staat al in calendly_behavior via de fase-tabs
+      // (renderComposerFaseTabs/switchComposerFase) en blijft hier onaangeroerd.
+      var bestaand = (target.calendly_behavior && typeof target.calendly_behavior === 'object' && !Array.isArray(target.calendly_behavior)) ? target.calendly_behavior : {};
       FASES.forEach(function (f) {
-        var fase = f[0];
-        var idp  = 'faseContent-' + tid + '-' + fase;
-        var skipEl = document.getElementById(idp + '-skip');
-        if (skipEl && skipEl.checked) { map[fase] = { skip: true }; return; }
-        var ovEl = document.getElementById(idp + '-override');
-        if (!ovEl || !ovEl.checked) return; // geen sleutel = standaardtekst
-        if (isMail) {
-          var subject = (document.getElementById(idp + '-subject') || {}).value || '';
-          var body    = (document.getElementById(idp + '-body') || {}).value || '';
-          if (subject.trim() || body.trim()) map[fase] = { subject: subject, body: body };
-        } else {
-          var message = (document.getElementById(idp + '-message') || {}).value || '';
-          if (message.trim()) map[fase] = { message: message };
+        var fase  = f[0];
+        var selEl = document.getElementById('faseContentModus-' + tid + '-' + fase);
+        var modus = selEl ? selEl.value : 'default';
+        if (modus === 'skip') { map[fase] = { skip: true }; return; }
+        if (modus === 'custom') {
+          var huidig = bestaand[fase];
+          map[fase] = (huidig && typeof huidig === 'object' && !Array.isArray(huidig) && !huidig.skip) ? huidig : {};
+          return;
         }
+        // 'default': geen sleutel — zie de "default niet bewaren"-regel hieronder.
       });
     } else {
       FASES.forEach(function (f) {
@@ -1675,6 +1651,80 @@
     } catch (e) {
       window.FSV2.showAlert('Opslaan mislukt: ' + e.message, 'error');
     }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // FASE-TABS IN DE COMPOSER — welke tab is open, en welke tabs bestaan er.
+  // Gebruikt door forminator-sync-v2-detail-chatter-composer.js en
+  // forminator-sync-v2-detail-mail-composer.js. De actieve tab leeft enkel in
+  // het geheugen (niet bewaard) — bij het heropenen van een stap begin je
+  // altijd op "Standaard".
+  // ────────────────────────────────────────────────────────────────────────────
+
+  function getComposerFase(tid) {
+    window.FSV2._composerFase = window.FSV2._composerFase || {};
+    return window.FSV2._composerFase[String(tid)] || 'default';
+  }
+
+  function setComposerFase(tid, fase) {
+    window.FSV2._composerFase = window.FSV2._composerFase || {};
+    window.FSV2._composerFase[String(tid)] = fase;
+  }
+
+  /** Welke fases hebben een eigen tab: elke fase die in de "Tekst per fase"-sectie op "Eigen tekst" staat. */
+  function customFasesVan(target) {
+    return FASES.filter(function (f) { return faseContentModusVan(target, f[0]) === 'custom'; }).map(function (f) { return f[0]; });
+  }
+
+  /** Tabs-boxed balk boven de composer (REGEL 6): "Standaard" + één tab per fase met eigen tekst. Leeg als er geen enkele is. */
+  function renderComposerFaseTabs(target, tid) {
+    var custom = customFasesVan(target);
+    if (!custom.length) return '';
+    var active = getComposerFase(tid);
+    if (active !== 'default' && custom.indexOf(active) === -1) { active = 'default'; setComposerFase(tid, active); }
+
+    var tabs = [['default', 'Standaard']].concat(custom.map(function (fase) {
+      var f = FASES.find(function (x) { return x[0] === fase; });
+      return [fase, f ? f[1] : fase];
+    }));
+
+    var html = '<div role="tablist" class="tabs tabs-boxed mb-3 w-fit">';
+    tabs.forEach(function (t) {
+      html += '<button type="button" role="tab" class="tab' + (t[0] === active ? ' tab-active' : '') + '"' +
+        ' data-action="switch-composer-fase" data-target-id="' + esc(tid) + '" data-fase="' + esc(t[0]) + '">' +
+        esc(t[1]) + '</button>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Van tab wisselen bewaart eerst STIL de tab die je verlaat (autoSaveChatterFase/
+   * autoSaveMailFase in de composer-bestanden), en herbouwt dan alleen deze kaart
+   * (refreshSingleTargetCard) — nooit een volle openDetail, dat zou de rest van het
+   * scherm laten dichtklappen. Mislukt het bewaren, dan blijf je op de huidige tab
+   * staan zodat er niets stilzwijgend verloren gaat.
+   */
+  async function switchComposerFase(tid, fase) {
+    var targets = (S().detail && S().detail.targets) || [];
+    var target  = targets.find(function (t) { return String(t.id) === tid; });
+    if (!target) return;
+    var van = getComposerFase(tid);
+    if (van === fase) return;
+
+    try {
+      if (target.operation_type === 'chatter_message' && window.FSV2.autoSaveChatterFase) {
+        await window.FSV2.autoSaveChatterFase(target, tid, van);
+      } else if (target.operation_type === 'send_mail' && window.FSV2.autoSaveMailFase) {
+        await window.FSV2.autoSaveMailFase(target, tid, van);
+      }
+    } catch (e) {
+      window.FSV2.showAlert('Kon de tekst van "' + (van === 'default' ? 'Standaard' : van) + '" niet bewaren: ' + e.message, 'error');
+      return;
+    }
+
+    setComposerFase(tid, fase);
+    window.FSV2.refreshSingleTargetCard(tid);
   }
 
   /** Korte naam van een booking_action-waarde, uit de choices van het veld zelf. */
@@ -1706,6 +1756,17 @@
       fieldOpts += '<option value="' + esc(fid) + '"' + sel + '>' + esc(lbl) + '</option>';
     });
 
+    // Zie de uitleg bij _bookingCondGenegeerd hierboven: deze combinatie
+    // bestaat bijna altijd doordat iemand naar "Gedrag per fase" is
+    // overgestapt en deze oude voorwaarde is blijven staan.
+    var conflictBannerHtml = (currentField === 'booking_action' && heeftEnigFaseGedrag(target))
+      ? '<div class="alert alert-warning py-2 text-xs">' +
+          '<i data-lucide="alert-triangle" class="w-3.5 h-3.5 shrink-0"></i>' +
+          '<span>Deze voorwaarde wordt genegeerd: "Gedrag per fase" is ook ingesteld en bepaalt nu ' +
+          'per fase wat er gebeurt. Klik op "Wissen" om deze overbodige voorwaarde te verwijderen.</span>' +
+        '</div>'
+      : '';
+
     var valuesHtml = (currentField && currentOp === 'equals')
       ? buildCondValuesHtml(tid, currentField, flatFields, fieldTransforms, condVals)
       : '';
@@ -1727,6 +1788,7 @@
     condEl.innerHTML =
       '<div class="px-4 py-3 border-t border-base-200">' +
         '<div class="flex flex-col gap-2">' +
+          conflictBannerHtml +
           '<div class="flex flex-col gap-2 min-w-0">' +
             '<div class="flex items-center gap-2 flex-wrap">' +
               '<span class="text-xs text-base-content/60">Voer deze stap alleen uit als veld</span>' +
@@ -2286,6 +2348,7 @@
   Object.assign(window.FSV2, {
     applyChainSuggestion: applyChainSuggestion,
     getOrderedValueMapKeys: getOrderedValueMapKeys,
+    getComposerFase: getComposerFase,
     handleCondFieldChanged: handleCondFieldChanged,
     handleDeleteTarget: handleDeleteTarget,
     handleDuplicateTarget: handleDuplicateTarget,
@@ -2297,7 +2360,9 @@
     refreshSingleTargetCard: refreshSingleTargetCard,
     removeChainLink: removeChainLink,
     renderActivityLinkCallout: renderActivityLinkCallout,
+    renderComposerFaseTabs: renderComposerFaseTabs,
     renderDetailMappings: renderDetailMappings,
+    switchComposerFase: switchComposerFase,
     toggleStepOpen: toggleStepOpen
   });
 })();

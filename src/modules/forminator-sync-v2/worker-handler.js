@@ -1328,7 +1328,22 @@ async function runSubmissionAttempt(env, {
       }
 
       // ── Condition check: optionele veldconditie per stap ──────────────────
-      if (target.condition_field) {
+      // EXCEPTIE: staat de voorwaarde op booking_action EN heeft de stap ook
+      // "Gedrag per fase" ingesteld, dan wint gedrag per fase en wordt deze
+      // conditie genegeerd. Gedrag per fase bestaat net om een conditie op
+      // booking_action overbodig te maken (zie de doc-comment hieronder bij
+      // "Calendly: gedrag per fase") -- de twee samen zijn nooit een bewuste
+      // keuze, enkel een oude conditie die is blijven staan nadat iemand
+      // overstapte naar gedrag per fase. Zonder deze uitzondering werd een
+      // stap die op fase "search" moet blijven zoeken (en zijn record-ID
+      // doorgeven aan de volgende stap) alsnog volledig overgeslagen door de
+      // oude conditie, VOORDAT gedrag-per-fase ooit een kans kreeg.
+      const heeftFaseGedrag = target.calendly_behavior && typeof target.calendly_behavior === 'object' &&
+        !Array.isArray(target.calendly_behavior) && Object.keys(target.calendly_behavior).length > 0;
+      if (target.condition_field === 'booking_action' && heeftFaseGedrag) {
+        console.log(attemptTag, `booking_action-conditie genegeerd op target: ${target.id} — gedrag per fase is ingesteld en wint.`);
+      }
+      if (target.condition_field && !(target.condition_field === 'booking_action' && heeftFaseGedrag)) {
         const condRaw     = String(lookupFormValue(normalizedForm, target.condition_field) ?? '').trim().toLowerCase();
         const condAllowed = Array.isArray(target.condition_values) ? target.condition_values : [];
 
@@ -1566,10 +1581,12 @@ async function runSubmissionAttempt(env, {
         try {
           // Fase-override (zie hierboven): een eigen onderwerp/tekst voor
           // deze ene fase, zonder de standaardtekst van de stap te wijzigen.
-          const mailTarget = (faseContentOverride && (faseContentOverride.subject || faseContentOverride.body))
+          // Leeg gelaten in de fase-tab (nog niet gecomponeerd) valt terug
+          // op de standaardtekst van de stap.
+          const mailTarget = (faseContentOverride && (faseContentOverride.mail_subject_template || faseContentOverride.mail_body_html))
             ? Object.assign({}, target, {
-                mail_subject_template: faseContentOverride.subject || target.mail_subject_template,
-                mail_body_html:        faseContentOverride.body    || target.mail_body_html,
+                mail_subject_template: faseContentOverride.mail_subject_template || target.mail_subject_template,
+                mail_body_html:        faseContentOverride.mail_body_html        || target.mail_body_html,
               })
             : target;
           const mailResult = await runSendMailStep(env, {
@@ -1672,7 +1689,16 @@ async function runSubmissionAttempt(env, {
             throw createPermanentError('chatter_message: geen geldig record-ID van de gelinkte stappen.');
           }
 
-          const rawTemplate    = (target.chatter_template || '').trim();
+          // Fase-override (zie hierboven bij "Calendly: gedrag per fase"): een
+          // eigen __COMBINED__-template voor deze ene fase (bericht, knoppen
+          // EN samenvatting-keuze horen bij elkaar, dus de hele template
+          // wordt vervangen, niet enkel de tekst). Leeg gelaten in de fase-tab
+          // (nog niet gecomponeerd) valt terug op de standaardtekst.
+          const rawTemplate    = (
+            (faseContentOverride && typeof faseContentOverride.chatter_template === 'string' && faseContentOverride.chatter_template)
+              ? faseContentOverride.chatter_template
+              : (target.chatter_template || '')
+          ).trim();
           const COMBINED_PREFIX = '__COMBINED__:';
           const SUMMARY_PREFIX  = '__SUMMARY__:';
           let body;
@@ -1696,11 +1722,6 @@ async function runSubmissionAttempt(env, {
               knoppen         = Array.isArray(parsed.buttons) ? parsed.buttons : [];
               if (parsed.summary === false) wilSamenvatting = false;
             } catch (_e) {}
-            // Fase-override (zie hierboven bij "Calendly: gedrag per fase"):
-            // vervangt alleen de tekst, knoppen en samenvatting blijven gedeeld.
-            if (faseContentOverride && typeof faseContentOverride.message === 'string' && faseContentOverride.message.trim()) {
-              combinedMsg = faseContentOverride.message;
-            }
             const parts = [];
             if (combinedMsg) {
               // combinedMsg is HTML from Quill — substitute {field} placeholders with form values.

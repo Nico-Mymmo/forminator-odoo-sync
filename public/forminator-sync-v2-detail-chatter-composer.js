@@ -130,7 +130,14 @@
     var el = document.getElementById('det-mc-' + tid);
     if (!el) return;
 
-    var currentTemplate   = target.chatter_template || '';
+    // Tekst per fase (zie forminator-sync-v2-detail-mapping-tab.js): dezelfde
+    // editor, maar dan met de inhoud van de gekozen fase-tab. "Standaard" is
+    // altijd target.chatter_template zelf; een fase-tab leest uit
+    // calendly_behavior[fase].chatter_template (leeg tot iemand 'm intypt).
+    var activeFase = window.FSV2.getComposerFase(tid);
+    var currentTemplate = activeFase === 'default'
+      ? (target.chatter_template || '')
+      : (((target.calendly_behavior || {})[activeFase] || {}).chatter_template || '');
     var COMBINED_PREFIX   = '__COMBINED__:';
     var SUMMARY_PREFIX    = '__SUMMARY__:';
     var savedMessage      = '';
@@ -187,7 +194,8 @@
 
     // ── 2-column layout ───────────────────────────────────────────────────────
     // Linkerkolom smaller, voorbeeld breder -- verzoek 2026-09-10.
-    var html = '<div class="grid grid-cols-[minmax(0,0.8fr)_1.2fr] gap-5 items-start">';
+    var html = window.FSV2.renderComposerFaseTabs(target, tid);
+    html += '<div class="grid grid-cols-[minmax(0,0.8fr)_1.2fr] gap-5 items-start">';
 
     // ══ LEFT COLUMN ══════════════════════════════════════════════════════════
     html += '<div class="flex flex-col gap-3 min-w-0">';
@@ -603,11 +611,16 @@
     } catch (e) { /* ignore */ }
   }
 
-    async function handleSaveChatterComposer(tid) {
-    var target = ((S().detail && S().detail.targets) || []).find(function (t) { return String(t.id) === tid; });
-    if (!target) { window.FSV2.showAlert('Target niet gevonden.', 'error'); return; }
-    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
-
+  /**
+   * Bouwt de __COMBINED__-templatestring uit de editor zoals hij NU op het
+   * scherm staat (bericht, knoppen, samenvatting-keuze). Gedeeld door de
+   * gewone save (Standaard-tab) en de auto-save bij het wisselen van
+   * fase-tab (zie renderComposerFaseTabs / switchComposerFase in
+   * forminator-sync-v2-detail-mapping-tab.js) -- allebei lezen exact dezelfde
+   * editor-DOM, enkel de plek waar het resultaat naartoe geschreven wordt
+   * verschilt.
+   */
+  function buildChatterTemplateFromDom(tid) {
     // Vrij bericht: lees HTML van Quill editor
     var _qiSave = window.FSV2._chatterQuills && window.FSV2._chatterQuills[tid];
     var rawMsg  = _qiSave ? _qiSave.getHTML() : '';
@@ -654,17 +667,74 @@
       }
     }
 
-    var template = null;
-    if (rawMsg || knoppen.length || summaryEnabled) {
-      template = '__COMBINED__:' + JSON.stringify({
-        message: rawMsg,
-        summary: !!summaryEnabled,
-        ids:     pickedIds,
-        labels:  labelMap,
-        widths:  widths,
-        buttons: knoppen,
+    if (!rawMsg && !knoppen.length && !summaryEnabled) return null;
+    return '__COMBINED__:' + JSON.stringify({
+      message: rawMsg,
+      summary: !!summaryEnabled,
+      ids:     pickedIds,
+      labels:  labelMap,
+      widths:  widths,
+      buttons: knoppen,
+    });
+  }
+
+  /**
+   * Fase-tab wisselen bewaart eerst stil de tab die je verlaat -- zie
+   * switchComposerFase() in forminator-sync-v2-detail-mapping-tab.js, dat
+   * dit aanroept vlak voor het omschakelen. "Standaard" schrijft naar
+   * target.chatter_template (ongewijzigd gedrag); een fase-tab schrijft
+   * ALLEEN chatter_template binnen calendly_behavior[fase] -- de koppeling
+   * met vorige stappen (_chatter_record_id) en het model zijn stap-brede
+   * instellingen en horen niet per fase te verschillen.
+   */
+  async function autoSaveChatterFase(target, tid, fromFase) {
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    var template = buildChatterTemplateFromDom(tid);
+
+    if (fromFase === 'default') {
+      target.chatter_template = template;
+      await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+        method: 'PUT',
+        body: JSON.stringify({
+          odoo_model:            target.odoo_model,
+          operation_type:        'chatter_message',
+          chatter_template:      template || null,
+          chatter_subtype_xmlid: target.chatter_subtype_xmlid || 'mail.mt_note',
+        }),
       });
+      return;
     }
+
+    var map = Object.assign({}, target.calendly_behavior || {});
+    map[fromFase] = Object.assign({}, map[fromFase], { chatter_template: template || null });
+    target.calendly_behavior = map;
+    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+      method: 'PUT',
+      body: JSON.stringify(Object.assign({}, target, { calendly_behavior: map })),
+    });
+  }
+
+    async function handleSaveChatterComposer(tid) {
+    var target = ((S().detail && S().detail.targets) || []).find(function (t) { return String(t.id) === tid; });
+    if (!target) { window.FSV2.showAlert('Target niet gevonden.', 'error'); return; }
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+    var activeFase = window.FSV2.getComposerFase(tid);
+
+    // Een fase-tab heeft geen koppeling-aan-vorige-stap en geen eigen model --
+    // dat zijn stap-brede instellingen die alleen via "Standaard" wijzigen.
+    // Enkel de tekst zelf gaat naar calendly_behavior[fase].
+    if (activeFase !== 'default') {
+      try {
+        await autoSaveChatterFase(target, tid, activeFase);
+        window.FSV2.showAlert('Tekst voor deze fase opgeslagen.', 'success');
+        await window.FSV2.openDetail(S().activeId);
+      } catch (e) {
+        window.FSV2.showAlert('Fout bij opslaan: ' + e.message, 'error');
+      }
+      return;
+    }
+
+    var template = buildChatterTemplateFromDom(tid);
 
     // Read selected steps (multi-checkbox)
     var stepListEl  = document.getElementById('chatterStepList-' + tid);
@@ -737,6 +807,7 @@
     _chatterKnopRijHtml: knopRijHtml,
     _makeSampleValue: _makeSampleValue,
     _setChatterFieldWidth: _setChatterFieldWidth,
+    autoSaveChatterFase: autoSaveChatterFase,
     handleSaveChatterComposer: handleSaveChatterComposer,
     renderChatterComposer: renderChatterComposer,
     scheduleChatterPreview: scheduleChatterPreview,

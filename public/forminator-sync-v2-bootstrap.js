@@ -791,6 +791,12 @@
         if (fgTid) await window.FSV2.handleSaveFaseGedrag(fgTid);
         return;
       }
+      if (action === 'switch-composer-fase') {
+        var scfTid  = btn.dataset.targetId;
+        var scfFase = btn.dataset.fase;
+        if (scfTid && scfFase) await window.FSV2.switchComposerFase(scfTid, scfFase);
+        return;
+      }
 
       if (action === 'save-step-condition') {
         var condTid = btn.dataset.targetId;

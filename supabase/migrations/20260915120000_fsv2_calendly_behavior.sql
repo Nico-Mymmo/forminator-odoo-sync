@@ -25,10 +25,14 @@ alter table fs_v2_targets
 -- send_mail/chatter_message zijn HANDELINGEN, geen zoek/schrijf-stap: daar
 -- betekent "gedrag" (upsert/update_only/...) niets. Voor die twee is de
 -- waarde per fase daarom geen string maar een INHOUD-override:
---   {"skip": true}                              -- deze fase niet uitvoeren
---   {"subject": "...", "body": "..."}           -- eigen mailtekst voor deze fase
---   {"message": "<p>...</p>"}                   -- eigen notitietekst voor deze fase
--- Een lege/ontbrekende sleutel betekent ook hier: gebruik de standaardtekst
--- van de stap. Zie worker-handler.js, blok "Calendly: gedrag per fase".
+--   {"skip": true}                                              -- deze fase niet uitvoeren
+--   {"mail_subject_template": "...", "mail_body_html": "..."}   -- eigen mailtekst voor deze fase
+--   {"chatter_template": "__COMBINED__:{...}"}                  -- eigen notitie (zelfde vorm als target.chatter_template)
+-- Deze inhoud wordt gecomponeerd in een aparte tab van de bestaande editor
+-- (forminator-sync-v2-detail-mapping-tab.js: renderComposerFaseTabs() +
+-- switchComposerFase()), niet in het "Tekst per fase"-paneel zelf -- dat
+-- paneel kiest enkel WELKE fases een tab krijgen. Een lege/ontbrekende
+-- sleutel betekent hier ook: gebruik de standaardtekst van de stap. Zie
+-- worker-handler.js, blok "Calendly: gedrag per fase".
 comment on column fs_v2_targets.calendly_behavior is
-  'Gedrag per Calendly-fase (booking_action). Voor record-stappen: default | upsert | update_only | create | search | skip. Voor send_mail/chatter_message: {skip:true} of een inhoud-override ({subject,body} resp. {message}). Leeg/NULL = standaardgedrag/-tekst voor elke fase.';
+  'Gedrag per Calendly-fase (booking_action). Voor record-stappen: default | upsert | update_only | create | search | skip. Voor send_mail/chatter_message: {skip:true} of een inhoud-override ({mail_subject_template,mail_body_html} resp. {chatter_template}). Leeg/NULL = standaardgedrag/-tekst voor elke fase.';

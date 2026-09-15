@@ -130,6 +130,16 @@
     var el = document.getElementById('det-mc-' + tid);
     if (!el) return;
 
+    // Tekst per fase (zie forminator-sync-v2-detail-mapping-tab.js): een
+    // fase-tab krijgt een STERK VEREENVOUDIGDE versie van deze editor —
+    // alleen onderwerp + tekst. Vertraging, ontvanger, afzender, bijlagen,
+    // ... zijn stap-brede instellingen en blijven op de "Standaard"-tab.
+    var activeFase = window.FSV2.getComposerFase(tid);
+    if (activeFase !== 'default') {
+      renderMailComposerFaseTab(target, tid, activeFase);
+      return;
+    }
+
     // De bijlagen staan in een eigen toestand (window.FSV2._mailAttachments),
     // want ze worden na het kiezen en na het voorbeeld apart hertekend zonder
     // de hele composer -- anders verlies je de tekst in de editor.
@@ -152,6 +162,7 @@
       })).join('');
 
     el.innerHTML = `
+      ${window.FSV2.renderComposerFaseTabs(target, tid)}
       <div data-mail-composer="${esc(tid)}">
 
         ${layout === 'blocks' ? `
@@ -348,6 +359,142 @@
     });
   }
 
+  /**
+   * Vereenvoudigde editor voor een fase-tab: alleen onderwerp + tekst. De
+   * overige mailinstellingen (vertraging, ontvanger, afzender, bijlagen, ...)
+   * gelden voor de hele stap en zijn hier bewust niet herhaald — die wijzig
+   * je op de "Standaard"-tab.
+   */
+  function renderMailComposerFaseTab(target, tid, fase) {
+    var el = document.getElementById('det-mc-' + tid);
+    if (!el) return;
+    var override = ((target.calendly_behavior || {})[fase]) || {};
+    var tokens   = alleTokens().concat(voorgaandeStapTokens(tid));
+    var tokenOpties = tokens.map(function (t) {
+      return `<option value="${esc(t.pad)}">${esc(t.label)}</option>`;
+    }).join('');
+
+    el.innerHTML = `
+      ${window.FSV2.renderComposerFaseTabs(target, tid)}
+      <div data-mail-composer-fase="${esc(tid)}">
+        <div class="alert alert-info py-2 text-xs mb-3">
+          <span>Eigen onderwerp en tekst voor deze fase. Vertraging, ontvanger, afzender en bijlagen
+          staan op de tab "Standaard" en gelden voor elke fase. Laat onderwerp of tekst leeg om de
+          standaardtekst van die tab te gebruiken.</span>
+        </div>
+
+        <div class="form-control mb-3">
+          <label class="label pt-0 pb-1"><span class="label-text text-sm font-medium">Onderwerp</span></label>
+          <input type="text" id="mailSubject-${esc(tid)}" class="input input-bordered input-sm w-full"
+                 value="${esc(override.mail_subject_template || '')}"
+                 placeholder="Leeg = het standaardonderwerp">
+        </div>
+
+        <div class="form-control mb-3">
+          <label class="label pt-0 pb-1 flex items-center justify-between">
+            <span class="label-text text-sm font-medium">Tekst</span>
+            <span class="flex items-center gap-1">
+              <select id="mailToken-${esc(tid)}" class="select select-bordered select-xs">
+                <option value="">Veld invoegen…</option>
+                ${tokenOpties}
+              </select>
+              <button type="button" class="btn btn-xs" data-mail-action="insert-token" data-tid="${esc(tid)}">Invoegen</button>
+            </span>
+          </label>
+          <div id="mailQuill-${esc(tid)}" class="min-w-0"></div>
+          <label class="label pt-1 pb-0">
+            <span class="label-text-alt text-base-content/50">Leeg = de standaardtekst.</span>
+          </label>
+        </div>
+
+        <div class="mb-2">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-sm font-medium">Voorbeeld</span>
+            <button type="button" class="btn btn-xs" data-mail-action="preview" data-tid="${esc(tid)}">Verversen</button>
+          </div>
+          <div id="mailPreview-${esc(tid)}"
+               class="border border-base-200 rounded-lg bg-base-100 p-3 text-xs text-base-content/50">
+            Klik op Verversen om te zien wat er precies vertrekt.
+          </div>
+        </div>
+      </div>
+    `;
+
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
+
+    if (!window.FSV2._mailQuills) window.FSV2._mailQuills = {};
+    var host = document.getElementById('mailQuill-' + tid);
+    if (host && window.EOQuill) {
+      var qi = window.EOQuill.create({
+        target: host,
+        initialHtml: override.mail_body_html || '',
+        placeholder: 'Eigen tekst voor deze fase...',
+        toolbar: [
+          ['bold', 'italic', 'underline'],
+          [{ list: 'ordered' }, { list: 'bullet' }],
+          ['link', 'clean']
+        ]
+      });
+      if (qi) {
+        window.FSV2._mailQuills[tid] = qi;
+        var ed = host.querySelector('.ql-editor');
+        if (ed) { ed.style.minHeight = '160px'; ed.style.maxHeight = '320px'; ed.style.overflowY = 'auto'; }
+      }
+    }
+
+    el.addEventListener('click', function (e) {
+      var knop = e.target.closest('[data-mail-action]');
+      if (!knop) return;
+      var actie = knop.dataset.mailAction;
+      var doelTid = knop.dataset.tid;
+      if (actie === 'insert-token') voegTokenIn(doelTid);
+      if (actie === 'preview')      vernieuwVoorbeeld(doelTid);
+    });
+  }
+
+  /** Onderwerp + tekst van een fase-tab lezen. Gedeeld door opslaan en de auto-save bij het wisselen van tab. */
+  function leesFaseTekstVelden(tid) {
+    var qi = window.FSV2._mailQuills && window.FSV2._mailQuills[tid];
+    return {
+      mail_subject_template: (document.getElementById('mailSubject-' + tid) || {}).value || '',
+      mail_body_html:        qi ? qi.getHTML() : '',
+    };
+  }
+
+  /**
+   * Fase-tab wisselen bewaart eerst stil de tab die je verlaat -- zie
+   * switchComposerFase() in forminator-sync-v2-detail-mapping-tab.js. Enkel
+   * onderwerp/tekst gaan naar calendly_behavior[fase]; de rest van de
+   * mailinstellingen (vertraging, ontvanger, afzender, ...) is stap-breed en
+   * verandert hier niet mee.
+   */
+  async function autoSaveMailFase(target, tid, fromFase) {
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+
+    if (fromFase === 'default') {
+      var velden = leesVelden(tid);
+      Object.assign(target, velden);
+      await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+        method: 'PUT',
+        body: JSON.stringify(Object.assign({
+          odoo_model:         target.odoo_model,
+          operation_type:     'send_mail',
+          mail_res_id_source: target.mail_res_id_source || null,
+        }, velden)),
+      });
+      return;
+    }
+
+    var tekst = leesFaseTekstVelden(tid);
+    var map = Object.assign({}, target.calendly_behavior || {});
+    map[fromFase] = Object.assign({}, map[fromFase], tekst);
+    target.calendly_behavior = map;
+    await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+      method: 'PUT',
+      body: JSON.stringify(Object.assign({}, target, { calendly_behavior: map })),
+    });
+  }
+
   /** De gekozen placeholder invoegen op de cursorpositie in de tekst. */
   function voegTokenIn(tid) {
     var keuze = document.getElementById('mailToken-' + tid);
@@ -362,15 +509,29 @@
     keuze.value = '';
   }
 
-  /** Het voorbeeld komt van de server, zodat het gelijk is aan wat er vertrekt. */
+  /**
+   * Het voorbeeld komt van de server, zodat het gelijk is aan wat er vertrekt.
+   * Een fase-tab heeft niet alle velden in de DOM staan (enkel onderwerp +
+   * tekst) — die stuurt daarom enkel die twee plus de gedeelde bijlagen mee,
+   * in plaats van leesVelden(tid) dat de ontbrekende velden stil op hun
+   * standaardwaarde zou laten vallen.
+   */
   async function vernieuwVoorbeeld(tid) {
     var doel = document.getElementById('mailPreview-' + tid);
     if (!doel) return;
     doel.innerHTML = '<span class="text-base-content/40">Laden…</span>';
+    var activeFase = window.FSV2.getComposerFase(tid);
     try {
+      var payload;
+      if (activeFase === 'default') {
+        payload = leesVelden(tid);
+      } else {
+        var target = ((S().detail && S().detail.targets) || []).find(function (t) { return String(t.id) === tid; });
+        payload = Object.assign({ mail_attachments: (target && target.mail_attachments) || [] }, leesFaseTekstVelden(tid));
+      }
       var res = await window.FSV2.api('/targets/' + tid + '/mail-preview', {
         method: 'POST',
-        body: JSON.stringify(Object.assign({}, leesVelden(tid), { sample: bouwVoorbeeldwaarden(tid) }))
+        body: JSON.stringify(Object.assign({}, payload, { sample: bouwVoorbeeldwaarden(tid) }))
       });
       if (!res || !res.success) throw new Error((res && res.error) || 'Voorbeeld mislukt');
       // De server zegt erbij of elke bijlage nog in de Asset Manager staat en
@@ -430,6 +591,21 @@
     var target  = targets.find(function (t) { return String(t.id) === tid; });
     if (!target) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
 
+    // Een fase-tab heeft geen vertraging/ontvanger/afzender/bijlagen in de DOM
+    // staan -- dat zijn stap-brede instellingen die alleen via "Standaard"
+    // wijzigen. Enkel onderwerp/tekst gaan naar calendly_behavior[fase].
+    var activeFase = window.FSV2.getComposerFase(tid);
+    if (activeFase !== 'default') {
+      try {
+        await autoSaveMailFase(target, tid, activeFase);
+        window.FSV2.showAlert('Tekst voor deze fase opgeslagen.', 'success');
+        await window.FSV2.openDetail(S().activeId);
+      } catch (e) {
+        window.FSV2.showAlert('Opslaan mislukt: ' + e.message, 'error');
+      }
+      return;
+    }
+
     var velden = leesVelden(tid);
 
     // Vroeg en duidelijk klagen, in plaats van de server een 400 laten geven.
@@ -472,6 +648,7 @@
   Object.assign(window.FSV2, {
     renderMailComposer: renderMailComposer,
     handleSaveMailComposer: handleSaveMailComposer,
+    autoSaveMailFase: autoSaveMailFase,
     _mailComposerReadFields: leesVelden
   });
 })();
