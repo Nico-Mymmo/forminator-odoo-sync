@@ -179,7 +179,12 @@ export const calendlyRoutes = {
     return json({
       success: true,
       data: {
-        fields: CALENDLY_FIELDS.map(([key, label]) => ({ key, label })),
+        // `choices` (derde element, enkel bij booking_action) gaat mee: het
+        // koppelingsscherm maakt er vinkjes van in de voorwaarde-editor in
+        // plaats van een tekstveld waarin je de sleutel moet weten.
+        fields: CALENDLY_FIELDS.map(([key, label, choices]) => (
+          choices ? { key, label, choices } : { key, label }
+        )),
         note: 'De antwoorden op de vragen van je boekingspagina komen hier bovenop als q_<vraag> zodra de eerste boeking binnen is.',
       },
     });

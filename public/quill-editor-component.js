@@ -62,13 +62,39 @@
         background: oklch(var(--b1));
         position: relative;
         z-index: 10;
-        overflow: hidden;
+        /* GEEN overflow:hidden. Quill hangt zijn linkvenster (.ql-tooltip)
+           absoluut IN deze container, en zet het onder de cursor -- dus vaak
+           net buiten de editor. Met hidden werd dat venster afgekapt: je zag
+           het invoerveld half en de Save-knop niet. De ronde hoeken komen van
+           .eo-quill-card en van .ql-editor zelf, dus hier is clippen nergens
+           voor nodig. */
+        overflow: visible;
         border-radius: 0 0 var(--rounded-box, 0.6rem) var(--rounded-box, 0.6rem);
       }
 
       .eo-quill-card .ql-picker-options,
       .eo-quill-card .ql-tooltip {
         z-index: 80;
+      }
+
+      /* Quill geeft zijn link-invoerveld 170px. Onze placeholders zijn langer
+         ({location_join_url}), en dan zie je er de helft van terwijl je hem
+         net aan het nakijken bent. */
+      .eo-quill-card .ql-tooltip {
+        max-width: min(30rem, 90vw);
+        white-space: nowrap;
+      }
+
+      .eo-quill-card .ql-tooltip input[type=text] {
+        width: 19rem;
+        max-width: 55vw;
+      }
+
+      /* Quill rekent de horizontale plek uit vanaf de cursor en kan daarbij
+         links of rechts buiten de kaart vallen. Vastzetten op de linkerrand is
+         saaier maar altijd zichtbaar. */
+      .eo-quill-card .ql-tooltip.ql-editing {
+        left: 0 !important;
       }
 
       .eo-quill-card .ql-editor {

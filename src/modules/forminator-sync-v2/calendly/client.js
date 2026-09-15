@@ -130,7 +130,20 @@ export async function listOrganizationMemberships(env, { organization } = {}) {
   return alles;
 }
 
-async function verzamelEventTypes(env, query, opgehaald) {
+/**
+ * Eén ophaalronde. `viaLid` is het organisatielid namens wie we vragen (null
+ * bij de organisatie-brede ronde).
+ *
+ * HOE WE AAN DE HOSTS KOMEN. Calendly's API v2 heeft GEEN endpoint dat de
+ * hosts van een round-robin- of collectief eventtype teruggeeft -- `profile`
+ * noemt enkel de eigenaar, en dat is bij een team-eventtype het team, niet de
+ * mensen. Wat we wél weten: `/event_types?user=<lid>` geeft de eventtypes die
+ * DAT LID kan inplannen. Verschijnt een round robin onder Thomas, Jiri en
+ * Kobe, dan zijn dat zijn hosts. De hostlijst hieronder is dus AFGELEID uit
+ * wie het eventtype terugkreeg, en het scherm zegt dat er ook bij -- het is
+ * geen veld dat Calendly ons geeft.
+ */
+async function verzamelEventTypes(env, query, opgehaald, viaLid = null) {
   let volgende = null;
   for (let i = 0; i < 10; i++) {
     const data = volgende
@@ -139,8 +152,18 @@ async function verzamelEventTypes(env, query, opgehaald) {
 
     for (const r of (data?.collection || [])) {
       const uri = r.uri || '';
-      if (!uri || opgehaald.has(uri)) continue;
-      opgehaald.set(uri, {
+      if (!uri) continue;
+
+      // Al gezien in een eerdere ronde: enkel dit lid als host bijschrijven.
+      // Vroeger stond hier een `continue`, waardoor de tweede vindplaats van
+      // een gedeeld eventtype volledig wegviel -- en precies dat tweede lid is
+      // wat je bij een round robin wil zien.
+      if (opgehaald.has(uri)) {
+        if (viaLid) voegHostToe(opgehaald.get(uri), viaLid);
+        continue;
+      }
+
+      const rij = {
         uri,
         uuid: uri.split('/').pop() || '',
         name: r.name || '',
@@ -152,14 +175,25 @@ async function verzamelEventTypes(env, query, opgehaald) {
         scheduling_url: r.scheduling_url || '',
         color: r.color || '',
         locale: r.locale || '',
+        secret: r.secret === true,
+        owner_uri: r.profile?.owner || '',
         owner_name: r.profile?.name || '',
         owner_type: r.profile?.type || '',
-      });
+        hosts: [],
+      };
+      if (viaLid) voegHostToe(rij, viaLid);
+      opgehaald.set(uri, rij);
     }
 
     volgende = data?.pagination?.next_page || null;
     if (!volgende) break;
   }
+}
+
+function voegHostToe(rij, lid) {
+  if (!rij || !lid || !lid.uri) return;
+  if (rij.hosts.some((h) => h.uri === lid.uri)) return;
+  rij.hosts.push({ uri: lid.uri, name: lid.name || '', email: lid.email || '' });
 }
 
 /**
@@ -196,7 +230,7 @@ export async function listEventTypes(env, { organization, includeShared = true }
       for (const lid of leden) {
         if (!lid.uri) continue;
         try {
-          await verzamelEventTypes(env, { user: lid.uri }, opgehaald);
+          await verzamelEventTypes(env, { user: lid.uri }, opgehaald, lid);
         } catch (err) {
           // één lid waarvoor het ophalen mislukt mag de rest niet blokkeren
         }
@@ -206,7 +240,11 @@ export async function listEventTypes(env, { organization, includeShared = true }
     }
   }
 
-  return [...opgehaald.values()];
+  const rijen = [...opgehaald.values()];
+  for (const rij of rijen) {
+    rij.hosts.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }
+  return rijen;
 }
 
 export async function listWebhookSubscriptions(env, { organization, scope = 'organization' } = {}) {

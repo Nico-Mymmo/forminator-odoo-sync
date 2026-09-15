@@ -760,13 +760,19 @@
         S()._calendlyFields = ((res && res.data && res.data.fields) || []);
       }
       velden = S()._calendlyFields.map(function (f) {
-        return {
+        var veld = {
           field_id: String(f.key),
           label: String(f.label || f.key),
           type: 'text',
           required: false,
           from_calendly: true
         };
+        // Een veld met een gesloten antwoordruimte (vandaag enkel
+        // booking_action) draagt zijn keuzes mee. buildCondValuesHtml() in
+        // -detail-mapping-tab.js maakt daar vinkjes van; zonder choices moet
+        // je de sleutel ("rescheduled_old") uit je hoofd typen.
+        if (Array.isArray(f.choices) && f.choices.length) veld.choices = f.choices;
+        return veld;
       });
     } catch (e) {
       S().detailFormFields = [];

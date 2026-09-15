@@ -356,6 +356,12 @@ function parsePositiveInteger(value) {
  * editor). De Worker kan niets uit public/ importeren. Wijzig je een kleur,
  * wijzig ze op beide plekken -- anders belooft het voorbeeld iets anders dan
  * wat er in Odoo komt te staan.
+ *
+ * EN: schrijf de vulling ALTIJD als `background-color`, nooit als de shorthand
+ * `background`. Odoo's html_sanitize heeft een whitelist van stijl-eigenschappen
+ * waar de shorthand niet in staat; die wordt stil weggeknipt terwijl `color` en
+ * `border` blijven staan. Een knop met witte tekst werd daardoor een lege doos
+ * met een gekleurde rand -- zichtbaar in Odoo, niet in het voorbeeld.
  */
 const CHATTER_KNOP_STIJLEN = {
   primary: { bg: '#714B67', fg: '#ffffff', rand: '#714B67' },
@@ -389,7 +395,7 @@ function buildChatterButtonsHtml(knoppen, vulIn) {
     return '<a href="' + escAttr(url) + '" target="_blank" rel="noopener"' +
       ' style="display:inline-block;padding:8px 16px;margin:0 8px 8px 0;border-radius:6px;' +
       'font-family:Arial,sans-serif;font-size:13px;font-weight:600;line-height:1.2;text-decoration:none;' +
-      'background:' + stijl.bg + ';color:' + stijl.fg + ';border:1px solid ' + stijl.rand + '">' +
+      'background-color:' + stijl.bg + ';color:' + stijl.fg + ';border:1px solid ' + stijl.rand + '">' +
       escAttr(label || url) + '</a>';
   }).filter(Boolean);
 

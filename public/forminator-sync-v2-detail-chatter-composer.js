@@ -49,7 +49,7 @@
       return '<a href="' + escAttr(url) + '" target="_blank" rel="noopener"' +
         ' style="display:inline-block;padding:8px 16px;margin:0 8px 8px 0;border-radius:6px;' +
         'font-family:Arial,sans-serif;font-size:13px;font-weight:600;line-height:1.2;text-decoration:none;' +
-        'background:' + stijl.bg + ';color:' + stijl.fg + ';border:1px solid ' + stijl.rand + '">' +
+        'background-color:' + stijl.bg + ';color:' + stijl.fg + ';border:1px solid ' + stijl.rand + '">' +
         escAttr(label || url) + '</a>';
     }).filter(Boolean);
     return delen.length ? '<div style="margin:12px 0 4px">' + delen.join('') + '</div>' : '';
@@ -198,7 +198,7 @@
         '<span class="label-text text-sm font-medium">Vrij bericht <span class="font-normal text-base-content/50">(optioneel)</span></span>' +
         '<span class="label-text-alt text-base-content/50 text-xs">Klik op een veld om het in te voegen.</span>' +
       '</label>' +
-      '<div id="chatterQuillEditor-' + esc(tid) + '" class="rounded-lg overflow-hidden border border-base-300"></div>' +
+      '<div id="chatterQuillEditor-' + esc(tid) + '" class="min-w-0"></div>' +
       '</div>';
 
     // Field insertion chips

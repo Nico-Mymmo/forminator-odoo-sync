@@ -41,6 +41,40 @@
 export const HANDLED_EVENTS = ['invitee.created', 'invitee.canceled'];
 
 /**
+ * WAT ER MET DE AFSPRAAK GEBEURT -- het veld waarop je een stap conditioneert.
+ *
+ * Calendly's eigen `event` kent er maar twee (`invitee.created` /
+ * `invitee.canceled`) en dat is te grof om een pipeline op te sturen. Een
+ * VERPLAATSING is bij Calendly namelijk geen wijziging maar een annulatie van
+ * de oude boeking plus een nieuwe boeking met een nieuw event_uuid -- twee
+ * webhooks dus, allebei met `event` op een waarde die iets anders suggereert
+ * dan wat er gebeurt. Zonder dit veld zou een stap "lead aanmaken" bij elke
+ * verplaatsing een TWEEDE lead maken, en bij een annulatie een lead maken voor
+ * een afspraak die niet doorgaat.
+ *
+ * De vier standen zijn uit elkaar te houden met wat Calendly wél meestuurt:
+ *   - `invitee.created` zonder `old_invitee`  -> new
+ *   - `invitee.created` mét `old_invitee`     -> rescheduled  (de NIEUWE afspraak)
+ *   - `invitee.canceled` met `rescheduled`    -> rescheduled_old (de oude vervalt)
+ *   - `invitee.canceled` zonder `rescheduled` -> canceled
+ *
+ * Waarom een verplaatsing twee standen krijgt en niet één: een stap die een
+ * chatter-notitie plaatst hoort bij een verplaatsing ÉÉN keer te vuren, niet
+ * twee keer. `rescheduled` is de bruikbare van de twee -- die draagt de nieuwe
+ * datum. `rescheduled_old` bestaat zodat de vaste stap de oude meeting nog op
+ * geannuleerd kan zetten, en zodat je er desgewenst apart op kan reageren.
+ *
+ * De SLEUTELS liggen vast zodra er koppelingen op draaien: ze staan in
+ * fs_v2_targets.condition_values. Zelfde regel als CALENDLY_FIELDS.
+ */
+export const BOOKING_ACTIONS = [
+  ['new',             'Nieuwe boeking'],
+  ['rescheduled',     'Verplaatst — de nieuwe afspraak'],
+  ['rescheduled_old', 'Verplaatst — de oude afspraak vervalt'],
+  ['canceled',        'Geannuleerd'],
+];
+
+/**
  * De velden die een Calendly-koppeling ALTIJD levert, met hun label voor het
  * koppelingsscherm. De `q_*`-velden komen daar bovenop en hangen af van de
  * vragen op de boekingspagina; die worden pas zichtbaar na de eerste boeking.
@@ -51,6 +85,8 @@ export const HANDLED_EVENTS = ['invitee.created', 'invitee.canceled'];
  * de OM-formulieren.
  */
 export const CALENDLY_FIELDS = [
+  ['booking_action',        'Wat er gebeurt (nieuw / verplaatst / geannuleerd)',
+                            BOOKING_ACTIONS.map(([value, label]) => ({ value, label }))],
   ['event',                 'Soort gebeurtenis (invitee.created / invitee.canceled)'],
   ['event_uuid',            'Calendly-event-id (de sleutel waarop bijwerken matcht)'],
   ['event_name',            'Naam van het eventtype'],
@@ -261,6 +297,8 @@ export function flattenCalendlyPayload(envelope) {
   plat.booked_at_text     = geboekt ? geboekt.volledig : '';
   plat.canceled_at_text   = geannuleerdOp ? geannuleerdOp.volledig : '';
 
+  plat.booking_action = bepaalBookingAction(soort, plat);
+
   // Elke vraag apart mapbaar, plus drie samengestelde vormen. `questions_html`
   // is wat naar x_studio_cm_extra_info gaat -- dat veld is van het type html in
   // Odoo, dus platte tekst zou daar als één regel zonder witruimte belanden.
@@ -358,6 +396,24 @@ function timingSafeEqual(a, b) {
   let verschil = 0;
   for (let i = 0; i < a.length; i++) verschil |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return verschil === 0;
+}
+
+/**
+ * Welke van de vier standen is dit? Zie BOOKING_ACTIONS bovenaan.
+ *
+ * Valt terug op 'new' bij een onbekende gebeurtenis: een stap die op 'new'
+ * staat hoort dan te draaien. De andere kant -- stil niets doen bij iets dat we
+ * niet herkennen -- betekent een boeking die nergens terechtkomt, en dat merk je
+ * pas als iemand naar een lead vraagt die er niet is.
+ */
+function bepaalBookingAction(soort, plat) {
+  if (soort === 'invitee.canceled') {
+    return (plat.rescheduled === 'true' || plat.new_invitee_uuid) ? 'rescheduled_old' : 'canceled';
+  }
+  if (soort === 'invitee.created') {
+    return plat.old_invitee_uuid ? 'rescheduled' : 'new';
+  }
+  return 'new';
 }
 
 /**

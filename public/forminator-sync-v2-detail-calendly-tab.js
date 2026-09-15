@@ -98,6 +98,114 @@
   // TEKENEN — één kaart, ingevoegd door renderDetailMappings()
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /**
+   * De eventtypes in groepen, want een platte lijst van dertig regels waarin
+   * "Kennismaking" drie keer voorkomt is niet te gebruiken.
+   *
+   * De volgorde is die van de vraag die je stelt bij het instellen: eerst het
+   * gedeelde spul (round robin en collectief -- daar hangt een POEL van mensen
+   * aan en dat is precies wat je wil zien), dan de team-eventtypes, dan per
+   * collega zijn eigen types.
+   */
+  function groepeerEventTypes(types) {
+    var poel = { round_robin: [], collective: [] };
+    var team = [];
+    var perPersoon = {};
+
+    (types || []).forEach(function (t) {
+      if (t.pooling_type === 'round_robin' || t.pooling_type === 'collective') {
+        poel[t.pooling_type].push(t);
+      } else if (t.owner_type === 'Team') {
+        team.push(t);
+      } else {
+        var sleutel = t.owner_name || '(onbekende eigenaar)';
+        (perPersoon[sleutel] = perPersoon[sleutel] || []).push(t);
+      }
+    });
+
+    var groepen = [];
+    if (poel.round_robin.length) groepen.push({ label: 'Round robin — beurtrol over meerdere hosts', items: poel.round_robin });
+    if (poel.collective.length)  groepen.push({ label: 'Collectief — alle hosts samen aanwezig',      items: poel.collective });
+    if (team.length)             groepen.push({ label: 'Team',                                        items: team });
+
+    Object.keys(perPersoon).sort(function (a, b) { return a.localeCompare(b); }).forEach(function (naam) {
+      groepen.push({ label: 'Persoonlijk — ' + naam, items: perPersoon[naam] });
+    });
+
+    groepen.forEach(function (g) {
+      g.items.sort(function (a, b) { return String(a.name || '').localeCompare(String(b.name || '')); });
+    });
+    return groepen;
+  }
+
+  function optieHtml(t, huidig) {
+    var achtervoegsels = [];
+    if (t.duration) achtervoegsels.push(t.duration + ' min');
+    if (t.hosts && t.hosts.length > 1) achtervoegsels.push(t.hosts.length + ' hosts');
+    if (!t.active) achtervoegsels.push('niet actief');
+    if (t.secret) achtervoegsels.push('privé');
+    var staart = achtervoegsels.length ? ' — ' + achtervoegsels.join(' · ') : '';
+
+    return `<option value="${esc(t.uri)}" ${t.uri === huidig ? 'selected' : ''}
+                    data-name="${esc(t.name)}"
+                    data-pooling="${esc(t.pooling_type || '')}"
+                    data-locale="${esc(t.locale || '')}">${esc(t.name)}${esc(staart)}</option>`;
+  }
+
+  var POOLING_LABELS = {
+    round_robin: 'Round robin — om beurten één host',
+    collective:  'Collectief — alle hosts tegelijk',
+  };
+
+  /**
+   * Het kadertje onder de keuzelijst: wie zit erin, van wie is het, waar staat
+   * het. Bij een round robin is dat de eigenlijke vraag -- "welke collega's
+   * kunnen hierop geboekt worden" -- en die stond nergens op het scherm.
+   */
+  function eventTypeInfoHtml(uri) {
+    if (!uri) {
+      return `<p class="text-xs text-base-content/50">Vangnet: elke boeking waarvoor geen andere koppeling een eventtype claimt, komt hier binnen.</p>`;
+    }
+    var t = (eventTypes || []).find(function (e) { return e.uri === uri; });
+    if (!t) return '';
+
+    var regels = [];
+    if (t.pooling_type) regels.push(POOLING_LABELS[t.pooling_type] || t.pooling_type);
+    if (t.owner_name)   regels.push((t.owner_type === 'Team' ? 'Team: ' : 'Eigenaar: ') + t.owner_name);
+    if (t.locale)       regels.push('Taal: ' + t.locale);
+
+    // De hostlijst is AFGELEID (zie verzamelEventTypes in calendly/client.js):
+    // Calendly heeft geen endpoint dat de hosts van een eventtype teruggeeft.
+    // Dat hoort er expliciet bij te staan -- anders leest een lege lijst als
+    // "er zijn geen hosts" terwijl het "wij konden het niet opvragen" betekent.
+    var hostHtml = (t.hosts && t.hosts.length)
+      ? `<div class="flex flex-wrap gap-1 mt-1.5">` +
+          t.hosts.map(function (h) {
+            return `<span class="badge badge-ghost badge-sm gap-1" title="${esc(h.email || '')}">
+              <i data-lucide="user" class="w-3 h-3"></i>${esc(h.name || h.email || '?')}</span>`;
+          }).join('') +
+        `</div>`
+      : `<p class="text-xs text-base-content/40 italic mt-1.5">Geen hosts gevonden — het token kan de ledenlijst van de organisatie niet opvragen (<code>organizations:read</code> + org-adminrechten).</p>`;
+
+    return `
+      <div class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-base-content/70">
+          ${regels.map(function (r) { return `<span>${esc(r)}</span>`; }).join('')}
+          ${t.scheduling_url ? `<a class="link link-primary" href="${esc(t.scheduling_url)}" target="_blank" rel="noopener">Boekingspagina</a>` : ''}
+        </div>
+        <div class="text-xs text-base-content/50 mt-1.5">Hosts <span class="opacity-60">(afgeleid uit wie dit eventtype kan inplannen — Calendly geeft geen hostlijst)</span></div>
+        ${hostHtml}
+      </div>`;
+  }
+
+  /** De keuzelijst is gewijzigd: alleen het infokadertje hertekenen. */
+  function handleCalendlyEventTypeChanged(sel) {
+    var doel = document.getElementById('calendlyEventTypeInfo');
+    if (!doel || !sel) return;
+    doel.innerHTML = eventTypeInfoHtml(sel.value || '');
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: doel });
+  }
+
   function renderCalendlyStapKaart() {
     if (!isCalendly()) return '';
 
@@ -120,22 +228,16 @@
       keuzeHtml = `<p class="text-sm text-base-content/50">Dit Calendly-account heeft nog geen eventtypes.</p>`;
     } else {
       keuzeHtml = `
-        <select id="calendlyEventType" class="select select-bordered select-sm w-full max-w-xl">
+        <select id="calendlyEventType" class="select select-bordered select-sm w-full max-w-xl"
+                data-change-action="calendly-event-type">
           <option value="">Vangnet — alles waarvoor geen eigen koppeling bestaat</option>
-          ${eventTypes.map(function (t) {
-            // Gedeelde/team-eventtypes (round robin, collective, ...) komen ook uit
-            // andere leden van de organisatie (zie listEventTypes() in client.js) --
-            // de eigenaar erbij tonen is hier het enige dat twee gelijknamige
-            // eventtypes van verschillende collega's nog uit elkaar houdt.
-            var eigenaarSuffix = t.pooling_type && t.owner_name ? ' · ' + t.owner_name : '';
-            return `<option value="${esc(t.uri)}" ${t.uri === huidig ? 'selected' : ''}
-                            data-name="${esc(t.name)}"
-                            data-pooling="${esc(t.pooling_type || '')}"
-                            data-locale="${esc(t.locale || '')}">
-              ${esc(t.name)}${esc(eigenaarSuffix)}${t.active ? '' : ' (niet actief)'}${t.duration ? ' — ' + esc(String(t.duration)) + ' min' : ''}
-            </option>`;
+          ${groepeerEventTypes(eventTypes).map(function (groep) {
+            return `<optgroup label="${esc(groep.label)}">` +
+              groep.items.map(function (t) { return optieHtml(t, huidig); }).join('') +
+            `</optgroup>`;
           }).join('')}
-        </select>`;
+        </select>
+        <div id="calendlyEventTypeInfo" class="mt-2">${eventTypeInfoHtml(huidig)}</div>`;
     }
 
     var odooHtml = odooEventTypes === null
@@ -208,10 +310,27 @@
               </button>
             </div>
 
-            <p class="text-xs text-base-content/40 mt-3">
-              Verplaatst iemand zijn afspraak, dan maakt Calendly daar een <em>nieuwe</em> afspraak van en
-              annuleert de oude — je ziet dus twee meetings in Odoo, waarvan de oude op “geannuleerd” staat.
-            </p>
+            <div class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2.5 mt-4">
+              <div class="text-xs font-semibold mb-1 flex items-center gap-1.5">
+                <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>Nieuw, verplaatst en geannuleerd zijn drie verschillende flows
+              </div>
+              <p class="text-xs text-base-content/60 mb-1.5">
+                Verplaatst iemand zijn afspraak, dan maakt Calendly daar een <em>nieuwe</em> afspraak van en
+                annuleert de oude — je ziet dus twee meetings in Odoo, waarvan de oude op “geannuleerd” staat.
+                De vaste stap hierboven vangt alle gevallen op. Voor je EIGEN stappen (lead, notitie, mail) zet
+                je een voorwaarde op het veld <code class="text-[11px]">booking_action</code>:
+              </p>
+              <ul class="text-xs text-base-content/60 space-y-0.5 ml-1">
+                <li><code class="text-[11px]">new</code> — een echt nieuwe boeking. Zet je lead-stap hierop, anders
+                    komt er bij elke verplaatsing of annulatie een tweede lead bij.</li>
+                <li><code class="text-[11px]">rescheduled</code> — de nieuwe afspraak van een verplaatsing, mét de nieuwe datum.</li>
+                <li><code class="text-[11px]">rescheduled_old</code> — de oude afspraak die daarbij vervalt.</li>
+                <li><code class="text-[11px]">canceled</code> — geannuleerd, zonder vervanging.</li>
+              </ul>
+              <p class="text-xs text-base-content/50 mt-1.5">
+                De voorwaarde staat per stap op het tabblad Koppeling, onder “Voer deze stap alleen uit als veld …”.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -288,6 +407,7 @@
   }
 
   Object.assign(window.FSV2, {
+    handleCalendlyEventTypeChanged: handleCalendlyEventTypeChanged,
     laadCalendlyStapData: laadCalendlyStapData,
     renderCalendlyStapKaart: renderCalendlyStapKaart,
     handleCalendlyAction: handleCalendlyAction,

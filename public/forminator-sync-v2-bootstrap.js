@@ -2036,6 +2036,14 @@
     }
 
     // Condition field selector change — refresh value suggestions dynamically
+    // Calendly: andere keuze in de eventtype-lijst -> enkel het infokadertje
+    // eronder hertekenen (hosts, eigenaar, boekingspagina). De hele kaart
+    // hertekenen zou de keuze zelf weer op de opgeslagen waarde zetten.
+    if (inp && inp.tagName === 'SELECT' && inp.dataset.changeAction === 'calendly-event-type') {
+      if (window.FSV2.handleCalendlyEventTypeChanged) window.FSV2.handleCalendlyEventTypeChanged(inp);
+      return;
+    }
+
     if (inp && inp.tagName === 'SELECT' && inp.dataset.changeAction === 'cond-field-changed') {
       var condChangeTid = inp.dataset.targetId || '';
       if (condChangeTid && window.FSV2.handleCondFieldChanged) {

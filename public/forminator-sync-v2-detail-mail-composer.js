@@ -178,7 +178,7 @@
               <button type="button" class="btn btn-xs" data-mail-action="insert-token" data-tid="${esc(tid)}">Invoegen</button>
             </span>
           </label>
-          <div id="mailQuill-${esc(tid)}" class="rounded-lg overflow-hidden border border-base-300"></div>
+          <div id="mailQuill-${esc(tid)}" class="min-w-0"></div>
           <label class="label pt-1 pb-0">
             <span class="label-text-alt text-base-content/50">
               Vet, cursief, onderstreept, lijstjes en links. Een link maak je door de tekst te

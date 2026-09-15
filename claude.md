@@ -688,6 +688,59 @@ Afspraken die bewust zo zijn:
   op geannuleerd te staan en er komt een nieuwe bij. De Zapier-koppeling deed
   hetzelfde. Probeer dat niet "op te lossen" door op `invitee_uuid` te matchen —
   dan verlies je de historiek van de verplaatsing.
+- **`booking_action` is het veld waarop je een stap conditioneert — NIET `event`.**
+  Calendly's eigen `event` kent maar twee waarden en is te grof om een pipeline op
+  te sturen: een verplaatsing komt binnen als een `invitee.canceled` plus een
+  `invitee.created`, allebei met een `event` dat iets anders suggereert dan wat er
+  gebeurt. Zonder dit veld maakt een stap "lead aanmaken" bij élke verplaatsing een
+  TWEEDE lead, en bij een annulatie een lead voor een afspraak die niet doorgaat.
+  `bepaalBookingAction()` in `calendly/payload.js` leidt vier standen af
+  (`BOOKING_ACTIONS`):
+
+  | waarde | wanneer |
+  |---|---|
+  | `new` | `invitee.created` zonder `old_invitee` — een echt nieuwe boeking |
+  | `rescheduled` | `invitee.created` mét `old_invitee` — de NIEUWE afspraak van een verplaatsing, met de nieuwe datum |
+  | `rescheduled_old` | `invitee.canceled` met `rescheduled` — de oude afspraak die daarbij vervalt |
+  | `canceled` | `invitee.canceled` zonder `rescheduled` — geannuleerd, zonder vervanging |
+
+  **Een verplaatsing krijgt bewust TWEE standen en niet één.** Zouden beide
+  webhooks `rescheduled` heten, dan vuurt een chatter-stap die daarop staat twee
+  keer en staan er twee identieke notities in Odoo. `rescheduled` is de bruikbare
+  van de twee; `rescheduled_old` bestaat zodat de vaste stap de oude meeting nog op
+  geannuleerd kan zetten en je er desgewenst apart op kan reageren.
+  De vaste stappen (host + meeting-upsert) dragen GEEN conditie: die moeten in alle
+  vier de gevallen draaien, anders blijft een geannuleerde afspraak in Odoo op
+  actief staan. De SLEUTELS liggen vast zodra er koppelingen op draaien — ze staan
+  in `fs_v2_targets.condition_values`, zelfde regel als `CALENDLY_FIELDS`.
+  Het veld draagt zijn `choices` mee tot in de voorwaarde-editor (`/api/calendly/fields`
+  → `fetchCalendlyFields()` → `buildCondValuesHtml()`), zodat het vinkjes worden en
+  niemand `rescheduled_old` hoeft over te typen. **Inzendingen van vóór deze
+  wijziging hebben het veld niet**: een replay daarvan slaat een geconditioneerde
+  stap over (leeg veld = conditie niet voldaan). Dat is de veilige kant — geen
+  dubbele leads — maar het verklaart wel waarom een oude replay minder doet.
+- **De hostlijst van een eventtype is AFGELEID, niet opgevraagd.** Calendly's API v2
+  heeft geen endpoint dat de hosts van een round-robin- of collectief eventtype
+  teruggeeft; `profile` noemt enkel de eigenaar, en dat is bij een team-eventtype
+  het team en niet de mensen. `verzamelEventTypes()` houdt daarom bij wélke
+  organisatieleden een eventtype terugkregen via `/event_types?user=<lid>`:
+  verschijnt een round robin onder drie collega's, dan zijn dat zijn hosts. Het
+  scherm zegt dat er expliciet bij — een lege lijst betekent "wij konden het niet
+  opvragen" (geen `organizations:read` of geen org-adminrechten), niet "er zijn
+  geen hosts". De oude code deed `if (opgehaald.has(uri)) continue;`, waardoor de
+  tweede vindplaats van een gedeeld eventtype volledig wegviel; dat is precies de
+  informatie die je bij een round robin wil.
+- **De eventtype-keuzelijst is GEGROEPEERD, niet plat.** Round robin → collectief →
+  team → per collega (`groepeerEventTypes()` in
+  `public/forminator-sync-v2-detail-calendly-tab.js`). Met dertig eventtypes waarin
+  "Kennismaking" drie keer voorkomt is een platte lijst niet te gebruiken; de
+  volgorde volgt de vraag die je bij het instellen stelt (eerst het gedeelde spul,
+  want daar hangt een poel van mensen aan). Het kadertje eronder toont van het
+  gekozen type de poelsoort, de eigenaar, de taal, de boekingspagina en de hosts.
+  Dat kadertje wordt bij een wijziging APART hertekend
+  (`handleCalendlyEventTypeChanged`, via `data-change-action="calendly-event-type"`
+  in bootstrap.js) — de hele kaart hertekenen zou de keuze terugzetten op wat er
+  opgeslagen staat.
 - **Veldtypes staan in `VELDTYPES` (system-step.js) en worden AANGEVULD, nooit
   overschreven.** Zonder die omzetting gaat het stil mis: `resolveMappingValue()`
   past `coerceFieldValue()` alleen toe als er een `fs_v2_field_transforms`-rij is,
@@ -828,10 +881,17 @@ opgeslagen stap kapot tot iemand ze opnieuw bewaart.
   er in Odoo komt te staan. Zelfde afweging als `KNOP_STIJLEN` in de mailstudio:
   aan een notitie die al in de chatter staat kan je een onleesbare kleur niet
   meer bijstellen.
-- **Odoo's `html_sanitize` laat `style` en `href` op een `<a>` staan** (dat is de
-  standaard: `sanitize_style=False`), dus de inline stijl van een knop overleeft
-  `message_post`. Ga daar niet op improviseren met `class` — die hangt af van
-  Odoo's eigen stylesheets.
+- **Odoo's `html_sanitize` FILTERT de inline stijl per eigenschap.** `style` en
+  `href` blijven op een `<a>` staan, maar niet elke property overleeft: de
+  shorthand **`background` wordt stil weggeknipt, `background-color` niet**.
+  Dat kostte een ronde: de knoppen kwamen in de chatter als lege dozen met een
+  gekleurde rand, want de vulling was weg terwijl `color:#ffffff` bleef staan —
+  witte tekst op wit. Geverifieerd op de opgeslagen `mail.message`-body (12571991
+  miste `background`; 12571980, de handtekeningmail, had zijn `background-color`
+  nog). Schrijf dus altijd de volledige property-naam, en controleer een nieuwe
+  eigenschap door na te kijken wat er ECHT in `mail.message.body` staat — niet
+  door aan te nemen dat het doorkomt, want de sanitizer meldt niets. Ga hier ook
+  niet op improviseren met `class`: die hangt af van Odoo's eigen stylesheets.
 
 ---
 
