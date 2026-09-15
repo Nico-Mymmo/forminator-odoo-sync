@@ -206,7 +206,7 @@
     // Partition extraRows into required / default / chain / free
     var chainRowsWithIdx = [];
     extraRows.forEach(function(r, i) {
-      if (r.sourceType === 'previous_step_output') chainRowsWithIdx.push({ row: r, stateIdx: i });
+      if (r.sourceType === 'previous_step_output' || r.sourceType === 'context') chainRowsWithIdx.push({ row: r, stateIdx: i });
     });
 
     // Welke koppelrij is het zoekcriterium (zie ook de identifier-rij verderop).
@@ -229,9 +229,9 @@
     // en gedraagt het zich als elk ander veld.
     var idVeldGereserveerd = chainIdentRow ? '' : activeIdField;
 
-    var requiredRows  = extraRows.filter(function(r) { return r.isRequired  && r.isDefault && r.sourceType !== 'previous_step_output' && r.odooField !== idVeldGereserveerd; });
-    var defaultRows   = extraRows.filter(function(r) { return !r.isRequired && r.isDefault && r.sourceType !== 'previous_step_output' && r.odooField !== idVeldGereserveerd; });
-    var freeExtraRows = extraRows.filter(function(r) { return !r.isDefault && r.sourceType !== 'previous_step_output'; });
+    var requiredRows  = extraRows.filter(function(r) { return r.isRequired  && r.isDefault && r.sourceType !== 'previous_step_output' && r.sourceType !== 'context' && r.odooField !== idVeldGereserveerd; });
+    var defaultRows   = extraRows.filter(function(r) { return !r.isRequired && r.isDefault && r.sourceType !== 'previous_step_output' && r.sourceType !== 'context' && r.odooField !== idVeldGereserveerd; });
+    var freeExtraRows = extraRows.filter(function(r) { return !r.isDefault && r.sourceType !== 'previous_step_output' && r.sourceType !== 'context'; });
 
     // Available form fields — all top-level fields; alreadyMapped ones get a warning label
     var availableFF = topLvl.slice();
@@ -431,7 +431,11 @@
      * en juist dat is het verschil tussen "zoek hierop" en "schrijf dit weg".
      */
     function chainSourceLabel(row, stappen) {
-      var m = String(row && row.staticValue || '').match(/^step\.([^.]+)\.(.+)$/);
+      var bron = String(row && row.staticValue || '');
+      if (bron.indexOf('context.') === 0) {
+        return bron === 'context.partner_id' ? 'de contactpersoon van de vaste stap' : bron;
+      }
+      var m = bron.match(/^step\.([^.]+)\.(.+)$/);
       if (!m) return 'een vorige stap';
       var ref  = m[1];
       var veld = m[2];

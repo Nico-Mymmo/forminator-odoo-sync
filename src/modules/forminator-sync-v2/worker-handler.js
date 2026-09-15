@@ -345,6 +345,58 @@ function parsePositiveInteger(value) {
 }
 
 /**
+ * De knopstijlen van een chatter-bericht. GESLOTEN LIJST, bewust.
+ *
+ * Een vrije kleurkiezer levert onleesbare combinaties op, en aan een notitie
+ * die al in de chatter staat kan je dat achteraf niet meer bijstellen -- zelfde
+ * afweging als KNOP_STIJLEN in de mailstudio van events-v2.
+ *
+ * LET OP: deze tabel bestaat TWEE keer, hier en in
+ * public/forminator-sync-v2-detail-chatter-composer.js (het voorbeeld in de
+ * editor). De Worker kan niets uit public/ importeren. Wijzig je een kleur,
+ * wijzig ze op beide plekken -- anders belooft het voorbeeld iets anders dan
+ * wat er in Odoo komt te staan.
+ */
+const CHATTER_KNOP_STIJLEN = {
+  primary: { bg: '#714B67', fg: '#ffffff', rand: '#714B67' },
+  success: { bg: '#198754', fg: '#ffffff', rand: '#198754' },
+  danger:  { bg: '#b42318', fg: '#ffffff', rand: '#b42318' },
+  neutral: { bg: '#ffffff', fg: '#344054', rand: '#d0d5dd' },
+};
+
+/**
+ * De knoppen van een chatter-bericht naar HTML.
+ *
+ * Een knop met een LEGE of onbruikbare URL valt weg in plaats van als dode knop
+ * mee te gaan. Bij Calendly is dat de normale gang van zaken: een annulatie
+ * heeft geen join_url meer, en een knop "Deelnemen" die nergens heen gaat is
+ * erger dan geen knop.
+ *
+ * @param {Array<{label: string, url: string, style?: string}>} knoppen
+ * @param {Function} vulIn  placeholders invullen ({veld} -> waarde)
+ */
+function buildChatterButtonsHtml(knoppen, vulIn) {
+  if (!Array.isArray(knoppen) || !knoppen.length) return '';
+  const escAttr = (v) => String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const delen = knoppen.map((k) => {
+    if (!k || typeof k !== 'object') return null;
+    const url   = String(vulIn(String(k.url || '')) || '').trim();
+    const label = String(vulIn(String(k.label || '')) || '').trim();
+    if (!/^(https?:\/\/|mailto:|tel:)/i.test(url)) return null;
+    const stijl = CHATTER_KNOP_STIJLEN[k.style] || CHATTER_KNOP_STIJLEN.primary;
+    return '<a href="' + escAttr(url) + '" target="_blank" rel="noopener"' +
+      ' style="display:inline-block;padding:8px 16px;margin:0 8px 8px 0;border-radius:6px;' +
+      'font-family:Arial,sans-serif;font-size:13px;font-weight:600;line-height:1.2;text-decoration:none;' +
+      'background:' + stijl.bg + ';color:' + stijl.fg + ';border:1px solid ' + stijl.rand + '">' +
+      escAttr(label || url) + '</a>';
+  }).filter(Boolean);
+
+  return delen.length ? '<div style="margin:12px 0 4px">' + delen.join('') + '</div>' : '';
+}
+
+/**
  * Voeg `days` werkdagen toe aan `startDate` (sla zaterdag en zondag over).
  * Voorbeeld: vrijdag + 1 werkdag = maandag.
  */
@@ -1544,12 +1596,19 @@ async function runSubmissionAttempt(env, {
             let summaryFieldIds = null;
             let summaryLabelMap = null;
             let summaryWidthMap = null;
+            let knoppen         = [];
+            // Ontbreekt de vlag, dan stond de samenvatting AAN -- zo werkt elke
+            // configuratie van voor deze wijziging, en die mag niet stil van
+            // vorm veranderen.
+            let wilSamenvatting = true;
             try {
               const parsed = JSON.parse(rawTemplate.slice(COMBINED_PREFIX.length));
               combinedMsg     = String(parsed.message || '');
               summaryFieldIds = Array.isArray(parsed.ids) && parsed.ids.length ? parsed.ids : null;
               summaryLabelMap = (parsed.labels && typeof parsed.labels === 'object') ? parsed.labels : null;
               summaryWidthMap = (parsed.widths && typeof parsed.widths === 'object') ? parsed.widths : null;
+              knoppen         = Array.isArray(parsed.buttons) ? parsed.buttons : [];
+              if (parsed.summary === false) wilSamenvatting = false;
             } catch (_e) {}
             const parts = [];
             if (combinedMsg) {
@@ -1575,8 +1634,16 @@ async function runSubmissionAttempt(env, {
                 parts.push('<p>' + msgHtml + '</p>');
               }
             }
-            const summaryHtml = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap, summaryWidthMap);
-            if (summaryHtml) parts.push(summaryHtml);
+            const knoppenHtml = buildChatterButtonsHtml(knoppen, function (ruweTekst) {
+              return ruweTekst.replace(/\{([^}]+)\}/g, function (_, key) {
+                return String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
+              });
+            });
+            if (knoppenHtml) parts.push(knoppenHtml);
+            if (wilSamenvatting) {
+              const summaryHtml = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap, summaryWidthMap);
+              if (summaryHtml) parts.push(summaryHtml);
+            }
             body = parts.join('');
           } else if (rawTemplate.startsWith(SUMMARY_PREFIX)) {
             let summaryFieldIds = null;
@@ -1591,6 +1658,17 @@ async function runSubmissionAttempt(env, {
               }
             } catch (_e) {}
             body = buildChatterSummaryHtml(summaryFieldIds, normalizedForm, summaryLabelMap);
+          } else if (rawTemplate && rawTemplate.trimStart().startsWith('<')) {
+            // Al HTML: Quill-uitvoer die zonder __COMBINED__-omhulsel bewaard
+            // is, wat de editor tot 2026-09-15 deed zodra de samenvatting uit
+            // stond. Die door de escape-tak hieronder halen zette letterlijk
+            // "<p>" en "<strong>" in de chatter -- precies wat er in Odoo te
+            // zien was. Alleen de INGEVULDE waarden worden geescapet, de opmaak
+            // niet.
+            body = rawTemplate.replace(/\{([^}]+)\}/g, function (_, key) {
+              const v = String(lookupChatterPlaceholder(normalizedForm, contextObject, key) || '');
+              return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            });
           } else if (rawTemplate) {
             // Plain text template: escape everything, then substitute placeholders with escaped values
             const escapedTpl = rawTemplate

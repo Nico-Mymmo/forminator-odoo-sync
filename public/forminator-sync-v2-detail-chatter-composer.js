@@ -16,6 +16,87 @@
 
   var _chatterPreviewTimers = {};
 
+  /**
+   * De knopstijlen van een chatter-bericht.
+   *
+   * TWEEDE KOPIE, bewust: het origineel staat als CHATTER_KNOP_STIJLEN in
+   * src/modules/forminator-sync-v2/worker-handler.js en de Worker kan niets uit
+   * public/ importeren. Wijkt deze tabel af, dan belooft het voorbeeld iets
+   * anders dan wat er in Odoo komt te staan -- dus wijzig ze altijd samen.
+   */
+  var KNOP_STIJLEN = {
+    primary: { bg: '#714B67', fg: '#ffffff', rand: '#714B67', label: 'Gevuld' },
+    success: { bg: '#198754', fg: '#ffffff', rand: '#198754', label: 'Groen' },
+    danger:  { bg: '#b42318', fg: '#ffffff', rand: '#b42318', label: 'Rood' },
+    neutral: { bg: '#ffffff', fg: '#344054', rand: '#d0d5dd', label: 'Neutraal' },
+  };
+
+  /**
+   * De knoppen naar HTML -- exact wat buildChatterButtonsHtml in
+   * worker-handler.js maakt. `vulIn` verschilt wel: in het voorbeeld worden
+   * onbekende placeholders zichtbaar gelaten, bij het versturen worden ze leeg.
+   */
+  function knoppenHtml(knoppen, vulIn) {
+    if (!knoppen || !knoppen.length) return '';
+    var escAttr = function (v) {
+      return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    };
+    var delen = knoppen.map(function (k) {
+      var url   = String(vulIn(String(k.url || '')) || '').trim();
+      var label = String(vulIn(String(k.label || '')) || '').trim();
+      if (!/^(https?:\/\/|mailto:|tel:)/i.test(url)) return null;
+      var stijl = KNOP_STIJLEN[k.style] || KNOP_STIJLEN.primary;
+      return '<a href="' + escAttr(url) + '" target="_blank" rel="noopener"' +
+        ' style="display:inline-block;padding:8px 16px;margin:0 8px 8px 0;border-radius:6px;' +
+        'font-family:Arial,sans-serif;font-size:13px;font-weight:600;line-height:1.2;text-decoration:none;' +
+        'background:' + stijl.bg + ';color:' + stijl.fg + ';border:1px solid ' + stijl.rand + '">' +
+        escAttr(label || url) + '</a>';
+    }).filter(Boolean);
+    return delen.length ? '<div style="margin:12px 0 4px">' + delen.join('') + '</div>' : '';
+  }
+
+  /** Eén bewerkbare knoprij. Wordt ook gebruikt door "Knop toevoegen". */
+  function knopRijHtml(tid, knop) {
+    var k = knop || {};
+    var opties = Object.keys(KNOP_STIJLEN).map(function (sleutel) {
+      return '<option value="' + sleutel + '"' + (k.style === sleutel ? ' selected' : '') + '>' +
+        esc(KNOP_STIJLEN[sleutel].label) + '</option>';
+    }).join('');
+    return '<div class="flex items-center gap-1.5" data-knop-rij>' +
+      '<input type="text" class="input input-bordered input-xs w-28 shrink-0" data-knop-label' +
+        ' placeholder="Tekst" value="' + esc(k.label || '') + '"' +
+        ' data-action-input="chatter-button-changed" data-target-id="' + esc(tid) + '">' +
+      '<input type="text" class="input input-bordered input-xs flex-1 min-w-0 font-mono text-[11px]" data-knop-url' +
+        ' list="chatterUrlFields-' + esc(tid) + '"' +
+        ' placeholder="https://... of {location_join_url}" value="' + esc(k.url || '') + '"' +
+        ' data-action-input="chatter-button-changed" data-target-id="' + esc(tid) + '">' +
+      '<select class="select select-bordered select-xs w-24 shrink-0" data-knop-style' +
+        ' data-action-input="chatter-button-changed" data-target-id="' + esc(tid) + '">' + opties + '</select>' +
+      '<button type="button" class="btn btn-xs btn-ghost btn-square text-error shrink-0"' +
+        ' data-action="chatter-button-remove" data-target-id="' + esc(tid) + '" title="Knop verwijderen">' +
+        '<i data-lucide="x" class="w-3 h-3"></i></button>' +
+    '</div>';
+  }
+
+  /** De knoppen zoals ze NU in de editor staan. Enige plek die de rijen uitleest. */
+  function leesKnoppen(tid) {
+    var lijst = document.getElementById('chatterButtonList-' + tid);
+    if (!lijst) return [];
+    var res = [];
+    lijst.querySelectorAll('[data-knop-rij]').forEach(function (rij) {
+      var label = rij.querySelector('[data-knop-label]');
+      var url   = rij.querySelector('[data-knop-url]');
+      var stijl = rij.querySelector('[data-knop-style]');
+      var u = url ? String(url.value || '').trim() : '';
+      var l = label ? String(label.value || '').trim() : '';
+      // Een volledig lege rij is een rij die iemand opende en niet invulde;
+      // die bewaren zou bij het heropenen een spookknop tonen.
+      if (!u && !l) return;
+      res.push({ label: l, url: u, style: (stijl && stijl.value) || 'primary' });
+    });
+    return res;
+  }
+
   /** execution_order van een stap, met dezelfde terugval als de server (worker-handler.js). */
   function stapVolgorde(t) {
     return (t.execution_order != null ? t.execution_order : t.order_index) || 0;
@@ -57,15 +138,19 @@
     var summaryOrderedIds = [];
     var savedLabelMap     = {};
     var savedWidthMap     = {};
+    var savedButtons      = [];
 
     if (currentTemplate.startsWith(COMBINED_PREFIX)) {
       try {
         var cp = JSON.parse(currentTemplate.slice(COMBINED_PREFIX.length));
         savedMessage      = String(cp.message || '');
-        summaryEnabled    = true;
+        // Zelfde terugval als de server: zonder de vlag stond de samenvatting
+        // aan, want zo werkte elke configuratie voor 2026-09-15.
+        summaryEnabled    = cp.summary !== false;
         summaryOrderedIds = Array.isArray(cp.ids)  ? cp.ids  : [];
         savedLabelMap     = cp.labels || {};
         savedWidthMap     = (cp.widths && typeof cp.widths === 'object') ? cp.widths : {};
+        savedButtons      = Array.isArray(cp.buttons) ? cp.buttons : [];
       } catch (_e) {}
     } else if (currentTemplate.startsWith(SUMMARY_PREFIX)) {
       try {
@@ -140,6 +225,27 @@
       });
       html += '</div>';
     }
+
+    // ── Knoppen ─────────────────────────────────────────────────────────────
+    // Een URL als platte tekst in een notitie is leesbaar noch aanklikbaar op
+    // een aangename manier; bij Calendly staan er drie naast elkaar (deelnemen,
+    // verplaatsen, annuleren) en dan wordt het een muur van tekens. Een knop
+    // draagt de URL in de href en toont een woord.
+    html += '<div class="divider text-xs my-0">KNOPPEN</div>';
+    html += '<datalist id="chatterUrlFields-' + esc(tid) + '">' +
+      flatFields.map(function (f) {
+        var fid = f.field_id || f.fieldId || f.id || f.name || '';
+        return fid ? '<option value="{' + esc(fid) + '}">' + esc(f.label || fid) + '</option>' : '';
+      }).join('') +
+      '</datalist>';
+    html += '<div id="chatterButtonList-' + esc(tid) + '" class="flex flex-col gap-1.5">' +
+      savedButtons.map(function (k) { return knopRijHtml(tid, k); }).join('') +
+      '</div>';
+    html += '<div class="flex items-center gap-2">' +
+      '<button type="button" class="btn btn-xs btn-outline gap-1" data-action="chatter-button-add" data-target-id="' + esc(tid) + '">' +
+        '<i data-lucide="plus" class="w-3 h-3"></i>Knop toevoegen</button>' +
+      '<span class="text-xs text-base-content/50">Een knop met een lege link valt weg.</span>' +
+      '</div>';
 
     // Formuliersamenvatting toggle
     html += '<div class="divider text-xs my-0">OF COMBINEER MET</div>';
@@ -438,6 +544,26 @@
       parts.push(msgHtml);
     }
 
+    var knoppen = leesKnoppen(tid);
+    if (knoppen.length) {
+      var knopHtml = knoppenHtml(knoppen, function (ruweTekst) {
+        return ruweTekst.replace(/\{([^}]+)\}/g, function (_, key) {
+          return sampleForm[key] !== undefined ? String(sampleForm[key]) : '';
+        });
+      });
+      // Een knop waarvan de link (nog) niet invulbaar is, valt bij het
+      // versturen weg. Dat hoort het voorbeeld ook te tonen -- maar stil
+      // niets tonen leest als een fout in de editor, dus komt er een regel
+      // bij die zegt WELKE knop wegvalt en waarom.
+      var weggevallen = knoppen.length - (knopHtml.match(/<a /g) || []).length;
+      if (knopHtml) parts.push(knopHtml);
+      if (weggevallen > 0) {
+        parts.push('<p style="margin:4px 0;font-family:Arial,sans-serif;font-size:11px;color:#9ca3af">' +
+          weggevallen + ' knop' + (weggevallen > 1 ? 'pen vallen' : ' valt') +
+          ' weg: de link is leeg of geen geldige URL.</p>');
+      }
+    }
+
     var toggle = document.getElementById('chatterSummaryToggle-' + tid);
     if (toggle && toggle.checked) {
       var fieldList  = document.getElementById('chatterFieldList-' + tid);
@@ -485,17 +611,27 @@
     // Vrij bericht: lees HTML van Quill editor
     var _qiSave = window.FSV2._chatterQuills && window.FSV2._chatterQuills[tid];
     var rawMsg  = _qiSave ? _qiSave.getHTML() : '';
+    // Quill geeft "<p><br></p>" terug voor een leeg bericht. Dat als inhoud
+    // bewaren betekent een chatter-notitie met een lege alinea erin.
+    if (!String(rawMsg).replace(/<[^>]*>/g, '').replace(/&nbsp;/g, '').trim()) rawMsg = '';
 
     // Samenvatting toggle
     var toggle         = document.getElementById('chatterSummaryToggle-' + tid);
     var summaryEnabled = toggle && toggle.checked;
 
-    var template;
+    var knoppen = leesKnoppen(tid);
+
+    // ALTIJD het __COMBINED__-omhulsel, ook zonder samenvatting. Tot
+    // 2026-09-15 werd de kale Quill-HTML bewaard zodra de samenvatting uit
+    // stond; de server herkende dat niet als HTML en escapete alles, waardoor
+    // er letterlijk "<p>" en "<strong>" in de Odoo-chatter stond. De vlag
+    // `summary` draagt nu wat de toggle zegt, in plaats van dat de VORM van
+    // het opgeslagen veld dat impliciet moet doen.
+    var fieldList  = document.getElementById('chatterFieldList-' + tid);
+    var pickedIds  = [];
+    var labelMap   = {};
+    var widths     = {};
     if (summaryEnabled) {
-      var fieldList  = document.getElementById('chatterFieldList-' + tid);
-      var pickedIds  = [];
-      var labelMap   = {};
-      var widths     = {};
       var _ffSave    = window.FSV2.buildDetailFlatFields(S().detailFormFields || []).flatFields || [];
       var _fidLblMap = {};
       _ffSave.forEach(function (f) {
@@ -516,11 +652,18 @@
           if (fid) widths[fid] = li.getAttribute('data-width') === 'full' ? 'full' : 'half';
         });
       }
-      template = '__COMBINED__:' + JSON.stringify({ message: rawMsg, ids: pickedIds, labels: labelMap, widths: widths });
-    } else if (rawMsg) {
-      template = rawMsg;
-    } else {
-      template = null;
+    }
+
+    var template = null;
+    if (rawMsg || knoppen.length || summaryEnabled) {
+      template = '__COMBINED__:' + JSON.stringify({
+        message: rawMsg,
+        summary: !!summaryEnabled,
+        ids:     pickedIds,
+        labels:  labelMap,
+        widths:  widths,
+        buttons: knoppen,
+      });
     }
 
     // Read selected steps (multi-checkbox)
@@ -591,6 +734,7 @@
 
 
   Object.assign(window.FSV2, {
+    _chatterKnopRijHtml: knopRijHtml,
     _makeSampleValue: _makeSampleValue,
     _setChatterFieldWidth: _setChatterFieldWidth,
     handleSaveChatterComposer: handleSaveChatterComposer,

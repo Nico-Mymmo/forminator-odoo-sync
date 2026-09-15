@@ -214,7 +214,73 @@
 
     // is_active kan ontbreken in oudere responses; alleen een expliciete false
     // telt als "uit", zodat een onbekende waarde de knop niet stilletjes blokkeert.
-    var koppelingUit = ((S().detail && S().detail.integration) || {}).is_active === false;
+    var integratie   = (S().detail && S().detail.integration) || {};
+    var koppelingUit = integratie.is_active === false;
+    var isCalendly   = String(integratie.source_type || '') === 'calendly';
+
+    // ── De STAND VAN DE AFSPRAAK, los van de stand van de verwerking ────────
+    // Het bolletje links zegt of de pipeline gelukt is. Dat is iets anders dan
+    // of de afspraak nog doorgaat, en bij Calendly is precies dat tweede wat
+    // iemand komt opzoeken. Een annulatie is voor de pipeline een geslaagde
+    // indiening -- groen bolletje, terwijl de afspraak niet meer bestaat.
+    var afspraakMeta = {
+      aankomend:   { icon: 'calendar-clock', kleur: 'text-info',            label: 'Aankomend' },
+      voorbij:     { icon: 'calendar-check', kleur: 'text-base-content/40', label: 'Voorbij' },
+      verplaatst:  { icon: 'refresh-cw',     kleur: 'text-warning',         label: 'Verplaatst naar een nieuwe afspraak' },
+      geannuleerd: { icon: 'calendar-x',     kleur: 'text-error',           label: 'Geannuleerd' },
+    };
+
+    function afspraakStand(payload) {
+      if (!payload || (!payload.event_uuid && !payload.start_time)) return null;
+      var geannuleerd = String(payload.canceled) === 'true';
+      var verplaatst  = String(payload.rescheduled) === 'true';
+      // canceled + rescheduled is Calendly's manier om te zeggen: deze boeking
+      // is opgeheven ten voordele van een nieuwe. Dat is geen annulatie en mag
+      // er ook niet als een annulatie uitzien.
+      if (geannuleerd && verplaatst) return 'verplaatst';
+      if (geannuleerd) return 'geannuleerd';
+      var start = Date.parse(payload.start_time || '');
+      if (isFinite(start) && start < Date.now()) return 'voorbij';
+      return 'aankomend';
+    }
+
+    /**
+     * De inzendingen groeperen per AFSPRAAK.
+     *
+     * Calendly stuurt per boeking meerdere webhooks, en een verplaatsing is bij
+     * hen geen wijziging maar een annulatie + een nieuwe afspraak met een nieuw
+     * event_uuid. Zonder groepering staat dezelfde afspraak dus drie keer in de
+     * lijst -- als drie losse rijen die niets van elkaar weten.
+     *
+     * De verbindingen: alle inzendingen met hetzelfde event_uuid horen bij
+     * dezelfde boeking, en old_invitee_uuid/new_invitee_uuid knopen de boekingen
+     * van een verplaatsing aan elkaar. Dat wordt hier opgelost als een
+     * samenhangende verzameling (union-find), want de webhooks kunnen in elke
+     * volgorde binnenkomen en een keten kan meer dan twee schakels tellen.
+     */
+    function bouwKetens(subs) {
+      var ouder = {};
+      function voegToe(k) { if (!Object.prototype.hasOwnProperty.call(ouder, k)) ouder[k] = k; }
+      function vind(k) { voegToe(k); while (ouder[k] !== k) { ouder[k] = ouder[ouder[k]]; k = ouder[k]; } return k; }
+      function verbind(a, b) { var ra = vind(a), rb = vind(b); if (ra !== rb) ouder[ra] = rb; }
+
+      var eersteSleutel = {};
+      subs.forEach(function (s) {
+        var p = parsePayload(s);
+        var sleutels = [];
+        if (p.event_uuid)   sleutels.push('e:' + p.event_uuid);
+        if (p.invitee_uuid) sleutels.push('i:' + p.invitee_uuid);
+        if (!sleutels.length) sleutels.push('s:' + s.id);   // geen Calendly-payload: staat alleen
+        for (var i = 1; i < sleutels.length; i++) verbind(sleutels[0], sleutels[i]);
+        if (p.old_invitee_uuid) verbind(sleutels[0], 'i:' + p.old_invitee_uuid);
+        if (p.new_invitee_uuid) verbind(sleutels[0], 'i:' + p.new_invitee_uuid);
+        eersteSleutel[s.id] = sleutels[0];
+      });
+
+      var perSub = {};
+      subs.forEach(function (s) { perSub[s.id] = vind(eersteSleutel[s.id]); });
+      return perSub;
+    }
 
     var originals = S().submissions.filter(function (s) { return !s.replay_of_submission_id; });
     var replays   = S().submissions.filter(function (s) { return !!s.replay_of_submission_id; });
@@ -223,14 +289,79 @@
       if (!replaysByOrigId[r.replay_of_submission_id]) replaysByOrigId[r.replay_of_submission_id] = [];
       replaysByOrigId[r.replay_of_submission_id].push(r);
     });
+
+    var ketenPerSub  = isCalendly ? bouwKetens(originals) : null;
+    var ketenLeden   = {};   // ketensleutel -> inzendingen, nieuwste eerst
+    var ketenNummer  = {};   // ketensleutel -> volgnummer voor het data-attribuut
+    if (isCalendly) {
+      originals.forEach(function (o) {
+        var k = ketenPerSub[o.id];
+        (ketenLeden[k] = ketenLeden[k] || []).push(o);
+      });
+      Object.keys(ketenLeden).forEach(function (k, i) {
+        ketenNummer[k] = i;
+        ketenLeden[k].sort(function (a, b) {
+          return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+        });
+      });
+    }
+
     var ordered   = [];
-    originals.forEach(function (orig) {
-      ordered.push({ sub: orig, isReplay: false });
-      replays.filter(function (r) { return r.replay_of_submission_id === orig.id; })
-        .forEach(function (r) { ordered.push({ sub: r, isReplay: true }); });
-    });
+    function duwMetReplays(sub, verborgen, keten) {
+      ordered.push({ sub: sub, isReplay: false, verborgen: !!verborgen, keten: keten });
+      replays.filter(function (r) { return r.replay_of_submission_id === sub.id; })
+        .forEach(function (r) { ordered.push({ sub: r, isReplay: true, verborgen: !!verborgen, keten: keten }); });
+    }
+
+    if (isCalendly) {
+      // De NIEUWSTE inzending van een keten voert de rij aan: die draagt de
+      // huidige stand van de afspraak. De oudere blijven bestaan (met hun eigen
+      // spoor en hun eigen replay-knop) maar staan ingeklapt eronder.
+      var ketenGedaan = {};
+      originals.forEach(function (orig) {
+        var k = ketenPerSub[orig.id];
+        if (ketenGedaan[k]) return;
+        ketenGedaan[k] = true;
+        var leden = ketenLeden[k] || [orig];
+        duwMetReplays(leden[0], false, k);
+        leden.slice(1).forEach(function (o) { duwMetReplays(o, true, k); });
+      });
+    } else {
+      originals.forEach(function (orig) { duwMetReplays(orig, false, null); });
+    }
     replays.filter(function (r) { return !originals.find(function (o) { return o.id === r.replay_of_submission_id; }); })
-      .forEach(function (r) { ordered.push({ sub: r, isReplay: true }); });
+      .forEach(function (r) { ordered.push({ sub: r, isReplay: true, verborgen: false, keten: null }); });
+
+    /**
+     * Het afspraak-icoon voor de aanvoerende rij van een keten.
+     *
+     * Naast de stand staat het aantal verplaatsingen: een keten met meer dan
+     * één boeking is er een die verplaatst is, en dat wil je zien zonder de rij
+     * te moeten openklappen.
+     */
+    function afspraakIcoon(sub, keten) {
+      var p = parsePayload(sub);
+      var stand = afspraakStand(p);
+      if (!stand) return '<span class="text-base-content/20 text-xs">&middot;</span>';
+      var m = afspraakMeta[stand];
+      var leden = (keten && ketenLeden[keten]) || [];
+      var boekingen = {};
+      leden.forEach(function (l) {
+        var lp = parsePayload(l);
+        if (lp.event_uuid) boekingen[lp.event_uuid] = true;
+      });
+      var aantalVerplaatsingen = Math.max(0, Object.keys(boekingen).length - 1);
+      var titel = m.label + (p.start_text ? ' \u2014 ' + p.start_text : '');
+      if (aantalVerplaatsingen > 0) {
+        titel += ' \u2014 ' + aantalVerplaatsingen + ' keer verplaatst';
+      }
+      return '<span class="inline-flex items-center gap-0.5" title="' + esc(titel) + '">' +
+        '<i data-lucide="' + m.icon + '" class="w-3.5 h-3.5 ' + m.kleur + '"></i>' +
+        (aantalVerplaatsingen > 0
+          ? '<span class="text-[10px] font-medium text-warning leading-none">' + aantalVerplaatsingen + '</span>'
+          : '') +
+        '</span>';
+    }
 
     // (showIndiener removed — listColumns drives the dynamic columns)
 
@@ -347,7 +478,7 @@
 
     // Vaste kolommen zonder ID/Fout: Status, Aangemaakt. Fout staat nu in de
     // uitgeklapte rij (zie buildTimelineRow); ID, Mail en Actie zijn optioneel.
-    var colCount = 2 + (showIdColumn ? 1 : 0) + (hasMailStep ? 1 : 0) + (anyActie ? 1 : 0) + listColumns.length;
+    var colCount = 2 + (isCalendly ? 1 : 0) + (showIdColumn ? 1 : 0) + (hasMailStep ? 1 : 0) + (anyActie ? 1 : 0) + listColumns.length;
 
     function buildTimelineRow(sub) {
       var shortId = window.FSV2.shortId(sub.id);
@@ -529,6 +660,7 @@
         '<table class="table table-xs table-fixed w-full">' +
           '<thead><tr>' +
             '<th' + vasteBreedte(2.25) + '><span class="sr-only">Status</span></th>' +
+            (isCalendly ? '<th' + vasteBreedte(3.25) + ' class="truncate" title="Stand van de afspraak">Afspraak</th>' : '') +
             (showIdColumn ? '<th' + vasteBreedte(5.5) + ' class="whitespace-nowrap">ID</th>' : '') +
             // truncate en niet break-words: een kop als "Waar kunnen we je mee
             // helpen?" wikkelt niet netjes in een smalle kolom maar loopt over
@@ -558,11 +690,36 @@
             // en verdubbelden de kolom onnodig. Acties zijn icoon-only (title = tooltip) i.p.v.
             // een volledig uitgeschreven knop, en de hele kolom bestaat niet als geen enkele
             // rij iets te doen heeft (zie anyActie hierboven).
+            var verborgen  = !!item.verborgen;
+            var ketenSleutel = item.keten;
+            var ketenId    = ketenSleutel != null ? ketenNummer[ketenSleutel] : null;
+            // Hoeveel rijen zitten er ingeklapt onder deze aanvoerder? Alleen
+            // dan komt er een knop; een keten van één is gewoon een rij.
+            var verborgenAantal = (!verborgen && ketenSleutel != null)
+              ? Math.max(0, ((ketenLeden[ketenSleutel] || []).length - 1))
+              : 0;
+
             var mainRow =
-              '<tr class="sub-row cursor-pointer' + (isReplay ? ' bg-success/5' : '') + '" data-sub-id="' + esc(shortId) + '">' +
+              '<tr class="sub-row cursor-pointer' + (isReplay ? ' bg-success/5' : '') + (verborgen ? ' bg-base-200/30' : '') + '"' +
+                ' data-sub-id="' + esc(shortId) + '"' +
+                (ketenId != null ? ' data-keten="' + ketenId + '"' + (verborgen ? ' data-keten-lid="1"' : '') : '') +
+                (verborgen ? ' style="display:none"' : '') + '>' +
                 '<td class="whitespace-nowrap">' + statusBadge(sub.status) +
                   (successfulReplay ? '<i data-lucide="corner-down-right" class="w-3 h-3 text-success ml-1 inline-block align-middle" title="Opgelost via replay"></i>' : '') +
                   '</td>' +
+                (isCalendly
+                  ? '<td class="whitespace-nowrap">' +
+                      (verborgen
+                        ? '<span class="text-base-content/30 text-xs pl-2" title="Eerdere gebeurtenis van dezelfde afspraak">&#x21B3;</span>'
+                        : afspraakIcoon(sub, ketenSleutel)) +
+                      (verborgenAantal > 0
+                        ? '<button type="button" class="btn btn-ghost btn-xs px-1 ml-0.5 font-normal text-base-content/50"' +
+                            ' data-keten-toggle="' + ketenId + '"' +
+                            ' title="' + verborgenAantal + ' eerdere gebeurtenis' + (verborgenAantal > 1 ? 'sen' : '') + ' van deze afspraak">' +
+                            '+' + verborgenAantal + '</button>'
+                        : '') +
+                    '</td>'
+                  : '') +
                 (showIdColumn
                   ? '<td class="font-mono text-xs whitespace-nowrap">' +
                       (isReplay ? '<span class="badge badge-xs badge-accent mr-1">↳ Replay</span>' : '') +
@@ -604,6 +761,20 @@
           '</tbody>' +
         '</table>' +
       '</div>';
+    // De ingeklapte gebeurtenissen van een afspraak tonen/verbergen. Raakt
+    // alleen de hoofdrijen: de uitgeklapte spoor-rijen (stl-...) blijven staan
+    // zoals ze stonden, anders klapt elke keten-toggle ook elk spoor open.
+    el.querySelectorAll('[data-keten-toggle]').forEach(function (knop) {
+      knop.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var ketenId = knop.getAttribute('data-keten-toggle');
+        var leden   = el.querySelectorAll('tr[data-keten="' + ketenId + '"][data-keten-lid]');
+        var openen  = leden.length > 0 && leden[0].style.display === 'none';
+        leden.forEach(function (tr) { tr.style.display = openen ? '' : 'none'; });
+        knop.classList.toggle('btn-active', openen);
+      });
+    });
+
     // Click delegation: toggle timeline row on row click (skip clicks on action buttons).
     el.querySelectorAll('.sub-row').forEach(function (tr) {
       tr.addEventListener('click', function (e) {

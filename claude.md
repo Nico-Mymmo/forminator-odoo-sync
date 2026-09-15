@@ -453,6 +453,28 @@ Afspraken die bewust zo zijn:
   `replay-status-parity-test.mjs` leest beide lijsten en vergelijkt ze, in
   beide richtingen: een knop zonder recht én een recht zonder knop zijn allebei
   fout. Voeg je een status toe, doe dat op beide plekken.
+- **Bij een Calendly-koppeling toont de lijst één rij per AFSPRAAK, niet per
+  webhook.** Calendly stuurt per boeking meerdere gebeurtenissen, en een
+  verplaatsing is bij hen geen wijziging maar een annulatie plus een nieuwe
+  afspraak met een nieuw `event_uuid` — waardoor dezelfde afspraak drie keer in
+  de lijst stond als drie losse rijen die niets van elkaar wisten.
+  `bouwKetens()` in `forminator-sync-v2-detail-submissions-tab.js` legt de
+  verbindingen: hetzelfde `event_uuid` is dezelfde boeking, en
+  `old_invitee_uuid`/`new_invitee_uuid` knopen de boekingen van een verplaatsing
+  aan elkaar. Dat gebeurt als samenhangende verzameling (union-find) en niet met
+  een lus over paren, want de webhooks kunnen in elke volgorde binnenkomen en
+  een keten kan meer dan twee schakels tellen. De NIEUWSTE inzending voert de
+  rij aan; de oudere staan ingeklapt eronder achter een `+N`-knop, met hun eigen
+  spoor en hun eigen replay-knop — ze verdwijnen dus niet.
+- **De kolom "Afspraak" zegt iets anders dan het statusbolletje, en dat is het
+  punt.** Het bolletje links gaat over de PIPELINE (is de indiening verwerkt);
+  de kolom Afspraak gaat over de AFSPRAAK zelf: aankomend / voorbij / verplaatst
+  / geannuleerd (`afspraakStand()`). Een annulatie is voor de pipeline een
+  geslaagde indiening — groen bolletje — terwijl de afspraak niet meer bestaat.
+  `canceled` + `rescheduled` samen is Calendly's manier om te zeggen "opgeheven
+  ten voordele van een nieuwe" en mag er nooit als een annulatie uitzien; het
+  aantal verplaatsingen staat als klein cijfer naast het icoon, zodat je het
+  ziet zonder de keten open te klappen.
 - **De indieningentabel is `table-fixed w-full`, niet auto-layout.** Bij
   auto-layout bepaalt de langste waarde de kolombreedte, en dan duwt één
   e-mailadres of een kolomkop als "Waar kunnen we je mee helpen?" de tabel
@@ -677,13 +699,37 @@ Afspraken die bewust zo zijn:
   `static`-mapping. Twee redenen: een `static`-waarde gaat als string naar Odoo en
   een many2one wil een getal, en wie het eventtype op de koppeling wijzigt zou
   anders ook de mapping moeten laten herschrijven.
-- **De host is een `search`-stap op `hr.employee.work_email`, met
-  `condition_field: 'host_email'` + `condition_values: ['__exists__']`.** Die
-  conditie is niet cosmetisch: `user_email` is in Calendly's schema niet verplicht,
-  en een leeg zoekcriterium is in `buildIdentifierDomainForTarget()` een HARDE
-  fout — zonder de conditie zou een ontbrekend hostadres de hele indiening laten
-  falen. `search_on_not_found: 'continue_empty'`: een host die niet als medewerker
-  in Odoo staat is geen reden om de afspraak niet te bewaren.
+- **De host is een `search`-stap op `hr.employee.name` — op NAAM, niet op
+  e-mailadres** (`condition_field: 'host_name'` + `condition_values: ['__exists__']`).
+  Onze medewerkers staan in Odoo met `work_email` op `@mymmo.com`, terwijl een
+  Calendly-boekingspagina onder het MERK draait: dezelfde Thomas komt binnen als
+  `thomas@openvme.be`. Zoeken op `work_email` vond daardoor NOOIT iemand, en dat
+  is niet zichtbaar als fout — de stap staat op `continue_empty`, dus de meeting
+  belandt gewoon zonder host in Odoo en het spoor zegt enkel "geen record
+  gevonden". Calendly's `host_name` komt uit hetzelfde profiel als de Odoo-naam
+  en is wél aan beide kanten dezelfde waarde. De conditie is niet cosmetisch:
+  `event_memberships` kan leeg zijn, en een leeg zoekcriterium is in
+  `buildIdentifierDomainForTarget()` een HARDE fout — zonder de conditie zou een
+  ontbrekende hostnaam de hele indiening laten falen. `search_on_not_found:
+  'continue_empty'`: een host die niet als medewerker in Odoo staat is geen reden
+  om de afspraak niet te bewaren. **Na deze wijziging moeten bestaande
+  koppelingen hun vaste stappen opnieuw laten bouwen** (knop "Vaste stappen
+  herbouwen" → `POST /api/integrations/:id/calendly/rebuild`); `ensureCalendlySystemSteps()`
+  draait niet vanzelf bij een deploy.
+- **De leesbare datumvelden (`start_text` en co) zijn EIGEN velden, geen opmaak
+  per stap.** Calendly levert uitsluitend ISO-tijdstippen in UTC
+  (`2026-09-30T06:30:00.000000Z`). Die vorm hoort thuis in een datumveld van
+  Odoo en nergens anders: zodra ze in een TEKST belandt — de naam van een lead,
+  een chatter-notitie, een mail — leest een mens er de verkeerde dag en het
+  verkeerde uur in (06:30 UTC is hier 08:30). `flattenCalendlyPayload()` zet
+  daarom `start_text`, `start_range_text`, `start_date_text`, `start_day_text`,
+  `start_hour_text`, `end_hour_text`, `start_short_text`, `start_text_invitee`,
+  `booked_at_text` en `canceled_at_text` klaar, in **Europe/Brussels** —
+  behalve `start_text_invitee`, dat in de tijdzone van de aanvrager staat en
+  bedoeld is voor tekst die naar de aanvrager zelf gaat. Een onbekende tijdzone
+  valt terug op Brussel in plaats van de indiening te laten falen; een
+  onleesbaar tijdstip geeft een lege string, want een half ingevulde datum
+  ("om 08:30" zonder dag) lees je niet als ontbrekend maar als fout.
 - **De handtekening gaat over de RUWE body.** `Calendly-Webhook-Signature:
   t=<unix>,v1=<hex>`, waarbij v1 de HMAC-SHA256 is over `"<t>.<ruwe body>"` met de
   signing key die WIJ bij het aanmelden meegaven (Calendly geeft die nooit meer
@@ -739,6 +785,53 @@ zetten en deployen → koppeling aanmaken en op INACTIEF laten staan → aanmeld
 Calendly → een testboeking doen (die wordt bewaard, Odoo wordt overgeslagen —
 `skipPipeline`) → velden controleren op het tabblad Formuliervelden → koppeling
 activeren → pas als het klopt de Zap uitzetten.
+
+---
+
+## Koppelingen — het vrije chatter-bericht (2026-09)
+
+**Regel: de chatter-stap bewaart haar instelling ALTIJD als
+`__COMBINED__:{json}`, ook zonder formuliersamenvatting.** De vlag `summary`
+zegt of de samenvatting mee moet; de VORM van het opgeslagen veld mag dat nooit
+impliciet doen.
+
+Waarom dit hier staat: tot 2026-09-15 bewaarde `handleSaveChatterComposer()` de
+kale Quill-HTML zodra de samenvatting uit stond. De server herkende dat niet als
+HTML en haalde het door de escape-tak, waarna er letterlijk `<p>` en `<strong>`
+als TEKST in de Odoo-chatter stond. Niet te zien in de editor (die toont het
+voorbeeld correct), enkel in Odoo. `worker-handler.js` heeft daarvoor nu ook een
+tak die een template herkent die met `<` begint — anders blijft elke al
+opgeslagen stap kapot tot iemand ze opnieuw bewaart.
+
+| Wat | Waar |
+|---|---|
+| Opgeslagen vorm | `fs_v2_targets.chatter_template` = `__COMBINED__:{message, summary, ids, labels, widths, buttons}` |
+| Bericht → HTML, knoppen, samenvatting | `worker-handler.js`, blok `opType === 'chatter_message'` |
+| Knopstijlen + `buildChatterButtonsHtml()` | `worker-handler.js` (`CHATTER_KNOP_STIJLEN`) |
+| Editor + voorbeeld | `public/forminator-sync-v2-detail-chatter-composer.js` |
+| Klik-/typ-acties van de knoprijen | `public/forminator-sync-v2-bootstrap.js` (`chatter-button-add/-remove`, `data-action-input="chatter-button-changed"`) |
+
+- **Knoppen zijn een aparte lijst, geen HTML in het bericht.** Quill normaliseert
+  alles wat je erin plakt naar zijn eigen formats, dus een `<a>` met inline
+  stijlen overleeft de editor niet. De knoppen staan daarom als data
+  (`{label, url, style}`) naast het bericht en worden server-side gerenderd.
+  `url` mag een placeholder zijn (`{location_join_url}`).
+- **Een knop met een lege of ongeldige link VALT WEG** bij het versturen — bij
+  Calendly is dat de normale gang van zaken (een annulatie heeft geen join-link
+  meer), en een knop "Deelnemen" die nergens heen gaat is erger dan geen knop.
+  Het voorbeeld in de editor zegt er expliciet bij hoeveel knoppen wegvallen en
+  waarom; stil niets tonen leest als een fout in de editor.
+- **De knopstijlen zijn een GESLOTEN lijstje** en staan TWEE keer: als
+  `CHATTER_KNOP_STIJLEN` in `worker-handler.js` en als `KNOP_STIJLEN` in de
+  composer. De Worker kan niets uit `public/` importeren. Wijzig je een kleur,
+  wijzig ze op beide plekken — anders belooft het voorbeeld iets anders dan wat
+  er in Odoo komt te staan. Zelfde afweging als `KNOP_STIJLEN` in de mailstudio:
+  aan een notitie die al in de chatter staat kan je een onleesbare kleur niet
+  meer bijstellen.
+- **Odoo's `html_sanitize` laat `style` en `href` op een `<a>` staan** (dat is de
+  standaard: `sanitize_style=False`), dus de inline stijl van een knop overleeft
+  `message_post`. Ga daar niet op improviseren met `class` — die hangt af van
+  Odoo's eigen stylesheets.
 
 ---
 

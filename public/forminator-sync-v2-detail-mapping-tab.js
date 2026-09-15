@@ -1091,7 +1091,7 @@
   function removeChainLink(tid, odooField, extraField) {
     if (!S().detail._extraRowsByTarget || !S().detail._extraRowsByTarget[tid]) return;
     S().detail._extraRowsByTarget[tid] = S().detail._extraRowsByTarget[tid].filter(function (r) {
-      if (r.sourceType !== 'previous_step_output') return true;
+      if (r.sourceType !== 'previous_step_output' && r.sourceType !== 'context') return true;
       if (r.odooField === odooField) return false;
       // Een gecombineerde koppeling bestaat uit twee rijen; alleen de eerste
       // weghalen laat een terugkoppeling achter die naar niets meer hoort.

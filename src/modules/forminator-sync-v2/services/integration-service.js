@@ -6,7 +6,8 @@ import {
   listIntegrations,
   getIntegrationById,
   deleteIntegration,
-  createTrackerIntegration
+  createTrackerIntegration,
+  getOdooModels
 } from '../database.js';
 import {
   validateIntegrationCreatePayload,
@@ -112,7 +113,16 @@ export async function updateIntegrationRecord(env, integrationId, payload) {
     } else {
       const bundle = await getIntegrationBundle(env, integrationId);
       const successfulTest = await hasSuccessfulTestSubmission(env, integrationId);
-      validateActivationReadiness(bundle, successfulTest);
+      // Zelfde opbouw als routes.js (POST/PUT .../targets): zowel de slug-naam
+      // als het technische Odoo-model toestaan, uit de DB-lijst i.p.v. de
+      // statische TARGET_MODELS -- anders weigert activeren een model
+      // (bv. x_calendlymeeting) dat bij het aanmaken van de stap wel mocht.
+      const storedModels = await getOdooModels(env);
+      const allowedModels = storedModels.flatMap((m) => [
+        m.name,
+        ...(m.odoo_model && m.odoo_model !== m.name ? [m.odoo_model] : []),
+      ]);
+      validateActivationReadiness(bundle, successfulTest, { allowedModels });
       updates.is_active = true;
     }
   } else if (payload.is_active === false) {

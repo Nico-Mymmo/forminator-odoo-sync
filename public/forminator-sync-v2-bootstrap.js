@@ -1290,6 +1290,24 @@
         }
         return;
       }
+      if (action === 'chatter-button-add') {
+        var tidKnop = btn.dataset.targetId || btn.dataset.targetid;
+        var lijstKnop = tidKnop && document.getElementById('chatterButtonList-' + tidKnop);
+        if (lijstKnop && window.FSV2._chatterKnopRijHtml) {
+          lijstKnop.insertAdjacentHTML('beforeend', window.FSV2._chatterKnopRijHtml(tidKnop, {}));
+          if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: lijstKnop });
+          var verseInvoer = lijstKnop.querySelector('[data-knop-rij]:last-child [data-knop-label]');
+          if (verseInvoer) verseInvoer.focus();
+        }
+        return;
+      }
+      if (action === 'chatter-button-remove') {
+        var tidWeg = btn.dataset.targetId || btn.dataset.targetid;
+        var rijWeg = btn.closest('[data-knop-rij]');
+        if (rijWeg) rijWeg.remove();
+        if (tidWeg && window.FSV2.scheduleChatterPreview) window.FSV2.scheduleChatterPreview(tidWeg);
+        return;
+      }
       if (action === 'insert-chatter-field') {
         var tid = btn.dataset.targetId || btn.dataset.targetid;
         var fid = btn.dataset.fieldId || btn.dataset.fieldid;
@@ -1834,8 +1852,18 @@
   }, true);
 
   // ── Filter field picker list on search input ───────────────────────────────
+  function chatterKnopGewijzigd(el) {
+    if (!el || !el.dataset || el.dataset.actionInput !== 'chatter-button-changed') return false;
+    var tid = el.dataset.targetId || el.dataset.targetid;
+    if (tid && window.FSV2.scheduleChatterPreview) window.FSV2.scheduleChatterPreview(tid);
+    return true;
+  }
+
   document.addEventListener('input', function (event) {
     var el = event.target;
+
+    // Knoppen van een chatter-bericht: het voorbeeld volgt wat er getypt wordt.
+    if (chatterKnopGewijzigd(el)) return;
 
     // Formulierbouwer -- inspecteur, tijdens het typen. Zie de change-tak
     // verderop; de bouwer werkt hier alleen tekst bij en hertekent niet.
@@ -1892,6 +1920,9 @@
   // tonen we automatisch de waarde-mapping sectie als het een selection- of many2one-veld is.
   document.addEventListener('change', function (event) {
     var inp = event.target;
+
+    // De stijl-keuzelijst van een chatter-knop vuurt 'change', geen 'input'.
+    if (chatterKnopGewijzigd(inp)) return;
 
     // Formulierbouwer -- inspecteur. Alle logica staat in
     // forminator-sync-v2-detail-form-builder.js; die beslist zelf wat een

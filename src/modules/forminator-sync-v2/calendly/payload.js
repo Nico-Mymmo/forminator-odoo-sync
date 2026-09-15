@@ -60,6 +60,16 @@ export const CALENDLY_FIELDS = [
   ['start_time',            'Start (UTC)'],
   ['end_time',              'Einde (UTC)'],
   ['duration_minutes',      'Duur in minuten'],
+  ['start_text',            'Start leesbaar (woensdag 30 september 2026 om 08:30)'],
+  ['start_range_text',      'Start + einde leesbaar (… , 08:30 - 09:00)'],
+  ['start_date_text',       'Startdatum leesbaar (30 september 2026)'],
+  ['start_day_text',        'Dag van de week (woensdag)'],
+  ['start_hour_text',       'Startuur (08:30)'],
+  ['end_hour_text',         'Einduur (09:00)'],
+  ['start_short_text',      'Start kort (30/09/2026 08:30)'],
+  ['start_text_invitee',    'Start leesbaar in de tijdzone van de aanvrager'],
+  ['booked_at_text',        'Moment van boeken, leesbaar'],
+  ['canceled_at_text',      'Moment van annuleren, leesbaar'],
   ['name',                  'Naam van de aanvrager'],
   ['invitee_email',         'E-mail van de aanvrager'],
   ['invitee_first_name',    'Voornaam van de aanvrager'],
@@ -219,6 +229,38 @@ export function flattenCalendlyPayload(envelope) {
     salesforce_uuid:      tekst(tr.salesforce_uuid),
   };
 
+  // Leesbare datumvelden. Calendly levert uitsluitend ISO-tijdstippen in UTC
+  // ("2026-09-30T06:30:00.000000Z"); die vorm hoort in een datumveld van Odoo
+  // thuis en NERGENS anders. Zodra zo'n tijdstip in een tekst belandt -- de
+  // naam van een lead, een chatter-notitie, een mail -- leest een mens er de
+  // verkeerde dag en het verkeerde uur in: 06:30 UTC is hier 08:30. Daarom
+  // staan de leesbare vormen hier als EIGEN velden, en niet als iets dat elke
+  // stap opnieuw moet uitrekenen.
+  //
+  // De tijdzone is Europe/Brussels, want dit leest een collega. Enkel
+  // start_text_invitee staat in de tijdzone van de aanvrager -- die is bedoeld
+  // voor tekst die naar de aanvrager zelf gaat.
+  const start  = datumDelen(plat.start_time);
+  const eind   = datumDelen(plat.end_time);
+  const geboekt = datumDelen(plat.booked_at);
+  const geannuleerdOp = datumDelen(plat.canceled_at);
+  const startInvitee = datumDelen(plat.start_time, plat.invitee_timezone);
+
+  plat.start_text       = start ? start.volledig : '';
+  plat.start_date_text  = start ? start.datum : '';
+  plat.start_day_text   = start ? start.dag : '';
+  plat.start_hour_text  = start ? start.uur : '';
+  plat.end_hour_text    = eind ? eind.uur : '';
+  plat.start_short_text = start ? `${start.kort} ${start.uur}` : '';
+  plat.start_range_text = start
+    ? (eind ? `${start.dag} ${start.datum}, ${start.uur} - ${eind.uur}` : start.volledig)
+    : '';
+  plat.start_text_invitee = startInvitee
+    ? `${startInvitee.volledig}${plat.invitee_timezone ? ` (${plat.invitee_timezone})` : ''}`
+    : '';
+  plat.booked_at_text     = geboekt ? geboekt.volledig : '';
+  plat.canceled_at_text   = geannuleerdOp ? geannuleerdOp.volledig : '';
+
   // Elke vraag apart mapbaar, plus drie samengestelde vormen. `questions_html`
   // is wat naar x_studio_cm_extra_info gaat -- dat veld is van het type html in
   // Odoo, dus platte tekst zou daar als één regel zonder witruimte belanden.
@@ -316,6 +358,39 @@ function timingSafeEqual(a, b) {
   let verschil = 0;
   for (let i = 0; i < a.length; i++) verschil |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return verschil === 0;
+}
+
+/**
+ * Een ISO-tijdstip opdelen in leesbare stukken, in een bepaalde tijdzone.
+ *
+ * Geeft null terug bij een leeg of onleesbaar tijdstip -- de aanroepkant maakt
+ * er dan een lege string van. Een half ingevulde datum ("om 08:30" zonder dag)
+ * is erger dan geen datum: die lees je niet als ontbrekend maar als fout.
+ *
+ * @param {string} iso
+ * @param {string} [tijdzone]  IANA-naam, standaard Europe/Brussels
+ */
+function datumDelen(iso, tijdzone) {
+  const ms = Date.parse(tekst(iso));
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  // Een tijdzone die Calendly meestuurt kan van alles zijn; een onbekende naam
+  // laat Intl gooien. Dan valt hij terug op Brussel in plaats van de hele
+  // indiening te laten falen op een sierlijk detail.
+  let zone = tekst(tijdzone) || 'Europe/Brussels';
+  const maak = (opties) => {
+    try {
+      return new Intl.DateTimeFormat('nl-BE', { timeZone: zone, ...opties }).format(d);
+    } catch (_) {
+      zone = 'Europe/Brussels';
+      return new Intl.DateTimeFormat('nl-BE', { timeZone: zone, ...opties }).format(d);
+    }
+  };
+  const dag   = maak({ weekday: 'long' });
+  const datum = maak({ day: 'numeric', month: 'long', year: 'numeric' });
+  const uur   = maak({ hour: '2-digit', minute: '2-digit', hour12: false });
+  const kort  = maak({ day: '2-digit', month: '2-digit', year: 'numeric' });
+  return { dag, datum, uur, kort, volledig: `${dag} ${datum} om ${uur}` };
 }
 
 function duurInMinuten(start, eind) {

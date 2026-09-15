@@ -303,7 +303,7 @@ export function validateRequiredMappingsForTarget(target, mappings) {
   }
 }
 
-export function validateActivationReadiness(bundle, hasSuccessfulTest) {
+export function validateActivationReadiness(bundle, hasSuccessfulTest, { allowedModels } = {}) {
   if (!bundle?.integration) {
     throw createError('Integration does not exist', 'NOT_FOUND');
   }
@@ -325,7 +325,13 @@ export function validateActivationReadiness(bundle, hasSuccessfulTest) {
   }
 
   for (const target of targets) {
-    validateTargetPayload(target);
+    // Zonder { allowedModels } valt dit terug op de statische TARGET_MODELS
+    // (drie hardgecodeerde modellen) i.p.v. de DB-lijst uit fs_v2_odoo_models
+    // -- exact hetzelfde model dat bij het AANMAKEN van een stap (routes.js,
+    // POST/PUT .../targets) via de DB-lijst wel gewoon toegestaan is, weigerde
+    // hier dus alsnog bij activeren. Zo liep dat mis voor x_calendlymeeting:
+    // aanmaken van de vaste stap lukte, activeren van de koppeling niet.
+    validateTargetPayload(target, { allowedModels });
     const targetMappings = bundle.mappingsByTarget?.[target.id] || [];
 
     // Een search-stap zonder identifier zoekt op een leeg domein -- dat faalt pas

@@ -110,9 +110,23 @@ const MEETING_MAPPINGS = [
   { odoo_field: 'x_active',                    soort: 'static',                bron: 'true' },
 ];
 
-/** De veldkoppeling van de host-zoekstap. */
+/**
+ * De veldkoppeling van de host-zoekstap.
+ *
+ * OP NAAM EN NIET OP E-MAILADRES, en dat is geen slordigheid.
+ * Onze medewerkers staan in Odoo met hun work_email op @mymmo.com, terwijl een
+ * Calendly-boekingspagina onder het MERK draait: dezelfde Thomas komt binnen
+ * als thomas@openvme.be of thomas@syndicoach.be. Zoeken op work_email vond
+ * daardoor NOOIT iemand -- niet zichtbaar als fout, want de stap staat op
+ * continue_empty en gaat gewoon door: de meeting belandt in Odoo zonder host,
+ * en het spoor zegt enkel "geen record gevonden".
+ *
+ * Calendly's host_name komt uit hetzelfde profiel als de Odoo-naam ("Thomas
+ * Tyteca") en is dus wél dezelfde waarde aan beide kanten. Wijkt een naam af,
+ * dan blijft de host leeg -- exact wat er vandaag al gebeurt, dus nooit slechter.
+ */
 const HOST_MAPPINGS = [
-  { odoo_field: 'work_email', soort: 'form', bron: 'host_email', identifier: true },
+  { odoo_field: 'name', soort: 'form', bron: 'host_name', identifier: true },
 ];
 
 /**
@@ -152,9 +166,9 @@ export async function ensureCalendlySystemSteps(env, integration) {
   // ── 2. De host opzoeken bij de medewerkers ────────────────────────────────
   // Een zoekstap, geen schrijfstap: de OM maakt nooit een medewerker aan.
   // condition_field zorgt dat de stap zichzelf overslaat als Calendly geen
-  // host-e-mail meestuurde (user_email is in hun schema niet verplicht) --
-  // zonder die conditie zou een ontbrekend adres de HELE indiening laten
-  // falen, want een leeg zoekcriterium is een harde fout.
+  // hostnaam meestuurde (event_memberships kan leeg zijn) -- zonder die
+  // conditie zou een ontbrekende naam de HELE indiening laten falen, want een
+  // leeg zoekcriterium is een harde fout.
   // search_on_not_found 'continue_empty': een host die niet als medewerker in
   // Odoo staat is geen reden om de meeting niet te bewaren.
   const targets = await listTargetsByIntegration(env, integrationId);
@@ -169,7 +183,7 @@ export async function ensureCalendlySystemSteps(env, integration) {
     update_policy: 'always_overwrite',
     label: HOST_STAP,
     search_on_not_found: 'continue_empty',
-    condition_field: 'host_email',
+    condition_field: 'host_name',
     condition_values: ['__exists__'],
     is_enabled: true,
     is_system: true,
