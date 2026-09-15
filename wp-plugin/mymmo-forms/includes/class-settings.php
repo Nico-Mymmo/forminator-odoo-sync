@@ -2,11 +2,14 @@
 /**
  * Instellingen: Instellingen -> Mymmo Forms.
  *
- * TWEE tabbladen, en de volgorde is het punt:
+ * DRIE tabbladen, en de volgorde is het punt:
  *
  *   1. "Shortcode maken"  -- waar iemand elke week komt. Kiezen en kopiëren,
  *                            meer niet. Er staat hier niets dat stuk kan.
- *   2. "Verbinding"       -- waar iemand één keer komt. De URL van de
+ *   2. "Stappen"          -- de HTML-brokken die vóór een formulier komen. Wel
+ *                            iets dat stuk kan (het is code), dus achter
+ *                            `unfiltered_html` en met een weg terug.
+ *   3. "Verbinding"       -- waar iemand één keer komt. De URL van de
  *                            Operations Manager, de sitesleutel, de cacheduur.
  *
  * Ze stonden eerst onder elkaar op één pagina, met de sleutel bovenaan. Wie
@@ -35,6 +38,7 @@ final class Mymmo_Forms_Settings {
     private const PAGE  = 'mymmo-forms';
 
     private const TAB_SHORTCODE  = 'shortcode';
+    private const TAB_STAPPEN    = 'stappen';
     private const TAB_VERBINDING = 'verbinding';
 
     /** Hooksuffix van de instellingenpagina, om er enkel daar JS te laden. */
@@ -70,6 +74,15 @@ final class Mymmo_Forms_Settings {
         if ($hook !== self::$hook) {
             return;
         }
+
+        // Het stappen-tabblad heeft niets aan de shortcode-bouwer en zijn
+        // voorbeeld-iframe -- dat is een paar honderd kilobyte JavaScript voor
+        // een scherm met een code-editor. Andersom net zo.
+        if (self::huidige_tab() === self::TAB_STAPPEN) {
+            self::enqueue_stappen();
+            return;
+        }
+
         wp_enqueue_script(
             'mymmo-forms-admin',
             MYMMO_FORMS_URL . 'assets/js/mymmo-forms-admin.js',
@@ -109,12 +122,368 @@ final class Mymmo_Forms_Settings {
             'css'     => [
                 MYMMO_FORMS_URL . 'assets/css/mymmo-forms.css' . $v,
                 MYMMO_FORMS_URL . 'assets/css/mymmo-forms-modal.css' . $v,
+                MYMMO_FORMS_URL . 'assets/css/mymmo-forms-steps.css' . $v,
             ],
             'js'      => [
                 MYMMO_FORMS_URL . 'assets/js/mymmo-forms.js' . $v,
                 MYMMO_FORMS_URL . 'assets/js/mymmo-forms-modal.js' . $v,
+                // Het voorbeeld draait op dezelfde bestanden als een bezoeker,
+                // dus ook een stappenreeks hoort er echt te werken. Het iframe
+                // krijgt zijn inhoud via srcdoc en niet via innerHTML -- alleen
+                // daardoor voeren de <script>'s van een stap ook echt uit.
+                MYMMO_FORMS_URL . 'assets/js/mymmo-forms-steps.js' . $v,
             ],
         ]);
+    }
+
+    /**
+     * De code-editor van WordPress zelf (CodeMirror) op het stappen-tabblad.
+     *
+     * wp_enqueue_code_editor() zit in de kern en respecteert de voorkeur
+     * "Syntaxis markeren" uit het profiel van de gebruiker: staat die uit, dan
+     * geeft het `false` terug en blijft er een gewone textarea staan. Dat is
+     * bewust geen fout -- iemand die de editor uitzette, wil hem niet.
+     */
+    private static function enqueue_stappen(): void {
+        if (!Mymmo_Forms_Steps::may_edit()) {
+            return;
+        }
+
+        wp_enqueue_style(
+            'mymmo-forms-admin',
+            MYMMO_FORMS_URL . 'assets/css/mymmo-forms-admin.css',
+            [],
+            MYMMO_FORMS_VERSION
+        );
+
+        $editor = wp_enqueue_code_editor(['type' => 'text/html']);
+
+        wp_enqueue_script(
+            'mymmo-forms-steps-admin',
+            MYMMO_FORMS_URL . 'assets/js/mymmo-forms-steps-admin.js',
+            $editor === false ? [] : ['code-editor'],
+            MYMMO_FORMS_VERSION,
+            true
+        );
+
+        // De voorbeelden gaan als tekst mee naar de browser, zodat "Voorbeeld
+        // invoegen" niets hoeft op te halen. Ze staan op schijf in
+        // voorbeelden/ en zijn dus niet door een gebruiker aan te passen.
+        $voorbeelden = [];
+        foreach (Mymmo_Forms_Steps::examples() as $bestand => $naam) {
+            $voorbeelden[] = [
+                'id'   => $bestand,
+                'naam' => $naam,
+                'html' => Mymmo_Forms_Steps::example_html($bestand),
+            ];
+        }
+
+        wp_localize_script('mymmo-forms-steps-admin', 'MymmoFormsStappen', [
+            'editor'      => $editor === false ? null : $editor,
+            'voorbeelden' => $voorbeelden,
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Tabblad 2: stappen
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * De stappen beheren.
+     *
+     * Eén scherm: de lijst bovenaan, daaronder de stap die je bewerkt. Geen
+     * aparte "nieuw"-pagina -- er staan er een handvol, en een tweede scherm
+     * zou betekenen dat je na het opslaan niet meer ziet wat er nog is.
+     */
+    private static function render_stappen(): void {
+        if (!Mymmo_Forms_Steps::may_edit()) {
+            ?>
+            <div class="notice notice-error inline">
+                <p>
+                    Je hebt het recht <code>unfiltered_html</code> nodig om stappen te bewerken.
+                    Een stap is HTML met JavaScript die op elke bezoekerspagina uitgevoerd wordt —
+                    hetzelfde recht dat WordPress vraagt voor een Custom HTML-blok. Op een multisite
+                    heeft alleen een supergebruiker dat.
+                </p>
+            </div>
+            <?php
+            return;
+        }
+
+        self::stappen_melding();
+
+        $alles  = Mymmo_Forms_Steps::all();
+        $bezig  = isset($_GET['mymmo_step']) ? Mymmo_Forms_Steps::sanitize_id((string) wp_unslash($_GET['mymmo_step'])) : '';
+        $huidig = $bezig !== '' ? Mymmo_Forms_Steps::get($bezig) : null;
+        ?>
+
+        <p class="description" style="max-width:52em;margin:12px 0 18px;">
+            Een <strong>stap</strong> is een stuk HTML dat vóór een formulier komt te staan en één of
+            enkele waarden verzamelt. Die waarden gaan naar de <strong>verborgen velden</strong> van het
+            formulier uit de Operations Manager; dat formulier is de laatste stap. Je zet een reeks op een
+            pagina met <code>[mymmo_form slug="..." steps="stap-een,stap-twee"]</code> — of met hetzelfde
+            attribuut op <code>[mymmo_form_button]</code>, en dan loopt de reeks in de pop-up.
+        </p>
+
+        <h2>Bestaande stappen</h2>
+
+        <?php if ($alles === []) : ?>
+            <p>Er is nog geen enkele stap. Maak er hieronder een, of begin met een voorbeeld.</p>
+        <?php else : ?>
+            <table class="widefat striped" style="max-width:60em;">
+                <thead>
+                    <tr>
+                        <th>Naam</th>
+                        <th>Gebruik in <code>steps=</code></th>
+                        <th>Levert</th>
+                        <th>Gewijzigd</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($alles as $stap) : ?>
+                        <tr>
+                            <td><strong><?php echo esc_html((string) $stap['name']); ?></strong></td>
+                            <td><code><?php echo esc_html((string) $stap['id']); ?></code></td>
+                            <td>
+                                <?php
+                                echo $stap['fields'] === []
+                                    ? '<span class="description">niets opgegeven</span>'
+                                    : '<code>' . esc_html(implode('</code>, <code>', (array) $stap['fields'])) . '</code>';
+                                ?>
+                            </td>
+                            <td>
+                                <?php
+                                echo $stap['updated']
+                                    ? esc_html(wp_date('j M Y, H:i', (int) $stap['updated']))
+                                    : '&mdash;';
+                                ?>
+                            </td>
+                            <td style="white-space:nowrap;text-align:right;">
+                                <a class="button button-small"
+                                   href="<?php echo esc_url(self::tab_url(self::TAB_STAPPEN, ['mymmo_step' => (string) $stap['id']])); ?>">Bewerken</a>
+                                <form method="post"
+                                      action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                                      style="display:inline"
+                                      data-mymmo-bevestig="Deze stap verwijderen? Pagina's met deze stap in hun steps= tonen daarna gewoon het formulier.">
+                                    <?php wp_nonce_field('mymmo_forms_step_delete'); ?>
+                                    <input type="hidden" name="action" value="mymmo_forms_step_delete">
+                                    <input type="hidden" name="mymmo_step_id" value="<?php echo esc_attr((string) $stap['id']); ?>">
+                                    <button type="submit" class="button button-small button-link-delete">Verwijderen</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+
+        <hr style="margin:26px 0;">
+
+        <h2><?php echo $huidig ? 'Stap bewerken: ' . esc_html((string) $huidig['name']) : 'Nieuwe stap'; ?></h2>
+
+        <?php if ($huidig) : ?>
+            <p>
+                <a class="button" href="<?php echo esc_url(self::tab_url(self::TAB_STAPPEN)); ?>">+ Nieuwe stap</a>
+                <?php if (is_array($huidig['backup']) && $huidig['backup']['html'] !== '') : ?>
+                    <span style="margin-left:14px;">
+                        <form method="post"
+                              action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                              style="display:inline"
+                              data-mymmo-bevestig="De vorige versie van de code terugzetten? De huidige blijft als 'vorige versie' bewaard, dus je kan het weer omdraaien.">
+                            <?php wp_nonce_field('mymmo_forms_step_restore'); ?>
+                            <input type="hidden" name="action" value="mymmo_forms_step_restore">
+                            <input type="hidden" name="mymmo_step_id" value="<?php echo esc_attr((string) $huidig['id']); ?>">
+                            <button type="submit" class="button">Vorige versie terugzetten</button>
+                        </form>
+                        <span class="description">
+                            (van <?php echo esc_html(wp_date('j M Y, H:i', (int) $huidig['backup']['updated'])); ?>)
+                        </span>
+                    </span>
+                <?php endif; ?>
+            </p>
+        <?php endif; ?>
+
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <?php wp_nonce_field('mymmo_forms_step_save'); ?>
+            <input type="hidden" name="action" value="mymmo_forms_step_save">
+            <input type="hidden" name="mymmo_step_id" value="<?php echo esc_attr($huidig ? (string) $huidig['id'] : ''); ?>">
+
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><label for="mymmoStapNaam">Naam</label></th>
+                    <td>
+                        <input type="text" class="regular-text" id="mymmoStapNaam" name="mymmo_step_name"
+                               value="<?php echo esc_attr($huidig ? (string) $huidig['name'] : ''); ?>" required>
+                        <p class="description">
+                            Voor jezelf, in de lijst hierboven. De naam in <code>steps=</code> wordt hier
+                            <?php echo $huidig ? 'niet meer uit afgeleid — die blijft <code>' . esc_html((string) $huidig['id']) . '</code>' : 'uit afgeleid'; ?>.
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="mymmoStapTitel">Titel boven de stap</label></th>
+                    <td>
+                        <input type="text" class="regular-text" id="mymmoStapTitel" name="mymmo_step_title"
+                               value="<?php echo esc_attr($huidig ? (string) $huidig['title'] : ''); ?>">
+                        <p class="description">
+                            Optioneel. Laat leeg als je de vraag zelf in je HTML zet — dat is meestal beter,
+                            want dan staat ze waar jij ze wil.
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="mymmoStapVelden">Levert deze sleutels</label></th>
+                    <td>
+                        <input type="text" class="regular-text code" id="mymmoStapVelden" name="mymmo_step_fields"
+                               value="<?php echo esc_attr($huidig ? implode(', ', (array) $huidig['fields']) : ''); ?>"
+                               placeholder="aantal_gebouwen, type_gebouw">
+                        <p class="description">
+                            De sleutels van de <strong>verborgen velden</strong> die deze stap invult, gescheiden
+                            met een komma. Zolang er één leeg is, blijft “Volgende” uit. Laat leeg als de stap
+                            niets hoeft op te leveren (een introscherm bijvoorbeeld).
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Navigatie</th>
+                    <td>
+                        <fieldset>
+                            <label>
+                                <input type="radio" name="mymmo_step_nav" value="plugin"
+                                       <?php checked(!$huidig || $huidig['nav'] !== 'zelf'); ?>>
+                                De plugin zet de knoppen “Vorige” en “Volgende”
+                            </label><br>
+                            <label>
+                                <input type="radio" name="mymmo_step_nav" value="zelf"
+                                       <?php checked($huidig && $huidig['nav'] === 'zelf'); ?>>
+                                Mijn HTML doet de navigatie zelf (<code>api.volgende()</code>)
+                            </label>
+                        </fieldset>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="mymmoStapNext">Opschrift “Volgende”</label></th>
+                    <td>
+                        <input type="text" class="regular-text" id="mymmoStapNext" name="mymmo_step_next"
+                               value="<?php echo esc_attr($huidig ? (string) $huidig['next'] : ''); ?>"
+                               placeholder="Volgende">
+                        <p class="description">
+                            Leeg = de vertaalde standaardtekst van het formulier. Vul dit alleen in als deze
+                            stap iets anders moet zeggen (“Bereken mijn formule”); op een anderstalige pagina
+                            typ je wat je zelf invult niet mee vertaald.
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="mymmoStapHtml">HTML</label></th>
+                    <td>
+                        <?php if (Mymmo_Forms_Steps::examples() !== []) : ?>
+                            <p>
+                                <label for="mymmoStapVoorbeeld" class="screen-reader-text">Voorbeeld</label>
+                                <select id="mymmoStapVoorbeeld">
+                                    <option value="">— voorbeeld kiezen —</option>
+                                    <?php foreach (Mymmo_Forms_Steps::examples() as $id => $naam) : ?>
+                                        <option value="<?php echo esc_attr((string) $id); ?>"><?php echo esc_html((string) $naam); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button type="button" class="button" id="mymmoStapVoorbeeldKnop">Voorbeeld invoegen</button>
+                                <span class="description">Vervangt wat er nu in het veld staat.</span>
+                            </p>
+                        <?php endif; ?>
+
+                        <textarea id="mymmoStapHtml" name="mymmo_step_html" rows="24" class="large-text code"
+                                  spellcheck="false"><?php echo esc_textarea($huidig ? (string) $huidig['html'] : ''); ?></textarea>
+                    </td>
+                </tr>
+            </table>
+
+            <?php submit_button($huidig ? 'Stap bewaren' : 'Stap aanmaken'); ?>
+        </form>
+
+        <?php self::render_stappen_hulp(); ?>
+        <?php
+    }
+
+    /** De melding na een redirect van een van de admin-post-acties. */
+    private static function stappen_melding(): void {
+        $ok = isset($_GET['mymmo_step_ok']) ? sanitize_key(wp_unslash($_GET['mymmo_step_ok'])) : '';
+        $fout = isset($_GET['mymmo_step_fout']) ? sanitize_key(wp_unslash($_GET['mymmo_step_fout'])) : '';
+
+        $teksten_ok = [
+            'bewaard'     => 'De stap is bewaard.',
+            'verwijderd'  => 'De stap is verwijderd.',
+            'teruggezet'  => 'De vorige versie staat terug. De versie van daarnet is nu de “vorige versie”, dus je kan het weer omdraaien.',
+        ];
+        $teksten_fout = [
+            'naam'        => 'Geef de stap een naam.',
+            'vol'         => 'Er zijn al 40 stappen. Verwijder er een voor je een nieuwe maakt.',
+            'groot'       => 'Die HTML is te groot (meer dan 400 KB). Haal er afbeeldingen uit en zet ze in de mediabibliotheek.',
+            'geen-backup' => 'Van deze stap is geen vorige versie bewaard.',
+        ];
+
+        if (isset($teksten_ok[$ok])) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html($teksten_ok[$ok]) . '</p></div>';
+        }
+        if (isset($teksten_fout[$fout])) {
+            echo '<div class="notice notice-error"><p>' . esc_html($teksten_fout[$fout]) . '</p></div>';
+        }
+    }
+
+    /**
+     * Wat een stap mag verwachten van de reeks eromheen.
+     *
+     * Deze uitleg staat hier en niet alleen in de README: wie een stap schrijft,
+     * zit op dit scherm. Een contract dat je moet gaan opzoeken, wordt geraden.
+     */
+    private static function render_stappen_hulp(): void {
+        ?>
+        <hr style="margin:30px 0 20px;">
+        <h2>Wat je in een stap kan gebruiken</h2>
+
+        <div style="max-width:60em;">
+            <h3 style="margin-bottom:4px;">Zonder JavaScript</h3>
+            <p>
+                Zet <code>data-mymmo-waarde="sleutel"</code> op een <code>input</code>, <code>select</code> of
+                <code>textarea</code>. De reeks leest die waarde mee en zet ze in het verborgen veld met
+                dezelfde naam. Meer is er niet nodig.
+            </p>
+
+            <h3 style="margin-bottom:4px;">Met JavaScript</h3>
+            <pre class="code" style="background:#f6f7f7;padding:12px;overflow:auto;">MymmoStappen.stap(document.currentScript, function (api) {
+  api.zet('aantal_gebouwen', 12);   // waarde afleveren
+  api.lees('aantal_gebouwen');      // ook waarden uit eerdere stappen
+  api.geldig(true);                 // zelf beslissen of "Volgende" mag
+  api.volgende();                   // zelf doorgaan (nodig bij nav="zelf")
+  api.bij('tonen', function () {});  // de stap komt in beeld — hier meet je
+});</pre>
+            <p class="description">
+                <code>api.el</code> is jouw stap. Zoek daarbinnen (<code>api.el.querySelector(...)</code>) en
+                gebruik géén <code>id=""</code>: dezelfde stap kan twee keer op een pagina staan, en dan zou de
+                tweede de eerste besturen.
+            </p>
+
+            <h3 style="margin-bottom:4px;">Waar de waarde terechtkomt</h3>
+            <p>
+                In het verborgen veld van het formulier met exact dezelfde sleutel. Bestaat dat veld niet, dan
+                gaat de waarde nergens heen — de reeks meldt dat in de console van de browser, en een beheerder
+                ziet het boven het formulier staan. Verborgen velden maak je in de Operations Manager, bij het
+                formulier zelf.
+            </p>
+
+            <h3 style="margin-bottom:4px;">Waar je op moet letten</h3>
+            <ul class="ul-disc">
+                <li>Een stap staat bij het laden van de pagina op <code>hidden</code>. Meten (breedtes, hoogtes)
+                    kan daar niet — doe dat in <code>api.bij('tonen', …)</code>.</li>
+                <li>Je CSS staat op de hele pagina. Geef je klassen een eigen voorvoegsel.</li>
+                <li>Gebruik de kleuren van het formulier (<code>var(--mf-accent)</code>,
+                    <code>var(--mf-text)</code>, <code>var(--mf-muted)</code>, <code>var(--mf-border)</code>),
+                    dan volgt je stap automatisch het thema van de site.</li>
+                <li>Zonder JavaScript vallen alle HTML-stappen weg en ziet de bezoeker meteen het formulier,
+                    met lege verborgen velden. Maak van zo'n veld dus nooit een verplicht veld in de OM.</li>
+            </ul>
+        </div>
+        <?php
     }
 
     /**
@@ -230,7 +599,14 @@ final class Mymmo_Forms_Settings {
 
     private static function huidige_tab(): string {
         $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : '';
-        return $tab === self::TAB_VERBINDING ? self::TAB_VERBINDING : self::TAB_SHORTCODE;
+
+        if ($tab === self::TAB_VERBINDING) {
+            return self::TAB_VERBINDING;
+        }
+        if ($tab === self::TAB_STAPPEN) {
+            return self::TAB_STAPPEN;
+        }
+        return self::TAB_SHORTCODE;
     }
 
     public static function handle_purge(): void {
@@ -277,6 +653,10 @@ final class Mymmo_Forms_Settings {
                    class="nav-tab <?php echo $tab === self::TAB_SHORTCODE ? 'nav-tab-active' : ''; ?>">
                     Shortcode maken
                 </a>
+                <a href="<?php echo esc_url(self::tab_url(self::TAB_STAPPEN)); ?>"
+                   class="nav-tab <?php echo $tab === self::TAB_STAPPEN ? 'nav-tab-active' : ''; ?>">
+                    Stappen
+                </a>
                 <a href="<?php echo esc_url(self::tab_url(self::TAB_VERBINDING)); ?>"
                    class="nav-tab <?php echo $tab === self::TAB_VERBINDING ? 'nav-tab-active' : ''; ?>">
                     Verbinding
@@ -286,6 +666,8 @@ final class Mymmo_Forms_Settings {
             <?php
             if ($tab === self::TAB_VERBINDING) {
                 self::render_verbinding();
+            } elseif ($tab === self::TAB_STAPPEN) {
+                self::render_stappen();
             } else {
                 self::render_shortcode();
             }

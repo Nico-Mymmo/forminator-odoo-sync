@@ -417,3 +417,99 @@ function mymmo_forms_theme_style(array $theme): string {
 
     return $stukken === [] ? '' : implode(';', $stukken);
 }
+
+/**
+ * De volledige stijlcascade van een plaatsing, als stukje style-attribuut.
+ *
+ * Drie lagen, en de VOLGORDE is het punt -- de laatste declaratie wint:
+ *
+ *   1. het thema van het formulier uit de Operations Manager. Dat geldt overal
+ *      waar dit formulier staat.
+ *   2. het thema van DEZE site. Een site die haar eigen kleuren aanhoudt, hoort
+ *      die van de OM te overschrijven.
+ *   3. wat er op DEZE shortcode staat. Dat is de meest expliciete keuze die
+ *      iemand kon maken en wint dus van allebei.
+ *
+ * Deze functie bestaat omdat er inmiddels TWEE wikkels zijn die dezelfde
+ * variabelen nodig hebben: .mymmo-form-wrap (templates/form.php) en
+ * .mymmo-stappen (templates/steps.php). Bij een stappenreeks staat de tweede om
+ * de eerste heen, en de knoppen van de reeks staan erbuiten -- die zouden
+ * zonder eigen declaratie op de standaardkleur blijven staan terwijl het
+ * formulier eronder wel de juiste heeft.
+ *
+ * @param array<string,mixed> $theme  het theme-blok uit het schema van de OM
+ * @param string              $extra  wat er op de shortcode stond
+ */
+function mymmo_forms_wrap_style(array $theme, string $extra = ''): string {
+    $lagen = [
+        mymmo_forms_theme_style($theme),
+        mymmo_forms_site_theme_style(),
+        trim($extra),
+    ];
+
+    return implode(';', array_filter($lagen, static fn ($laag) => $laag !== ''));
+}
+
+/**
+ * Het formulier, of een stappenreeks met het formulier als laatste stap.
+ *
+ * EEN plek waar die keuze valt, en beide aanroepers gaan erlangs: de shortcode
+ * in de pagina en het formulierpaneel van de pop-up. Zou elk van de twee zelf
+ * kiezen, dan is een stappenreeks in de pop-up iets anders dan dezelfde reeks
+ * in de tekst -- en dat verschil zie je pas als er een inzending binnenkomt met
+ * lege verborgen velden.
+ *
+ * @param string              $steps      het steps="a,b"-attribuut, mag leeg zijn
+ * @param array<string,mixed> $form       het schema uit de Operations Manager
+ * @param array<string,mixed> $form_args  alles wat templates/form.php nodig heeft
+ */
+function mymmo_forms_render_body(string $steps, array $form, string $slug, array $form_args): string {
+    if (trim($steps) === '' || !class_exists('Mymmo_Forms_Steps')) {
+        return mymmo_forms_render('form', $form_args);
+    }
+
+    $ontbrekend = [];
+    $stappen    = Mymmo_Forms_Steps::resolve($steps, $ontbrekend);
+
+    if ($stappen === []) {
+        // Geen enkele stap gevonden. Het formulier gewoon tonen is de juiste
+        // terugval -- een bezoeker kan dan nog versturen -- maar een beheerder
+        // moet weten dat de reeks weggevallen is, anders zoekt hij in de
+        // Operations Manager naar een fout die hier zit.
+        $melding = ($ontbrekend !== [] && current_user_can('manage_options'))
+            ? '<div class="mymmo-form-notice mymmo-form-notice--admin">Deze stappen bestaan niet (meer): '
+              . esc_html(implode(', ', $ontbrekend))
+              . '. Kijk na bij Instellingen &rarr; Mymmo Forms &rarr; Stappen.</div>'
+            : '';
+
+        return $melding . mymmo_forms_render('form', $form_args);
+    }
+
+    return mymmo_forms_render('steps', [
+        'stappen'     => $stappen,
+        'form_args'   => $form_args,
+        'form'        => $form,
+        'slug'        => $slug,
+        'wrap_id'     => mymmo_forms_wrap_id($slug, (string) ($form_args['instance_id'] ?? '')),
+        'ontbrekend'  => $ontbrekend,
+        'lang'        => (string) ($form_args['lang'] ?? 'nl'),
+        'extra_style' => (string) ($form_args['extra_style'] ?? ''),
+    ]);
+}
+
+/**
+ * Een id voor de wikkel van een reeks dat op deze pagina uniek is.
+ *
+ * Het staat in de <noscript><style> die de HTML-stappen wegneemt; twee reeksen
+ * met hetzelfde id zouden elkaars terugval aansturen. Het hoeft NIET hetzelfde
+ * te blijven na het versturen -- anders dan het id van een pop-up staat dit
+ * nergens in een URL.
+ */
+function mymmo_forms_wrap_id(string $slug, string $instance_id = ''): string {
+    static $teller = 0;
+    $teller += 1;
+
+    $basis = $instance_id !== '' ? $instance_id : ('mymmo-form-' . $slug);
+
+    return 'mymmo-stappen-' . preg_replace('/[^A-Za-z0-9_-]/', '', $basis) . '-' . $teller;
+}

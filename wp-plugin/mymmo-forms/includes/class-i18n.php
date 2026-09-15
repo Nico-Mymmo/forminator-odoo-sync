@@ -36,7 +36,37 @@ final class Mymmo_Forms_I18n {
         'unavailable' => 'Dit formulier is momenteel niet beschikbaar.',
         'send_failed' => 'We konden je bericht niet versturen. Probeer het zo meteen opnieuw.',
         'stale_page'  => 'Deze pagina stond te lang open. Ververs ze en probeer opnieuw.',
+        // De opschriften van een stappenreeks. Ze staan ook in MESSAGES in de
+        // Operations Manager (forms/schema.js) -- dat blijft de bron, en zodra
+        // die payload ze meestuurt wint de vertaalde versie. Ze staan hier
+        // omdat een stappenreeks anders "Vorige" zou tonen als een lege knop op
+        // elke site die nog een oudere payload in haar cache heeft.
+        'back'        => 'Vorige',
+        'next'        => 'Volgende',
+        'step_of'     => 'Stap {n} van {total}',
     ];
+
+    /**
+     * De opschriften van de stappenreeks, met de noodtekst als terugval.
+     *
+     * Apart van messages(): die geeft de catalogus zoals ze uit de OM kwam, en
+     * daar mogen deze drie sleutels nog in ontbreken. Wat hieruit komt is altijd
+     * compleet -- de reeks in de browser rekent erop.
+     *
+     * @param  array<string,mixed> $form
+     * @return array<string,string>
+     */
+    public static function step_messages(array $form, string $lang): array {
+        $catalogus = self::messages($form, $lang);
+
+        foreach (['back', 'next', 'step_of'] as $sleutel) {
+            if (!isset($catalogus[$sleutel]) || trim((string) $catalogus[$sleutel]) === '') {
+                $catalogus[$sleutel] = self::NOODTEKSTEN[$sleutel];
+            }
+        }
+
+        return $catalogus;
+    }
 
     /**
      * De talen die dit formulier zegt te spreken.

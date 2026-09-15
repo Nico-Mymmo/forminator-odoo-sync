@@ -373,7 +373,12 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                         <?php endif; ?>
 
                         <?php
-                        echo mymmo_forms_render('form', [
+                        // Staat er een steps="..." op de shortcode, dan is dit
+                        // paneel de hele stappenreeks en is het formulier de
+                        // laatste stap ervan. Exact dezelfde aanroep als bij
+                        // [mymmo_form] in een pagina -- zie
+                        // mymmo_forms_render_body().
+                        echo mymmo_forms_render_body((string) ($steps ?? ''), $form, $slug, [
                             'form' => $form,
                             'slug' => $slug,
                             // De kop staat al in de zijkolom; twee keer dezelfde

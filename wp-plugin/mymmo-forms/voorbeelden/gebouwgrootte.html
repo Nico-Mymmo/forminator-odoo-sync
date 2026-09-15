@@ -1,0 +1,549 @@
+<!--
+  STAP - "Wat is de grootte van het gebouw?"
+
+  De schuifbalk uit de Syndicoach-calculator, losgemaakt uit dat bestand en
+  klaar om als eerste stap van een mymmo_form te plakken. Levert TWEE waarden:
+
+      aantal_kavels        het getal onder de schuifbalk  (2 ... 60)
+      commerciele_kavels   "ja" of "nee"                  (het vinkje erboven)
+
+  Zet in de Operations Manager twee VERBORGEN VELDEN met precies die sleutels
+  op het formulier. Bestaat een veld niet, dan blijft de bezoeker gewoon verder
+  kunnen -- de waarde bereikt Odoo dan alleen niet, en dat staat in de console
+  en boven het formulier. Andere sleutels nodig? Pas ze aan op de schuifbalk
+  (data-mymmo-waarde) en op de wikkel (data-sleutel-commercieel); je hoeft
+  nergens in het script te zijn.
+
+  WAT HIER UIT DE CALCULATOR IS OVERGENOMEN
+  -----------------------------------------
+  De tekeningen (vijf niveaus x residentieel/commercieel, van link.openvme.be),
+  de niveau-indeling, de squash-and-stretch bij een niveauwissel, de plop van
+  het commercieel-vinkje, en de terugval op een lijnicoon als een bestand niet
+  ophaalt. Wat NIET is meegekomen, is het "podium" -- de losse, absoluut
+  gepositioneerde laag waarop de calculator het gebouw tussen zeven stappen
+  door laat zweven, plus de zeven onzichtbare pin-ankers voor de ballonnetjes.
+  Dat bestaat alleen omdat daar zeven stappen een tekening delen; hier staat de
+  tekening gewoon in de stap, zoals de calculator dat op smalle schermen zelf
+  ook doet.
+
+  TWEE DINGEN OM TE ZIEN IN DIT BESTAND
+  -------------------------------------
+  1. `data-mymmo-waarde` op de schuifbalk. Dat is wat het getal doorgeeft --
+     daar is geen regel JavaScript voor nodig. Het script hieronder tekent
+     alleen het gebouw. Het vinkje is een <button> en geen invoerveld, dus die
+     ene waarde wordt wel met api.zet() afgeleverd.
+  2. Geen enkele `id=""`. Dezelfde stap kan twee keer op een pagina staan (in
+     de tekst en in een pop-up); met vaste id's zou de tweede de eerste
+     besturen. Alles loopt via querySelector binnen de eigen wikkel.
+
+  Verander je de beginstand (`value` op de schuifbalk), pas dan ook de `src`
+  van de <img> aan op het bijbehorende niveau (2-5 = level1, 6-15 = level2,
+  16-25 = level3, 26-39 = level4, 40+ = level5). Het script corrigeert het
+  meteen, maar zonder die aanpassing zie je bij het laden heel even de
+  verkeerde tekening.
+-->
+
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level1.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level2.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level3.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level4.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level5.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level1comm.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level2comm.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level3comm.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level4comm.svg">
+<link rel="preload" as="image" href="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level5comm.svg">
+
+<style>
+/* Alles genest onder .sc-stap. Je thema kan hier niets breken, en omgekeerd.
+   In de calculator was dat `#sc-calc`; een id kan hier niet, want dezelfde
+   stap mag twee keer op een pagina staan. */
+.sc-stap {
+  --sc-blue: #0f5c8c;
+  --sc-blue-soft: #e8f2f8;
+  --sc-ink: #12384f;
+  --sc-muted: #6b8697;
+  --sc-line: #e3ebf0;
+
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  color: var(--sc-ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.sc-stap *, .sc-stap *::before, .sc-stap *::after { box-sizing: border-box; }
+.sc-stap .sc-svg { display: block; }
+
+/* De witte kaart. Wil je de stap kaal in de pagina, haal dan deze regel weg --
+   de rest blijft werken. */
+.sc-stap .sc-card {
+  background: #fff;
+  border: 1px solid var(--sc-line);
+  border-radius: 18px;
+  padding: 24px 24px 20px;
+  box-shadow: 0 10px 28px -20px rgba(15, 92, 140, .4);
+}
+
+/* -- de vraag ------------------------------------------------------------- */
+.sc-stap .sc-q {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: var(--sc-ink);
+  letter-spacing: -.01em;
+}
+.sc-stap .sc-q .sc-ico { color: var(--sc-blue); flex: 0 0 auto; position: relative; top: 3px; }
+.sc-stap .sc-help { color: var(--sc-muted); font-size: .87rem; margin: 4px 0 0; }
+
+/* -- het vinkje "commerciele kavels" -------------------------------------- */
+.sc-stap .sc-comm-toggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: .82rem;
+  color: var(--sc-muted);
+  text-align: left;
+}
+.sc-stap .sc-comm-toggle .sc-comm-check {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border-radius: 5px;
+  border: 1.5px solid #cfdde6;
+  display: grid;
+  place-items: center;
+  color: transparent;
+  transition: background .15s, border-color .15s;
+}
+.sc-stap .sc-comm-toggle:hover .sc-comm-check { border-color: #b9d3e2; }
+.sc-stap .sc-comm-toggle.is-on { color: var(--sc-ink); }
+.sc-stap .sc-comm-toggle.is-on .sc-comm-check {
+  background: var(--sc-blue);
+  border-color: var(--sc-blue);
+  color: #fff;
+}
+
+/* -- de tekening ---------------------------------------------------------- */
+.sc-stap .sc-bldg {
+  display: flex;
+  justify-content: center;
+  margin: 26px 0 14px;
+}
+.sc-stap .sc-bldg-img {
+  position: relative;
+  width: 230px;
+  height: 230px;
+  transform-origin: bottom center;
+}
+@media (max-width: 480px) {
+  .sc-stap .sc-bldg-img { width: 170px; height: 170px; }
+}
+.sc-stap .sc-bldg-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  object-position: bottom center;
+}
+/* Haalt een tekening niet op (offline, 404), dan valt ze terug op een klein
+   lijnicoon. Nooit een kapot-plaatje-icoontje. */
+.sc-stap .sc-bldg-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 8%;
+  color: var(--sc-muted);
+}
+.sc-stap .sc-bldg-fallback svg { width: 60%; height: 60%; }
+
+/* -- de schuifbalk -------------------------------------------------------- */
+.sc-stap .sc-slider { padding: 0 2px 2px; text-align: center; }
+.sc-stap .sc-kv {
+  font-size: 2.7rem;
+  font-weight: 800;
+  color: var(--sc-blue);
+  line-height: 1;
+  letter-spacing: -.03em;
+}
+.sc-stap .sc-kv-u { font-size: 1rem; color: var(--sc-muted); margin-left: 7px; }
+.sc-stap input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 99px;
+  background: #e3ebf0;
+  margin: 24px 0 6px;
+  outline: none;
+}
+.sc-stap input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--sc-blue);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .18);
+}
+.sc-stap input[type=range]::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--sc-blue);
+  cursor: pointer;
+}
+.sc-stap input[type=range]:focus-visible { box-shadow: 0 0 0 3px rgba(15, 92, 140, .18); }
+.sc-stap .sc-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: .78rem;
+  color: var(--sc-muted);
+}
+
+/* -- het gebouw dat een niveau wint of verliest -------------------------------
+   Anticipatie, sprong, uitdempen. De schaal is bewust niet-uniform
+   (squash-and-stretch) en het draaipunt ligt op de grond, zodat het gebouw op
+   zijn fundering blijft staan in plaats van te "zwellen". */
+.sc-stap .sc-bldg-img.sc-pop { animation: sc-bldg-pop .5s cubic-bezier(.31, 1.7, .6, 1); }
+.sc-stap .sc-bldg-img.sc-grow { animation: sc-bldg-grow .66s cubic-bezier(.3, .86, .32, 1); }
+.sc-stap .sc-bldg-img.sc-shrink { animation: sc-bldg-shrink .6s cubic-bezier(.3, .86, .32, 1); }
+/* De sprong naar niveau 5 gaat niet de hoogte in maar de breedte: er komt een
+   vleugel naast. Daarom draait die beweging rond de linkeronderhoek van de
+   tekening -- anders zet het gebouw ook naar links uit en dat leest als
+   opblazen, niet als aanbouwen. */
+.sc-stap .sc-bldg-img.sc-grow-x {
+  transform-origin: var(--sc-bldg-ox, 23%) 100%;
+  animation: sc-bldg-grow-x .66s cubic-bezier(.3, .86, .32, 1);
+}
+.sc-stap .sc-bldg-img.sc-shrink-x {
+  transform-origin: var(--sc-bldg-ox, 23%) 100%;
+  animation: sc-bldg-shrink-x .6s cubic-bezier(.3, .86, .32, 1);
+}
+.sc-stap .sc-bldg-img.sc-comm {
+  transform-origin: var(--sc-bldg-ox, 23%) 100%;
+  animation: sc-bldg-comm .58s cubic-bezier(.3, .86, .32, 1);
+}
+@keyframes sc-bldg-pop {
+  0% { transform: scale(.88); }
+  40% { transform: scale(1.1); }
+  70% { transform: scale(.97); }
+  100% { transform: scale(1); }
+}
+/* groeien: door de knieen, dan omhoog schieten, dan uitdempen. De uitslagen
+   zijn bewust klein -- het moet aanvoelen alsof het gebouw er even doorheen
+   veert, niet alsof het van rubber is. */
+@keyframes sc-bldg-grow {
+  0% { transform: scale(1, 1); }
+  13% { transform: scale(1.03, .955); }
+  40% { transform: scale(.967, 1.053); }
+  62% { transform: scale(1.017, .98); }
+  80% { transform: scale(.994, 1.008); }
+  92% { transform: scale(1.002, .997); }
+  100% { transform: scale(1, 1); }
+}
+/* krimpen: eerst even rekken, dan inzakken, dan uitdempen */
+@keyframes sc-bldg-shrink {
+  0% { transform: scale(1, 1); }
+  13% { transform: scale(.977, 1.037); }
+  42% { transform: scale(1.036, .95); }
+  64% { transform: scale(.987, 1.018); }
+  82% { transform: scale(1.005, .994); }
+  100% { transform: scale(1, 1); }
+}
+/* breder worden: eerst samentrekken naar links, dan naar rechts uitschieten */
+@keyframes sc-bldg-grow-x {
+  0% { transform: scale(1, 1); }
+  13% { transform: scale(.963, 1.019); }
+  40% { transform: scale(1.046, .975); }
+  62% { transform: scale(.986, 1.011); }
+  80% { transform: scale(1.006, .995); }
+  92% { transform: scale(.998, 1.002); }
+  100% { transform: scale(1, 1); }
+}
+/* smaller worden: eerst even naar rechts uitrekken, dan terugtrekken */
+@keyframes sc-bldg-shrink-x {
+  0% { transform: scale(1, 1); }
+  13% { transform: scale(1.031, .983); }
+  42% { transform: scale(.959, 1.029); }
+  64% { transform: scale(1.012, .992); }
+  82% { transform: scale(.996, 1.003); }
+  100% { transform: scale(1, 1); }
+}
+/* commerciele kavels aan/uit: linksonderaan ploppen een winkeldeur en een
+   luifel in de tekening. Het gebouw zet zich eerst schrap, vangt dan de
+   landing op met een korte indeuking, en dempt uit. Kleinere uitslag dan bij
+   een niveauwissel: er verandert een detail, niet het hele gebouw. */
+@keyframes sc-bldg-comm {
+  0% { transform: scale(1, 1); }
+  12% { transform: scale(.986, 1.016); }
+  36% { transform: scale(1.03, .964); }
+  58% { transform: scale(.99, 1.013); }
+  78% { transform: scale(1.005, .995); }
+  100% { transform: scale(1, 1); }
+}
+
+/* Wie beweging heeft uitgezet, krijgt de wissel zonder veren. */
+@media (prefers-reduced-motion: reduce) {
+  .sc-stap .sc-bldg-img.sc-pop,
+  .sc-stap .sc-bldg-img.sc-grow,
+  .sc-stap .sc-bldg-img.sc-shrink,
+  .sc-stap .sc-bldg-img.sc-grow-x,
+  .sc-stap .sc-bldg-img.sc-shrink-x,
+  .sc-stap .sc-bldg-img.sc-comm { animation: none; }
+}
+</style>
+
+<div class="sc-stap"
+     data-basis="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/"
+     data-sleutel-commercieel="commerciele_kavels">
+  <div class="sc-card">
+
+    <p class="sc-q">
+      <span class="sc-ico" aria-hidden="true">
+        <svg class="sc-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+          <rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/>
+          <path d="M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01"/>
+        </svg>
+      </span>
+      <span>Wat is de grootte van het gebouw?</span>
+    </p>
+    <p class="sc-help">Geef het aantal bewoonbare kavels in. Garages en bergingen hoef je niet mee te tellen.</p>
+
+    <button type="button" class="sc-comm-toggle" data-rol="commercieel" aria-pressed="false">
+      <span class="sc-comm-check" aria-hidden="true">
+        <svg class="sc-svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+          <path d="M20 6 9 17l-5-5"/>
+        </svg>
+      </span>
+      <span>Het gebouw heeft commerciele kavels (winkels, kantoren, ...)</span>
+    </button>
+
+    <div class="sc-bldg">
+      <div class="sc-bldg-img" data-rol="bldg">
+        <!-- Deze src hoort bij de beginstand van de schuifbalk hieronder. -->
+        <img class="sc-bldg-photo"
+             src="https://link.openvme.be/assets/syndicoach-calculator/stap-1-gebouwgrootte/app_level2.svg"
+             alt="" loading="eager" decoding="sync">
+      </div>
+    </div>
+
+    <div class="sc-slider">
+      <div>
+        <span class="sc-kv" data-rol="kv">8</span><span class="sc-kv-u" data-rol="kv-u">kavels</span>
+      </div>
+      <input type="range" min="2" max="60" step="1" value="8"
+             data-rol="range"
+             data-mymmo-waarde="aantal_kavels"
+             aria-label="Aantal kavels">
+      <div class="sc-ends"><span>2</span><span>60+</span></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+MymmoStappen.stap(document.currentScript, function (api) {
+  var wortel = api.el.querySelector('.sc-stap');
+  if (!wortel) return;
+
+  var BASIS = wortel.getAttribute('data-basis') || '';
+  var SLEUTEL_COMM = wortel.getAttribute('data-sleutel-commercieel') || 'commerciele_kavels';
+
+  /* Welk niveau hoort bij welk aantal kavels. Vijf tekeningen, twee reeksen
+     (met en zonder commerciele kavels). */
+  var NIVEAUS = [
+    { max: 5, level: 1 }, { max: 15, level: 2 }, { max: 25, level: 3 },
+    { max: 39, level: 4 }, { max: Infinity, level: 5 }
+  ];
+  var BESTAND = {
+    1: 'app_level1.svg', 2: 'app_level2.svg', 3: 'app_level3.svg',
+    4: 'app_level4.svg', 5: 'app_level5.svg'
+  };
+  var BESTAND_COMM = {
+    1: 'app_level1comm.svg', 2: 'app_level2comm.svg', 3: 'app_level3comm.svg',
+    4: 'app_level4comm.svg', 5: 'app_level5comm.svg'
+  };
+
+  /* Waar staat de tekening werkelijk in haar kader? Een gebouw-svg heeft lucht
+     boven en naast zich. Deze fracties zijn eenmalig uit de originele
+     bestanden gemeten en bepalen het draaipunt van de breedtegroei. */
+  var LINKS = { 1: .311, 2: .282, 3: .230, 4: .230, 5: .230 };
+
+  /* Tot en met niveau 4 wordt het gebouw hoger; op niveau 5 komt er een
+     vleugel naast en groeit het in de breedte. De beweging volgt die as,
+     anders klopt de anticipatie niet met wat je ziet gebeuren. Verandert er
+     later iets aan de tekeningen, dan is dit het enige dat je bijstelt. */
+  var BREEDTEGROEI = 5;
+  var ANIM = ['sc-pop', 'sc-grow', 'sc-shrink', 'sc-grow-x', 'sc-shrink-x', 'sc-comm'];
+
+  var range = wortel.querySelector('[data-rol="range"]');
+  var kv = wortel.querySelector('[data-rol="kv"]');
+  var kvu = wortel.querySelector('[data-rol="kv-u"]');
+  var bldg = wortel.querySelector('[data-rol="bldg"]');
+  var knop = wortel.querySelector('[data-rol="commercieel"]');
+  if (!range || !bldg) return;
+
+  var maximum = parseInt(range.getAttribute('max'), 10) || 60;
+
+  /* Komt de bezoeker terug van een MISLUKTE inzending, dan staat zijn antwoord
+     nog in het verborgen veld (de plugin schrijft de POST terug) maar niet op
+     de schuifbalk -- die is statische HTML uit wp-admin en staat dus weer op
+     haar beginstand. Zonder deze regel ziet hij 8 staan terwijl hij 30 koos,
+     en drukt hij op Verzenden met de verkeerde waarde. */
+  var bewaard = parseInt(api.lees(range.getAttribute('data-mymmo-waarde')), 10);
+  if (bewaard >= parseInt(range.getAttribute('min'), 10) && bewaard <= maximum) {
+    range.value = String(bewaard);
+  }
+
+  var commercieel = api.lees(SLEUTEL_COMM) === 'ja';
+  var niveau = niveauVan(getal());
+  var swapT = null;
+
+  function getal() { return parseInt(range.value, 10) || 0; }
+
+  function niveauVan(k) {
+    for (var i = 0; i < NIVEAUS.length; i += 1) {
+      if (k <= NIVEAUS[i].max) return NIVEAUS[i].level;
+    }
+    return 5;
+  }
+
+  function bron(level, comm) {
+    var map = comm ? BESTAND_COMM : BESTAND;
+    return BASIS + (map[level] || BESTAND[level]);
+  }
+
+  /* Vervangt de bron van de bestaande <img> in plaats van het element opnieuw
+     op te bouwen. Dat laatste kost de browser altijd een frame -- ook als de
+     afbeelding al in de cache zit -- en dat zie je als een flits bij elke
+     wissel. Staat de tekening op haar fallback-icoon, dan bouwen we wel
+     opnieuw op. */
+  function teken() {
+    var img = bldg.querySelector('.sc-bldg-photo');
+    if (img) {
+      var s = bron(niveau, commercieel);
+      if (img.getAttribute('src') !== s) img.setAttribute('src', s);
+      return;
+    }
+    img = document.createElement('img');
+    img.className = 'sc-bldg-photo';
+    img.alt = '';
+    img.setAttribute('loading', 'eager');
+    img.setAttribute('decoding', 'sync');
+    bewaakLaden(img);
+    bldg.innerHTML = '';
+    bldg.appendChild(img);
+    img.src = bron(niveau, commercieel);
+  }
+
+  /* Haalt de tekening niet op, dan komt er een lijnicoon in de plaats. Geen
+     globale window-functie en geen inline onerror: dezelfde stap kan twee keer
+     op een pagina staan. */
+  function bewaakLaden(img) {
+    img.addEventListener('error', function () {
+      if (!img.parentNode) return;
+      var span = document.createElement('span');
+      span.className = 'sc-bldg-fallback';
+      span.setAttribute('aria-hidden', 'true');
+      span.innerHTML = '<svg class="sc-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">' +
+        '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/>' +
+        '<path d="M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01"/></svg>';
+      img.parentNode.replaceChild(span, img);
+    });
+  }
+
+  function draaipunt() {
+    var f = LINKS[niveau];
+    if (f) bldg.style.setProperty('--sc-bldg-ox', (f * 100).toFixed(1) + '%');
+  }
+
+  function beweeg(cls) {
+    draaipunt();
+    for (var i = 0; i < ANIM.length; i += 1) bldg.classList.remove(ANIM[i]);
+    void bldg.offsetWidth;                 /* forceer reflow zodat de animatie herstart */
+    bldg.classList.add(cls);
+    if (bldg._eind) bldg.removeEventListener('animationend', bldg._eind);
+    bldg._eind = function (ev) {
+      if (ev.target !== bldg) return;
+      bldg.classList.remove(cls);
+      bldg.removeEventListener('animationend', bldg._eind);
+      bldg._eind = null;
+    };
+    bldg.addEventListener('animationend', bldg._eind);
+  }
+
+  /* De tekening wisselt niet op tel nul maar op het dieptepunt van de
+     anticipatie: op dat moment zit het gebouw samengedrukt en valt de wissel
+     nauwelijks op -- wat erna komt leest als een beweging in plaats van als een
+     plaatje dat verspringt. Sleept iemand snel door meerdere niveaus, dan
+     schuift de wissel gewoon mee op. */
+  function wisselNa(ms) {
+    clearTimeout(swapT);
+    swapT = setTimeout(function () { swapT = null; teken(); }, ms);
+  }
+
+  function toonGetal() {
+    var k = getal();
+    if (kv) kv.textContent = String(k);
+    if (kvu) kvu.textContent = k >= maximum ? 'kavels of meer' : 'kavels';
+  }
+
+  range.addEventListener('input', function () {
+    toonGetal();
+    var nieuw = niveauVan(getal());
+    if (nieuw === niveau) return;
+    var as = Math.max(niveau, nieuw) >= BREEDTEGROEI ? '-x' : '';
+    var cls = (nieuw < niveau ? 'sc-shrink' : 'sc-grow') + as;
+    niveau = nieuw;
+    beweeg(cls);
+    wisselNa(88);
+  });
+
+  if (knop) {
+    knop.addEventListener('click', function () {
+      commercieel = !commercieel;
+      knop.classList.toggle('is-on', commercieel);
+      knop.setAttribute('aria-pressed', commercieel ? 'true' : 'false');
+      api.zet(SLEUTEL_COMM, commercieel ? 'ja' : 'nee');
+      beweeg('sc-comm');
+      wisselNa(72);   /* net na het schrap zetten, zodat de landing de plop opvangt */
+    });
+  }
+
+  /* Beginstand. Het getal komt al mee via data-mymmo-waarde; het vinkje niet,
+     dus dat zetten we hier expliciet -- anders staat er in Odoo niets in plaats
+     van "nee". */
+  var eerste = bldg.querySelector('.sc-bldg-photo');
+  if (eerste) bewaakLaden(eerste);
+  if (knop) {
+    knop.classList.toggle('is-on', commercieel);
+    knop.setAttribute('aria-pressed', commercieel ? 'true' : 'false');
+  }
+  api.zet(SLEUTEL_COMM, commercieel ? 'ja' : 'nee');
+  toonGetal();
+  draaipunt();
+  teken();
+
+  /* Komt de stap opnieuw in beeld (terug vanuit het formulier), dan staan de
+     waarden er nog: de schuifbalk houdt zijn stand en de tekening klopt al.
+     Een plop maakt zichtbaar dat je terug bent. */
+  api.bij('tonen', function () { beweeg('sc-pop'); });
+});
+</script>

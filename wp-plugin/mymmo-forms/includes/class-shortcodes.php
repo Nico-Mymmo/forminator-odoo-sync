@@ -12,6 +12,9 @@
  *   slug   -- welk formulier (verplicht)
  *   title  -- "no" laat de titel weg, voor als de pagina er zelf al een heeft
  *   lang   -- "fr" / "en" / "nl"; laat leeg om de taal van de pagina te volgen
+ *   steps  -- namen van stappen, gescheiden met een komma. Die komen VOOR het
+ *             formulier te staan en vullen zijn verborgen velden; het
+ *             formulier zelf is dan de laatste stap. Zie class-steps.php.
  *
  * Attributen van [mymmo_form_button]: zie render_button() hieronder.
  *
@@ -94,6 +97,38 @@ final class Mymmo_Forms_Shortcodes {
             MYMMO_FORMS_VERSION,
             true
         );
+
+        // En de stappenreeks, om dezelfde reden apart: ze is alleen nodig waar
+        // er ook echt een steps="..."-attribuut staat.
+        wp_register_style(
+            'mymmo-forms-steps',
+            MYMMO_FORMS_URL . 'assets/css/mymmo-forms-steps.css',
+            ['mymmo-forms'],
+            MYMMO_FORMS_VERSION
+        );
+
+        wp_register_script(
+            'mymmo-forms-steps',
+            MYMMO_FORMS_URL . 'assets/js/mymmo-forms-steps.js',
+            ['mymmo-forms'],
+            MYMMO_FORMS_VERSION,
+            true
+        );
+    }
+
+    /**
+     * De stappenreeks inladen, en alleen als er een reeks gevraagd is.
+     *
+     * Anders dan mymmo-forms.js is dit geen gemaksverbetering: zonder dit
+     * script is er geen reeks. De terugval zonder JavaScript staat daarom in
+     * templates/steps.php en niet hier.
+     */
+    private static function enqueue_steps(string $steps): void {
+        if (trim($steps) === '') {
+            return;
+        }
+        wp_enqueue_style('mymmo-forms-steps');
+        wp_enqueue_script('mymmo-forms-steps');
     }
 
     /**
@@ -102,7 +137,7 @@ final class Mymmo_Forms_Shortcodes {
     public static function render($atts = []): string {
         $atts = shortcode_atts(
             [
-                'slug' => '', 'title' => 'yes', 'lang' => '', 'preset' => '',
+                'slug' => '', 'title' => 'yes', 'lang' => '', 'preset' => '', 'steps' => '',
                 'padding_x' => '', 'padding_y' => '', 'gap' => '', 'goal_form' => '',
             ],
             self::met_opstelling($atts),
@@ -135,7 +170,9 @@ final class Mymmo_Forms_Shortcodes {
         // laatste stuurt een anker mee, deze niet.
         $flash = self::claim_flash($slug, '');
 
-        return mymmo_forms_render('form', [
+        self::enqueue_steps((string) $atts['steps']);
+
+        return mymmo_forms_render_body((string) $atts['steps'], $form, $slug, [
             'form'        => $form,
             'slug'        => $slug,
             'show_title'  => $atts['title'] !== 'no',
@@ -197,6 +234,7 @@ final class Mymmo_Forms_Shortcodes {
         $atts = shortcode_atts([
             'slug'             => '',
             'label'            => '',
+            'steps'            => '',
             'calendly'         => '',
             'title'            => '',
             'intro'            => '',
@@ -259,6 +297,7 @@ final class Mymmo_Forms_Shortcodes {
         wp_enqueue_script('mymmo-forms');
         wp_enqueue_style('mymmo-forms-modal');
         wp_enqueue_script('mymmo-forms-modal');
+        self::enqueue_steps((string) $atts['steps']);
 
         $lang = Mymmo_Forms_I18n::resolve($form, (string) $atts['lang']);
         $naam = Mymmo_Forms_I18n::text($form, $lang, 'name');
@@ -375,6 +414,7 @@ final class Mymmo_Forms_Shortcodes {
         return mymmo_forms_render('modal', [
             'form'               => $form,
             'slug'               => $slug,
+            'steps'              => (string) $atts['steps'],
             'lang'               => $lang,
             'flash'              => $flash,
             'stale'              => Mymmo_Forms_Api_Client::served_stale(),

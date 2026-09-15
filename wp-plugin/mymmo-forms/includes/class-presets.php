@@ -51,7 +51,7 @@ final class Mymmo_Forms_Presets {
      * oproept is een ketting die niemand meer kan volgen.
      */
     public const ATTS = [
-        'slug', 'label', 'calendly', 'title', 'intro', 'points', 'image', 'image_alt',
+        'slug', 'steps', 'label', 'calendly', 'title', 'intro', 'points', 'image', 'image_alt',
         'tab_form', 'tab_calendly', 'tab_form_sub', 'tab_calendly_sub', 'tab',
         'variant', 'accent', 'accent_text', 'button', 'trigger', 'class', 'close', 'lang',
         'padding_x', 'padding_y', 'gap', 'background', 'icon_color',

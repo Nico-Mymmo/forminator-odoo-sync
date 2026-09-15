@@ -285,6 +285,91 @@ Wie vanuit het venster verstuurt, komt terug op dezelfde pagina **met het venste
 weer open** en de bevestiging erin. De pagina waar de bezoeker stond gaat mee in
 de inzending (`page_url`, `page_title`), net als bij een formulier in de tekst.
 
+## Stappen: een formulier in meerdere schermen
+
+Een formulier kan voorafgegaan worden door **stappen**: eigen stukken HTML met
+CSS en JavaScript, die elk een of enkele waarden verzamelen. Die waarden komen
+terecht in de **verborgen velden** van het formulier uit de Operations Manager,
+en het formulier zelf is de laatste stap. Bij het versturen gaat alles in
+dezelfde POST — er is geen tweede verzendpad en niets wordt tussentijds
+bewaard.
+
+```
+[mymmo_form slug="offerte" steps="aantal-gebouwen,wat-speelt-er"]
+[mymmo_form_button slug="offerte" steps="aantal-gebouwen" label="Bereken je formule"]
+```
+
+Met het tweede loopt de reeks in de pop-up, op het tabblad "Formulier". De
+agenda ernaast blijft gewoon wat ze was.
+
+Je schrijft en bewaart de stappen bij **Instellingen → Mymmo Forms → Stappen**.
+Daar staat ook een voorbeeldstap (een schuifbalk met een meegroeiende skyline)
+die je met één knop in de editor zet.
+
+### Waarom de HTML hier staat en niet in de Operations Manager
+
+De OM serveert hetzelfde formulier aan meerdere sites. Daarom gaat het
+`theme`-veld daar door een gesloten lijst: vrije CSS vanuit de OM zou een
+injectiepad zijn naar elke site die het formulier toont. Vrije JavaScript is dat
+in nog sterkere mate. Die vrijheid hoort dus thuis waar ze al bestaat: in
+WordPress, bij iemand met `unfiltered_html` — hetzelfde recht dat WordPress
+vraagt voor een Custom HTML-blok. Het **formulier** blijft in de OM; een stap
+kent alleen de sleutel van het verborgen veld dat hij vult.
+
+### Wat een stap kan
+
+Zonder een regel JavaScript:
+
+```html
+<input type="range" min="1" max="50" data-mymmo-waarde="aantal_gebouwen">
+```
+
+De reeks leest die waarde mee en zet ze in het verborgen veld met dezelfde naam.
+
+Voor een stap die iets anders is dan een invoerveld:
+
+```html
+<script>
+MymmoStappen.stap(document.currentScript, function (api) {
+  api.zet('aantal_gebouwen', 12);     // waarde afleveren
+  api.lees('aantal_gebouwen');        // ook waarden uit eerdere stappen
+  api.geldig(true);                   // zelf beslissen of "Volgende" mag
+  api.volgende();                     // zelf doorgaan (nodig bij navigatie "zelf")
+  api.bij('tonen', function () {});   // de stap komt in beeld — hier meet je
+});
+</script>
+```
+
+`api.el` is jouw stap; zoek daarbinnen met `api.el.querySelector(...)` en
+gebruik **geen** `id=""`. Dezelfde stap kan twee keer op een pagina staan (in de
+tekst én in een pop-up), en met vaste id's zou de tweede de eerste besturen.
+
+Een stap staat bij het laden van de pagina op `hidden`, dus meten kan daar niet
+— dat doe je in `api.bij('tonen', …)`. Gebruik voor je kleuren
+`var(--mf-accent)`, `var(--mf-text)`, `var(--mf-muted)` en `var(--mf-border)`,
+dan volgt je stap automatisch het thema van het formulier en van de site.
+
+### Waar je op moet letten
+
+**Het verborgen veld moet in de Operations Manager bestaan.** Bestaat het niet,
+dan komt de waarde nergens aan. De reeks meldt dat in de console van de browser
+en een beheerder ziet het boven het formulier staan; de bezoeker wordt
+*niet* geblokkeerd — een ontbrekend veld is een beheerdersprobleem, geen
+doodlopende straat.
+
+**Zonder JavaScript vallen alle HTML-stappen weg** en ziet de bezoeker meteen
+het formulier, met lege verborgen velden. Dat is de eerlijke terugval: stap 1
+tonen waar je nooit voorbij komt, is erger. Maak van zo'n veld dus nooit een
+verplicht veld in de OM.
+
+**Na een mislukte inzending begint de bezoeker bij het formulier**, niet weer
+vooraan. Zijn antwoorden staan dan nog in de verborgen velden, en hem opnieuw
+door de schuifbalken sturen is het laatste wat hij wil.
+
+**Van elke stap wordt één vorige versie bewaard.** Code kan stuk; de knop
+"Vorige versie terugzetten" staat naast de editor en draait de wissel om, dus
+je kan ook weer vooruit.
+
 ## Conversie meten zonder bedankpagina
 
 Een bedankpagina is een echte URL, dus een pageview, dus een doel in Google
@@ -405,6 +490,47 @@ die eruitzien als een kleur of een lengte — vrije CSS vanuit de OM zou een
 injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
+
+**1.14.0** — stappen: een formulier kan meerdere schermen krijgen.
+
+Een nieuw attribuut `steps="..."` op `[mymmo_form]` en `[mymmo_form_button]`.
+Daarvoor komen eigen stukken HTML te staan — met CSS en JavaScript — die elk een
+of enkele waarden verzamelen en in de **verborgen velden** van het formulier
+zetten. Het formulier is de laatste stap; bij het versturen gaat alles in
+dezelfde POST. Werkt in de pagina én in de pop-up.
+
+Je schrijft ze op het nieuwe tabblad **Stappen**, achter `unfiltered_html` —
+hetzelfde recht als voor een Custom HTML-blok. Dat is bewust: de Operations
+Manager serveert hetzelfde formulier aan meerdere sites, dus vrije JavaScript
+mag daar niet vandaan komen. Van elke stap blijft één vorige versie bewaard.
+
+Verder in deze versie:
+
+- Twee voorbeeldstappen die je met één knop in de editor zet. "Aantal gebouwen"
+  is de kale demo van het contract: een schuifbalk met een meegroeiende skyline
+  die `aantal_gebouwen` aflevert. "Grootte van het gebouw" is de eerste stap van
+  de Syndicoach-calculator, uit dat bestand losgemaakt: dezelfde tekeningen, de
+  squash-and-stretch bij een niveauwissel en het commercieel-vinkje, en levert
+  `aantal_kavels` plus `commerciele_kavels` af. Wat er NIET in zit is het
+  "podium" van de calculator — de zwevende laag waarop zeven stappen één
+  tekening delen; hier staat de tekening gewoon in de stap.
+- Een stap herstelt zijn eigen bediening na een MISLUKTE inzending. De waarden
+  komen terug in de verborgen velden, maar de HTML van de stap is statisch en
+  staat weer op haar beginstand — zonder herstel ziet een bezoeker 8 staan
+  terwijl hij 42 koos, en verstuurt hij de verkeerde waarde. De meegeleverde
+  voorbeelden doen dit; een eigen stap leest daarvoor `api.lees(sleutel)`.
+- `data-mymmo-waarde="sleutel"` op een gewoon invoerveld volstaat; JavaScript is
+  alleen nodig voor een stap die iets anders is dan invoervelden.
+- Zonder JavaScript vallen de HTML-stappen weg en staat het formulier er meteen
+  (via `<noscript><style>`, zodat er niets flikkert voor wie JS wél heeft).
+- "Vorige" van de laatste stap staat IN de knoppenrij van het formulier, naast
+  de verzendknop, en niet in een tweede rij eronder.
+- De stijlcascade (thema van het formulier → thema van de site → wat er op de
+  shortcode staat) zit nu in één functie, `mymmo_forms_wrap_style()`, omdat er
+  twee wikkels zijn die ze nodig hebben. Aan de volgorde is niets veranderd.
+- Drie nieuwe teksten in de berichtencatalogus van de Operations Manager
+  (`back`, `next`, `step_of`), met een Nederlandse terugval in de plugin zodat
+  de knoppen ook een naam hebben zolang die payload nog niet uitgerold is.
 
 **1.13.1** — drie correcties op het slepen en de stapeling.
 

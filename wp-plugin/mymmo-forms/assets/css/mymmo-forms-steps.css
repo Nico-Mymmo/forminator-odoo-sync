@@ -1,0 +1,235 @@
+/**
+ * Mymmo Forms — de omlijsting van een stappenreeks.
+ *
+ * Alleen de CHROME: de voortgangsbolletjes, de teller, de knoppenrij en de
+ * ruimte rond een stap. Wat IN een stap staat maakt de stap zelf; die brengt
+ * zijn eigen CSS mee.
+ *
+ * Dit bestand staat bewust NIET in public/mymmo-forms.css. Dat bestand is de
+ * gedeelde bron van de FORMULIER-stijl en het voorbeeld in de bouwer van de
+ * Operations Manager draait erop — daar bestaat geen stappenreeks, dus daar zou
+ * dit dode CSS zijn. Zelfde afweging als bij mymmo-forms-modal.css.
+ *
+ * Geen !important, nergens: dat is precies wat het overschrijven door een
+ * sitethema kapotmaakt. De enige uitzondering staat in de <noscript> in
+ * templates/steps.php, en die moet het `hidden`-attribuut van de browser
+ * overrulen.
+ */
+
+.mymmo-stappen {
+  /* Dezelfde variabelen als het formulier. Ze worden hier opnieuw gedeclareerd
+     omdat .mymmo-form-wrap een KIND van deze wikkel is: de knoppen van de
+     reeks staan erbuiten en zouden anders niets erven. De shortcode zet er het
+     thema van het formulier en van deze plaatsing achter. */
+  --mf-accent: #2563eb;
+  --mf-accent-text: #ffffff;
+  --mf-text: #1f2430;
+  --mf-muted: #6b7280;
+  --mf-border: #d7dbe2;
+  --mf-radius: 10px;
+  --mf-gap: 18px;
+  --mf-max-width: 720px;
+  --mf-pad-x: 0px;
+  --mf-pad-y: 0px;
+
+  max-width: var(--mf-max-width);
+  padding: var(--mf-pad-y) var(--mf-pad-x);
+  color: var(--mf-text);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* De wikkel van het formulier staat al in de reeks; die hoeft zijn eigen
+   breedte en opvulling niet nog eens te zetten, anders telt alles dubbel. */
+.mymmo-stappen .mymmo-form-wrap {
+  max-width: none;
+  padding: 0;
+}
+
+.mymmo-stap:focus {
+  /* De focus springt bij elke wissel naar de stap. Zichtbaar omlijnen zou een
+     kader om de halve pagina zetten; de bolletjes en de teller tonen al dat er
+     iets veranderde. */
+  outline: none;
+}
+
+/* ── Voortgang ───────────────────────────────────────────────────────────── */
+
+.mymmo-stappen-voortgang {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.mymmo-stappen-bol {
+  width: 28px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--mf-border);
+  transition: background-color 0.18s ease, width 0.18s ease;
+}
+
+.mymmo-stappen-bol.is-gedaan {
+  background: var(--mf-accent);
+  opacity: 0.55;
+}
+
+.mymmo-stappen-bol.is-actief {
+  width: 44px;
+  background: var(--mf-accent);
+}
+
+.mymmo-stappen-teller {
+  margin: 0 0 18px;
+  font-size: 0.82rem;
+  color: var(--mf-muted);
+}
+
+/* ── Een stap ────────────────────────────────────────────────────────────── */
+
+.mymmo-stap-titel {
+  margin: 0 0 14px;
+  font-size: 1.3rem;
+  line-height: 1.25;
+}
+
+/* Een stap die net in beeld kwam, komt van onder. Kort: dit is navigatie, geen
+   voorstelling. Wie bewegingen liever niet heeft, krijgt ze niet. */
+.mymmo-stap:not([hidden]) {
+  animation: mymmo-stap-in 0.22s ease-out;
+}
+
+@keyframes mymmo-stap-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* "Volgende" terwijl de stap nog niets opleverde: even schudden en de aandacht
+   naar het veld. Een foutmelding in rood zou beweren dat er iets fout is, en
+   dat is het niet — er is alleen nog niets ingevuld. */
+.mymmo-stap--wacht {
+  animation: mymmo-stap-wacht 0.4s ease;
+}
+
+@keyframes mymmo-stap-wacht {
+  0%, 100% { transform: none; }
+  25%      { transform: translateX(-5px); }
+  75%      { transform: translateX(5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymmo-stap:not([hidden]),
+  .mymmo-stap--wacht {
+    animation: none;
+  }
+
+  .mymmo-stappen-bol {
+    transition: none;
+  }
+}
+
+/* ── De knoppenrij ───────────────────────────────────────────────────────── */
+
+.mymmo-stap-nav {
+  display: flex;
+  gap: 12px;
+  /* De eerste stap heeft geen "Vorige"; dan hoort "Volgende" nog steeds rechts
+     te staan, op dezelfde plek als in elke volgende stap. */
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+
+.mymmo-stap-knop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Ruim genoeg voor een duim op een telefoon. */
+  min-height: 46px;
+  padding: 12px 26px;
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--mf-radius);
+  cursor: pointer;
+  transition: filter 0.12s ease, opacity 0.12s ease;
+}
+
+.mymmo-stap-knop--verder {
+  color: var(--mf-accent-text);
+  background: var(--mf-accent);
+  border: 1px solid transparent;
+  /* De belangrijkste knop staat rechts en vult als eerste de ruimte op een
+     smal scherm. */
+  margin-left: auto;
+}
+
+.mymmo-stap-knop--terug,
+.mymmo-form-back {
+  color: var(--mf-muted);
+  background: transparent;
+  border: 1px solid var(--mf-border);
+}
+
+.mymmo-stap-knop:hover {
+  filter: brightness(0.95);
+}
+
+.mymmo-stap-knop:focus-visible,
+.mymmo-form-back:focus-visible {
+  outline: 2px solid var(--mf-text);
+  outline-offset: 2px;
+}
+
+/* Niet `disabled`: een uitgeschakelde knop is voor een schermlezer niet aan te
+   wijzen en kan dus nooit vertellen waarom je niet verder kan. Hij blijft
+   klikbaar en de klik wijst naar het veld dat nog leeg is. */
+.mymmo-stap-knop.is-uit {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── De "Vorige" in het formulier zelf ───────────────────────────────────── */
+
+/*
+ * De laatste stap IS het formulier, en dat heeft al een knoppenrij met de
+ * verzendknop. Daar een tweede rij onder zetten zou de belangrijkste knop niet
+ * de onderste maken; de terugknop schuift dus in die bestaande rij, links.
+ */
+.mymmo-form-actions:has(.mymmo-form-back) {
+  justify-content: space-between;
+}
+
+.mymmo-form-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 12px 22px;
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--mf-radius);
+  cursor: pointer;
+}
+
+@media (max-width: 540px) {
+  .mymmo-stap-nav {
+    /* Onder elkaar, met de belangrijkste bovenaan: op een telefoon is de
+       onderste knop de makkelijkste om per ongeluk te raken. */
+    flex-direction: column-reverse;
+  }
+
+  .mymmo-stap-knop {
+    width: 100%;
+  }
+
+  .mymmo-form-actions:has(.mymmo-form-back) {
+    flex-direction: column-reverse;
+    gap: 12px;
+  }
+
+  .mymmo-form-back {
+    width: 100%;
+  }
+}

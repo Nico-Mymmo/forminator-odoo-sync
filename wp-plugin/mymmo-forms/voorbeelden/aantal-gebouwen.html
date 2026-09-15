@@ -1,0 +1,258 @@
+<!--
+  VOORBEELDSTAP — "Hoeveel gebouwen beheer je?"
+
+  Een schuifbalk met een meegroeiende skyline. Levert één waarde af:
+
+      aantal_gebouwen
+
+  Zet in de Operations Manager een VERBORGEN VELD met precies die sleutel op
+  het formulier, anders komt de waarde nergens aan (de reeks zegt dat dan ook
+  in de console, en een beheerder ziet het boven het formulier staan).
+
+  TWEE DINGEN OM TE ZIEN IN DIT BESTAND
+  -------------------------------------
+  1. `data-mymmo-waarde="aantal_gebouwen"` op de schuifbalk. Dát is wat de
+     waarde doorgeeft — daar is geen regel JavaScript voor nodig. Het script
+     hieronder doet alleen de tekening.
+  2. Geen enkele `id=""`. Dezelfde stap kan twee keer op een pagina staan (in
+     de tekst én in een pop-up); met vaste id's zou de tweede de eerste
+     besturen. Alles loopt via `api.el.querySelector()`.
+
+  De kleuren komen uit het thema van het formulier (--mf-accent en co). Zo
+  volgt deze stap automatisch de kleur van de site en van de shortcode.
+-->
+
+<style>
+.mfx-geb {
+  --mfx-geb-hoogte: 150px;
+  font: inherit;
+  color: var(--mf-text, #1f2430);
+}
+
+.mfx-geb-vraag {
+  margin: 0 0 4px;
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.mfx-geb-hulp {
+  margin: 0 0 22px;
+  color: var(--mf-muted, #6b7280);
+  font-size: 0.95rem;
+}
+
+/* ── De skyline ──────────────────────────────────────────────────────────── */
+
+.mfx-geb-scene {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  height: var(--mfx-geb-hoogte);
+  padding: 0 4px;
+  border-bottom: 2px solid var(--mf-border, #d7dbe2);
+  overflow: hidden;
+}
+
+.mfx-geb-huis {
+  position: relative;
+  flex: 0 0 auto;
+  width: 26px;
+  border-radius: 4px 4px 0 0;
+  background: var(--mf-accent, #2563eb);
+  /* De hoogte komt van het script; de overgang maakt dat een sleep leest als
+     één beweging in plaats van als losse sprongetjes. */
+  transition: height 0.18s ease, opacity 0.18s ease;
+}
+
+/* Raampjes. Puur decoratief, dus met een verlopen achtergrond en niet met
+   losse elementjes -- dat scheelt vijftig nodes per gebouw. */
+.mfx-geb-huis::after {
+  content: "";
+  position: absolute;
+  inset: 8px 5px 0;
+  border-radius: 2px;
+  background-image:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.55) 4px, transparent 4px),
+    linear-gradient(to right, rgba(255, 255, 255, 0.55) 4px, transparent 4px);
+  background-size: 100% 12px, 9px 100%;
+  opacity: 0.75;
+}
+
+.mfx-geb-huis.is-weg {
+  height: 0 !important;
+  opacity: 0;
+}
+
+.mfx-geb-meer {
+  align-self: flex-end;
+  margin-bottom: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--mf-accent, #2563eb);
+  color: var(--mf-accent-text, #fff);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mfx-geb-meer[hidden] { display: none; }
+
+/* ── De aflezing ─────────────────────────────────────────────────────────── */
+
+.mfx-geb-meter {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px 0 6px;
+}
+
+.mfx-geb-getal {
+  font-size: 2.6rem;
+  font-weight: 750;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--mf-accent, #2563eb);
+}
+
+.mfx-geb-eenheid {
+  color: var(--mf-muted, #6b7280);
+  font-size: 1rem;
+}
+
+/* ── De schuifbalk ───────────────────────────────────────────────────────── */
+
+.mfx-geb-schuif {
+  display: block;
+  width: 100%;
+  margin: 0;
+  /* accent-color stuurt zowel het bolletje als het gevulde deel, in elke
+     moderne browser, zonder per browser een eigen pseudo-element te moeten
+     schrijven. */
+  accent-color: var(--mf-accent, #2563eb);
+  /* Ruim genoeg om met een duim te raken. */
+  height: 32px;
+  cursor: pointer;
+}
+
+.mfx-geb-uiteinden {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  color: var(--mf-muted, #6b7280);
+  font-size: 0.8rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mfx-geb-huis { transition: none; }
+}
+
+@media (max-width: 480px) {
+  .mfx-geb { --mfx-geb-hoogte: 110px; }
+  .mfx-geb-huis { width: 18px; }
+  .mfx-geb-getal { font-size: 2.1rem; }
+}
+</style>
+
+<div class="mfx-geb">
+  <p class="mfx-geb-vraag">Hoeveel gebouwen beheer je?</p>
+  <p class="mfx-geb-hulp">Sleep tot het juiste aantal. Bij benadering is prima — we gebruiken het om je de juiste formule te tonen.</p>
+
+  <div class="mfx-geb-scene" data-scene aria-hidden="true"></div>
+
+  <p class="mfx-geb-meter">
+    <span class="mfx-geb-getal" data-getal>1</span>
+    <span class="mfx-geb-eenheid" data-eenheid>gebouw</span>
+  </p>
+
+  <label>
+    <span class="screen-reader-text" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;">Aantal gebouwen</span>
+    <input type="range"
+           class="mfx-geb-schuif"
+           min="1" max="50" step="1" value="1"
+           data-schuif
+           data-mymmo-waarde="aantal_gebouwen">
+  </label>
+
+  <div class="mfx-geb-uiteinden">
+    <span>1</span>
+    <span>50+</span>
+  </div>
+</div>
+
+<script>
+/*
+ * De tekening. De WAARDE wordt niet hier doorgegeven maar door
+ * data-mymmo-waarde op de schuifbalk -- dit script raakt ze alleen aan om te
+ * tonen wat er staat.
+ */
+MymmoStappen.stap(document.currentScript, function (api) {
+  var schuif  = api.el.querySelector('[data-schuif]');
+  var scene   = api.el.querySelector('[data-scene]');
+  var getal   = api.el.querySelector('[data-getal]');
+  var eenheid = api.el.querySelector('[data-eenheid]');
+
+  if (!schuif || !scene) return;
+
+  /* Komt de bezoeker terug van een MISLUKTE inzending, dan staat zijn antwoord
+     nog in het verborgen veld (de plugin schrijft de POST terug) maar niet op
+     de schuifbalk -- die is statische HTML uit wp-admin en staat dus weer op
+     haar beginstand. Zonder deze regel ziet hij 1 staan terwijl hij 30 koos,
+     en verstuurt hij opnieuw met de verkeerde waarde. */
+  var bewaard = parseInt(api.lees(schuif.getAttribute('data-mymmo-waarde')), 10);
+  if (bewaard >= parseInt(schuif.getAttribute('min'), 10)
+      && bewaard <= parseInt(schuif.getAttribute('max'), 10)) {
+    schuif.value = String(bewaard);
+  }
+
+  /* Hoogstens zoveel silhouetten; daarboven komt er een "+N" bij. Vijftig
+     blokjes naast elkaar is geen skyline meer maar een streepjescode. */
+  var MAX_HUIZEN = 14;
+
+  /* Vaste hoogtes in plaats van willekeurige: anders springt de hele rij bij
+     elke pixel die je versleept. */
+  var HOOGTES = [72, 96, 58, 110, 84, 64, 100, 78, 120, 66, 90, 54, 104, 80];
+
+  var huizen = [];
+  for (var i = 0; i < MAX_HUIZEN; i += 1) {
+    var huis = document.createElement('span');
+    huis.className = 'mfx-geb-huis is-weg';
+    huis.style.height = HOOGTES[i] + 'px';
+    scene.appendChild(huis);
+    huizen.push(huis);
+  }
+
+  var chip = document.createElement('span');
+  chip.className = 'mfx-geb-meer';
+  chip.hidden = true;
+  scene.appendChild(chip);
+
+  function teken() {
+    var n = parseInt(schuif.value, 10) || 1;
+    var zichtbaar = Math.min(n, MAX_HUIZEN);
+
+    for (var i = 0; i < huizen.length; i += 1) {
+      huizen[i].classList.toggle('is-weg', i >= zichtbaar);
+    }
+
+    chip.hidden = n <= MAX_HUIZEN;
+    chip.textContent = '+' + (n - MAX_HUIZEN);
+
+    /* 50 is het einde van de schaal en betekent "50 of meer". Dat hoort op het
+       scherm te staan, anders leest iemand met 80 gebouwen er een antwoord in
+       dat hij niet gaf. */
+    getal.textContent = n >= 50 ? '50+' : String(n);
+    eenheid.textContent = n === 1 ? 'gebouw' : 'gebouwen';
+  }
+
+  schuif.addEventListener('input', teken);
+
+  /* De stap staat bij het laden van de pagina op `hidden`. Dat geeft hier geen
+     problemen -- er wordt niets gemeten -- maar 'tonen' is de plek waar dat
+     wél zou moeten, dus de haak staat er als voorbeeld. Hij draait ook meteen
+     als deze stap de eerste is. */
+  api.bij('tonen', teken);
+});
+</script>

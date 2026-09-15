@@ -602,6 +602,119 @@ waarschijnlijke eerste uitbreiding; het schema laat er ruimte voor.
 
 ---
 
+## Koppelingen — meerstapsformulieren in WordPress (2026-09)
+
+**Regel: een formulier kan in WordPress voorafgegaan worden door eigen
+HTML-stappen. Die HTML woont in WORDPRESS, nooit in de OM. Een stap levert
+waarden af in de VERBORGEN VELDEN van het formulier; het formulier is de laatste
+stap en er is maar één POST.**
+
+Dit was uitdrukkelijk als "bewust nog niet gebouwd" opgeschreven bij de
+OM-formulieren. Het is er nu, maar aan de kant waar de vrijheid al bestond.
+
+| Wat | Waar |
+|---|---|
+| Opslag + rechten + vorige versie | `wp-plugin/mymmo-forms/includes/class-steps.php` (option `mymmo_forms_steps`) |
+| De reeks tekenen (+ noscript-terugval) | `wp-plugin/mymmo-forms/templates/steps.php` |
+| Kiezen tussen formulier en reeks | `mymmo_forms_render_body()` in `includes/helpers.php` |
+| De gedeelde stijlcascade | `mymmo_forms_wrap_style()` in `includes/helpers.php` |
+| De reeks in de browser | `assets/js/mymmo-forms-steps.js` |
+| Omlijsting (bolletjes, knoppen) | `assets/css/mymmo-forms-steps.css` |
+| Tabblad "Stappen" + de uitleg erbij | `includes/class-settings.php` (`render_stappen()`) |
+| Code-editor + voorbeeld invoegen | `assets/js/mymmo-forms-steps-admin.js` |
+| Meegeleverde voorbeeldstappen | `wp-plugin/mymmo-forms/voorbeelden/` (`aantal-gebouwen.html` = kale demo van het contract, `gebouwgrootte.html` = de eerste stap van de Syndicoach-calculator). Registreren in `Mymmo_Forms_Steps::examples()`, anders staat een nieuw bestand niet in de keuzelijst van wp-admin. |
+| Een stap uitproberen zonder WordPress | `php wp-plugin/mymmo-forms-stap-preview.php <naam> > proef.html` (voeg `flash` als tweede argument toe voor de mislukte-inzending-stand) |
+| De drie nieuwe opschriften | `MESSAGES` in `forms/schema.js` (`back`, `next`, `step_of`) |
+
+Afspraken die bewust zo zijn:
+
+- **De HTML/JS komt NIET uit de OM.** Die serveert hetzelfde formulier aan
+  meerdere sites; dat is precies waarom `theme` daar door een gesloten lijst
+  gaat. Vrije JavaScript vanuit de OM zou datzelfde injectiepad zijn, maar dan
+  zonder grens. In WordPress bestaat het recht om dat te mogen al —
+  `unfiltered_html`, hetzelfde als voor een Custom HTML-blok — en `may_edit()`
+  vraagt er expliciet naar, niet naar `manage_options`. Op een multisite heeft
+  een gewone sitebeheerder het daardoor bewust niet.
+- **De waarde staat METEEN in het verborgen veld, niet pas bij het versturen.**
+  Eén bron van waarheid, en dat is de DOM. Een JS-object dat op het einde
+  weggeschreven wordt, heeft een moment waarop de twee kunnen verschillen — en
+  dat zie je niet op het scherm, alleen in Odoo, als een leeg veld. Gevolg dat
+  je gratis krijgt: na een mislukte inzending komen de waarden via `oude_waarden`
+  gewoon terug uit de POST, dus er is geen tussenopslag en geen sessionStorage.
+- **Bestaat het verborgen veld niet, dan wordt de BEZOEKER niet geblokkeerd.**
+  `zet()` bewaart zo'n waarde alsnog in `this.los` en `lees()` haalt ze daar op.
+  Zonder dat blijft `lees()` eeuwig leeg, blijft de stap eeuwig "niet klaar" en
+  staat een bezoeker vast op een scherm waarvan "Volgende" nooit aangaat — voor
+  een fout die hij niet kan zien en die niet de zijne is. Het is een
+  beheerdersprobleem, en het staat dus in de console én als melding boven het
+  formulier (`$zwevend` in steps.php). Zelfde principe als `reminderTooLate()`:
+  falen naar "laat door".
+- **Zonder JavaScript vallen de HTML-stappen WEG en staat het formulier er
+  meteen.** Niet "toon stap 1" — daar kom je nooit voorbij. Dat gebeurt met een
+  `<noscript><style>` en niet met een klasse die JS moet zetten, want dan
+  flikkert het voor iedereen die JS wél heeft. De `!important` daarin is de
+  enige in deze stylesheets en moet er zijn: hij overrult het
+  `hidden`-attribuut van de browser.
+- **De stappen worden SERVER-SIDE uitgeschreven, nooit met innerHTML
+  ingevoegd.** Een `<script>` dat via innerHTML in de pagina komt, wordt door de
+  browser niet uitgevoerd — dan doet een interactieve stap gewoon niets, zonder
+  foutmelding. Om dezelfde reden werkt het voorbeeld in de shortcode-bouwer wél:
+  dat iframe krijgt zijn inhoud via `srcdoc`.
+- **Er staat een inline bootstrap-script VÓÓR de eerste stap.** Het script van
+  een stap draait tijdens het PARSEN, en `mymmo-forms-steps.js` staat in de
+  voettekst — dus `window.MymmoStappen` moet al bestaan. Dat stukje bewaart de
+  aanmeldingen in een rij die het echte script daarna afwerkt. Het wordt één
+  keer per pagina geschreven (`MYMMO_FORMS_STAPPEN_BRUG`).
+- **Een stap meldt zich aan met `document.currentScript`, niet met een id.**
+  Dezelfde stap kan twee keer op een pagina staan (in de tekst én in een
+  pop-up), en dan mogen de twee elkaars waarden niet overschrijven. Om dezelfde
+  reden staat er in `voorbeelden/aantal-gebouwen.html` geen enkele `id=""` en
+  loopt alles via `api.el.querySelector()`.
+- **Het zoeken naar het verborgen veld gaat binnen `.mymmo-form-grid`**, niet
+  binnen het hele `<form>`. Daar staan ook de verborgen velden van WordPress
+  zelf (`action`, `_wpnonce`, de redirect); een stap met de sleutel `action` zou
+  anders de POST onbruikbaar maken.
+- **Een stap herstelt na een MISLUKTE inzending zijn eigen bediening.** De
+  waarden komen terug in de verborgen velden (`oude_waarden` uit de POST), maar
+  de HTML van de stap is statisch en staat weer op haar beginstand. Zonder
+  herstel ziet een bezoeker de schuifbalk op 8 terwijl hij 42 koos -- en de
+  twee spreken elkaar niet zichtbaar tegen, want wat hij ziet klopt met wat er
+  dan verstuurd wordt. Alleen niet met wat hij bedoelde. Een stap leest daarvoor
+  bij het opstarten `api.lees(sleutel)`; `oogstStap()` draait bij een mislukte
+  inzending alleen op het FORMULIER, dus de waarde staat er op dat moment nog.
+  Beide meegeleverde voorbeelden doen dit.
+- **Een `steps=` die naar niets verwijst laat het formulier gewoon staan**, met
+  een melding voor beheerders. Stil de reeks laten verdwijnen betekent dat een
+  typefout in de shortcode een leeg verborgen veld naar Odoo stuurt, en daar is
+  geen enkel signaal van.
+- **De "Vorige" van de laatste stap gaat IN de knoppenrij van het formulier**
+  (`step_back` in form.php), niet in een eigen rij eronder: twee rijen knoppen
+  waarvan de onderste niet de belangrijkste is, leest als een fout.
+- **"Volgende" wordt niet `disabled` maar `aria-disabled` + een klasse.** Een
+  echt uitgeschakelde knop is voor een schermlezer niet aan te wijzen en kan dus
+  nooit vertellen waarom je niet verder kan; deze blijft klikbaar en de klik
+  wijst naar het veld dat nog leeg is.
+- **`mymmo_forms_wrap_style()` is de ENIGE plek waar de stijlcascade staat.**
+  Er zijn nu twee wikkels die dezelfde variabelen nodig hebben
+  (`.mymmo-form-wrap` en `.mymmo-stappen`), want de knoppen van de reeks staan
+  buiten het formulier en erven anders niets. De volgorde is ongewijzigd: thema
+  van het formulier → thema van de site → wat er op de shortcode staat.
+- **`back`/`next`/`step_of` staan in `MESSAGES` (de OM), met een terugval in
+  `Mymmo_Forms_I18n::NOODTEKSTEN`.** MESSAGES blijft de bron — anders staat
+  dezelfde zin op drie plekken — maar een plugin die vóór de Worker-deploy
+  uitgerold wordt, mag geen naamloze knoppen tonen. `step_messages()` vult aan,
+  `messages()` niet.
+- **De stijl van de reeks staat NIET in `public/mymmo-forms.css`.** Dat bestand
+  is de gedeelde bron van de formulier-stijl en het voorbeeld in de bouwer van
+  de OM draait erop; daar bestaat geen stappenreeks. Zelfde afweging als bij
+  `mymmo-forms-modal.css`.
+- **Nog niet gebouwd, bewust:** het formulier zelf over meerdere stappen
+  verdelen (de zichtbare velden zitten in één laatste stap), voorwaardelijke
+  sprongen tussen stappen, en een voorbeeld van een reeks in de
+  shortcode-bouwer waar je de stappen ook kan doorklikken.
+
+---
+
 ## Koppelingen — Calendly als vierde bron (2026-09)
 
 **Regel: een Calendly-koppeling heeft een VASTE eerste stap die de afspraak naar
