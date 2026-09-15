@@ -86,6 +86,49 @@
     return el ? schoon(el.value) : '';
   }
 
+  function aangevinkt(id) {
+    var el = document.getElementById(id);
+    return !!(el && el.checked);
+  }
+
+  /**
+   * De opsomming: één punt per regel in het tekstvak, een | in de shortcode.
+   *
+   * Een echte regelovergang kan niet in een shortcode-attribuut -- WordPress
+   * kapt de shortcode daar af en de rest belandt als platte tekst op de pagina.
+   * En een komma kan niet als scheidingsteken: "Antwoord binnen 1 werkdag, ook
+   * in het weekend" is één punt.
+   */
+  function puntenVan(id) {
+    var el = document.getElementById(id);
+    if (!el) return '';
+
+    var uit = [];
+    var regels = String(el.value || '').split(/\r?\n/);
+    for (var i = 0; i < regels.length; i += 1) {
+      var punt = schoon(regels[i]).replace(/\|/g, '');
+      if (punt) uit.push(punt);
+    }
+    return uit.slice(0, 6).join('|');
+  }
+
+  /** "eigen" (de shortcode zet de knop) of "bestaand" (aan iets anders hangen). */
+  function knopSoort() {
+    var gekozen = document.querySelector('input[name="mymmoFormsKnopSoort"]:checked');
+    return gekozen && gekozen.value === 'bestaand' ? 'bestaand' : 'eigen';
+  }
+
+  /**
+   * Het id van het venster, zoals Mymmo_Forms_Shortcodes::modal_id() het maakt.
+   *
+   * Twee plekken die hetzelfde moeten uitrekenen -- dat kan niet anders, want de
+   * bouwer moet het anker tonen VOOR de shortcode ooit gedraaid heeft. Verandert
+   * modal_id() ooit, dan hoort dit mee te veranderen.
+   */
+  function ankerVan(slug) {
+    return slug ? '#mymmo-modal-' + slug : '#mymmo-modal-...';
+  }
+
   /** De velden die alleen bij een knop horen tonen of verbergen. */
   function toonRijen() {
     var knop = soort() === 'knop';
@@ -93,6 +136,20 @@
     for (var i = 0; i < rijen.length; i += 1) {
       rijen[i].hidden = !knop;
     }
+
+    // De kleurkiezer heeft pas zin als je een eigen kleur wil; anders volgt de
+    // knop het formulier en zou een kleur naast een uitgevinkt vakje enkel
+    // verwarren over wat er nu geldt.
+    var kleur = document.getElementById('mymmoFormsAccent');
+    if (kleur) kleur.hidden = !aangevinkt('mymmoFormsAccentAan');
+
+    var bestaand = document.getElementById('mymmoFormsBestaand');
+    if (bestaand) bestaand.hidden = knopSoort() !== 'bestaand';
+
+    // Het anker dat de gebruiker in zijn eigen knop moet plakken.
+    var anker = document.getElementById('mymmoFormsAnker');
+    var keuze = document.getElementById('mymmoFormsPick');
+    if (anker && keuze) anker.textContent = ankerVan(keuze.value);
   }
 
   function bouwShortcode() {
@@ -119,6 +176,18 @@
       if (label) code += ' label="' + label + '"';
       if (agenda) code += ' calendly="' + agenda + '"';
 
+      // De zijkolom.
+      var intro = waardeVan('mymmoFormsIntro');
+      var punten = puntenVan('mymmoFormsPunten');
+      var beeld = waardeVan('mymmoFormsImage');
+      var beeldAlt = waardeVan('mymmoFormsImageAlt');
+
+      if (intro) code += ' intro="' + intro + '"';
+      if (punten) code += ' points="' + punten + '"';
+      if (beeld) code += ' image="' + beeld + '"';
+      // Een beschrijving zonder afbeelding beschrijft niets.
+      if (beeld && beeldAlt) code += ' image_alt="' + beeldAlt + '"';
+
       // De opschriften van de tabbladen alleen meegeven als ze afwijken van de
       // standaard, en alleen als er een tweede tabblad IS: zonder agenda staat
       // er maar een deel in het venster en is er niets om op te schrijven.
@@ -127,9 +196,27 @@
         var tabAgenda = waardeVan('mymmoFormsTabCalendly');
         if (tabForm && tabForm !== 'Stuur ons een bericht') code += ' tab_form="' + tabForm + '"';
         if (tabAgenda && tabAgenda !== 'Plan een gesprek') code += ' tab_calendly="' + tabAgenda + '"';
+
+        var subForm = waardeVan('mymmoFormsTabFormSub');
+        var subAgenda = waardeVan('mymmoFormsTabCalendlySub');
+        if (subForm) code += ' tab_form_sub="' + subForm + '"';
+        if (subAgenda) code += ' tab_calendly_sub="' + subAgenda + '"';
       }
 
       if (variant && variant.value === 'outline') code += ' variant="outline"';
+
+      // De kleur alleen meegeven als er bewust voor gekozen is: zonder dit
+      // attribuut volgt de knop het formulier, en dat is de bedoeling.
+      var kleur = document.getElementById('mymmoFormsAccent');
+      if (kleur && aangevinkt('mymmoFormsAccentAan') && kleur.value) {
+        code += ' accent="' + schoon(kleur.value) + '"';
+      }
+
+      if (knopSoort() === 'bestaand') {
+        code += ' button="no"';
+        var trigger = waardeVan('mymmoFormsTrigger');
+        if (trigger) code += ' trigger="' + trigger + '"';
+      }
     }
 
     // title="no" en lang="..." alleen toevoegen als ze van de standaard
@@ -173,6 +260,9 @@
     if (keuze) {
       keuze.addEventListener('change', function () {
         vulTalen();
+        // Ook toonRijen(): het anker dat je in je eigen knop plakt bevat de
+        // slug, en die hoort mee te veranderen met het gekozen formulier.
+        toonRijen();
         bouwShortcode();
       });
     }
@@ -184,7 +274,12 @@
     // shortcode staan nadat je ergens anders geklikt hebt, en dan heb je de
     // oude al gekopieerd.
     var velden = document.querySelectorAll(
-      'input[name="mymmoFormsSoort"], #mymmoFormsLabel, #mymmoFormsCalendly, #mymmoFormsTabForm, #mymmoFormsTabCalendly, #mymmoFormsVariant'
+      'input[name="mymmoFormsSoort"], input[name="mymmoFormsKnopSoort"],'
+      + ' #mymmoFormsLabel, #mymmoFormsCalendly,'
+      + ' #mymmoFormsTabForm, #mymmoFormsTabCalendly,'
+      + ' #mymmoFormsTabFormSub, #mymmoFormsTabCalendlySub,'
+      + ' #mymmoFormsIntro, #mymmoFormsPunten, #mymmoFormsImage, #mymmoFormsImageAlt,'
+      + ' #mymmoFormsVariant, #mymmoFormsAccentAan, #mymmoFormsAccent, #mymmoFormsTrigger'
     );
     for (var i = 0; i < velden.length; i += 1) {
       velden[i].addEventListener('input', function () {

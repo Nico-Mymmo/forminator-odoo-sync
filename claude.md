@@ -601,8 +601,14 @@ laatste meeting in Odoo was id 891.
 | Migratie | `supabase/migrations/20260914150000_fsv2_calendly.sql` |
 
 **Nieuwe secret:** `CALENDLY_ACCESS_TOKEN` (persoonlijk toegangstoken met
-`webhooks:read`, `webhooks:write`, `event_types:read`, `scheduled_events:read`).
+`users:read`, `webhooks:read`, `webhooks:write`, `event_types:read`,
+`scheduled_events:read`, `organizations:read`).
 Zonder dat token werkt de module gewoon door; je kan alleen niets aanmelden.
+`organizations:read` is enkel nodig om GEDEELDE/team-eventtypes te tonen bij
+het instellen van een koppeling (zie "listEventTypes() geeft ook
+gedeelde/team-eventtypes" hieronder) -- zonder die scope, of zonder
+org-adminrechten voor het token, zie je enkel je eigen eventtypes, geen
+harde fout.
 
 Afspraken die bewust zo zijn:
 
@@ -616,6 +622,14 @@ Afspraken die bewust zo zijn:
   `calendly_event_type_uri` is het VANGNET voor alles zonder eigen koppeling.
   Twee koppelingen op hetzelfde eventtype wordt geweigerd met een 409: anders
   wint er stil één en doet de andere nooit meer iets.
+- **`listEventTypes()` geeft ook gedeelde/team-eventtypes.** Calendly's eigen
+  `/event_types`-endpoint met enkel `organization` geeft NOOIT de "Shared event
+  types" terug die je in de Calendly-UI onder een lid ziet staan -- bevestigd
+  door Calendly-support, geen instelling die je kan aanzetten. `listEventTypes()`
+  haalt daarom ook `listOrganizationMemberships()` op (`organizations:read`) en
+  vraagt `/event_types?user=<uri>` per lid op, samengevoegd op `uri`. Heeft het
+  token geen org-adminrechten, dan faalt de ledenlijst en blijft gewoon staan wat
+  de organisatie-brede aanroep al gaf -- geen harde fout, enkel minder volledig.
 - **De vaste stap bestaat als echte RIJEN, niet als code.** Een
   `if (source_type === 'calendly')` in worker-handler.js zou korter zijn, maar dat
   is precies de twee-motoren-fout die de Sales Insight Explorer eerder maakte. Als
@@ -1777,6 +1791,53 @@ terug te halen.
   bij aanroep opgezocht). Zet daar nooit een import bij die op modulniveau al draait.
 - `toRegistrationDto` geeft `active` mee en `REGISTRATION_LIST_FIELDS` bevat `x_active`;
   zonder dat veld kan de UI een gearchiveerde rij niet als zodanig tonen of terughalen.
+
+## Gmail → chatter — concept-mails, meerdere leads en verloren leads (2026-09)
+
+Bij het testen van `gmail-chatter` (Gmail → Odoo-chatter, zie `src/modules/gmail-chatter/`)
+bleken drie dingen niet te kloppen. Alle drie zijn gefixt in `lib/sync.js`,
+`lib/matching.js` en `lib/store.js`; onderstaand de afspraken die daaruit volgen.
+
+- **Een concept telt niet mee.** Gmail's `history.list` met `historyTypes: messageAdded`
+  vuurt ook bij elke autosave van een NOG NIET verzonden concept — en dat gebeurt meerdere
+  keren per concept, telkens met een nieuw message-id. Zonder filter belandde zo'n concept
+  als "verstuurd bericht" in de chatter, wat het zeker niet is. `syncUser()` in `sync.js`
+  controleert nu `meta.labelIds.includes('DRAFT')` vlak na het ophalen van de headers en
+  slaat het bericht over met reden `concept (nog niet verstuurd)`, vóór er ook maar aan
+  matching begonnen wordt. `listRecentMessageIds()` (de bootstrap-zoekopdracht in
+  `gmail-read-client.js`) heeft `-in:drafts` in haar standaardquery erbij gekregen — puur
+  om te besparen op API-calls, de labelIds-controle blijft de eigenlijke bewaking.
+  Als Gmail bij het versturen van een concept een NIEUW message-id aanmaakt (wat het doet —
+  het conceptbericht en het uiteindelijk verzonden bericht zijn twee aparte Gmail-berichten),
+  blokkeert het overslaan van het concept de latere, echte verzendmail niet.
+- **Eén e-mailadres kan bij MEERDERE leads horen, en die krijgen dan ALLEMAAL het bericht.**
+  De oude opzoeking nam met `limit: 1, order: write_date desc` telkens maar één (de meest
+  recent bijgewerkte) lead. Bij een dubbele inschrijving, of een verloren lead naast een
+  actieve op hetzelfde adres, kreeg dus maar één van de twee de mail — en meestal niet de
+  verloren lead, want die is per definitie minder recent bijgewerkt. `alleLeadsOpAdres()` in
+  `matching.js` vervangt die opzoeking en geeft de VOLLEDIGE, gededupliceerde lijst terug
+  (rechtstreeks op de lead, én via een gekoppeld contact). `zoekLeadOpAdres()` blijft bestaan
+  als dunne wrapper (`alleLeadsOpAdres()[0]`) voor de Gmail-add-on-kaart
+  (`addon-routes.js`), die maar één lead per keer toont.
+- **Verloren leads krijgen dus ook mail — dat was al voor de helft in orde.** De
+  `crm.lead`-opzoeking gebruikte al `context: { active_test: false }`, dus een verloren lead
+  (`active = false`) kwam al uit de zoekopdracht. Het echte gat zat in de `limit: 1`
+  hierboven: stond er een actieve lead met hetzelfde adres naast, dan won die en bleef de
+  verloren lead — precies degene die na een heractivatie het bericht nodig heeft — zonder
+  spoor. Met `alleLeadsOpAdres()` (geen limiet op één, wel een praktisch plafond van 20)
+  krijgen beide het bericht.
+- **Eén Gmail-bericht kan dus bij meerdere Odoo-records terechtkomen**, en de bestaande tabel
+  `gmail_captured_messages` had maar plaats voor één `odoo_model`/`odoo_res_id`-paar. Die
+  kolommen blijven de EERSTE/primaire match (voor het beheerscherm en de bestaande
+  draadherkenning); de volledige lijst gaat naar de nieuwe tabel
+  `gmail_captured_message_targets` (migratie
+  `20260915090000_gmail_chatter_multi_target.sql`), één rij per
+  (gmail_message_id, odoo_model, odoo_res_id).
+- **Een antwoord in dezelfde draad volgt ALLE eerdere doelen, niet enkel het primaire.**
+  `zoekDraadMatch()` in `store.js` zocht voorheen één `odoo_res_id` op het origineel; ze zoekt
+  nu via `gmail_captured_message_targets` de VOLLEDIGE, gededupliceerde doellijst van elk
+  eerder bericht in die draad op. Zonder die aanpassing zou een antwoord op een mail die
+  destijds naar twee leads ging, alsnog maar bij één van de twee terechtkomen.
 
 ## Bestandsstructuur
 

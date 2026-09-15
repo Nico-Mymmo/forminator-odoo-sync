@@ -215,6 +215,19 @@
         <!-- Populated by renderConnections() -->
         <div id="connectionsList"></div>
 
+        <!-- Calendly — module-breed, niet per koppeling; zie
+             forminator-sync-v2-calendly-connection.js -->
+        <div class="mt-8">
+          <h3 class="font-bold text-sm flex items-center gap-2 mb-3">
+            <i data-lucide="plug" class="w-4 h-4 text-secondary"></i> Calendly
+          </h3>
+          <p class="text-xs text-base-content/55 mb-4">
+            Eén verbinding voor alle Calendly-koppelingen samen. Wat een specifieke koppeling
+            opvangt stel je in op die koppeling zelf, tabblad "Calendly".
+          </p>
+          <div id="calendlyConnectionCard" class="border border-base-200 rounded-box p-4"></div>
+        </div>
+
       </div><!-- /view-connections -->
 
 
@@ -694,6 +707,7 @@
   <script src="/forminator-sync-v2-mail-attachments.js"></script>
   <script src="/forminator-sync-v2-detail-mail-composer.js"></script>
   <script src="/forminator-sync-v2-detail-tracker-stats-tab.js"></script>
+  <script src="/forminator-sync-v2-calendly-connection.js"></script>
   <script src="/forminator-sync-v2-detail-calendly-tab.js"></script>
   <script src="/forminator-sync-v2-form-preview.js"></script>
   <script src="/forminator-sync-v2-detail-form-builder.js"></script>

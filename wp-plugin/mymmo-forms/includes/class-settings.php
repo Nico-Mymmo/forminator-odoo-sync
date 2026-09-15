@@ -324,14 +324,47 @@ final class Mymmo_Forms_Settings {
                         <p>
                             <label for="mymmoFormsTabForm">Tabblad formulier</label><br>
                             <input type="text" id="mymmoFormsTabForm" class="regular-text" value="Stuur ons een bericht">
+                            <br><label for="mymmoFormsTabFormSub" class="description">regeltje eronder</label><br>
+                            <input type="text" id="mymmoFormsTabFormSub" class="regular-text" placeholder="bv. Laat je gegevens achter">
                         </p>
                         <p>
                             <label for="mymmoFormsTabCalendly">Tabblad agenda</label><br>
                             <input type="text" id="mymmoFormsTabCalendly" class="regular-text" value="Plan een gesprek">
+                            <br><label for="mymmoFormsTabCalendlySub" class="description">regeltje eronder</label><br>
+                            <input type="text" id="mymmoFormsTabCalendlySub" class="regular-text" placeholder="bv. Kies zelf een moment">
                         </p>
                         <p class="description">
                             Deze teksten horen bij DEZE knop, niet bij het formulier — daarom staan ze hier en
                             niet in de Operations Manager. Op een Franstalige pagina typ je ze hier in het Frans.
+                        </p>
+                    </td>
+                </tr>
+                <tr data-mymmo-alleen="knop" hidden>
+                    <th scope="row">In de zijkolom</th>
+                    <td>
+                        <p>
+                            <label for="mymmoFormsIntro">Zin onder de titel</label><br>
+                            <input type="text" id="mymmoFormsIntro" class="large-text"
+                                   placeholder="Leeg = de omschrijving van het formulier uit de Operations Manager">
+                        </p>
+                        <p>
+                            <label for="mymmoFormsPunten">Geruststelling — één per regel</label><br>
+                            <textarea id="mymmoFormsPunten" class="large-text" rows="3"
+                                      placeholder="Antwoord binnen 1 werkdag&#10;Volledig vrijblijvend"></textarea>
+                        </p>
+                        <p>
+                            <label for="mymmoFormsImage">Afbeelding</label><br>
+                            <input type="url" id="mymmoFormsImage" class="large-text code" placeholder="https://...">
+                        </p>
+                        <p>
+                            <label for="mymmoFormsImageAlt">Beschrijving van die afbeelding</label><br>
+                            <input type="text" id="mymmoFormsImageAlt" class="regular-text"
+                                   placeholder="Leeg laten als het sfeerbeeld is">
+                        </p>
+                        <p class="description">
+                            De zijkolom staat links in het venster, naast het formulier. Op een telefoon
+                            klapt ze samen tot een kopbalk en vallen de afbeelding en de opsomming weg —
+                            daar is elke pixel voor het formulier zelf.
                         </p>
                     </td>
                 </tr>
@@ -342,9 +375,56 @@ final class Mymmo_Forms_Settings {
                             <option value="primary">Gevuld</option>
                             <option value="outline">Omlijnd</option>
                         </select>
-                        <p class="description">
-                            De kleur komt uit het thema van het formulier in de Operations Manager.
+                        <p>
+                            <label for="mymmoFormsAccentAan">
+                                <input type="checkbox" id="mymmoFormsAccentAan">
+                                Een eigen kleur voor deze knop
+                            </label>
+                            <input type="color" id="mymmoFormsAccent" value="#2563eb" hidden>
                         </p>
+                        <p class="description">
+                            Laat dit uit en de knop volgt de <strong>accentkleur van het formulier</strong>
+                            in de Operations Manager (Koppelingen → Formulier → Stijl). Dan staat die kleur
+                            op één plek, voor elke pagina waar dit formulier staat — dat is bijna altijd wat
+                            je wil. Zet het aan als deze ene knop tussen knoppen van een andere kleur komt
+                            te staan; de kleur geldt dan ook voor de verzendknop in het venster.
+                        </p>
+                    </td>
+                </tr>
+                <tr data-mymmo-alleen="knop" hidden>
+                    <th scope="row">De knop zelf</th>
+                    <td>
+                        <fieldset>
+                            <label style="display:block;margin-bottom:4px;">
+                                <input type="radio" name="mymmoFormsKnopSoort" value="eigen" checked>
+                                Deze shortcode zet de knop
+                            </label>
+                            <label style="display:block;">
+                                <input type="radio" name="mymmoFormsKnopSoort" value="bestaand">
+                                Hangen aan een knop die er al staat
+                            </label>
+                        </fieldset>
+                        <div id="mymmoFormsBestaand" hidden style="margin-top:8px;">
+                            <p>
+                                Zet de <strong>link</strong> van je bestaande knop op
+                                <code id="mymmoFormsAnker">#mymmo-modal-...</code> — in Elementor,
+                                de blokeditor of je thema is dat gewoon het link-veld. Dat werkt ook
+                                als JavaScript niet laadt.
+                            </p>
+                            <p>
+                                <label for="mymmoFormsTrigger">Lukt dat niet, dan een CSS-selector</label><br>
+                                <input type="text" id="mymmoFormsTrigger" class="regular-text code"
+                                       placeholder=".hero .elementor-button">
+                                <br><span class="description">
+                                    Elke knop die hierop past opent het venster. Let op dat de selector
+                                    niet toevallig ook andere knoppen op de pagina raakt.
+                                </span>
+                            </p>
+                            <p class="description">
+                                De shortcode zelf moet nog altijd op de pagina staan — het venster zit
+                                erin. Zet ze onderaan de pagina; ze neemt geen plaats in.
+                            </p>
+                        </div>
                     </td>
                 </tr>
                 <tr>

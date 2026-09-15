@@ -72,7 +72,7 @@ export const calendlyRoutes = {
         success: true,
         data: {
           ...basis,
-          note: 'Zet de Worker-secret CALENDLY_ACCESS_TOKEN (een persoonlijk toegangstoken met de rechten webhooks:read, webhooks:write, event_types:read en scheduled_events:read) en deploy opnieuw.',
+          note: 'Zet de Worker-secret CALENDLY_ACCESS_TOKEN (een persoonlijk toegangstoken met de rechten users:read, webhooks:read, webhooks:write, event_types:read en scheduled_events:read) en deploy opnieuw.',
         },
       });
     }

@@ -162,7 +162,7 @@ export async function listHistory(env, userEmail, startHistoryId) {
  * Bewust een KORT venster — we willen geen jaren aan oude mail alsnog in de
  * chatter duwen bij de eerste run.
  */
-export async function listRecentMessageIds(env, userEmail, { query = 'newer_than:2d', max = 200 } = {}) {
+export async function listRecentMessageIds(env, userEmail, { query = 'newer_than:2d -in:drafts', max = 200 } = {}) {
   const ids = [];
   let pageToken;
   do {

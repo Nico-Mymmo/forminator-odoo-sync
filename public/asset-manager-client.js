@@ -84,7 +84,6 @@
   var viewListBtn  = document.getElementById('view-list-btn');
   var sortSelect   = document.getElementById('sort-select');
   var categoryMenu = document.getElementById('category-menu');
-  var addFolderBtn       = document.getElementById('add-folder-btn');
   var addFolderBtnMobile = document.getElementById('add-folder-btn-mobile');
   var newSubfolderBtn    = document.getElementById('asset-new-subfolder-btn');
   var brandControl       = document.getElementById('asset-brand-control');
@@ -246,18 +245,283 @@
           return;
         }
         if (folderModal.close) folderModal.close();
+        showAlert('Map "' + json.data.label + '" aangemaakt.', 'success');
         if (parentPrefix) {
-          showAlert('Map "' + json.data.label + '" aangemaakt.', 'success');
-          loadList(activeCategory, null);
+          if (activeCategory === parentPrefix) loadList(activeCategory, null);
+          expandAndRefresh(parentPrefix);
         } else {
-          showAlert('Map "' + json.data.label + '" aangemaakt. Pagina wordt herladen...', 'success');
-          setTimeout(function() { window.location.reload(); }, 900);
+          var newCat = { prefix: json.data.prefix, label: json.data.label, icon: 'folder', removable: true };
+          state.categories = (state.categories || []).concat([newCat]);
+          rebuildCategoryMenu();
+          addMobileCategoryTab(newCat);
+          addCategorySelectOption(uploadCategorySelect, newCat);
+          addCategorySelectOption(moveCategorySelect, newCat);
         }
       })
       .catch(function(err) {
         if (folderConfirmBtn) folderConfirmBtn.disabled = false;
         if (folderModalError) { folderModalError.textContent = 'Netwerkfout: ' + err.message; folderModalError.style.display = ''; }
       });
+  }
+
+  // Boomstructuur in de zijbalk: top-level categorieën (state.categories,
+  // meegeleverd server-side) én hun submappen (lui geladen bij het eerste
+  // uitklappen) delen dezelfde rij-opbouw. Zo is er nog maar één plek in de
+  // UI om een map aan te maken -- de hover-"+" op eender welke rij, op eender
+  // welke diepte -- in plaats van het oude onderscheid "hoofdmap via de
+  // zijbalk, submap via een aparte knop in de toolbar".
+  var expandedTreePrefixes = {};
+
+  function parentPrefixOf(prefix) {
+    var trimmed = (prefix || '').replace(/\/$/, '');
+    var idx = trimmed.lastIndexOf('/');
+    return idx === -1 ? '' : trimmed.slice(0, idx + 1);
+  }
+
+  function findTreeLi(prefix) {
+    if (!categoryMenu) return null;
+    return categoryMenu.querySelector('li[data-tree-prefix="' + prefix + '"]');
+  }
+
+  function rebuildCategoryMenu() {
+    if (!categoryMenu) return;
+    categoryMenu.querySelectorAll('li[data-tree-prefix], li[data-add-root-folder]').forEach(function(li) { li.remove(); });
+    renderCategoryTree();
+    setActiveCategory(activeCategory);
+  }
+
+  function renderCategoryTree() {
+    if (!categoryMenu) return;
+    (state.categories || []).forEach(function(cat) {
+      categoryMenu.appendChild(buildTreeLi(cat, 0));
+    });
+    if (state.canAdmin) categoryMenu.appendChild(buildAddRootFolderLi());
+  }
+
+  function buildAddRootFolderLi() {
+    var li = document.createElement('li');
+    li.dataset.addRootFolder = '1';
+    var a = document.createElement('a');
+    a.href = '#';
+    a.className = 'gap-2 text-primary mt-1 pt-2 border-t border-base-200';
+    a.innerHTML = SVG_PLUS_SM;
+    var span = document.createElement('span');
+    span.textContent = 'Nieuwe hoofdmap';
+    a.appendChild(span);
+    a.addEventListener('click', function(e) { e.preventDefault(); openFolderModal(); });
+    li.appendChild(a);
+    return li;
+  }
+
+  // depth: enkel voor de inspringing van submappen -- een top-level categorie
+  // staat op depth 0.
+  function buildTreeLi(cat, depth) {
+    var li = document.createElement('li');
+    li.dataset.treePrefix = cat.prefix;
+
+    var row = document.createElement('div');
+    row.className = 'flex items-center gap-0.5 group';
+    if (depth > 0) row.style.paddingLeft = (depth * 0.85) + 'rem';
+
+    var chevronBtn = document.createElement('button');
+    chevronBtn.type = 'button';
+    chevronBtn.className = 'btn btn-ghost btn-xs btn-square shrink-0 opacity-40 transition-transform';
+    chevronBtn.innerHTML = SVG_CHEVRON_RIGHT;
+    chevronBtn.title = 'Submappen tonen';
+    chevronBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleTreeNode(li, cat.prefix, chevronBtn);
+    });
+    row.appendChild(chevronBtn);
+
+    var a = document.createElement('a');
+    a.dataset.prefix = cat.prefix;
+    a.className = 'gap-2 flex-1 min-w-0';
+    a.href = '#';
+    var iconWrap = document.createElement('span');
+    iconWrap.className = 'shrink-0 inline-flex';
+    iconWrap.innerHTML = categoryIconSvg(cat.icon);
+    a.appendChild(iconWrap);
+    var labelSpan = document.createElement('span');
+    labelSpan.className = 'truncate';
+    labelSpan.textContent = cat.label;
+    a.appendChild(labelSpan);
+    a.addEventListener('click', function(e) {
+      e.preventDefault();
+      switchCategory(cat.prefix);
+    });
+    bindFolderDropTarget(a, cat.prefix);
+    row.appendChild(a);
+
+    var actions = document.createElement('span');
+    actions.className = 'shrink-0 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100';
+
+    if (canManageFolder(cat.prefix)) {
+      var addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'btn btn-ghost btn-xs btn-square';
+      addBtn.title = 'Submap toevoegen';
+      addBtn.innerHTML = SVG_PLUS_SM;
+      addBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openFolderModal(cat.prefix);
+      });
+      actions.appendChild(addBtn);
+    }
+
+    if (depth === 0) {
+      if (cat.removable) actions.appendChild(renderCategoryKebabMenu(cat.prefix, cat.label));
+    } else {
+      actions.appendChild(renderFolderKebabMenu({ prefix: cat.prefix, name: cat.label, brand: cat.brand }));
+    }
+
+    row.appendChild(actions);
+    li.appendChild(row);
+
+    var childrenUl = document.createElement('ul');
+    childrenUl.className = 'menu p-0 gap-0.5';
+    childrenUl.style.display = 'none';
+    li.appendChild(childrenUl);
+
+    if (expandedTreePrefixes[cat.prefix]) {
+      chevronBtn.classList.add('rotate-90');
+      childrenUl.style.removeProperty('display');
+      loadTreeChildren(cat.prefix, childrenUl, true);
+    }
+
+    return li;
+  }
+
+  function toggleTreeNode(li, prefix, chevronBtn) {
+    var childrenUl = li.querySelector(':scope > ul');
+    if (!childrenUl) return;
+    var isOpen = childrenUl.style.display !== 'none';
+    if (isOpen) {
+      childrenUl.style.display = 'none';
+      chevronBtn.classList.remove('rotate-90');
+      delete expandedTreePrefixes[prefix];
+    } else {
+      childrenUl.style.removeProperty('display');
+      chevronBtn.classList.add('rotate-90');
+      expandedTreePrefixes[prefix] = true;
+      loadTreeChildren(prefix, childrenUl);
+    }
+  }
+
+  // refresh: forceer een herlading, ook als deze node al eerder kinderen
+  // toonde (na het aanmaken/verwijderen van een submap erin).
+  function loadTreeChildren(prefix, childrenUl, refresh) {
+    if (!refresh && childrenUl.dataset.loaded === '1') return;
+    childrenUl.textContent = '';
+    var loadingLi = document.createElement('li');
+    loadingLi.className = 'text-xs text-base-content/30 px-3 py-1';
+    loadingLi.textContent = 'Laden...';
+    childrenUl.appendChild(loadingLi);
+
+    fetch('/assets/api/assets/list?limit=1000&prefix=' + encodeURIComponent(prefix))
+      .then(function(res) { return res.json(); })
+      .then(function(json) {
+        childrenUl.textContent = '';
+        childrenUl.dataset.loaded = '1';
+        if (!json.success) return;
+        var folders = json.data.folders || [];
+        if (folders.length === 0) {
+          var emptyLi = document.createElement('li');
+          emptyLi.className = 'text-xs text-base-content/30 px-3 py-1';
+          emptyLi.textContent = 'Geen submappen';
+          childrenUl.appendChild(emptyLi);
+          return;
+        }
+        var childDepth = prefix.replace(/\/$/, '').split('/').length;
+        folders.forEach(function(folder) {
+          childrenUl.appendChild(buildTreeLi({ prefix: folder.prefix, label: folder.name, icon: 'folder', brand: folder.brand }, childDepth));
+        });
+      })
+      .catch(function() { childrenUl.textContent = ''; });
+  }
+
+  // Klapt (indien nodig) de node voor `prefix` open en herlaadt haar
+  // kinderen -- gebruikt na het aanmaken van een submap zodat de zijbalk
+  // meteen klopt, ook als de node daarvoor nog was ingeklapt.
+  function expandAndRefresh(prefix) {
+    var li = findTreeLi(prefix);
+    if (!li) return;
+    var childrenUl = li.querySelector(':scope > ul');
+    var chevronBtn = li.querySelector(':scope > div > button');
+    if (!childrenUl) return;
+    expandedTreePrefixes[prefix] = true;
+    childrenUl.style.removeProperty('display');
+    if (chevronBtn) chevronBtn.classList.add('rotate-90');
+    loadTreeChildren(prefix, childrenUl, true);
+  }
+
+  // Ververst enkel de kinderen van een reeds-uitgeklapte node (bv. na het
+  // wijzigen van het link-domein van één van haar submappen). Doet niets als
+  // de node nooit werd uitgeklapt -- die pikt de wijziging vanzelf op bij de
+  // eerstvolgende klik.
+  function refreshTreeChildrenIfExpanded(prefix) {
+    if (!expandedTreePrefixes[prefix]) return;
+    var li = findTreeLi(prefix);
+    if (!li) return;
+    var childrenUl = li.querySelector(':scope > ul');
+    if (childrenUl) loadTreeChildren(prefix, childrenUl, true);
+  }
+
+  // Houdt de mobiele categorie-tabs en de upload/verplaats-selects in sync
+  // met state.categories, zodat een top-level map aanmaken/hernoemen/
+  // verwijderen ook daar zonder page reload zichtbaar wordt.
+  function addMobileCategoryTab(cat) {
+    var mobileTabs = document.getElementById('mobile-category-tabs');
+    if (!mobileTabs) return;
+    var btn = document.createElement('button');
+    btn.dataset.prefix = cat.prefix;
+    btn.className = 'btn btn-sm btn-ghost cat-tab';
+    btn.textContent = cat.label;
+    btn.addEventListener('click', function() { switchCategory(btn.dataset.prefix); });
+    bindFolderDropTarget(btn, cat.prefix);
+    var addBtnMobile = document.getElementById('add-folder-btn-mobile');
+    if (addBtnMobile) mobileTabs.insertBefore(btn, addBtnMobile); else mobileTabs.appendChild(btn);
+  }
+
+  function renameMobileCategoryTab(prefix, label) {
+    var mobileTabs = document.getElementById('mobile-category-tabs');
+    if (!mobileTabs) return;
+    var btn = mobileTabs.querySelector('.cat-tab[data-prefix="' + prefix + '"]');
+    if (btn) btn.textContent = label;
+  }
+
+  function removeMobileCategoryTab(prefix) {
+    var mobileTabs = document.getElementById('mobile-category-tabs');
+    if (!mobileTabs) return;
+    var btn = mobileTabs.querySelector('.cat-tab[data-prefix="' + prefix + '"]');
+    if (btn) btn.remove();
+  }
+
+  function addCategorySelectOption(selectEl, cat) {
+    if (!selectEl) return;
+    var opt = document.createElement('option');
+    opt.value = cat.prefix;
+    opt.textContent = cat.label;
+    var customOpt = selectEl.querySelector('option[value="_custom"]');
+    if (customOpt) selectEl.insertBefore(opt, customOpt); else selectEl.appendChild(opt);
+  }
+
+  function renameCategorySelectOption(prefix, label) {
+    [uploadCategorySelect, moveCategorySelect].forEach(function(selectEl) {
+      if (!selectEl) return;
+      var opt = selectEl.querySelector('option[value="' + prefix + '"]');
+      if (opt) opt.textContent = label;
+    });
+  }
+
+  function removeCategorySelectOption(prefix) {
+    [uploadCategorySelect, moveCategorySelect].forEach(function(selectEl) {
+      if (!selectEl) return;
+      var opt = selectEl.querySelector('option[value="' + prefix + '"]');
+      if (opt) opt.remove();
+    });
   }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -391,6 +655,16 @@
   var SVG_FILE_SM = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-40"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
   var SVG_LINK    = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
   var SVG_HOME    = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>';
+  var SVG_CHEVRON_RIGHT = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>';
+  var SVG_PLUS_SM       = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>';
+  var SVG_IMAGE_SM      = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+  var SVG_CALENDAR_SM   = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
+  var SVG_STAR_SM       = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+
+  function categoryIconSvg(icon) {
+    var icons = { image: SVG_IMAGE_SM, calendar: SVG_CALENDAR_SM, star: SVG_STAR_SM, folder: SVG_FOLDER_SM };
+    return icons[icon] || SVG_FOLDER_SM;
+  }
 
   // â”€â”€â”€ Grid view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -895,8 +1169,12 @@
       .then(function(res) { return res.json(); })
       .then(function(json) {
         if (!json.success) { showAlert(json.error || 'Naam wijzigen mislukt.', 'error'); return; }
-        showAlert('Naam bijgewerkt. Pagina wordt herladen...', 'success');
-        setTimeout(function() { window.location.reload(); }, 900);
+        showAlert('Naam bijgewerkt.', 'success');
+        var cat = (state.categories || []).filter(function(c) { return c.prefix === prefix; })[0];
+        if (cat) cat.label = next;
+        rebuildCategoryMenu();
+        renameMobileCategoryTab(prefix, next);
+        renameCategorySelectOption(prefix, next);
       })
       .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
   }
@@ -912,16 +1190,13 @@
         if (!json.success) { showAlert(json.error || 'Link-domein instellen mislukt.', 'error'); return; }
         showAlert('Link-domein bijgewerkt.', 'success');
         loadList(activeCategory, null);
+        refreshTreeChildrenIfExpanded(parentPrefixOf(prefix));
       })
       .catch(function(err) { showAlert('Fout: ' + err.message, 'error'); });
   }
 
   function deleteFolder(prefix, name) {
     if (!window.confirm('Map "' + name + '" verwijderen? Dit kan niet ongedaan gemaakt worden.')) return;
-    // Een top-level categorie (één padsegment, bv. 'stap-1/') staat ook in de
-    // zijbalk -- die moet opnieuw server-side opgebouwd worden, dus reload i.p.v.
-    // enkel de huidige lijst te verversen (dat volstaat wel voor een submap).
-    var isTopLevel = prefix.replace(/\/$/, '').indexOf('/') === -1;
     fetch('/assets/api/assets/delete-folder', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -930,11 +1205,19 @@
       .then(function(res) { return res.json(); })
       .then(function(json) {
         if (!json.success) { showAlert(json.error || 'Map verwijderen mislukt.', 'error'); return; }
-        if (isTopLevel) {
-          showAlert('Map verwijderd. Pagina wordt herladen...', 'success');
-          setTimeout(function() { window.location.reload(); }, 900);
+        showAlert('Map verwijderd.', 'success');
+        var wasTopLevel = (state.categories || []).some(function(c) { return c.prefix === prefix; });
+        if (wasTopLevel) {
+          state.categories = (state.categories || []).filter(function(c) { return c.prefix !== prefix; });
+          removeMobileCategoryTab(prefix);
+          removeCategorySelectOption(prefix);
+        }
+        delete expandedTreePrefixes[prefix];
+        rebuildCategoryMenu();
+        if (activeCategory === prefix) {
+          switchCategory('');
         } else {
-          showAlert('Map verwijderd.', 'success');
+          refreshTreeChildrenIfExpanded(parentPrefixOf(prefix));
           loadList(activeCategory, null);
         }
       })
@@ -1330,17 +1613,18 @@
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   function bindEvents() {
-    // Categorie-menu desktop -- ook drop-doel zodat een asset er rechtstreeks
-    // op gesleept kan worden om naar die top-level categorie te verplaatsen.
-    if (categoryMenu) {
-      categoryMenu.querySelectorAll('a[data-prefix]').forEach(function(a) {
-        a.addEventListener('click', function(e) {
-          e.preventDefault();
-          switchCategory(a.dataset.prefix);
-        });
-        if (a.dataset.prefix) bindFolderDropTarget(a, a.dataset.prefix);
+    // "Alles" blijft het enige server-side gerenderde item in de zijbalk --
+    // geen drop-doel (leeg prefix is geen eenduidige bestemming), zelfde regel
+    // als voorheen. De rest van de boom (categorieën + submappen) bindt zijn
+    // eigen events, zie buildTreeLi().
+    var catAlles = document.getElementById('cat-alles');
+    if (catAlles) {
+      catAlles.addEventListener('click', function(e) {
+        e.preventDefault();
+        switchCategory('');
       });
     }
+    renderCategoryTree();
 
     // Categorie-tabs mobile
     document.querySelectorAll('.cat-tab').forEach(function(btn) {
@@ -1453,8 +1737,8 @@
     // Move
     if (moveConfirmBtn) moveConfirmBtn.addEventListener('click', confirmMove);
 
-    // Nieuwe map
-    if (addFolderBtn) addFolderBtn.addEventListener('click', function () { openFolderModal(); });
+    // Nieuwe hoofdmap (mobiel -- desktop zit in de categorieboom, zie
+    // buildAddRootFolderLi() in renderCategoryTree()).
     if (addFolderBtnMobile) addFolderBtnMobile.addEventListener('click', function () { openFolderModal(); });
     if (folderLabelInput) {
       folderLabelInput.addEventListener('input', function() {

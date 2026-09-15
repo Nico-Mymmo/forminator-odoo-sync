@@ -71,10 +71,31 @@ plannen. Daarvoor is er een tweede shortcode:
                    calendly="https://calendly.com/mymmo/kennismaking"]
 ```
 
-Dat geeft een knop; een klik opent een venster met twee tabbladen — het
-formulier, en de agenda. De kleuren komen uit hetzelfde thema als het formulier,
-op een telefoon wordt het venster een vol scherm, en Escape of een klik naast het
-venster sluit het.
+Dat geeft een knop; een klik opent een venster met links een **zijkolom** — waar
+je bent, wat je te wachten staat, een afbeelding — en rechts de inhoud: het
+formulier, of de agenda. De keuze tussen die twee staat in die zijkolom als twee
+kaarten onder elkaar.
+
+Op een telefoon klapt de zijkolom samen tot een kopbalk met dezelfde twee keuzes
+naast elkaar en wordt het venster een vol scherm; de afbeelding en de opsomming
+vallen daar weg, want daar is elke pixel voor het formulier zelf. Escape of een
+klik naast het venster sluit het.
+
+```
+[mymmo_form_button slug="offerte-technisch-beheer"
+                   label="Vraag een offerte"
+                   calendly="https://calendly.com/mymmo/kennismaking"
+                   intro="Laat je gegevens achter en we bellen je terug."
+                   points="Antwoord binnen 1 werkdag|Volledig vrijblijvend"
+                   image="https://link.openvme.be/assets/uploads/persoon.svg"
+                   tab_form_sub="Laat je gegevens achter"
+                   tab_calendly_sub="Kies zelf een moment"]
+```
+
+Laat je `intro`, `points`, `image` én `calendly` allemaal weg, dan is er niets
+voor een zijkolom te doen en wordt het gewoon een venster met een kopbalk erboven
+— een leeg gekleurd vlak naast een formulier van vier velden ziet eruit als een
+fout.
 
 | Attribuut | Wat |
 |---|---|
@@ -82,9 +103,18 @@ venster sluit het.
 | `label` | De tekst op de knop. Leeg = de naam van het formulier |
 | `calendly` | De Calendly-pagina voor het tweede tabblad. **Laat je dit weg, dan is er geen tweede tabblad** en toont het venster enkel het formulier |
 | `title` | De kop bovenaan het venster. Leeg = de naam van het formulier, `no` = geen kop |
+| `intro` | De zin onder de titel, in de zijkolom. Leeg = de omschrijving van het formulier uit de OM, `no` = niets |
+| `points` | De opsomming in de zijkolom, gescheiden met een `\|`. Maximaal zes |
+| `image` | Afbeelding onderaan de zijkolom |
+| `image_alt` | De beschrijving daarvan. Laat leeg als het sfeerbeeld is |
 | `tab_form` / `tab_calendly` | De opschriften van de tabbladen |
+| `tab_form_sub` / `tab_calendly_sub` | Het regeltje eronder |
 | `tab` | `calendly` om meteen op de agenda te openen |
 | `variant` | `primary` (gevuld, standaard) of `outline` (omlijnd) |
+| `accent` | De kleur van de knoppen **hier**. Leeg = de accentkleur van het formulier uit de OM |
+| `accent_text` | De tekstkleur op die knoppen (standaard wit) |
+| `button` | `no` rendert geen eigen knop — zie hieronder |
+| `trigger` | CSS-selector van bestaande knoppen die het venster openen |
 | `class` | Eigen klassen op de wikkel, om de knop te plaatsen |
 | `close` | Het opschrift van de sluitknop, voor schermlezers |
 | `lang` | Zoals bij `[mymmo_form]` |
@@ -93,12 +123,59 @@ De opschriften staan in de shortcode en niet in de Operations Manager, want ze
 horen bij DEZE knop op DEZE pagina en niet bij het formulier. Op een Franstalige
 pagina typ je ze dus mee.
 
+#### De kleur van de knop
+
+De knop, de verzendknop in het venster en de gemarkeerde keuze volgen alle drie
+dezelfde **accentkleur**. Die staat normaal in de Operations Manager bij het
+formulier zelf (Koppelingen → Formulier → Stijl), en geldt dan op élke pagina
+waar dit formulier staat. Dat is bijna altijd wat je wil: één plek.
+
+Staat deze ene knop tussen knoppen van een andere kleur, dan zet je
+`accent="#1d4ed8"` op de shortcode — dat geldt alleen voor dié plaatsing.
+Alleen een hex of een `rgb()` komt erdoor; al de rest wordt genegeerd, want deze
+waarde belandt in een `style`-attribuut op de pagina van een bezoeker. De
+kalender van Calendly krijgt dezelfde kleur mee (`primary_color`), zodat die
+niet het enige stuk in het venster is met een andere tint.
+
+#### Aan een knop hangen die er al staat
+
+Heb je al een knop in je thema, in Elementor of in een blok, dan hoef je die niet
+te vervangen. Zet `button="no"` op de shortcode — ze rendert dan enkel het
+venster, zonder eigen knop, en neemt geen plaats in. Zet de shortcode ergens op
+de pagina (onderaan is prima) en zet de **link** van je bestaande knop op het id
+van het venster:
+
+```
+[mymmo_form_button slug="offerte-technisch-beheer" button="no"
+                   calendly="https://calendly.com/mymmo/kennismaking"]
+```
+
+De knop krijgt dan als link `#mymmo-modal-offerte-technisch-beheer` — dat id
+staat ook in de shortcode-bouwer bij Instellingen, en anders in een HTML-
+commentaar op de pagina zelf. Dit is de manier die de voorkeur heeft: ze werkt
+ook als JavaScript niet laadt, want het venster opent dan via `:target`.
+
+Kan je die link niet zetten, dan is er `trigger="..."` met een CSS-selector:
+
+```
+[mymmo_form_button slug="offerte-technisch-beheer" button="no"
+                   trigger=".hero .elementor-button"]
+```
+
+Elke knop die daarop past opent het venster. Let op dat de selector niet
+toevallig ook andere knoppen raakt — en dit is het enige stuk dat JavaScript
+écht nodig heeft.
+
 **Zonder JavaScript werkt dit ook.** De knop is een echte link naar het venster,
 het venster staat gewoon in de pagina (het opent via `:target`), en de twee delen
 staan dan onder elkaar met elk een eigen kopje in plaats van als tabbladen.
 Alleen de agenda heeft JavaScript nodig — dat is een iframe van Calendly — en
 daar staat een gewone link naar dezelfde agenda als terugval. Het script van
-Calendly wordt bovendien pas opgehaald als iemand dat tabblad echt opent.
+Calendly wordt opgehaald zodra iemand met de muis op de knop komt (of hem met het
+toetsenbord bereikt), en de kalender wordt opgebouwd op het moment dat het
+venster opengaat. Wie op "Plan een gesprek" klikt, kijkt dus naar een kalender
+die er al staat. Bewust niet bij het laden van de pagina: dan zou elke bezoeker
+een verzoek naar een derde partij sturen, ook wie nooit klikt.
 
 Wie vanuit het venster verstuurt, komt terug op dezelfde pagina **met het venster
 weer open** en de bevestiging erin. De pagina waar de bezoeker stond gaat mee in
@@ -181,6 +258,49 @@ die eruitzien als een kleur of een lengte — vrije CSS vanuit de OM zou een
 injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
+
+**1.2.0** — de pop-up herzien: een zijkolom met een afbeelding, een instelbare
+knopkleur, en een manier om het venster aan een bestaande knop te hangen.
+
+Wat er verandert en waarom:
+
+- **Een zijkolom in plaats van een tabbalk.** Het venster was een kopbalk met twee
+  grijze tabbladen boven een lijst velden — functioneel, maar het zei een bezoeker
+  niets over wat hem te wachten stond. Links staat nu een vaste kolom met de titel,
+  een zin, de twee keuzes als kaarten mét een regeltje uitleg, een opsomming die
+  geruststelt, en onderaan een afbeelding. Op een telefoon klapt die samen tot een
+  kopbalk met dezelfde twee keuzes; afbeelding en opsomming vallen daar weg. Het
+  volle scherm op mobiel blijft precies zoals het was.
+- **`accent="#..."` op de shortcode.** De knopkleur kwam uitsluitend uit het thema
+  van het formulier in de OM. Dat blijft de standaard — één kleur voor elke pagina
+  waar dat formulier staat — maar een knop die tussen knoppen van een andere kleur
+  terechtkomt kan nu ter plaatse overschreven worden. De kalender van Calendly
+  krijgt diezelfde kleur mee (`primary_color`), zodat die niet uit de toon valt.
+- **`button="no"` en `trigger="..."`.** Het venster kan nu achter een knop hangen
+  die het thema of Elementor al maakte: zet de link van die knop op
+  `#mymmo-modal-<slug>`. Dat werkt ook zonder JavaScript (`:target`), en is daarom
+  de manier die de voorkeur heeft; `trigger` met een CSS-selector is er voor knoppen
+  waarvan je de link niet kan zetten.
+- **De kalender werd afgeknepen getoond, en dat had twee oorzaken.** Het venster
+  was 640px breed; onder ongeveer 640px schakelt Calendly zelf naar zijn smalle
+  weergave en staat de maand ónder de uren. En het tabblad stond op `hidden`, dus
+  op het moment dat Calendly de breedte van haar vlak meet, was die nul. De panelen
+  liggen nu over elkaar met `visibility:hidden` — dan blijven de afmetingen bestaan
+  — en het venster is met een agenda erbij 1060px breed met een vaste hoogte.
+- **De kalender laadt vooraf.** Het script wordt opgehaald zodra iemand op de knop
+  komt, en de kalender wordt opgebouwd zodra het venster opengaat. Klikken op het
+  tabblad toont dus iets dat er al staat, in plaats van een leeg vlak. Bewust niet
+  bij het laden van de pagina: dan stuurt élke bezoeker een verzoek naar Calendly,
+  ook wie nooit klikt.
+- **De omschrijving van het formulier staat in de zijkolom** als je er geen eigen
+  `intro` bij typt — en dan niet meer boven de velden, want twee keer dezelfde zin
+  onder elkaar leest als een fout.
+- `hide_gdpr_banner=1` gaat mee naar Calendly: die balk ging in een venster van
+  deze hoogte over de knoppen van de kalender heen, en de site vraagt haar
+  toestemming zelf al.
+- De shortcode-bouwer bij **Instellingen → Mymmo Forms** kent al deze opties, toont
+  het anker dat je in je eigen knop plakt, en houdt dat bij als je een ander
+  formulier kiest.
 
 **1.1.0** — een tweede shortcode: `[mymmo_form_button]`. Een knop in de tekst die
 een venster opent met twee tabbladen — het formulier, en een Calendly-agenda om

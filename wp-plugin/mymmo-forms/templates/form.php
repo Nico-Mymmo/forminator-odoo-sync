@@ -20,6 +20,7 @@ if (!defined('ABSPATH')) {
 /** @var array<string,mixed> $form */
 /** @var string $slug */
 /** @var bool $show_title */
+/** @var bool|null $show_intro  false = de aanroeper toont de inleiding zelf ergens anders */
 /** @var array{status:string,message:string,values:array<string,mixed>}|null $flash */
 /** @var bool $stale */
 /** @var string $lang */
@@ -53,6 +54,13 @@ $is_standaardtaal = ($lang === Mymmo_Forms_I18n::default_language($form));
 
 $titel = Mymmo_Forms_I18n::text($form, $lang, 'name');
 $intro = Mymmo_Forms_I18n::text($form, $lang, 'description', $is_standaardtaal);
+
+// Alleen een expliciete false zet de inleiding uit. Niet isset() omdraaien:
+// de pop-up geeft de sleutel altijd mee, elke andere aanroeper geeft ze nooit
+// mee, en die laatste hoort de inleiding gewoon te blijven tonen.
+if (isset($show_intro) && $show_intro === false) {
+    $intro = '';
+}
 $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
 ?>
 <?php

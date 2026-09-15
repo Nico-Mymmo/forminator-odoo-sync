@@ -29,12 +29,12 @@ import {
 } from './gmail-read-client.js';
 import {
   eigenDomeinen, parseAddresses, parseMessageIds,
-  bepaalRichting, skipReden, zoekLeadOpAdres
+  bepaalRichting, skipReden, alleLeadsOpAdres
 } from './matching.js';
 import { stripQuotedHtml, stripQuotedText, textToHtml } from './quote-strip.js';
 import {
-  getSyncState, saveSyncState, reedsGezien, zoekDraadMatch, bewaarBericht, ruimOp,
-  getContactLink
+  getSyncState, saveSyncState, reedsGezien, zoekDraadMatch, bewaarBericht,
+  bewaarBerichtTargets, ruimOp, getContactLink
 } from './store.js';
 
 /** Hoeveel berichten we per medewerker per ronde maximaal verwerken. */
@@ -139,6 +139,26 @@ export async function syncUser(env, userEmail, { dryRun = false } = {}) {
       const meta = await getMessageMetadata(env, userEmail, id);
       const h = headerMap(meta);
 
+      // Een concept telt niet als verstuurd of ontvangen mail. Zonder deze
+      // controle plaatst een tussentijdse Gmail-autosave van een NOG NIET
+      // verzonden concept al een "bericht" in de chatter — en dat gebeurt
+      // meermaals per concept, want elke autosave is voor Gmail een nieuw
+      // messageAdded-event.
+      if ((meta.labelIds || []).includes('DRAFT')) {
+        telling.overgeslagen++;
+        await bewaar({
+          gmail_message_id: id,
+          user_email: userEmail,
+          gmail_thread_id: meta.threadId || null,
+          direction: 'outgoing',
+          status: 'skipped',
+          skip_reason: 'concept (nog niet verstuurd)',
+          odoo_model: null, odoo_res_id: null, odoo_message_id: null,
+          match_method: null, error_message: null
+        });
+        continue;
+      }
+
       const richting = bepaalRichting(h, userEmail, onzeDomeinen);
       const rij = {
         gmail_message_id: id,
@@ -164,27 +184,32 @@ export async function syncUser(env, userEmail, { dryRun = false } = {}) {
         continue;
       }
 
-      // Eerst de draad (exact), dan het adres (heuristiek).
+      // Eerst de draad (exact), dan het adres (heuristiek). Beide leveren
+      // een LIJST op: hetzelfde adres kan op meerdere leads staan (een
+      // dubbele inschrijving, of een verloren lead naast een actieve), en
+      // dan hoort het bericht bij ALLEBEI — inclusief de verloren lead, wat
+      // precies is wat een heractivatie nodig heeft.
       const draadIds = [
         ...parseMessageIds(h['in-reply-to']),
         ...parseMessageIds(h['references'])
       ];
-      let match = await zoekDraadMatch(env, draadIds);
+      let matches = await zoekDraadMatch(env, draadIds);
 
       // De UITZONDERINGEN gaan vóór de automatische opzoeking: als iemand
       // expliciet gezegd heeft waar de mail van dit adres hoort (of dat het
       // genegeerd moet worden), dan wint dat van wat wij zelf zouden vinden.
+      // Een uitzondering is bewust één-op-één (één adres, één gekozen lead).
       let genegeerdContact = null;
-      if (!match) {
+      if (!matches.length) {
         for (const adres of richting.counterparts) {
           const koppeling = await getContactLink(env, adres);
           if (!koppeling) continue;
           if (koppeling.action === 'ignore') { genegeerdContact = adres; break; }
-          match = {
+          matches = [{
             model: koppeling.odoo_model || 'crm.lead',
             res_id: koppeling.odoo_res_id,
             method: 'contactkoppeling'
-          };
+          }];
           break;
         }
       }
@@ -196,15 +221,21 @@ export async function syncUser(env, userEmail, { dryRun = false } = {}) {
         continue;
       }
 
-      // Pas als er geen uitzondering is: het adres opzoeken bij een lead.
-      if (!match) {
+      // Pas als er geen uitzondering is: het adres opzoeken bij ALLE leads
+      // die erop staan.
+      if (!matches.length) {
+        const gezien = new Set();
         for (const adres of richting.counterparts) {
-          match = await zoekLeadOpAdres(env, adres);
-          if (match) break;
+          for (const gevonden of await alleLeadsOpAdres(env, adres)) {
+            const sleutel = `${gevonden.model}/${gevonden.res_id}`;
+            if (gezien.has(sleutel)) continue;
+            gezien.add(sleutel);
+            matches.push(gevonden);
+          }
         }
       }
 
-      if (!match) {
+      if (!matches.length) {
         rij.status = 'unmatched';
         await bewaar(rij);
         telling.nietGeplaatst++;
@@ -221,28 +252,40 @@ export async function syncUser(env, userEmail, { dryRun = false } = {}) {
       if (!schoon.trim()) {
         rij.status = 'skipped';
         rij.skip_reason = 'lege inhoud na opkuisen';
-        rij.odoo_model = match.model;
-        rij.odoo_res_id = match.res_id;
+        rij.odoo_model = matches[0].model;
+        rij.odoo_res_id = matches[0].res_id;
         await bewaar(rij);
         telling.overgeslagen++;
         continue;
       }
 
-      const bericht = dryRun ? null : await postNaarChatter(env, {
-        model: match.model,
-        res_id: match.res_id,
-        html: schoon,
-        subject: h['subject'],
-        emailFrom: h['from'],
-        datum: odooDatum(meta.internalDate)
-      });
+      // Naar ELKE gevonden lead posten — niet enkel de eerste.
+      const geplaatsteDoelen = [];
+      for (const match of matches) {
+        const bericht = dryRun ? null : await postNaarChatter(env, {
+          model: match.model,
+          res_id: match.res_id,
+          html: schoon,
+          subject: h['subject'],
+          emailFrom: h['from'],
+          datum: odooDatum(meta.internalDate)
+        });
+        geplaatsteDoelen.push({
+          ...match,
+          odoo_message_id: typeof bericht === 'number' ? bericht : null
+        });
+      }
 
       rij.status = 'posted';
-      rij.odoo_model = match.model;
-      rij.odoo_res_id = match.res_id;
-      rij.odoo_message_id = typeof bericht === 'number' ? bericht : null;
-      rij.match_method = match.method;
-      await bewaar(rij, { voorbeeld: schoon.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) });
+      rij.odoo_model = geplaatsteDoelen[0].model;
+      rij.odoo_res_id = geplaatsteDoelen[0].res_id;
+      rij.odoo_message_id = geplaatsteDoelen[0].odoo_message_id;
+      rij.match_method = geplaatsteDoelen[0].method;
+      if (!dryRun) await bewaarBerichtTargets(env, id, geplaatsteDoelen);
+      await bewaar(rij, {
+        voorbeeld: schoon.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140),
+        leads: geplaatsteDoelen.map(d => `${d.model}/${d.res_id}`)
+      });
       telling.geplaatst++;
     } catch (err) {
       telling.fouten++;

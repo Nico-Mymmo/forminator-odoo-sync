@@ -6,9 +6,14 @@
  * hier een nette fout en blijft de rest van de module werken -- een
  * Calendly-koppeling is dan enkel niet aan te melden.
  *
- * Benodigde rechten op het token: `webhooks:read`, `webhooks:write`,
- * `event_types:read`, `scheduled_events:read` (dat laatste is wat Calendly
- * vereist om je op invitee.created/invitee.canceled te mogen abonneren).
+ * Benodigde rechten op het token: `users:read` (nodig voor GET /users/me,
+ * de allereerste aanroep die elke route hier doet -- zonder deze scope geeft
+ * Calendly meteen "Insufficient scope", ook al staan de andere vier goed),
+ * `webhooks:read`, `webhooks:write`, `event_types:read`, `scheduled_events:read`
+ * (dat laatste is wat Calendly vereist om je op
+ * invitee.created/invitee.canceled te mogen abonneren), en `organizations:read`
+ * (nodig om de ledenlijst op te vragen -- zie listEventTypes() hieronder voor
+ * waarom dat nodig is om gedeelde/team-eventtypes te kunnen tonen).
  *
  * WAAROM ÉÉN SUBSCRIPTION VOOR DE HELE MODULE
  * -------------------------------------------
@@ -90,29 +95,54 @@ export async function getCurrentUser(env) {
 }
 
 /**
- * Alle eventtypes van de organisatie, ook de niet-actieve.
+ * Alle leden van de organisatie (naam + e-mail + Calendly-user-URI).
  *
- * Niet-actieve horen erbij: een eventtype dat tijdelijk uitstaat heeft mogelijk
- * nog lopende boekingen, en je wil de koppeling kunnen instellen vóór je het
- * eventtype weer aanzet.
+ * Bestaat enkel om listEventTypes() hieronder per lid te kunnen doorlopen --
+ * de enige manier om gedeelde/team-eventtypes te vinden (zie daar). Vraagt
+ * `organizations:read`; een token zonder org-adminrechten krijgt hier een
+ * 403 en listEventTypes() vangt dat gewoon op (dan zie je enkel je eigen
+ * eventtypes, zoals voorheen -- geen harde fout).
  */
-export async function listEventTypes(env, { organization } = {}) {
+export async function listOrganizationMemberships(env, { organization } = {}) {
   const org = organization || (await getCurrentUser(env)).organization;
   if (!org) throw createError('Geen Calendly-organisatie gevonden voor dit token.');
 
   const alles = [];
   let volgende = null;
-  // Harde bovengrens: tien pagina's van honderd. Zonder grens kan een fout in
-  // Calendly's paginering hier een oneindige lus maken binnen één worker-run.
   for (let i = 0; i < 10; i++) {
     const data = volgende
       ? await calendlyFetch(env, volgende)
-      : await calendlyFetch(env, '/event_types', { query: { organization: org, count: 100 } });
+      : await calendlyFetch(env, '/organization_memberships', { query: { organization: org, count: 100 } });
 
     for (const r of (data?.collection || [])) {
       alles.push({
-        uri: r.uri || '',
-        uuid: (r.uri || '').split('/').pop() || '',
+        uri: r.user?.uri || '',
+        name: r.user?.name || '',
+        email: r.user?.email || '',
+        role: r.role || '',
+      });
+    }
+
+    volgende = data?.pagination?.next_page || null;
+    if (!volgende) break;
+  }
+
+  return alles;
+}
+
+async function verzamelEventTypes(env, query, opgehaald) {
+  let volgende = null;
+  for (let i = 0; i < 10; i++) {
+    const data = volgende
+      ? await calendlyFetch(env, volgende)
+      : await calendlyFetch(env, '/event_types', { query: { ...query, count: 100 } });
+
+    for (const r of (data?.collection || [])) {
+      const uri = r.uri || '';
+      if (!uri || opgehaald.has(uri)) continue;
+      opgehaald.set(uri, {
+        uri,
+        uuid: uri.split('/').pop() || '',
         name: r.name || '',
         slug: r.slug || '',
         active: r.active === true,
@@ -130,8 +160,53 @@ export async function listEventTypes(env, { organization } = {}) {
     volgende = data?.pagination?.next_page || null;
     if (!volgende) break;
   }
+}
 
-  return alles;
+/**
+ * Alle eventtypes van de organisatie, ook de niet-actieve, ook gedeeld/team.
+ *
+ * Niet-actieve horen erbij: een eventtype dat tijdelijk uitstaat heeft mogelijk
+ * nog lopende boekingen, en je wil de koppeling kunnen instellen vóór je het
+ * eventtype weer aanzet.
+ *
+ * GEDEELDE EVENTTYPES ZIJN EEN APARTE OPHAALRONDE, NIET EEN VLAG OP DEZE ÉÉN.
+ * Calendly's eigen support bevestigt: een /event_types-aanroep met enkel
+ * `organization` geeft NOOIT de "Shared event types" terug die je in de
+ * Calendly-UI onder een lid ziet staan -- dat is een architecturale beperking
+ * van hun API, geen instelling die je kan aanzetten. De enige weg is: elk lid
+ * van de organisatie apart opvragen (`/event_types?user=<uri>`) en samenvoegen
+ * op `uri`. Vandaar de ledenlijst hierboven en de dedup-`Map` hier.
+ */
+export async function listEventTypes(env, { organization, includeShared = true } = {}) {
+  const org = organization || (await getCurrentUser(env)).organization;
+  if (!org) throw createError('Geen Calendly-organisatie gevonden voor dit token.');
+
+  const opgehaald = new Map();
+  // Harde bovengrens: tien pagina's van honderd per aanroep. Zonder grens kan
+  // een fout in Calendly's paginering hier een oneindige lus maken binnen één
+  // worker-run.
+  await verzamelEventTypes(env, { organization: org }, opgehaald);
+
+  if (includeShared) {
+    // Mislukt dit (token is geen org-admin, of `organizations:read` ontbreekt),
+    // dan blijft gewoon staan wat de organisatie-brede aanroep hierboven al
+    // opleverde -- geen harde fout, enkel minder volledig.
+    try {
+      const leden = await listOrganizationMemberships(env, { organization: org });
+      for (const lid of leden) {
+        if (!lid.uri) continue;
+        try {
+          await verzamelEventTypes(env, { user: lid.uri }, opgehaald);
+        } catch (err) {
+          // één lid waarvoor het ophalen mislukt mag de rest niet blokkeren
+        }
+      }
+    } catch (err) {
+      // geen ledenlijst beschikbaar -- zie docblok hierboven
+    }
+  }
+
+  return [...opgehaald.values()];
 }
 
 export async function listWebhookSubscriptions(env, { organization, scope = 'organization' } = {}) {

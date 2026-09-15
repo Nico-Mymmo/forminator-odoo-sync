@@ -145,46 +145,73 @@ export function skipReden(headers, richting) {
  * De lead zoeken die bij een e-mailadres hoort.
  *
  * Voorkeur voor de meest recent bijgewerkte lead: als iemand twee keer een
- * formulier invulde, gaat een antwoord over het laatste gesprek.
+ * formulier invulde, gaat een antwoord over het laatste gesprek. Dit is de
+ * eerste van eventueel meerdere leads op hetzelfde adres — zie
+ * `alleLeadsOpAdres()` voor de volledige lijst.
  *
  * @returns {Promise<{model: string, res_id: number, method: string}|null>}
  */
 export async function zoekLeadOpAdres(env, adres) {
+  const alles = await alleLeadsOpAdres(env, adres);
+  return alles[0] || null;
+}
+
+/**
+ * ALLE leads die bij een e-mailadres horen — niet enkel de meest recente.
+ *
+ * Twee leads kunnen hetzelfde adres delen: een dubbele inschrijving, of een
+ * verloren lead naast een actieve. Een bericht van dat adres hoort dan bij
+ * ALLEBEI in de chatter, ook de verloren lead — precies de situatie bij een
+ * heractivatie, waar de eerste mail anders enkel op de andere, actievere lead
+ * terechtkwam en de verloren lead zelf stil bleef.
+ *
+ * `active_test: false` haalt bewust ook VERLOREN leads (active = false) op:
+ * die horen hier niet uitgesloten te worden.
+ *
+ * @returns {Promise<Array<{model: string, res_id: number, method: string}>>}
+ */
+export async function alleLeadsOpAdres(env, adres) {
   const email = String(adres || '').trim().toLowerCase();
-  if (!email) return null;
+  if (!email) return [];
+
+  const gezien = new Set();
+  const uit = [];
+  const voegToe = (id, method) => {
+    if (gezien.has(id)) return;
+    gezien.add(id);
+    uit.push({ model: 'crm.lead', res_id: id, method });
+  };
 
   const leads = await searchRead(env, {
     model: 'crm.lead',
     domain: [['email_from', '=ilike', email]],
     fields: ['id'],
     order: 'write_date desc',
-    limit: 1,
+    limit: 20,
     context: { active_test: false }
   });
-  if (leads.length) return { model: 'crm.lead', res_id: leads[0].id, method: 'lead-op-adres' };
+  for (const l of leads) voegToe(l.id, 'lead-op-adres');
 
-  // Geen lead op het adres zelf: misschien hangt het aan een contact dat wél
-  // aan een lead gekoppeld is.
+  // Ook leads via een gekoppeld contact — een adres kan op het contact staan
+  // in plaats van rechtstreeks op de lead.
   const partners = await searchRead(env, {
     model: 'res.partner',
     domain: [['email', '=ilike', email]],
     fields: ['id'],
     order: 'write_date desc',
-    limit: 1
+    limit: 20
   });
-  if (!partners.length) return null;
-
-  const viaPartner = await searchRead(env, {
-    model: 'crm.lead',
-    domain: [['partner_id', '=', partners[0].id]],
-    fields: ['id'],
-    order: 'write_date desc',
-    limit: 1,
-    context: { active_test: false }
-  });
-  if (viaPartner.length) {
-    return { model: 'crm.lead', res_id: viaPartner[0].id, method: 'lead-via-contact' };
+  for (const partner of partners) {
+    const viaPartner = await searchRead(env, {
+      model: 'crm.lead',
+      domain: [['partner_id', '=', partner.id]],
+      fields: ['id'],
+      order: 'write_date desc',
+      limit: 20,
+      context: { active_test: false }
+    });
+    for (const l of viaPartner) voegToe(l.id, 'lead-via-contact');
   }
 
-  return null;
+  return uit;
 }

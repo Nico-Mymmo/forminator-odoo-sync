@@ -58,15 +58,17 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
   // dezelfde dropdown-logica als op een submap-tegel (renderFolderKebabMenu).
   // De 5 hardcoded categorieën hierboven krijgen bewust geen kebab: die kan
   // je niet verwijderen (zie ASSET_CATEGORY_PREFIXES in routes.js).
-  const dynamicCategoryListItems = dynamicCategories.map(cat => `
-            <li>
-              <div class="flex items-center gap-1">
-                <a data-prefix="${escapeHtml(cat.prefix)}" class="gap-2 flex-1 min-w-0">
-                  <i data-lucide="folder" class="w-4 h-4"></i> ${escapeHtml(cat.label)}
-                </a>
-                <span class="dynamic-cat-actions shrink-0" data-prefix="${escapeHtml(cat.prefix)}" data-label="${escapeHtml(cat.label)}"></span>
-              </div>
-            </li>`).join('');
+
+  // Data voor de client-side categorieboom in de zijbalk (zie
+  // renderCategoryTree() in asset-manager-client.js) -- vervangt de losse
+  // hardcoded <li>'s die voorheen per categorie in de sidebar stonden.
+  const sidebarCategories = [
+    { prefix: 'banners/', label: 'Banners', icon: 'image', removable: false },
+    { prefix: 'events/', label: 'Events', icon: 'calendar', removable: false },
+    { prefix: 'logos/', label: 'Logos', icon: 'star', removable: false },
+    { prefix: 'uploads/', label: 'Overige', icon: 'folder', removable: false },
+    ...dynamicCategories.map(cat => ({ prefix: cat.prefix, label: cat.label, icon: 'folder', removable: true })),
+  ];
 
   const dynamicCategoryTabs = dynamicCategories.map(cat =>
     `<span class="inline-flex items-center gap-0.5 shrink-0">
@@ -126,6 +128,7 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
       canUpload:    isAdminOrManager,
       canAdmin:     isAdmin,
       assetBaseUrl: assetBaseUrl,
+      categories:   sidebarCategories,
     })};
   </script>
 
@@ -165,32 +168,9 @@ export function assetManagerUI(user, env, dynamicCategories = []) {
                 <i data-lucide="layout-grid" class="w-4 h-4"></i> Alles
               </a>
             </li>
-            <li>
-              <a data-prefix="banners/" class="gap-2" id="cat-banners">
-                <i data-lucide="image" class="w-4 h-4"></i> Banners
-              </a>
-            </li>
-            <li>
-              <a data-prefix="events/" class="gap-2" id="cat-events">
-                <i data-lucide="calendar" class="w-4 h-4"></i> Events
-              </a>
-            </li>
-            <li>
-              <a data-prefix="logos/" class="gap-2" id="cat-logos">
-                <i data-lucide="star" class="w-4 h-4"></i> Logos
-              </a>
-            </li>
-            <li>
-              <a data-prefix="uploads/" class="gap-2" id="cat-uploads">
-                <i data-lucide="folder" class="w-4 h-4"></i> Overige
-              </a>
-            </li>${dynamicCategoryListItems}
-            ${isAdminForFolders ? `
-            <li>
-              <a id="add-folder-btn" class="gap-2 text-primary">
-                <i data-lucide="folder-plus" class="w-4 h-4"></i> Nieuwe map
-              </a>
-            </li>` : ''}
+            <!-- Categorieboom (submappen inbegrepen) + "Nieuwe hoofdmap"
+                 worden client-side toegevoegd door renderCategoryTree() in
+                 asset-manager-client.js -- zie window.__ASSET_STATE__.categories. -->
           </ul>
         </aside>
 

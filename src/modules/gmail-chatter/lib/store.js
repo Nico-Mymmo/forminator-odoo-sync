@@ -64,28 +64,45 @@ export async function reedsGezien(env, messageIds) {
 }
 
 /**
- * Een eerder geplaatst bericht uit dezelfde draad zoeken.
+ * Eerder geplaatste berichten uit dezelfde draad zoeken.
  *
  * `messageIds` komt uit References/In-Reply-To. Vinden we daar een van terug,
- * dan weten we exact bij welke lead dit antwoord hoort — zonder te gokken op
- * een e-mailadres.
+ * dan weten we exact bij welke lead(s) dit antwoord hoort — zonder te gokken
+ * op een e-mailadres. Het origineel kan bij MEERDERE leads geplaatst zijn
+ * (zelfde adres op meerdere leads, zie `alleLeadsOpAdres()` in matching.js) —
+ * een antwoord in diezelfde draad hoort dan bij AL die leads, niet enkel de
+ * meest recente.
+ *
+ * @returns {Promise<Array<{model: string, res_id: number, method: string}>>}
  */
 export async function zoekDraadMatch(env, messageIds) {
   const kandidaten = (messageIds || []).filter(Boolean).slice(0, 50);
-  if (!kandidaten.length) return null;
+  if (!kandidaten.length) return [];
 
   const supabase = getSupabaseClient(env);
-  const { data, error } = await supabase
+  const { data: berichten, error } = await supabase
     .from('gmail_captured_messages')
-    .select('odoo_model, odoo_res_id')
-    .in('rfc822_message_id', kandidaten)
-    .not('odoo_res_id', 'is', null)
-    .order('internal_date', { ascending: false })
-    .limit(1);
+    .select('gmail_message_id')
+    .in('rfc822_message_id', kandidaten);
   if (error) throw new Error(`draadmatch zoeken mislukt: ${error.message}`);
-  if (!data?.length) return null;
+  const berichtIds = [...new Set((berichten || []).map(b => b.gmail_message_id))];
+  if (!berichtIds.length) return [];
 
-  return { model: data[0].odoo_model, res_id: data[0].odoo_res_id, method: 'draad' };
+  const { data: targets, error: targetError } = await supabase
+    .from('gmail_captured_message_targets')
+    .select('odoo_model, odoo_res_id')
+    .in('gmail_message_id', berichtIds);
+  if (targetError) throw new Error(`draadmatch-doelen zoeken mislukt: ${targetError.message}`);
+
+  const gezien = new Set();
+  const uit = [];
+  for (const t of targets || []) {
+    const sleutel = `${t.odoo_model}/${t.odoo_res_id}`;
+    if (gezien.has(sleutel)) continue;
+    gezien.add(sleutel);
+    uit.push({ model: t.odoo_model, res_id: t.odoo_res_id, method: 'draad' });
+  }
+  return uit;
 }
 
 export async function bewaarBericht(env, rij) {
@@ -94,6 +111,30 @@ export async function bewaarBericht(env, rij) {
     .from('gmail_captured_messages')
     .upsert(rij, { onConflict: 'gmail_message_id' });
   if (error) throw new Error(`bericht bewaren mislukt: ${error.message}`);
+}
+
+/**
+ * Alle leads bewaren waar een bericht daadwerkelijk in de chatter is gezet.
+ *
+ * Losse tabel van `gmail_captured_messages` omdat één bericht bij meerdere
+ * leads kan horen — zie `alleLeadsOpAdres()` in matching.js. De eerste van
+ * `targets` staat ook op `gmail_captured_messages.odoo_model`/`odoo_res_id`
+ * (de bestaande, enkelvoudige kolommen), deze tabel draagt de volledige lijst.
+ */
+export async function bewaarBerichtTargets(env, gmailMessageId, targets) {
+  if (!targets?.length) return;
+  const supabase = getSupabaseClient(env);
+  const rijen = targets.map(t => ({
+    gmail_message_id: gmailMessageId,
+    odoo_model: t.model,
+    odoo_res_id: t.res_id,
+    odoo_chatter_message_id: typeof t.odoo_message_id === 'number' ? t.odoo_message_id : null,
+    match_method: t.method || null
+  }));
+  const { error } = await supabase
+    .from('gmail_captured_message_targets')
+    .upsert(rijen, { onConflict: 'gmail_message_id,odoo_model,odoo_res_id' });
+  if (error) throw new Error(`bericht-doelen bewaren mislukt: ${error.message}`);
 }
 
 /** De werklijst: wat we niet konden plaatsen. */

@@ -105,6 +105,48 @@ function mymmo_forms_visitor_uuid(string $cookie = 'ovme_uuid'): string {
 }
 
 /**
+ * Een kleur die veilig in een style-attribuut mag, of '' als het er geen is.
+ *
+ * Dezelfde vorm-controle als in mymmo_forms_theme_style(): een hex of een
+ * rgb()/rgba(). Geen url(), geen var(), geen puntkomma -- deze waarde komt uit
+ * een shortcode die iedereen met paginarechten kan typen, en ze belandt in een
+ * style-attribuut op de pagina van een bezoeker.
+ */
+function mymmo_forms_color(string $ruw): string {
+    $waarde = trim($ruw);
+    if ($waarde === '') {
+        return '';
+    }
+    if (preg_match('/^#[0-9a-f]{3,8}$/i', $waarde)) {
+        return $waarde;
+    }
+    if (preg_match('/^rgba?\(\s*[\d.\s,%\/]+\)$/i', $waarde)) {
+        return $waarde;
+    }
+    return '';
+}
+
+/**
+ * Dezelfde kleur als zes hex-tekens ZONDER #, of '' als dat niet kan.
+ *
+ * Calendly verwacht zijn kleurparameters zo (primary_color=1f2937). Een
+ * afkorting van drie tekens wordt uitgeschreven; een rgb() of een kleur met
+ * doorzichtigheid geeft '' terug -- die kan Calendly niet, en half doorgeven is
+ * erger dan niet doorgeven.
+ */
+function mymmo_forms_hex6(string $ruw): string {
+    $waarde = mymmo_forms_color($ruw);
+    if ($waarde === '' || $waarde[0] !== '#') {
+        return '';
+    }
+    $hex = substr($waarde, 1);
+    if (strlen($hex) === 3) {
+        $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+    }
+    return strlen($hex) === 6 ? strtolower($hex) : '';
+}
+
+/**
  * De CSS-variabelen van een formulier omzetten naar een style-attribuut.
  *
  * Alleen een vaste, GESLOTEN lijst wordt doorgelaten. Een vrije doorgang van

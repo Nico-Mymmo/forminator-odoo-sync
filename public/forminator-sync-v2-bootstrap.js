@@ -159,6 +159,11 @@
       if (action === 'goto-connections') {
         window.FSV2.showView('connections');
         window.FSV2.renderConnections();
+        // Calendly is een tweede, module-brede verbinding op ditzelfde scherm
+        // -- zie forminator-sync-v2-calendly-connection.js. Niet forceren:
+        // een al geladen status (bv. net bezocht via een koppeling) mag
+        // hergebruikt worden.
+        if (window.FSV2.laadCalendlyConnectie) window.FSV2.laadCalendlyConnectie(false);
         return;
       }
       if (action === 'goto-defaults') {

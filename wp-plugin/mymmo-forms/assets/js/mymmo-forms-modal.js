@@ -16,9 +16,30 @@
  * admin-post.php post, en mymmo-forms.js pakt het op zoals elk ander formulier
  * op de pagina.
  *
- * De agenda is het enige deel dat JavaScript echt nodig heeft — het is een
- * iframe van Calendly. Het script daarvoor wordt pas opgehaald als iemand dat
- * tabblad opent. Wie alleen het formulier invult, haalt niets bij Calendly op.
+ * DRIE MANIEREN OM HET VENSTER TE OPENEN, en dat is met opzet:
+ *
+ *   1. de eigen knop van de shortcode ([data-mymmo-modal-open]);
+ *   2. om het even welke link op de pagina naar #<id van het venster> — zo hang
+ *      je het venster achter een knop die het thema of Elementor al maakte,
+ *      zonder een regel code: je zet de link van die knop op #mymmo-modal-...;
+ *   3. een CSS-selector in het trigger-attribuut van de shortcode, voor knoppen
+ *      waarvan je de link niet kan zetten.
+ *
+ * Nummer 2 en 3 werken ook zonder dit bestand: een link naar #id opent het
+ * venster via :target. Voor 3 geldt dat niet — daar is JavaScript het enige
+ * bindmiddel — en daarom is 2 de manier die de voorkeur heeft.
+ *
+ * DE AGENDA is het enige deel dat JavaScript echt nodig heeft: het is een
+ * iframe van Calendly. Twee dingen zijn daaraan veranderd ten opzichte van de
+ * eerste versie:
+ *
+ *   - het script wordt al opgehaald zodra iemand met de muis op de knop komt of
+ *     hem met het toetsenbord bereikt, en de kalender wordt opgebouwd zodra het
+ *     VENSTER opengaat — niet pas bij een klik op het tabblad. Wie dus op
+ *     "Plan een gesprek" klikt, kijkt naar een kalender die er al staat.
+ *   - bewust NIET bij het laden van de pagina. Dan zou elke bezoeker van die
+ *     pagina een verzoek naar Calendly sturen, ook wie nooit op de knop klikt.
+ *     Op de knop komen is het eerste moment waarop iemand iets van plan is.
  */
 
 (function () {
@@ -72,6 +93,19 @@
     }
   }
 
+  /** inert waar het kan, met het attribuut als terugval voor oudere browsers. */
+  function zetInert(el, aan) {
+    if ('inert' in el) {
+      el.inert = aan;
+      return;
+    }
+    if (aan) {
+      el.setAttribute('inert', '');
+    } else {
+      el.removeAttribute('inert');
+    }
+  }
+
   function focusbaar(wortel) {
     var uit = [];
     var alles = wortel.querySelectorAll(
@@ -84,13 +118,32 @@
       // Een element in een verborgen tabblad of in de honeypot mag geen
       // tussenstop zijn bij het tabben.
       if (!el.offsetWidth && !el.offsetHeight && !el.getClientRects().length) continue;
+      // De panelen liggen over elkaar en het verborgen paneel heeft daardoor
+      // gewoon afmetingen (visibility:hidden, zie de CSS) -- de controle
+      // hierboven ziet het dus NIET. Zonder deze regel tabt een bezoeker vanuit
+      // het formulier zo de onzichtbare agenda in.
+      var paneel = el.closest ? el.closest('[data-mymmo-paneel]') : null;
+      if (paneel
+          && paneel.parentNode
+          && paneel.parentNode.classList.contains('mymmo-modal-body--tabs')
+          && !paneel.classList.contains('is-actief')) {
+        continue;
+      }
       uit.push(el);
     }
     return uit;
   }
 
-  function knopVan(venster) {
-    return document.querySelector('[data-mymmo-modal-open="' + venster.id + '"]');
+  /** Alles wat dit venster kan openen: de eigen knop, en wat er bijgebonden is. */
+  function knoppenVan(venster) {
+    return document.querySelectorAll('[data-mymmo-modal-open="' + venster.id + '"]');
+  }
+
+  function zetUitgeklapt(venster, aan) {
+    var knoppen = knoppenVan(venster);
+    for (var i = 0; i < knoppen.length; i += 1) {
+      knoppen[i].setAttribute('aria-expanded', aan ? 'true' : 'false');
+    }
   }
 
   // ── Open en dicht ─────────────────────────────────────────────────────────
@@ -104,9 +157,7 @@
 
     venster.classList.add('is-open');
     document.documentElement.classList.add('mymmo-modal-actief');
-
-    var trigger = knop || knopVan(venster);
-    if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    zetUitgeklapt(venster, true);
 
     var paneel = venster.querySelector('.mymmo-modal-panel');
     if (paneel) {
@@ -117,19 +168,16 @@
       paneel.focus({ preventScroll: true });
     }
 
-    // Staat de agenda al open bij het openen, dan moet ze nu geladen worden:
-    // laden gebeurt bij het tonen, en dat tonen is al gebeurd.
-    var actief = venster.querySelector('.mymmo-modal-tab.is-active');
-    if (actief && actief.getAttribute('data-mymmo-tab') === 'calendly') {
-      laadAgenda(venster);
-    }
+    // De agenda opbouwen ZODRA het venster openstaat, ook als het formulier
+    // vooraan staat. Pas nu heeft haar vlak een echte breedte -- en dat is
+    // precies wat Calendly meet. Klikt de bezoeker straks op het tabblad, dan
+    // staat de kalender er al.
+    laadAgenda(venster);
   }
 
   function sluiten(venster) {
     venster.classList.remove('is-open');
-
-    var trigger = knopVan(venster);
-    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    zetUitgeklapt(venster, false);
 
     if (openVenster === venster) {
       openVenster = null;
@@ -197,9 +245,16 @@
 
     var panelen = venster.querySelectorAll('[data-mymmo-paneel]');
     for (var j = 0; j < panelen.length; j += 1) {
-      panelen[j].hidden = panelen[j].getAttribute('data-mymmo-paneel') !== naam;
+      // GEEN hidden en geen display:none: de panelen liggen over elkaar en het
+      // verborgen paneel houdt zijn afmetingen (zie het blok over de agenda in
+      // de CSS). inert houdt het buiten de schermlezer en buiten het tabben.
+      var aan = panelen[j].getAttribute('data-mymmo-paneel') === naam;
+      panelen[j].classList.toggle('is-actief', aan);
+      zetInert(panelen[j], !aan);
     }
 
+    // Vangnet: kon de kalender eerder niet opgebouwd worden (het venster stond
+    // nog dicht, dus geen breedte), dan is dit alsnog het moment.
     if (naam === 'calendly') laadAgenda(venster);
   }
 
@@ -215,8 +270,8 @@
     }
 
     var doel = -1;
-    if (event.key === 'ArrowRight') doel = (huidig + 1) % tabs.length;
-    else if (event.key === 'ArrowLeft') doel = (huidig - 1 + tabs.length) % tabs.length;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') doel = (huidig + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') doel = (huidig - 1 + tabs.length) % tabs.length;
     else if (event.key === 'Home') doel = 0;
     else if (event.key === 'End') doel = tabs.length - 1;
 
@@ -285,12 +340,47 @@
     return utm;
   }
 
+  /**
+   * De Calendly-URL met onze eigen voorkeuren erbij.
+   *
+   * hide_gdpr_banner: die balk gaat in een venster van deze hoogte over de
+   * knoppen van de kalender heen, en de site vraagt haar toestemming al zelf.
+   * primary_color volgt de accentkleur van het formulier, zodat de kalender niet
+   * de enige plek in het venster is met een andere kleur -- Calendly wil die
+   * zonder #.
+   *
+   * Wat de beheerder zelf in de link zette wint altijd: die heeft er dan over
+   * nagedacht.
+   */
+  function agendaUrl(vlak, basis) {
+    try {
+      var url = new URL(basis, window.location.href);
+      if (!url.searchParams.has('hide_gdpr_banner')) {
+        url.searchParams.set('hide_gdpr_banner', '1');
+      }
+      var kleur = vlak.getAttribute('data-mymmo-calendly-kleur') || '';
+      if (kleur && !url.searchParams.has('primary_color')) {
+        url.searchParams.set('primary_color', kleur);
+      }
+      return url.toString();
+    } catch (_) {
+      return basis;
+    }
+  }
+
   function laadAgenda(venster) {
     var vlak = venster.querySelector('[data-mymmo-calendly]');
     if (!vlak || vlak.getAttribute('data-mymmo-geladen') === '1') return;
 
     var url = vlak.getAttribute('data-mymmo-calendly');
     if (!url) return;
+
+    // Heeft het vlak nog geen breedte, dan is dit het verkeerde moment: Calendly
+    // MEET die breedte bij het opbouwen, en bouwt bij nul een kalender voor een
+    // vlak van niets -- afgeknepen en half afgesneden, en pas recht te trekken
+    // door het venster van grootte te veranderen. Niets doen dus; het openen van
+    // het venster of het tabblad komt hier straks opnieuw langs.
+    if (!vlak.offsetWidth) return;
 
     vlak.setAttribute('data-mymmo-geladen', '1');
     vlak.classList.add('is-laden');
@@ -301,7 +391,7 @@
           throw new Error('Calendly-widget ontbreekt');
         }
         window.Calendly.initInlineWidget({
-          url: url,
+          url: agendaUrl(vlak, url),
           parentElement: vlak,
           prefill: {},
           utm: herkomst()
@@ -318,6 +408,62 @@
     );
   }
 
+  /** Heeft dit venster een agenda? Dan loont het om het script vast te halen. */
+  function heeftAgenda(venster) {
+    return !!venster.querySelector('[data-mymmo-calendly]');
+  }
+
+  // ── Knoppen die niet van ons zijn ─────────────────────────────────────────
+
+  /**
+   * De selector uit trigger="..." omzetten naar echte openknoppen.
+   *
+   * Ze krijgen dezelfde data-attributen als onze eigen knop, zodat de rest van
+   * dit bestand er niets van hoeft te weten. aria-haspopup en aria-controls gaan
+   * mee: voor een schermlezer is dit vanaf nu een knop die een venster opent, en
+   * dat hoort hij te horen vóór hij erop drukt.
+   */
+  function bindTriggers(venster) {
+    var selector = venster.getAttribute('data-mymmo-trigger');
+    if (!selector) return;
+
+    var doelen;
+    try {
+      doelen = document.querySelectorAll(selector);
+    } catch (_) {
+      // Een typefout in de selector mag niet de rest van het script meeslepen.
+      return;
+    }
+
+    for (var i = 0; i < doelen.length; i += 1) {
+      var el = doelen[i];
+      // Nooit een knop van onszelf overnemen, en nooit iets binnen het venster:
+      // trigger=".btn" op een pagina waar ook de verzendknop zo heet zou het
+      // venster laten sluiten en heropenen bij elke klik.
+      if (el.hasAttribute('data-mymmo-modal-open')) continue;
+      if (venster.contains(el)) continue;
+
+      el.setAttribute('data-mymmo-modal-open', venster.id);
+      el.setAttribute('aria-haspopup', 'dialog');
+      el.setAttribute('aria-expanded', 'false');
+      el.setAttribute('aria-controls', venster.id);
+    }
+  }
+
+  /** Het venster waar deze link naartoe wijst, als het er een van ons is. */
+  function vensterVanLink(link) {
+    var href = link.getAttribute('href') || '';
+    if (href.charAt(0) !== '#' || href.length < 2) return null;
+
+    var doel;
+    try {
+      doel = document.getElementById(decodeURIComponent(href.slice(1)));
+    } catch (_) {
+      doel = document.getElementById(href.slice(1));
+    }
+    return doel && doel.hasAttribute('data-mymmo-modal') ? doel : null;
+  }
+
   // ── Opstarten ─────────────────────────────────────────────────────────────
 
   function start() {
@@ -327,9 +473,14 @@
     // Vanaf hier neemt dit script het over van de :target-regel in de CSS.
     document.documentElement.classList.add('mymmo-modal-js');
 
+    var ietsMetAgenda = false;
+
     for (var i = 0; i < vensters.length; i += 1) {
       var venster = vensters[i];
       var balk = venster.querySelector('[data-mymmo-tablist]');
+
+      bindTriggers(venster);
+      if (heeftAgenda(venster)) ietsMetAgenda = true;
 
       if (balk) {
         balk.hidden = false;
@@ -344,6 +495,21 @@
           || window.location.hash === '#' + venster.id) {
         openen(venster, null);
       }
+    }
+
+    // Het script van Calendly vast ophalen zodra iemand op een openknop komt.
+    // Niet bij het laden van de pagina: dan stuurt elke bezoeker een verzoek
+    // naar een derde partij, ook wie nooit klikt. En niet pas bij een klik op
+    // het tabblad: dan sta je naar een leeg vlak te kijken.
+    if (ietsMetAgenda) {
+      var warm = function (event) {
+        var opener = event.target.closest ? event.target.closest('[data-mymmo-modal-open]') : null;
+        if (!opener) return;
+        var doel = document.getElementById(opener.getAttribute('data-mymmo-modal-open'));
+        if (doel && heeftAgenda(doel)) laadScript().catch(function () {});
+      };
+      document.addEventListener('pointerover', warm);
+      document.addEventListener('focusin', warm);
     }
 
     document.addEventListener('click', function (event) {
@@ -373,6 +539,19 @@
         if (eigenaar) {
           event.preventDefault();
           toon(eigenaar, tab.getAttribute('data-mymmo-tab'));
+        }
+        return;
+      }
+
+      // Een gewone link op de pagina naar #<id van een venster>. Zo hangt een
+      // knop van het thema of van Elementor aan dit venster zonder een regel
+      // code -- en zonder dit script werkt diezelfde link ook, via :target.
+      var link = event.target.closest('a[href]');
+      if (link) {
+        var vanLink = vensterVanLink(link);
+        if (vanLink) {
+          event.preventDefault();
+          openen(vanLink, link);
         }
       }
     });
