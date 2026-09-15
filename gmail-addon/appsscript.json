@@ -1,0 +1,33 @@
+{
+  "timeZone": "Europe/Brussels",
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/gmail.addons.execute",
+    "https://www.googleapis.com/auth/gmail.addons.current.message.metadata",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid"
+  ],
+  "urlFetchWhitelist": [
+    "https://operations.openvme.be/gmail-addon/"
+  ],
+  "addOns": {
+    "common": {
+      "name": "OpenVME — mail bij een lead",
+      "logoUrl": "https://operations.openvme.be/assets/logos/openvme.svg",
+      "layoutProperties": {
+        "primaryColor": "#2563eb",
+        "secondaryColor": "#a7cbde"
+      }
+    },
+    "gmail": {
+      "contextualTriggers": [
+        {
+          "unconditional": {},
+          "onTriggerFunction": "onGmailMessage"
+        }
+      ]
+    }
+  }
+}

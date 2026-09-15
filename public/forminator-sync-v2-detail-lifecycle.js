@@ -80,6 +80,9 @@
 
       // For generic_webhook integrations: fetch per-integration webhook URL
       S()._genericWebhookUrl = null;
+      // Het Calendly-tabblad houdt zijn eigen cache aan; die hoort bij DEZE
+      // koppeling en mag niet blijven staan als je een andere opent.
+      if (window.FSV2.resetCalendlyTab) window.FSV2.resetCalendlyTab();
       // For tracker integrations: fetch the short/QR URL + tab-scoped stats
       S()._trackerUrl = null;
       if (detailIntegration && detailIntegration.source_type === 'tracker') {
@@ -105,6 +108,14 @@
         }).catch(function () {});
         // Extract form fields from the source_payload of the most recent submission
         window.FSV2.extractGenericWebhookFields();
+      } else if (detailIntegration && detailIntegration.source_type === 'calendly') {
+        // Vierde bron. De vaste velden zijn bekend zonder Calendly te bevragen
+        // (ze staan in calendly/payload.js); de antwoorden op de vragen van de
+        // boekingspagina komen erbij zodra de eerste boeking binnen is; die
+        // haalt fetchCalendlyFields() zelf uit de bewaarde payload (een niveau
+        // diep, onder form_data -- extractGenericWebhookFields() leest enkel
+        // het bovenste niveau en zou de vaste lijst overschrijven).
+        window.FSV2.fetchCalendlyFields().catch(function () {});
       } else if (detailIntegration && detailIntegration.source_type === 'om_form') {
         // Een formulier dat in de OM zelf gebouwd is. Dit was het ontbrekende
         // derde pad: zo'n koppeling heeft geen forminator_form_id om velden mee

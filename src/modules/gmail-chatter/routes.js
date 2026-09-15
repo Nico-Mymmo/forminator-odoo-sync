@@ -29,13 +29,11 @@
 
 import { getSupabaseClient } from '../../lib/database.js';
 import { searchRead } from '../../lib/odoo.js';
-import { getMessageFull, extractBody } from './lib/gmail-read-client.js';
-import { stripQuotedHtml, stripQuotedText, textToHtml } from './lib/quote-strip.js';
-import { postNaarChatter, odooDatum } from './lib/sync.js';
 import {
-  getSyncState, listContactLinks, upsertContactLink, deleteContactLink,
-  openstaandVoorContact, werklijstPerContact
+  getSyncState, listContactLinks, deleteContactLink, werklijstPerContact
 } from './lib/store.js';
+// Gedeeld met de Gmail-add-on: één implementatie, twee aanroepers.
+import { koppelContact, negeerContact, plaatsBewaardBericht, haalLead } from './lib/linking.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
@@ -67,63 +65,6 @@ async function haalEigenRij(env, user, gmailMessageId) {
     return { fout: json({ success: false, error: 'Bericht niet gevonden' }, 404) };
   }
   return { rij: data };
-}
-
-/** Bestaat deze lead? Geeft de naam terug, of null. */
-async function haalLead(env, leadId) {
-  const leads = await searchRead(env, {
-    model: 'crm.lead',
-    domain: [['id', '=', leadId]],
-    fields: ['id', 'name'],
-    limit: 1,
-    context: { active_test: false }
-  });
-  return leads[0] || null;
-}
-
-/**
- * Eén bewaard bericht alsnog in de chatter zetten.
- *
- * Haalt de inhoud bij Gmail, kuist de geciteerde staart eruit en werkt de rij
- * bij. Gooit niet: het resultaat zegt wat er gebeurd is, zodat een reeks
- * berichten niet stilvalt op één probleemgeval.
- */
-async function plaatsBewaardBericht(env, rij, leadId) {
-  try {
-    const vol = await getMessageFull(env, rij.user_email, rij.gmail_message_id);
-    const { html, text } = extractBody(vol);
-    const schoon = html ? await stripQuotedHtml(html) : textToHtml(stripQuotedText(text || ''));
-
-    if (!schoon || !schoon.trim()) {
-      return { ok: false, reden: 'geen tekst om te plaatsen' };
-    }
-
-    const res = await postNaarChatter(env, {
-      model: 'crm.lead',
-      res_id: leadId,
-      html: schoon,
-      subject: rij.subject,
-      emailFrom: rij.direction === 'incoming' ? rij.counterpart_email : rij.user_email,
-      datum: vol.internalDate ? odooDatum(vol.internalDate) : null
-    });
-
-    const supabase = getSupabaseClient(env);
-    await supabase
-      .from('gmail_captured_messages')
-      .update({
-        status: 'posted',
-        odoo_model: 'crm.lead',
-        odoo_res_id: leadId,
-        odoo_message_id: typeof res === 'number' ? res : null,
-        match_method: 'handmatig',
-        error_message: null
-      })
-      .eq('gmail_message_id', rij.gmail_message_id);
-
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reden: String(err?.message || err).slice(0, 200) };
-  }
 }
 
 export const routes = {
@@ -245,86 +186,30 @@ export const routes = {
    * openen op jouw vraag, en dat doen we niet.
    */
   'POST /api/contacts/:email/link': async ({ env, request, user, params }) => {
-    const contact = String(params.email || '').trim().toLowerCase();
-    if (!contact.includes('@')) return json({ success: false, error: 'Ongeldig adres' }, 400);
-
     let body;
     try { body = await request.json(); } catch { return json({ success: false, error: 'Ongeldige body' }, 400); }
-    const leadId = Number(body?.lead_id);
-    if (!Number.isFinite(leadId) || leadId <= 0) {
-      return json({ success: false, error: 'lead_id ontbreekt' }, 400);
-    }
 
-    const lead = await haalLead(env, leadId);
-    if (!lead) return json({ success: false, error: 'Lead bestaat niet' }, 404);
-
-    try {
-      await upsertContactLink(env, {
-        email: contact,
-        action: 'lead',
-        odooModel: 'crm.lead',
-        odooResId: leadId,
-        createdBy: user?.email || null,
-        source: body?.source === 'gmail-addon' ? 'gmail-addon' : 'om'
-      });
-    } catch (e) {
-      return json({ success: false, error: e.message }, 500);
-    }
-
-    // Openstaande mail alsnog plaatsen — alleen uit je eigen mailbox.
-    const openstaand = await openstaandVoorContact(env, contact, 50);
-    const vanMij = user?.role === 'admin'
-      ? openstaand
-      : openstaand.filter(r => String(r.user_email).toLowerCase() === String(user?.email).toLowerCase());
-
-    let geplaatst = 0;
-    const mislukt = [];
-    for (const rij of vanMij) {
-      const res = await plaatsBewaardBericht(env, rij, leadId);
-      if (res.ok) geplaatst++; else mislukt.push(res.reden);
-    }
-
-    return json({
-      success: true,
-      data: {
-        lead_id: leadId,
-        lead: lead.name,
-        geplaatst,
-        mislukt: mislukt.length,
-        vanCollega: openstaand.length - vanMij.length
-      }
+    const res = await koppelContact(env, {
+      contact: params.email,
+      leadId: body?.lead_id,
+      actorEmail: user?.email,
+      isAdmin: user?.role === 'admin',
+      source: 'om'
     });
+    if (!res.ok) return json({ success: false, error: res.error }, 400);
+    return json({ success: true, data: res.data });
   },
 
   /** Een contact voorgoed negeren. Dit is wat de werklijst kort houdt. */
   'POST /api/contacts/:email/ignore': async ({ env, user, params }) => {
-    const contact = String(params.email || '').trim().toLowerCase();
-    if (!contact.includes('@')) return json({ success: false, error: 'Ongeldig adres' }, 400);
-
-    try {
-      await upsertContactLink(env, {
-        email: contact,
-        action: 'ignore',
-        createdBy: user?.email || null,
-        source: 'om'
-      });
-    } catch (e) {
-      return json({ success: false, error: e.message }, 500);
-    }
-
-    // Wat er al van dit contact in de werklijst stond, hoeft er niet te blijven.
-    const supabase = getSupabaseClient(env);
-    const email = bereik(user, new URL('http://x/'));
-    let q = supabase
-      .from('gmail_captured_messages')
-      .update({ status: 'skipped', skip_reason: 'contact genegeerd' })
-      .eq('counterpart_email', contact)
-      .in('status', ['unmatched', 'failed']);
-    if (email) q = q.eq('user_email', email);
-    const { error } = await q;
-    if (error) return json({ success: false, error: error.message }, 500);
-
-    return json({ success: true });
+    const res = await negeerContact(env, {
+      contact: params.email,
+      actorEmail: user?.email,
+      isAdmin: user?.role === 'admin',
+      source: 'om'
+    });
+    if (!res.ok) return json({ success: false, error: res.error }, 400);
+    return json({ success: true, data: res.data });
   },
 
   /** Een uitzondering ongedaan maken. */

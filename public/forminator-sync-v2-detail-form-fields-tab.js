@@ -724,8 +724,97 @@
   }
 
 
+
+  /**
+   * De veldenlijst van een CALENDLY-koppeling.
+   *
+   * Twee bronnen, samengevoegd:
+   *
+   *   1. De VASTE velden. Die staan in calendly/payload.js op de server en zijn
+   *      dus bekend voordat er ook maar één boeking binnen is -- precies de
+   *      reden dat deze route bestaat. Zonder dit zou je de koppeling pas kunnen
+   *      instellen ná de eerste boeking, en dat is net de boeking waarvan je de
+   *      mapping dan nog niet had.
+   *   2. De ANTWOORDEN op de vragen van de boekingspagina (q_<vraag>). Die hangen
+   *      af van hoe het eventtype in Calendly is ingesteld, dus die kan de server
+   *      niet vooraf weten; ze worden uit de laatste bewaarde inzending gehaald.
+   *
+   * extractGenericWebhookFields() is hier bewust NIET bruikbaar: die overschrijft
+   * de lijst en leest enkel het bovenste niveau van source_payload, terwijl een
+   * Calendly-inzending daar {form_id, form_data} heeft staan.
+   */
+  async function fetchCalendlyFields(id) {
+    var integrationId = id || S().activeId;
+    if (!integrationId) return false;
+
+    S().detailFormFields = 'loading';
+    window.FSV2.renderDetailFormFields();
+    window.FSV2.renderDetailMappings();
+
+    var velden = [];
+
+    try {
+      // De vaste lijst verandert nooit tijdens een sessie: één keer ophalen.
+      if (!S()._calendlyFields) {
+        var res = await window.FSV2.api('/calendly/fields');
+        S()._calendlyFields = ((res && res.data && res.data.fields) || []);
+      }
+      velden = S()._calendlyFields.map(function (f) {
+        return {
+          field_id: String(f.key),
+          label: String(f.label || f.key),
+          type: 'text',
+          required: false,
+          from_calendly: true
+        };
+      });
+    } catch (e) {
+      S().detailFormFields = [];
+      window.FSV2.renderDetailFormFields();
+      window.FSV2.renderDetailMappings();
+      window.FSV2.showAlert('Calendly-velden ophalen mislukt: ' + e.message, 'error');
+      return false;
+    }
+
+    // De vragen van de boekingspagina erbij, uit de laatste inzending die er een
+    // heeft. Ze staan achteraan en zijn herkenbaar aan de q_-voorvoegsel.
+    var bekend = {};
+    velden.forEach(function (v) { bekend[v.field_id] = true; });
+
+    var submissions = S().submissions || [];
+    for (var i = 0; i < submissions.length; i++) {
+      var p = submissions[i].source_payload;
+      var data = p && typeof p === 'object' ? (p.form_data || p) : null;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+      Object.keys(data).forEach(function (sleutel) {
+        if (bekend[sleutel]) return;
+        bekend[sleutel] = true;
+        velden.push({
+          field_id: sleutel,
+          label: sleutel.indexOf('q_') === 0
+            ? 'Vraag: ' + sleutel.slice(2).replace(/_/g, ' ')
+            : sleutel,
+          type: 'text',
+          required: false,
+          from_calendly: true,
+          from_payload: true
+        });
+      });
+      break;
+    }
+
+    S().detailFormFields = velden;
+    applyDefaultFieldMeta();
+
+    window.FSV2.renderDetailFormFields();
+    window.FSV2.renderDetailMappings();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    return true;
+  }
+
   Object.assign(window.FSV2, {
     extractGenericWebhookFields: extractGenericWebhookFields,
+    fetchCalendlyFields: fetchCalendlyFields,
     fetchDetailFormFields: fetchDetailFormFields,
     fetchOmFormFields: fetchOmFormFields,
     handleRefreshFormFields: handleRefreshFormFields,

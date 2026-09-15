@@ -67,10 +67,13 @@
       document.querySelectorAll('[data-detail-tab]').forEach(function (t) {
         t.classList.toggle('tab-active', t.dataset.detailTab === tabName);
       });
-      ['fields', 'form', 'mapping', 'history', 'stats'].forEach(function (name) {
+      ['fields', 'form', 'mapping', 'history', 'stats', 'calendly'].forEach(function (name) {
         var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
         if (panel) panel.style.display = name === tabName ? '' : 'none';
       });
+      // Calendly om dezelfde reden pas bij het openen: dat tabblad doet drie
+      // aanroepen, waarvan twee naar Calendly zelf.
+      if (tabName === 'calendly' && window.FSV2.laadCalendlyTab) window.FSV2.laadCalendlyTab();
       // Het formulier pas ophalen als je het tabblad opent: bij elke
       // detailweergave laden zou een extra API-aanroep zijn voor een tabblad
       // dat de meeste koppelingen niet gebruiken.
@@ -407,6 +410,12 @@
       // Forminator-formulieren gekoppeld moeten kunnen worden.
       if (action.indexOf('new-integration-') === 0) {
         if (window.FSV2.handleNewIntegrationAction) await window.FSV2.handleNewIntegrationAction(action, btn);
+        return;
+      }
+
+      // ── Calendly ──────────────────────────────────────────────────────
+      if (action.indexOf('calendly-') === 0) {
+        if (window.FSV2.handleCalendlyAction) await window.FSV2.handleCalendlyAction(action, btn);
         return;
       }
 

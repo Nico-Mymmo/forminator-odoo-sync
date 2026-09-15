@@ -677,6 +677,10 @@
     // Tab-zichtbaarheid: trackers hebben geen formuliervelden/koppeling/indieningen \u2014
     // toon in plaats daarvan uitsluitend de Statistieken-tab (omgekeerd voor de andere twee bronnen).
     var isTrackerIntegration = integration.source_type === 'tracker';
+    // Het Calendly-tabblad verschijnt alleen bij een Calendly-koppeling. Daar
+    // staat de verbinding met Calendly, welk eventtype deze koppeling opvangt,
+    // en wat de vaste eerste stap doet.
+    var isCalendlyIntegration = integration.source_type === 'calendly';
     var tabBar = document.getElementById('detailTabBar');
     if (tabBar) {
       var fieldsBtn  = tabBar.querySelector('[data-detail-tab="fields"]');
@@ -684,10 +688,12 @@
       var mappingBtn = tabBar.querySelector('[data-detail-tab="mapping"]');
       var historyBtn = tabBar.querySelector('[data-detail-tab="history"]');
       var statsBtn   = document.getElementById('detailTabStatsBtn');
+      var calendlyBtn = document.getElementById('detailTabCalendlyBtn');
       [fieldsBtn, formBtn, mappingBtn, historyBtn].forEach(function (btn) {
         if (btn) btn.style.display = isTrackerIntegration ? 'none' : '';
       });
       if (statsBtn) statsBtn.style.display = isTrackerIntegration ? '' : 'none';
+      if (calendlyBtn) calendlyBtn.style.display = isCalendlyIntegration ? '' : 'none';
 
       var activeTabBtn = tabBar.querySelector('.tab-active');
       var needsTabSwitch = isTrackerIntegration
@@ -698,7 +704,7 @@
         tabBar.querySelectorAll('[data-detail-tab]').forEach(function (t) {
           t.classList.toggle('tab-active', t.dataset.detailTab === targetTab);
         });
-        ['fields', 'form', 'mapping', 'history', 'stats'].forEach(function (name) {
+        ['fields', 'form', 'mapping', 'history', 'stats', 'calendly'].forEach(function (name) {
           var panel = document.getElementById('detailTab' + name.charAt(0).toUpperCase() + name.slice(1));
           if (panel) panel.style.display = name === targetTab ? '' : 'none';
         });

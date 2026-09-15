@@ -47,6 +47,14 @@
       sourceType: 'generic_webhook',
       tab: 'fields',
     },
+    calendly: {
+      titel: 'Calendly',
+      icoon: 'calendar-clock',
+      kleur: 'text-secondary',
+      uitleg: 'Boekingen uit Calendly. Aanmaken, verplaatsen en annuleren worden alle drie opgevangen en de afspraak wordt in Odoo gelijk gehouden. Daarna kies je welk Calendly-eventtype deze koppeling opvangt.',
+      sourceType: 'calendly',
+      tab: 'calendly',
+    },
     tracker: {
       titel: 'Trackbare link',
       icoon: 'qr-code',
@@ -104,7 +112,7 @@
       <label class="form-control mb-2">
         <span class="label label-text text-xs">Naam van de koppeling</span>
         <input id="niName" type="text" class="input input-bordered input-sm"
-               placeholder="${keuze === 'tracker' ? 'Bijv. QR op de beurspanelen' : 'Bijv. Offerte technisch beheer'}">
+               placeholder="${keuze === 'tracker' ? 'Bijv. QR op de beurspanelen' : keuze === 'calendly' ? 'Bijv. Demo-afspraken' : 'Bijv. Offerte technisch beheer'}">
       </label>
 
       ${keuze === 'tracker' ? `
@@ -119,7 +127,9 @@
           ? 'Na het aanmaken kom je meteen in de formulierbouwer. Het formulier werkt op elke site waar de Mymmo Forms-plugin staat.'
           : keuze === 'webhook'
             ? 'Na het aanmaken vind je de webhook-URL op het detailscherm.'
-            : 'Na het aanmaken vind je de korte link en de QR-code op het detailscherm.'}
+            : keuze === 'calendly'
+              ? 'Na het aanmaken kies je op het tabblad Calendly welk eventtype deze koppeling opvangt. De stap die de afspraak naar Odoo synchroniseert staat er dan al in.'
+              : 'Na het aanmaken vind je de korte link en de QR-code op het detailscherm.'}
       </p>`;
 
     var knop = document.getElementById('niCreateBtn');

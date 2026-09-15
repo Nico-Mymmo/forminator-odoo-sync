@@ -1454,8 +1454,8 @@
     if (moveConfirmBtn) moveConfirmBtn.addEventListener('click', confirmMove);
 
     // Nieuwe map
-    if (addFolderBtn) addFolderBtn.addEventListener('click', openFolderModal);
-    if (addFolderBtnMobile) addFolderBtnMobile.addEventListener('click', openFolderModal);
+    if (addFolderBtn) addFolderBtn.addEventListener('click', function () { openFolderModal(); });
+    if (addFolderBtnMobile) addFolderBtnMobile.addEventListener('click', function () { openFolderModal(); });
     if (folderLabelInput) {
       folderLabelInput.addEventListener('input', function() {
         var slug = slugifyLabel(folderLabelInput.value);

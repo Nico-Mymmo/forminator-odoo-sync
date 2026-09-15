@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacybeleid — OpenVME Gmail-add-on</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+           max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem; color: #222; line-height: 1.6; }
+    h1 { font-size: 1.6rem; margin-bottom: .25rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; }
+    .sub { color: #666; margin-top: 0; }
+    ul { padding-left: 1.2rem; }
+    footer { margin-top: 3rem; color: #888; font-size: .85rem; border-top: 1px solid #eee; padding-top: 1rem; }
+    code { background: #f4f4f5; padding: .1rem .3rem; border-radius: 3px; font-size: .9em; }
+  </style>
+</head>
+<body>
+  <h1>Privacybeleid</h1>
+  <p class="sub">OpenVME Gmail-add-on — "mail bij een lead"</p>
+
+  <p>
+    Deze add-on is een intern hulpmiddel van <strong>Mymmo BV</strong> (OpenVME, Syndicoach)
+    en wordt uitsluitend gebruikt door eigen medewerkers met een account op ons
+    Google Workspace-domein. Hij is niet publiek beschikbaar.
+  </p>
+
+  <h2>Welke gegevens de add-on gebruikt</h2>
+  <p>
+    Wanneer je een e-mail opent, leest de add-on uitsluitend de
+    <strong>kopgegevens</strong> van dat ene bericht: de afzender en de ontvangers.
+    De add-on leest de inhoud van je e-mails niet.
+  </p>
+  <p>
+    Het e-mailadres van de tegenpartij wordt naar onze eigen Operations Manager
+    gestuurd om op te zoeken of dat adres bij een lead in ons CRM hoort. Daarbij
+    gaat een door Google ondertekend identiteitstoken mee, zodat wij weten welke
+    medewerker de vraag stelt.
+  </p>
+
+  <h2>Wat er bewaard wordt</h2>
+  <ul>
+    <li>
+      Leg je vast dat mail van een bepaald adres bij een bepaalde lead hoort, dan
+      bewaren wij die koppeling: het e-mailadres, de lead, wie het vastlegde en wanneer.
+    </li>
+    <li>
+      Los daarvan houdt onze Operations Manager van zakelijke correspondentie de
+      kopgegevens bij (afzender, ontvanger, onderwerp, datum) om te bepalen bij welk
+      klantdossier een bericht hoort. De <em>inhoud</em> van een bericht wordt alleen
+      opgehaald op het moment dat het aan een klantdossier wordt toegevoegd, en wordt
+      dan in dat dossier bewaard — niet daarbuiten.
+    </li>
+    <li>
+      Interne mail, nieuwsbrieven en geautomatiseerde afzenders worden herkend en
+      overgeslagen.
+    </li>
+  </ul>
+
+  <h2>Waar de gegevens staan</h2>
+  <p>
+    Alle verwerking gebeurt binnen onze eigen infrastructuur: een Cloudflare Worker,
+    een Supabase-database en onze Odoo-omgeving. Er worden geen gegevens gedeeld met
+    derden, en er wordt niets gebruikt voor reclame, profilering of training van
+    modellen.
+  </p>
+
+  <h2>Bewaartermijnen</h2>
+  <ul>
+    <li>Overgeslagen berichten (intern, nieuwsbrieven): 14 dagen</li>
+    <li>Berichten die aan een klantdossier zijn toegevoegd: 400 dagen in de tussenopslag</li>
+    <li>Berichten die op toewijzing wachten: 180 dagen</li>
+    <li>Koppelingen tussen een e-mailadres en een lead: tot ze met de hand verwijderd worden</li>
+  </ul>
+
+  <h2>Rechten en contact</h2>
+  <p>
+    Medewerkers kunnen hun eigen gegevens inzien in de Operations Manager en een
+    koppeling op elk moment ongedaan maken. Vragen of een verzoek tot verwijdering:
+    <a href="mailto:info@openvme.be">info@openvme.be</a>.
+  </p>
+
+  <footer>
+    Mymmo BV · <a href="https://openvme.be">openvme.be</a> · laatst bijgewerkt op 14 september 2026
+  </footer>
+</body>
+</html>

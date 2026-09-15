@@ -580,6 +580,154 @@ waarschijnlijke eerste uitbreiding; het schema laat er ruimte voor.
 
 ---
 
+## Koppelingen — Calendly als vierde bron (2026-09)
+
+**Regel: een Calendly-koppeling heeft een VASTE eerste stap die de afspraak naar
+`x_calendlymeeting` synchroniseert. Die is niet instelbaar en niet te verwijderen.
+Alles wat je er daarna aan hangt (contact, lead, notitie, mail) is wel gewoon
+instelbaar.** Vervangt de Zapier-koppeling, die sinds 2026-07-24 stil lag —
+laatste meeting in Odoo was id 891.
+
+| Wat | Waar |
+|---|---|
+| Payload plat slaan + handtekening (puur, geen env/fetch/db) | `src/modules/forminator-sync-v2/calendly/payload.js` |
+| Calendly REST-API (users/me, event_types, webhook_subscriptions) | `calendly/client.js` |
+| `fs_v2_calendly_subscriptions` + koppeling zoeken op eventtype | `calendly/database.js` |
+| De vaste stap bouwen (resolver + host-zoekstap + upsert) | `calendly/system-step.js` |
+| Boeking ontvangen → bestaande pipeline | `calendly/webhook.js` + een blok in `src/router/public-routes.js` |
+| Beheerroutes | `calendly/routes.js`, gespreid in `routes.js` |
+| Tabblad "Calendly" in het detailscherm | `public/forminator-sync-v2-detail-calendly-tab.js` |
+| Veldenlijst zonder eerste boeking | `fetchCalendlyFields()` in `-detail-form-fields-tab.js` |
+| Migratie | `supabase/migrations/20260914150000_fsv2_calendly.sql` |
+
+**Nieuwe secret:** `CALENDLY_ACCESS_TOKEN` (persoonlijk toegangstoken met
+`webhooks:read`, `webhooks:write`, `event_types:read`, `scheduled_events:read`).
+Zonder dat token werkt de module gewoon door; je kan alleen niets aanmelden.
+
+Afspraken die bewust zo zijn:
+
+- **ÉÉN webhook-subscription voor de hele module, niet één per koppeling.** Een
+  Calendly-subscription kan NIET op eventtype filteren — `scope` is enkel
+  `organization`, `user` of `group` (geverifieerd in hun OpenAPI-spec). Eén
+  subscription per koppeling zou betekenen dat elke koppeling élke boeking van de
+  hele organisatie binnenkrijgt en dat elke boeking N keer verwerkt wordt. De
+  routering gebeurt daarom bij ons, op `scheduled_event.event_type` →
+  `fs_v2_integrations.calendly_event_type_uri`. Een koppeling met een lege
+  `calendly_event_type_uri` is het VANGNET voor alles zonder eigen koppeling.
+  Twee koppelingen op hetzelfde eventtype wordt geweigerd met een 409: anders
+  wint er stil één en doet de andere nooit meer iets.
+- **De vaste stap bestaat als echte RIJEN, niet als code.** Een
+  `if (source_type === 'calendly')` in worker-handler.js zou korter zijn, maar dat
+  is precies de twee-motoren-fout die de Sales Insight Explorer eerder maakte. Als
+  rijen in `fs_v2_resolvers`/`fs_v2_targets`/`fs_v2_mappings` draait de bestaande
+  pipeline er ongewijzigd op (idempotentie, retries, replay), staat de stap in het
+  spoor van elke indiening, en kan een VOLGENDE stap via `previous_step_output` aan
+  het meeting-id. `ensureCalendlySystemSteps()` is idempotent: bestaande rijen
+  worden bijgewerkt, niet weggegooid-en-opnieuw-gemaakt — hun id's staan in het
+  spoor van eerdere indieningen.
+- **`is_system` op `fs_v2_targets` en `fs_v2_resolvers` beschermt die rijen.** De
+  PUT/DELETE-routes voor targets, mappings en resolvers weigeren ze
+  (`assertNotSystemTarget`/`-Mapping`/`-Resolver` in `routes.js`). Zonder die vlag
+  is een vaste stap niet van een gewone te onderscheiden en haalt de eerste
+  opruimactie hem weg — waarna er niets meer in Odoo belandt terwijl het scherm
+  nog "koppeling actief" zegt.
+- **De bestaande `generic_webhook` kan dit NIET.** `normalizeFormValues()` in
+  worker-handler.js slaat exact één niveau plat. Calendly zet het belangrijkste
+  twee niveaus diep (`payload.scheduled_event.start_time`) en die tak bestaat enkel
+  uit objecten en arrays, dus hij valt volledig weg; `questions_and_answers` wordt
+  letterlijk `[object Object]`. Vandaar `flattenCalendlyPayload()`, die naar VASTE
+  platte tekstsleutels gaat. Aan `normalizeFormValues()`/`resolveFormId()` is
+  NIETS gewijzigd — de payload is `{ form_id, form_data: {...} }`, dezelfde vorm
+  als bij de OM-formulieren.
+- **De sleutels in `CALENDLY_FIELDS` liggen VAST.** Ze staan in
+  `fs_v2_mappings.source_value` van elke stap; hernoemen laat een stap zonder
+  foutmelding een leeg veld naar Odoo schrijven. Zelfde regel als `field_key` bij
+  de OM-formulieren.
+- **De upsert-sleutel is `x_studio_cm_event_id`** (de UUID van `scheduled_event`).
+  Die staat in ELKE webhook, ook die van een annulatie, dus aanmaken en bijwerken
+  zijn dezelfde stap en een herbezorging kan geen tweede rij maken.
+- **VERPLAATSEN geeft TWEE records, en dat is Calendly's model.** Een reschedule
+  vuurt `invitee.canceled` (met `rescheduled: true`) op de OUDE afspraak en
+  `invitee.created` op een NIEUWE met een nieuw `event_uuid`. De oude rij komt dus
+  op geannuleerd te staan en er komt een nieuwe bij. De Zapier-koppeling deed
+  hetzelfde. Probeer dat niet "op te lossen" door op `invitee_uuid` te matchen —
+  dan verlies je de historiek van de verplaatsing.
+- **Veldtypes staan in `VELDTYPES` (system-step.js) en worden AANGEVULD, nooit
+  overschreven.** Zonder die omzetting gaat het stil mis: `resolveMappingValue()`
+  past `coerceFieldValue()` alleen toe als er een `fs_v2_field_transforms`-rij is,
+  dus zonder rij krijgt een boolean-veld de string `"false"` en leest Python
+  `bool("false")` als True — een geannuleerde afspraak zou als niet-geannuleerd in
+  Odoo staan. Dezelfde faalmodus als de `is_company`-bug van 2026-09-10.
+- **`odoo_event_type_id`, `is_round_robin` en `form_language` worden in
+  `webhook.js` aan de platte payload TOEGEVOEGD** uit de koppeling, en zijn geen
+  `static`-mapping. Twee redenen: een `static`-waarde gaat als string naar Odoo en
+  een many2one wil een getal, en wie het eventtype op de koppeling wijzigt zou
+  anders ook de mapping moeten laten herschrijven.
+- **De host is een `search`-stap op `hr.employee.work_email`, met
+  `condition_field: 'host_email'` + `condition_values: ['__exists__']`.** Die
+  conditie is niet cosmetisch: `user_email` is in Calendly's schema niet verplicht,
+  en een leeg zoekcriterium is in `buildIdentifierDomainForTarget()` een HARDE
+  fout — zonder de conditie zou een ontbrekend hostadres de hele indiening laten
+  falen. `search_on_not_found: 'continue_empty'`: een host die niet als medewerker
+  in Odoo staat is geen reden om de afspraak niet te bewaren.
+- **De handtekening gaat over de RUWE body.** `Calendly-Webhook-Signature:
+  t=<unix>,v1=<hex>`, waarbij v1 de HMAC-SHA256 is over `"<t>.<ruwe body>"` met de
+  signing key die WIJ bij het aanmelden meegaven (Calendly geeft die nooit meer
+  terug). `JSON.stringify(geparste body)` verschilt in sleutelvolgorde en
+  witruimte en zou de handtekening altijd doen mislukken. Bij het verifiëren
+  worden de laatste vijf sleutels geprobeerd, niet enkel de actieve: bij opnieuw
+  aanmelden kunnen er bezorgingen onderweg zijn met de VORIGE sleutel, en die
+  zouden anders stil achter een 401 verdwijnen.
+- **Een genegeerde gebeurtenis geeft 200, geen 4xx.** Geldt voor een eventtype
+  zonder koppeling en voor gebeurtenissen buiten `HANDLED_EVENTS`. Calendly ziet
+  een 4xx als mislukt, blijft herbezorgen, en zet de subscription uiteindelijk op
+  `disabled` — waarna ÁLLE Calendly-koppelingen stilvallen. Om dezelfde reden
+  geeft een bewaarde boeking waarvan de pipeline stukliep een **202** en geen 500:
+  herbezorgen lost een ontbrekend Odoo-veld niet op, en de OM heeft zijn eigen
+  retry plus de Replay-knop.
+- **`/api/calendly/status` vergelijkt onze rij met wat Calendly zélf zegt.** De
+  stand `missing_at_calendly` betekent: de OM denkt dat er een aanmelding is, maar
+  Calendly kent ze niet — er komt op dat moment niets binnen. Dat is exact de
+  stille toestand waarin de Zapier-koppeling maandenlang verkeerde, dus dit scherm
+  hoort het te zien.
+- **`x_calendlymeeting` staat in `fs_v2_odoo_models`** (geseed in de migratie).
+  Zonder die rij weigert `validateTargetPayload()` het model en kan de vaste stap
+  niet aangemaakt worden.
+- **De veldenlijst van het koppelingsscherm heeft nu VIER bronnen.** In
+  `-detail-lifecycle.js`: `generic_webhook` → `extractGenericWebhookFields()`,
+  `calendly` → `fetchCalendlyFields()`, `om_form` → `fetchOmFormFields()`, anders
+  met een `forminator_form_id` → `fetchDetailFormFields()`. Roep voor Calendly
+  NIET ook `extractGenericWebhookFields()` aan: die overschrijft de lijst en leest
+  enkel het bovenste niveau van `source_payload`, waar bij Calendly
+  `{form_id, form_data}` staat. `fetchCalendlyFields()` voegt de vaste lijst en de
+  `q_<vraag>`-velden uit de laatste inzending zelf samen.
+
+**Wat er in Odoo al stond (niet door de OM gemaakt, niet aanraken zonder reden):**
+`x_calendlymeeting` (model 827) met 19 Studio-velden; `x_calendlyeventtypes` met
+vier rijen (Partnership / Ondersteuning / Demo / Anders);
+`crm.lead.x_studio_cm_calendlymeeting_ids`, een one2many met
+`relation_field = x_studio_cm_invitee`, waardoor de meetings verschijnen bij élke
+lead van diezelfde partner. Automation 12 "New CalendlyMeeting Demo > Check and
+Create Lead" (server actions 835 + 836) vuurt ALLEEN bij `x_studio_cm_event_type = 3`
+(Demo) en `x_studio_cm_isleadcreated != True`; `last_run` staat op 2025-09-26. Alle
+meetings van juli 2026 kregen type "Anders" (4), dus die automation liep toen al
+niet meer — dat is los van het stilvallen van Zapier. Zet het Odoo-eventtype per
+koppeling dus bewust; staat het op "Anders", dan gebeurt er in Odoo niets extra.
+
+**Nog niet gebouwd, bewust:** de INHAALSLAG voor 24 juli 2026 → nu. Calendly's
+`/scheduled_events` kan die periode ophalen en de upsert op `x_studio_cm_event_id`
+maakt het idempotent, dus dubbel draaien kan geen dubbele records geven. Eerst
+bewijzen dat de koppeling vooruit werkt. Ook niet gebouwd: `invitee_no_show.*` en
+`routing_form_submission.created`.
+
+**Uitrolvolgorde (Zapier niet aanraken):** migratie → `CALENDLY_ACCESS_TOKEN`
+zetten en deployen → koppeling aanmaken en op INACTIEF laten staan → aanmelden bij
+Calendly → een testboeking doen (die wordt bewaard, Odoo wordt overgeslagen —
+`skipPipeline`) → velden controleren op het tabblad Formuliervelden → koppeling
+activeren → pas als het klopt de Zap uitzetten.
+
+---
+
 ## Koppelingen — bijlagen bij de `send_mail`-stap (2026-09)
 
 **Regel: een stap bewaart een VERWIJZING naar een bestand in de Asset Manager,

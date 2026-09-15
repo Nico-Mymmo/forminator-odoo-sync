@@ -85,6 +85,8 @@ import {
   seedFieldTransforms
 } from './forms/database.js';
 import { FIELD_TYPES, ODOO_FIELD_TYPES, META_KEYS, META_PREFIX, LANGUAGES, validateFormDefinition, slugifyForm } from './forms/schema.js';
+import { calendlyRoutes } from './calendly/routes.js';
+import { ensureCalendlySystemSteps } from './calendly/system-step.js';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -120,6 +122,52 @@ function assertIntegrationSelected(integrationId) {
     error.code = 'VALIDATION_ERROR';
     throw error;
   }
+}
+
+/**
+ * Systeemstappen zijn van de OM, niet van de gebruiker.
+ *
+ * Een Calendly-koppeling krijgt bij het aanmaken een vaste eerste stap die de
+ * afspraak naar x_calendlymeeting synchroniseert (zie calendly/system-step.js).
+ * Die stap staat als gewone rijen in de database, zodat de bestaande pipeline
+ * er ongewijzigd op draait -- maar dat betekent ook dat de gewone bewerk- en
+ * verwijderroutes hem zouden pakken. Zonder deze bewaker haalt de eerste de
+ * beste opruimactie de stap weg, waarna er niets meer in Odoo belandt terwijl
+ * het scherm nog steeds "koppeling actief" zegt.
+ *
+ * Stappen die de gebruiker er ZELF aan hangt (contact, lead, notitie, mail)
+ * dragen de vlag niet en blijven dus gewoon bewerkbaar.
+ */
+function systemStepError() {
+  const error = new Error(
+    'Dit is de vaste eerste stap van een Calendly-koppeling. Die houdt de afspraak in Odoo gelijk '
+    + '(aanmaken, verplaatsen, annuleren) en is bewust niet te wijzigen of te verwijderen. '
+    + 'Stappen die je er zelf aan hangt, kan je wel gewoon aanpassen.'
+  );
+  error.code = 'VALIDATION_ERROR';
+  return error;
+}
+
+async function assertNotSystemTarget(env, targetId) {
+  if (!targetId) return null;
+  const target = await getTargetById(env, targetId);
+  if (target?.is_system === true) throw systemStepError();
+  return target;
+}
+
+async function assertNotSystemMapping(env, mappingId) {
+  if (!mappingId) return null;
+  const mapping = await getMappingById(env, mappingId);
+  if (mapping?.target_id) await assertNotSystemTarget(env, mapping.target_id);
+  return mapping;
+}
+
+async function assertNotSystemResolver(env, integrationId, resolverId) {
+  if (!integrationId || !resolverId) return null;
+  const resolvers = await listResolversByIntegration(env, integrationId);
+  const resolver = resolvers.find((r) => r.id === resolverId);
+  if (resolver?.is_system === true) throw systemStepError();
+  return resolver;
 }
 
 function normalizeImportText(value) {
@@ -733,6 +781,12 @@ const META_LABELS = {
 };
 
 export const routes = {
+
+  // Calendly: aanmelden bij Calendly, eventtypes ophalen, en per koppeling
+  // instellen welk eventtype ze opvangt. Staan in calendly/routes.js zodat
+  // dit bestand niet verder groeit. De ONTVANGST van een boeking staat daar
+  // niet bij -- die is publiek en loopt via router/public-routes.js.
+  ...calendlyRoutes,
   'GET /': async (context) => {
     return context.env.ASSETS.fetch(
       new Request(new URL('/forminator-sync-v2.html', context.request.url))
@@ -781,7 +835,23 @@ export const routes = {
         payload.forminator_form_id = 'omform-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
       }
 
+      // Calendly: geen webhook_token (er is één gedeelde, ondertekende webhook
+      // voor de hele module), wel een synthetische form-id -- buildIdempotencyKey()
+      // gebruikt die, dus hij mag niet leeg blijven.
+      if (payload.source_type === 'calendly') {
+        payload.forminator_form_id = 'calendly-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      }
+
       const created = await createIntegrationRecord(context.env, payload);
+
+      // De vaste eerste stap meteen mee aanmaken. Gebeurt dit pas bij de eerste
+      // save van de instellingen, dan bestaat er even een Calendly-koppeling
+      // zonder enige stap: die zou een boeking wel bewaren maar niets naar Odoo
+      // schrijven, en op het scherm is dat niet van een werkende te onderscheiden.
+      if (created?.source_type === 'calendly') {
+        await ensureCalendlySystemSteps(context.env, created);
+      }
+
       return jsonResponse({ success: true, data: created }, 201);
     } catch (error) {
       return jsonResponse({ success: false, error: error.message }, parseErrorStatus(error));
@@ -1119,6 +1189,8 @@ export const routes = {
       validateResolverPayload(payload);
       await enforceNoDuplicateResolverType(context.env, integrationId, payload.resolver_type, context.params?.resolverId);
 
+      await assertNotSystemResolver(context.env, integrationId, context.params?.resolverId);
+
       const updated = await updateResolver(context.env, context.params?.resolverId, {
         order_index: Number(payload.order_index || 0),
         resolver_type: payload.resolver_type,
@@ -1136,6 +1208,7 @@ export const routes = {
 
   'DELETE /api/integrations/:id/resolvers/:resolverId': async (context) => {
     try {
+      await assertNotSystemResolver(context.env, context.params?.id, context.params?.resolverId);
       await deleteResolver(context.env, context.params?.resolverId);
       return jsonResponse({ success: true });
     } catch (error) {
@@ -1235,6 +1308,8 @@ export const routes = {
       ]);
       validateTargetPayload(payload, { allowedModels });
 
+      await assertNotSystemTarget(context.env, context.params?.targetId);
+
       const updated = await updateTarget(context.env, context.params?.targetId, {
         order_index: Number(payload.order_index || 0),
         odoo_model: payload.odoo_model,
@@ -1297,6 +1372,7 @@ export const routes = {
 
   'DELETE /api/integrations/:id/targets/:targetId': async (context) => {
     try {
+      await assertNotSystemTarget(context.env, context.params?.targetId);
       await deleteTarget(context.env, context.params?.targetId);
       return jsonResponse({ success: true });
     } catch (error) {
@@ -1548,6 +1624,8 @@ export const routes = {
         }
       }
 
+      await assertNotSystemMapping(context.env, context.params?.mappingId);
+
       const updated = await updateMapping(context.env, context.params?.mappingId, {
         order_index: Number(payload.order_index || 0),
         odoo_field: payload.odoo_field,
@@ -1569,6 +1647,7 @@ export const routes = {
 
   'DELETE /api/mappings/:mappingId': async (context) => {
     try {
+      await assertNotSystemMapping(context.env, context.params?.mappingId);
       await deleteMapping(context.env, context.params?.mappingId);
       return jsonResponse({ success: true });
     } catch (error) {
@@ -1578,6 +1657,7 @@ export const routes = {
 
   'DELETE /api/targets/:targetId/mappings': async (context) => {
     try {
+      await assertNotSystemTarget(context.env, context.params?.targetId);
       await deleteMappingsByTarget(context.env, context.params?.targetId);
       return jsonResponse({ success: true });
     } catch (error) {

@@ -10,6 +10,12 @@
  *   gedefinieerd zijn. De WordPress-plugin mymmo-forms praat hiermee
  *   server-naar-server; de sitesleutel komt daardoor nooit in de HTML.
  *   Zie src/modules/forminator-sync-v2/forms/public-api.js.
+ * - Calendly-webhook (handtekening-auth): /forminator-v2/api/calendly/webhook
+ *   -- boekingen van Calendly. Geen token in de URL maar een HMAC-handtekening
+ *   over de ruwe body (Calendly-Webhook-Signature). Eén URL voor alle
+ *   Calendly-koppelingen: een subscription kan bij Calendly niet op eventtype
+ *   filteren, dus de routering naar de juiste koppeling gebeurt in
+ *   src/modules/forminator-sync-v2/calendly/webhook.js.
  * - Postmark-webhook (token-auth): /forminator-v2/api/webhooks/postmark
  * - Postmark-webhook event-operations-v2 (token-auth): /events-v2/api/webhooks/postmark
  * - Mini-app discovery (token-auth): /insights/api/sales-insights/mini-app-discovery/*
@@ -34,6 +40,7 @@ import { handleEventsPublicApi, isEventsPublicApiPath } from '../modules/event-o
 import { validateKey } from '../modules/asset-manager/lib/path-utils.js';
 import { getMimeType } from '../modules/asset-manager/lib/mime-types.js';
 import { extractSessionToken } from './auth-gate.js';
+import { handleGmailAddonRoutes } from '../modules/gmail-chatter/addon-routes.js';
 import { getIntegrationByTrackerSlug, logTrackerHit } from '../modules/forminator-sync-v2/database.js';
 import {
   handlePostmarkWebhook,
@@ -49,6 +56,10 @@ import {
   handleFormsPublicApi,
   isFormsPublicApiPath
 } from '../modules/forminator-sync-v2/forms/public-api.js';
+import {
+  handleCalendlyWebhook,
+  isCalendlyWebhookPath
+} from '../modules/forminator-sync-v2/calendly/webhook.js';
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -406,6 +417,15 @@ export async function handlePublicRoutes(request, env, ctx) {
     });
   }
 
+  // Gmail-add-on (Google ID-token, geen sessie).
+  // Staat hier omdat de add-on in Gmail draait en dus geen sessiecookie heeft;
+  // elke route erachter eist een door Google ondertekend token dat naar een
+  // actieve OM-gebruiker herleid wordt (gmail-chatter/lib/addon-auth.js).
+  if (pathname.startsWith('/gmail-addon/v1/')) {
+    const antwoord = await handleGmailAddonRoutes(request, env);
+    if (antwoord) return antwoord;
+  }
+
   // Mini-app discovery (token-auth, geen sessie) -- zie dispatchMiniAppDiscovery
   if (
     pathname.startsWith('/insights/api/sales-insights/mini-app-discovery/') &&
@@ -486,6 +506,16 @@ export async function handlePublicRoutes(request, env, ctx) {
 
   if (isEventsPublicApiPath(pathname)) {
     return await handleEventsPublicApi(request, env, ctx, pathname);
+  }
+
+  // Calendly-boeking. Geen token in de URL: de handler kijkt zelf de
+  // HMAC-handtekening na tegen de signing key die de OM bij het aanmelden aan
+  // Calendly meegaf, en geeft 401 zonder geldige handtekening. Dit MOET vóór
+  // de per-koppeling webhook hieronder staan -- niet omdat de patronen
+  // botsen, maar omdat een vast pad altijd vóór een patroon met een
+  // wildcard-segment hoort te komen.
+  if (isCalendlyWebhookPath(pathname, request.method)) {
+    return await handleCalendlyWebhook(request, env, ctx);
   }
 
   if (/^\/forminator-v2\/api\/integrations\/[^/]+\/webhook$/.test(pathname) && request.method === 'POST') {
