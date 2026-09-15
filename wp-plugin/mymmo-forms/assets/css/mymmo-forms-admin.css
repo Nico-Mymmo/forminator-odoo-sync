@@ -1,0 +1,372 @@
+/**
+ * Mymmo Forms — het canvas in de shortcode-bouwer (wp-admin).
+ *
+ * Alleen het KADER rond het voorbeeld staat hier: de balk erboven, het podium
+ * en de statusregel. De vormgeving van het venster zelf komt uit
+ * mymmo-forms.css en mymmo-forms-modal.css, en die worden ONGEWIJZIGD in het
+ * iframe geladen. Dat is het hele punt van een iframe hier: wp-admin heeft een
+ * eigen stylesheet die anders over het voorbeeld heen zou vallen, en dan toont
+ * de bouwer iets wat een bezoeker nooit te zien krijgt.
+ *
+ * De bewerklaag (omlijning bij het aanwijzen, de kleine knopjes bij de
+ * opsomming) wordt door mymmo-forms-preview.js IN het iframe geïnjecteerd —
+ * niet hier, want hier kan ze er niet bij.
+ */
+
+.mymmo-canvas {
+  margin: 16px 0 24px;
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-radius: 4px;
+}
+
+.mymmo-canvas[hidden] {
+  display: none;
+}
+
+.mymmo-canvas-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #dcdcde;
+  background: #f6f7f7;
+}
+
+.mymmo-canvas-hint {
+  color: #646970;
+  font-size: 12px;
+}
+
+.mymmo-canvas-spacer {
+  flex: 1 1 auto;
+}
+
+.mymmo-canvas-bar .button.is-actief {
+  border-color: #2271b1;
+  color: #2271b1;
+  box-shadow: inset 0 0 0 1px #2271b1;
+}
+
+/* Het podium is grijs zodat de rand van het venster zichtbaar blijft: op een
+   witte achtergrond zie je niet waar het venster ophoudt, en dan lijkt het
+   breder dan het is. */
+.mymmo-canvas-stage {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+  background: #1d2327;
+}
+
+/* Het iframe houdt zijn EIGEN breedte (1100px, of 390 voor de telefoon) en
+   wordt visueel verkleind. Het versmallen zou de mediaquery's van het venster
+   laten omslaan naar de smalle weergave, en dan toont het voorbeeld iets anders
+   dan een bezoeker op een desktop krijgt. Breedte, hoogte en schaal worden door
+   mymmo-forms-preview.js gezet. */
+.mymmo-canvas-stage {
+  overflow: hidden;
+}
+
+.mymmo-canvas-stage iframe {
+  transform-origin: top left;
+  height: 760px;
+  background: #eef2f7;
+  border: 0;
+  border-radius: 2px;
+  /* De overgang is er enkel bij het wisselen van toestel; het hertekenen zelf
+     mag niets animeren, want dan flikkert het scherm bij elke wijziging. */
+  transition: width 0.15s ease;
+}
+
+/* De telefoonweergave is een ECHTE 390px-viewport, geen geschaalde desktop: de
+   mediaquery's kijken naar de breedte van het iframe zelf. */
+
+.mymmo-canvas-status {
+  margin: 0;
+  padding: 8px 12px;
+  min-height: 1em;
+  color: #646970;
+  font-size: 12px;
+  border-top: 1px solid #dcdcde;
+}
+
+.mymmo-canvas-status.is-fout {
+  color: #b32d2e;
+}
+
+/* Rijen die het canvas overgenomen heeft. Het script zet dit attribuut pas als
+   het echt draait -- zonder JavaScript blijven de velden gewoon staan, want
+   dan zijn zij de enige manier om die teksten te zetten. */
+[data-mymmo-canvas-overgenomen] {
+  display: none;
+}
+
+/* ── Opstellingen, bovenaan ──────────────────────────────────────────────── */
+
+.mymmo-opstellingen {
+  max-width: 1100px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-radius: 4px;
+}
+
+.mymmo-opstellingen-kop {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.mymmo-opstellingen-rij {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.mymmo-opstellingen-bewaar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f1;
+}
+
+.mymmo-opstellingen-details {
+  margin-top: 10px;
+}
+
+.mymmo-opstellingen-details summary {
+  cursor: pointer;
+  color: #2271b1;
+}
+
+/* De twee schuifjes voor de opvulling, in de werkbalk van het voorbeeld. Ze
+   staan daar en niet bij de velden eronder, omdat je het effect wil zien
+   terwijl je ze bedient. */
+.mymmo-canvas-ruimte {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  color: #646970;
+  font-size: 13px;
+}
+
+.mymmo-canvas-ruimte input {
+  width: 4.5em;
+  padding: 2px 4px;
+}
+
+/* ── Voorbeeld links, instellingen rechts ────────────────────────────────── */
+
+/* Onder 1200px onder elkaar: twee kolommen zouden daar allebei te smal zijn en
+   de instellingen onleesbaar maken. */
+.mymmo-bouwer {
+  display: grid;
+  gap: 20px;
+  align-items: start;
+  max-width: 1600px;
+}
+
+@media (min-width: 1200px) {
+  .mymmo-bouwer {
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+}
+
+/*
+ * GEEN sticky en GEEN eigen scrollgebied per kolom. Allebei zijn geprobeerd en
+ * allebei werkten ze niet:
+ *
+ *   - sticky voorbeeld + scrollende pagina: de ene helft beweegt, de andere
+ *     niet, en het lijkt alsof je niet meer naar boven kan;
+ *   - elke kolom een eigen scrollgebied: dan heb je drie scrollbalken op één
+ *     scherm, en het voorbeeld wordt onderaan afgekapt op de hoogte van het
+ *     venster.
+ *
+ * Nu scrolt de PAGINA, één keer, zoals elk ander beheerscherm. Het voorbeeld
+ * staat er dan volledig, en de instellingen ernaast.
+ */
+
+.mymmo-canvas-schaal {
+  color: #646970;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── De inspecteur ───────────────────────────────────────────────────────── */
+
+.mymmo-insp {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100%;
+}
+
+.mymmo-groep {
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-radius: 4px;
+}
+
+.mymmo-groep[hidden] {
+  display: none;
+}
+
+.mymmo-groep > summary {
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mymmo-groep > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mymmo-groep > summary::before {
+  content: "▸";
+  margin-right: 8px;
+  color: #787c82;
+}
+
+.mymmo-groep[open] > summary::before {
+  content: "▾";
+}
+
+.mymmo-groep-lijf {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 12px 14px;
+  border-top: 1px solid #f0f0f1;
+}
+
+.mymmo-veld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mymmo-veld[hidden] {
+  display: none;
+}
+
+.mymmo-veld > label,
+.mymmo-veld-kop {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d2327;
+}
+
+/* Een keuze (radio/checkbox) staat naast zijn tekst, niet erboven. */
+.mymmo-veld .mymmo-keuze {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
+
+.mymmo-veld input[type="text"],
+.mymmo-veld input[type="url"],
+.mymmo-veld select,
+.mymmo-veld textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.mymmo-veld input[type="color"] {
+  width: 44px;
+  height: 28px;
+  padding: 2px;
+}
+
+/* Hoogstens EEN korte zin per veld, en alleen waar die een fout voorkomt. De
+   redenering hoort in README.md, niet op het scherm van wie een knop maakt. */
+.mymmo-hint {
+  color: #646970;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.mymmo-hint code {
+  padding: 0 3px;
+  font-size: 11px;
+}
+
+.mymmo-knoppen {
+  display: flex;
+  gap: 6px;
+}
+
+.mymmo-drie {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mymmo-drie label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: #646970;
+}
+
+/*
+ * De shortcode, onderaan de instellingen.
+ *
+ * NIET sticky: dat legde hem over de groep die op dat moment openstond, en dan
+ * zie je de helft van je eigen instellingen niet meer. Een vast blok onderaan
+ * de kolom volstaat -- je komt er vanzelf bij wanneer je klaar bent.
+ */
+.mymmo-insp-voet {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-radius: 4px;
+}
+
+.mymmo-insp-voet label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mymmo-insp-voet input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+}
+
+.mymmo-versie {
+  color: #787c82;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mymmo-vorm {
+  color: #2271b1;
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.mymmo-los summary {
+  cursor: pointer;
+  color: #646970;
+  font-size: 11px;
+}
+
+.mymmo-los input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0;
+  font-size: 11px;
+}

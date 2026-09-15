@@ -39,7 +39,17 @@
   --mf-gap: 18px;
   --mf-max-width: 720px;
 
+  /* Opvulling rond het formulier. Standaard nul: een formulier in een pagina
+     hoort op de tekstbreedte te staan, niet ingesprongen. Ze bestaan om ze te
+     KUNNEN zetten -- in een venster, in een gekleurd vlak, of waar de ruimte
+     eromheen van het blok zelf moet komen. In de pop-up bepalen dezelfde twee
+     variabelen de opvulling van het tabblad (met een eigen standaard); zie
+     mymmo-forms-modal.css. */
+  --mf-pad-x: 0px;
+  --mf-pad-y: 0px;
+
   max-width: var(--mf-max-width);
+  padding: var(--mf-pad-y) var(--mf-pad-x);
   background: var(--mf-bg);
   color: var(--mf-text);
   font-size: 16px;
@@ -233,7 +243,23 @@ textarea.mymmo-form-input {
 /* ── Verzenden ───────────────────────────────────────────────────────────── */
 
 .mymmo-form-actions {
+  display: flex;
+  /* De verzendknop staat rechtsonder, aan het einde van het formulier -- daar
+     waar je uitkomt als je van boven naar beneden invult, en waar de knop
+     "volgende" in elke wizard staat. Op een telefoon vult hij de breedte, want
+     daar is uitlijnen geen keuze maar een obstakel. */
+  justify-content: flex-end;
   margin-top: 22px;
+}
+
+@media (max-width: 540px) {
+  .mymmo-form-actions {
+    justify-content: stretch;
+  }
+
+  .mymmo-form-submit {
+    width: 100%;
+  }
 }
 
 .mymmo-form-submit {
@@ -265,6 +291,37 @@ textarea.mymmo-form-input {
 .mymmo-form-submit[aria-disabled="true"] {
   opacity: 0.65;
   cursor: progress;
+}
+
+/* ── Ruimte die van het thema komt ───────────────────────────────────────── */
+
+/*
+ * Een thema zet vaak een marge onder ELK invoerveld op de site -- bij een
+ * blokthema is dat `margin-block-end: var(--wp--style--block-gap)`. Die regel is
+ * specifieker dan een losse klassenaam en wint dus van de onze; onder elk veld
+ * komt er dan ruimte bij, bovenop de afstand die het raster hierboven al zet.
+ * Twee keer ruimte, en dat valt het meest op waar de velden onder elkaar staan.
+ *
+ * Dat is geen keuze van dat thema over ONS formulier -- het is een regel voor de
+ * invoervelden van de site die de onze toevallig ook raakt. Daarom hier een
+ * gerichte reset met net genoeg specificiteit (twee klassen), en nog steeds
+ * zonder !important: wie onze velden écht anders wil, wint nog altijd met een
+ * eigen regel of met de --mf-variabelen.
+ *
+ * ALLEEN de verticale marges, want die bepalen de indeling. Kleur, lettertype en
+ * randen laten we met rust: daar mag een thema gerust in meespreken.
+ */
+.mymmo-form-wrap .mymmo-form-input,
+.mymmo-form-wrap .mymmo-form-check,
+.mymmo-form-wrap .mymmo-form-group,
+.mymmo-form-wrap .mymmo-form-field {
+  margin-block-start: 0;
+  margin-block-end: 0;
+}
+
+.mymmo-form-wrap .mymmo-form-label {
+  margin-block-start: 0;
+  margin-block-end: 6px;
 }
 
 /* ── Honeypot ────────────────────────────────────────────────────────────── */

@@ -31,9 +31,79 @@ oude versie blijft hangen.
 
 ## Gebruik
 
-Ga naar **Instellingen → Mymmo Forms**. Daar staat een shortcode-bouwer die de
-gepubliceerde formulieren rechtstreeks uit de Operations Manager haalt: kies er
-een, zet de titel aan of uit, en kopieer de shortcode.
+Ga naar **Instellingen → Mymmo Forms**. Daar staat een shortcode-bouwer met een
+**levend voorbeeld**: het venster staat bovenaan de pagina, open, zoals een
+bezoeker het krijgt. De teksten typ je er rechtstreeks in — de kop, de zin
+eronder, de opschriften van de tabbladen, de opsomming, de tekst op de knop.
+Onderaan staat de shortcode, die meteen meeverandert.
+
+Wat je niet kan typen staat als veld onder het voorbeeld: welk formulier, welke
+agenda, de kleur, de afbeelding, en of de shortcode zelf een knop zet. Dat is
+met opzet zo verdeeld — dezelfde regel als in de formulierbouwer van de
+Operations Manager: **je bewerkt in het voorbeeld, niet in een lijst met velden
+ernaast.**
+
+Het voorbeeld is geen nabootsing. De HTML komt van de server, uit exact dezelfde
+aanroep die de shortcode op een pagina doet, en ze wordt getoond in een iframe
+met precies de stylesheets en het script van de website. Er is dus geen tweede
+weergave die kan afdrijven van de echte. Met **Desktop / Telefoon** bovenaan
+wissel je van schermbreedte; de telefoonweergave is een echte viewport van
+390px, geen verkleinde desktop, dus de mediaquery's van het venster doen daar
+precies wat ze op een toestel doen.
+
+Zonder JavaScript is er geen voorbeeld. Dan blijven alle velden gewoon staan en
+is de tabel onderaan — met van elk formulier de volledige shortcode — de weg.
+
+### Opstellingen: één keer instellen, overal gebruiken
+
+Wat je in de bouwer maakt, kan je onder een naam **bewaren** als opstelling:
+"Offerte — homepage", "Contact — voettekst". Daarna zet je die op zoveel
+pagina's als je wil:
+
+```
+[mymmo_form_button preset="offerte-homepage"]
+[mymmo_form preset="contact-voettekst"]
+```
+
+Wijzig je de opstelling later, dan volgt **elke pagina die haar gebruikt**
+vanzelf mee. Zonder opstellingen staat elke plaatsing als een lange shortcode in
+een pagina, en moet je bij een wijziging elke pagina langs waar die staat — en je
+weet niet welke dat zijn.
+
+Wat je in de shortcode zélf typt, wint van de opstelling. Eén pagina met een
+andere knoptekst vraagt dus geen tweede opstelling:
+
+```
+[mymmo_form_button preset="offerte-homepage" label="Vraag je gratis offerte"]
+```
+
+Een opstelling bevat alleen hoe **deze site** dat formulier toont — knoptekst,
+agenda, kleur, zijkolom. De velden, labels, talen en bedanktekst blijven in de
+Operations Manager staan. Dezelfde scheiding als in de rest van deze plugin: één
+bron voor het formulier, en daarnaast wat bij de plaatsing hoort.
+
+Met **Laden** zet je een bewaarde opstelling terug in de bouwer om ze aan te
+passen. Bewaren onder dezelfde naam werkt haar bij; geef je een andere naam, dan
+komt er een nieuwe bij en blijft de oude staan zoals ze was.
+
+### Het blok "Mymmo formulier"
+
+In de blok-editor voeg je het blok **Mymmo formulier** in en kies je in de
+zijbalk welke opstelling er moet staan. Het blok toont meteen het echte
+resultaat — het vraagt de server om dezelfde HTML die op de pagina komt, dus
+geen nabootsing in de editor.
+
+Het blok kent één keuze: welke opstelling. Bewust — de teksten en kleuren zet je
+in de bouwer, waar het voorbeeld staat. Ze hier nóg eens als velden in de
+zijbalk zetten zou betekenen dat dezelfde instelling op twee plekken staat en je
+bij een wijziging moet raden welke van de twee gold.
+
+Er staat **geen HTML van het blok in de pagina-inhoud** — alleen welke opstelling
+gekozen is. Daardoor kan een opstelling nooit vastroesten in een oude pagina, en
+bestaat er geen blokvalidatiefout als de opmaak van het venster wijzigt.
+
+In Elementor, een sjabloon van je thema of een widget gebruik je de shortcode
+met `preset="..."`; dat werkt daar precies hetzelfde.
 
 Handmatig kan ook:
 
@@ -71,10 +141,12 @@ plannen. Daarvoor is er een tweede shortcode:
                    calendly="https://calendly.com/mymmo/kennismaking"]
 ```
 
-Dat geeft een knop; een klik opent een venster met links een **zijkolom** — waar
-je bent, wat je te wachten staat, een afbeelding — en rechts de inhoud: het
-formulier, of de agenda. De keuze tussen die twee staat in die zijkolom als twee
-kaarten onder elkaar.
+Dat geeft een knop; een klik opent een venster met bovenaan de **titel over de
+volle breedte**, daaronder links een **zijkolom** — wat je te wachten staat, de
+keuze tussen formulier en agenda, een opsomming, een afbeelding — en rechts de
+inhoud in een **eigen wit kaartje**. De zijkolom staat op dezelfde achtergrond
+als dat kaartje; er loopt geen scheidingslijn tussen de twee. De verzendknop
+staat rechtsonder, aan het einde van het formulier.
 
 Op een telefoon klapt de zijkolom samen tot een kopbalk met dezelfde twee keuzes
 naast elkaar en wordt het venster een vol scherm; de afbeelding en de opsomming
@@ -117,6 +189,18 @@ fout.
 | `trigger` | CSS-selector van bestaande knoppen die het venster openen |
 | `class` | Eigen klassen op de wikkel, om de knop te plaatsen |
 | `close` | Het opschrift van de sluitknop, voor schermlezers |
+| `padding_x` / `padding_y` | De ruimte rond de velden. Een lengte met eenheid |
+| `background` | De kleur van het vlak achter het formulier. Leeg = een lichte tint van de accentkleur |
+| `icon_color` | De kleur van de vinkjes en de iconen in de tabbladen |
+| `accent_text` | De tekstkleur op de knoppen (standaard wit) |
+| `image_calendly` / `image_calendly_alt` | De tekening voor het tabblad agenda |
+| `image_scale` / `image_x` / `image_y` | Schaal en verschuiving van de eerste tekening |
+| `image_calendly_scale` / `_x` / `_y` | Idem voor de tweede. Leeg = dezelfde stand als de eerste |
+| `watermark` | Een swoosh of krul áchter de tekening, verankerd linksonder |
+| `watermark_scale` / `watermark_x` / `watermark_y` / `watermark_rotate` | Schaal, verschuiving en draaiing daarvan |
+| `thanks_calendly` | De tekst in het venster nadat iemand een gesprek boekte |
+| `goal_form` / `goal_calendly` | Het pad dat als conversie gemeld wordt — zie hieronder |
+| `preset` | Een bewaarde opstelling als basis |
 | `lang` | Zoals bij `[mymmo_form]` |
 
 De opschriften staan in de shortcode en niet in de Operations Manager, want ze
@@ -126,9 +210,29 @@ pagina typ je ze dus mee.
 #### De kleur van de knop
 
 De knop, de verzendknop in het venster en de gemarkeerde keuze volgen alle drie
-dezelfde **accentkleur**. Die staat normaal in de Operations Manager bij het
-formulier zelf (Koppelingen → Formulier → Stijl), en geldt dan op élke pagina
-waar dit formulier staat. Dat is bijna altijd wat je wil: één plek.
+dezelfde **accentkleur**. Die komt uit vier plekken, van zwak naar sterk:
+
+| | Waar | Geldt voor |
+|---|---|---|
+| 1 | de standaard in de stylesheet | alles waar niets anders is gezet |
+| 2 | **Operations Manager** → Koppelingen → Formulier → Stijl | elke site waar dat formulier staat |
+| 3 | **het thema van deze site** | alles op deze site |
+| 4 | `accent="#…"` op een shortcode | die ene plaatsing |
+
+Nummer 3 is de gewone gang van zaken: de plugin leest de knopkleur uit het thema
+van je site (Weergave → Ontwerp → Stijlen → Kleuren → Knop) en neemt die over,
+zodat een formulierknop niet in een andere kleur naast de knoppen van je site
+staat. Dat gebeurt automatisch; bij **Instellingen → Mymmo Forms → Verbinding**
+staat wat er gevonden is, en een vinkje om het uit te zetten.
+
+Alleen de **knop** wordt overgenomen: achtergrond, tekstkleur en hoeken. Bewust
+niet de tekst- en achtergrondkleuren van de site — bij een donker thema levert
+dat witte labels op witte invoervelden op, en dat merkt niemand aan onze kant.
+Verwijzingen naar het palet (`var:preset|color|accent-1`) worden opgezocht en
+als echte kleur doorgegeven: die variabele bestaat niet in het voorbeeld van de
+bouwer, en dan zou de kleur daar stil wegvallen. Declareert je thema geen
+knopkleur (een klassiek thema zonder `theme.json`), dan verandert er niets en
+blijft de kleur uit de Operations Manager gelden.
 
 Staat deze ene knop tussen knoppen van een andere kleur, dan zet je
 `accent="#1d4ed8"` op de shortcode — dat geldt alleen voor dié plaatsing.
@@ -180,6 +284,49 @@ een verzoek naar een derde partij sturen, ook wie nooit klikt.
 Wie vanuit het venster verstuurt, komt terug op dezelfde pagina **met het venster
 weer open** en de bevestiging erin. De pagina waar de bezoeker stond gaat mee in
 de inzending (`page_url`, `page_title`), net als bij een formulier in de tekst.
+
+## Conversie meten zonder bedankpagina
+
+Een bedankpagina is een echte URL, dus een pageview, dus een doel in Google
+Analytics. In een pop-up gebeurt er geen paginawissel — niet na het versturen van
+het formulier, en niet na het boeken van een gesprek. Er valt dan niets te meten
+tenzij de plugin het zelf zegt, en dat doet ze:
+
+| Wanneer | Gebeurtenis |
+|---|---|
+| Formulier verstuurd | `mymmo_formulier_verstuurd` |
+| Gesprek geboekt in Calendly | `mymmo_calendly_geboekt` |
+
+Ze worden op twee manieren afgevuurd:
+
+```js
+// 1. in de dataLayer, voor Google Tag Manager
+window.dataLayer.push({
+  event:        'mymmo_calendly_geboekt',
+  mymmo_soort:  'calendly_geboekt',
+  mymmo_doel:   '/bedankt/gesprek',   // uit goal_calendly
+  page_path:    '/bedankt/gesprek'    // idem, voor een virtuele pageview
+});
+
+// 2. als gewone gebeurtenis op document, voor wie geen GTM heeft
+document.addEventListener('mymmo:calendly_geboekt', function (e) { … e.detail … });
+```
+
+Zet met `goal_form` en `goal_calendly` het **pad** dat vroeger je bedankpagina
+was. Er wordt niet naartoe genavigeerd; het reist mee in `page_path`, zodat je in
+GTM een **virtuele pageview** kan afvuren en hetzelfde doel in GA blijft werken —
+zonder dat de bezoeker je site verlaat. Laat je ze leeg, dan wordt de gebeurtenis
+nog steeds afgevuurd, alleen zonder pad.
+
+Bij een geboekt gesprek toont het venster **onze eigen bedanktekst**
+(`thanks_calendly`) in plaats van de bevestigingspagina van Calendly. De bezoeker
+blijft dus op je site. Dat werkt doordat de widget van Calendly een bericht naar
+de pagina stuurt zodra de afspraak rond is; de plugin luistert daarnaar
+(`calendly.event_scheduled`) en controleert daarbij de herkomst van dat bericht.
+
+**Let op bij het uitrollen:** zolang je GA-doel op de URL van de bedankpagina
+staat, telt het niets meer zodra het formulier in de pop-up staat. Zet eerst de
+tag in GTM klaar, dan pas de pop-up live.
 
 ## Hoe een inzending loopt
 
@@ -258,6 +405,318 @@ die eruitzien als een kleur of een lengte — vrije CSS vanuit de OM zou een
 injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
+
+**1.13.1** — drie correcties op het slepen en de stapeling.
+
+- **De tekening stond vóór de tekst en het witte kaartje, en hoort erachter.**
+  In 1.13.0 had ik de zijkolom opgetild met een `z-index` om te voorkomen dat de
+  tekening werd afgeknipt — maar dat afknippen kwam van `overflow-y: auto`, en
+  dat was al apart opgelost. De optilling is weg en de figuur staat nu op
+  `z-index: -1`: achter de tekst van de zijkolom en achter het kaartje, maar nog
+  altijd vóór de achtergrond van het venster. In de bouwer wordt die laag
+  tijdelijk naar voren gehaald, anders kan je ze niet vastpakken.
+- **Het stippelkader bleef staan terwijl het beeld wegschoof.** De verschuiving
+  zat op de `<img>`, de omlijning en de greep op de wikkel eromheen — en die
+  wikkel draagt de overgang tussen de tabbladen, dus daar kon de verschuiving
+  niet bij: twee transforms op één element overschrijven elkaar. Er zit nu een
+  laag tussen die de verschuiving en de schaal draagt, en daar hangen de
+  omlijning en de grepen aan. Gemeten: een sleep van 40,−10 verplaatst het kader
+  precies mee.
+- **Vier grepen in plaats van één.** Met er één in de rechterbenedenhoek viel die
+  na een verplaatsing naar links of naar boven buiten beeld, en dan kon je niet
+  meer schalen zonder eerst terug te slepen. Elke hoek schaalt nu, met de juiste
+  richting: naar buiten is groter, ook aan de linkerkant.
+
+**1.13.0** — de tekeningen versleep je in het voorbeeld, en ze verdwijnen niet
+meer achter de rest.
+
+- **De tekening stond achter de tekst en het formulier.** Twee oorzaken die
+  samenvielen: de zijkolom was een scrollgebied (`overflow-y: auto`), en dat
+  knipt ook horizontaal af — een tekening die je groter schaalde dan de kolom
+  verdween aan de rand. En zonder `z-index` werd ze overschilderd door het witte
+  kaartje ernaast, dat later in de HTML komt. De zijkolom knipt nu niet meer en
+  ligt erboven; het venster zelf heeft nog altijd `overflow: hidden`, dus buiten
+  het venster komt er niets.
+- **Schaal en verschuiving werkten niet door in het voorbeeld.** Het live
+  toepassen zat alleen in de afhandeling van de opvullingsschuifjes, dus aan de
+  schaal van een tekening draaien deed zichtbaar niets — de shortcode veranderde
+  wel. Elke wijziging past de variabelen nu meteen toe. Je kan niets precies
+  positioneren wat je niet ziet bewegen.
+- **Slepen in het voorbeeld.** Pak een tekening of het watermerk vast en
+  verplaats het; de greep in de rechterbenedenhoek schaalt. Met de pijltjes gaat
+  het per pixel, met Shift per tien. De invoervelden blijven de opslag — slepen
+  schrijft daarin, zodat de shortcode en wat je ziet niet uit elkaar kunnen
+  lopen.
+  De coördinaten komen uit het iframe zelf: het voorbeeld is daar visueel
+  verkleind, en een beweging gemeten in de ouderpagina zou de tekening trager
+  laten lopen dan je hand.
+- **`watermark_rotate`**: het watermerk kan draaien. Het zit daarvoor in een
+  eigen wikkel, zodat schaal, verschuiving en draaiing in één transform staan —
+  en zodat er een greep in kan; in een `<img>` kan dat niet, die heeft geen
+  kinderen.
+
+**1.12.0** — beweging bij het openen en sluiten, een tekening per tabblad, een
+watermerk, en kleur voor de iconen.
+
+- **Het venster ploft niet meer open.** Openen gebruikt een easing die licht
+  doorschiet en start net iets te klein; daardoor leest het als iets dat naar je
+  toe komt in plaats van iets dat verschijnt. Sluiten gaat sneller en zonder
+  overschot — iets dat weggaat hoort niet te aarzelen. Op een telefoon schuift
+  het venster van onder in beeld, zoals een blad; schalen ziet er op die maat uit
+  als een haperende pagina.
+  Het sluiten vroeg iets van het script: het venster blijft nu staan tot de
+  beweging klaar is. Met een tijdslimiet ernaast, want `animationend` komt niet
+  bij `prefers-reduced-motion` of op een tabblad op de achtergrond — en een
+  venster dat dán open blijft staan is een veel ergere fout dan een sprongetje.
+- **Een tekening per tabblad**, met een overgang ertussen. Ze liggen in dezelfde
+  rastercel over elkaar, dus de hoogste bepaalt de hoogte en er springt niets bij
+  het wisselen. Is er voor een tabblad geen eigen tekening, dan blijft staan wat
+  er staat: wegfaden naar niets is geen overgang maar een gat.
+- **Elke tekening heeft haar eigen schaal en verschuiving.** Ze zijn zelden even
+  groot, en dan staat de ene te hoog zodra de andere goed staat. Stel je voor de
+  tweede niets in, dan volgt ze die van de eerste.
+- **Een watermerk achter de tekening**, verankerd linksonder, ook schaalbaar en
+  te verschuiven. Het hangt aan het VLAK en niet aan een van de tekeningen: die
+  twee delen dezelfde rastercel, dus het vlak houdt zijn maat en het watermerk
+  blijft precies staan terwijl de tekening ervoor verwisselt.
+- **`icon_color` en `accent_text`**: de kleur van de vinkjes en de tab-iconen, en
+  de tekstkleur op de knoppen. Los van elkaar, want op een gekleurde achtergrond
+  wil je de vinkjes soms lichter zonder daarvoor de knoppen mee te veranderen.
+- De schaal en verschuiving worden in het voorbeeld **meteen toegepast**, zonder
+  opnieuw te renderen — het zijn niets dan CSS-variabelen, en een ronde langs de
+  server zou bij elke pijltjesklik het scherm laten flikkeren.
+- Alle drie de afbeeldingen hebben een knop naar de **mediabibliotheek**, via één
+  gedeelde afhandeling; bij drie losse kopieën zou de derde vroeg of laat net
+  iets anders doen dan de eerste.
+
+**1.11.0** — één scrollbalk, en het shortcode-blok ligt niet meer over de
+instellingen.
+
+- **Het shortcode-blok stond vast onderaan de rechterkolom (sticky).** Daardoor
+  viel de groep die op dat moment openstond er half achter: je zag je eigen
+  instellingen niet meer. Het staat nu gewoon ná de groepen.
+- **Geen eigen scrollgebied per kolom meer.** Dat gaf drie scrollbalken op één
+  scherm en kapte het voorbeeld onderaan af op de hoogte van het venster. De
+  PAGINA scrolt nu, één keer, zoals elk ander beheerscherm.
+- **En geen sticky voorbeeld.** Dat was de andere kant van dezelfde fout: de ene
+  helft van het scherm bewoog, de andere niet, en het leek alsof je niet meer
+  naar boven kon.
+
+**1.10.0** — de bouwer geeft je de HERBRUIKBARE shortcode, en de instellingen
+zijn een inspecteur geworden in plaats van een handleiding.
+
+- **De belangrijkste fout zat in wat je kopieerde.** Het shortcode-veld toonde
+  altijd de volledige versie met alle attributen erin. Wie die op vijf pagina's
+  plakte, had vijf losse kopieën — een wijziging aan de opstelling deed daar
+  niets meer. Dat is het omgekeerde van waarvoor opstellingen bestaan, en het
+  verklaart ook waarom een gewijzigde `gap` of `padding` "niet werkte": de
+  pagina droeg nog haar eigen oude attributen. De versie met `preset="..."` stond
+  er wel, maar dichtgeklapt onder "Shortcodes en beheer" — precies waar je hem
+  niet zoekt.
+  Nu is `[… preset="…"]` wat je kopieert zodra er een opstelling open staat, met
+  erbij wat dat betekent. De losse kopie blijft bereikbaar achter "Losse versie
+  (volgt geen wijzigingen)".
+- **Na het bewaren opent die opstelling meteen weer**, zodat het veld de
+  herbruikbare vorm toont in plaats van de losse.
+- **Vijf groepen in plaats van veertien tabelrijen**: Formulier, Knop, Venster,
+  Zijkolom, Na het versturen. Alleen de eerste staat open. Per veld hoogstens één
+  korte zin, en alleen waar die een fout voorkomt — de redenering staat hier in
+  de README en hoort niet op het scherm van wie een knop maakt.
+- **Allebei de kolommen scrollen in zichzelf**, de pagina eronder niet. Eerder
+  stond het voorbeeld vast terwijl de pagina scrolde voor de rechterkolom: dan
+  beweegt de ene helft wel en de andere niet, en raakt de kop uit beeld.
+- **Het versienummer staat in de kop van de bouwer.** Bij een plugin die je met
+  de hand bijwerkt is "welke versie draait hier" anders een vraag die pas opkomt
+  wanneer iets zich anders gedraagt dan je verwacht.
+
+**1.9.0** — de bouwer scrolt niet meer op en neer, en de velden staan dichter bij
+elkaar.
+
+- **Het voorbeeld staat links en blijft staan** terwijl je rechts de
+  instellingen aanpast. Ook met de opstellingen bovenaan bleef het ongemak: het
+  voorbeeld is hoog, de velden stonden eronder, dus scrolde je voor élke
+  wijziging naar beneden om iets te zetten en weer omhoog om te zien wat het
+  deed. Onder 1200px staat alles nog onder elkaar — twee kolommen zouden daar
+  allebei te smal zijn.
+- Het voorbeeld wordt daarvoor **geschaald, niet versmald**: het iframe blijft
+  inwendig 1100px breed, want de mediaquery's van het venster kijken naar die
+  breedte. Een kolom van 700px zou de smalle weergave tonen en dus liegen over
+  hoe het er op een desktop uitziet. Het percentage staat in de werkbalk, zodat
+  niemand denkt naar ware grootte te kijken.
+- **De extra ruimte onder elk veld is weg.** Een thema zet vaak een marge onder
+  élk invoerveld van de site (bij een blokthema
+  `margin-block-end: var(--wp--style--block-gap)`), en die regel is specifieker
+  dan de onze — in de devtools stonden onze eigen declaraties doorstreept. Onder
+  elk veld kwam daardoor ruimte bij bovenop de afstand die het raster al zet.
+  Twee keer ruimte dus. Er staat nu een gerichte reset op de verticale marges,
+  nog steeds zonder `!important`: kleur, lettertype en randen laten we met rust,
+  en wie het écht anders wil wint nog altijd met een eigen regel.
+- **`gap="14px"`** zet de ruimte tussen de velden, met een derde schuifje in de
+  werkbalk naast de twee voor de opvulling.
+- **Een `accent`, `gap` of `padding` op de shortcode werkte niet door in het
+  formulier ín het venster.** Die variabelen stonden op de wikkel van het
+  venster, maar `.mymmo-form-wrap` declareert dezelfde variabelen zélf — en een
+  eigen declaratie wint van een geërfde. De verzendknop hield dus de kleur uit de
+  Operations Manager terwijl de knop van het venster wél meekleurde. De stijl van
+  de plaatsing gaat nu ook naar het formulier.
+
+**1.8.0** — een eigen bedankscherm met meetbare conversie, een instelbare
+achtergrond, en een agenda die op tijd klaarstaat.
+
+- **Conversie zonder bedankpagina.** De plugin vuurt nu zelf
+  `mymmo_formulier_verstuurd` en `mymmo_calendly_geboekt` af, in de `dataLayer`
+  én als gebeurtenis op `document`, met het pad dat vroeger je bedankpagina was
+  in `page_path`. Daarmee blijft hetzelfde doel in GA werken via een virtuele
+  pageview in GTM. Zie "Conversie meten zonder bedankpagina".
+- **Na een geboekt gesprek blijft de bezoeker hier.** Het venster toont je eigen
+  tekst (`thanks_calendly`) in plaats van de bevestigingspagina van Calendly. De
+  plugin luistert daarvoor naar het bericht dat hun widget stuurt, en controleert
+  de herkomst ervan — elke pagina mag zo'n bericht sturen.
+- **De kalender valt niet meer in een scrollbalk.** Calendly meldt hoe hoog haar
+  inhoud is (`calendly.page_height`); dat wordt nu overgenomen, zodat het vlak
+  meegroeit in plaats van een eigen scrollbalk te krijgen waarin de knop
+  "Bevestigen" net buiten beeld valt.
+- **De agenda begint eerder te laden.** De verbinding met Calendly wordt geopend
+  zodra de pagina rustig is (alleen DNS en TLS, geen gegevens), en het script
+  wordt opgehaald zodra iemand de knop aanraakt of aanwijst — óók bij een
+  aanraking, want op een telefoon bestaat "erover gaan" niet en begon het laden
+  daar pas bij het openen van het venster.
+- **`background="#…"`** zet de kleur van het vlak achter het formulier, per
+  plaatsing of per opstelling. Leeg blijven betekent een lichte tint van de
+  accentkleur, die dus vanzelf met je thema meegaat.
+- **Geen scrollbalken meer in het voorbeeld.** Het iframe groeit mee met zijn
+  inhoud. Op een pagina hoort het venster te scrollen — het is daar maar 88% van
+  het scherm hoog — maar in een ontwerpweergave wil je alles in één keer zien.
+- **De opvulling zit in de werkbalk van het voorbeeld**, als twee schuifjes die
+  meteen effect hebben zonder te hertekenen. De tekstvelden eronder blijven
+  bestaan voor een waarde met een andere eenheid (`1.5rem`, `4%`).
+- **De opstellingen staan bovenaan**, met een knop per opstelling om ze te
+  openen. Ze stonden onder de tabel met velden, waar je alleen komt als je
+  toevallig doorscrolt. De shortcodes en de verwijderknop zitten eronder,
+  dichtgeklapt.
+
+**1.7.0** — de indeling van het venster volgt de aanvraagwizard, en de ruimte rond
+de velden is instelbaar.
+
+- **De titel staat over de volle breedte**, boven beide kolommen, in plaats van
+  bovenaan de zijkolom. Ze zegt waar je bent; dat hoort niet in een van de twee
+  kolommen thuis maar erboven.
+- **De inhoud is een eigen wit kaartje** op de getinte achtergrond van het
+  venster, met een eigen rand en schaduw. Daarmee verdwijnt de verticale
+  scheidingslijn tussen de zijkolom en het formulier: de zijkolom staat gewoon op
+  die achtergrond, zoals de stappenlijst in de wizard. Op een telefoon gaat het
+  kaartje edge-to-edge — daar zou een randje tint rondom alleen ruimte kosten.
+- **De verzendknop staat rechtsonder.** Daar kom je uit als je van boven naar
+  beneden invult, en daar staat "volgende" in elke wizard. Onder 540px vult hij
+  de breedte: uitlijnen is daar geen keuze maar een obstakel.
+- **`padding_x` en `padding_y`** zetten de ruimte rond de velden. Bij een knop met
+  venster is dat de ruimte binnen het kaartje, bij een formulier op de pagina de
+  ruimte eromheen — één paar knoppen voor allebei, want het is in beide gevallen
+  "hoeveel lucht rond de velden". Ze staan ook in de bouwer en kunnen als
+  `padding_x`/`padding_y` in het thema van het formulier in de Operations Manager.
+  Alleen een lengte met eenheid komt erdoor (`28px`, `1.5rem`, `4%`) — dezelfde
+  gesloten controle als bij de kleuren.
+- **Een venster met zijkolom is nu 880px breed** in plaats van 660. De zijkolom
+  nam er 280 van, en wat overbleef was de kolom waarin iemand zijn gegevens typt:
+  bij 660px braken de velden daar van twee kolommen naar één terwijl er scherm
+  genoeg was. Met een agenda erbij blijft het 1060px.
+- De zijkolom wordt alleen nog gerenderd als ze iets te zeggen heeft. Tot nu toe
+  stond de titel erin, dus was ze er altijd.
+
+**1.6.0** — bewaarde opstellingen, en een blok voor de blok-editor.
+
+- **Opstellingen.** Wat je in de bouwer maakt, bewaar je onder een naam en zet je
+  met `preset="..."` op zoveel pagina's als je wil. Eén wijziging werkt overal
+  door. Wat er in de shortcode zelf staat, wint van de opstelling — één pagina
+  met een andere knoptekst vraagt dus geen tweede opstelling.
+- **Het blok "Mymmo formulier".** Invoegen, opstelling kiezen in de zijbalk, en
+  meteen het echte resultaat zien: het blok laat de server renderen, precies
+  zoals op de pagina. Het blok bewaart geen HTML in de pagina-inhoud, alleen
+  welke opstelling gekozen is — dus geen vastgeroeste kopie en geen
+  blokvalidatiefouten bij een wijziging aan de opmaak.
+- Het blok kent bewust maar één keuze. De teksten en kleuren horen in de bouwer,
+  bij het voorbeeld; twee plekken voor dezelfde instelling betekent raden welke
+  gold.
+- Opslag in één option, geen custom post type: het zijn er een handvol, ze hebben
+  geen revisies, geen auteur, geen permalink en geen zoekindex nodig.
+- `preset` kan zelf niet in een opstelling bewaard worden — een opstelling die een
+  andere oproept is een ketting die niemand meer kan volgen.
+- **Hernoemen maakt een nieuwe opstelling**, bijwerken gebeurt onder dezelfde
+  naam. In de eerste versie hiervan nam de bewaking het verkeerde ijkpunt
+  (de naam bij de eerste toetsaanslag in plaats van bij het laden), waardoor
+  hernoemen stil de geladen opstelling zou overschrijven — op elke pagina waar ze
+  stond.
+
+**1.5.0** — het formulier neemt de kleuren van je site over.
+
+De knopkleur kwam uitsluitend uit het thema van het formulier in de Operations
+Manager. Op een site met een eigen palet (een blokthema met `theme.json`) stond
+de knop van het formulier daardoor in een andere kleur naast de knoppen van de
+site — en dat ziet eruit als een fout, niet als een instelling.
+
+- De plugin leest nu `wp_get_global_styles(['elements','button'])` en neemt
+  daarvan de achtergrond, de tekstkleur en de hoeken over. Verwijzingen naar het
+  palet (`var:preset|color|accent-1` en `var(--wp--preset--color--accent-1)`)
+  worden **opgezocht** en als echte kleur doorgegeven: die variabele bestaat niet
+  in het voorbeeld van de bouwer, dus doorgeven zou de kleur daar stil laten
+  wegvallen. Het palet wordt daarbij in de volgorde default → theme → custom
+  samengevoegd, zodat een kleur die in de site-editor is aangepast wint.
+- **Het thema van de site wint van de Operations Manager**, en verliest van een
+  `accent="#…"` op een losse shortcode. De OM-kleur blijft de terugval voor sites
+  die zelf niets declareren.
+- Alleen de knop, bewust: de tekst- en achtergrondkleuren van de site overnemen
+  geeft bij een donker thema witte labels op witte invoervelden.
+- Bij **Instellingen → Mymmo Forms → Verbinding** staat een vinkje om het uit te
+  zetten, met daarbij **wat er gevonden is** als kleurstaal. Een vinkje zonder
+  die terugkoppeling is een zwarte doos: staat de knop straks verkeerd, dan weet
+  je niet of het thema niets declareert of dat wij iets verkeerds lezen.
+- Waarden die niet op een kleur of een lengte lijken, komen er niet door —
+  dezelfde gesloten controle als bij het thema uit de OM. Deze waarde belandt in
+  een `style`-attribuut op de pagina van een bezoeker.
+
+**1.4.0** — de bouwer is een levend voorbeeld geworden in plaats van een tabel
+met invoervelden.
+
+Waarom: om te zien wat je gemaakt had, moest je de shortcode kopiëren, op een
+pagina plakken, publiceren en kijken — en bij elke correctie opnieuw. Dat is
+geen bouwer, dat is een formulier waarvan je het resultaat pas elders ziet. Nu
+staat het venster bovenaan het scherm, open, en typ je de teksten erin.
+
+- **Het voorbeeld kan niet liegen.** De HTML komt uit dezelfde aanroep die de
+  shortcode op een pagina doet (`wp_ajax_mymmo_forms_preview` →
+  `render_button()`), en ze staat in een iframe met precies `mymmo-forms.css`,
+  `mymmo-forms-modal.css` en `mymmo-forms-modal.js` — de bestanden van de
+  bezoeker, niet een kopie ervan. Er is dus geen tweede weergave die kan
+  afdrijven.
+- **Typen hertekent het voorbeeld niet.** Een tekstwijziging past één tekstknoop
+  aan; opnieuw renderen gebeurt alleen bij een structurele wijziging (ander
+  formulier, agenda erbij of weg, afbeelding, kleur, een regel erbij of weg).
+  Zou elke toetsaanslag hertekenen, dan springt de cursor weg en flikkert het
+  scherm — dezelfde regel als in de mailstudio van de Operations Manager.
+- **De invoervelden blijven de opslag.** Het canvas leest ze en schrijft erin
+  terug; de shortcode wordt er onveranderd uit opgebouwd. Er is één plek die
+  weet welk veld welk attribuut wordt (`attributen()` in
+  `mymmo-forms-admin.js`), en zowel de shortcode als het voorbeeld gebruiken
+  die. Zouden ze elk hun eigen vertaling maken, dan kan het voorbeeld iets tonen
+  dat de shortcode niet oplevert — en dat is erger dan geen voorbeeld.
+- **Desktop / Telefoon.** De telefoonweergave is een echte viewport van 390px,
+  geen verkleinde desktop: de mediaquery's van het venster kijken naar de
+  breedte van het iframe, dus dit is de enige manier waarop het voorbeeld ook
+  over mobiel de waarheid vertelt.
+- **De kop van het venster is nu in de bouwer te zetten.** Het `title`-attribuut
+  kon dat allang, de bouwer kende alleen het vinkje aan/uit.
+- **De afbeelding kies je uit de mediabibliotheek** in plaats van een URL over te
+  typen.
+- **Een lege agendalijst zegt nu waaróm ze leeg is.** Ze viel stil terug op een
+  tekstvak, en dan lijkt het alsof de Operations Manager geen agenda's kent —
+  terwijl er drie heel verschillende oorzaken zijn, en twee ervan los je daar op
+  en niet hier: de koppeling heeft haar boekingspagina nog niet bewaard (open ze
+  in de OM, tabblad Calendly, en klik Opslaan), de OM draait nog een versie die
+  die lijst niet meestuurt, of de lijst hier is nog de bewaarde versie van
+  daarvoor (opnieuw ophalen).
+- De kalender van Calendly wordt in het voorbeeld **niet** opgehaald: dat zou een
+  verzoek naar een derde partij zijn vanuit een beheerscherm, en wat je hier
+  controleert is de indeling. Op die plek staat een regel uitleg.
 
 **1.3.0** — de link naar de agenda is een keuzelijst van de afspraken die de
 Operations Manager kent, in plaats van een URL die je overtypt.

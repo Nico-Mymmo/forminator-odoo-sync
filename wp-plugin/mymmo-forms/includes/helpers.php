@@ -127,6 +127,78 @@ function mymmo_forms_color(string $ruw): string {
 }
 
 /**
+ * Een LENGTE die veilig in een style-attribuut mag, of '' als het er geen is.
+ *
+ * Dezelfde vorm-controle als in mymmo_forms_theme_style(). Geen calc(), geen
+ * var(), geen puntkomma: deze waarde komt uit een shortcode die iedereen met
+ * paginarechten kan typen en belandt in een style-attribuut bij een bezoeker.
+ * "0" telt ook, want opvulling weghalen is een geldige keuze.
+ */
+function mymmo_forms_length(string $ruw): string {
+    $waarde = trim($ruw);
+    if ($waarde === '') {
+        return '';
+    }
+    if ($waarde === '0') {
+        return '0px';
+    }
+    return preg_match('/^\d+(\.\d+)?(px|rem|em|%|ch)$/i', $waarde) ? $waarde : '';
+}
+
+/**
+ * Een VERSCHUIVING: dezelfde vorm als een lengte, maar mét minteken.
+ *
+ * Apart van mymmo_forms_length(), want die wordt ook voor opvulling gebruikt en
+ * een negatieve opvulling bestaat niet -- daar hoort een minteken geweigerd te
+ * worden en hier hoort het erdoor te kunnen.
+ */
+function mymmo_forms_offset(string $ruw): string {
+    $waarde = trim($ruw);
+    if ($waarde === '' || $waarde === '0') {
+        return $waarde === '0' ? '0px' : '';
+    }
+    return preg_match('/^-?\d+(\.\d+)?(px|rem|em|%)$/i', $waarde) ? $waarde : '';
+}
+
+/**
+ * Een HOEK in graden: '-12deg', of '' als het er geen is.
+ *
+ * Beperkt tot een volledige draai in beide richtingen. Meer heeft geen zin --
+ * 400 graden ziet er precies zo uit als 40 -- en het houdt de waarde leesbaar
+ * voor wie de shortcode later terugleest.
+ */
+function mymmo_forms_angle(string $ruw): string {
+    $waarde = trim(rtrim(trim($ruw), 'deg'));
+    if ($waarde === '' || !is_numeric($waarde)) {
+        return '';
+    }
+    $getal = (float) $waarde;
+    if ($getal < -360 || $getal > 360) {
+        return '';
+    }
+    return rtrim(rtrim(number_format($getal, 2, '.', ''), '0'), '.') . 'deg';
+}
+
+/**
+ * Een SCHAAL als percentage: '120%', of '' als het er geen is.
+ *
+ * Een kaal getal wordt als percentage gelezen (120 -> 120%), want dat is wat
+ * iemand in een veld met "%" ernaast typt. Begrensd op 10-400: daaronder is de
+ * afbeelding weg en daarboven is ze een vlak van kleur.
+ */
+function mymmo_forms_scale(string $ruw): string {
+    $waarde = trim(rtrim(trim($ruw), '%'));
+    if ($waarde === '' || !is_numeric($waarde)) {
+        return '';
+    }
+    $getal = (float) $waarde;
+    if ($getal < 10 || $getal > 400) {
+        return '';
+    }
+    return rtrim(rtrim(number_format($getal, 2, '.', ''), '0'), '.') . '%';
+}
+
+/**
  * Dezelfde kleur als zes hex-tekens ZONDER #, of '' als dat niet kan.
  *
  * Calendly verwacht zijn kleurparameters zo (primary_color=1f2937). Een
@@ -144,6 +216,160 @@ function mymmo_forms_hex6(string $ruw): string {
         $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
     }
     return strlen($hex) === 6 ? strtolower($hex) : '';
+}
+
+/**
+ * Het KLEURENPALET van deze site, als slug => hex.
+ *
+ * WordPress geeft het palet per herkomst terug (default / theme / custom, in
+ * die volgorde van zwak naar sterk) -- "custom" is wat iemand in de site-editor
+ * zelf aanpaste en hoort dus te winnen. Sommige thema's geven een platte lijst
+ * terug; die vorm wordt ook opgevangen.
+ *
+ * @return array<string,string>
+ */
+function mymmo_forms_site_palette(): array {
+    if (!function_exists('wp_get_global_settings')) {
+        return [];
+    }
+
+    $palet = wp_get_global_settings(['color', 'palette']);
+    if (!is_array($palet)) {
+        return [];
+    }
+
+    $uit = [];
+
+    $voegToe = static function ($lijst) use (&$uit): void {
+        foreach ((array) $lijst as $kleur) {
+            if (!is_array($kleur) || empty($kleur['slug'])) {
+                continue;
+            }
+            $hex = mymmo_forms_color((string) ($kleur['color'] ?? ''));
+            if ($hex !== '') {
+                $uit[(string) $kleur['slug']] = $hex;
+            }
+        }
+    };
+
+    if (isset($palet['default']) || isset($palet['theme']) || isset($palet['custom'])) {
+        foreach (['default', 'theme', 'custom'] as $herkomst) {
+            $voegToe($palet[$herkomst] ?? []);
+        }
+    } else {
+        $voegToe($palet);
+    }
+
+    return $uit;
+}
+
+/**
+ * Een waarde uit theme.json omzetten naar een echte kleur.
+ *
+ * Een thema verwijst daar meestal naar zijn eigen palet, in een van twee
+ * vormen: `var:preset|color|accent-1` (zoals het in theme.json staat) of
+ * `var(--wp--preset--color--accent-1)` (zoals het in de CSS komt). Die
+ * verwijzing wordt hier OPGEZOCHT en niet doorgegeven: de waarde belandt ook in
+ * het voorbeeld van de bouwer en in de plugin-stylesheet, en daar bestaat die
+ * variabele niet -- dan zou de kleur stil wegvallen.
+ *
+ * @param array<string,string> $palet
+ */
+function mymmo_forms_resolve_color(string $waarde, array $palet): string {
+    $waarde = trim($waarde);
+    if ($waarde === '') {
+        return '';
+    }
+
+    $slug = '';
+    if (preg_match('/^var:preset\|color\|([A-Za-z0-9_-]+)$/', $waarde, $m)) {
+        $slug = $m[1];
+    } elseif (preg_match('/^var\(\s*--wp--preset--color--([A-Za-z0-9_-]+)\s*\)$/', $waarde, $m)) {
+        $slug = $m[1];
+    }
+
+    if ($slug !== '') {
+        return $palet[$slug] ?? '';
+    }
+
+    return mymmo_forms_color($waarde);
+}
+
+/**
+ * Wat we van het thema van DEZE site overnemen.
+ *
+ * Alleen de KNOP: haar achtergrond, haar tekstkleur en haar hoeken. Dat is waar
+ * het om gaat -- een formulierknop die naast de knoppen van de site staat en
+ * een andere kleur heeft, ziet eruit als een fout.
+ *
+ * Bewust NIET de tekstkleur en de achtergronden van de site. Bij een donker
+ * thema levert dat witte labels op witte invoervelden, en dat is het soort fout
+ * dat niemand aan onze kant ziet.
+ *
+ * Geeft een lege array als het thema geen knopkleur declareert (een klassiek
+ * thema zonder theme.json, bijvoorbeeld). Dan blijft alles zoals het was.
+ *
+ * @return array<string,string>  variabele => waarde, klaar voor een style-attribuut
+ */
+function mymmo_forms_site_theme_vars(): array {
+    if (!function_exists('wp_get_global_styles')) {
+        return [];
+    }
+
+    $palet = mymmo_forms_site_palette();
+
+    $knop = wp_get_global_styles(['elements', 'button']);
+    if (!is_array($knop)) {
+        return [];
+    }
+
+    $uit = [];
+
+    $achtergrond = mymmo_forms_resolve_color((string) ($knop['color']['background'] ?? ''), $palet);
+    $tekst       = mymmo_forms_resolve_color((string) ($knop['color']['text'] ?? ''), $palet);
+
+    if ($achtergrond !== '') {
+        $uit['--mf-accent'] = $achtergrond;
+    }
+    // De tekstkleur alleen samen met de achtergrond: los van elkaar levert dat
+    // witte tekst op een witte knop op.
+    if ($achtergrond !== '' && $tekst !== '') {
+        $uit['--mf-accent-text'] = $tekst;
+    }
+
+    $radius = trim((string) ($knop['border']['radius'] ?? ''));
+    if ($radius !== '' && preg_match('/^\d+(\.\d+)?(px|rem|em|%)$/i', $radius)) {
+        $uit['--mf-radius'] = $radius;
+    }
+
+    return $uit;
+}
+
+/**
+ * Datzelfde, als stukje style-attribuut -- of '' als de site-optie uit staat.
+ *
+ * VOLGORDE, en die is het punt: dit komt ACHTER het thema van het formulier uit
+ * de Operations Manager en VÓÓR een accent="" op de shortcode. De laatste
+ * declaratie wint, dus:
+ *
+ *   plugin-standaard  <  thema uit de OM  <  thema van deze site  <  shortcode
+ *
+ * Het thema van de site wint dus van de OM. Dat is met opzet: de OM-kleur geldt
+ * voor élke site waar dat formulier staat en is daarmee een goede terugval,
+ * maar op een site die haar eigen palet heeft, hoort de site te winnen. Wie dat
+ * niet wil, zet het vinkje uit bij Instellingen → Mymmo Forms → Verbinding.
+ */
+function mymmo_forms_site_theme_style(): string {
+    if (!get_option('mymmo_forms_follow_theme', 1)) {
+        return '';
+    }
+
+    $stukken = [];
+    foreach (mymmo_forms_site_theme_vars() as $variabele => $waarde) {
+        $stukken[] = $variabele . ':' . $waarde;
+    }
+
+    return implode(';', $stukken);
 }
 
 /**
@@ -169,6 +395,8 @@ function mymmo_forms_theme_style(array $theme): string {
         'radius'        => '--mf-radius',
         'gap'           => '--mf-gap',
         'max_width'     => '--mf-max-width',
+        'padding_x'     => '--mf-pad-x',
+        'padding_y'     => '--mf-pad-y',
     ];
 
     $stukken = [];

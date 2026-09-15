@@ -27,7 +27,8 @@
  * $label, $variant, $extra_class, $heading, $tab_form_label,
  * $tab_calendly_label, $tab_form_sub, $tab_calendly_sub, $close_label,
  * $calendly, $calendly_kleur, $active_tab, $auto_open, $image, $image_alt,
- * $lead, $points, $show_button, $trigger, $accent_style.
+ * $lead, $points, $show_button, $trigger, $accent_style, $thanks_calendly,
+ * $goal_calendly, $goal_form.
  */
 
 declare(strict_types=1);
@@ -63,6 +64,12 @@ if (!defined('ABSPATH')) {
 /** @var bool $show_button */
 /** @var string $trigger */
 /** @var string $accent_style */
+/** @var string $thanks_calendly */
+/** @var string $goal_calendly */
+/** @var string $goal_form */
+/** @var string $watermark */
+/** @var string $image_calendly */
+/** @var string $image_calendly_alt */
 
 $heeft_agenda = $calendly !== '';
 // Een tabblad dat er niet is kan niet openstaan.
@@ -85,6 +92,14 @@ $paneel_ag_id   = $modal_id . '-paneel-agenda';
 // komt uit de shortcode en staat ACHTER het thema, zodat het thema overruled
 // wordt door wat er op deze pagina getypt is -- laatste declaratie wint.
 $stijl = mymmo_forms_theme_style(is_array($form['theme'] ?? null) ? $form['theme'] : []);
+
+// Het thema van DEZE site ertussen: het wint van de Operations Manager en
+// verliest van wat er op de shortcode staat. Zie mymmo_forms_site_theme_style().
+$site_stijl = mymmo_forms_site_theme_style();
+if ($site_stijl !== '') {
+    $stijl = $stijl === '' ? $site_stijl : $stijl . ';' . $site_stijl;
+}
+
 if ($accent_style !== '') {
     $stijl = $stijl === '' ? $accent_style : $stijl . ';' . $accent_style;
 }
@@ -167,17 +182,29 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                 </svg>
             </a>
 
+            <?php
+            // De kop staat over de VOLLE BREEDTE, boven de twee kolommen. Ze
+            // zegt waar je bent; dat hoort niet in een van de twee kolommen
+            // thuis maar erboven.
+            ?>
+            <?php if ($heading !== '') : ?>
+                <div class="mymmo-modal-kop">
+                    <h2 class="mymmo-modal-title" id="<?php echo esc_attr($titel_id); ?>"><?php echo esc_html($heading); ?></h2>
+                </div>
+            <?php endif; ?>
+
+            <?php
+            // Zijkolom en inhoud samen in een wikkel: die twee staan naast
+            // elkaar, de kop hierboven eroverheen.
+            ?>
+            <div class="mymmo-modal-lijf">
+
+            <?php if ($heeft_zijkolom) : ?>
             <aside class="mymmo-modal-aside">
 
-                <div class="mymmo-modal-aside-kop">
-                    <?php if ($heading !== '') : ?>
-                        <h2 class="mymmo-modal-title" id="<?php echo esc_attr($titel_id); ?>"><?php echo esc_html($heading); ?></h2>
-                    <?php endif; ?>
-
-                    <?php if ($lead !== '') : ?>
-                        <p class="mymmo-modal-lead"><?php echo esc_html($lead); ?></p>
-                    <?php endif; ?>
-                </div>
+                <?php if ($lead !== '') : ?>
+                    <p class="mymmo-modal-lead"><?php echo esc_html($lead); ?></p>
+                <?php endif; ?>
 
                 <?php if ($heeft_agenda) : ?>
                     <?php
@@ -245,21 +272,86 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                     </ul>
                 <?php endif; ?>
 
-                <?php if ($image !== '') : ?>
+                <?php if ($image !== '' || $watermark !== '' || $image_calendly !== '') : ?>
                     <?php
                     // alt="" als er geen beschrijving is: dit is sfeerbeeld, geen
                     // informatie. Een schermlezer die de bestandsnaam voorleest
                     // is erger dan stilte.
+                    //
+                    // Het WATERMERK zit IN dit vlak en niet in de zijkolom. Dat
+                    // is met opzet: zo houdt het zijn plaats ten opzichte van de
+                    // tekening ervoor, ook als het venster van breedte
+                    // verandert. Zat het aan de zijkolom vast, dan schoven de
+                    // twee bij elke schermbreedte anders op en klopte de
+                    // compositie alleen op het scherm waarop ze gemaakt is.
                     ?>
-                    <div class="mymmo-modal-figuur">
-                        <img src="<?php echo esc_url($image); ?>"
-                             alt="<?php echo esc_attr($image_alt); ?>"
-                             loading="lazy"
-                             decoding="async">
+                    <div class="mymmo-modal-figuur<?php echo $image === '' ? ' mymmo-modal-figuur--leeg' : ''; ?>">
+                        <?php
+                        // De wikkel draagt de schaal, de verschuiving en de
+                        // rotatie; de img alleen zichzelf. Zo staat alles in
+                        // EEN transform, en heeft de bewerklaag in de bouwer
+                        // een element om een greep in te hangen -- in een img
+                        // kan dat niet, die heeft geen kinderen.
+                        ?>
+                        <?php if ($watermark !== '') : ?>
+                            <span class="mymmo-modal-wm" data-mymmo-greep="watermerk">
+                                <img class="mymmo-modal-watermerk"
+                                     src="<?php echo esc_url($watermark); ?>"
+                                     alt=""
+                                     aria-hidden="true"
+                                     loading="lazy"
+                                     decoding="async">
+                            </span>
+                        <?php endif; ?>
+                        <?php
+                        // Een tekening per tabblad. Ze liggen over elkaar in
+                        // dezelfde rastercel; het script laat zien welke bij het
+                        // open tabblad hoort. Staat er maar een, dan blijft die
+                        // gewoon staan bij het wisselen -- wegfaden naar niets
+                        // is geen overgang maar een gat.
+                        //
+                        // is-actief staat hier al op de eerste: zonder
+                        // JavaScript wisselt er niets, en dan hoort er wel iets
+                        // te staan.
+                        ?>
+                        <?php if ($image !== '') : ?>
+                            <span class="mymmo-modal-beeld<?php echo $actief === 'form' || $image_calendly === '' ? ' is-actief' : ''; ?>"
+                                  data-mymmo-beeld="form">
+                                <?php
+                                // De wikkel hierboven doet de overgang tussen de
+                                // tabbladen, deze laag de schaal en de
+                                // verschuiving. Twee transforms op EEN element
+                                // overschrijven elkaar, vandaar de splitsing --
+                                // en in de bouwer hangen de omlijning en de
+                                // grepen aan deze laag, zodat ze meebewegen.
+                                ?>
+                                <span class="mymmo-modal-stand" data-mymmo-greep="form">
+                                    <img class="mymmo-modal-tekening"
+                                         src="<?php echo esc_url($image); ?>"
+                                         alt="<?php echo esc_attr($image_alt); ?>"
+                                         loading="lazy"
+                                         decoding="async">
+                                </span>
+                            </span>
+                        <?php endif; ?>
+
+                        <?php if ($image_calendly !== '' && $heeft_agenda) : ?>
+                            <span class="mymmo-modal-beeld<?php echo $actief === 'calendly' || $image === '' ? ' is-actief' : ''; ?>"
+                                  data-mymmo-beeld="calendly">
+                                <span class="mymmo-modal-stand" data-mymmo-greep="calendly">
+                                    <img class="mymmo-modal-tekening"
+                                         src="<?php echo esc_url($image_calendly); ?>"
+                                         alt="<?php echo esc_attr($image_calendly_alt); ?>"
+                                         loading="lazy"
+                                         decoding="async">
+                                </span>
+                            </span>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
 
             </aside>
+            <?php endif; ?>
 
             <div class="mymmo-modal-main">
                 <?php
@@ -298,6 +390,18 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                             // Na het versturen weer hier uitkomen, met het
                             // venster open. Zie Mymmo_Forms_Submit::finish().
                             'anchor'      => $modal_id,
+                            // Het pad dat vroeger de bedankpagina was; het
+                            // reist mee in de conversiegebeurtenis.
+                            'goal'        => $goal_form,
+                            // En de stijl van DEZE plaatsing (kleur, opvulling,
+                            // tussenruimte). Die staat al op de wikkel hierboven,
+                            // maar .mymmo-form-wrap declareert dezelfde
+                            // variabelen zélf -- en een eigen declaratie wint van
+                            // een geërfde. Zonder deze regel bleef een accent=""
+                            // of gap="" op de shortcode dus zonder effect op de
+                            // velden en de verzendknop: de knop van het venster
+                            // kleurde mee, het formulier erin niet.
+                            'extra_style' => $accent_style,
                         ]);
                         ?>
                     </section>
@@ -332,7 +436,8 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                             // server-side op het moment van versturen.
                             ?>
                             <div class="mymmo-modal-agenda"
-                                 data-mymmo-calendly="<?php echo esc_url($calendly); ?>"<?php echo $calendly_kleur !== '' ? ' data-mymmo-calendly-kleur="' . esc_attr($calendly_kleur) . '"' : ''; ?>>
+                                 data-mymmo-calendly="<?php echo esc_url($calendly); ?>"<?php echo $calendly_kleur !== '' ? ' data-mymmo-calendly-kleur="' . esc_attr($calendly_kleur) . '"' : ''; ?>
+                                 data-mymmo-dank="<?php echo esc_attr($thanks_calendly); ?>"<?php echo $goal_calendly !== '' ? ' data-mymmo-doel="' . esc_attr($goal_calendly) . '"' : ''; ?>>
                                 <p class="mymmo-modal-agenda-terugval">
                                     <a class="mymmo-modal-agenda-link"
                                        href="<?php echo esc_url($calendly); ?>"
@@ -345,6 +450,8 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
 
                 </div>
             </div>
+
+            </div><?php // .mymmo-modal-lijf ?>
         </div>
     </div>
 </div>

@@ -46,6 +46,15 @@
   'use strict';
 
   var CALENDLY_SCRIPT = 'https://assets.calendly.com/assets/external/widget.js';
+  var CALENDLY_HERKOMST = 'https://calendly.com';
+
+  /**
+   * Hoe lang het sluiten duurt. Staat ook in mymmo-forms-modal.css; lopen die
+   * uit elkaar, dan springt het venster weg vóór de animatie klaar is, of
+   * blijft het een moment op een leeg scherm staan. Ruim genomen (de animatie
+   * duurt 160-180ms), want dit is enkel de noodrem.
+   */
+  var SLUIT_MS = 260;
 
   /**
    * De namen van de herkomstparameters. Ze staan ook in helpers.php
@@ -91,6 +100,43 @@
     } catch (_) {
       return '';
     }
+  }
+
+  /**
+   * Een afronding melden: gesprek geboekt, of formulier verstuurd.
+   *
+   * WAAROM DIT BESTAAT. De marketeer meet conversie op de bedankpagina van
+   * Calendly -- een echte URL, dus een pageview, dus een doel in GA. In de
+   * pop-up gebeurt dat allemaal zonder paginawissel: er is niets te meten
+   * tenzij we het zelf zeggen. `doel` is het pad dat vroeger die bedankpagina
+   * was; met een virtuele pageview in GTM blijft hetzelfde doel werken.
+   *
+   * Twee kanalen: dataLayer voor GTM, en een CustomEvent voor wie er zonder
+   * tagmanager iets aan wil hangen. Allebei foutbestendig -- een ontbrekende
+   * dataLayer of een luisteraar die gooit, mag het bedankscherm nooit
+   * tegenhouden.
+   */
+  function meldAfronding(soort, doel, extra) {
+    var gegevens = {
+      event: 'mymmo_' + soort,
+      mymmo_soort: soort,
+      mymmo_doel: doel || ''
+    };
+    if (doel) gegevens.page_path = doel;
+    if (extra) {
+      for (var sleutel in extra) {
+        if (Object.prototype.hasOwnProperty.call(extra, sleutel)) gegevens[sleutel] = extra[sleutel];
+      }
+    }
+
+    try {
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push(gegevens);
+    } catch (_) { /* geen dataLayer: dan is er niets te duwen */ }
+
+    try {
+      document.dispatchEvent(new CustomEvent('mymmo:' + soort, { detail: gegevens }));
+    } catch (_) { /* oudere browser: CustomEvent-constructor ontbreekt */ }
   }
 
   /** inert waar het kan, met het attribuut als terugval voor oudere browsers. */
@@ -155,6 +201,9 @@
     openVenster = venster;
     vorigeFocus = knop || document.activeElement;
 
+    // Een venster dat nog aan het sluiten was, gaat meteen weer helemaal open;
+    // anders zou de uit-animatie over de in-animatie heen blijven liggen.
+    venster.classList.remove('is-sluiten');
     venster.classList.add('is-open');
     document.documentElement.classList.add('mymmo-modal-actief');
     zetUitgeklapt(venster, true);
@@ -176,8 +225,30 @@
   }
 
   function sluiten(venster) {
-    venster.classList.remove('is-open');
+    if (venster.classList.contains('is-sluiten')) return;
+
     zetUitgeklapt(venster, false);
+
+    // Het venster blijft staan tot de beweging klaar is. Pas daarna gaat
+    // is-open eraf -- anders is het in één frame weg en is er niets te zien.
+    venster.classList.add('is-sluiten');
+
+    var paneel = venster.querySelector('.mymmo-modal-panel');
+    var klaar = false;
+
+    var afronden = function () {
+      if (klaar) return;
+      klaar = true;
+      venster.classList.remove('is-sluiten');
+      venster.classList.remove('is-open');
+      if (paneel) paneel.removeEventListener('animationend', afronden);
+    };
+
+    if (paneel) paneel.addEventListener('animationend', afronden);
+    // De noodrem: animationend komt niet als er geen animatie is (reduced
+    // motion, een oude browser, een tabblad op de achtergrond). Zonder dit zou
+    // het venster dan open blijven staan.
+    window.setTimeout(afronden, SLUIT_MS);
 
     if (openVenster === venster) {
       openVenster = null;
@@ -253,9 +324,32 @@
       zetInert(panelen[j], !aan);
     }
 
+    toonBeeld(venster, naam);
+
     // Vangnet: kon de kalender eerder niet opgebouwd worden (het venster stond
     // nog dicht, dus geen breedte), dan is dit alsnog het moment.
     if (naam === 'calendly') laadAgenda(venster);
+  }
+
+  /**
+   * De tekening bij het open tabblad tonen.
+   *
+   * Is er voor dit tabblad geen eigen tekening, dan blijft staan wat er staat:
+   * wegfaden naar niets is geen overgang maar een gat in de zijkolom.
+   */
+  function toonBeeld(venster, naam) {
+    var beelden = venster.querySelectorAll('[data-mymmo-beeld]');
+    if (beelden.length < 2) return;
+
+    var gevraagd = null;
+    for (var i = 0; i < beelden.length; i += 1) {
+      if (beelden[i].getAttribute('data-mymmo-beeld') === naam) gevraagd = beelden[i];
+    }
+    if (!gevraagd) return;
+
+    for (var j = 0; j < beelden.length; j += 1) {
+      beelden[j].classList.toggle('is-actief', beelden[j] === gevraagd);
+    }
   }
 
   function tabToets(venster, event) {
@@ -286,8 +380,33 @@
 
   var scriptBezig = null;
 
+  /**
+   * De verbinding met Calendly alvast openen.
+   *
+   * Kost geen gegevens en geen verzoek naar hun server om inhoud -- enkel de
+   * DNS-opzoeking en de TLS-handdruk, die anders pas beginnen op het moment dat
+   * iemand het tabblad opent. Dat scheelt de eerste honderden milliseconden, en
+   * die vallen precies waar iemand naar een leeg vlak staat te kijken.
+   */
+  function openVerbinding() {
+    if (document.querySelector('link[data-mymmo-calendly-preconnect]')) return;
+
+    ['preconnect', 'dns-prefetch'].forEach(function (soort) {
+      ['https://assets.calendly.com', CALENDLY_HERKOMST].forEach(function (host) {
+        var link = document.createElement('link');
+        link.rel = soort;
+        link.href = host;
+        if (soort === 'preconnect') link.crossOrigin = '';
+        link.setAttribute('data-mymmo-calendly-preconnect', '1');
+        document.head.appendChild(link);
+      });
+    });
+  }
+
   function laadScript() {
     if (scriptBezig) return scriptBezig;
+
+    openVerbinding();
 
     scriptBezig = new Promise(function (klaar, mislukt) {
       if (window.Calendly) {
@@ -366,6 +485,96 @@
     } catch (_) {
       return basis;
     }
+  }
+
+  /**
+   * Meeluisteren met de widget van Calendly.
+   *
+   * Ze stuurt berichten naar het bovenliggende venster. Twee ervan gebruiken we:
+   *
+   *   calendly.page_height    -- hoe hoog haar inhoud is. Zonder dit staat de
+   *                              kalender in een vlak van vaste hoogte met een
+   *                              eigen scrollbalk erin, en valt de onderkant
+   *                              (net de knop "Bevestigen") buiten beeld.
+   *   calendly.event_scheduled -- het gesprek is geboekt. Dat is het moment van
+   *                              de conversie, en meteen het moment om ons eigen
+   *                              bedankscherm te tonen in plaats van hun pagina.
+   *
+   * De herkomst wordt gecontroleerd: dit is een bericht van een andere site, en
+   * elke pagina mag er een sturen.
+   */
+  function luisterNaarCalendly() {
+    window.addEventListener('message', function (bericht) {
+      if (bericht.origin !== CALENDLY_HERKOMST) return;
+      var data = bericht.data;
+      if (!data || typeof data !== 'object' || typeof data.event !== 'string') return;
+      if (data.event.indexOf('calendly.') !== 0) return;
+
+      var vlak = document.querySelector('[data-mymmo-calendly][data-mymmo-geladen="1"]');
+      if (!vlak) return;
+
+      if (data.event === 'calendly.page_height') {
+        var hoogte = parseInt(String((data.payload || {}).height || ''), 10);
+        // Een ondergrens: bij een tussentoestand meldt Calendly soms een paar
+        // tientallen pixels, en dan klapt het vlak dicht tot een streepje.
+        if (hoogte > 200) {
+          vlak.style.height = hoogte + 'px';
+          vlak.style.minHeight = '0';
+        }
+        return;
+      }
+
+      if (data.event === 'calendly.event_scheduled') {
+        toonBedankt(vlak, data.payload || {});
+      }
+    });
+  }
+
+  /**
+   * Ons eigen bedankscherm, in het venster, na een geboekt gesprek.
+   *
+   * Calendly toont normaal haar eigen bevestigingspagina in het iframe. Die
+   * vervangen we: de bezoeker blijft op onze site, ziet onze tekst, en de
+   * conversie wordt hier gemeld in plaats van door een pageview op een pagina
+   * van iemand anders.
+   */
+  function toonBedankt(vlak, payload) {
+    if (vlak.getAttribute('data-mymmo-bedankt') === '1') return;
+    vlak.setAttribute('data-mymmo-bedankt', '1');
+
+    var tekst = vlak.getAttribute('data-mymmo-dank')
+      || 'Je gesprek staat ingepland. Je krijgt de bevestiging per mail.';
+
+    var blok = document.createElement('div');
+    blok.className = 'mymmo-modal-bedankt';
+    blok.setAttribute('role', 'status');
+    blok.setAttribute('tabindex', '-1');
+
+    var vinkje = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    vinkje.setAttribute('viewBox', '0 0 24 24');
+    vinkje.setAttribute('width', '40');
+    vinkje.setAttribute('height', '40');
+    vinkje.setAttribute('aria-hidden', 'true');
+    vinkje.innerHTML = '<path d="M4 12.5l5 5 11-11" fill="none" stroke="currentColor" '
+      + 'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>';
+
+    var alinea = document.createElement('p');
+    alinea.textContent = tekst;
+
+    blok.appendChild(vinkje);
+    blok.appendChild(alinea);
+
+    vlak.innerHTML = '';
+    vlak.style.height = '';
+    vlak.appendChild(blok);
+    // De focus erheen: een schermlezer hoort te horen dat de afspraak rond is,
+    // en niet in een iframe achter te blijven dat er niet meer staat.
+    blok.focus({ preventScroll: true });
+
+    var uri = (payload.event && payload.event.uri) || '';
+    meldAfronding('calendly_geboekt', vlak.getAttribute('data-mymmo-doel') || '', {
+      mymmo_calendly_event: uri
+    });
   }
 
   function laadAgenda(venster) {
@@ -510,6 +719,22 @@
       };
       document.addEventListener('pointerover', warm);
       document.addEventListener('focusin', warm);
+      // Op een telefoon bestaat er geen "erover gaan": daar is de aanraking het
+      // eerste én het laatste signaal voor de klik. Zonder deze twee begint het
+      // ophalen daar pas bij het openen van het venster.
+      document.addEventListener('pointerdown', warm);
+      document.addEventListener('touchstart', warm, { passive: true });
+
+      // De verbinding alvast openen zodra de pagina rustig is. Dit stuurt geen
+      // enkel gegeven mee -- het is de DNS en de TLS, meer niet -- en het
+      // scheelt op een trage verbinding een halve seconde staren.
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(openVerbinding, { timeout: 4000 });
+      } else {
+        window.setTimeout(openVerbinding, 2500);
+      }
+
+      luisterNaarCalendly();
     }
 
     document.addEventListener('click', function (event) {

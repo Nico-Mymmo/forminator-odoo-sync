@@ -100,7 +100,14 @@ final class Mymmo_Forms_Shortcodes {
      * @param array<string,string>|string $atts
      */
     public static function render($atts = []): string {
-        $atts = shortcode_atts(['slug' => '', 'title' => 'yes', 'lang' => ''], is_array($atts) ? $atts : [], 'mymmo_form');
+        $atts = shortcode_atts(
+            [
+                'slug' => '', 'title' => 'yes', 'lang' => '', 'preset' => '',
+                'padding_x' => '', 'padding_y' => '', 'gap' => '', 'goal_form' => '',
+            ],
+            self::met_opstelling($atts),
+            'mymmo_form'
+        );
         $slug = sanitize_title((string) $atts['slug']);
 
         if ($slug === '') {
@@ -137,6 +144,8 @@ final class Mymmo_Forms_Shortcodes {
             // lang="fr" wint; anders de taal van de pagina; anders de
             // standaardtaal van het formulier. Zie Mymmo_Forms_I18n::resolve().
             'lang'        => Mymmo_Forms_I18n::resolve($form, (string) $atts['lang']),
+            'extra_style' => self::padding_style($atts),
+            'goal'        => self::goal((string) $atts['goal_form']),
         ]);
     }
 
@@ -194,6 +203,20 @@ final class Mymmo_Forms_Shortcodes {
             'points'           => '',
             'image'            => '',
             'image_alt'        => '',
+            'image_calendly'       => '',
+            'image_calendly_alt'   => '',
+            'image_calendly_scale' => '',
+            'image_calendly_x'     => '',
+            'image_calendly_y'     => '',
+            'image_scale'      => '',
+            'image_x'          => '',
+            'image_y'          => '',
+            'watermark'        => '',
+            'watermark_scale'  => '',
+            'watermark_x'      => '',
+            'watermark_y'      => '',
+            'watermark_rotate' => '',
+            'icon_color'       => '',
             'tab_form'         => 'Stuur ons een bericht',
             'tab_calendly'     => 'Plan een gesprek',
             'tab_form_sub'     => '',
@@ -208,7 +231,15 @@ final class Mymmo_Forms_Shortcodes {
             'close'            => 'Sluiten',
             'lang'             => '',
             'id'               => '',
-        ], is_array($atts) ? $atts : [], 'mymmo_form_button');
+            'preset'           => '',
+            'padding_x'        => '',
+            'padding_y'        => '',
+            'gap'              => '',
+            'background'       => '',
+            'thanks_calendly'  => '',
+            'goal_form'        => '',
+            'goal_calendly'    => '',
+        ], self::met_opstelling($atts), 'mymmo_form_button');
 
         $slug = sanitize_title((string) $atts['slug']);
 
@@ -275,6 +306,52 @@ final class Mymmo_Forms_Shortcodes {
             $accent_style[] = '--mf-accent-text:' . $accent_text;
         }
 
+        $opvulling = self::padding_style($atts);
+        if ($opvulling !== '') {
+            $accent_style[] = $opvulling;
+        }
+
+        // De achtergrond van het venster. Standaard is dat een lichte tint van
+        // de accentkleur; met dit attribuut kies je een andere merkkleur voor
+        // deze plaatsing.
+        $achtergrond = mymmo_forms_color((string) $atts['background']);
+        if ($achtergrond !== '') {
+            $accent_style[] = '--mf-panel-bg:' . $achtergrond;
+        }
+
+        // De kleur van de vinkjes en de iconen. Los van de accentkleur: op een
+        // gekleurde achtergrond wil je die soms lichter, zonder daarvoor de
+        // knoppen mee te veranderen.
+        $icoon = mymmo_forms_color((string) $atts['icon_color']);
+        if ($icoon !== '') {
+            $accent_style[] = '--mf-icon:' . $icoon;
+        }
+
+        // De tekening en het watermerk: schaal en verschuiving.
+        foreach ([
+            ['image_scale',     '--mf-fig-scale', 'schaal'],
+            ['image_x',         '--mf-fig-x',     'verschuiving'],
+            ['image_y',         '--mf-fig-y',     'verschuiving'],
+            ['image_calendly_scale', '--mf-fig2-scale', 'schaal'],
+            ['image_calendly_x',     '--mf-fig2-x',     'verschuiving'],
+            ['image_calendly_y',     '--mf-fig2-y',     'verschuiving'],
+            ['watermark_scale', '--mf-wm-scale',  'schaal'],
+            ['watermark_x',     '--mf-wm-x',      'verschuiving'],
+            ['watermark_y',     '--mf-wm-y',      'verschuiving'],
+            ['watermark_rotate', '--mf-wm-rotate', 'hoek'],
+        ] as [$attribuut, $variabele, $soort]) {
+            if ($soort === 'schaal') {
+                $waarde = mymmo_forms_scale((string) $atts[$attribuut]);
+            } elseif ($soort === 'hoek') {
+                $waarde = mymmo_forms_angle((string) $atts[$attribuut]);
+            } else {
+                $waarde = mymmo_forms_offset((string) $atts[$attribuut]);
+            }
+            if ($waarde !== '') {
+                $accent_style[] = $variabele . ':' . $waarde;
+            }
+        }
+
         // De kleur die Calendly meekrijgt: de onze als die er is, anders die van
         // het formulier. Alleen een hex van zes tekens -- Calendly kent geen
         // rgba(), en half doorgeven geeft daar een paars-blauwe standaardkleur
@@ -317,11 +394,17 @@ final class Mymmo_Forms_Shortcodes {
             'active_tab'         => (string) $atts['tab'] === 'calendly' ? 'calendly' : 'form',
             'image'              => $image,
             'image_alt'          => trim((string) $atts['image_alt']),
+            'watermark'          => self::image_url((string) $atts['watermark']),
+            'image_calendly'     => self::image_url((string) $atts['image_calendly']),
+            'image_calendly_alt' => trim((string) $atts['image_calendly_alt']),
             'lead'               => $lead,
             'points'             => $points,
             // button="no": geen eigen knop. Het venster staat er wel, en iets
             // anders op de pagina opent het -- een link naar #id, of wat de
             // trigger-selector aanwijst.
+            'thanks_calendly'    => trim((string) $atts['thanks_calendly']),
+            'goal_calendly'      => self::goal((string) $atts['goal_calendly']),
+            'goal_form'          => self::goal((string) $atts['goal_form']),
             'show_button'        => strtolower(trim((string) $atts['button'])) !== 'no',
             'trigger'            => self::trigger((string) $atts['trigger']),
             'accent_style'       => implode(';', $accent_style),
@@ -329,6 +412,40 @@ final class Mymmo_Forms_Shortcodes {
             // hoort het venster meteen weer open te staan met de bevestiging.
             'auto_open'          => is_array($flash),
         ]);
+    }
+
+    /**
+     * Een bewaarde opstelling onder de getypte attributen schuiven.
+     *
+     * De opstelling is de BASIS; wat er in de shortcode zelf staat wint. Wie op
+     * één pagina een andere knoptekst typt, bedoelt dat -- en moet daarvoor geen
+     * tweede opstelling hoeven maken.
+     *
+     * Dit gebeurt VÓÓR shortcode_atts(). Daarna hebben alle attributen een
+     * waarde (de standaarden) en is niet meer te zien wat er echt getypt is; de
+     * opstelling zou dan nooit meer kunnen winnen van een standaardwaarde.
+     *
+     * @param array<string,string>|string $atts
+     * @return array<string,string>
+     */
+    private static function met_opstelling($atts): array {
+        $getypt = is_array($atts) ? $atts : [];
+
+        $id = sanitize_title((string) ($getypt['preset'] ?? ''));
+        if ($id === '' || !class_exists('Mymmo_Forms_Presets')) {
+            return $getypt;
+        }
+
+        $opstelling = Mymmo_Forms_Presets::atts($id);
+        if ($opstelling === []) {
+            // Bestaat niet (meer). Niet stil doorgaan met een lege shortcode:
+            // dan staat er op een pagina niets en zoekt iemand het in de
+            // Operations Manager. De aanroeper toont de melding voor beheerders
+            // zodra er geen slug overblijft.
+            return $getypt;
+        }
+
+        return array_merge($opstelling, $getypt);
     }
 
     /**
@@ -401,6 +518,66 @@ final class Mymmo_Forms_Shortcodes {
     private static function calendly_url(string $ruw): string {
         $url = esc_url_raw(trim($ruw));
         return str_starts_with($url, 'https://') ? $url : '';
+    }
+
+    /**
+     * Het pad dat als conversie gemeld wordt, of '' als er niets bruikbaars staat.
+     *
+     * Dit is wat vroeger de bedankpagina was: `/bedankt/offerte`. Het gaat niet
+     * naar een browser om naartoe te navigeren -- het reist mee in de
+     * dataLayer-gebeurtenis, zodat een virtuele pageview in GTM hetzelfde doel
+     * kan blijven voeden als toen er nog echt een pagina geladen werd.
+     *
+     * Alleen een PAD, geen volledige URL: een adres op een ander domein zou in
+     * de statistieken van die site terechtkomen en niet in de onze, en het is
+     * bovendien de enige vorm die GA hier verwacht.
+     */
+    private static function goal(string $ruw): string {
+        $pad = trim($ruw);
+        if ($pad === '') {
+            return '';
+        }
+        if ($pad[0] !== '/') {
+            $pad = '/' . $pad;
+        }
+        // Geen protocol, geen host, geen aanhalingstekens: dit belandt in een
+        // data-attribuut en daarna in een gebeurtenis.
+        $pad = (string) preg_replace('/[^A-Za-z0-9_\-\/.?=&%]/', '', $pad);
+
+        return substr($pad, 0, 200);
+    }
+
+    /**
+     * De opvulling van deze plaatsing, als stukje style-attribuut.
+     *
+     * Dezelfde twee variabelen sturen twee dingen: de ruimte ROND een formulier
+     * dat in een pagina staat, en de ruimte BINNEN een tabblad van het venster.
+     * Dat is met opzet één paar knoppen -- het is in beide gevallen "hoeveel
+     * lucht rond de velden", en twee paren zou betekenen dat je moet weten in
+     * welke van de twee je zit voor je iets kan instellen.
+     *
+     * @param array<string,string> $atts
+     */
+    private static function padding_style(array $atts): string {
+        $stukken = [];
+
+        $x = mymmo_forms_length((string) ($atts['padding_x'] ?? ''));
+        $y = mymmo_forms_length((string) ($atts['padding_y'] ?? ''));
+        $tussen = mymmo_forms_length((string) ($atts['gap'] ?? ''));
+
+        if ($x !== '') {
+            $stukken[] = '--mf-pad-x:' . $x;
+        }
+        if ($y !== '') {
+            $stukken[] = '--mf-pad-y:' . $y;
+        }
+        // De ruimte TUSSEN de velden. Staat in hetzelfde stukje stijl omdat het
+        // om dezelfde vraag gaat: hoeveel lucht rond en tussen de velden.
+        if ($tussen !== '') {
+            $stukken[] = '--mf-gap:' . $tussen;
+        }
+
+        return implode(';', $stukken);
     }
 
     /**

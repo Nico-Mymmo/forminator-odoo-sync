@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Mymmo Forms
  * Description:       Formulieren die in de Operations Manager gebouwd worden, hier gerenderd met een shortcode. Geen formulierdefinities in WordPress.
- * Version:           1.3.0
+ * Version:           1.13.1
  * Requires at least: 6.2
  * Requires PHP:      8.0
  * Author:            Mymmo
@@ -32,7 +32,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('MYMMO_FORMS_VERSION', '1.3.0');
+define('MYMMO_FORMS_VERSION', '1.13.1');
 define('MYMMO_FORMS_FILE', __FILE__);
 define('MYMMO_FORMS_DIR', plugin_dir_path(__FILE__));
 define('MYMMO_FORMS_URL', plugin_dir_url(__FILE__));
@@ -41,13 +41,17 @@ require_once MYMMO_FORMS_DIR . 'includes/helpers.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-i18n.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-cache.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-api-client.php';
+require_once MYMMO_FORMS_DIR . 'includes/class-presets.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-settings.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-shortcodes.php';
+require_once MYMMO_FORMS_DIR . 'includes/class-block.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-submit.php';
 
 function mymmo_forms_bootstrap(): void {
+    Mymmo_Forms_Presets::init();
     Mymmo_Forms_Settings::init();
     Mymmo_Forms_Shortcodes::init();
+    Mymmo_Forms_Block::init();
     Mymmo_Forms_Submit::init();
 }
 add_action('plugins_loaded', 'mymmo_forms_bootstrap');

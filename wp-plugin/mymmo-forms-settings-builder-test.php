@@ -30,6 +30,11 @@ function admin_url($p = '') { return 'https://openvme.be/wp-admin/' . $p; }
 function add_query_arg($k, $v, $u) { return $u . '&' . $k . '=' . $v; }
 function sanitize_key($k) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $k)); }
 function wp_unslash($v) { return $v; }
+// Sinds 1.5.0 staat er een vinkje op het verbinding-tabblad; checked() hoort
+// bij de stubs die dit scherm nodig heeft. wp_get_global_settings/-styles
+// bestaan hier BEWUST niet: de helpers vallen dan stil terug op "dit thema
+// declareert niets", en dat is precies de toestand die een klassiek thema geeft.
+function checked($a, $b = true, $echo = true) { $r = $a == $b ? ' checked' : ''; if ($echo) { echo $r; } return $r; }
 function wp_json_encode($v) { return json_encode($v); }
 function settings_fields($g) { echo '<input type="hidden" name="option_page" value="' . $g . '">'; }
 function wp_nonce_field($a) { echo '<input type="hidden" name="_wpnonce" value="stub">'; }
@@ -69,6 +74,11 @@ final class Mymmo_Forms_Cache {
     public static function known_slugs(): array { return []; }
 }
 
+// Sinds 1.6.0 toont de bouwer de bewaarde opstellingen; class-settings.php
+// leest Mymmo_Forms_Presets::ATTS en ::all(). sanitize_title hoort bij de stubs
+// die dat vraagt.
+function sanitize_title($t) { return trim(preg_replace('/[^a-z0-9_-]+/', '-', strtolower((string) $t)), '-'); }
+require_once MYMMO_FORMS_DIR . 'includes/class-presets.php';
 require_once MYMMO_FORMS_DIR . 'includes/class-settings.php';
 
 $GLOBALS['__options'] = [

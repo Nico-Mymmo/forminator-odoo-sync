@@ -26,6 +26,7 @@ if (!defined('ABSPATH')) {
 /** @var string $lang */
 /** @var string|null $instance_id  eigen id-voorvoegsel, voor een tweede exemplaar op dezelfde pagina */
 /** @var string|null $anchor       waar de bezoeker na het versturen terecht moet komen */
+/** @var string|null $extra_style  stijl van DEZE plaatsing (opvulling, kleur) */
 
 // Normaal is het id afgeleid van de slug. Staat hetzelfde formulier TWEE keer
 // op een pagina (in de tekst en in een pop-up), dan zouden alle veld-id's
@@ -37,6 +38,20 @@ $form_id_attr = (isset($instance_id) && is_string($instance_id) && $instance_id 
     : ('mymmo-form-' . $slug);
 $oude_waarden = is_array($flash['values'] ?? null) ? $flash['values'] : [];
 $stijl        = mymmo_forms_theme_style(is_array($form['theme'] ?? null) ? $form['theme'] : []);
+
+// Het thema van DEZE site erachter: de laatste declaratie wint, dus de kleuren
+// van de site gaan voor die van de Operations Manager. Zie
+// mymmo_forms_site_theme_style() voor het waarom en voor de volledige volgorde.
+$site_stijl = mymmo_forms_site_theme_style();
+if ($site_stijl !== '') {
+    $stijl = $stijl === '' ? $site_stijl : $stijl . ';' . $site_stijl;
+}
+
+// En als laatste wat er op DEZE shortcode staat: dat is de meest expliciete
+// keuze en hoort dus van alles te winnen.
+if (isset($extra_style) && is_string($extra_style) && $extra_style !== '') {
+    $stijl = $stijl === '' ? $extra_style : $stijl . ';' . $extra_style;
+}
 
 // De vaste bezoekersteksten in deze taal. Ze komen uit de payload (MESSAGES in
 // forms/schema.js), niet uit een tabel hier: zo zijn de meldingen die
@@ -69,8 +84,15 @@ $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
 // taal heeft dan de pagina zelf zou zijn -- altijd zetten is onschadelijk, maar
 // dit is de plek waar het echt uitmaakt.
 ?>
+<?php
+// data-mymmo-slug en data-mymmo-doel staan op de WIKKEL en niet in het
+// formulier: na een geslaagde inzending wordt het formulier niet meer
+// gerenderd, en dan is dit het enige dat er nog staat om de conversie mee te
+// kunnen melden.
+?>
 <div class="mymmo-form-wrap"
      id="<?php echo esc_attr($form_id_attr); ?>"
+     data-mymmo-slug="<?php echo esc_attr($slug); ?>"<?php echo (isset($goal) && is_string($goal) && $goal !== '') ? ' data-mymmo-doel="' . esc_attr($goal) . '"' : ''; ?>
      lang="<?php echo esc_attr($lang); ?>"<?php echo $stijl !== '' ? ' style="' . esc_attr($stijl) . '"' : ''; ?>>
 
     <?php if (is_array($flash)) : ?>

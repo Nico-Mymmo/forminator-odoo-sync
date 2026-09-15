@@ -155,10 +155,37 @@ html.mymmo-modal-actief body {
   max-height: 88vh;
   /* dvh houdt rekening met de balk die op een telefoon in- en uitschuift. */
   max-height: 88dvh;
-  background: var(--mf-field-bg, #ffffff);
+  /* Het VENSTER draagt de tint; de inhoud is een wit kaartje dat erop ligt
+     (.mymmo-modal-main). Zo staat de zijkolom op dezelfde achtergrond als het
+     kaartje en is er geen scheidingslijn nodig tussen de twee -- precies de
+     indeling van de aanvraagwizard. */
+  /* --mf-panel-bg is instelbaar per plaatsing (background="#..." op de
+     shortcode, of in een bewaarde opstelling). Staat hij niet, dan is het een
+     lichte tint van de accentkleur -- die volgt dan vanzelf het thema van de
+     site. De eerste regel is de terugval voor browsers zonder color-mix. */
+  background: #f3f6fd;
+  background: var(--mf-panel-bg, color-mix(in srgb, var(--mf-accent, #2563eb) 7%, #ffffff));
   border-radius: calc(var(--mf-radius, 10px) + 6px);
   box-shadow: 0 24px 64px rgba(16, 20, 28, 0.3);
   overflow: hidden;
+}
+
+/* ── De kop, over de volle breedte ───────────────────────────────────────── */
+
+.mymmo-modal-kop {
+  flex: 0 0 auto;
+  /* Rechts ruimte voor de sluitknop, die er los overheen hangt. */
+  padding: 20px 60px 12px 22px;
+}
+
+/* Zijkolom en inhoud naast elkaar; de kop staat erboven. Zonder deze wikkel kan
+   de kop niet over beide kolommen lopen. */
+.mymmo-modal-lijf {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* Met een agenda erbij: breder. Onder ongeveer 640px schakelt Calendly zelf
@@ -187,33 +214,15 @@ html.mymmo-modal-actief body {
 
 /* ── De zijkolom ─────────────────────────────────────────────────────────── */
 
+/* De zijkolom heeft GEEN eigen achtergrond en geen scheidingslijn: ze staat op
+   de tint van het venster, net als het witte kaartje ernaast. Dat is wat "een
+   kader in plaats van een streep" betekent. */
 .mymmo-modal-aside {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  /* Rechts extra ruimte: de sluitknop hangt daar los overheen. In de
-     twee-kolomsindeling staat die knop boven de INHOUD en gaat deze ruimte er
-     weer af (zie de media query onderaan). */
-  padding: 22px 60px 18px 22px;
-  background: #f3f6fd;
-  background: color-mix(in srgb, var(--mf-accent, #2563eb) 7%, #ffffff);
-  border-bottom: 1px solid var(--mf-border, #d7dbe2);
-}
-
-/* Geen zijkolom te vullen (geen agenda, geen afbeelding, geen opsomming): dan
-   is het gewoon een kopbalk, zoals voorheen. Een leeg gekleurd vlak naast een
-   formulier van vier velden ziet eruit als een fout. */
-.mymmo-modal-panel--kaal .mymmo-modal-aside {
-  gap: 4px;
-  padding: 18px 60px 14px 20px;
-  background: transparent;
-}
-
-.mymmo-modal-aside-kop {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  gap: 14px;
+  padding: 0 20px 14px;
   min-width: 0;
 }
 
@@ -294,7 +303,7 @@ html.mymmo-modal-actief body {
   justify-content: center;
   width: 30px;
   height: 30px;
-  color: var(--mf-muted, #6b7280);
+  color: var(--mf-icon, var(--mf-muted, #6b7280));
   background: rgba(16, 20, 28, 0.06);
   border-radius: 999px;
   transition: color 0.12s ease, background-color 0.12s ease;
@@ -330,6 +339,9 @@ html.mymmo-modal-actief body {
 
 /* ── Inhoud ──────────────────────────────────────────────────────────────── */
 
+/* Het kaartje met de inhoud. Het ligt op de tint van het venster, met een eigen
+   rand en schaduw -- geen vlak dat tegen de zijkolom aan plakt met een lijn
+   ertussen. */
 .mymmo-modal-main {
   flex: 1 1 auto;
   display: flex;
@@ -339,6 +351,12 @@ html.mymmo-modal-actief body {
      onder hun inhoud. */
   min-width: 0;
   min-height: 0;
+  margin: 0 12px 12px;
+  background: var(--mf-field-bg, #ffffff);
+  border: 1px solid rgba(16, 20, 28, 0.06);
+  border-radius: calc(var(--mf-radius, 10px) + 4px);
+  box-shadow: 0 1px 2px rgba(16, 20, 28, 0.05), 0 10px 26px rgba(16, 20, 28, 0.05);
+  overflow: hidden;
 }
 
 .mymmo-modal-body {
@@ -350,8 +368,18 @@ html.mymmo-modal-actief body {
   min-height: 0;
 }
 
+/* De opvulling komt uit dezelfde twee variabelen als bij een formulier in een
+   pagina, maar met een eigen standaard: hier hoort er wél ruimte te zijn. Wie ze
+   zet (op de shortcode of in het thema van het formulier), zet ze dus voor
+   allebei. */
 .mymmo-modal-paneel {
-  padding: 22px;
+  padding: var(--mf-pad-y, 22px) var(--mf-pad-x, 22px);
+}
+
+/* Het formulier ZELF krijgt geen opvulling meer binnen het venster: het tabblad
+   hierboven heeft ze al, en twee keer dezelfde variabele stapelt op. */
+.mymmo-modal .mymmo-form-wrap {
+  padding: 0;
 }
 
 .mymmo-modal-paneel:focus {
@@ -500,6 +528,37 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   filter: brightness(0.93);
 }
 
+/* ── Bedankt ─────────────────────────────────────────────────────────────── */
+
+/* Wat er in de plaats van de kalender komt zodra het gesprek geboekt is. De
+   bezoeker blijft hier, op onze site, in plaats van op de bedankpagina van
+   Calendly te belanden. */
+.mymmo-modal-bedankt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 320px;
+  padding: 40px 28px;
+  text-align: center;
+}
+
+.mymmo-modal-bedankt:focus {
+  outline: none;
+}
+
+.mymmo-modal-bedankt svg {
+  color: var(--mf-accent, #2563eb);
+}
+
+.mymmo-modal-bedankt p {
+  margin: 0;
+  max-width: 34em;
+  font-size: 1.05rem;
+  line-height: 1.55;
+}
+
 /* De kalender wordt opgebouwd: de terugvallink hoort dan weg. */
 .mymmo-modal-agenda.is-laden .mymmo-modal-agenda-terugval {
   display: none;
@@ -508,23 +567,58 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
 /* ── Twee kolommen (vanaf 900px) ─────────────────────────────────────────── */
 
 @media (min-width: 900px) {
-  .mymmo-modal-panel--zijkolom {
+  .mymmo-modal-panel--zijkolom .mymmo-modal-lijf {
     flex-direction: row;
     align-items: stretch;
   }
 
+  /* Een venster met zijkolom heeft meer breedte nodig dan een kaal venster:
+     de zijkolom neemt er 280 van, en wat overblijft is de kolom waarin iemand
+     zijn gegevens typt. Bij 660px blijft daar 360px van over en breken de
+     velden van twee kolommen naar een -- terwijl er scherm genoeg is.
+     :not(--breed), want met een agenda erbij geldt de bredere maat van daar;
+     die twee klassen staan samen op hetzelfde venster. */
+  .mymmo-modal-panel--zijkolom:not(.mymmo-modal-panel--breed) {
+    max-width: 880px;
+  }
+
+  .mymmo-modal-kop {
+    /* Links gelijk met de zijkolom eronder. */
+    padding: 26px 60px 14px 28px;
+  }
+
   .mymmo-modal-panel--zijkolom .mymmo-modal-aside {
-    flex: 0 0 290px;
+    flex: 0 0 280px;
     gap: 18px;
-    /* De sluitknop hangt hier boven de INHOUD, niet boven de zijkolom. */
-    padding: 28px 24px;
-    border-right: 1px solid var(--mf-border, #d7dbe2);
-    border-bottom: 0;
-    overflow-y: auto;
+    padding: 2px 6px 22px 28px;
+    /*
+     * GEEN eigen scrollgebied.
+     *
+     * Met overflow-y:auto werd de zijkolom een scrollgebied, en dat knipt ook
+     * horizontaal af: een tekening die je groter schaalt dan de kolom verdween
+     * dan aan de rand. Het venster zelf heeft overflow:hidden, dus buiten het
+     * venster komt er nog steeds niets.
+     *
+     * Bewust GEEN z-index hier: de tekening hoort achter het witte kaartje te
+     * blijven. Dat kaartje komt later in de HTML en wint dus vanzelf.
+     */
+    overflow: visible;
   }
 
   .mymmo-modal-panel--breed.mymmo-modal-panel--zijkolom .mymmo-modal-aside {
-    flex-basis: 320px;
+    flex-basis: 310px;
+  }
+
+  .mymmo-modal-main {
+    margin: 0 20px 20px;
+  }
+
+  .mymmo-modal-panel--zijkolom .mymmo-modal-main {
+    margin: 0 20px 20px 10px;
+  }
+
+  .mymmo-modal-paneel {
+    padding: var(--mf-pad-y, 28px) var(--mf-pad-x, 28px);
   }
 
   /* Vanaf hier is er plek voor de twee keuzes onder elkaar, met hun regeltje
@@ -562,7 +656,9 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   .mymmo-modal-punt svg {
     flex: 0 0 auto;
     margin-top: 2px;
-    color: var(--mf-accent, #2563eb);
+    /* --mf-icon los van de accentkleur: op een gekleurde achtergrond wil je de
+       vinkjes soms lichter zonder daarvoor de knoppen mee te veranderen. */
+    color: var(--mf-icon, var(--mf-accent, #2563eb));
   }
 
   /* margin-top:auto duwt het beeld naar de onderkant van de kolom: het is
@@ -573,7 +669,80 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     padding-top: 8px;
   }
 
-  .mymmo-modal-figuur img {
+  .mymmo-modal-figuur {
+    /* Het anker voor het watermerk: dat hangt aan DIT vlak, niet aan de
+       zijkolom, zodat de twee bij elke schermbreedte dezelfde compositie
+       houden.
+
+       z-index:-1 zet de hele figuur ACHTER de rest: achter de tekst van de
+       zijkolom en achter het witte kaartje, maar nog altijd vóór de achtergrond
+       van het venster. Dat is wat een tekening op de achtergrond hoort te doen
+       -- ze mag de tekst niet overschilderen. */
+    position: relative;
+    z-index: -1;
+  }
+
+  /* Ook zonder tekening moet het vlak hoogte hebben, anders heeft het watermerk
+     niets om zich aan op te hangen. */
+  .mymmo-modal-figuur--leeg {
+    min-height: 150px;
+  }
+
+  /* De tekeningen liggen in DEZELFDE rastercel over elkaar. Zo bepaalt de
+     hoogste van de twee de hoogte van het vlak en springt er niets bij het
+     wisselen; met absolute plaatsing zou de tweede eruit vallen zodra ze groter
+     is dan de eerste. */
+  .mymmo-modal-figuur {
+    display: grid;
+  }
+
+  .mymmo-modal-beeld {
+    grid-area: 1 / 1;
+    position: relative;
+    z-index: 1;
+    display: block;
+    /* Niet zichtbaar EN niet aanklikbaar: een tekening die net weggefade is,
+       hoort geen klik meer op te vangen. */
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(16px) scale(0.94);
+    transition:
+      opacity 0.22s ease-out,
+      transform 0.42s cubic-bezier(0.22, 1.25, 0.36, 1),
+      visibility 0s linear 0.22s;
+  }
+
+  .mymmo-modal-beeld.is-actief {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+    /* De binnenkomende beweging duurt langer dan de vertrekkende en schiet licht
+       door -- dat overschot is wat het levend maakt in plaats van een
+       kruisvervaging. */
+    transition:
+      opacity 0.26s ease-out 0.04s,
+      transform 0.46s cubic-bezier(0.22, 1.25, 0.36, 1),
+      visibility 0s;
+  }
+
+  /* Elke tekening heeft haar EIGEN schaal en verschuiving: ze zijn zelden even
+     groot, en dan staat de ene te hoog zodra de andere goed staat. Stel je voor
+     de tweede niets in, dan volgt ze die van de eerste -- dat scheelt werk bij
+     twee tekeningen die wél op elkaar lijken.
+
+     Deze MIDDENSTE laag draagt die schaal en verschuiving, de buitenste de
+     beweging van de overgang. In één transform zouden die elkaar overschrijven,
+     en dan verspringt je nudge zodra je van tabblad wisselt. In de bouwer hangen
+     de omlijning en de grepen hieraan, zodat ze meebewegen met het beeld. */
+  .mymmo-modal-stand {
+    display: block;
+    position: relative;
+    transform: translate(var(--mf-fig-x, 0px), var(--mf-fig-y, 0px)) scale(var(--mf-fig-scale, 100%));
+    transform-origin: bottom center;
+  }
+
+  .mymmo-modal-tekening {
     display: block;
     width: 100%;
     max-width: 230px;
@@ -581,8 +750,63 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     margin: 0 auto;
   }
 
-  .mymmo-modal-paneel {
-    padding: 28px;
+  .mymmo-modal-beeld[data-mymmo-beeld="calendly"] .mymmo-modal-stand {
+    transform:
+      translate(
+        var(--mf-fig2-x, var(--mf-fig-x, 0px)),
+        var(--mf-fig2-y, var(--mf-fig-y, 0px))
+      )
+      scale(var(--mf-fig2-scale, var(--mf-fig-scale, 100%)));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mymmo-modal-beeld {
+      transition: opacity 0.01s, visibility 0s;
+      transform: none;
+    }
+
+    .mymmo-modal-beeld.is-actief {
+      transition: opacity 0.01s, visibility 0s;
+      transform: none;
+    }
+  }
+
+  /*
+   * Het watermerk: een swoosh of krul ACHTER de tekening, verankerd in de
+   * linkeronderhoek van dit vlak.
+   *
+   * pointer-events:none -- het is decoratie; een klik hoort erdoorheen te gaan
+   * naar wat eronder ligt.
+   */
+  /*
+   * Het watermerk hangt aan het VLAK, niet aan een van de tekeningen.
+   *
+   * De twee tekeningen delen dezelfde rastercel, dus dat vlak houdt zijn maat
+   * wanneer je van tabblad wisselt -- en daardoor blijft het watermerk precies
+   * staan waar het stond terwijl de tekening ervoor verwisselt. Zou het aan een
+   * tekening vastzitten, dan sprong het mee bij elke wissel.
+   */
+  .mymmo-modal-wm {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    z-index: 0;
+    display: block;
+    width: var(--mf-wm-scale, 100%);
+    transform:
+      translate(var(--mf-wm-x, 0px), var(--mf-wm-y, 0px))
+      rotate(var(--mf-wm-rotate, 0deg));
+    transform-origin: bottom left;
+    /* Decoratie: een klik hoort erdoorheen te gaan naar wat eronder ligt. In de
+       bouwer zet de bewerklaag dit tijdelijk aan om te kunnen slepen. */
+    pointer-events: none;
+  }
+
+  .mymmo-modal-watermerk {
+    display: block;
+    width: 100%;
+    max-width: none;
+    height: auto;
   }
 
   .mymmo-modal-agenda-terugval {
@@ -610,12 +834,22 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     border-radius: 0;
   }
 
-  .mymmo-modal-aside {
-    padding: 16px 56px 14px 16px;
+  .mymmo-modal-kop {
+    padding: 14px 56px 10px 16px;
   }
 
-  .mymmo-modal-panel--kaal .mymmo-modal-aside {
-    padding: 14px 56px 12px 16px;
+  .mymmo-modal-aside {
+    padding: 0 16px 12px;
+  }
+
+  /* Op een vol scherm heeft een zwevend kaartje geen zin: het zou aan alle
+     kanten een randje tint overlaten en de inhoud smaller maken dan het
+     toestel. */
+  .mymmo-modal-main {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .mymmo-modal-title {
@@ -655,7 +889,7 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   }
 
   .mymmo-modal-paneel {
-    padding: 16px;
+    padding: var(--mf-pad-y, 16px) var(--mf-pad-x, 16px);
   }
 
   .mymmo-modal-agenda-terugval {
@@ -684,21 +918,97 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
 
 /* ── Beweging ────────────────────────────────────────────────────────────── */
 
+/*
+ * Openen en sluiten hebben allebei hun eigen beweging, en dat is het punt: het
+ * venster ploft niet meer in beeld en verdwijnt niet meer in één frame.
+ *
+ * Openen gebruikt een easing die licht DOORSCHIET (de laatste waarde in de
+ * cubic-bezier ligt boven 1) en start net iets te klein. Daardoor leest het als
+ * iets dat naar je toe komt in plaats van iets dat verschijnt -- dat overschot
+ * is wat een beweging levend maakt.
+ *
+ * Sluiten gaat sneller en zonder overschot, met een easing die versnelt: iets
+ * dat weggaat hoort niet te aarzelen. De duur staat ook in mymmo-forms-modal.js
+ * (SLUIT_MS); lopen die uit elkaar, dan springt het venster weg vóór de
+ * animatie klaar is, of blijft het een moment op een leeg scherm staan.
+ */
 @media (prefers-reduced-motion: no-preference) {
   .mymmo-modal.is-open .mymmo-modal-panel {
-    animation: mymmo-modal-in 0.16s ease-out;
+    animation: mymmo-modal-in 0.28s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+  }
+
+  .mymmo-modal.is-open .mymmo-modal-backdrop {
+    animation: mymmo-vlak-in 0.22s ease-out both;
+  }
+
+  .mymmo-modal.is-sluiten .mymmo-modal-panel {
+    animation: mymmo-modal-uit 0.16s cubic-bezier(0.4, 0, 1, 1) both;
+  }
+
+  .mymmo-modal.is-sluiten .mymmo-modal-backdrop {
+    animation: mymmo-vlak-uit 0.16s ease-in both;
   }
 }
 
 @keyframes mymmo-modal-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(12px) scale(0.965);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
+}
+
+@keyframes mymmo-modal-uit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+@keyframes mymmo-vlak-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes mymmo-vlak-uit {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* Op een telefoon is het venster een vol scherm, en dan hoort het van onder in
+   beeld te schuiven -- schalen ziet er op die maat uit als een haperende
+   pagina. */
+@media (prefers-reduced-motion: no-preference) and (max-width: 640px) {
+  .mymmo-modal.is-open .mymmo-modal-panel {
+    animation: mymmo-blad-in 0.3s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+  }
+
+  .mymmo-modal.is-sluiten .mymmo-modal-panel {
+    animation: mymmo-blad-uit 0.18s cubic-bezier(0.4, 0, 1, 1) both;
+  }
+}
+
+@keyframes mymmo-blad-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+@keyframes mymmo-blad-uit {
+  from { transform: translateY(0); }
+  to   { transform: translateY(100%); }
+}
+
+/* Het venster blijft tijdens het sluiten staan; het script haalt het weg zodra
+   de animatie klaar is. */
+.mymmo-modal.is-sluiten {
+  display: flex;
 }
 
 @media (prefers-reduced-motion: reduce) {

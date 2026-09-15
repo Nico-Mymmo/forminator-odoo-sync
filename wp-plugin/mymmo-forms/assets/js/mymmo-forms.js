@@ -257,7 +257,49 @@
     }
   }
 
+  /**
+   * Een geslaagde inzending melden.
+   *
+   * Na het versturen komt de bezoeker terug op dezelfde pagina met een
+   * bevestiging -- geen nieuwe URL, dus geen pageview en dus geen conversie in
+   * GA. Dat is precies het gat dat een aparte bedankpagina vroeger vulde.
+   * `data-mymmo-doel` is het pad dat die bedankpagina wás; met een virtuele
+   * pageview in GTM blijft hetzelfde doel werken.
+   *
+   * Zelfde twee kanalen als bij een geboekt gesprek (zie
+   * mymmo-forms-modal.js): dataLayer voor GTM, CustomEvent voor de rest.
+   */
+  function meldGeslaagdeInzending() {
+    var bevestigingen = document.querySelectorAll('.mymmo-form-notice--success');
+
+    for (var i = 0; i < bevestigingen.length; i += 1) {
+      var wikkel = bevestigingen[i].closest('.mymmo-form-wrap');
+      if (!wikkel || wikkel.getAttribute('data-mymmo-gemeld') === '1') continue;
+      wikkel.setAttribute('data-mymmo-gemeld', '1');
+
+      var doel = wikkel.getAttribute('data-mymmo-doel') || '';
+      var gegevens = {
+        event: 'mymmo_formulier_verstuurd',
+        mymmo_soort: 'formulier_verstuurd',
+        mymmo_formulier: wikkel.getAttribute('data-mymmo-slug') || '',
+        mymmo_doel: doel
+      };
+      if (doel) gegevens.page_path = doel;
+
+      try {
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push(gegevens);
+      } catch (_) { /* geen dataLayer */ }
+
+      try {
+        document.dispatchEvent(new CustomEvent('mymmo:formulier_verstuurd', { detail: gegevens }));
+      } catch (_) { /* oudere browser */ }
+    }
+  }
+
   function start() {
+    meldGeslaagdeInzending();
+
     focusMelding();
     document.querySelectorAll('.mymmo-form').forEach(function (form) {
       vulVoorafIn(form);
