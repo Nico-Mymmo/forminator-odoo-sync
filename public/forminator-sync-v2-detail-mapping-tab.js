@@ -343,13 +343,19 @@
       html +=     '</div>'; // px-5 py-4
 
       // ── Gedragsbalk ─────────────────────────────────────────────────────────
-      var _condSummary = target.condition_field
-        ? (Array.isArray(target.condition_values) && target.condition_values[0] === '__exists__'
-            ? 'Als ' + esc(target.condition_field) + ' bestaat'
-            : 'Als ' + esc(target.condition_field) + ' = ' + esc(
-                Array.isArray(target.condition_values) && target.condition_values.length
-                  ? target.condition_values.join(' / ') : '?'))
-        : 'Geen voorwaarde ingesteld';
+      var _condSummary = target.condition_field === 'booking_action'
+        // Een Calendly-stap staat bijna altijd op dit veld; "Als booking_action =
+        // new / rescheduled" is dan ruis. De balk hoort te zeggen WANNEER de stap
+        // draait, in dezelfde woorden als de knoppen eronder.
+        ? 'Alleen bij: ' + esc((Array.isArray(target.condition_values) ? target.condition_values : [])
+            .map(function (v) { return bookingActieLabel(v); }).join(' · ') || '?')
+        : target.condition_field
+          ? (Array.isArray(target.condition_values) && target.condition_values[0] === '__exists__'
+              ? 'Als ' + esc(target.condition_field) + ' bestaat'
+              : 'Als ' + esc(target.condition_field) + ' = ' + esc(
+                  Array.isArray(target.condition_values) && target.condition_values.length
+                    ? target.condition_values.join(' / ') : '?'))
+          : 'Geen voorwaarde ingesteld';
 
 
       var _chainSummary = chainKoppelingSamenvatting(tid, sortedTargets);
@@ -426,8 +432,29 @@
                 '<div id="det-optype-' + esc(tid) + '" style="display:none;"></div>';
       html += '</div>';
 
-      // Callout 3: Koppeling vorige stap (only for non-first steps)
-      if (!isFirst) {
+      // Callout 2b: Gedrag per Calendly-fase. Alleen bij een Calendly-koppeling,
+      // en nooit op een vaste stap: die MOET in alle vier de fases draaien,
+      // anders blijft een geannuleerde afspraak in Odoo op actief staan (en de
+      // PUT erop wordt sowieso geweigerd door assertNotSystemTarget).
+      if (isCalendlyKoppeling() && !target.is_system) {
+        var _faseLabel = isFaseContentStap(target) ? 'Tekst per fase' : 'Gedrag per fase';
+        var _faseSamenvatting = isFaseContentStap(target) ? faseContentSamenvatting(target) : faseSamenvatting(target);
+        html += '<div class="border border-base-200 rounded-xl overflow-hidden">';
+        html +=   '<div class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-base-200/60 transition-colors select-none"' +
+                    ' data-action="toggle-step-fase" data-target-id="' + esc(tid) + '">' +
+                    '<i data-lucide="git-branch" class="w-3.5 h-3.5 shrink-0 text-secondary"></i>' +
+                    '<span class="text-xs font-medium w-36 shrink-0">' + esc(_faseLabel) + '</span>' +
+                    '<span class="text-xs flex-1 opacity-50">' + esc(_faseSamenvatting) + '</span>' +
+                    '<i data-lucide="chevron-right" class="w-3.5 h-3.5 opacity-30 shrink-0 ml-auto"></i>' +
+                  '</div>' +
+                  '<div id="det-fase-' + esc(tid) + '" style="display:none;"></div>';
+        html += '</div>';
+      }
+
+      // Callout 3: Koppeling vorige stap (niet voor mail: een mail wordt niet
+      // aan een andere stap gekoppeld, hij wordt gewoon klaargezet en
+      // verstuurd — dit koppelkader zou hier enkel leeg opengaan).
+      if (!isFirst && target.operation_type !== 'send_mail') {
         html += '<div class="border border-base-200 rounded-xl overflow-hidden">';
         html +=   '<div class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-base-200/60 transition-colors select-none"' +
                     ' data-action="toggle-step-chain" data-target-id="' + esc(tid) + '">' +
@@ -505,6 +532,7 @@
     sortedTargets.forEach(function (target, idx) {
       var tid = String(target.id);
       renderStepConditionSection(target, tid, flatFields);
+      if (isFaseContentStap(target)) { renderStepFaseContentSection(target, tid); } else { renderStepFaseSection(target, tid); }
       renderStepOpTypeSection(target, tid, flatFields);
       renderStepChainSection(target, tid, sortedTargets, idx);
     });
@@ -726,6 +754,7 @@
          // Save button is now in #det-footer-{tid} (full-width footer)
 
       renderStepConditionSection(target, tid, flatFields);
+      if (isFaseContentStap(target)) { renderStepFaseContentSection(target, tid); } else { renderStepFaseSection(target, tid); }
       renderStepOpTypeSection(target, tid, flatFields);
       renderStepChainSection(target, tid, sortedTargets, idx);
   }
@@ -1359,6 +1388,306 @@
       (hint ? '<p class="text-xs text-base-content/40 mt-1 italic">' + esc(hint) + '</p>' : '');
   }
 
+  /**
+   * GEDRAG PER CALENDLY-FASE
+   * ------------------------
+   * Een Calendly-koppeling heeft ALTIJD vier fases. Dat met voorwaarden
+   * oplossen betekent vier KOPIEËN van dezelfde stap met elk een andere
+   * voorwaarde -- vier keer dezelfde veldkoppelingen onderhouden voor iets dat
+   * bij elke Calendly-koppeling bestaat. Een voorwaarde hoort een uitzondering
+   * te zijn ("start een andere flow op basis van een antwoord"); de fases zijn
+   * de regel. Dus: één stap, per fase een ander GEDRAG.
+   *
+   * Het schrijft naar fs_v2_targets.calendly_behavior; worker-handler.js zet
+   * daarmee `opType` om voor die ene indiening en draait verder door dezelfde
+   * takken. Geen tweede uitvoeringspad.
+   */
+  var FASES = [
+    ['new',             'Nieuw'],
+    ['rescheduled',     'Verplaatst'],
+    ['rescheduled_old', 'Oude afspraak vervalt'],
+    ['canceled',        'Geannuleerd'],
+  ];
+
+  var FASE_UITLEG = {
+    new:             'Een echt nieuwe boeking.',
+    rescheduled:     'De nieuwe afspraak van een verplaatsing, met de nieuwe datum.',
+    rescheduled_old: 'De oude afspraak die bij een verplaatsing vervalt.',
+    canceled:        'Geannuleerd, zonder vervanging.',
+  };
+
+  // Wat een stap per fase kan doen. Voor een stap die records schrijft is dat de
+  // hele lijst; een stap die een handeling DOET (notitie, mail, activiteit,
+  // mailinglijst) kan alleen doorgaan of niet -- "alleen bijwerken" betekent
+  // daar niets.
+  var FASE_GEDRAG_RECORD = [
+    ['default',     'Zoals ingesteld'],
+    ['upsert',      'Zoeken + bijwerken of aanmaken'],
+    ['update_only', 'Alleen bijwerken'],
+    ['create',      'Altijd nieuw aanmaken'],
+    ['search',      'Alleen zoeken — niets schrijven'],
+    ['skip',        'Niets doen'],
+  ];
+  var FASE_GEDRAG_ACTIE = [
+    ['default', 'Uitvoeren'],
+    ['skip',    'Niets doen'],
+  ];
+  // chatter_message en send_mail hebben hier GEEN plek: die twee gebruiken
+  // hieronder een eigen inhoud-per-fase-editor (renderStepFaseContentSection),
+  // want "uitvoeren/niets doen" is voor een mail of notitie overkill — je wil
+  // net zo goed meteen een eigen tekst per fase kunnen intypen.
+  var ACTIE_STAPPEN = ['create_activity', 'mailing_list'];
+
+  function faseGedragOpties(target) {
+    return ACTIE_STAPPEN.indexOf(target.operation_type) !== -1 ? FASE_GEDRAG_ACTIE : FASE_GEDRAG_RECORD;
+  }
+
+  /** send_mail/chatter_message: geen gedrag maar een tekst-override per fase. */
+  function isFaseContentStap(target) {
+    return target.operation_type === 'chatter_message' || target.operation_type === 'send_mail';
+  }
+
+  function faseGedragVan(target, fase) {
+    var map = (target.calendly_behavior && typeof target.calendly_behavior === 'object') ? target.calendly_behavior : {};
+    var waarde = String(map[fase] || 'default');
+    return faseGedragOpties(target).some(function (o) { return o[0] === waarde; }) ? waarde : 'default';
+  }
+
+  /** Is dit een Calendly-koppeling? Alleen dan heeft het fase-blok betekenis. */
+  function isCalendlyKoppeling() {
+    return String(((S().detail && S().detail.integration) || {}).source_type || '') === 'calendly';
+  }
+
+  /** Eén regel voor op de gedragsbalk: enkel de fases die AFWIJKEN. */
+  function faseSamenvatting(target) {
+    var afwijkend = FASES
+      .filter(function (f) { return faseGedragVan(target, f[0]) !== 'default'; })
+      .map(function (f) {
+        var waarde = faseGedragVan(target, f[0]);
+        var opt = faseGedragOpties(target).find(function (o) { return o[0] === waarde; });
+        return f[1] + ': ' + (opt ? opt[1].toLowerCase() : waarde);
+      });
+    return afwijkend.length ? afwijkend.join(' · ') : 'Alle fases: zoals ingesteld';
+  }
+
+  function renderStepFaseSection(target, tid) {
+    var el = document.getElementById('det-fase-' + tid);
+    if (!el) return;
+
+    var opties = faseGedragOpties(target);
+    var basisLabel = (function () {
+      var b = FASE_GEDRAG_RECORD.find(function (o) { return o[0] === target.operation_type; });
+      return b ? b[1] : (target.operation_type || 'upsert');
+    })();
+
+    var html = '<div class="px-3.5 py-3 border-t border-base-200 bg-base-200/30 flex flex-col gap-2">';
+    html += '<p class="text-xs text-base-content/60">' +
+      'Een boeking komt in vier fases binnen. Zet hier per fase wat deze stap doet — ' +
+      'zo hoef je de stap niet vier keer te maken met telkens een andere voorwaarde.' +
+      '</p>';
+
+    FASES.forEach(function (f) {
+      var fase = f[0];
+      var huidig = faseGedragVan(target, fase);
+      html += '<div class="flex items-center gap-2">' +
+        '<span class="text-xs font-medium w-44 shrink-0" title="' + esc(FASE_UITLEG[fase] || '') + '">' + esc(f[1]) + '</span>' +
+        '<select class="select select-bordered select-xs flex-1 min-w-0" data-fase-select="' + esc(fase) + '" id="faseGedrag-' + esc(tid) + '-' + esc(fase) + '">' +
+          opties.map(function (o) {
+            var label = o[0] === 'default' && opties === FASE_GEDRAG_RECORD
+              ? 'Zoals ingesteld (' + basisLabel.toLowerCase() + ')'
+              : o[1];
+            return '<option value="' + esc(o[0]) + '"' + (huidig === o[0] ? ' selected' : '') + '>' + esc(label) + '</option>';
+          }).join('') +
+        '</select>' +
+      '</div>';
+    });
+
+    html += '<div class="flex items-center gap-2 mt-1">' +
+      '<button type="button" class="btn btn-xs btn-primary gap-1" data-action="save-fase-gedrag" data-target-id="' + esc(tid) + '">' +
+        '<i data-lucide="save" class="w-3.5 h-3.5"></i> Opslaan' +
+      '</button>' +
+      '<span class="text-xs text-base-content/40">Een stap die een lead of notitie aanmaakt hoort alleen bij “Nieuw” aan te maken.</span>' +
+      '</div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
+  }
+
+  /**
+   * TEKST PER FASE — voor send_mail en chatter_message.
+   * ---------------------------------------------------
+   * Een "gedrag" (upsert/skip/...) betekent niets voor een stap die enkel een
+   * mail verstuurt of een notitie plaatst: die voert uit, of niet. Wat WEL
+   * per fase verschilt is vaak de TEKST zelf ("Tot straks!" bij een nieuwe
+   * boeking, "Jammer dat het niet doorgaat" bij een annulatie). Daarom is dit
+   * geen gedragslijstje maar, per fase: uitzetten, of een eigen onderwerp/tekst
+   * intypen — anders geldt gewoon de standaardtekst van de stap hierboven.
+   *
+   * Bewaard in dezelfde kolom als de record-stappen (calendly_behavior), maar
+   * de waarde per fase is hier een OBJECT ({skip:true} of {subject,body}/
+   * {message}) in plaats van een string — zie worker-handler.js.
+   */
+  function faseContentVan(target, fase) {
+    var map = (target.calendly_behavior && typeof target.calendly_behavior === 'object' && !Array.isArray(target.calendly_behavior)) ? target.calendly_behavior : {};
+    var waarde = map[fase];
+    if (waarde && typeof waarde === 'object' && !Array.isArray(waarde)) {
+      return {
+        skip:    !!waarde.skip,
+        subject: typeof waarde.subject === 'string' ? waarde.subject : '',
+        body:    typeof waarde.body === 'string' ? waarde.body : '',
+        message: typeof waarde.message === 'string' ? waarde.message : '',
+      };
+    }
+    return { skip: false, subject: '', body: '', message: '' };
+  }
+
+  /** Eén regel voor op de gedragsbalk: enkel de fases die AFWIJKEN. */
+  function faseContentSamenvatting(target) {
+    var isMail = target.operation_type === 'send_mail';
+    var afwijkend = FASES
+      .map(function (f) {
+        var c = faseContentVan(target, f[0]);
+        if (c.skip) return f[1] + ': niets doen';
+        var heeftEigen = isMail ? !!(c.subject.trim() || c.body.trim()) : !!c.message.trim();
+        return heeftEigen ? (f[1] + ': eigen tekst') : null;
+      })
+      .filter(Boolean);
+    return afwijkend.length ? afwijkend.join(' · ') : 'Alle fases: standaardtekst hierboven';
+  }
+
+  function renderStepFaseContentSection(target, tid) {
+    var el = document.getElementById('det-fase-' + tid);
+    if (!el) return;
+    var isMail = target.operation_type === 'send_mail';
+
+    var html = '<div class="px-3.5 py-3 border-t border-base-200 bg-base-200/30 flex flex-col gap-2.5">';
+    html += '<p class="text-xs text-base-content/60">' +
+      (isMail
+        ? 'Deze mail vertrekt bij elke fase met het onderwerp en de tekst hierboven, tenzij je hieronder per fase een eigen tekst intypt — of de fase uitzet.'
+        : 'Deze notitie komt bij elke fase in de chatter met de tekst hierboven, tenzij je hieronder per fase een eigen tekst intypt — of de fase uitzet.') +
+      '</p>';
+
+    FASES.forEach(function (f) {
+      var fase   = f[0];
+      var c      = faseContentVan(target, fase);
+      var heeftEigen = isMail ? !!(c.subject.trim() || c.body.trim()) : !!c.message.trim();
+      var idp    = 'faseContent-' + tid + '-' + fase;
+
+      html += '<div class="border border-base-300/60 rounded-lg p-2.5">';
+      html +=   '<div class="flex items-center gap-2 mb-1.5">';
+      html +=     '<span class="text-xs font-semibold flex-1" title="' + esc(FASE_UITLEG[fase] || '') + '">' + esc(f[1]) + '</span>';
+      html +=     '<label class="flex items-center gap-1.5 text-xs cursor-pointer select-none">' +
+                     '<input type="checkbox" class="checkbox checkbox-xs" id="' + idp + '-skip" data-fase-content-skip="' + idp + '"' + (c.skip ? ' checked' : '') + '>' +
+                     '<span class="opacity-70">Niets doen bij deze fase</span>' +
+                   '</label>';
+      html +=   '</div>';
+
+      html +=   '<div id="' + idp + '-wrap"' + (c.skip ? ' style="display:none;"' : '') + '>';
+      html +=     '<label class="flex items-center gap-1.5 text-xs cursor-pointer select-none mb-1.5">' +
+                     '<input type="checkbox" class="checkbox checkbox-xs" id="' + idp + '-override" data-fase-content-override="' + idp + '"' + (heeftEigen ? ' checked' : '') + '>' +
+                     '<span class="opacity-70">Eigen tekst voor deze fase (anders: de standaardtekst hierboven)</span>' +
+                   '</label>';
+      html +=     '<div id="' + idp + '-fields" class="flex flex-col gap-1.5"' + (heeftEigen ? '' : ' style="display:none;"') + '>';
+      if (isMail) {
+        html +=       '<input type="text" class="input input-bordered input-xs w-full" id="' + idp + '-subject"' +
+                       ' placeholder="Eigen onderwerp voor deze fase" value="' + esc(c.subject) + '">';
+        html +=       '<textarea class="textarea textarea-bordered textarea-xs w-full" rows="3" id="' + idp + '-body"' +
+                       ' placeholder="Eigen tekst voor deze fase (platte tekst)">' + esc(c.body) + '</textarea>';
+      } else {
+        html +=       '<textarea class="textarea textarea-bordered textarea-xs w-full" rows="3" id="' + idp + '-message"' +
+                       ' placeholder="Eigen notitietekst voor deze fase (platte tekst)">' + esc(c.message) + '</textarea>';
+      }
+      html +=     '</div>';
+      html +=   '</div>';
+      html += '</div>';
+    });
+
+    html += '<div class="flex items-center gap-2 mt-1">' +
+      '<button type="button" class="btn btn-xs btn-primary gap-1" data-action="save-fase-gedrag" data-target-id="' + esc(tid) + '">' +
+        '<i data-lucide="save" class="w-3.5 h-3.5"></i> Opslaan' +
+      '</button>' +
+      '<span class="text-xs text-base-content/40">Platte tekst, geen opmaak.</span>' +
+      '</div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons({ context: el });
+
+    // "Niets doen" verbergt de rest van de kaart; "Eigen tekst" toont de invoervelden.
+    FASES.forEach(function (f) {
+      var idp = 'faseContent-' + tid + '-' + f[0];
+      var skipEl  = document.getElementById(idp + '-skip');
+      var wrapEl  = document.getElementById(idp + '-wrap');
+      if (skipEl && wrapEl) {
+        skipEl.addEventListener('change', function () { wrapEl.style.display = skipEl.checked ? 'none' : ''; });
+      }
+      var ovEl     = document.getElementById(idp + '-override');
+      var fieldsEl = document.getElementById(idp + '-fields');
+      if (ovEl && fieldsEl) {
+        ovEl.addEventListener('change', function () { fieldsEl.style.display = ovEl.checked ? '' : 'none'; });
+      }
+    });
+  }
+
+  async function handleSaveFaseGedrag(tid) {
+    var targets = (S().detail && S().detail.targets) || [];
+    var target  = targets.find(function (t) { return String(t.id) === tid; });
+    if (!target) { window.FSV2.showAlert('Stap niet gevonden.', 'error'); return; }
+    var integrationId = S().detail && S().detail.integration && S().detail.integration.id;
+
+    var map = {};
+    if (isFaseContentStap(target)) {
+      var isMail = target.operation_type === 'send_mail';
+      FASES.forEach(function (f) {
+        var fase = f[0];
+        var idp  = 'faseContent-' + tid + '-' + fase;
+        var skipEl = document.getElementById(idp + '-skip');
+        if (skipEl && skipEl.checked) { map[fase] = { skip: true }; return; }
+        var ovEl = document.getElementById(idp + '-override');
+        if (!ovEl || !ovEl.checked) return; // geen sleutel = standaardtekst
+        if (isMail) {
+          var subject = (document.getElementById(idp + '-subject') || {}).value || '';
+          var body    = (document.getElementById(idp + '-body') || {}).value || '';
+          if (subject.trim() || body.trim()) map[fase] = { subject: subject, body: body };
+        } else {
+          var message = (document.getElementById(idp + '-message') || {}).value || '';
+          if (message.trim()) map[fase] = { message: message };
+        }
+      });
+    } else {
+      FASES.forEach(function (f) {
+        var sel = document.getElementById('faseGedrag-' + tid + '-' + f[0]);
+        var waarde = sel ? sel.value : 'default';
+        // 'default' NIET bewaren: "geen afwijking" en "niet ingesteld" zijn
+        // hetzelfde, en twee vormen voor dezelfde betekenis lopen ooit uiteen.
+        if (waarde && waarde !== 'default') map[f[0]] = waarde;
+      });
+    }
+
+    try {
+      await window.FSV2.api('/integrations/' + integrationId + '/targets/' + tid, {
+        method: 'PUT',
+        body: JSON.stringify(Object.assign({}, target, { calendly_behavior: map })),
+      });
+      window.FSV2.showAlert(isFaseContentStap(target) ? 'Tekst per fase opgeslagen.' : 'Gedrag per fase opgeslagen.', 'success');
+      await window.FSV2.openDetail(integrationId);
+    } catch (e) {
+      window.FSV2.showAlert('Opslaan mislukt: ' + e.message, 'error');
+    }
+  }
+
+  /** Korte naam van een booking_action-waarde, uit de choices van het veld zelf. */
+  function bookingActieLabel(waarde) {
+    var kort = {
+      new:             'Nieuw',
+      rescheduled:     'Verplaatst',
+      rescheduled_old: 'Oude afspraak vervalt',
+      canceled:        'Geannuleerd',
+    };
+    return kort[waarde] || String(waarde || '');
+  }
+
   function renderStepConditionSection(target, tid, flatFields) {
     var condEl = document.getElementById('det-cond-' + tid);
     if (!condEl) return;
@@ -1961,6 +2290,7 @@
     handleDeleteTarget: handleDeleteTarget,
     handleDuplicateTarget: handleDuplicateTarget,
     handleReorderTarget: handleReorderTarget,
+    handleSaveFaseGedrag: handleSaveFaseGedrag,
     handleSaveStepCondition: handleSaveStepCondition,
     handleSaveStepMappings: handleSaveStepMappings,
     handleToggleIdentifier: handleToggleIdentifier,

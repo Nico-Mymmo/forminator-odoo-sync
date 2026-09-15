@@ -80,6 +80,40 @@ export async function listCalendlyIntegrations(env) {
 }
 
 /**
+ * De AFSPRAKEN die de OM kent, in de vorm waarin ze de site uit mag.
+ *
+ * Dit is de bron van de keuzelijst "link naar de agenda" in de shortcode-bouwer
+ * van de mymmo-forms-plugin. Enkel koppelingen met een bewaarde boekingspagina
+ * komen erin: zonder link valt er niets te kiezen, en een lege regel in die
+ * lijst leest als een defect.
+ *
+ * NIET-ACTIEVE koppelingen staan er WEL bij, met active: false. Ze verbergen
+ * zou betekenen dat een net ingestelde koppeling onvindbaar is tot iemand haar
+ * aanzet -- precies de "waarom staat mijn formulier niet in de lijst"-val van
+ * de concepten. De plugin zet er een waarschuwing bij, want boeken op zo'n
+ * pagina werkt gewoon terwijl er in Odoo niets verschijnt.
+ *
+ * De vorm is bewust mager: naam, link, duur, taal. Geen id, geen koppeling-id,
+ * geen eventtype-URI. Dezelfde regel als toPublicFormListItem() -- de
+ * sitesleutel is niet persoonsgebonden, dus alles wat hier uit gaat, gaat uit
+ * naar iedereen die de sleutel van een van onze sites heeft.
+ */
+export async function listPublicCalendlyAppointments(env) {
+  const koppelingen = await listCalendlyIntegrations(env);
+
+  return koppelingen
+    .filter((k) => String(k.calendly_scheduling_url || '').trim())
+    .map((k) => ({
+      name: k.name || k.calendly_event_type_name || 'Afspraak',
+      event_type: k.calendly_event_type_name || '',
+      url: String(k.calendly_scheduling_url).trim(),
+      duration: Number.isInteger(k.calendly_duration) ? k.calendly_duration : null,
+      locale: k.calendly_locale || '',
+      active: k.is_active !== false,
+    }));
+}
+
+/**
  * De koppeling vinden die deze boeking hoort te verwerken.
  *
  * Eerst een koppeling die exact op dit eventtype staat; anders de VANGNET-

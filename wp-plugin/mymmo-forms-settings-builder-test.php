@@ -50,11 +50,15 @@ require_once MYMMO_FORMS_DIR . 'includes/helpers.php';
 /** Nagebootste client: geeft terug wat de test instelt. */
 final class Mymmo_Forms_Api_Client {
     public static ?array $forms = null;
+    public static ?array $calendly = [];
     public static string $fout = '';
     public static int $aanroepen = 0;
     public static function list_forms(bool $ververs = false): ?array {
         self::$aanroepen++;
         return self::$forms;
+    }
+    public static function list_calendly(bool $ververs = false): ?array {
+        return self::$calendly;
     }
     public static function last_error(): ?string { return self::$fout; }
 }
@@ -120,6 +124,38 @@ check('er is een knop om de lijst opnieuw op te halen',
 
 check('de sitesleutel staat NERGENS in de HTML', !str_contains($html, 'geheim'),
     'de sleutel hoort serverside te blijven, ook in wp-admin');
+
+// ---------------------------------------------------------------------------
+echo "
+De agenda-keuzelijst
+";
+
+Mymmo_Forms_Api_Client::$calendly = [
+    ['name' => 'Kennismaking OpenVME', 'url' => 'https://calendly.com/openvme/kennismaking', 'duration' => 30, 'active' => true],
+    ['name' => 'Rondleiding', 'url' => 'https://calendly.com/openvme/rondleiding', 'duration' => 15, 'active' => false],
+];
+$html = render();
+
+check('de gekende afspraken staan in een keuzelijst',
+    str_contains($html, 'id="mymmoFormsCalendlyPick"')
+    && str_contains($html, 'value="https://calendly.com/openvme/kennismaking"'));
+check('de duur staat bij de naam', str_contains($html, 'Kennismaking OpenVME') && str_contains($html, '30 min'));
+check('een uitgeschakelde koppeling is als zodanig gemarkeerd',
+    str_contains($html, 'koppeling staat uit'),
+    'boeken werkt dan wel, maar er komt niets in Odoo');
+check('het vrije tekstvak is er nog, maar verborgen',
+    (bool) preg_match('/id="mymmoFormsCalendly"[^>]*hidden/', $html),
+    'het is de terugval voor een link die niet in de lijst staat');
+
+Mymmo_Forms_Api_Client::$calendly = [];
+$html = render();
+check('zonder gekende afspraken is er geen keuzelijst',
+    !str_contains($html, 'id="mymmoFormsCalendlyPick"'));
+check('en staat het tekstvak gewoon open',
+    !(bool) preg_match('/id="mymmoFormsCalendly"[^>]*hidden/', $html),
+    'een knop met venster maken mag niet afhangen van of Calendly hier bekend is');
+
+Mymmo_Forms_Api_Client::$calendly = [];
 
 // ───────────────────────────────────────────────────────────────────────────
 echo "\nGeen gepubliceerde formulieren\n";

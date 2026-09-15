@@ -1254,6 +1254,12 @@ export const routes = {
         ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
         ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
         ...(payload.identifier_field !== undefined ? { identifier_field: payload.identifier_field || null } : {}),
+        // Gedrag per Calendly-fase. Een leeg object wordt NULL: "geen enkele
+        // fase wijkt af" en "niet ingesteld" zijn hetzelfde, en twee vormen voor
+        // dezelfde betekenis is een bug in wording.
+        ...(payload.calendly_behavior !== undefined
+          ? { calendly_behavior: (payload.calendly_behavior && Object.keys(payload.calendly_behavior).length) ? payload.calendly_behavior : null }
+          : {}),
         // ── search ─────────────────────────────────────────────────────────
         ...(payload.search_on_not_found !== undefined ? { search_on_not_found: payload.search_on_not_found || 'abort' } : {}),
         // ── send_mail ──────────────────────────────────────────────────────
@@ -1330,6 +1336,12 @@ export const routes = {
         ...(payload.condition_field  !== undefined ? { condition_field:  payload.condition_field  || null } : {}),
         ...(payload.condition_values !== undefined ? { condition_values: Array.isArray(payload.condition_values) && payload.condition_values.length ? payload.condition_values : null } : {}),
         ...(payload.identifier_field !== undefined ? { identifier_field: payload.identifier_field || null } : {}),
+        // Gedrag per Calendly-fase. Een leeg object wordt NULL: "geen enkele
+        // fase wijkt af" en "niet ingesteld" zijn hetzelfde, en twee vormen voor
+        // dezelfde betekenis is een bug in wording.
+        ...(payload.calendly_behavior !== undefined
+          ? { calendly_behavior: (payload.calendly_behavior && Object.keys(payload.calendly_behavior).length) ? payload.calendly_behavior : null }
+          : {}),
         // ── search ─────────────────────────────────────────────────────────
         ...(payload.search_on_not_found !== undefined ? { search_on_not_found: payload.search_on_not_found || 'abort' } : {}),
         // ── send_mail ──────────────────────────────────────────────────────

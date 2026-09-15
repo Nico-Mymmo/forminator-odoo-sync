@@ -1278,7 +1278,7 @@ async function runSubmissionAttempt(env, {
     for (let i = 0; i < sortedTargets.length; i++) {
       const target      = sortedTargets[i];
       const executionOrder = target.execution_order ?? target.order_index ?? i;
-      const opType      = target.operation_type || 'upsert';
+      let   opType      = target.operation_type || 'upsert';
       const errStrategy = target.error_strategy  || 'allow_partial';
 
       console.log(attemptTag, 'processing target:', target.id,
@@ -1392,6 +1392,78 @@ async function runSubmissionAttempt(env, {
         console.log(attemptTag, `condition_met on target: ${target.id} | field: ${target.condition_field} | value: "${condRaw}"`);
       }
 
+      // ── Calendly: gedrag per fase ──────────────────────────────────────────
+      // Een Calendly-koppeling heeft ALTIJD vier fases (zie BOOKING_ACTIONS in
+      // calendly/payload.js). Zonder deze tabel moest je per fase een kopie van
+      // de stap maken met een voorwaarde erop -- vier keer dezelfde
+      // veldkoppelingen onderhouden voor iets dat altijd bestaat. Nu is het één
+      // stap met per fase een ander gedrag.
+      //
+      // Dit is GEEN tweede uitvoeringspad: het enige wat er gebeurt is dat
+      // `opType` voor deze ene indiening een andere waarde krijgt, waarna
+      // dezelfde takken hieronder draaien. Een lege/ontbrekende waarde of
+      // 'default' laat de stap doen wat operation_type zegt -- bestaande
+      // koppelingen (kolom NULL) veranderen dus niet.
+      //
+      // send_mail/chatter_message zijn HANDELINGEN, geen zoek/schrijf-stap: een
+      // "gedrag" (upsert/update_only/...) betekent daar niets. Voor die twee is
+      // de waarde per fase daarom geen string maar een INHOUD-override —
+      // {skip:true} of {subject,body}/{message} — zodat je per fase niet enkel
+      // "aan/uit" kiest maar meteen een eigen tekst voor die fase intypt. Zie
+      // de "Gedrag per fase" sectie in forminator-sync-v2-detail-mapping-tab.js.
+      const faseGedragMap = (target.calendly_behavior && typeof target.calendly_behavior === 'object' && !Array.isArray(target.calendly_behavior))
+        ? target.calendly_behavior
+        : null;
+      let faseContentOverride = null;
+      if (faseGedragMap) {
+        const fase = String(lookupFormValue(normalizedForm, 'booking_action') ?? '').trim();
+        const faseWaarde = fase ? faseGedragMap[fase] : null;
+
+        if (faseWaarde && typeof faseWaarde === 'object' && !Array.isArray(faseWaarde)) {
+          if (faseWaarde.skip) {
+            console.log(attemptTag, `calendly_phase_skipped on target: ${target.id} | fase: ${fase}`);
+            const faseResult = {
+              submission_id:   submission.id,
+              target_id:       target.id,
+              execution_order: executionOrder,
+              action_result:   'skipped',
+              skipped_reason:  'calendly_phase_skipped',
+              odoo_record_id:  null,
+              error_detail:    `Deze stap staat op "niets doen" voor de fase "${fase}".`,
+              processed_at:    new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, faseResult);
+            targetResults.push(faseResult);
+            continue;
+          }
+          faseContentOverride = faseWaarde;
+        } else {
+          const faseGedrag = faseWaarde ? String(faseWaarde).trim() : '';
+
+          if (faseGedrag === 'skip') {
+            console.log(attemptTag, `calendly_phase_skipped on target: ${target.id} | fase: ${fase}`);
+            const faseResult = {
+              submission_id:   submission.id,
+              target_id:       target.id,
+              execution_order: executionOrder,
+              action_result:   'skipped',
+              skipped_reason:  'calendly_phase_skipped',
+              odoo_record_id:  null,
+              error_detail:    `Deze stap staat op "niets doen" voor de fase "${fase}".`,
+              processed_at:    new Date().toISOString()
+            };
+            await createSubmissionTargetResult(env, faseResult);
+            targetResults.push(faseResult);
+            continue;
+          }
+
+          if (faseGedrag && faseGedrag !== 'default' && faseGedrag !== opType) {
+            console.log(attemptTag, `calendly_phase_behavior on target: ${target.id} | fase: ${fase} | ${opType} -> ${faseGedrag}`);
+            opType = faseGedrag;
+          }
+        }
+      }
+
       // ── create_activity: schedule an Odoo activity on a record from a prior step ─
       if (opType === 'create_activity') {
         try {
@@ -1492,8 +1564,16 @@ async function runSubmissionAttempt(env, {
       // mail.mail-record en geeft 'mail_already_queued' terug.
       if (opType === 'send_mail') {
         try {
+          // Fase-override (zie hierboven): een eigen onderwerp/tekst voor
+          // deze ene fase, zonder de standaardtekst van de stap te wijzigen.
+          const mailTarget = (faseContentOverride && (faseContentOverride.subject || faseContentOverride.body))
+            ? Object.assign({}, target, {
+                mail_subject_template: faseContentOverride.subject || target.mail_subject_template,
+                mail_body_html:        faseContentOverride.body    || target.mail_body_html,
+              })
+            : target;
           const mailResult = await runSendMailStep(env, {
-            target,
+            target: mailTarget,
             integration:  { id: submission.integration_id },
             submissionId: submission.id,
             form:         normalizedForm,
@@ -1616,6 +1696,11 @@ async function runSubmissionAttempt(env, {
               knoppen         = Array.isArray(parsed.buttons) ? parsed.buttons : [];
               if (parsed.summary === false) wilSamenvatting = false;
             } catch (_e) {}
+            // Fase-override (zie hierboven bij "Calendly: gedrag per fase"):
+            // vervangt alleen de tekst, knoppen en samenvatting blijven gedeeld.
+            if (faseContentOverride && typeof faseContentOverride.message === 'string' && faseContentOverride.message.trim()) {
+              combinedMsg = faseContentOverride.message;
+            }
             const parts = [];
             if (combinedMsg) {
               // combinedMsg is HTML from Quill — substitute {field} placeholders with form values.

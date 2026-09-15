@@ -110,6 +110,39 @@ export function validateTargetPayload(payload, { allowedModels } = {}) {
     throw createError('Invalid target payload');
   }
 
+  // Gedrag per Calendly-fase. GESLOTEN lijst aan beide kanten: een onbekende
+  // fase of een onbekend gedrag zou door de Worker stil genegeerd worden, en
+  // dan doet de stap iets anders dan wat er op het scherm staat. Deze controle
+  // staat VOOR de per-operation_type-takken hieronder, want die keren vroeg
+  // terug -- een chatter- of mailstap mag dit veld evengoed dragen.
+  if (payload.calendly_behavior !== undefined && payload.calendly_behavior !== null) {
+    const gedrag = payload.calendly_behavior;
+    if (typeof gedrag !== 'object' || Array.isArray(gedrag)) {
+      throw createError('calendly_behavior moet een object zijn met een gedrag per fase.');
+    }
+    const fases = ['new', 'rescheduled', 'rescheduled_old', 'canceled'];
+    // send_mail/chatter_message zijn HANDELINGEN, geen zoek/schrijf-stap: daar
+    // is de waarde per fase geen gedrag maar een INHOUD-override
+    // ({skip:true} of {subject,body}/{message}) — zie worker-handler.js en
+    // de migratie voor calendly_behavior.
+    const isInhoudStap = payload.operation_type === 'send_mail' || payload.operation_type === 'chatter_message';
+    const waarden = ['default', 'upsert', 'update_only', 'create', 'search', 'skip'];
+    for (const [fase, waarde] of Object.entries(gedrag)) {
+      if (!fases.includes(fase)) {
+        throw createError('Onbekende Calendly-fase in calendly_behavior: ' + fase + '. Toegestaan: ' + fases.join(', ') + '.');
+      }
+      if (isInhoudStap) {
+        if (typeof waarde !== 'object' || waarde === null || Array.isArray(waarde)) {
+          throw createError('Waarde voor fase "' + fase + '" moet een object zijn ({skip:true} of {subject,body}/{message}).');
+        }
+        continue;
+      }
+      if (!waarden.includes(String(waarde))) {
+        throw createError('Onbekend gedrag voor fase "' + fase + '": ' + waarde + '. Toegestaan: ' + waarden.join(', ') + '.');
+      }
+    }
+  }
+
   // chatter_message targets only need an odoo_model — no whitelist, no identifier type, no update policy
   if (payload.operation_type === 'chatter_message') {
     if (!hasValue(payload.odoo_model)) {

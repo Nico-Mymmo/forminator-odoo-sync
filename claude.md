@@ -709,16 +709,43 @@ Afspraken die bewust zo zijn:
   keer en staan er twee identieke notities in Odoo. `rescheduled` is de bruikbare
   van de twee; `rescheduled_old` bestaat zodat de vaste stap de oude meeting nog op
   geannuleerd kan zetten en je er desgewenst apart op kan reageren.
-  De vaste stappen (host + meeting-upsert) dragen GEEN conditie: die moeten in alle
-  vier de gevallen draaien, anders blijft een geannuleerde afspraak in Odoo op
-  actief staan. De SLEUTELS liggen vast zodra er koppelingen op draaien — ze staan
-  in `fs_v2_targets.condition_values`, zelfde regel als `CALENDLY_FIELDS`.
-  Het veld draagt zijn `choices` mee tot in de voorwaarde-editor (`/api/calendly/fields`
-  → `fetchCalendlyFields()` → `buildCondValuesHtml()`), zodat het vinkjes worden en
-  niemand `rescheduled_old` hoeft over te typen. **Inzendingen van vóór deze
-  wijziging hebben het veld niet**: een replay daarvan slaat een geconditioneerde
-  stap over (leeg veld = conditie niet voldaan). Dat is de veilige kant — geen
-  dubbele leads — maar het verklaart wel waarom een oude replay minder doet.
+  **Je stuurt de fases NIET met een voorwaarde aan, maar met GEDRAG PER FASE**
+  (`fs_v2_targets.calendly_behavior`, migratie `20260915120000_fsv2_calendly_behavior.sql`).
+  Dat onderscheid is het hele punt: een voorwaarde is een UITZONDERING — "start een
+  andere flow op basis van een antwoord" — terwijl deze vier fases bij élke
+  Calendly-koppeling bestaan. Met voorwaarden alleen moest je per fase een KOPIE van
+  de stap maken, dus vier keer dezelfde veldkoppelingen onderhouden voor iets dat
+  altijd bestaat. Nu is het één stap met per fase een ander gedrag:
+
+  ```json
+  {"new":"upsert","rescheduled":"update_only","rescheduled_old":"search","canceled":"skip"}
+  ```
+
+  Toegestane waarden: `default` (= doe wat `operation_type` zegt) · `upsert` ·
+  `update_only` · `create` · `search` · `skip`. Een stap die een HANDELING doet
+  (notitie, mail, activiteit, mailinglijst) krijgt in de UI alleen `default`/`skip`
+  aangeboden — "alleen bijwerken" betekent daar niets.
+  **Een lege/ontbrekende waarde en `default` zijn hetzelfde en worden nooit bewaard**:
+  twee vormen voor dezelfde betekenis lopen ooit uiteen. Een NULL-kolom (alle
+  bestaande rijen) betekent dus exact het huidige gedrag — de migratie op zich
+  verandert niets aan een draaiende koppeling.
+  In `worker-handler.js` is dit GEEN tweede uitvoeringspad: het enige wat gebeurt is
+  dat `opType` voor die ene indiening een andere waarde krijgt, waarna dezelfde takken
+  draaien. `skip` levert een `skipped`-resultaat met reden `calendly_phase_skipped` —
+  bewust niet `condition_not_met`, want dit is geen voorwaarde die niet klopte maar een
+  bewuste keuze op de stap; stond het als "conditie niet voldaan" in het spoor, dan ga
+  je een voorwaarde zoeken die er niet is.
+  De vaste stappen (host + meeting-upsert) krijgen het blok NIET te zien
+  (`isCalendlyKoppeling() && !target.is_system` in `-detail-mapping-tab.js`): die moeten
+  in alle vier de fases draaien, anders blijft een geannuleerde afspraak in Odoo op
+  actief staan — en de PUT erop wordt sowieso geweigerd door `assertNotSystemTarget`.
+  De SLEUTELS liggen vast zodra er koppelingen op draaien: ze staan in
+  `calendly_behavior` en in `fs_v2_targets.condition_values`, zelfde regel als
+  `CALENDLY_FIELDS`.
+  **Inzendingen van vóór deze wijziging hebben `booking_action` niet**: bij een replay
+  daarvan vindt `faseGedragMap` geen fase en draait de stap zoals `operation_type`
+  zegt. Een geconditioneerde stap (wie tóch een voorwaarde op `booking_action` zette)
+  wordt dan overgeslagen — de veilige kant, geen dubbele leads.
 - **De hostlijst van een eventtype is AFGELEID, niet opgevraagd.** Calendly's API v2
   heeft geen endpoint dat de hosts van een round-robin- of collectief eventtype
   teruggeeft; `profile` noemt enkel de eigenaar, en dat is bij een team-eventtype
@@ -814,6 +841,25 @@ Afspraken die bewust zo zijn:
   enkel het bovenste niveau van `source_payload`, waar bij Calendly
   `{form_id, form_data}` staat. `fetchCalendlyFields()` voegt de vaste lijst en de
   `q_<vraag>`-velden uit de laatste inzending zelf samen.
+
+- **De BOEKINGSPAGINA wordt bij de koppeling bewaard (`calendly_scheduling_url`,
+  `calendly_duration`), en dat is de bron van de keuzelijst in WordPress.** De
+  shortcode-bouwer van mymmo-forms liet je de agenda-link overtypen; een typfout
+  of een in Calendly hernoemd eventtype gaf dan een leeg tweede tabblad zonder
+  foutmelding, en niets garandeerde dat die pagina hoorde bij een afspraak die de
+  OM ook echt opvangt. `GET /forminator-v2/public/v1/forms` geeft daarom naast
+  `forms` ook `calendly` terug (naam, link, duur, taal, `active`) — zelfde
+  antwoord, zelfde cache van 60s, zelfde knop “Lijst opnieuw ophalen”.
+  `listPublicCalendlyAppointments()` in `calendly/database.js` is de ENIGE plek
+  die die vorm bepaalt (zelfde regel als `toPublicFormListItem()`): geen id, geen
+  koppeling-id, geen eventtype-URI, want de sitesleutel is niet persoonsgebonden.
+  Een kopie en GEEN live-bevraging van Calendly: de publieke API mag niet afhangen
+  van een externe dienst of van een token dat er niet hoeft te zijn. Gevolg: een
+  koppeling verschijnt pas in die lijst nadat haar Calendly-tabblad één keer
+  opgeslagen is. Koppelingen die UITSTAAN blijven er wel in staan (`active: false`,
+  de plugin zet er een waarschuwing bij) — boeken werkt dan gewoon, er komt
+  alleen niets in Odoo, en verbergen zou een net ingestelde afspraak onvindbaar
+  maken.
 
 **Wat er in Odoo al stond (niet door de OM gemaakt, niet aanraken zonder reden):**
 `x_calendlymeeting` (model 827) met 19 Studio-velden; `x_calendlyeventtypes` met

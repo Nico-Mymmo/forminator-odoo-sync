@@ -201,6 +201,16 @@ final class Mymmo_Forms_Settings {
     private static function render_shortcode(): void {
         $formulieren = Mymmo_Forms_Api_Client::list_forms();
         $lijstfout   = $formulieren === null ? (string) Mymmo_Forms_Api_Client::last_error() : '';
+
+        // De afspraken komen uit hetzelfde antwoord (dus geen tweede verzoek):
+        // de Calendly-koppelingen in de Operations Manager met een bewaarde
+        // boekingspagina. Is die lijst leeg of niet op te halen, dan valt het
+        // agendaveld terug op een tekstvak -- een knop met venster maken mag
+        // nooit afhangen van of Calendly hier bekend is.
+        $afspraken = Mymmo_Forms_Api_Client::list_calendly();
+        if (!is_array($afspraken)) {
+            $afspraken = [];
+        }
         ?>
 
         <?php if (!empty($_GET['mymmo_reloaded'])) : ?>
@@ -309,12 +319,49 @@ final class Mymmo_Forms_Settings {
                     </td>
                 </tr>
                 <tr data-mymmo-alleen="knop" hidden>
-                    <th scope="row"><label for="mymmoFormsCalendly">Link naar de agenda</label></th>
+                    <th scope="row"><label for="<?php echo $afspraken ? 'mymmoFormsCalendlyPick' : 'mymmoFormsCalendly'; ?>">Link naar de agenda</label></th>
                     <td>
-                        <input type="url" id="mymmoFormsCalendly" class="large-text code" placeholder="https://calendly.com/...">
+                        <?php if ($afspraken) : ?>
+                            <select id="mymmoFormsCalendlyPick" class="regular-text">
+                                <option value="">Geen agenda — alleen het formulier</option>
+                                <?php foreach ($afspraken as $afspraak) :
+                                    $link = (string) ($afspraak['url'] ?? '');
+                                    if ($link === '') {
+                                        continue;
+                                    }
+                                    $label = (string) ($afspraak['name'] ?? $link);
+                                    if (!empty($afspraak['duration'])) {
+                                        $label .= ' — ' . (int) $afspraak['duration'] . ' min';
+                                    }
+                                    // Een koppeling die uitstaat bewaart de boeking wel, maar
+                                    // stuurt niets naar Odoo. De pagina werkt dus gewoon, en
+                                    // dat is precies waarom het erbij moet staan.
+                                    if (isset($afspraak['active']) && !$afspraak['active']) {
+                                        $label .= ' — koppeling staat uit';
+                                    }
+                                    ?>
+                                    <option value="<?php echo esc_attr($link); ?>"><?php echo esc_html($label); ?></option>
+                                <?php endforeach; ?>
+                                <option value="__anders__">Andere link…</option>
+                            </select>
+                            <p class="description">
+                                Deze afspraken staan in de Operations Manager, bij <strong>Koppelingen</strong>.
+                                Zo kan er geen link op een pagina staan die niemand bijhoudt: een boeking op
+                                een gekende afspraak komt vanzelf in Odoo terecht.
+                            </p>
+                        <?php endif; ?>
+
+                        <input type="url" id="mymmoFormsCalendly" class="large-text code"
+                               placeholder="https://calendly.com/..." <?php echo $afspraken ? 'hidden' : ''; ?>>
                         <p class="description">
-                            De Calendly-pagina die in het tweede tabblad komt. Laat leeg als het venster
-                            enkel het formulier moet tonen — dan is er ook geen tweede tabblad.
+                            <?php if ($afspraken) : ?>
+                                Staat de afspraak er niet bij? Dan heeft haar koppeling nog geen boekingspagina
+                                bewaard — open ze in de Operations Manager en klik “Opslaan”. Een link
+                                die hier niet bij hoort, plak je met <em>Andere link</em>.
+                            <?php else : ?>
+                                De Calendly-pagina die in het tweede tabblad komt. Laat leeg als het venster
+                                enkel het formulier moet tonen — dan is er ook geen tweede tabblad.
+                            <?php endif; ?>
                         </p>
                     </td>
                 </tr>

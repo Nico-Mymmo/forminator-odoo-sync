@@ -92,7 +92,13 @@ final class Mymmo_Forms_Cache {
     }
 
     /**
-     * De LIJST met formulieren, voor de shortcode-bouwer in de instellingen.
+     * De LIJST voor de shortcode-bouwer in de instellingen: de gepubliceerde
+     * formulieren én de afspraken die de Operations Manager kent.
+     *
+     * Die twee zitten in één bundel omdat ze in één antwoord binnenkomen:
+     * één verzoek, één cache, één knop "opnieuw ophalen". Een tweede
+     * transient zou betekenen dat die knop de ene wel en de andere niet
+     * ververst, en dat merk je pas als je de verkeerde lijst zit te lezen.
      *
      * Kortere TTL dan een formulierschema (60s tegen 300s) en bewust GEEN
      * last-known-good: dit is een beheerderslijstje. Is de Operations Manager
@@ -100,22 +106,49 @@ final class Mymmo_Forms_Cache {
      * gisteren waaruit iemand een shortcode kiest voor een formulier dat
      * intussen misschien niet meer bestaat.
      *
-     * @return array{payload:array<int,mixed>,etag:string,cached_at:int}|null
+     * @return array{payload:array{forms:array<int,mixed>,calendly:array<int,mixed>},etag:string,cached_at:int}|null
      */
     public static function get_index(): ?array {
         $data = get_transient(self::TRANSIENT_PREFIX . 'index');
-        return is_array($data) ? $data : null;
+        if (!is_array($data) || !isset($data['payload'])) {
+            return null;
+        }
+
+        // Een transient van vóór de afspraken hield enkel de formulierenlijst.
+        // Die blijft hoogstens 60 seconden staan, maar in die minuut mag het
+        // scherm geen PHP-fout geven op een ontbrekende sleutel.
+        $data['payload'] = self::normaliseer_index($data['payload']);
+        return $data;
     }
 
     /**
-     * @param array<int,mixed> $forms
+     * @param array<string,mixed> $bundel  ['forms' => [...], 'calendly' => [...]]
      */
-    public static function set_index(array $forms, string $etag = ''): void {
+    public static function set_index(array $bundel, string $etag = ''): void {
         set_transient(
             self::TRANSIENT_PREFIX . 'index',
-            ['payload' => $forms, 'etag' => $etag, 'cached_at' => time()],
+            ['payload' => self::normaliseer_index($bundel), 'etag' => $etag, 'cached_at' => time()],
             60
         );
+    }
+
+    /**
+     * @param mixed $payload
+     * @return array{forms:array<int,mixed>,calendly:array<int,mixed>}
+     */
+    private static function normaliseer_index($payload): array {
+        if (!is_array($payload)) {
+            return ['forms' => [], 'calendly' => []];
+        }
+        if (!isset($payload['forms'])) {
+            return ['forms' => array_values(array_filter($payload, 'is_array')), 'calendly' => []];
+        }
+        return [
+            'forms'    => is_array($payload['forms']) ? array_values(array_filter($payload['forms'], 'is_array')) : [],
+            'calendly' => isset($payload['calendly']) && is_array($payload['calendly'])
+                ? array_values(array_filter($payload['calendly'], 'is_array'))
+                : [],
+        ];
     }
 
     public static function purge_index(): void {

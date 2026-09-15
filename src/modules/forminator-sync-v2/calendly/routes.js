@@ -293,6 +293,8 @@ export const calendlyRoutes = {
           pooling_type: integration.calendly_pooling_type || null,
           locale: integration.calendly_locale || null,
           odoo_event_type_id: integration.calendly_odoo_event_type_id || null,
+          scheduling_url: integration.calendly_scheduling_url || null,
+          duration: integration.calendly_duration || null,
           system_step: {
             model: MEETING_MODEL,
             host_label: HOST_STAP,
@@ -350,6 +352,22 @@ export const calendlyRoutes = {
       if (body.event_type_name !== undefined) updates.calendly_event_type_name = String(body.event_type_name || '').trim() || null;
       if (body.pooling_type !== undefined) updates.calendly_pooling_type = String(body.pooling_type || '').trim() || null;
       if (body.locale !== undefined) updates.calendly_locale = String(body.locale || '').trim() || null;
+
+      // De BOEKINGSPAGINA. Die komt uit het eventtype dat Calendly ons net
+      // gaf, niet uit iets dat iemand typt -- maar hij gaat wel de publieke
+      // API uit en belandt in een iframe op onze websites, dus enkel https.
+      if (body.scheduling_url !== undefined) {
+        const link = String(body.scheduling_url || '').trim();
+        if (link && !link.startsWith('https://')) {
+          return json({ success: false, error: 'De boekingspagina moet een https-link zijn.' }, 400);
+        }
+        updates.calendly_scheduling_url = link || null;
+      }
+
+      if (body.duration !== undefined) {
+        const minuten = parseInt(body.duration, 10);
+        updates.calendly_duration = Number.isInteger(minuten) && minuten > 0 ? minuten : null;
+      }
 
       if (body.odoo_event_type_id !== undefined) {
         const id = parseInt(body.odoo_event_type_id, 10);

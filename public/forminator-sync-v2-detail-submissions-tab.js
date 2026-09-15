@@ -378,6 +378,11 @@
       dependency_missing:             'Overgeslagen \u2014 vereiste uitvoer ontbreekt',
       retry_skip_already_successful:  'Niet opnieuw uitgevoerd (replay)',
       condition_not_met:              'Stap overgeslagen (conditie niet voldaan)',
+      // Bewust een eigen reden en niet condition_not_met: dit is GEEN voorwaarde
+      // die niet klopte maar een bewuste keuze op de stap ("niets doen bij een
+      // annulatie"). Als dat als "conditie niet voldaan" in het spoor staat, ga
+      // je een voorwaarde zoeken die er niet is.
+      calendly_phase_skipped:         'Stap staat op \u201cniets doen\u201d voor deze fase',
       // send_mail — een niet-verzonden mail moet ALTIJD zijn reden tonen.
       // Anders staat er "0 verzonden" zonder dat iemand weet waarom, en dat
       // heeft bij de events-mails al een halve dag zoeken gekost.

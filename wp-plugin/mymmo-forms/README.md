@@ -259,6 +259,37 @@ injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
 
+**1.3.0** — de link naar de agenda is een keuzelijst van de afspraken die de
+Operations Manager kent, in plaats van een URL die je overtypt.
+
+Wat er verandert en waarom:
+
+- **`[mymmo_form_button calendly="..."]` verandert NIET.** De shortcode blijft
+  precies dezelfde; alleen de manier waarop je hem in wp-admin samenstelt is
+  anders. Bestaande pagina’s hoeven dus niet aangepast te worden.
+- **Waarom een keuzelijst.** Een getypte Calendly-link is onzichtbaar fout: een
+  typfout, of een eventtype dat in Calendly hernoemd werd, geeft een leeg tweede
+  tabblad zonder enige foutmelding. En niets garandeerde dat de geplakte pagina
+  hoorde bij een afspraak die de Operations Manager ook echt opvangt — een
+  boeking daarop belandt dan in het vangnet, of nergens.
+- **De lijst komt uit de Operations Manager, niet uit Calendly.** Het zijn de
+  Calendly-koppelingen bij Koppelingen, met hun bewaarde boekingspagina. Staat
+  een afspraak er niet bij, dan heeft die koppeling nog geen boekingspagina
+  bewaard: één keer openen in de Operations Manager en op “Opslaan” klikken
+  volstaat.
+- **Een koppeling die UITSTAAT blijft in de lijst**, met de vermelding erbij.
+  Boeken op zo’n pagina werkt gewoon — er komt alleen niets in Odoo terecht.
+  Verbergen zou betekenen dat een net ingestelde afspraak onvindbaar is.
+- **Het tekstvak blijft bestaan**, achter de keuze *Andere link*. En is er geen
+  enkele gekende afspraak, of was de Operations Manager onbereikbaar, dan staat
+  het tekstvak er gewoon zoals vroeger — een knop met venster maken mag nooit
+  afhangen van of Calendly hier bekend is.
+- **Vraagt geen extra verzoek.** De afspraken komen mee in hetzelfde antwoord als
+  de formulierenlijst: één cache, en “Lijst opnieuw ophalen” ververst allebei.
+
+Vereist een Operations Manager die de afspraken meestuurt. Een oudere stuurt ze
+niet mee; dan blijft het tekstvak staan en werkt alles zoals in 1.2.0.
+
 **1.2.0** — de pop-up herzien: een zijkolom met een afbeelding, een instelbare
 knopkleur, en een manier om het venster aan een bestaande knop te hangen.
 

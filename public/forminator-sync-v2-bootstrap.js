@@ -665,6 +665,25 @@
         }
         return;
       }
+      // Gedrag per Calendly-fase — zelfde uitklapgedrag als de andere
+      // gedragsbalk-rijen (chevron mee omdraaien).
+      if (action === 'toggle-step-fase') {
+        var tsfTid = btn.dataset.targetId || '';
+        if (!tsfTid) return;
+        var faseEl = document.getElementById('det-fase-' + tsfTid);
+        if (faseEl) {
+          var faseOpen = faseEl.style.display === 'none';
+          faseEl.style.display = faseOpen ? '' : 'none';
+          var faseIcons = btn.querySelectorAll('[data-lucide]');
+          var faseChev  = faseIcons.length ? faseIcons[faseIcons.length - 1] : null;
+          if (faseChev) {
+            faseChev.setAttribute('data-lucide', faseOpen ? 'chevron-down' : 'chevron-right');
+            if (typeof lucide !== 'undefined') lucide.createIcons({ context: btn });
+          }
+        }
+        return;
+      }
+
       if (action === 'toggle-step-optype') {
         var tsotTid = btn.dataset.targetId || '';
         if (!tsotTid) return;
@@ -767,6 +786,12 @@
         await window.FSV2.handleSaveStepMappings(btn.dataset.targetId);
         return;
       }
+      if (action === 'save-fase-gedrag') {
+        var fgTid = btn.dataset.targetId || btn.dataset.targetid;
+        if (fgTid) await window.FSV2.handleSaveFaseGedrag(fgTid);
+        return;
+      }
+
       if (action === 'save-step-condition') {
         var condTid = btn.dataset.targetId;
         if (condTid) await window.FSV2.handleSaveStepCondition(condTid);

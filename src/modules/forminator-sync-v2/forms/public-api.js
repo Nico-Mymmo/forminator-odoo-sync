@@ -21,6 +21,7 @@
 
 import { getFormBySlug, listPublishedForms } from './database.js';
 import { getIntegrationById } from '../database.js';
+import { listPublicCalendlyAppointments } from '../calendly/database.js';
 import { toPublicFormPayload, toPublicFormListItem } from './schema.js';
 import { submitFormEntry } from './submit.js';
 
@@ -240,8 +241,16 @@ export async function handleFormsPublicApi(request, env, ctx, pathname) {
  */
 async function handleLijst(request, env) {
   let rijen;
+  let afspraken;
   try {
-    rijen = await listPublishedForms(env);
+    // Samen in één try: allebei uit dezelfde database, dus valt de ene weg dan
+    // valt de andere ook weg. Een lege afsprakenlijst NAAST een werkende
+    // formulierenlijst zou in wp-admin lezen als "er zijn geen afspraken
+    // ingesteld", en dat is iets heel anders dan "ik kon het niet ophalen".
+    [rijen, afspraken] = await Promise.all([
+      listPublishedForms(env),
+      listPublicCalendlyAppointments(env),
+    ]);
   } catch (err) {
     console.error(`${LOG_PREFIX} oplijsten mislukt:`, err.message);
     return json({ success: false, error: 'Tijdelijk niet beschikbaar' }, 503, request, env);
@@ -251,8 +260,12 @@ async function handleLijst(request, env) {
 
   // De ETag uit slug+versie van elke rij: verandert er iets aan een formulier,
   // dan verandert zijn versie, en dus deze ETag. Nooit een tijdstip erin --
-  // zie de toelichting bovenaan dit bestand.
-  const etag = `"lijst-${forms.length}-${forms.map((f) => `${f.slug}.${f.version}`).join('~')}"`;
+  // zie de toelichting bovenaan dit bestand. De afspraken hebben geen
+  // versienummer, dus daarvan gaan naam en link erin: dat is precies wat de
+  // keuzelijst toont, en wijzigt er één van de twee dan hoort de plugin te
+  // verversen.
+  const etag = `"lijst-${forms.length}-${forms.map((f) => `${f.slug}.${f.version}`).join('~')}`
+    + `-a${afspraken.length}-${afspraken.map((a) => `${a.name}.${a.url}`).join('~')}"`;
 
   if (request.headers.get('If-None-Match') === etag) {
     return new Response(null, {
@@ -261,7 +274,7 @@ async function handleLijst(request, env) {
     });
   }
 
-  return json({ success: true, data: { forms } }, 200, request, env,
+  return json({ success: true, data: { forms, calendly: afspraken } }, 200, request, env,
     { ETag: etag, 'Cache-Control': 'public, max-age=60' });
 }
 

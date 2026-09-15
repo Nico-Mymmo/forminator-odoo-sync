@@ -149,7 +149,9 @@
     return `<option value="${esc(t.uri)}" ${t.uri === huidig ? 'selected' : ''}
                     data-name="${esc(t.name)}"
                     data-pooling="${esc(t.pooling_type || '')}"
-                    data-locale="${esc(t.locale || '')}">${esc(t.name)}${esc(staart)}</option>`;
+                    data-locale="${esc(t.locale || '')}"
+                    data-url="${esc(t.scheduling_url || '')}"
+                    data-duration="${esc(t.duration || '')}">${esc(t.name)}${esc(staart)}</option>`;
   }
 
   var POOLING_LABELS = {
@@ -193,6 +195,10 @@
           ${regels.map(function (r) { return `<span>${esc(r)}</span>`; }).join('')}
           ${t.scheduling_url ? `<a class="link link-primary" href="${esc(t.scheduling_url)}" target="_blank" rel="noopener">Boekingspagina</a>` : ''}
         </div>
+        ${t.scheduling_url ? `<p class="text-xs text-base-content/50 mt-1.5">
+          Na het opslaan staat deze afspraak in de keuzelijst “link naar de agenda”
+          van de shortcode-bouwer in WordPress — dan hoeft niemand de link nog over te typen.
+        </p>` : ''}
         <div class="text-xs text-base-content/50 mt-1.5">Hosts <span class="opacity-60">(afgeleid uit wie dit eventtype kan inplannen — Calendly geeft geen hostlijst)</span></div>
         ${hostHtml}
       </div>`;
@@ -312,23 +318,14 @@
 
             <div class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2.5 mt-4">
               <div class="text-xs font-semibold mb-1 flex items-center gap-1.5">
-                <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>Nieuw, verplaatst en geannuleerd zijn drie verschillende flows
+                <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>Verplaatsen en annuleren zijn eigen flows
               </div>
-              <p class="text-xs text-base-content/60 mb-1.5">
-                Verplaatst iemand zijn afspraak, dan maakt Calendly daar een <em>nieuwe</em> afspraak van en
-                annuleert de oude — je ziet dus twee meetings in Odoo, waarvan de oude op “geannuleerd” staat.
-                De vaste stap hierboven vangt alle gevallen op. Voor je EIGEN stappen (lead, notitie, mail) zet
-                je een voorwaarde op het veld <code class="text-[11px]">booking_action</code>:
-              </p>
-              <ul class="text-xs text-base-content/60 space-y-0.5 ml-1">
-                <li><code class="text-[11px]">new</code> — een echt nieuwe boeking. Zet je lead-stap hierop, anders
-                    komt er bij elke verplaatsing of annulatie een tweede lead bij.</li>
-                <li><code class="text-[11px]">rescheduled</code> — de nieuwe afspraak van een verplaatsing, mét de nieuwe datum.</li>
-                <li><code class="text-[11px]">rescheduled_old</code> — de oude afspraak die daarbij vervalt.</li>
-                <li><code class="text-[11px]">canceled</code> — geannuleerd, zonder vervanging.</li>
-              </ul>
-              <p class="text-xs text-base-content/50 mt-1.5">
-                De voorwaarde staat per stap op het tabblad Koppeling, onder “Voer deze stap alleen uit als veld …”.
+              <p class="text-xs text-base-content/60">
+                Een verplaatsing is bij Calendly geen wijziging: de oude afspraak wordt geannuleerd en er komt een
+                nieuwe bij. De vaste stap hierboven vangt dat op. Bij je <strong>eigen</strong> stappen staat
+                daarvoor <em>“Gedrag per fase”</em> in het gedragsblok — één stap, per fase een ander gedrag.
+                Zet een stap die een lead of notitie aanmaakt bij <strong>Nieuw</strong> op aanmaken en bij de rest
+                op alleen zoeken of niets doen; anders komt er bij elke verplaatsing en annulatie een tweede bij.
               </p>
             </div>
           </div>
@@ -364,6 +361,11 @@
             event_type_name: gekozen ? (gekozen.dataset.name || '') : '',
             pooling_type: gekozen ? (gekozen.dataset.pooling || '') : '',
             locale: gekozen ? (gekozen.dataset.locale || '') : '',
+            // De boekingspagina wordt hier BEWAARD, niet enkel getoond: ze
+            // voedt de keuzelijst "gekende afspraken" in de WordPress-plugin,
+            // en die mag niet afhangen van een live Calendly-bevraging.
+            scheduling_url: gekozen ? (gekozen.dataset.url || '') : '',
+            duration: gekozen ? (gekozen.dataset.duration || '') : '',
             odoo_event_type_id: odooSel ? odooSel.value : '',
           }),
         });

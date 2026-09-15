@@ -112,6 +112,24 @@
     return uit.slice(0, 6).join('|');
   }
 
+  /**
+   * De link naar de agenda: uit de keuzelijst met de afspraken die de
+   * Operations Manager kent, of uit het tekstvak als daar bewust voor gekozen
+   * is.
+   *
+   * De keuzelijst staat er alleen als de OM afspraken teruggaf. Zonder die
+   * lijst (niets ingesteld, of de OM was onbereikbaar) blijft het tekstvak
+   * de enige weg -- een knop met venster maken mag nooit stukgaan omdat
+   * Calendly hier toevallig niet bekend is.
+   */
+  function agendaWaarde() {
+    var keuze = document.getElementById('mymmoFormsCalendlyPick');
+    if (!keuze || keuze.value === '__anders__') {
+      return waardeVan('mymmoFormsCalendly');
+    }
+    return schoon(keuze.value);
+  }
+
   /** "eigen" (de shortcode zet de knop) of "bestaand" (aan iets anders hangen). */
   function knopSoort() {
     var gekozen = document.querySelector('input[name="mymmoFormsKnopSoort"]:checked');
@@ -146,6 +164,13 @@
     var bestaand = document.getElementById('mymmoFormsBestaand');
     if (bestaand) bestaand.hidden = knopSoort() !== 'bestaand';
 
+    // Het vrije tekstvak hoort bij de keuze "Andere link...". Staat de
+    // keuzelijst er niet (geen gekende afspraken), dan blijft het tekstvak
+    // gewoon staan -- die stand wordt serverside gezet.
+    var agendaKeuze = document.getElementById('mymmoFormsCalendlyPick');
+    var agendaVrij = document.getElementById('mymmoFormsCalendly');
+    if (agendaKeuze && agendaVrij) agendaVrij.hidden = agendaKeuze.value !== '__anders__';
+
     // Het anker dat de gebruiker in zijn eigen knop moet plakken.
     var anker = document.getElementById('mymmoFormsAnker');
     var keuze = document.getElementById('mymmoFormsPick');
@@ -170,7 +195,7 @@
 
     if (knop) {
       var label = waardeVan('mymmoFormsLabel');
-      var agenda = waardeVan('mymmoFormsCalendly');
+      var agenda = agendaWaarde();
       var variant = document.getElementById('mymmoFormsVariant');
 
       if (label) code += ' label="' + label + '"';
@@ -275,7 +300,7 @@
     // oude al gekopieerd.
     var velden = document.querySelectorAll(
       'input[name="mymmoFormsSoort"], input[name="mymmoFormsKnopSoort"],'
-      + ' #mymmoFormsLabel, #mymmoFormsCalendly,'
+      + ' #mymmoFormsLabel, #mymmoFormsCalendly, #mymmoFormsCalendlyPick,'
       + ' #mymmoFormsTabForm, #mymmoFormsTabCalendly,'
       + ' #mymmoFormsTabFormSub, #mymmoFormsTabCalendlySub,'
       + ' #mymmoFormsIntro, #mymmoFormsPunten, #mymmoFormsImage, #mymmoFormsImageAlt,'

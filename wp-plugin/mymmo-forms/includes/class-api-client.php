@@ -36,6 +36,9 @@ final class Mymmo_Forms_Api_Client {
     private static ?string $last_error = null;
     private static bool $served_stale = false;
 
+    /** De lijst-bundel van dit verzoek. false = nog niet opgehaald. */
+    private static $index_memo = false;
+
     public static function last_error(): ?string {
         return self::$last_error;
     }
@@ -164,6 +167,49 @@ final class Mymmo_Forms_Api_Client {
      * @return array<int,array<string,mixed>>|null
      */
     public static function list_forms(bool $ververs = false): ?array {
+        $bundel = self::index($ververs);
+        return $bundel === null ? null : $bundel['forms'];
+    }
+
+    /**
+     * De AFSPRAKEN die de Operations Manager kent: de Calendly-koppelingen met
+     * een bewaarde boekingspagina.
+     *
+     * Voedt de keuzelijst "link naar de agenda" in de shortcode-bouwer. Komt
+     * uit hetzelfde antwoord als de formulierenlijst -- één verzoek, één
+     * cache, één knop om te verversen.
+     *
+     * Een LEGE lijst en null zijn hier twee verschillende dingen: leeg betekent
+     * dat er geen Calendly-koppeling met een boekingspagina is, null dat we het
+     * niet konden ophalen. Het scherm hoort die niet door elkaar te halen.
+     *
+     * @return array<int,array<string,mixed>>|null
+     */
+    public static function list_calendly(bool $ververs = false): ?array {
+        $bundel = self::index($ververs);
+        return $bundel === null ? null : $bundel['calendly'];
+    }
+
+    /**
+     * @return array{forms:array<int,array<string,mixed>>,calendly:array<int,array<string,mixed>>}|null
+     */
+    private static function index(bool $ververs = false): ?array {
+        // Ook een MISLUKTE poging telt als opgehaald (vandaar false als
+        // startwaarde en niet null): het instellingenscherm vraagt de
+        // formulieren en de afspraken apart op, en die mogen samen niet twee
+        // keer een timeout van 8 seconden kosten.
+        if (!$ververs && self::$index_memo !== false) {
+            return self::$index_memo;
+        }
+
+        self::$index_memo = self::fetch_index($ververs);
+        return self::$index_memo;
+    }
+
+    /**
+     * @return array{forms:array<int,array<string,mixed>>,calendly:array<int,array<string,mixed>>}|null
+     */
+    private static function fetch_index(bool $ververs = false): ?array {
         if (!mymmo_forms_is_configured()) {
             self::$last_error = 'De koppeling met de Operations Manager is nog niet ingesteld.';
             return null;
@@ -229,10 +275,19 @@ final class Mymmo_Forms_Api_Client {
             return null;
         }
 
-        $forms = array_values(array_filter($forms, 'is_array'));
-        Mymmo_Forms_Cache::set_index($forms, (string) wp_remote_retrieve_header($response, 'etag'));
+        // De afspraken zijn OPTIONEEL in het antwoord: een Operations Manager
+        // die nog niet uitgerold is met dit stuk stuurt ze niet mee, en dat mag
+        // de formulierenlijst niet onderuithalen.
+        $calendly = $body['data']['calendly'] ?? [];
 
-        return $forms;
+        $bundel = [
+            'forms'    => array_values(array_filter($forms, 'is_array')),
+            'calendly' => is_array($calendly) ? array_values(array_filter($calendly, 'is_array')) : [],
+        ];
+
+        Mymmo_Forms_Cache::set_index($bundel, (string) wp_remote_retrieve_header($response, 'etag'));
+
+        return $bundel;
     }
 
     /**
