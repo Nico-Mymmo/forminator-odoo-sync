@@ -1,0 +1,638 @@
+<!--
+  STAP - "Wat is er allemaal in jullie gebouw?"
+
+  Meerkeuze met de tekeningen uit brand/thingies. Levert EEN waarde af:
+
+      gebouw_kenmerken     komma-gescheiden, bv. "lift,garages,Zwembad"
+
+  Zet in de Operations Manager een VERBORGEN VELD met die sleutel op het
+  formulier. Laat "Levert deze sleutels" bij de stap LEEG: niets aanduiden is een
+  geldig antwoord, en anders blijft "Volgende" uit.
+
+  DE LIJST AANVULLEN
+  ------------------
+  Een kei is gewoon een knop in de HTML hieronder. Een regel kopieren en drie
+  dingen aanpassen:
+
+      <button type="button" class="mf-kei" data-waarde="fietsenstalling" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1"
+          src=".../thingies_fietsenstalling.svg" alt="" width="400" height="400" loading="eager"></span>
+        <span class="mf-kei-label">Fietsenstalling</span>
+      </button>
+
+  `data-waarde` belandt in Odoo en ligt VAST zodra er inzendingen zijn. Het label
+  mag altijd wijzigen -- ook rechtstreeks in het voorbeeld van de bouwer, want
+  het is echte tekst in de HTML.
+
+  WAAROM DE KEIEN IN DE HTML STAAN EN NIET IN HET SCRIPT
+  -----------------------------------------------------
+  In een eerdere versie bouwde het script elke kei met innerHTML-strings als
+  '<span>' + ... + '</span>'. Op syndicoach.be kwamen alle sluit-tags UIT die
+  strings niet aan -- ze stonden er al zo in de ruwe HTML van de server -- waardoor
+  alles in elkaar nestte en elk label onzichtbaar in het vinkje belandde. Waar dat
+  gebeurt (een filter of beveiligingsplugin in WordPress) is van hieruit niet te
+  zien; de markup buiten het script kwam wel ongeschonden door.
+  Een versie later bleek het erger: ook `&&` werd `&#038;&#038;` en elke letter met
+  een accent een hex-entiteit, waarna het script niet meer parste en geen kei
+  reageerde. Alleen deze stap werd geraakt -- de enige met `loading="lazy"`-
+  afbeeldingen, naast een lazyload-plugin op de site die ze herschreef. Daarom:
+  - het script bevat UITSLUITEND ASCII, en geen en-teken, kleiner- of groter-dan
+    en geen sluit-tag (zie de uitleg bovenaan in het script);
+  - de afbeeldingen laden meteen, met de gangbare vlaggen om lazyload-plugins
+    over te slaan (`skip-lazy`, `no-lazyload`, `data-no-lazy`, `data-skip-lazy`).
+
+  Geen eigen kop, kaartje, opvulling of lettertype: dat levert de plugin.
+-->
+
+<style>
+/* Alles genest onder .mf-kenmerken. Geen id's: dezelfde stap mag twee keer op
+   een pagina staan. */
+.mf-kenmerken {
+  --k-accent: var(--mf-accent, #99f6e4);
+  --k-ink: var(--mf-text, #1f2430);
+  /* De LEESBARE merkkleur (bij Syndicoach donkerblauw #0369a1). Voor het
+     vinkje, de rand van een gekozen kei en het label ervan. Zet de plugin zelf. */
+  --k-inkt: var(--mf-accent-ink, var(--mf-text, #0369a1));
+  --k-muted: var(--mf-muted, #6b7280);
+  --k-lijn: var(--mf-border, #d7dbe2);
+  --k-vlak: var(--mf-field-bg, #ffffff);
+
+  color: var(--k-ink);
+  line-height: 1.5;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.mf-kenmerken *, .mf-kenmerken *::before, .mf-kenmerken *::after { box-sizing: border-box; }
+
+/* De wolk staat VERTICAAL GECENTREERD in de ruimte tussen de uitleg en de
+   knoppen: auto boven en onder. Zakt er niets te verdelen, dan worden allebei 0. */
+.mf-kenmerken .mf-veld { margin-block: auto; }
+
+/* De rijen laten tussen elkaar ruimte voor een label van twee regels: het label
+   hangt ONDER de kei en neemt zelf geen plaats in, zodat een label dat
+   verschijnt de wolk niet doet verspringen. */
+.mf-kenmerken .mf-wolk {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 50px 12px;
+  padding: 10px 0 46px;
+}
+
+.mf-kenmerken .mf-kei {
+  position: relative;
+  width: 96px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--k-ink);
+  cursor: pointer;
+}
+.mf-kenmerken .mf-kei:focus-visible { outline: none; }
+
+/* De kei. Vier organische vormen die om de beurt terugkomen, elk een tikje
+   gekanteld. `rotate`, `scale` en `translate` zijn drie aparte eigenschappen:
+   zo kan de kei tegelijk scheef staan, zweven en groeien zonder dat de ene
+   beweging de andere overschrijft. */
+.mf-kenmerken .mf-blob {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  background: var(--k-vlak);
+  border: 1.5px solid var(--k-lijn);
+  border-radius: 63% 37% 52% 48% / 42% 57% 43% 58%;
+  rotate: -3deg;
+  /* Groeien MET anticipatie: de negatieve waarde laat de kei eerst een tikje
+     inzakken, de waarde boven 1 laat hem voorbij zijn eindmaat schieten en
+     terugveren. Ease in en uit zit in de curve zelf. */
+  transition:
+    scale .46s cubic-bezier(.36, -0.5, .28, 1.5),
+    background-color .22s ease,
+    border-color .22s ease;
+  animation: mf-zweef 6.4s ease-in-out infinite;
+}
+.mf-kenmerken .mf-kei:nth-child(4n+2) .mf-blob {
+  border-radius: 38% 62% 67% 33% / 58% 36% 64% 42%;
+  rotate: 2.5deg;
+  animation-delay: -1.6s;
+}
+.mf-kenmerken .mf-kei:nth-child(4n+3) .mf-blob {
+  border-radius: 56% 44% 31% 69% / 37% 64% 36% 63%;
+  rotate: -1.5deg;
+  animation-delay: -3.2s;
+}
+.mf-kenmerken .mf-kei:nth-child(4n) .mf-blob {
+  border-radius: 33% 67% 59% 41% / 64% 39% 61% 36%;
+  rotate: 3deg;
+  animation-delay: -4.6s;
+}
+
+/* Zweven rond het MIDDEN (-2px tot +2px), niet van 0 naar boven: anders ligt het
+   gemiddelde van elke kei hoger dan zijn plek en staat een rij niet meer recht. */
+@keyframes mf-zweef {
+  0%, 100% { translate: 0 -2px; }
+  50%      { translate: 0 2px; }
+}
+
+.mf-kenmerken .mf-blob img {
+  display: block;
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Groter bij aanwijzen en bij een toetsenbordfocus, en GROOT BLIJVEN als hij
+   gekozen is. */
+.mf-kenmerken .mf-kei:hover .mf-blob,
+.mf-kenmerken .mf-kei:focus-visible .mf-blob,
+.mf-kenmerken .mf-kei[aria-pressed="true"] .mf-blob {
+  scale: 1.18;
+}
+.mf-kenmerken .mf-kei:hover .mf-blob,
+.mf-kenmerken .mf-kei:focus-visible .mf-blob {
+  border-color: color-mix(in srgb, var(--k-inkt) 40%, var(--k-lijn));
+}
+
+/* Gekozen: een ZACHTE mint en een rand in de leesbare merkkleur. Geen vol mint
+   vlak -- de tekeningen zijn zelf in mint en donkerblauw getekend, en op een
+   vol mint vlak verdwijnt de helft van de tekening. */
+.mf-kenmerken .mf-kei[aria-pressed="true"] .mf-blob {
+  background: color-mix(in srgb, var(--k-accent) 30%, var(--k-vlak));
+  border: 2px solid var(--k-inkt);
+  animation-play-state: paused;
+}
+
+/* Het vinkje. Met CSS getekend (twee randen van een gedraaid vlakje), dus geen
+   tekening en geen markup nodig. Het hangt IN de kei en groeit dus mee. */
+.mf-kenmerken .mf-blob::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--k-inkt);
+  opacity: 0;
+  scale: .4;
+  transition: opacity .18s ease, scale .32s cubic-bezier(.34, 1.56, .64, 1);
+}
+.mf-kenmerken .mf-blob::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 2px;
+  width: 6px;
+  height: 11px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  rotate: 45deg;
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.mf-kenmerken .mf-kei[aria-pressed="true"] .mf-blob::after { opacity: 1; scale: 1; }
+.mf-kenmerken .mf-kei[aria-pressed="true"] .mf-blob::before { opacity: 1; }
+
+/* Het label hangt onder de kei en verschijnt bij aanwijzen, bij focus, en
+   BLIJFT staan bij een gekozen kei. Een expliciete kleur: het erft niet van de
+   knop, want een thema zet soms een kleur op elke <button>. */
+.mf-kenmerken .mf-kei-label {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  /* Zo smal dat een label van twee woorden op twee regels valt ("Meerdere" /
+     "ingangen"), zodat keien naast elkaar even hoge labels hebben. Waar de breuk
+     op een vaste plek moet ("Garages" / "of parkings"), staat in de HTML een
+     vaste spatie tussen de woorden die bij elkaar horen. `balance` verdeelt de
+     rest gelijk over de twee regels. */
+  width: 100px;
+  text-wrap: balance;
+  translate: -50% 6px;
+  font-size: .78rem;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--k-ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .22s ease, translate .38s cubic-bezier(.34, -0.3, .28, 1.35);
+}
+.mf-kenmerken .mf-kei:hover .mf-kei-label,
+.mf-kenmerken .mf-kei:focus-visible .mf-kei-label,
+.mf-kenmerken .mf-kei[aria-pressed="true"] .mf-kei-label {
+  opacity: 1;
+  translate: -50% 0;
+}
+.mf-kenmerken .mf-kei[aria-pressed="true"] .mf-kei-label {
+  font-weight: 600;
+  color: var(--k-inkt);
+}
+
+/* Op een scherm zonder aanwijzer (telefoon, tablet) bestaat "hover" niet. Zonder
+   deze regel zie je daar een wolk tekeningen zonder één woord uitleg. */
+@media (hover: none) {
+  .mf-kenmerken .mf-kei-label { opacity: 1; translate: -50% 0; }
+}
+
+/* Laadt een tekening niet, dan komt het label IN de kei. Nooit een
+   kapot-plaatje-icoontje. */
+.mf-kenmerken .mf-kei--zonder-beeld .mf-blob img { display: none; }
+
+/* ── Zelf aanvullen ──────────────────────────────────────────────────────── */
+
+/* De "+": twee streepjes met CSS, zelfde reden als het vinkje. */
+.mf-kenmerken .mf-kei--extra .mf-blob {
+  border-style: dashed;
+  background: transparent;
+  animation: none;
+}
+.mf-kenmerken .mf-plus {
+  position: relative;
+  width: 22px;
+  height: 22px;
+}
+.mf-kenmerken .mf-plus::before,
+.mf-kenmerken .mf-plus::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--k-muted);
+  translate: -50% -50%;
+}
+.mf-kenmerken .mf-plus::after { rotate: 90deg; }
+
+/* Wat de bezoeker zelf typte heeft geen tekening: de tekst staat dan in de kei.
+   Zulke keien zijn altijd gekozen -- uitzetten haalt ze weg. */
+.mf-kenmerken .mf-eigen-tekst {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 0 8px;
+  font-size: .7rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--k-inkt);
+}
+
+.mf-kenmerken .mf-invoer {
+  display: none;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.mf-kenmerken .mf-invoer.is-open { display: flex; }
+.mf-kenmerken .mf-invoer input {
+  width: min(280px, 100%);
+  height: auto;
+  margin: 0;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: .9rem;
+  color: var(--k-ink);
+  background: var(--k-vlak);
+  border: 1.5px solid var(--k-lijn);
+  border-radius: 10px;
+}
+.mf-kenmerken .mf-invoer input:focus { outline: none; border-color: var(--k-inkt); }
+.mf-kenmerken .mf-invoer button {
+  height: auto;
+  margin: 0;
+  padding: 9px 16px;
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--k-ink);
+  background: var(--k-accent);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.mf-kenmerken .mf-plop { animation: mf-plop .42s cubic-bezier(.31, 1.7, .6, 1); }
+@keyframes mf-plop {
+  0%   { translate: 0 0; }
+  35%  { translate: 0 -6px; }
+  100% { translate: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mf-kenmerken .mf-blob,
+  .mf-kenmerken .mf-plop { animation: none; }
+  .mf-kenmerken .mf-blob,
+  .mf-kenmerken .mf-kei-label { transition: none; }
+}
+
+@media (max-width: 420px) {
+  .mf-kenmerken .mf-wolk { gap: 46px 6px; }
+  .mf-kenmerken .mf-kei { width: 88px; height: 72px; }
+  .mf-kenmerken .mf-blob { width: 66px; height: 66px; }
+  .mf-kenmerken .mf-blob img { width: 50px; height: 50px; }
+}
+</style>
+
+<div class="mf-kenmerken" data-sleutel="gebouw_kenmerken">
+  <p class="mymmo-stap-tekst">Duid aan wat klopt, of sla dit gewoon over.</p>
+
+  <div class="mf-veld">
+    <div class="mf-wolk" data-rol="wolk" role="group" aria-label="Kenmerken van het gebouw">
+
+      <button type="button" class="mf-kei" data-waarde="lift" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_lift.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Lift</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="garages" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_parkeermeter.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Garages of parkings</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="onderhoud_tuin" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_tuin.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Onderhoud tuin</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="meerdere_ingangen" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_traphal.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Meerdere ingangen</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="verouderde_installaties" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_verwarming.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Verouderde installaties</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="moeilijke_sfeer" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_sfeer.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Moeilijke sfeer</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="laadpalen" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_laadpaal.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Laadpalen</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="zonnepanelen" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_zonnepaneel.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Zonnepanelen</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="fietsenstalling" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_fietsenstalling.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Fietsenstalling</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="afvallokaal" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_vuilniishok.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Afvallokaal</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="ontbrekende_verzekeringen" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_brandslang.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Ontbrekende verzekeringen</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="geen_reserverekening" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_spaarvarken.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Geen reserverekening</span>
+      </button>
+
+      <button type="button" class="mf-kei" data-waarde="sleutels_badges" aria-pressed="false">
+        <span class="mf-blob"><img class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1" src="https://link.openvme.be/assets/brand/thingies/thingies_sleutel.svg" alt="" width="400" height="400" loading="eager" decoding="async"></span>
+        <span class="mf-kei-label">Sleutels en badges</span>
+      </button>
+
+      <button type="button" class="mf-kei mf-kei--extra" data-rol="extra" aria-expanded="false">
+        <span class="mf-blob"><span class="mf-plus" aria-hidden="true"></span></span>
+        <span class="mf-kei-label">Iets anders</span>
+      </button>
+
+    </div>
+
+    <div class="mf-invoer" data-rol="invoer">
+      <input type="text" data-rol="invoer-veld" maxlength="40" placeholder="Iets anders? Typ het hier"
+             aria-label="Eigen kenmerk toevoegen">
+      <button type="button" data-rol="invoer-ok">Toevoegen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+MymmoStappen.stap(document.currentScript, function (api) {
+  /* LEES DIT VOOR JE DIT SCRIPT AANPAST.
+     Op syndicoach.be wordt de HTML van deze stap opnieuw uitgeschreven voor ze
+     de browser bereikt. Daarbij werd een en-teken een HTML-entiteit, een letter
+     met een accent een hex-entiteit, en verdween elke sluit-tag uit een string.
+     Het script parste daarna niet meer en geen enkele kei reageerde.
+     Daarom bevat dit script uitsluitend ASCII en geen enkel en-teken, kleiner-
+     of groter-dan-teken of sluit-tag. Schrijf dus geen dubbele en-tekens in een
+     voorwaarde maar twee geneste ifs, en geen lussen met een vergelijking maar
+     forEach en filter. */
+
+  var wortel = api.el.querySelector('.mf-kenmerken');
+  if (!wortel) return;
+
+  var SLEUTEL = wortel.getAttribute('data-sleutel') || 'gebouw_kenmerken';
+  var wolk = wortel.querySelector('[data-rol="wolk"]');
+  var extra = wortel.querySelector('[data-rol="extra"]');
+  var invoer = wortel.querySelector('[data-rol="invoer"]');
+  var invoerVeld = wortel.querySelector('[data-rol="invoer-veld"]');
+  var invoerOk = wortel.querySelector('[data-rol="invoer-ok"]');
+  if (!wolk) return;
+
+  var gekozen = [];
+
+  function lijst(nodes) {
+    return Array.prototype.slice.call(nodes);
+  }
+
+  function schrijf() {
+    api.zet(SLEUTEL, gekozen.join(','));
+  }
+
+  function keiVoor(waarde) {
+    var gezocht = String(waarde).toLowerCase();
+    var treffers = lijst(wolk.querySelectorAll('.mf-kei[data-waarde]')).filter(function (kei) {
+      return kei.getAttribute('data-waarde').toLowerCase() === gezocht;
+    });
+    return treffers.length ? treffers[0] : null;
+  }
+
+  function plop(kei) {
+    kei.classList.remove('mf-plop');
+    void kei.offsetWidth;
+    kei.classList.add('mf-plop');
+  }
+
+  function zet(kei, aan) {
+    var waarde = kei.getAttribute('data-waarde');
+    kei.setAttribute('aria-pressed', aan ? 'true' : 'false');
+    gekozen = gekozen.filter(function (w) { return w !== waarde; });
+    if (aan) {
+      gekozen.push(waarde);
+      plop(kei);
+    }
+  }
+
+  /* Een kei voor wat de bezoeker zelf typte: createElement en textContent,
+     nooit een HTML-string. */
+  function maakEigenKei(tekst) {
+    var knop = document.createElement('button');
+    knop.type = 'button';
+    knop.className = 'mf-kei mf-kei--eigen';
+    knop.setAttribute('data-waarde', tekst);
+    knop.setAttribute('data-eigen', '1');
+    knop.setAttribute('aria-pressed', 'true');
+
+    var blob = document.createElement('span');
+    blob.className = 'mf-blob';
+    var inhoud = document.createElement('span');
+    inhoud.className = 'mf-eigen-tekst';
+    inhoud.textContent = tekst;
+    blob.appendChild(inhoud);
+
+    var label = document.createElement('span');
+    label.className = 'mf-kei-label';
+    label.textContent = 'Zelf toegevoegd';
+
+    knop.appendChild(blob);
+    knop.appendChild(label);
+    wolk.insertBefore(knop, extra);
+    return knop;
+  }
+
+  function voegEigenToe(ruw) {
+    var tekst = String(ruw || '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!tekst) return;
+
+    var bestaand = keiVoor(tekst);
+    if (bestaand) {
+      if (bestaand.getAttribute('aria-pressed') === 'true') {
+        plop(bestaand);
+      } else {
+        zet(bestaand, true);
+      }
+      schrijf();
+      return;
+    }
+
+    plop(maakEigenKei(tekst));
+    gekozen.push(tekst);
+    schrijf();
+  }
+
+  function openInvoer() {
+    if (!invoer) return;
+    var open = invoer.classList.toggle('is-open');
+    extra.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+      if (invoerVeld) invoerVeld.focus();
+    }
+  }
+
+  /* Een luisteraar op de wolk voor alle keien, ook die er later bijkomen. */
+  wolk.addEventListener('click', function (e) {
+    var kei = e.target.closest ? e.target.closest('.mf-kei') : null;
+    if (!kei) return;
+    if (!wolk.contains(kei)) return;
+
+    if (kei === extra) {
+      openInvoer();
+      return;
+    }
+
+    var aan = kei.getAttribute('aria-pressed') === 'true';
+    var eigen = kei.getAttribute('data-eigen') === '1';
+
+    if (aan) {
+      if (eigen) {
+        /* Een eigen kei bestaat alleen omdat iemand hem typte: uitzetten is weg. */
+        var waarde = kei.getAttribute('data-waarde');
+        gekozen = gekozen.filter(function (w) { return w !== waarde; });
+        kei.remove();
+        schrijf();
+        return;
+      }
+    }
+
+    zet(kei, !aan);
+    schrijf();
+  });
+
+  if (invoerOk) {
+    invoerOk.addEventListener('click', function () {
+      voegEigenToe(invoerVeld ? invoerVeld.value : '');
+      if (invoerVeld) {
+        invoerVeld.value = '';
+        invoerVeld.focus();
+      }
+    });
+  }
+
+  if (invoerVeld) {
+    invoerVeld.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      /* Enter hier mag het formulier niet versturen. */
+      e.preventDefault();
+      voegEigenToe(invoerVeld.value);
+      invoerVeld.value = '';
+    });
+  }
+
+  /* Een tekening die niet laadt: het label komt dan in de kei. */
+  lijst(wolk.querySelectorAll('.mf-blob img')).forEach(function (img) {
+    function mislukt() {
+      var kei = img.closest('.mf-kei');
+      if (!kei) return;
+      var label = kei.querySelector('.mf-kei-label');
+      if (!label) return;
+      kei.classList.add('mf-kei--zonder-beeld');
+      var tekst = document.createElement('span');
+      tekst.className = 'mf-eigen-tekst';
+      tekst.textContent = label.textContent;
+      img.parentNode.appendChild(tekst);
+    }
+    if (img.complete) {
+      if (img.naturalWidth === 0) mislukt();
+      return;
+    }
+    img.addEventListener('error', mislukt);
+  });
+
+  /* Beginstand: terug van een mislukte inzending of van een volgende stap. */
+  String(api.lees(SLEUTEL) || '').split(',')
+    .map(function (s) { return s.trim(); })
+    .filter(Boolean)
+    .forEach(function (waarde) {
+      var kei = keiVoor(waarde);
+      if (kei) {
+        kei.setAttribute('aria-pressed', 'true');
+        gekozen.push(kei.getAttribute('data-waarde'));
+        return;
+      }
+      maakEigenKei(waarde);
+      gekozen.push(waarde);
+    });
+  schrijf();
+
+  api.bij('tonen', function () {
+    lijst(wolk.querySelectorAll('.mf-kei[aria-pressed="true"]')).forEach(plop);
+  });
+});
+</script>

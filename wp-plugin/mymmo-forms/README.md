@@ -189,7 +189,6 @@ fout.
 | `trigger` | CSS-selector van bestaande knoppen die het venster openen |
 | `class` | Eigen klassen op de wikkel, om de knop te plaatsen |
 | `close` | Het opschrift van de sluitknop, voor schermlezers |
-| `padding_x` / `padding_y` | De ruimte rond de velden. Een lengte met eenheid |
 | `background` | De kleur van het vlak achter het formulier. Leeg = een lichte tint van de accentkleur |
 | `icon_color` | De kleur van de vinkjes en de iconen in de tabbladen |
 | `accent_text` | De tekstkleur op de knoppen (standaard wit) |
@@ -295,8 +294,8 @@ dezelfde POST — er is geen tweede verzendpad en niets wordt tussentijds
 bewaard.
 
 ```
-[mymmo_form slug="offerte" steps="aantal-gebouwen,wat-speelt-er"]
-[mymmo_form_button slug="offerte" steps="aantal-gebouwen" label="Bereken je formule"]
+[mymmo_form slug="offerte" steps="gebouwgrootte,wat-speelt-er"]
+[mymmo_form_button slug="offerte" steps="gebouwgrootte" label="Bereken je formule"]
 ```
 
 Met het tweede loopt de reeks in de pop-up, op het tabblad "Formulier". De
@@ -490,6 +489,660 @@ die eruitzien als een kleur of een lengte — vrije CSS vanuit de OM zou een
 injectiepad zijn naar elke site die het formulier toont.
 
 ## Versies
+
+**1.16.2** — niets in de pop-up is nog selecteerbaar.
+
+- Een sleepbeweging (het jaarwiel, een schuifbalk) of een dubbelklik kleurde de
+  hele inhoud van het venster blauw. `user-select: none` op het paneel, met twee
+  klassen zodat een thema niet wint. Invoervelden, tekstvakken, keuzelijsten en
+  bewerkbare tekst in de bouwer blijven WEL selecteerbaar: je eigen typfout moet
+  je kunnen aanduiden.
+
+**1.16.1** — geen flits meer tussen versturen en het dankjewelscherm.
+
+- **Oorzaak:** een formulier in de pop-up deed de klassieke POST met redirect. De
+  pagina laadde opnieuw, het venster was even dicht, en JavaScript opende het
+  daarna weer op het dankjewelscherm.
+- **Nu:** in een tabblad van de pop-up verstuurt mymmo-forms.js het formulier met
+  `fetch()` (extra veld `mymmo_ajax=1`) en toont het dankjewelscherm meteen, in
+  hetzelfde venster, zonder herladen. De server doet exact dezelfde controles
+  (nonce, honeypot, invultijd) en dezelfde inzending; alleen het antwoord is JSON
+  in plaats van een redirect. De conversie (`mymmo_formulier_verstuurd` met
+  `mymmo_tabblad`) vuurt op hetzelfde moment.
+- **Mislukt het**, dan blijft het formulier met alles erin staan en komt de
+  foutmelding erboven, zoals na een klassieke mislukte inzending. Een OM-formulier
+  met "doorsturen naar een pagina" gaat gewoon naar die pagina.
+- **Zonder JavaScript, en voor een formulier gewoon in een pagina**, blijft het de
+  klassieke POST met redirect.
+- Getest in de browser met een nagebootst antwoord: formulier-tabblad en
+  stappen-tabblad tonen hun scherm zonder herladen, met de juiste dataLayer-regel;
+  een fout laat het formulier en de ingevulde waarden staan.
+
+**1.16.0** — een dankjewelscherm per tabblad.
+
+- **Elk tabblad van de pop-up heeft zijn eigen dankjewelscherm**: een afbeelding
+  (zonder afbeelding een vinkje in de accentkleur), een titel en een tekst. Het
+  verschijnt in de plaats van het formulier na een geslaagde inzending, en in de
+  plaats van de agenda na een geboekt gesprek.
+- **Opmaken in het voorbeeld.** De knop "Dankjewelscherm" boven het voorbeeld
+  toont het scherm van het tabblad dat openstaat; de titel en de tekst typ je er
+  rechtstreeks in, en een klik op het vinkje of de afbeelding opent de
+  mediabibliotheek. De velden staan ook onder "Na het versturen".
+- **Standaarden.** Een lege tekst is de bedanktekst uit de OM (bij een formulier)
+  of "Je gesprek staat ingepland..." (bij een gesprek); een lege titel blijft weg.
+  Wie niets instelt, ziet dezelfde zin als tot 1.15, nu als scherm in plaats van
+  als melding boven het formulier.
+- **Google Analytics / GTM.** Dezelfde gebeurtenissen als voorheen, op het moment
+  dat het scherm verschijnt, met een veld erbij:
+
+  | event | wanneer | velden |
+  |---|---|---|
+  | `mymmo_formulier_verstuurd` | dankjewelscherm van `form` of `extra` | `mymmo_formulier`, `mymmo_doel`, `page_path`, **`mymmo_tabblad`** |
+  | `mymmo_calendly_geboekt` | dankjewelscherm van `calendly` | `mymmo_calendly_event`, `mymmo_doel`, `page_path`, **`mymmo_tabblad`** |
+
+  Het derde tabblad krijgt een eigen conversiepad (`goal_extra`, veld
+  "Conversiepad — derde tabblad"); leeg = dat van het formulier.
+- **Welk tabblad verstuurde, reist mee.** Het formulier post `mymmo_tab`, de
+  melding na de redirect onthoudt het, en het venster opent terug op DAT tabblad
+  met DAT scherm. Twee tabbladen met hetzelfde formulier (formulier en een
+  stappenreeks ervoor) krijgen zo elk hun eigen scherm. Een formulier op het
+  derde tabblad met een ANDER formulier kreeg voorheen geen bevestiging in de
+  pop-up (de melding werd enkel op het eerste formulier gezocht); nu wel.
+- Nieuwe shortcode-attributen: `thanks_form_image`, `thanks_form_title`,
+  `thanks_form_text`, `thanks_extra_image`, `thanks_extra_title`,
+  `thanks_extra_text`, `thanks_calendly_image`, `thanks_calendly_title` en
+  `goal_extra`. De tekst van het gesprek blijft `thanks_calendly`.
+- Een [mymmo_form] gewoon in een pagina verandert niet: daar blijft de melding
+  boven het formulier.
+
+**1.15.21** — ook "Stuur een bericht" krijgt titel en regel uitleg.
+
+- **De kop boven het formulier staat nu ook op een tabblad zonder stappen**, met
+  exact dezelfde opmaak als de kop van een stap (dezelfde klassen, 1,3rem). Tekst:
+  wat bij "Boven het formulier" staat, anders de naam en de inleiding uit de OM.
+- **Uit te zetten** met het vinkje "Ook tonen boven een formulier zonder stappen"
+  in de shortcode-bouwer, of `form_heading="no"` op de shortcode. Standaard aan.
+- Een functie voor beide plekken: `mymmo_forms_form_kop()` (helpers.php). De kop
+  staat binnen de wikkel van het formulier, zodat hij dezelfde letter en kleuren
+  krijgt als de velden; het formulier toont zijn eigen titel en inleiding dan niet.
+- De stijl van een stap-titel (`mymmo-forms-steps.css`) laadt nu in elke pop-up,
+  ook zonder stappen. Het script van de reeks alleen als er een reeks is.
+- Een [mymmo_form] gewoon in een pagina verandert niet.
+
+**1.15.20** — de formulierstap krijgt zijn kop uit de OM; het wiel wordt meteen actief.
+
+- **Titel en regel uitleg boven het formulier (de laatste stap) komen uit de OM**:
+  de naam en de inleiding van het formulier, in de taal van de pagina. Wat je bij
+  "Boven het formulier" invult (`form_title`/`form_sub`), wint nog steeds; leeg
+  laten betekent nu "uit de OM" in plaats van "geen kop". Het formulier zet zijn
+  eigen titel en inleiding dan uit, zodat ze er niet twee keer staan.
+- **Vergaderstap: niet meer grijs zodra de bezoeker begint te schuiven.** Grijs
+  bleef staan tot het loslaten; nu verdwijnt het bij de eerste wissel van het
+  venster, met de vinger nog op het wiel. Bewaard wordt de keuze nog steeds pas
+  bij het loslaten.
+
+**1.15.19** — vergaderstap: de kalenderblaadjes zijn merktekeningen.
+
+- **`thingies_calendar1.svg` (van) en `thingies-calendar2.svg` (tot)** -- let op,
+  de eerste met underscore, de tweede met een streepje. Het getal staat in het
+  witte vak bovenaan, de maand in het mintvlak.
+- **De maand staat in het midden van het ZICHTBARE mintvlak**, opgemeten uit de
+  SVG's: het mint loopt rechts onder de kaderlijn door, dus het midden van de
+  polygoon is niet het midden dat je ziet (blad 1 op 53,8%, blad 2 op 51,5%,
+  beide op 69,5% hoogte).
+- **Tekst schaalt mee met het blaadje** (`container-type: inline-size`, eenheid
+  `cqw`). De maand is vet; "september", de langste, beslaat 56% van het blaadje
+  in een zichtbaar mintvlak van 66%, op elke schermbreedte.
+- **Kleine anticipatie en plop op het getal** als de dag verspringt (eerst een
+  tikje kleiner, dan voorbij de maat, terug). Het blaadje zelf beweegt niet, en
+  er is geen geluid. Uit bij `prefers-reduced-motion`.
+
+**1.15.18** — vergaderstap: scheurkalenderblaadjes, jaarloos en rondlopend.
+
+- **Twee scheurkalenderblaadjes in plaats van een zin** ("MEESTAL TUSSEN" erboven,
+  maand bovenaan het blaadje, dag groot eronder). Ze zijn altijd even groot, dus
+  niets verspringt meer, ook niet als het venster over een maandgrens gaat.
+  Bewust geen animatie bij het wisselen. De maandstrook staat in de accentkleur
+  met `--mf-accent-text` erop (de inkt die de site zelf op die kleur zet).
+- **Jaarloos.** Een algemene vergadering valt elk jaar rond dezelfde tijd: er
+  staat nergens een jaartal, en `volgende_av_periode` is "tussen 10 en 25
+  november" zonder jaar. `volgende_av_van`/`_tot`/`_datum` zijn de EERSTVOLGENDE
+  keer dat dat venster voorkomt.
+- **De lijn loopt rond.** Terug naar augustus kan net zo goed als vooruit naar
+  januari: na december komt januari. Technisch vijf kopieen van een jaar; na elk
+  schuiven springt de lijn onzichtbaar terug naar de middelste (getest: dertien
+  maanden terug en twee jaar vooruit komen allebei netjes terecht).
+
+**1.15.17** — vergaderstap: kader en lijn kloppen met elkaar, kop staat vast.
+
+- **Het kader komt nu overeen met de periode op de lijn.** Een maand staat op de
+  lijn altijd als 4,3 weken (30,1 dagen), en de zes ankers (5, 10, ... 30) liggen
+  op gelijke afstand. Een venster van drie ankers is dus exact een halve maand, en
+  het mintvlak van het kader is precies zo breed. Gemeten: bij "5 en 20 november"
+  staat het begin van november 50px links van het kader (5/30 van een maand van
+  301px), bij "15 en 30 november" valt het begin van december exact op de
+  rechterrand.
+- **Begin en einde van elke maand staan als streepje op de as.** De maandnaam
+  staat in het midden van de maand; zonder streepje zag je niet waar ze begint.
+- **De lijn is getekend en rafelig**: een naadloze tegel van 420px als CSS-masker
+  (procent-gecodeerd, dus geen inline SVG en geen kleiner-/groter-dan-tekens), in
+  de merkkleur.
+- **De kop staat vast.** Altijd twee datumregels van vaste hoogte, elke regel
+  gecentreerd op hetzelfde middelpunt: "10 en 25 / november" of "25 november /
+  en 10 december". De lijn eronder verspringt niet meer (gemeten: zelfde
+  positie en zelfde middelpunt voor elk venster).
+
+**1.15.16** — de vergaderstap vereenvoudigd: een lijn, een kader, grote datums.
+
+- **Vorm volgens de schets:** bovenaan "meestal tussen" met de datums in grote
+  cijfers, daaronder een getekende lijn met maandnamen die onder een vast kader
+  (`thingies/frame.svg`) door schuift. De maandnaam die in het kader valt, staat
+  op het mintvlak van de tekening. Geen kaart, geen banden, geen dagnummers en
+  geen Vroeger/Later-knoppen meer; "Nog geen idee" blijft als bescheiden link.
+- **Alleen ankerdagen 5, 10, 15, 20, 25 en 30** (in februari de laatste dag), en
+  de lijn springt per anker. Een venster loopt van een anker tot drie ankers
+  verder: tussen 5 en 20, 10 en 25, 15 en 30, 20 en 5, 25 en 10, 30 en 15.
+  Blijft het venster in een maand, dan staat de maand er een keer ("10 en 25
+  november"); over een maandgrens staan beide ("25 november en 10 december").
+- **`volgende_av_periode` volgt die zin** ("tussen 10 en 25 november 2026").
+  `volgende_av_van`/`_tot` zijn de ankerdatums, `volgende_av_datum` het midden.
+- Het kader is zo geschaald dat het mintvlak van de tekening (x 52,9-351,8 van
+  367,7) exact vijftien dagen van de lijn beslaat.
+
+**1.15.15** — nieuwe voorbeeldstap: wanneer is de volgende algemene vergadering?
+
+- **`voorbeelden/algemene-vergadering.html`, een jaarwiel met een speld.** Het
+  gevoel is "ik prik een datum, maar met een breed foutenvenster": de bezoeker
+  schuift een jaarlijn onder een vaste speld door, en het venster van twee weken
+  eromheen is de marge. Bovenaan staat meteen hoe dat leest ("Midden maart",
+  "Eind maart", "Eind maart, begin april") met de datums eronder. Elke maand is
+  in drie banden verdeeld (begin/midden/eind, met de maand erbij), zodat je ziet
+  of het venster over een maandgrens valt.
+- **Bediening:** swipen op een telefoon (gewoon horizontaal scrollen, met de
+  vaart van het toestel), slepen of het muiswieltje op een computer, pijltjes
+  (een dag) en Page Up/Down (een week) op het toetsenbord, tikken op een dag,
+  en de knoppen Vroeger/Later. Na het loslaten klikt het wiel op een dag vast;
+  zolang er een vinger op ligt niet.
+- **Waarden:** `volgende_av_periode` ("midden maart 2027" of "onbekend"),
+  `volgende_av_datum` (de speld), `volgende_av_van` en `volgende_av_tot` (het
+  venster). "Voorbeeld invoegen" zet `volgende_av_periode` bij de verplichte
+  sleutels: "Volgende" blijft uit tot er een periode of "Nog geen idee" gekozen is.
+- **Het wiel opent zes weken vooruit, maar dat telt niet als antwoord.** Pas als
+  de bezoeker het wiel beroert, staat er een waarde. Anders gaat een voorstel dat
+  niemand bekeek als antwoord naar Odoo.
+- **Gemeten, niet aangenomen:** de eerste versie mat het wiel terwijl de stap nog
+  verborgen was (breedte 0) en opende daardoor op een verkeerde datum. Het wiel
+  meet zich nu met een ResizeObserver zodra het echt breedte krijgt.
+- Gebouwd volgens de regels van 1.15.12 en 1.15.14: het script is ASCII zonder
+  en-teken, kleiner- of groter-dan (vergelijken met Math.min/Math.max, lussen met
+  `!==`), geen inline SVG en geen leeg element in de markup. De maanden, banden en
+  dagen maakt het script zelf in de browser.
+
+**1.15.14** — stap 3 (huidig beheer) opnieuw opgebouwd.
+
+- **Live stond stap 3 volledig door elkaar**: de teksten liepen in een smalle kolom
+  over de knoppen heen. Oorzaak, gelezen uit de DOM op syndicoach.be: na elke
+  inline SVG met een use-element ontbrak de sluit-tag van het icoonrondje, het
+  (lege) vinkje-element was verdwenen en alle witruimte tussen de knoppen ook. De
+  tekst zat daardoor BINNEN een rondje van 50px. Stap 2 op dezelfde pagina
+  (afbeeldingen, geen inline SVG) kwam wel ongeschonden door.
+- **Nieuw ontwerp zonder SVG en zonder lege elementen.** Vier kaarten, twee per rij
+  (een per rij op een smal scherm), elk met een korte titel en een regel uitleg.
+  Het keuzerondje en het vinkje zijn CSS op de knop zelf. Gekozen: zachte mint met
+  rand en rondje in de leesbare merkkleur. De knop noemt zelf alles wat een thema
+  op een knop kan zetten (display, richting, hoogte, opvulling, schaduw, tekst).
+- **Copy:** Niet echt beheerd / Professionele syndicus / Vrijwillige syndicus /
+  Nu geen syndicus meer, met een korte uitleg eronder. De WAARDEN zijn ongewijzigd.
+- De zelfgetekende icoontjes zijn weg: er bestaat geen merktekening voor deze vier
+  situaties, en zelf tekenen doen we niet.
+
+**1.15.13** — labels van stap 2 herschreven, en het getal van stap 1 op de as.
+
+- **Labels in stap 2.** "Gemeenschappelijke tuin" was te lang en wordt "Onderhoud
+  tuin". De brandslang staat voor "Ontbrekende verzekeringen", het spaarvarken voor
+  "Geen reserverekening". Die WAARDEN zijn mee gewijzigd (`onderhoud_tuin`,
+  `ontbrekende_verzekeringen`, `geen_reserverekening`) -- kan nog, er zijn geen
+  inzendingen. Een label is nu 100px breed met `text-wrap: balance`, zodat twee
+  woorden netjes op twee regels vallen ("Meerdere / ingangen"); een vaste spatie
+  houdt "of parkings" en "en badges" samen. Gemeten: het langste woord
+  ("reserverekening") is 88px, dus niets steekt uit.
+- **Stap 1: de tekening stond niet scheef, het getal wel.** Gemeten in de pop-up:
+  vlak, tekening en schuifbalk hadden hetzelfde midden, en ook de GROEP
+  "60 kavels of meer" -- maar daardoor stond het grote getal zelf 55px links van
+  de as. Het oog neemt het getal als anker. Nu staat het getal in de middelste van
+  drie kolommen en groeit de eenheid enkel naar rechts: getal, tekening en
+  schuifbalk vallen op dezelfde x voor elke waarde. De tekeningen van niveau 1-4
+  zijn exact gecentreerd in hun canvas; niveau 5 staat 7% rechts door de
+  aanbouw, en dat is de tekening zelf.
+
+**1.15.12** — de keien reageren weer, grotere gebouwen in stap 1, betere copy in stap 2.
+
+- **Op syndicoach.be reageerde geen enkele kei.** De console gaf
+  `SyntaxError: Invalid or unexpected token`: in de ruwe serveruitvoer stond
+  `&&` als `&#038;&#038;` en elke letter met een accent als hex-entiteit
+  (8x `&#038;`, 61 hex-entiteiten). Het script parste niet, dus er hing nooit een
+  luisteraar aan de keien. Alleen de kenmerken-stap werd geraakt — stap 1 en 3
+  bleven onaangeroerd — en dat is ook de enige stap met `loading="lazy"`-
+  afbeeldingen, op een site waar een lazyload-plugin die afbeeldingen herschreef
+  (`src` werd `data-src`). Die plugin is de waarschijnlijke oorzaak, maar dat is
+  van buitenaf niet te bewijzen. Daarom op twee fronten:
+  - **De stap-scripts bevatten uitsluitend ASCII en geen `&`, `<`, `>` of sluit-tag.**
+    Dan valt er niets te herschrijven. Getest door de live verminking na te
+    bootsen: de vorige versie parste daarna niet meer, de nieuwe wel.
+  - **De afbeeldingen laden meteen**, zoals in stap 1, met de gangbare vlaggen
+    om lazyload-plugins over te slaan (`skip-lazy`, `no-lazyload`,
+    `data-no-lazy`, `data-skip-lazy`).
+  Stap 3 (`huidig-beheer`) volgt dezelfde regel, al werkte die live nog.
+- **De tekeningen in stap 1 zijn groter.** Alle tien delen een canvas van
+  2048 x 2048, dus in dezelfde vierkante doos schalen ze samen. De grootste
+  (`level5comm`) reikt tot 86% van de hoogte en heeft 11,8% lege ruimte onder de
+  grondlijn. De doos neemt nu de vrije ruimte tussen het vinkje en het getal in
+  (was vast max 210 px breed), en het canvas schuift 11,5% omlaag zodat het
+  gebouw op het getal staat in plaats van erboven te zweven. Gemeten in de
+  pop-up met 60 kavels + winkels:
+  - 1280 x 900: grootste tekening **242 px** hoog (was max 180 px), geen schuifbalk;
+  - 1280 x 720: 116 px, geen schuifbalk. De vorige versie was daar groter, maar
+    liet het paneel 22 px scrollen — ze paste dus niet.
+- **Copy van stap 2:** "Wat speelt er in jullie gebouw?" en "Duid aan wat klopt,
+  of sla dit gewoon over." Korter dan de vorige, en "speelt" dekt zowel een lift
+  als een moeilijke sfeer. De titel staat op het stap-record: een al ingevoegde
+  stap houdt zijn oude titel tot je hem in het voorbeeld aanklikt en overtypt.
+
+**1.15.11** — stap 2 met de tekeningen uit brand/thingies, en waarom de labels live onzichtbaar waren.
+
+- **De labels van stap 2 en de teksten van stap 3 stonden live onzichtbaar.** Niet
+  door een kleur: in de ruwe HTML die syndicoach.be uitstuurt, ontbraken ALLE
+  sluit-tags die als string in het script van de stap stonden (`'</span>'`,
+  `'</svg>'` kwamen aan als `''`). De elementen die het script bouwde nestten
+  daardoor in elkaar, en elk label belandde in het vinkje, dat op `opacity: 0`
+  staat. De markup BUITEN het script kwam wel ongeschonden door, en de
+  tekst-vervanger van de plugin is uitgesloten (getest: die laat beide sluit-tags
+  staan). Waar het in die WordPress-installatie gebeurt — een filter of een
+  beveiligingsplugin — is van buitenaf niet te zien.
+  De oplossing zit daarom in de stappen zelf: **de keien en de keuzes staan nu
+  als gewone HTML in het bestand, en het script bevat geen enkele sluit-tag
+  meer.** Het vinkje en de "+" zijn met CSS getekend. Een eigen kei van de
+  bezoeker wordt met `createElement` + `textContent` gemaakt.
+  Bijkomend voordeel: de labels zijn nu echte tekst en dus aanpasbaar in het
+  voorbeeld van de bouwer. Zolang het script ze bouwde, kon de tekst-vervanger
+  er niet bij.
+- **Stap 2 gebruikt de tekeningen uit `brand/thingies`** in plaats van
+  zelfgetekende icoontjes, via `https://link.openvme.be/assets/brand/thingies/`,
+  op dezelfde manier als de gebouwen in stap 1. Alle dertien bestaan (gecontroleerd,
+  HTTP 200). Let op: het afvallokaal heet `thingies_vuilniishok.svg` met dubbel i;
+  `vuilnishok` geeft 404.
+
+  | waarde | label | tekening |
+  |---|---|---|
+  | `lift` | Lift | lift |
+  | `garages` | Garages of parking | parkeermeter |
+  | `gemeenschappelijke_tuin` | Gemeenschappelijke tuin | tuin |
+  | `meerdere_ingangen` | Meerdere ingangen | traphal |
+  | `verouderde_installaties` | Verouderde installaties | verwarming |
+  | `moeilijke_sfeer` | Moeilijke sfeer | sfeer |
+  | `laadpalen` | Laadpalen | laadpaal |
+  | `zonnepanelen` | Zonnepanelen | zonnepaneel |
+  | `fietsenstalling` | Fietsenstalling | fietsenstalling |
+  | `afvallokaal` | Afvallokaal | vuilniishok |
+  | `brandveiligheid` | Brandveiligheid | brandslang |
+  | `reservefonds` | Reservefonds | spaarvarken |
+  | `sleutels_badges` | Sleutels en badges | sleutel |
+
+  `dakterras` is weg: dat had ik er zelf bijgezet, en er is geen tekening voor.
+- **Gedrag van een kei:** in rust alleen de tekening. Bij aanwijzen groeit hij
+  met anticipatie (eerst een tikje in, dan voorbij zijn maat, dan terugveren) en
+  verschijnt het label eronder. Gekozen blijft hij groot, met label, vinkje en
+  een rand in de leesbare merkkleur. Op een scherm zonder muis staan de labels
+  altijd — daar bestaat "aanwijzen" niet. Het gekozen vlak is een ZACHTE mint en
+  geen volle: de tekeningen zijn zelf in mint en donkerblauw getekend.
+- **De wolk staat verticaal gecentreerd** tussen de uitleg en de knoppen, en de
+  keien zweven rond hun midden (−2 tot +2 px) in plaats van omhoog, zodat een rij
+  recht blijft staan. Het label hangt onder de kei zonder zelf plaats in te nemen:
+  verschijnen doet de wolk niet verspringen.
+- **"Voorbeeld invoegen" vult nu ook de titel en de sleutels in** (als die velden
+  nog leeg zijn). Een ingevoegde stap begon anders zonder titel, terwijl de stap
+  ervoor er een had. Voorstellen: "Wat is er allemaal in jullie gebouw?" (geen
+  sleutels — niets kiezen mag) en "Hoe wordt je appartement momenteel beheerd?"
+  (`huidig_beheer`). Zie `Mymmo_Forms_Steps::example_meta()`.
+
+**1.15.10** — de agenda en de schuifbalk in de donkere merkkleur, en geen streepjes meer.
+
+- **Het kopblok van Calendly is weg** (logo, naam van het gesprek, duur):
+  `hide_event_type_details=1`. Gemeten op hun eigen pagina: het verdwijnt
+  volledig, zonder een leeg vlak achter te laten. Een beheerder die die
+  parameter zelf in de link zet, wint nog steeds.
+- **De agenda krijgt de LEESBARE merkkleur, niet de felle.** Gemeten met
+  `primary_color=0369a1`: dagcijfer `rgb(3,105,161)`, vlak van een beschikbare
+  dag `rgb(240,246,251)`, gekozen dag vol donkerblauw met wit cijfer, tijdstippen
+  in donkerblauwe tekst en rand. De kleur wordt gekozen uit het PAAR van het merk
+  — de accentkleur en de tekst die erop staat, elk uit dezelfde cascade als de
+  rest van het venster — en daarvan wint de leesbaarste op wit. Bij Syndicoach
+  `#99f6e4` + `#0369a1` → `#0369a1`. **Er wordt niets omgerekend**: de functie
+  uit 1.15.7 die een kleur donkerder maakte (en `#0c846d` opleverde, een groen dat
+  in geen palet stond) is weg.
+- **Wat hier NIET kan, en waarom.** De agenda is Calendly's eigen iframe van
+  calendly.com. Onze CSS komt daar niet in, dus `.booking-kit_*`-regels zijn niet
+  vanaf de site te zetten. Concreet:
+  - het dagcijfer kan niet **zwart** met een **mint** vlak: het cijfer ÍS
+    `primary_color` (`text_color` raakt het niet — getest met `000000`), en het
+    vlak is een tint die Calendly er zelf van afleidt;
+  - de tijdstippen kunnen niet naast elkaar in een `flex-wrap` en niet breder:
+    hun houder staat op `display:block` in dat iframe.
+  Wil je die twee echt, dan is de enige weg een eigen datum- en tijdkiezer
+  tegen de Calendly-API in plaats van hun widget. Dat is een apart bouwwerk.
+- **`--mf-accent-ink`**: nieuwe CSS-variabele op de wikkel, met die leesbare
+  merkkleur. Voor alles wat op een lichte achtergrond GELEZEN moet worden. De
+  schuifbalk van `gebouwgrootte` gebruikt ze nu voor het getal en de knop — die
+  stonden sinds 1.15.7 in mint (`--mf-accent`), een getal van 32px in mint op
+  wit. **Een stap die al in WordPress bewaard staat, is een kopie**: plak het
+  voorbeeld opnieuw, of zet in je eigen stap `--sc-blue:
+  var(--mf-accent-ink, var(--mf-accent))`.
+- **De streepjesbalk boven een stappenreeks is weg**, op vraag. De teller
+  ("Stap 1 van 3") blijft. `mymmo-forms-steps.js` hoefde niet mee: het zoekt nog
+  naar de bolletjes, vindt er geen, en slaat dat over.
+
+**1.15.9** — een reeks is geordend, dus de bouwer laat je hem nu ook schikken.
+
+- **Je kon in de bouwer maar één stap kiezen.** "Derde tabblad: stappen" was een
+  gewone dropdown met daaronder de hint "Meerdere reeksen? Typ ze met een komma
+  in de shortcode". De bouwer kon dus niet wat de shortcode wél kon, en wie het
+  toch probeerde moest de namen uit het hoofd kennen — ze stonden nergens op dat
+  scherm. Nu is het een lijst: kiezen uit een dropdown zet de stap onderaan, en
+  met ↑ ↓ × schik je ze of haal je ze weg. Een stap die al in de reeks staat,
+  verdwijnt uit de keuzelijst (twee keer dezelfde stap levert twee keer dezelfde
+  veld-id's op en wordt toch overgeslagen).
+- **Waarom geen `<select multiple>`:** `steps="a,b"` en `steps="b,a"` zijn twee
+  verschillende formulieren. Een meervoudige keuzelijst geeft je de volgorde van
+  de OPTIES terug, niet die van je keuzes — precies wat hier telt kan ze dus niet
+  uitdrukken.
+- **De stappen vóór HET formulier stonden helemaal niet in de bouwer.** Alleen het
+  derde tabblad had een veld; `steps` moest je met de hand in de shortcode typen.
+  Er staat nu een kiezer voor, in de groep "Formulier", en die geldt voor allebei
+  de soorten — een reeks kan net zo goed gewoon op een pagina staan als in een
+  venster.
+- **Een stap die niet (meer) bestaat blijft in de lijst staan**, met de melding
+  erbij en in het rood. Stil weghalen zou een reeks kapotmaken zonder dat iemand
+  het ziet, en de shortcode kan van een andere site komen waar die stap wél
+  bestaat.
+- Bijkomend gevolg: een bewaarde **opstelling met meerdere stappen laadt nu
+  correct terug**. Het veld was een `<select>`, en een waarde die niet als optie
+  bestond (`"a,b"`) werd door de browser stil op leeg gezet.
+
+**1.15.8** — twee nieuwe stappen, en de agenda-kleur is weer van jou.
+
+- **De kleur van de agenda wordt niet meer omgerekend.** In 1.15.7 maakte de
+  plugin de accentkleur donkerder tot ze 4,5:1 haalde. Dat leverde `#0c846d` op:
+  een kleur die in géén enkel merkpalet staat. Weg. Er is nu een expliciet
+  attribuut `calendly_color`; zet je niets, dan krijgt Calendly gewoon je
+  accentkleur — dezelfde die de knoppen in het venster hebben.
+- **Waarom "fel vlak met zwarte cijfers" niet kan** (gemeten op hun eigen
+  boekingspagina, niet aangenomen). Met `primary_color=99f6e4`:
+
+  | wat | waarde |
+  |---|---|
+  | beschikbare dag, achtergrond | `rgb(240,247,245)` — een tint die Calendly zelf afleidt |
+  | beschikbare dag, cijfer | `rgb(153,246,228)` — **exact** `primary_color` |
+
+  `text_color` raakt dat cijfer niet (getest met `000000`). Het cijfer Ís dus de
+  kleur die je meegeeft, en de achtergrond is een lichte afgeleide daarvan. Een
+  lichte merkkleur geeft daardoor een licht cijfer op een licht vlak. Wil je het
+  leesbaar, zet dan met `calendly_color` een donkerdere kleur úit je eigen palet
+  (bij Syndicoach bv. `14b8a6` of `0369a1`). Dat is een merkkeuze, geen formule
+  — vandaar een attribuut en geen berekening.
+- **Twee nieuwe voorbeeldstappen**, allebei in de keuzelijst bij Instellingen
+  → Stappen:
+  - **`gebouwkenmerken`** — een wolk zwevende keien met lijntekeningen: lift,
+    garages, gemeenschappelijke tuin, meerdere ingangen, verouderde
+    installaties, moeilijke sfeer, laadpalen, dakterras. Meerdere mag, niets
+    aanduiden ook. De bezoeker kan er met de "+"-kei zelf een bijzetten; die komt
+    als vrije tekst in dezelfde waarde. Levert `gebouw_kenmerken`
+    (komma-gescheiden). **Laat "Levert deze sleutels" leeg** — niets aanduiden is
+    een geldig antwoord, en anders blijft "Volgende" uit.
+  - **`huidig-beheer`** — vier keuzes met een tekening: niet echt beheerd /
+    professionele syndicus / vrijwillige syndicus / hadden er een, nu niet.
+    Levert `huidig_beheer`. Deze is bedoeld als verplicht: zet `huidig_beheer`
+    wél in "Levert deze sleutels".
+  Allebei: bediening met het toetsenbord (de beheer-stap met de pijltjes, zoals
+  keuzerondjes horen te werken), herstel van de keuze na een mislukte inzending,
+  en beweging die uitgaat bij `prefers-reduced-motion`.
+- **Wat er op de accentkleur staat, komt uit `--mf-accent-text`** — de inkt die
+  de site zelf op haar knoppen zet. Een vaste kleur kiezen werkt op een site met
+  een lichte accentkleur en op een site met een donkere niet, en dat merk je pas
+  als die tweede site het meldt.
+- Vergeet de **verborgen velden** niet in de Operations Manager: `gebouw_kenmerken`
+  en `huidig_beheer`. Zonder die velden kan de bezoeker gewoon verder, maar
+  bereikt de waarde Odoo niet — dat staat als melding boven het formulier voor
+  wie is ingelogd als beheerder.
+
+**1.15.7** — de agenda werd onleesbaar van onze eigen kleur.
+
+- **De beschikbare dagen in Calendly waren niet te lezen.** Sinds 1.15.6 volgt de
+  agenda de basiskleur van de site, en dat is hier een lichte turquoise
+  (`#99f6e4`, contrast 1,26 op wit). Calendly gebruikt die ene kleur voor TWEE
+  dingen tegelijk: het bolletje van een beschikbare dag — daar als lichte tint
+  van — én het dagnummer erin. Die twee kan je in hun embed niet los instellen
+  (`primary_color` is de enige knop, naast achtergrond en tekstkleur), en hun
+  widget staat in een iframe van een ander domein, dus onze CSS komt er niet bij.
+  Resultaat: een bijna-wit cijfer op een bijna-wit bolletje.
+  De kleur die naar Calendly gaat wordt nu DONKER GENOEG gemaakt om tekst van te
+  zijn: in HSL zakt alleen de lichtheid, tot ze op wit 4,5:1 haalt (WCAG AA). De
+  tint blijft dus dezelfde turquoise. Voor deze site: `#99f6e4` → `#0c846d`
+  (contrast 4,63). Een kleur die het al haalt, blijft ongewijzigd — `#2563eb` en
+  `#0369a1` gaan er onveranderd door.
+  Let op: dit geldt alleen voor de agenda. De knoppen en accenten in het venster
+  houden de merkkleur zelf; die dragen geen tekst in die kleur.
+- **De voorbeeldstap erft de kleuren van het formulier.** Hij had eigen waarden
+  uit de rekenmodule waar hij uit komt, waardoor de hulpregel van stap 1 in
+  `#6b8697` stond en dezelfde regel bij het formulier in `#6b7280` — net genoeg
+  verschil om als slordig te lezen, en die eerste haalt op wit geen AA (3,83
+  tegen 4,83). `--sc-ink`, `--sc-muted`, `--sc-blue` en `--sc-line` volgen nu
+  `--mf-text`, `--mf-muted`, `--mf-accent` en `--mf-border`, met de oude waarde
+  als terugval voor wie de stap los gebruikt.
+- **`.mymmo-stap-tekst` is exact `.mymmo-form-help`** (0,85rem in plaats van
+  0,87rem). Twee maten die een paar tienden van elkaar liggen, lezen als een
+  slordige kopie en niet als een keuze.
+
+**1.15.6** — stap 1 en stap 2 zien er hetzelfde uit, en je kan de copy typen waar je ze ziet.
+
+- **Een stap sleepte zijn eigen lettertype mee.** De voorbeeldstap kwam uit een
+  losstaande rekenmodule en had een systeemstack (`-apple-system, ... "Segoe UI"`)
+  op zijn wikkel staan. Naast een formulier dat de letter van de site erft, zie je
+  dat meteen: op syndicoach.be stond de tekst van stap 1 in Segoe UI en die van
+  het formulier in Rethink Sans. De plugin dwingt nu `font-family: inherit` af op
+  de wikkel van een stap (twee klassen, dus het wint ook van de `<style>` van de
+  stap zelf). Wil een stap ergens echt een andere letter, dan wint ze met twee
+  klassen — en dat is dan een bewuste keuze.
+- **De laatste stap kan nu een titel en een regel eronder hebben**
+  (`form_title` / `form_sub`). Zonder die kop begint stap 2 abrupt met een
+  invoerveld terwijl stap 1 een titel had, en dan lijkt het alsof er iets
+  ontbreekt. Ze gebruiken exact dezelfde klassen als de titel van een stap
+  (`.mymmo-stap-titel` en het nieuwe `.mymmo-stap-tekst`), zodat er geen tweede
+  stijl bestaat die uit de pas kan lopen. Een HTML-stap heeft die regel nu ook,
+  als veld "Regel onder de titel" bij Stappen.
+- **Teksten van een stap pas je aan IN het voorbeeld.** Klik in de bouwer op een
+  titel, een regel uitleg of een label in een stap en typ. Het wordt meteen
+  bewaard — niet in de HTML van de stap, maar ernaast, als `origineel => nieuw`.
+  Gevolgen, en alle drie bedoeld:
+  - **Laad je het bestand opnieuw in, dan grijpt je copy weer.** Dat was de reden
+    om het zo te doen: de code van een stap wil je kunnen vervangen zonder je
+    teksten kwijt te raken. Wijzigt het bestand die zin wél, dan valt de
+    aanpassing vanzelf weg — de nieuwe tekst uit het bestand wint.
+  - **De aanpassing hoort bij de STAP.** Staat dezelfde stap in een tweede
+    formulier, dan staat je copy daar ook. Wil je per plaatsing iets anders, maak
+    dan een tweede stap.
+  - **Dezelfde zin die twee keer in de stap staat, verandert twee keer.** De
+    sleutel ís de tekst.
+  Wat er bewaard staat zie je bij Instellingen → Stappen, met een knop om alles
+  in één keer weg te halen. Attributen, `<script>` en `<style>` worden nooit
+  aangeraakt, en een getal (de teller naast een schuifbalk) is niet bewerkbaar —
+  dat zou een zin opleveren die bij de volgende beweging weer weg is.
+- **Calendly kreeg onze kleur niet mee als je de basiskleur gebruikte.** De
+  kleur die de agenda meekrijgt kende twee lagen — wat er op de shortcode stond
+  en het thema van het formulier uit de OM — maar niet de derde: het thema van
+  DEZE site. Zette je `accent="#..."`, dan kleurden de bolletjes van de
+  beschikbare dagen netjes mee; gebruikte je gewoon de basiskleur, dan kreeg
+  Calendly niets door en viel het terug op zijn eigen lichtblauw. Nu dezelfde
+  drie lagen in dezelfde volgorde als de rest van de stijl.
+
+**1.15.5** — het thema van de site won van de plugin, op vier plekken.
+
+Alle vier dezelfde oorzaak, en geen ervan was zichtbaar in een voorbeeld zonder
+thema: een blokthema zet globale stijlen voor `ol`, `input` en knoppen, en die
+selectors wegen zwaarder dan de losse klassenamen van deze plugin. `:not()` telt
+mee voor de specificiteit — `ol:not(.wp-block-comment-template)` is (0,1,1) en
+wint dus van `.mymmo-stappen-voortgang` (0,1,0) — en `[type="submit"]` is (0,1,0),
+dus even zwaar, waarna de VOLGORDE beslist: WordPress drukt de stijlen van het
+thema inline in de `<head>` af, ná de stylesheets van een plugin. Gemeten op
+syndicoach.be.
+
+- **De streepjes van de voortgangsbalk waren onzichtbaar.** Het thema zet
+  `ol { display:flex; flex-direction:column }`. Wij zetten wél `display:flex`
+  maar noemden de RICHTING nooit — en wat je niet noemt, kan een thema invullen.
+  De segmenten groeiden daardoor in de hoogte (de balk heeft er geen, dus 0px) en
+  stonden horizontaal gecentreerd op hun eigen breedte: ook 0. De balk zelf stond
+  er wel, 4px hoog: dat was de `gap` tussen twee onzichtbare segmenten.
+  `flex-direction: row` staat er nu bij.
+- **De schuifbalk leek een langgerekte schakelaar.** De globale veldstijl van een
+  thema zondert checkbox, radio, submit, reset en button uit — maar geen
+  `range`. De schuifbalk kreeg dus de opvulling (9px 10px) en de rand van een
+  tekstveld, en met `box-sizing: border-box` blies dat haar hoogte van 4px op tot
+  20px. De plugin zet opvulling en rand nu terug voor elke schuifbalk in een
+  stappenreeks; een stap-auteur kan niet elk thema kennen.
+- **De verzendknop was kleiner dan de "Volgende" van een stap** (14px/700,
+  10px 16px, radius 6) omdat `[type="submit"]` van het thema wint van
+  `.mymmo-form-submit`. De "Volgende" is een `<button type="button">` en werd
+  niet geraakt — vandaar twee knoppen van verschillende hoogte in hetzelfde
+  venster. Allebei nu 16px/600, 12px 26px, radius 10, 50px hoog.
+- **De invoervelden stonden op de lettergrootte van het thema** (14px) in plaats
+  van die van het formulier (16px), terwijl een `<textarea>` — daar is de
+  selector maar (0,0,1) — wel onze maat hield. Twee maten in hetzelfde
+  formulier.
+
+De aanpak is overal dezelfde: één klasse erbij (`.mymmo-form-wrap` resp.
+`.mymmo-stappen`) zodat onze regel (0,2,0) weegt, en zetten wat we bedoelen in
+plaats van het over te laten. Nog steeds nergens `!important`: wie deze velden
+écht anders wil, wint nog altijd met een eigen regel of met de `--mf-`variabelen.
+
+**1.15.4** — één opvulling in het venster, en ze staat vast.
+
+- **Een stap stond verder van de rand dan een formulier.** Er waren TWEE
+  opvullingen: die van het paneel (het tabblad) en die van de wikkel eronder
+  (`--mf-pad-x/y`, uit `padding_x`/`padding_y` op de shortcode of uit het thema
+  van het formulier in de OM). Voor een formulier haalde het venster die tweede
+  er weer af, voor een stappenreeks niet — dus telde ze daar op. Met
+  `padding_x="16px"` stond dezelfde inhoud op het ene tabblad 28px van de rand
+  en op het andere 44px. Dat zie je niet zolang je één tabblad tegelijk bekijkt,
+  en precies daarom bleef het staan.
+- **Nu één waarde, op één plek, voor allebei**: `.mymmo-modal-paneel` in
+  `mymmo-forms-modal.css`. 40px vanaf 900px, 32px daaronder, 24px op een telefoon
+  (daar zou 40px aan elke kant op 375px geen 300px overlaten om in te typen).
+  Formulieren zijn daarmee ruimer dan voorheen — dat is de bedoeling: ze zijn
+  gelijkgetrokken met de stappen, niet omgekeerd.
+- **`padding_x` / `padding_y` bestaan niet meer.** Niet op de shortcode, niet in
+  de bouwer (de twee schuifjes en de twee tekstvelden zijn weg), niet in een
+  bewaarde opstelling, en niet in het thema dat de OM meestuurt. Een bestaande
+  shortcode met dat attribuut blijft gewoon werken; het doet alleen niets meer.
+  `gap` (de ruimte TUSSEN de velden) blijft wel instelbaar — dat is een andere
+  vraag, en ze telt nergens dubbel.
+- **Een stap brengt geen eigen opvulling mee.** Dat stond al zo in de uitleg bij
+  de voorbeelden ("geen eigen kaartje, geen eigen kop"), maar er stond nergens
+  bij dat de RUIMTE ook van de plugin komt. Nu wel — zie de projectregels.
+
+**1.15.3** — de stap vult het vlak van de pop-up.
+
+- **De knop stond halverwege een half leeg vlak.** Met tabbladen heeft het
+  venster een VASTE hoogte (780px), maar de stap erin was zo hoog als haar
+  inhoud. Daaronder bleef een strook wit staan waar niets gebeurde, en de
+  "Volgende" zweefde ergens in het midden. De ketting paneel → stappenwikkel
+  → stap → inhoud is nu een kolom die de ruimte inneemt, en de knoppenrij
+  staat tegen de onderrand — binnen de opvulling van het paneel, dus de marge
+  blijft. Geldt ook voor de verzendknop van het formulier, met en zonder
+  stappenreeks.
+- **Past het niet, dan SCROLT het paneel** in plaats van de inhoud samen te
+  persen: flex-shrink staat overal op 0. Op een laag venster wordt de
+  `margin-top: auto` gewoon 0 en houdt een padding dezelfde minimumafstand.
+- **In een PAGINA verandert er niets.** Daar groeit de reeks met haar inhoud
+  mee, dus er is geen vrije ruimte te verdelen.
+- **De voorbeeldstap zet zijn bediening onderaan.** De vraag en het vinkje
+  blijven bovenaan bij de titel staan; de tekening, het aantal kavels en de
+  schuifbalk zakken naar de knop toe. Een stap doet dat zelf, met
+  `margin-top: auto` op het blok dat naar beneden moet — de plugin bepaalt
+  alleen dat er ruimte te verdelen IS. Een stap die al in WordPress bewaard
+  staat, krijgt dit dus niet vanzelf: voeg die regel toe, of voeg het
+  voorbeeld opnieuw in.
+
+**1.15.2** — de opvulling lekte naar het venster, en de voortgangsbalk.
+
+- **`padding_x` / `padding_y` verzetten meer dan het formulier.** Dezelfde twee
+  variabelen (`--mf-pad-x/y`) bedienden DRIE dingen: het formulier, de
+  stappenwikkel en het PANEEL van de pop-up. Gaf je je formulier wat lucht, dan
+  schoof het hele paneel mee — en erger: dat paneel heeft opvulling die met de
+  schermbreedte meebeweegt (16 / 22 / 28 px), en die werd platgeslagen tot jouw
+  ene waarde. Vandaar dat de opvulling bij een andere breedte of na een herlaad
+  versprong. Het paneel heeft nu zijn eigen `--mf-panel-pad-x/y`;
+  `padding_x`/`padding_y` gaan weer over het formulier, zoals de naam zegt.
+- **Een tabkop zonder regeltje eronder wordt gecentreerd.** In de zijkolom stond
+  het icoon uitgelijnd op de eerste regel — juist als er een regeltje volgt, maar
+  zonder regeltje bleef er ruimte onder de titel open alsof er nog iets kwam.
+- **De voortgangsbalk is een balk geworden.** Losse streepjes van 28 en 44 px
+  lazen bij twee stappen als twee toevallige lijntjes. Het zijn nu even brede
+  segmenten die samen de breedte vullen. Ze staan bovendien vast links: een thema
+  dat `ul`'s centreert (`margin: auto`) zette ze eerder midden boven het paneel,
+  los van de tekst eronder.
+- **De schuifbalk van de voorbeeldstap is slanker** (spoor 6 → 4 px, knop 24 →
+  16 px) en het getal erboven wat kleiner, zodat de stap minder hoog is.
+- **`voorbeelden/aantal-gebouwen.html` is geschrapt.** Die stap was een
+  bedachte demo die niemand nodig had; `gebouwgrootte.html` is het echte
+  voorbeeld. Staat hij nog in je Stappen-lijst, dan blijft hij gewoon werken —
+  de HTML zit in de database, niet in dit bestand.
+
+**1.15.1** — de stap brengt geen eigen omlijsting meer mee.
+
+- **De kop stond er twee keer.** De titel die je bij een stap typt komt al boven
+  de stap te staan, in de stijl van de pop-up; de meegeleverde voorbeeldstap had
+  daarnaast zijn eigen kop in de HTML. Die tweede was niet uit te zetten zonder
+  de HTML te bewerken. De voorbeelden hebben nu geen eigen kop, geen eigen wit
+  kaartje en geen eigen randen meer: de plugin levert de omlijsting, de stap
+  levert de vraag en het bedieningselement.
+- **Geen schuifbalk meer naast een stap die past.** De tekening had een vaste
+  hoogte van 230px; samen met het kaartje eromheen duwde dat het paneel over
+  zijn grens. Ze krimpt nu mee met de hoogte van het scherm.
+- **Het tabblad dat bovenaan staat, is ook het tabblad dat openstaat.** `tab`
+  stond vast op "form", dus zette je met `tab_order` de agenda vooraan, dan ging
+  het venster alsnog open op het formulier — je zag een knoprij waarvan de
+  tweede knop actief was. Leeg laten betekent nu: het bovenste. Wie wel een vast
+  tabblad wil, typt `tab="..."` en dat wint nog steeds.
+
+**1.15.0** — een derde tabblad in het venster, en de volgorde is instelbaar.
+
+Het venster had twee vaste tabbladen (formulier en agenda). Er kan er nu een
+DERDE bij, met een eigen formulier en een eigen stappenreeks: zo staat naast
+"Stuur ons een bericht" en "Plan een gesprek" bijvoorbeeld "Bereken je offerte",
+dat de bezoeker eerst door een paar schermen leidt. Het bestaat zodra je er een
+stappenreeks of een eigen formulier voor kiest; tot dan verandert er niets.
+
+De volgorde van de tabbladen zet je met pijltjes in de bouwer (attribuut
+`tab_order`, bv. `tab_order="extra,form,calendly"`). Wat je niet noemt schuift
+achteraan aan, en tabbladen die er niet zijn worden overgeslagen — een typefout
+kan dus nooit een venster zonder tabbladen opleveren.
+
+Nieuwe attributen: `extra_slug`, `extra_steps`, `tab_extra`, `tab_extra_sub`,
+`tab_order`. Ze staan ook in de bouwer en in een bewaarde opstelling.
+
+Verder in deze versie:
+
+- **De tekening in de bouwer kan naar achteren.** Op een pagina staat ze achter
+  de tekst en het witte kaartje; in de bouwer stond ze altijd vooraan, want
+  anders kan je ze niet aanwijzen om ze te verplaatsen. Dat verschil zag je pas
+  op de site. De knop "Tekening achteraan" naast Desktop/Telefoon zet ze op haar
+  echte laag — en dan is ze, net als op een pagina, ook niet meer vast te pakken.
+- **Onder water is het venster herschreven van twee vaste blokken HTML naar één
+  lijst en één lus.** Met een derde tabblad erbij zou dezelfde knop anders drie
+  keer in het sjabloon staan. Aan de HTML die een bezoeker krijgt is bij twee
+  tabbladen niets veranderd; de rendertest klinkt dat vast.
+- Elk paneel krijgt een eigen id-voorvoegsel, ook als er twee keer hetzelfde
+  formulier in staat. Zonder dat wijst elk `<label>` in het tabblad dat je niet
+  open hebt staan naar het verkeerde invoerveld — niet te zien, wel stuk.
 
 **1.14.0** — stappen: een formulier kan meerdere schermen krijgen.
 
@@ -735,13 +1388,10 @@ de velden is instelbaar.
 - **De verzendknop staat rechtsonder.** Daar kom je uit als je van boven naar
   beneden invult, en daar staat "volgende" in elke wizard. Onder 540px vult hij
   de breedte: uitlijnen is daar geen keuze maar een obstakel.
-- **`padding_x` en `padding_y`** zetten de ruimte rond de velden. Bij een knop met
-  venster is dat de ruimte binnen het kaartje, bij een formulier op de pagina de
-  ruimte eromheen — één paar knoppen voor allebei, want het is in beide gevallen
-  "hoeveel lucht rond de velden". Ze staan ook in de bouwer en kunnen als
-  `padding_x`/`padding_y` in het thema van het formulier in de Operations Manager.
-  Alleen een lengte met eenheid komt erdoor (`28px`, `1.5rem`, `4%`) — dezelfde
-  gesloten controle als bij de kleuren.
+- **De ruimte tot de rand van het venster staat VAST** (40px op een groot scherm,
+  32px daaronder, 24px op een telefoon) en is niet instelbaar. Ze was dat wel, met
+  `padding_x`/`padding_y`; zie 1.15.4 hieronder voor waarom dat weg moest. Wat wel
+  instelbaar blijft is `gap`: de ruimte TUSSEN de velden.
 - **Een venster met zijkolom is nu 880px breed** in plaats van 660. De zijkolom
   nam er 280 van, en wat overbleef was de kolom waarin iemand zijn gegevens typt:
   bij 660px braken de velden daar van twee kolommen naar één terwijl er scherm

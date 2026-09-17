@@ -81,6 +81,218 @@
     return String(waarde || '').replace(/["\[\]]/g, '').trim();
   }
 
+  /* De vaste volgorde. Staat de lijst er nog zo bij, dan hoeft er geen
+     tab_order in de shortcode. */
+  var STANDAARD_VOLGORDE = ['form', 'extra', 'calendly'];
+
+  /* ── De stappenkiezer ────────────────────────────────────────────────────
+   *
+   * Een REEKS is geordend: `steps="a,b"` en `steps="b,a"` zijn twee
+   * verschillende formulieren. Een <select multiple> kan dat niet uitdrukken --
+   * die geeft de volgorde van de OPTIES terug, niet die van je keuzes. Vandaar
+   * een lijst die je zelf schikt, met dezelfde pijltjes als de tabvolgorde
+   * hierboven.
+   *
+   * De waarheid staat in het VERBORGEN VELD (komma-gescheiden), niet in de
+   * lijst: dat veld heeft hetzelfde id als de oude keuzelijst, dus
+   * `waardeVan()`, `zetVeld()` en de luisteraars verderop blijven ongewijzigd
+   * werken. De <ul> is enkel de weergave, en wordt uit dat veld opgebouwd.
+   */
+
+  /** De stappen die op deze site bestaan: id => naam, uit de keuzelijst zelf. */
+  function stapNamen(veldId) {
+    var kies = document.querySelector('[data-mymmo-stapkies="' + veldId + '"]');
+    var uit = {};
+    if (!kies) return uit;
+
+    Array.prototype.forEach.call(kies.options, function (optie) {
+      if (optie.value) uit[optie.value] = (optie.textContent || optie.value).trim();
+    });
+
+    return uit;
+  }
+
+  function leesStappen(veldId) {
+    return String(waardeVan(veldId) || '').split(',').map(function (s) {
+      return s.trim();
+    }).filter(Boolean);
+  }
+
+  /**
+   * De gekozen stappen wegschrijven EN de rest van het scherm verwittigen.
+   *
+   * Het `input`-event is geen sierlijkheid: het verborgen veld staat in de lijst
+   * met velden die de shortcode en het voorbeeld opnieuw opbouwen. Zonder dat
+   * event verandert de lijst wel en de shortcode niet -- en dan zie je pas bij
+   * het plakken dat je wijziging nergens staat.
+   */
+  function schrijfStappen(veldId, waarden) {
+    var veld = document.getElementById(veldId);
+    if (!veld) return;
+
+    veld.value = waarden.join(',');
+    tekenStapKiezer(veldId);
+    veld.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function tekenStapKiezer(veldId) {
+    var lijst = document.querySelector('[data-mymmo-stapkiezer="' + veldId + '"]');
+    if (!lijst) return;
+
+    var namen = stapNamen(veldId);
+    var gekozen = leesStappen(veldId);
+
+    lijst.innerHTML = '';
+
+    gekozen.forEach(function (id, i) {
+      var rij = document.createElement('li');
+      rij.setAttribute('data-stap', id);
+
+      var naam = document.createElement('span');
+      /* Een stap die niet (meer) bestaat blijft staan MET die melding erbij.
+         Stil weghalen zou een reeks kapotmaken zonder dat iemand het ziet --
+         en de shortcode kan van een andere site komen waar hij wel bestaat. */
+      naam.textContent = (i + 1) + '. ' + (namen[id] || id + ' — bestaat niet op deze site');
+      if (!namen[id]) naam.style.color = '#b32d2e';
+
+      var op = document.createElement('button');
+      op.type = 'button';
+      op.className = 'button button-small';
+      op.setAttribute('data-mymmo-stap-op', veldId);
+      op.setAttribute('aria-label', 'Naar boven');
+      op.innerHTML = '&uarr;';
+      op.disabled = i === 0;
+
+      var neer = document.createElement('button');
+      neer.type = 'button';
+      neer.className = 'button button-small';
+      neer.setAttribute('data-mymmo-stap-neer', veldId);
+      neer.setAttribute('aria-label', 'Naar onder');
+      neer.innerHTML = '&darr;';
+      neer.disabled = i === gekozen.length - 1;
+
+      var weg = document.createElement('button');
+      weg.type = 'button';
+      weg.className = 'button button-small';
+      weg.setAttribute('data-mymmo-stap-weg', veldId);
+      weg.setAttribute('aria-label', 'Weghalen');
+      weg.innerHTML = '&times;';
+
+      rij.appendChild(naam);
+      rij.appendChild(op);
+      rij.appendChild(neer);
+      rij.appendChild(weg);
+      lijst.appendChild(rij);
+    });
+
+    var leeg = document.querySelector('[data-mymmo-stapkiezer-leeg="' + veldId + '"]');
+    if (leeg) leeg.style.display = gekozen.length ? 'none' : '';
+
+    /* Wat al gekozen is, hoort niet meer in de keuzelijst te staan: dezelfde
+       stap twee keer in een reeks levert twee keer dezelfde veld-id's en
+       dezelfde sleutels op, en wordt door Steps::resolve() toch overgeslagen. */
+    var kies = document.querySelector('[data-mymmo-stapkies="' + veldId + '"]');
+    if (kies) {
+      Array.prototype.forEach.call(kies.options, function (optie) {
+        if (optie.value) optie.hidden = gekozen.indexOf(optie.value) !== -1;
+      });
+      kies.value = '';
+    }
+  }
+
+  /** Alle kiezers op de pagina opnieuw tekenen, na het laden van een opstelling. */
+  function tekenStapKiezers() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-mymmo-stapkiezer]'), function (lijst) {
+      tekenStapKiezer(lijst.getAttribute('data-mymmo-stapkiezer'));
+    });
+  }
+
+  function koppelStapKiezers() {
+    document.addEventListener('change', function (e) {
+      var kies = e.target.closest ? e.target.closest('[data-mymmo-stapkies]') : null;
+      if (!kies || !kies.value) return;
+
+      var veldId = kies.getAttribute('data-mymmo-stapkies');
+      var gekozen = leesStappen(veldId);
+      if (gekozen.indexOf(kies.value) === -1) gekozen.push(kies.value);
+      schrijfStappen(veldId, gekozen);
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest) return;
+
+      var knop = e.target.closest('[data-mymmo-stap-op], [data-mymmo-stap-neer], [data-mymmo-stap-weg]');
+      if (!knop) return;
+
+      var veldId = knop.getAttribute('data-mymmo-stap-op')
+                || knop.getAttribute('data-mymmo-stap-neer')
+                || knop.getAttribute('data-mymmo-stap-weg');
+      var rij = knop.closest('li[data-stap]');
+      if (!veldId || !rij) return;
+
+      e.preventDefault();
+
+      var gekozen = leesStappen(veldId);
+      var nu = gekozen.indexOf(rij.getAttribute('data-stap'));
+      if (nu === -1) return;
+
+      if (knop.hasAttribute('data-mymmo-stap-weg')) {
+        gekozen.splice(nu, 1);
+      } else {
+        var naar = knop.hasAttribute('data-mymmo-stap-op') ? nu - 1 : nu + 1;
+        if (naar < 0 || naar >= gekozen.length) return;
+        var hier = gekozen[nu];
+        gekozen[nu] = gekozen[naar];
+        gekozen[naar] = hier;
+      }
+
+      schrijfStappen(veldId, gekozen);
+
+      /* De focus meenemen naar waar de rij nu staat -- anders klikt iemand die
+         twee keer wil opschuiven, de tweede keer mis. Zelfde reden als bij de
+         tabvolgorde hierboven. */
+      var lijst = document.querySelector('[data-mymmo-stapkiezer="' + veldId + '"]');
+      if (!lijst) return;
+      var opnieuw = lijst.querySelector('li[data-stap="' + rij.getAttribute('data-stap') + '"]');
+      if (!opnieuw) return;
+      var zelfde = opnieuw.querySelector(
+        knop.hasAttribute('data-mymmo-stap-op') ? '[data-mymmo-stap-op]' :
+        knop.hasAttribute('data-mymmo-stap-neer') ? '[data-mymmo-stap-neer]' : '[data-mymmo-stap-weg]'
+      );
+      if (zelfde && !zelfde.disabled) zelfde.focus();
+    });
+  }
+
+  /** De volgorde zoals ze nu in de lijst staat. */
+  function leesVolgorde() {
+    var lijst = document.querySelector('[data-mymmo-taborder]');
+    if (!lijst) return STANDAARD_VOLGORDE.slice();
+    return Array.prototype.map.call(lijst.querySelectorAll('li[data-tab]'), function (li) {
+      return li.getAttribute('data-tab');
+    });
+  }
+
+  /**
+   * De lijst in een bewaarde volgorde zetten.
+   *
+   * Wat niet genoemd is, blijft staan waar het staat -- zelfde afspraak als in
+   * Shortcodes::tab_order(). Zo levert een opstelling van voor deze versie
+   * (zonder tab_order) gewoon de vaste volgorde op.
+   */
+  function zetVolgorde(ruw) {
+    var lijst = document.querySelector('[data-mymmo-taborder]');
+    if (!lijst) return;
+
+    var namen = String(ruw || '').split(/[,|]/).map(function (n) {
+      return n.trim().toLowerCase();
+    }).filter(Boolean);
+
+    for (var i = 0; i < namen.length; i += 1) {
+      var rij = lijst.querySelector('li[data-tab="' + namen[i] + '"]');
+      if (rij) lijst.appendChild(rij);   // naar achteren duwen = op volgorde zetten
+    }
+  }
+
   function waardeVan(id) {
     var el = document.getElementById(id);
     return el ? schoon(el.value) : '';
@@ -280,6 +492,28 @@
         ]);
       }
 
+      // Het derde tabblad. Het bestaat zodra er een stappenreeks of een eigen
+      // formulier voor gekozen is -- zonder een van die twee zou het een kopie
+      // van het eerste tabblad zijn.
+      var extraSteps = waardeVan('mymmoFormsExtraSteps');
+      var extraSlug = waardeVan('mymmoFormsExtraSlug');
+      if (extraSteps) atts.extra_steps = extraSteps;
+      if (extraSlug) atts.extra_slug = extraSlug;
+
+      if (extraSteps || extraSlug) {
+        var tabExtra = waardeVan('mymmoFormsTabExtra');
+        var subExtra = waardeVan('mymmoFormsTabExtraSub');
+        if (tabExtra) atts.tab_extra = tabExtra;
+        if (subExtra) atts.tab_extra_sub = subExtra;
+      }
+
+      // De volgorde alleen meegeven als ze afwijkt van de vaste volgorde:
+      // anders staat er een attribuut in elke shortcode dat niets doet.
+      var volgorde = leesVolgorde();
+      if (volgorde.join(',') !== STANDAARD_VOLGORDE.join(',')) {
+        atts.tab_order = volgorde.join(',');
+      }
+
       // De opschriften van de tabbladen alleen meegeven als ze afwijken van de
       // standaard, en alleen als er een tweede tabblad IS: zonder agenda staat
       // er maar een deel in het venster en is er niets om op te schrijven.
@@ -324,6 +558,21 @@
       var dank = waardeVan('mymmoFormsThanksCalendly');
       if (dank) atts.thanks_calendly = dank;
 
+      // Het dankjewelscherm per tabblad (1.16).
+      [['Form', 'form'], ['Extra', 'extra'], ['Calendly', 'calendly']].forEach(function (paar) {
+        var beeld = waardeVan('mymmoFormsThanks' + paar[0] + 'Image');
+        if (beeld) atts['thanks_' + paar[1] + '_image'] = beeld;
+        var dankTitel = waardeVan('mymmoFormsThanks' + paar[0] + 'Title');
+        if (dankTitel) atts['thanks_' + paar[1] + '_title'] = dankTitel;
+        if (paar[1] !== 'calendly') {
+          var dankTekst = waardeVan('mymmoFormsThanks' + paar[0] + 'Text');
+          if (dankTekst) atts['thanks_' + paar[1] + '_text'] = dankTekst;
+        }
+      });
+
+      var doelExtra = waardeVan('mymmoFormsGoalExtra');
+      if (doelExtra) atts.goal_extra = doelExtra;
+
       var doelAgenda = waardeVan('mymmoFormsGoalCalendly');
       if (doelAgenda) atts.goal_calendly = doelAgenda;
 
@@ -334,14 +583,27 @@
       }
     }
 
-    // De opvulling geldt voor allebei de soorten: binnen het kaartje van het
-    // venster, of rond een formulier dat in een pagina staat.
-    var padX = waardeVan('mymmoFormsPadX');
-    var padY = waardeVan('mymmoFormsPadY');
+    // De stappen vóór het formulier. Geldt voor allebei de soorten: een reeks
+    // kan net zo goed gewoon op een pagina staan als in een venster.
+    var stappen = waardeVan('mymmoFormsSteps');
+    if (stappen) atts.steps = stappen;
+
+    // Alleen nog de ruimte TUSSEN de velden. De ruimte tot de rand van het
+    // venster staat vast in mymmo-forms-modal.css.
     var tussen = waardeVan('mymmoFormsGap');
-    if (padX) atts.padding_x = padX;
-    if (padY) atts.padding_y = padY;
     if (tussen) atts.gap = tussen;
+
+    // De kop boven het formulier wanneer dat de laatste stap van een reeks is.
+    // Van de PLAATSING: dezelfde velden verdienen in een ander venster een
+    // andere aanhef. Wat je bij een STAP typt hoort bij de stap zelf en wordt
+    // daar meteen bewaard -- zie mymmo-forms-preview.js.
+    var formTitel = waardeVan('mymmoFormsFormTitle');
+    var formSub = waardeVan('mymmoFormsFormSub');
+    if (formTitel) atts.form_title = formTitel;
+    if (formSub) atts.form_sub = formSub;
+    // Standaard aan; alleen uitgevinkt komt het in de shortcode.
+    var formKop = document.getElementById('mymmoFormsFormHeading');
+    if (formKop && !formKop.checked) atts.form_heading = 'no';
 
     // Het pad dat vroeger de bedankpagina was. Geldt voor allebei de soorten:
     // ook een formulier dat gewoon op een pagina staat, hoort meetbaar te zijn.
@@ -478,13 +740,30 @@
     zetVeld('mymmoFormsTabCalendly', atts.tab_calendly || 'Plan een gesprek');
     zetVeld('mymmoFormsTabFormSub', atts.tab_form_sub);
     zetVeld('mymmoFormsTabCalendlySub', atts.tab_calendly_sub);
+    zetVeld('mymmoFormsSteps', atts.steps);
+    zetVeld('mymmoFormsExtraSteps', atts.extra_steps);
+    // De lijstjes opnieuw opbouwen: zetVeld raakt alleen het verborgen veld.
+    tekenStapKiezers();
+    zetVeld('mymmoFormsExtraSlug', atts.extra_slug);
+    zetVeld('mymmoFormsTabExtra', atts.tab_extra);
+    zetVeld('mymmoFormsTabExtraSub', atts.tab_extra_sub);
+    zetVolgorde(atts.tab_order);
     zetVeld('mymmoFormsTrigger', atts.trigger);
-    zetVeld('mymmoFormsPadX', atts.padding_x);
-    zetVeld('mymmoFormsPadY', atts.padding_y);
     zetVeld('mymmoFormsGap', atts.gap);
+    zetVeld('mymmoFormsFormTitle', atts.form_title);
+    zetVeld('mymmoFormsFormSub', atts.form_sub);
+    var formKopKeuze = document.getElementById('mymmoFormsFormHeading');
+    if (formKopKeuze) formKopKeuze.checked = atts.form_heading !== 'no';
     zetVeld('mymmoFormsThanksCalendly', atts.thanks_calendly);
     zetVeld('mymmoFormsGoalForm', atts.goal_form);
     zetVeld('mymmoFormsGoalCalendly', atts.goal_calendly);
+    zetVeld('mymmoFormsGoalExtra', atts.goal_extra);
+    ['form', 'extra', 'calendly'].forEach(function (t) {
+      var X = t.charAt(0).toUpperCase() + t.slice(1);
+      zetVeld('mymmoFormsThanks' + X + 'Image', atts['thanks_' + t + '_image']);
+      zetVeld('mymmoFormsThanks' + X + 'Title', atts['thanks_' + t + '_title']);
+      if (t !== 'calendly') zetVeld('mymmoFormsThanks' + X + 'Text', atts['thanks_' + t + '_text']);
+    });
 
     var eigenVlak = !!atts.background;
     var vlakAan = document.getElementById('mymmoFormsBgAan');
@@ -600,6 +879,38 @@
     if (titel) titel.addEventListener('change', bouwShortcode);
     if (taal) taal.addEventListener('change', bouwShortcode);
 
+    // De volgorde van de tabbladen. Pijltjes en geen sleepbediening: er staan er
+    // drie, en slepen vraagt een toetsenbordalternatief dat dan alsnog pijltjes
+    // is.
+    var volgordeLijst = document.querySelector('[data-mymmo-taborder]');
+    if (volgordeLijst) {
+      volgordeLijst.addEventListener('click', function (e) {
+        var op = e.target.closest('[data-mymmo-taborder-op]');
+        var neer = e.target.closest('[data-mymmo-taborder-neer]');
+        var knop = op || neer;
+        if (!knop) return;
+
+        var rij = knop.closest('li');
+        if (!rij) return;
+
+        var buur = op ? rij.previousElementSibling : rij.nextElementSibling;
+        if (!buur) return;   // al boven- of onderaan
+
+        if (op) {
+          volgordeLijst.insertBefore(rij, buur);
+        } else {
+          volgordeLijst.insertBefore(buur, rij);
+        }
+
+        // De focus meenemen: anders staat hij op een knop die versprongen is en
+        // klikt iemand die drie keer wil opschuiven, de tweede keer mis.
+        var opnieuw = rij.querySelector(op ? '[data-mymmo-taborder-op]' : '[data-mymmo-taborder-neer]');
+        if (opnieuw) opnieuw.focus();
+
+        bouwShortcode();
+      });
+    }
+
     // Alles wat in de shortcode terechtkomt, opnieuw samenstellen zodra het
     // wijzigt. 'input' en niet 'change': anders zie je je knoptekst pas in de
     // shortcode staan nadat je ergens anders geklikt hebt, en dan heb je de
@@ -609,17 +920,22 @@
       + ' #mymmoFormsLabel, #mymmoFormsCalendly, #mymmoFormsCalendlyPick,'
       + ' #mymmoFormsTabForm, #mymmoFormsTabCalendly,'
       + ' #mymmoFormsTabFormSub, #mymmoFormsTabCalendlySub,'
+      + ' #mymmoFormsSteps, #mymmoFormsExtraSteps, #mymmoFormsExtraSlug,'
+      + ' #mymmoFormsTabExtra, #mymmoFormsTabExtraSub,'
       + ' #mymmoFormsHeading, #mymmoFormsIntro, #mymmoFormsPunten,'
       + ' #mymmoFormsImage, #mymmoFormsImageAlt,'
       + ' #mymmoFormsVariant, #mymmoFormsAccentAan, #mymmoFormsAccent, #mymmoFormsTrigger,'
-      + ' #mymmoFormsPadX, #mymmoFormsPadY, #mymmoFormsGap,'
+      + ' #mymmoFormsGap, #mymmoFormsFormTitle, #mymmoFormsFormSub, #mymmoFormsFormHeading,'
       + ' #mymmoFormsBgAan, #mymmoFormsBg, #mymmoFormsIconAan, #mymmoFormsIcon,'
       + ' #mymmoFormsAccentText, #mymmoFormsImageCal, #mymmoFormsImageCalAlt, #mymmoFormsWatermark,'
       + ' #mymmoFormsImageScale, #mymmoFormsImageX, #mymmoFormsImageY,'
       + ' #mymmoFormsImageCalScale, #mymmoFormsImageCalX, #mymmoFormsImageCalY,'
       + ' #mymmoFormsWmScale, #mymmoFormsWmX, #mymmoFormsWmY, #mymmoFormsWmRot,'
       + ' #mymmoFormsThanksCalendly,'
-      + ' #mymmoFormsGoalForm, #mymmoFormsGoalCalendly'
+      + ' #mymmoFormsThanksFormImage, #mymmoFormsThanksFormTitle, #mymmoFormsThanksFormText,'
+      + ' #mymmoFormsThanksExtraImage, #mymmoFormsThanksExtraTitle, #mymmoFormsThanksExtraText,'
+      + ' #mymmoFormsThanksCalendlyImage, #mymmoFormsThanksCalendlyTitle,'
+      + ' #mymmoFormsGoalForm, #mymmoFormsGoalCalendly, #mymmoFormsGoalExtra'
     );
     for (var i = 0; i < velden.length; i += 1) {
       velden[i].addEventListener('input', function () {
@@ -632,6 +948,8 @@
       });
     }
 
+    koppelStapKiezers();
+    tekenStapKiezers();
     toonRijen();
     vulTalen();
 

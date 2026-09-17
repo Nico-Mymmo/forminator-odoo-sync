@@ -219,6 +219,71 @@ function mymmo_forms_hex6(string $ruw): string {
 }
 
 /**
+ * Van een handvol MERKKLEUREN diegene die op wit het best leesbaar is.
+ *
+ * WAAROM DIT BESTAAT, EN WAAROM HET GEEN KLEUR MAAKT
+ * --------------------------------------------------
+ * Calendly kleurt met EEN kleur (`primary_color`) zowel het dagcijfer als de
+ * tijdstippen. Die kleur moet dus tekst kunnen dragen. Een thema heeft daar
+ * altijd een paar voor klaar: de achtergrond van een knop en de tekst erop --
+ * bij Syndicoach mint `#99f6e4` met donkerblauw `#0369a1`. Precies een van die
+ * twee is leesbaar op wit, want ze moeten onderling contrasteren.
+ *
+ * In 1.15.7 stond hier een functie die een kleur DONKERDER REKENDE tot ze 4,5:1
+ * haalde. Dat gaf `#0c846d`: leesbaar, en in geen enkel palet te vinden. Deze
+ * functie rekent niets om -- ze kiest uit wat ze krijgt, en geeft een van die
+ * kleuren letterlijk terug.
+ *
+ * @param array<int,string> $kandidaten  hex-kleuren, met of zonder #
+ * @return string                        zes tekens zonder #, of '' als er geen bruikbare bij zat
+ */
+function mymmo_forms_leesbaarste_hex6(array $kandidaten): string {
+    $beste    = '';
+    $contrast = -1.0;
+
+    foreach ($kandidaten as $kandidaat) {
+        $ruw = trim((string) $kandidaat);
+        // Zonder # aanvaarden: mymmo_forms_hex6() geeft zijn resultaat zelf ZONDER
+        // # terug (zo wil Calendly het), en wie dat resultaat hier weer in stopt,
+        // kreeg anders stil een lege string -- en de agenda dus geen kleur.
+        if ($ruw !== '' && $ruw[0] !== '#' && preg_match('/^[0-9a-f]{3}([0-9a-f]{3})?$/i', $ruw)) {
+            $ruw = '#' . $ruw;
+        }
+        $hex = mymmo_forms_hex6($ruw);
+        if ($hex === '') {
+            continue;
+        }
+        $c = mymmo_forms_contrast_op_wit(
+            hexdec(substr($hex, 0, 2)) / 255,
+            hexdec(substr($hex, 2, 2)) / 255,
+            hexdec(substr($hex, 4, 2)) / 255
+        );
+        // Strikt groter: bij gelijke stand wint de eerste, dus de volgorde van
+        // de kandidaten blijft betekenis hebben.
+        if ($c > $contrast) {
+            $beste    = $hex;
+            $contrast = $c;
+        }
+    }
+
+    return $beste;
+}
+
+/** De relatieve helderheid volgens WCAG. */
+function mymmo_forms_luminantie(float $r, float $g, float $b): float {
+    $kanaal = static function (float $c): float {
+        return $c <= 0.03928 ? $c / 12.92 : pow(($c + 0.055) / 1.055, 2.4);
+    };
+
+    return 0.2126 * $kanaal($r) + 0.7152 * $kanaal($g) + 0.0722 * $kanaal($b);
+}
+
+/** Het contrast van deze kleur op een witte achtergrond. */
+function mymmo_forms_contrast_op_wit(float $r, float $g, float $b): float {
+    return 1.05 / (mymmo_forms_luminantie($r, $g, $b) + 0.05);
+}
+
+/**
  * Het KLEURENPALET van deze site, als slug => hex.
  *
  * WordPress geeft het palet per herkomst terug (default / theme / custom, in
@@ -335,6 +400,15 @@ function mymmo_forms_site_theme_vars(): array {
     // witte tekst op een witte knop op.
     if ($achtergrond !== '' && $tekst !== '') {
         $uit['--mf-accent-text'] = $tekst;
+
+        // De INKT van het merk: welke van de twee knopkleuren op wit leesbaar
+        // is. Voor een getal, een schuifknop of een tijdstip -- alles wat op een
+        // lichte achtergrond staat en gelezen moet worden. Gekozen, niet
+        // berekend: het is letterlijk een van de twee kleuren van het thema.
+        $inkt = mymmo_forms_leesbaarste_hex6([$achtergrond, $tekst]);
+        if ($inkt !== '') {
+            $uit['--mf-accent-ink'] = '#' . $inkt;
+        }
     }
 
     $radius = trim((string) ($knop['border']['radius'] ?? ''));
@@ -395,8 +469,10 @@ function mymmo_forms_theme_style(array $theme): string {
         'radius'        => '--mf-radius',
         'gap'           => '--mf-gap',
         'max_width'     => '--mf-max-width',
-        'padding_x'     => '--mf-pad-x',
-        'padding_y'     => '--mf-pad-y',
+        // padding_x/padding_y stonden hier tot 1.15.4 ook in. De ruimte tot de
+        // rand is geen eigenschap van het formulier maar van de plek waar het
+        // staat -- en in de pop-up telde ze op bij de opvulling van het paneel,
+        // maar alleen bij een stappenreeks. Zie mymmo-forms-modal.css.
     ];
 
     $stukken = [];
@@ -463,9 +539,145 @@ function mymmo_forms_wrap_style(array $theme, string $extra = ''): string {
  * @param array<string,mixed> $form       het schema uit de Operations Manager
  * @param array<string,mixed> $form_args  alles wat templates/form.php nodig heeft
  */
+/**
+ * Het dankjewelscherm van een tabblad: afbeelding, titel, tekst.
+ *
+ * EEN opmaak voor alle drie de tabbladen. Het staat in elk paneel als
+ * VERBORGEN sjabloon (`hidden`), om twee redenen:
+ *   - na een geboekt gesprek toont mymmo-forms-modal.js het zonder ronde langs
+ *     de server (Calendly laadt geen nieuwe pagina);
+ *   - in de bouwer is het zo in het voorbeeld te zien en te bewerken.
+ * Na een geslaagde inzending van een formulier staat het ZICHTBAAR, in de
+ * plaats van het formulier (zie mymmo_forms_render_dank_geslaagd()).
+ *
+ * Zonder afbeelding staat er een vinkje. Een lege titel of tekst krijgt geen
+ * plaats op het scherm (`:empty` in de CSS), maar het element staat er wel: de
+ * bouwer heeft iets nodig om in te typen.
+ *
+ * @param array{image?:string,title?:string,text?:string} $dank
+ */
+function mymmo_forms_render_dank(string $tab, array $dank, bool $zichtbaar): string {
+    $beeld = (string) ($dank['image'] ?? '');
+    $titel = (string) ($dank['title'] ?? '');
+    $tekst = (string) ($dank['text'] ?? '');
+
+    $html = '<div class="mymmo-dank" data-mymmo-dank-scherm="' . esc_attr($tab) . '"';
+    $html .= $zichtbaar
+        ? ' data-mymmo-geslaagd role="status" tabindex="-1" data-mymmo-focus'
+        : ' hidden';
+    $html .= '>';
+
+    if ($beeld !== '') {
+        $html .= '<img class="mymmo-dank-beeld" data-mymmo-dank="beeld" src="' . esc_url($beeld)
+            . '" alt="" loading="eager" decoding="async">';
+    } else {
+        // Een tekenreeks en geen leeg element: een leeg element kan onderweg
+        // weggefilterd worden (zie claude.md, de stappen op syndicoach.be).
+        $html .= '<span class="mymmo-dank-vink" data-mymmo-dank="beeld" aria-hidden="true">&#10003;</span>';
+    }
+
+    if ($titel !== '' || !$zichtbaar) {
+        $html .= '<h3 class="mymmo-dank-titel" data-mymmo-dank="titel">' . esc_html($titel) . '</h3>';
+    }
+    if ($tekst !== '' || !$zichtbaar) {
+        $html .= '<p class="mymmo-dank-tekst" data-mymmo-dank="tekst">' . esc_html($tekst) . '</p>';
+    }
+
+    return $html . '</div>';
+}
+
+/**
+ * Het dankjewelscherm na een geslaagde inzending, in de plaats van het formulier.
+ *
+ * In een wikkel met dezelfde data-attributen als het formulier had
+ * (`data-mymmo-slug`, `data-mymmo-doel`, `data-mymmo-tabblad`): daar leest
+ * mymmo-forms.js de conversie uit. Zonder die wikkel toont het scherm, maar
+ * meldt niemand iets aan Google Analytics.
+ */
+function mymmo_forms_render_dank_geslaagd(array $form, string $slug, array $form_args, array $dank): string {
+    $theme = is_array($form['theme'] ?? null) ? $form['theme'] : [];
+    $stijl = mymmo_forms_wrap_style($theme, (string) ($form_args['extra_style'] ?? ''));
+    $doel  = (string) ($form_args['goal'] ?? '');
+    $tab   = (string) ($form_args['tab'] ?? '');
+
+    return '<div class="mymmo-form-wrap mymmo-form-wrap--dank"'
+        . ' data-mymmo-slug="' . esc_attr($slug) . '"'
+        . ($doel !== '' ? ' data-mymmo-doel="' . esc_attr($doel) . '"' : '')
+        . ($tab !== '' ? ' data-mymmo-tabblad="' . esc_attr($tab) . '"' : '')
+        . ($stijl !== '' ? ' style="' . esc_attr($stijl) . '"' : '')
+        . '>'
+        . mymmo_forms_render_dank($tab !== '' ? $tab : 'form', $dank, true)
+        . '</div>';
+}
+
+/**
+ * De kop boven een formulier in de pop-up: titel + regel uitleg.
+ *
+ * EEN plek voor twee gevallen: het formulier als laatste stap van een reeks
+ * (templates/steps.php) en het formulier op een tabblad zonder stappen ("Stuur
+ * een bericht"). Allebei met de klassen van een stap-titel, zodat een tabblad
+ * met en zonder stappen er hetzelfde uitziet.
+ *
+ * Wat op de shortcode staat (`form_title`/`form_sub`), wint -- dat is de
+ * plaatsing. Staat er niets, dan de naam en de inleiding van het formulier uit
+ * de OM, in de taal van de pagina.
+ */
+function mymmo_forms_form_kop(array $form, array $form_args): string {
+    $lang = (string) ($form_args['lang'] ?? '');
+    if ($lang === '') {
+        $lang = Mymmo_Forms_I18n::resolve($form);
+    }
+
+    $titel = (string) ($form_args['form_title'] ?? '');
+    $sub   = (string) ($form_args['form_sub'] ?? '');
+
+    if ($titel === '') {
+        $titel = (string) Mymmo_Forms_I18n::text($form, $lang, 'name');
+    }
+    if ($sub === '') {
+        $sub = (string) Mymmo_Forms_I18n::text(
+            $form, $lang, 'description', $lang === Mymmo_Forms_I18n::default_language($form)
+        );
+    }
+
+    $html = '';
+    if ($titel !== '') {
+        $html .= '<h3 class="mymmo-stap-titel' . ($sub !== '' ? ' mymmo-stap-titel--met-tekst' : '')
+            . '" data-mymmo-kop="form-titel">' . esc_html($titel) . '</h3>';
+    }
+    if ($sub !== '') {
+        $html .= '<p class="mymmo-stap-tekst" data-mymmo-kop="form-sub">' . esc_html($sub) . '</p>';
+    }
+
+    return $html;
+}
+
+/**
+ * Een formulier zonder stappen. In de pop-up (die `form_heading` meegeeft)
+ * krijgt het dezelfde kop als de laatste stap van een reeks, tenzij die kop op
+ * de shortcode uitgezet is (`form_heading="no"`). Een [mymmo_form] in een pagina
+ * geeft `form_heading` niet mee en houdt zijn eigen titel en inleiding.
+ */
+function mymmo_forms_render_form_zonder_stappen(array $form, array $form_args): string {
+    if (empty($form_args['form_heading'])) {
+        return mymmo_forms_render('form', $form_args);
+    }
+
+    $kop = mymmo_forms_form_kop($form, $form_args);
+    if ($kop === '') {
+        return mymmo_forms_render('form', $form_args);
+    }
+
+    return mymmo_forms_render('form', array_merge($form_args, [
+        'kop_html'   => $kop,
+        'show_title' => false,
+        'show_intro' => false,
+    ]));
+}
+
 function mymmo_forms_render_body(string $steps, array $form, string $slug, array $form_args): string {
     if (trim($steps) === '' || !class_exists('Mymmo_Forms_Steps')) {
-        return mymmo_forms_render('form', $form_args);
+        return mymmo_forms_render_form_zonder_stappen($form, $form_args);
     }
 
     $ontbrekend = [];
@@ -482,7 +694,7 @@ function mymmo_forms_render_body(string $steps, array $form, string $slug, array
               . '. Kijk na bij Instellingen &rarr; Mymmo Forms &rarr; Stappen.</div>'
             : '';
 
-        return $melding . mymmo_forms_render('form', $form_args);
+        return $melding . mymmo_forms_render_form_zonder_stappen($form, $form_args);
     }
 
     return mymmo_forms_render('steps', [

@@ -50,11 +50,21 @@ if (!defined('ABSPATH')) {
 /** @var string $heading */
 /** @var string $tab_form_label */
 /** @var string $tab_calendly_label */
+/** @var string $tab_extra_label */
 /** @var string $tab_form_sub */
 /** @var string $tab_calendly_sub */
+/** @var string $tab_extra_sub */
+/** @var array<int,string> $tab_order   de volgorde van de tabbladen */
+/** @var array<string,mixed>|null $extra_form  het formulier van het derde tabblad */
+/** @var string $extra_slug */
+/** @var string $extra_steps */
+/** @var string $extra_lang */
 /** @var string $close_label */
 /** @var string $calendly */
 /** @var string $calendly_kleur */
+/** @var string $form_title */
+/** @var string $form_sub */
+/** @var bool $form_heading  kop ook boven een formulier zonder stappen */
 /** @var string $active_tab */
 /** @var bool $auto_open */
 /** @var string $image */
@@ -67,24 +77,102 @@ if (!defined('ABSPATH')) {
 /** @var string $thanks_calendly */
 /** @var string $goal_calendly */
 /** @var string $goal_form */
+/** @var string $goal_extra */
+/** @var array<string,array{image:string,title:string,text:string}> $dank  het dankjewelscherm per tabblad */
 /** @var string $watermark */
 /** @var string $image_calendly */
 /** @var string $image_calendly_alt */
 
 $heeft_agenda = $calendly !== '';
+$heeft_extra  = is_array($extra_form ?? null);
+
+/*
+ * DE TABBLADEN, in de volgorde waarin ze op het scherm komen.
+ *
+ * Tot 1.14 stonden hier twee vaste blokken HTML (formulier en agenda), en de
+ * volgorde was de volgorde waarin ze toevallig in dit bestand stonden. Met een
+ * derde tabblad erbij en een instelbare volgorde is dat niet vol te houden:
+ * dan staat dezelfde knop drie keer in het bestand, en moet een wijziging aan
+ * de opmaak van een tabblad op drie plekken gebeuren. Nu is er EEN lijst en
+ * EEN lus.
+ *
+ * `$tab_order` komt uit de shortcode en bevat alleen tabbladen die ook echt
+ * bestaan -- zie Mymmo_Forms_Shortcodes::tab_order().
+ */
+$tab_bron = [
+    'form' => [
+        'label' => $tab_form_label,
+        'sub'   => $tab_form_sub,
+        'form'  => $form,
+        'slug'  => $slug,
+        'steps' => (string) ($steps ?? ''),
+        'lang'  => $lang,
+        'inst'  => $modal_id . '-formulier',
+    ],
+    'extra' => [
+        'label' => (string) ($tab_extra_label ?? ''),
+        'sub'   => (string) ($tab_extra_sub ?? ''),
+        'form'  => $extra_form ?? null,
+        'slug'  => (string) ($extra_slug ?? ''),
+        'steps' => (string) ($extra_steps ?? ''),
+        'lang'  => (string) ($extra_lang ?? $lang),
+        // Een EIGEN id-voorvoegsel, ook als het hetzelfde formulier is: anders
+        // staan dezelfde veld-id's twee keer in hetzelfde venster en wijst elk
+        // <label> naar het verkeerde invoerveld -- in het tabblad dat je NIET
+        // open hebt staan. Dat is niet te zien en breekt zowel de toegankelijk-
+        // heid als het aanklikken van een label.
+        'inst'  => $modal_id . '-extra',
+    ],
+    'calendly' => [
+        'label' => $tab_calendly_label,
+        'sub'   => $tab_calendly_sub,
+    ],
+];
+
+$tabbladen = [];
+foreach ((array) ($tab_order ?? ['form']) as $tab_id) {
+    if (!isset($tab_bron[$tab_id])) {
+        continue;
+    }
+    $tabbladen[] = $tab_bron[$tab_id] + [
+        'id'        => $tab_id,
+        'tab_id'    => $modal_id . '-tab-' . $tab_id,
+        'paneel_id' => $modal_id . '-paneel-' . $tab_id,
+    ];
+}
+if ($tabbladen === []) {
+    $tabbladen[] = $tab_bron['form'] + [
+        'id' => 'form', 'tab_id' => $modal_id . '-tab-form', 'paneel_id' => $modal_id . '-paneel-form',
+    ];
+}
+
+// Een balk met een knop is geen keuze. Pas vanaf twee panelen worden ze over
+// elkaar gelegd en krijgt elk paneel zijn eigen kopje.
+$heeft_tabs = count($tabbladen) > 1;
+
 // Een tabblad dat er niet is kan niet openstaan.
-$actief = ($heeft_agenda && $active_tab === 'calendly') ? 'calendly' : 'form';
+$ids    = array_column($tabbladen, 'id');
+$actief = in_array($active_tab, $ids, true) ? $active_tab : $ids[0];
 
 // Heeft de zijkolom iets te zeggen? Enkel een titel is geen zijkolom waard --
 // dan wordt het een gewone kopbalk, zoals voorheen. Een leeg gekleurd vlak van
 // 300px naast een formulier van vier velden ziet eruit als een fout.
-$heeft_zijkolom = $heeft_agenda || $image !== '' || $lead !== '' || $points !== [];
+$heeft_zijkolom = $heeft_tabs || $image !== '' || $lead !== '' || $points !== [];
 
-$titel_id       = $modal_id . '-titel';
-$tab_form_id    = $modal_id . '-tab-formulier';
-$tab_agenda_id  = $modal_id . '-tab-agenda';
-$paneel_form_id = $modal_id . '-paneel-formulier';
-$paneel_ag_id   = $modal_id . '-paneel-agenda';
+$titel_id = $modal_id . '-titel';
+
+/* De icoontjes. Vaste opmaak, geen invoer van buiten -- ze worden dus rauw
+   uitgeschreven. Het derde tabblad krijgt een lijstje met vinkjes: dat leest
+   als "doorloop een paar stappen", ongeacht welk opschrift eroverheen komt. */
+$tab_iconen = [
+    'form' => '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">'
+        . '<path d="M4 5.5h16v11H8l-4 3.5z"></path><path d="M8 9.5h8M8 12.5h5"></path></svg>',
+    'calendly' => '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">'
+        . '<rect x="3.5" y="5" width="17" height="15" rx="2.5"></rect><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"></path></svg>',
+    'extra' => '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">'
+        . '<path d="M3.5 6.5l1.5 1.5 2.5-2.5M3.5 12l1.5 1.5 2.5-2.5M3.5 17.5l1.5 1.5 2.5-2.5"></path>'
+        . '<path d="M11.5 6.5h9M11.5 12h9M11.5 17.5h6"></path></svg>',
+];
 
 // Dezelfde kleuren als het formulier zelf: de knop en de rand van het venster
 // volgen het thema dat in de Operations Manager bij dit formulier staat. De
@@ -206,56 +294,37 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                     <p class="mymmo-modal-lead"><?php echo esc_html($lead); ?></p>
                 <?php endif; ?>
 
-                <?php if ($heeft_agenda) : ?>
+                <?php if ($heeft_tabs) : ?>
                     <?php
                     // hidden in de HTML, en het JS-bestand haalt het weg. Zonder
-                    // JavaScript doen deze knoppen niets, en een balk met twee
-                    // knoppen die niets doen is erger dan geen balk: beide delen
-                    // staan dan gewoon onder elkaar met hun eigen kopje.
+                    // JavaScript doen deze knoppen niets, en een balk met knoppen
+                    // die niets doen is erger dan geen balk: alle delen staan dan
+                    // gewoon onder elkaar met hun eigen kopje.
                     ?>
                     <div class="mymmo-modal-tabs" role="tablist" data-mymmo-tablist hidden>
+                        <?php foreach ($tabbladen as $tb) : $is_actief = $actief === $tb['id']; ?>
                         <button type="button"
                                 role="tab"
-                                class="mymmo-modal-tab<?php echo $actief === 'form' ? ' is-active' : ''; ?>"
-                                id="<?php echo esc_attr($tab_form_id); ?>"
-                                aria-controls="<?php echo esc_attr($paneel_form_id); ?>"
-                                aria-selected="<?php echo $actief === 'form' ? 'true' : 'false'; ?>"
-                                tabindex="<?php echo $actief === 'form' ? '0' : '-1'; ?>"
-                                data-mymmo-tab="form">
-                            <span class="mymmo-modal-tab-icoon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                                    <path d="M4 5.5h16v11H8l-4 3.5z"></path>
-                                    <path d="M8 9.5h8M8 12.5h5"></path>
-                                </svg>
-                            </span>
+                                class="mymmo-modal-tab<?php
+                                    echo $tb['sub'] === '' ? ' mymmo-modal-tab--kaal' : '';
+                                    echo $is_actief ? ' is-active' : '';
+                                ?>"
+                                id="<?php echo esc_attr($tb['tab_id']); ?>"
+                                aria-controls="<?php echo esc_attr($tb['paneel_id']); ?>"
+                                aria-selected="<?php echo $is_actief ? 'true' : 'false'; ?>"
+                                tabindex="<?php echo $is_actief ? '0' : '-1'; ?>"
+                                data-mymmo-tab="<?php echo esc_attr($tb['id']); ?>">
+                            <span class="mymmo-modal-tab-icoon" aria-hidden="true"><?php
+                                echo $tab_iconen[$tb['id']] ?? $tab_iconen['form'];
+                            ?></span>
                             <span class="mymmo-modal-tab-tekst">
-                                <span class="mymmo-modal-tab-label"><?php echo esc_html($tab_form_label); ?></span>
-                                <?php if ($tab_form_sub !== '') : ?>
-                                    <span class="mymmo-modal-tab-sub"><?php echo esc_html($tab_form_sub); ?></span>
+                                <span class="mymmo-modal-tab-label"><?php echo esc_html($tb['label']); ?></span>
+                                <?php if ($tb['sub'] !== '') : ?>
+                                    <span class="mymmo-modal-tab-sub"><?php echo esc_html($tb['sub']); ?></span>
                                 <?php endif; ?>
                             </span>
                         </button>
-                        <button type="button"
-                                role="tab"
-                                class="mymmo-modal-tab<?php echo $actief === 'calendly' ? ' is-active' : ''; ?>"
-                                id="<?php echo esc_attr($tab_agenda_id); ?>"
-                                aria-controls="<?php echo esc_attr($paneel_ag_id); ?>"
-                                aria-selected="<?php echo $actief === 'calendly' ? 'true' : 'false'; ?>"
-                                tabindex="<?php echo $actief === 'calendly' ? '0' : '-1'; ?>"
-                                data-mymmo-tab="calendly">
-                            <span class="mymmo-modal-tab-icoon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                                    <rect x="3.5" y="5" width="17" height="15" rx="2.5"></rect>
-                                    <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"></path>
-                                </svg>
-                            </span>
-                            <span class="mymmo-modal-tab-tekst">
-                                <span class="mymmo-modal-tab-label"><?php echo esc_html($tab_calendly_label); ?></span>
-                                <?php if ($tab_calendly_sub !== '') : ?>
-                                    <span class="mymmo-modal-tab-sub"><?php echo esc_html($tab_calendly_sub); ?></span>
-                                <?php endif; ?>
-                            </span>
-                        </button>
+                        <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
 
@@ -360,67 +429,23 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                 // gelegd (zie CSS), en dat is precies wat de agenda nodig heeft
                 // om haar breedte te kunnen meten terwijl ze nog onzichtbaar is.
                 ?>
-                <div class="mymmo-modal-body<?php echo $heeft_agenda ? ' mymmo-modal-body--tabs' : ''; ?>"
+                <div class="mymmo-modal-body<?php echo $heeft_tabs ? ' mymmo-modal-body--tabs' : ''; ?>"
                      data-mymmo-modal-body>
 
-                    <section class="mymmo-modal-paneel<?php echo $heeft_agenda && $actief === 'form' ? ' is-actief' : ''; ?>"
-                             id="<?php echo esc_attr($paneel_form_id); ?>"
-                             <?php if ($heeft_agenda) : ?>role="tabpanel" aria-labelledby="<?php echo esc_attr($tab_form_id); ?>" tabindex="0"<?php endif; ?>
-                             data-mymmo-paneel="form">
+                    <?php foreach ($tabbladen as $tb) : $is_actief = $actief === $tb['id']; ?>
+                    <section class="mymmo-modal-paneel<?php
+                                 echo $tb['id'] === 'calendly' ? ' mymmo-modal-paneel--agenda' : '';
+                                 echo $heeft_tabs && $is_actief ? ' is-actief' : '';
+                             ?>"
+                             id="<?php echo esc_attr($tb['paneel_id']); ?>"
+                             <?php if ($heeft_tabs) : ?>role="tabpanel" aria-labelledby="<?php echo esc_attr($tb['tab_id']); ?>" tabindex="0"<?php endif; ?>
+                             data-mymmo-paneel="<?php echo esc_attr($tb['id']); ?>">
 
-                        <?php if ($heeft_agenda) : ?>
-                            <h3 class="mymmo-modal-paneel-titel"><?php echo esc_html($tab_form_label); ?></h3>
+                        <?php if ($heeft_tabs) : ?>
+                            <h3 class="mymmo-modal-paneel-titel"><?php echo esc_html($tb['label']); ?></h3>
                         <?php endif; ?>
 
-                        <?php
-                        // Staat er een steps="..." op de shortcode, dan is dit
-                        // paneel de hele stappenreeks en is het formulier de
-                        // laatste stap ervan. Exact dezelfde aanroep als bij
-                        // [mymmo_form] in een pagina -- zie
-                        // mymmo_forms_render_body().
-                        echo mymmo_forms_render_body((string) ($steps ?? ''), $form, $slug, [
-                            'form' => $form,
-                            'slug' => $slug,
-                            // De kop staat al in de zijkolom; twee keer dezelfde
-                            // titel onder elkaar leest als een fout.
-                            'show_title'  => false,
-                            // En de inleiding ook, als ze daar al staat.
-                            'show_intro'  => $lead === '',
-                            'flash'       => $flash,
-                            'stale'       => $stale,
-                            'lang'        => $lang,
-                            // Eigen id-voorvoegsel: hetzelfde formulier mag ook
-                            // nog gewoon in de tekst van deze pagina staan.
-                            'instance_id' => $modal_id . '-formulier',
-                            // Na het versturen weer hier uitkomen, met het
-                            // venster open. Zie Mymmo_Forms_Submit::finish().
-                            'anchor'      => $modal_id,
-                            // Het pad dat vroeger de bedankpagina was; het
-                            // reist mee in de conversiegebeurtenis.
-                            'goal'        => $goal_form,
-                            // En de stijl van DEZE plaatsing (kleur, opvulling,
-                            // tussenruimte). Die staat al op de wikkel hierboven,
-                            // maar .mymmo-form-wrap declareert dezelfde
-                            // variabelen zélf -- en een eigen declaratie wint van
-                            // een geërfde. Zonder deze regel bleef een accent=""
-                            // of gap="" op de shortcode dus zonder effect op de
-                            // velden en de verzendknop: de knop van het venster
-                            // kleurde mee, het formulier erin niet.
-                            'extra_style' => $accent_style,
-                        ]);
-                        ?>
-                    </section>
-
-                    <?php if ($heeft_agenda) : ?>
-                        <section class="mymmo-modal-paneel mymmo-modal-paneel--agenda<?php echo $actief === 'calendly' ? ' is-actief' : ''; ?>"
-                                 id="<?php echo esc_attr($paneel_ag_id); ?>"
-                                 role="tabpanel"
-                                 aria-labelledby="<?php echo esc_attr($tab_agenda_id); ?>"
-                                 tabindex="0"
-                                 data-mymmo-paneel="calendly">
-
-                            <h3 class="mymmo-modal-paneel-titel"><?php echo esc_html($tab_calendly_label); ?></h3>
-
+                        <?php if ($tb['id'] === 'calendly') : ?>
                             <?php
                             // De agenda zelf is een iframe van Calendly en heeft
                             // dus JavaScript nodig. Het script wordt in de
@@ -447,11 +472,114 @@ $panel_class .= $heeft_agenda ? ' mymmo-modal-panel--breed' : '';
                                     <a class="mymmo-modal-agenda-link"
                                        href="<?php echo esc_url($calendly); ?>"
                                        target="_blank"
-                                       rel="noopener noreferrer"><?php echo esc_html($tab_calendly_label); ?></a>
+                                       rel="noopener noreferrer"><?php echo esc_html($tb['label']); ?></a>
                                 </p>
                             </div>
-                        </section>
-                    <?php endif; ?>
+                            <?php
+                            // Het dankjewelscherm na een geboekt gesprek, als
+                            // sjabloon. mymmo-forms-modal.js zet het zichtbaar en
+                            // de agenda weg; zie toonBedankt().
+                            $dank_agenda = (array) (($dank ?? [])['calendly'] ?? []);
+                            if (($dank_agenda['text'] ?? '') === '') {
+                                $dank_agenda['text'] = $thanks_calendly !== ''
+                                    ? $thanks_calendly
+                                    : 'Je gesprek staat ingepland. Je krijgt de bevestiging per mail.';
+                            }
+                            echo mymmo_forms_render_dank('calendly', $dank_agenda, false); // phpcs:ignore WordPress.Security.EscapeOutput
+                            ?>
+                        <?php else : ?>
+                            <?php
+                            // Staat er een stappenreeks op dit tabblad, dan is dit
+                            // paneel de hele reeks en is het formulier de laatste
+                            // stap ervan. Exact dezelfde aanroep als bij
+                            // [mymmo_form] in een pagina -- zie
+                            // mymmo_forms_render_body().
+                            // Het dankjewelscherm van DIT tabblad. De standaardtekst
+                            // is de bedanktekst uit de OM -- dezelfde zin die tot
+                            // 1.15 als melding boven het formulier stond.
+                            $dank_tab = (array) (($dank ?? [])[$tb['id']] ?? []);
+                            if (($dank_tab['text'] ?? '') === '' && is_array($tb['form'])) {
+                                $dank_tab['text'] = Mymmo_Forms_I18n::text($tb['form'], $tb['lang'], 'success_message');
+                                if ($dank_tab['text'] === '') {
+                                    $dank_tab['text'] = 'Bedankt, we hebben je bericht goed ontvangen.';
+                                }
+                            }
+
+                            // Hoort de melding na het versturen bij DIT tabblad?
+                            // Een melding zonder tabblad (van voor 1.16) hoort bij
+                            // elk tabblad met hetzelfde formulier.
+                            $flash_hier = is_array($flash)
+                                && ($flash['slug'] ?? '') === $tb['slug']
+                                && in_array((string) ($flash['tab'] ?? ''), ['', $tb['id']], true)
+                                ? $flash : null;
+
+                            $doel_tab = $tb['id'] === 'extra' ? (string) ($goal_extra ?? $goal_form) : $goal_form;
+
+                            $geslaagd = is_array($flash_hier) && ($flash_hier['status'] ?? '') === 'success' && is_array($tb['form']);
+                            if ($geslaagd) :
+                                // Geen eigen tekst getypt: dan de melding van de
+                                // inzending zelf -- de bedanktekst uit de OM in de
+                                // taal waarin de bezoeker verstuurde.
+                                if ((string) ((($dank ?? [])[$tb['id']] ?? [])['text'] ?? '') === ''
+                                    && (string) ($flash_hier['message'] ?? '') !== '') {
+                                    $dank_tab['text'] = (string) $flash_hier['message'];
+                                }
+                                echo mymmo_forms_render_dank_geslaagd($tb['form'], $tb['slug'], [ // phpcs:ignore WordPress.Security.EscapeOutput
+                                    'goal'        => $doel_tab,
+                                    'tab'         => $tb['id'],
+                                    'extra_style' => $accent_style,
+                                ], $dank_tab);
+                            else :
+                            echo mymmo_forms_render_body($tb['steps'], $tb['form'], $tb['slug'], [
+                                'form' => $tb['form'],
+                                'slug' => $tb['slug'],
+                                // De kop staat al in de zijkolom; twee keer dezelfde
+                                // titel onder elkaar leest als een fout.
+                                'show_title'  => false,
+                                // En de inleiding ook, als ze daar al staat.
+                                'show_intro'  => $lead === '',
+                                'flash'       => $flash_hier,
+                                'stale'       => $stale,
+                                'lang'        => $tb['lang'],
+                                // Eigen id-voorvoegsel: hetzelfde formulier mag ook
+                                // nog gewoon in de tekst van deze pagina staan, en
+                                // kan bovendien in twee tabbladen tegelijk staan.
+                                'instance_id' => $tb['inst'],
+                                // Na het versturen weer hier uitkomen, met het
+                                // venster open. Zie Mymmo_Forms_Submit::finish().
+                                'anchor'      => $modal_id,
+                                // Het pad dat vroeger de bedankpagina was; het
+                                // reist mee in de conversiegebeurtenis.
+                                'goal'        => $doel_tab,
+                                // Welk tabblad: gaat mee in de POST, zodat het
+                                // dankjewelscherm van DIT tabblad terugkomt.
+                                'tab'         => $tb['id'],
+                                // En de stijl van DEZE plaatsing (kleur, opvulling,
+                                // tussenruimte). Die staat al op de wikkel hierboven,
+                                // maar .mymmo-form-wrap declareert dezelfde
+                                // variabelen zelf -- en een eigen declaratie wint van
+                                // een geerfde. Zonder deze regel bleef een accent=""
+                                // of gap="" op de shortcode dus zonder effect op de
+                                // velden en de verzendknop: de knop van het venster
+                                // kleurde mee, het formulier erin niet.
+                                'extra_style' => $accent_style,
+                                // De kop boven het formulier wanneer het de
+                                // laatste stap van een reeks is. Zonder die kop
+                                // begint stap 2 abrupt met een invoerveld
+                                // terwijl stap 1 een titel had.
+                                'form_title'  => $form_title,
+                                'form_sub'    => $form_sub,
+                                // En dezelfde kop boven een formulier ZONDER
+                                // stappen ("Stuur een bericht"), tenzij uitgezet.
+                                'form_heading' => !isset($form_heading) || $form_heading,
+                            ]);
+                                // Het sjabloon voor de bouwer (bewerken in het voorbeeld).
+                                echo mymmo_forms_render_dank($tb['id'], $dank_tab, false); // phpcs:ignore WordPress.Security.EscapeOutput
+                            endif;
+                            ?>
+                        <?php endif; ?>
+                    </section>
+                    <?php endforeach; ?>
 
                 </div>
             </div>

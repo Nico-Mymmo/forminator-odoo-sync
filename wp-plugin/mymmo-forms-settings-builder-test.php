@@ -114,8 +114,10 @@ Mymmo_Forms_Api_Client::$fout = '';
 $html = render();
 
 check('er is een keuzelijst met de formulieren',
-    substr_count($html, '<option value="offerte-technisch-beheer">') === 1
-    && substr_count($html, '<option value="contact">') === 1);
+    substr_count($html, '<option value="offerte-technisch-beheer">') === 2
+    && substr_count($html, '<option value="contact">') === 2,
+    'TWEE keer: de hoofdkeuze en die van het derde tabblad. Wordt dit er drie, '
+    . 'dan staat er ergens een keuzelijst die niemand bedoeld heeft');
 check('de naam van het formulier staat erbij', str_contains($html, 'Offerte technisch beheer'));
 check('het aantal velden staat erbij', str_contains($html, '(5 velden)'));
 check('er is een shortcode-veld met de eerste slug',

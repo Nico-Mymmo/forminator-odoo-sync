@@ -39,17 +39,16 @@
   --mf-gap: 18px;
   --mf-max-width: 720px;
 
-  /* Opvulling rond het formulier. Standaard nul: een formulier in een pagina
-     hoort op de tekstbreedte te staan, niet ingesprongen. Ze bestaan om ze te
-     KUNNEN zetten -- in een venster, in een gekleurd vlak, of waar de ruimte
-     eromheen van het blok zelf moet komen. In de pop-up bepalen dezelfde twee
-     variabelen de opvulling van het tabblad (met een eigen standaard); zie
-     mymmo-forms-modal.css. */
-  --mf-pad-x: 0px;
-  --mf-pad-y: 0px;
-
+  /* GEEN opvulling, en die is met opzet niet instelbaar. Een formulier in een
+     pagina hoort op de tekstbreedte te staan, niet ingesprongen -- daar levert
+     het blok eromheen de ruimte. In de pop-up levert het paneel ze
+     (mymmo-forms-modal.css), voor een formulier en een stappenreeks dezelfde.
+     Er stonden hier tot 1.15.4 --mf-pad-x/y, te zetten via padding_x/padding_y
+     op de shortcode of via het thema uit de OM. Die telden in het venster OP bij
+     de opvulling van het paneel -- maar alleen bij een stappenreeks, want voor
+     het formulier haalde het venster ze er weer af. Dezelfde inhoud stond
+     daardoor op het ene tabblad verder van de rand dan op het andere. */
   max-width: var(--mf-max-width);
-  padding: var(--mf-pad-y) var(--mf-pad-x);
   background: var(--mf-bg);
   color: var(--mf-text);
   font-size: 16px;
@@ -143,12 +142,37 @@
   margin-left: 2px;
 }
 
-.mymmo-form-input {
+/*
+ * TWEE KLASSEN, en dat is geen sierselector.
+ *
+ * Een blokthema styleert elk invoerveld op de site met een selector in deze
+ * vorm:
+ *
+ *   select, textarea,
+ *   input:not([type=checkbox], [type=submit], [type=reset], [type=button], [type=radio])
+ *
+ * `:not()` telt mee voor de specificiteit, dus die input-tak is (0,1,1) en een
+ * losse klassenaam (0,1,0) verliest ervan. Op syndicoach.be kwamen daardoor de
+ * opvulling (9px 10px in plaats van 11px 13px) en de LETTERGROOTTE (14px in
+ * plaats van de 16px van het formulier) uit het thema, terwijl een <textarea>
+ * -- daar is de selector maar (0,0,1) -- wel onze maat hield. Twee maten in
+ * hetzelfde formulier, zonder dat er iets misging.
+ *
+ * `.mymmo-form-wrap` ervoor maakt er (0,2,0) van. Nog steeds geen !important:
+ * wie onze velden echt anders wil, wint met een eigen regel of met de
+ * --mf-variabelen.
+ */
+.mymmo-form-wrap .mymmo-form-input {
   display: block;
   width: 100%;
   box-sizing: border-box;
   padding: 11px 13px;
+  /* `font` als shorthand: neemt ook line-height mee, zodat een thema dat er een
+     eigen regelafstand op zet het veld niet hoger of lager maakt dan de rest. */
   font: inherit;
+  /* Een thema zet `height: auto` of een vaste hoogte op zijn velden. Expliciet,
+     zodat de opvulling hierboven de hoogte bepaalt. */
+  height: auto;
   color: var(--mf-text);
   background: var(--mf-field-bg);
   border: 1px solid var(--mf-border);
@@ -262,12 +286,33 @@ textarea.mymmo-form-input {
   }
 }
 
-.mymmo-form-submit {
+/*
+ * Ook twee klassen, en om dezelfde reden -- maar deze deed pijn op een andere
+ * plek. Een blokthema styleert zijn knoppen zo:
+ *
+ *   .wp-element-button, .is-style-button, .button:not(.components-button), [type="submit"]
+ *
+ * `[type="submit"]` is (0,1,0): even zwaar als `.mymmo-form-submit`. Bij gelijk
+ * gewicht wint wat LATER staat, en WordPress drukt de stijlen van het thema
+ * inline in de <head> af -- dus ná de stylesheet van deze plugin. Het thema won
+ * daardoor altijd, op elke site.
+ *
+ * Gevolg op syndicoach.be: de verzendknop stond op 14px/700 met een opvulling
+ * van 10px 16px en een radius van 6px, terwijl de "Volgende" van een stap --
+ * een <button type="button">, die de selector dus niet raakt -- op 16px/600 met
+ * 12px 26px en radius 10px stond. Twee knoppen in hetzelfde venster, verschillend
+ * van hoogte en lettergrootte, zonder dat er iets aan onze kant fout was.
+ *
+ * Deze regel en .mymmo-stap-knop in mymmo-forms-steps.css horen DEZELFDE
+ * waarden te hebben. Wijzig je er een, wijzig ze allebei.
+ */
+.mymmo-form-wrap .mymmo-form-submit {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   /* Ruim genoeg om op een telefoon met een duim te raken (44px hoog). */
   min-height: 46px;
+  height: auto;
   padding: 12px 26px;
   font: inherit;
   font-weight: 600;
@@ -279,7 +324,11 @@ textarea.mymmo-form-input {
   transition: filter 0.12s ease;
 }
 
-.mymmo-form-submit:hover {
+/* Het thema zet op zijn knoppen `opacity: .82` bij hover. Die staat hier
+   expliciet terug op 1, anders voelt dezelfde beweging anders aan dan bij de
+   knoppen van een stap -- die vervagen niet, ze worden een tik donkerder. */
+.mymmo-form-wrap .mymmo-form-submit:hover {
+  opacity: 1;
   filter: brightness(0.93);
 }
 

@@ -615,6 +615,8 @@ OM-formulieren. Het is er nu, maar aan de kant waar de vrijheid al bestond.
 | Wat | Waar |
 |---|---|
 | Opslag + rechten + vorige versie | `wp-plugin/mymmo-forms/includes/class-steps.php` (option `mymmo_forms_steps`) |
+| Copy van een stap (`origineel => nieuw`) + de scanner | `Mymmo_Forms_Steps::render_html()` / `save_tekst()` in datzelfde bestand |
+| Die copy typen in het voorbeeld | `maakStapTekstBewerkbaar()` in `assets/js/mymmo-forms-preview.js` |
 | De reeks tekenen (+ noscript-terugval) | `wp-plugin/mymmo-forms/templates/steps.php` |
 | Kiezen tussen formulier en reeks | `mymmo_forms_render_body()` in `includes/helpers.php` |
 | De gedeelde stijlcascade | `mymmo_forms_wrap_style()` in `includes/helpers.php` |
@@ -622,7 +624,7 @@ OM-formulieren. Het is er nu, maar aan de kant waar de vrijheid al bestond.
 | Omlijsting (bolletjes, knoppen) | `assets/css/mymmo-forms-steps.css` |
 | Tabblad "Stappen" + de uitleg erbij | `includes/class-settings.php` (`render_stappen()`) |
 | Code-editor + voorbeeld invoegen | `assets/js/mymmo-forms-steps-admin.js` |
-| Meegeleverde voorbeeldstappen | `wp-plugin/mymmo-forms/voorbeelden/` (`aantal-gebouwen.html` = kale demo van het contract, `gebouwgrootte.html` = de eerste stap van de Syndicoach-calculator). Registreren in `Mymmo_Forms_Steps::examples()`, anders staat een nieuw bestand niet in de keuzelijst van wp-admin. |
+| Meegeleverde voorbeeldstappen | `voorbeelden/gebouwgrootte.html` (schuifbalk), `voorbeelden/gebouwkenmerken.html` (meerkeuze-keien, zelf aan te vullen) en `voorbeelden/huidig-beheer.html` (enkelvoudige keuze) en `voorbeelden/algemene-vergadering.html` (jaarwiel met speld en een marge van twee weken). Registreren in `Mymmo_Forms_Steps::examples()`, anders staat een nieuw bestand niet in de keuzelijst van wp-admin. Verzin hier geen extra "demo"-stappen bij: er stond er een (`aantal-gebouwen.html`) die niemand gevraagd had, en die is geschrapt. |
 | Een stap uitproberen zonder WordPress | `php wp-plugin/mymmo-forms-stap-preview.php <naam> > proef.html` (voeg `flash` als tweede argument toe voor de mislukte-inzending-stand) |
 | De drie nieuwe opschriften | `MESSAGES` in `forms/schema.js` (`back`, `next`, `step_of`) |
 
@@ -668,12 +670,274 @@ Afspraken die bewust zo zijn:
 - **Een stap meldt zich aan met `document.currentScript`, niet met een id.**
   Dezelfde stap kan twee keer op een pagina staan (in de tekst én in een
   pop-up), en dan mogen de twee elkaars waarden niet overschrijven. Om dezelfde
-  reden staat er in `voorbeelden/aantal-gebouwen.html` geen enkele `id=""` en
+  reden staat er in `voorbeelden/gebouwgrootte.html` geen enkele `id=""` en
   loopt alles via `api.el.querySelector()`.
 - **Het zoeken naar het verborgen veld gaat binnen `.mymmo-form-grid`**, niet
   binnen het hele `<form>`. Daar staan ook de verborgen velden van WordPress
   zelf (`action`, `_wpnonce`, de redirect); een stap met de sleutel `action` zou
   anders de POST onbruikbaar maken.
+- **`--mf-pad-x/y` en `--mf-panel-pad-x/y` bestaan niet meer** (weg in 1.15.4).
+  Ze waren de twee pogingen om dezelfde vraag op twee plekken te beantwoorden:
+  `--mf-pad-*` werd door drie dingen gelezen (`.mymmo-form-wrap`,
+  `.mymmo-stappen` en `.mymmo-modal-paneel`), dus `padding_x` op de shortcode
+  verzette ook het hele paneel; `--mf-panel-pad-*` gaf het paneel daarna een
+  eigen paar, waarna de OPTELLING in een stappenreeks bleef staan. De opvulling
+  staat nu vast, zie de regel hierboven. Heeft een nieuw element opvulling nodig,
+  geef het een eigen waarde en maak ze niet instelbaar tenzij iemand er echt aan
+  moet kunnen draaien.
+- **Een tabkop zonder regeltje krijgt `mymmo-modal-tab--kaal`** (gezet in
+  modal.php) en wordt daarmee verticaal gecentreerd. In de zijkolom staat
+  `align-items: flex-start`, want met een regeltje eronder hoort het icoon bij de
+  EERSTE regel te staan; zonder regeltje bleef er ruimte onder de titel open.
+  Bewust een klasse en geen `:has()`: dat zou op een oudere browser stil
+  wegvallen, en dan is het verschil onzichtbaar tot iemand het meldt.
+- **Er is geen voortgangsbalk meer, alleen de teller** ("Stap 1 van 3", weg sinds
+  1.15.10 op vraag). Zet hem niet terug zonder dat het gevraagd wordt. Komt hij
+  ooit terug: het is een `<ol>`, en een blokthema zet `ol { flex-direction:
+  column }` en `ol:not(...) { padding-left }` -- noem dus zelf de richting en
+  zet twee klassen op elke regel, anders staan er onzichtbare streepjes van 0px.
+- **Een stap brengt GEEN eigen omlijsting mee.** Geen kop, geen kaartje, geen
+  randen, geen eigen Vorige/Volgende. Dat levert de plugin al: `steps.php`
+  schrijft de titel van de stap uit (`mymmo-stap-titel`), het paneel van de
+  pop-up is het witte vlak, en de knoppenrij hoort bij de reeks. Bracht de stap
+  het zelf mee, dan stond alles twee keer -- en de tweede kop was voor de
+  gebruiker niet uit te zetten zonder de HTML te bewerken. Een stap gaat over de
+  VRAAG en het BEDIENINGSELEMENT; de omlijsting en het opvangen van de antwoorden
+  zijn van de plugin. Randen op de bediening zelf (het vinkje, de schuifknop)
+  zijn geen omlijsting en horen er wel.
+- **EEN opvulling, en die is van de PLUGIN. Een stap zet er nooit zelf een bij.**
+  De ruimte tot de rand van het venster staat op één plek -- `.mymmo-modal-paneel`
+  in `mymmo-forms-modal.css` -- met een vaste waarde per schermbreedte: **40px**
+  vanaf 900px, **32px** daaronder, **24px** op een telefoon. Niet instelbaar, en
+  bewust geen CSS-variabele: een ontsnappingsluik dat niemand zet, is een
+  ontsnappingsluik dat niemand test.
+  Tot 1.15.4 waren het er twee. De wikkel eronder (`.mymmo-form-wrap` en
+  `.mymmo-stappen`) had zijn eigen `--mf-pad-x/y` uit `padding_x`/`padding_y` op
+  de shortcode of uit het thema van de OM. Voor het FORMULIER haalde het venster
+  die er weer af, voor een STAPPENREEKS niet -- dus stond dezelfde inhoud op het
+  ene tabblad 28px van de rand en op het andere 44px. Dat is niet te zien zolang
+  je één tabblad tegelijk bekijkt, en daarom bleef het maanden staan.
+  Wat je in een nieuwe stap dus NIET doet: `padding` op de buitenste wikkel van
+  je stap, `margin` om "wat lucht" te maken aan de zijkanten, of een breedte die
+  van de rand wegblijft. Je stap begint op de rand van het vlak dat je krijgt.
+  Opvulling BINNEN de bediening (een knop, een kaartje dat je bewust toont) is
+  iets anders en mag.
+  Wat wel instelbaar blijft is `gap` (`--mf-gap`): de ruimte TUSSEN de velden.
+  Die telt nergens dubbel.
+- **De stap vult de hoogte; de knoppenrij hoort tegen de onderrand.** De ketting
+  paneel → `.mymmo-stappen` → `.mymmo-stap` → `.mymmo-stap-inhoud` is een
+  flexkolom waarin elk niveau `flex: 1 0 auto` heeft (`mymmo-forms-steps.css`).
+  De plugin bepaalt alleen DÁT er ruimte te verdelen is; wat ermee gebeurt,
+  bepaalt je stap: maak je buitenste wikkel `display: flex; flex-direction:
+  column` en zet `margin-top: auto` op het blok dat naar beneden moet. De vraag
+  blijft dan bovenaan bij de titel staan en de bediening zakt naar de knop toe,
+  zoals in `voorbeelden/gebouwgrootte.html`.
+  `flex-shrink` staat overal op 0: past de stap niet, dan SCROLT het paneel. Reken
+  er dus niet op dat iets meekrimpt.
+  `margin-top: auto` wordt 0 zodra er niets te verdelen is (een laag venster, of
+  de stap in een pagina). Wil je daar toch een minimumafstand, zet die als
+  `padding`, niet als `margin` -- de margin is dan al opgebruikt.
+  **Een stap die al in WordPress bewaard staat, is een kopie** en krijgt een
+  wijziging aan `voorbeelden/*.html` niet vanzelf. Zeg dat erbij.
+- **Een REEKS is geordend; een keuzelijst is dat niet.** `steps="a,b"` en
+  `steps="b,a"` zijn twee verschillende formulieren, dus een `<select multiple>`
+  kan dit niet: die geeft de volgorde van de OPTIES terug, niet die van je
+  keuzes. De bouwer gebruikt daarom `render_stap_kiezer()` (class-settings.php):
+  een lijst met ↑ ↓ ×, gevoed vanuit één VERBORGEN VELD met de komma-gescheiden
+  waarde. Dat veld houdt hetzelfde id als de oude keuzelijst, zodat
+  `waardeVan()`, `zetVeld()` en de luisteraars in mymmo-forms-admin.js
+  ongewijzigd blijven werken; de `<ul>` is enkel weergave.
+  Twee dingen die daarbij horen en makkelijk vergeten worden: na `zetVeld()` moet
+  `tekenStapKiezers()` draaien (anders verandert de waarde wel en de lijst niet),
+  en `schrijfStappen()` moet zelf een `input`-event afvuren (anders verandert de
+  lijst wel en de shortcode niet). Allebei onzichtbaar tot je plakt.
+- **EEN MERKKLEUR REKEN JE NIET UIT. Je vraagt ze, of je leest ze.** Dit is
+  tweemaal na elkaar misgegaan met de kleur voor Calendly, en de tweede keer was
+  erger dan de eerste.
+  De feiten, GEMETEN op hun eigen boekingspagina met `primary_color=99f6e4`
+  (niet aangenomen -- de pagina rechtstreeks openen is same-origin, dus de
+  computed styles zijn gewoon te lezen):
+
+  | wat | waarde |
+  |---|---|
+  | beschikbare dag, achtergrond | `rgb(240,247,245)` -- tint die Calendly zelf afleidt |
+  | beschikbare dag, cijfer | `rgb(153,246,228)` -- EXACT `primary_color` |
+
+  `text_color` raakt dat cijfer niet (getest met `000000`). "Fel vlak met zwarte
+  cijfers" bestaat daar dus niet: het cijfer IS de kleur die je meegeeft.
+  Wat er toen fout ging: ik heb die kleur in HSL donkerder gerekend tot ze 4,5:1
+  haalde. Resultaat `#0c846d` -- leesbaar, zelfde tint, en in GEEN ENKEL palet
+  van de klant te vinden. Een afgeleide kleur is geen merkkleur, hoe net de
+  berekening ook is.
+  De regel die daaruit volgt, en die breder geldt dan Calendly:
+  1. **Lees het palet** voor je een kleur kiest. Op een WordPress-site staat het
+     als `--wp--preset--color--*` op `:root` en is het met een paar regels JS uit
+     te lezen; in de OM staat het in het `theme`-blok van het formulier.
+  2. **KIEZEN uit het palet mag, OMREKENEN niet.** `mymmo_forms_leesbaarste_hex6()`
+     krijgt kandidaten en geeft er letterlijk een van terug: de leesbaarste op
+     wit. Voor Calendly zijn dat de accentkleur en de tekst die erop staat (het
+     PAAR van het merk, elk uit de cascade shortcode > site > formulier); bij
+     Syndicoach wint `#0369a1`. `calendly_color` op de shortcode wint van alles.
+  3. **Twee inkten, twee betekenissen.** `--mf-accent-text` is de kleur OP de
+     accentkleur (tekst op een mint knop). `--mf-accent-ink` is de leesbare
+     merkkleur OP WIT (een getal, een schuifknop, een tijdstip). Verwissel je ze,
+     dan staat er mint op wit of donkerblauw op donkerblauw.
+  4. **Wat er in de agenda NIET kan**, gemeten: `primary_color` IS het dagcijfer
+     en de tijdstippen, het vlak is een tint die Calendly er zelf van maakt, en
+     `text_color` raakt het cijfer niet. Het blok bovenaan gaat weg met
+     `hide_event_type_details=1`. Alles binnen `.booking-kit_*` is een iframe van
+     calendly.com: geen `flex-wrap`, geen bredere tijdstippen, geen zwart cijfer
+     op een fel vlak. Beloof dat niet -- de enige weg is een eigen kiezer tegen
+     de API.
+- **De COPY van een stap staat naast de HTML, niet erin.** In het voorbeeld van
+  de bouwer klik je een titel, een regel uitleg of een label aan en typ je erin;
+  dat wordt meteen bewaard in `fs_v2`-stijl als `origineel => nieuw` op het
+  STAP-record (`teksten` in `Mymmo_Forms_Steps`), en bij het renderen worden de
+  TEKSTKNOPEN van de HTML vervangen (`render_html()`). Nooit de HTML zelf
+  herschrijven: dan ben je het origineel kwijt en overleeft je copy het opnieuw
+  inladen van het bestand niet -- wat de hele reden van dit ontwerp is.
+  De scanner in `vervang_tekstknopen()` is met de hand geschreven en niet
+  DOMDocument: dit is een FRAGMENT met `<style>` en `<script>` erin, en
+  DOMDocument maakt daar een heel document van en herschrijft wat een beheerder
+  zelf typte. Hij raakt alleen wat TUSSEN twee tags staat -- attributen blijven
+  dus met rust, en `<script>`/`<style>`/`<textarea>` worden overgeslagen.
+  De sleutel is de TEKST zelf (gedecodeerd, witruimte samengetrokken). Gevolg:
+  dezelfde zin die twee keer in een stap staat, verandert twee keer. Bedoeld.
+  Bij het bewaren wordt de KETTING gevolgd: is de meegestuurde "originele" tekst
+  de WAARDE van een bestaande regel, dan wordt die regel bijgewerkt in plaats van
+  dat er een tweede naast komt die nooit meer grijpt. Terugtypen naar de
+  oorspronkelijke zin wist de regel.
+  **Een tekstaanpassing hoort bij de STAP en geldt dus in elk formulier waar die
+  stap in staat.** Dat is gevraagd gedrag, geen bijwerking: zeg het erbij in de
+  UI (de bouwer meldt het na elke bewaaractie), want het reikt verder dan het
+  scherm waar je op staat.
+- **De kop van de LAATSTE stap komt van de shortcode, en anders uit de OM; die van
+  een HTML-stap van het stap-record.** `form_title`/`form_sub` horen bij de
+  PLAATSING (dezelfde velden verdienen in een ander venster een andere aanhef);
+  staan ze leeg, dan toont `steps.php` de naam en de inleiding van het formulier
+  zoals ze in de OM staan (in de taal van de pagina), en zet het formulier zijn
+  eigen titel en inleiding uit -- anders staan ze er twee keer. `title`/`sub` horen
+  bij de stap.
+  Diezelfde kop staat ook boven een formulier ZONDER stappen in de pop-up ("Stuur
+  een bericht"), tenzij `form_heading="no"`. Er is EEN functie voor beide:
+  `mymmo_forms_form_kop()` in helpers.php. Een [mymmo_form] in een pagina geeft
+  `form_heading` niet mee en houdt zijn eigen `.mymmo-form-title`. Allebei renderen ze met exact dezelfde klassen
+  (`.mymmo-stap-titel` + `.mymmo-stap-tekst`), zodat stap 1 en stap 2 er
+  hetzelfde uitzien en er geen tweede stijl bestaat die uit de pas kan lopen.
+- **Het script van een stap bevat uitsluitend ASCII, en geen `&`, `<`, `>` of `</`.**
+  Aangescherpt in 1.15.12: live werd `&&` daarna ook `&#038;&#038;` en elke letter
+  met een accent een hex-entiteit, waarop het script niet meer parste (console:
+  `SyntaxError: Invalid or unexpected token`) en geen enkele kei reageerde. Alleen
+  de stap met `loading="lazy"`-afbeeldingen werd geraakt, op een site met een
+  lazyload-plugin die `src` naar `data-src` herschreef. Schrijf dus twee geneste
+  `if`s in plaats van `&&`, `forEach`/`filter` in plaats van een lus met `<`, en
+  commentaar zonder accenten. Afbeeldingen in een stap: `loading="eager"` plus
+  `class="skip-lazy no-lazyload" data-no-lazy="1" data-skip-lazy="1"`.
+  CONTROLEER het door de verminking na te bootsen (sluit-tags weg, `&` naar
+  `&#038;`, niet-ASCII naar `&#x..;`) en `node --check` te draaien: de versie van
+  1.15.11 ging daar kapot, de nieuwe niet -- zo weet je dat de proef echt iets
+  meet.
+  Wat hieronder over sluit-tags staat, blijft gelden:
+- **(1.15.11) Het script van een stap bevat GEEN ENKELE sluit-tag (`</`).** Op syndicoach.be
+  kwamen sluit-tags die als STRING in het `<script>` van een stap stonden
+  (`'</span>'`) niet aan -- ze ontbraken al in de ruwe serveruitvoer -- terwijl de
+  markup buiten het script ongeschonden bleef. Alles wat zo'n script met
+  `innerHTML` bouwde, nestte daardoor in elkaar; de labels belandden onzichtbaar
+  in een vinkje met `opacity: 0`. Waar het in die installatie gebeurt, is van
+  buitenaf niet vast te stellen; `vervang_tekstknopen()` is uitgesloten (getest).
+  Daarom, voor elke stap:
+  1. **Zet wat de bezoeker ziet als MARKUP in het bestand** (knoppen, labels,
+     `<img src>`), en laat het script enkel toestanden wisselen. Dat maakt de
+     labels meteen ook bewerkbaar in de bouwer -- tekst die een script opbouwt,
+     kan `render_html()` niet vinden.
+  2. **Moet het script toch iets maken** (een eigen kei van de bezoeker): met
+     `createElement` en `textContent`, nooit met een HTML-string.
+  3. **Kleine glyphs (vinkje, plus) met CSS**, niet met een SVG in een string.
+  Controleer het bij het bouwen: het `<script>`-blok van een voorbeeld mag geen
+  `</` bevatten.
+- **Geen inline SVG en geen lege elementen in de markup van een stap** (1.15.14, stap 3).
+  Op syndicoach.be kwam na een inline SVG met een use-element de sluit-tag van de
+  omliggende span niet aan, verdween een leeg vinkje-element en alle witruimte
+  tussen de knoppen; de tekst belandde in een rondje van 50px. Afbeeldingen via
+  `<img>` kwamen op dezelfde pagina wel door. Teken glyphs met CSS op een element
+  dat tekst heeft (`::before`/`::after`), en controleer live met de DOM
+  (`outerHTML`), niet met de preview -- daar gebeurt die verminking niet.
+- **Een stap tekent zijn illustraties niet zelf.** De merktekeningen staan op
+  `https://link.openvme.be/assets/brand/` (gebouwen onder
+  `syndicoach-calculator/`, kleine dingen onder `thingies/`). Controleer een
+  bestandsnaam met een HTTP-aanvraag voor je hem gebruikt:
+  `thingies_vuilniishok.svg` heeft een dubbel i, en de "logische" spelling geeft
+  een 404 die je pas op de site ziet.
+- **Een stap brengt geen eigen LETTERTYPE mee.** `.mymmo-stappen
+  .mymmo-stap-inhoud > *` staat op `font-family: inherit` (twee klassen, dus het
+  wint van de `<style>` van de stap). Een stap die uit een losstaande module
+  geplukt is, sleept anders zijn eigen systeemstack mee en staat dan zichtbaar
+  naast het formulier, dat de letter van de site erft.
+- **Een blokthema wint van een losse klassenaam. Reken erop.** WordPress drukt de
+  stijlen van het thema INLINE in de `<head>` af, dus ná elke plugin-stylesheet --
+  bij gelijk gewicht wint het thema altijd. En `:not()` telt mee voor de
+  specificiteit, dus `input:not([type=checkbox], ...)` is (0,1,1) en
+  `ol:not(.wp-block-comment-template)` ook: allebei zwaarder dan
+  `.mymmo-form-input` (0,1,0). Op syndicoach.be kostte dat vier dingen tegelijk
+  (1.15.5): de streepjes van de voortgangsbalk, de schuifbalk, de verzendknop en
+  de lettergrootte van de velden.
+  Twee regels die daaruit volgen:
+  1. **Zet een eigen wikkelklasse voor elke regel die een `<input>`, `<button>`,
+     `<ol>`, `<ul>`, `<li>` of `<legend>` van ons raakt** -- `.mymmo-form-wrap
+     .mymmo-form-input`, `.mymmo-stappen .mymmo-stappen-bol`. Dat is (0,2,0) en
+     wint zonder `!important`, zodat iemand die het écht anders wil nog kan
+     winnen.
+  2. **Noem wat je bedoelt.** `display:flex` zonder `flex-direction` is een gat
+     waar een thema in stapt; de balk stond in kolom omdat wij de richting nooit
+     hadden gezet. Hetzelfde voor `padding`, `border` en `height` op een veld:
+     een thema zet ze, dus laat ze niet impliciet.
+  En test dit NIET in `mymmo-forms-stap-preview.php` of
+  `mymmo-forms-venster-preview.php` -- daar is geen thema, dus daar is alles altijd
+  goed. De echte controle is de pagina op de site zelf.
+- **Een vaste hoogte in een stap geeft een schuifbalk in de pop-up.** Het paneel
+  is `overflow-y:auto` binnen een venster van `88vh`. De tekening van
+  `gebouwgrootte.html` neemt daarom de VRIJE ruimte in (`flex: 1 1 0` met een
+  ondergrens `clamp(110px, 18vh, 180px)`), in een vierkante doos: alle tien de
+  tekeningen delen een canvas van 2048x2048, dus zo schalen ze samen en past de
+  grootste per definitie. Meet een nieuwe grootte in de pop-up op 900 EN 720 px
+  hoog (`scrollHeight` tegen `clientHeight` van het paneel): 24vh als ondergrens
+  scrolde bij 720 nog 27px. Gebruik in een nieuwe stap geen vaste pixelhoogte
+  voor iets groots.
+- **Het bovenste tabblad is ook het tabblad dat openstaat.** `tab` heeft geen
+  vaste standaard meer; leeg betekent "de eerste uit `tab_order`". Stond daar
+  'form', dan zette je de agenda vooraan en ging het venster alsnog open op het
+  formulier -- een knoprij waarvan de tweede knop actief is, leest als een fout.
+  Een expliciete `tab="..."` wint nog steeds.
+- **Het venster heeft GEEN vaste tabbladen meer.** Tot 1.14 stonden formulier
+  en agenda als twee vaste blokken HTML in `templates/modal.php`, en de volgorde
+  was de volgorde waarin ze toevallig in het bestand stonden. Sinds 1.15 is er
+  EEN lijst (`$tabbladen`) en EEN lus, voor zowel de knoppen als de panelen.
+  Een derde tabblad (`extra`) kan een eigen formulier (`extra_slug`) en een
+  eigen stappenreeks (`extra_steps`) hebben; het bestaat zodra een van die twee
+  ingevuld is. De volgorde komt uit `tab_order` via
+  `Mymmo_Forms_Shortcodes::tab_order()`, die ALLEEN bestaande tabbladen
+  teruggeeft en wat niet genoemd is achteraan aanschuift -- een typefout kan dus
+  nooit een venster zonder tabbladen opleveren. Voeg je een vierde soort toe,
+  dan krijgt die een tak in `$tab_bron` en een icoon in `$tab_iconen`; aan de
+  lussen verandert niets. `mymmo-forms-modal.js` hoefde niet mee: dat werkte al
+  generiek op `data-mymmo-tab` / `data-mymmo-paneel`.
+- **Elk paneel krijgt een EIGEN `instance_id`, ook bij hetzelfde formulier.**
+  Twee panelen met hetzelfde formulier leveren anders twee keer dezelfde
+  veld-id's in een document, en dan wijst elk `<label>` naar het invoerveld in
+  het tabblad dat je NIET open hebt staan. Dat is niet te zien en breekt zowel
+  het aanklikken van een label als de schermlezer. De rendertest telt daarom
+  alle `id="..."` in een venster met drie tabbladen en faalt op elke dubbele.
+- **In de bouwer staat de tekening VOORAAN, op een pagina achteraan.** Dat is
+  geen bug maar een noodzaak: met `z-index:-1` kan je ze niet aanwijzen om ze te
+  verplaatsen. Het verschil was alleen onzichtbaar tot je op de site keek. De
+  knop "Tekening achteraan" (`data-mymmo-figuur-laag`) zet de klasse
+  `mf-figuur-achter` op het documentelement IN het canvas-iframe; de regel
+  `html.mf-figuur-achter .mymmo-modal-figuur{z-index:-1}` wint op specificiteit
+  van de bouwer-standaard. De stand leeft BUITEN het iframe (`figuurAchter` in
+  `mymmo-forms-preview.js`) en wordt na elke render opnieuw toegepast -- het
+  iframe wordt bij elke structurele wijziging opnieuw opgebouwd, en anders
+  springt de stand terug midden in het werk. Omzetten hertekent niet: enkel een
+  klasse, zelfde regel als bij het typen.
 - **Een stap herstelt na een MISLUKTE inzending zijn eigen bediening.** De
   waarden komen terug in de verborgen velden (`oude_waarden` uit de POST), maar
   de HTML van de stap is statisch en staat weer op haar beginstand. Zonder
@@ -687,6 +951,31 @@ Afspraken die bewust zo zijn:
   een melding voor beheerders. Stil de reeks laten verdwijnen betekent dat een
   typefout in de shortcode een leeg verborgen veld naar Odoo stuurt, en daar is
   geen enkel signaal van.
+- **Het dankjewelscherm is per TABBLAD, en het is de plek waar de conversie
+  gemeld wordt** (1.16). Afbeelding + titel + tekst, `mymmo_forms_render_dank()`
+  in helpers.php. Het staat als verborgen sjabloon in elk paneel (voor Calendly,
+  dat geen nieuwe pagina laadt, en voor het voorbeeld in de bouwer) en zichtbaar
+  in de plaats van het formulier na een geslaagde inzending
+  (`mymmo_forms_render_dank_geslaagd()`). Die laatste staat in een wikkel met
+  `data-mymmo-slug`, `data-mymmo-doel` en `data-mymmo-tabblad`: mymmo-forms.js
+  leest daar `mymmo_formulier_verstuurd` uit (`[data-mymmo-geslaagd]`). Haal je
+  die wikkel weg, dan toont het scherm en meldt niemand iets aan GA -- en dat zie
+  je nergens.
+  Welk tabblad verstuurde, gaat mee als `mymmo_tab` in de POST (gesloten lijst
+  `form`/`extra`) en als `tab` in de melding na de redirect. Zonder dat kan een
+  venster met twee tabbladen voor hetzelfde formulier niet weten welk scherm het
+  moet tonen. Een melding zonder `tab` (van voor 1.16) hoort bij elk tabblad met
+  dat formulier.
+  In de pop-up wordt NIET meer herladen na versturen (1.16.1): mymmo-forms.js
+  post met `fetch()` en `mymmo_ajax=1`, de server antwoordt dan met JSON in
+  `Mymmo_Forms_Submit::finish()` in plaats van een redirect. De klassieke weg gaf
+  een flits (venster dicht, pagina laden, venster weer open). Zonder JavaScript
+  en voor een [mymmo_form] in een pagina blijft de redirect de weg. Krijgt de
+  browser GEEN JSON terug maar een gevolgde redirect, dan is de inzending al
+  gebeurd: volg die URL, verstuur nooit opnieuw.
+  In de bouwer zet "Dankjewelscherm" de klasse `mf-toon-dank` in het canvas; dat
+  is enkel CSS in `CANVAS_CSS`, geen hertekening -- zelfde regel als "Tekening
+  achteraan".
 - **De "Vorige" van de laatste stap gaat IN de knoppenrij van het formulier**
   (`step_back` in form.php), niet in een eigen rij eronder: twee rijen knoppen
   waarvan de onderste niet de belangrijkste is, leest als een fout.

@@ -61,6 +61,16 @@
   var wachtend = null;
   var vanCanvas = false;
 
+  /* Staat de tekening op haar echte laag (achter alles), of vooraan zodat je ze
+     kan vastpakken? De keuze leeft HIER en niet in het iframe: dat wordt bij
+     elke structurele wijziging opnieuw opgebouwd, en dan zou de stand telkens
+     terugspringen midden in het werk. */
+  var figuurAchter = false;
+
+  /* Staat het dankjewelscherm open in plaats van het formulier? Zelfde reden
+     als hierboven: de stand leeft buiten het iframe. */
+  var toonDank = false;
+
   /**
    * Welke tekst in het venster bij welk invoerveld hoort.
    *
@@ -75,7 +85,34 @@
     { sel: '[data-mymmo-tab="form"] .mymmo-modal-tab-label', veld: 'mymmoFormsTabForm' },
     { sel: '[data-mymmo-tab="form"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabFormSub', leeg: 'Regeltje uitleg' },
     { sel: '[data-mymmo-tab="calendly"] .mymmo-modal-tab-label', veld: 'mymmoFormsTabCalendly' },
-    { sel: '[data-mymmo-tab="calendly"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabCalendlySub', leeg: 'Regeltje uitleg' }
+    { sel: '[data-mymmo-tab="calendly"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabCalendlySub', leeg: 'Regeltje uitleg' },
+    { sel: '[data-mymmo-tab="extra"] .mymmo-modal-tab-label', veld: 'mymmoFormsTabExtra' },
+    { sel: '[data-mymmo-tab="extra"] .mymmo-modal-tab-sub', veld: 'mymmoFormsTabExtraSub', leeg: 'Regeltje uitleg' },
+
+    /*
+     * De kop boven de LAATSTE stap -- het formulier. Die hoort bij de
+     * PLAATSING en niet bij een stap, dus hij gaat als gewoon attribuut de
+     * shortcode in, net als de tabbladen hierboven.
+     *
+     * De selector is bewust gebonden aan `.mymmo-stap--formulier`: dezelfde
+     * twee klassen staan ook boven een HTML-stap, en die horen bij de STAP en
+     * worden dus heel ergens anders bewaard (zie maakStapTekstBewerkbaar).
+     */
+    { sel: '.mymmo-stap--formulier [data-mymmo-kop="form-titel"]', veld: 'mymmoFormsFormTitle' },
+    { sel: '.mymmo-stap--formulier [data-mymmo-kop="form-sub"]', veld: 'mymmoFormsFormSub' },
+
+    /*
+     * Het dankjewelscherm per tabblad (1.16). Het staat als verborgen sjabloon
+     * in elk paneel; de knop "Dankjewelscherm" boven het voorbeeld zet het
+     * zichtbaar. Een lege tekst toont de standaard (de bedanktekst uit de OM),
+     * dus hier typen overschrijft die pas vanaf de eerste letter.
+     */
+    { sel: '[data-mymmo-dank-scherm="form"] [data-mymmo-dank="titel"]', veld: 'mymmoFormsThanksFormTitle', leeg: 'Titel (optioneel)' },
+    { sel: '[data-mymmo-dank-scherm="form"] [data-mymmo-dank="tekst"]', veld: 'mymmoFormsThanksFormText', leeg: 'Tekst' },
+    { sel: '[data-mymmo-dank-scherm="extra"] [data-mymmo-dank="titel"]', veld: 'mymmoFormsThanksExtraTitle', leeg: 'Titel (optioneel)' },
+    { sel: '[data-mymmo-dank-scherm="extra"] [data-mymmo-dank="tekst"]', veld: 'mymmoFormsThanksExtraText', leeg: 'Tekst' },
+    { sel: '[data-mymmo-dank-scherm="calendly"] [data-mymmo-dank="titel"]', veld: 'mymmoFormsThanksCalendlyTitle', leeg: 'Titel (optioneel)' },
+    { sel: '[data-mymmo-dank-scherm="calendly"] [data-mymmo-dank="tekst"]', veld: 'mymmoFormsThanksCalendly', leeg: 'Tekst' }
   ];
 
   /**
@@ -130,8 +167,14 @@
        pointer-events:none op, want daar is het decoratie.
 
        De figuur staat op een pagina ACHTER alles (z-index:-1). Hier moet ze
-       vast te pakken zijn, dus hier komt ze naar voren -- enkel in het canvas. */
+       vast te pakken zijn, dus hier komt ze naar voren -- enkel in het canvas.
+
+       Dat is bewust de STANDAARD en niet de waarheid: wie de tekening komt
+       verplaatsen, moet ze kunnen aanwijzen. De knop "Tekening achteraan" zet
+       ze terug op haar echte laag, zodat je kan zien wat een bezoeker ziet --
+       en dan is ze ook niet meer vast te pakken, net als op een pagina. */
     '.mymmo-modal-figuur{z-index:auto}',
+    'html.mf-figuur-achter .mymmo-modal-figuur{z-index:-1}',
     '[data-mymmo-greep]{pointer-events:auto;cursor:move}',
     '[data-mymmo-greep]:hover{outline:1px dashed rgba(37,99,235,.6);outline-offset:4px}',
     '[data-mymmo-greep].mf-sleept{outline:1px solid #2563eb;outline-offset:4px}',
@@ -144,6 +187,12 @@
     '.mf-greep--sw{left:-7px;bottom:-7px;cursor:nesw-resize}',
     '.mf-greep--se{right:-7px;bottom:-7px;cursor:nwse-resize}',
     '[data-mymmo-greep]:hover .mf-greep,[data-mymmo-greep].mf-sleept .mf-greep{opacity:1}',
+    /* Het dankjewelscherm in plaats van de inhoud van elk paneel. */
+    'html.mf-toon-dank .mymmo-modal-paneel > *:not(.mymmo-modal-paneel-titel):not(.mymmo-dank){display:none!important}',
+    'html.mf-toon-dank .mymmo-dank[hidden]{display:flex!important}',
+    'html.mf-toon-dank .mymmo-dank [data-mf-leeg]:empty{display:block!important;min-width:10em}',
+    '[data-mf-kies]{cursor:pointer}',
+    '[data-mf-kies]:hover{outline:1px dashed rgba(37,99,235,.6);outline-offset:4px}',
     /* Een melding in het agendapaneel: de echte kalender laden we hier niet. */
     '.mf-agenda-noot{margin:0;padding:22px;color:#64748b;font-size:13px}',
     /* Onder 640px is het venster op een echte telefoon een VOL scherm. De
@@ -212,8 +261,6 @@
     // schuifje dat je met de pijltjes bedient flikkert het scherm dan bij elke
     // stap.
     var VARIABELEN = [
-      ['padding_x', '--mf-pad-x'],
-      ['padding_y', '--mf-pad-y'],
       ['gap', '--mf-gap'],
       ['image_scale', '--mf-fig-scale'],
       ['image_x', '--mf-fig-x'],
@@ -345,6 +392,12 @@
       a.accent_text || '',
       a.image_calendly || '',
       a.watermark || '',
+      a.extra_steps || '',
+      a.extra_slug || '',
+      a.tab_order || '',
+      a.thanks_form_image || '',
+      a.thanks_extra_image || '',
+      a.thanks_calendly_image || '',
       punten().length
     ].join('');
   }
@@ -413,6 +466,51 @@
     wachtend = window.setTimeout(render, 250);
   }
 
+  /**
+   * De laag van de tekening op het canvas zetten.
+   *
+   * Enkel een klasse omzetten, nooit hertekenen: hertekenen haalt het venster
+   * opnieuw op, zet de cursor uit een tekst die je aan het bewerken was, en
+   * laat het scherm springen. Zelfde regel als bij het typen.
+   */
+  function pasDankToe() {
+    var doc = frame && frame.contentDocument;
+    if (!doc || !doc.documentElement) return;
+    doc.documentElement.classList.toggle('mf-toon-dank', toonDank);
+    meetHoogte(doc);
+  }
+
+  /**
+   * Klik op het vinkje of de afbeelding van een dankjewelscherm: de
+   * mediabibliotheek, via dezelfde knop als het veld eronder. Geen tweede
+   * kiezer -- die zou net iets anders doen.
+   */
+  function maakDankBeeldKiesbaar(doc) {
+    var VELDEN = {
+      form: 'mymmoFormsThanksFormImage',
+      extra: 'mymmoFormsThanksExtraImage',
+      calendly: 'mymmoFormsThanksCalendlyImage'
+    };
+    Array.prototype.forEach.call(doc.querySelectorAll('[data-mymmo-dank-scherm]'), function (scherm) {
+      var veld = VELDEN[scherm.getAttribute('data-mymmo-dank-scherm')];
+      var beeld = scherm.querySelector('[data-mymmo-dank="beeld"]');
+      var knop = veld ? document.querySelector('[data-mymmo-media="' + veld + '"]') : null;
+      if (!beeld || !knop || knop.hidden) return;
+      beeld.setAttribute('data-mf-kies', '1');
+      beeld.setAttribute('title', 'Klik om een afbeelding te kiezen');
+      beeld.addEventListener('click', function (e) {
+        e.preventDefault();
+        knop.click();
+      });
+    });
+  }
+
+  function pasFiguurLaagToe() {
+    var doc = frame && frame.contentDocument;
+    if (!doc || !doc.documentElement) return;
+    doc.documentElement.classList.toggle('mf-figuur-achter', figuurAchter);
+  }
+
   // ── Na elke render: er een editor van maken ───────────────────────────────
 
   function naRender() {
@@ -463,8 +561,12 @@
     }, true);
 
     maakTekstenBewerkbaar(doc);
+    maakStapTekstBewerkbaar(doc);
     maakPuntenBewerkbaar(doc);
     maakSleepbaar(doc);
+    maakDankBeeldKiesbaar(doc);
+    pasFiguurLaagToe();
+    pasDankToe();
 
     // Van tabblad wisselen verandert de hoogte; opnieuw meten na de wissel.
     doc.addEventListener('click', function (e) {
@@ -489,8 +591,6 @@
    */
   function koppelOpvulling() {
     [
-      ['mymmoCanvasPadX', 'mymmoFormsPadX', '28'],
-      ['mymmoCanvasPadY', 'mymmoFormsPadY', '28'],
       ['mymmoCanvasGap', 'mymmoFormsGap', '18']
     ].forEach(function (paar) {
       var schuif = el(paar[0]);
@@ -565,6 +665,140 @@
         var tekst = (e.clipboardData || window.clipboardData).getData('text');
         doc.execCommand('insertText', false, String(tekst || '').replace(/\s+/g, ' '));
       });
+    });
+  }
+
+  /**
+   * De teksten van een STAP bewerkbaar maken.
+   *
+   * WAAROM DIT ANDERS WERKT DAN TEKSTEN HIERBOVEN
+   * ---------------------------------------------
+   * Alles in TEKSTEN is een attribuut van de shortcode: je typt het hier, het
+   * belandt in de code die je straks in een pagina plakt, en het geldt voor DEZE
+   * plaatsing. Een stap werkt niet zo. Die staat één keer in wp-admin en kan in
+   * meerdere formulieren gebruikt worden -- de copy hoort dus bij de stap, en
+   * gaat mee naar elk formulier waar hij in staat.
+   *
+   * Vandaar dat dit rechtstreeks naar de server gaat en meteen bewaard wordt,
+   * niet in een invoerveld hiernaast. Server-side komt het NIET in de HTML van
+   * de stap terecht maar in een aparte lijst `origineel => nieuw`; laad je het
+   * bestand later opnieuw in, dan grijpt je copy gewoon weer. Zie
+   * class-steps.php.
+   *
+   * WAT BEWERKBAAR IS
+   * -----------------
+   * De titel en de regel eronder (die staan op het stap-record), en elk
+   * BLAD-element in de stap dat één tekst bevat: een <p>, een <span>, een
+   * <label>. Een element met kinderen wordt overgeslagen -- daar zou je bij het
+   * typen de opmaak eromheen kapotmaken.
+   *
+   * Getallen blijven met rust. Een `8` of een `60+` is meestal een waarde die de
+   * stap zelf bijwerkt (de teller naast een schuifbalk), en die overschrijven
+   * levert een zin op die bij de volgende beweging weer weg is. Vandaar de eis
+   * van minstens één letter.
+   */
+  function maakStapTekstBewerkbaar(doc) {
+    Array.prototype.forEach.call(doc.querySelectorAll('.mymmo-stap--html'), function (stap) {
+      var naam = stap.getAttribute('data-mymmo-stap-naam') || '';
+      if (!naam) return;
+
+      // De kop en de regel eronder: die staan op het stap-record zelf.
+      Array.prototype.forEach.call(stap.querySelectorAll('[data-mymmo-kop]'), function (node) {
+        maakBewerkbaar(doc, node, naam, node.getAttribute('data-mymmo-kop'));
+      });
+
+      var inhoud = stap.querySelector('[data-mymmo-stap-inhoud]');
+      if (!inhoud) return;
+
+      Array.prototype.forEach.call(inhoud.querySelectorAll('*'), function (node) {
+        if (node.children.length) return;
+        if (/^(script|style|input|textarea|select|img|svg|br|hr)$/i.test(node.tagName)) return;
+
+        var tekst = (node.textContent || '').trim();
+        if (tekst.length < 2 || !/[a-zA-ZÀ-ɏ]/.test(tekst)) return;
+
+        maakBewerkbaar(doc, node, naam, 'tekst');
+      });
+    });
+  }
+
+  /**
+   * Eén element bewerkbaar maken en de wijziging bewaren.
+   *
+   * `origineel` wordt bij het FOCUSSEN vastgelegd, niet bij het laden: staat er
+   * al een eerdere aanpassing, dan is wat je nu ziet de waarde van die
+   * aanpassing, en de server herkent dat en werkt dezelfde regel bij in plaats
+   * van er een tweede naast te zetten die nooit meer grijpt.
+   */
+  function maakBewerkbaar(doc, node, stap, wat) {
+    if (node.getAttribute('data-mf-stap-edit') === '1') return;
+    node.setAttribute('data-mf-stap-edit', '1');
+    node.setAttribute('data-mf-edit', wat);
+    node.setAttribute('contenteditable', 'true');
+    node.setAttribute('spellcheck', 'false');
+    node.setAttribute('title', 'Deze tekst hoort bij de stap en geldt overal waar de stap gebruikt wordt.');
+
+    var origineel = '';
+
+    node.addEventListener('focus', function () {
+      origineel = (node.textContent || '').trim();
+    });
+
+    // Bij blur en niet bij elke toetsaanslag: dit is een ronde langs de server
+    // die iets BEWAART. Per letter opslaan zou tientallen schrijfacties op
+    // dezelfde option geven voor één zin.
+    node.addEventListener('blur', function () {
+      var nieuw = (node.textContent || '').trim();
+      if (nieuw === origineel) return;
+      bewaarStapTekst(stap, wat, origineel, nieuw);
+      origineel = nieuw;
+    });
+
+    node.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        node.blur();
+      }
+    });
+
+    node.addEventListener('paste', function (e) {
+      e.preventDefault();
+      var tekst = (e.clipboardData || window.clipboardData).getData('text');
+      doc.execCommand('insertText', false, String(tekst || '').replace(/\s+/g, ' '));
+    });
+  }
+
+  function bewaarStapTekst(stap, wat, origineel, nieuw) {
+    if (!C.ajaxUrl) return;
+
+    var body = new URLSearchParams();
+    body.set('action', 'mymmo_forms_step_tekst');
+    body.set('nonce', C.nonce || '');
+    body.set('stap', stap);
+    body.set('wat', wat);
+    body.set('origineel', origineel);
+    body.set('nieuw', nieuw);
+
+    zetStatus('Bezig met bewaren…', false);
+
+    fetch(C.ajaxUrl, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+      body: body.toString()
+    }).then(function (res) {
+      return res.json();
+    }).then(function (antwoord) {
+      if (!antwoord || !antwoord.success) {
+        throw new Error((antwoord && antwoord.data && antwoord.data.bericht) || 'Niet bewaard.');
+      }
+      // Expliciet zeggen dat dit verder reikt dan dit scherm: je hebt zonet een
+      // stap gewijzigd die in meer formulieren kan staan.
+      zetStatus('Bewaard bij de stap — geldt overal waar deze stap gebruikt wordt.', false);
+    }).catch(function (fout) {
+      // Hard falen en niet stil: wat op het scherm staat is nu iets anders dan
+      // wat er bewaard is, en dat merk je pas als je de pagina herlaadt.
+      zetStatus('Niet bewaard: ' + fout.message + ' Herlaad de pagina en probeer opnieuw.', true);
     });
   }
 
@@ -864,6 +1098,32 @@
       pasSchaalToe();
       var doc = frame && frame.contentDocument;
       if (doc) meetHoogte(doc);
+    });
+
+    // De tekening naar voren of naar achteren. Geen hertekening: enkel een
+    // klasse in het canvas.
+    canvas.addEventListener('click', function (e) {
+      var knop = e.target.closest('[data-mymmo-figuur-laag]');
+      if (!knop) return;
+      figuurAchter = !figuurAchter;
+      knop.classList.toggle('is-actief', figuurAchter);
+      knop.setAttribute('aria-pressed', figuurAchter ? 'true' : 'false');
+      knop.textContent = figuurAchter ? 'Tekening vooraan' : 'Tekening achteraan';
+      knop.title = figuurAchter
+        ? 'De tekening staat nu zoals een bezoeker ze ziet. Zet ze vooraan om ze te kunnen verplaatsen.'
+        : 'De tekening staat vooraan zodat je ze kan vastpakken. Zet ze achteraan om te zien wat een bezoeker ziet.';
+      pasFiguurLaagToe();
+    });
+
+    // Het dankjewelscherm tonen of weer het formulier. Geen hertekening.
+    canvas.addEventListener('click', function (e) {
+      var knop = e.target.closest('[data-mymmo-dank-toon]');
+      if (!knop) return;
+      toonDank = !toonDank;
+      knop.classList.toggle('is-actief', toonDank);
+      knop.setAttribute('aria-pressed', toonDank ? 'true' : 'false');
+      knop.textContent = toonDank ? 'Formulier tonen' : 'Dankjewelscherm';
+      pasDankToe();
     });
 
     // Het beheerscherm kan van breedte veranderen: een venster dat versleept

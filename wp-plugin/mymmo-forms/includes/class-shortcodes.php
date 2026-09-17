@@ -138,7 +138,10 @@ final class Mymmo_Forms_Shortcodes {
         $atts = shortcode_atts(
             [
                 'slug' => '', 'title' => 'yes', 'lang' => '', 'preset' => '', 'steps' => '',
-                'padding_x' => '', 'padding_y' => '', 'gap' => '', 'goal_form' => '',
+                'gap' => '', 'goal_form' => '',
+                // De kop boven de LAATSTE stap -- het formulier zelf. Zie
+                // templates/steps.php.
+                'form_title' => '', 'form_sub' => '',
             ],
             self::met_opstelling($atts),
             'mymmo_form'
@@ -181,8 +184,10 @@ final class Mymmo_Forms_Shortcodes {
             // lang="fr" wint; anders de taal van de pagina; anders de
             // standaardtaal van het formulier. Zie Mymmo_Forms_I18n::resolve().
             'lang'        => Mymmo_Forms_I18n::resolve($form, (string) $atts['lang']),
-            'extra_style' => self::padding_style($atts),
+            'extra_style' => self::gap_style($atts),
             'goal'        => self::goal((string) $atts['goal_form']),
+            'form_title'  => sanitize_text_field((string) $atts['form_title']),
+            'form_sub'    => sanitize_text_field((string) $atts['form_sub']),
         ]);
     }
 
@@ -201,10 +206,21 @@ final class Mymmo_Forms_Shortcodes {
      *   points       -- opsomming in de zijkolom, gescheiden met een |
      *   image        -- afbeelding onderaan de zijkolom (https of een pad)
      *   image_alt    -- beschrijving van die afbeelding; leeg = sfeerbeeld
-     *   tab_form     -- opschrift van het eerste tabblad
-     *   tab_calendly -- opschrift van het tweede tabblad
-     *   tab_form_sub / tab_calendly_sub -- het regeltje eronder
-     *   tab          -- "calendly" om op de agenda te openen (standaard "form")
+     *   tab_form     -- opschrift van het tabblad met het formulier
+     *   tab_calendly -- opschrift van het tabblad met de agenda
+     *   tab_extra    -- opschrift van het DERDE tabblad; leeg = de naam van het
+     *                   formulier dat erin staat
+     *   tab_form_sub / tab_calendly_sub / tab_extra_sub -- het regeltje eronder
+     *   extra_slug   -- welk formulier in het derde tabblad staat; leeg =
+     *                   hetzelfde als `slug`
+     *   extra_steps  -- de stappenreeks VOOR dat formulier (zoals `steps`, maar
+     *                   dan voor het derde tabblad). Het derde tabblad bestaat
+     *                   zodra een van deze twee ingevuld is.
+     *   tab_order    -- de volgorde van de tabbladen, bv. "extra,form,calendly".
+     *                   Wat je weglaat schuift achteraan aan; onbekende namen
+     *                   worden genegeerd.
+     *   tab          -- welk tabblad openstaat: "form", "calendly" of "extra".
+     *                   Leeg = het tabblad dat bovenaan staat (zie tab_order).
      *   variant      -- "primary" (gevuld) of "outline" (omlijnd)
      *   accent       -- de kleur van de knoppen HIER; leeg = het thema van het
      *                   formulier in de Operations Manager
@@ -257,9 +273,14 @@ final class Mymmo_Forms_Shortcodes {
             'icon_color'       => '',
             'tab_form'         => 'Stuur ons een bericht',
             'tab_calendly'     => 'Plan een gesprek',
+            'tab_extra'        => '',
             'tab_form_sub'     => '',
             'tab_calendly_sub' => '',
-            'tab'              => 'form',
+            'tab_extra_sub'    => '',
+            'tab_order'        => '',
+            'extra_slug'       => '',
+            'extra_steps'      => '',
+            'tab'              => '',
             'variant'          => 'primary',
             'accent'           => '',
             'accent_text'      => '',
@@ -270,13 +291,30 @@ final class Mymmo_Forms_Shortcodes {
             'lang'             => '',
             'id'               => '',
             'preset'           => '',
-            'padding_x'        => '',
-            'padding_y'        => '',
             'gap'              => '',
+            'calendly_color'   => '',
+            'form_title'       => '',
+            'form_sub'         => '',
+            // Kop (titel + regel uitleg) ook boven een formulier ZONDER stappen,
+            // zoals "Stuur een bericht". Standaard aan; "no" zet hem uit.
+            'form_heading'     => '',
             'background'       => '',
             'thanks_calendly'  => '',
             'goal_form'        => '',
             'goal_calendly'    => '',
+            // Het dankjewelscherm per tabblad (1.16). De tekst van het
+            // gesprek-tabblad blijft `thanks_calendly`, zoals voorheen.
+            'thanks_form_image'     => '',
+            'thanks_form_title'     => '',
+            'thanks_form_text'      => '',
+            'thanks_extra_image'    => '',
+            'thanks_extra_title'    => '',
+            'thanks_extra_text'     => '',
+            'thanks_calendly_image' => '',
+            'thanks_calendly_title' => '',
+            // Een eigen conversiepad voor het derde tabblad; leeg = dat van het
+            // formulier.
+            'goal_extra'            => '',
         ], self::met_opstelling($atts), 'mymmo_form_button');
 
         $slug = sanitize_title((string) $atts['slug']);
@@ -297,10 +335,59 @@ final class Mymmo_Forms_Shortcodes {
         wp_enqueue_script('mymmo-forms');
         wp_enqueue_style('mymmo-forms-modal');
         wp_enqueue_script('mymmo-forms-modal');
+        // De kop boven een formulier gebruikt de klassen van een stap-titel, ook
+        // op een tabblad zonder stappen. Alleen de stijl; het script blijft
+        // voorbehouden aan een echte reeks.
+        wp_enqueue_style('mymmo-forms-steps');
         self::enqueue_steps((string) $atts['steps']);
+        self::enqueue_steps((string) $atts['extra_steps']);
 
         $lang = Mymmo_Forms_I18n::resolve($form, (string) $atts['lang']);
         $naam = Mymmo_Forms_I18n::text($form, $lang, 'name');
+
+        // ── Het derde tabblad ───────────────────────────────────────────────
+        // Het bestaat zodra er een eigen formulier OF een eigen stappenreeks
+        // voor gezet is. Zonder een van die twee zou het een kopie van het
+        // eerste tabblad zijn, en twee identieke tabbladen is altijd een
+        // vergissing.
+        $extra_slug  = sanitize_title((string) $atts['extra_slug']);
+        $extra_steps = (string) $atts['extra_steps'];
+        $extra_form  = null;
+        $extra_lang  = $lang;
+
+        if ($extra_slug !== '' || trim($extra_steps) !== '') {
+            if ($extra_slug === '' || $extra_slug === $slug) {
+                // Hetzelfde formulier, maar met de stappen ervoor. Geen tweede
+                // aanroep naar de OM: het staat al in $form.
+                $extra_slug = $slug;
+                $extra_form = $form;
+            } else {
+                $extra_form = Mymmo_Forms_Api_Client::get_form($extra_slug);
+
+                if (!is_array($extra_form)) {
+                    // Het derde tabblad valt weg; de rest van het venster blijft
+                    // gewoon werken. Een beheerder hoort te weten waarom, want
+                    // aan het venster zelf is niets te zien.
+                    $extra_form = null;
+                    if (current_user_can('manage_options')) {
+                        $melding = 'Het derde tabblad is weggelaten: formulier "' . esc_html($extra_slug)
+                            . '" kon niet geladen worden.';
+                        add_action('wp_footer', static function () use ($melding) {
+                            echo '<script>console.warn(' . wp_json_encode('[Mymmo Forms] ' . $melding) . ');</script>';
+                        });
+                    }
+                } else {
+                    $extra_lang = Mymmo_Forms_I18n::resolve($extra_form, (string) $atts['lang']);
+                }
+            }
+        }
+
+        // Leeg opschrift = de naam van het formulier dat erin staat. Een
+        // naamloos tabblad is geen tabblad.
+        $tab_extra_label = trim((string) $atts['tab_extra']);
+        if ($tab_extra_label === '' && is_array($extra_form)) {
+            $tab_extra_label = Mymmo_Forms_I18n::text($extra_form, $extra_lang, 'name');
+        }
 
         $modal_id  = self::modal_id($slug, (string) $atts['id']);
         $launch_id = $modal_id . '-knop';
@@ -309,6 +396,12 @@ final class Mymmo_Forms_Shortcodes {
         // zou een pop-up de bevestiging kunnen tonen van het formulier dat
         // verderop gewoon in de tekst staat.
         $flash = self::claim_flash($slug, $modal_id);
+        // Het derde tabblad kan een ander formulier tonen; dan hoort de melding
+        // bij DAT formulier.
+        if ($flash === null && is_array($extra_form) && $extra_slug !== $slug) {
+            $flash = self::claim_flash($extra_slug, $modal_id);
+        }
+        $flash_tab = is_array($flash) ? (string) ($flash['tab'] ?? '') : '';
 
         // De knop moet iets te lezen geven, ook als niemand een label typte en
         // het formulier geen naam heeft.
@@ -345,9 +438,9 @@ final class Mymmo_Forms_Shortcodes {
             $accent_style[] = '--mf-accent-text:' . $accent_text;
         }
 
-        $opvulling = self::padding_style($atts);
-        if ($opvulling !== '') {
-            $accent_style[] = $opvulling;
+        $tussenruimte = self::gap_style($atts);
+        if ($tussenruimte !== '') {
+            $accent_style[] = $tussenruimte;
         }
 
         // De achtergrond van het venster. Standaard is dat een lichte tint van
@@ -391,12 +484,58 @@ final class Mymmo_Forms_Shortcodes {
             }
         }
 
-        // De kleur die Calendly meekrijgt: de onze als die er is, anders die van
-        // het formulier. Alleen een hex van zes tekens -- Calendly kent geen
-        // rgba(), en half doorgeven geeft daar een paars-blauwe standaardkleur
-        // terug alsof er niets gevraagd was.
-        $thema_accent   = is_array($form['theme'] ?? null) ? (string) ($form['theme']['accent'] ?? '') : '';
-        $calendly_kleur = mymmo_forms_hex6($accent !== '' ? $accent : $thema_accent);
+        /*
+         * WAT CALENDLY MET DEZE KLEUR DOET -- gemeten op hun eigen pagina.
+         *
+         * Met `primary_color=99f6e4` (jullie mint):
+         *     beschikbare dag, cijfer   rgb(153,246,228)   -- exact die kleur
+         *     tijdstip, tekst + rand    idem
+         * Met `primary_color=0369a1` (jullie donkerblauw):
+         *     beschikbare dag, cijfer   rgb(3,105,161)
+         *     beschikbare dag, vlak     rgb(240,246,251)   -- tint die zij afleiden
+         *     gekozen dag               vol donkerblauw, wit cijfer
+         *     tijdstip, tekst + rand    rgb(3,105,161)
+         *
+         * `text_color` raakt het dagcijfer niet (getest met 000000). Het cijfer en
+         * de tijdstippen ZIJN dus de kleur die je meegeeft, en die hoort daarom de
+         * leesbare kleur van het merk te zijn -- niet de felle.
+         *
+         * De kandidaten zijn het PAAR dat het merk zelf gebruikt: de accentkleur en
+         * de tekst die erop staat, elk uit dezelfde cascade als de rest van het
+         * venster (shortcode > site > formulier). Daaruit wint de leesbaarste. Er
+         * wordt NIETS omgerekend: dat gaf in 1.15.7 een groen dat in geen enkel
+         * palet stond.
+         *
+         * `calendly_color` op de shortcode wint van alles.
+         */
+        $thema        = is_array($form['theme'] ?? null) ? $form['theme'] : [];
+        $site_vars    = get_option('mymmo_forms_follow_theme', 1) ? mymmo_forms_site_theme_vars() : [];
+
+        $eerste = static function (array $lijst): string {
+            foreach ($lijst as $waarde) {
+                $hex = mymmo_forms_hex6((string) $waarde);
+                if ($hex !== '') {
+                    return $hex;
+                }
+            }
+            return '';
+        };
+
+        $accent_opgelost = $eerste([$accent, $site_vars['--mf-accent'] ?? '', $thema['accent'] ?? '']);
+        $tekst_opgelost  = $eerste([$accent_text, $site_vars['--mf-accent-text'] ?? '', $thema['accent_text'] ?? '']);
+
+        // De inkt van het merk voor DIT venster. Staat ook als CSS-variabele op
+        // de wikkel, zodat een stap (het getal en de knop van een schuifbalk) er
+        // dezelfde kleur uit haalt als de agenda.
+        $inkt = mymmo_forms_leesbaarste_hex6([$accent_opgelost, $tekst_opgelost]);
+        if ($inkt !== '') {
+            $accent_style[] = '--mf-accent-ink:#' . $inkt;
+        }
+
+        $calendly_kleur = mymmo_forms_hex6((string) ($atts['calendly_color'] ?? ''));
+        if ($calendly_kleur === '') {
+            $calendly_kleur = $inkt;
+        }
 
         // Heeft de zijkolom iets ANDERS dan de inleiding te tonen? Zo ja, dan is
         // de omschrijving van het formulier daar de logische inleiding en hoort
@@ -426,12 +565,40 @@ final class Mymmo_Forms_Shortcodes {
             'heading'            => $heading,
             'tab_form_label'     => (string) $atts['tab_form'],
             'tab_calendly_label' => (string) $atts['tab_calendly'],
+            'tab_extra_label'    => $tab_extra_label,
             'tab_form_sub'       => trim((string) $atts['tab_form_sub']),
             'tab_calendly_sub'   => trim((string) $atts['tab_calendly_sub']),
+            'tab_extra_sub'      => trim((string) $atts['tab_extra_sub']),
+            'extra_form'         => $extra_form,
+            'extra_slug'         => $extra_slug,
+            'extra_steps'        => $extra_steps,
+            'extra_lang'         => $extra_lang,
+            'tab_order'          => self::tab_order(
+                (string) $atts['tab_order'],
+                $calendly !== '',
+                is_array($extra_form)
+            ),
             'close_label'        => (string) $atts['close'],
             'calendly'           => $calendly,
             'calendly_kleur'     => $calendly_kleur,
-            'active_tab'         => (string) $atts['tab'] === 'calendly' ? 'calendly' : 'form',
+            // De kop boven de laatste stap (het formulier). Van de plaatsing en
+            // niet van het formulier: dezelfde velden verdienen in een ander
+            // venster een andere aanhef.
+            'form_title'         => sanitize_text_field((string) $atts['form_title']),
+            'form_sub'           => sanitize_text_field((string) $atts['form_sub']),
+            'form_heading'       => strtolower(trim((string) $atts['form_heading'])) !== 'no',
+            // Leeg = het tabblad dat BOVENAAN staat. Stond hier 'form' als
+            // vaste standaard, dan zette je met tab_order de agenda vooraan en
+            // ging het venster alsnog open op het formulier -- je ziet een
+            // knoprij waarvan de tweede knop actief is, en dat leest als een
+            // fout. Wie wel een vast tabblad wil, typt het nog steeds.
+            // Terug van een inzending: het tabblad dat verstuurde staat open,
+            // met zijn dankjewelscherm.
+            'active_tab'         => $flash_tab !== ''
+                ? $flash_tab
+                : (in_array((string) $atts['tab'], ['form', 'calendly', 'extra'], true)
+                    ? (string) $atts['tab']
+                    : ''),
             'image'              => $image,
             'image_alt'          => trim((string) $atts['image_alt']),
             'watermark'          => self::image_url((string) $atts['watermark']),
@@ -445,6 +612,27 @@ final class Mymmo_Forms_Shortcodes {
             'thanks_calendly'    => trim((string) $atts['thanks_calendly']),
             'goal_calendly'      => self::goal((string) $atts['goal_calendly']),
             'goal_form'          => self::goal((string) $atts['goal_form']),
+            'goal_extra'         => self::goal((string) $atts['goal_extra']) ?: self::goal((string) $atts['goal_form']),
+            // Het dankjewelscherm per tabblad. Een lege tekst krijgt in
+            // modal.php de standaard (de bedanktekst uit de OM, of die van
+            // een geboekt gesprek); een lege titel blijft leeg.
+            'dank'               => [
+                'form'     => [
+                    'image' => self::image_url((string) $atts['thanks_form_image']),
+                    'title' => sanitize_text_field((string) $atts['thanks_form_title']),
+                    'text'  => sanitize_text_field((string) $atts['thanks_form_text']),
+                ],
+                'extra'    => [
+                    'image' => self::image_url((string) $atts['thanks_extra_image']),
+                    'title' => sanitize_text_field((string) $atts['thanks_extra_title']),
+                    'text'  => sanitize_text_field((string) $atts['thanks_extra_text']),
+                ],
+                'calendly' => [
+                    'image' => self::image_url((string) $atts['thanks_calendly_image']),
+                    'title' => sanitize_text_field((string) $atts['thanks_calendly_title']),
+                    'text'  => sanitize_text_field((string) $atts['thanks_calendly']),
+                ],
+            ],
             'show_button'        => strtolower(trim((string) $atts['button'])) !== 'no',
             'trigger'            => self::trigger((string) $atts['trigger']),
             'accent_style'       => implode(';', $accent_style),
@@ -452,6 +640,46 @@ final class Mymmo_Forms_Shortcodes {
             // hoort het venster meteen weer open te staan met de bevestiging.
             'auto_open'          => is_array($flash),
         ]);
+    }
+
+    /**
+     * De volgorde van de tabbladen.
+     *
+     * Wat er in `tab_order` staat telt eerst, in die volgorde; wat ontbreekt
+     * schuift achteraan aan in de vaste volgorde. Zo kan je met
+     * `tab_order="extra"` het derde tabblad vooraan zetten zonder de andere
+     * twee te moeten opnoemen -- en levert een typefout nooit een venster
+     * zonder tabbladen op, want alles wat niet genoemd is komt er alsnog bij.
+     *
+     * Tabbladen die er niet ZIJN (geen agenda, geen derde formulier) vallen
+     * hier weg: de volgorde gaat over wat er staat, niet over wat er zou kunnen
+     * staan.
+     *
+     * @return array<int,string>
+     */
+    private static function tab_order(string $ruw, bool $heeft_agenda, bool $heeft_extra): array {
+        $bestaat = ['form'];
+        if ($heeft_extra) {
+            $bestaat[] = 'extra';
+        }
+        if ($heeft_agenda) {
+            $bestaat[] = 'calendly';
+        }
+
+        $uit = [];
+        foreach (preg_split('/[,\|]/', $ruw) ?: [] as $naam) {
+            $naam = strtolower(trim((string) $naam));
+            if ($naam !== '' && in_array($naam, $bestaat, true) && !in_array($naam, $uit, true)) {
+                $uit[] = $naam;
+            }
+        }
+        foreach ($bestaat as $naam) {
+            if (!in_array($naam, $uit, true)) {
+                $uit[] = $naam;
+            }
+        }
+
+        return $uit;
     }
 
     /**
@@ -588,36 +816,22 @@ final class Mymmo_Forms_Shortcodes {
     }
 
     /**
-     * De opvulling van deze plaatsing, als stukje style-attribuut.
+     * De ruimte TUSSEN de velden, als stukje style-attribuut.
      *
-     * Dezelfde twee variabelen sturen twee dingen: de ruimte ROND een formulier
-     * dat in een pagina staat, en de ruimte BINNEN een tabblad van het venster.
-     * Dat is met opzet één paar knoppen -- het is in beide gevallen "hoeveel
-     * lucht rond de velden", en twee paren zou betekenen dat je moet weten in
-     * welke van de twee je zit voor je iets kan instellen.
+     * Er stond hier tot 1.15.4 ook padding_x/padding_y bij, voor de ruimte ROND
+     * het formulier. Die is weg en niet vervangen: in een pagina levert het blok
+     * eromheen die ruimte, en in de pop-up het paneel -- met één vaste waarde
+     * per schermbreedte, voor een formulier en een stappenreeks dezelfde. Zolang
+     * het instelbaar was, telde het in het venster OP bij de opvulling van het
+     * paneel, maar alleen bij een stappenreeks; dezelfde inhoud stond daardoor
+     * op het ene tabblad verder van de rand dan op het andere.
      *
      * @param array<string,string> $atts
      */
-    private static function padding_style(array $atts): string {
-        $stukken = [];
-
-        $x = mymmo_forms_length((string) ($atts['padding_x'] ?? ''));
-        $y = mymmo_forms_length((string) ($atts['padding_y'] ?? ''));
+    private static function gap_style(array $atts): string {
         $tussen = mymmo_forms_length((string) ($atts['gap'] ?? ''));
 
-        if ($x !== '') {
-            $stukken[] = '--mf-pad-x:' . $x;
-        }
-        if ($y !== '') {
-            $stukken[] = '--mf-pad-y:' . $y;
-        }
-        // De ruimte TUSSEN de velden. Staat in hetzelfde stukje stijl omdat het
-        // om dezelfde vraag gaat: hoeveel lucht rond en tussen de velden.
-        if ($tussen !== '') {
-            $stukken[] = '--mf-gap:' . $tussen;
-        }
-
-        return implode(';', $stukken);
+        return $tussen === '' ? '' : '--mf-gap:' . $tussen;
     }
 
     /**

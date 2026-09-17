@@ -477,6 +477,14 @@
       if (!url.searchParams.has('hide_gdpr_banner')) {
         url.searchParams.set('hide_gdpr_banner', '1');
       }
+      // Het kopblok van Calendly (logo, naam van het gesprek, duur) weg. Het
+      // venster heeft zijn eigen kop en de tab zegt al "Plan een gesprek"; dat
+      // blok nam bovenaan de ruimte in waar de kalender hoort. Gemeten op hun
+      // eigen pagina: met deze parameter verdwijnt het volledig, zonder een
+      // leeg vlak achter te laten.
+      if (!url.searchParams.has('hide_event_type_details')) {
+        url.searchParams.set('hide_event_type_details', '1');
+      }
       var kleur = vlak.getAttribute('data-mymmo-calendly-kleur') || '';
       if (kleur && !url.searchParams.has('primary_color')) {
         url.searchParams.set('primary_color', kleur);
@@ -542,6 +550,26 @@
     if (vlak.getAttribute('data-mymmo-bedankt') === '1') return;
     vlak.setAttribute('data-mymmo-bedankt', '1');
 
+    // Het dankjewelscherm van het tabblad (1.16): server-side opgemaakt, met de
+    // afbeelding, titel en tekst uit de bouwer. De agenda gaat weg, het scherm
+    // komt in de plaats.
+    var paneel = vlak.closest ? vlak.closest('[data-mymmo-paneel]') : null;
+    var scherm = paneel ? paneel.querySelector('[data-mymmo-dank-scherm]') : null;
+
+    if (scherm) {
+      vlak.style.display = 'none';
+      scherm.hidden = false;
+      scherm.setAttribute('role', 'status');
+      scherm.setAttribute('tabindex', '-1');
+      scherm.focus({ preventScroll: true });
+      meldAfronding('calendly_geboekt', vlak.getAttribute('data-mymmo-doel') || '', {
+        mymmo_calendly_event: (payload.event && payload.event.uri) || '',
+        mymmo_tabblad: 'calendly'
+      });
+      return;
+    }
+
+    // Terugval: een venster van voor 1.16 (gecachete HTML) heeft geen sjabloon.
     var tekst = vlak.getAttribute('data-mymmo-dank')
       || 'Je gesprek staat ingepland. Je krijgt de bevestiging per mail.';
 
@@ -573,7 +601,8 @@
 
     var uri = (payload.event && payload.event.uri) || '';
     meldAfronding('calendly_geboekt', vlak.getAttribute('data-mymmo-doel') || '', {
-      mymmo_calendly_event: uri
+      mymmo_calendly_event: uri,
+      mymmo_tabblad: 'calendly'
     });
   }
 

@@ -143,6 +143,28 @@ html.mymmo-modal-actief body {
 
 /* ── Het venster ─────────────────────────────────────────────────────────── */
 
+/*
+ * NIETS IN HET VENSTER IS SELECTEERBAAR, behalve wat je invult.
+ * Het venster is een bediening, geen tekst om te kopieren. Zonder dit kleurde
+ * een sleepbeweging (het jaarwiel, een schuifbalk) of een dubbelklik de hele
+ * inhoud blauw. Invoervelden en bewerkbare tekst (de bouwer) blijven gewoon
+ * selecteerbaar -- anders kan je je eigen typfout niet aanduiden.
+ * Twee klassen: een thema dat user-select zet, wint anders.
+ */
+.mymmo-modal .mymmo-modal-panel {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mymmo-modal .mymmo-modal-panel input,
+.mymmo-modal .mymmo-modal-panel textarea,
+.mymmo-modal .mymmo-modal-panel select,
+.mymmo-modal .mymmo-modal-panel [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 .mymmo-modal-panel {
   position: relative;
   box-sizing: border-box;
@@ -368,18 +390,50 @@ html.mymmo-modal-actief body {
   min-height: 0;
 }
 
-/* De opvulling komt uit dezelfde twee variabelen als bij een formulier in een
-   pagina, maar met een eigen standaard: hier hoort er wél ruimte te zijn. Wie ze
-   zet (op de shortcode of in het thema van het formulier), zet ze dus voor
-   allebei. */
+/*
+ * DE ENIGE OPVULLING IN HET VENSTER. Vast, en met opzet niet instelbaar.
+ *
+ * Er waren er twee: deze, en die van de wikkel eronder (--mf-pad-x/y, uit
+ * padding_x/padding_y op de shortcode of uit het thema van het formulier). Voor
+ * het FORMULIER werd die tweede hier weggehaald, voor een STAPPENREEKS niet --
+ * dus stond dezelfde inhoud op het ene tabblad 28px van de rand en op het
+ * andere 44px. Niet te zien zolang je één tabblad tegelijk bekijkt, en precies
+ * daarom bleef het staan.
+ *
+ * Eén waarde per schermbreedte, hier en nergens anders. Wie meer lucht wil rond
+ * zijn velden, heeft --mf-gap (de ruimte TUSSEN de velden); de ruimte tot de
+ * rand van het venster is geen keuze per plaatsing maar een eigenschap van het
+ * venster.
+ */
 .mymmo-modal-paneel {
-  padding: var(--mf-pad-y, 22px) var(--mf-pad-x, 22px);
+  padding: 32px;
+  /* Een KOLOM, zodat wat erin staat de volle hoogte kan vullen.
+     Met tabbladen heeft dit paneel een opgelegde hoogte (zie --breed hierboven)
+     en stond de knop halverwege een half leeg vlak; nu duwt de wikkel eronder
+     zijn knoppenrij tegen de onderrand -- BINNEN de opvulling hierboven, dus de
+     marge blijft staan. Zonder tabbladen groeit het venster met zijn inhoud mee
+     en is dit een flexkolom om niets: er is dan geen vrije ruimte te verdelen. */
+  display: flex;
+  flex-direction: column;
 }
 
-/* Het formulier ZELF krijgt geen opvulling meer binnen het venster: het tabblad
-   hierboven heeft ze al, en twee keer dezelfde variabele stapelt op. */
-.mymmo-modal .mymmo-form-wrap {
-  padding: 0;
+/* De wikkel vult het paneel. flex-shrink is 0: past de inhoud niet, dan hoort
+   het paneel te SCROLLEN (het heeft overflow-y:auto) en niet de inhoud samen te
+   persen tot ze niet meer leesbaar is. */
+.mymmo-modal-paneel > .mymmo-stappen,
+.mymmo-modal-paneel > .mymmo-form-wrap,
+.mymmo-modal-paneel > .mymmo-form-wrap > .mymmo-form {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* De verzendknop tegen de onderrand, ook zonder stappenreeks. `auto` vervangt
+   de margin-top van 22px uit mymmo-forms.css; de padding houdt die afstand tot
+   het laatste veld als er niets te verdelen valt. */
+.mymmo-modal-paneel .mymmo-form-actions {
+  margin-top: auto;
+  padding-top: 22px;
 }
 
 .mymmo-modal-paneel:focus {
@@ -559,6 +613,83 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   line-height: 1.55;
 }
 
+/* ── Het dankjewelscherm (1.16) ──────────────────────────────────────────────
+   Per tabblad: afbeelding (of een vinkje), titel, tekst. Staat als verborgen
+   sjabloon in elk paneel en komt zichtbaar na een inzending of een geboekt
+   gesprek. Twee klassen op elke regel: een blokthema zet zijn eigen opmaak op
+   h3 en p en wint anders (zie claude.md). */
+.mymmo-modal .mymmo-dank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex: 1 0 auto;
+  min-height: 320px;
+  padding: 32px 8px;
+  text-align: center;
+}
+
+.mymmo-modal .mymmo-dank[hidden] {
+  display: none;
+}
+
+.mymmo-modal .mymmo-dank:focus {
+  outline: none;
+}
+
+.mymmo-modal .mymmo-form-wrap--dank {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
+.mymmo-modal .mymmo-dank-beeld {
+  display: block;
+  width: auto;
+  max-width: min(280px, 80%);
+  height: auto;
+  max-height: 220px;
+  margin: 0 0 6px;
+  object-fit: contain;
+}
+
+.mymmo-modal .mymmo-dank-vink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 0 6px;
+  border-radius: 999px;
+  font-size: 30px;
+  line-height: 1;
+  color: var(--mf-accent-text, #ffffff);
+  background: var(--mf-accent, #2563eb);
+}
+
+.mymmo-modal .mymmo-dank-titel {
+  margin: 0;
+  padding: 0;
+  font-size: 1.5rem;
+  line-height: 1.25;
+  color: var(--mf-text, inherit);
+}
+
+.mymmo-modal .mymmo-dank-tekst {
+  margin: 0;
+  padding: 0;
+  max-width: 34em;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--mf-muted, inherit);
+}
+
+.mymmo-modal .mymmo-dank-titel:empty,
+.mymmo-modal .mymmo-dank-tekst:empty {
+  display: none;
+}
+
 /* De kalender wordt opgebouwd: de terugvallink hoort dan weg. */
 .mymmo-modal-agenda.is-laden .mymmo-modal-agenda-terugval {
   display: none;
@@ -618,7 +749,7 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
   }
 
   .mymmo-modal-paneel {
-    padding: var(--mf-pad-y, 28px) var(--mf-pad-x, 28px);
+    padding: 40px;
   }
 
   /* Vanaf hier is er plek voor de twee keuzes onder elkaar, met hun regeltje
@@ -632,6 +763,14 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     flex: 0 0 auto;
     align-items: flex-start;
     padding: 12px 14px;
+  }
+
+  /* Geen regeltje onder de titel? Dan is er niets om het icoon bij uit te
+     lijnen, en blijft er onder de titel ruimte open staan alsof er nog iets
+     komt. De klasse komt uit modal.php; met :has() zou dezelfde regel op
+     oudere browsers stil wegvallen. */
+  .mymmo-modal-panel--zijkolom .mymmo-modal-tab--kaal {
+    align-items: center;
   }
 
   .mymmo-modal-panel--zijkolom .mymmo-modal-punten {
@@ -888,8 +1027,10 @@ html.mymmo-modal-js .mymmo-modal-body--tabs .mymmo-modal-paneel.is-actief {
     display: none;
   }
 
+  /* Krapper dan op een groot scherm: 40px aan elke kant laat op 375px nog
+     geen 300px over om in te typen. */
   .mymmo-modal-paneel {
-    padding: var(--mf-pad-y, 16px) var(--mf-pad-x, 16px);
+    padding: 24px;
   }
 
   .mymmo-modal-agenda-terugval {

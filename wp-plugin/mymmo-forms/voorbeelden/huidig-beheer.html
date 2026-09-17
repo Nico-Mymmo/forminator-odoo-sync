@@ -1,0 +1,273 @@
+<!--
+  STAP - "Hoe wordt je appartement momenteel beheerd?"
+
+  Enkelvoudige keuze uit vier. Levert EEN waarde af:
+
+      huidig_beheer     geen_beheer | professionele_syndicus |
+                        vrijwillige_syndicus | geen_syndicus_meer
+
+  Zet in de Operations Manager een VERBORGEN VELD met die sleutel op het
+  formulier. Deze stap is bedoeld als VERPLICHT: zet `huidig_beheer` bij de stap
+  in wp-admin in "Levert deze sleutels", dan blijft "Volgende" uit tot er een
+  keuze staat.
+
+  De WAARDEN liggen vast zodra er inzendingen zijn. De LABELS mogen altijd
+  wijzigen, ook rechtstreeks in het voorbeeld van de bouwer.
+
+  Geen eigen kop, geen eigen kaartje rond de stap, geen opvulling aan de
+  zijkanten, geen eigen lettertype, geen eigen Vorige/Volgende.
+
+  WAAROM ER HIER GEEN ENKELE SVG EN GEEN ENKEL LEEG ELEMENT STAAT (1.15.14)
+  Op syndicoach.be kwam de vorige versie verminkt aan: na elke inline
+  SVG met een use-element ontbrak de sluit-tag van de omliggende span, het lege
+  vinkje-element was weg en alle witruimte tussen de knoppen ook. De tekst belandde
+  daardoor BINNEN het icoonrondje van 50px breed en liep over de knoppen heen.
+  De kenmerken-stap (afbeeldingen, geen inline SVG) kwam op dezelfde pagina wel
+  ongeschonden door. Daarom:
+  - geen inline SVG in de markup; het keuzerondje en het vinkje zijn CSS
+    (::before / ::after op de knop zelf);
+  - geen leeg element dat iets betekent: wat getekend moet worden, hangt aan een
+    element dat tekst heeft.
+-->
+
+<style>
+/* Alles genest onder .mf-beheer. Geen id's: dezelfde stap mag twee keer op een
+   pagina staan (in de tekst en in een pop-up). */
+.mf-beheer {
+  --b-accent: var(--mf-accent, #99f6e4);
+  --b-ink: var(--mf-text, #12384f);
+  --b-muted: var(--mf-muted, #6b7280);
+  --b-lijn: var(--mf-border, #d7dbe2);
+  --b-vlak: var(--mf-field-bg, #ffffff);
+  /* De leesbare merkkleur op wit (bij Syndicoach #0369a1), gezet door de plugin. */
+  --b-inkt: var(--mf-accent-ink, var(--mf-text, #0369a1));
+
+  /* GEEN font-family en GEEN padding: allebei van de plugin. */
+  color: var(--b-ink);
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+.mf-beheer *, .mf-beheer *::before, .mf-beheer *::after { box-sizing: border-box; }
+
+/* De keuzes staan verticaal gecentreerd in de vrije ruimte tussen de uitleg en
+   de knoppenrij, zoals de wolk in de kenmerken-stap. */
+.mf-beheer .mf-keuzes {
+  margin-block: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 18px 0 8px;
+}
+@media (min-width: 640px) {
+  .mf-beheer .mf-keuzes { grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 14px; }
+}
+
+/* Twee klassen op elke regel die een <button> raakt: een blokthema zet zijn
+   eigen knopstijl inline in de head en wint anders. Alles wat een thema op een
+   knop zet, noemen we hier zelf (display, richting, hoogte, opvulling, rand,
+   schaduw, tekstopmaak). */
+.mf-beheer .mf-keuze {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  height: auto;
+  min-height: 92px;
+  margin: 0;
+  padding: 16px 18px 16px 58px;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+  color: var(--b-ink);
+  background: var(--b-vlak);
+  border: 1.5px solid var(--b-lijn);
+  box-shadow: none;
+  /* Licht onregelmatige hoeken: net genoeg om niet als een tabel te lezen. */
+  border-radius: 18px 22px 20px 24px;
+  cursor: pointer;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease, translate .22s cubic-bezier(.34,1.56,.64,1);
+}
+.mf-beheer .mf-keuze:nth-child(2) { border-radius: 22px 18px 24px 20px; }
+.mf-beheer .mf-keuze:nth-child(3) { border-radius: 20px 24px 18px 22px; }
+.mf-beheer .mf-keuze:nth-child(4) { border-radius: 24px 20px 22px 18px; }
+
+/* Het keuzerondje: een organisch bolletje links, getekend op de knop zelf. */
+.mf-beheer .mf-keuze::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  margin-top: -12px;
+  background: var(--b-vlak);
+  border: 1.5px solid color-mix(in srgb, var(--b-lijn) 70%, var(--b-muted));
+  border-radius: 56% 44% 48% 52% / 47% 52% 48% 53%;
+  transition: background-color .18s ease, border-color .18s ease, scale .28s cubic-bezier(.34,1.56,.64,1);
+}
+/* Het haakje: twee randen van een gedraaid vlakje, in het rondje. */
+.mf-beheer .mf-keuze::after {
+  content: "";
+  position: absolute;
+  left: 27px;
+  top: 50%;
+  width: 6px;
+  height: 11px;
+  margin-top: -7px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  rotate: 45deg;
+  opacity: 0;
+  scale: .4;
+  transition: opacity .16s ease, scale .26s cubic-bezier(.34,1.56,.64,1);
+}
+
+.mf-beheer .mf-keuze:hover {
+  border-color: color-mix(in srgb, var(--b-accent) 75%, var(--b-lijn));
+  box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--b-inkt) 45%, transparent);
+  translate: 0 -2px;
+}
+.mf-beheer .mf-keuze:hover::before {
+  border-color: var(--b-inkt);
+  scale: 1.08;
+}
+.mf-beheer .mf-keuze:focus-visible {
+  outline: 2px solid var(--b-inkt);
+  outline-offset: 2px;
+}
+
+.mf-beheer .mf-keuze-titel {
+  display: block;
+  font-weight: 600;
+  color: var(--b-ink);
+}
+.mf-beheer .mf-keuze-sub {
+  display: block;
+  font-size: .88rem;
+  color: var(--b-muted);
+}
+
+/* Gekozen: zachte mint, rand en rondje in de leesbare merkkleur. */
+.mf-beheer .mf-keuze[aria-checked="true"] {
+  background: color-mix(in srgb, var(--b-accent) 24%, var(--b-vlak));
+  border-color: var(--b-inkt);
+  box-shadow: 0 0 0 1px var(--b-inkt);
+}
+.mf-beheer .mf-keuze[aria-checked="true"]::before {
+  background: var(--b-inkt);
+  border-color: var(--b-inkt);
+  scale: 1;
+}
+.mf-beheer .mf-keuze[aria-checked="true"]::after { opacity: 1; scale: 1; }
+
+.mf-beheer .mf-keuze.mf-plop { animation: mb-plop .42s cubic-bezier(.31,1.7,.6,1); }
+@keyframes mb-plop {
+  0%   { scale: 1; }
+  35%  { scale: .985; }
+  70%  { scale: 1.015; }
+  100% { scale: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mf-beheer .mf-keuze,
+  .mf-beheer .mf-keuze::before,
+  .mf-beheer .mf-keuze::after { transition: none; }
+  .mf-beheer .mf-keuze.mf-plop { animation: none; }
+  .mf-beheer .mf-keuze:hover { translate: none; }
+}
+
+@media (max-width: 420px) {
+  .mf-beheer .mf-keuze { min-height: 0; padding: 13px 14px 13px 50px; }
+  .mf-beheer .mf-keuze::before { left: 14px; }
+  .mf-beheer .mf-keuze::after { left: 23px; }
+}
+</style>
+
+<div class="mf-beheer" data-sleutel="huidig_beheer">
+  <p class="mymmo-stap-tekst">Er is geen fout antwoord. We willen gewoon weten waar jullie vandaag staan.</p>
+
+  <div class="mf-keuzes" data-rol="keuzes" role="radiogroup" aria-label="Huidig beheer">
+    <button type="button" class="mf-keuze" role="radio" aria-checked="false" tabindex="0" data-waarde="geen_beheer">
+      <span class="mf-keuze-titel">Niet echt beheerd</span>
+      <span class="mf-keuze-sub">Niemand volgt het gebouw echt op</span>
+    </button>
+    <button type="button" class="mf-keuze" role="radio" aria-checked="false" tabindex="-1" data-waarde="professionele_syndicus">
+      <span class="mf-keuze-titel">Professionele syndicus</span>
+      <span class="mf-keuze-sub">Een kantoor beheert ons gebouw</span>
+    </button>
+    <button type="button" class="mf-keuze" role="radio" aria-checked="false" tabindex="-1" data-waarde="vrijwillige_syndicus">
+      <span class="mf-keuze-titel">Vrijwillige syndicus</span>
+      <span class="mf-keuze-sub">Een mede-eigenaar neemt die rol op</span>
+    </button>
+    <button type="button" class="mf-keuze" role="radio" aria-checked="false" tabindex="-1" data-waarde="geen_syndicus_meer">
+      <span class="mf-keuze-titel">Nu geen syndicus meer</span>
+      <span class="mf-keuze-sub">We hadden er een, maar vandaag niet</span>
+    </button>
+  </div>
+</div>
+
+<script>
+MymmoStappen.stap(document.currentScript, function (api) {
+  /* Dit script bevat uitsluitend ASCII en geen en-teken, kleiner- of groter-dan
+     of sluit-tag: op syndicoach.be wordt de HTML van een stap onderweg opnieuw
+     uitgeschreven. Zie gebouwkenmerken.html. */
+  var wortel = api.el.querySelector('.mf-beheer');
+  if (!wortel) return;
+
+  var SLEUTEL = wortel.getAttribute('data-sleutel') || 'huidig_beheer';
+  var lijst = wortel.querySelector('[data-rol="keuzes"]');
+  if (!lijst) return;
+
+  var knoppen = Array.prototype.slice.call(lijst.querySelectorAll('.mf-keuze'));
+
+  function kies(waarde, metPlop) {
+    knoppen.forEach(function (knop) {
+      var aan = knop.getAttribute('data-waarde') === waarde;
+      knop.setAttribute('aria-checked', aan ? 'true' : 'false');
+      /* Alleen de gekozen knop is met Tab bereikbaar; binnen de groep ga je met
+         de pijltjes, zoals bij echte keuzerondjes. */
+      knop.setAttribute('tabindex', aan ? '0' : '-1');
+      if (aan) {
+        if (metPlop) {
+          knop.classList.remove('mf-plop');
+          void knop.offsetWidth;
+          knop.classList.add('mf-plop');
+        }
+      }
+    });
+    api.zet(SLEUTEL, waarde);
+  }
+
+  lijst.addEventListener('click', function (e) {
+    var knop = e.target.closest ? e.target.closest('.mf-keuze') : null;
+    if (!knop) return;
+    if (!lijst.contains(knop)) return;
+    kies(knop.getAttribute('data-waarde'), true);
+  });
+
+  lijst.addEventListener('keydown', function (e) {
+    var richting = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (!richting) return;
+    var nu = knoppen.indexOf(document.activeElement);
+    if (nu === -1) return;
+    e.preventDefault();
+    var volgende = knoppen[(nu + richting + knoppen.length) % knoppen.length];
+    volgende.focus();
+    kies(volgende.getAttribute('data-waarde'), true);
+  });
+
+  /* Terug van een mislukte inzending of van het formulier. */
+  var bewaard = String(api.lees(SLEUTEL) || '').trim();
+  if (bewaard) kies(bewaard, false);
+});
+</script>

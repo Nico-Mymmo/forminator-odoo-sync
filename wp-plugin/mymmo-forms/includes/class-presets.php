@@ -53,13 +53,18 @@ final class Mymmo_Forms_Presets {
     public const ATTS = [
         'slug', 'steps', 'label', 'calendly', 'title', 'intro', 'points', 'image', 'image_alt',
         'tab_form', 'tab_calendly', 'tab_form_sub', 'tab_calendly_sub', 'tab',
+        'tab_extra', 'tab_extra_sub', 'extra_slug', 'extra_steps', 'tab_order',
         'variant', 'accent', 'accent_text', 'button', 'trigger', 'class', 'close', 'lang',
-        'padding_x', 'padding_y', 'gap', 'background', 'icon_color',
+        'gap', 'background', 'icon_color', 'form_title', 'form_sub', 'form_heading', 'calendly_color',
         'image_calendly', 'image_calendly_alt',
         'image_calendly_scale', 'image_calendly_x', 'image_calendly_y',
         'image_scale', 'image_x', 'image_y',
         'watermark', 'watermark_scale', 'watermark_x', 'watermark_y', 'watermark_rotate',
         'thanks_calendly', 'goal_form', 'goal_calendly',
+        // 1.16: het dankjewelscherm per tabblad.
+        'thanks_form_image', 'thanks_form_title', 'thanks_form_text',
+        'thanks_extra_image', 'thanks_extra_title', 'thanks_extra_text',
+        'thanks_calendly_image', 'thanks_calendly_title', 'goal_extra',
     ];
 
     /** Meer dan dit is geen lijst meer maar een archief. */

@@ -50,6 +50,7 @@ final class Mymmo_Forms_Submit {
     public const HONEYPOT_FIELD = 'mymmo_forms_website';
     public const TIME_FIELD = 'mymmo_forms_t';
     public const ANCHOR_FIELD = 'mymmo_anchor';
+    public const TAB_FIELD = 'mymmo_tab';
     public static function action_url(): string { return 'https://openvme.be/wp-admin/admin-post.php'; }
     public static function action_name(): string { return 'mymmo_forms_submit'; }
     public static function time_token(): string { return '1757500000.abc123'; }
@@ -71,11 +72,20 @@ $html = (string) file_get_contents($pad);
 // voorbeeld hier niet, dan leiden we ze af uit de HTML zelf.
 $per_stap = [
     'gebouwgrootte'   => ['aantal_kavels', 'commerciele_kavels'],
-    'aantal-gebouwen' => ['aantal_gebouwen'],
+    'gebouwkenmerken' => ['gebouw_kenmerken'],
+    'huidig-beheer'   => ['huidig_beheer'],
+    'algemene-vergadering' => ['volgende_av_periode', 'volgende_av_datum', 'volgende_av_van', 'volgende_av_tot'],
 ];
 $sleutels = $per_stap[$naam] ?? [];
 if ($sleutels === []) {
+    // Een stap die haar waarde rechtstreeks op een invoerveld zet.
     preg_match_all('/data-mymmo-waarde="([a-z0-9_]+)"/', $html, $m);
+    $sleutels = array_values(array_unique($m[1] ?? []));
+}
+if ($sleutels === []) {
+    // En een stap die ze met api.zet() aflevert: die noemt haar sleutel op de
+    // buitenste wikkel, zodat je hem niet uit het script hoeft te vissen.
+    preg_match_all('/data-sleutel="([a-z0-9_]+)"/', $html, $m);
     $sleutels = array_values(array_unique($m[1] ?? []));
 }
 if ($sleutels === []) {
@@ -139,7 +149,7 @@ $form_args = [
 $stappen = [[
     'id' => $naam,
     'name' => $naam,
-    'title' => 'Grootte van het gebouw',
+    'title' => (Mymmo_Forms_Steps::example_meta($naam)['titel'] ?: 'Stap'),
     'html' => $html,
     'fields' => $sleutels,
     'nav' => Mymmo_Forms_Steps::NAV_PLUGIN,
@@ -183,5 +193,10 @@ echo '<script>(function(){var log=document.querySelector("[data-log]");function 
 echo 'var v=document.querySelectorAll(".mymmo-form-grid input[type=hidden]");var r=[];';
 echo 'for(var i=0;i<v.length;i++){if(v[i].name.charAt(0)==="_")continue;r.push(v[i].name+" = "+JSON.stringify(v[i].value));}';
 echo 'log.textContent=r.join("\n")||"(geen verborgen velden)";}';
-echo 'document.addEventListener("input",toon);document.addEventListener("click",function(){setTimeout(toon,0);});toon();})();</script>';
+echo 'document.addEventListener("input",toon);document.addEventListener("click",function(){setTimeout(toon,0);});';
+// Pas NA de reeks: mymmo-forms-steps.js oogst zijn beginwaarden op
+// DOMContentLoaded. Meteen lezen toont lege velden terwijl ze al gevuld zijn --
+// en dan lijkt er iets stuk dat het niet is.
+echo 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",function(){setTimeout(toon,0);});}else{setTimeout(toon,0);}';
+echo '})();</script>';
 echo '</body></html>';

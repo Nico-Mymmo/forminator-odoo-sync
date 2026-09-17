@@ -29,21 +29,23 @@
   --mf-radius: 10px;
   --mf-gap: 18px;
   --mf-max-width: 720px;
-  --mf-pad-x: 0px;
-  --mf-pad-y: 0px;
 
+  /* GEEN eigen opvulling. In een pagina hoort een reeks op de tekstbreedte te
+     staan, net als het formulier; in de pop-up levert het paneel ze al. Ze hier
+     ooit bij zetten betekent dat een stap verder van de rand staat dan het
+     formulier op het tabblad ernaast -- precies de fout die tot 1.15.3 in dit
+     bestand zat. */
   max-width: var(--mf-max-width);
-  padding: var(--mf-pad-y) var(--mf-pad-x);
   color: var(--mf-text);
   font-size: 16px;
   line-height: 1.5;
 }
 
-/* De wikkel van het formulier staat al in de reeks; die hoeft zijn eigen
-   breedte en opvulling niet nog eens te zetten, anders telt alles dubbel. */
+/* De wikkel van het formulier staat al in de reeks en hoeft zijn eigen breedte
+   niet nog eens te zetten -- anders staat de laatste stap smaller dan de stap
+   ervoor. Opvulling heeft hij niet meer; die staat op het paneel. */
 .mymmo-stappen .mymmo-form-wrap {
   max-width: none;
-  padding: 0;
 }
 
 .mymmo-stap:focus {
@@ -55,37 +57,98 @@
 
 /* ── Voortgang ───────────────────────────────────────────────────────────── */
 
-.mymmo-stappen-voortgang {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin: 0 0 6px;
-  padding: 0;
-  list-style: none;
-}
-
-.mymmo-stappen-bol {
-  width: 28px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--mf-border);
-  transition: background-color 0.18s ease, width 0.18s ease;
-}
-
-.mymmo-stappen-bol.is-gedaan {
-  background: var(--mf-accent);
-  opacity: 0.55;
-}
-
-.mymmo-stappen-bol.is-actief {
-  width: 44px;
-  background: var(--mf-accent);
-}
+/* Alleen de teller ("Stap 1 van 3"). De streepjesbalk die hier boven stond is
+   weg sinds 1.15.10, op vraag. mymmo-forms-steps.js zoekt nog naar
+   [data-mymmo-bol], vindt er geen en slaat die stap gewoon over. */
 
 .mymmo-stappen-teller {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   font-size: 0.82rem;
   color: var(--mf-muted);
+}
+
+/* ── De stap vult het vlak ───────────────────────────────────────────────── */
+
+/*
+ * In een PAGINA doet dit niets: de reeks groeit daar gewoon met haar inhoud mee,
+ * dus er is geen vrije ruimte om te verdelen en alles staat waar het stond.
+ *
+ * In de POP-UP heeft het paneel wel een opgelegde hoogte, en daar hoort de
+ * knoppenrij tegen de onderrand te staan in plaats van halverwege een half leeg
+ * vlak -- met de stap eronder die gewoon ophoudt. Dat is wat deze ketting doet:
+ * wikkel → stap → inhoud, elk een kolom die de ruimte van zijn ouder inneemt.
+ *
+ * flex-shrink is overal 0. Past de stap niet, dan hoort het paneel te SCROLLEN
+ * (het heeft overflow-y:auto); de inhoud samenpersen tot ze niet meer leesbaar
+ * is, is geen oplossing.
+ */
+.mymmo-stappen {
+  display: flex;
+  flex-direction: column;
+}
+
+/* :not([hidden]) is hier geen sierselector maar noodzaak: `display: none` op
+   een element met het hidden-attribuut komt uit de stylesheet van de BROWSER, en
+   elke display uit een stylesheet van de pagina wint daarvan -- ongeacht
+   specificiteit. Zonder deze uitzondering staan alle stappen tegelijk op het
+   scherm, met het formulier onder de eerste vraag. */
+.mymmo-stap:not([hidden]) {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.mymmo-stap-inhoud {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * EEN LETTERTYPE IN HET HELE VENSTER.
+ *
+ * De wikkel die een stap meebrengt zet vaak zijn eigen `font-family` -- de
+ * voorbeeldstap kwam uit een losstaande rekenmodule en had een systeemstack
+ * (`-apple-system, ... "Segoe UI", ...`) staan. Naast een formulier dat de
+ * letter van de site erft, is dat zichtbaar: op syndicoach.be stond de tekst
+ * van stap 1 in Segoe UI en die van het formulier in Rethink Sans.
+ *
+ * (0,2,0) tegen de (0,1,0) van zo'n wikkel, dus dit wint ook al staat de
+ * <style> van de stap later in het document. Alleen de BUITENSTE wikkel wordt
+ * geraakt; alles eronder erft gewoon. Wil een stap ergens echt een andere
+ * letter (een stukje code, een icoonfont), dan wint ze met twee klassen --
+ * `.sc-stap .sc-code` -- en dat is precies het soort bewuste keuze dat wel mag.
+ */
+.mymmo-stappen .mymmo-stap-inhoud > * {
+  font-family: inherit;
+}
+
+/*
+ * De wikkel die de stap ZELF meebrengt groeit mee. Daardoor kan een stap zijn
+ * bedieningselement onderaan zetten -- `margin-top: auto` op het blok dat naar
+ * beneden moet, zoals in voorbeelden/gebouwgrootte.html -- terwijl de vraag
+ * bovenaan bij de titel blijft staan.
+ *
+ * De <link>, <style> en <script> van een stap staan hier ook tussen; die zijn
+ * display:none en dus geen flexitem, ze krijgen niets. Brengt een stap meerdere
+ * ZICHTBARE blokken mee, dan verdelen die de vrije ruimte onder elkaar.
+ */
+.mymmo-stap-inhoud > * {
+  flex: 1 0 auto;
+}
+
+/* De laatste stap IS het formulier: dezelfde ketting door tot de knoppenrij,
+   zodat de verzendknop even laag staat als de "Volgende" van de stap ervoor. */
+.mymmo-stap--formulier:not([hidden]) > .mymmo-form-wrap,
+.mymmo-stap--formulier:not([hidden]) > .mymmo-form-wrap > .mymmo-form {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.mymmo-stappen .mymmo-form-actions {
+  margin-top: auto;
+  padding-top: 22px;
 }
 
 /* ── Een stap ────────────────────────────────────────────────────────────── */
@@ -94,6 +157,31 @@
   margin: 0 0 14px;
   font-size: 1.3rem;
   line-height: 1.25;
+}
+
+/* Staat er een regel uitleg onder de titel, dan hoort die bij de titel en niet
+   bij wat erna komt -- vandaar minder ruimte ertussen. Een modifier-klasse en
+   geen `:has(+ .mymmo-stap-tekst)`: die valt op een oudere browser stil weg, en
+   dan is het verschil onzichtbaar tot iemand het meldt. */
+.mymmo-stap-titel--met-tekst {
+  margin-bottom: 6px;
+}
+
+/*
+ * De regel onder de titel van een stap. Hij staat HIER en niet in de CSS van
+ * een stap, zodat elke stap dezelfde regel krijgt -- ook de laatste, die het
+ * formulier is en dus geen eigen HTML meebrengt. Dat is de hele reden dat deze
+ * klasse bestaat: stap 1 en stap 2 horen er hetzelfde uit te zien.
+ */
+.mymmo-stap-tekst {
+  margin: 0 0 14px;
+  /* Exact dezelfde maat en kleur als .mymmo-form-help in mymmo-forms.css: dit
+     is dezelfde soort zin, alleen boven een stap in plaats van onder een veld.
+     Twee maten die een paar tienden van elkaar liggen, lezen als een slordige
+     kopie -- niet als een keuze. */
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--mf-muted);
 }
 
 /* Een stap die net in beeld kwam, komt van onder. Kort: dit is navigatie, geen
@@ -126,9 +214,36 @@
     animation: none;
   }
 
-  .mymmo-stappen-bol {
-    transition: none;
-  }
+}
+
+/* ── Wat een thema aan de bediening van een stap doet ────────────────────── */
+
+/*
+ * Een blokthema styleert ELK invoerveld op de site, met een selector in deze
+ * vorm:
+ *
+ *   select, textarea,
+ *   input:not([type=checkbox], [type=submit], [type=reset], [type=button], [type=radio])
+ *
+ * Een schuifbalk staat NIET in dat rijtje uitzonderingen. Ze krijgt daardoor de
+ * opvulling en de rand van een tekstveld, en omdat alles hier border-box is
+ * wordt haar hoogte van 4px opgeblazen tot padding + rand: op syndicoach.be
+ * 20px, wat leest als een langgerekte schakelaar in plaats van als een
+ * schuifbalk. De stap zelf zet wel `height` en `appearance`, maar niet de
+ * opvulling -- die staat daar nergens, dus er valt niets te overschrijven.
+ *
+ * Dit is geen keuze van dat thema over ONZE stap; het is een regel voor de
+ * velden van de site die de onze toevallig ook raakt. Vandaar hier de reset, en
+ * niet in elke stap apart: een stap-auteur kan niet elk thema kennen.
+ * (0,2,1) tegen hun (0,1,1). Alleen wat de indeling kapotmaakt -- kleur, vorm en
+ * de knop blijven van de stap.
+ */
+.mymmo-stappen input[type="range"] {
+  padding: 0;
+  border: 0;
+  /* Een thema zet vaak `margin: 0 0 1em` op elk veld. De stap bepaalt zelf
+     hoeveel ruimte er onder haar schuifbalk hoort. */
+  margin-block-end: 0;
 }
 
 /* ── De knoppenrij ───────────────────────────────────────────────────────── */
@@ -139,7 +254,11 @@
   /* De eerste stap heeft geen "Vorige"; dan hoort "Volgende" nog steeds rechts
      te staan, op dezelfde plek als in elke volgende stap. */
   justify-content: flex-end;
-  margin-top: 22px;
+  /* `auto` duwt de rij naar de onderrand van de stap; de padding houdt de
+     afstand tot de inhoud als er niets te verdelen valt (een laag venster, of
+     een stap in een pagina). */
+  margin-top: auto;
+  padding-top: 22px;
 }
 
 .mymmo-stap-knop {

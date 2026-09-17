@@ -88,7 +88,7 @@ $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
 ?>
 <div class="mymmo-form-wrap"
      id="<?php echo esc_attr($form_id_attr); ?>"
-     data-mymmo-slug="<?php echo esc_attr($slug); ?>"<?php echo (isset($goal) && is_string($goal) && $goal !== '') ? ' data-mymmo-doel="' . esc_attr($goal) . '"' : ''; ?>
+     data-mymmo-slug="<?php echo esc_attr($slug); ?>"<?php echo (isset($goal) && is_string($goal) && $goal !== '') ? ' data-mymmo-doel="' . esc_attr($goal) . '"' : ''; ?><?php echo (isset($tab) && is_string($tab) && $tab !== '') ? ' data-mymmo-tabblad="' . esc_attr($tab) . '"' : ''; ?>
      lang="<?php echo esc_attr($lang); ?>"<?php echo $stijl !== '' ? ' style="' . esc_attr($stijl) . '"' : ''; ?>>
 
     <?php if (is_array($flash)) : ?>
@@ -110,6 +110,14 @@ $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
                 Let op: dit formulier komt uit de lokale cache — de Operations Manager was niet bereikbaar.
             </div>
         <?php endif; ?>
+
+        <?php
+        // De kop van de pop-up (mymmo_forms_form_kop), al ge-escaped. Binnen de
+        // wikkel, zodat hij dezelfde letter en kleuren krijgt als de velden.
+        if (isset($kop_html) && is_string($kop_html) && $kop_html !== '') {
+            echo $kop_html; // phpcs:ignore WordPress.Security.EscapeOutput -- opgebouwd met esc_html()
+        }
+        ?>
 
         <?php if ($show_title && $titel !== '') : ?>
             <h2 class="mymmo-form-title"><?php echo esc_html($titel); ?></h2>
@@ -145,6 +153,9 @@ $knop  = Mymmo_Forms_I18n::text($form, $lang, 'submit_label');
             if (isset($anchor) && is_string($anchor) && $anchor !== '') :
                 ?>
                 <input type="hidden" name="<?php echo esc_attr(Mymmo_Forms_Submit::ANCHOR_FIELD); ?>" value="<?php echo esc_attr($anchor); ?>">
+            <?php endif; ?>
+            <?php if (isset($tab) && is_string($tab) && $tab !== '') : ?>
+                <input type="hidden" name="<?php echo esc_attr(Mymmo_Forms_Submit::TAB_FIELD); ?>" value="<?php echo esc_attr($tab); ?>">
             <?php endif; ?>
             <input type="hidden" name="mymmo_page_title" value="<?php echo esc_attr(wp_get_document_title()); ?>">
             <input type="hidden" name="<?php echo esc_attr(Mymmo_Forms_Submit::TIME_FIELD); ?>" value="<?php echo esc_attr(Mymmo_Forms_Submit::time_token()); ?>">

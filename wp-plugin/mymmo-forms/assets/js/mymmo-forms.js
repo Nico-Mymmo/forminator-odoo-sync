@@ -193,6 +193,20 @@
       }
 
       bezig = true;
+
+      // In de pop-up: versturen zonder de pagina te herladen, en meteen het
+      // dankjewelscherm van dit tabblad tonen. Zie verstuurInVenster().
+      if (kanInVenster(form)) {
+        event.preventDefault();
+        verstuurInVenster(form, knop, t, function () {
+          bezig = false;
+          if (knop) {
+            knop.removeAttribute('aria-disabled');
+            if (knop.dataset.mymmoLabel) knop.textContent = knop.dataset.mymmoLabel;
+          }
+        });
+      }
+
       if (knop) {
         // aria-disabled en niet disabled: een echt uitgeschakelde knop wordt
         // door de browser niet meegestuurd, en dan mist de POST zijn naam.
@@ -212,6 +226,107 @@
         }
       }, 10000);
     });
+  }
+
+  /**
+   * Een formulier in een tabblad van de pop-up, met een dankjewelscherm klaar?
+   *
+   * Alleen dan versturen we met fetch(). Een formulier gewoon in een pagina
+   * blijft de klassieke POST met redirect doen: daar is geen venster dat kan
+   * flitsen, en die weg werkt ook zonder JavaScript.
+   */
+  function kanInVenster(form) {
+    if (!window.fetch || !window.FormData || !form.closest) return false;
+    var paneel = form.closest('[data-mymmo-paneel]');
+    return !!(paneel && paneel.querySelector('[data-mymmo-dank-scherm]'));
+  }
+
+  /**
+   * Versturen zonder de pagina te herladen.
+   *
+   * WAAROM. De klassieke weg (POST, redirect, pagina opnieuw laden, venster
+   * weer openen) gaf een zichtbare flits: het venster ging dicht, de pagina
+   * laadde, en het venster sprong weer open op het dankjewelscherm. De server
+   * doet exact dezelfde controles en dezelfde inzending; alleen het antwoord is
+   * JSON in plaats van een redirect (`mymmo_ajax=1`, zie class-submit.php).
+   *
+   * Loopt het mis, dan blijft het formulier met alles erin staan, met de
+   * foutmelding erboven -- zoals na een klassieke mislukte inzending.
+   */
+  function verstuurInVenster(form, knop, t, herstel) {
+    var data = new FormData(form);
+    data.append('mymmo_ajax', '1');
+
+    fetch(form.getAttribute('action') || form.action, {
+      method: 'POST',
+      body: data,
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' }
+    }).then(function (antwoord) {
+      var type = antwoord.headers.get('content-type') || '';
+      if (type.indexOf('json') === -1) {
+        // Geen JSON terug: de server kende mymmo_ajax niet (oudere PHP met
+        // nieuwere JavaScript uit een cache) en deed de gewone redirect. Die
+        // inzending is dan al gebeurd -- NIET opnieuw versturen, maar de pagina
+        // volgen waar de server heen stuurde.
+        if (antwoord.redirected && antwoord.url) {
+          window.location.href = antwoord.url;
+          return null;
+        }
+        throw new Error('geen json');
+      }
+      return antwoord.json();
+    }).then(function (uitkomst) {
+      if (uitkomst === null) return;
+      if (uitkomst && uitkomst.redirect) {
+        window.location.href = uitkomst.redirect;
+        return;
+      }
+      if (uitkomst && uitkomst.ok) {
+        toonDankInVenster(form);
+        return;
+      }
+      toonFoutInVenster(form, (uitkomst && uitkomst.message) || t.unavailable || 'Er ging iets mis. Probeer het opnieuw.');
+      herstel();
+    }).catch(function () {
+      toonFoutInVenster(form, t.unavailable || 'Er ging iets mis. Probeer het opnieuw.');
+      herstel();
+    });
+  }
+
+  function toonDankInVenster(form) {
+    var paneel = form.closest('[data-mymmo-paneel]');
+    var scherm = paneel ? paneel.querySelector('[data-mymmo-dank-scherm]') : null;
+    var wikkel = form.closest('.mymmo-form-wrap');
+    if (!paneel || !scherm) return;
+
+    // Wat er in het paneel stond (het formulier, of de hele stappenreeks) gaat
+    // weg; het scherm komt in de plaats. De wikkel blijft in de DOM staan: die
+    // draagt de slug, het doel en het tabblad voor de conversie.
+    var inhoud = form.closest('.mymmo-stappen') || wikkel;
+    if (inhoud) inhoud.style.display = 'none';
+
+    scherm.hidden = false;
+    scherm.setAttribute('role', 'status');
+    scherm.setAttribute('tabindex', '-1');
+    if (typeof paneel.scrollTop === 'number') paneel.scrollTop = 0;
+    scherm.focus({ preventScroll: true });
+
+    meldVerstuurd(wikkel);
+  }
+
+  function toonFoutInVenster(form, bericht) {
+    var wikkel = form.closest('.mymmo-form-wrap') || form.parentNode;
+    var melding = wikkel.querySelector('.mymmo-form-notice--error');
+    if (!melding) {
+      melding = document.createElement('div');
+      melding.className = 'mymmo-form-notice mymmo-form-notice--error';
+      melding.setAttribute('role', 'alert');
+      melding.setAttribute('tabindex', '-1');
+      wikkel.insertBefore(melding, wikkel.firstChild);
+    }
+    melding.textContent = bericht;
+    melding.focus({ preventScroll: true });
   }
 
   function focusMelding() {
@@ -270,11 +385,19 @@
    * mymmo-forms-modal.js): dataLayer voor GTM, CustomEvent voor de rest.
    */
   function meldGeslaagdeInzending() {
-    var bevestigingen = document.querySelectorAll('.mymmo-form-notice--success');
+    // De melding van een formulier in een pagina, of het dankjewelscherm van
+    // een tabblad in de pop-up (1.16). Allebei betekenen: verstuurd.
+    var bevestigingen = document.querySelectorAll('.mymmo-form-notice--success, [data-mymmo-geslaagd]');
 
     for (var i = 0; i < bevestigingen.length; i += 1) {
-      var wikkel = bevestigingen[i].closest('.mymmo-form-wrap');
-      if (!wikkel || wikkel.getAttribute('data-mymmo-gemeld') === '1') continue;
+      meldVerstuurd(bevestigingen[i].closest('.mymmo-form-wrap'));
+    }
+  }
+
+  /** De conversie van EEN formulier melden; de wikkel draagt slug, doel en tabblad. */
+  function meldVerstuurd(wikkel) {
+    {
+      if (!wikkel || wikkel.getAttribute('data-mymmo-gemeld') === '1') return;
       wikkel.setAttribute('data-mymmo-gemeld', '1');
 
       var doel = wikkel.getAttribute('data-mymmo-doel') || '';
@@ -282,7 +405,10 @@
         event: 'mymmo_formulier_verstuurd',
         mymmo_soort: 'formulier_verstuurd',
         mymmo_formulier: wikkel.getAttribute('data-mymmo-slug') || '',
-        mymmo_doel: doel
+        mymmo_doel: doel,
+        // Welk tabblad van de pop-up: 'form' of 'extra'. Leeg voor een
+        // formulier gewoon in een pagina. Zo is in GA per tabblad te meten.
+        mymmo_tabblad: wikkel.getAttribute('data-mymmo-tabblad') || ''
       };
       if (doel) gegevens.page_path = doel;
 

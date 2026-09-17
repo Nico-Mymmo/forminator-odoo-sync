@@ -108,7 +108,7 @@ if (!defined('MYMMO_FORMS_STAPPEN_BRUG')) {
         <style>
             #<?php echo esc_html($wrap_id); ?> [data-mymmo-stap] { display: block !important; }
             #<?php echo esc_html($wrap_id); ?> [data-mymmo-stap].mymmo-stap--html { display: none !important; }
-            #<?php echo esc_html($wrap_id); ?> .mymmo-stappen-voortgang,
+            #<?php echo esc_html($wrap_id); ?> .mymmo-stappen-teller,
             #<?php echo esc_html($wrap_id); ?> .mymmo-stap-nav { display: none !important; }
         </style>
     </noscript>
@@ -129,18 +129,6 @@ if (!defined('MYMMO_FORMS_STAPPEN_BRUG')) {
         </div>
     <?php endif; ?>
 
-    <?php
-    // De voortgang is aria-hidden: voor een schermlezer staat "Stap 2 van 4"
-    // hieronder al in woorden, en dat is bruikbaarder dan vier naamloze
-    // bolletjes. De <ol> is er puur om te kijken.
-    ?>
-    <ol class="mymmo-stappen-voortgang" data-mymmo-voortgang aria-hidden="true">
-        <?php for ($i = 0; $i < $totaal; $i += 1) : ?>
-            <li class="mymmo-stappen-bol<?php echo $i === $start ? ' is-actief' : ($i < $start ? ' is-gedaan' : ''); ?>"
-                data-mymmo-bol="<?php echo esc_attr((string) $i); ?>"></li>
-        <?php endfor; ?>
-    </ol>
-
     <p class="mymmo-stappen-teller" data-mymmo-teller aria-live="polite">
         <?php echo esc_html($teller_tekst($start + 1, $totaal)); ?>
     </p>
@@ -156,8 +144,14 @@ if (!defined('MYMMO_FORMS_STAPPEN_BRUG')) {
                  data-mymmo-stap-nav="<?php echo esc_attr($zelf ? 'zelf' : 'plugin'); ?>"
                  <?php echo $index === $start ? '' : 'hidden'; ?>>
 
+            <?php $stap_sub = (string) ($stap['sub'] ?? ''); ?>
             <?php if (($stap['title'] ?? '') !== '') : ?>
-                <h3 class="mymmo-stap-titel"><?php echo esc_html((string) $stap['title']); ?></h3>
+                <h3 class="mymmo-stap-titel<?php echo $stap_sub !== '' ? ' mymmo-stap-titel--met-tekst' : ''; ?>"
+                    data-mymmo-kop="titel"><?php echo esc_html((string) $stap['title']); ?></h3>
+            <?php endif; ?>
+
+            <?php if ($stap_sub !== '') : ?>
+                <p class="mymmo-stap-tekst" data-mymmo-kop="sub"><?php echo esc_html($stap_sub); ?></p>
             <?php endif; ?>
 
             <div class="mymmo-stap-inhoud" data-mymmo-stap-inhoud>
@@ -165,7 +159,12 @@ if (!defined('MYMMO_FORMS_STAPPEN_BRUG')) {
                 // Bewust ongefilterd. Dit is de hele reden dat deze pagina achter
                 // `unfiltered_html` zit: wat hier staat is door een beheerder
                 // geschreven, net als een Custom HTML-blok in een pagina.
-                echo $stap['html']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                //
+                // render_html() en niet $stap['html']: dat past de tekst-
+                // aanpassingen toe die iemand in het voorbeeld van de bouwer
+                // maakte. Ze staan apart van de HTML bewaard, zodat het opnieuw
+                // inladen van het bestand ze niet wist.
+                echo Mymmo_Forms_Steps::render_html($stap); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
                 ?>
             </div>
 
@@ -194,12 +193,28 @@ if (!defined('MYMMO_FORMS_STAPPEN_BRUG')) {
              data-mymmo-stap="<?php echo esc_attr((string) count($stappen)); ?>"
              data-mymmo-stap-naam="formulier"
              <?php echo count($stappen) === $start ? '' : 'hidden'; ?>>
+
+        <?php
+        // De laatste stap IS het formulier en heeft dus geen stap-record met
+        // een titel erin. Zonder kop begint stap 2 abrupt met een invoerveld
+        // terwijl stap 1 een titel en een regel uitleg had. Dezelfde kop als op
+        // een tabblad zonder stappen: zie mymmo_forms_form_kop() -- de shortcode
+        // wint, anders de naam en de inleiding uit de OM.
+        $kop_html = is_array($form) ? mymmo_forms_form_kop($form, array_merge($form_args, ['lang' => $lang])) : '';
+        echo $kop_html; // phpcs:ignore WordPress.Security.EscapeOutput -- opgebouwd met esc_html()
+        ?>
+
         <?php
         // De "Vorige" van de laatste stap gaat MEE in het formulier, naast de
         // verzendknop. Een eigen knoppenrij eronder zou twee rijen knoppen
         // geven waarvan de onderste de belangrijkste niet is.
         echo mymmo_forms_render('form', array_merge($form_args, [
             'step_back' => count($stappen) > 0 ? $terug_label : '',
+            // De kop staat hierboven al als stap-titel en regel uitleg; het
+            // formulier mag ze niet nog eens tonen.
+            'show_title' => $kop_html === '' ? ($form_args['show_title'] ?? true) : false,
+            'show_intro' => $kop_html === '' ? ($form_args['show_intro'] ?? null) : false,
+            'kop_html'   => '',
         ]));
         ?>
     </section>

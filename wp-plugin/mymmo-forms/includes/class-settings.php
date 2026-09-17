@@ -171,10 +171,13 @@ final class Mymmo_Forms_Settings {
         // voorbeelden/ en zijn dus niet door een gebruiker aan te passen.
         $voorbeelden = [];
         foreach (Mymmo_Forms_Steps::examples() as $bestand => $naam) {
+            $meta = Mymmo_Forms_Steps::example_meta($bestand);
             $voorbeelden[] = [
-                'id'   => $bestand,
-                'naam' => $naam,
-                'html' => Mymmo_Forms_Steps::example_html($bestand),
+                'id'     => $bestand,
+                'naam'   => $naam,
+                'html'   => Mymmo_Forms_Steps::example_html($bestand),
+                'titel'  => $meta['titel'],
+                'velden' => $meta['velden'],
             ];
         }
 
@@ -333,6 +336,18 @@ final class Mymmo_Forms_Settings {
                     </td>
                 </tr>
                 <tr>
+                    <th scope="row"><label for="mymmoStapSub">Regel onder de titel</label></th>
+                    <td>
+                        <input type="text" class="regular-text" id="mymmoStapSub" name="mymmo_step_sub"
+                               value="<?php echo esc_attr($huidig ? (string) $huidig['sub'] : ''); ?>">
+                        <p class="description">
+                            Optioneel, en alleen zinvol als er hierboven een titel staat. Dezelfde plek en
+                            dezelfde stijl als de regel onder de titel van het formulier (de laatste stap),
+                            zodat alle stappen er hetzelfde uitzien.
+                        </p>
+                    </td>
+                </tr>
+                <tr>
                     <th scope="row"><label for="mymmoStapVelden">Levert deze sleutels</label></th>
                     <td>
                         <input type="text" class="regular-text code" id="mymmoStapVelden" name="mymmo_step_fields"
@@ -401,6 +416,40 @@ final class Mymmo_Forms_Settings {
             <?php submit_button($huidig ? 'Stap bewaren' : 'Stap aanmaken'); ?>
         </form>
 
+        <?php if ($huidig && (array) $huidig['teksten'] !== []) : ?>
+            <hr style="margin:26px 0;">
+            <h2>Aangepaste teksten</h2>
+            <p class="description" style="max-width:640px;">
+                Dit zijn de zinnen die iemand in het voorbeeld van de bouwer heeft aangepast. Ze staan
+                <strong>naast</strong> de HTML hierboven, niet erin — laad je de code opnieuw in, dan
+                grijpen ze gewoon weer. Ze horen bij de stap, dus ze gelden in elk formulier waar deze
+                stap in staat. Wijzigt het origineel in de HTML, dan valt de aanpassing vanzelf weg.
+            </p>
+            <table class="widefat striped" style="max-width:900px;">
+                <thead>
+                    <tr><th style="width:50%;">In de code staat</th><th>Er wordt getoond</th></tr>
+                </thead>
+                <tbody>
+                    <?php foreach ((array) $huidig['teksten'] as $origineel => $nieuw) : ?>
+                        <tr>
+                            <td><code><?php echo esc_html((string) $origineel); ?></code></td>
+                            <td><?php echo esc_html((string) $nieuw); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p>
+                <form method="post"
+                      action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+                      data-mymmo-bevestig="Alle aangepaste teksten van deze stap weghalen? De zinnen uit de code komen dan terug.">
+                    <?php wp_nonce_field('mymmo_forms_step_teksten_leeg'); ?>
+                    <input type="hidden" name="action" value="mymmo_forms_step_teksten_leeg">
+                    <input type="hidden" name="mymmo_step_id" value="<?php echo esc_attr((string) $huidig['id']); ?>">
+                    <button type="submit" class="button">Aangepaste teksten weghalen</button>
+                </form>
+            </p>
+        <?php endif; ?>
+
         <?php self::render_stappen_hulp(); ?>
         <?php
     }
@@ -436,6 +485,76 @@ final class Mymmo_Forms_Settings {
      * Deze uitleg staat hier en niet alleen in de README: wie een stap schrijft,
      * zit op dit scherm. Een contract dat je moet gaan opzoeken, wordt geraden.
      */
+    /**
+     * De kiezer voor een stappenREEKS: meerdere stappen, in een volgorde.
+     *
+     * Waarom geen <select multiple> en geen keuzelijst met komma's: een reeks is
+     * geordend. `steps="a,b"` en `steps="b,a"` zijn twee verschillende
+     * formulieren, en dat is precies wat een meervoudige keuzelijst NIET kan
+     * uitdrukken -- die geeft je de volgorde van de opties terug, niet die van
+     * je keuzes. Tot 1.15.9 stond hier één gewone dropdown met de hint "meerdere
+     * reeksen? Typ ze met een komma in de shortcode": de bouwer kon dus niet wat
+     * de shortcode wel kon, en wie het toch probeerde moest de namen uit het
+     * hoofd kennen.
+     *
+     * De opslag blijft een KOMMA-GESCHEIDEN STRING in een verborgen veld met
+     * hetzelfde id als vroeger. Zo blijven `waardeVan()`, `zetVeld()` en de
+     * luisteraars in mymmo-forms-admin.js ongewijzigd werken, en blijft de
+     * shortcode hetzelfde. De <ul> eronder is enkel de weergave; de waarheid
+     * staat in dat ene veld.
+     *
+     * @param array<string,array<string,mixed>> $stappen_lijst
+     */
+    private static function render_stap_kiezer(string $veld_id, string $kop, string $hint, array $stappen_lijst): void {
+        ?>
+        <div class="mymmo-veld">
+            <span class="mymmo-veld-kop"><?php echo esc_html($kop); ?></span>
+            <span class="mymmo-hint"><?php echo esc_html($hint); ?></span>
+
+            <?php if ($stappen_lijst === []) : ?>
+                <span class="mymmo-hint">
+                    Er zijn nog geen stappen. Maak er een bij
+                    <a href="<?php echo esc_url(admin_url('options-general.php?page=mymmo-forms&tab=stappen')); ?>">Stappen</a>.
+                </span>
+            <?php else : ?>
+                <?php
+                // De lijst wordt door JavaScript gevuld uit het verborgen veld.
+                // Zonder JS blijft het veld zelf zichtbaar (zie hieronder), dus
+                // de pagina is dan nog steeds te gebruiken.
+                ?>
+                <ul class="mymmo-volgorde mymmo-stapkiezer"
+                    data-mymmo-stapkiezer="<?php echo esc_attr($veld_id); ?>"></ul>
+
+                <p class="mymmo-stapkiezer-leeg" data-mymmo-stapkiezer-leeg="<?php echo esc_attr($veld_id); ?>">
+                    Nog geen stappen gekozen — de bezoeker krijgt meteen het formulier.
+                </p>
+
+                <div class="mymmo-stapkiezer-toevoegen">
+                    <select data-mymmo-stapkies="<?php echo esc_attr($veld_id); ?>" aria-label="<?php echo esc_attr($kop); ?>: stap toevoegen">
+                        <option value="">&mdash; stap toevoegen &mdash;</option>
+                        <?php foreach ($stappen_lijst as $sid => $stap) : ?>
+                            <option value="<?php echo esc_attr((string) $sid); ?>">
+                                <?php echo esc_html((string) ($stap['name'] ?? $sid)); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            <?php endif; ?>
+
+            <?php
+            // Het echte veld. `hidden` zodra er een kiezer boven staat; zonder
+            // stappen op de site blijft het een gewoon tekstveld, zodat je een
+            // reeks van een andere site alsnog kan overtypen.
+            ?>
+            <input type="<?php echo $stappen_lijst === [] ? 'text' : 'hidden'; ?>"
+                   id="<?php echo esc_attr($veld_id); ?>"
+                   class="mymmo-stapkiezer-veld"
+                   value=""
+                   placeholder="stap-een, stap-twee">
+        </div>
+        <?php
+    }
+
     private static function render_stappen_hulp(): void {
         ?>
         <hr style="margin:30px 0 20px;">
@@ -693,6 +812,10 @@ final class Mymmo_Forms_Settings {
         if (!is_array($afspraken)) {
             $afspraken = [];
         }
+
+        // De stappenreeksen die op deze site bestaan. Uit de option, niet uit de
+        // Operations Manager: de HTML van een stap woont in WordPress.
+        $stappen_lijst = class_exists('Mymmo_Forms_Steps') ? Mymmo_Forms_Steps::all() : [];
         ?>
 
         <?php if (!empty($_GET['mymmo_reloaded'])) : ?>
@@ -891,16 +1014,13 @@ final class Mymmo_Forms_Settings {
                     <span class="mymmo-canvas-hint">Klik op een tekst in het venster en typ erin.</span>
                     <span class="mymmo-canvas-spacer"></span>
                     <?php
-                    // De opvulling hoort bij het voorbeeld en niet bij een
-                    // tabel eronder: je stelt ze in terwijl je ziet wat ze doet.
-                    // De tekstvelden verderop blijven bestaan voor wie een
-                    // exacte waarde wil typen (1.5rem, 4%).
+                    // Enkel nog de ruimte TUSSEN de velden. De ruimte tot de
+                    // rand van het venster staat vast (zie mymmo-forms-modal.css)
+                    // -- ze was instelbaar, maar telde bij een stappenreeks op
+                    // bij de opvulling van het paneel en bij een formulier niet,
+                    // dus stond dezelfde inhoud per tabblad anders.
                     ?>
                     <span class="mymmo-canvas-ruimte">
-                        <label for="mymmoCanvasPadX" title="Ruimte links en rechts">↔</label>
-                        <input type="number" id="mymmoCanvasPadX" min="0" max="120" step="2">
-                        <label for="mymmoCanvasPadY" title="Ruimte boven en onder">↕</label>
-                        <input type="number" id="mymmoCanvasPadY" min="0" max="120" step="2">
                         <label for="mymmoCanvasGap" title="Ruimte tussen de velden">⇳</label>
                         <input type="number" id="mymmoCanvasGap" min="0" max="60" step="2">
                     </span>
@@ -908,6 +1028,25 @@ final class Mymmo_Forms_Settings {
                             data-mymmo-device="desktop" aria-pressed="true">Desktop</button>
                     <button type="button" class="button button-small"
                             data-mymmo-device="mobiel" aria-pressed="false">Telefoon</button>
+                    <?php
+                    // De tekening staat in de bouwer VOORAAN, anders kan je ze
+                    // niet aanwijzen om ze te verplaatsen. Op een pagina staat
+                    // ze achter alles. Dat verschil is precies het soort ding
+                    // waarvan je pas op de site merkt dat het anders is, dus
+                    // hoort het hier omschakelbaar te zijn.
+                    ?>
+                    <button type="button" class="button button-small"
+                            data-mymmo-figuur-laag aria-pressed="false"
+                            title="De tekening staat vooraan zodat je ze kan vastpakken. Zet ze achteraan om te zien wat een bezoeker ziet."
+                            >Tekening achteraan</button>
+                    <?php
+                    // Het dankjewelscherm van het open tabblad in plaats van
+                    // het formulier. In het voorbeeld typ je er meteen in.
+                    ?>
+                    <button type="button" class="button button-small"
+                            data-mymmo-dank-toon aria-pressed="false"
+                            title="Toon het scherm dat een bezoeker ziet na het versturen, voor het tabblad dat openstaat."
+                            >Dankjewelscherm</button>
                     <?php
                     // De schaal erbij, want het voorbeeld wordt verkleind om
                     // naast de instellingen te passen. Zonder dit cijfer denk je
@@ -966,6 +1105,34 @@ final class Mymmo_Forms_Settings {
                                 <input type="checkbox" id="mymmoFormsTitle" checked>
                                 Titel tonen
                             </label>
+                        </div>
+
+                        <?php
+                        // De stappen vóór HET formulier. Die stonden tot 1.15.9
+                        // helemaal niet in de bouwer -- je kon ze alleen in de
+                        // shortcode typen, en dan wist niemand welke namen er
+                        // bestonden.
+                        self::render_stap_kiezer(
+                            'mymmoFormsSteps',
+                            'Stappen vóór het formulier',
+                            'De vragen die de bezoeker krijgt voordat hij zijn gegevens invult. De volgorde hier is de volgorde die hij ziet.',
+                            $stappen_lijst
+                        );
+                        ?>
+
+                        <div class="mymmo-veld" data-mymmo-canvas="1">
+                            <span class="mymmo-veld-kop">Boven het formulier</span>
+                            <span class="mymmo-hint">De kop boven het formulier: bij stappen is dit de
+                                kop van de laatste stap. Leeg laten = de titel en de inleiding van het
+                                formulier uit de OM. Klik ze ook gewoon aan in het voorbeeld.</span>
+                            <label class="mymmo-keuze" for="mymmoFormsFormHeading">
+                                <input type="checkbox" id="mymmoFormsFormHeading" checked>
+                                Ook tonen boven een formulier zonder stappen (zoals "Stuur een bericht")
+                            </label>
+                            <label for="mymmoFormsFormTitle">Titel
+                                <input type="text" id="mymmoFormsFormTitle" placeholder="Uit de OM"></label>
+                            <label for="mymmoFormsFormSub">Regel eronder
+                                <input type="text" id="mymmoFormsFormSub" placeholder="Uit de OM"></label>
                         </div>
                     </div>
                 </details>
@@ -1071,6 +1238,77 @@ final class Mymmo_Forms_Settings {
                             <input type="text" id="mymmoFormsTabCalendlySub" placeholder="regeltje eronder">
                         </div>
 
+                        <?php
+                        // -- Het derde tabblad ------------------------------
+                        // Een tweede formulier in hetzelfde venster, met een
+                        // stappenreeks ervoor. Het bestaat pas zodra je hier een
+                        // formulier of een reeks kiest; tot dan verandert er
+                        // niets aan het venster.
+                        ?>
+                        <?php
+                        self::render_stap_kiezer(
+                            'mymmoFormsExtraSteps',
+                            'Derde tabblad: stappen',
+                            'De reeks die vóór het formulier van het derde tabblad komt. Leeg = geen derde tabblad (tenzij je hieronder een apart formulier kiest).',
+                            $stappen_lijst
+                        );
+                        ?>
+
+                        <div class="mymmo-veld">
+                            <label for="mymmoFormsExtraSlug">Derde tabblad: welk formulier</label>
+                            <select id="mymmoFormsExtraSlug">
+                                <option value="">&mdash; hetzelfde formulier &mdash;</option>
+                                <?php foreach (($formulieren ?: []) as $f) : ?>
+                                    <option value="<?php echo esc_attr((string) ($f['slug'] ?? '')); ?>">
+                                        <?php echo esc_html((string) ($f['name'] ?? $f['slug'] ?? '')); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <span class="mymmo-hint">
+                                De stappen zetten hun antwoorden in de VERBORGEN velden van dit formulier.
+                            </span>
+                        </div>
+
+                        <div class="mymmo-veld" data-mymmo-canvas="1">
+                            <span class="mymmo-veld-kop">Opschrift van het derde tabblad</span>
+                            <input type="text" id="mymmoFormsTabExtra" placeholder="leeg = de naam van het formulier">
+                            <input type="text" id="mymmoFormsTabExtraSub" placeholder="regeltje eronder">
+                        </div>
+
+                        <?php
+                        // -- De volgorde ------------------------------------
+                        // Alle drie staan er altijd in, ook wat er (nog) niet
+                        // is: de lijst zou anders bij elke wijziging elders
+                        // opnieuw opgebouwd moeten worden, en een tabblad dat je
+                        // net aanzet zou dan achteraan belanden zonder dat je
+                        // het ziet. Wat niet bestaat wordt gewoon overgeslagen
+                        // bij het renderen -- zie Shortcodes::tab_order().
+                        ?>
+                        <div class="mymmo-veld">
+                            <span class="mymmo-veld-kop">Volgorde van de tabbladen</span>
+                            <ul class="mymmo-volgorde" data-mymmo-taborder>
+                                <?php
+                                $volgorde_namen = [
+                                    'form'     => 'Formulier',
+                                    'extra'    => 'Derde tabblad',
+                                    'calendly' => 'Agenda',
+                                ];
+                                foreach ($volgorde_namen as $tid => $tnaam) :
+                                    ?>
+                                    <li data-tab="<?php echo esc_attr($tid); ?>">
+                                        <span><?php echo esc_html($tnaam); ?></span>
+                                        <button type="button" class="button button-small"
+                                                data-mymmo-taborder-op aria-label="Naar boven">&uarr;</button>
+                                        <button type="button" class="button button-small"
+                                                data-mymmo-taborder-neer aria-label="Naar onder">&darr;</button>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                            <span class="mymmo-hint">
+                                Tabbladen die er niet zijn, worden overgeslagen.
+                            </span>
+                        </div>
+
                         <div class="mymmo-veld">
                             <label class="mymmo-keuze" for="mymmoFormsBgAan">
                                 <input type="checkbox" id="mymmoFormsBgAan">
@@ -1090,12 +1328,9 @@ final class Mymmo_Forms_Settings {
 
                         <div class="mymmo-veld">
                             <span class="mymmo-veld-kop">Ruimte</span>
-                            <span class="mymmo-hint">Sneller met de schuifjes bij het voorbeeld.</span>
+                            <span class="mymmo-hint">De ruimte tussen de velden. De ruimte tot de rand
+                                van het venster staat vast en is voor elk tabblad dezelfde.</span>
                             <div class="mymmo-drie">
-                                <label for="mymmoFormsPadX">links/rechts
-                                    <input type="text" id="mymmoFormsPadX" placeholder="28px"></label>
-                                <label for="mymmoFormsPadY">boven/onder
-                                    <input type="text" id="mymmoFormsPadY" placeholder="28px"></label>
                                 <label for="mymmoFormsGap">tussen velden
                                     <input type="text" id="mymmoFormsGap" placeholder="18px"></label>
                             </div>
@@ -1186,15 +1421,50 @@ final class Mymmo_Forms_Settings {
                 <details class="mymmo-groep">
                     <summary>Na het versturen</summary>
                     <div class="mymmo-groep-lijf">
+                        <span class="mymmo-hint" data-mymmo-alleen="knop" hidden>
+                            Elk tabblad heeft zijn eigen dankjewelscherm. Zet
+                            <strong>Dankjewelscherm</strong> aan boven het voorbeeld en typ de
+                            titel en de tekst er rechtstreeks in; klik op het vinkje of de
+                            afbeelding om een afbeelding te kiezen. Een lege tekst is de
+                            bedanktekst uit de OM.
+                        </span>
+
+                        <?php
+                        // Per tabblad dezelfde drie velden. De tekst van het
+                        // gesprek-tabblad heet sinds voor 1.16 `thanks_calendly`
+                        // en houdt die naam: bestaande shortcodes blijven werken.
+                        foreach ([
+                            ['Form', 'formulier', 'mymmoFormsThanksFormText'],
+                            ['Extra', 'derde tabblad', 'mymmoFormsThanksExtraText'],
+                            ['Calendly', 'gesprek', 'mymmoFormsThanksCalendly'],
+                        ] as [$sleutel, $naam, $tekst_id]) :
+                            $beeld_id = 'mymmoFormsThanks' . $sleutel . 'Image';
+                            $titel_id = 'mymmoFormsThanks' . $sleutel . 'Title';
+                            ?>
                         <div class="mymmo-veld" data-mymmo-alleen="knop" hidden>
-                            <label for="mymmoFormsThanksCalendly">Tekst na een geboekt gesprek</label>
-                            <input type="text" id="mymmoFormsThanksCalendly"
-                                   placeholder="Je gesprek staat ingepland.">
+                            <label for="<?php echo esc_attr($beeld_id); ?>">Dankjewelscherm — <?php echo esc_html($naam); ?>: afbeelding</label>
+                            <input type="url" id="<?php echo esc_attr($beeld_id); ?>" class="code" placeholder="leeg = een vinkje">
+                            <span class="mymmo-knoppen">
+                                <button type="button" class="button button-small" data-mymmo-media="<?php echo esc_attr($beeld_id); ?>" hidden>Kiezen</button>
+                                <button type="button" class="button button-small" data-mymmo-media-wis="<?php echo esc_attr($beeld_id); ?>" hidden>Weghalen</button>
+                            </span>
                         </div>
+                        <div class="mymmo-veld" data-mymmo-alleen="knop" data-mymmo-canvas="1" hidden>
+                            <label for="<?php echo esc_attr($titel_id); ?>">Dankjewelscherm — <?php echo esc_html($naam); ?>: titel</label>
+                            <input type="text" id="<?php echo esc_attr($titel_id); ?>" placeholder="Bedankt!">
+                            <label for="<?php echo esc_attr($tekst_id); ?>">tekst</label>
+                            <input type="text" id="<?php echo esc_attr($tekst_id); ?>" placeholder="leeg = de bedanktekst uit de OM">
+                        </div>
+                        <?php endforeach; ?>
 
                         <div class="mymmo-veld">
                             <label for="mymmoFormsGoalForm">Conversiepad — formulier</label>
                             <input type="text" id="mymmoFormsGoalForm" class="code" placeholder="/bedankt/offerte">
+                        </div>
+
+                        <div class="mymmo-veld" data-mymmo-alleen="knop" hidden>
+                            <label for="mymmoFormsGoalExtra">Conversiepad — derde tabblad</label>
+                            <input type="text" id="mymmoFormsGoalExtra" class="code" placeholder="leeg = dat van het formulier">
                         </div>
 
                         <div class="mymmo-veld" data-mymmo-alleen="knop" hidden>
@@ -1204,7 +1474,9 @@ final class Mymmo_Forms_Settings {
 
                         <span class="mymmo-hint">
                             Het pad dat vroeger je bedankpagina was. Gaat als <code>page_path</code> naar de
-                            dataLayer, voor een virtuele pageview in GTM.
+                            dataLayer, voor een virtuele pageview in GTM, op het moment dat het
+                            dankjewelscherm verschijnt. Met <code>mymmo_tabblad</code> erbij
+                            (<code>form</code>, <code>extra</code> of <code>calendly</code>).
                         </span>
                     </div>
                 </details>

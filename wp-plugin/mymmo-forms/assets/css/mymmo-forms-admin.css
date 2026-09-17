@@ -370,3 +370,73 @@
   margin: 6px 0;
   font-size: 11px;
 }
+
+/* De volgorde van de tabbladen in de bouwer. Drie regels met een pijltje op en
+   neer; geen sleepbediening, want dat vraagt een toetsenbordalternatief dat
+   dan alsnog deze pijltjes is. */
+/* ── De stappenkiezer ────────────────────────────────────────────────────────
+   Leunt op .mymmo-volgorde hieronder: het is dezelfde soort lijst (dingen in
+   een volgorde zetten met pijltjes), dus het hoort er ook hetzelfde uit te
+   zien. Alleen wat verschilt staat hier. */
+
+.mymmo-stapkiezer:empty {
+    /* Een lege lijst met een rand eromheen leest als een kapot vak. De melding
+       eronder zegt al dat er niets gekozen is. */
+    display: none;
+}
+
+.mymmo-stapkiezer li span {
+    /* De naam mag de knoppen niet wegduwen als ze lang is. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mymmo-stapkiezer-leeg {
+    margin: 4px 0 0;
+    color: #646970;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.mymmo-stapkiezer-toevoegen {
+    margin-top: 6px;
+}
+
+.mymmo-stapkiezer-toevoegen select {
+    width: 100%;
+}
+
+.mymmo-volgorde {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.mymmo-volgorde li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 5px 6px 5px 10px;
+    background: #fff;
+    font-size: 13px;
+}
+
+.mymmo-volgorde li + li {
+    border-top: 1px solid #f0f0f1;
+}
+
+.mymmo-volgorde li span {
+    flex: 1 1 auto;
+}
+
+.mymmo-volgorde li button {
+    flex: 0 0 auto;
+    min-width: 26px;
+    padding: 0 6px;
+    line-height: 22px;
+}

@@ -8,7 +8,7 @@
  * de zichtbare vragen (naam, e-mail) en de verborgen velden die de stappen
  * ervoor gevuld hebben.
  *
- *   [mymmo_form slug="offerte" steps="aantal-gebouwen,behoeften"]
+ *   [mymmo_form slug="offerte" steps="gebouwgrootte,behoeften"]
  *
  * WAAROM DIT IN WORDPRESS STAAT EN NIET IN DE OM
  * ----------------------------------------------
@@ -67,6 +67,9 @@ final class Mymmo_Forms_Steps {
         add_action('admin_post_mymmo_forms_step_save', [self::class, 'handle_save']);
         add_action('admin_post_mymmo_forms_step_delete', [self::class, 'handle_delete']);
         add_action('admin_post_mymmo_forms_step_restore', [self::class, 'handle_restore']);
+        add_action('admin_post_mymmo_forms_step_teksten_leeg', [self::class, 'handle_clear_teksten']);
+        // Vanuit het voorbeeld in de bouwer: een tekst tegelijk, meteen bewaard.
+        add_action('wp_ajax_mymmo_forms_step_tekst', [self::class, 'handle_ajax_tekst']);
     }
 
     /**
@@ -169,6 +172,8 @@ final class Mymmo_Forms_Steps {
             'id'       => $id,
             'name'     => (string) ($ruw['name'] ?? $id),
             'title'    => (string) ($ruw['title'] ?? ''),
+            'sub'      => (string) ($ruw['sub'] ?? ''),
+            'teksten'  => self::sanitize_teksten($ruw['teksten'] ?? []),
             'fields'   => self::sanitize_fields($ruw['fields'] ?? []),
             'nav'      => $nav === self::NAV_ZELF ? self::NAV_ZELF : self::NAV_PLUGIN,
             'next'     => (string) ($ruw['next'] ?? ''),
@@ -212,6 +217,312 @@ final class Mymmo_Forms_Steps {
         return substr(sanitize_title(trim($ruw)), 0, 60);
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Tekst aanpassen zonder de HTML aan te raken
+    // ────────────────────────────────────────────────────────────────────────
+
+    /*
+     * WAAROM DIT BESTAAT
+     * ------------------
+     * De HTML van een stap is code: opmaak, CSS en JavaScript door elkaar. Een
+     * zin daarin wijzigen betekende de code-editor open, de juiste plek zoeken
+     * en hopen dat je niets anders raakt -- en bij het opnieuw inladen van het
+     * meegeleverde voorbeeld was je wijziging weer weg.
+     *
+     * Daarom staat de copy APART van de HTML, als `origineel => nieuw`. Bij het
+     * renderen worden de TEKSTKNOPEN van de HTML langsgelopen en vervangen waar
+     * er een aanpassing voor bestaat. De HTML zelf wordt nooit herschreven.
+     *
+     * Drie dingen volgen daaruit, en alle drie zijn bedoeld:
+     *
+     * 1. Laad je het bestand opnieuw in, dan staan de originele zinnen er weer
+     *    en grijpen dezelfde aanpassingen opnieuw. Wijzigt het bestand die zin
+     *    wel, dan valt de aanpassing vanzelf weg -- de nieuwe tekst uit het
+     *    bestand wint, want daar is geen aanpassing voor.
+     * 2. De aanpassing hangt aan de STAP, niet aan de plaatsing. Staat dezelfde
+     *    stap in een tweede formulier, dan staat je copy daar ook. Dat is wat je
+     *    wil bij een stap die je hergebruikt; wil je per plaatsing iets anders,
+     *    maak dan een tweede stap.
+     * 3. Dezelfde zin die twee keer in de HTML staat, verandert twee keer. Dat
+     *    is de prijs van een sleutel die de tekst zelf is -- en meestal precies
+     *    wat je bedoelt.
+     */
+
+    /** Meer dan dit is geen copy-aanpassing meer maar een tweede versie van de stap. */
+    private const MAX_TEKSTEN = 80;
+
+    /** Een zin die langer is dan dit, is geen label. */
+    private const MAX_TEKST = 400;
+
+    /**
+     * @param  mixed $ruw
+     * @return array<string,string>
+     */
+    public static function sanitize_teksten($ruw): array {
+        if (!is_array($ruw)) {
+            return [];
+        }
+
+        $uit = [];
+        foreach ($ruw as $origineel => $nieuw) {
+            if (!is_scalar($nieuw)) {
+                continue;
+            }
+            $sleutel = self::sanitize_tekst((string) $origineel);
+            $waarde  = self::sanitize_tekst((string) $nieuw);
+            if ($sleutel === '' || $waarde === '' || $sleutel === $waarde) {
+                continue;
+            }
+            $uit[$sleutel] = $waarde;
+            if (count($uit) >= self::MAX_TEKSTEN) {
+                break;
+            }
+        }
+
+        return $uit;
+    }
+
+    /**
+     * Een losse zin opschonen.
+     *
+     * Platte tekst, geen opmaak: dit vervangt een TEKSTKNOOP, dus tags zouden
+     * hier als tekst belanden of de structuur van de stap openbreken. Witruimte
+     * wordt samengetrokken, want in HTML is elke reeks witruimte een spatie en
+     * anders zou dezelfde zin met een regeleinde erin niet meer matchen.
+     */
+    private static function sanitize_tekst(string $ruw): string {
+        $tekst = wp_strip_all_tags($ruw);
+        $tekst = str_replace("\xc2\xa0", ' ', $tekst);
+        $tekst = trim((string) preg_replace('/\s+/u', ' ', $tekst));
+
+        return function_exists('mb_substr') ? mb_substr($tekst, 0, self::MAX_TEKST) : substr($tekst, 0, self::MAX_TEKST);
+    }
+
+    /**
+     * De HTML van een stap zoals ze getoond hoort te worden.
+     *
+     * Overal gebruiken waar de HTML van een stap naar het scherm gaat --
+     * templates/steps.php doet dat. NIET gebruiken in de code-editor van
+     * wp-admin: daar hoort de echte bron te staan, anders bak je bij de
+     * eerstvolgende bewaaractie je aanpassingen in de HTML en ben je de
+     * originele zin kwijt.
+     *
+     * @param array<string,mixed> $stap
+     */
+    public static function render_html(array $stap): string {
+        $html    = (string) ($stap['html'] ?? '');
+        $teksten = is_array($stap['teksten'] ?? null) ? $stap['teksten'] : [];
+
+        if ($html === '' || $teksten === []) {
+            return $html;
+        }
+
+        return self::vervang_tekstknopen($html, $teksten);
+    }
+
+    /**
+     * De tekstknopen van een stuk HTML langslopen en vervangen.
+     *
+     * Met de hand en niet met DOMDocument: dit is een FRAGMENT met <style> en
+     * <script> erin, en DOMDocument maakt daar een heel document van, sluit tags
+     * die bewust openstaan en verandert de opmaak van wat het teruggeeft. Voor
+     * code die een beheerder zelf schreef is dat onaanvaardbaar -- wat je ziet
+     * moet zijn wat je typte.
+     *
+     * De scanner raakt alleen wat TUSSEN twee tags staat. Attributen worden dus
+     * nooit aangeraakt (een `title="Ja"` blijft "Ja"), en de inhoud van
+     * <script>, <style> en <textarea> wordt overgeslagen -- daar is tekst geen
+     * tekst maar code.
+     *
+     * @param array<string,string> $teksten
+     */
+    private static function vervang_tekstknopen(string $html, array $teksten): string {
+        $uit = '';
+        $i   = 0;
+        $n   = strlen($html);
+
+        while ($i < $n) {
+            $lt = strpos($html, '<', $i);
+            if ($lt === false) {
+                $uit .= self::vervang_stuk(substr($html, $i), $teksten);
+                break;
+            }
+
+            $uit .= self::vervang_stuk(substr($html, $i, $lt - $i), $teksten);
+
+            $gt = strpos($html, '>', $lt);
+            if ($gt === false) {
+                // Een < zonder > is geen tag maar tekst. Laten staan zoals het is.
+                $uit .= substr($html, $lt);
+                break;
+            }
+
+            $tag  = substr($html, $lt, $gt - $lt + 1);
+            $uit .= $tag;
+            $i    = $gt + 1;
+
+            if (preg_match('/^<\s*(script|style|textarea)\b/i', $tag, $m)) {
+                $sluit = '</' . strtolower($m[1]);
+                $eind  = stripos($html, $sluit, $i);
+                if ($eind === false) {
+                    $uit .= substr($html, $i);
+                    break;
+                }
+                $uit .= substr($html, $i, $eind - $i);
+                $i    = $eind;
+            }
+        }
+
+        return $uit;
+    }
+
+    /**
+     * Een tekstknoop, met de witruimte eromheen ongemoeid.
+     *
+     * De vergelijking gebeurt op de GEDECODEERDE tekst, want dat is wat de
+     * browser doorgaf toen iemand de zin in het voorbeeld aanpaste: in de bron
+     * staat `&amp;`, op het scherm staat `&`. Bij het terugschrijven wordt weer
+     * ge-escaped, anders zou een & of een < uit een label de HTML openbreken.
+     *
+     * @param array<string,string> $teksten
+     */
+    private static function vervang_stuk(string $stuk, array $teksten): string {
+        if (trim($stuk) === '') {
+            return $stuk;
+        }
+
+        $kern = html_entity_decode(trim($stuk), ENT_QUOTES, 'UTF-8');
+        $kern = trim((string) preg_replace('/\s+/u', ' ', str_replace("\xc2\xa0", ' ', $kern)));
+
+        if ($kern === '' || !isset($teksten[$kern])) {
+            return $stuk;
+        }
+
+        // De witruimte voor en na blijft staan: ze bepaalt mee of er een spatie
+        // staat tussen deze knoop en het element ernaast.
+        $voor = substr($stuk, 0, strlen($stuk) - strlen(ltrim($stuk)));
+        $na   = substr($stuk, strlen(rtrim($stuk)));
+
+        return $voor . esc_html($teksten[$kern]) . $na;
+    }
+
+    /**
+     * Een tekst bewaren, vanuit het voorbeeld in de bouwer.
+     *
+     * `$origineel` is wat er OP DAT MOMENT op het scherm stond. Dat kan al een
+     * eerdere aanpassing zijn; dan hoort die bijgewerkt te worden in plaats van
+     * dat er een tweede regel bijkomt die nooit grijpt (de eerste vervangt de
+     * tekstknoop al, dus de tweede vindt haar origineel niet meer terug).
+     * Vandaar dat er eerst gezocht wordt of `$origineel` de WAARDE van een
+     * bestaande regel is.
+     *
+     * Terugzetten naar de oorspronkelijke zin wist de regel: dan staat er niets
+     * meer tussen het bestand en het scherm.
+     */
+    public static function save_tekst(string $id, string $origineel, string $nieuw): bool {
+        $id    = self::sanitize_id($id);
+        $alles = self::all();
+        if ($id === '' || !isset($alles[$id])) {
+            return false;
+        }
+
+        $origineel = self::sanitize_tekst($origineel);
+        $nieuw     = self::sanitize_tekst($nieuw);
+        if ($origineel === '') {
+            return false;
+        }
+
+        $teksten = (array) $alles[$id]['teksten'];
+
+        $sleutel = $origineel;
+        foreach ($teksten as $k => $v) {
+            if ($v === $origineel) {
+                $sleutel = (string) $k;
+                break;
+            }
+        }
+
+        if ($nieuw === '' || $nieuw === $sleutel) {
+            unset($teksten[$sleutel]);
+        } else {
+            if (!isset($teksten[$sleutel]) && count($teksten) >= self::MAX_TEKSTEN) {
+                return false;
+            }
+            $teksten[$sleutel] = $nieuw;
+        }
+
+        $alles[$id]['teksten'] = $teksten;
+        self::bewaar($alles);
+
+        return true;
+    }
+
+    /** De titel of de regel eronder van een stap zetten. */
+    public static function save_kop(string $id, string $wat, string $waarde): bool {
+        $id    = self::sanitize_id($id);
+        $alles = self::all();
+        if ($id === '' || !isset($alles[$id]) || !in_array($wat, ['title', 'sub'], true)) {
+            return false;
+        }
+
+        $alles[$id][$wat] = self::sanitize_tekst($waarde);
+        self::bewaar($alles);
+
+        return true;
+    }
+
+    /**
+     * Het voorbeeld in de bouwer slaat hier een wijziging tegelijk op.
+     *
+     * Meteen bewaren en niet bij het opslaan van de shortcode: wat je hier
+     * aanpast hoort bij de STAP en gaat dus mee naar elk formulier waar die stap
+     * in staat. Het zou verwarrend zijn als dat pas gebeurde bij het bewaren van
+     * een opstelling die er niets mee te maken heeft.
+     */
+    public static function handle_ajax_tekst(): void {
+        if (!self::may_edit() || !check_ajax_referer('mymmo_forms_preview', 'nonce', false)) {
+            wp_send_json_error(['bericht' => 'Geen toegang.'], 403);
+        }
+
+        $id  = self::sanitize_id((string) ($_POST['stap'] ?? ''));
+        $wat = (string) ($_POST['wat'] ?? 'tekst');
+
+        if ($wat === 'titel' || $wat === 'sub') {
+            $ok = self::save_kop(
+                $id,
+                $wat === 'titel' ? 'title' : 'sub',
+                (string) wp_unslash((string) ($_POST['nieuw'] ?? ''))
+            );
+        } else {
+            $ok = self::save_tekst(
+                $id,
+                (string) wp_unslash((string) ($_POST['origineel'] ?? '')),
+                (string) wp_unslash((string) ($_POST['nieuw'] ?? ''))
+            );
+        }
+
+        if (!$ok) {
+            wp_send_json_error(['bericht' => 'Niet bewaard.'], 400);
+        }
+
+        wp_send_json_success(['stap' => $id]);
+    }
+
+    /** Alle tekstaanpassingen van een stap weghalen. */
+    public static function handle_clear_teksten(): void {
+        self::gate('mymmo_forms_step_teksten_leeg');
+
+        $id    = self::sanitize_id((string) ($_POST['mymmo_step_id'] ?? ''));
+        $alles = self::all();
+
+        if ($id !== '' && isset($alles[$id])) {
+            $alles[$id]['teksten'] = [];
+            self::bewaar($alles);
+        }
+
+        self::terug(['mymmo_step' => $id, 'mymmo_step_ok' => 'teksten-leeg']);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Opslaan en verwijderen
     // ─────────────────────────────────────────────────────────────────────────
@@ -253,6 +564,11 @@ final class Mymmo_Forms_Steps {
             'id'      => $id,
             'name'    => $naam !== '' ? $naam : $id,
             'title'   => sanitize_text_field(wp_unslash((string) ($_POST['mymmo_step_title'] ?? ''))),
+            'sub'     => sanitize_text_field(wp_unslash((string) ($_POST['mymmo_step_sub'] ?? ''))),
+            // De tekstaanpassingen blijven staan. Ze horen bij de STAP, niet bij
+            // deze ene bewerkronde -- dat is het hele punt: plak je het bestand
+            // opnieuw, dan staat je copy er nog.
+            'teksten' => is_array($bestond) ? (array) $bestond['teksten'] : [],
             'fields'  => self::sanitize_fields(wp_unslash((string) ($_POST['mymmo_step_fields'] ?? ''))),
             'nav'     => ((string) ($_POST['mymmo_step_nav'] ?? '')) === self::NAV_ZELF ? self::NAV_ZELF : self::NAV_PLUGIN,
             'next'    => sanitize_text_field(wp_unslash((string) ($_POST['mymmo_step_next'] ?? ''))),
@@ -351,9 +667,37 @@ final class Mymmo_Forms_Steps {
      */
     public static function examples(): array {
         return [
-            'aantal-gebouwen' => 'Schuifbalk — aantal gebouwen',
             'gebouwgrootte'   => 'Schuifbalk — grootte van het gebouw (Syndicoach)',
+            'gebouwkenmerken' => 'Keien — wat is er in het gebouw (Syndicoach)',
+            'huidig-beheer'   => 'Keuze — hoe wordt het gebouw vandaag beheerd (Syndicoach)',
+            'algemene-vergadering' => 'Jaarwiel — wanneer is de volgende algemene vergadering (Syndicoach)',
         ];
+    }
+
+    /**
+     * Wat er bij het invoegen van een voorbeeld mee ingevuld wordt.
+     *
+     * De TITEL boven een stap komt van de plugin (`mymmo-stap-titel`), niet uit de
+     * HTML van de stap -- zo staat hij bij elke stap op dezelfde plek en in
+     * dezelfde stijl. Maar een voorbeeld invoegen liet dat veld leeg, en dan begon
+     * stap 2 zonder titel terwijl stap 1 er een had. Hetzelfde met de sleutels:
+     * die moest je uit de uitleg in het bestand halen.
+     *
+     * `velden` is wat er in "Levert deze sleutels" hoort. Leeg bij een stap
+     * waarvoor niets kiezen een geldig antwoord is -- anders blijft "Volgende"
+     * uit tot er iets aangeduid is.
+     *
+     * @return array{titel:string,velden:string}
+     */
+    public static function example_meta(string $naam): array {
+        $meta = [
+            'gebouwgrootte'   => ['titel' => 'Wat is de grootte van het gebouw?',          'velden' => 'aantal_kavels, commerciele_kavels'],
+            'gebouwkenmerken' => ['titel' => 'Wat speelt er in jullie gebouw?',            'velden' => ''],
+            'huidig-beheer'   => ['titel' => 'Hoe wordt je appartement momenteel beheerd?', 'velden' => 'huidig_beheer'],
+            'algemene-vergadering' => ['titel' => 'Wanneer is jullie volgende algemene vergadering?', 'velden' => 'volgende_av_periode'],
+        ];
+
+        return $meta[self::sanitize_id($naam)] ?? ['titel' => '', 'velden' => ''];
     }
 
     public static function example_html(string $naam): string {

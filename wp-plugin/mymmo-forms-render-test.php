@@ -49,6 +49,7 @@ final class Mymmo_Forms_Submit {
     public const HONEYPOT_FIELD = 'mymmo_forms_website';
     public const TIME_FIELD = 'mymmo_forms_t';
     public const ANCHOR_FIELD = 'mymmo_anchor';
+    public const TAB_FIELD = 'mymmo_tab';
     public static function action_url(): string { return 'https://openvme.be/wp-admin/admin-post.php'; }
     public static function action_name(): string { return 'mymmo_forms_submit'; }
     public static function time_token(): string { return '1757500000.abc123'; }
@@ -355,6 +356,65 @@ unset($_COOKIE['ovme_uuid'], $_GET['utm_source']);
 [$ka, $kap] = knop(['slug' => 'offerte', 'calendly' => 'https://calendly.com/mymmo', 'tab' => 'calendly']);
 check('tab="calendly" opent op het tweede tabblad',
     str_contains($kap, 'aria-selected="true" tabindex="0" data-mymmo-tab="calendly"'));
+
+echo "\nHet derde tabblad\n";
+
+[$k3, $k3p] = knop([
+    'slug'      => 'offerte',
+    'calendly'  => 'https://calendly.com/mymmo',
+    'extra_slug' => 'offerte-groot',
+    'tab_extra'  => 'Bereken je offerte',
+    'tab_extra_sub' => '3 stappen',
+]);
+check('een derde tabblad geeft drie knoppen en drie panelen',
+    substr_count($k3, 'role="tab"') === 3
+    && substr_count($k3, 'mymmo-modal-paneel-titel') === 3);
+check('het opschrift en het regeltje eronder komen erin',
+    str_contains($k3, 'Bereken je offerte') && str_contains($k3, '3 stappen'));
+preg_match_all('/id="([^"]+)"/', $k3, $__ids);
+$__dubbel = array_keys(array_filter(array_count_values($__ids[1]), static fn($n) => $n > 1));
+check('het derde paneel heeft EIGEN veld-id\'s',
+    str_contains($k3, '-formulier-email"') && str_contains($k3, '-extra-email"') && $__dubbel === [],
+    'hetzelfde formulier kan twee keer in een venster staan; met dezelfde id wijst elk <label> naar het verkeerde invoerveld'
+    . ($__dubbel === [] ? '' : ' -- dubbel: ' . implode(', ', $__dubbel)));
+
+[$kv, $kvp] = knop([
+    'slug'       => 'offerte',
+    'calendly'   => 'https://calendly.com/mymmo',
+    'extra_slug' => 'offerte-groot',
+    'tab_order'  => 'calendly,extra',
+]);
+$pos_agenda = strpos($kvp, 'data-mymmo-tab="calendly"');
+$pos_extra  = strpos($kvp, 'data-mymmo-tab="extra"');
+$pos_form   = strpos($kvp, 'data-mymmo-tab="form"');
+check('tab_order bepaalt de volgorde van de knoppen',
+    $pos_agenda !== false && $pos_extra !== false && $pos_form !== false
+    && $pos_agenda < $pos_extra && $pos_extra < $pos_form,
+    'wat niet genoemd is schuift achteraan aan -- hier dus het formulier');
+
+[$kx, $kxp] = knop(['slug' => 'offerte', 'extra_slug' => 'offerte-groot', 'tab' => 'extra']);
+check('tab="extra" opent op het derde tabblad',
+    str_contains($kxp, 'aria-selected="true" tabindex="0" data-mymmo-tab="extra"'));
+
+[$kg, $kgp] = knop(['slug' => 'offerte', 'tab_order' => 'extra,calendly']);
+check('een volgorde voor tabbladen die er niet zijn levert geen tabbalk op',
+    !str_contains($kg, 'role="tab"'),
+    'tab_order gaat over wat er staat, niet over wat er zou kunnen staan');
+
+check('het tabblad dat BOVENAAN staat, staat ook open',
+    str_contains($kvp, 'aria-selected="true" tabindex="0" data-mymmo-tab="calendly"')
+    && substr_count($kvp, 'aria-selected="true"') === 1,
+    'tab_order zette de agenda vooraan; ging het venster dan open op het formulier, '
+    . 'dan zie je een knoprij waarvan de tweede knop actief is en dat leest als een fout');
+
+[$kt, $ktp] = knop([
+    'slug'       => 'offerte',
+    'calendly'   => 'https://calendly.com/mymmo',
+    'tab_order'  => 'calendly,form',
+    'tab'        => 'form',
+]);
+check('een expliciete tab wint nog steeds van de volgorde',
+    str_contains($ktp, 'aria-selected="true" tabindex="0" data-mymmo-tab="form"'));
 
 echo "\nKop en opschriften\n";
 

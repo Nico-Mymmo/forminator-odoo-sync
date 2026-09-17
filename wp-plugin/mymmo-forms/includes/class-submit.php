@@ -32,6 +32,8 @@ final class Mymmo_Forms_Submit {
     public  const HONEYPOT_FIELD    = 'mymmo_forms_website';
     public  const TIME_FIELD        = 'mymmo_forms_t';
     public  const ANCHOR_FIELD      = 'mymmo_anchor';
+    /** Welk tabblad van de pop-up verstuurde: het dankjewelscherm is per tabblad. */
+    public  const TAB_FIELD         = 'mymmo_tab';
 
     /** De melding wordt een keer gelezen en daarna uit de memo bediend. */
     private static bool $flash_gelezen = false;
@@ -47,6 +49,10 @@ final class Mymmo_Forms_Submit {
      * keer gecontroleerd wordt en daarna vaststaat.
      */
     private static string $anker = '';
+    private static string $tab = '';
+    /** Verstuurd vanuit de pop-up met JavaScript: antwoord met JSON, geen redirect. */
+    private static bool $ajax = false;
+    public  const AJAX_FIELD        = 'mymmo_ajax';
 
     public static function init(): void {
         add_action('admin_post_nopriv_' . self::ACTION, [self::class, 'handle']);
@@ -127,6 +133,18 @@ final class Mymmo_Forms_Submit {
         self::$anker = isset($_POST[self::ANCHOR_FIELD])
             ? self::anker((string) wp_unslash($_POST[self::ANCHOR_FIELD]))
             : '';
+
+        // Het tabblad: een gesloten lijst, want het komt van buiten en gaat in
+        // de melding die de volgende pagina leest.
+        $tab = isset($_POST[self::TAB_FIELD]) ? (string) wp_unslash($_POST[self::TAB_FIELD]) : '';
+        self::$tab = in_array($tab, ['form', 'extra'], true) ? $tab : '';
+
+        // Uit de pop-up, via fetch() (mymmo-forms.js). Dan GEEN redirect: een
+        // volledige herlading sloot het venster, laadde de pagina opnieuw en
+        // opende het venster weer -- een zichtbare flits tussen versturen en
+        // het dankjewelscherm. Het veld wordt enkel door JavaScript toegevoegd;
+        // zonder JavaScript blijft alles zoals het was.
+        self::$ajax = isset($_POST[self::AJAX_FIELD]) && (string) $_POST[self::AJAX_FIELD] === '1';
 
         // Het formulier EERST ophalen, nog voor de nonce- en spamcontroles.
         //
@@ -214,6 +232,9 @@ final class Mymmo_Forms_Submit {
                 // die eis staat ook al in de validatie aan de OM-kant.
                 $doel = esc_url_raw((string) $form['redirect_url']);
                 if ($doel !== '' && str_starts_with($doel, 'https://')) {
+                    if (self::$ajax) {
+                        wp_send_json(['ok' => true, 'status' => 'success', 'redirect' => $doel]);
+                    }
                     wp_redirect($doel);
                     exit;
                 }
@@ -327,6 +348,17 @@ final class Mymmo_Forms_Submit {
      * @param array<string,mixed> $values
      */
     private static function finish(string $redirect, string $slug, string $status, string $message, array $values = []): void {
+        if (self::$ajax) {
+            // De browser staat nog op de pagina en heeft zijn ingevulde waarden
+            // nog: geen transient, geen redirect, enkel de uitkomst.
+            wp_send_json([
+                'ok'      => $status === 'success',
+                'status'  => $status,
+                'message' => $message,
+                'tab'     => self::$tab,
+            ]);
+        }
+
         $token = wp_generate_password(16, false, false);
         set_transient(
             self::TRANSIENT_PREFIX . $token,
@@ -339,6 +371,9 @@ final class Mymmo_Forms_Submit {
                 // zowel een formulier in de tekst als een knop met pop-up voor
                 // hetzelfde formulier, dan is de slug alleen niet genoeg.
                 'anchor'  => self::$anker,
+                // En bij welk TABBLAD van die pop-up: het dankjewelscherm is
+                // per tabblad, en twee tabbladen kunnen hetzelfde formulier tonen.
+                'tab'     => self::$tab,
             ],
             300
         );

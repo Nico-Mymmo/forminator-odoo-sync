@@ -93,6 +93,15 @@
       // heet de stap gewoon zoals het voorbeeld.
       var naam = el('mymmoStapNaam');
       if (naam && naam.value.trim() === '') naam.value = gevonden.naam;
+
+      // En de titel en de sleutels, ook alleen als ze nog leeg zijn. Zonder titel
+      // begon een ingevoegde stap zonder kop terwijl de stap ervoor er een had;
+      // de sleutels moest je anders uit de uitleg in het bestand halen. Wat
+      // iemand al getypt had, blijft staan.
+      var titel = el('mymmoStapTitel');
+      if (titel && titel.value.trim() === '' && gevonden.titel) titel.value = gevonden.titel;
+      var velden = el('mymmoStapVelden');
+      if (velden && velden.value.trim() === '' && gevonden.velden) velden.value = gevonden.velden;
     });
   }
 
